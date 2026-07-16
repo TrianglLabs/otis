@@ -1,0 +1,56 @@
+import promptText from "./system-prompt.txt" with { type: "text" }
+import type { ContextFile } from "./types.js"
+
+const MAX_CONTEXT_FILES = 10
+const MAX_CONTEXT_FILE_BYTES = 32 * 1024
+const MAX_CONTEXT_TOTAL_BYTES = 64 * 1024
+
+const BASE_PROMPT = promptText.trim()
+
+export function buildSystemPrompt(projectContext: readonly ContextFile[] = [], now = new Date()) {
+  const sections = [BASE_PROMPT]
+  if (projectContext.length > 0) sections.push(formatProjectContext(projectContext))
+  sections.push(`The current date is ${formatDate(now)}. Use this date when searching for recent information.`)
+  return sections.join("\n\n")
+}
+
+function formatProjectContext(files: readonly ContextFile[]) {
+  if (files.length > MAX_CONTEXT_FILES) {
+    throw new Error(`Project context must not exceed ${MAX_CONTEXT_FILES} files.`)
+  }
+
+  let totalBytes = 0
+  const formatted = files.map((file, index) => {
+    const path = file.path.trim()
+    if (!path) throw new Error(`Project context file ${index + 1} is missing a path.`)
+    if (path.length > 1024) throw new Error(`Project context path ${index + 1} is too long.`)
+
+    const content = truncateUtf8(file.content, MAX_CONTEXT_FILE_BYTES)
+    totalBytes += Buffer.byteLength(content)
+    if (totalBytes > MAX_CONTEXT_TOTAL_BYTES) {
+      throw new Error(`Project context must not exceed ${MAX_CONTEXT_TOTAL_BYTES} bytes.`)
+    }
+
+    return `<file path="${escapeAttribute(path)}">\n${content}\n</file>`
+  })
+
+  return `<project_context>\nProject-specific instructions and guidelines:\n\n${formatted.join("\n\n")}\n</project_context>`
+}
+
+function truncateUtf8(content: string, maximumBytes: number) {
+  const encoded = Buffer.from(content)
+  if (encoded.byteLength <= maximumBytes) return content
+
+  let end = maximumBytes
+  while (end > 0 && (encoded[end] & 0xc0) === 0x80) end -= 1
+  return `${encoded.subarray(0, end).toString("utf8")}\n\n[File truncated at ${maximumBytes} bytes.]`
+}
+
+function escapeAttribute(value: string) {
+  return value.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+}
+
+function formatDate(value: Date) {
+  if (!Number.isFinite(value.getTime())) throw new Error("Current date is invalid.")
+  return value.toISOString().slice(0, 10)
+}

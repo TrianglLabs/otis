@@ -1,0 +1,97 @@
+# Architecture
+
+## Overview
+
+Otis is a local terminal application with direct hosted inference.
+
+```txt
+User terminal
+  -> OpenTUI CLI
+    -> local TypeScript runtime
+      -> local tools
+      -> local JSONL sessions and usage
+      -> Fireworks API with the user's key
+      -> Parallel API with the user's key
+```
+
+There is no Otis control plane. Users do not create an Otis account, and the runtime has no dependency on an Otis
+server, remote profile, cloud database, or Otis-hosted tool service.
+
+## Source boundaries
+
+```txt
+src/cli
+  +-> src/core ------> src/inference
+  |      +----------> src/tools
+  |                       +------> src/web
+  +-> src/local -----> src/storage
+  +-> src/storage ---> src/core message types
+```
+
+- `src/cli` owns command routing, application state, and OpenTUI rendering.
+- `src/core` owns the agent loop, project instruction loading, and conversation compaction.
+- `src/inference` owns Fireworks request serialization, model discovery, the human-authored `system-prompt.txt`, prompt
+  assembly and project-context bounds, and SSE parsing.
+- `src/local` owns platform paths, the private provider configuration file, and home-screen statistic derivation.
+- `src/storage` owns append-only session events, validation, replay, titles, tool cards, and diffs.
+- `src/tools` owns structured tool contracts, local execution, and the provider-neutral web-tool adapter.
+- `src/web` owns Parallel request serialization, response validation, and error handling.
+
+Keep network transport, persistence, and tool execution outside the UI layer. Keep provider response shapes inside
+`src/inference` and `src/web` so the rest of the runtime uses smaller internal models.
+
+## Fireworks boundary
+
+The user supplies a Fireworks API key. Otis sends it only to the Fireworks API in a bearer header and never writes it
+to a session or transcript.
+
+Model selection comes from Fireworks' public serverless catalog. Otis filters out every model that does not explicitly
+report tool support; unverified model IDs are not accepted through the normal UI. Chat requests use Fireworks'
+OpenAI-compatible streaming endpoint and retain text, reasoning content, structured tool calls, tool results, and final
+token usage. Verified display-name and context-window metadata are saved with the selection so the context meter and
+auto-compaction threshold remain safe for smaller tool-capable models.
+
+Reasoning effort is selected by one conservative compatibility policy because Fireworks does not expose a maximum
+reasoning tier in its model catalog. Otis requests `max` for documented model families that support it, `high` for
+families whose highest accepted tier is `high`, and the provider default for unknown or non-configurable families.
+Requests otherwise avoid model-specific sampling and token settings.
+
+## Parallel boundary
+
+The user supplies a separate Parallel API key for web access. Otis sends it only in the `x-api-key` header on direct
+Parallel Search and Extract requests. Search receives one to three focused queries, and both operations cap returned
+content before it enters model context. Provider errors and malformed responses fail explicitly instead of falling
+back to an Otis service.
+
+Neither provider key is written to sessions, transcripts, tool results, or usage events. Environment values override
+saved values without being copied into `config.json`. Keys entered through setup are written atomically to the
+platform user-config directory; on macOS and Linux, that directory is mode `0700` and `config.json` is mode `0600`.
+This location is separate from the Otis executable, and the updater replaces only that executable.
+
+## Tool calls
+
+The runtime validates provider-native structured tool calls, requests permission for destructive operations when ask
+mode is enabled, executes tools in the local workspace, and appends bounded results to the conversation. Current tools
+cover web search, web reading, file reading, file search, file creation, exact edits, and shell commands. Web tools call
+Parallel directly; local file and shell tools never pass through a remote Otis service.
+
+## Sessions and local statistics
+
+Each session is an append-only JSONL event stream. A completed turn stores model-facing messages separately from local
+tool-card metadata, which preserves diffs and activity history without placing UI state into future model requests.
+
+Every completed Fireworks request that reports usage adds a validated `usage_recorded` event before the surrounding
+agent turn, title generation, or compaction operation continues. Home-screen totals are calculated across local
+workspace session directories. Session counts, durations, and activity streaks are also derived from those local event
+timestamps.
+
+The home-screen stats row is absent until at least one provider credential is available. Once visible, every card has
+a stable label and displays zero until enough local session data exists to calculate a non-zero value.
+
+The event parser remains backward-compatible with sessions written before local usage events were introduced.
+
+## Distribution
+
+GitHub Actions verifies and cross-compiles the four supported targets. Versioned archives, checksums, the manifest, and
+installer are published as GitHub Release assets. `otis update` resolves the latest or requested release there and
+verifies the archive checksum before replacing the installed binary.

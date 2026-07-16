@@ -1,0 +1,45 @@
+{
+  "name": "@triangllabs/otis",
+  "version": "0.1.0",
+  "description": "Local terminal agent powered by tool-capable open models",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "bun@1.3.9",
+  "scripts": {
+    "dev": "bun run src/cli/index.ts",
+    "build": "bun run scripts/build.ts",
+    "format": "biome format --write .",
+    "lint": "biome lint .",
+    "check": "biome check . && bash -n scripts/install.sh",
+    "test": "bunx --bun vitest run",
+    "test:coverage": "vitest run --coverage --exclude='tests/cli/chat-ui-*.test.ts' && bunx --bun vitest run tests/cli/chat-ui-*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "verify": "bun run check && bun run typecheck && bun run test"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "cli",
+    "terminal",
+    "coding",
+    "assistant"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/triangllabs/otis.git"
+  },
+  "homepage": "https://github.com/triangllabs/otis",
+  "bugs": {
+    "url": "https://github.com/triangllabs/otis/issues"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.0",
+    "@opentui/core": "^0.4.1",
+    "@types/node": "^24.0.0",
+    "@vitest/coverage-v8": "^4.1.9",
+    "diff": "^9.0.0",
+    "typescript": "^5.8.0",
+    "vitest": "^4.1.9"
+  }
+}
