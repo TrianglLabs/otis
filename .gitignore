@@ -1,0 +1,49 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+out/
+*.tsbuildinfo
+
+# Bun
+.bun/
+bunfig.local.toml
+
+# Environment files
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+bun-debug.log*
+
+# Caches
+.cache/
+.turbo/
+.parcel-cache/
+.vite/
+coverage/
+
+# Native/OpenTUI build artifacts
+*.node
+*.dylib
+*.so
+*.dll
+
+# Editor and OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.zed/

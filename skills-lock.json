@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "opentui": {
+      "source": "anomalyco/opentui",
+      "sourceType": "github",
+      "skillPath": "packages/web/src/content/SKILL.md",
+      "computedHash": "b7ac44d2ffaf8c78058eedabd2c0af077b58604a8d59fd753162413cb340540b"
+    }
+  }
+}
