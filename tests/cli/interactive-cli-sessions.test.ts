@@ -51,6 +51,36 @@ describe("CLI session turn handling", () => {
     expect(histories[1]).toEqual(firstTurn)
   })
 
+  it("keeps and persists interrupted work for the next prompt", async () => {
+    const histories: unknown[] = []
+    const interruptedTurn = [
+      { role: "user" as const, content: "add the setting" },
+      { role: "assistant" as const, content: [{ type: "text" as const, text: "I added a dedicated test." }] },
+    ]
+    const session = testSession()
+    mocks.createSession.mockResolvedValue(session)
+    mocks.runAgent
+      .mockImplementationOnce(async function* () {
+        yield { type: "delta", text: "I added a dedicated test." }
+        yield { type: "interrupted", messages: interruptedTurn }
+      })
+      .mockImplementationOnce(async function* (_input, history) {
+        histories.push(clone(history))
+        yield { type: "error", message: "stop" }
+      })
+
+    await loadCli()
+    await submit("add the setting")
+    await submit("remove this test")
+
+    expect(histories[0]).toEqual(interruptedTurn)
+    expect(session.interruptTurn).toHaveBeenCalledWith(
+      expect.objectContaining({ promptId: "prompt_add the setting" }),
+      interruptedTurn,
+      [],
+    )
+  })
+
   it("persists completed tool activity and diffs with the turn", async () => {
     const session = testSession()
     const messages = [

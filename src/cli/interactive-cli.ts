@@ -312,6 +312,19 @@ async function handleInput(value: string) {
     }
   }
 
+  if (result.status === "interrupted") {
+    try {
+      await turnSession.interruptTurn(admission, result.messages, result.toolActivities)
+    } catch (error) {
+      transcript.addDebugMessage(
+        `Could not save interrupted turn: ${error instanceof Error ? error.message : String(error)}`,
+      )
+      if (!exiting) ui.renderTranscript(transcript.entries, { scrollToBottom: true })
+    }
+    if (!exiting) updateContextIndicator()
+    return
+  }
+
   if (result.status !== "complete") {
     if (!exiting && result.status !== "incomplete") updateContextIndicator()
     return

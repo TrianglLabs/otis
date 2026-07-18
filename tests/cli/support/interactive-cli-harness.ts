@@ -202,6 +202,7 @@ function baseSession() {
       message: { role: "user" as const, content },
     })),
     completeTurn: vi.fn(async () => undefined),
+    interruptTurn: vi.fn(async () => undefined),
     hasTitle: vi.fn(() => false),
     id: "session_test",
     recordUsage: vi.fn(async () => undefined),
