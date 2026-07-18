@@ -33,6 +33,7 @@ export type AgentEvent =
       label: string
       diff?: string
     }
+  | { type: "interrupted"; messages: ChatMessage[] }
   | { type: "complete"; messages: ChatMessage[] }
   | { type: "error"; message: string }
 
@@ -62,7 +63,16 @@ export async function* runAgent(
         projectContext,
       })
       const assistantMessage = assistantMessageFromResponse(response)
-      messages.push(assistantMessage)
+      if (assistantMessage.content.length > 0) messages.push(assistantMessage)
+
+      if (response.interrupted) {
+        if (response.toolCalls.length > 0) {
+          messages.push(...interruptedToolCalls([], response.toolCalls).messages)
+        }
+        yield { type: "interrupted", messages: turnMessages(messages, history.length) }
+        return
+      }
+
       yield { type: "context", messageCount: messages.length, contentChars: messagesContentChars(messages) }
 
       if (response.toolCalls.length === 0) {
@@ -74,11 +84,19 @@ export async function* runAgent(
         return
       }
 
-      messages.push(...(yield* executeToolCalls(response.toolCalls, toolContext)))
+      const execution = yield* executeToolCalls(response.toolCalls, toolContext)
+      messages.push(...execution.messages)
+      if (execution.interrupted) {
+        yield { type: "interrupted", messages: turnMessages(messages, history.length) }
+        return
+      }
       yield { type: "context", messageCount: messages.length, contentChars: messagesContentChars(messages) }
     }
   } catch (error) {
-    if (options.signal?.aborted) return
+    if (options.signal?.aborted) {
+      yield { type: "interrupted", messages: [{ role: "user", content: input }] }
+      return
+    }
     yield { type: "error", message: error instanceof Error ? error.message : String(error) }
   }
 }
@@ -87,6 +105,7 @@ type AssistantResponse = {
   text: string
   reasoning: Array<{ text: string; field: OpenAICompatibleReasoningField }>
   toolCalls: ChatToolCall[]
+  interrupted: boolean
 }
 
 async function* streamAssistantResponse(
@@ -99,27 +118,32 @@ async function* streamAssistantResponse(
   const toolCalls: ChatToolCall[] = []
   const projectContext = options.projectContext ?? []
 
-  for await (const event of options.client.streamChat({
-    messages,
-    tools,
-    projectContext: projectContext.length > 0 ? projectContext : undefined,
-    signal: options.signal,
-  })) {
-    if (event.type === "text_delta") {
-      text += event.text
-      yield { type: "delta", text: event.text }
+  try {
+    for await (const event of options.client.streamChat({
+      messages,
+      tools,
+      projectContext: projectContext.length > 0 ? projectContext : undefined,
+      signal: options.signal,
+    })) {
+      if (event.type === "text_delta") {
+        text += event.text
+        yield { type: "delta", text: event.text }
+      }
+      if (event.type === "reasoning_delta") {
+        reasoning.set(event.field, `${reasoning.get(event.field) ?? ""}${event.text}`)
+      }
+      if (event.type === "tool_call") toolCalls.push(event.toolCall)
+      if (event.type === "usage") await options.onUsage?.(event.usage)
     }
-    if (event.type === "reasoning_delta") {
-      reasoning.set(event.field, `${reasoning.get(event.field) ?? ""}${event.text}`)
-    }
-    if (event.type === "tool_call") toolCalls.push(event.toolCall)
-    if (event.type === "usage") await options.onUsage?.(event.usage)
+  } catch (error) {
+    if (!options.signal?.aborted) throw error
   }
 
   return {
     text,
     reasoning: [...reasoning].map(([field, text]) => ({ field, text })).filter((part) => part.text.length > 0),
     toolCalls,
+    interrupted: options.signal?.aborted ?? false,
   }
 }
 
@@ -143,11 +167,11 @@ function turnMessages(messages: ChatMessage[], historyLength: number) {
 async function* executeToolCalls(
   calls: ChatToolCall[],
   context: RunAgentOptions,
-): AsyncGenerator<AgentEvent, ChatMessage[]> {
+): AsyncGenerator<AgentEvent, { messages: ChatMessage[]; interrupted: boolean }> {
   const messages: ChatMessage[] = []
 
-  for (const rawCall of calls) {
-    if (context.signal?.aborted) return messages
+  for (const [index, rawCall] of calls.entries()) {
+    if (context.signal?.aborted) return interruptedToolCalls(messages, calls.slice(index))
 
     const call = parseToolCall(rawCall)
 
@@ -170,11 +194,11 @@ async function* executeToolCalls(
 
     let result: ToolResult | undefined
     try {
-      if (context.signal?.aborted) return messages
+      if (context.signal?.aborted) return interruptedToolCalls(messages, calls.slice(index))
 
       if (isDestructiveTool(call.value.name) && context.onPermissionRequest) {
         const approved = await context.onPermissionRequest(call.value)
-        if (context.signal?.aborted) return messages
+        if (context.signal?.aborted) return interruptedToolCalls(messages, calls.slice(index))
         if (!approved) {
           messages.push({ role: "tool", toolCallId: rawCall.id, content: "Permission denied by user." })
           continue
@@ -188,7 +212,7 @@ async function* executeToolCalls(
         content: formatToolResult(call.value.name, result),
       })
     } catch (error) {
-      if (context.signal?.aborted) return messages
+      if (context.signal?.aborted) return interruptedToolCalls(messages, calls.slice(index))
       const message = error instanceof Error ? error.message : String(error)
       if (context.debug) yield { type: "debug", message: `Tool ${call.value.name} failed: ${message}` }
       messages.push({ role: "tool", toolCallId: rawCall.id, content: `Error: ${message}` })
@@ -205,7 +229,20 @@ async function* executeToolCalls(
     }
   }
 
-  return messages
+  return { messages, interrupted: false }
+}
+
+function interruptedToolCalls(messages: ChatMessage[], calls: ChatToolCall[]) {
+  messages.push(
+    ...calls.map(
+      (call): ChatMessage => ({
+        role: "tool",
+        toolCallId: call.id,
+        content: "Tool call interrupted by user.",
+      }),
+    ),
+  )
+  return { messages, interrupted: true }
 }
 
 function parseToolCall(rawCall: ChatToolCall): { ok: true; value: ToolCall } | { ok: false; message: string } {

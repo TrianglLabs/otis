@@ -11,7 +11,8 @@ import type { TranscriptEntry, TranscriptStore } from "./transcript.js"
 
 export type AgentTurnResult =
   | { status: "complete"; messages: ChatMessage[]; toolActivities: SessionToolActivity[] }
-  | { status: "error" | "incomplete" | "interrupted" }
+  | { status: "interrupted"; messages: ChatMessage[]; toolActivities: SessionToolActivity[] }
+  | { status: "error" | "incomplete" }
 
 type AgentTurnOptions = {
   input: string
@@ -58,13 +59,16 @@ export async function runAgentTurn(options: AgentTurnOptions): Promise<AgentTurn
     transcript.addMessages(turnMessages)
     recordedTurn = true
   }
-  const interrupt = (): AgentTurnResult => {
+  const interrupt = (messages: ChatMessage[] = [admission.message]): AgentTurnResult => {
     if (assistantEntry) transcript.updateEntry(assistantEntry.id, { streaming: false })
     transcript.addAssistantMessage("_Interrupted._")
-    recordAdmittedPrompt()
+    turnMessages = messages
+    recordCompletedTurn()
     ui.renderTranscript(transcript.entries, { scrollToBottom: true })
-    return { status: "interrupted" }
+    return { status: "interrupted", messages, toolActivities }
   }
+  const interruptionResult = (messages: ChatMessage[] = [admission.message]): AgentTurnResult =>
+    options.isExiting() ? { status: "interrupted", messages, toolActivities } : interrupt(messages)
   const interrupted = () => options.isExiting() || signal.aborted
 
   try {
@@ -79,8 +83,6 @@ export async function runAgentTurn(options: AgentTurnOptions): Promise<AgentTurn
       projectContext: options.projectContext,
       onPermissionRequest: options.onPermissionRequest,
     })) {
-      if (interrupted()) return options.isExiting() ? { status: "interrupted" } : interrupt()
-
       if (event.type === "model") {
         ui.startThinkingAnimation()
         continue
@@ -144,8 +146,12 @@ export async function runAgentTurn(options: AgentTurnOptions): Promise<AgentTurn
         continue
       }
 
+      if (event.type === "interrupted") {
+        return interruptionResult(event.messages)
+      }
+
       if (event.type === "error") {
-        if (interrupted()) return options.isExiting() ? { status: "interrupted" } : interrupt()
+        if (interrupted()) return interruptionResult()
         ui.stopThinkingAnimation()
         const entry = ensureAssistantEntry()
         transcript.updateEntry(entry.id, { text: `Error: ${event.message}`, streaming: false })
@@ -156,7 +162,7 @@ export async function runAgentTurn(options: AgentTurnOptions): Promise<AgentTurn
       }
     }
   } catch (error) {
-    if (interrupted()) return options.isExiting() ? { status: "interrupted" } : interrupt()
+    if (interrupted()) return interruptionResult(completedTurn ? turnMessages : undefined)
     ui.stopThinkingAnimation()
     const entry = ensureAssistantEntry()
     transcript.updateEntry(entry.id, {
@@ -170,7 +176,7 @@ export async function runAgentTurn(options: AgentTurnOptions): Promise<AgentTurn
     return { status: "error" }
   }
 
-  if (interrupted()) return options.isExiting() ? { status: "interrupted" } : interrupt()
+  if (!completedTurn && interrupted()) return interruptionResult()
   if (!completedTurn) return { status: "incomplete" }
 
   if (assistantEntry) transcript.updateEntry(assistantEntry.id, { streaming: false })

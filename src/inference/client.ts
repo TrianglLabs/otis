@@ -14,6 +14,8 @@ const DEFAULT_INFERENCE_URL = "https://api.fireworks.ai/inference/v1/chat/comple
 const DEFAULT_MODELS_URL = "https://api.fireworks.ai/v1/accounts/fireworks/models"
 const TOOL_CAPABLE_SERVERLESS_FILTER = "supports_serverless=true AND supports_tools=true"
 const MAX_MODEL_PAGES = 20
+// Route chat requests to the Fireworks Priority serving path for higher reliability during peak traffic.
+const SERVICE_TIER = "priority"
 
 export class FireworksClient {
   readonly model: string
@@ -131,6 +133,7 @@ function chatRequest(model: string, options: StreamChatOptions) {
   const reasoningEffort = highestReasoningEffort(model)
   return {
     model,
+    service_tier: SERVICE_TIER,
     messages: [
       { role: "system", content: buildSystemPrompt(options.projectContext, options.now) },
       ...options.messages.map(providerMessage),

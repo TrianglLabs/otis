@@ -69,6 +69,15 @@ export class JsonlSession {
     })
   }
 
+  interruptTurn(admission: PromptAdmission, turnMessages: ChatMessage[], toolActivities: SessionToolActivity[] = []) {
+    return this.append({
+      type: "turn_interrupted",
+      promptId: admission.promptId,
+      messages: messagesAfterAdmittedPrompt(admission.message, turnMessages),
+      ...(toolActivities.length > 0 ? { toolActivities } : {}),
+    })
+  }
+
   compact(summary: string, messages: ChatMessage[], toolActivities: SessionToolActivity[] = []) {
     return this.append({
       type: "compacted",

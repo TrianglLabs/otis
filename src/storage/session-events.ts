@@ -35,6 +35,12 @@ export type SessionEvent =
       toolActivities?: SessionToolActivity[]
     })
   | (BaseSessionEvent & {
+      type: "turn_interrupted"
+      promptId: string
+      messages: ChatMessage[]
+      toolActivities?: SessionToolActivity[]
+    })
+  | (BaseSessionEvent & {
       type: "compacted"
       summary: string
       messages: ChatMessage[]
@@ -53,6 +59,12 @@ export type NewSessionEvent =
   | { type: "prompt_admitted"; promptId: string; message: UserChatMessage }
   | {
       type: "turn_completed"
+      promptId: string
+      messages: ChatMessage[]
+      toolActivities?: SessionToolActivity[]
+    }
+  | {
+      type: "turn_interrupted"
       promptId: string
       messages: ChatMessage[]
       toolActivities?: SessionToolActivity[]
@@ -101,7 +113,7 @@ export function replaySession(events: readonly SessionEvent[]): SessionReplay {
       toolActivities.push(...(event.toolActivities ?? []))
     } else if (event.type === "prompt_admitted") {
       messages.push(event.message)
-    } else if (event.type === "turn_completed") {
+    } else if (event.type === "turn_completed" || event.type === "turn_interrupted") {
       messages.push(...event.messages)
       toolActivities.push(...(event.toolActivities ?? []))
     }
@@ -156,7 +168,7 @@ function parseSessionEvent(value: unknown, line: number): SessionEvent {
     if (!isUserMessage(value.message)) throw invalidEvent(line, "message must be a user chat message")
     return { seq, sessionId, at, type, promptId: value.promptId, message: value.message }
   }
-  if (type === "turn_completed") {
+  if (type === "turn_completed" || type === "turn_interrupted") {
     if (typeof value.promptId !== "string" || !value.promptId) throw invalidEvent(line, "promptId must be a string")
     if (!Array.isArray(value.messages) || !value.messages.every(isChatMessage)) {
       throw invalidEvent(line, "messages must be chat messages")

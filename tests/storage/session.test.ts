@@ -59,6 +59,27 @@ describe("JsonlSession", () => {
     ])
   })
 
+  it("persists and replays interrupted turn progress", async () => {
+    const cwd = await trackedTempDir()
+    const directory = join(cwd, "sessions")
+    const session = await openSession({ cwd, directory })
+    const admission = await session.admitPrompt("add the setting")
+    const messages: ChatMessage[] = [
+      { role: "user", content: "add the setting" },
+      { role: "assistant", content: [{ type: "text", text: "I updated the client and added a test." }] },
+    ]
+
+    await session.interruptTurn(admission, messages)
+    const reopened = await openSession({ cwd, directory })
+
+    expect(reopened.replayMessages()).toEqual(messages)
+    expect(reopened.events.at(-1)).toMatchObject({
+      type: "turn_interrupted",
+      promptId: admission.promptId,
+      messages: messages.slice(1),
+    })
+  })
+
   it("rejects malformed JSONL with a line number", async () => {
     const cwd = await trackedTempDir()
     const path = join(cwd, "bad.jsonl")

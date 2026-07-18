@@ -99,6 +99,68 @@ describe("runAgent", () => {
     })
   })
 
+  it("returns provider-valid progress when interrupted after completed tool work", async () => {
+    const cwd = await trackedTempDir()
+    await writeFile(join(cwd, "note.txt"), "tool result", "utf8")
+    const controller = new AbortController()
+
+    streamAgentMock
+      .mockImplementationOnce(async function* () {
+        yield { type: "text_delta", text: "I'll inspect that first." }
+        yield { type: "tool_call", toolCall: { id: "call_1", name: "read", arguments: '{"path":"note.txt"}' } }
+      })
+      .mockImplementationOnce(async function* () {
+        yield { type: "reasoning_delta", text: "The file confirms it.", field: "reasoning_content" }
+        yield { type: "text_delta", text: "I found the relevant" }
+        controller.abort()
+        throw new Error("request aborted")
+      })
+
+    const events = await collect(runAgent("read the note", [], { client, cwd, signal: controller.signal }))
+    const interrupted = events.find((event) => event.type === "interrupted")
+
+    expect(interrupted?.messages).toEqual([
+      { role: "user", content: "read the note" },
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "I'll inspect that first." },
+          { type: "tool_call", toolCall: { id: "call_1", name: "read", arguments: '{"path":"note.txt"}' } },
+        ],
+      },
+      { role: "tool", toolCallId: "call_1", content: expect.stringContaining("tool result") },
+      {
+        role: "assistant",
+        content: [
+          { type: "reasoning", text: "The file confirms it.", field: "reasoning_content" },
+          { type: "text", text: "I found the relevant" },
+        ],
+      },
+    ])
+    expect(events.some((event) => event.type === "complete")).toBe(false)
+  })
+
+  it("closes tool calls that were streamed just before interruption", async () => {
+    const controller = new AbortController()
+    streamAgentMock.mockImplementationOnce(async function* () {
+      yield { type: "tool_call", toolCall: { id: "call_1", name: "read", arguments: '{"path":"note.txt"}' } }
+      controller.abort()
+      throw new Error("request aborted")
+    })
+
+    const events = await collect(runAgent("read the note", [], { client, signal: controller.signal }))
+    const interrupted = events.find((event) => event.type === "interrupted")
+
+    expect(interrupted?.messages).toEqual([
+      { role: "user", content: "read the note" },
+      {
+        role: "assistant",
+        content: [{ type: "tool_call", toolCall: { id: "call_1", name: "read", arguments: '{"path":"note.txt"}' } }],
+      },
+      { role: "tool", toolCallId: "call_1", content: "Tool call interrupted by user." },
+    ])
+  })
+
   it("does not complete silently when a normal model response is empty", async () => {
     streamAgentMock.mockImplementationOnce(async function* () {
       yield* []
