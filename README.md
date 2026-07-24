@@ -19,6 +19,24 @@ directly by Fireworks (with Zero Data Retention by default) using your API key; 
   <img src="docs/otis-cli.png" alt="Otis terminal UI" width="720">
 </p>
 
+## Install
+
+Otis supports macOS and Linux on arm64 and x64.
+
+```sh
+curl -fsSL https://github.com/triangllabs/otis/releases/latest/download/install.sh | bash
+otis
+```
+
+The installer verifies the release archive checksum before placing `otis` in `~/.local/bin`. To choose another
+location, set `OTIS_INSTALL_DIR` or pass `--install-dir` to the installer.
+
+Update an existing installation with:
+
+```sh
+otis update
+```
+
 ## Why Otis
 
 - **Your machine, your state.** Sessions, configuration, usage, tool activity, and diffs stay local.
@@ -38,24 +56,6 @@ Your terminal
       ├─ Private local configuration, sessions, diffs, and stats
       ├─ Fireworks API ── inference and model discovery
       └─ Parallel API ─── web search and page extraction
-```
-
-## Install
-
-Otis supports macOS and Linux on arm64 and x64.
-
-```sh
-curl -fsSL https://github.com/triangllabs/otis/releases/latest/download/install.sh | bash
-otis
-```
-
-The installer verifies the release archive checksum before placing `otis` in `~/.local/bin`. To choose another
-location, set `OTIS_INSTALL_DIR` or pass `--install-dir` to the installer.
-
-Update an existing installation with:
-
-```sh
-otis update
 ```
 
 ## First run
