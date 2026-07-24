@@ -28,6 +28,7 @@ export function createUILayout(
     backgroundColor: colors.background,
     paddingX: 2,
     paddingY: 0,
+    marginTop: 1,
     gap: 1,
   })
   const welcomeQuit = new TextRenderable(renderer, {

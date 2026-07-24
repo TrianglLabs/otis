@@ -78,21 +78,55 @@ export function createSetupViews(renderer: Renderer) {
   })
   setupButtonBox.add(
     new TextRenderable(renderer, {
-      id: "setup-button",
-      content: "  Set up Otis  ",
-      fg: colors.background,
-      bg: colors.accent,
+      id: "setup-why",
+      content: "Otis needs two keys to work:",
+      fg: colors.muted,
       selectable: false,
     }),
   )
   setupButtonBox.add(
     new TextRenderable(renderer, {
       id: "setup-hint",
-      content: "Fireworks runs the model · Parallel provides web access",
+      content: "Fireworks provides access to open-weight models",
       fg: colors.muted,
       selectable: false,
     }),
   )
+  setupButtonBox.add(
+    new TextRenderable(renderer, {
+      id: "setup-parallel",
+      content: "Parallel lets Otis search the web",
+      fg: colors.muted,
+      selectable: false,
+    }),
+  )
+  setupButtonBox.add(
+    new TextRenderable(renderer, {
+      id: "setup-local",
+      content: "Your data stays on your computer — no account, no cloud, you own it.",
+      fg: colors.muted,
+      selectable: false,
+    }),
+  )
+  const setupButtonInner = new BoxRenderable(renderer, {
+    id: "setup-button-box",
+    flexDirection: "row",
+    paddingX: 2,
+    paddingY: 0,
+    backgroundColor: colors.accent,
+    flexShrink: 0,
+    marginTop: 1,
+  })
+  setupButtonInner.add(
+    new TextRenderable(renderer, {
+      id: "setup-button",
+      content: " Set up Otis ",
+      fg: colors.background,
+      bg: colors.accent,
+      selectable: false,
+    }),
+  )
+  setupButtonBox.add(setupButtonInner)
 
   const setupInput = new InputRenderable(renderer, {
     id: "setup-input",
@@ -135,6 +169,12 @@ export function createSetupViews(renderer: Renderer) {
   setupInputBox.add(setupInputLabel)
   setupInputBox.add(setupInput)
 
+  const setupKeyNote = new TextRenderable(renderer, {
+    id: "setup-key-note",
+    content: "Your key is stored only on this computer.",
+    fg: colors.muted,
+    selectable: false,
+  })
   const setupForm = new BoxRenderable(renderer, {
     id: "setup-form",
     flexDirection: "column",
@@ -146,6 +186,7 @@ export function createSetupViews(renderer: Renderer) {
   })
   setupForm.add(setupInputBox)
   setupForm.add(setupMessage)
+  setupForm.add(setupKeyNote)
 
   const setupStatusBox = new BoxRenderable(renderer, {
     id: "setup-status-box",
@@ -170,6 +211,7 @@ export function createSetupViews(renderer: Renderer) {
     setupForm,
     setupInput,
     setupInputLabel,
+    setupKeyNote,
     setupMessage,
     setupStatus,
     setupStatusBox,

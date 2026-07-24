@@ -68,12 +68,24 @@ describe("chat UI input", () => {
     const harness = await setup({ configured: false, onSetup, onSetupSubmit })
 
     expect(harness.childIds("input-area")).toEqual(["setup-box"])
+    expect(harness.childIds("setup-box")).toEqual([
+      "setup-why",
+      "setup-hint",
+      "setup-parallel",
+      "setup-local",
+      "setup-button-box",
+    ])
     expect(harness.text("setup-button")).toContain("Set up Otis")
+    expect(harness.text("setup-why")).toContain("two keys")
+    expect(harness.text("setup-hint")).toContain("open-weight models")
+    expect(harness.text("setup-parallel")).toContain("search the web")
+    expect(harness.text("setup-local")).toContain("your computer")
 
     harness.press("return")
     expect(onSetup).toHaveBeenCalledOnce()
 
     harness.ui.showSetupInput("fireworks")
+    expect(harness.text("setup-key-note")).toContain("stored only on this computer")
     await harness.typeText("fw_test_key")
     harness.submitSetup("")
     expect(onSetupSubmit).toHaveBeenCalledWith("fireworks", "fw_test_key")

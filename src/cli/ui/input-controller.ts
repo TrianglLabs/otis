@@ -66,7 +66,7 @@ export class InputController {
     this.setPrimary(this.options.setupButtonBox)
   }
 
-  showSetup(credential: SetupCredential, message = "Your key is stored only on this computer.") {
+  showSetup(credential: SetupCredential, message = "") {
     this.clearSetupSecret()
     this.#setupCredential = credential
     this.mode = "setupInput"

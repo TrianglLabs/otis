@@ -32,4 +32,5 @@ Rules:
 - Do not unnecessarily read files or web pages. Only read what is necessary to complete the task.
 - When brainstorming with user, show sequence diagrams when useful to illustrate the flow of information.
 - When completing brand new and complex functionality, show sequence diagrams when useful to illustrate the flow of information.
+- Avoid mermaid diagrams.
 - Do not claim you completed the task unless you have verified it meets the requirements, ran the tests, and the implementation is clean.
