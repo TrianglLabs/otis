@@ -102,7 +102,6 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
     setupStatus,
     setupStatusBox,
     welcomeQuit,
-    isUpdateHintVisible: () => updateHintVisible,
     onBeforePrimaryInput: hideCommandMenu,
     onSetupSubmit: options.onSetupSubmit,
   })
@@ -394,8 +393,9 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
 
   function showUpdateHint() {
     setText(updateHint, "New update available — run `otis update`")
+    updateHint.fg = colors.yellow
     if (!updateHintVisible) {
-      inputArea.add(updateHint, 0)
+      welcomePanel.add(updateHint)
       updateHintVisible = true
     }
     renderer.requestRender()
@@ -403,7 +403,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
 
   function hideUpdateHint() {
     if (!updateHintVisible) return
-    inputArea.remove(updateHint.id)
+    welcomePanel.remove(updateHint.id)
     updateHintVisible = false
     renderer.requestRender()
   }

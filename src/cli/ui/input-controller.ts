@@ -23,7 +23,6 @@ type InputControllerOptions = {
   setupStatus: TextRenderable
   setupStatusBox: BoxRenderable
   welcomeQuit: TextRenderable
-  isUpdateHintVisible: () => boolean
   onBeforePrimaryInput: () => void
   onSetupSubmit?: (credential: SetupCredential, apiKey: string) => void
 }
@@ -105,7 +104,7 @@ export class InputController {
     this.options.inputArea.remove(this.options.setupButtonBox.id)
     this.options.inputArea.remove(this.options.setupForm.id)
     this.options.inputArea.remove(this.options.setupStatusBox.id)
-    this.options.inputArea.add(renderable, this.options.isUpdateHintVisible() ? 1 : 0)
+    this.options.inputArea.add(renderable, 0)
     this.options.renderer.requestRender()
   }
 

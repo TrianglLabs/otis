@@ -481,7 +481,8 @@ async function selectThemeCommand(value: string) {
     await saveSelectedTheme(theme)
     selectedTheme = theme
     previewTheme(theme)
-    showThemeMessage(`${theme[0].toUpperCase()}${theme.slice(1)} theme selected.`)
+    ui.clearInput()
+    ui.focusInput()
   } catch (error) {
     previewTheme(selectedTheme)
     showThemeMessage(`Could not save theme: ${error instanceof Error ? error.message : String(error)}`)
