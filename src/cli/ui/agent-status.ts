@@ -1,5 +1,5 @@
 import type { BoxRenderable, TextRenderable } from "@opentui/core"
-import { colors } from "../theme.js"
+import { colors, type ThemeColors } from "../theme.js"
 import { ESC_INTERRUPT_HINT, renderThinkingStatus } from "./format.js"
 import type { Renderer } from "./types.js"
 
@@ -32,6 +32,14 @@ export class AgentStatus {
 
   setContextColor(color: string) {
     this.barColor = color === colors.muted ? colors.accent : color
+    if (this.barVisible) this.renderBar()
+  }
+
+  refreshTheme(previous: ThemeColors) {
+    const color = Object.entries(previous).find(([, value]) => value === this.barColor)?.[0] as
+      | keyof ThemeColors
+      | undefined
+    if (color) this.barColor = colors[color]
     if (this.barVisible) this.renderBar()
   }
 

@@ -38,7 +38,7 @@ export function createStatsRow(renderer: Renderer) {
       paddingX: 1,
       paddingY: 1,
       border: true,
-      borderColor: "#2A2A2A",
+      borderColor: colors.border,
       borderStyle: "rounded",
     })
     const value = new TextRenderable(renderer, {
