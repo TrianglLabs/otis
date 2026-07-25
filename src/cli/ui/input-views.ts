@@ -17,6 +17,7 @@ export function createChatInput(renderer: Renderer, label: string) {
     cursorColor: colors.accent,
     backgroundColor: colors.background,
     focusedBackgroundColor: colors.background,
+    focusedTextColor: colors.text,
     keyBindings: [
       { name: "return", action: "submit" },
       { name: "kpenter", action: "submit" },
@@ -54,7 +55,7 @@ export function createChatInput(renderer: Renderer, label: string) {
     backgroundColor: colors.background,
     border: true,
     borderStyle: "rounded",
-    borderColor: "#2A2A2A",
+    borderColor: colors.border,
     paddingX: 1,
     paddingY: 0,
     gap: 1,
@@ -138,6 +139,7 @@ export function createSetupViews(renderer: Renderer) {
     cursorColor: colors.accent,
     backgroundColor: colors.background,
     focusedBackgroundColor: colors.background,
+    focusedTextColor: colors.text,
   })
   const setupInputLabel = new TextRenderable(renderer, {
     id: "setup-input-label",
@@ -161,7 +163,7 @@ export function createSetupViews(renderer: Renderer) {
     backgroundColor: colors.background,
     border: true,
     borderStyle: "rounded",
-    borderColor: "#2A2A2A",
+    borderColor: colors.border,
     paddingX: 1,
     paddingY: 0,
     gap: 1,

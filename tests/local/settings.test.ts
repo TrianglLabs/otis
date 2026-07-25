@@ -7,6 +7,7 @@ import {
   saveFireworksSetup,
   saveParallelApiKey,
   saveSelectedModel,
+  saveSelectedTheme,
 } from "../../src/local/settings.js"
 
 const tempDirectories: string[] = []
@@ -86,6 +87,27 @@ describe("local settings", () => {
     })
   })
 
+  it("stores the selected theme without replacing provider settings", async () => {
+    const file = join(await tempDirectory(), "config.json")
+    await saveFireworksSetup("fw_test_key", model("tool-model", "Tool Model"), { file })
+    await saveSelectedTheme("bright", { file })
+
+    await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({ theme: "bright" })
+    expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({
+      fireworksApiKey: "fw_test_key",
+      theme: "bright",
+    })
+  })
+
+  it("rejects unreleased theme aliases", async () => {
+    const directory = await tempDirectory()
+    for (const alias of ["dark", "midnight", "gray", "white"]) {
+      const file = join(directory, `${alias}.json`)
+      await writeFile(file, JSON.stringify({ version: 1, theme: alias }), "utf8")
+      await expect(loadLocalSettings({ file, env: {} })).rejects.toThrow("theme must be")
+    }
+  })
+
   it("uses provider environment keys without persisting either secret", async () => {
     const file = join(await tempDirectory(), "config.json")
     await saveSelectedModel(model("tool-model", "Tool Model", 131_072), { file })
@@ -122,13 +144,16 @@ describe("local settings", () => {
     const malformed = join(directory, "malformed.json")
     const unsupported = join(directory, "unsupported.json")
     const invalidMetadata = join(directory, "invalid-metadata.json")
+    const invalidTheme = join(directory, "invalid-theme.json")
     await writeFile(malformed, "{broken", "utf8")
     await writeFile(unsupported, JSON.stringify({ version: 2 }), "utf8")
     await writeFile(invalidMetadata, JSON.stringify({ version: 1, modelContextLength: -1 }), "utf8")
+    await writeFile(invalidTheme, JSON.stringify({ version: 1, theme: "blue" }), "utf8")
 
     await expect(loadLocalSettings({ file: malformed, env: {} })).rejects.toThrow("Invalid Otis config")
     await expect(loadLocalSettings({ file: unsupported, env: {} })).rejects.toThrow("unsupported version")
     await expect(loadLocalSettings({ file: invalidMetadata, env: {} })).rejects.toThrow("positive integer")
+    await expect(loadLocalSettings({ file: invalidTheme, env: {} })).rejects.toThrow("theme must be")
   })
 })
 

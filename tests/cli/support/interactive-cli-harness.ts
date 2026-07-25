@@ -1,6 +1,7 @@
 import { beforeEach, vi } from "vitest"
 import type { SetupCredential } from "../../../src/cli/ui/types.js"
 import type { ChatMessage, FireworksModel } from "../../../src/inference/types.js"
+import type { ThemeName } from "../../../src/local/settings.js"
 import type { SessionToolActivity } from "../../../src/storage/index.js"
 
 const mocks = vi.hoisted(() => {
@@ -45,6 +46,7 @@ const mocks = vi.hoisted(() => {
     setModelLabel: vi.fn(),
     setSessionLabel: vi.fn(),
     setStats: vi.fn(),
+    setTheme: vi.fn(),
     showChatLayout: vi.fn(),
     showHomeLayout: vi.fn(),
     showModelPicker: vi.fn(),
@@ -95,6 +97,7 @@ const mocks = vi.hoisted(() => {
     saveFireworksSetup: vi.fn(async () => undefined),
     saveParallelApiKey: vi.fn(async () => undefined),
     saveSelectedModel: vi.fn(async () => undefined),
+    saveSelectedTheme: vi.fn(async () => undefined),
     checkForUpdate: vi.fn<
       (options?: { signal?: AbortSignal }) => Promise<{ available: boolean; version: string } | null>
     >(async () => null),
@@ -113,6 +116,7 @@ const mocks = vi.hoisted(() => {
           onCloseModelPicker?(): void
           onDeleteSession?(sessionId: string): void
           onInterrupt?(): void
+          onPreviewTheme?(theme: ThemeName): void
           onSelectModel?(model: FireworksModel): void
           onSelectSession?(sessionId: string): void
           onSetup?(): void
@@ -138,10 +142,12 @@ vi.mock("../../../src/inference/client.js", () => ({
 }))
 vi.mock("../../../src/web/client.js", () => ({ ParallelClient: mocks.ParallelClient }))
 vi.mock("../../../src/local/settings.js", () => ({
+  isThemeName: (value: unknown) => ["default", "nord", "bright", "matrix"].includes(String(value)),
   loadLocalSettings: mocks.loadLocalSettings,
   saveFireworksSetup: mocks.saveFireworksSetup,
   saveParallelApiKey: mocks.saveParallelApiKey,
   saveSelectedModel: mocks.saveSelectedModel,
+  saveSelectedTheme: mocks.saveSelectedTheme,
 }))
 vi.mock("../../../src/local/stats.js", () => ({ calculateLocalStats: mocks.calculateLocalStats }))
 vi.mock("../../../src/storage/index.js", () => ({
