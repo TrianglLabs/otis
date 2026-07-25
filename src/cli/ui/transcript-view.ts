@@ -7,7 +7,7 @@ import {
   type TreeSitterClient,
 } from "@opentui/core"
 import type { ToolActivityKind } from "../../tools/index.js"
-import { codeSyntaxStyle, colors, markdownStyle } from "../theme.js"
+import { colors, createCodeSyntaxStyle, createMarkdownStyle } from "../theme.js"
 import type { TranscriptEntry } from "../transcript.js"
 import type { Renderer } from "./types.js"
 
@@ -44,6 +44,7 @@ type TranscriptRenderable = MessageCard | ToolCard
 
 export class TranscriptView {
   readonly #renderables = new Map<number, TranscriptRenderable>()
+  #entries: readonly TranscriptEntry[] = []
 
   constructor(
     private readonly renderer: Renderer,
@@ -52,6 +53,7 @@ export class TranscriptView {
   ) {}
 
   render(entries: readonly TranscriptEntry[], options: { scrollToBottom?: boolean } = {}) {
+    this.#entries = entries
     const entryIDs = new Set(entries.map((entry) => entry.id))
 
     for (const [id, renderable] of this.#renderables) {
@@ -81,6 +83,14 @@ export class TranscriptView {
 
     if (options.scrollToBottom) this.messages.scrollTo(this.messages.scrollHeight)
     this.renderer.requestRender()
+  }
+
+  refreshTheme() {
+    const scrollTop = this.messages.scrollTop
+    for (const renderable of this.#renderables.values()) this.messages.remove(renderable.root.id)
+    this.#renderables.clear()
+    this.render(this.#entries)
+    this.messages.scrollTo(scrollTop)
   }
 
   private create(entry: TranscriptEntry, previousEntry?: TranscriptEntry): TranscriptRenderable {
@@ -157,7 +167,7 @@ export class TranscriptView {
       diff: entry.diff,
       view: "split",
       filetype: filetypeFromPath(entry.text),
-      syntaxStyle: codeSyntaxStyle,
+      syntaxStyle: createCodeSyntaxStyle(),
       treeSitterClient: this.treeSitterClient,
       showLineNumbers: true,
       syncScroll: true,
@@ -197,7 +207,8 @@ export class TranscriptView {
     const content = new MarkdownRenderable(this.renderer, {
       id: `message-${entry.id}-content`,
       content: messageContent(entry),
-      syntaxStyle: markdownStyle,
+      fg: colors.text,
+      syntaxStyle: createMarkdownStyle(),
       treeSitterClient: this.treeSitterClient,
       streaming: entry.streaming === true,
       internalBlockMode: "top-level",

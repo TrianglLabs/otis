@@ -1,7 +1,8 @@
-import type { TextRenderable } from "@opentui/core"
+import { type RGBA, rgbToHex, ScrollBoxRenderable, type TextRenderable } from "@opentui/core"
+import { isThemeName, type ThemeName } from "../local/settings.js"
 import type { LocalStats } from "../local/stats.js"
 import { copyToClipboardNative } from "./clipboard.js"
-import { colors } from "./theme.js"
+import { colors, type ThemeColors } from "./theme.js"
 import type { TranscriptEntry } from "./transcript.js"
 import { AgentStatus } from "./ui/agent-status.js"
 import { CommandMenu } from "./ui/command-menu.js"
@@ -24,6 +25,9 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
   let sessionPickerVisible = false
   let busy = false
   let updateHintVisible = false
+  let activeTheme = options.theme ?? "default"
+  // Ignore the deferred empty input event emitted when opening the theme menu.
+  let themeMenuOpen = false
 
   const {
     agentBar,
@@ -110,7 +114,13 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
 
     if (commandMenuVisible) {
       const selected = commands.selected()
-      hideCommandMenu()
+      hideCommandMenu(false)
+      if (selected?.name === "/theme") {
+        clearInput()
+        showThemeMenu()
+        focusInput()
+        return
+      }
       options.onSubmit(selected?.name ?? value.trim())
       return
     }
@@ -123,6 +133,11 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
     if (inputController.mode !== "chat") return
 
     const value = input.plainText
+    if (themeMenuOpen && value === "") {
+      options.onInputChange?.(value)
+      return
+    }
+    themeMenuOpen = false
     updateCommandMenu(value)
     options.onInputChange?.(value)
   }
@@ -276,6 +291,44 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
     hideCommandMenu()
   }
 
+  function showThemeMenu() {
+    commands.update("/theme ", showingWelcome, activeTheme)
+    themeMenuOpen = true
+    showCommandMenu()
+  }
+
+  function setTheme(theme: ThemeName, previous: ThemeColors) {
+    activeTheme = theme
+    // Chat-only views are detached while the welcome screen is shown. Recolor
+    // both mounted and detached roots before a layout transition attaches them.
+    recolorTree(
+      [
+        root,
+        topBar,
+        chatBody,
+        messages,
+        inputArea,
+        commandMenu,
+        permissionPrompt,
+        sessionPanel,
+        modelPanel,
+        setupButtonBox,
+        setupForm,
+        setupStatusBox,
+      ],
+      previous,
+    )
+    input.focusedBackgroundColor = colors.background
+    input.focusedTextColor = colors.text
+    setupInput.focusedBackgroundColor = colors.background
+    setupInput.focusedTextColor = colors.text
+    renderer.setBackgroundColor(colors.background)
+    status.refreshTheme(previous)
+    transcriptView.refreshTheme()
+    commands.update(commandMenuVisible ? "/theme " : "", showingWelcome, activeTheme)
+    renderer.requestRender()
+  }
+
   function focusInput() {
     inputController.focus()
   }
@@ -356,7 +409,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
   }
 
   function updateCommandMenu(value: string) {
-    if (!commands.update(value, showingWelcome)) {
+    if (!commands.update(value, showingWelcome, activeTheme)) {
       hideCommandMenu()
       return
     }
@@ -372,11 +425,13 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
     renderer.requestRender()
   }
 
-  function hideCommandMenu() {
+  function hideCommandMenu(restoreThemePreview = true) {
     if (!commandMenuVisible) return
     inputArea.remove(commandMenu.id)
     commandMenuVisible = false
+    themeMenuOpen = false
     commands.clear()
+    if (restoreThemePreview) options.onCancelThemePreview?.()
     status.restoreAfterOverlay()
     renderer.requestRender()
   }
@@ -384,7 +439,19 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
   function handleCommandMenuKey(key: { name: string; preventDefault(): void; stopPropagation(): void }) {
     const handled = commands.handleKey(key, {
       close: hideCommandMenu,
-      select: (command) => options.onSubmit(command.name),
+      select: (command) => {
+        if (command.name === "/theme") {
+          clearInput()
+          showThemeMenu()
+          focusInput()
+          return
+        }
+        options.onSubmit(command.name)
+      },
+      preview: (command) => {
+        const theme = themeFromCommand(command.name)
+        if (theme) options.onPreviewTheme?.(theme)
+      },
     })
     if (handled && key.name === "escape") focusInput()
     return handled
@@ -448,6 +515,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
     setConfigured,
     setSessionLabel,
     setStats,
+    setTheme,
     showStats,
     showModelPicker,
     showSetupError,
@@ -456,12 +524,58 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
     showSetupStatus,
     showPermissionPrompt,
     showSessionPicker,
+    showThemeMenu,
     showChatLayout,
     showHomeLayout,
     showUpdateHint,
     startThinkingAnimation,
     stopThinkingAnimation,
   }
+}
+
+function themeFromCommand(command: string): ThemeName | undefined {
+  const theme = command.slice("/theme ".length)
+  return isThemeName(theme) ? theme : undefined
+}
+
+const RECOLOR_KEYS = ["backgroundColor", "borderColor", "fg", "bg", "textColor", "cursorColor"] as const
+
+type RecolorNode = { getChildren?: () => unknown[] } & Record<string, unknown>
+
+function recolorTree(renderables: Iterable<{ getChildren(): unknown[] }>, previous: ThemeColors) {
+  const replacements = new Map<string, string>()
+  const visited = new WeakSet<object>()
+  for (const key of Object.keys(previous) as (keyof ThemeColors)[]) {
+    const oldHex = previous[key].toLowerCase()
+    const newHex = colors[key]
+    if (oldHex !== newHex.toLowerCase()) replacements.set(oldHex, newHex)
+  }
+
+  const visit = (current: RecolorNode | undefined) => {
+    if (!current || visited.has(current)) return
+    visited.add(current)
+    for (const key of RECOLOR_KEYS) {
+      const value = current[key]
+      if (isColor(value)) {
+        const replacement = replacements.get(rgbToHex(value).toLowerCase())
+        if (replacement) current[key] = replacement
+      } else if (typeof value === "string") {
+        const replacement = replacements.get(value.toLowerCase())
+        if (replacement && replacement.toLowerCase() !== value.toLowerCase()) current[key] = replacement
+      }
+    }
+    if (current instanceof ScrollBoxRenderable) {
+      visit(current.wrapper as unknown as RecolorNode)
+      visit(current.viewport as unknown as RecolorNode)
+      visit(current.content as unknown as RecolorNode)
+    }
+    for (const child of current.getChildren?.() ?? []) visit(child as RecolorNode)
+  }
+  for (const renderable of renderables) visit(renderable as RecolorNode)
+}
+
+function isColor(value: unknown): value is RGBA {
+  return typeof value === "object" && value !== null && "toInts" in value && typeof value.toInts === "function"
 }
 
 function homeModelHint(modelName: string) {

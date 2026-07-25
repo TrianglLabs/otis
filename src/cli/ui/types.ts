@@ -1,5 +1,6 @@
 import type { TreeSitterClient } from "@opentui/core"
 import type { FireworksModel } from "../../inference/types.js"
+import type { ThemeName } from "../../local/settings.js"
 import type { SessionPickerItem } from "../session-metadata.js"
 
 export type Renderer = Awaited<ReturnType<typeof import("@opentui/core").createCliRenderer>>
@@ -22,6 +23,7 @@ export type ChatUIOptions = {
   modelLabel: string
   modeLabel: string
   sessionLabel: string
+  theme?: ThemeName
   treeSitterClient?: TreeSitterClient
   onInputChange?: (value: string) => void
   onInterrupt?: () => void
@@ -34,6 +36,8 @@ export type ChatUIOptions = {
   onSelectSession?: (sessionId: string) => void
   onSubmit: (value: string) => void
   onToggleMode?: () => void
+  onPreviewTheme?: (theme: ThemeName) => void
+  onCancelThemePreview?: () => void
 }
 
 export type { FireworksModel, SessionPickerItem }

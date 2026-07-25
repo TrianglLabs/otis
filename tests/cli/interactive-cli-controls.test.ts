@@ -56,3 +56,25 @@ describe("CLI mode toggle", () => {
     expect(mocks.ui.setModeLabel).toHaveBeenCalledWith("› auto")
   })
 })
+
+describe("CLI themes", () => {
+  it("persists a selected theme and confirms that restart applies it", async () => {
+    await loadCli()
+    await submit("/theme nord")
+
+    expect(mocks.saveSelectedTheme).toHaveBeenCalledWith("nord")
+    expect(mocks.ui.setTheme).toHaveBeenCalled()
+    expect(mocks.ui.renderTranscript.mock.calls.at(-1)?.[1]).toBeUndefined()
+  })
+
+  it("restores the selected theme when saving a preview fails", async () => {
+    mocks.saveSelectedTheme.mockRejectedValueOnce(new Error("disk full"))
+    await loadCli()
+
+    mocks.uiOptions?.onPreviewTheme?.("nord")
+    await submit("/theme nord")
+
+    expect(mocks.saveSelectedTheme).toHaveBeenCalledWith("nord")
+    expect(mocks.ui.setTheme.mock.calls.at(-1)?.[0]).toBe("default")
+  })
+})
