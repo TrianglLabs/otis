@@ -9,8 +9,9 @@ type MenuKey = {
 }
 
 type MenuActions = {
-  close: () => void
+  close: (restoreThemePreview?: boolean) => void
   select: (command: CommandSuggestion) => void
+  preview?: (command: CommandSuggestion) => void
 }
 
 export class CommandMenu {
@@ -24,7 +25,7 @@ export class CommandMenu {
     private readonly commands: readonly CommandSuggestion[],
   ) {}
 
-  update(value: string, showingWelcome: boolean) {
+  update(value: string, showingWelcome: boolean, activeTheme?: string) {
     const query = commandQuery(value)
     if (query === undefined) return false
 
@@ -32,8 +33,18 @@ export class CommandMenu {
       if (!showingWelcome) return true
       return command.name !== "/home" && command.name !== "/compact" && command.name !== "/new"
     })
-    this.#items = query === "/" ? visibleCommands : visibleCommands.filter((command) => command.name.startsWith(query))
-    this.#selectedIndex = 0
+    const themeCommands = visibleCommands.filter((command) => command.name.startsWith("/theme "))
+    const regularCommands = visibleCommands.filter((command) => !command.name.startsWith("/theme "))
+    this.#items =
+      query === "/theme "
+        ? themeCommands
+        : query === "/"
+          ? regularCommands
+          : regularCommands.filter((command) => command.name.startsWith(query))
+    this.#selectedIndex = Math.max(
+      0,
+      this.#items.findIndex((command) => command.name === `/theme ${activeTheme}`),
+    )
     this.render()
     return true
   }
@@ -55,23 +66,25 @@ export class CommandMenu {
     }
     if (key.name === "up" || key.name === "down") {
       stopKey(key)
-      this.move(key.name === "up" ? -1 : 1)
+      this.move(key.name === "up" ? -1 : 1, actions.preview)
       return true
     }
     if (key.name === "return" || key.name === "enter") {
       stopKey(key)
       const selected = this.selected()
-      actions.close()
+      actions.close(false)
       if (selected) actions.select(selected)
       return true
     }
     return false
   }
 
-  private move(delta: number) {
+  private move(delta: number, preview?: (command: CommandSuggestion) => void) {
     if (this.#items.length === 0) return
     this.#selectedIndex = (this.#selectedIndex + delta + this.#items.length) % this.#items.length
     this.render()
+    const selected = this.selected()
+    if (selected) preview?.(selected)
     this.renderer.requestRender()
   }
 
@@ -80,8 +93,14 @@ export class CommandMenu {
       this.#items.length > 0
         ? this.#items.map((command, index) => {
             const selected = index === this.#selectedIndex
+            // Theme choices render as just the theme name (e.g. "default");
+            // the `/theme ` prefix is submitted but not displayed, and the
+            // entries carry no description by design.
+            const content = command.name.startsWith("/theme ")
+              ? command.name.slice("/theme ".length)
+              : `${command.name.padEnd(10)} ${command.description}`
             return {
-              content: `${command.name.padEnd(10)} ${command.description}`,
+              content,
               fg: selected ? colors.background : colors.text,
               bg: selected ? colors.accent : colors.surface,
             }
@@ -122,7 +141,7 @@ export class CommandMenu {
 }
 
 function commandQuery(value: string) {
-  if (!value.startsWith("/") || /\s/.test(value)) return undefined
+  if (!value.startsWith("/") || (/\s/.test(value) && !value.startsWith("/theme "))) return undefined
   return value
 }
 

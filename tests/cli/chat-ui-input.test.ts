@@ -2,6 +2,14 @@ import type { InputRenderable, TextareaRenderable } from "@opentui/core"
 import { describe, expect, it, vi } from "vitest"
 import { useChatHarness } from "./support/chat-ui-harness.js"
 
+const themeCommands = [
+  { name: "/theme", description: "Choose a theme" },
+  { name: "/theme default", description: "" },
+  { name: "/theme nord", description: "" },
+  { name: "/theme bright", description: "" },
+  { name: "/theme matrix", description: "" },
+]
+
 describe("chat UI input", () => {
   const setup = useChatHarness()
 
@@ -43,6 +51,103 @@ describe("chat UI input", () => {
     expect(harness.childIds("command-menu")).toEqual(["command-row-0", "command-row-1"])
     expect(harness.text("command-row-0")).toContain("/history")
     expect(harness.text("command-row-1")).toContain("/exit")
+  })
+
+  it("opens theme choices and previews the highlighted theme", async () => {
+    const onPreviewTheme = vi.fn()
+    const onCancelThemePreview = vi.fn()
+    const harness = await setup({
+      commands: themeCommands,
+      theme: "matrix",
+      onPreviewTheme,
+      onCancelThemePreview,
+    })
+
+    harness.ui.showThemeMenu()
+    // Theme choices render as just the theme name, with no `/theme ` prefix.
+    expect(harness.text("command-row-0")).toContain("default")
+    expect(harness.text("command-row-3")).toContain("matrix")
+
+    harness.press("down")
+    expect(onPreviewTheme).toHaveBeenCalledWith("default")
+
+    harness.press("escape")
+    expect(onCancelThemePreview).toHaveBeenCalledOnce()
+  })
+
+  it("opens theme choices when submitting the slash command", async () => {
+    const harness = await setup({
+      commands: themeCommands,
+    })
+
+    harness.setChatInput("/theme")
+    harness.submitChat()
+
+    expect(harness.childIds("command-menu")).toEqual([
+      "command-row-0",
+      "command-row-1",
+      "command-row-2",
+      "command-row-3",
+    ])
+  })
+
+  it("opens theme choices when pressing return on the slash command", async () => {
+    const harness = await setup({
+      commands: themeCommands,
+    })
+
+    harness.setChatInput("/theme")
+    harness.press("return")
+
+    expect(harness.childIds("command-menu")).toEqual([
+      "command-row-0",
+      "command-row-1",
+      "command-row-2",
+      "command-row-3",
+    ])
+  })
+
+  it("keeps the theme submenu open when the input clear emits its deferred empty change", async () => {
+    const harness = await setup({
+      commands: themeCommands,
+    })
+
+    harness.setChatInput("/theme")
+    harness.press("return")
+    expect(harness.childIds("command-menu")).toEqual([
+      "command-row-0",
+      "command-row-1",
+      "command-row-2",
+      "command-row-3",
+    ])
+
+    // Opening the submenu clears the input; TextareaRenderable.clear() emits its
+    // content-changed event asynchronously, so the empty-string change arrives
+    // after the submenu is shown. It must not dismiss the submenu.
+    harness.setChatInput("")
+
+    expect(harness.childIds("command-menu")).toEqual([
+      "command-row-0",
+      "command-row-1",
+      "command-row-2",
+      "command-row-3",
+    ])
+    expect(harness.text("command-row-1")).toContain("nord")
+  })
+
+  it("closes the theme submenu and resumes filtering when typing a new command", async () => {
+    const harness = await setup({
+      commands: [...themeCommands, { name: "/exit", description: "Exit Otis" }],
+    })
+
+    harness.setChatInput("/theme")
+    harness.press("return")
+    expect(harness.childIds("command-menu")).toHaveLength(4)
+
+    // A real (non-empty) edit supersedes the theme submenu and filters commands.
+    harness.setChatInput("/e")
+    expect(harness.childIds("command-menu")).toEqual(["command-row-0"])
+    expect(harness.text("command-row-0")).toContain("/exit")
   })
 
   it("moves the input between welcome and chat layouts without duplicating ownership", async () => {

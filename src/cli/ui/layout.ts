@@ -71,7 +71,7 @@ export function createUILayout(
     new TextRenderable(renderer, {
       id: "welcome-version",
       content: `v${version}`,
-      fg: "#4E4E4E",
+      fg: colors.muted,
       position: "absolute",
       bottom: 0,
       left: 0,
@@ -126,7 +126,7 @@ export function createUILayout(
     backgroundColor: colors.surface,
     border: true,
     borderStyle: "rounded",
-    borderColor: "#3A3A3A",
+    borderColor: colors.border,
     paddingX: 1,
     paddingY: 1,
     gap: 0,

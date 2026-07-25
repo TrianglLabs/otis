@@ -1,6 +1,6 @@
 import { DiffRenderable, MarkdownRenderable, RGBA, type ScrollBoxRenderable } from "@opentui/core"
 import { describe, expect, it, vi } from "vitest"
-import { colors } from "../../src/cli/theme.js"
+import { colors, selectTheme } from "../../src/cli/theme.js"
 import { TranscriptStore } from "../../src/cli/transcript.js"
 import { useChatHarness } from "./support/chat-ui-harness.js"
 
@@ -30,6 +30,22 @@ describe("chat UI rendering", () => {
 
     expect(harness.get(`message-${assistant.id}-content`)).toBe(markdown)
     expect(markdown.streaming).toBe(false)
+  })
+
+  it("uses the theme text color as the Markdown and fenced-code fallback", async () => {
+    selectTheme("default")
+    const harness = await setup()
+    const transcript = new TranscriptStore()
+    const assistant = transcript.addAssistantMessage("```\nsrc/\n```")
+    harness.ui.showChatLayout()
+    harness.ui.renderTranscript(transcript.entries)
+
+    const previous = selectTheme("bright")
+    harness.ui.setTheme("bright", previous)
+
+    const markdown = harness.get<MarkdownRenderable>(`message-${assistant.id}-content`)
+    expect(markdown.fg?.equals(RGBA.fromHex(colors.text))).toBe(true)
+    selectTheme("default")
   })
 
   it("keeps the full transcript mounted and replaces rows whose identity changes", async () => {

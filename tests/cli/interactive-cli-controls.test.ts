@@ -56,3 +56,14 @@ describe("CLI mode toggle", () => {
     expect(mocks.ui.setModeLabel).toHaveBeenCalledWith("› auto")
   })
 })
+
+describe("CLI themes", () => {
+  it("persists a selected theme and confirms that restart applies it", async () => {
+    await loadCli()
+    await submit("/theme nord")
+
+    expect(mocks.saveSelectedTheme).toHaveBeenCalledWith("nord")
+    expect(mocks.ui.setTheme).toHaveBeenCalled()
+    expect(mocks.ui.renderTranscript).toHaveBeenCalled()
+  })
+})

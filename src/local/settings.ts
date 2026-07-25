@@ -10,7 +10,10 @@ export type LocalSettings = {
   model?: string
   modelDisplayName?: string
   modelContextLength?: number
+  theme?: ThemeName
 }
+
+export type ThemeName = "default" | "nord" | "bright" | "matrix"
 
 export type SettingsFileOptions = {
   file?: string
@@ -24,6 +27,7 @@ type SettingsFile = {
   model?: string
   modelDisplayName?: string
   modelContextLength?: number
+  theme?: ThemeName
 }
 
 export async function loadLocalSettings(options: SettingsFileOptions = {}): Promise<LocalSettings> {
@@ -38,6 +42,7 @@ export async function loadLocalSettings(options: SettingsFileOptions = {}): Prom
     model: saved?.model,
     modelDisplayName: saved?.modelDisplayName,
     modelContextLength: saved?.modelContextLength,
+    ...(saved?.theme ? { theme: saved.theme } : {}),
   }
 }
 
@@ -57,6 +62,11 @@ export async function saveParallelApiKey(apiKey: string, options: SettingsFileOp
 export async function saveSelectedModel(model: FireworksModel, options: SettingsFileOptions = {}) {
   const saved = (await readSettingsFile(options)) ?? { version: 1 }
   await writeSettingsFile(withSelectedModel(saved, model), options)
+}
+
+export async function saveSelectedTheme(theme: ThemeName, options: SettingsFileOptions = {}) {
+  const saved = (await readSettingsFile(options)) ?? { version: 1 }
+  await writeSettingsFile({ ...saved, theme }, options)
 }
 
 function defaultSettingsFile() {
@@ -105,6 +115,7 @@ function parseSettingsFile(value: unknown): SettingsFile {
   const model = optionalString(value.model, "model")
   const modelDisplayName = optionalString(value.modelDisplayName, "modelDisplayName")
   const modelContextLength = optionalPositiveInteger(value.modelContextLength, "modelContextLength")
+  const theme = optionalTheme(value.theme)
   return {
     version: 1,
     ...(fireworksApiKey ? { fireworksApiKey } : {}),
@@ -112,6 +123,7 @@ function parseSettingsFile(value: unknown): SettingsFile {
     ...(model ? { model } : {}),
     ...(modelDisplayName ? { modelDisplayName } : {}),
     ...(modelContextLength ? { modelContextLength } : {}),
+    ...(theme ? { theme } : {}),
   }
 }
 
@@ -127,7 +139,20 @@ function withSelectedModel(settings: SettingsFile, model: FireworksModel): Setti
     model: required(model.id, "Fireworks model"),
     modelDisplayName: required(model.displayName, "Fireworks model display name"),
     ...(contextLength ? { modelContextLength: contextLength } : {}),
+    ...(settings.theme ? { theme: settings.theme } : {}),
   }
+}
+
+function optionalTheme(value: unknown): ThemeName | undefined {
+  if (value === undefined) return undefined
+  if (value === "default" || value === "nord" || value === "bright" || value === "matrix") return value
+  // Backward-compatible migration for prior theme names. The next settings save
+  // persists the renamed theme so these mappings are temporary.
+  if (value === "dark") return "default"
+  if (value === "midnight") return "default"
+  if (value === "gray") return "nord"
+  if (value === "white") return "bright"
+  throw new Error("Invalid Otis config: theme must be default, nord, bright, or matrix.")
 }
 
 function optionalString(value: unknown, name: string) {

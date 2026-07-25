@@ -3,7 +3,7 @@ import { AUTO_COMPACT_THRESHOLD_TOKENS, autoCompactThreshold, compactConversatio
 import { loadProjectContext } from "../core/context.js"
 import { FireworksClient } from "../inference/client.js"
 import type { ContextFile, FireworksModel } from "../inference/types.js"
-import { loadLocalSettings } from "../local/settings.js"
+import { loadLocalSettings, saveSelectedTheme, type ThemeName } from "../local/settings.js"
 import { calculateLocalStats } from "../local/stats.js"
 import type { JsonlSession, PromptAdmission } from "../storage/index.js"
 import { describeToolCall, type ToolCall } from "../tools/index.js"
@@ -14,7 +14,7 @@ import { contextUsage, contextUsageColor, estimateContextTokens, formatContextUs
 import { SessionController } from "./session-controller.js"
 import { SetupFlow } from "./setup-flow.js"
 import { initializeTreeSitterClient, TerminalController } from "./terminal.js"
-import { colors } from "./theme.js"
+import { colors, selectTheme } from "./theme.js"
 import { TranscriptStore } from "./transcript.js"
 import { checkForUpdate } from "./update.js"
 
@@ -27,6 +27,11 @@ const COMMANDS: CommandSuggestion[] = [
   { name: "/model", description: "Choose a Fireworks model" },
   { name: "/compact", description: "Summarize old conversation to free context" },
   { name: "/debug", description: "Toggle debug messages" },
+  { name: "/theme", description: "Choose default, nord, bright, or matrix theme" },
+  { name: "/theme default", description: "" },
+  { name: "/theme nord", description: "" },
+  { name: "/theme bright", description: "" },
+  { name: "/theme matrix", description: "" },
   { name: "/exit", description: "Exit Otis" },
 ]
 
@@ -47,6 +52,7 @@ let autoCompactAtTokens = autoCompactThreshold()
 let client: FireworksClient | undefined
 let webClient: ParallelClient | undefined
 let askMode = false
+let selectedTheme: ThemeName = "default"
 let activeTurn: AbortController | undefined
 let updateCheckController: AbortController | undefined
 let setupFlow: SetupFlow
@@ -55,6 +61,8 @@ let terminal: TerminalController
 
 export async function startInteractiveCli() {
   const settings = await loadLocalSettings()
+  selectTheme(settings.theme)
+  selectedTheme = settings.theme ?? "default"
   fireworksApiKey = settings.fireworksApiKey
   parallelApiKey = settings.parallelApiKey
   selectedModelId = settings.model
@@ -86,6 +94,7 @@ export async function startInteractiveCli() {
     modelLabel: formatModelName(settings.modelDisplayName ?? selectedModelId),
     modeLabel: formatModeLabel(askMode),
     sessionLabel: "Current session",
+    theme: selectedTheme,
     treeSitterClient,
     onInputChange: (value) => updateContextIndicator(value),
     onInterrupt: () => {
@@ -111,6 +120,8 @@ export async function startInteractiveCli() {
     onSubmit: (value) => {
       void handleInput(value)
     },
+    onPreviewTheme: previewTheme,
+    onCancelThemePreview: () => previewTheme(selectedTheme),
     onToggleMode: toggleMode,
   })
   sessions = new SessionController({
@@ -188,6 +199,18 @@ async function handleInput(value: string) {
 
   if (value === "/exit") {
     quit()
+    return
+  }
+
+  if (value === "/theme") {
+    ui.clearInput()
+    ui.showThemeMenu()
+    ui.focusInput()
+    return
+  }
+
+  if (value.startsWith("/theme ")) {
+    await selectThemeCommand(value)
     return
   }
 
@@ -445,6 +468,36 @@ function toggleMode() {
   if (busy) return
   askMode = !askMode
   ui.setModeLabel(formatModeLabel(askMode))
+}
+
+async function selectThemeCommand(value: string) {
+  const theme = value.slice("/theme".length).trim()
+  if (theme !== "default" && theme !== "nord" && theme !== "bright" && theme !== "matrix") {
+    showThemeMessage("Choose a theme with `/theme`.")
+    return
+  }
+
+  try {
+    await saveSelectedTheme(theme)
+    selectedTheme = theme
+    previewTheme(theme)
+    showThemeMessage(`${theme[0].toUpperCase()}${theme.slice(1)} theme selected.`)
+  } catch (error) {
+    showThemeMessage(`Could not save theme: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
+function previewTheme(theme: ThemeName) {
+  const previous = selectTheme(theme)
+  ui.setTheme(theme, previous)
+}
+
+function showThemeMessage(message: string) {
+  ui.showChatLayout()
+  transcript.addAssistantMessage(message)
+  ui.clearInput()
+  ui.renderTranscript(transcript.entries, { scrollToBottom: true })
+  ui.focusInput()
 }
 
 function handlePermissionRequest(call: ToolCall): Promise<boolean> {
