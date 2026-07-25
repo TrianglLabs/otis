@@ -58,13 +58,16 @@ describe("CLI mode toggle", () => {
 })
 
 describe("CLI themes", () => {
-  it("persists a selected theme and confirms that restart applies it", async () => {
+  it("persists a selected theme without adding a transcript message", async () => {
     await loadCli()
+    const transcriptRenderCount = mocks.ui.renderTranscript.mock.calls.length
     await submit("/theme nord")
 
     expect(mocks.saveSelectedTheme).toHaveBeenCalledWith("nord")
     expect(mocks.ui.setTheme).toHaveBeenCalled()
-    expect(mocks.ui.renderTranscript.mock.calls.at(-1)?.[1]).toBeUndefined()
+    expect(mocks.ui.renderTranscript).toHaveBeenCalledTimes(transcriptRenderCount)
+    expect(mocks.ui.clearInput).toHaveBeenCalled()
+    expect(mocks.ui.focusInput).toHaveBeenCalled()
   })
 
   it("restores the selected theme when saving a preview fails", async () => {
