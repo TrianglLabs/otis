@@ -54,6 +54,18 @@ describe("chat UI theme switching", () => {
     expect(setBackgroundColor).toHaveBeenCalledWith(colors.background)
   })
 
+  it("refreshes the detached thinking wave background before mounting it", async () => {
+    const harness = await setup()
+    harness.ui.showChatLayout()
+
+    const previous = selectTheme("bright")
+    harness.ui.setTheme("bright", previous)
+    harness.ui.startThinkingAnimation()
+
+    const agentBar = harness.get<TextRenderable>("agent-bar")
+    expect(agentBar.bg.equals(RGBA.fromHex(colors.background))).toBe(true)
+  })
+
   it("recolors back to a prior theme without leaving stale colors", async () => {
     const harness = await setup()
     const root = harness.get<BoxRenderable>("root")

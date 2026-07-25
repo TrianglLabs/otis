@@ -40,6 +40,7 @@ export class AgentStatus {
       | keyof ThemeColors
       | undefined
     if (color) this.barColor = colors[color]
+    this.options.agentBar.bg = colors.background
     if (this.barVisible) this.renderBar()
   }
 

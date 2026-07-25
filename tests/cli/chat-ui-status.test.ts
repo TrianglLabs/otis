@@ -134,12 +134,13 @@ describe("chat UI status and prompts", () => {
     expect(harness.find("permission-prompt")).toBeUndefined()
   })
 
-  it("inserts and removes the update hint without displacing the input", async () => {
+  it("shows the update hint below the command helper", async () => {
     const harness = await setup()
 
     harness.ui.showUpdateHint()
     expect(harness.text("update-hint")).toContain("otis update")
-    expect(harness.childIds("input-area")).toEqual(["update-hint", "input-box"])
+    expect(harness.childIds("welcome-panel")).toEqual(["input-area", "welcome-quit", "update-hint"])
+    expect(harness.childIds("input-area")).toEqual(["input-box"])
 
     harness.ui.hideUpdateHint()
     expect(harness.find("update-hint")).toBeUndefined()
