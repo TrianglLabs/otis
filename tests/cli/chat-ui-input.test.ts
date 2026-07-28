@@ -167,7 +167,7 @@ describe("chat UI input", () => {
     expect(harness.childIds("chat-body")).toEqual(["messages"])
   })
 
-  it("starts unconfigured and submits provider-specific hidden API keys", async () => {
+  it("starts unconfigured and submits provider-specific API keys", async () => {
     const onSetup = vi.fn()
     const onSetupSubmit = vi.fn()
     const harness = await setup({ configured: false, onSetup, onSetupSubmit })
@@ -192,12 +192,12 @@ describe("chat UI input", () => {
     harness.ui.showSetupInput("fireworks")
     expect(harness.text("setup-key-note")).toContain("stored only on this computer")
     await harness.typeText("fw_test_key")
-    harness.submitSetup("")
+    harness.submitSetup()
     expect(onSetupSubmit).toHaveBeenCalledWith("fireworks", "fw_test_key")
 
     harness.ui.showSetupInput("parallel")
     await harness.typeText("parallel_test_key")
-    harness.submitSetup("")
+    harness.submitSetup()
     expect(onSetupSubmit).toHaveBeenCalledWith("parallel", "parallel_test_key")
 
     harness.ui.showSetupStatus()
@@ -209,17 +209,18 @@ describe("chat UI input", () => {
     expect(harness.childIds("chat-body")).toEqual(["model-panel", "messages"])
   })
 
-  it("keeps API keys out of the visible input and clears them after an error", async () => {
+  it("shows API keys in the input and clears them after an error", async () => {
     const onSetupSubmit = vi.fn()
     const harness = await setup({ configured: false, onSetupSubmit })
     harness.ui.showSetupInput("fireworks")
 
     await harness.typeText("first-secret")
-    expect(harness.get<InputRenderable>("setup-input").plainText).toBe("")
+    expect(harness.get<InputRenderable>("setup-input").plainText).toBe("first-secret")
 
     harness.ui.showSetupError("Try again")
+    expect(harness.get<InputRenderable>("setup-input").plainText).toBe("")
     await harness.typeText("second-secret")
-    harness.submitSetup("")
+    harness.submitSetup()
 
     expect(onSetupSubmit).toHaveBeenCalledWith("fireworks", "second-secret")
     expect(onSetupSubmit).not.toHaveBeenCalledWith("fireworks", "first-secret")

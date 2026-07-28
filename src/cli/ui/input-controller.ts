@@ -6,7 +6,6 @@ import {
   type TextRenderable,
 } from "@opentui/core"
 import { colors } from "../theme.js"
-import { HiddenSecretInput } from "./hidden-secret-input.js"
 import type { InputMode, Renderer, SetupCredential } from "./types.js"
 
 type InputControllerOptions = {
@@ -29,20 +28,18 @@ type InputControllerOptions = {
 
 export class InputController {
   mode: InputMode
-  readonly #hiddenSecret: HiddenSecretInput
   #setupCredential: SetupCredential = "fireworks"
 
   constructor(private readonly options: InputControllerOptions) {
     this.mode = options.configured ? "chat" : "setupButton"
-    this.#hiddenSecret = new HiddenSecretInput(options.setupInput, () => this.mode === "setupInput")
     options.setupInput.on(InputRenderableEvents.ENTER, () => {
-      if (this.mode === "setupInput") options.onSetupSubmit?.(this.#setupCredential, this.#hiddenSecret.value)
+      if (this.mode === "setupInput") options.onSetupSubmit?.(this.#setupCredential, options.setupInput.value)
     })
   }
 
   clear() {
     this.options.input.clear()
-    this.clearSetupSecret()
+    this.clearSetupInput()
   }
 
   focus() {
@@ -51,7 +48,7 @@ export class InputController {
   }
 
   setConfigured() {
-    this.clearSetupSecret()
+    this.clearSetupInput()
     this.mode = "chat"
     this.options.welcomeQuit.content = "/ for commands"
     this.setPrimary(this.options.inputBox)
@@ -59,14 +56,14 @@ export class InputController {
   }
 
   showSetupButton() {
-    this.clearSetupSecret()
+    this.clearSetupInput()
     this.mode = "setupButton"
     this.options.welcomeQuit.content = " "
     this.setPrimary(this.options.setupButtonBox)
   }
 
   showSetup(credential: SetupCredential, message = "") {
-    this.clearSetupSecret()
+    this.clearSetupInput()
     this.#setupCredential = credential
     this.mode = "setupInput"
     this.options.setupInputLabel.content = credential === "fireworks" ? "Fireworks key" : "Parallel key"
@@ -84,7 +81,7 @@ export class InputController {
   }
 
   showSetupStatus(message = "Loading models...") {
-    this.clearSetupSecret()
+    this.clearSetupInput()
     this.mode = "setupStatus"
     this.options.setupStatus.content = message
     this.options.welcomeQuit.content = " "
@@ -108,8 +105,7 @@ export class InputController {
     this.options.renderer.requestRender()
   }
 
-  private clearSetupSecret() {
-    this.#hiddenSecret.clear()
+  private clearSetupInput() {
     this.options.setupInput.value = ""
   }
 }
