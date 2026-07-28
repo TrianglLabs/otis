@@ -1,5 +1,5 @@
 import { createCliRenderer } from "@opentui/core"
-import { AUTO_COMPACT_THRESHOLD_TOKENS, autoCompactThreshold, compactConversation } from "../core/compaction.js"
+import { autoCompactThreshold, compactConversation } from "../core/compaction.js"
 import { loadProjectContext } from "../core/context.js"
 import { FireworksClient } from "../inference/client.js"
 import type { ContextFile, FireworksModel } from "../inference/types.js"
@@ -47,7 +47,6 @@ let configured = false
 let fireworksApiKey: string | undefined
 let parallelApiKey: string | undefined
 let selectedModelId: string | undefined
-let contextWindowTokens = AUTO_COMPACT_THRESHOLD_TOKENS
 let autoCompactAtTokens = autoCompactThreshold()
 let client: FireworksClient | undefined
 let webClient: ParallelClient | undefined
@@ -66,7 +65,6 @@ export async function startInteractiveCli() {
   fireworksApiKey = settings.fireworksApiKey
   parallelApiKey = settings.parallelApiKey
   selectedModelId = settings.model
-  contextWindowTokens = settings.modelContextLength ?? AUTO_COMPACT_THRESHOLD_TOKENS
   autoCompactAtTokens = autoCompactThreshold(settings.modelContextLength)
   configured = Boolean(fireworksApiKey && parallelApiKey && selectedModelId)
   if (fireworksApiKey && selectedModelId) {
@@ -89,7 +87,7 @@ export async function startInteractiveCli() {
     statsVisible: Boolean(fireworksApiKey || parallelApiKey),
     commands: COMMANDS,
     contextLabel: formatContextUsage(
-      contextUsage(estimateContextTokens(transcript.history, projectContextChars), contextWindowTokens),
+      contextUsage(estimateContextTokens(transcript.history, projectContextChars), autoCompactAtTokens),
     ),
     modelLabel: formatModelName(settings.modelDisplayName ?? selectedModelId),
     modeLabel: formatModeLabel(askMode),
@@ -313,7 +311,7 @@ async function handleInput(value: string) {
       projectContextChars,
       isExiting: () => exiting,
       onContext: (tokens) => {
-        const usage = contextUsage(tokens, contextWindowTokens)
+        const usage = contextUsage(tokens, autoCompactAtTokens)
         ui.setContextLabel(formatContextUsage(usage), contextUsageColor(usage.percent))
       },
       onDiff: (added, removed) => {
@@ -449,7 +447,6 @@ async function refreshLocalStats() {
 
 function applySelectedModel(model: FireworksModel) {
   selectedModelId = model.id
-  contextWindowTokens = model.contextLength ?? AUTO_COMPACT_THRESHOLD_TOKENS
   autoCompactAtTokens = autoCompactThreshold(model.contextLength)
   if (fireworksApiKey) client = new FireworksClient({ apiKey: fireworksApiKey, model: model.id })
   ui.setModelLabel(formatModelName(model.displayName))
@@ -459,7 +456,7 @@ function applySelectedModel(model: FireworksModel) {
 function updateContextIndicator(pendingInput = "") {
   const usage = contextUsage(
     estimateContextTokens(transcript.history, projectContextChars, pendingInput),
-    contextWindowTokens,
+    autoCompactAtTokens,
   )
   ui.setContextLabel(formatContextUsage(usage), contextUsageColor(usage.percent))
 }
