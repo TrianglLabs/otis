@@ -38,6 +38,7 @@ const mocks = vi.hoisted(() => {
     hideSessionPicker: vi.fn(),
     hideUpdateHint: vi.fn(),
     renderTranscript: vi.fn(),
+    setAgentPhase: vi.fn(),
     setBusy: vi.fn(),
     setConfigured: vi.fn(),
     setContextLabel: vi.fn(),
@@ -58,8 +59,8 @@ const mocks = vi.hoisted(() => {
     showSetupStatus: vi.fn(),
     showStats: vi.fn(),
     showUpdateHint: vi.fn(),
-    startThinkingAnimation: vi.fn(),
-    stopThinkingAnimation: vi.fn(),
+    startBusyIndicator: vi.fn(),
+    stopBusyIndicator: vi.fn(),
   }
   const streamChat = vi.fn()
   const generateCompletion = vi.fn(async () => "")

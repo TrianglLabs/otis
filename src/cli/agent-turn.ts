@@ -84,7 +84,13 @@ export async function runAgentTurn(options: AgentTurnOptions): Promise<AgentTurn
       onPermissionRequest: options.onPermissionRequest,
     })) {
       if (event.type === "model") {
-        ui.startThinkingAnimation()
+        ui.setAgentPhase("working")
+        ui.startBusyIndicator()
+        continue
+      }
+
+      if (event.type === "reasoning") {
+        ui.setAgentPhase("thinking")
         continue
       }
 
@@ -95,6 +101,7 @@ export async function runAgentTurn(options: AgentTurnOptions): Promise<AgentTurn
       }
 
       if (event.type === "delta") {
+        ui.setAgentPhase("working")
         assistantText += event.text
         const entry = ensureAssistantEntry()
         transcript.updateEntry(entry.id, { text: assistantText, streaming: true })
@@ -104,6 +111,7 @@ export async function runAgentTurn(options: AgentTurnOptions): Promise<AgentTurn
 
       if (event.type === "tool") {
         if (event.phase === "start") {
+          ui.setAgentPhase("working")
           if (assistantEntry) transcript.updateEntry(assistantEntry.id, { streaming: false })
           assistantEntry = undefined
           assistantText = ""
@@ -140,7 +148,7 @@ export async function runAgentTurn(options: AgentTurnOptions): Promise<AgentTurn
       }
 
       if (event.type === "complete") {
-        ui.stopThinkingAnimation()
+        ui.stopBusyIndicator()
         turnMessages = event.messages
         completedTurn = true
         continue
@@ -152,7 +160,7 @@ export async function runAgentTurn(options: AgentTurnOptions): Promise<AgentTurn
 
       if (event.type === "error") {
         if (interrupted()) return interruptionResult()
-        ui.stopThinkingAnimation()
+        ui.stopBusyIndicator()
         const entry = ensureAssistantEntry()
         transcript.updateEntry(entry.id, { text: `Error: ${event.message}`, streaming: false })
         recordAdmittedPrompt()
@@ -163,7 +171,7 @@ export async function runAgentTurn(options: AgentTurnOptions): Promise<AgentTurn
     }
   } catch (error) {
     if (interrupted()) return interruptionResult(completedTurn ? turnMessages : undefined)
-    ui.stopThinkingAnimation()
+    ui.stopBusyIndicator()
     const entry = ensureAssistantEntry()
     transcript.updateEntry(entry.id, {
       text: `Error: ${error instanceof Error ? error.message : String(error)}`,

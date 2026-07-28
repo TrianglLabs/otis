@@ -1,9 +1,9 @@
 import type { BoxRenderable, TextRenderable } from "@opentui/core"
 import { colors, type ThemeColors } from "../theme.js"
-import { ESC_INTERRUPT_HINT, renderThinkingStatus } from "./format.js"
+import { AGENT_PHASE_LABELS, type AgentPhase, ESC_INTERRUPT_HINT, renderBusyStatus } from "./format.js"
 import type { Renderer } from "./types.js"
 
-const THINKING_FRAME_INTERVAL_MS = 120
+const BUSY_FRAME_INTERVAL_MS = 120
 const ESC_INTERRUPT_WINDOW_MS = 3000
 const COPY_HINT_DURATION_MS = 1500
 
@@ -19,16 +19,23 @@ type AgentStatusOptions = {
 }
 
 export class AgentStatus {
-  private thinkingFrame = 0
+  private busyFrame = 0
   private barVisible = false
-  private thinkingTimer: NodeJS.Timeout | undefined
+  private busyTimer: NodeJS.Timeout | undefined
   private barColor = colors.accent
   private lastEscapeAt = 0
   private interruptVisible = false
   private copyHintTimer: NodeJS.Timeout | undefined
   private idleInputHint = ESC_INTERRUPT_HINT
+  private phase: AgentPhase = "working"
 
   constructor(private readonly options: AgentStatusOptions) {}
+
+  setPhase(phase: AgentPhase) {
+    if (this.phase === phase) return
+    this.phase = phase
+    if (this.busyTimer && this.barVisible) this.renderBar()
+  }
 
   setContextColor(color: string) {
     this.barColor = color === colors.muted ? colors.accent : color
@@ -44,20 +51,21 @@ export class AgentStatus {
     if (this.barVisible) this.renderBar()
   }
 
-  startThinking() {
-    if (this.thinkingTimer) return
-    this.thinkingFrame = 0
+  startBusyIndicator() {
+    if (this.busyTimer) return
+    this.busyFrame = 0
+    this.phase = "working"
     this.showBar()
-    this.thinkingTimer = setInterval(() => {
-      this.thinkingFrame += 1
+    this.busyTimer = setInterval(() => {
+      this.busyFrame += 1
       this.renderBar()
-    }, THINKING_FRAME_INTERVAL_MS)
+    }, BUSY_FRAME_INTERVAL_MS)
     this.renderBar()
   }
 
-  stopThinking() {
-    if (this.thinkingTimer) clearInterval(this.thinkingTimer)
-    this.thinkingTimer = undefined
+  stopBusyIndicator() {
+    if (this.busyTimer) clearInterval(this.busyTimer)
+    this.busyTimer = undefined
     this.hideBar()
   }
 
@@ -117,7 +125,7 @@ export class AgentStatus {
 
   restoreAfterOverlay() {
     if (this.interruptVisible) this.showInterrupt()
-    else if (this.thinkingTimer) {
+    else if (this.busyTimer) {
       this.showBar()
       this.renderBar()
     }
@@ -134,7 +142,7 @@ export class AgentStatus {
     if (this.interruptVisible) return
     const { agentBar, renderer, root } = this.options
     const availableWidth = Math.max(agentBar.width, root.width - 2, 1)
-    agentBar.content = renderThinkingStatus(this.thinkingFrame, availableWidth)
+    agentBar.content = renderBusyStatus(this.busyFrame, availableWidth, AGENT_PHASE_LABELS[this.phase])
     agentBar.fg = this.barColor
     renderer.requestRender()
   }
@@ -163,7 +171,7 @@ export class AgentStatus {
   private hideInterrupt() {
     if (!this.interruptVisible) return
     this.interruptVisible = false
-    if (!this.thinkingTimer) this.hideBar()
+    if (!this.busyTimer) this.hideBar()
     this.options.renderer.requestRender()
   }
 }
