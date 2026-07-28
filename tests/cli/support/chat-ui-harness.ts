@@ -13,7 +13,7 @@ export type ChatUIHarness = TestRendererSetup & {
   childIds(id: string): string[]
   setChatInput(value: string): void
   submitChat(): void
-  submitSetup(value: string): void
+  submitSetup(): void
   press(name: string): void
   typeText(value: string): Promise<void>
   destroy(): void
@@ -79,10 +79,8 @@ async function createChatHarness(overrides: Partial<ChatUIOptions>): Promise<Cha
     submitChat: () => {
       get<TextareaRenderable>("otis-input").submit()
     },
-    submitSetup: (value) => {
-      const input = get<InputRenderable>("setup-input")
-      input.value = value
-      input.submit()
+    submitSetup: () => {
+      get<InputRenderable>("setup-input").submit()
     },
     press: (name) => press(testRenderer, name),
     typeText: (value) => testRenderer.mockInput.typeText(value),
