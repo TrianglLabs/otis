@@ -1,5 +1,13 @@
 import { describe, expect, it, vi } from "vitest"
-import { clone, getMocks, loadCli, settle, submit, testSession } from "./support/interactive-cli-harness.js"
+import {
+  clone,
+  getMocks,
+  loadCli,
+  localSettings,
+  settle,
+  submit,
+  testSession,
+} from "./support/interactive-cli-harness.js"
 
 const mocks = getMocks()
 
@@ -402,7 +410,31 @@ describe("CLI session turn handling", () => {
 
     const labels = mocks.ui.setContextLabel.mock.calls.map((call) => call[0] as string)
     expect(labels.some((label) => label.includes("~126k"))).toBe(true)
-    expect(labels.some((label) => label.includes("96%"))).toBe(true)
+    // The meter is relative to the auto-compact threshold (80% of 131K = 104,857),
+    // so ~126k tokens reads 100%, not 96% of the full context window.
+    expect(labels.some((label) => label.includes("100%"))).toBe(true)
+    expect(labels.some((label) => label.includes("96%"))).toBe(false)
+  })
+
+  it("shows context usage relative to the 250K auto-compact threshold on a 1M-context model", async () => {
+    const session = testSession()
+    mocks.createSession.mockResolvedValue(session)
+    mocks.loadLocalSettings.mockResolvedValue(localSettings({ modelContextLength: 1_000_000 }))
+    mocks.runAgent.mockImplementationOnce(async function* () {
+      yield { type: "context", messageCount: 1, contentChars: 500_000 }
+      yield { type: "delta", text: "working" }
+      yield { type: "complete", messages: [{ role: "user", content: "test" }] }
+    })
+
+    await loadCli()
+    mocks.ui.setContextLabel.mockClear()
+    await submit("test")
+
+    const labels = mocks.ui.setContextLabel.mock.calls.map((call) => call[0] as string)
+    // ~126k of 250K threshold = 50%; relative to the full 1M window it would read 13%.
+    expect(labels.some((label) => label.includes("~126k"))).toBe(true)
+    expect(labels.some((label) => label.includes("50%"))).toBe(true)
+    expect(labels.some((label) => label.includes("13%"))).toBe(false)
   })
 
   it("includes project context size in the context meter estimate", async () => {
