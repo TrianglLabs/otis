@@ -8,6 +8,17 @@ import {
 import { colors } from "../theme.js"
 import type { Renderer } from "./types.js"
 
+// OpenTUI's scrollbar slider hardcodes a dark track (#252527) and gray thumb
+// (#9a9ea3); recolor both from the active theme so they stay visible.
+export function createScrollbarOptions() {
+  return {
+    trackOptions: {
+      backgroundColor: colors.border,
+      foregroundColor: colors.muted,
+    },
+  }
+}
+
 export function createStatsRow(renderer: Renderer) {
   const initialStats = [
     { value: "0", label: "day streak" },
@@ -86,6 +97,7 @@ export function createSessionPanel(renderer: Renderer) {
     scrollY: true,
     backgroundColor: colors.surface,
     contentOptions: { flexDirection: "column", backgroundColor: colors.surface },
+    verticalScrollbarOptions: createScrollbarOptions(),
   })
   panel.add(
     new TextRenderable(renderer, {
@@ -135,6 +147,7 @@ export function createModelPanel(renderer: Renderer) {
     scrollY: true,
     backgroundColor: colors.surface,
     contentOptions: { flexDirection: "column", backgroundColor: colors.surface },
+    verticalScrollbarOptions: createScrollbarOptions(),
   })
   panel.add(
     new TextRenderable(renderer, {
@@ -180,5 +193,6 @@ export function createMessagesView(renderer: Renderer) {
     },
     viewportOptions: { backgroundColor: colors.background },
     rootOptions: { backgroundColor: colors.background },
+    verticalScrollbarOptions: createScrollbarOptions(),
   })
 }

@@ -330,7 +330,7 @@ async function handleInput(value: string) {
     busy = false
     ui.setBusy(false)
     if (!exiting) {
-      ui.stopThinkingAnimation()
+      ui.stopBusyIndicator()
       ui.focusInput()
     }
   }
@@ -390,7 +390,7 @@ async function runCompaction(instructions?: string, auto = false) {
   busy = true
   ui.setBusy(true)
   ui.showChatLayout()
-  ui.startThinkingAnimation()
+  ui.startBusyIndicator()
   transcript.addAssistantMessage(
     auto ? "Context window filling up — auto-compacting conversation…" : "Compacting conversation…",
   )
@@ -426,7 +426,7 @@ async function runCompaction(instructions?: string, auto = false) {
     if (activeTurn === compactionController) activeTurn = undefined
     busy = false
     ui.setBusy(false)
-    ui.stopThinkingAnimation()
+    ui.stopBusyIndicator()
     if (!exiting) ui.focusInput()
   }
 }

@@ -105,10 +105,54 @@ describe("chat UI status and prompts", () => {
     expect(onInterrupt).not.toHaveBeenCalled()
   })
 
-  it("suspends and restores the thinking bar around the command menu", async () => {
+  it("centers a THINKING label in the wave only while the model is reasoning", async () => {
+    const harness = await setup()
+    harness.ui.showChatLayout()
+    // Force a layout pass so the bar renders at its real width.
+    await harness.renderOnce()
+    harness.ui.startBusyIndicator()
+
+    // Working: the wave fills the bar with no label.
+    const working = harness.text("agent-bar")
+    expect(working).not.toContain("THINKING")
+    expect(working.trim().length).toBeGreaterThan(0)
+
+    harness.ui.setAgentPhase("thinking")
+    const thinking = harness.text("agent-bar")
+    const label = " THINKING "
+    const start = Math.floor((thinking.length - label.length) / 2)
+    expect(thinking.indexOf(label)).toBe(start)
+    // The wave keeps animating on both sides of the label.
+    expect(thinking.slice(0, start).trim().length).toBeGreaterThan(0)
+    expect(thinking.slice(start + label.length).trim().length).toBeGreaterThan(0)
+
+    harness.ui.setAgentPhase("working")
+    expect(harness.text("agent-bar")).not.toContain("THINKING")
+    expect(harness.childIds("root")).toContain("agent-bar")
+  })
+
+  it("drops the thinking label when a new busy period starts", async () => {
+    const harness = await setup()
+    harness.ui.showChatLayout()
+    harness.ui.startBusyIndicator()
+    harness.ui.setAgentPhase("thinking")
+    harness.ui.stopBusyIndicator()
+
+    harness.ui.startBusyIndicator()
+    expect(harness.text("agent-bar")).not.toContain("THINKING")
+  })
+
+  it("keeps the busy bar hidden before the first busy period", async () => {
+    const harness = await setup()
+    harness.ui.showChatLayout()
+
+    expect(harness.find("agent-bar")).toBeUndefined()
+  })
+
+  it("suspends and restores the busy bar around the command menu", async () => {
     const harness = await setup({ commands: [{ name: "/new", description: "Start a new session" }] })
     harness.ui.showChatLayout()
-    harness.ui.startThinkingAnimation()
+    harness.ui.startBusyIndicator()
 
     expect(harness.childIds("root")).toContain("agent-bar")
 

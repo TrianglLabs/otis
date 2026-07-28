@@ -87,7 +87,7 @@ async function createChatHarness(overrides: Partial<ChatUIOptions>): Promise<Cha
     press: (name) => press(testRenderer, name),
     typeText: (value) => testRenderer.mockInput.typeText(value),
     destroy: () => {
-      ui.stopThinkingAnimation()
+      ui.stopBusyIndicator()
       testRenderer.renderer.destroy()
     },
   }

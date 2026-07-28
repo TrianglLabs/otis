@@ -23,6 +23,7 @@ export type AgentEvent =
   | { type: "context"; messageCount: number; contentChars: number }
   | { type: "debug"; message: string }
   | { type: "model"; phase: "start" }
+  | { type: "reasoning" }
   | { type: "delta"; text: string }
   | {
       type: "tool"
@@ -131,6 +132,7 @@ async function* streamAssistantResponse(
       }
       if (event.type === "reasoning_delta") {
         reasoning.set(event.field, `${reasoning.get(event.field) ?? ""}${event.text}`)
+        yield { type: "reasoning" }
       }
       if (event.type === "tool_call") toolCalls.push(event.toolCall)
       if (event.type === "usage") await options.onUsage?.(event.usage)

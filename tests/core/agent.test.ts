@@ -77,6 +77,32 @@ describe("runAgent", () => {
     })
   })
 
+  it("emits a reasoning event while reasoning streams, before any text delta", async () => {
+    const cwd = await trackedTempDir()
+    streamAgentMock.mockImplementationOnce(async function* () {
+      yield { type: "reasoning_delta", text: "Let me think.", field: "reasoning_content" }
+      yield { type: "text_delta", text: "Answer." }
+    })
+
+    const events = await collect(runAgent("think out loud", [], { client, cwd }))
+    const reasoningIndex = events.findIndex((event) => event.type === "reasoning")
+    const deltaIndex = events.findIndex((event) => event.type === "delta")
+
+    expect(reasoningIndex).toBeGreaterThanOrEqual(0)
+    expect(deltaIndex).toBeGreaterThan(reasoningIndex)
+  })
+
+  it("does not emit reasoning events for text-only responses", async () => {
+    const cwd = await trackedTempDir()
+    streamAgentMock.mockImplementationOnce(async function* () {
+      yield { type: "text_delta", text: "Answer." }
+    })
+
+    const events = await collect(runAgent("answer", [], { client, cwd }))
+
+    expect(events.some((event) => event.type === "reasoning")).toBe(false)
+  })
+
   it("orders reasoning before text in assistant messages", async () => {
     const cwd = await trackedTempDir()
     const requests: StreamAgentRequest[] = []

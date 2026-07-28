@@ -74,6 +74,67 @@ describe("CLI update hint", () => {
   })
 })
 
+describe("CLI agent status phases", () => {
+  it("tracks the agent phase as reasoning, text, and tool events stream", async () => {
+    const session = testSession()
+    mocks.createSession.mockResolvedValue(session)
+    mocks.runAgent.mockImplementationOnce(async function* () {
+      yield { type: "model", phase: "start" }
+      yield { type: "reasoning" }
+      yield { type: "delta", text: "Let me check that file." }
+      yield {
+        type: "tool",
+        phase: "start",
+        toolCallId: "call_1",
+        name: "read",
+        activityKind: "read",
+        label: "Reading note.txt",
+      }
+      yield {
+        type: "tool",
+        phase: "end",
+        toolCallId: "call_1",
+        name: "read",
+        activityKind: "read",
+        label: "Reading note.txt",
+      }
+      yield { type: "model", phase: "start" }
+      yield { type: "delta", text: "Done." }
+      yield { type: "complete", messages: [{ role: "user", content: "test" }] }
+    })
+
+    await loadCli()
+    await submit("check the note")
+    await settle()
+
+    expect(mocks.ui.setAgentPhase.mock.calls.map(([phase]) => phase)).toEqual([
+      "working",
+      "thinking",
+      "working",
+      "working",
+      "working",
+      "working",
+    ])
+  })
+
+  it("keeps the plain wave when the model never reasons", async () => {
+    const session = testSession()
+    mocks.createSession.mockResolvedValue(session)
+    mocks.runAgent.mockImplementationOnce(async function* () {
+      yield { type: "model", phase: "start" }
+      yield { type: "delta", text: "done" }
+      yield { type: "complete", messages: [{ role: "user", content: "test" }] }
+    })
+
+    await loadCli()
+    await submit("quick answer")
+    await settle()
+
+    expect(mocks.ui.setAgentPhase).toHaveBeenCalledWith("working")
+    expect(mocks.ui.setAgentPhase).not.toHaveBeenCalledWith("thinking")
+  })
+})
+
 describe("CLI completion notification", () => {
   it("rings the bell when a turn completes and the terminal is unfocused", async () => {
     const session = testSession()
