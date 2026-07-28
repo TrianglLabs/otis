@@ -48,6 +48,26 @@ describe("chat UI rendering", () => {
     selectTheme("default")
   })
 
+  it("colors scrollbar track and thumb from the active theme", async () => {
+    selectTheme("default")
+    const harness = await setup()
+    harness.ui.showChatLayout()
+
+    const messages = harness.get<ScrollBoxRenderable>("messages")
+    expect(messages.verticalScrollBar.slider.backgroundColor.equals(RGBA.fromHex(colors.border))).toBe(true)
+    expect(messages.verticalScrollBar.slider.foregroundColor.equals(RGBA.fromHex(colors.muted))).toBe(true)
+
+    harness.ui.showSessionPicker([{ id: "session_1", title: "Previous work", detail: "1h ago" }])
+    const sessionRows = harness.get<ScrollBoxRenderable>("session-rows")
+    expect(sessionRows.verticalScrollBar.slider.backgroundColor.equals(RGBA.fromHex(colors.border))).toBe(true)
+    expect(sessionRows.verticalScrollBar.slider.foregroundColor.equals(RGBA.fromHex(colors.muted))).toBe(true)
+
+    harness.ui.showModelPicker([{ id: "accounts/fireworks/models/alpha", displayName: "Alpha" }])
+    const modelRows = harness.get<ScrollBoxRenderable>("model-rows")
+    expect(modelRows.verticalScrollBar.slider.backgroundColor.equals(RGBA.fromHex(colors.border))).toBe(true)
+    expect(modelRows.verticalScrollBar.slider.foregroundColor.equals(RGBA.fromHex(colors.muted))).toBe(true)
+  })
+
   it("keeps the full transcript mounted and replaces rows whose identity changes", async () => {
     const harness = await setup()
     const transcript = new TranscriptStore()

@@ -6,10 +6,11 @@ import { colors, type ThemeColors } from "./theme.js"
 import type { TranscriptEntry } from "./transcript.js"
 import { AgentStatus } from "./ui/agent-status.js"
 import { CommandMenu } from "./ui/command-menu.js"
-import { ESC_INTERRUPT_HINT, formatContextLabel, formatStats } from "./ui/format.js"
+import { type AgentPhase, ESC_INTERRUPT_HINT, formatContextLabel, formatStats } from "./ui/format.js"
 import { InputController } from "./ui/input-controller.js"
 import { createUILayout } from "./ui/layout.js"
 import { ModelPicker } from "./ui/model-picker.js"
+import { createScrollbarOptions } from "./ui/panels.js"
 import { PermissionController } from "./ui/permission-controller.js"
 import { SessionPicker } from "./ui/session-picker.js"
 import { SessionStatus } from "./ui/session-status.js"
@@ -86,8 +87,9 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
   })
   let selectedModelName = options.modelLabel
   status.setInputHint(homeModelHint(selectedModelName))
-  const startThinkingAnimation = () => status.startThinking()
-  const stopThinkingAnimation = () => status.stopThinking()
+  const setAgentPhase = (phase: AgentPhase) => status.setPhase(phase)
+  const startBusyIndicator = () => status.startBusyIndicator()
+  const stopBusyIndicator = () => status.stopBusyIndicator()
   const inputController = new InputController({
     renderer,
     configured: options.configured !== false,
@@ -321,6 +323,10 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
     input.focusedTextColor = colors.text
     setupInput.focusedBackgroundColor = colors.background
     setupInput.focusedTextColor = colors.text
+    // recolorTree cannot reach scrollbar slider colors; restyle them directly.
+    messages.verticalScrollbarOptions = createScrollbarOptions()
+    sessionRowsBox.verticalScrollbarOptions = createScrollbarOptions()
+    modelRowsBox.verticalScrollbarOptions = createScrollbarOptions()
     renderer.setBackgroundColor(colors.background)
     status.refreshTheme(previous)
     transcriptView.refreshTheme()
@@ -528,8 +534,9 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
     showChatLayout,
     showHomeLayout,
     showUpdateHint,
-    startThinkingAnimation,
-    stopThinkingAnimation,
+    setAgentPhase,
+    startBusyIndicator,
+    stopBusyIndicator,
   }
 }
 

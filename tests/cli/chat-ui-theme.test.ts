@@ -33,7 +33,7 @@ describe("chat UI theme switching", () => {
 
     const setBackgroundColor = vi.spyOn(harness.renderer, "setBackgroundColor")
     const setFocusedTextColor = vi.spyOn(TextareaRenderable.prototype, "focusedTextColor", "set")
-    harness.ui.startThinkingAnimation()
+    harness.ui.startBusyIndicator()
     const agentBar = harness.get<TextRenderable>("agent-bar")
     const previous = selectTheme("bright") // mutate global colors -> bright
     harness.ui.setTheme("bright", previous)
@@ -54,13 +54,30 @@ describe("chat UI theme switching", () => {
     expect(setBackgroundColor).toHaveBeenCalledWith(colors.background)
   })
 
-  it("refreshes the detached thinking wave background before mounting it", async () => {
+  it("recolors scrollbar track and thumb when the theme changes", async () => {
+    const harness = await setup()
+    harness.ui.showChatLayout()
+    harness.ui.showModelPicker([{ id: "accounts/fireworks/models/alpha", displayName: "Alpha" }])
+
+    const messages = harness.get<ScrollBoxRenderable>("messages")
+    const modelRows = harness.get<ScrollBoxRenderable>("model-rows")
+
+    const previous = selectTheme("bright")
+    harness.ui.setTheme("bright", previous)
+
+    expect(messages.verticalScrollBar.slider.backgroundColor.equals(RGBA.fromHex(colors.border))).toBe(true)
+    expect(messages.verticalScrollBar.slider.foregroundColor.equals(RGBA.fromHex(colors.muted))).toBe(true)
+    expect(modelRows.verticalScrollBar.slider.backgroundColor.equals(RGBA.fromHex(colors.border))).toBe(true)
+    expect(modelRows.verticalScrollBar.slider.foregroundColor.equals(RGBA.fromHex(colors.muted))).toBe(true)
+  })
+
+  it("refreshes the detached busy wave background before mounting it", async () => {
     const harness = await setup()
     harness.ui.showChatLayout()
 
     const previous = selectTheme("bright")
     harness.ui.setTheme("bright", previous)
-    harness.ui.startThinkingAnimation()
+    harness.ui.startBusyIndicator()
 
     const agentBar = harness.get<TextRenderable>("agent-bar")
     expect(agentBar.bg.equals(RGBA.fromHex(colors.background))).toBe(true)
