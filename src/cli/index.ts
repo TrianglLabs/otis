@@ -1,4 +1,4 @@
-import { startInteractiveCli } from "./interactive-cli.js"
+import { runHeadlessCommand } from "./headless-cli.js"
 import { runUpdateCommand } from "./update.js"
 
 const version = process.env.OTIS_VERSION ?? "dev"
@@ -10,13 +10,16 @@ try {
     case "update":
       await runUpdateCommand(args)
       break
+    case "exec":
+      process.exitCode = await runHeadlessCommand(args)
+      break
     case "--version":
     case "-v":
     case "version":
       console.log(`otis ${version}`)
       break
     default:
-      await startInteractiveCli()
+      await (await import("./interactive-cli.js")).startInteractiveCli()
   }
 } catch (error) {
   console.error(`Error: ${error instanceof Error ? error.message : String(error)}`)

@@ -122,7 +122,7 @@ const mocks = vi.hoisted(() => {
           onSelectSession?(sessionId: string): void
           onSetup?(): void
           onSetupSubmit?(credential: SetupCredential, apiKey: string): void
-          onSubmit(value: string): void
+          onSubmit(value: string): void | Promise<void>
           onToggleMode?(): void
         },
   }
@@ -190,7 +190,7 @@ export async function loadCli() {
 }
 
 export async function submit(value: string) {
-  mocks.uiOptions?.onSubmit(value)
+  await mocks.uiOptions?.onSubmit(value)
   await settle()
 }
 

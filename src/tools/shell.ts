@@ -21,7 +21,7 @@ function executeShell(command: string, cwd: string, timeoutMs: number, signal?: 
 
     const child = spawn(process.env.SHELL || "/bin/sh", ["-lc", command], {
       cwd,
-      env: process.env,
+      env: shellEnvironment(process.env),
       detached: process.platform !== "win32",
     })
     let output = ""
@@ -69,6 +69,13 @@ function executeShell(command: string, cwd: string, timeoutMs: number, signal?: 
       finish(formatShellResult({ output, timedOut, aborted, timeoutMs, code, signal: closeSignal }))
     })
   })
+}
+
+export function shellEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const childEnv = { ...env }
+  delete childEnv.FIREWORKS_API_KEY
+  delete childEnv.PARALLEL_API_KEY
+  return childEnv
 }
 
 function terminateShell(child: ChildProcessWithoutNullStreams, signal: NodeJS.Signals) {

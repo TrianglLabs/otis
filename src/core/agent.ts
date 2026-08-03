@@ -15,6 +15,7 @@ import {
   type ToolActivityKind,
   type ToolCall,
   type ToolContext,
+  type ToolDefinition,
   type ToolResult,
 } from "../tools/index.js"
 import { loadProjectContext } from "./context.js"
@@ -33,10 +34,11 @@ export type AgentEvent =
       activityKind: ToolActivityKind
       label: string
       diff?: string
+      outcome?: "completed" | "denied" | "failed"
     }
   | { type: "interrupted"; messages: ChatMessage[] }
   | { type: "complete"; messages: ChatMessage[] }
-  | { type: "error"; message: string }
+  | { type: "error"; message: string; messages?: ChatMessage[] }
 
 export type RunAgentOptions = ToolContext & {
   client: FireworksClient
@@ -44,6 +46,8 @@ export type RunAgentOptions = ToolContext & {
   onUsage?: (usage: TokenUsage) => void | Promise<void>
   onPermissionRequest?: (call: ToolCall) => Promise<boolean>
   projectContext?: ContextFile[]
+  tools?: ToolDefinition[]
+  maxSteps?: number
 }
 
 export async function* runAgent(
@@ -51,15 +55,25 @@ export async function* runAgent(
   history: ChatMessage[] = [],
   options: RunAgentOptions,
 ): AsyncGenerator<AgentEvent> {
+  const messages: ChatMessage[] = [...history, { role: "user", content: input }]
   try {
     const projectContext = options.projectContext ?? loadProjectContext(options.cwd ?? process.cwd())
-    const messages: ChatMessage[] = [...history, { role: "user", content: input }]
     const toolContext: RunAgentOptions = { ...options, webSession: {} }
     yield { type: "context", messageCount: messages.length, contentChars: messagesContentChars(messages) }
 
+    let step = 0
     while (true) {
+      if (options.maxSteps !== undefined && step >= options.maxSteps) {
+        yield {
+          type: "error",
+          message: `Agent reached the ${options.maxSteps}-step limit.`,
+          messages: turnMessages(messages, history.length),
+        }
+        return
+      }
+      step += 1
       yield { type: "model", phase: "start" }
-      const response = yield* streamAssistantResponse(messages, TOOL_DEFINITIONS, {
+      const response = yield* streamAssistantResponse(messages, options.tools ?? TOOL_DEFINITIONS, {
         ...options,
         projectContext,
       })
@@ -78,7 +92,11 @@ export async function* runAgent(
 
       if (response.toolCalls.length === 0) {
         if (!hasText(response)) {
-          yield { type: "error", message: "The model returned an empty response." }
+          yield {
+            type: "error",
+            message: "The model returned an empty response.",
+            messages: turnMessages(messages, history.length),
+          }
           return
         }
         yield { type: "complete", messages: turnMessages(messages, history.length) }
@@ -95,10 +113,14 @@ export async function* runAgent(
     }
   } catch (error) {
     if (options.signal?.aborted) {
-      yield { type: "interrupted", messages: [{ role: "user", content: input }] }
+      yield { type: "interrupted", messages: turnMessages(messages, history.length) }
       return
     }
-    yield { type: "error", message: error instanceof Error ? error.message : String(error) }
+    yield {
+      type: "error",
+      message: error instanceof Error ? error.message : String(error),
+      messages: turnMessages(messages, history.length),
+    }
   }
 }
 
@@ -183,6 +205,13 @@ async function* executeToolCalls(
       continue
     }
 
+    if (!(context.tools ?? TOOL_DEFINITIONS).some((tool) => tool.name === call.value.name)) {
+      const message = `Tool is not enabled: ${call.value.name}`
+      if (context.debug) yield { type: "debug", message }
+      messages.push({ role: "tool", toolCallId: rawCall.id, content: message })
+      continue
+    }
+
     const activity = describeToolCall(call.value)
 
     yield {
@@ -195,6 +224,7 @@ async function* executeToolCalls(
     }
 
     let result: ToolResult | undefined
+    let outcome: "completed" | "denied" | "failed" = "completed"
     try {
       if (context.signal?.aborted) return interruptedToolCalls(messages, calls.slice(index))
 
@@ -202,6 +232,7 @@ async function* executeToolCalls(
         const approved = await context.onPermissionRequest(call.value)
         if (context.signal?.aborted) return interruptedToolCalls(messages, calls.slice(index))
         if (!approved) {
+          outcome = "denied"
           messages.push({ role: "tool", toolCallId: rawCall.id, content: "Permission denied by user." })
           continue
         }
@@ -214,6 +245,7 @@ async function* executeToolCalls(
         content: formatToolResult(call.value.name, result),
       })
     } catch (error) {
+      outcome = "failed"
       if (context.signal?.aborted) return interruptedToolCalls(messages, calls.slice(index))
       const message = error instanceof Error ? error.message : String(error)
       if (context.debug) yield { type: "debug", message: `Tool ${call.value.name} failed: ${message}` }
@@ -227,6 +259,7 @@ async function* executeToolCalls(
         activityKind: activity.kind,
         label: activity.label,
         diff: result?.diff,
+        outcome,
       }
     }
   }
