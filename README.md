@@ -81,6 +81,25 @@ otis
 
 ## Commands and controls
 
+### Headless execution
+
+Use `otis exec` in scripts, CI jobs, containers, or server workers. It runs the same agent turn engine as the terminal
+interface without initializing OpenTUI:
+
+```sh
+otis exec "Explain this repository"
+printf '%s\n' "Review the supplied context" | otis exec --ephemeral --output-format json
+otis exec --continue --auto "Run the tests and fix the failure"
+```
+
+`plain` output writes only the final assistant response to stdout and progress to stderr. `json` writes one result
+object, while `jsonl` streams versioned Otis events followed by a result event. Destructive tools (`write`, `edit`, and
+`bash`) are denied unless `--auto` is passed. Use `--tools` for a narrower comma-separated allowlist, `--max-steps` and
+`--timeout` for execution limits, and `--ephemeral` when no local session should be written. `--continue` resumes the
+latest session for the working directory; `--session` resumes a specific session.
+
+Run `otis exec --help` for the full option list. Headless mode is non-interactive and never displays an approval prompt.
+
 | Command | Action |
 | --- | --- |
 | `/home` | Return to the home screen |

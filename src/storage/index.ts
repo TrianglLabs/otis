@@ -16,3 +16,4 @@ export {
   type SessionToolActivity,
   type UsagePurpose,
 } from "./session.js"
+export { acquireSessionLock, type SessionLock } from "./session-lock.js"

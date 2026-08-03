@@ -115,9 +115,7 @@ export async function startInteractiveCli() {
     onSelectSession: (sessionId) => {
       void sessions.select(sessionId)
     },
-    onSubmit: (value) => {
-      void handleInput(value)
-    },
+    onSubmit: handleInput,
     onPreviewTheme: previewTheme,
     onCancelThemePreview: () => previewTheme(selectedTheme),
     onToggleMode: toggleMode,

@@ -5,9 +5,9 @@
 Otis is a local terminal application with direct hosted inference.
 
 ```txt
-User terminal
-  -> OpenTUI CLI
-    -> local TypeScript runtime
+User terminal or server process
+  -> OpenTUI CLI or headless command
+    -> shared local TypeScript turn runtime
       -> local tools
       -> local JSONL sessions and usage
       -> Fireworks API with the user's key
@@ -28,7 +28,8 @@ src/cli
   +-> src/storage ---> src/core message types
 ```
 
-- `src/cli` owns command routing, application state, and OpenTUI rendering.
+- `src/cli` owns command routing, the UI-neutral turn coordinator, headless output adapters, application state, and
+  OpenTUI rendering. Headless commands do not initialize OpenTUI.
 - `src/core` owns the agent loop, project instruction loading, and conversation compaction.
 - `src/inference` owns Fireworks request serialization, model discovery, the human-authored `system-prompt.txt`, prompt
   assembly and project-context bounds, and SSE parsing.
@@ -79,6 +80,20 @@ Parallel directly; local file and shell tools never pass through a remote Otis s
 
 Each session is an append-only JSONL event stream. A completed turn stores model-facing messages separately from local
 tool-card metadata, which preserves diffs and activity history without placing UI state into future model requests.
+Headless processes take an exclusive lock while resuming a session so concurrent workers cannot append turns with the
+same sequence numbers. Ephemeral headless turns bypass session persistence entirely.
+
+## Headless execution
+
+`otis exec` is a one-turn process interface over the same coordinator and agent loop used by OpenTUI. Its plain mode
+reserves stdout for the final assistant message and sends progress to stderr. JSON mode emits one result object; JSONL
+mode emits versioned, Otis-owned events rather than exposing provider stream shapes. The command accepts explicit
+working-directory, model, tool-allowlist, step-limit, timeout, and session policies, making process invocation the
+stable boundary for CI and server workers.
+
+Headless execution never prompts. Write, edit, and shell calls are denied by default and require the explicit `--auto`
+policy. This approval policy is separate from OS sandboxing; a future sandbox can be added at the tool-executor boundary
+without changing command output or session contracts.
 
 Every completed Fireworks request that reports usage adds a validated `usage_recorded` event before the surrounding
 agent turn, title generation, or compaction operation continues. Home-screen totals are calculated across local

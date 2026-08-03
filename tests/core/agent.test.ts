@@ -16,6 +16,37 @@ afterEach(async () => {
 })
 
 describe("runAgent", () => {
+  it("stops before exceeding the configured model step limit", async () => {
+    streamAgentMock.mockImplementation(async function* () {
+      yield { type: "tool_call", toolCall: { id: crypto.randomUUID(), name: "read", arguments: '{"path":"."}' } }
+    })
+
+    const events = await collect(runAgent("keep going", [], { client, tools: [], maxSteps: 1 }))
+
+    expect(streamAgentMock).toHaveBeenCalledOnce()
+    expect(events.find((event) => event.type === "error")?.message).toContain("1-step limit")
+  })
+
+  it("does not execute a tool omitted from the enabled tool definitions", async () => {
+    streamAgentMock
+      .mockImplementationOnce(async function* () {
+        yield { type: "tool_call", toolCall: { id: "call_1", name: "bash", arguments: '{"command":"exit 9"}' } }
+      })
+      .mockImplementationOnce(async function* (request) {
+        expect(request.messages).toContainEqual({
+          role: "tool",
+          toolCallId: "call_1",
+          content: "Tool is not enabled: bash",
+        })
+        yield { type: "text_delta", text: "Done." }
+      })
+
+    const events = await collect(runAgent("run it", [], { client, tools: [] }))
+
+    expect(events.find((event) => event.type === "complete")).toBeDefined()
+    expect(events.some((event) => event.type === "tool")).toBe(false)
+  })
+
   it("preserves pre-tool streamed text and tool calls as assistant parts", async () => {
     const cwd = await trackedTempDir()
     await writeFile(join(cwd, "note.txt"), "tool result", "utf8")
