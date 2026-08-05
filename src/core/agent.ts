@@ -238,7 +238,8 @@ async function* executeToolCalls(
       const permission = await context.permissionPolicy?.evaluate(call.value)
       if (permission?.effect === "deny") {
         outcome = "denied"
-        messages.push({ role: "tool", toolCallId: rawCall.id, content: "Permission denied by policy." })
+        const matchedRule = permission.rule ? `: ${permission.rule.tool}(${permission.rule.resource ?? "*"})` : ""
+        messages.push({ role: "tool", toolCallId: rawCall.id, content: `Permission denied by policy${matchedRule}.` })
         continue
       }
       if (permission?.effect === "ask") {

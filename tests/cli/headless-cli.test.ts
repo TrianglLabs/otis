@@ -143,14 +143,14 @@ describe("runHeadlessCommand", () => {
         expect(request.messages).toContainEqual({
           role: "tool",
           toolCallId: "call_1",
-          content: "Permission denied by policy.",
+          content: "Permission denied by policy: bash(printf blocked).",
         })
         yield { type: "text_delta", text: "Blocked." }
       })
     const output = streams()
 
     const exitCode = await runHeadlessCommand(
-      ["--ephemeral", "--auto", "--deny", "bash(printf blocked)", "do not run"],
+      ["--ephemeral", "--auto", "--deny", "Bash(printf blocked)", "do not run"],
       output.options,
     )
 
