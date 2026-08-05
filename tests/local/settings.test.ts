@@ -99,6 +99,41 @@ describe("local settings", () => {
     })
   })
 
+  it("loads and preserves permission policy while changing other settings", async () => {
+    const file = join(await tempDirectory(), "config.json")
+    await writeFile(
+      file,
+      JSON.stringify({
+        version: 1,
+        permissions: {
+          defaultMode: "ask",
+          rules: [{ tool: "bash", resource: "git status", effect: "allow" }],
+        },
+      }),
+      "utf8",
+    )
+
+    await saveSelectedTheme("nord", { file })
+
+    await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({
+      theme: "nord",
+      permissions: {
+        defaultMode: "ask",
+        rules: [{ tool: "bash", resource: "git status", effect: "allow" }],
+      },
+    })
+  })
+
+  it("rejects malformed permission policy", async () => {
+    const file = join(await tempDirectory(), "config.json")
+    await writeFile(
+      file,
+      JSON.stringify({ version: 1, permissions: { rules: [{ tool: "bash", effect: "maybe" }] } }),
+      "utf8",
+    )
+    await expect(loadLocalSettings({ file, env: {} })).rejects.toThrow("allow, ask, or deny")
+  })
+
   it("rejects unreleased theme aliases", async () => {
     const directory = await tempDirectory()
     for (const alias of ["dark", "midnight", "gray", "white"]) {

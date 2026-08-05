@@ -71,8 +71,11 @@ This location is separate from the Otis executable, and the updater replaces onl
 
 ## Tool calls
 
-The runtime validates provider-native structured tool calls, requests permission for destructive operations when ask
-mode is enabled, executes tools in the local workspace, and appends bounded results to the conversation. Current tools
+The runtime validates provider-native structured tool calls, evaluates every call through a centralized permission
+policy, executes approved tools in the local workspace, and appends bounded results to the conversation. The policy
+normalizes each call to a tool and resource, merges private user policy with restrictive project policy and temporary
+CLI rules, and resolves matching rules deny-first. An `ask` result is sent to the OpenTUI approval surface or denied in
+non-interactive execution. Current tools
 cover web search, web reading, file reading, file search, file creation, exact edits, and shell commands. Web tools call
 Parallel directly; local file and shell tools never pass through a remote Otis service.
 
@@ -91,8 +94,9 @@ mode emits versioned, Otis-owned events rather than exposing provider stream sha
 working-directory, model, tool-allowlist, step-limit, timeout, and session policies, making process invocation the
 stable boundary for CI and server workers.
 
-Headless execution never prompts. Write, edit, and shell calls are denied by default and require the explicit `--auto`
-policy. This approval policy is separate from OS sandboxing; a future sandbox can be added at the tool-executor boundary
+Headless execution never prompts. Write, edit, and shell calls are denied by default and require an allow rule, a
+configured auto default, or the explicit `--auto` policy. Explicit deny rules remain effective in auto mode. This
+approval policy is separate from OS sandboxing; a future sandbox can be added at the tool-executor boundary
 without changing command output or session contracts.
 
 Every completed Fireworks request that reports usage adds a validated `usage_recorded` event before the surrounding

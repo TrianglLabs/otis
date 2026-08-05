@@ -6,6 +6,13 @@ import { FireworksClient, listToolCapableModels } from "../inference/client.js"
 import type { ChatMessage } from "../inference/types.js"
 import { loadLocalSettings } from "../local/settings.js"
 import {
+  createPermissionPolicy,
+  type PermissionEffect,
+  type PermissionMode,
+  parsePermissionRuleString,
+} from "../permissions/policy.js"
+import { loadProjectPermissionRules } from "../permissions/project-policy.js"
+import {
   acquireSessionLock,
   createSession,
   type JsonlSession,
@@ -111,6 +118,12 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
     const admission = session ? await session.admitPrompt(prompt) : undefined
     const webClient = settings.parallelApiKey ? new ParallelClient({ apiKey: settings.parallelApiKey }) : undefined
     const tools = selectedTools(parsed.tools, Boolean(webClient))
+    const projectPermissionRules = await loadProjectPermissionRules(cwd)
+    const permissionPolicy = createPermissionPolicy({
+      cwd,
+      mode: headlessPermissionMode(parsed.permissionMode, settings.permissions?.defaultMode),
+      rules: [...(settings.permissions?.rules ?? []), ...projectPermissionRules, ...parsed.permissionRules],
+    })
 
     const result = await executeTurn({
       input: prompt,
@@ -124,7 +137,7 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
         projectContext,
         tools,
         maxSteps: parsed.maxSteps,
-        onPermissionRequest: parsed.auto ? undefined : async () => false,
+        permissionPolicy,
         onUsage: async (nextUsage) => {
           usage = addUsage(usage, nextUsage)
           await reporter.usage(nextUsage)
@@ -202,6 +215,10 @@ function parseHeadlessArgs(argv: string[]) {
       continue: { type: "boolean", short: "c" },
       ephemeral: { type: "boolean" },
       auto: { type: "boolean" },
+      "permission-mode": { type: "string" },
+      allow: { type: "string", multiple: true },
+      ask: { type: "string", multiple: true },
+      deny: { type: "string", multiple: true },
       tools: { type: "string" },
       "max-steps": { type: "string" },
       timeout: { type: "string" },
@@ -212,6 +229,7 @@ function parseHeadlessArgs(argv: string[]) {
   if (values.ephemeral && (values.session || values.continue)) {
     throw new Error("--ephemeral cannot be combined with --session or --continue.")
   }
+  if (values.auto && values["permission-mode"]) throw new Error("--auto and --permission-mode cannot be combined.")
   const outputFormat = values["output-format"]
   if (outputFormat !== "plain" && outputFormat !== "json" && outputFormat !== "jsonl") {
     throw new Error("--output-format must be plain, json, or jsonl.")
@@ -223,13 +241,37 @@ function parseHeadlessArgs(argv: string[]) {
     session: values.session,
     continue: values.continue ?? false,
     ephemeral: values.ephemeral ?? false,
-    auto: values.auto ?? false,
+    permissionMode: values.auto ? "auto" : parseHeadlessPermissionMode(values["permission-mode"]),
+    permissionRules: [
+      ...parseCliPermissionRules(values.allow, "allow"),
+      ...parseCliPermissionRules(values.ask, "ask"),
+      ...parseCliPermissionRules(values.deny, "deny"),
+    ],
     tools: values.tools === undefined ? undefined : parseToolNames(values.tools),
     maxSteps: positiveInteger(values["max-steps"] ?? String(DEFAULT_MAX_STEPS), "--max-steps"),
     timeoutMs: values.timeout ? positiveInteger(values.timeout, "--timeout") * 1_000 : undefined,
     outputFormat: outputFormat as HeadlessOutputFormat,
     promptParts: positionals,
   }
+}
+
+function parseHeadlessPermissionMode(value: string | undefined): PermissionMode | undefined {
+  if (value === undefined) return undefined
+  if (value === "dontAsk") return "dontAsk"
+  if (value === "auto") return "auto"
+  throw new Error("--permission-mode must be auto or dontAsk in headless mode.")
+}
+
+function headlessPermissionMode(
+  commandMode: PermissionMode | undefined,
+  configuredMode: PermissionMode | undefined,
+): PermissionMode {
+  const mode = commandMode ?? configuredMode ?? "dontAsk"
+  return mode === "ask" ? "dontAsk" : mode
+}
+
+function parseCliPermissionRules(values: string[] | undefined, effect: PermissionEffect) {
+  return (values ?? []).map((value) => parsePermissionRuleString(value, effect))
 }
 
 async function resolveSessionId(parsed: ReturnType<typeof parseHeadlessArgs>, cwd: string) {
@@ -326,6 +368,10 @@ Options:
   -c, --continue               Resume the most recently updated session
       --ephemeral              Do not create or update a session
       --auto                   Allow write, edit, and bash tools
+      --permission-mode <mode> auto or dontAsk (default: dontAsk)
+      --allow <rule>           Allow matching Tool(resource); repeatable
+      --ask <rule>             Require approval for matching calls; repeatable
+      --deny <rule>            Deny matching Tool(resource); repeatable
       --tools <names>          Comma-separated tool allowlist
       --max-steps <count>      Maximum model/tool loop steps (default: ${DEFAULT_MAX_STEPS})
       --timeout <seconds>      Abort after the given duration
