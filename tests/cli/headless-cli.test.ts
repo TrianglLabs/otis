@@ -1,13 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import type { PermissionConfig } from "../../src/permissions/policy.js"
 
 const mocks = vi.hoisted(() => ({
   createSession: vi.fn(),
   listSessions: vi.fn(async () => []),
   listToolCapableModels: vi.fn(async () => [{ id: "accounts/fireworks/models/test", displayName: "Test" }]),
-  loadLocalSettings: vi.fn(async () => ({
-    fireworksApiKey: "fw_test",
-    model: "accounts/fireworks/models/test",
-  })),
+  loadLocalSettings: vi.fn<() => Promise<{ fireworksApiKey: string; model: string; permissions?: PermissionConfig }>>(
+    async () => ({
+      fireworksApiKey: "fw_test",
+      model: "accounts/fireworks/models/test",
+    }),
+  ),
   openSession: vi.fn(),
   streamChat: vi.fn(),
 }))
@@ -98,6 +101,98 @@ describe("runHeadlessCommand", () => {
     expect(exitCode).toBe(0)
     expect(output.stdout()).toBe("Not executed.\n")
     expect(output.stderr()).toContain("(denied)")
+  })
+
+  it("allows a command matching an explicit CLI rule", async () => {
+    mocks.streamChat
+      .mockImplementationOnce(async function* () {
+        yield {
+          type: "tool_call",
+          toolCall: { id: "call_1", name: "bash", arguments: '{"command":"printf allowed"}' },
+        }
+      })
+      .mockImplementationOnce(async function* (request) {
+        expect(request.messages).toContainEqual({
+          role: "tool",
+          toolCallId: "call_1",
+          content: expect.stringContaining("allowed"),
+        })
+        yield { type: "text_delta", text: "Executed." }
+      })
+    const output = streams()
+
+    const exitCode = await runHeadlessCommand(
+      ["--ephemeral", "--allow", "bash(printf *)", "run allowed command"],
+      output.options,
+    )
+
+    expect(exitCode).toBe(0)
+    expect(output.stdout()).toBe("Executed.\n")
+    expect(output.stderr()).not.toContain("(denied)")
+  })
+
+  it("enforces explicit deny rules in auto mode", async () => {
+    mocks.streamChat
+      .mockImplementationOnce(async function* () {
+        yield {
+          type: "tool_call",
+          toolCall: { id: "call_1", name: "bash", arguments: '{"command":"printf blocked"}' },
+        }
+      })
+      .mockImplementationOnce(async function* (request) {
+        expect(request.messages).toContainEqual({
+          role: "tool",
+          toolCallId: "call_1",
+          content: "Permission denied by policy.",
+        })
+        yield { type: "text_delta", text: "Blocked." }
+      })
+    const output = streams()
+
+    const exitCode = await runHeadlessCommand(
+      ["--ephemeral", "--auto", "--deny", "bash(printf blocked)", "do not run"],
+      output.options,
+    )
+
+    expect(exitCode).toBe(0)
+    expect(output.stdout()).toBe("Blocked.\n")
+    expect(output.stderr()).toContain("(denied)")
+  })
+
+  it("uses a configured auto default while retaining configured deny rules", async () => {
+    mocks.loadLocalSettings.mockResolvedValue({
+      fireworksApiKey: "fw_test",
+      model: "accounts/fireworks/models/test",
+      permissions: {
+        defaultMode: "auto",
+        rules: [{ tool: "bash", resource: "printf blocked", effect: "deny" }],
+      },
+    })
+    mocks.streamChat
+      .mockImplementationOnce(async function* () {
+        yield {
+          type: "tool_call",
+          toolCall: { id: "call_1", name: "bash", arguments: '{"command":"printf allowed"}' },
+        }
+      })
+      .mockImplementationOnce(async function* () {
+        yield { type: "text_delta", text: "Configured execution worked." }
+      })
+    const output = streams()
+
+    const exitCode = await runHeadlessCommand(["--ephemeral", "run configured command"], output.options)
+
+    expect(exitCode).toBe(0)
+    expect(output.stderr()).not.toContain("(denied)")
+  })
+
+  it("rejects ask mode for a non-interactive command", async () => {
+    const output = streams()
+
+    const exitCode = await runHeadlessCommand(["--permission-mode", "ask", "hello"], output.options)
+
+    expect(exitCode).toBe(2)
+    expect(output.stderr()).toContain("must be auto or dontAsk")
   })
 
   it("does not mix pre-tool narration into the final stdout answer", async () => {

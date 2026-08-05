@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { type AgentEvent, runAgent } from "../../src/core/agent.js"
 import type { FireworksClient } from "../../src/inference/client.js"
+import { createPermissionPolicy, type PermissionRequest } from "../../src/permissions/policy.js"
 
 const streamAgentMock = vi.hoisted(() => vi.fn())
 const client = { model: "accounts/fireworks/models/test", streamChat: streamAgentMock } as unknown as FireworksClient
@@ -232,7 +233,7 @@ describe("runAgent", () => {
 
   it("asks permission before destructive tools and skips execution when denied", async () => {
     const cwd = await trackedTempDir()
-    const onPermissionRequest = vi.fn<(call: { name: string }) => Promise<boolean>>(async () => false)
+    const onPermissionRequest = vi.fn<(request: PermissionRequest) => Promise<boolean>>(async () => false)
 
     streamAgentMock
       .mockImplementationOnce(async function* () {
@@ -242,10 +243,13 @@ describe("runAgent", () => {
         yield { type: "text_delta", text: "Okay, I won't." }
       })
 
-    const events = await collect(runAgent("delete everything", [], { client, cwd, onPermissionRequest }))
+    const permissionPolicy = createPermissionPolicy({ cwd, mode: "ask" })
+    const events = await collect(
+      runAgent("delete everything", [], { client, cwd, permissionPolicy, onPermissionRequest }),
+    )
 
     expect(onPermissionRequest).toHaveBeenCalledOnce()
-    expect(onPermissionRequest.mock.calls[0][0]).toMatchObject({ name: "bash" })
+    expect(onPermissionRequest.mock.calls[0][0]).toMatchObject({ call: { name: "bash" } })
     const toolMessage = events
       .find((event) => event.type === "complete")
       ?.messages.find((message) => message.role === "tool")
@@ -255,7 +259,7 @@ describe("runAgent", () => {
   it("executes destructive tools when permission is granted", async () => {
     const cwd = await trackedTempDir()
     await writeFile(join(cwd, "target.txt"), "old", "utf8")
-    const onPermissionRequest = vi.fn<(call: { name: string }) => Promise<boolean>>(async () => true)
+    const onPermissionRequest = vi.fn<(request: PermissionRequest) => Promise<boolean>>(async () => true)
 
     streamAgentMock
       .mockImplementationOnce(async function* () {
@@ -268,10 +272,11 @@ describe("runAgent", () => {
         yield { type: "text_delta", text: "Done." }
       })
 
-    const events = await collect(runAgent("write the file", [], { client, cwd, onPermissionRequest }))
+    const permissionPolicy = createPermissionPolicy({ cwd, mode: "ask" })
+    const events = await collect(runAgent("write the file", [], { client, cwd, permissionPolicy, onPermissionRequest }))
 
     expect(onPermissionRequest).toHaveBeenCalledOnce()
-    expect(onPermissionRequest.mock.calls[0][0]).toMatchObject({ name: "write" })
+    expect(onPermissionRequest.mock.calls[0][0]).toMatchObject({ call: { name: "write" } })
     const toolMessage = events
       .find((event) => event.type === "complete")
       ?.messages.find((message) => message.role === "tool")
@@ -308,7 +313,7 @@ describe("runAgent", () => {
   it("does not ask permission for read-only tools", async () => {
     const cwd = await trackedTempDir()
     await writeFile(join(cwd, "note.txt"), "hello world", "utf8")
-    const onPermissionRequest = vi.fn<(call: { name: string }) => Promise<boolean>>(async () => true)
+    const onPermissionRequest = vi.fn<(request: PermissionRequest) => Promise<boolean>>(async () => true)
 
     const calls = [
       { id: "call_read", name: "read", arguments: '{"path":"note.txt"}' },
@@ -332,7 +337,7 @@ describe("runAgent", () => {
 
   it("asks permission for every bash command, including read-only ones", async () => {
     const cwd = await trackedTempDir()
-    const onPermissionRequest = vi.fn<(call: { name: string }) => Promise<boolean>>(async () => false)
+    const onPermissionRequest = vi.fn<(request: PermissionRequest) => Promise<boolean>>(async () => false)
 
     streamAgentMock
       .mockImplementationOnce(async function* () {
@@ -342,10 +347,11 @@ describe("runAgent", () => {
         yield { type: "text_delta", text: "Okay." }
       })
 
-    await collect(runAgent("list files", [], { client, cwd, onPermissionRequest }))
+    const permissionPolicy = createPermissionPolicy({ cwd, mode: "ask" })
+    await collect(runAgent("list files", [], { client, cwd, permissionPolicy, onPermissionRequest }))
 
     expect(onPermissionRequest).toHaveBeenCalledOnce()
-    expect(onPermissionRequest.mock.calls[0][0]).toMatchObject({ name: "bash" })
+    expect(onPermissionRequest.mock.calls[0][0]).toMatchObject({ call: { name: "bash" } })
   })
 
   it("loads AGENTS.md from cwd and passes project context to streamAgent", async () => {

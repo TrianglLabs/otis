@@ -93,8 +93,10 @@ otis exec --continue --auto "Run the tests and fix the failure"
 ```
 
 `plain` output writes only the final assistant response to stdout and progress to stderr. `json` writes one result
-object, while `jsonl` streams versioned Otis events followed by a result event. Destructive tools (`write`, `edit`, and
-`bash`) are denied unless `--auto` is passed. Use `--tools` for a narrower comma-separated allowlist, `--max-steps` and
+object, while `jsonl` streams versioned Otis events followed by a result event. Write, edit, and shell calls are denied
+unless they match an allow rule or `--auto` is passed. Explicit deny rules remain effective in auto mode. Use repeatable
+`--allow`, `--ask`, and `--deny` flags for one-run policy, `--tools` for a narrower comma-separated tool list, and
+`--max-steps` and
 `--timeout` for execution limits, and `--ephemeral` when no local session should be written. `--continue` resumes the
 latest session for the working directory; `--session` resumes a specific session.
 
@@ -132,6 +134,38 @@ Provider keys are never written to sessions, transcripts, tool results, or usage
 [Fireworks Zero Data Retention policy](https://docs.fireworks.ai/guides/security_compliance/data_handling), the
 [architecture guide](docs/architecture.md) for the complete runtime boundaries, and the [security policy](SECURITY.md)
 for private vulnerability reporting.
+
+## Tool permissions
+
+Otis evaluates every structured tool call through one permission policy shared by the terminal UI and `otis exec`.
+Rules match a tool plus its primary resource: a shell command, workspace-relative path, URL, or search query. Effects
+are evaluated with `deny` taking precedence over `ask`, then `allow`. `*` and `?` wildcards are supported.
+Shell wildcards do not cross control operators, command substitutions, or redirections; authorize those commands
+explicitly or use auto mode when blanket execution is intended.
+
+User rules live in the private local `config.json`:
+
+```json
+{
+  "version": 1,
+  "permissions": {
+    "defaultMode": "ask",
+    "rules": [
+      { "tool": "bash", "resource": "git status", "effect": "allow" },
+      { "tool": "bash", "resource": "git push *", "effect": "ask" },
+      { "tool": "read", "resource": "*.env", "effect": "deny" }
+    ]
+  }
+}
+```
+
+The modes are `ask`, `auto`, and `dontAsk`. Read-only tools are allowed by default; write, edit, and bash resolve to
+the selected mode. In headless execution, `ask` fails closed because no approval UI exists. `otis exec` defaults to
+`dontAsk`; a configured `auto` default or the `--auto` flag opts into unmatched write, edit, and bash calls.
+
+A repository may add `.otis/permissions.json` with `{ "version": 1, "rules": [...] }`. Project rules may only use
+`ask` or `deny`, so opening a repository cannot silently grant itself access. For one headless run, rules use
+`tool(resource)` syntax, for example `--allow 'bash(git status)'` or `--deny 'read(*.env)'`.
 
 ## Development
 

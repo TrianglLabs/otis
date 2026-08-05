@@ -5,8 +5,15 @@ import { FireworksClient } from "../inference/client.js"
 import type { ContextFile, FireworksModel } from "../inference/types.js"
 import { isThemeName, loadLocalSettings, saveSelectedTheme, type ThemeName } from "../local/settings.js"
 import { calculateLocalStats } from "../local/stats.js"
+import {
+  createPermissionPolicy,
+  type PermissionMode,
+  type PermissionRequest,
+  type PermissionRule,
+} from "../permissions/policy.js"
+import { loadProjectPermissionRules } from "../permissions/project-policy.js"
 import type { JsonlSession, PromptAdmission } from "../storage/index.js"
-import { describeToolCall, type ToolCall } from "../tools/index.js"
+import { describeToolCall } from "../tools/index.js"
 import { ParallelClient } from "../web/client.js"
 import { runAgentTurn } from "./agent-turn.js"
 import { type CommandSuggestion, createChatUI } from "./chat-ui.js"
@@ -50,7 +57,8 @@ let selectedModelId: string | undefined
 let autoCompactAtTokens = autoCompactThreshold()
 let client: FireworksClient | undefined
 let webClient: ParallelClient | undefined
-let askMode = false
+let permissionMode: PermissionMode = "ask"
+let permissionRules: PermissionRule[] = []
 let selectedTheme: ThemeName = "default"
 let activeTurn: AbortController | undefined
 let updateCheckController: AbortController | undefined
@@ -66,6 +74,8 @@ export async function startInteractiveCli() {
   parallelApiKey = settings.parallelApiKey
   selectedModelId = settings.model
   autoCompactAtTokens = autoCompactThreshold(settings.modelContextLength)
+  permissionMode = settings.permissions?.defaultMode ?? "ask"
+  permissionRules = [...(settings.permissions?.rules ?? []), ...(await loadProjectPermissionRules(workspaceCwd))]
   configured = Boolean(fireworksApiKey && parallelApiKey && selectedModelId)
   if (fireworksApiKey && selectedModelId) {
     client = new FireworksClient({ apiKey: fireworksApiKey, model: selectedModelId })
@@ -90,7 +100,7 @@ export async function startInteractiveCli() {
       contextUsage(estimateContextTokens(transcript.history, projectContextChars), autoCompactAtTokens),
     ),
     modelLabel: formatModelName(settings.modelDisplayName ?? selectedModelId),
-    modeLabel: formatModeLabel(askMode),
+    modeLabel: formatModeLabel(permissionMode),
     sessionLabel: "Current session",
     theme: selectedTheme,
     treeSitterClient,
@@ -318,7 +328,8 @@ async function handleInput(value: string) {
       onUsage: async (usage) => {
         await turnSession.recordUsage(usage, "agent", admission.promptId)
       },
-      onPermissionRequest: askMode ? handlePermissionRequest : undefined,
+      permissionPolicy: createPermissionPolicy({ cwd: workspaceCwd, mode: permissionMode, rules: permissionRules }),
+      onPermissionRequest: handlePermissionRequest,
       onCompletion: () => terminal.notifyCompletion(),
     })
   } finally {
@@ -461,8 +472,8 @@ function updateContextIndicator(pendingInput = "") {
 
 function toggleMode() {
   if (busy) return
-  askMode = !askMode
-  ui.setModeLabel(formatModeLabel(askMode))
+  permissionMode = permissionMode === "ask" ? "auto" : "ask"
+  ui.setModeLabel(formatModeLabel(permissionMode))
 }
 
 async function selectThemeCommand(value: string) {
@@ -497,13 +508,15 @@ function showThemeMessage(message: string) {
   ui.focusInput()
 }
 
-function handlePermissionRequest(call: ToolCall): Promise<boolean> {
-  const activity = describeToolCall(call)
+function handlePermissionRequest(request: PermissionRequest): Promise<boolean> {
+  const activity = describeToolCall(request.call)
   return ui.showPermissionPrompt(activity.label)
 }
 
-function formatModeLabel(ask: boolean) {
-  return ask ? "? ask" : "› auto"
+function formatModeLabel(mode: PermissionMode) {
+  if (mode === "ask") return "? ask"
+  if (mode === "auto") return "› auto"
+  return "× dontAsk"
 }
 
 function formatModelName(model: string | undefined) {

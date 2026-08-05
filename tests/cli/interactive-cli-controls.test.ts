@@ -46,14 +46,28 @@ describe("CLI interrupt", () => {
 })
 
 describe("CLI mode toggle", () => {
+  it("starts in ask mode and passes the shared policy to the agent", async () => {
+    mocks.runAgent.mockImplementationOnce(async function* (_input, _history, options) {
+      expect((await options.permissionPolicy.evaluate({ name: "bash", input: { command: "git status" } })).effect).toBe(
+        "ask",
+      )
+      yield { type: "complete", messages: [] }
+    })
+
+    await loadCli()
+    await submit("inspect")
+
+    expect(mocks.createChatUI.mock.calls.at(-1)?.[1]).toMatchObject({ modeLabel: "? ask" })
+  })
+
   it("cycles mode label on toggle", async () => {
     await loadCli()
 
     mocks.uiOptions?.onToggleMode?.()
-    expect(mocks.ui.setModeLabel).toHaveBeenCalledWith("? ask")
+    expect(mocks.ui.setModeLabel).toHaveBeenCalledWith("› auto")
 
     mocks.uiOptions?.onToggleMode?.()
-    expect(mocks.ui.setModeLabel).toHaveBeenCalledWith("› auto")
+    expect(mocks.ui.setModeLabel).toHaveBeenCalledWith("? ask")
   })
 })
 
