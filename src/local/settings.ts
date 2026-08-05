@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { dirname, join, resolve } from "node:path"
 import type { FireworksModel } from "../inference/types.js"
+import { type PermissionConfig, parsePermissionConfig } from "../permissions/policy.js"
 import { localConfigDirectory } from "./paths.js"
 
 export type LocalSettings = {
@@ -11,6 +12,7 @@ export type LocalSettings = {
   modelDisplayName?: string
   modelContextLength?: number
   theme?: ThemeName
+  permissions?: PermissionConfig
 }
 
 export const THEME_NAMES = ["default", "nord", "bright", "matrix"] as const
@@ -29,6 +31,7 @@ type SettingsFile = {
   modelDisplayName?: string
   modelContextLength?: number
   theme?: ThemeName
+  permissions?: PermissionConfig
 }
 
 export async function loadLocalSettings(options: SettingsFileOptions = {}): Promise<LocalSettings> {
@@ -44,6 +47,7 @@ export async function loadLocalSettings(options: SettingsFileOptions = {}): Prom
     modelDisplayName: saved?.modelDisplayName,
     modelContextLength: saved?.modelContextLength,
     ...(saved?.theme ? { theme: saved.theme } : {}),
+    ...(saved?.permissions ? { permissions: saved.permissions } : {}),
   }
 }
 
@@ -117,6 +121,10 @@ function parseSettingsFile(value: unknown): SettingsFile {
   const modelDisplayName = optionalString(value.modelDisplayName, "modelDisplayName")
   const modelContextLength = optionalPositiveInteger(value.modelContextLength, "modelContextLength")
   const theme = optionalTheme(value.theme)
+  const permissions =
+    value.permissions === undefined
+      ? undefined
+      : parsePermissionConfig(value.permissions, "Invalid Otis config: permissions")
   return {
     version: 1,
     ...(fireworksApiKey ? { fireworksApiKey } : {}),
@@ -125,6 +133,7 @@ function parseSettingsFile(value: unknown): SettingsFile {
     ...(modelDisplayName ? { modelDisplayName } : {}),
     ...(modelContextLength ? { modelContextLength } : {}),
     ...(theme ? { theme } : {}),
+    ...(permissions ? { permissions } : {}),
   }
 }
 
@@ -141,6 +150,7 @@ function withSelectedModel(settings: SettingsFile, model: FireworksModel): Setti
     modelDisplayName: required(model.displayName, "Fireworks model display name"),
     ...(contextLength ? { modelContextLength: contextLength } : {}),
     ...(settings.theme ? { theme: settings.theme } : {}),
+    ...(settings.permissions ? { permissions: settings.permissions } : {}),
   }
 }
 

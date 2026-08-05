@@ -7,6 +7,7 @@ import type {
   OpenAICompatibleReasoningField,
   TokenUsage,
 } from "../inference/types.js"
+import { createPermissionPolicy, type PermissionPolicy, type PermissionRequest } from "../permissions/policy.js"
 import {
   describeToolCall,
   executeToolCall,
@@ -44,7 +45,8 @@ export type RunAgentOptions = ToolContext & {
   client: FireworksClient
   debug?: boolean
   onUsage?: (usage: TokenUsage) => void | Promise<void>
-  onPermissionRequest?: (call: ToolCall) => Promise<boolean>
+  permissionPolicy?: PermissionPolicy
+  onPermissionRequest?: (request: PermissionRequest) => Promise<boolean>
   projectContext?: ContextFile[]
   tools?: ToolDefinition[]
   maxSteps?: number
@@ -58,7 +60,12 @@ export async function* runAgent(
   const messages: ChatMessage[] = [...history, { role: "user", content: input }]
   try {
     const projectContext = options.projectContext ?? loadProjectContext(options.cwd ?? process.cwd())
-    const toolContext: RunAgentOptions = { ...options, webSession: {} }
+    const toolContext: RunAgentOptions = {
+      ...options,
+      permissionPolicy:
+        options.permissionPolicy ?? createPermissionPolicy({ cwd: options.cwd ?? process.cwd(), mode: "ask" }),
+      webSession: {},
+    }
     yield { type: "context", messageCount: messages.length, contentChars: messagesContentChars(messages) }
 
     let step = 0
@@ -228,8 +235,23 @@ async function* executeToolCalls(
     try {
       if (context.signal?.aborted) return interruptedToolCalls(messages, calls.slice(index))
 
-      if (isDestructiveTool(call.value.name) && context.onPermissionRequest) {
-        const approved = await context.onPermissionRequest(call.value)
+      const permission = await context.permissionPolicy?.evaluate(call.value)
+      if (permission?.effect === "deny") {
+        outcome = "denied"
+        messages.push({ role: "tool", toolCallId: rawCall.id, content: "Permission denied by policy." })
+        continue
+      }
+      if (permission?.effect === "ask") {
+        if (!context.onPermissionRequest) {
+          outcome = "denied"
+          messages.push({
+            role: "tool",
+            toolCallId: rawCall.id,
+            content: "Permission approval required, but no approval handler is available.",
+          })
+          continue
+        }
+        const approved = await context.onPermissionRequest({ call: call.value, decision: permission })
         if (context.signal?.aborted) return interruptedToolCalls(messages, calls.slice(index))
         if (!approved) {
           outcome = "denied"
@@ -315,10 +337,4 @@ function messageContentChars(message: ChatMessage): number {
     else chars += part.toolCall.id.length + part.toolCall.name.length + part.toolCall.arguments.length
   }
   return chars
-}
-
-const DESTRUCTIVE_TOOLS = new Set<ToolCall["name"]>(["bash", "write", "edit"])
-
-function isDestructiveTool(name: ToolCall["name"]): boolean {
-  return DESTRUCTIVE_TOOLS.has(name)
 }
