@@ -132,6 +132,14 @@ describe("permission policy", () => {
       resource: "git status",
       effect: "allow",
     })
+    expect(parsePermissionRuleString("Bash(git *)", "allow")).toEqual({
+      tool: "bash",
+      resource: "git *",
+      effect: "allow",
+    })
+    expect(parsePermissionConfig({ rules: [{ tool: "READ", resource: "*.env", effect: "deny" }] })).toEqual({
+      rules: [{ tool: "read", resource: "*.env", effect: "deny" }],
+    })
   })
 
   it("rejects unknown tools and malformed effects", () => {

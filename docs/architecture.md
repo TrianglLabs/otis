@@ -79,6 +79,12 @@ non-interactive execution. Current tools
 cover web search, web reading, file reading, file search, file creation, exact edits, and shell commands. Web tools call
 Parallel directly; local file and shell tools never pass through a remote Otis service.
 
+Shell resources are currently matched against the complete command string. Patterns are anchored and Otis does not
+split compound commands at shell control operators for deny matching. For example, `bash(rm -rf *)` matches a command
+that begins with `rm -rf`, but does not match `cd /tmp && rm -rf x`. Allow-rule wildcards cannot cross shell control
+operators, but explicit deny rules in permissive modes should use a broader pattern when compound commands must be
+covered. Per-command-segment policy evaluation is a future hardening boundary.
+
 ## Sessions and local statistics
 
 Each session is an append-only JSONL event stream. A completed turn stores model-facing messages separately from local

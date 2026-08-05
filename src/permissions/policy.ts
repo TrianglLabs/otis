@@ -90,10 +90,10 @@ export function parsePermissionConfig(value: unknown, label = "permissions"): Pe
 
 export function parsePermissionRule(value: unknown, label = "permission rule"): PermissionRule {
   if (!isRecord(value)) throw new Error(`${label} must be an object.`)
-  const tool = value.tool
+  const tool = typeof value.tool === "string" ? normalizePermissionTool(value.tool) : undefined
   const effect = value.effect
   const resource = value.resource
-  if (typeof tool !== "string" || !isPermissionTool(tool)) {
+  if (!tool) {
     throw new Error(`${label}.tool must be * or a known tool name.`)
   }
   if (typeof effect !== "string" || !isPermissionEffect(effect)) {
@@ -171,6 +171,11 @@ function isPermissionEffect(value: string): value is PermissionEffect {
 
 function isPermissionTool(value: string): value is PermissionRule["tool"] {
   return value === "*" || (TOOL_NAMES as readonly string[]).includes(value)
+}
+
+function normalizePermissionTool(value: string): PermissionRule["tool"] | undefined {
+  const normalized = value.toLowerCase()
+  return isPermissionTool(normalized) ? normalized : undefined
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
