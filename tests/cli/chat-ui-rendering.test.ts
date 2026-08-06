@@ -190,7 +190,9 @@ describe("chat UI rendering", () => {
     const sessionPanel = harness.get<BoxRenderable>("session-panel")
     expect(sessionRows.x + sessionRows.width).toBe(sessionPanel.x + sessionPanel.width)
 
-    harness.ui.showModelPicker([{ id: "accounts/fireworks/models/alpha", displayName: "Alpha" }])
+    harness.ui.showModelPicker([
+      { id: "accounts/fireworks/models/alpha", displayName: "Alpha", supportsImageInput: false },
+    ])
     const modelRows = harness.get<ScrollBoxRenderable>("model-rows")
     expect(modelRows.verticalScrollBar.slider.backgroundColor.equals(RGBA.fromHex(colors.border))).toBe(true)
     expect(modelRows.verticalScrollBar.slider.foregroundColor.equals(RGBA.fromHex(colors.muted))).toBe(true)
@@ -287,14 +289,19 @@ describe("chat UI rendering", () => {
         id: "accounts/fireworks/models/alpha",
         displayName: "Alpha",
         contextLength: 128_000,
+        supportsImageInput: true,
         active: true,
       },
-      { id: "accounts/fireworks/models/beta", displayName: "Beta" },
+      { id: "accounts/fireworks/models/beta", displayName: "Beta", supportsImageInput: false },
     ]
 
+    harness.ui.showSessionPicker([{ id: "session", title: "Session", detail: "now" }])
+    const sessionPanelWidth = harness.get<BoxRenderable>("session-panel").width
     harness.ui.showModelPicker(models)
     expect(harness.childIds("chat-body")).toEqual(["model-panel", "messages"])
-    expect(harness.text("model-row-0")).toBe("* Alpha · 128K")
+    expect(harness.childIds("input-area")).toContain("input-box")
+    expect(harness.get<BoxRenderable>("model-panel").width).toBe(sessionPanelWidth)
+    expect(harness.text("model-row-0")).toBe("* Alpha · 128K · vision")
     expect(harness.text("model-row-0")).not.toContain("accounts/fireworks")
     expect(harness.text("model-row-1")).toBe("  Beta · —")
 

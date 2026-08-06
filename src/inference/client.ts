@@ -1,3 +1,5 @@
+import { validateImageAttachments } from "./images.js"
+import { imageAttachmentsFromMessages } from "./messages.js"
 import { highestReasoningEffort } from "./reasoning.js"
 import { parseChatCompletionStream } from "./stream-parser.js"
 import { buildSystemPrompt } from "./system-prompt.js"
@@ -92,6 +94,7 @@ export async function listToolCapableModels(apiKey: string, options: ListModelsO
         id: model.name,
         displayName: model.displayName || model.name.split("/").at(-1) || model.name,
         ...(model.contextLength === undefined ? {} : { contextLength: model.contextLength }),
+        supportsImageInput: model.supportsImageInput,
       })
     }
 
@@ -130,6 +133,7 @@ type ListModelsOptions = {
 
 function chatRequest(model: string, options: StreamChatOptions) {
   const tools = options.tools ?? []
+  validateImageAttachments(imageAttachmentsFromMessages(options.messages))
   const reasoningEffort = highestReasoningEffort(model)
   return {
     model,
@@ -146,7 +150,22 @@ function chatRequest(model: string, options: StreamChatOptions) {
 }
 
 function providerMessage(message: ChatMessage) {
-  if (message.role === "user") return { role: "user", content: message.content }
+  if (message.role === "user") {
+    return {
+      role: "user",
+      content:
+        typeof message.content === "string"
+          ? message.content
+          : message.content.map((part) =>
+              part.type === "text"
+                ? part
+                : {
+                    type: "image_url",
+                    image_url: { url: `data:${part.mimeType};base64,${part.data}` },
+                  },
+            ),
+    }
+  }
   if (message.role === "tool") return { role: "tool", tool_call_id: message.toolCallId, content: message.content }
 
   const text = message.content
@@ -196,6 +215,7 @@ type RawModel = {
   contextLength?: number
   supportsServerless: boolean
   supportsTools: boolean
+  supportsImageInput: boolean
 }
 
 function parseModel(value: unknown): RawModel | undefined {
@@ -208,6 +228,7 @@ function parseModel(value: unknown): RawModel | undefined {
     contextLength: positiveInteger(value.contextLength),
     supportsServerless: value.supportsServerless === true,
     supportsTools: value.supportsTools === true,
+    supportsImageInput: value.supportsImageInput === true,
   }
 }
 

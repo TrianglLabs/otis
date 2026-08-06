@@ -184,7 +184,9 @@ describe("chat UI input", () => {
     harness.ui.showSetupStatus()
     expect(harness.text("setup-status")).toBe("Loading models...")
 
-    harness.ui.showModelPicker([{ id: "accounts/fireworks/models/tool-model", displayName: "Tool Model" }])
+    harness.ui.showModelPicker([
+      { id: "accounts/fireworks/models/tool-model", displayName: "Tool Model", supportsImageInput: false },
+    ])
     expect(harness.find("setup-status-box")).toBeUndefined()
     expect(harness.childIds("input-area")).toEqual([])
     expect(harness.childIds("chat-body")).toEqual(["model-panel", "messages"])
@@ -233,5 +235,32 @@ describe("chat UI input", () => {
 
     harness.ui.setModeLabel("? ask")
     expect(harness.text("mode-label")).toBe("? ask")
+  })
+
+  it("shows pending image names and routes binary and path paste", async () => {
+    const onImagePaste = vi.fn()
+    const onImagePathPaste = vi.fn(() => true)
+    const onRemoveLastImage = vi.fn(() => true)
+    const harness = await setup({ onImagePaste, onImagePathPaste, onRemoveLastImage })
+    harness.ui.showChatLayout()
+
+    harness.ui.setImageAttachmentCount(2)
+    expect(harness.childIds("input-area")).toEqual(["input-box"])
+    expect(harness.childIds("input-box")).toEqual(["mode-label", "image-attachments", "otis-input", "input-hint"])
+    expect(harness.text("image-attachments")).toBe("[Image 1] [Image 2]")
+
+    const bytes = new Uint8Array([1, 2, 3])
+    harness.renderer.keyInput.processPaste(bytes, { kind: "binary", mimeType: "image/png" })
+    expect(onImagePaste).toHaveBeenCalledWith(bytes, "image/png")
+
+    const path = "/tmp/dragged\\ image.png"
+    harness.renderer.keyInput.processPaste(new TextEncoder().encode(path), { kind: "text" })
+    expect(onImagePathPaste).toHaveBeenCalledWith(path)
+
+    harness.press("backspace")
+    expect(onRemoveLastImage).toHaveBeenCalledOnce()
+
+    harness.ui.setImageAttachmentCount(0)
+    expect(harness.find("image-attachments")).toBeUndefined()
   })
 })

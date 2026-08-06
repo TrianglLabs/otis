@@ -3,8 +3,10 @@ import { resolve } from "node:path"
 import { parseArgs } from "node:util"
 import { loadProjectContext } from "../core/context.js"
 import { FireworksClient, listToolCapableModels } from "../inference/client.js"
+import { loadImageFiles, validateImageAttachments } from "../inference/images.js"
+import { createUserMessage, imageAttachmentsFromMessages, messagesContainImages } from "../inference/messages.js"
 import type { ChatMessage } from "../inference/types.js"
-import { loadLocalSettings } from "../local/settings.js"
+import { loadLocalSettings, saveSelectedModel } from "../local/settings.js"
 import {
   createPermissionPolicy,
   type PermissionEffect,
@@ -73,20 +75,28 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
     const cwd = resolve(options.processCwd ?? process.cwd(), parsed.cwd ?? ".")
     if (!(await stat(cwd)).isDirectory()) throw new Error(`Working directory is not a directory: ${cwd}`)
     const prompt = await readPrompt(parsed.promptParts, options.stdin ?? process.stdin)
-    if (!prompt.trim()) throw new Error("A prompt is required as an argument or on stdin.")
+    const images = await loadImageFiles(parsed.images, cwd)
+    if (!prompt.trim() && images.length === 0) throw new Error("A prompt or image is required.")
+    const userMessage = createUserMessage(prompt, images)
 
     const settings = await loadLocalSettings({ env: options.env })
     if (!settings.fireworksApiKey) throw new Error("Fireworks API key is not configured.")
     model = parsed.model ?? settings.model ?? ""
     modelContextLength = parsed.model ? undefined : settings.modelContextLength
+    let modelSupportsImageInput = parsed.model ? undefined : settings.modelSupportsImageInput
     if (!model) throw new Error("A Fireworks model is not configured. Run Otis interactively or pass --model.")
-    if (parsed.model) {
+    if (parsed.model || (images.length > 0 && modelSupportsImageInput === undefined)) {
       const models = await listToolCapableModels(settings.fireworksApiKey, { signal: controller.signal })
       const selectedModel = models.find((candidate) => candidate.id === model)
       if (!selectedModel) {
         throw new Error(`Model is not a tool-capable Fireworks serverless model: ${model}`)
       }
       modelContextLength = selectedModel.contextLength
+      modelSupportsImageInput = selectedModel.supportsImageInput
+      if (!parsed.model && settings.model === model) await saveSelectedModel(selectedModel)
+    }
+    if (images.length > 0 && !modelSupportsImageInput) {
+      throw new Error(`Selected model does not support image input: ${model}`)
     }
 
     const client = new FireworksClient({ apiKey: settings.fireworksApiKey, model })
@@ -101,6 +111,20 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
       } else {
         session = await createSession({ cwd })
       }
+    }
+    const sessionContainsImages = session ? messagesContainImages(session.replayMessages()) : false
+    if (sessionContainsImages && modelSupportsImageInput === undefined) {
+      const models = await listToolCapableModels(settings.fireworksApiKey, { signal: controller.signal })
+      const selectedModel = models.find((candidate) => candidate.id === model)
+      if (!selectedModel) {
+        throw new Error(`Model is not a tool-capable Fireworks serverless model: ${model}`)
+      }
+      modelContextLength = selectedModel.contextLength
+      modelSupportsImageInput = selectedModel.supportsImageInput
+      if (!parsed.model && settings.model === model) await saveSelectedModel(selectedModel)
+    }
+    if (sessionContainsImages && !modelSupportsImageInput) {
+      throw new Error(`Selected model does not support image input required by this session: ${model}`)
     }
 
     const history = session
@@ -117,7 +141,8 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
           },
         })
       : []
-    const admission = session ? await session.admitPrompt(prompt) : undefined
+    validateImageAttachments(imageAttachmentsFromMessages([...history, userMessage]))
+    const admission = session ? await session.admitPrompt(userMessage) : undefined
     const webClient = settings.parallelApiKey ? new ParallelClient({ apiKey: settings.parallelApiKey }) : undefined
     const tools = selectedTools(parsed.tools, Boolean(webClient))
     const projectPermissionRules = await loadProjectPermissionRules(cwd)
@@ -128,7 +153,7 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
     })
 
     const result = await executeTurn({
-      input: prompt,
+      input: userMessage,
       history,
       agent: {
         client,
@@ -213,6 +238,7 @@ function parseHeadlessArgs(argv: string[]) {
       help: { type: "boolean", short: "h" },
       cwd: { type: "string", short: "C" },
       model: { type: "string", short: "m" },
+      image: { type: "string", multiple: true },
       session: { type: "string", short: "s" },
       continue: { type: "boolean", short: "c" },
       ephemeral: { type: "boolean" },
@@ -241,6 +267,7 @@ function parseHeadlessArgs(argv: string[]) {
     help: values.help ?? false,
     cwd: values.cwd,
     model: values.model,
+    images: values.image ?? [],
     session: values.session,
     continue: values.continue ?? false,
     ephemeral: values.ephemeral ?? false,
@@ -368,6 +395,7 @@ Run one non-interactive Otis turn. If no prompt is given, the prompt is read fro
 Options:
   -C, --cwd <path>             Working directory
   -m, --model <id>             Tool-capable Fireworks serverless model
+      --image <path>           Attach an image; repeatable
   -s, --session <id>           Resume a specific local session
   -c, --continue               Resume the most recently updated session
       --ephemeral              Do not create or update a session

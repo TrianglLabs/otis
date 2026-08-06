@@ -19,6 +19,7 @@ export class SetupFlow {
   #fireworksApiKey: string | undefined
   #parallelApiKey: string | undefined
   #selectedModel: string | undefined
+  #selectedModelSupportsImageInput: boolean | undefined
   #models: FireworksModel[] = []
   #persistFireworksApiKey = false
   #wasConfigured = false
@@ -28,6 +29,7 @@ export class SetupFlow {
     this.#fireworksApiKey = options.settings.fireworksApiKey
     this.#parallelApiKey = options.settings.parallelApiKey
     this.#selectedModel = options.settings.model
+    this.#selectedModelSupportsImageInput = options.settings.modelSupportsImageInput
   }
 
   begin() {
@@ -95,6 +97,7 @@ export class SetupFlow {
       if (this.#persistFireworksApiKey) await saveFireworksSetup(this.#fireworksApiKey, selected)
       else await saveSelectedModel(selected)
       this.#selectedModel = selected.id
+      this.#selectedModelSupportsImageInput = selected.supportsImageInput
       this.options.onCredentialsChanged({
         fireworksApiKey: this.#fireworksApiKey,
         parallelApiKey: this.#parallelApiKey,
@@ -135,7 +138,12 @@ export class SetupFlow {
   private async loadModels(apiKey: string, currentModel: string | undefined, wasConfigured: boolean) {
     if (this.options.isBusy()) return
     this.options.setBusy(true)
-    this.options.ui.showSetupStatus()
+    if (wasConfigured) {
+      this.options.ui.showChatLayout()
+      this.options.ui.showTransientHint(" Loading models… ")
+    } else {
+      this.options.ui.showSetupStatus()
+    }
 
     try {
       const models = await listToolCapableModels(apiKey)
@@ -163,7 +171,7 @@ export class SetupFlow {
     const selected =
       model ??
       this.#models.find((candidate) => candidate.id === this.#selectedModel) ??
-      (this.#selectedModel ? modelFromId(this.#selectedModel) : undefined)
+      (this.#selectedModel ? modelFromId(this.#selectedModel, this.#selectedModelSupportsImageInput) : undefined)
     if (!fireworksApiKey || !parallelApiKey || !selected) return
 
     this.options.onConfigured(fireworksApiKey, parallelApiKey, selected)
@@ -183,8 +191,8 @@ function credentialPrompt(credential: SetupCredential) {
   return "Web search + page reading · Get key: platform.parallel.ai"
 }
 
-function modelFromId(id: string): FireworksModel {
-  return { id, displayName: id.split("/").at(-1) ?? id }
+function modelFromId(id: string, supportsImageInput = false): FireworksModel {
+  return { id, displayName: id.split("/").at(-1) ?? id, supportsImageInput }
 }
 
 function errorMessage(error: unknown) {

@@ -1,3 +1,4 @@
+import { userMessageContentChars } from "../inference/messages.js"
 import type { ChatMessage } from "../inference/types.js"
 import { TOOL_DEFINITIONS } from "../tools/index.js"
 import { colors } from "./theme.js"
@@ -11,12 +12,13 @@ const toolDefinitionChars = JSON.stringify(TOOL_DEFINITIONS).length
 export function estimateContextTokens(
   messages: readonly ChatMessage[],
   projectContextChars: number,
-  pendingInput = "",
+  pendingInput: string | number = "",
 ) {
-  let chars = toolDefinitionChars + projectContextChars + pendingInput.length
+  const pendingChars = typeof pendingInput === "number" ? pendingInput : pendingInput.length
+  let chars = toolDefinitionChars + projectContextChars + pendingChars
   let messageCount = 1 + messages.length
 
-  if (pendingInput) messageCount += 1
+  if (pendingChars > 0) messageCount += 1
 
   for (const message of messages) {
     chars += message.role.length + messageContentLength(message)
@@ -66,7 +68,8 @@ export function contextUsageColor(percent: number) {
 }
 
 function messageContentLength(message: ChatMessage) {
-  if (message.role !== "assistant") return message.content.length
+  if (message.role === "user") return userMessageContentChars(message)
+  if (message.role === "tool") return message.content.length
 
   return message.content.reduce((length, part) => {
     if (part.type === "text" || part.type === "reasoning") return length + part.text.length

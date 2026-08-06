@@ -11,6 +11,7 @@ export type LocalSettings = {
   model?: string
   modelDisplayName?: string
   modelContextLength?: number
+  modelSupportsImageInput?: boolean
   theme?: ThemeName
   thinkingVisible?: boolean
   permissions?: PermissionConfig
@@ -31,6 +32,7 @@ type SettingsFile = {
   model?: string
   modelDisplayName?: string
   modelContextLength?: number
+  modelSupportsImageInput?: boolean
   theme?: ThemeName
   thinkingVisible?: boolean
   permissions?: PermissionConfig
@@ -48,6 +50,7 @@ export async function loadLocalSettings(options: SettingsFileOptions = {}): Prom
     model: saved?.model,
     modelDisplayName: saved?.modelDisplayName,
     modelContextLength: saved?.modelContextLength,
+    ...(saved?.modelSupportsImageInput !== undefined ? { modelSupportsImageInput: saved.modelSupportsImageInput } : {}),
     ...(saved?.theme ? { theme: saved.theme } : {}),
     ...(saved?.thinkingVisible !== undefined ? { thinkingVisible: saved.thinkingVisible } : {}),
     ...(saved?.permissions ? { permissions: saved.permissions } : {}),
@@ -128,6 +131,7 @@ function parseSettingsFile(value: unknown): SettingsFile {
   const model = optionalString(value.model, "model")
   const modelDisplayName = optionalString(value.modelDisplayName, "modelDisplayName")
   const modelContextLength = optionalPositiveInteger(value.modelContextLength, "modelContextLength")
+  const modelSupportsImageInput = optionalBoolean(value.modelSupportsImageInput, "modelSupportsImageInput")
   const theme = optionalTheme(value.theme)
   const thinkingVisible = optionalBoolean(value.thinkingVisible, "thinkingVisible")
   const permissions =
@@ -141,6 +145,7 @@ function parseSettingsFile(value: unknown): SettingsFile {
     ...(model ? { model } : {}),
     ...(modelDisplayName ? { modelDisplayName } : {}),
     ...(modelContextLength ? { modelContextLength } : {}),
+    ...(modelSupportsImageInput !== undefined ? { modelSupportsImageInput } : {}),
     ...(theme ? { theme } : {}),
     ...(thinkingVisible !== undefined ? { thinkingVisible } : {}),
     ...(permissions ? { permissions } : {}),
@@ -159,6 +164,7 @@ function withSelectedModel(settings: SettingsFile, model: FireworksModel): Setti
     model: required(model.id, "Fireworks model"),
     modelDisplayName: required(model.displayName, "Fireworks model display name"),
     ...(contextLength ? { modelContextLength: contextLength } : {}),
+    modelSupportsImageInput: model.supportsImageInput,
     ...(settings.theme ? { theme: settings.theme } : {}),
     ...(settings.thinkingVisible !== undefined ? { thinkingVisible: settings.thinkingVisible } : {}),
     ...(settings.permissions ? { permissions: settings.permissions } : {}),

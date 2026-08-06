@@ -90,6 +90,31 @@ describe("compactConversation", () => {
     ])
   })
 
+  it("describes images in summary prompts without copying their base64 payload", async () => {
+    const messages: ChatMessage[] = [
+      {
+        role: "user",
+        content: [
+          { type: "image", data: "c2VjcmV0", mimeType: "image/png", name: "screen.png", sizeBytes: 6 },
+          { type: "text", text: "Inspect this" },
+        ],
+      },
+      { role: "assistant", content: [{ type: "text", text: "I inspected it." }] },
+      { role: "user", content: "Continue" },
+      { role: "assistant", content: [{ type: "text", text: "Continuing." }] },
+    ]
+    let capturedPrompt = ""
+    streamAgentMock.mockImplementationOnce(async function* (request: { messages: ChatMessage[] }) {
+      capturedPrompt = request.messages[0].content as string
+      yield { type: "text_delta", text: "Summary" }
+    })
+
+    await compactConversation(messages, { client, keepRecentTokens: 1 })
+
+    expect(capturedPrompt).toContain("[Image: screen.png (image/png, 6 bytes)]")
+    expect(capturedPrompt).not.toContain("c2VjcmV0")
+  })
+
   it("cuts at a turn boundary, never splitting tool calls from results", async () => {
     const messages: ChatMessage[] = [
       { role: "user", content: "read a file" },

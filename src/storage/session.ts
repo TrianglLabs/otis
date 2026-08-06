@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto"
 import { readdir, rm, stat } from "node:fs/promises"
 import { join } from "node:path"
 import { isCompactionSummary } from "../core/compaction.js"
-import type { ChatMessage, TokenUsage } from "../inference/types.js"
+import { createUserMessage, summarizeUserMessage, userMessageText } from "../inference/messages.js"
+import type { ChatMessage, TokenUsage, UserChatMessage } from "../inference/types.js"
 import {
   type BaseSessionEvent,
   isInvalidSessionFileError,
@@ -16,7 +17,6 @@ import {
   type SessionEvent,
   type SessionToolActivity,
   type UsagePurpose,
-  type UserChatMessage,
 } from "./session-events.js"
 import {
   appendJsonLine,
@@ -51,11 +51,12 @@ export class JsonlSession {
     return replaySession(this.events)
   }
 
-  async admitPrompt(content: string): Promise<PromptAdmission> {
+  async admitPrompt(prompt: string | UserChatMessage): Promise<PromptAdmission> {
+    const message = typeof prompt === "string" ? createUserMessage(prompt) : prompt
     const event = await this.append({
       type: "prompt_admitted",
       promptId: newEventId("prompt"),
-      message: { role: "user", content },
+      message,
     })
     return { promptId: event.promptId, message: event.message }
   }
@@ -205,7 +206,9 @@ function sessionTitleFromEvents(events: readonly SessionEvent[], messages: reado
   const firstUser = messages.find(
     (message): message is UserChatMessage => message.role === "user" && !isCompactionSummary(message),
   )
-  return firstUser?.content.trim().split("\n")[0]?.trim() || "Current session"
+  return firstUser
+    ? (userMessageText(firstUser) || summarizeUserMessage(firstUser)).trim().split("\n")[0]?.trim() || "Current session"
+    : "Current session"
 }
 
 function newEventId(prefix: string) {

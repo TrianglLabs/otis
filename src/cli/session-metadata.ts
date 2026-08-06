@@ -1,5 +1,6 @@
 import { isCompactionSummary } from "../core/compaction.js"
 import type { FireworksClient } from "../inference/client.js"
+import { summarizeUserMessage, userMessageText } from "../inference/messages.js"
 import type { ChatMessage, TokenUsage } from "../inference/types.js"
 import type { SessionSummary } from "../storage/index.js"
 
@@ -15,10 +16,10 @@ export type SessionPickerItem = {
 
 export function activeSessionLabel(messages: readonly ChatMessage[], title?: string) {
   if (title) return title
-  const firstUser = messages.find(
-    (message): message is { role: "user"; content: string } => message.role === "user" && !isCompactionSummary(message),
-  )
-  return firstUser ? formatSessionLabel(firstUser.content) : "Current session"
+  const firstUser = messages.find((message) => message.role === "user" && !isCompactionSummary(message))
+  return firstUser?.role === "user"
+    ? formatSessionLabel(userMessageText(firstUser) || summarizeUserMessage(firstUser))
+    : "Current session"
 }
 
 export function toSessionPickerItem(summary: SessionSummary, activeSessionId?: string): SessionPickerItem {
@@ -63,7 +64,7 @@ function serializeForTitle(messages: readonly ChatMessage[]) {
 
   for (const message of messages.slice(0, 6)) {
     if (message.role === "user" && !isCompactionSummary(message)) {
-      lines.push(`User: ${message.content.slice(0, 500)}`)
+      lines.push(`User: ${summarizeUserMessage(message).slice(0, 500)}`)
       continue
     }
 

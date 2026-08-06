@@ -1,6 +1,6 @@
 import { beforeEach, vi } from "vitest"
 import type { SetupCredential } from "../../../src/cli/ui/types.js"
-import type { ChatMessage, FireworksModel } from "../../../src/inference/types.js"
+import type { ChatMessage, FireworksModel, UserChatMessage } from "../../../src/inference/types.js"
 import type { ThemeName } from "../../../src/local/settings.js"
 import type { SessionToolActivity } from "../../../src/storage/index.js"
 
@@ -44,6 +44,7 @@ const mocks = vi.hoisted(() => {
     setContextLabel: vi.fn(),
     setDiffStats: vi.fn(),
     setModeLabel: vi.fn(),
+    setImageAttachmentCount: vi.fn(),
     setModelLabel: vi.fn(),
     setSessionLabel: vi.fn(),
     setStats: vi.fn(),
@@ -120,6 +121,9 @@ const mocks = vi.hoisted(() => {
           onCloseModelPicker?(): void
           onDeleteSession?(sessionId: string): void
           onInterrupt?(): void
+          onImagePaste?(bytes: Uint8Array, mimeType?: string): void | Promise<void>
+          onImagePathPaste?(value: string): boolean
+          onRemoveLastImage?(): boolean
           onPreviewTheme?(theme: ThemeName): void
           onSelectModel?(model: FireworksModel): void
           onSelectSession?(sessionId: string): void
@@ -210,10 +214,11 @@ export function testSession(overrides: Partial<ReturnType<typeof baseSession>> =
 
 function baseSession() {
   return {
-    admitPrompt: vi.fn(async (content: string) => ({
-      promptId: `prompt_${content}`,
-      message: { role: "user" as const, content },
-    })),
+    admitPrompt: vi.fn(async (input: string | UserChatMessage) => {
+      const message = typeof input === "string" ? { role: "user" as const, content: input } : input
+      const text = typeof message.content === "string" ? message.content : "image"
+      return { promptId: `prompt_${text}`, message }
+    }),
     completeTurn: vi.fn(async () => undefined),
     interruptTurn: vi.fn(async () => undefined),
     hasTitle: vi.fn(() => false),
@@ -236,6 +241,7 @@ export function localSettings(overrides: Record<string, unknown> = {}) {
     model: "accounts/fireworks/models/test-model",
     modelDisplayName: "Test Model",
     modelContextLength: 131_072,
+    modelSupportsImageInput: false,
     ...overrides,
   }
 }
@@ -245,6 +251,7 @@ export function testModel(overrides: Partial<FireworksModel> = {}): FireworksMod
     id: "accounts/fireworks/models/test-model",
     displayName: "Test Model",
     contextLength: 131_072,
+    supportsImageInput: false,
     ...overrides,
   }
 }

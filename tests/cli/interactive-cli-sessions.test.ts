@@ -12,6 +12,37 @@ import {
 const mocks = getMocks()
 
 describe("CLI session turn handling", () => {
+  it("turns a dragged, shell-escaped image path into a multimodal prompt", async () => {
+    const session = testSession()
+    mocks.createSession.mockResolvedValue(session)
+    mocks.loadLocalSettings.mockResolvedValue(localSettings({ modelSupportsImageInput: true }))
+    mocks.runAgent.mockImplementationOnce(async function* (input) {
+      yield {
+        type: "complete",
+        messages: [input, { role: "assistant", content: [{ type: "text", text: "It is a fixture." }] }],
+      }
+    })
+
+    await loadCli()
+    expect(mocks.uiOptions?.onImagePathPaste?.("tests/fixtures/dragged\\ image.ppm")).toBe(true)
+    await vi.waitFor(() => expect(mocks.ui.setImageAttachmentCount).toHaveBeenCalledWith(1))
+
+    await submit("describe this")
+
+    expect(session.admitPrompt).toHaveBeenCalledWith({
+      role: "user",
+      content: [
+        expect.objectContaining({
+          type: "image",
+          mimeType: "image/x-portable-pixmap",
+          name: "dragged image.ppm",
+        }),
+        { type: "text", text: "describe this" },
+      ],
+    })
+    expect(mocks.ui.setImageAttachmentCount).toHaveBeenLastCalledWith(0)
+  })
+
   it("keeps admitted failed prompts in live context", async () => {
     const histories: unknown[] = []
     const session = testSession()

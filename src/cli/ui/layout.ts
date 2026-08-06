@@ -14,6 +14,16 @@ export function createUILayout(
   const { panel: sessionPanel, rows: sessionRowsBox } = createSessionPanel(renderer)
   const { panel: modelPanel, rows: modelRowsBox } = createModelPanel(renderer)
   const { input, inputBox, inputHint, modeLabel } = createChatInput(renderer, options.modeLabel)
+  const imageAttachments = new TextRenderable(renderer, {
+    id: "image-attachments",
+    content: "",
+    maxWidth: 30,
+    flexShrink: 1,
+    fg: colors.accent,
+    bg: colors.background,
+    truncate: true,
+    selectable: false,
+  })
   const { setupButtonBox, setupForm, setupInput, setupInputLabel, setupMessage, setupStatus, setupStatusBox } =
     createSetupViews(renderer)
 
@@ -188,6 +198,7 @@ export function createUILayout(
     inputArea,
     inputBox,
     inputHint,
+    imageAttachments,
     messages,
     modelPanel,
     modelRowsBox,

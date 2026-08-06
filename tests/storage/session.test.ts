@@ -43,6 +43,27 @@ describe("JsonlSession", () => {
     ])
   })
 
+  it("persists structured image prompts and replays them without duplication", async () => {
+    const cwd = await trackedTempDir()
+    const directory = join(cwd, "sessions")
+    const session = await openSession({ cwd, directory })
+    const message = {
+      role: "user" as const,
+      content: [
+        { type: "image" as const, data: "iVBORw==", mimeType: "image/png" as const, name: "screen.png", sizeBytes: 4 },
+        { type: "text" as const, text: "Describe this" },
+      ],
+    }
+    const admission = await session.admitPrompt(message)
+    const turnMessages: ChatMessage[] = [message, { role: "assistant", content: [{ type: "text", text: "A screen." }] }]
+
+    await session.completeTurn(admission, turnMessages)
+    const reopened = await openSession({ cwd, directory })
+
+    expect(reopened.replayMessages()).toEqual(turnMessages)
+    expect(reopened.events.at(-1)).toMatchObject({ type: "turn_completed", messages: turnMessages.slice(1) })
+  })
+
   it("continues sequence numbers when reopening a session", async () => {
     const cwd = await trackedTempDir()
     const directory = join(cwd, "sessions")

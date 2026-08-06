@@ -15,7 +15,6 @@ export type AgentTurnResult =
   | { status: "error" | "incomplete" }
 
 type AgentTurnOptions = {
-  input: string
   admission: PromptAdmission
   client: FireworksClient
   webClient: ParallelClient
@@ -37,7 +36,7 @@ type AgentTurnOptions = {
 }
 
 export async function runAgentTurn(options: AgentTurnOptions): Promise<AgentTurnResult> {
-  const { admission, input, signal, transcript, ui } = options
+  const { admission, signal, transcript, ui } = options
   let assistantText = ""
   let assistantEntry: TranscriptEntry | undefined
   const reasoningEntries = new Map<string, { entryId: number; text: string }>()
@@ -71,7 +70,7 @@ export async function runAgentTurn(options: AgentTurnOptions): Promise<AgentTurn
 
   try {
     const result = await executeTurn({
-      input,
+      input: admission.message,
       history: transcript.history,
       agent: {
         client: options.client,
