@@ -64,6 +64,41 @@ describe("TranscriptStore", () => {
     ])
   })
 
+  it("reconstructs reasoning, text, and tools in persisted content order", () => {
+    const transcript = new TranscriptStore()
+    transcript.loadMessages([
+      { role: "user", content: "inspect" },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "reasoning",
+            id: "reasoning_1",
+            field: "reasoning_content",
+            text: "I should inspect the file.",
+            startedAt: "2026-08-06T12:00:00.000Z",
+            endedAt: "2026-08-06T12:00:01.250Z",
+          },
+          { type: "text", text: "I'll inspect it." },
+          { type: "tool_call", toolCall: { id: "call_1", name: "read", arguments: '{"path":"a.txt"}' } },
+        ],
+      },
+    ])
+
+    expect(transcript.entries).toMatchObject([
+      { kind: "message", speaker: "You", text: "inspect" },
+      {
+        kind: "reasoning",
+        speaker: "Thinking",
+        reasoningId: "reasoning_1",
+        text: "I should inspect the file.",
+        durationMs: 1_250,
+      },
+      { kind: "message", speaker: "Otis", text: "I'll inspect it." },
+      { kind: "tool", toolCallId: "call_1", text: "Reading files: a.txt" },
+    ])
+  })
+
   it("replays persisted tool diffs by tool-call ID and preserves message order", () => {
     const transcript = new TranscriptStore()
     const messages = [

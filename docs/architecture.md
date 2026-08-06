@@ -57,6 +57,14 @@ reasoning tier in its model catalog. Otis requests `max` for documented model fa
 families whose highest accepted tier is `high`, and the provider default for unknown or non-configurable families.
 Requests otherwise avoid model-specific sampling and token settings.
 
+Model-provided reasoning is represented as ordered assistant content rather than UI status. The shared runtime assigns
+each streamed reasoning block an Otis-owned ID and start/end timing, emits start/delta/end lifecycle events, and keeps
+the original Fireworks field so later tool-use requests receive the reasoning context required for interleaved
+thinking. Sessions persist the complete block for replay. Display policy is independent: OpenTUI hides thinking by
+default and saves the user's `/thinking` visibility preference. Visible blocks render a compact three-line preview
+and keep per-block expansion as ephemeral UI state, while headless output includes trace text only when
+`--include-reasoning` is explicitly requested. These traces are provider output and may contain sensitive context.
+
 ## Parallel boundary
 
 The user supplies a separate Parallel API key for web access. Otis sends it only in the `x-api-key` header on direct
@@ -113,7 +121,8 @@ timestamps.
 The home-screen stats row is absent until at least one provider credential is available. Once visible, every card has
 a stable label and displays zero until enough local session data exists to calculate a non-zero value.
 
-The event parser remains backward-compatible with sessions written before local usage events were introduced.
+The event parser remains backward-compatible with sessions written before local usage events and reasoning trace
+identity/timing metadata were introduced.
 
 ## Distribution
 

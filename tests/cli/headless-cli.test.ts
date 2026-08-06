@@ -238,6 +238,50 @@ describe("runHeadlessCommand", () => {
     expect(records.at(-1)).toMatchObject({ status: "complete", output: "Hello" })
   })
 
+  it("emits structured reasoning lifecycle events only when requested", async () => {
+    mocks.streamChat.mockImplementationOnce(async function* () {
+      yield { type: "reasoning_delta", field: "reasoning_content", text: "Checking." }
+      yield { type: "text_delta", text: "Hello" }
+    })
+    const output = streams()
+
+    const exitCode = await runHeadlessCommand(
+      ["--ephemeral", "--output-format", "jsonl", "--include-reasoning", "hello"],
+      output.options,
+    )
+    const records = output
+      .stdout()
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line))
+
+    expect(exitCode).toBe(0)
+    expect(records.map((record) => record.type)).toContain("reasoning_start")
+    expect(records.map((record) => record.type)).toContain("reasoning_delta")
+    expect(records.map((record) => record.type)).toContain("reasoning_end")
+    expect(records.find((record) => record.type === "reasoning_delta")).toMatchObject({ text: "Checking." })
+    expect(records.at(-1).reasoning).toMatchObject([{ text: "Checking.", field: "reasoning_content" }])
+  })
+
+  it("does not expose reasoning text in default JSONL output", async () => {
+    mocks.streamChat.mockImplementationOnce(async function* () {
+      yield { type: "reasoning_delta", field: "reasoning_content", text: "Sensitive context." }
+      yield { type: "text_delta", text: "Hello" }
+    })
+    const output = streams()
+
+    await runHeadlessCommand(["--ephemeral", "--output-format", "jsonl", "hello"], output.options)
+    const records = output
+      .stdout()
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line))
+
+    expect(records).toContainEqual(expect.objectContaining({ type: "reasoning" }))
+    expect(output.stdout()).not.toContain("Sensitive context.")
+    expect(records.at(-1)).not.toHaveProperty("reasoning")
+  })
+
   it("validates an explicit model against the tool-capable catalog", async () => {
     const output = streams()
 
