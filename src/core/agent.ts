@@ -1,5 +1,13 @@
 import type { FireworksClient } from "../inference/client.js"
-import type { ChatMessage, ChatToolCall, ContextFile, ReasoningTraceEvent, TokenUsage } from "../inference/types.js"
+import { userMessageContentChars } from "../inference/messages.js"
+import type {
+  ChatMessage,
+  ChatToolCall,
+  ContextFile,
+  ReasoningTraceEvent,
+  TokenUsage,
+  UserChatMessage,
+} from "../inference/types.js"
 import { createPermissionPolicy, type PermissionPolicy, type PermissionRequest } from "../permissions/policy.js"
 import {
   describeToolCall,
@@ -47,11 +55,12 @@ export type RunAgentOptions = ToolContext & {
 }
 
 export async function* runAgent(
-  input: string,
+  input: string | UserChatMessage,
   history: ChatMessage[] = [],
   options: RunAgentOptions,
 ): AsyncGenerator<AgentEvent> {
-  const messages: ChatMessage[] = [...history, { role: "user", content: input }]
+  const userMessage: UserChatMessage = typeof input === "string" ? { role: "user", content: input } : input
+  const messages: ChatMessage[] = [...history, userMessage]
   try {
     const projectContext = options.projectContext ?? loadProjectContext(options.cwd ?? process.cwd())
     const toolContext: RunAgentOptions = {
@@ -317,7 +326,7 @@ function messagesContentChars(messages: ChatMessage[]): number {
 
 function messageContentChars(message: ChatMessage): number {
   let chars = message.role.length
-  if (message.role === "user") return chars + message.content.length
+  if (message.role === "user") return chars + userMessageContentChars(message)
   if (message.role === "tool") return chars + message.toolCallId.length + message.content.length
   for (const part of message.content) {
     if (part.type === "text") chars += part.text.length

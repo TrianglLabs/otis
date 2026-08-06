@@ -92,9 +92,15 @@ describe("interactive CLI setup", () => {
     mocks.listToolCapableModels.mockResolvedValue([replacement])
     await loadCli()
 
+    mocks.ui.showSetupStatus.mockClear()
+    mocks.ui.showChatLayout.mockClear()
+
     await submit("/model")
 
     expect(mocks.ui.clearInput).toHaveBeenCalled()
+    expect(mocks.ui.showChatLayout).toHaveBeenCalled()
+    expect(mocks.ui.showSetupStatus).not.toHaveBeenCalled()
+    expect(mocks.ui.showTransientHint).toHaveBeenCalledWith(" Loading models… ")
     expect(mocks.ui.showModelPicker).toHaveBeenCalledWith([{ ...replacement, active: false }])
   })
 })

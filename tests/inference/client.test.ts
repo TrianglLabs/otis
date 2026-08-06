@@ -99,6 +99,39 @@ describe("FireworksClient", () => {
     expect(fetchMock).toHaveBeenCalledOnce()
   })
 
+  it("serializes image input as an OpenAI-compatible data URL with images before text", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => sseResponse([]))
+    const client = new FireworksClient({
+      apiKey: "fw_test_key",
+      model: "accounts/fireworks/models/vision-model",
+      fetch: fetchMock as typeof fetch,
+      inferenceURL: "http://localhost/v1/chat/completions",
+    })
+
+    await collect(
+      client.streamChat({
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "image", data: "iVBORw==", mimeType: "image/png", name: "screen.png", sizeBytes: 4 },
+              { type: "text", text: "What is shown?" },
+            ],
+          },
+        ],
+      }),
+    )
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body))
+    expect(body.messages[1]).toEqual({
+      role: "user",
+      content: [
+        { type: "image_url", image_url: { url: "data:image/png;base64,iVBORw==" } },
+        { type: "text", text: "What is shown?" },
+      ],
+    })
+  })
+
   it.each([
     ["accounts/fireworks/models/gpt-oss-120b", "high"],
     ["accounts/fireworks/models/glm-5p2", "max"],
@@ -136,7 +169,7 @@ describe("listToolCapableModels", () => {
       .mockResolvedValueOnce(
         Response.json({
           models: [
-            model("accounts/fireworks/models/zeta", "Zeta", true, true, 128_000),
+            model("accounts/fireworks/models/zeta", "Zeta", true, true, 128_000, true),
             model("accounts/fireworks/models/chat-only", "Chat only", true, false),
             model("accounts/fireworks/models/deployed", "Deployed", false, true),
           ],
@@ -151,8 +184,13 @@ describe("listToolCapableModels", () => {
     })
 
     expect(models).toEqual([
-      { id: "accounts/fireworks/models/alpha", displayName: "Alpha" },
-      { id: "accounts/fireworks/models/zeta", displayName: "Zeta", contextLength: 128_000 },
+      { id: "accounts/fireworks/models/alpha", displayName: "Alpha", supportsImageInput: false },
+      {
+        id: "accounts/fireworks/models/zeta",
+        displayName: "Zeta",
+        contextLength: 128_000,
+        supportsImageInput: true,
+      },
     ])
     expect(fetchMock).toHaveBeenCalledTimes(2)
     const firstURL = new URL(String(fetchMock.mock.calls[0][0]))
@@ -181,8 +219,9 @@ function model(
   supportsServerless: boolean,
   supportsTools: boolean,
   contextLength?: number,
+  supportsImageInput = false,
 ) {
-  return { name, displayName, supportsServerless, supportsTools, contextLength }
+  return { name, displayName, supportsServerless, supportsTools, contextLength, supportsImageInput }
 }
 
 function sseResponse(chunks: unknown[]) {

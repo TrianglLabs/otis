@@ -1,5 +1,6 @@
 import { readdir, readFile, stat, writeFile } from "node:fs/promises"
 import { createPatch } from "diff"
+import { detectImageMimeType } from "../inference/images.js"
 import type { ToolContext, ToolResult } from "./types.js"
 import { isNotFoundError, resolveWorkspacePath } from "./workspace.js"
 
@@ -25,7 +26,12 @@ export async function readLocalFile(
     return { title: `Read directory: ${filePath}`, output: output || "Directory is empty." }
   }
 
-  const lines = (await readFile(filePath, "utf8")).split(/\r?\n/)
+  const content = await readFile(filePath)
+  if (detectImageMimeType(content)) {
+    throw new Error("read supports text files only. Attach the image to an Otis prompt instead.")
+  }
+  if (isBinary(content)) throw new Error("read supports text files only.")
+  const lines = content.toString("utf8").split(/\r?\n/)
   const start = Math.max(1, Math.floor(offset))
   const count = Math.max(1, Math.min(DEFAULT_READ_LIMIT, Math.floor(limit)))
   const output = lines

@@ -28,6 +28,7 @@ describe("local settings", () => {
       model: "accounts/fireworks/models/tool-model",
       modelDisplayName: "Tool Model",
       modelContextLength: 131_072,
+      modelSupportsImageInput: false,
     })
     expect(JSON.parse(await readFile(file, "utf8"))).toEqual({
       version: 1,
@@ -35,6 +36,7 @@ describe("local settings", () => {
       model: "accounts/fireworks/models/tool-model",
       modelDisplayName: "Tool Model",
       modelContextLength: 131_072,
+      modelSupportsImageInput: false,
     })
     if (process.platform !== "win32") {
       expect((await stat(file)).mode & 0o777).toBe(0o600)
@@ -52,12 +54,14 @@ describe("local settings", () => {
       model: "accounts/fireworks/models/tool-model",
       modelDisplayName: "Tool Model",
       modelContextLength: 131_072,
+      modelSupportsImageInput: false,
     })
     expect(JSON.parse(await readFile(file, "utf8"))).toEqual({
       version: 1,
       model: "accounts/fireworks/models/tool-model",
       modelDisplayName: "Tool Model",
       modelContextLength: 131_072,
+      modelSupportsImageInput: false,
     })
   })
 
@@ -71,6 +75,7 @@ describe("local settings", () => {
       fireworksApiKey: "fw_test_key",
       model: "accounts/fireworks/models/new",
       modelDisplayName: "New",
+      modelSupportsImageInput: false,
     })
   })
 
@@ -85,6 +90,7 @@ describe("local settings", () => {
       model: "accounts/fireworks/models/tool-model",
       modelDisplayName: "Tool Model",
       modelContextLength: 131_072,
+      modelSupportsImageInput: false,
     })
   })
 
@@ -174,6 +180,7 @@ describe("local settings", () => {
       model: "accounts/fireworks/models/tool-model",
       modelDisplayName: "Tool Model",
       modelContextLength: 131_072,
+      modelSupportsImageInput: false,
     })
   })
 
@@ -184,6 +191,7 @@ describe("local settings", () => {
       model: undefined,
       modelDisplayName: undefined,
       modelContextLength: undefined,
+      modelSupportsImageInput: undefined,
     })
   })
 
@@ -218,6 +226,7 @@ function model(name: string, displayName: string, contextLength?: number) {
   return {
     id: `accounts/fireworks/models/${name}`,
     displayName,
+    supportsImageInput: false,
     ...(contextLength ? { contextLength } : {}),
   }
 }

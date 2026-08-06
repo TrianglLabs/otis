@@ -1,4 +1,4 @@
-import type { UserChatMessage } from "./session-events.js"
+import type { UserChatMessage } from "../inference/types.js"
 
 export type SessionOptions = {
   cwd: string

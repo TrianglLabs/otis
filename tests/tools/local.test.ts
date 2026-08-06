@@ -35,6 +35,19 @@ describe("executeLocalTool", () => {
     expect(result.output).toBe("README.md\nsrc/")
   })
 
+  it("rejects image and binary files instead of decoding them as text", async () => {
+    const context = await testContext()
+    await writeFile(join(context.cwd, "screen.png"), new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+    await writeFile(join(context.cwd, "data.bin"), new Uint8Array([0x01, 0x00, 0x02]))
+
+    await expect(executeLocalTool({ name: "read", input: { path: "screen.png" } }, context)).rejects.toThrow(
+      "Attach the image to an Otis prompt instead",
+    )
+    await expect(executeLocalTool({ name: "read", input: { path: "data.bin" } }, context)).rejects.toThrow(
+      "read supports text files only",
+    )
+  })
+
   it("edits exactly one occurrence and rejects ambiguous replacements", async () => {
     const context = await testContext()
     await writeFile(join(context.cwd, "message.txt"), "alpha beta beta", "utf8")

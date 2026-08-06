@@ -77,8 +77,9 @@ export class ModelPicker {
       const active = item.active ? "*" : " "
       const title = truncate(item.displayName, 40)
       const context = item.contextLength ? formatContext(item.contextLength) : "—"
+      const vision = item.supportsImageInput ? " · vision" : ""
       return {
-        content: `${active} ${title} · ${context}`,
+        content: `${active} ${title} · ${context}${vision}`,
         fg: selected ? colors.background : item.active ? colors.accent : colors.text,
         bg: selected ? colors.accent : colors.surface,
       }

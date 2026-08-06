@@ -1,25 +1,36 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { PermissionConfig } from "../../src/permissions/policy.js"
 
 const mocks = vi.hoisted(() => ({
   createSession: vi.fn(),
   listSessions: vi.fn(async () => []),
-  listToolCapableModels: vi.fn(async () => [{ id: "accounts/fireworks/models/test", displayName: "Test" }]),
-  loadLocalSettings: vi.fn<() => Promise<{ fireworksApiKey: string; model: string; permissions?: PermissionConfig }>>(
-    async () => ({
-      fireworksApiKey: "fw_test",
-      model: "accounts/fireworks/models/test",
-    }),
-  ),
+  listToolCapableModels: vi.fn(async () => [
+    { id: "accounts/fireworks/models/test", displayName: "Test", supportsImageInput: false },
+  ]),
+  loadLocalSettings: vi.fn<
+    () => Promise<{
+      fireworksApiKey: string
+      model: string
+      modelSupportsImageInput?: boolean
+      permissions?: PermissionConfig
+    }>
+  >(async () => ({
+    fireworksApiKey: "fw_test",
+    model: "accounts/fireworks/models/test",
+  })),
   openSession: vi.fn(),
+  saveSelectedModel: vi.fn(async () => undefined),
   streamChat: vi.fn(),
 }))
 
 const session = {
   id: "session_test",
-  admitPrompt: vi.fn(async (content: string) => ({
+  admitPrompt: vi.fn(async (message: { role: "user"; content: string }) => ({
     promptId: "prompt_test",
-    message: { role: "user" as const, content },
+    message,
   })),
   completeTurn: vi.fn(async () => undefined),
   interruptTurn: vi.fn(async () => undefined),
@@ -35,7 +46,10 @@ vi.mock("../../src/inference/client.js", () => ({
   }),
   listToolCapableModels: mocks.listToolCapableModels,
 }))
-vi.mock("../../src/local/settings.js", () => ({ loadLocalSettings: mocks.loadLocalSettings }))
+vi.mock("../../src/local/settings.js", () => ({
+  loadLocalSettings: mocks.loadLocalSettings,
+  saveSelectedModel: mocks.saveSelectedModel,
+}))
 vi.mock("../../src/storage/index.js", () => ({
   acquireSessionLock: vi.fn(),
   createSession: mocks.createSession,
@@ -44,6 +58,12 @@ vi.mock("../../src/storage/index.js", () => ({
 }))
 
 import { runHeadlessCommand } from "../../src/cli/headless-cli.js"
+
+const temporaryDirectories: string[] = []
+
+afterEach(async () => {
+  await Promise.all(temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })))
+})
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -69,6 +89,49 @@ describe("runHeadlessCommand", () => {
     expect(output.stderr()).toBe("")
   })
 
+  it("accepts repeatable image input and sends structured content to a vision model", async () => {
+    const cwd = await temporaryDirectory()
+    await writeFile(join(cwd, "pixel.ppm"), "P3\n1 1\n255\n0 0 0\n")
+    mocks.loadLocalSettings.mockResolvedValue({
+      fireworksApiKey: "fw_test",
+      model: "accounts/fireworks/models/test",
+      modelSupportsImageInput: true,
+    })
+    mocks.streamChat.mockImplementationOnce(async function* (request) {
+      expect(request.messages[0]).toMatchObject({
+        role: "user",
+        content: [
+          expect.objectContaining({ type: "image", mimeType: "image/x-portable-pixmap", name: "pixel.ppm" }),
+          { type: "text", text: "describe it" },
+        ],
+      })
+      yield { type: "text_delta", text: "A black pixel." }
+    })
+    const output = streams({ processCwd: cwd })
+
+    const exitCode = await runHeadlessCommand(["--ephemeral", "--image", "pixel.ppm", "describe it"], output.options)
+
+    expect(exitCode).toBe(0)
+    expect(output.stdout()).toBe("A black pixel.\n")
+  })
+
+  it("rejects image input before inference when the selected model is not vision-capable", async () => {
+    const cwd = await temporaryDirectory()
+    await writeFile(join(cwd, "pixel.ppm"), "P3\n1 1\n255\n0 0 0\n")
+    mocks.loadLocalSettings.mockResolvedValue({
+      fireworksApiKey: "fw_test",
+      model: "accounts/fireworks/models/test",
+      modelSupportsImageInput: false,
+    })
+    const output = streams({ processCwd: cwd })
+
+    const exitCode = await runHeadlessCommand(["--ephemeral", "--image", "pixel.ppm"], output.options)
+
+    expect(exitCode).toBe(1)
+    expect(output.stderr()).toContain("does not support image input")
+    expect(mocks.streamChat).not.toHaveBeenCalled()
+  })
+
   it("persists a complete turn by default", async () => {
     mocks.streamChat.mockImplementationOnce(async function* () {
       yield { type: "text_delta", text: "Saved answer." }
@@ -78,7 +141,7 @@ describe("runHeadlessCommand", () => {
     const exitCode = await runHeadlessCommand(["save this"], output.options)
 
     expect(exitCode).toBe(0)
-    expect(session.admitPrompt).toHaveBeenCalledWith("save this")
+    expect(session.admitPrompt).toHaveBeenCalledWith({ role: "user", content: "save this" })
     expect(session.completeTurn).toHaveBeenCalledWith(
       expect.objectContaining({ promptId: "prompt_test" }),
       expect.arrayContaining([{ role: "user", content: "save this" }]),
@@ -296,7 +359,7 @@ describe("runHeadlessCommand", () => {
   })
 })
 
-function streams() {
+function streams(overrides: { processCwd?: string } = {}) {
   let stdout = ""
   let stderr = ""
   return {
@@ -304,10 +367,17 @@ function streams() {
       stdin: emptyInput(),
       stdout: { write: (chunk: string) => (stdout += chunk) },
       stderr: { write: (chunk: string) => (stderr += chunk) },
+      ...overrides,
     },
     stdout: () => stdout,
     stderr: () => stderr,
   }
+}
+
+async function temporaryDirectory() {
+  const path = await mkdtemp(join(tmpdir(), "otis-headless-images-"))
+  temporaryDirectories.push(path)
+  return path
 }
 
 async function* emptyInput() {

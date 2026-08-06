@@ -52,6 +52,15 @@ OpenAI-compatible streaming endpoint and retain text, reasoning content, structu
 token usage. Verified display-name and context-window metadata are saved with the selection so the context meter and
 auto-compaction threshold remain safe for smaller tool-capable models.
 
+Image input is represented as provider-neutral ordered user-content parts. File loading validates the actual image
+signature, enforces Fireworks' per-request count and base64-size limits, and places images before text for portability
+across supported vision model families. The Fireworks adapter alone converts those parts to `image_url` data URLs.
+Catalog-provided image capability is saved with model metadata; both OpenTUI and headless execution reject images
+before inference when the selected model lacks that capability. Compaction and title prompts contain attachment
+metadata rather than copied base64 data. OpenTUI claims a text paste only when the entire payload parses as one or
+more supported shell-escaped image paths; ordinary text continues through the normal editor paste path. Paths are
+never evaluated by a shell. The local `read` tool rejects image and binary files instead of decoding them as text.
+
 Reasoning effort is selected by one conservative compatibility policy because Fireworks does not expose a maximum
 reasoning tier in its model catalog. Otis requests `max` for documented model families that support it, `high` for
 families whose highest accepted tier is `high`, and the provider default for unknown or non-configurable families.
@@ -97,6 +106,8 @@ covered. Per-command-segment policy evaluation is a future hardening boundary.
 
 Each session is an append-only JSONL event stream. A completed turn stores model-facing messages separately from local
 tool-card metadata, which preserves diffs and activity history without placing UI state into future model requests.
+Image bytes are stored inline as base64 in the same private local session stream so resumed turns preserve native
+multimodal history without a second mutable attachment store. Provider request limits bound each admitted image turn.
 Headless processes take an exclusive lock while resuming a session so concurrent workers cannot append turns with the
 same sequence numbers. Ephemeral headless turns bypass session persistence entirely.
 

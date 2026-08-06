@@ -1,11 +1,25 @@
 import { createCliRenderer } from "@opentui/core"
 import { autoCompactThreshold, compactConversation } from "../core/compaction.js"
 import { loadProjectContext } from "../core/context.js"
-import { FireworksClient } from "../inference/client.js"
-import type { ContextFile, FireworksModel } from "../inference/types.js"
+import { FireworksClient, listToolCapableModels } from "../inference/client.js"
+import {
+  createPastedImageAttachment,
+  loadImageFiles,
+  parsePastedImagePaths,
+  validateImageAttachments,
+} from "../inference/images.js"
+import {
+  createUserMessage,
+  imageAttachmentsFromMessages,
+  messagesContainImages,
+  summarizeUserMessage,
+  userMessageContentChars,
+} from "../inference/messages.js"
+import type { ContextFile, FireworksModel, ImageContentPart } from "../inference/types.js"
 import {
   isThemeName,
   loadLocalSettings,
+  saveSelectedModel,
   saveSelectedTheme,
   saveThinkingVisible,
   THEME_NAMES,
@@ -64,6 +78,10 @@ let configured = false
 let fireworksApiKey: string | undefined
 let parallelApiKey: string | undefined
 let selectedModelId: string | undefined
+let selectedModelSupportsImageInput: boolean | undefined
+let imageCapabilityCheck: { modelId: string; promise: Promise<void> } | undefined
+let pendingImages: ImageContentPart[] = []
+let pastedImageSequence = 1
 let autoCompactAtTokens = autoCompactThreshold()
 let client: FireworksClient | undefined
 let webClient: ParallelClient | undefined
@@ -85,6 +103,7 @@ export async function startInteractiveCli() {
   fireworksApiKey = settings.fireworksApiKey
   parallelApiKey = settings.parallelApiKey
   selectedModelId = settings.model
+  selectedModelSupportsImageInput = settings.modelSupportsImageInput
   autoCompactAtTokens = autoCompactThreshold(settings.modelContextLength)
   permissionMode = settings.permissions?.defaultMode ?? "ask"
   permissionRules = [...(settings.permissions?.rules ?? []), ...(await loadProjectPermissionRules(workspaceCwd))]
@@ -119,6 +138,9 @@ export async function startInteractiveCli() {
     workspaceLabel: formatWorkspaceLabel(workspaceCwd),
     treeSitterClient,
     onInputChange: (value) => updateContextIndicator(value),
+    onImagePaste: (bytes, mimeType) => attachPastedImage(bytes, mimeType),
+    onImagePathPaste: handleImagePathPaste,
+    onRemoveLastImage: removeLastPendingImage,
     onInterrupt: () => {
       activeTurn?.abort()
     },
@@ -131,12 +153,14 @@ export async function startInteractiveCli() {
       void setupFlow.selectModel(model)
     },
     onNewSession: () => {
+      clearPendingImages()
       sessions.startNew()
     },
     onDeleteSession: (sessionId) => {
       void sessions.delete(sessionId)
     },
     onSelectSession: (sessionId) => {
+      clearPendingImages()
       void sessions.select(sessionId)
     },
     onSubmit: handleInput,
@@ -213,7 +237,7 @@ export async function startInteractiveCli() {
 }
 
 async function handleInput(value: string) {
-  if (!value) return
+  if (!value && pendingImages.length === 0) return
 
   ui.hideUpdateHint()
 
@@ -257,6 +281,7 @@ async function handleInput(value: string) {
 
   if (value === "/new") {
     ui.clearInput()
+    clearPendingImages()
     sessions.startNew()
     return
   }
@@ -293,6 +318,18 @@ async function handleInput(value: string) {
     return
   }
 
+  if (pendingImages.length > 0 || messagesContainImages(transcript.history)) {
+    try {
+      validateImageAttachments(
+        imageAttachmentsFromMessages([...transcript.history, createUserMessage(value, pendingImages)]),
+      )
+      await ensureSelectedModelSupportsImages()
+    } catch (error) {
+      showImageMessage(`Could not send images: ${error instanceof Error ? error.message : String(error)}`)
+      return
+    }
+  }
+
   const turnController = new AbortController()
   activeTurn = turnController
   busy = true
@@ -301,9 +338,10 @@ async function handleInput(value: string) {
 
   let admission: PromptAdmission
   let turnSession: JsonlSession
+  const userMessage = createUserMessage(value, pendingImages)
   try {
     turnSession = await sessions.ensure()
-    admission = await turnSession.admitPrompt(value)
+    admission = await turnSession.admitPrompt(userMessage)
   } catch (error) {
     if (activeTurn === turnController) activeTurn = undefined
     busy = false
@@ -314,9 +352,10 @@ async function handleInput(value: string) {
     return
   }
 
-  transcript.addUserMessage(value)
-  if (transcript.history.length === 0) sessions.setProvisionalLabel(value)
-  updateContextIndicator(value)
+  transcript.addUserMessage(userMessage)
+  if (transcript.history.length === 0) sessions.setProvisionalLabel(value || summarizeUserMessage(userMessage))
+  clearPendingImages()
+  updateContextIndicator()
 
   ui.clearInput()
   ui.renderTranscript(transcript.entries, { scrollToBottom: true })
@@ -324,7 +363,6 @@ async function handleInput(value: string) {
   let result: Awaited<ReturnType<typeof runAgentTurn>>
   try {
     result = await runAgentTurn({
-      input: value,
       admission,
       client: activeClient,
       webClient: activeWebClient,
@@ -475,6 +513,8 @@ async function refreshLocalStats() {
 
 function applySelectedModel(model: FireworksModel) {
   selectedModelId = model.id
+  selectedModelSupportsImageInput = model.supportsImageInput
+  imageCapabilityCheck = undefined
   autoCompactAtTokens = autoCompactThreshold(model.contextLength)
   if (fireworksApiKey) client = new FireworksClient({ apiKey: fireworksApiKey, model: model.id })
   ui.setModelLabel(formatModelName(model.displayName))
@@ -482,11 +522,103 @@ function applySelectedModel(model: FireworksModel) {
 }
 
 function updateContextIndicator(pendingInput = "") {
+  const pendingMessage = createUserMessage(pendingInput, pendingImages)
   const usage = contextUsage(
-    estimateContextTokens(transcript.history, projectContextChars, pendingInput),
+    estimateContextTokens(transcript.history, projectContextChars, userMessageContentChars(pendingMessage)),
     autoCompactAtTokens,
   )
   ui.setContextLabel(formatContextUsage(usage), contextUsageColor(usage.percent))
+}
+
+async function attachPastedImage(bytes: Uint8Array, mimeType?: string) {
+  if (busy) return
+  try {
+    await ensureSelectedModelSupportsImages()
+    const attachment = createPastedImageAttachment(bytes, pastedImageSequence, mimeType)
+    pastedImageSequence += 1
+    addPendingImage(attachment)
+  } catch (error) {
+    showImageMessage(`Could not attach pasted image: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
+function handleImagePathPaste(value: string) {
+  const paths = parsePastedImagePaths(value)
+  if (!paths) return false
+  void attachPastedImagePaths(paths)
+  return true
+}
+
+async function attachPastedImagePaths(paths: readonly string[]) {
+  if (busy) return
+  try {
+    await ensureSelectedModelSupportsImages()
+    const images = await loadImageFiles(paths, workspaceCwd)
+    const combined = [...pendingImages, ...images]
+    validateImageAttachments(combined)
+    pendingImages = combined
+    ui.setImageAttachmentCount(pendingImages.length)
+    updateContextIndicator()
+    ui.focusInput()
+  } catch (error) {
+    showImageMessage(`Could not attach dropped image: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
+function addPendingImage(image: ImageContentPart) {
+  validateImageAttachments([...pendingImages, image])
+  pendingImages = [...pendingImages, image]
+  ui.setImageAttachmentCount(pendingImages.length)
+  updateContextIndicator()
+  ui.focusInput()
+}
+
+function clearPendingImages() {
+  if (pendingImages.length === 0) return
+  pendingImages = []
+  ui.setImageAttachmentCount(0)
+}
+
+function removeLastPendingImage() {
+  if (busy || pendingImages.length === 0) return false
+  pendingImages = pendingImages.slice(0, -1)
+  ui.setImageAttachmentCount(pendingImages.length)
+  updateContextIndicator()
+  return true
+}
+
+async function ensureSelectedModelSupportsImages() {
+  if (selectedModelSupportsImageInput === true) return
+  if (!fireworksApiKey || !selectedModelId) throw new Error("Select a Fireworks model first.")
+  if (selectedModelSupportsImageInput === false) {
+    throw new Error(`Selected model does not support image input: ${selectedModelId}`)
+  }
+
+  if (imageCapabilityCheck?.modelId === selectedModelId) return imageCapabilityCheck.promise
+
+  const modelId = selectedModelId
+  const promise = resolveSelectedModelImageCapability(fireworksApiKey, modelId).finally(() => {
+    if (imageCapabilityCheck?.promise === promise) imageCapabilityCheck = undefined
+  })
+  imageCapabilityCheck = { modelId, promise }
+  return promise
+}
+
+async function resolveSelectedModelImageCapability(apiKey: string, modelId: string) {
+  const models = await listToolCapableModels(apiKey)
+  const selected = models.find((model) => model.id === modelId)
+  if (!selected) throw new Error(`Selected model is no longer available: ${modelId}`)
+  if (selectedModelId !== modelId) throw new Error("The selected model changed while checking image support.")
+  selectedModelSupportsImageInput = selected.supportsImageInput
+  await saveSelectedModel(selected)
+  if (!selected.supportsImageInput) throw new Error(`Selected model does not support image input: ${modelId}`)
+}
+
+function showImageMessage(message: string) {
+  ui.showChatLayout()
+  transcript.addAssistantMessage(message)
+  ui.renderTranscript(transcript.entries, { scrollToBottom: true })
+  ui.focusInput()
 }
 
 function toggleMode() {

@@ -28,6 +28,9 @@ export type ChatUIOptions = {
   thinkingVisible?: boolean
   treeSitterClient?: TreeSitterClient
   onInputChange?: (value: string) => void
+  onImagePaste?: (bytes: Uint8Array, mimeType?: string) => void | Promise<void>
+  onImagePathPaste?: (value: string) => boolean
+  onRemoveLastImage?: () => boolean
   onInterrupt?: () => void
   onSetup?: () => void
   onSetupSubmit?: (credential: SetupCredential, apiKey: string) => void
