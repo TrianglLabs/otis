@@ -16,7 +16,7 @@ export type LocalSettings = {
   permissions?: PermissionConfig
 }
 
-export const THEME_NAMES = ["default", "nord", "bright", "matrix"] as const
+export const THEME_NAMES = ["default", "nord", "bright", "matrix", "midnight", "graphite"] as const
 export type ThemeName = (typeof THEME_NAMES)[number]
 
 export type SettingsFileOptions = {
@@ -168,7 +168,7 @@ function withSelectedModel(settings: SettingsFile, model: FireworksModel): Setti
 function optionalTheme(value: unknown): ThemeName | undefined {
   if (value === undefined) return undefined
   if (isThemeName(value)) return value
-  throw new Error("Invalid Otis config: theme must be default, nord, bright, or matrix.")
+  throw new Error(`Invalid Otis config: theme must be one of: ${THEME_NAMES.join(", ")}.`)
 }
 
 function optionalBoolean(value: unknown, name: string): boolean | undefined {

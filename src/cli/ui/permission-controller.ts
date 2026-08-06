@@ -20,6 +20,10 @@ export class PermissionController {
 
   constructor(private readonly options: PermissionControllerOptions) {}
 
+  get isVisible() {
+    return this.visible
+  }
+
   show(detail: string): Promise<boolean> {
     this.options.label.content = detail
     if (!this.visible) {

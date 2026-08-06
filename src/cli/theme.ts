@@ -1,4 +1,4 @@
-import { RGBA, SyntaxStyle } from "@opentui/core"
+import { type MarkdownTableOptions, RGBA, SyntaxStyle } from "@opentui/core"
 import type { ThemeName } from "../local/settings.js"
 
 export type ThemeColors = {
@@ -38,7 +38,7 @@ const themes: Record<ThemeName, ThemeColors> = {
     orange: "#FDBA74",
     pink: "#FDA4AF",
     yellow: "#FDE68A",
-    border: "#2A2A2A",
+    border: "#444444",
     diffAddedBg: "#1A2E22",
     diffRemovedBg: "#2E1A20",
     diffContextBg: "#1A1A1A",
@@ -113,6 +113,50 @@ const themes: Record<ThemeName, ThemeColors> = {
     diffContextContentBg: "#0D0D0D",
     diffLineNumberFg: "#4D7A52",
   },
+  midnight: {
+    background: "#0B1020",
+    surface: "#111827",
+    userSurface: "#18142D",
+    codeSurface: "#070B14",
+    accent: "#A78BFA",
+    muted: "#7C879E",
+    text: "#E5E7EB",
+    cyan: "#67E8F9",
+    green: "#6EE7B7",
+    orange: "#FDBA74",
+    pink: "#F9A8D4",
+    yellow: "#FDE68A",
+    border: "#334155",
+    diffAddedBg: "#0D2A24",
+    diffRemovedBg: "#2A1421",
+    diffContextBg: "#0B1020",
+    diffAddedContentBg: "#124235",
+    diffRemovedContentBg: "#421C2E",
+    diffContextContentBg: "#0B1020",
+    diffLineNumberFg: "#526078",
+  },
+  graphite: {
+    background: "#09090B",
+    surface: "#111113",
+    userSurface: "#1A1A1E",
+    codeSurface: "#050506",
+    accent: "#E4E4E7",
+    muted: "#92929B",
+    text: "#E7E7EA",
+    cyan: "#A5D8E8",
+    green: "#A7D7B5",
+    orange: "#D6B07A",
+    pink: "#D6A1B8",
+    yellow: "#D8C894",
+    border: "#45454B",
+    diffAddedBg: "#132019",
+    diffRemovedBg: "#241518",
+    diffContextBg: "#09090B",
+    diffAddedContentBg: "#1A3022",
+    diffRemovedContentBg: "#381D23",
+    diffContextContentBg: "#09090B",
+    diffLineNumberFg: "#66666F",
+  },
 }
 
 export const colors: ThemeColors = { ...themes.default }
@@ -134,6 +178,22 @@ export function createMarkdownStyle() {
     "markup.link": { fg: RGBA.fromHex(colors.cyan), underline: true },
     "markup.raw": { fg: RGBA.fromHex(colors.green) },
   })
+}
+
+export function createMarkdownTableOptions(): MarkdownTableOptions {
+  return {
+    style: "grid",
+    widthMode: "full",
+    columnFitter: "proportional",
+    wrapMode: "word",
+    cellPaddingX: 1,
+    cellPaddingY: 0,
+    borders: true,
+    outerBorder: true,
+    borderStyle: "rounded",
+    borderColor: colors.border,
+    selectable: true,
+  }
 }
 
 export function createMutedMarkdownStyle() {

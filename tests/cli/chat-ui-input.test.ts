@@ -1,14 +1,13 @@
 import type { InputRenderable, TextareaRenderable } from "@opentui/core"
 import { describe, expect, it, vi } from "vitest"
+import { THEME_NAMES } from "../../src/local/settings.js"
 import { useChatHarness } from "./support/chat-ui-harness.js"
 
 const themeCommands = [
   { name: "/theme", description: "Choose a theme" },
-  { name: "/theme default", description: "" },
-  { name: "/theme nord", description: "" },
-  { name: "/theme bright", description: "" },
-  { name: "/theme matrix", description: "" },
+  ...THEME_NAMES.map((theme) => ({ name: `/theme ${theme}`, description: "" })),
 ]
+const themeRowIDs = THEME_NAMES.map((_, index) => `command-row-${index}`)
 
 describe("chat UI input", () => {
   const setup = useChatHarness()
@@ -67,9 +66,11 @@ describe("chat UI input", () => {
     // Theme choices render as just the theme name, with no `/theme ` prefix.
     expect(harness.text("command-row-0")).toContain("default")
     expect(harness.text("command-row-3")).toContain("matrix")
+    expect(harness.text("command-row-4")).toContain("midnight")
+    expect(harness.text("command-row-5")).toContain("graphite")
 
     harness.press("down")
-    expect(onPreviewTheme).toHaveBeenCalledWith("default")
+    expect(onPreviewTheme).toHaveBeenCalledWith("midnight")
 
     harness.press("escape")
     expect(onCancelThemePreview).toHaveBeenCalledOnce()
@@ -83,12 +84,7 @@ describe("chat UI input", () => {
     harness.setChatInput("/theme")
     harness.submitChat()
 
-    expect(harness.childIds("command-menu")).toEqual([
-      "command-row-0",
-      "command-row-1",
-      "command-row-2",
-      "command-row-3",
-    ])
+    expect(harness.childIds("command-menu")).toEqual(themeRowIDs)
   })
 
   it("opens theme choices when pressing return on the slash command", async () => {
@@ -99,12 +95,7 @@ describe("chat UI input", () => {
     harness.setChatInput("/theme")
     harness.press("return")
 
-    expect(harness.childIds("command-menu")).toEqual([
-      "command-row-0",
-      "command-row-1",
-      "command-row-2",
-      "command-row-3",
-    ])
+    expect(harness.childIds("command-menu")).toEqual(themeRowIDs)
   })
 
   it("keeps the theme submenu open when the input clear emits its deferred empty change", async () => {
@@ -114,24 +105,14 @@ describe("chat UI input", () => {
 
     harness.setChatInput("/theme")
     harness.press("return")
-    expect(harness.childIds("command-menu")).toEqual([
-      "command-row-0",
-      "command-row-1",
-      "command-row-2",
-      "command-row-3",
-    ])
+    expect(harness.childIds("command-menu")).toEqual(themeRowIDs)
 
     // Opening the submenu clears the input; TextareaRenderable.clear() emits its
     // content-changed event asynchronously, so the empty-string change arrives
     // after the submenu is shown. It must not dismiss the submenu.
     harness.setChatInput("")
 
-    expect(harness.childIds("command-menu")).toEqual([
-      "command-row-0",
-      "command-row-1",
-      "command-row-2",
-      "command-row-3",
-    ])
+    expect(harness.childIds("command-menu")).toEqual(themeRowIDs)
     expect(harness.text("command-row-1")).toContain("nord")
   })
 
@@ -142,7 +123,7 @@ describe("chat UI input", () => {
 
     harness.setChatInput("/theme")
     harness.press("return")
-    expect(harness.childIds("command-menu")).toHaveLength(4)
+    expect(harness.childIds("command-menu")).toHaveLength(THEME_NAMES.length)
 
     // A real (non-empty) edit supersedes the theme submenu and filters commands.
     harness.setChatInput("/e")

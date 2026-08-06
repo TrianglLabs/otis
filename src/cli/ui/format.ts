@@ -3,7 +3,7 @@ import type { LocalStats } from "../../local/stats.js"
 const BUSY_WAVE_MIN_WIDTH = 16
 const BUSY_WAVE_CHARS = ["·", "╴", "─", "━", "◆"]
 
-export const ESC_INTERRUPT_HINT = " [ESC] interrupt "
+export const CHAT_INPUT_HINT = " [TAB] mode · [ESC] interrupt "
 
 export type AgentPhase = "thinking" | "working"
 
@@ -14,6 +14,10 @@ export const AGENT_PHASE_LABELS: Partial<Record<AgentPhase, string>> = {
 
 export function formatContextLabel(label: string) {
   return ` ${label} `
+}
+
+export function formatRuntimeHint(model: string, workspace: string) {
+  return ` ${model || "No model selected"} · ${workspace} `
 }
 
 export function formatStats(stats: LocalStats) {

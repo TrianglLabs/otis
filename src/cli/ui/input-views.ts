@@ -40,10 +40,12 @@ export function createChatInput(renderer: Renderer, label: string) {
   const inputHint = new TextRenderable(renderer, {
     id: "input-hint",
     content: "",
-    flexShrink: 0,
+    flexShrink: 1,
+    minWidth: 0,
     fg: colors.muted,
     bg: colors.background,
     selectable: false,
+    truncate: true,
   })
   const inputBox = new BoxRenderable(renderer, {
     id: "input-box",

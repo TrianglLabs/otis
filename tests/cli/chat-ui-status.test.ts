@@ -1,21 +1,33 @@
-import type { BoxRenderable } from "@opentui/core"
+import type { BoxRenderable, TextRenderable } from "@opentui/core"
 import { describe, expect, it, vi } from "vitest"
 import { useChatHarness } from "./support/chat-ui-harness.js"
 
 describe("chat UI status and prompts", () => {
   const setup = useChatHarness()
 
-  it("shows the selected model in the home input and the interrupt hint in chat", async () => {
+  it("shows the selected model at home and keyboard controls in chat", async () => {
     const harness = await setup({ modelLabel: "Tool Model" })
 
     expect(harness.text("input-hint")).toBe(" Tool Model ")
     expect(harness.find("welcome-model")).toBeUndefined()
 
     harness.ui.showChatLayout()
-    expect(harness.text("input-hint")).toBe(" [ESC] interrupt ")
+    expect(harness.text("input-hint")).toBe(" [TAB] mode · [ESC] interrupt ")
+    const inputBox = harness.get<BoxRenderable>("input-box")
+    expect(inputBox.title).toBeUndefined()
+    expect(inputBox.bottomTitle).toBeUndefined()
+    await harness.renderOnce()
+    const hint = harness.get<TextRenderable>("input-hint")
+    await harness.mockMouse.click(hint.x, hint.y)
+    expect(harness.text("input-hint")).toBe(" Tool Model · ~/work/otis ")
 
     harness.ui.setModelLabel("Replacement")
-    expect(harness.text("input-hint")).toBe(" [ESC] interrupt ")
+    expect(harness.text("input-hint")).toBe(" Replacement · ~/work/otis ")
+    harness.ui.setThinkingVisible(true)
+    expect(harness.text("input-hint")).toBe(" Replacement · ~/work/otis ")
+    await harness.renderOnce()
+    await harness.mockMouse.click(hint.x, hint.y)
+    expect(harness.text("input-hint")).toBe(" [TAB] mode · [ESC] interrupt ")
     harness.ui.showHomeLayout()
     expect(harness.text("input-hint")).toBe(" Replacement ")
   })
@@ -52,6 +64,18 @@ describe("chat UI status and prompts", () => {
     expect(harness.text("welcome-stat-label-2")).toBe("tokens/session")
     expect(harness.text("welcome-stat-value-3")).toBe("0S")
     expect(harness.text("welcome-stat-label-3")).toBe("time/session")
+  })
+
+  it("shows transient status feedback and restores the keyboard hint", async () => {
+    vi.useFakeTimers()
+    const harness = await setup()
+    harness.ui.showChatLayout()
+
+    harness.ui.showTransientHint(" Thinking traces shown ")
+    expect(harness.text("input-hint")).toBe(" Thinking traces shown ")
+
+    vi.advanceTimersByTime(1_500)
+    expect(harness.text("input-hint")).toBe(" [TAB] mode · [ESC] interrupt ")
   })
 
   it("renders stat boxes with the same rounded border style as the input box", async () => {
@@ -176,6 +200,20 @@ describe("chat UI status and prompts", () => {
 
     await expect(decision).resolves.toBe(expected)
     expect(harness.find("permission-prompt")).toBeUndefined()
+  })
+
+  it("suspends the busy wave while a permission prompt is visible", async () => {
+    const harness = await setup()
+    harness.ui.showChatLayout()
+    harness.ui.startBusyIndicator()
+    expect(harness.childIds("root")).toContain("agent-bar")
+
+    const decision = harness.ui.showPermissionPrompt("Running command: bun test")
+    expect(harness.childIds("root")).not.toContain("agent-bar")
+
+    harness.press("y")
+    await expect(decision).resolves.toBe(true)
+    expect(harness.childIds("root")).toContain("agent-bar")
   })
 
   it("shows the update hint below the command helper", async () => {
