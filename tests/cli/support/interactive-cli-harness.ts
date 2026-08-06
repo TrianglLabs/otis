@@ -59,6 +59,7 @@ const mocks = vi.hoisted(() => {
     showSetupInput: vi.fn(),
     showSetupStatus: vi.fn(),
     showStats: vi.fn(),
+    showTransientHint: vi.fn(),
     showUpdateHint: vi.fn(),
     startBusyIndicator: vi.fn(),
     stopBusyIndicator: vi.fn(),
@@ -145,7 +146,9 @@ vi.mock("../../../src/inference/client.js", () => ({
 }))
 vi.mock("../../../src/web/client.js", () => ({ ParallelClient: mocks.ParallelClient }))
 vi.mock("../../../src/local/settings.js", () => ({
-  isThemeName: (value: unknown) => ["default", "nord", "bright", "matrix"].includes(String(value)),
+  THEME_NAMES: ["default", "nord", "bright", "matrix", "midnight", "graphite"],
+  isThemeName: (value: unknown) =>
+    ["default", "nord", "bright", "matrix", "midnight", "graphite"].includes(String(value)),
   loadLocalSettings: mocks.loadLocalSettings,
   saveFireworksSetup: mocks.saveFireworksSetup,
   saveParallelApiKey: mocks.saveParallelApiKey,

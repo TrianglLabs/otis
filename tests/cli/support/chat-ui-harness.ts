@@ -41,6 +41,7 @@ async function createChatHarness(overrides: Partial<ChatUIOptions>): Promise<Cha
     modelLabel: "Model: test",
     modeLabel: "› auto",
     sessionLabel: "default",
+    workspaceLabel: "~/work/otis",
     onSubmit: vi.fn(),
     ...overrides,
   }

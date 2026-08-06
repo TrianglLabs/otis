@@ -8,6 +8,7 @@ import {
   loadLocalSettings,
   saveSelectedTheme,
   saveThinkingVisible,
+  THEME_NAMES,
   type ThemeName,
 } from "../local/settings.js"
 import { calculateLocalStats } from "../local/stats.js"
@@ -30,9 +31,14 @@ import { initializeTreeSitterClient, TerminalController } from "./terminal.js"
 import { colors, selectTheme } from "./theme.js"
 import { TranscriptStore } from "./transcript.js"
 import { checkForUpdate } from "./update.js"
+import { formatWorkspaceLabel } from "./workspace-label.js"
 
 const UPDATE_CHECK_TIMEOUT_MS = 5_000
 const workspaceCwd = process.cwd()
+const THEME_COMMANDS: CommandSuggestion[] = THEME_NAMES.map((theme) => ({
+  name: `/theme ${theme}`,
+  description: "",
+}))
 const COMMANDS: CommandSuggestion[] = [
   { name: "/home", description: "Return to home screen" },
   { name: "/new", description: "Start a new session" },
@@ -41,11 +47,8 @@ const COMMANDS: CommandSuggestion[] = [
   { name: "/compact", description: "Summarize old conversation to free context" },
   { name: "/debug", description: "Toggle debug messages" },
   { name: "/thinking", description: "Show or hide model thinking traces" },
-  { name: "/theme", description: "Choose default, nord, bright, or matrix theme" },
-  { name: "/theme default", description: "" },
-  { name: "/theme nord", description: "" },
-  { name: "/theme bright", description: "" },
-  { name: "/theme matrix", description: "" },
+  { name: "/theme", description: "Choose a color theme" },
+  ...THEME_COMMANDS,
   { name: "/exit", description: "Exit Otis" },
 ]
 
@@ -113,6 +116,7 @@ export async function startInteractiveCli() {
     sessionLabel: "Current session",
     theme: selectedTheme,
     thinkingVisible,
+    workspaceLabel: formatWorkspaceLabel(workspaceCwd),
     treeSitterClient,
     onInputChange: (value) => updateContextIndicator(value),
     onInterrupt: () => {
@@ -523,6 +527,7 @@ async function setThinkingVisible(visible: boolean) {
   ui.focusInput()
   try {
     await saveThinkingVisible(visible)
+    ui.showTransientHint(` Thinking traces ${visible ? "shown" : "hidden"} `)
   } catch (error) {
     thinkingVisible = previous
     ui.setThinkingVisible(previous)

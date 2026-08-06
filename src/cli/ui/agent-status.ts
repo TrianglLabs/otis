@@ -1,11 +1,11 @@
 import type { BoxRenderable, TextRenderable } from "@opentui/core"
 import { colors, type ThemeColors } from "../theme.js"
-import { AGENT_PHASE_LABELS, type AgentPhase, ESC_INTERRUPT_HINT, renderBusyStatus } from "./format.js"
+import { AGENT_PHASE_LABELS, type AgentPhase, CHAT_INPUT_HINT, renderBusyStatus } from "./format.js"
 import type { Renderer } from "./types.js"
 
 const BUSY_FRAME_INTERVAL_MS = 120
 const ESC_INTERRUPT_WINDOW_MS = 3000
-const COPY_HINT_DURATION_MS = 1500
+const TRANSIENT_HINT_DURATION_MS = 1500
 
 type AgentStatusOptions = {
   renderer: Renderer
@@ -14,7 +14,7 @@ type AgentStatusOptions = {
   agentBar: TextRenderable
   inputHint: TextRenderable
   isWelcomeVisible: () => boolean
-  isCommandMenuVisible: () => boolean
+  isOverlayVisible: () => boolean
   onInterrupt?: () => void
 }
 
@@ -25,8 +25,8 @@ export class AgentStatus {
   private barColor = colors.accent
   private lastEscapeAt = 0
   private interruptVisible = false
-  private copyHintTimer: NodeJS.Timeout | undefined
-  private idleInputHint = ESC_INTERRUPT_HINT
+  private transientHintTimer: NodeJS.Timeout | undefined
+  private idleInputHint = CHAT_INPUT_HINT
   private phase: AgentPhase = "working"
 
   constructor(private readonly options: AgentStatusOptions) {}
@@ -96,25 +96,29 @@ export class AgentStatus {
 
   setInputHint(content: string) {
     this.idleInputHint = content
-    if (this.copyHintTimer) return
+    if (this.transientHintTimer) return
     this.options.inputHint.content = content
     this.options.inputHint.fg = colors.muted
     this.options.renderer.requestRender()
   }
 
   showCopyHint() {
+    this.showTransientHint(" Copied! ")
+  }
+
+  showTransientHint(content: string) {
     if (this.interruptVisible) return
-    if (this.copyHintTimer) clearTimeout(this.copyHintTimer)
-    this.options.inputHint.content = " Copied! "
+    if (this.transientHintTimer) clearTimeout(this.transientHintTimer)
+    this.options.inputHint.content = content
     this.options.inputHint.fg = colors.accent
     this.options.renderer.requestRender()
-    this.copyHintTimer = setTimeout(() => {
-      this.copyHintTimer = undefined
+    this.transientHintTimer = setTimeout(() => {
+      this.transientHintTimer = undefined
       this.options.inputHint.content = this.idleInputHint
       this.options.inputHint.fg = colors.muted
       this.options.renderer.requestRender()
-    }, COPY_HINT_DURATION_MS)
-    this.copyHintTimer.unref?.()
+    }, TRANSIENT_HINT_DURATION_MS)
+    this.transientHintTimer.unref?.()
   }
 
   suspendForOverlay() {
@@ -148,7 +152,7 @@ export class AgentStatus {
   }
 
   private showBar() {
-    if (this.barVisible || this.options.isWelcomeVisible() || this.options.isCommandMenuVisible()) return
+    if (this.barVisible || this.options.isWelcomeVisible() || this.options.isOverlayVisible()) return
     this.options.root.insertBefore(this.options.agentBar, this.options.inputArea)
     this.barVisible = true
   }

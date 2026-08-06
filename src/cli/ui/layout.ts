@@ -170,7 +170,10 @@ export function createUILayout(
     height: "100%",
     backgroundColor: colors.background,
     live: true,
-    padding: 1,
+    paddingTop: 1,
+    paddingBottom: 1,
+    paddingLeft: 1,
+    paddingRight: 0,
     gap: 0,
   })
   root.add(welcome)

@@ -8,12 +8,12 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { colors, selectTheme } from "../../src/cli/theme.js"
 import { TranscriptStore } from "../../src/cli/transcript.js"
-import type { ThemeName } from "../../src/local/settings.js"
+import { THEME_NAMES, type ThemeName } from "../../src/local/settings.js"
 import { useChatHarness } from "./support/chat-ui-harness.js"
 
 describe("chat UI theme switching", () => {
   const setup = useChatHarness()
-  const themes: ThemeName[] = ["default", "nord", "bright", "matrix"]
+  const themes: readonly ThemeName[] = THEME_NAMES
 
   // selectTheme mutates the shared module-level `colors` object; restore the
   // default theme so this file cannot leak state into sibling test files.
