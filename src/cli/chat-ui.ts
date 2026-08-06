@@ -68,7 +68,12 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
   const models = new ModelPicker(renderer, modelRowsBox)
   const sessions = new SessionPicker(renderer, sessionRowsBox)
   const sessionStatus = new SessionStatus(renderer, sessionLabel, options.sessionLabel)
-  const transcriptView = new TranscriptView(renderer, messages, options.treeSitterClient)
+  const transcriptView = new TranscriptView(
+    renderer,
+    messages,
+    options.treeSitterClient,
+    options.thinkingVisible ?? false,
+  )
   const permissions = new PermissionController({
     renderer,
     inputArea,
@@ -185,6 +190,10 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
 
   function renderTranscript(entries: TranscriptEntry[], options: { scrollToBottom?: boolean } = {}) {
     transcriptView.render(entries, options)
+  }
+
+  function setThinkingVisible(visible: boolean) {
+    transcriptView.setThinkingVisible(visible)
   }
 
   function showSessionPicker(items: SessionPickerItem[]) {
@@ -522,6 +531,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
     setSessionLabel,
     setStats,
     setTheme,
+    setThinkingVisible,
     showStats,
     showModelPicker,
     showSetupError,

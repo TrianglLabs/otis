@@ -24,6 +24,7 @@ export type ChatUIOptions = {
   modeLabel: string
   sessionLabel: string
   theme?: ThemeName
+  thinkingVisible?: boolean
   treeSitterClient?: TreeSitterClient
   onInputChange?: (value: string) => void
   onInterrupt?: () => void

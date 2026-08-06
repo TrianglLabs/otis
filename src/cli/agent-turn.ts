@@ -40,6 +40,7 @@ export async function runAgentTurn(options: AgentTurnOptions): Promise<AgentTurn
   const { admission, input, signal, transcript, ui } = options
   let assistantText = ""
   let assistantEntry: TranscriptEntry | undefined
+  const reasoningEntries = new Map<string, { entryId: number; text: string }>()
   let recordedTurn = false
   const toolEntries = new Map<string, number>()
 
@@ -92,7 +93,36 @@ export async function runAgentTurn(options: AgentTurnOptions): Promise<AgentTurn
         }
 
         if (event.type === "reasoning") {
-          ui.setAgentPhase("thinking")
+          if (event.phase === "start") {
+            if (assistantEntry) transcript.updateEntry(assistantEntry.id, { streaming: false })
+            assistantEntry = undefined
+            assistantText = ""
+            const entry = transcript.addReasoningMessage("", {
+              reasoningId: event.reasoningId,
+              startedAt: event.startedAt,
+              streaming: true,
+            })
+            reasoningEntries.set(event.reasoningId, { entryId: entry.id, text: "" })
+            ui.setAgentPhase("thinking")
+          }
+          if (event.phase === "delta") {
+            const reasoning = reasoningEntries.get(event.reasoningId)
+            if (reasoning) {
+              reasoning.text += event.text
+              transcript.updateEntry(reasoning.entryId, { text: reasoning.text, streaming: true })
+            }
+          }
+          if (event.phase === "end") {
+            const reasoning = reasoningEntries.get(event.reasoningId)
+            if (reasoning) {
+              transcript.updateEntry(reasoning.entryId, {
+                endedAt: event.endedAt,
+                durationMs: event.durationMs,
+                streaming: false,
+              })
+            }
+          }
+          ui.renderTranscript(transcript.entries, { scrollToBottom: true })
           return
         }
 

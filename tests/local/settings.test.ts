@@ -8,6 +8,7 @@ import {
   saveParallelApiKey,
   saveSelectedModel,
   saveSelectedTheme,
+  saveThinkingVisible,
 } from "../../src/local/settings.js"
 
 const tempDirectories: string[] = []
@@ -99,6 +100,18 @@ describe("local settings", () => {
     })
   })
 
+  it("stores thinking visibility independently from reasoning behavior", async () => {
+    const file = join(await tempDirectory(), "config.json")
+    await saveFireworksSetup("fw_test_key", model("tool-model", "Tool Model"), { file })
+    await saveThinkingVisible(true, { file })
+
+    await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({ thinkingVisible: true })
+    expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({
+      fireworksApiKey: "fw_test_key",
+      thinkingVisible: true,
+    })
+  })
+
   it("loads and preserves permission policy while changing other settings", async () => {
     const file = join(await tempDirectory(), "config.json")
     await writeFile(
@@ -180,15 +193,18 @@ describe("local settings", () => {
     const unsupported = join(directory, "unsupported.json")
     const invalidMetadata = join(directory, "invalid-metadata.json")
     const invalidTheme = join(directory, "invalid-theme.json")
+    const invalidThinking = join(directory, "invalid-thinking.json")
     await writeFile(malformed, "{broken", "utf8")
     await writeFile(unsupported, JSON.stringify({ version: 2 }), "utf8")
     await writeFile(invalidMetadata, JSON.stringify({ version: 1, modelContextLength: -1 }), "utf8")
     await writeFile(invalidTheme, JSON.stringify({ version: 1, theme: "blue" }), "utf8")
+    await writeFile(invalidThinking, JSON.stringify({ version: 1, thinkingVisible: "sometimes" }), "utf8")
 
     await expect(loadLocalSettings({ file: malformed, env: {} })).rejects.toThrow("Invalid Otis config")
     await expect(loadLocalSettings({ file: unsupported, env: {} })).rejects.toThrow("unsupported version")
     await expect(loadLocalSettings({ file: invalidMetadata, env: {} })).rejects.toThrow("positive integer")
     await expect(loadLocalSettings({ file: invalidTheme, env: {} })).rejects.toThrow("theme must be")
+    await expect(loadLocalSettings({ file: invalidThinking, env: {} })).rejects.toThrow("thinkingVisible must be")
   })
 })
 

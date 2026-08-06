@@ -2,12 +2,13 @@ import {
   BoxRenderable,
   DiffRenderable,
   MarkdownRenderable,
+  MouseButton,
   type ScrollBoxRenderable,
   TextRenderable,
   type TreeSitterClient,
 } from "@opentui/core"
 import type { ToolActivityKind } from "../../tools/index.js"
-import { colors, createCodeSyntaxStyle, createMarkdownStyle } from "../theme.js"
+import { colors, createCodeSyntaxStyle, createMarkdownStyle, createMutedMarkdownStyle } from "../theme.js"
 import type { TranscriptEntry } from "../transcript.js"
 import type { Renderer } from "./types.js"
 
@@ -24,6 +25,7 @@ const TOOL_ICONS: Record<ToolActivityKind, string> = {
   shell: "⚙",
 }
 const useRichToolIcons = supportsRichToolIcons()
+const REASONING_PREVIEW_HEIGHT = 3
 
 type MessageCard = {
   kind: "message"
@@ -40,21 +42,37 @@ type ToolCard = {
   diff?: DiffRenderable
 }
 
-type TranscriptRenderable = MessageCard | ToolCard
+type ReasoningCard = {
+  kind: "reasoning"
+  root: BoxRenderable
+  header: TextRenderable
+  content: MarkdownRenderable
+  entry: TranscriptEntry
+  expanded: boolean
+}
+
+type TranscriptRenderable = MessageCard | ReasoningCard | ToolCard
 
 export class TranscriptView {
   readonly #renderables = new Map<number, TranscriptRenderable>()
+  readonly #expandedReasoningIDs = new Set<string>()
   #entries: readonly TranscriptEntry[] = []
 
   constructor(
     private readonly renderer: Renderer,
     private readonly messages: ScrollBoxRenderable,
     private readonly treeSitterClient?: TreeSitterClient,
+    private thinkingVisible = false,
   ) {}
 
   render(entries: readonly TranscriptEntry[], options: { scrollToBottom?: boolean } = {}) {
     this.#entries = entries
-    const entryIDs = new Set(entries.map((entry) => entry.id))
+    const reasoningIDs = new Set(entries.flatMap((entry) => (entry.reasoningId ? [entry.reasoningId] : [])))
+    for (const reasoningId of this.#expandedReasoningIDs) {
+      if (!reasoningIDs.has(reasoningId)) this.#expandedReasoningIDs.delete(reasoningId)
+    }
+    const visibleEntries = entries.filter((entry) => entry.kind !== "reasoning" || this.thinkingVisible)
+    const entryIDs = new Set(visibleEntries.map((entry) => entry.id))
 
     for (const [id, renderable] of this.#renderables) {
       if (entryIDs.has(id)) continue
@@ -62,8 +80,8 @@ export class TranscriptView {
       this.#renderables.delete(id)
     }
 
-    entries.forEach((entry, index) => {
-      const previousEntry = entries[index - 1]
+    visibleEntries.forEach((entry, index) => {
+      const previousEntry = visibleEntries[index - 1]
       let existing = this.#renderables.get(entry.id)
 
       if (existing && !canReuse(existing, entry)) {
@@ -93,10 +111,16 @@ export class TranscriptView {
     this.messages.scrollTo(scrollTop)
   }
 
+  setThinkingVisible(visible: boolean) {
+    if (visible === this.thinkingVisible) return
+    this.thinkingVisible = visible
+    this.render(this.#entries)
+  }
+
   private create(entry: TranscriptEntry, previousEntry?: TranscriptEntry): TranscriptRenderable {
-    return entry.kind === "tool"
-      ? this.createToolCard(entry, previousEntry)
-      : this.createMessageCard(entry, previousEntry)
+    if (entry.kind === "tool") return this.createToolCard(entry, previousEntry)
+    if (entry.kind === "reasoning") return this.createReasoningCard(entry, previousEntry)
+    return this.createMessageCard(entry, previousEntry)
   }
 
   private update(renderable: TranscriptRenderable, entry: TranscriptEntry, previousEntry?: TranscriptEntry) {
@@ -105,6 +129,19 @@ export class TranscriptView {
       renderable.icon.content = toolIcon(entry)
       renderable.label.content = entry.text || " "
       if (entry.diff) this.addDiff(renderable, entry)
+      return
+    }
+
+    if (renderable.kind === "reasoning") {
+      renderable.root.marginTop = entryMarginTop(entry, previousEntry)
+      renderable.entry = entry
+      const preview = reasoningPreview(entry.text, this.renderer.terminalWidth - 2)
+      const truncated = preview !== entry.text
+      renderable.header.content = reasoningHeader(entry, renderable.expanded, truncated)
+      renderable.content.streaming = entry.streaming === true
+      renderable.content.maxHeight = renderable.expanded ? undefined : REASONING_PREVIEW_HEIGHT
+      renderable.content.content = (renderable.expanded ? entry.text : preview) || " "
+      this.orderReasoningCard(renderable, entry.streaming === true)
       return
     }
 
@@ -117,6 +154,70 @@ export class TranscriptView {
     renderable.content.streaming = entry.streaming === true
     renderable.content.internalBlockMode = "top-level"
     renderable.content.content = messageContent(entry)
+  }
+
+  private createReasoningCard(entry: TranscriptEntry, previousEntry?: TranscriptEntry): ReasoningCard {
+    const root = new BoxRenderable(this.renderer, {
+      id: `message-${entry.id}`,
+      flexDirection: "column",
+      backgroundColor: colors.background,
+      paddingX: 1,
+      paddingY: 0,
+      marginTop: entryMarginTop(entry, previousEntry),
+      gap: 1,
+    })
+    const header = new TextRenderable(this.renderer, {
+      id: `message-${entry.id}-reasoning-header`,
+      content: reasoningHeader(entry),
+      fg: colors.muted,
+    })
+    const content = this.createReasoningContent(entry)
+    const card: ReasoningCard = {
+      kind: "reasoning",
+      root,
+      header,
+      content,
+      entry,
+      expanded: entry.reasoningId ? this.#expandedReasoningIDs.has(entry.reasoningId) : false,
+    }
+    header.onMouseDown = (event) => {
+      if (event.button !== MouseButton.LEFT) return
+      const preview = reasoningPreview(card.entry.text, this.renderer.terminalWidth - 2)
+      if (preview === card.entry.text) return
+      event.preventDefault()
+      event.stopPropagation()
+      card.expanded = !card.expanded
+      if (card.entry.reasoningId) {
+        if (card.expanded) this.#expandedReasoningIDs.add(card.entry.reasoningId)
+        else this.#expandedReasoningIDs.delete(card.entry.reasoningId)
+      }
+      this.update(card, card.entry)
+      this.renderer.requestRender()
+    }
+    this.update(card, entry, previousEntry)
+    return card
+  }
+
+  private createReasoningContent(entry: TranscriptEntry) {
+    return new MarkdownRenderable(this.renderer, {
+      id: `message-${entry.id}-reasoning-content`,
+      content: entry.text || " ",
+      fg: colors.muted,
+      syntaxStyle: createMutedMarkdownStyle(),
+      treeSitterClient: this.treeSitterClient,
+      streaming: entry.streaming === true,
+      internalBlockMode: "top-level",
+      tableOptions: { style: "grid" },
+      maxHeight: REASONING_PREVIEW_HEIGHT,
+    })
+  }
+
+  private orderReasoningCard(card: ReasoningCard, streaming: boolean) {
+    const desired = streaming ? [card.header, card.content] : [card.content, card.header]
+    const current = card.root.getChildren()
+    if (current.length === desired.length && current.every((child, index) => child.id === desired[index].id)) return
+    for (const child of current) card.root.remove(child.id)
+    for (const child of desired) card.root.add(child)
   }
 
   private createToolCard(entry: TranscriptEntry, previousEntry?: TranscriptEntry): ToolCard {
@@ -224,7 +325,9 @@ export class TranscriptView {
 }
 
 function canReuse(renderable: TranscriptRenderable, entry: TranscriptEntry) {
-  return renderable.kind === (entry.kind === "tool" ? "tool" : "message")
+  const kind = entry.kind === "tool" ? "tool" : entry.kind === "reasoning" ? "reasoning" : "message"
+  if (renderable.kind !== kind) return false
+  return renderable.kind !== "reasoning" || renderable.entry.reasoningId === entry.reasoningId
 }
 
 function entryBackground(entry: TranscriptEntry) {
@@ -234,7 +337,31 @@ function entryBackground(entry: TranscriptEntry) {
 
 function entryMarginTop(entry: TranscriptEntry, previousEntry?: TranscriptEntry) {
   if (entry.kind === "tool") return previousEntry?.kind === "tool" ? 0 : 1
-  return entry.kind === "message" ? 1 : 0
+  return entry.kind === "message" || entry.kind === "reasoning" ? 1 : 0
+}
+
+function reasoningHeader(entry: TranscriptEntry, expanded = false, truncated = false) {
+  const label = entry.streaming
+    ? "Thinking…"
+    : entry.durationMs === undefined
+      ? "Thought"
+      : `Thought for ${formatDuration(entry.durationMs)}`
+  return truncated ? `${label} · click to ${expanded ? "collapse" : "expand"}` : label
+}
+
+function reasoningPreview(text: string, width: number) {
+  const lines = text.replace(/\n+$/, "").split("\n")
+  const lineTail = lines.slice(-REASONING_PREVIEW_HEIGHT).join("\n")
+  const characters = Array.from(lineTail)
+  const characterLimit = Math.max(1, width) * REASONING_PREVIEW_HEIGHT
+  if (lines.length <= REASONING_PREVIEW_HEIGHT && characters.length <= characterLimit) return text
+  return characters.slice(-characterLimit).join("")
+}
+
+function formatDuration(durationMs: number) {
+  if (durationMs < 1_000) return `${durationMs}ms`
+  const seconds = durationMs / 1_000
+  return `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)}s`
 }
 
 function speakerColor(entry: TranscriptEntry) {

@@ -117,9 +117,14 @@ describe("runAgent", () => {
     })
 
     const events = await collect(runAgent("think out loud", [], { client, cwd }))
+    const reasoningEvents = events.filter((event) => event.type === "reasoning")
     const reasoningIndex = events.findIndex((event) => event.type === "reasoning")
     const deltaIndex = events.findIndex((event) => event.type === "delta")
 
+    expect(reasoningEvents.map((event) => event.phase)).toEqual(["start", "delta", "end"])
+    expect(new Set(reasoningEvents.map((event) => event.reasoningId)).size).toBe(1)
+    expect(reasoningEvents[1]).toMatchObject({ phase: "delta", text: "Let me think." })
+    expect(reasoningEvents[2]).toMatchObject({ phase: "end", durationMs: expect.any(Number) })
     expect(reasoningIndex).toBeGreaterThanOrEqual(0)
     expect(deltaIndex).toBeGreaterThan(reasoningIndex)
   })
@@ -135,13 +140,15 @@ describe("runAgent", () => {
     expect(events.some((event) => event.type === "reasoning")).toBe(false)
   })
 
-  it("orders reasoning before text in assistant messages", async () => {
+  it("preserves multiple reasoning and text blocks in stream order", async () => {
     const cwd = await trackedTempDir()
     const requests: StreamAgentRequest[] = []
     streamAgentMock.mockImplementationOnce(async function* (request) {
       requests.push(clone(request) as StreamAgentRequest)
-      yield { type: "reasoning_delta", text: "Thinking about the answer.", field: "reasoning_content" }
-      yield { type: "text_delta", text: "Here is the answer." }
+      yield { type: "reasoning_delta", text: "First thought.", field: "reasoning_content" }
+      yield { type: "text_delta", text: "Interim. " }
+      yield { type: "reasoning_delta", text: "Second thought.", field: "reasoning_content" }
+      yield { type: "text_delta", text: "Final answer." }
     })
 
     const events = await collect(runAgent("answer me", [], { client, cwd }))
@@ -151,8 +158,10 @@ describe("runAgent", () => {
     expect(assistant).toMatchObject({
       role: "assistant",
       content: [
-        { type: "reasoning", text: "Thinking about the answer.", field: "reasoning_content" },
-        { type: "text", text: "Here is the answer." },
+        { type: "reasoning", text: "First thought.", field: "reasoning_content", id: expect.any(String) },
+        { type: "text", text: "Interim. " },
+        { type: "reasoning", text: "Second thought.", field: "reasoning_content", id: expect.any(String) },
+        { type: "text", text: "Final answer." },
       ],
     })
   })
@@ -177,7 +186,7 @@ describe("runAgent", () => {
     const events = await collect(runAgent("read the note", [], { client, cwd, signal: controller.signal }))
     const interrupted = events.find((event) => event.type === "interrupted")
 
-    expect(interrupted?.messages).toEqual([
+    expect(interrupted?.messages).toMatchObject([
       { role: "user", content: "read the note" },
       {
         role: "assistant",

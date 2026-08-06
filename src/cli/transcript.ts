@@ -1,11 +1,11 @@
 import { compactionSummaryMessage, extractCompactionSummary, isCompactionSummary } from "../core/compaction.js"
-import type { ChatMessage, ChatToolCall } from "../inference/types.js"
+import type { ChatMessage, ChatToolCall, ReasoningContentPart } from "../inference/types.js"
 import type { SessionToolActivity } from "../storage/index.js"
 import { describeToolCall, type ToolActivityKind } from "../tools/activity.js"
 import { parseSerializedToolCall } from "../tools/schema.js"
 
-export type TranscriptKind = "message" | "tool" | "debug"
-export type TranscriptSpeaker = "You" | "Otis" | "Tool" | "Debug"
+export type TranscriptKind = "message" | "reasoning" | "tool" | "debug"
+export type TranscriptSpeaker = "You" | "Otis" | "Thinking" | "Tool" | "Debug"
 
 export type TranscriptEntry = {
   id: number
@@ -14,6 +14,10 @@ export type TranscriptEntry = {
   text: string
   activityKind?: ToolActivityKind
   toolCallId?: string
+  reasoningId?: string
+  startedAt?: string
+  endedAt?: string
+  durationMs?: number
   diff?: string
   streaming?: boolean
 }
@@ -22,6 +26,7 @@ export class TranscriptStore {
   readonly entries: TranscriptEntry[] = []
   readonly history: ChatMessage[] = []
   private nextMessageID = 1
+  private nextLocalReasoningID = 1
 
   loadMessages(messages: ChatMessage[], toolActivities: SessionToolActivity[] = []) {
     this.history.push(...messages)
@@ -73,6 +78,29 @@ export class TranscriptStore {
       text,
       activityKind,
       ...details,
+    }
+    this.entries.push(entry)
+    return entry
+  }
+
+  addReasoningMessage(
+    text: string,
+    details: {
+      reasoningId?: string
+      startedAt?: string
+      endedAt?: string
+      durationMs?: number
+      streaming?: boolean
+    } = {},
+  ) {
+    const reasoningId = details.reasoningId ?? `local-reasoning-${this.nextLocalReasoningID++}`
+    const entry = {
+      id: this.nextMessageID++,
+      kind: "reasoning" as const,
+      speaker: "Thinking" as const,
+      text,
+      ...details,
+      reasoningId,
     }
     this.entries.push(entry)
     return entry
@@ -133,24 +161,36 @@ export class TranscriptStore {
 
       if (message.role !== "assistant") continue
 
-      const text = assistantText(message)
-      if (text) this.addAssistantMessage(text)
-
       for (const part of message.content) {
-        if (part.type !== "tool_call") continue
-        const activity = takeToolActivity(activities, part.toolCall.id) ?? activityFromToolCall(part.toolCall)
-        if (!activity) continue
-        this.addToolMessage(activity.label, activity.activityKind, {
-          toolCallId: activity.toolCallId,
-          ...(activity.diff !== undefined ? { diff: activity.diff } : {}),
-        })
+        if (part.type === "text" && part.text) this.addAssistantMessage(part.text)
+        if (part.type === "reasoning" && part.text) this.addReasoningPart(part)
+        if (part.type === "tool_call") {
+          const activity = takeToolActivity(activities, part.toolCall.id) ?? activityFromToolCall(part.toolCall)
+          if (!activity) continue
+          this.addToolMessage(activity.label, activity.activityKind, {
+            toolCallId: activity.toolCallId,
+            ...(activity.diff !== undefined ? { diff: activity.diff } : {}),
+          })
+        }
       }
     }
   }
+
+  private addReasoningPart(part: ReasoningContentPart) {
+    const durationMs = reasoningDuration(part)
+    this.addReasoningMessage(part.text, {
+      ...(part.id ? { reasoningId: part.id } : {}),
+      ...(part.startedAt ? { startedAt: part.startedAt } : {}),
+      ...(part.endedAt ? { endedAt: part.endedAt } : {}),
+      ...(durationMs === undefined ? {} : { durationMs }),
+    })
+  }
 }
 
-function assistantText(message: Extract<ChatMessage, { role: "assistant" }>) {
-  return message.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("")
+function reasoningDuration(part: ReasoningContentPart) {
+  if (!part.startedAt || !part.endedAt) return undefined
+  const durationMs = new Date(part.endedAt).getTime() - new Date(part.startedAt).getTime()
+  return Number.isFinite(durationMs) ? Math.max(0, durationMs) : undefined
 }
 
 function groupToolActivities(activities: SessionToolActivity[]) {

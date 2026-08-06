@@ -49,10 +49,9 @@ function* processSSEEvent(rawEvent: string, state: StreamParserState): Generator
     if (choice?.finish_reason) state.finishReason = choice.finish_reason
 
     const delta = choice?.delta
-    if (delta?.content) yield { type: "text_delta", text: delta.content }
-
     const reasoning = reasoningDelta(delta)
     if (reasoning) yield { type: "reasoning_delta", ...reasoning }
+    if (delta?.content) yield { type: "text_delta", text: delta.content }
 
     const toolCalls = Array.isArray(delta?.tool_calls) ? delta.tool_calls : []
     toolCalls.forEach((toolCall, position) => {

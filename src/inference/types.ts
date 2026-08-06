@@ -6,9 +6,19 @@ export type ChatToolCall = {
 
 export type OpenAICompatibleReasoningField = "reasoning_content" | "reasoning" | "reasoning_text"
 
+export type ReasoningContentPart = {
+  type: "reasoning"
+  text: string
+  field: OpenAICompatibleReasoningField
+  /** Otis-owned identity and timing metadata. Optional for sessions created before reasoning traces were introduced. */
+  id?: string
+  startedAt?: string
+  endedAt?: string
+}
+
 export type AssistantContentPart =
   | { type: "text"; text: string }
-  | { type: "reasoning"; text: string; field: OpenAICompatibleReasoningField }
+  | ReasoningContentPart
   | { type: "tool_call"; toolCall: ChatToolCall }
 
 export type ChatMessage =
@@ -33,6 +43,17 @@ export type ChatStreamEvent =
   | { type: "reasoning_delta"; text: string; field: OpenAICompatibleReasoningField }
   | { type: "tool_call"; toolCall: ChatToolCall }
   | { type: "usage"; usage: TokenUsage }
+
+export type ReasoningTraceEvent =
+  | {
+      type: "reasoning"
+      phase: "start"
+      reasoningId: string
+      field: OpenAICompatibleReasoningField
+      startedAt: string
+    }
+  | { type: "reasoning"; phase: "delta"; reasoningId: string; text: string }
+  | { type: "reasoning"; phase: "end"; reasoningId: string; endedAt: string; durationMs: number }
 
 export type ContextFile = {
   path: string

@@ -24,4 +24,47 @@ describe("HeadlessReporter", () => {
     await pending
     expect(completed).toBe(true)
   })
+
+  it("includes completed reasoning only when explicitly requested", async () => {
+    let stdout = ""
+    const reporter = new HeadlessReporter(
+      "json",
+      { write: (chunk: string) => (stdout += chunk) },
+      { write: () => true },
+      { includeReasoning: true },
+    )
+    await reporter.event({
+      type: "reasoning",
+      phase: "start",
+      reasoningId: "reasoning_1",
+      field: "reasoning_content",
+      startedAt: "2026-08-06T12:00:00.000Z",
+    })
+    await reporter.event({ type: "reasoning", phase: "delta", reasoningId: "reasoning_1", text: "Check it." })
+    await reporter.event({
+      type: "reasoning",
+      phase: "end",
+      reasoningId: "reasoning_1",
+      endedAt: "2026-08-06T12:00:00.500Z",
+      durationMs: 500,
+    })
+    await reporter.finish({
+      status: "complete",
+      output: "Done.",
+      model: "test",
+      usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+      durationMs: 1,
+    })
+
+    expect(JSON.parse(stdout)).toMatchObject({
+      reasoning: [
+        {
+          id: "reasoning_1",
+          field: "reasoning_content",
+          text: "Check it.",
+          durationMs: 500,
+        },
+      ],
+    })
+  })
 })

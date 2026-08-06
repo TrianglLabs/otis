@@ -95,3 +95,17 @@ describe("CLI themes", () => {
     expect(mocks.ui.setTheme.mock.calls.at(-1)?.[0]).toBe("default")
   })
 })
+
+describe("CLI thinking visibility", () => {
+  it("persists each thinking visibility toggle", async () => {
+    await loadCli()
+
+    await submit("/thinking")
+    expect(mocks.saveThinkingVisible).toHaveBeenCalledWith(true)
+    expect(mocks.ui.setThinkingVisible).toHaveBeenLastCalledWith(true)
+
+    await submit("/thinking")
+    expect(mocks.saveThinkingVisible).toHaveBeenLastCalledWith(false)
+    expect(mocks.ui.setThinkingVisible).toHaveBeenLastCalledWith(false)
+  })
+})

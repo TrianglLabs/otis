@@ -1,12 +1,5 @@
 import type { FireworksClient } from "../inference/client.js"
-import type {
-  AssistantContentPart,
-  ChatMessage,
-  ChatToolCall,
-  ContextFile,
-  OpenAICompatibleReasoningField,
-  TokenUsage,
-} from "../inference/types.js"
+import type { ChatMessage, ChatToolCall, ContextFile, ReasoningTraceEvent, TokenUsage } from "../inference/types.js"
 import { createPermissionPolicy, type PermissionPolicy, type PermissionRequest } from "../permissions/policy.js"
 import {
   describeToolCall,
@@ -19,13 +12,14 @@ import {
   type ToolDefinition,
   type ToolResult,
 } from "../tools/index.js"
+import { AssistantResponseBuilder } from "./assistant-response.js"
 import { loadProjectContext } from "./context.js"
 
 export type AgentEvent =
   | { type: "context"; messageCount: number; contentChars: number }
   | { type: "debug"; message: string }
   | { type: "model"; phase: "start" }
-  | { type: "reasoning" }
+  | ReasoningTraceEvent
   | { type: "delta"; text: string }
   | {
       type: "tool"
@@ -132,9 +126,9 @@ export async function* runAgent(
 }
 
 type AssistantResponse = {
-  text: string
-  reasoning: Array<{ text: string; field: OpenAICompatibleReasoningField }>
+  content: Extract<ChatMessage, { role: "assistant" }>["content"]
   toolCalls: ChatToolCall[]
+  hasText: boolean
   interrupted: boolean
 }
 
@@ -143,9 +137,7 @@ async function* streamAssistantResponse(
   tools = TOOL_DEFINITIONS,
   options: Pick<RunAgentOptions, "client" | "signal" | "projectContext" | "onUsage">,
 ): AsyncGenerator<AgentEvent, AssistantResponse> {
-  let text = ""
-  const reasoning = new Map<OpenAICompatibleReasoningField, string>()
-  const toolCalls: ChatToolCall[] = []
+  const response = new AssistantResponseBuilder()
   const projectContext = options.projectContext ?? []
 
   try {
@@ -156,38 +148,33 @@ async function* streamAssistantResponse(
       signal: options.signal,
     })) {
       if (event.type === "text_delta") {
-        text += event.text
+        yield* response.appendText(event.text)
         yield { type: "delta", text: event.text }
       }
       if (event.type === "reasoning_delta") {
-        reasoning.set(event.field, `${reasoning.get(event.field) ?? ""}${event.text}`)
-        yield { type: "reasoning" }
+        yield* response.appendReasoning(event.text, event.field)
       }
-      if (event.type === "tool_call") toolCalls.push(event.toolCall)
+      if (event.type === "tool_call") yield* response.appendToolCall(event.toolCall)
       if (event.type === "usage") await options.onUsage?.(event.usage)
     }
   } catch (error) {
     if (!options.signal?.aborted) throw error
   }
 
+  yield* response.finish()
+
   return {
-    text,
-    reasoning: [...reasoning].map(([field, text]) => ({ field, text })).filter((part) => part.text.length > 0),
-    toolCalls,
+    content: response.content,
+    toolCalls: response.toolCalls,
+    hasText: response.hasText(),
     interrupted: options.signal?.aborted ?? false,
   }
 }
 
 function assistantMessageFromResponse(response: AssistantResponse): ChatMessage {
-  const content: AssistantContentPart[] = []
-
-  content.push(...response.reasoning.map((part) => ({ type: "reasoning" as const, ...part })))
-  if (response.text) content.push({ type: "text", text: response.text })
-  content.push(...response.toolCalls.map((toolCall) => ({ type: "tool_call" as const, toolCall })))
-
   return {
     role: "assistant",
-    content,
+    content: response.content,
   }
 }
 
@@ -321,7 +308,7 @@ function truncate(text: string, maxLength = 16_000) {
 }
 
 function hasText(response: AssistantResponse) {
-  return response.text.trim().length > 0
+  return response.hasText
 }
 
 function messagesContentChars(messages: ChatMessage[]): number {

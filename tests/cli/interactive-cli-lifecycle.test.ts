@@ -80,7 +80,21 @@ describe("CLI agent status phases", () => {
     mocks.createSession.mockResolvedValue(session)
     mocks.runAgent.mockImplementationOnce(async function* () {
       yield { type: "model", phase: "start" }
-      yield { type: "reasoning" }
+      yield {
+        type: "reasoning",
+        phase: "start",
+        reasoningId: "reasoning_1",
+        field: "reasoning_content",
+        startedAt: "2026-08-06T12:00:00.000Z",
+      }
+      yield { type: "reasoning", phase: "delta", reasoningId: "reasoning_1", text: "Inspect the file." }
+      yield {
+        type: "reasoning",
+        phase: "end",
+        reasoningId: "reasoning_1",
+        endedAt: "2026-08-06T12:00:00.500Z",
+        durationMs: 500,
+      }
       yield { type: "delta", text: "Let me check that file." }
       yield {
         type: "tool",
@@ -115,6 +129,17 @@ describe("CLI agent status phases", () => {
       "working",
       "working",
     ])
+    expect(mocks.ui.renderTranscript.mock.calls.at(-1)?.[0]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "reasoning",
+          reasoningId: "reasoning_1",
+          text: "Inspect the file.",
+          durationMs: 500,
+          streaming: false,
+        }),
+      ]),
+    )
   })
 
   it("keeps the plain wave when the model never reasons", async () => {

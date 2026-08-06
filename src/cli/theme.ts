@@ -136,6 +136,21 @@ export function createMarkdownStyle() {
   })
 }
 
+export function createMutedMarkdownStyle() {
+  const muted = { fg: RGBA.fromHex(colors.muted) }
+  const mutedCode = Object.fromEntries(Object.keys(codeStyles()).map((name) => [name, muted]))
+  return SyntaxStyle.fromStyles({
+    ...mutedCode,
+    "markup.heading.1": { ...muted, bold: true },
+    "markup.heading.2": { ...muted, bold: true },
+    "markup.heading.3": { ...muted, bold: true },
+    "markup.italic": { ...muted, italic: true },
+    "markup.link": { ...muted, underline: true },
+    "markup.list": muted,
+    "markup.raw": muted,
+  })
+}
+
 export function createCodeSyntaxStyle() {
   return SyntaxStyle.fromStyles(codeStyles())
 }

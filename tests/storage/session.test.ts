@@ -80,6 +80,71 @@ describe("JsonlSession", () => {
     })
   })
 
+  it("persists reasoning trace identity, timing, and provider replay field", async () => {
+    const cwd = await trackedTempDir()
+    const directory = join(cwd, "sessions")
+    const session = await openSession({ cwd, directory })
+    const admission = await session.admitPrompt("think")
+    const messages: ChatMessage[] = [
+      { role: "user", content: "think" },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "reasoning",
+            id: "reasoning_1",
+            field: "reasoning_content",
+            text: "Check the result.",
+            startedAt: "2026-08-06T12:00:00.000Z",
+            endedAt: "2026-08-06T12:00:00.500Z",
+          },
+          { type: "text", text: "Done." },
+        ],
+      },
+    ]
+
+    await session.completeTurn(admission, messages)
+    const reopened = await openSession({ cwd, directory })
+
+    expect(reopened.replayMessages()).toEqual(messages)
+  })
+
+  it("loads reasoning written before trace identity and timing metadata", async () => {
+    const cwd = await trackedTempDir()
+    const path = join(cwd, "legacy.jsonl")
+    await writeFile(
+      path,
+      `${[
+        JSON.stringify({
+          seq: 1,
+          sessionId: "legacy",
+          at: "2026-01-01T00:00:00.000Z",
+          type: "session_started",
+          version: 1,
+        }),
+        JSON.stringify({
+          seq: 2,
+          sessionId: "legacy",
+          at: "2026-01-01T00:00:01.000Z",
+          type: "turn_completed",
+          promptId: "prompt_1",
+          messages: [
+            { role: "assistant", content: [{ type: "reasoning", field: "reasoning_content", text: "Legacy" }] },
+          ],
+        }),
+      ].join("\n")}\n`,
+      "utf8",
+    )
+
+    await expect(readSessionEvents(path)).resolves.toMatchObject([
+      { type: "session_started" },
+      {
+        type: "turn_completed",
+        messages: [{ role: "assistant", content: [{ type: "reasoning", field: "reasoning_content", text: "Legacy" }] }],
+      },
+    ])
+  })
+
   it("rejects malformed JSONL with a line number", async () => {
     const cwd = await trackedTempDir()
     const path = join(cwd, "bad.jsonl")

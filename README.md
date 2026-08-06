@@ -98,7 +98,9 @@ unless they match an allow rule or `--auto` is passed. Explicit deny rules remai
 `--allow`, `--ask`, and `--deny` flags for one-run policy, `--tools` for a narrower comma-separated tool list, and
 `--max-steps` and
 `--timeout` for execution limits, and `--ephemeral` when no local session should be written. `--continue` resumes the
-latest session for the working directory; `--session` resumes a specific session.
+latest session for the working directory; `--session` resumes a specific session. Model-provided reasoning is omitted
+from headless output unless `--include-reasoning` is passed; JSONL then emits structured reasoning lifecycle events and
+JSON results include completed traces.
 
 Run `otis exec --help` for the full option list. Headless mode is non-interactive and never displays an approval prompt.
 
@@ -110,6 +112,7 @@ Run `otis exec --help` for the full option list. Headless mode is non-interactiv
 | `/model` | Choose another tool-capable Fireworks model |
 | `/compact [instructions]` | Summarize older conversation and free context |
 | `/debug` | Toggle diagnostic transcript entries |
+| `/thinking` | Toggle model-provided thinking traces |
 | `/exit` | Exit Otis |
 
 | Control | Action |
@@ -130,7 +133,9 @@ By default, Otis stores data in the platform's standard user directories:
 `XDG_CONFIG_HOME` and `XDG_DATA_HOME` are respected on Linux. Set `OTIS_HOME` to keep all Otis state in one specific
 directory.
 
-Provider keys are never written to sessions, transcripts, tool results, or usage records. See the
+Provider keys are never written to sessions, transcripts, tool results, or usage records. Model-provided thinking is
+part of assistant history and is therefore retained in local sessions even when hidden in the UI. Visible traces show
+a three-line preview and can be clicked to expand the complete block. See the
 [Fireworks Zero Data Retention policy](https://docs.fireworks.ai/guides/security_compliance/data_handling), the
 [architecture guide](docs/architecture.md) for the complete runtime boundaries, and the [security policy](SECURITY.md)
 for private vulnerability reporting.
