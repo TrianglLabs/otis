@@ -1,4 +1,4 @@
-import { DiffRenderable, MarkdownRenderable, RGBA, type ScrollBoxRenderable } from "@opentui/core"
+import { DiffRenderable, MarkdownRenderable, RGBA, type ScrollBoxRenderable, type TextRenderable } from "@opentui/core"
 import { describe, expect, it, vi } from "vitest"
 import { colors, selectTheme } from "../../src/cli/theme.js"
 import { TranscriptStore } from "../../src/cli/transcript.js"
@@ -30,6 +30,70 @@ describe("chat UI rendering", () => {
 
     expect(harness.get(`message-${assistant.id}-content`)).toBe(markdown)
     expect(markdown.streaming).toBe(false)
+  })
+
+  it("hides reasoning by default and toggles all traces with /thinking state", async () => {
+    const harness = await setup()
+    const transcript = new TranscriptStore()
+    const reasoning = transcript.addReasoningMessage("one\ntwo\nthree\nfour\nfive", {
+      reasoningId: "reasoning_1",
+      durationMs: 1_250,
+    })
+    harness.ui.showChatLayout()
+    harness.ui.renderTranscript(transcript.entries)
+
+    expect(harness.find(`message-${reasoning.id}`)).toBeUndefined()
+
+    harness.ui.setThinkingVisible(true)
+    expect(harness.text(`message-${reasoning.id}-reasoning-content`)).toContain("three\nfour\nfive")
+    expect(harness.text(`message-${reasoning.id}-reasoning-content`)).not.toContain("one")
+    expect(harness.text(`message-${reasoning.id}-reasoning-header`)).toBe("Thought for 1.3s · click to expand")
+    expect(harness.childIds(`message-${reasoning.id}`)).toEqual([
+      `message-${reasoning.id}-reasoning-content`,
+      `message-${reasoning.id}-reasoning-header`,
+    ])
+
+    harness.ui.setThinkingVisible(false)
+    expect(harness.find(`message-${reasoning.id}`)).toBeUndefined()
+  })
+
+  it("shows the streaming tail and expands an individual trace by mouse", async () => {
+    const harness = await setup({ thinkingVisible: true })
+    const transcript = new TranscriptStore()
+    const reasoning = transcript.addReasoningMessage("one\ntwo\nthree\nfour\nfive", {
+      reasoningId: "reasoning_1",
+      streaming: true,
+    })
+    harness.ui.showChatLayout()
+    harness.ui.renderTranscript(transcript.entries)
+
+    const markdown = harness.get<MarkdownRenderable>(`message-${reasoning.id}-reasoning-content`)
+    expect(markdown.content).toContain("three\nfour\nfive")
+    expect(markdown.content).not.toContain("one")
+    expect(harness.text(`message-${reasoning.id}-reasoning-header`)).toBe("Thinking… · click to expand")
+    expect(markdown.fg?.equals(RGBA.fromHex(colors.muted))).toBe(true)
+    expect(harness.childIds(`message-${reasoning.id}`)).toEqual([
+      `message-${reasoning.id}-reasoning-header`,
+      `message-${reasoning.id}-reasoning-content`,
+    ])
+
+    await harness.renderOnce()
+    const toggle = harness.get<TextRenderable>(`message-${reasoning.id}-reasoning-header`)
+    await harness.mockMouse.click(toggle.x + 1, toggle.y)
+
+    expect(markdown.content).toContain("one\ntwo\nthree\nfour\nfive")
+    expect(harness.text(`message-${reasoning.id}-reasoning-header`)).toBe("Thinking… · click to collapse")
+
+    transcript.updateEntry(reasoning.id, { streaming: false, durationMs: 800 })
+    harness.ui.renderTranscript(transcript.entries)
+
+    expect(harness.get(`message-${reasoning.id}-reasoning-content`)).toBe(markdown)
+    expect(markdown.content).toContain("one\ntwo\nthree\nfour\nfive")
+    expect(harness.text(`message-${reasoning.id}-reasoning-header`)).toBe("Thought for 800ms · click to collapse")
+    expect(harness.childIds(`message-${reasoning.id}`)).toEqual([
+      `message-${reasoning.id}-reasoning-content`,
+      `message-${reasoning.id}-reasoning-header`,
+    ])
   })
 
   it("uses the theme text color as the Markdown and fenced-code fallback", async () => {

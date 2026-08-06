@@ -7,8 +7,7 @@ describe("FireworksClient", () => {
   it("streams a direct tool-capable chat request and preserves provider usage", async () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
       sseResponse([
-        { choices: [{ delta: { reasoning_content: "checking" } }] },
-        { choices: [{ delta: { content: "Working." } }] },
+        { choices: [{ delta: { reasoning_content: "checking", content: "Working." } }] },
         {
           choices: [
             {

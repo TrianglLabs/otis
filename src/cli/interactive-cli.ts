@@ -3,7 +3,13 @@ import { autoCompactThreshold, compactConversation } from "../core/compaction.js
 import { loadProjectContext } from "../core/context.js"
 import { FireworksClient } from "../inference/client.js"
 import type { ContextFile, FireworksModel } from "../inference/types.js"
-import { isThemeName, loadLocalSettings, saveSelectedTheme, type ThemeName } from "../local/settings.js"
+import {
+  isThemeName,
+  loadLocalSettings,
+  saveSelectedTheme,
+  saveThinkingVisible,
+  type ThemeName,
+} from "../local/settings.js"
 import { calculateLocalStats } from "../local/stats.js"
 import {
   createPermissionPolicy,
@@ -34,6 +40,7 @@ const COMMANDS: CommandSuggestion[] = [
   { name: "/model", description: "Choose a Fireworks model" },
   { name: "/compact", description: "Summarize old conversation to free context" },
   { name: "/debug", description: "Toggle debug messages" },
+  { name: "/thinking", description: "Show or hide model thinking traces" },
   { name: "/theme", description: "Choose default, nord, bright, or matrix theme" },
   { name: "/theme default", description: "" },
   { name: "/theme nord", description: "" },
@@ -60,6 +67,7 @@ let webClient: ParallelClient | undefined
 let permissionMode: PermissionMode = "ask"
 let permissionRules: PermissionRule[] = []
 let selectedTheme: ThemeName = "default"
+let thinkingVisible = false
 let activeTurn: AbortController | undefined
 let updateCheckController: AbortController | undefined
 let setupFlow: SetupFlow
@@ -70,6 +78,7 @@ export async function startInteractiveCli() {
   const settings = await loadLocalSettings()
   selectTheme(settings.theme)
   selectedTheme = settings.theme ?? "default"
+  thinkingVisible = settings.thinkingVisible ?? false
   fireworksApiKey = settings.fireworksApiKey
   parallelApiKey = settings.parallelApiKey
   selectedModelId = settings.model
@@ -103,6 +112,7 @@ export async function startInteractiveCli() {
     modeLabel: formatModeLabel(permissionMode),
     sessionLabel: "Current session",
     theme: selectedTheme,
+    thinkingVisible,
     treeSitterClient,
     onInputChange: (value) => updateContextIndicator(value),
     onInterrupt: () => {
@@ -264,6 +274,11 @@ async function handleInput(value: string) {
     updateContextIndicator()
     ui.renderTranscript(transcript.entries, { scrollToBottom: true })
     ui.focusInput()
+    return
+  }
+
+  if (value === "/thinking") {
+    await setThinkingVisible(!thinkingVisible)
     return
   }
 
@@ -498,6 +513,24 @@ async function selectThemeCommand(value: string) {
 function previewTheme(theme: ThemeName) {
   const previous = selectTheme(theme)
   ui.setTheme(theme, previous)
+}
+
+async function setThinkingVisible(visible: boolean) {
+  const previous = thinkingVisible
+  thinkingVisible = visible
+  ui.setThinkingVisible(visible)
+  ui.clearInput()
+  ui.focusInput()
+  try {
+    await saveThinkingVisible(visible)
+  } catch (error) {
+    thinkingVisible = previous
+    ui.setThinkingVisible(previous)
+    transcript.addDebugMessage(
+      `Could not save thinking visibility: ${error instanceof Error ? error.message : String(error)}`,
+    )
+    ui.renderTranscript(transcript.entries, { scrollToBottom: true })
+  }
 }
 
 function showThemeMessage(message: string) {

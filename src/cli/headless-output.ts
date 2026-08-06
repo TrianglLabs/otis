@@ -1,5 +1,5 @@
 import type { AgentEvent } from "../core/agent.js"
-import type { TokenUsage } from "../inference/types.js"
+import type { OpenAICompatibleReasoningField, TokenUsage } from "../inference/types.js"
 
 export const HEADLESS_EVENT_VERSION = 1
 export type HeadlessOutputFormat = "plain" | "json" | "jsonl"
@@ -14,21 +14,34 @@ export type HeadlessResult = {
   error?: string
 }
 
+export type HeadlessReasoningTrace = {
+  id: string
+  field: OpenAICompatibleReasoningField
+  text: string
+  startedAt: string
+  endedAt?: string
+  durationMs?: number
+}
+
 type OutputStream = {
   write(chunk: string): unknown
   once?(event: "drain", listener: () => void): unknown
 }
 
 export class HeadlessReporter {
+  readonly #reasoning = new Map<string, HeadlessReasoningTrace>()
+
   constructor(
     private readonly format: HeadlessOutputFormat,
     private readonly stdout: OutputStream,
     private readonly stderr: OutputStream,
+    private readonly options: { includeReasoning?: boolean } = {},
   ) {}
 
   async event(event: AgentEvent) {
+    if (event.type === "reasoning" && this.options.includeReasoning) await this.reasoningEvent(event)
     if (this.format === "jsonl") {
-      const payload = publicEvent(event)
+      const payload = publicEvent(event, this.options.includeReasoning === true)
       if (payload) await this.writeJsonLine(payload)
       return
     }
@@ -52,10 +65,41 @@ export class HeadlessReporter {
       return
     }
     if (this.format === "json") {
-      await writeOutput(this.stdout, `${JSON.stringify({ version: HEADLESS_EVENT_VERSION, ...result })}\n`)
+      await writeOutput(
+        this.stdout,
+        `${JSON.stringify({ version: HEADLESS_EVENT_VERSION, ...this.withReasoning(result) })}\n`,
+      )
       return
     }
-    await this.writeJsonLine({ type: "result", ...result })
+    await this.writeJsonLine({ type: "result", ...this.withReasoning(result) })
+  }
+
+  private async reasoningEvent(event: Extract<AgentEvent, { type: "reasoning" }>) {
+    if (event.phase === "start") {
+      this.#reasoning.set(event.reasoningId, {
+        id: event.reasoningId,
+        field: event.field,
+        text: "",
+        startedAt: event.startedAt,
+      })
+      return
+    }
+    const trace = this.#reasoning.get(event.reasoningId)
+    if (!trace) return
+    if (event.phase === "delta") {
+      trace.text += event.text
+      return
+    }
+    trace.endedAt = event.endedAt
+    trace.durationMs = event.durationMs
+    if (this.format === "plain" && trace.text) {
+      await writeOutput(this.stderr, `Thinking:\n${trace.text}${trace.text.endsWith("\n") ? "" : "\n"}`)
+    }
+  }
+
+  private withReasoning(result: HeadlessResult) {
+    const reasoning = [...this.#reasoning.values()]
+    return this.options.includeReasoning && reasoning.length > 0 ? { ...result, reasoning } : result
   }
 
   private async writeJsonLine(value: Record<string, unknown>) {
@@ -71,9 +115,28 @@ async function writeOutput(stream: OutputStream, chunk: string) {
   await new Promise<void>((resolve) => stream.once?.("drain", resolve))
 }
 
-function publicEvent(event: AgentEvent): Record<string, unknown> | undefined {
+function publicEvent(event: AgentEvent, includeReasoning: boolean): Record<string, unknown> | undefined {
   if (event.type === "model") return { type: "model_start" }
-  if (event.type === "reasoning") return { type: "reasoning" }
+  if (event.type === "reasoning") {
+    if (!includeReasoning) return event.phase === "delta" ? { type: "reasoning" } : undefined
+    if (event.phase === "start") {
+      return {
+        type: "reasoning_start",
+        reasoningId: event.reasoningId,
+        field: event.field,
+        startedAt: event.startedAt,
+      }
+    }
+    if (event.phase === "delta") {
+      return { type: "reasoning_delta", reasoningId: event.reasoningId, text: event.text }
+    }
+    return {
+      type: "reasoning_end",
+      reasoningId: event.reasoningId,
+      endedAt: event.endedAt,
+      durationMs: event.durationMs,
+    }
+  }
   if (event.type === "delta") return { type: "assistant_delta", text: event.text }
   if (event.type === "context") {
     return { type: "context", messageCount: event.messageCount, contentChars: event.contentChars }

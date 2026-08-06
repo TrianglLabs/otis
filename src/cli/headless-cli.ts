@@ -53,7 +53,9 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
     return 0
   }
 
-  const reporter = new HeadlessReporter(parsed.outputFormat, stdout, stderr)
+  const reporter = new HeadlessReporter(parsed.outputFormat, stdout, stderr, {
+    includeReasoning: parsed.includeReasoning,
+  })
   const startedAt = Date.now()
   const controller = new AbortController()
   const removeSignals = installSignalHandlers(controller)
@@ -223,6 +225,7 @@ function parseHeadlessArgs(argv: string[]) {
       "max-steps": { type: "string" },
       timeout: { type: "string" },
       "output-format": { type: "string", default: "plain" },
+      "include-reasoning": { type: "boolean" },
     },
   })
   if (values.session && values.continue) throw new Error("--session and --continue cannot be used together.")
@@ -251,6 +254,7 @@ function parseHeadlessArgs(argv: string[]) {
     maxSteps: positiveInteger(values["max-steps"] ?? String(DEFAULT_MAX_STEPS), "--max-steps"),
     timeoutMs: values.timeout ? positiveInteger(values.timeout, "--timeout") * 1_000 : undefined,
     outputFormat: outputFormat as HeadlessOutputFormat,
+    includeReasoning: values["include-reasoning"] ?? false,
     promptParts: positionals,
   }
 }
@@ -376,4 +380,5 @@ Options:
       --max-steps <count>      Maximum model/tool loop steps (default: ${DEFAULT_MAX_STEPS})
       --timeout <seconds>      Abort after the given duration
       --output-format <format> plain, json, or jsonl (default: plain)
+      --include-reasoning      Include model-provided thinking traces in output
   -h, --help                   Show this help`

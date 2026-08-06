@@ -12,6 +12,7 @@ export type LocalSettings = {
   modelDisplayName?: string
   modelContextLength?: number
   theme?: ThemeName
+  thinkingVisible?: boolean
   permissions?: PermissionConfig
 }
 
@@ -31,6 +32,7 @@ type SettingsFile = {
   modelDisplayName?: string
   modelContextLength?: number
   theme?: ThemeName
+  thinkingVisible?: boolean
   permissions?: PermissionConfig
 }
 
@@ -47,6 +49,7 @@ export async function loadLocalSettings(options: SettingsFileOptions = {}): Prom
     modelDisplayName: saved?.modelDisplayName,
     modelContextLength: saved?.modelContextLength,
     ...(saved?.theme ? { theme: saved.theme } : {}),
+    ...(saved?.thinkingVisible !== undefined ? { thinkingVisible: saved.thinkingVisible } : {}),
     ...(saved?.permissions ? { permissions: saved.permissions } : {}),
   }
 }
@@ -72,6 +75,11 @@ export async function saveSelectedModel(model: FireworksModel, options: Settings
 export async function saveSelectedTheme(theme: ThemeName, options: SettingsFileOptions = {}) {
   const saved = (await readSettingsFile(options)) ?? { version: 1 }
   await writeSettingsFile({ ...saved, theme }, options)
+}
+
+export async function saveThinkingVisible(visible: boolean, options: SettingsFileOptions = {}) {
+  const saved = (await readSettingsFile(options)) ?? { version: 1 }
+  await writeSettingsFile({ ...saved, thinkingVisible: visible }, options)
 }
 
 function defaultSettingsFile() {
@@ -121,6 +129,7 @@ function parseSettingsFile(value: unknown): SettingsFile {
   const modelDisplayName = optionalString(value.modelDisplayName, "modelDisplayName")
   const modelContextLength = optionalPositiveInteger(value.modelContextLength, "modelContextLength")
   const theme = optionalTheme(value.theme)
+  const thinkingVisible = optionalBoolean(value.thinkingVisible, "thinkingVisible")
   const permissions =
     value.permissions === undefined
       ? undefined
@@ -133,6 +142,7 @@ function parseSettingsFile(value: unknown): SettingsFile {
     ...(modelDisplayName ? { modelDisplayName } : {}),
     ...(modelContextLength ? { modelContextLength } : {}),
     ...(theme ? { theme } : {}),
+    ...(thinkingVisible !== undefined ? { thinkingVisible } : {}),
     ...(permissions ? { permissions } : {}),
   }
 }
@@ -150,6 +160,7 @@ function withSelectedModel(settings: SettingsFile, model: FireworksModel): Setti
     modelDisplayName: required(model.displayName, "Fireworks model display name"),
     ...(contextLength ? { modelContextLength: contextLength } : {}),
     ...(settings.theme ? { theme: settings.theme } : {}),
+    ...(settings.thinkingVisible !== undefined ? { thinkingVisible: settings.thinkingVisible } : {}),
     ...(settings.permissions ? { permissions: settings.permissions } : {}),
   }
 }
@@ -158,6 +169,12 @@ function optionalTheme(value: unknown): ThemeName | undefined {
   if (value === undefined) return undefined
   if (isThemeName(value)) return value
   throw new Error("Invalid Otis config: theme must be default, nord, bright, or matrix.")
+}
+
+function optionalBoolean(value: unknown, name: string): boolean | undefined {
+  if (value === undefined) return undefined
+  if (typeof value === "boolean") return value
+  throw new Error(`Invalid Otis config: ${name} must be a boolean.`)
 }
 
 export function isThemeName(value: unknown): value is ThemeName {

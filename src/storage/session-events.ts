@@ -322,8 +322,24 @@ function isUserMessage(value: unknown): value is UserChatMessage {
 function isAssistantContentPart(value: unknown) {
   if (!isRecord(value)) return false
   if (value.type === "text") return typeof value.text === "string"
-  if (value.type === "reasoning") return typeof value.text === "string" && isReasoningField(value.field)
+  if (value.type === "reasoning") {
+    return (
+      typeof value.text === "string" &&
+      isReasoningField(value.field) &&
+      optionalString(value.id) &&
+      optionalTimestamp(value.startedAt) &&
+      optionalTimestamp(value.endedAt)
+    )
+  }
   return value.type === "tool_call" && isChatToolCall(value.toolCall)
+}
+
+function optionalString(value: unknown) {
+  return value === undefined || (typeof value === "string" && value.length > 0)
+}
+
+function optionalTimestamp(value: unknown) {
+  return value === undefined || (typeof value === "string" && value.length > 0 && Number.isFinite(Date.parse(value)))
 }
 
 function isReasoningField(value: unknown) {
