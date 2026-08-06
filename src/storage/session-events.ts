@@ -1,9 +1,16 @@
 import { readFile } from "node:fs/promises"
 import { compactionSummaryMessage } from "../core/compaction.js"
-import type { ChatMessage, ChatToolCall, TokenUsage } from "../inference/types.js"
+import type {
+  ChatMessage,
+  ChatToolCall,
+  ImageContentPart,
+  ImageMimeType,
+  TokenUsage,
+  UserChatMessage,
+} from "../inference/types.js"
 import { isToolActivityKind, type ToolActivityKind } from "../tools/activity.js"
 
-export type UserChatMessage = { role: "user"; content: string }
+export type { UserChatMessage } from "../inference/types.js"
 
 export type BaseSessionEvent = {
   seq: number
@@ -310,13 +317,57 @@ function assertEventSequence(events: readonly SessionEvent[]) {
 
 function isChatMessage(value: unknown): value is ChatMessage {
   if (!isRecord(value)) return false
-  if (value.role === "user" && typeof value.content === "string") return true
+  if (value.role === "user") return isUserContent(value.content)
   if (value.role === "tool" && typeof value.toolCallId === "string" && typeof value.content === "string") return true
   return value.role === "assistant" && Array.isArray(value.content) && value.content.every(isAssistantContentPart)
 }
 
 function isUserMessage(value: unknown): value is UserChatMessage {
-  return isRecord(value) && value.role === "user" && typeof value.content === "string"
+  return isRecord(value) && value.role === "user" && isUserContent(value.content)
+}
+
+function isUserContent(value: unknown): value is UserChatMessage["content"] {
+  return typeof value === "string" || (Array.isArray(value) && value.length > 0 && value.every(isUserContentPart))
+}
+
+function isUserContentPart(value: unknown): value is { type: "text"; text: string } | ImageContentPart {
+  if (!isRecord(value)) return false
+  if (value.type === "text") return typeof value.text === "string"
+  if (value.type !== "image") return false
+  if (
+    typeof value.data !== "string" ||
+    !isImageMimeType(value.mimeType) ||
+    typeof value.name !== "string" ||
+    !value.name ||
+    [...value.name].some(isControlCharacter) ||
+    typeof value.sizeBytes !== "number" ||
+    !Number.isSafeInteger(value.sizeBytes) ||
+    value.sizeBytes <= 0
+  ) {
+    return false
+  }
+  return isCanonicalBase64(value.data) && Buffer.from(value.data, "base64").byteLength === value.sizeBytes
+}
+
+function isControlCharacter(character: string) {
+  const codePoint = character.codePointAt(0) ?? 0
+  return codePoint <= 0x1f || codePoint === 0x7f
+}
+
+function isCanonicalBase64(value: string) {
+  if (!value || value.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(value)) return false
+  return Buffer.from(value, "base64").toString("base64") === value
+}
+
+function isImageMimeType(value: unknown): value is ImageMimeType {
+  return (
+    value === "image/png" ||
+    value === "image/jpeg" ||
+    value === "image/gif" ||
+    value === "image/bmp" ||
+    value === "image/tiff" ||
+    value === "image/x-portable-pixmap"
+  )
 }
 
 function isAssistantContentPart(value: unknown) {

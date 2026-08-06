@@ -1,5 +1,5 @@
 import { type AgentEvent, type RunAgentOptions, runAgent } from "../core/agent.js"
-import type { ChatMessage } from "../inference/types.js"
+import type { ChatMessage, UserChatMessage } from "../inference/types.js"
 import type { SessionToolActivity } from "../storage/index.js"
 
 export type TurnResult =
@@ -8,7 +8,7 @@ export type TurnResult =
   | { status: "incomplete"; toolActivities: SessionToolActivity[] }
 
 export type TurnRunnerOptions = {
-  input: string
+  input: UserChatMessage
   history?: ChatMessage[]
   agent: RunAgentOptions
   onEvent?: (event: AgentEvent) => void | Promise<void>

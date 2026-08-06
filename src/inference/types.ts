@@ -21,8 +21,27 @@ export type AssistantContentPart =
   | ReasoningContentPart
   | { type: "tool_call"; toolCall: ChatToolCall }
 
+export type ImageMimeType =
+  | "image/png"
+  | "image/jpeg"
+  | "image/gif"
+  | "image/bmp"
+  | "image/tiff"
+  | "image/x-portable-pixmap"
+
+export type ImageContentPart = {
+  type: "image"
+  data: string
+  mimeType: ImageMimeType
+  name: string
+  sizeBytes: number
+}
+
+export type UserContentPart = { type: "text"; text: string } | ImageContentPart
+export type UserChatMessage = { role: "user"; content: string | UserContentPart[] }
+
 export type ChatMessage =
-  | { role: "user"; content: string }
+  | UserChatMessage
   | { role: "assistant"; content: AssistantContentPart[] }
   | { role: "tool"; toolCallId: string; content: string }
 
@@ -64,6 +83,7 @@ export type FireworksModel = {
   id: string
   displayName: string
   contextLength?: number
+  supportsImageInput: boolean
 }
 
 export type FireworksClientConfig = {

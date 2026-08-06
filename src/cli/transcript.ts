@@ -1,4 +1,5 @@
 import { compactionSummaryMessage, extractCompactionSummary, isCompactionSummary } from "../core/compaction.js"
+import { displayUserMessage } from "../inference/messages.js"
 import type { ChatMessage, ChatToolCall, ReasoningContentPart } from "../inference/types.js"
 import type { SessionToolActivity } from "../storage/index.js"
 import { describeToolCall, type ToolActivityKind } from "../tools/activity.js"
@@ -58,7 +59,8 @@ export class TranscriptStore {
     this.loadEntries(keptMessages, toolActivities)
   }
 
-  addUserMessage(text: string) {
+  addUserMessage(message: string | Extract<ChatMessage, { role: "user" }>) {
+    const text = typeof message === "string" ? message : displayUserMessage(message)
     const entry = { id: this.nextMessageID++, kind: "message" as const, speaker: "You" as const, text }
     this.entries.push(entry)
     return entry
@@ -155,7 +157,7 @@ export class TranscriptStore {
             `**Conversation compacted.** Older messages were summarized to free context.\n\n${extractCompactionSummary(message)}`,
           )
         } else {
-          this.addUserMessage(message.content)
+          this.addUserMessage(message)
         }
       }
 

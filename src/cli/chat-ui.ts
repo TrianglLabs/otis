@@ -39,6 +39,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
     inputArea,
     inputBox,
     inputHint,
+    imageAttachments,
     messages,
     modelPanel,
     modelRowsBox,
@@ -176,11 +177,31 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
       return
     }
 
+    if (key.name === "backspace" && input.plainText === "" && options.onRemoveLastImage?.()) {
+      stopKey(key)
+      return
+    }
+
     if (key.name !== "tab" && key.sequence !== "\t") return
 
     stopKey(key)
     options.onToggleMode?.()
     focusInput()
+  })
+
+  renderer.keyInput.on("paste", (event) => {
+    if (inputController.mode !== "chat") return
+    const mimeType = event.metadata?.mimeType
+    if (event.metadata?.kind === "binary" || mimeType?.toLowerCase().startsWith("image/")) {
+      event.preventDefault()
+      event.stopPropagation()
+      void options.onImagePaste?.(event.bytes, mimeType)
+      return
+    }
+    const text = new TextDecoder().decode(event.bytes)
+    if (!options.onImagePathPaste?.(text)) return
+    event.preventDefault()
+    event.stopPropagation()
   })
 
   renderer.on("selection", (selection) => {
@@ -317,6 +338,14 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
     hideCommandMenu()
   }
 
+  function setImageAttachmentCount(count: number) {
+    setText(imageAttachments, imageAttachmentLabel(count))
+    const mounted = inputBox.getChildren().some((child) => child.id === imageAttachments.id)
+    if (count > 0 && !mounted) inputBox.add(imageAttachments, 1)
+    if (count === 0 && mounted) inputBox.remove(imageAttachments.id)
+    renderer.requestRender()
+  }
+
   function showThemeMenu() {
     commands.update("/theme ", showingWelcome, activeTheme)
     themeMenuOpen = true
@@ -334,6 +363,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
         chatBody,
         messages,
         inputArea,
+        imageAttachments,
         commandMenu,
         permissionPrompt,
         sessionPanel,
@@ -550,6 +580,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
     setContextLabel,
     setDiffStats,
     setModeLabel,
+    setImageAttachmentCount,
     setModelLabel,
     setConfigured,
     setSessionLabel,
@@ -622,6 +653,14 @@ function isColor(value: unknown): value is RGBA {
 
 function homeModelHint(modelName: string) {
   return modelName ? ` ${modelName} ` : ""
+}
+
+function imageAttachmentLabel(count: number) {
+  if (count <= 0) return ""
+  const visible = Math.min(count, 2)
+  const labels = Array.from({ length: visible }, (_, index) => `[Image ${index + 1}]`)
+  if (count > visible) labels.push(`+${count - visible}`)
+  return labels.join(" ")
 }
 
 export type ChatUI = ReturnType<typeof createChatUI>

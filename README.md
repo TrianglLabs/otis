@@ -90,6 +90,7 @@ interface without initializing OpenTUI:
 otis exec "Explain this repository"
 printf '%s\n' "Review the supplied context" | otis exec --ephemeral --output-format json
 otis exec --continue --auto "Run the tests and fix the failure"
+otis exec --image screenshot.png "Explain this error"
 ```
 
 `plain` output writes only the final assistant response to stdout and progress to stderr. `json` writes one result
@@ -101,6 +102,8 @@ unless they match an allow rule or `--auto` is passed. Explicit deny rules remai
 latest session for the working directory; `--session` resumes a specific session. Model-provided reasoning is omitted
 from headless output unless `--include-reasoning` is passed; JSONL then emits structured reasoning lifecycle events and
 JSON results include completed traces.
+Use repeatable `--image <path>` options to attach PNG, JPEG, GIF, BMP, TIFF, or PPM images. The selected model must
+be marked as vision-capable in the Fireworks catalog.
 
 Run `otis exec --help` for the full option list. Headless mode is non-interactive and never displays an approval prompt.
 
@@ -120,6 +123,11 @@ Run `otis exec --help` for the full option list. Headless mode is non-interactiv
 | `Tab` | Toggle automatic execution and permission prompts |
 | `Esc` | Interrupt the active model turn |
 | `Ctrl+C` | Exit |
+
+Drag image files into the terminal to attach them to the next message; Otis recognizes the shell-escaped paths emitted
+by common macOS and Linux terminals. Numbered image tokens appear inside the composer, Backspace removes the last one
+when the text input is empty, and attachments clear after the prompt is admitted to the local session. Terminals that
+provide binary clipboard data can attach copied images directly as well.
 
 ## Local data and privacy
 

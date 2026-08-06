@@ -1,4 +1,5 @@
 import type { FireworksClient } from "../inference/client.js"
+import { summarizeUserMessage, userMessageContentChars, userMessageText } from "../inference/messages.js"
 import type { ChatMessage, TokenUsage } from "../inference/types.js"
 
 const CHARS_PER_TOKEN = 4
@@ -38,7 +39,7 @@ export function compactionSummaryMessage(summary: string): ChatMessage {
 }
 
 export function isCompactionSummary(message: ChatMessage): boolean {
-  return message.role === "user" && message.content.startsWith(COMPACTION_SUMMARY_PREFIX)
+  return message.role === "user" && userMessageText(message).startsWith(COMPACTION_SUMMARY_PREFIX)
 }
 
 /**
@@ -47,8 +48,9 @@ export function isCompactionSummary(message: ChatMessage): boolean {
  */
 export function extractCompactionSummary(message: ChatMessage): string {
   if (message.role !== "user") return ""
+  const content = userMessageText(message)
   const prefix = `${COMPACTION_SUMMARY_PREFIX}\n\n`
-  return message.content.startsWith(prefix) ? message.content.slice(prefix.length) : message.content
+  return content.startsWith(prefix) ? content.slice(prefix.length) : content
 }
 
 /**
@@ -165,7 +167,7 @@ function estimateMessageTokens(message: ChatMessage): number {
 }
 
 function messageContentLength(message: ChatMessage): number {
-  if (message.role === "user") return message.content.length
+  if (message.role === "user") return userMessageContentChars(message)
   if (message.role === "tool") return message.content.length
   return message.content.reduce((length, part) => {
     if (part.type === "text") return length + part.text.length
@@ -241,7 +243,7 @@ function serializeConversation(messages: ChatMessage[]): string {
 
   for (const message of messages) {
     if (message.role === "user") {
-      lines.push(`User: ${truncate(message.content, 8000)}`)
+      lines.push(`User: ${truncate(summarizeUserMessage(message), 8000)}`)
     } else if (message.role === "assistant") {
       const parts: string[] = []
       for (const part of message.content) {

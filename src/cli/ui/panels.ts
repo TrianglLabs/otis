@@ -8,6 +8,9 @@ import {
 import { colors } from "../theme.js"
 import type { Renderer } from "./types.js"
 
+const SIDE_PANEL_WIDTH = 41
+const SIDE_PANEL_MIN_WIDTH = 30
+
 // OpenTUI's scrollbar slider hardcodes a dark track (#252527) and gray thumb
 // (#9a9ea3); recolor both from the active theme so they stay visible.
 export function createScrollbarOptions() {
@@ -78,8 +81,8 @@ export function createSessionPanel(renderer: Renderer) {
   const panel = new BoxRenderable(renderer, {
     id: "session-panel",
     flexDirection: "column",
-    width: 41,
-    minWidth: 30,
+    width: SIDE_PANEL_WIDTH,
+    minWidth: SIDE_PANEL_MIN_WIDTH,
     flexShrink: 0,
     height: "100%",
     backgroundColor: colors.surface,
@@ -129,8 +132,8 @@ export function createModelPanel(renderer: Renderer) {
   const panel = new BoxRenderable(renderer, {
     id: "model-panel",
     flexDirection: "column",
-    width: 54,
-    minWidth: 34,
+    width: SIDE_PANEL_WIDTH,
+    minWidth: SIDE_PANEL_MIN_WIDTH,
     flexShrink: 0,
     height: "100%",
     backgroundColor: colors.surface,
