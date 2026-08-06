@@ -1,4 +1,4 @@
-import { type RGBA, rgbToHex, ScrollBoxRenderable, type TextRenderable } from "@opentui/core"
+import { MouseButton, type RGBA, rgbToHex, ScrollBoxRenderable, type TextRenderable } from "@opentui/core"
 import { isThemeName, type ThemeName } from "../local/settings.js"
 import type { LocalStats } from "../local/stats.js"
 import { copyToClipboardNative } from "./clipboard.js"
@@ -6,7 +6,7 @@ import { colors, type ThemeColors } from "./theme.js"
 import type { TranscriptEntry } from "./transcript.js"
 import { AgentStatus } from "./ui/agent-status.js"
 import { CommandMenu } from "./ui/command-menu.js"
-import { type AgentPhase, ESC_INTERRUPT_HINT, formatContextLabel, formatStats } from "./ui/format.js"
+import { type AgentPhase, CHAT_INPUT_HINT, formatContextLabel, formatRuntimeHint, formatStats } from "./ui/format.js"
 import { InputController } from "./ui/input-controller.js"
 import { createUILayout } from "./ui/layout.js"
 import { ModelPicker } from "./ui/model-picker.js"
@@ -68,12 +68,8 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
   const models = new ModelPicker(renderer, modelRowsBox)
   const sessions = new SessionPicker(renderer, sessionRowsBox)
   const sessionStatus = new SessionStatus(renderer, sessionLabel, options.sessionLabel)
-  const transcriptView = new TranscriptView(
-    renderer,
-    messages,
-    options.treeSitterClient,
-    options.thinkingVisible ?? false,
-  )
+  let thinkingVisible = options.thinkingVisible ?? false
+  const transcriptView = new TranscriptView(renderer, messages, options.treeSitterClient, thinkingVisible)
   const permissions = new PermissionController({
     renderer,
     inputArea,
@@ -87,10 +83,11 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
     agentBar,
     inputHint,
     isWelcomeVisible: () => showingWelcome,
-    isCommandMenuVisible: () => commandMenuVisible,
+    isOverlayVisible: () => commandMenuVisible || permissions.isVisible,
     onInterrupt: options.onInterrupt,
   })
   let selectedModelName = options.modelLabel
+  let runtimeHintVisible = false
   status.setInputHint(homeModelHint(selectedModelName))
   const setAgentPhase = (phase: AgentPhase) => status.setPhase(phase)
   const startBusyIndicator = () => status.startBusyIndicator()
@@ -148,6 +145,18 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
     options.onInputChange?.(value)
   }
 
+  inputHint.onMouseDown = (event) => {
+    if (showingWelcome || event.button !== MouseButton.LEFT) return
+    event.preventDefault()
+    event.stopPropagation()
+    runtimeHintVisible = !runtimeHintVisible
+    status.setInputHint(chatInputHint())
+  }
+  inputHint.onMouseOver = () => {
+    if (!showingWelcome) renderer.setMousePointer("pointer")
+  }
+  inputHint.onMouseOut = () => renderer.setMousePointer("default")
+
   renderer.keyInput.on("keypress", (key) => {
     if (inputController.mode === "setupButton" && (key.name === "return" || key.name === "enter")) {
       stopKey(key)
@@ -193,8 +202,11 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
   }
 
   function setThinkingVisible(visible: boolean) {
+    thinkingVisible = visible
     transcriptView.setThinkingVisible(visible)
   }
+
+  const showTransientHint = (content: string) => status.showTransientHint(content)
 
   function showSessionPicker(items: SessionPickerItem[]) {
     showChatLayout()
@@ -244,7 +256,8 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
 
   function showChatLayout() {
     if (!showingWelcome) return
-    status.setInputHint(ESC_INTERRUPT_HINT)
+    runtimeHintVisible = false
+    status.setInputHint(chatInputHint())
 
     root.live = false
     Object.assign(inputBox, {
@@ -254,6 +267,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
     })
     inputArea.backgroundColor = colors.background
     inputArea.marginTop = 1
+    inputArea.paddingRight = 1
     welcomePanel.remove(inputArea.id)
     root.remove(welcome.id)
     root.add(topBar)
@@ -277,6 +291,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
       modelPickerVisible = false
     }
     status.hideForHome()
+    runtimeHintVisible = false
     status.setInputHint(homeModelHint(selectedModelName))
 
     root.live = true
@@ -286,6 +301,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
       minWidth: 24,
     })
     inputArea.marginTop = 0
+    inputArea.paddingRight = 0
     root.remove(topBar.id)
     root.remove(chatBody.id)
     root.remove(inputArea.id)
@@ -383,14 +399,22 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
   function setModelLabel(label: string) {
     selectedModelName = label
     if (showingWelcome) status.setInputHint(homeModelHint(selectedModelName))
+    else status.setInputHint(chatInputHint())
+  }
+
+  function chatInputHint() {
+    return runtimeHintVisible ? formatRuntimeHint(selectedModelName, options.workspaceLabel) : CHAT_INPUT_HINT
   }
 
   function showPermissionPrompt(detail: string): Promise<boolean> {
-    return permissions.show(detail)
+    const decision = permissions.show(detail)
+    status.suspendForOverlay()
+    return decision.finally(() => status.restoreAfterOverlay())
   }
 
   function hidePermissionPrompt() {
     permissions.hide()
+    status.restoreAfterOverlay()
   }
 
   function setSessionLabel(label: string) {
@@ -533,6 +557,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
     setTheme,
     setThinkingVisible,
     showStats,
+    showTransientHint,
     showModelPicker,
     showSetupError,
     showSetupButton,

@@ -8,7 +8,13 @@ import {
   type TreeSitterClient,
 } from "@opentui/core"
 import type { ToolActivityKind } from "../../tools/index.js"
-import { colors, createCodeSyntaxStyle, createMarkdownStyle, createMutedMarkdownStyle } from "../theme.js"
+import {
+  colors,
+  createCodeSyntaxStyle,
+  createMarkdownStyle,
+  createMarkdownTableOptions,
+  createMutedMarkdownStyle,
+} from "../theme.js"
 import type { TranscriptEntry } from "../transcript.js"
 import type { Renderer } from "./types.js"
 
@@ -95,7 +101,7 @@ export class TranscriptView {
       } else {
         const renderable = this.create(entry, previousEntry)
         this.#renderables.set(entry.id, renderable)
-        this.messages.add(renderable.root)
+        this.messages.add(renderable.root, index)
       }
     })
 
@@ -207,7 +213,7 @@ export class TranscriptView {
       treeSitterClient: this.treeSitterClient,
       streaming: entry.streaming === true,
       internalBlockMode: "top-level",
-      tableOptions: { style: "grid" },
+      tableOptions: createMarkdownTableOptions(),
       maxHeight: REASONING_PREVIEW_HEIGHT,
     })
   }
@@ -313,7 +319,7 @@ export class TranscriptView {
       treeSitterClient: this.treeSitterClient,
       streaming: entry.streaming === true,
       internalBlockMode: "top-level",
-      tableOptions: { style: "grid" },
+      tableOptions: createMarkdownTableOptions(),
     })
     card.add(speaker)
     card.add(content)

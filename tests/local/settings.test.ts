@@ -91,12 +91,12 @@ describe("local settings", () => {
   it("stores the selected theme without replacing provider settings", async () => {
     const file = join(await tempDirectory(), "config.json")
     await saveFireworksSetup("fw_test_key", model("tool-model", "Tool Model"), { file })
-    await saveSelectedTheme("bright", { file })
+    await saveSelectedTheme("graphite", { file })
 
-    await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({ theme: "bright" })
+    await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({ theme: "graphite" })
     expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({
       fireworksApiKey: "fw_test_key",
-      theme: "bright",
+      theme: "graphite",
     })
   })
 
@@ -149,7 +149,7 @@ describe("local settings", () => {
 
   it("rejects unreleased theme aliases", async () => {
     const directory = await tempDirectory()
-    for (const alias of ["dark", "midnight", "gray", "white"]) {
+    for (const alias of ["dark", "gray", "white"]) {
       const file = join(directory, `${alias}.json`)
       await writeFile(file, JSON.stringify({ version: 1, theme: alias }), "utf8")
       await expect(loadLocalSettings({ file, env: {} })).rejects.toThrow("theme must be")

@@ -23,6 +23,7 @@ export type ChatUIOptions = {
   modelLabel: string
   modeLabel: string
   sessionLabel: string
+  workspaceLabel: string
   theme?: ThemeName
   thinkingVisible?: boolean
   treeSitterClient?: TreeSitterClient

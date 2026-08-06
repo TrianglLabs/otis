@@ -103,9 +103,11 @@ describe("CLI thinking visibility", () => {
     await submit("/thinking")
     expect(mocks.saveThinkingVisible).toHaveBeenCalledWith(true)
     expect(mocks.ui.setThinkingVisible).toHaveBeenLastCalledWith(true)
+    expect(mocks.ui.showTransientHint).toHaveBeenLastCalledWith(" Thinking traces shown ")
 
     await submit("/thinking")
     expect(mocks.saveThinkingVisible).toHaveBeenLastCalledWith(false)
     expect(mocks.ui.setThinkingVisible).toHaveBeenLastCalledWith(false)
+    expect(mocks.ui.showTransientHint).toHaveBeenLastCalledWith(" Thinking traces hidden ")
   })
 })

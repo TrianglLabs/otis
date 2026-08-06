@@ -1,4 +1,11 @@
-import { DiffRenderable, MarkdownRenderable, RGBA, type ScrollBoxRenderable, type TextRenderable } from "@opentui/core"
+import {
+  type BoxRenderable,
+  DiffRenderable,
+  MarkdownRenderable,
+  RGBA,
+  type ScrollBoxRenderable,
+  type TextRenderable,
+} from "@opentui/core"
 import { describe, expect, it, vi } from "vitest"
 import { colors, selectTheme } from "../../src/cli/theme.js"
 import { TranscriptStore } from "../../src/cli/transcript.js"
@@ -21,7 +28,19 @@ describe("chat UI rendering", () => {
     expect(markdown).toMatchObject({
       streaming: true,
       internalBlockMode: "top-level",
-      tableOptions: { style: "grid" },
+      tableOptions: {
+        style: "grid",
+        widthMode: "full",
+        columnFitter: "proportional",
+        wrapMode: "word",
+        cellPaddingX: 1,
+        cellPaddingY: 0,
+        borders: true,
+        outerBorder: true,
+        borderStyle: "rounded",
+        borderColor: colors.border,
+        selectable: true,
+      },
     })
     expect(markdown.content).toContain("Streaming heading")
 
@@ -30,6 +49,22 @@ describe("chat UI rendering", () => {
 
     expect(harness.get(`message-${assistant.id}-content`)).toBe(markdown)
     expect(markdown.streaming).toBe(false)
+  })
+
+  it("renders markdown tables with rounded borders and readable cell spacing", async () => {
+    const harness = await setup()
+    const transcript = new TranscriptStore()
+    transcript.addAssistantMessage("| Name | Status |\n| --- | --- |\n| Otis | Ready |")
+
+    harness.ui.showChatLayout()
+    harness.ui.renderTranscript(transcript.entries)
+    await harness.renderOnce()
+
+    const frame = harness.captureCharFrame()
+    expect(frame).toContain("╭")
+    expect(frame).toContain("╮")
+    expect(frame).toContain("│ Name ")
+    expect(frame).toContain("│ Otis ")
   })
 
   it("hides reasoning by default and toggles all traces with /thinking state", async () => {
@@ -55,6 +90,27 @@ describe("chat UI rendering", () => {
 
     harness.ui.setThinkingVisible(false)
     expect(harness.find(`message-${reasoning.id}`)).toBeUndefined()
+  })
+
+  it("restores hidden reasoning traces in their original transcript positions", async () => {
+    const harness = await setup({ thinkingVisible: true })
+    const transcript = new TranscriptStore()
+    const user = transcript.addUserMessage("question")
+    const firstReasoning = transcript.addReasoningMessage("first thought", { reasoningId: "reasoning_1" })
+    const tool = transcript.addToolMessage("Reading a file", "file_read")
+    const secondReasoning = transcript.addReasoningMessage("second thought", { reasoningId: "reasoning_2" })
+    const assistant = transcript.addAssistantMessage("answer")
+    const visibleOrder = [user, firstReasoning, tool, secondReasoning, assistant].map((entry) => `message-${entry.id}`)
+
+    harness.ui.showChatLayout()
+    harness.ui.renderTranscript(transcript.entries)
+    expect(harness.childIds("messages")).toEqual(visibleOrder)
+
+    harness.ui.setThinkingVisible(false)
+    expect(harness.childIds("messages")).toEqual([user, tool, assistant].map((entry) => `message-${entry.id}`))
+
+    harness.ui.setThinkingVisible(true)
+    expect(harness.childIds("messages")).toEqual(visibleOrder)
   })
 
   it("shows the streaming tail and expands an individual trace by mouse", async () => {
@@ -120,16 +176,27 @@ describe("chat UI rendering", () => {
     const messages = harness.get<ScrollBoxRenderable>("messages")
     expect(messages.verticalScrollBar.slider.backgroundColor.equals(RGBA.fromHex(colors.border))).toBe(true)
     expect(messages.verticalScrollBar.slider.foregroundColor.equals(RGBA.fromHex(colors.muted))).toBe(true)
+    await harness.renderOnce()
+    expect(messages.x + messages.width).toBe(harness.renderer.terminalWidth)
+    const inputBox = harness.get<BoxRenderable>("input-box")
+    expect(inputBox.x).toBe(1)
+    expect(inputBox.x + inputBox.width).toBe(harness.renderer.terminalWidth - 1)
 
     harness.ui.showSessionPicker([{ id: "session_1", title: "Previous work", detail: "1h ago" }])
     const sessionRows = harness.get<ScrollBoxRenderable>("session-rows")
     expect(sessionRows.verticalScrollBar.slider.backgroundColor.equals(RGBA.fromHex(colors.border))).toBe(true)
     expect(sessionRows.verticalScrollBar.slider.foregroundColor.equals(RGBA.fromHex(colors.muted))).toBe(true)
+    await harness.renderOnce()
+    const sessionPanel = harness.get<BoxRenderable>("session-panel")
+    expect(sessionRows.x + sessionRows.width).toBe(sessionPanel.x + sessionPanel.width)
 
     harness.ui.showModelPicker([{ id: "accounts/fireworks/models/alpha", displayName: "Alpha" }])
     const modelRows = harness.get<ScrollBoxRenderable>("model-rows")
     expect(modelRows.verticalScrollBar.slider.backgroundColor.equals(RGBA.fromHex(colors.border))).toBe(true)
     expect(modelRows.verticalScrollBar.slider.foregroundColor.equals(RGBA.fromHex(colors.muted))).toBe(true)
+    await harness.renderOnce()
+    const modelPanel = harness.get<BoxRenderable>("model-panel")
+    expect(modelRows.x + modelRows.width).toBe(modelPanel.x + modelPanel.width)
   })
 
   it("keeps the full transcript mounted and replaces rows whose identity changes", async () => {
