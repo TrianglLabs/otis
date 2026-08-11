@@ -1,3 +1,4 @@
+import type { Skill } from "../skills/index.js"
 import { validateImageAttachments } from "./images.js"
 import { imageAttachmentsFromMessages } from "./messages.js"
 import { highestReasoningEffort } from "./reasoning.js"
@@ -117,6 +118,7 @@ type StreamChatOptions = {
   projectContext?: ContextFile[]
   signal?: AbortSignal
   now?: Date
+  skills?: readonly Skill[]
 }
 
 type CompleteOptions = {
@@ -139,7 +141,7 @@ function chatRequest(model: string, options: StreamChatOptions) {
     model,
     service_tier: SERVICE_TIER,
     messages: [
-      { role: "system", content: buildSystemPrompt(options.projectContext, options.now) },
+      { role: "system", content: buildSystemPrompt(options.projectContext, options.now, options.skills) },
       ...options.messages.map(providerMessage),
     ],
     ...(tools.length > 0 ? { tools: tools.map(providerTool) } : {}),

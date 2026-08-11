@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { PermissionConfig } from "../../src/permissions/policy.js"
+import type { SkillCatalog } from "../../src/skills/index.js"
 
 const mocks = vi.hoisted(() => ({
   createSession: vi.fn(),
@@ -22,6 +23,7 @@ const mocks = vi.hoisted(() => ({
     model: "accounts/fireworks/models/test",
   })),
   openSession: vi.fn(),
+  loadSkillCatalog: vi.fn<() => Promise<SkillCatalog>>(async () => ({ skills: [], byName: new Map() })),
   saveSelectedModel: vi.fn(async () => undefined),
   streamChat: vi.fn(),
 }))
@@ -50,6 +52,10 @@ vi.mock("../../src/local/settings.js", () => ({
   loadLocalSettings: mocks.loadLocalSettings,
   saveSelectedModel: mocks.saveSelectedModel,
 }))
+vi.mock("../../src/skills/index.js", () => ({
+  loadSkillCatalog: mocks.loadSkillCatalog,
+  readSkillResource: vi.fn(),
+}))
 vi.mock("../../src/storage/index.js", () => ({
   acquireSessionLock: vi.fn(),
   createSession: mocks.createSession,
@@ -72,9 +78,31 @@ beforeEach(() => {
     model: "accounts/fireworks/models/test",
   })
   mocks.createSession.mockResolvedValue(session)
+  mocks.loadSkillCatalog.mockResolvedValue({ skills: [], byName: new Map() })
 })
 
 describe("runHeadlessCommand", () => {
+  it("passes discovered skills to the shared headless agent runtime", async () => {
+    const skill = {
+      name: "review",
+      description: "Review code changes.",
+      root: "/skills/review",
+      instructionsPath: "/skills/review/SKILL.md",
+    }
+    mocks.loadSkillCatalog.mockResolvedValue({ skills: [skill], byName: new Map([[skill.name, skill]]) })
+    mocks.streamChat.mockImplementationOnce(async function* (request) {
+      expect(request.skills).toEqual([skill])
+      expect(request.tools).toEqual(expect.arrayContaining([expect.objectContaining({ name: "skill" })]))
+      yield { type: "text_delta", text: "Done." }
+    })
+    const output = streams()
+
+    const exitCode = await runHeadlessCommand(["--ephemeral", "review this"], output.options)
+
+    expect(exitCode).toBe(0)
+    expect(output.stdout()).toBe("Done.\n")
+  })
+
   it("prints only the final answer to stdout in plain mode", async () => {
     mocks.streamChat.mockImplementationOnce(async function* () {
       yield { type: "usage", usage: { promptTokens: 3, completionTokens: 2, totalTokens: 5 } }

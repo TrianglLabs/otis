@@ -8,6 +8,7 @@ export type PermissionEffect = (typeof PERMISSION_EFFECTS)[number]
 
 export const PERMISSION_MODES = ["ask", "auto", "dontAsk"] as const
 export type PermissionMode = (typeof PERMISSION_MODES)[number]
+export const DEFAULT_PERMISSION_MODE: PermissionMode = "auto"
 
 export type PermissionRule = {
   tool: ToolName | "*"
@@ -116,6 +117,7 @@ export function parsePermissionRuleString(value: string, effect: PermissionEffec
 
 async function permissionResources(call: ToolCall, cwd: string): Promise<string[]> {
   if (call.name === "bash") return [call.input.command]
+  if (call.name === "skill") return [`${call.input.skill}/${call.input.path ?? "SKILL.md"}`]
   if (call.name === "web_read") return [call.input.url]
   if (call.name === "web_search") return call.input.searchQueries
   return workspaceResources(call.input.path, cwd)

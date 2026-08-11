@@ -8,7 +8,7 @@ type SessionHistoryOptions = {
   session: JsonlSession
   client: FireworksClient
   contextLength?: number
-  projectContextChars: number
+  staticContextChars: number
   signal?: AbortSignal
   onUsage?: (usage: TokenUsage) => void | Promise<void>
 }
@@ -17,7 +17,7 @@ type SessionHistoryOptions = {
 export async function prepareSessionHistory(options: SessionHistoryOptions): Promise<ChatMessage[]> {
   const replay = options.session.replay()
   if (
-    estimateContextTokens(replay.messages, options.projectContextChars) < autoCompactThreshold(options.contextLength)
+    estimateContextTokens(replay.messages, options.staticContextChars) < autoCompactThreshold(options.contextLength)
   ) {
     return replay.messages
   }

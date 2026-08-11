@@ -37,6 +37,18 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     ),
   },
   {
+    name: "skill",
+    description:
+      "Load an available Agent Skill's SKILL.md instructions or a text resource inside that skill. Read SKILL.md before following a matching skill.",
+    parameters: objectSchema(
+      {
+        skill: stringSchema("Available skill name."),
+        path: stringSchema("Optional resource path relative to the skill root. Defaults to SKILL.md."),
+      },
+      ["skill"],
+    ),
+  },
+  {
     name: "read",
     description: "Read a file or list a directory.",
     parameters: objectSchema(
@@ -131,6 +143,13 @@ export function parseStructuredToolCall(name: string, input: unknown): ToolCall 
       return { name, input: { url: input.url.trim(), objective: parseOptionalString(input.objective) } }
     }
     throw new Error('web_read requires a non-empty string "url"')
+  }
+
+  if (name === "skill") {
+    if (isRecord(input) && typeof input.skill === "string" && input.skill.trim()) {
+      return { name, input: { skill: input.skill.trim(), path: parseOptionalString(input.path) } }
+    }
+    throw new Error('skill requires a non-empty string "skill"')
   }
 
   if (name === "read") {

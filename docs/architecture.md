@@ -9,6 +9,7 @@ User terminal or server process
   -> OpenTUI CLI or headless command
     -> shared local TypeScript turn runtime
       -> local tools
+      -> local Agent Skills
       -> local JSONL sessions and usage
       -> Fireworks API with the user's key
       -> Parallel API with the user's key
@@ -24,6 +25,7 @@ src/cli
   +-> src/core ------> src/inference
   |      +----------> src/tools
   |                       +------> src/web
+  +-> src/skills -----> local skill packages
   +-> src/local -----> src/storage
   +-> src/storage ---> src/core message types
 ```
@@ -34,6 +36,7 @@ src/cli
 - `src/inference` owns Fireworks request serialization, model discovery, the human-authored `system-prompt.txt`, prompt
   assembly and project-context bounds, and SSE parsing.
 - `src/local` owns platform paths, the private provider configuration file, and home-screen statistic derivation.
+- `src/skills` owns portable Agent Skill discovery, manifest validation, precedence, and confined resource reads.
 - `src/storage` owns append-only session events, validation, replay, titles, tool cards, and diffs.
 - `src/tools` owns structured tool contracts, local execution, and the provider-neutral web-tool adapter.
 - `src/web` owns Parallel request serialization, response validation, and error handling.
@@ -92,15 +95,41 @@ The runtime validates provider-native structured tool calls, evaluates every cal
 policy, executes approved tools in the local workspace, and appends bounded results to the conversation. The policy
 normalizes each call to a tool and resource, merges private user policy with restrictive project policy and temporary
 CLI rules, and resolves matching rules deny-first. An `ask` result is sent to the OpenTUI approval surface or denied in
-non-interactive execution. Current tools
-cover web search, web reading, file reading, file search, file creation, exact edits, and shell commands. Web tools call
+non-interactive execution. Current tools cover skill loading, web search, web reading, file reading, file search, file
+creation, exact edits, and shell commands. Web tools call
 Parallel directly; local file and shell tools never pass through a remote Otis service.
+
+OpenTUI starts in `auto` mode unless private user configuration selects another mode. Headless execution keeps its
+fail-closed `dontAsk` default and requires `--auto` or an explicitly configured auto mode for unmatched mutations.
 
 Shell resources are currently matched against the complete command string. Patterns are anchored and Otis does not
 split compound commands at shell control operators for deny matching. For example, `bash(rm -rf *)` matches a command
 that begins with `rm -rf`, but does not match `cd /tmp && rm -rf x`. Allow-rule wildcards cannot cross shell control
 operators, but explicit deny rules in permissive modes should use a broader pattern when compound commands must be
 covered. Per-command-segment policy evaluation is a future hardening boundary.
+
+## Agent Skills
+
+Interactive and headless execution share one Agent Skills catalog. Otis discovers global skills under
+`~/.agents/skills` and project skills under `.agents/skills` at each ancestor of the working directory. Sources are
+applied global-first and root-first, with the nearest project definition winning on duplicate names. Every discovered
+`SKILL.md` is parsed as YAML plus Markdown and validated against the portable name and description constraints before
+inference begins.
+
+The provider-independent `otis skills` command manages optional Git-backed sources without initializing OpenTUI or
+inference. Each source has a private checkout under the platform local-data directory and an atomic manifest recording
+the skill activations it owns. Install validates the complete source before creating activation symlinks under
+`~/.agents/skills`; collisions fail without replacing existing content. Update permits fast-forward-only pulls and
+rolls the checkout, links, and manifest back if validation or activation fails. Remove first verifies ownership and
+never deletes an activation replaced by another process. A process lock serializes lifecycle operations, and provider
+credentials are removed from the environment of Git subprocesses.
+
+Prompt assembly advertises only validated names and descriptions. The `skill` structured tool loads the full
+instructions or a requested text resource on demand, preserving progressive disclosure and allowing global skills to
+work without expanding the workspace file tool's sandbox. Canonical-path checks keep resource reads inside the chosen
+skill even through symlinks. Script execution remains a normal `bash` call and therefore passes through the same
+permission policy as any other command; skill metadata cannot pre-approve tools. If tool selection disables `skill`,
+skill metadata is not advertised to the model.
 
 ## Sessions and local statistics
 

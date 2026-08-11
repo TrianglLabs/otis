@@ -15,6 +15,7 @@ import {
   summarizeUserMessage,
   userMessageContentChars,
 } from "../inference/messages.js"
+import { skillAdvertisementChars } from "../inference/system-prompt.js"
 import type { ContextFile, FireworksModel, ImageContentPart } from "../inference/types.js"
 import {
   isThemeName,
@@ -28,11 +29,13 @@ import {
 import { calculateLocalStats } from "../local/stats.js"
 import {
   createPermissionPolicy,
+  DEFAULT_PERMISSION_MODE,
   type PermissionMode,
   type PermissionRequest,
   type PermissionRule,
 } from "../permissions/policy.js"
 import { loadProjectPermissionRules } from "../permissions/project-policy.js"
+import { emptySkillCatalog, loadSkillCatalog, type SkillCatalog } from "../skills/index.js"
 import type { JsonlSession, PromptAdmission } from "../storage/index.js"
 import { describeToolCall } from "../tools/index.js"
 import { ParallelClient } from "../web/client.js"
@@ -69,8 +72,9 @@ const COMMANDS: CommandSuggestion[] = [
 const transcript = new TranscriptStore()
 let renderer: Awaited<ReturnType<typeof createCliRenderer>>
 let ui: ReturnType<typeof createChatUI>
-let projectContextChars = 0
+let staticContextChars = 0
 let loadedProjectContext: ContextFile[] = []
+let loadedSkills: SkillCatalog = emptySkillCatalog()
 let busy = false
 let debug = false
 let exiting = false
@@ -85,7 +89,7 @@ let pastedImageSequence = 1
 let autoCompactAtTokens = autoCompactThreshold()
 let client: FireworksClient | undefined
 let webClient: ParallelClient | undefined
-let permissionMode: PermissionMode = "ask"
+let permissionMode: PermissionMode = DEFAULT_PERMISSION_MODE
 let permissionRules: PermissionRule[] = []
 let selectedTheme: ThemeName = "default"
 let thinkingVisible = false
@@ -105,7 +109,7 @@ export async function startInteractiveCli() {
   selectedModelId = settings.model
   selectedModelSupportsImageInput = settings.modelSupportsImageInput
   autoCompactAtTokens = autoCompactThreshold(settings.modelContextLength)
-  permissionMode = settings.permissions?.defaultMode ?? "ask"
+  permissionMode = settings.permissions?.defaultMode ?? DEFAULT_PERMISSION_MODE
   permissionRules = [...(settings.permissions?.rules ?? []), ...(await loadProjectPermissionRules(workspaceCwd))]
   configured = Boolean(fireworksApiKey && parallelApiKey && selectedModelId)
   if (fireworksApiKey && selectedModelId) {
@@ -121,14 +125,17 @@ export async function startInteractiveCli() {
 
   const treeSitterClient = await initializeTreeSitterClient()
   loadedProjectContext = loadProjectContext(workspaceCwd)
-  projectContextChars = loadedProjectContext.reduce((sum, file) => sum + file.content.length, 0)
+  loadedSkills = await loadSkillCatalog(workspaceCwd)
+  staticContextChars =
+    loadedProjectContext.reduce((sum, file) => sum + file.content.length, 0) +
+    skillAdvertisementChars(loadedSkills.skills)
 
   ui = createChatUI(renderer, {
     configured,
     statsVisible: Boolean(fireworksApiKey || parallelApiKey),
     commands: COMMANDS,
     contextLabel: formatContextUsage(
-      contextUsage(estimateContextTokens(transcript.history, projectContextChars), autoCompactAtTokens),
+      contextUsage(estimateContextTokens(transcript.history, staticContextChars), autoCompactAtTokens),
     ),
     modelLabel: formatModelName(settings.modelDisplayName ?? selectedModelId),
     modeLabel: formatModeLabel(permissionMode),
@@ -373,7 +380,8 @@ async function handleInput(value: string) {
       debug,
       signal: turnController.signal,
       projectContext: loadedProjectContext,
-      projectContextChars,
+      skills: loadedSkills,
+      staticContextChars,
       isExiting: () => exiting,
       onContext: (tokens) => {
         const usage = contextUsage(tokens, autoCompactAtTokens)
@@ -432,7 +440,7 @@ async function handleInput(value: string) {
     void sessions.generateTitle(turnSession)
   }
 
-  if (estimateContextTokens(transcript.history, projectContextChars) >= autoCompactAtTokens) {
+  if (estimateContextTokens(transcript.history, staticContextChars) >= autoCompactAtTokens) {
     await runCompaction(undefined, true)
   }
 }
@@ -524,7 +532,7 @@ function applySelectedModel(model: FireworksModel) {
 function updateContextIndicator(pendingInput = "") {
   const pendingMessage = createUserMessage(pendingInput, pendingImages)
   const usage = contextUsage(
-    estimateContextTokens(transcript.history, projectContextChars, userMessageContentChars(pendingMessage)),
+    estimateContextTokens(transcript.history, staticContextChars, userMessageContentChars(pendingMessage)),
     autoCompactAtTokens,
   )
   ui.setContextLabel(formatContextUsage(usage), contextUsageColor(usage.percent))

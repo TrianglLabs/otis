@@ -11,11 +11,11 @@ const toolDefinitionChars = JSON.stringify(TOOL_DEFINITIONS).length
 
 export function estimateContextTokens(
   messages: readonly ChatMessage[],
-  projectContextChars: number,
+  staticContextChars: number,
   pendingInput: string | number = "",
 ) {
   const pendingChars = typeof pendingInput === "number" ? pendingInput : pendingInput.length
-  let chars = toolDefinitionChars + projectContextChars + pendingChars
+  let chars = toolDefinitionChars + staticContextChars + pendingChars
   let messageCount = 1 + messages.length
 
   if (pendingChars > 0) messageCount += 1
@@ -44,8 +44,8 @@ export function estimateTokens(contentChars: number, messageCount: number) {
   )
 }
 
-export function estimateAgentContextTokens(contentChars: number, messageCount: number, projectContextChars: number) {
-  return estimateTokens(toolDefinitionChars + projectContextChars + contentChars, messageCount)
+export function estimateAgentContextTokens(contentChars: number, messageCount: number, staticContextChars: number) {
+  return estimateTokens(toolDefinitionChars + staticContextChars + contentChars, messageCount)
 }
 
 export function contextUsage(usedTokens: number, contextWindowTokens: number) {

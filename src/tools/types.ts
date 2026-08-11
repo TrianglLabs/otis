@@ -1,6 +1,7 @@
+import type { SkillCatalog } from "../skills/index.js"
 import type { ParallelClient } from "../web/client.js"
 
-export const TOOL_NAMES = ["web_search", "web_read", "read", "grep", "glob", "write", "edit", "bash"] as const
+export const TOOL_NAMES = ["web_search", "web_read", "skill", "read", "grep", "glob", "write", "edit", "bash"] as const
 
 export type ToolName = (typeof TOOL_NAMES)[number]
 
@@ -12,6 +13,10 @@ export type ToolCall =
   | {
       name: "web_read"
       input: { url: string; objective?: string }
+    }
+  | {
+      name: "skill"
+      input: { skill: string; path?: string }
     }
   | {
       name: "read"
@@ -52,4 +57,5 @@ export type ToolContext = {
   webClient?: ParallelClient
   webClientModel?: string
   webSession?: WebToolSession
+  skills?: SkillCatalog
 }

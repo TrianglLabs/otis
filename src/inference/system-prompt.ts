@@ -1,3 +1,4 @@
+import type { Skill } from "../skills/index.js"
 import promptText from "./system-prompt.txt" with { type: "text" }
 import type { ContextFile } from "./types.js"
 
@@ -7,11 +8,27 @@ const MAX_CONTEXT_TOTAL_BYTES = 64 * 1024
 
 const BASE_PROMPT = promptText.trim()
 
-export function buildSystemPrompt(projectContext: readonly ContextFile[] = [], now = new Date()) {
+export function buildSystemPrompt(
+  projectContext: readonly ContextFile[] = [],
+  now = new Date(),
+  skills: readonly Skill[] = [],
+) {
   const sections = [BASE_PROMPT]
   if (projectContext.length > 0) sections.push(formatProjectContext(projectContext))
+  if (skills.length > 0) sections.push(formatAvailableSkills(skills))
   sections.push(`The current date is ${formatDate(now)}. Use this date when searching for recent information.`)
   return sections.join("\n\n")
+}
+
+export function skillAdvertisementChars(skills: readonly Skill[]) {
+  return skills.length > 0 ? formatAvailableSkills(skills).length : 0
+}
+
+function formatAvailableSkills(skills: readonly Skill[]) {
+  const entries = skills.map(
+    (skill) => `  <skill name="${escapeAttribute(skill.name)}">${escapeText(skill.description)}</skill>`,
+  )
+  return `<available_skills>\nSkills provide specialized workflows. When a task matches a skill below, call the skill tool to load its SKILL.md before proceeding. Load referenced resources only when needed.\n${entries.join("\n")}\n</available_skills>`
 }
 
 function formatProjectContext(files: readonly ContextFile[]) {
@@ -48,6 +65,10 @@ function truncateUtf8(content: string, maximumBytes: number) {
 
 function escapeAttribute(value: string) {
   return value.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+}
+
+function escapeText(value: string) {
+  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
 }
 
 function formatDate(value: Date) {
