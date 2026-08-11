@@ -564,7 +564,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
   }
 
   function showStats() {
-    if (!welcome.getChildren().some((child) => child.id === statsRow.id)) welcome.add(statsRow, 1)
+    if (!welcome.getChildren().some((child) => child.id === statsRow.id)) welcome.insertBefore(statsRow, welcomePanel)
     renderer.requestRender()
   }
 

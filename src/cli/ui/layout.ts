@@ -38,7 +38,7 @@ export function createUILayout(
     backgroundColor: colors.background,
     paddingX: 2,
     paddingY: 0,
-    marginTop: 1,
+    marginTop: 2,
     gap: 1,
   })
   const welcomeQuit = new TextRenderable(renderer, {
@@ -47,15 +47,31 @@ export function createUILayout(
     fg: colors.muted,
     alignSelf: "center",
   })
+  // The spacers split free space equally to center the content when it fits.
+  // When the input grows past the available height, they collapse to zero and
+  // flex-end anchoring clips the decorative top (brand, then stats) while the
+  // fixed-size children keep their natural height instead of being squashed.
+  const welcomeTopSpacer = new BoxRenderable(renderer, {
+    id: "welcome-spacer-top",
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
+  })
+  const welcomeBottomSpacer = new BoxRenderable(renderer, {
+    id: "welcome-spacer-bottom",
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
+  })
   const welcome = new BoxRenderable(renderer, {
     id: "welcome",
     flexDirection: "column",
     flexGrow: 1,
     flexShrink: 1,
-    justifyContent: "center",
+    justifyContent: "flex-end",
     alignItems: "center",
     backgroundColor: RGBA.fromValues(0, 0, 0, 0),
-    gap: 1,
+    gap: 0,
   })
   const inputArea = new BoxRenderable(renderer, {
     id: "input-area",
@@ -68,16 +84,33 @@ export function createUILayout(
   inputArea.add(options.configured === false ? setupButtonBox : inputBox)
   welcomePanel.add(inputArea)
   welcomePanel.add(welcomeQuit)
-  welcome.add(
+  welcome.add(welcomeTopSpacer)
+  // The art is wrapped in a box because a bare TextRenderable child adds a
+  // phantom row to the following gap in a gapped column; boxing it keeps the
+  // brand -> stats spacing equal to stats -> input spacing.
+  const welcomeBrand = new BoxRenderable(renderer, {
+    id: "welcome-brand",
+    flexDirection: "column",
+    alignSelf: "center",
+    flexShrink: 0,
+  })
+  welcomeBrand.add(
     new TextRenderable(renderer, {
-      id: "welcome-brand",
-      content: ["┏━┓ ━┳━ ╻ ┏━┓", "┃ ┃  ┃  ┃ ┗━┓", "┗━┛  ╹  ╹ ┗━┛"].join("\n"),
+      id: "welcome-brand-art",
+      content: [
+        "   ____  _______________",
+        "  / __ \\/_  __/  _/ ___/",
+        " / / / / / /  / / \\__ \\",
+        "/ /_/ / / / _/ / ___/ /",
+        "\\____/ /_/ /___//____/",
+      ].join("\n"),
       fg: colors.accent,
-      alignSelf: "center",
     }),
   )
+  welcome.add(welcomeBrand)
   if (options.statsVisible ?? options.configured !== false) welcome.add(statsRow)
   welcome.add(welcomePanel)
+  welcome.add(welcomeBottomSpacer)
   welcome.add(
     new TextRenderable(renderer, {
       id: "welcome-version",

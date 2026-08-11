@@ -124,7 +124,10 @@ export async function runAgentTurn(options: AgentTurnOptions): Promise<AgentTurn
               })
             }
           }
-          ui.renderTranscript(transcript.entries, { scrollToBottom: true })
+          // No scrollToBottom here: reasoning deltas stream continuously, and
+          // force-scrolling would re-engage the sticky scroll and trap users who
+          // scrolled up. The sticky scroll already follows when at the bottom.
+          ui.renderTranscript(transcript.entries)
           return
         }
 
