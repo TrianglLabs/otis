@@ -1,5 +1,6 @@
-import type { InputRenderable, TextareaRenderable } from "@opentui/core"
+import type { InputRenderable, TextareaRenderable, TextRenderable } from "@opentui/core"
 import { describe, expect, it, vi } from "vitest"
+import { CHAT_INPUT_HINT } from "../../src/cli/ui/format.js"
 import { THEME_NAMES } from "../../src/local/settings.js"
 import { useChatHarness } from "./support/chat-ui-harness.js"
 
@@ -262,5 +263,44 @@ describe("chat UI input", () => {
 
     harness.ui.setImageAttachmentCount(0)
     expect(harness.find("image-attachments")).toBeUndefined()
+  })
+
+  it("keeps the mode label and model hint fixed on one line when the home input grows", async () => {
+    const harness = await setup()
+    const longInput = Array.from({ length: 12 }, (_, index) => `line ${index + 1} ${"x".repeat(70)}`).join("\n")
+    harness.setChatInput(longInput)
+    await harness.renderOnce()
+
+    const input = harness.get<TextareaRenderable>("otis-input")
+    const mode = harness.get<TextRenderable>("mode-label")
+    const hint = harness.get<TextRenderable>("input-hint")
+
+    expect(input.height).toBeGreaterThan(1)
+    expect(mode.height).toBe(1)
+    expect(hint.height).toBe(1)
+    expect(mode.y).toBe(input.y)
+    expect(hint.y).toBe(input.y)
+    expect(hint.width).toBe(" Model: test ".length)
+    expect(harness.captureCharFrame()).toContain("Model: test")
+  })
+
+  it("keeps the chat hints fixed on one line when the input grows", async () => {
+    const harness = await setup()
+    harness.ui.showChatLayout()
+    const longInput = Array.from({ length: 12 }, (_, index) => `line ${index + 1} ${"x".repeat(70)}`).join("\n")
+    harness.setChatInput(longInput)
+    await harness.renderOnce()
+
+    const input = harness.get<TextareaRenderable>("otis-input")
+    const mode = harness.get<TextRenderable>("mode-label")
+    const hint = harness.get<TextRenderable>("input-hint")
+
+    expect(input.height).toBeGreaterThan(1)
+    expect(mode.height).toBe(1)
+    expect(hint.height).toBe(1)
+    expect(mode.y).toBe(input.y)
+    expect(hint.y).toBe(input.y)
+    expect(hint.width).toBe(CHAT_INPUT_HINT.length)
+    expect(harness.captureCharFrame()).toContain("[TAB] mode · [ESC] interrupt")
   })
 })

@@ -156,9 +156,9 @@ vi.mock("../../../src/inference/client.js", () => ({
 }))
 vi.mock("../../../src/web/client.js", () => ({ ParallelClient: mocks.ParallelClient }))
 vi.mock("../../../src/local/settings.js", () => ({
-  THEME_NAMES: ["default", "nord", "bright", "matrix", "midnight", "graphite"],
+  THEME_NAMES: ["default", "nord", "bright", "matrix", "midnight", "graphite", "beige", "vice", "eagan"],
   isThemeName: (value: unknown) =>
-    ["default", "nord", "bright", "matrix", "midnight", "graphite"].includes(String(value)),
+    ["default", "nord", "bright", "matrix", "midnight", "graphite", "beige", "vice", "eagan"].includes(String(value)),
   loadLocalSettings: mocks.loadLocalSettings,
   saveFireworksSetup: mocks.saveFireworksSetup,
   saveParallelApiKey: mocks.saveParallelApiKey,
