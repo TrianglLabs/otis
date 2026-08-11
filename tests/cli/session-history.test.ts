@@ -34,7 +34,7 @@ describe("prepareSessionHistory", () => {
       session,
       client,
       contextLength: 1,
-      projectContextChars: 0,
+      staticContextChars: 0,
       onUsage: recordUsage,
     })
 

@@ -105,6 +105,19 @@ JSON results include completed traces.
 Use repeatable `--image <path>` options to attach PNG, JPEG, GIF, BMP, TIFF, or PPM images. The selected model must
 be marked as vision-capable in the Fireworks catalog.
 
+Both interactive and headless runs discover portable Agent Skills automatically. Put personal skills in
+`~/.agents/skills/<name>/SKILL.md` and repository skills in `.agents/skills/<name>/SKILL.md`. Repository definitions
+override personal definitions with the same name; in nested workspaces, the nearest definition wins.
+
+Install and maintain shared Git-backed skill collections without starting OpenTUI:
+
+```sh
+otis skills install https://github.com/obra/superpowers
+otis skills list
+otis skills update superpowers
+otis skills remove superpowers
+```
+
 Run `otis exec --help` for the full option list. Headless mode is non-interactive and never displays an approval prompt.
 
 | Command | Action |
@@ -129,6 +142,49 @@ by common macOS and Linux terminals. Numbered image tokens appear inside the com
 when the text input is empty, and attachments clear after the prompt is admitted to the local session. Terminals that
 provide binary clipboard data can attach copied images directly as well.
 
+## Agent Skills
+
+Otis implements the open [Agent Skills specification](https://agentskills.io/specification) with progressive
+disclosure. At startup it validates each skill's YAML frontmatter and advertises only `name` and `description` to the
+model. When a task matches, the model uses Otis's read-only `skill` tool to load the complete `SKILL.md`, then loads
+referenced text resources only as needed.
+
+```txt
+.agents/skills/release-notes/
+├── SKILL.md
+├── references/
+│   └── STYLE.md
+├── scripts/
+│   └── collect-changes.ts
+└── assets/
+    └── template.md
+```
+
+```md
+---
+name: release-notes
+description: Prepare release notes from shipped changes. Use for release summaries and changelogs.
+---
+
+# Release notes workflow
+
+Read `references/STYLE.md`, then run `scripts/collect-changes.ts` if change discovery is required.
+```
+
+The directory name must match the skill name. Global skills load first, followed by project skill directories from the
+filesystem root toward the current working directory, so the closest project definition takes precedence. Skill
+resources are confined to their own canonical directory; traversal and escaping symlinks are rejected. Text resources
+must be UTF-8. Bundled scripts are not implicitly trusted: the model runs them through the existing `bash` tool and the
+normal Otis permission policy still applies. The experimental `allowed-tools` frontmatter field does not bypass Otis
+permissions.
+
+`otis skills install <git-url>` accepts a repository containing one root skill, a `skills/*` collection, an
+`.agents/skills/*` collection, or a combination of those layouts. Otis keeps an isolated Git checkout in its private
+local data directory and activates each discovered skill with a link under `~/.agents/skills`; it never replaces an
+existing skill. Use `--name <source-name>` when the repository name is not the desired source name. Updates are
+fast-forward-only and transactional, and removal only touches links still owned by Otis. Review third-party skills
+before installing them, and restart a running Otis process after an install, update, or removal.
+
 ## Local data and privacy
 
 By default, Otis stores data in the platform's standard user directories:
@@ -137,6 +193,7 @@ By default, Otis stores data in the platform's standard user directories:
 | --- | --- | --- |
 | Configuration | `~/Library/Application Support/otis/config.json` | `~/.config/otis/config.json` |
 | Sessions and usage | `~/Library/Application Support/otis/` | `~/.local/share/otis/` |
+| Managed skill sources | `~/Library/Application Support/otis/skills/` | `~/.local/share/otis/skills/` |
 
 `XDG_CONFIG_HOME` and `XDG_DATA_HOME` are respected on Linux. Set `OTIS_HOME` to keep all Otis state in one specific
 directory.
@@ -162,7 +219,7 @@ User rules live in the private local `config.json`:
 {
   "version": 1,
   "permissions": {
-    "defaultMode": "ask",
+    "defaultMode": "auto",
     "rules": [
       { "tool": "bash", "resource": "git status", "effect": "allow" },
       { "tool": "bash", "resource": "git push *", "effect": "ask" },
@@ -172,8 +229,9 @@ User rules live in the private local `config.json`:
 }
 ```
 
-The modes are `ask`, `auto`, and `dontAsk`. Read-only tools are allowed by default; write, edit, and bash resolve to
-the selected mode. In headless execution, `ask` fails closed because no approval UI exists. `otis exec` defaults to
+The modes are `ask`, `auto`, and `dontAsk`. Interactive Otis defaults to `auto`; press Tab to switch to `ask`, or set
+`permissions.defaultMode` explicitly. Read-only tools are allowed by default; write, edit, and bash resolve to the
+selected mode. In headless execution, `ask` fails closed because no approval UI exists. `otis exec` defaults to
 `dontAsk`; a configured `auto` default or the `--auto` flag opts into unmatched write, edit, and bash calls.
 
 A repository may add `.otis/permissions.json` with `{ "version": 1, "rules": [...] }`. Project rules may only use
@@ -206,6 +264,7 @@ src/
   core/       Agent loop, project context, and compaction
   inference/  Fireworks transport, model policy, and prompt assembly
   local/      Private settings, platform paths, and local statistics
+  skills/     Agent Skill discovery, installation, validation, and confined resource loading
   storage/    Append-only session persistence and replay
   tools/      Local tools and provider-neutral web adapters
   web/        Parallel transport and response validation

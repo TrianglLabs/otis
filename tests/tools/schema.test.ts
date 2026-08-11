@@ -6,6 +6,7 @@ describe("parseStructuredToolCall", () => {
     expect(TOOL_DEFINITIONS.map((tool) => tool.name)).toEqual([
       "web_search",
       "web_read",
+      "skill",
       "read",
       "grep",
       "glob",
@@ -48,6 +49,21 @@ describe("parseStructuredToolCall", () => {
     expect(parseStructuredToolCall("bash", { command: " npm test ", timeout_ms: 0 })).toEqual({
       name: "bash",
       input: { command: "npm test", timeoutMs: undefined },
+    })
+  })
+
+  it("parses progressive skill resource reads", () => {
+    expect(parseStructuredToolCall("skill", { skill: " review ", path: " references/RULES.md " })).toEqual({
+      name: "skill",
+      input: { skill: "review", path: "references/RULES.md" },
+    })
+    expect(parseStructuredToolCall("skill", { skill: "review" })).toEqual({
+      name: "skill",
+      input: { skill: "review", path: undefined },
+    })
+    expect(parseStructuredToolCall("skill", { skill: "review", path: "   " })).toEqual({
+      name: "skill",
+      input: { skill: "review", path: undefined },
     })
   })
 
@@ -96,5 +112,6 @@ describe("parseStructuredToolCall", () => {
     expect(() => parseStructuredToolCall("grep", { pattern: "" })).toThrow('grep requires a non-empty string "pattern"')
     expect(() => parseStructuredToolCall("glob", { pattern: "" })).toThrow('glob requires a non-empty string "pattern"')
     expect(() => parseStructuredToolCall("web_read", { url: "" })).toThrow('web_read requires a non-empty string "url"')
+    expect(() => parseStructuredToolCall("skill", { skill: "" })).toThrow('skill requires a non-empty string "skill"')
   })
 })

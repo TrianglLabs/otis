@@ -1,4 +1,5 @@
 import { runHeadlessCommand } from "./headless-cli.js"
+import { runSkillsCommand } from "./skills-cli.js"
 import { runUpdateCommand } from "./update.js"
 
 const version = process.env.OTIS_VERSION ?? "dev"
@@ -12,6 +13,9 @@ try {
       break
     case "exec":
       process.exitCode = await runHeadlessCommand(args)
+      break
+    case "skills":
+      await runSkillsCommand(args)
       break
     case "--version":
     case "-v":

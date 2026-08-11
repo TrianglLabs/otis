@@ -22,6 +22,7 @@ export type ToolActivity = {
 export function describeToolCall(call: ToolCall) {
   if (call.name === "web_search") return activity("web_search", `Searching web: ${shortToolText(call.input.objective)}`)
   if (call.name === "web_read") return activity("web_read", `Reading web: ${shortToolText(call.input.url)}`)
+  if (call.name === "skill") return activity("file_read", `Loading skill: ${shortToolText(call.input.skill)}`)
   if (call.name === "read") return activity("file_read", `Reading files: ${shortToolText(call.input.path)}`)
   if (call.name === "grep") return activity("file_search", `Searching files: ${shortToolText(call.input.pattern)}`)
   if (call.name === "glob") return activity("file_search", `Finding files: ${shortToolText(call.input.pattern)}`)

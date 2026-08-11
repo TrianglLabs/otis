@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
-import { shellEnvironment } from "../../src/tools/shell.js"
+import { childProcessEnvironment } from "../../src/local/child-environment.js"
 
-describe("shellEnvironment", () => {
+describe("childProcessEnvironment", () => {
   it("does not expose provider credentials to child commands", () => {
     const source = {
       PATH: "/usr/bin",
@@ -9,7 +9,7 @@ describe("shellEnvironment", () => {
       PARALLEL_API_KEY: "parallel_secret",
     }
 
-    expect(shellEnvironment(source)).toEqual({ PATH: "/usr/bin" })
+    expect(childProcessEnvironment(source)).toEqual({ PATH: "/usr/bin" })
     expect(source.FIREWORKS_API_KEY).toBe("fw_secret")
   })
 })

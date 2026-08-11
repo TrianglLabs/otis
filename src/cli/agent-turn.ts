@@ -1,6 +1,7 @@
 import type { FireworksClient } from "../inference/client.js"
 import type { ChatMessage, ContextFile, TokenUsage } from "../inference/types.js"
 import type { PermissionPolicy, PermissionRequest } from "../permissions/policy.js"
+import type { SkillCatalog } from "../skills/index.js"
 import type { PromptAdmission, SessionToolActivity } from "../storage/index.js"
 import type { ParallelClient } from "../web/client.js"
 import type { ChatUI } from "./chat-ui.js"
@@ -25,7 +26,8 @@ type AgentTurnOptions = {
   debug: boolean
   signal: AbortSignal
   projectContext: ContextFile[]
-  projectContextChars: number
+  skills: SkillCatalog
+  staticContextChars: number
   isExiting: () => boolean
   onContext: (tokens: number) => void
   onDiff: (added: number, removed: number) => void
@@ -81,6 +83,7 @@ export async function runAgentTurn(options: AgentTurnOptions): Promise<AgentTurn
         onUsage: options.onUsage,
         signal,
         projectContext: options.projectContext,
+        skills: options.skills,
         permissionPolicy: options.permissionPolicy,
         onPermissionRequest: options.onPermissionRequest,
       },
@@ -162,7 +165,7 @@ export async function runAgentTurn(options: AgentTurnOptions): Promise<AgentTurn
 
         if (event.type === "context") {
           options.onContext(
-            estimateAgentContextTokens(event.contentChars, event.messageCount, options.projectContextChars),
+            estimateAgentContextTokens(event.contentChars, event.messageCount, options.staticContextChars),
           )
           return
         }

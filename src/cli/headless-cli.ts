@@ -5,6 +5,7 @@ import { loadProjectContext } from "../core/context.js"
 import { FireworksClient, listToolCapableModels } from "../inference/client.js"
 import { loadImageFiles, validateImageAttachments } from "../inference/images.js"
 import { createUserMessage, imageAttachmentsFromMessages, messagesContainImages } from "../inference/messages.js"
+import { skillAdvertisementChars } from "../inference/system-prompt.js"
 import type { ChatMessage } from "../inference/types.js"
 import { loadLocalSettings, saveSelectedModel } from "../local/settings.js"
 import {
@@ -14,6 +15,7 @@ import {
   parsePermissionRuleString,
 } from "../permissions/policy.js"
 import { loadProjectPermissionRules } from "../permissions/project-policy.js"
+import { loadSkillCatalog } from "../skills/index.js"
 import {
   acquireSessionLock,
   createSession,
@@ -101,7 +103,9 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
 
     const client = new FireworksClient({ apiKey: settings.fireworksApiKey, model })
     const projectContext = loadProjectContext(cwd)
-    const projectContextChars = projectContext.reduce((sum, file) => sum + file.content.length, 0)
+    const skills = await loadSkillCatalog(cwd)
+    const staticContextChars =
+      projectContext.reduce((sum, file) => sum + file.content.length, 0) + skillAdvertisementChars(skills.skills)
 
     if (!parsed.ephemeral) {
       const selectedSessionId = await resolveSessionId(parsed, cwd)
@@ -132,7 +136,7 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
           session,
           client,
           contextLength: modelContextLength,
-          projectContextChars,
+          staticContextChars,
           signal: controller.signal,
           onUsage: async (nextUsage) => {
             usage = addUsage(usage, nextUsage)
@@ -162,6 +166,7 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
         cwd,
         signal: controller.signal,
         projectContext,
+        skills,
         tools,
         maxSteps: parsed.maxSteps,
         permissionPolicy,

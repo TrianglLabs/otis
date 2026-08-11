@@ -21,4 +21,19 @@ describe("system prompt", () => {
     expect(dateIndex).toBeGreaterThan(contextIndex)
     expect(prompt).toContain('<file path="/work/project &amp; tools/AGENTS.md">\nUse strict TypeScript.\n</file>')
   })
+
+  it("advertises skill metadata without eagerly loading skill instructions", () => {
+    const prompt = buildSystemPrompt([], new Date("2026-07-16T12:00:00Z"), [
+      {
+        name: "review",
+        description: "Review code & explain <risks>.",
+        root: "/skills/review",
+        instructionsPath: "/skills/review/SKILL.md",
+      },
+    ])
+
+    expect(prompt).toContain('<skill name="review">Review code &amp; explain &lt;risks&gt;.</skill>')
+    expect(prompt).toContain("call the skill tool to load its SKILL.md")
+    expect(prompt).not.toContain("/skills/review")
+  })
 })
