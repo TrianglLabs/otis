@@ -1,10 +1,11 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { type AgentEvent, runAgent } from "../../src/core/agent.js"
 import type { FireworksClient } from "../../src/inference/client.js"
 import { createPermissionPolicy, type PermissionRequest } from "../../src/permissions/policy.js"
+import { emptySkillCatalog } from "../../src/skills/index.js"
 
 const streamAgentMock = vi.hoisted(() => vi.fn())
 const client = { model: "accounts/fireworks/models/test", streamChat: streamAgentMock } as unknown as FireworksClient
@@ -408,6 +409,50 @@ describe("runAgent", () => {
 
     expect(requests[0].projectContext).toBeUndefined()
   })
+
+  it("advertises discovered skills and loads instructions through the skill tool", async () => {
+    const cwd = await trackedTempDir()
+    const skillDirectory = join(cwd, ".agents", "skills", "review")
+    await mkdir(skillDirectory, { recursive: true })
+    await writeFile(
+      join(skillDirectory, "SKILL.md"),
+      "---\nname: review\ndescription: Review code changes.\n---\n\nFollow the review checklist.\n",
+    )
+    const requests: StreamAgentRequest[] = []
+    streamAgentMock
+      .mockImplementationOnce(async function* (request) {
+        requests.push(clone(request) as StreamAgentRequest)
+        yield { type: "tool_call", toolCall: { id: "call_skill", name: "skill", arguments: '{"skill":"review"}' } }
+      })
+      .mockImplementationOnce(async function* (request) {
+        requests.push(clone(request) as StreamAgentRequest)
+        yield { type: "text_delta", text: "Reviewed." }
+      })
+
+    const events = await collect(runAgent("review this", [], { client, cwd }))
+
+    expect(requests[0].skills).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "review", description: "Review code changes." })]),
+    )
+    expect(requests[0].tools).toEqual(expect.arrayContaining([expect.objectContaining({ name: "skill" })]))
+    expect(requests[1].messages).toContainEqual(
+      expect.objectContaining({
+        role: "tool",
+        toolCallId: "call_skill",
+        content: expect.stringContaining("Follow the review checklist."),
+      }),
+    )
+    expect(events.find((event) => event.type === "complete")).toBeDefined()
+  })
+
+  it("does not expose the skill tool when no skills are available", async () => {
+    streamAgentMock.mockImplementationOnce(async function* (request) {
+      expect(request.tools).not.toEqual(expect.arrayContaining([expect.objectContaining({ name: "skill" })]))
+      yield { type: "text_delta", text: "Done." }
+    })
+
+    await collect(runAgent("hello", [], { client, skills: emptySkillCatalog() }))
+  })
 })
 
 async function collect(events: AsyncGenerator<AgentEvent>) {
@@ -428,6 +473,7 @@ function clone(value: unknown) {
 
 type StreamAgentRequest = {
   tools?: unknown[]
+  skills?: unknown[]
   messages: Array<{ role: string; content?: unknown }>
   projectContext?: Array<{ path: string; content: string }>
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { getMocks, loadCli, submit } from "./support/interactive-cli-harness.js"
+import { getMocks, loadCli, localSettings, submit } from "./support/interactive-cli-harness.js"
 
 const mocks = getMocks()
 
@@ -46,10 +46,10 @@ describe("CLI interrupt", () => {
 })
 
 describe("CLI mode toggle", () => {
-  it("starts in ask mode and passes the shared policy to the agent", async () => {
+  it("starts in auto mode and passes the shared policy to the agent", async () => {
     mocks.runAgent.mockImplementationOnce(async function* (_input, _history, options) {
       expect((await options.permissionPolicy.evaluate({ name: "bash", input: { command: "git status" } })).effect).toBe(
-        "ask",
+        "allow",
       )
       yield { type: "complete", messages: [] }
     })
@@ -57,17 +57,25 @@ describe("CLI mode toggle", () => {
     await loadCli()
     await submit("inspect")
 
-    expect(mocks.createChatUI.mock.calls.at(-1)?.[1]).toMatchObject({ modeLabel: "? ask" })
+    expect(mocks.createChatUI.mock.calls.at(-1)?.[1]).toMatchObject({ modeLabel: "› auto" })
   })
 
   it("cycles mode label on toggle", async () => {
     await loadCli()
 
     mocks.uiOptions?.onToggleMode?.()
-    expect(mocks.ui.setModeLabel).toHaveBeenCalledWith("› auto")
+    expect(mocks.ui.setModeLabel).toHaveBeenCalledWith("? ask")
 
     mocks.uiOptions?.onToggleMode?.()
-    expect(mocks.ui.setModeLabel).toHaveBeenCalledWith("? ask")
+    expect(mocks.ui.setModeLabel).toHaveBeenCalledWith("› auto")
+  })
+
+  it("honors an explicitly configured ask default", async () => {
+    mocks.loadLocalSettings.mockResolvedValue(localSettings({ permissions: { defaultMode: "ask", rules: [] } }))
+
+    await loadCli()
+
+    expect(mocks.createChatUI.mock.calls.at(-1)?.[1]).toMatchObject({ modeLabel: "? ask" })
   })
 })
 

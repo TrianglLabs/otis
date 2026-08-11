@@ -16,6 +16,7 @@ describe("permission policy", () => {
     const dontAsk = createPermissionPolicy({ cwd, mode: "dontAsk" })
 
     expect((await ask.evaluate({ name: "read", input: { path: "src/index.ts" } })).effect).toBe("allow")
+    expect((await ask.evaluate({ name: "skill", input: { skill: "review" } })).effect).toBe("allow")
     expect((await ask.evaluate({ name: "bash", input: { command: "bun test" } })).effect).toBe("ask")
     expect((await auto.evaluate({ name: "write", input: { path: "out.txt", content: "ok" } })).effect).toBe("allow")
     expect((await dontAsk.evaluate({ name: "edit", input: { path: "out.txt", old: "a", new: "b" } })).effect).toBe(

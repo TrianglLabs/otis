@@ -490,4 +490,27 @@ describe("CLI session turn handling", () => {
     expect(labels.some((label) => label.includes("~2k"))).toBe(true)
     expect(labels.some((label) => label.includes("~1k"))).toBe(false)
   })
+
+  it("passes the startup skill catalog to interactive agent turns", async () => {
+    const skill = {
+      name: "review",
+      description: "Review code changes.",
+      root: "/skills/review",
+      instructionsPath: "/skills/review/SKILL.md",
+    }
+    mocks.loadSkillCatalog.mockResolvedValue({ skills: [skill], byName: new Map([[skill.name, skill]]) })
+    mocks.runAgent.mockImplementationOnce(async function* () {
+      yield { type: "delta", text: "done" }
+      yield { type: "complete", messages: [{ role: "user", content: "review this" }] }
+    })
+
+    await loadCli()
+    await submit("review this")
+
+    expect(mocks.runAgent).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ skills: expect.objectContaining({ skills: [skill] }) }),
+    )
+  })
 })

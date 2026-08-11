@@ -8,7 +8,13 @@ import type {
   TokenUsage,
   UserChatMessage,
 } from "../inference/types.js"
-import { createPermissionPolicy, type PermissionPolicy, type PermissionRequest } from "../permissions/policy.js"
+import {
+  createPermissionPolicy,
+  DEFAULT_PERMISSION_MODE,
+  type PermissionPolicy,
+  type PermissionRequest,
+} from "../permissions/policy.js"
+import { loadSkillCatalog, type SkillCatalog } from "../skills/index.js"
 import {
   describeToolCall,
   executeToolCall,
@@ -50,6 +56,7 @@ export type RunAgentOptions = ToolContext & {
   permissionPolicy?: PermissionPolicy
   onPermissionRequest?: (request: PermissionRequest) => Promise<boolean>
   projectContext?: ContextFile[]
+  skills?: SkillCatalog
   tools?: ToolDefinition[]
   maxSteps?: number
 }
@@ -63,10 +70,16 @@ export async function* runAgent(
   const messages: ChatMessage[] = [...history, userMessage]
   try {
     const projectContext = options.projectContext ?? loadProjectContext(options.cwd ?? process.cwd())
+    const skills = options.skills ?? (await loadSkillCatalog(options.cwd ?? process.cwd()))
+    const tools = availableTools(options.tools ?? TOOL_DEFINITIONS, skills)
+    const modelSkills = tools.some((tool) => tool.name === "skill") ? skills : emptySkills()
     const toolContext: RunAgentOptions = {
       ...options,
+      skills,
+      tools,
       permissionPolicy:
-        options.permissionPolicy ?? createPermissionPolicy({ cwd: options.cwd ?? process.cwd(), mode: "ask" }),
+        options.permissionPolicy ??
+        createPermissionPolicy({ cwd: options.cwd ?? process.cwd(), mode: DEFAULT_PERMISSION_MODE }),
       webSession: {},
     }
     yield { type: "context", messageCount: messages.length, contentChars: messagesContentChars(messages) }
@@ -83,9 +96,10 @@ export async function* runAgent(
       }
       step += 1
       yield { type: "model", phase: "start" }
-      const response = yield* streamAssistantResponse(messages, options.tools ?? TOOL_DEFINITIONS, {
+      const response = yield* streamAssistantResponse(messages, tools, {
         ...options,
         projectContext,
+        skills: modelSkills,
       })
       const assistantMessage = assistantMessageFromResponse(response)
       if (assistantMessage.content.length > 0) messages.push(assistantMessage)
@@ -144,7 +158,7 @@ type AssistantResponse = {
 async function* streamAssistantResponse(
   messages: ChatMessage[],
   tools = TOOL_DEFINITIONS,
-  options: Pick<RunAgentOptions, "client" | "signal" | "projectContext" | "onUsage">,
+  options: Pick<RunAgentOptions, "client" | "signal" | "projectContext" | "skills" | "onUsage">,
 ): AsyncGenerator<AgentEvent, AssistantResponse> {
   const response = new AssistantResponseBuilder()
   const projectContext = options.projectContext ?? []
@@ -154,6 +168,7 @@ async function* streamAssistantResponse(
       messages,
       tools,
       projectContext: projectContext.length > 0 ? projectContext : undefined,
+      skills: options.skills?.skills,
       signal: options.signal,
     })) {
       if (event.type === "text_delta") {
@@ -178,6 +193,14 @@ async function* streamAssistantResponse(
     hasText: response.hasText(),
     interrupted: options.signal?.aborted ?? false,
   }
+}
+
+function availableTools(tools: ToolDefinition[], skills: SkillCatalog) {
+  return skills.skills.length > 0 ? tools : tools.filter((tool) => tool.name !== "skill")
+}
+
+function emptySkills(): SkillCatalog {
+  return { skills: [], byName: new Map() }
 }
 
 function assistantMessageFromResponse(response: AssistantResponse): ChatMessage {

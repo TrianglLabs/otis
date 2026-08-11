@@ -2,6 +2,7 @@ import { beforeEach, vi } from "vitest"
 import type { SetupCredential } from "../../../src/cli/ui/types.js"
 import type { ChatMessage, FireworksModel, UserChatMessage } from "../../../src/inference/types.js"
 import type { ThemeName } from "../../../src/local/settings.js"
+import type { SkillCatalog } from "../../../src/skills/index.js"
 import type { SessionToolActivity } from "../../../src/storage/index.js"
 
 const mocks = vi.hoisted(() => {
@@ -96,6 +97,7 @@ const mocks = vi.hoisted(() => {
     listToolCapableModels: vi.fn<() => Promise<FireworksModel[]>>(async () => [testModel()]),
     loadLocalSettings: vi.fn(async () => localSettings()),
     loadProjectContext: vi.fn<(_cwd: string) => Array<{ path: string; content: string }>>(() => []),
+    loadSkillCatalog: vi.fn<() => Promise<SkillCatalog>>(async () => ({ skills: [], byName: new Map() })),
     openSession: vi.fn(),
     openProviderKeyPage: vi.fn(async () => true),
     saveFireworksSetup: vi.fn(async () => undefined),
@@ -144,6 +146,10 @@ vi.mock("@opentui/core", () => ({
 
 vi.mock("../../../src/core/agent.js", () => ({ runAgent: mocks.runAgent }))
 vi.mock("../../../src/core/context.js", () => ({ loadProjectContext: mocks.loadProjectContext }))
+vi.mock("../../../src/skills/index.js", () => ({
+  emptySkillCatalog: () => ({ skills: [], byName: new Map() }),
+  loadSkillCatalog: mocks.loadSkillCatalog,
+}))
 vi.mock("../../../src/inference/client.js", () => ({
   FireworksClient: mocks.FireworksClient,
   listToolCapableModels: mocks.listToolCapableModels,
@@ -191,6 +197,7 @@ beforeEach(() => {
   mocks.listSessions.mockResolvedValue([])
   mocks.listToolCapableModels.mockResolvedValue([testModel()])
   mocks.loadLocalSettings.mockResolvedValue(localSettings())
+  mocks.loadSkillCatalog.mockResolvedValue({ skills: [], byName: new Map() })
   mocks.checkForUpdate.mockResolvedValue(null)
 })
 
