@@ -1,5 +1,7 @@
-import type { BoxRenderable, TextRenderable } from "@opentui/core"
+import type { BoxRenderable, TextareaRenderable, TextRenderable } from "@opentui/core"
+import { createTestRenderer } from "@opentui/core/testing"
 import { describe, expect, it, vi } from "vitest"
+import { createChatUI } from "../../src/cli/chat-ui.js"
 import { useChatHarness } from "./support/chat-ui-harness.js"
 
 describe("chat UI status and prompts", () => {
@@ -89,6 +91,37 @@ describe("chat UI status and prompts", () => {
     }
   })
 
+  it("lays out stat cards evenly and centers each value within its card", async () => {
+    const harness = await setup()
+    harness.ui.setStats({
+      streak: 12,
+      totalTokens: 1_234_567,
+      sessionCount: 40,
+      avgTokensPerSession: 983,
+      avgSessionSeconds: 15_082,
+    })
+    await harness.renderOnce()
+
+    const cards = [0, 1, 2, 3].map((index) => harness.get<BoxRenderable>(`welcome-stat-${index}`))
+
+    const widths = cards.map((card) => card.width)
+    expect(new Set(widths).size).toBe(1)
+    for (let index = 1; index < cards.length; index += 1) {
+      const previous = cards[index - 1]
+      expect(cards[index].x - (previous.x + previous.width)).toBe(1)
+    }
+
+    for (let index = 0; index < cards.length; index += 1) {
+      const card = cards[index]
+      const value = harness.get<TextRenderable>(`welcome-stat-value-${index}`)
+      const contentLeft = card.x + 2
+      const contentRight = card.x + card.width - 2
+      const leftGap = value.x - contentLeft
+      const rightGap = contentRight - (value.x + value.width)
+      expect(Math.abs(leftGap - rightGap)).toBeLessThanOrEqual(1)
+    }
+  })
+
   it("hides stats before credentials and reveals labeled zeros after setup", async () => {
     const harness = await setup({ configured: false, statsVisible: false })
 
@@ -97,6 +130,88 @@ describe("chat UI status and prompts", () => {
 
     expect(harness.text("welcome-stat-value-0")).toBe("0")
     expect(harness.text("welcome-stat-label-3")).toBe("time/session")
+  })
+
+  it("keeps home screen elements at full size when the input grows tall", async () => {
+    // Needs a 24-row terminal to force the overflow; the shared harness is 30 rows.
+    const testRenderer = await createTestRenderer({ width: 80, height: 24, kittyKeyboard: true })
+    const ui = createChatUI(testRenderer.renderer, {
+      contextLabel: "□□□□□□□□ 0% · ~0",
+      modelLabel: "Model: test",
+      modeLabel: "› auto",
+      sessionLabel: "default",
+      workspaceLabel: "~/work/otis",
+      onSubmit: () => {},
+    })
+    try {
+      ui.setStats({
+        streak: 12,
+        totalTokens: 1_234_567,
+        sessionCount: 40,
+        avgTokensPerSession: 983,
+        avgSessionSeconds: 15_082,
+      })
+      const input = testRenderer.renderer.root.findDescendantById("otis-input") as TextareaRenderable
+      input.setText(Array.from({ length: 12 }, (_, index) => `line ${index + 1} of some long text`).join("\n"))
+      await testRenderer.renderOnce()
+
+      const find = (id: string) => {
+        const renderable = testRenderer.renderer.root.findDescendantById(id)
+        if (!renderable) throw new Error(`Renderable not found: ${id}`)
+        return renderable
+      }
+      expect(find("welcome-brand").height).toBe(5)
+      expect(find("welcome-stats-row").height).toBe(6)
+      expect(find("welcome-stat-0").height).toBe(6)
+
+      const frame = testRenderer.captureCharFrame()
+      expect(frame).toContain("1.2M")
+      expect(frame).toContain("all-time tokens")
+      expect(frame).toContain("Model: test")
+      expect(frame).toContain("/ for commands")
+    } finally {
+      testRenderer.renderer.destroy()
+    }
+  })
+
+  it("keeps home content vertically centered when everything fits", async () => {
+    const testRenderer = await createTestRenderer({ width: 80, height: 24, kittyKeyboard: true })
+    const ui = createChatUI(testRenderer.renderer, {
+      contextLabel: "□□□□□□□□ 0% · ~0",
+      modelLabel: "Model: test",
+      modeLabel: "› auto",
+      sessionLabel: "default",
+      workspaceLabel: "~/work/otis",
+      onSubmit: () => {},
+    })
+    try {
+      ui.setStats({
+        streak: 12,
+        totalTokens: 1_234_567,
+        sessionCount: 40,
+        avgTokensPerSession: 983,
+        avgSessionSeconds: 15_082,
+      })
+      await testRenderer.renderOnce()
+
+      const find = (id: string) => {
+        const renderable = testRenderer.renderer.root.findDescendantById(id)
+        if (!renderable) throw new Error(`Renderable not found: ${id}`)
+        return renderable
+      }
+      const welcome = find("welcome")
+      const brand = find("welcome-brand")
+      const statsRow = find("welcome-stats-row")
+      const panel = find("welcome-panel")
+
+      expect(statsRow.y - (brand.y + brand.height)).toBe(2)
+      expect(panel.y - (statsRow.y + statsRow.height)).toBe(2)
+      const topSpace = brand.y - welcome.y
+      const bottomSpace = welcome.y + welcome.height - (panel.y + panel.height)
+      expect(Math.abs(topSpace - bottomSpace)).toBeLessThanOrEqual(1)
+    } finally {
+      testRenderer.renderer.destroy()
+    }
   })
 
   it("requires two escape presses to interrupt a busy turn", async () => {

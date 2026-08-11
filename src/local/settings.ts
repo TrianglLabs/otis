@@ -17,7 +17,17 @@ export type LocalSettings = {
   permissions?: PermissionConfig
 }
 
-export const THEME_NAMES = ["default", "nord", "bright", "matrix", "midnight", "graphite"] as const
+export const THEME_NAMES = [
+  "default",
+  "nord",
+  "bright",
+  "matrix",
+  "midnight",
+  "graphite",
+  "beige",
+  "vice",
+  "eagan",
+] as const
 export type ThemeName = (typeof THEME_NAMES)[number]
 
 export type SettingsFileOptions = {

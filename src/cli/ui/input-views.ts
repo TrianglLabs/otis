@@ -8,6 +8,9 @@ export function createChatInput(renderer: Renderer, label: string) {
     placeholder: "",
     flexGrow: 1,
     flexShrink: 1,
+    // Size from leftover row space only; a content-derived basis would let long
+    // lines squeeze the mode label and hint beside the input.
+    flexBasis: 0,
     minWidth: 1,
     minHeight: 1,
     maxHeight: 10,
@@ -50,6 +53,9 @@ export function createChatInput(renderer: Renderer, label: string) {
   const inputBox = new BoxRenderable(renderer, {
     id: "input-box",
     flexDirection: "row",
+    // Keep row children at their natural height, pinned to the first input line;
+    // the default stretch would let the label and hint wrap as the textarea grows.
+    alignItems: "flex-start",
     width: "100%",
     maxWidth: undefined,
     minWidth: 24,

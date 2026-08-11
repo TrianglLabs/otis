@@ -19,6 +19,93 @@ describe("chat UI theme switching", () => {
   // default theme so this file cannot leak state into sibling test files.
   afterEach(() => selectTheme("default"))
 
+  it("tints user message cards with a chromatic purple surface in the nord theme", async () => {
+    selectTheme("nord")
+    const harness = await setup({ theme: "nord" })
+    const transcript = new TranscriptStore()
+    transcript.addUserMessage("hello from nord")
+    harness.ui.showChatLayout()
+    harness.ui.renderTranscript(transcript.entries)
+
+    const card = harness.get<BoxRenderable>("message-1")
+    expect(card.backgroundColor.equals(RGBA.fromHex(colors.userSurface))).toBe(true)
+
+    // The tint that nord missed: userSurface must be a purple-family color
+    // (blue-dominant, red over green), never a neutral gray like the surface.
+    expect(colors.userSurface).not.toBe(colors.surface)
+    const [r, g, b] = RGBA.fromHex(colors.userSurface).toInts()
+    expect(b).toBeGreaterThan(r)
+    expect(r).toBeGreaterThan(g)
+  })
+
+  it("applies the beige theme with warm-toned surfaces and a tinted user card", async () => {
+    selectTheme("beige")
+    const harness = await setup({ theme: "beige" })
+    const transcript = new TranscriptStore()
+    transcript.addUserMessage("hello from beige")
+    harness.ui.showChatLayout()
+    harness.ui.renderTranscript(transcript.entries)
+
+    const root = harness.get<BoxRenderable>("root")
+    expect(root.backgroundColor.equals(RGBA.fromHex(colors.background))).toBe(true)
+
+    const card = harness.get<BoxRenderable>("message-1")
+    expect(card.backgroundColor.equals(RGBA.fromHex(colors.userSurface))).toBe(true)
+    expect(colors.userSurface).not.toBe(colors.surface)
+
+    // Beige is a light, warm theme: bright surfaces with red >= green >= blue.
+    const [r, g, b] = RGBA.fromHex(colors.background).toInts()
+    expect(r).toBeGreaterThan(200)
+    expect(r).toBeGreaterThanOrEqual(g)
+    expect(g).toBeGreaterThanOrEqual(b)
+    const [accentR, accentG, accentB] = RGBA.fromHex(colors.accent).toInts()
+    expect(accentR).toBeGreaterThan(accentG)
+    expect(accentG).toBeGreaterThan(accentB)
+  })
+
+  it("applies the vice theme with a hot pink accent on a purple night base", async () => {
+    selectTheme("vice")
+    const harness = await setup({ theme: "vice" })
+    const transcript = new TranscriptStore()
+    transcript.addUserMessage("hello from vice")
+    harness.ui.showChatLayout()
+    harness.ui.renderTranscript(transcript.entries)
+
+    const card = harness.get<BoxRenderable>("message-1")
+    expect(card.backgroundColor.equals(RGBA.fromHex(colors.userSurface))).toBe(true)
+    expect(colors.userSurface).not.toBe(colors.surface)
+
+    // Signature: deep purple-night background (blue over red over green)
+    // with a hot pink accent (red-dominant, blue over green).
+    const [bgR, bgG, bgB] = RGBA.fromHex(colors.background).toInts()
+    expect(bgB).toBeGreaterThan(bgR)
+    expect(bgR).toBeGreaterThan(bgG)
+    const [accentR, accentG, accentB] = RGBA.fromHex(colors.accent).toInts()
+    expect(accentR).toBeGreaterThan(accentB)
+    expect(accentB).toBeGreaterThan(accentG)
+  })
+
+  it("matches the source terminal colors exactly in the eagan theme", async () => {
+    selectTheme("eagan")
+    const harness = await setup({ theme: "eagan" })
+    const transcript = new TranscriptStore()
+    transcript.addUserMessage("hello from eagan")
+    harness.ui.showChatLayout()
+    harness.ui.renderTranscript(transcript.entries)
+
+    const card = harness.get<BoxRenderable>("message-1")
+    expect(card.backgroundColor.equals(RGBA.fromHex(colors.userSurface))).toBe(true)
+
+    // Fidelity to the MDR software palette: screen BG/FG and the four bin
+    // colors (WO/FC/DR/MA) must stay byte-identical to the source.
+    expect(colors.background).toBe("#010A13")
+    expect(colors.text).toBe("#ABFFE9")
+    expect(colors.cyan).toBe("#05C3A8") // WO
+    expect(colors.accent).toBe("#1EEFFF") // FC
+    expect(colors.pink).toBe("#DF81D5") // DR
+    expect(colors.yellow).toBe("#F9ECBB") // MA
+  })
+
   it("recolors the app chrome (not just the transcript) when the theme changes", async () => {
     const harness = await setup()
     harness.ui.showChatLayout()

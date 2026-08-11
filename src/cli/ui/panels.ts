@@ -29,12 +29,16 @@ export function createStatsRow(renderer: Renderer) {
     { value: "0", label: "tokens/session" },
     { value: "0S", label: "time/session" },
   ]
+  // 4 cards x 19 + 3 gaps x 1 = 79: an exact fit, so yoga never splits
+  // fractional cells across the cards (which made widths and gaps uneven).
   const statsRow = new BoxRenderable(renderer, {
     id: "welcome-stats-row",
     flexDirection: "row",
     alignSelf: "center",
     width: "100%",
-    maxWidth: 80,
+    maxWidth: 79,
+    flexShrink: 0,
+    marginTop: 2,
     gap: 1,
   })
   const attributes = createTextAttributes({ bold: true })
@@ -46,9 +50,9 @@ export function createStatsRow(renderer: Renderer) {
       flexDirection: "column",
       alignItems: "center",
       justifyContent: "center",
-      flexGrow: 1,
+      // Longest label ("all-time tokens", 15) + paddingX 2 + border 2 = 19.
+      flexBasis: 19,
       flexShrink: 1,
-      flexBasis: 0,
       paddingX: 1,
       paddingY: 1,
       border: true,
