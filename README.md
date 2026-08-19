@@ -8,16 +8,16 @@
   </p>
 </div>
 
+<p align="center">
+  <img src="docs/otis-demo.gif" alt="Otis terminal demo" width="720">
+</p>
+
 Otis is an open-source interactive agent built for the terminal. Choose any public serverless Fireworks model that
 supports tools, give Otis a task, and let it inspect files, edit code, run commands, search the web, and keep a durable
 local history of the work.
 
 The application, tools, configuration, sessions, diffs, and usage statistics live on your computer. Inference is provided
 directly by Fireworks (with Zero Data Retention by default) using your API key; web search and page reading uses Parallel with a separate key.
-
-<p align="center">
-  <img src="docs/otis-cli.png" alt="Otis terminal UI" width="720">
-</p>
 
 ## Install
 
