@@ -1,4 +1,5 @@
 import { listToolCapableModels } from "../inference/client.js"
+import { selectDefaultFireworksModel } from "../inference/model-policy.js"
 import type { FireworksModel } from "../inference/types.js"
 import { type LocalSettings, saveFireworksSetup, saveParallelApiKey, saveSelectedModel } from "../local/settings.js"
 import type { ChatUI } from "./chat-ui.js"
@@ -39,7 +40,7 @@ export class SetupFlow {
       return
     }
     if (!this.#selectedModel) {
-      void this.loadModels(this.#fireworksApiKey, undefined, false)
+      void this.selectDefaultModel(this.#fireworksApiKey)
       return
     }
     if (!this.#parallelApiKey) {
@@ -59,7 +60,7 @@ export class SetupFlow {
     if (credential === "fireworks") {
       this.#fireworksApiKey = apiKey
       this.#persistFireworksApiKey = true
-      await this.loadModels(apiKey, this.#selectedModel, false)
+      await this.selectDefaultModel(apiKey)
       return
     }
 
@@ -94,22 +95,9 @@ export class SetupFlow {
 
     this.options.setBusy(true)
     try {
-      if (this.#persistFireworksApiKey) await saveFireworksSetup(this.#fireworksApiKey, selected)
-      else await saveSelectedModel(selected)
-      this.#selectedModel = selected.id
-      this.#selectedModelSupportsImageInput = selected.supportsImageInput
-      this.options.onCredentialsChanged({
-        fireworksApiKey: this.#fireworksApiKey,
-        parallelApiKey: this.#parallelApiKey,
-      })
-      this.options.onModelSelected(selected)
+      await this.persistModelSelection(selected)
       this.options.ui.hideModelPicker()
-      if (!this.#parallelApiKey) {
-        this.options.ui.showHomeLayout()
-        this.requestCredential("parallel")
-        return
-      }
-      this.finish(selected)
+      this.continueSetup(selected)
     } catch (error) {
       this.options.ui.hideModelPicker()
       this.options.ui.showSetupError(errorMessage(error))
@@ -146,10 +134,7 @@ export class SetupFlow {
     }
 
     try {
-      const models = await listToolCapableModels(apiKey)
-      if (models.length === 0) throw new Error("Fireworks returned no public serverless models with tool support.")
-      this.#fireworksApiKey = apiKey
-      this.#models = models
+      const models = await this.loadVerifiedModels(apiKey)
       this.#wasConfigured = wasConfigured
       this.options.ui.showModelPicker(models.map((model) => ({ ...model, active: model.id === currentModel })))
     } catch (error) {
@@ -163,6 +148,56 @@ export class SetupFlow {
     } finally {
       this.options.setBusy(false)
     }
+  }
+
+  private async selectDefaultModel(apiKey: string) {
+    if (this.options.isBusy()) return
+    this.options.setBusy(true)
+    this.options.ui.showSetupStatus()
+
+    try {
+      const models = await this.loadVerifiedModels(apiKey)
+      const selected = selectDefaultFireworksModel(models)
+      if (!selected) throw new Error("Fireworks returned no public serverless models with tool support.")
+      await this.persistModelSelection(selected)
+      this.continueSetup(selected)
+    } catch (error) {
+      this.options.ui.showSetupError(errorMessage(error))
+    } finally {
+      this.options.setBusy(false)
+    }
+  }
+
+  private async loadVerifiedModels(apiKey: string) {
+    const models = await listToolCapableModels(apiKey)
+    if (models.length === 0) throw new Error("Fireworks returned no public serverless models with tool support.")
+    this.#fireworksApiKey = apiKey
+    this.#models = models
+    return models
+  }
+
+  private async persistModelSelection(selected: FireworksModel) {
+    const fireworksApiKey = this.#fireworksApiKey
+    if (!fireworksApiKey) throw new Error("Fireworks API key is required.")
+
+    if (this.#persistFireworksApiKey) await saveFireworksSetup(fireworksApiKey, selected)
+    else await saveSelectedModel(selected)
+    this.#selectedModel = selected.id
+    this.#selectedModelSupportsImageInput = selected.supportsImageInput
+    this.options.onCredentialsChanged({
+      fireworksApiKey,
+      parallelApiKey: this.#parallelApiKey,
+    })
+    this.options.onModelSelected(selected)
+  }
+
+  private continueSetup(selected: FireworksModel) {
+    if (!this.#parallelApiKey) {
+      this.options.ui.showHomeLayout()
+      this.requestCredential("parallel")
+      return
+    }
+    this.finish(selected)
   }
 
   private finish(model?: FireworksModel) {

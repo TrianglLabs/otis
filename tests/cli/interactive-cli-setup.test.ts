@@ -4,7 +4,20 @@ import { getMocks, loadCli, localSettings, settle, submit, testModel } from "./s
 describe("interactive CLI setup", () => {
   const mocks = getMocks()
 
-  it("stores verified Fireworks setup and a local Parallel key before enabling chat", async () => {
+  it("automatically selects Muse Glimmer and stores both provider keys before enabling chat", async () => {
+    const fallback = testModel({
+      id: "accounts/fireworks/models/fallback",
+      displayName: "Fallback",
+    })
+    const inkling = testModel({
+      id: "accounts/fireworks/models/inkling",
+      displayName: "Inkling",
+    })
+    const muse = testModel({
+      id: "accounts/fireworks/models/muse-glimmer-30b",
+      displayName: "Muse Glimmer 30B",
+    })
+    mocks.listToolCapableModels.mockResolvedValue([fallback, inkling, muse])
     mocks.loadLocalSettings.mockResolvedValue(
       localSettings({
         fireworksApiKey: undefined,
@@ -28,14 +41,9 @@ describe("interactive CLI setup", () => {
     mocks.uiOptions?.onSetupSubmit?.("fireworks", "fw_new_key")
     await settle()
     expect(mocks.listToolCapableModels).toHaveBeenCalledWith("fw_new_key")
-    expect(mocks.ui.showModelPicker).toHaveBeenCalledWith([
-      expect.objectContaining({ id: "accounts/fireworks/models/test-model", active: false }),
-    ])
-
-    mocks.uiOptions?.onSelectModel?.(testModel())
-    await settle()
-    expect(mocks.saveFireworksSetup).toHaveBeenCalledWith("fw_new_key", testModel())
-    expect(mocks.ui.setModelLabel).toHaveBeenLastCalledWith("Test Model")
+    expect(mocks.ui.showModelPicker).not.toHaveBeenCalled()
+    expect(mocks.saveFireworksSetup).toHaveBeenCalledWith("fw_new_key", muse)
+    expect(mocks.ui.setModelLabel).toHaveBeenLastCalledWith("Muse Glimmer 30B")
     expect(mocks.ui.showSetupInput).toHaveBeenLastCalledWith("parallel", expect.stringContaining("Web search"))
     expect(mocks.openProviderKeyPage).toHaveBeenCalledWith("parallel")
     expect(mocks.ui.setConfigured).not.toHaveBeenCalled()
@@ -44,10 +52,19 @@ describe("interactive CLI setup", () => {
     await settle()
     expect(mocks.saveParallelApiKey).toHaveBeenCalledWith("parallel_new_key")
     expect(mocks.ui.setConfigured).toHaveBeenCalledOnce()
-    expect(mocks.ui.setModelLabel).toHaveBeenCalledWith("Test Model")
+    expect(mocks.ui.setModelLabel).toHaveBeenCalledWith("Muse Glimmer 30B")
   })
 
-  it("uses an environment key without copying it into the config file", async () => {
+  it("falls back to Inkling and does not copy an environment key into the config file", async () => {
+    const fallback = testModel({
+      id: "accounts/fireworks/models/fallback",
+      displayName: "Fallback",
+    })
+    const inkling = testModel({
+      id: "accounts/fireworks/models/inkling",
+      displayName: "Inkling",
+    })
+    mocks.listToolCapableModels.mockResolvedValue([fallback, inkling])
     mocks.loadLocalSettings.mockResolvedValue(
       localSettings({
         fireworksApiKey: "fw_env_key",
@@ -61,11 +78,79 @@ describe("interactive CLI setup", () => {
     await settle()
 
     expect(mocks.listToolCapableModels).toHaveBeenCalledWith("fw_env_key")
-    mocks.uiOptions?.onSelectModel?.(testModel())
+    expect(mocks.ui.showModelPicker).not.toHaveBeenCalled()
+    expect(mocks.saveSelectedModel).toHaveBeenCalledWith(inkling)
+    expect(mocks.saveFireworksSetup).not.toHaveBeenCalled()
+    expect(mocks.ui.setConfigured).toHaveBeenCalledOnce()
+  })
+
+  it("uses the first verified model when neither preferred default is available", async () => {
+    const first = testModel({
+      id: "accounts/fireworks/models/first-verified",
+      displayName: "First Verified",
+    })
+    mocks.listToolCapableModels.mockResolvedValue([first, testModel()])
+    mocks.loadLocalSettings.mockResolvedValue(
+      localSettings({
+        fireworksApiKey: "fw_env_key",
+        model: undefined,
+        modelDisplayName: undefined,
+        modelContextLength: undefined,
+      }),
+    )
+
+    await loadCli()
     await settle()
 
-    expect(mocks.saveSelectedModel).toHaveBeenCalledWith(testModel())
+    expect(mocks.saveSelectedModel).toHaveBeenCalledWith(first)
+    expect(mocks.ui.setModelLabel).toHaveBeenLastCalledWith("First Verified")
+  })
+
+  it("keeps setup disabled when Fireworks has no verified tool-capable model", async () => {
+    mocks.listToolCapableModels.mockResolvedValue([])
+    mocks.loadLocalSettings.mockResolvedValue(
+      localSettings({
+        fireworksApiKey: undefined,
+        parallelApiKey: undefined,
+        model: undefined,
+        modelDisplayName: undefined,
+        modelContextLength: undefined,
+      }),
+    )
+    await loadCli()
+
+    mocks.uiOptions?.onSetup?.()
+    mocks.uiOptions?.onSetupSubmit?.("fireworks", "fw_new_key")
+    await settle()
+
     expect(mocks.saveFireworksSetup).not.toHaveBeenCalled()
+    expect(mocks.ui.showSetupInput).not.toHaveBeenCalledWith("parallel", expect.any(String))
+    expect(mocks.ui.showSetupError).toHaveBeenCalledWith(
+      "Fireworks returned no public serverless models with tool support.",
+    )
+    expect(mocks.ui.setConfigured).not.toHaveBeenCalled()
+  })
+
+  it("does not advance to Parallel when saving the automatic model selection fails", async () => {
+    mocks.saveFireworksSetup.mockRejectedValueOnce(new Error("Could not save Fireworks setup."))
+    mocks.loadLocalSettings.mockResolvedValue(
+      localSettings({
+        fireworksApiKey: undefined,
+        parallelApiKey: undefined,
+        model: undefined,
+        modelDisplayName: undefined,
+        modelContextLength: undefined,
+      }),
+    )
+    await loadCli()
+
+    mocks.uiOptions?.onSetup?.()
+    mocks.uiOptions?.onSetupSubmit?.("fireworks", "fw_new_key")
+    await settle()
+
+    expect(mocks.ui.showSetupError).toHaveBeenCalledWith("Could not save Fireworks setup.")
+    expect(mocks.ui.showSetupInput).not.toHaveBeenCalledWith("parallel", expect.any(String))
+    expect(mocks.ui.setConfigured).not.toHaveBeenCalled()
   })
 
   it("asks only for Parallel when Fireworks and a model are already configured", async () => {
