@@ -1,5 +1,4 @@
 import { beforeEach, vi } from "vitest"
-import type { SetupCredential } from "../../../src/cli/ui/types.js"
 import type { ChatMessage, FireworksModel, UserChatMessage } from "../../../src/inference/types.js"
 import type { ThemeName } from "../../../src/local/settings.js"
 import type { SkillCatalog } from "../../../src/skills/index.js"
@@ -99,9 +98,8 @@ const mocks = vi.hoisted(() => {
     loadProjectContext: vi.fn<(_cwd: string) => Array<{ path: string; content: string }>>(() => []),
     loadSkillCatalog: vi.fn<() => Promise<SkillCatalog>>(async () => ({ skills: [], byName: new Map() })),
     openSession: vi.fn(),
-    openProviderKeyPage: vi.fn(async () => true),
+    openFireworksKeyPage: vi.fn(async () => true),
     saveFireworksSetup: vi.fn(async () => undefined),
-    saveParallelApiKey: vi.fn(async () => undefined),
     saveSelectedModel: vi.fn(async () => undefined),
     saveSelectedTheme: vi.fn(async () => undefined),
     saveThinkingVisible: vi.fn(async () => undefined),
@@ -130,7 +128,7 @@ const mocks = vi.hoisted(() => {
           onSelectModel?(model: FireworksModel): void
           onSelectSession?(sessionId: string): void
           onSetup?(): void
-          onSetupSubmit?(credential: SetupCredential, apiKey: string): void
+          onSetupSubmit?(apiKey: string): void
           onSubmit(value: string): void | Promise<void>
           onToggleMode?(): void
         },
@@ -161,7 +159,6 @@ vi.mock("../../../src/local/settings.js", () => ({
     ["default", "nord", "bright", "matrix", "midnight", "graphite", "beige", "vice", "eagan"].includes(String(value)),
   loadLocalSettings: mocks.loadLocalSettings,
   saveFireworksSetup: mocks.saveFireworksSetup,
-  saveParallelApiKey: mocks.saveParallelApiKey,
   saveSelectedModel: mocks.saveSelectedModel,
   saveSelectedTheme: mocks.saveSelectedTheme,
   saveThinkingVisible: mocks.saveThinkingVisible,
@@ -178,7 +175,7 @@ vi.mock("../../../src/tools/index.js", () => ({
   TOOL_DEFINITIONS: [],
 }))
 vi.mock("../../../src/cli/chat-ui.js", () => ({ createChatUI: mocks.createChatUI }))
-vi.mock("../../../src/cli/provider-links.js", () => ({ openProviderKeyPage: mocks.openProviderKeyPage }))
+vi.mock("../../../src/cli/provider-links.js", () => ({ openFireworksKeyPage: mocks.openFireworksKeyPage }))
 vi.mock("../../../src/cli/update.js", () => ({
   checkForUpdate: mocks.checkForUpdate,
   runUpdateCommand: mocks.runUpdateCommand,
@@ -244,7 +241,6 @@ function baseSession() {
 export function localSettings(overrides: Record<string, unknown> = {}) {
   return {
     fireworksApiKey: "fw_test_key",
-    parallelApiKey: "parallel_test_key",
     model: "accounts/fireworks/models/test-model",
     modelDisplayName: "Test Model",
     modelContextLength: 131_072,

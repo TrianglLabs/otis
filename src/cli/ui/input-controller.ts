@@ -6,7 +6,7 @@ import {
   type TextRenderable,
 } from "@opentui/core"
 import { colors } from "../theme.js"
-import type { InputMode, Renderer, SetupCredential } from "./types.js"
+import type { InputMode, Renderer } from "./types.js"
 
 type InputControllerOptions = {
   renderer: Renderer
@@ -23,17 +23,16 @@ type InputControllerOptions = {
   setupStatusBox: BoxRenderable
   welcomeQuit: TextRenderable
   onBeforePrimaryInput: () => void
-  onSetupSubmit?: (credential: SetupCredential, apiKey: string) => void
+  onSetupSubmit?: (apiKey: string) => void
 }
 
 export class InputController {
   mode: InputMode
-  #setupCredential: SetupCredential = "fireworks"
 
   constructor(private readonly options: InputControllerOptions) {
     this.mode = options.configured ? "chat" : "setupButton"
     options.setupInput.on(InputRenderableEvents.ENTER, () => {
-      if (this.mode === "setupInput") options.onSetupSubmit?.(this.#setupCredential, options.setupInput.value)
+      if (this.mode === "setupInput") options.onSetupSubmit?.(options.setupInput.value)
     })
   }
 
@@ -62,11 +61,10 @@ export class InputController {
     this.setPrimary(this.options.setupButtonBox)
   }
 
-  showSetup(credential: SetupCredential, message = "") {
+  showSetup(message = "") {
     this.clearSetupInput()
-    this.#setupCredential = credential
     this.mode = "setupInput"
-    this.options.setupInputLabel.content = credential === "fireworks" ? "Fireworks key" : "Parallel key"
+    this.options.setupInputLabel.content = "Fireworks key"
     this.options.setupMessage.content = message
     this.options.setupMessage.fg = colors.muted
     this.options.welcomeQuit.content = " "
@@ -75,7 +73,7 @@ export class InputController {
   }
 
   showSetupError(message: string) {
-    this.showSetup(this.#setupCredential, message)
+    this.showSetup(message)
     this.options.setupMessage.fg = colors.pink
     this.options.renderer.requestRender()
   }

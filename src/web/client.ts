@@ -9,31 +9,28 @@ import type {
   WebSearchResult,
 } from "./types.js"
 
-const DEFAULT_BASE_URL = "https://api.parallel.ai"
-const MAX_RESPONSE_CHARS = 16_000
+const DEFAULT_MCP_URL = "https://search.parallel.ai/mcp"
 const MAX_SEARCH_QUERIES = 3
+const MAX_SESSION_ID_CHARS = 100
+const MAX_ERROR_CHARS = 2_000
 
 export class ParallelClient {
-  readonly #apiKey: string
-  readonly #baseURL: string
+  readonly #url: string
   readonly #fetch: typeof fetch
 
-  constructor(config: ParallelClientConfig) {
-    this.#apiKey = required(config.apiKey, "Parallel API key")
-    this.#baseURL = validBaseURL(config.baseURL ?? DEFAULT_BASE_URL)
+  constructor(config: ParallelClientConfig = {}) {
+    this.#url = validMcpURL(config.url ?? DEFAULT_MCP_URL)
     this.#fetch = config.fetch ?? fetch
   }
 
   async search(options: WebSearchOptions): Promise<WebSearchResponse> {
     const objective = required(options.objective, "Web search objective")
     const searchQueries = requiredSearchQueries(options.searchQueries)
-    const value = await this.#post(
-      "/v1/search",
+    const value = await this.#call(
+      "web_search",
       {
         objective,
         search_queries: searchQueries,
-        mode: "basic",
-        max_chars_total: MAX_RESPONSE_CHARS,
         ...optionalRequestContext(options),
       },
       options.signal,
@@ -43,12 +40,10 @@ export class ParallelClient {
 
   async read(options: WebReadOptions): Promise<WebReadResponse> {
     const url = validPublicURL(options.url)
-    const value = await this.#post(
-      "/v1/extract",
+    const value = await this.#call(
+      "web_fetch",
       {
         urls: [url],
-        max_chars_total: MAX_RESPONSE_CHARS,
-        advanced_settings: { full_content: { max_chars_per_result: MAX_RESPONSE_CHARS } },
         ...(clean(options.objective) ? { objective: clean(options.objective) } : {}),
         ...optionalRequestContext(options),
       },
@@ -57,35 +52,82 @@ export class ParallelClient {
     return parseReadResponse(value)
   }
 
-  async #post(path: string, body: unknown, signal?: AbortSignal) {
-    const response = await this.#fetch(new URL(path, this.#baseURL), {
+  async #call(name: string, args: Record<string, unknown>, signal?: AbortSignal) {
+    const response = await this.#fetch(this.#url, {
       method: "POST",
       headers: {
-        accept: "application/json",
+        accept: "application/json, text/event-stream",
         "content-type": "application/json",
-        "x-api-key": this.#apiKey,
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name, arguments: args },
+      }),
       signal,
     })
-    if (!response.ok) {
-      throw new Error(`Parallel request failed with HTTP ${response.status}: ${await responseText(response)}`)
-    }
+    let body = ""
     try {
-      return (await response.json()) as unknown
+      body = await response.text()
     } catch {
-      throw new Error("Parallel response was not valid JSON.")
+      body = ""
     }
+    if (!response.ok) {
+      const detail = (body || response.statusText).slice(0, MAX_ERROR_CHARS)
+      throw new Error(`Parallel request failed with HTTP ${response.status}: ${detail}`)
+    }
+    return unwrapMcpResult(parseMcpEnvelope(body))
   }
 }
 
 function optionalRequestContext(options: { clientModel?: string; sessionId?: string }) {
-  const clientModel = clean(options.clientModel)
-  const sessionId = clean(options.sessionId)
+  const modelName = clean(options.clientModel)
+  const sessionId = clean(options.sessionId)?.slice(0, MAX_SESSION_ID_CHARS)
   return {
-    ...(clientModel ? { client_model: clientModel } : {}),
+    ...(modelName ? { model_name: modelName } : {}),
     ...(sessionId ? { session_id: sessionId } : {}),
   }
+}
+
+function parseMcpEnvelope(body: string) {
+  const trimmed = body.trim()
+  if (trimmed.startsWith("{")) return parseJsonObject(trimmed, "Parallel MCP response")
+
+  for (const line of body.split(/\r?\n/)) {
+    const data = sseData(line)
+    if (!data?.startsWith("{")) continue
+    return parseJsonObject(data, "Parallel MCP response")
+  }
+  throw new Error("Parallel MCP response was not valid JSON.")
+}
+
+function unwrapMcpResult(value: Record<string, unknown>) {
+  if (isRecord(value.error)) {
+    throw new Error(cleanUnknown(value.error.message) ?? "Parallel MCP request failed.")
+  }
+  if (!isRecord(value.result)) throw new Error("Parallel MCP response was missing a result.")
+  const text = mcpText(value.result)
+  if (value.result.isError === true) {
+    throw new Error(text ?? "Parallel MCP tool returned an error.")
+  }
+  if (!text) throw new Error("Parallel MCP response was missing text content.")
+  return parseJsonValue(text, "Parallel MCP result")
+}
+
+function mcpText(result: Record<string, unknown>) {
+  if (!Array.isArray(result.content)) return undefined
+  for (const item of result.content) {
+    if (!isRecord(item)) continue
+    const text = cleanUnknown(item.text)
+    if (text) return text
+  }
+  return undefined
+}
+
+function sseData(line: string) {
+  if (!line.startsWith("data:")) return undefined
+  return line.startsWith("data: ") ? line.slice(6).trim() : line.slice(5).trim()
 }
 
 function parseSearchResponse(value: unknown): WebSearchResponse {
@@ -109,14 +151,14 @@ function parseSearchResult(value: unknown): WebSearchResult {
 }
 
 function parseReadResponse(value: unknown): WebReadResponse {
-  if (!isRecord(value) || !Array.isArray(value.results) || !Array.isArray(value.errors)) {
+  if (!isRecord(value) || !Array.isArray(value.results)) {
     throw new Error("Parallel extract response was invalid.")
   }
   return {
     extractId: requiredResponseString(value.extract_id, "extract_id"),
     sessionId: requiredResponseString(value.session_id, "session_id"),
     results: value.results.map(parseReadResult),
-    errors: value.errors.map(parseReadError),
+    errors: Array.isArray(value.errors) ? value.errors.map(parseReadError) : [],
     warnings: parseWarnings(value.warnings),
   }
 }
@@ -153,11 +195,10 @@ function requiredSearchQueries(value: string[]) {
   return queries
 }
 
-function validBaseURL(value: string) {
-  const url = parseURL(value, "Parallel base URL")
+function validMcpURL(value: string) {
+  const url = parseURL(value, "Parallel MCP URL")
   const localHTTP = url.protocol === "http:" && (url.hostname === "localhost" || url.hostname === "127.0.0.1")
-  if (url.protocol !== "https:" && !localHTTP) throw new Error("Parallel base URL must use HTTPS.")
-  url.pathname = "/"
+  if (url.protocol !== "https:" && !localHTTP) throw new Error("Parallel MCP URL must use HTTPS.")
   url.search = ""
   url.hash = ""
   return url.toString()
@@ -207,11 +248,17 @@ function parseWarnings(value: unknown) {
   })
 }
 
-async function responseText(response: Response) {
+function parseJsonObject(text: string, label: string) {
+  const value = parseJsonValue(text, label)
+  if (!isRecord(value)) throw new Error(`${label} was not valid JSON.`)
+  return value
+}
+
+function parseJsonValue(text: string, label: string) {
   try {
-    return (await response.text()).slice(0, 2_000) || response.statusText
+    return JSON.parse(text) as unknown
   } catch {
-    return response.statusText
+    throw new Error(`${label} was not valid JSON.`)
   }
 }
 

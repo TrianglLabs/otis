@@ -402,8 +402,8 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
     inputController.showSetupButton()
   }
 
-  function showSetupInput(credential: "fireworks" | "parallel", message?: string) {
-    inputController.showSetup(credential, message)
+  function showSetupInput(message?: string) {
+    inputController.showSetup(message)
   }
 
   function showSetupError(message: string) {

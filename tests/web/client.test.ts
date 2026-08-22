@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from "vitest"
 import { ParallelClient } from "../../src/web/client.js"
 
 describe("ParallelClient", () => {
-  it("sends direct search requests with the user key and provider context", async () => {
+  it("calls Search MCP without auth and maps provider context onto the JSON-RPC tool call", async () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
-      Response.json({
+      mcpResponse({
         search_id: "search_1",
         session_id: "session_1",
         results: [
@@ -19,8 +19,7 @@ describe("ParallelClient", () => {
       }),
     )
     const client = new ParallelClient({
-      apiKey: "parallel_test_key",
-      baseURL: "http://localhost:8787",
+      url: "http://localhost:8787/mcp",
       fetch: fetchMock as typeof fetch,
     })
 
@@ -46,21 +45,32 @@ describe("ParallelClient", () => {
     })
 
     const [url, init] = fetchMock.mock.calls[0]
-    expect(String(url)).toBe("http://localhost:8787/v1/search")
-    expect(init?.headers).toMatchObject({ "x-api-key": "parallel_test_key" })
+    expect(String(url)).toBe("http://localhost:8787/mcp")
+    expect(init?.headers).toMatchObject({
+      accept: "application/json, text/event-stream",
+      "content-type": "application/json",
+    })
+    expect(init?.headers).not.toHaveProperty("authorization")
+    expect(init?.headers).not.toHaveProperty("x-api-key")
     expect(JSON.parse(String(init?.body))).toEqual({
-      objective: "Find current release information",
-      search_queries: ["current release", "release notes"],
-      mode: "basic",
-      max_chars_total: 16_000,
-      client_model: "accounts/fireworks/models/tool-model",
-      session_id: "otis_session",
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: {
+        name: "web_search",
+        arguments: {
+          objective: "Find current release information",
+          search_queries: ["current release", "release notes"],
+          model_name: "accounts/fireworks/models/tool-model",
+          session_id: "otis_session",
+        },
+      },
     })
   })
 
-  it("extracts a known URL and preserves provider errors", async () => {
-    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
-      Response.json({
+  it("maps web_read onto web_fetch and unwraps SSE MCP payloads", async () => {
+    const fetchMock = mockFetch(() =>
+      mcpSseResponse({
         extract_id: "extract_1",
         session_id: "session_1",
         results: [
@@ -68,7 +78,6 @@ describe("ParallelClient", () => {
             url: "https://example.com/docs",
             title: "Docs",
             excerpts: ["Relevant excerpt"],
-            full_content: "Full page content",
           },
         ],
         errors: [
@@ -82,8 +91,7 @@ describe("ParallelClient", () => {
       }),
     )
     const client = new ParallelClient({
-      apiKey: "parallel_test_key",
-      baseURL: "http://localhost:8787",
+      url: "http://localhost:8787/mcp",
       fetch: fetchMock as typeof fetch,
     })
 
@@ -93,7 +101,6 @@ describe("ParallelClient", () => {
       url: "https://example.com/docs",
       title: "Docs",
       excerpts: ["Relevant excerpt"],
-      fullContent: "Full page content",
     })
     expect(response.errors[0]).toEqual({
       url: "https://example.com/missing",
@@ -101,27 +108,99 @@ describe("ParallelClient", () => {
       status: 404,
       content: "Missing",
     })
-    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toMatchObject({
-      urls: ["https://example.com/docs"],
-      objective: "Read API limits",
-      max_chars_total: 16_000,
-      advanced_settings: { full_content: { max_chars_per_result: 16_000 } },
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: {
+        name: "web_fetch",
+        arguments: {
+          urls: ["https://example.com/docs"],
+          objective: "Read API limits",
+        },
+      },
     })
   })
 
-  it("surfaces provider failures and rejects insecure provider URLs", async () => {
+  it("truncates session ids to Parallel's MCP limit", async () => {
+    const fetchMock = mockFetch(() =>
+      mcpResponse({
+        search_id: "search_1",
+        session_id: "session_1",
+        results: [],
+      }),
+    )
+    const client = new ParallelClient({
+      url: "http://localhost:8787/mcp",
+      fetch: fetchMock as typeof fetch,
+    })
+    const sessionId = `session_${"a".repeat(120)}`
+
+    await client.search({ objective: "Find docs", searchQueries: ["docs"], sessionId })
+
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).params.arguments.session_id).toBe(
+      sessionId.slice(0, 100),
+    )
+  })
+
+  it("uses the public Search MCP endpoint by default", async () => {
+    const fetchMock = mockFetch(() =>
+      mcpResponse({
+        search_id: "search_1",
+        session_id: "session_1",
+        results: [],
+      }),
+    )
+    const client = new ParallelClient({ fetch: fetchMock as typeof fetch })
+
+    await client.search({ objective: "Find docs", searchQueries: ["docs"] })
+
+    expect(String(fetchMock.mock.calls[0][0])).toBe("https://search.parallel.ai/mcp")
+  })
+
+  it("surfaces HTTP, JSON-RPC, and insecure endpoint failures", async () => {
     const fetchMock = vi.fn(
       async (_input: RequestInfo | URL, _init?: RequestInit) => new Response("invalid key", { status: 401 }),
     )
     const client = new ParallelClient({
-      apiKey: "parallel_test_key",
-      baseURL: "http://localhost:8787",
+      url: "http://localhost:8787/mcp",
       fetch: fetchMock as typeof fetch,
     })
 
     await expect(client.search({ objective: "Find docs", searchQueries: ["docs"] })).rejects.toThrow(
       "Parallel request failed with HTTP 401: invalid key",
     )
-    expect(() => new ParallelClient({ apiKey: "key", baseURL: "http://example.com" })).toThrow("must use HTTPS")
+
+    fetchMock.mockResolvedValueOnce(
+      Response.json({ jsonrpc: "2.0", id: 1, error: { code: -32000, message: "quota exceeded" } }),
+    )
+    await expect(client.search({ objective: "Find docs", searchQueries: ["docs"] })).rejects.toThrow("quota exceeded")
+
+    expect(() => new ParallelClient({ url: "http://example.com/mcp" })).toThrow("must use HTTPS")
   })
 })
+
+function mockFetch(response: () => Response) {
+  return vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => response())
+}
+
+function mcpResponse(payload: unknown) {
+  return Response.json({
+    jsonrpc: "2.0",
+    id: 1,
+    result: {
+      content: [{ type: "text", text: JSON.stringify(payload) }],
+    },
+  })
+}
+
+function mcpSseResponse(payload: unknown) {
+  return new Response(
+    `data: ${JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      result: { content: [{ type: "text", text: JSON.stringify(payload) }] },
+    })}\n\n`,
+    { headers: { "content-type": "text/event-stream" } },
+  )
+}

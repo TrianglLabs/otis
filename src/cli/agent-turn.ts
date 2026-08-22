@@ -20,6 +20,7 @@ type AgentTurnOptions = {
   client: FireworksClient
   webClient: ParallelClient
   webClientModel: string
+  webSessionId?: string
   transcript: TranscriptStore
   ui: ChatUI
   cwd: string
@@ -78,6 +79,7 @@ export async function runAgentTurn(options: AgentTurnOptions): Promise<AgentTurn
         client: options.client,
         webClient: options.webClient,
         webClientModel: options.webClientModel,
+        webSession: options.webSessionId ? { id: options.webSessionId } : undefined,
         cwd: options.cwd,
         debug: options.debug,
         onUsage: options.onUsage,

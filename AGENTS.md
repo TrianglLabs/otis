@@ -7,16 +7,16 @@ OpenTUI CLI.
 
 Otis is locally controlled. It has no user accounts, invite codes, hosted control plane, remote profile, cloud usage
 database, or cloud synchronization dependency. Inference goes directly to Fireworks with a user-owned API key.
-Web search and extraction go directly to Parallel with a separate user-owned API key.
+Web search and extraction go directly to Parallel's Search MCP.
 
 ## Current technical decisions
 
 - Frontend: OpenTUI.
 - Runtime and package manager: TypeScript on Bun.
 - Inference: Fireworks' OpenAI-compatible API, called directly from the local runtime.
-- Web access: Parallel Search and Extract APIs, called directly from the local runtime.
+- Web access: Parallel Search MCP, called directly from the local runtime.
 - Models: user-selectable public serverless Fireworks models that explicitly support tool calling.
-- Configuration: private local file, with `FIREWORKS_API_KEY` and `PARALLEL_API_KEY` as environment overrides.
+- Configuration: private local file, with `FIREWORKS_API_KEY` as an environment override.
 - Sessions and usage: append-only local JSONL events.
 - Tools: local structured tools plus direct Parallel-backed `web_search` and `web_read`.
 - Distribution: GitHub Actions and GitHub Releases.
@@ -35,7 +35,7 @@ Preserve provider-native reasoning and tool-call history when sending later turn
 
 ## Privacy and secrets
 
-- Never log, persist in sessions, or place Fireworks or Parallel API keys in model content.
+- Never log, persist in sessions, or place Fireworks API keys in model content.
 - Keep saved configuration and session files private on supported platforms.
 - Do not add telemetry or remote usage reporting.
 - Provider tests use fakes and must not access the network or real credentials.

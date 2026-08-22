@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from "vitest"
 import {
   loadLocalSettings,
   saveFireworksSetup,
-  saveParallelApiKey,
   saveSelectedModel,
   saveSelectedTheme,
   saveThinkingVisible,
@@ -24,7 +23,6 @@ describe("local settings", () => {
 
     await expect(loadLocalSettings({ file, env: {} })).resolves.toEqual({
       fireworksApiKey: "fw_test_key",
-      parallelApiKey: undefined,
       model: "accounts/fireworks/models/tool-model",
       modelDisplayName: "Tool Model",
       modelContextLength: 131_072,
@@ -50,7 +48,6 @@ describe("local settings", () => {
 
     await expect(loadLocalSettings({ file, env: { FIREWORKS_API_KEY: " fw_env_key " } })).resolves.toEqual({
       fireworksApiKey: "fw_env_key",
-      parallelApiKey: undefined,
       model: "accounts/fireworks/models/tool-model",
       modelDisplayName: "Tool Model",
       modelContextLength: 131_072,
@@ -75,21 +72,6 @@ describe("local settings", () => {
       fireworksApiKey: "fw_test_key",
       model: "accounts/fireworks/models/new",
       modelDisplayName: "New",
-      modelSupportsImageInput: false,
-    })
-  })
-
-  it("stores a Parallel key without replacing Fireworks settings", async () => {
-    const file = join(await tempDirectory(), "config.json")
-    await saveFireworksSetup("fw_test_key", model("tool-model", "Tool Model", 131_072), { file })
-    await saveParallelApiKey(" parallel_test_key ", { file })
-
-    await expect(loadLocalSettings({ file, env: {} })).resolves.toEqual({
-      fireworksApiKey: "fw_test_key",
-      parallelApiKey: "parallel_test_key",
-      model: "accounts/fireworks/models/tool-model",
-      modelDisplayName: "Tool Model",
-      modelContextLength: 131_072,
       modelSupportsImageInput: false,
     })
   })
@@ -162,32 +144,9 @@ describe("local settings", () => {
     }
   })
 
-  it("uses provider environment keys without persisting either secret", async () => {
-    const file = join(await tempDirectory(), "config.json")
-    await saveSelectedModel(model("tool-model", "Tool Model", 131_072), { file })
-
-    await expect(
-      loadLocalSettings({
-        file,
-        env: { FIREWORKS_API_KEY: " fw_env_key ", PARALLEL_API_KEY: " parallel_env_key " },
-      }),
-    ).resolves.toMatchObject({
-      fireworksApiKey: "fw_env_key",
-      parallelApiKey: "parallel_env_key",
-    })
-    expect(JSON.parse(await readFile(file, "utf8"))).toEqual({
-      version: 1,
-      model: "accounts/fireworks/models/tool-model",
-      modelDisplayName: "Tool Model",
-      modelContextLength: 131_072,
-      modelSupportsImageInput: false,
-    })
-  })
-
   it("returns an empty configuration for a missing file", async () => {
     await expect(loadLocalSettings({ file: join(await tempDirectory(), "missing.json"), env: {} })).resolves.toEqual({
       fireworksApiKey: undefined,
-      parallelApiKey: undefined,
       model: undefined,
       modelDisplayName: undefined,
       modelContextLength: undefined,

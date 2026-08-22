@@ -1,6 +1,5 @@
 export type ParallelClientConfig = {
-  apiKey: string
-  baseURL?: string
+  url?: string
   fetch?: typeof fetch
 }
 

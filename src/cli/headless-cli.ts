@@ -147,8 +147,8 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
       : []
     validateImageAttachments(imageAttachmentsFromMessages([...history, userMessage]))
     const admission = session ? await session.admitPrompt(userMessage) : undefined
-    const webClient = settings.parallelApiKey ? new ParallelClient({ apiKey: settings.parallelApiKey }) : undefined
-    const tools = selectedTools(parsed.tools, Boolean(webClient))
+    const webClient = new ParallelClient()
+    const tools = selectedTools(parsed.tools)
     const projectPermissionRules = await loadProjectPermissionRules(cwd)
     const permissionPolicy = createPermissionPolicy({
       cwd,
@@ -161,8 +161,9 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
       history,
       agent: {
         client,
-        ...(webClient ? { webClient } : {}),
+        webClient,
         webClientModel: model,
+        webSession: session ? { id: session.id } : undefined,
         cwd,
         signal: controller.signal,
         projectContext,
@@ -318,11 +319,9 @@ async function resolveSessionId(parsed: ReturnType<typeof parseHeadlessArgs>, cw
   return sessions[0].id
 }
 
-function selectedTools(requestedTools: Set<ToolName> | undefined, hasWebClient: boolean): ToolDefinition[] {
+function selectedTools(requestedTools: Set<ToolName> | undefined): ToolDefinition[] {
   const requested = requestedTools ?? new Set<ToolName>(TOOL_NAMES)
-  return TOOL_DEFINITIONS.filter(
-    (tool) => requested.has(tool.name) && (hasWebClient || (tool.name !== "web_search" && tool.name !== "web_read")),
-  )
+  return TOOL_DEFINITIONS.filter((tool) => requested.has(tool.name))
 }
 
 function parseToolNames(value: string) {

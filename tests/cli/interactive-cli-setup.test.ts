@@ -4,7 +4,7 @@ import { getMocks, loadCli, localSettings, settle, submit, testModel } from "./s
 describe("interactive CLI setup", () => {
   const mocks = getMocks()
 
-  it("automatically selects Muse Glimmer and stores both provider keys before enabling chat", async () => {
+  it("automatically selects Muse Glimmer and enables chat after the Fireworks key", async () => {
     const fallback = testModel({
       id: "accounts/fireworks/models/fallback",
       displayName: "Fallback",
@@ -21,7 +21,6 @@ describe("interactive CLI setup", () => {
     mocks.loadLocalSettings.mockResolvedValue(
       localSettings({
         fireworksApiKey: undefined,
-        parallelApiKey: undefined,
         model: undefined,
         modelDisplayName: undefined,
         modelContextLength: undefined,
@@ -35,24 +34,17 @@ describe("interactive CLI setup", () => {
     expect(mocks.calculateLocalStats).not.toHaveBeenCalled()
     mocks.uiOptions?.onSetup?.()
     expect(mocks.ui.showSetupInput).toHaveBeenCalledOnce()
-    expect(mocks.ui.showSetupInput).toHaveBeenCalledWith("fireworks", expect.stringContaining("Inference"))
-    expect(mocks.openProviderKeyPage).toHaveBeenCalledWith("fireworks")
+    expect(mocks.ui.showSetupInput).toHaveBeenCalledWith(expect.stringContaining("Inference"))
+    expect(mocks.openFireworksKeyPage).toHaveBeenCalledOnce()
 
-    mocks.uiOptions?.onSetupSubmit?.("fireworks", "fw_new_key")
+    mocks.uiOptions?.onSetupSubmit?.("fw_new_key")
     await settle()
     expect(mocks.listToolCapableModels).toHaveBeenCalledWith("fw_new_key")
     expect(mocks.ui.showModelPicker).not.toHaveBeenCalled()
     expect(mocks.saveFireworksSetup).toHaveBeenCalledWith("fw_new_key", muse)
     expect(mocks.ui.setModelLabel).toHaveBeenLastCalledWith("Muse Glimmer 30B")
-    expect(mocks.ui.showSetupInput).toHaveBeenLastCalledWith("parallel", expect.stringContaining("Web search"))
-    expect(mocks.openProviderKeyPage).toHaveBeenCalledWith("parallel")
-    expect(mocks.ui.setConfigured).not.toHaveBeenCalled()
-
-    mocks.uiOptions?.onSetupSubmit?.("parallel", "parallel_new_key")
-    await settle()
-    expect(mocks.saveParallelApiKey).toHaveBeenCalledWith("parallel_new_key")
     expect(mocks.ui.setConfigured).toHaveBeenCalledOnce()
-    expect(mocks.ui.setModelLabel).toHaveBeenCalledWith("Muse Glimmer 30B")
+    expect(mocks.ParallelClient).toHaveBeenCalledOnce()
   })
 
   it("falls back to Inkling and does not copy an environment key into the config file", async () => {
@@ -68,7 +60,6 @@ describe("interactive CLI setup", () => {
     mocks.loadLocalSettings.mockResolvedValue(
       localSettings({
         fireworksApiKey: "fw_env_key",
-        parallelApiKey: "parallel_env_key",
         model: undefined,
         modelDisplayName: undefined,
         modelContextLength: undefined,
@@ -82,6 +73,7 @@ describe("interactive CLI setup", () => {
     expect(mocks.saveSelectedModel).toHaveBeenCalledWith(inkling)
     expect(mocks.saveFireworksSetup).not.toHaveBeenCalled()
     expect(mocks.ui.setConfigured).toHaveBeenCalledOnce()
+    expect(mocks.ParallelClient).toHaveBeenCalledOnce()
   })
 
   it("uses the first verified model when neither preferred default is available", async () => {
@@ -111,7 +103,6 @@ describe("interactive CLI setup", () => {
     mocks.loadLocalSettings.mockResolvedValue(
       localSettings({
         fireworksApiKey: undefined,
-        parallelApiKey: undefined,
         model: undefined,
         modelDisplayName: undefined,
         modelContextLength: undefined,
@@ -120,23 +111,21 @@ describe("interactive CLI setup", () => {
     await loadCli()
 
     mocks.uiOptions?.onSetup?.()
-    mocks.uiOptions?.onSetupSubmit?.("fireworks", "fw_new_key")
+    mocks.uiOptions?.onSetupSubmit?.("fw_new_key")
     await settle()
 
     expect(mocks.saveFireworksSetup).not.toHaveBeenCalled()
-    expect(mocks.ui.showSetupInput).not.toHaveBeenCalledWith("parallel", expect.any(String))
     expect(mocks.ui.showSetupError).toHaveBeenCalledWith(
       "Fireworks returned no public serverless models with tool support.",
     )
     expect(mocks.ui.setConfigured).not.toHaveBeenCalled()
   })
 
-  it("does not advance to Parallel when saving the automatic model selection fails", async () => {
+  it("does not enable chat when saving the automatic model selection fails", async () => {
     mocks.saveFireworksSetup.mockRejectedValueOnce(new Error("Could not save Fireworks setup."))
     mocks.loadLocalSettings.mockResolvedValue(
       localSettings({
         fireworksApiKey: undefined,
-        parallelApiKey: undefined,
         model: undefined,
         modelDisplayName: undefined,
         modelContextLength: undefined,
@@ -145,28 +134,21 @@ describe("interactive CLI setup", () => {
     await loadCli()
 
     mocks.uiOptions?.onSetup?.()
-    mocks.uiOptions?.onSetupSubmit?.("fireworks", "fw_new_key")
+    mocks.uiOptions?.onSetupSubmit?.("fw_new_key")
     await settle()
 
     expect(mocks.ui.showSetupError).toHaveBeenCalledWith("Could not save Fireworks setup.")
-    expect(mocks.ui.showSetupInput).not.toHaveBeenCalledWith("parallel", expect.any(String))
     expect(mocks.ui.setConfigured).not.toHaveBeenCalled()
   })
 
-  it("asks only for Parallel when Fireworks and a model are already configured", async () => {
-    mocks.loadLocalSettings.mockResolvedValue(localSettings({ parallelApiKey: undefined }))
+  it("enables chat when Fireworks and a model are already configured", async () => {
+    mocks.loadLocalSettings.mockResolvedValue(localSettings())
     await loadCli()
 
-    expect(mocks.uiOptions?.configured).toBe(false)
+    expect(mocks.uiOptions?.configured).toBe(true)
     expect(mocks.uiOptions?.statsVisible).toBe(true)
-    expect(mocks.ui.showSetupInput).toHaveBeenCalledWith("parallel", expect.stringContaining("platform.parallel.ai"))
-    expect(mocks.openProviderKeyPage).toHaveBeenCalledWith("parallel")
-
-    mocks.uiOptions?.onSetupSubmit?.("parallel", "parallel_new_key")
-    await settle()
-
-    expect(mocks.saveParallelApiKey).toHaveBeenCalledWith("parallel_new_key")
-    expect(mocks.ui.setConfigured).toHaveBeenCalledOnce()
+    expect(mocks.ui.showSetupInput).not.toHaveBeenCalled()
+    expect(mocks.ParallelClient).toHaveBeenCalledOnce()
   })
 
   it("opens the verified model catalog from the model command", async () => {
