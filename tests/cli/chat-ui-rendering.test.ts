@@ -9,6 +9,7 @@ import {
 import { describe, expect, it, vi } from "vitest"
 import { colors, selectTheme } from "../../src/cli/theme.js"
 import { TranscriptStore } from "../../src/cli/transcript.js"
+import { COLOR_PULSE_PERIOD_MS } from "../../src/cli/ui/color-pulse.js"
 import { useChatHarness } from "./support/chat-ui-harness.js"
 
 describe("chat UI rendering", () => {
@@ -265,7 +266,8 @@ describe("chat UI rendering", () => {
     ])
 
     expect(harness.childIds("chat-body")).toEqual(["session-panel", "messages"])
-    expect(harness.text("session-row-0")).toContain("* Default")
+    expect(harness.text("session-row-0")).toContain("Default")
+    expect(harness.text("session-row-0-meta")).toContain("now")
 
     harness.press("down")
     harness.press("return")
@@ -278,6 +280,24 @@ describe("chat UI rendering", () => {
     harness.press("d")
     expect(onDeleteSession).toHaveBeenCalledWith("default")
     expect(harness.find("session-row-1")).toBeUndefined()
+  })
+
+  it("keeps session history keyboard helpers visible when the list is long", async () => {
+    const harness = await setup()
+    harness.ui.showSessionPicker(
+      Array.from({ length: 20 }, (_, index) => ({
+        id: `session_${index}`,
+        title: `Session ${index}`,
+        detail: `${index}h ago`,
+        active: index === 0,
+      })),
+    )
+    await harness.renderOnce()
+
+    const frame = harness.captureCharFrame()
+    expect(frame).toContain("n new")
+    expect(frame).toContain("d delete")
+    expect(harness.get<TextRenderable>("session-panel-footer").height).toBe(2)
   })
 
   it("selects only models supplied by the verified model catalog", async () => {
@@ -301,9 +321,11 @@ describe("chat UI rendering", () => {
     expect(harness.childIds("chat-body")).toEqual(["model-panel", "messages"])
     expect(harness.childIds("input-area")).toContain("input-box")
     expect(harness.get<BoxRenderable>("model-panel").width).toBe(sessionPanelWidth)
-    expect(harness.text("model-row-0")).toBe("* Alpha · 128K · vision")
+    expect(harness.text("model-row-0")).toBe("› Alpha")
+    expect(harness.text("model-row-0-meta")).toBe("  128K · vision")
     expect(harness.text("model-row-0")).not.toContain("accounts/fireworks")
-    expect(harness.text("model-row-1")).toBe("  Beta · —")
+    expect(harness.text("model-row-1")).toBe("  Beta")
+    expect(harness.text("model-row-1-meta")).toBe("")
 
     harness.press("down")
     harness.press("return")
@@ -312,5 +334,52 @@ describe("chat UI rendering", () => {
     harness.press("escape")
     expect(onCloseModelPicker).toHaveBeenCalledOnce()
     expect(harness.find("model-panel")).toBeUndefined()
+  })
+
+  it("pulses a reserved outline on the selected session and model rows", async () => {
+    const harness = await setup()
+    vi.useFakeTimers()
+
+    harness.ui.showSessionPicker([
+      { id: "default", title: "Default", detail: "now", active: true },
+      { id: "session_1", title: "Previous work", detail: "1h ago" },
+    ])
+    expect(harness.text("session-row-0")).toBe("› Default")
+    expect(harness.text("session-row-1")).toBe("  Previous work")
+    const sessionSelected = harness.get<BoxRenderable>("session-row-0-box")
+    const sessionOther = harness.get<BoxRenderable>("session-row-1-box")
+    expect(sessionSelected.border).toBe(true)
+    expect(sessionOther.border).toBe(true)
+    expect(sessionSelected.borderStyle).toBe("rounded")
+    expect(sessionOther.borderColor.equals(RGBA.fromHex(colors.surface))).toBe(true)
+    expect(sessionSelected.borderColor.equals(RGBA.fromHex(colors.accent))).toBe(false)
+    expect(sessionSelected.borderColor.equals(RGBA.fromHex(colors.surface))).toBe(false)
+    vi.advanceTimersByTime(COLOR_PULSE_PERIOD_MS / 2)
+    expect(sessionSelected.borderColor.equals(RGBA.fromHex(colors.accent))).toBe(true)
+    expect(sessionOther.borderColor.equals(RGBA.fromHex(colors.surface))).toBe(true)
+    expect(harness.get<BoxRenderable>("session-panel").border).toBe(false)
+
+    harness.ui.showModelPicker([
+      {
+        id: "accounts/fireworks/models/alpha",
+        displayName: "Alpha",
+        contextLength: 128_000,
+        supportsImageInput: true,
+        active: true,
+      },
+      { id: "accounts/fireworks/models/beta", displayName: "Beta", supportsImageInput: false },
+    ])
+    expect(harness.text("model-row-0")).toBe("› Alpha")
+    expect(harness.text("model-row-1")).toBe("  Beta")
+    const modelSelected = harness.get<BoxRenderable>("model-row-0-box")
+    const modelOther = harness.get<BoxRenderable>("model-row-1-box")
+    expect(modelSelected.border).toBe(true)
+    expect(modelOther.border).toBe(true)
+    expect(modelSelected.borderColor.equals(RGBA.fromHex(colors.accent))).toBe(false)
+    expect(modelSelected.borderColor.equals(RGBA.fromHex(colors.surface))).toBe(false)
+    vi.advanceTimersByTime(COLOR_PULSE_PERIOD_MS / 2)
+    expect(modelSelected.borderColor.equals(RGBA.fromHex(colors.accent))).toBe(true)
+    expect(modelOther.borderColor.equals(RGBA.fromHex(colors.surface))).toBe(true)
+    expect(harness.get<BoxRenderable>("model-panel").border).toBe(false)
   })
 })

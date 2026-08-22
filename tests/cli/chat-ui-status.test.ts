@@ -2,7 +2,20 @@ import type { BoxRenderable, TextareaRenderable, TextRenderable } from "@opentui
 import { createTestRenderer } from "@opentui/core/testing"
 import { describe, expect, it, vi } from "vitest"
 import { createChatUI } from "../../src/cli/chat-ui.js"
+import { STAT_COUNT_SETTLE_MS } from "../../src/cli/ui/home-stats.js"
 import { useChatHarness } from "./support/chat-ui-harness.js"
+
+const sampleStats = {
+  streak: 7,
+  totalTokens: 1_250_000,
+  sessionCount: 12,
+  avgTokensPerSession: 24_600,
+  avgSessionSeconds: 420,
+}
+
+function settleStats() {
+  vi.advanceTimersByTime(STAT_COUNT_SETTLE_MS)
+}
 
 describe("chat UI status and prompts", () => {
   const setup = useChatHarness()
@@ -35,15 +48,11 @@ describe("chat UI status and prompts", () => {
   })
 
   it("formats local stats and keeps labeled zero values", async () => {
+    vi.useFakeTimers()
     const harness = await setup()
 
-    harness.ui.setStats({
-      streak: 7,
-      totalTokens: 1_250_000,
-      sessionCount: 12,
-      avgTokensPerSession: 24_600,
-      avgSessionSeconds: 420,
-    })
+    harness.ui.setStats(sampleStats)
+    settleStats()
 
     expect(harness.text("welcome-stat-value-0")).toBe("7")
     expect(harness.text("welcome-stat-label-0")).toBe("day streak")
@@ -66,6 +75,34 @@ describe("chat UI status and prompts", () => {
     expect(harness.text("welcome-stat-label-2")).toBe("tokens/session")
     expect(harness.text("welcome-stat-value-3")).toBe("0S")
     expect(harness.text("welcome-stat-label-3")).toBe("time/session")
+  })
+
+  it("counts stats up from zero", async () => {
+    vi.useFakeTimers()
+    const harness = await setup()
+
+    harness.ui.setStats(sampleStats)
+    expect(harness.text("welcome-stat-value-0")).toBe("0")
+    expect(harness.text("welcome-stat-value-1")).toBe("0")
+
+    settleStats()
+    expect(harness.text("welcome-stat-value-0")).toBe("7")
+    expect(harness.text("welcome-stat-value-1")).toBe("1.3M")
+    expect(harness.text("welcome-stat-value-2")).toBe("25K")
+    expect(harness.text("welcome-stat-value-3")).toBe("7M")
+  })
+
+  it("replays the count-up when returning home", async () => {
+    vi.useFakeTimers()
+    const harness = await setup()
+    harness.ui.setStats(sampleStats)
+    settleStats()
+    harness.ui.showChatLayout()
+
+    harness.ui.showHomeLayout()
+    expect(harness.text("welcome-stat-value-0")).toBe("0")
+    settleStats()
+    expect(harness.text("welcome-stat-value-0")).toBe("7")
   })
 
   it("shows transient status feedback and restores the keyboard hint", async () => {
@@ -92,6 +129,7 @@ describe("chat UI status and prompts", () => {
   })
 
   it("lays out stat cards evenly and centers each value within its card", async () => {
+    vi.useFakeTimers()
     const harness = await setup()
     harness.ui.setStats({
       streak: 12,
@@ -100,6 +138,7 @@ describe("chat UI status and prompts", () => {
       avgTokensPerSession: 983,
       avgSessionSeconds: 15_082,
     })
+    settleStats()
     await harness.renderOnce()
 
     const cards = [0, 1, 2, 3].map((index) => harness.get<BoxRenderable>(`welcome-stat-${index}`))
@@ -144,6 +183,7 @@ describe("chat UI status and prompts", () => {
       onSubmit: () => {},
     })
     try {
+      vi.useFakeTimers()
       ui.setStats({
         streak: 12,
         totalTokens: 1_234_567,
@@ -151,6 +191,7 @@ describe("chat UI status and prompts", () => {
         avgTokensPerSession: 983,
         avgSessionSeconds: 15_082,
       })
+      settleStats()
       const input = testRenderer.renderer.root.findDescendantById("otis-input") as TextareaRenderable
       input.setText(Array.from({ length: 12 }, (_, index) => `line ${index + 1} of some long text`).join("\n"))
       await testRenderer.renderOnce()
@@ -185,6 +226,7 @@ describe("chat UI status and prompts", () => {
       onSubmit: () => {},
     })
     try {
+      vi.useFakeTimers()
       ui.setStats({
         streak: 12,
         totalTokens: 1_234_567,
@@ -192,6 +234,7 @@ describe("chat UI status and prompts", () => {
         avgTokensPerSession: 983,
         avgSessionSeconds: 15_082,
       })
+      settleStats()
       await testRenderer.renderOnce()
 
       const find = (id: string) => {
