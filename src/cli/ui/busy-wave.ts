@@ -2,12 +2,12 @@ import { fg, RGBA, rgbToHex, StyledText } from "@opentui/core"
 
 const MIN_WIDTH = 16
 const GLYPH = "━"
-const CELLS_PER_SECOND = 28
+export const BUSY_WAVE_ONE_WAY_MS = 1200
 const COLOR_STEPS = 18
 const PULSE_MIN_SIGMA = 3.2
 const PULSE_WIDTH = 0.07
 const ECHO_SIGMA_SCALE = 1.55
-const ECHO_OFFSET = 0.5
+const ECHO_OFFSET = 0.16
 const ECHO_STRENGTH = 0.38
 const BASE_INTENSITY = 0.1
 
@@ -42,13 +42,14 @@ function overlayLabel(width: number, label: string) {
 
 function waveIntensities(elapsedMs: number, width: number) {
   const sigma = Math.max(PULSE_MIN_SIGMA, width * PULSE_WIDTH)
-  const position = wrap((elapsedMs / 1000) * CELLS_PER_SECOND, width)
-  const trail = wrap(position + width * ECHO_OFFSET, width)
+  const span = Math.max(1, width - 1)
+  const { position, forward } = pingPong((elapsedMs / BUSY_WAVE_ONE_WAY_MS) * span, width)
+  const trail = clamp(position + (forward ? -width : width) * ECHO_OFFSET, 0, Math.max(0, width - 1))
   const intensities: number[] = []
 
   for (let index = 0; index < width; index += 1) {
-    const peak = gaussian(circularDistance(index, position, width), sigma)
-    const echo = gaussian(circularDistance(index, trail, width), sigma * ECHO_SIGMA_SCALE) * ECHO_STRENGTH
+    const peak = gaussian(Math.abs(index - position), sigma)
+    const echo = gaussian(Math.abs(index - trail), sigma * ECHO_SIGMA_SCALE) * ECHO_STRENGTH
     intensities.push(clamp(BASE_INTENSITY + (1 - BASE_INTENSITY) * peak + echo, 0, 1))
   }
 
@@ -74,9 +75,12 @@ function gaussian(distance: number, sigma: number) {
   return Math.exp(-(distance * distance) / (2 * sigma * sigma))
 }
 
-function circularDistance(left: number, right: number, period: number) {
-  const delta = Math.abs(left - right) % period
-  return Math.min(delta, period - delta)
+function pingPong(distance: number, width: number) {
+  if (width <= 1) return { position: 0, forward: true }
+  const span = width - 1
+  const cycle = wrap(distance, span * 2)
+  const forward = cycle <= span
+  return { position: forward ? cycle : span * 2 - cycle, forward }
 }
 
 function wrap(value: number, period: number) {

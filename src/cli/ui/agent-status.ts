@@ -4,7 +4,7 @@ import { renderBusyWave } from "./busy-wave.js"
 import { AGENT_PHASE_LABELS, type AgentPhase, CHAT_INPUT_HINT } from "./format.js"
 import type { Renderer } from "./types.js"
 
-const BUSY_FRAME_INTERVAL_MS = 50
+const BUSY_FRAME_INTERVAL_MS = 40
 const ESC_INTERRUPT_WINDOW_MS = 3000
 const TRANSIENT_HINT_DURATION_MS = 1500
 

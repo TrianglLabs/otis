@@ -381,7 +381,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
     renderer.setBackgroundColor(colors.background)
     status.refreshTheme(previous)
     transcriptView.refreshTheme()
-    commands.update(commandMenuVisible ? "/theme " : "", showingWelcome, activeTheme)
+    if (commandMenuVisible) commands.refreshTheme(activeTheme)
     renderer.requestRender()
   }
 

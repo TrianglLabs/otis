@@ -50,6 +50,12 @@ export class CommandMenu {
     return true
   }
 
+  refreshTheme(activeTheme?: string) {
+    const themeIndex = this.#items.findIndex((command) => command.name === `/theme ${activeTheme}`)
+    if (themeIndex >= 0) this.#selectedIndex = themeIndex
+    this.render()
+  }
+
   clear() {
     this.#items = []
     this.#selectedIndex = 0
@@ -120,7 +126,7 @@ export class CommandMenu {
       return
     }
 
-    const row = createPickerRow(this.renderer, `command-row-${index}`, { bg: colors.background })
+    const row = createPickerRow(this.renderer, `command-row-${index}`, { bg: "background" })
     stylePickerRow(row, spec)
     this.#rows.push(row)
     this.container.add(row.box)
