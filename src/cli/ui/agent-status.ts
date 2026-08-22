@@ -1,9 +1,10 @@
 import type { BoxRenderable, TextRenderable } from "@opentui/core"
 import { colors, type ThemeColors } from "../theme.js"
-import { AGENT_PHASE_LABELS, type AgentPhase, CHAT_INPUT_HINT, renderBusyStatus } from "./format.js"
+import { renderBusyWave } from "./busy-wave.js"
+import { AGENT_PHASE_LABELS, type AgentPhase, CHAT_INPUT_HINT } from "./format.js"
 import type { Renderer } from "./types.js"
 
-const BUSY_FRAME_INTERVAL_MS = 120
+const BUSY_FRAME_INTERVAL_MS = 50
 const ESC_INTERRUPT_WINDOW_MS = 3000
 const TRANSIENT_HINT_DURATION_MS = 1500
 
@@ -19,7 +20,7 @@ type AgentStatusOptions = {
 }
 
 export class AgentStatus {
-  private busyFrame = 0
+  private busyStartedAt = 0
   private barVisible = false
   private busyTimer: NodeJS.Timeout | undefined
   private barColor = colors.accent
@@ -53,13 +54,10 @@ export class AgentStatus {
 
   startBusyIndicator() {
     if (this.busyTimer) return
-    this.busyFrame = 0
+    this.busyStartedAt = Date.now()
     this.phase = "working"
     this.showBar()
-    this.busyTimer = setInterval(() => {
-      this.busyFrame += 1
-      this.renderBar()
-    }, BUSY_FRAME_INTERVAL_MS)
+    this.busyTimer = setInterval(() => this.renderBar(), BUSY_FRAME_INTERVAL_MS)
     this.renderBar()
   }
 
@@ -146,7 +144,13 @@ export class AgentStatus {
     if (this.interruptVisible) return
     const { agentBar, renderer, root } = this.options
     const availableWidth = Math.max(agentBar.width, root.width - 2, 1)
-    agentBar.content = renderBusyStatus(this.busyFrame, availableWidth, AGENT_PHASE_LABELS[this.phase])
+    agentBar.content = renderBusyWave(
+      Date.now() - this.busyStartedAt,
+      availableWidth,
+      this.barColor,
+      colors.background,
+      AGENT_PHASE_LABELS[this.phase],
+    )
     agentBar.fg = this.barColor
     renderer.requestRender()
   }

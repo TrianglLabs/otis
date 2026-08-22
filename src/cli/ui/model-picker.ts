@@ -1,5 +1,15 @@
-import { type ScrollBoxRenderable, TextRenderable } from "@opentui/core"
+import type { ScrollBoxRenderable } from "@opentui/core"
 import { colors } from "../theme.js"
+import { SelectionPulse } from "./color-pulse.js"
+import {
+  createPickerRow,
+  type PickerRow,
+  type PickerRowSpec,
+  paintPickerOutline,
+  pickerRowBoxId,
+  stylePickerRow,
+  truncatePickerLabel,
+} from "./picker-row.js"
 import type { ModelPickerItem, Renderer } from "./types.js"
 
 type PickerKey = {
@@ -9,14 +19,17 @@ type PickerKey = {
 }
 
 export class ModelPicker {
-  readonly #rows: TextRenderable[] = []
+  readonly #rows: PickerRow[] = []
   #items: ModelPickerItem[] = []
   #selectedIndex = 0
+  readonly #pulse: SelectionPulse
 
   constructor(
     private readonly renderer: Renderer,
     private readonly container: ScrollBoxRenderable,
-  ) {}
+  ) {
+    this.#pulse = new SelectionPulse(renderer, (elapsed) => this.paintSelection(elapsed))
+  }
 
   setItems(items: ModelPickerItem[]) {
     this.#items = items
@@ -26,6 +39,11 @@ export class ModelPicker {
     )
     this.render()
     this.scrollToSelection()
+    this.#pulse.start()
+  }
+
+  stop() {
+    this.#pulse.stop()
   }
 
   handleKey(key: PickerKey, actions: { close: () => void; select: (item: ModelPickerItem) => void }) {
@@ -60,65 +78,60 @@ export class ModelPicker {
     const rows = this.rowData()
     while (this.#rows.length > rows.length) {
       const row = this.#rows.pop()
-      if (row) this.container.remove(row.id)
+      if (row) this.container.remove(row.box.id)
     }
     rows.forEach((row, index) => {
-      this.setRow(index, row.content, row.fg, row.bg)
+      this.setRow(index, row)
     })
   }
 
-  private rowData() {
+  private rowData(): PickerRowSpec[] {
     if (this.#items.length === 0) {
-      return [{ content: "  No tool-capable serverless models found.", fg: colors.muted, bg: colors.surface }]
+      return [{ title: "No models found", fg: colors.muted, selected: false }]
     }
 
-    return this.#items.map((item, index) => {
-      const selected = index === this.#selectedIndex
-      const active = item.active ? "*" : " "
-      const title = truncate(item.displayName, 40)
-      const context = item.contextLength ? formatContext(item.contextLength) : "—"
-      const vision = item.supportsImageInput ? " · vision" : ""
-      return {
-        content: `${active} ${title} · ${context}${vision}`,
-        fg: selected ? colors.background : item.active ? colors.accent : colors.text,
-        bg: selected ? colors.accent : colors.surface,
-      }
-    })
+    return this.#items.map((item, index) => ({
+      title: truncatePickerLabel(item.displayName, 30),
+      meta: modelMeta(item),
+      fg: item.active ? colors.accent : colors.text,
+      selected: index === this.#selectedIndex,
+    }))
   }
 
-  private setRow(index: number, content: string, fg: string, bg: string) {
+  private setRow(index: number, spec: PickerRowSpec) {
     const existing = this.#rows[index]
     if (existing) {
-      existing.content = content
-      existing.fg = fg
-      existing.bg = bg
+      stylePickerRow(existing, spec, this.#pulse.elapsed())
       return
     }
-    const row = new TextRenderable(this.renderer, {
-      id: `model-row-${index}`,
-      content,
-      width: "100%",
-      fg,
-      bg,
-      selectable: false,
-    })
+    const row = createPickerRow(this.renderer, `model-row-${index}`, { outline: true })
+    stylePickerRow(row, spec, this.#pulse.elapsed())
     this.#rows.push(row)
-    this.container.add(row)
+    this.container.add(row.box)
+  }
+
+  private paintSelection(elapsedMs: number) {
+    if (this.#items.length === 0) return
+    const row = this.#rows[this.#selectedIndex]
+    if (row) paintPickerOutline(row, true, elapsedMs)
   }
 
   private scrollToSelection() {
-    this.container.scrollChildIntoView(`model-row-${this.#selectedIndex}`)
+    this.container.scrollChildIntoView(pickerRowBoxId(`model-row-${this.#selectedIndex}`))
   }
+}
+
+function modelMeta(item: ModelPickerItem) {
+  const parts: string[] = []
+  if (item.contextLength) parts.push(formatContext(item.contextLength))
+  if (item.supportsImageInput) parts.push("vision")
+  return parts.length > 0 ? parts.join(" · ") : undefined
 }
 
 function formatContext(tokens: number) {
   if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`
   if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}K`
   return String(tokens)
-}
-
-function truncate(value: string, maximum: number) {
-  return value.length <= maximum ? value : `${value.slice(0, maximum - 1)}…`
 }
 
 function stopKey(key: PickerKey) {

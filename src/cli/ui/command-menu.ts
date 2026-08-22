@@ -1,5 +1,6 @@
-import { type BoxRenderable, TextRenderable } from "@opentui/core"
+import type { BoxRenderable } from "@opentui/core"
 import { colors } from "../theme.js"
+import { createPickerRow, type PickerRow, type PickerRowSpec, stylePickerRow } from "./picker-row.js"
 import type { CommandSuggestion, Renderer } from "./types.js"
 
 type MenuKey = {
@@ -15,7 +16,7 @@ type MenuActions = {
 }
 
 export class CommandMenu {
-  readonly #rows: TextRenderable[] = []
+  readonly #rows: PickerRow[] = []
   #items: CommandSuggestion[] = []
   #selectedIndex = 0
 
@@ -89,54 +90,40 @@ export class CommandMenu {
   }
 
   private render() {
-    const rows =
-      this.#items.length > 0
-        ? this.#items.map((command, index) => {
-            const selected = index === this.#selectedIndex
-            // Theme choices render as just the theme name (e.g. "default");
-            // the `/theme ` prefix is submitted but not displayed, and the
-            // entries carry no description by design.
-            const content = command.name.startsWith("/theme ")
-              ? command.name.slice("/theme ".length)
-              : `${command.name.padEnd(10)} ${command.description}`
-            return {
-              content,
-              fg: selected ? colors.background : colors.text,
-              bg: selected ? colors.accent : colors.surface,
-            }
-          })
-        : [{ content: "  No matching commands", fg: colors.muted, bg: colors.surface }]
-
+    const rows = this.rowData()
     while (this.#rows.length > rows.length) {
       const row = this.#rows.pop()
-      if (row) this.container.remove(row.id)
+      if (row) this.container.remove(row.box.id)
     }
-
     rows.forEach((row, index) => {
-      this.setRow(index, row.content, row.fg, row.bg)
+      this.setRow(index, row)
     })
   }
 
-  private setRow(index: number, content: string, fg: string, bg: string) {
+  private rowData(): PickerRowSpec[] {
+    if (this.#items.length === 0) {
+      return [{ title: "No matching commands", fg: colors.muted, selected: false }]
+    }
+
+    return this.#items.map((command, index) => ({
+      title: command.name.startsWith("/theme ") ? command.name.slice("/theme ".length) : command.name,
+      meta: command.description || undefined,
+      fg: colors.text,
+      selected: index === this.#selectedIndex,
+    }))
+  }
+
+  private setRow(index: number, spec: PickerRowSpec) {
     const existing = this.#rows[index]
     if (existing) {
-      existing.content = content
-      existing.fg = fg
-      existing.bg = bg
+      stylePickerRow(existing, spec)
       return
     }
 
-    const row = new TextRenderable(this.renderer, {
-      id: `command-row-${index}`,
-      content,
-      width: "100%",
-      fg,
-      bg,
-      truncate: true,
-      selectable: false,
-    })
+    const row = createPickerRow(this.renderer, `command-row-${index}`, { bg: colors.background })
+    stylePickerRow(row, spec)
     this.#rows.push(row)
-    this.container.add(row)
+    this.container.add(row.box)
   }
 }
 

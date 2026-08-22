@@ -167,7 +167,7 @@ export function createUILayout(
     bottom: 3,
     width: "100%",
     flexShrink: 0,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.background,
     border: true,
     borderStyle: "rounded",
     borderColor: colors.border,
@@ -257,4 +257,17 @@ export function createUILayout(
     welcomePanel,
     welcomeQuit,
   }
+}
+
+/** Persistent layout renderables, including trees that home/chat may unmount. */
+export function themeRootsFrom(layout: ReturnType<typeof createUILayout>) {
+  const roots: Array<{ getChildren(): unknown[] }> = []
+  for (const value of Object.values(layout)) {
+    if (isThemeRoot(value)) roots.push(value)
+  }
+  return roots
+}
+
+function isThemeRoot(value: unknown): value is { getChildren(): unknown[] } {
+  return typeof value === "object" && value !== null && !Array.isArray(value) && "getChildren" in value
 }

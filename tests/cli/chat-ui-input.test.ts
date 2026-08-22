@@ -1,5 +1,12 @@
-import type { InputRenderable, TextareaRenderable, TextRenderable } from "@opentui/core"
+import {
+  type BoxRenderable,
+  type InputRenderable,
+  RGBA,
+  type TextareaRenderable,
+  type TextRenderable,
+} from "@opentui/core"
 import { describe, expect, it, vi } from "vitest"
+import { colors } from "../../src/cli/theme.js"
 import { CHAT_INPUT_HINT } from "../../src/cli/ui/format.js"
 import { THEME_NAMES } from "../../src/local/settings.js"
 import { useChatHarness } from "./support/chat-ui-harness.js"
@@ -8,7 +15,7 @@ const themeCommands = [
   { name: "/theme", description: "Choose a theme" },
   ...THEME_NAMES.map((theme) => ({ name: `/theme ${theme}`, description: "" })),
 ]
-const themeRowIDs = THEME_NAMES.map((_, index) => `command-row-${index}`)
+const themeRowIDs = THEME_NAMES.map((_, index) => `command-row-${index}-box`)
 
 describe("chat UI input", () => {
   const setup = useChatHarness()
@@ -27,8 +34,15 @@ describe("chat UI input", () => {
     harness.ui.showChatLayout()
 
     harness.setChatInput("/h")
-    expect(harness.childIds("command-menu")).toEqual(["command-row-0"])
-    expect(harness.text("command-row-0")).toContain("/history")
+    expect(harness.childIds("command-menu")).toEqual(["command-row-0-box"])
+    expect(harness.text("command-row-0")).toBe("› /history")
+    expect(harness.text("command-row-0-meta")).toBe("  Open session history")
+    expect(harness.get<BoxRenderable>("command-menu").border).toBe(true)
+    expect(harness.get<BoxRenderable>("command-menu").borderStyle).toBe("rounded")
+    expect(harness.get<BoxRenderable>("command-menu").backgroundColor.equals(RGBA.fromHex(colors.background))).toBe(
+      true,
+    )
+    expect(harness.get<TextRenderable>("command-row-0").bg.equals(RGBA.fromHex(colors.background))).toBe(true)
 
     harness.press("return")
     expect(onSubmit).toHaveBeenCalledWith("/history")
@@ -48,9 +62,11 @@ describe("chat UI input", () => {
 
     harness.setChatInput("/")
 
-    expect(harness.childIds("command-menu")).toEqual(["command-row-0", "command-row-1"])
-    expect(harness.text("command-row-0")).toContain("/history")
-    expect(harness.text("command-row-1")).toContain("/exit")
+    expect(harness.childIds("command-menu")).toEqual(["command-row-0-box", "command-row-1-box"])
+    expect(harness.text("command-row-0")).toBe("› /history")
+    expect(harness.text("command-row-0-meta")).toBe("  Open session history")
+    expect(harness.text("command-row-1")).toBe("  /exit")
+    expect(harness.text("command-row-1-meta")).toBe("  Exit Otis")
   })
 
   it("opens theme choices and previews the highlighted theme", async () => {
@@ -128,8 +144,9 @@ describe("chat UI input", () => {
 
     // A real (non-empty) edit supersedes the theme submenu and filters commands.
     harness.setChatInput("/e")
-    expect(harness.childIds("command-menu")).toEqual(["command-row-0"])
-    expect(harness.text("command-row-0")).toContain("/exit")
+    expect(harness.childIds("command-menu")).toEqual(["command-row-0-box"])
+    expect(harness.text("command-row-0")).toBe("› /exit")
+    expect(harness.text("command-row-0-meta")).toBe("  Exit Otis")
   })
 
   it("moves the input between welcome and chat layouts without duplicating ownership", async () => {

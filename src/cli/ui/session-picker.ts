@@ -1,5 +1,15 @@
-import { type ScrollBoxRenderable, TextRenderable } from "@opentui/core"
+import type { ScrollBoxRenderable } from "@opentui/core"
 import { colors } from "../theme.js"
+import { SelectionPulse } from "./color-pulse.js"
+import {
+  createPickerRow,
+  type PickerRow,
+  type PickerRowSpec,
+  paintPickerOutline,
+  pickerRowBoxId,
+  stylePickerRow,
+  truncatePickerLabel,
+} from "./picker-row.js"
 import type { Renderer, SessionPickerItem } from "./types.js"
 
 type PickerKey = {
@@ -18,14 +28,17 @@ type PickerActions = {
 }
 
 export class SessionPicker {
-  readonly #rows: TextRenderable[] = []
+  readonly #rows: PickerRow[] = []
   #items: SessionPickerItem[] = []
   #selectedIndex = 0
+  readonly #pulse: SelectionPulse
 
   constructor(
     private readonly renderer: Renderer,
     private readonly container: ScrollBoxRenderable,
-  ) {}
+  ) {
+    this.#pulse = new SelectionPulse(renderer, (elapsed) => this.paintSelection(elapsed))
+  }
 
   setItems(items: SessionPickerItem[]) {
     this.#items = items
@@ -35,6 +48,11 @@ export class SessionPicker {
     )
     this.render()
     this.scrollToSelection()
+    this.#pulse.start()
+  }
+
+  stop() {
+    this.#pulse.stop()
   }
 
   handleKey(key: PickerKey, actions: PickerActions) {
@@ -88,61 +106,48 @@ export class SessionPicker {
     const rows = this.rowData()
     while (this.#rows.length > rows.length) {
       const row = this.#rows.pop()
-      if (row) this.container.remove(row.id)
+      if (row) this.container.remove(row.box.id)
     }
     rows.forEach((row, index) => {
-      this.setRow(index, row.content, row.fg, row.bg)
+      this.setRow(index, row)
     })
   }
 
-  private rowData() {
+  private rowData(): PickerRowSpec[] {
     if (this.#items.length === 0) {
-      return [{ content: "  No sessions yet. Press n to start one.", fg: colors.muted, bg: colors.surface }]
+      return [{ title: "No sessions yet", meta: "Press n to start one", fg: colors.muted, selected: false }]
     }
 
-    return this.#items.map((item, index) => {
-      const selected = index === this.#selectedIndex
-      const active = item.active ? "*" : " "
-      const title = truncateText(item.title, 34)
-      const detail = item.detail ? truncateText(item.detail, 34) : ""
-      const separator = index < this.#items.length - 1 ? `\n${"─".repeat(38)}` : ""
-      return {
-        content: `${`${active} ${title}`.padEnd(38)}\n${`    ${detail}`.padEnd(38)}${separator}`,
-        fg: selected ? colors.background : item.active ? colors.accent : colors.text,
-        bg: selected ? colors.accent : colors.surface,
-      }
-    })
+    return this.#items.map((item, index) => ({
+      title: truncatePickerLabel(item.title, 30),
+      meta: item.detail ? truncatePickerLabel(item.detail, 30) : undefined,
+      fg: item.active ? colors.accent : colors.text,
+      selected: index === this.#selectedIndex,
+    }))
   }
 
-  private setRow(index: number, content: string, fg: string, bg: string) {
+  private setRow(index: number, spec: PickerRowSpec) {
     const existing = this.#rows[index]
     if (existing) {
-      existing.content = content
-      existing.fg = fg
-      existing.bg = bg
+      stylePickerRow(existing, spec, this.#pulse.elapsed())
       return
     }
 
-    const row = new TextRenderable(this.renderer, {
-      id: `session-row-${index}`,
-      content,
-      width: "100%",
-      fg,
-      bg,
-      selectable: false,
-    })
+    const row = createPickerRow(this.renderer, `session-row-${index}`, { outline: true })
+    stylePickerRow(row, spec, this.#pulse.elapsed())
     this.#rows.push(row)
-    this.container.add(row)
+    this.container.add(row.box)
+  }
+
+  private paintSelection(elapsedMs: number) {
+    if (this.#items.length === 0) return
+    const row = this.#rows[this.#selectedIndex]
+    if (row) paintPickerOutline(row, true, elapsedMs)
   }
 
   private scrollToSelection() {
-    this.container.scrollChildIntoView(`session-row-${this.#selectedIndex}`)
+    this.container.scrollChildIntoView(pickerRowBoxId(`session-row-${this.#selectedIndex}`))
   }
-}
-
-function truncateText(text: string, maxLength: number) {
-  if (text.length <= maxLength) return text
-  return `${text.slice(0, Math.max(0, maxLength - 1))}…`
 }
 
 function stopKey(key: PickerKey) {
