@@ -14,8 +14,8 @@ bun install --frozen-lockfile
 bun run dev
 ```
 
-To exercise the complete agent locally, set `FIREWORKS_API_KEY` and `PARALLEL_API_KEY` or enter both through the
-first-run UI. Never commit API keys, local configuration, session data, or captured provider payloads.
+To exercise the complete agent locally, set `FIREWORKS_API_KEY` or enter it through the first-run UI. Never commit API
+keys, local configuration, session data, or captured provider payloads.
 
 ## Before opening a pull request
 

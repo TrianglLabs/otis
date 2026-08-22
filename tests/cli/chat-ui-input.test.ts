@@ -149,7 +149,7 @@ describe("chat UI input", () => {
     expect(harness.childIds("chat-body")).toEqual(["messages"])
   })
 
-  it("starts unconfigured and submits provider-specific API keys", async () => {
+  it("starts unconfigured and submits a Fireworks API key", async () => {
     const onSetup = vi.fn()
     const onSetupSubmit = vi.fn()
     const harness = await setup({ configured: false, onSetup, onSetupSubmit })
@@ -158,29 +158,24 @@ describe("chat UI input", () => {
     expect(harness.childIds("setup-box")).toEqual([
       "setup-why",
       "setup-hint",
-      "setup-parallel",
+      "setup-web",
       "setup-local",
       "setup-button-box",
     ])
     expect(harness.text("setup-button")).toContain("Set up Otis")
-    expect(harness.text("setup-why")).toContain("two keys")
+    expect(harness.text("setup-why")).toContain("Fireworks key")
     expect(harness.text("setup-hint")).toContain("open-weight models")
-    expect(harness.text("setup-parallel")).toContain("search the web")
+    expect(harness.text("setup-web")).toContain("Web search is included")
     expect(harness.text("setup-local")).toContain("your computer")
 
     harness.press("return")
     expect(onSetup).toHaveBeenCalledOnce()
 
-    harness.ui.showSetupInput("fireworks")
+    harness.ui.showSetupInput()
     expect(harness.text("setup-key-note")).toContain("stored only on this computer")
     await harness.typeText("fw_test_key")
     harness.submitSetup()
-    expect(onSetupSubmit).toHaveBeenCalledWith("fireworks", "fw_test_key")
-
-    harness.ui.showSetupInput("parallel")
-    await harness.typeText("parallel_test_key")
-    harness.submitSetup()
-    expect(onSetupSubmit).toHaveBeenCalledWith("parallel", "parallel_test_key")
+    expect(onSetupSubmit).toHaveBeenCalledWith("fw_test_key")
 
     harness.ui.showSetupStatus()
     expect(harness.text("setup-status")).toBe("Loading models...")
@@ -196,7 +191,7 @@ describe("chat UI input", () => {
   it("shows API keys in the input and clears them after an error", async () => {
     const onSetupSubmit = vi.fn()
     const harness = await setup({ configured: false, onSetupSubmit })
-    harness.ui.showSetupInput("fireworks")
+    harness.ui.showSetupInput()
 
     await harness.typeText("first-secret")
     expect(harness.get<InputRenderable>("setup-input").plainText).toBe("first-secret")
@@ -206,8 +201,8 @@ describe("chat UI input", () => {
     await harness.typeText("second-secret")
     harness.submitSetup()
 
-    expect(onSetupSubmit).toHaveBeenCalledWith("fireworks", "second-secret")
-    expect(onSetupSubmit).not.toHaveBeenCalledWith("fireworks", "first-secret")
+    expect(onSetupSubmit).toHaveBeenCalledWith("second-secret")
+    expect(onSetupSubmit).not.toHaveBeenCalledWith("first-secret")
   })
 
   it("submits multiline chat input and clears it", async () => {

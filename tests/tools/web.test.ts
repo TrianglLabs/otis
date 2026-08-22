@@ -65,9 +65,9 @@ describe("web tools", () => {
     expect(result.output).toContain("Warnings:\n- One URL failed")
   })
 
-  it("fails clearly when no Parallel key is configured", async () => {
+  it("fails clearly when no web client is configured", async () => {
     await expect(executeToolCall({ name: "web_read", input: { url: "https://example.com" } })).rejects.toThrow(
-      "Parallel API key is not configured",
+      "Web client is not configured",
     )
   })
 })

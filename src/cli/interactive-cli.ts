@@ -80,7 +80,6 @@ let debug = false
 let exiting = false
 let configured = false
 let fireworksApiKey: string | undefined
-let parallelApiKey: string | undefined
 let selectedModelId: string | undefined
 let selectedModelSupportsImageInput: boolean | undefined
 let imageCapabilityCheck: { modelId: string; promise: Promise<void> } | undefined
@@ -105,17 +104,16 @@ export async function startInteractiveCli() {
   selectedTheme = settings.theme ?? "default"
   thinkingVisible = settings.thinkingVisible ?? false
   fireworksApiKey = settings.fireworksApiKey
-  parallelApiKey = settings.parallelApiKey
   selectedModelId = settings.model
   selectedModelSupportsImageInput = settings.modelSupportsImageInput
   autoCompactAtTokens = autoCompactThreshold(settings.modelContextLength)
   permissionMode = settings.permissions?.defaultMode ?? DEFAULT_PERMISSION_MODE
   permissionRules = [...(settings.permissions?.rules ?? []), ...(await loadProjectPermissionRules(workspaceCwd))]
-  configured = Boolean(fireworksApiKey && parallelApiKey && selectedModelId)
+  configured = Boolean(fireworksApiKey && selectedModelId)
   if (fireworksApiKey && selectedModelId) {
     client = new FireworksClient({ apiKey: fireworksApiKey, model: selectedModelId })
   }
-  if (parallelApiKey) webClient = new ParallelClient({ apiKey: parallelApiKey })
+  webClient = new ParallelClient()
 
   renderer = await createCliRenderer({
     exitOnCtrlC: true,
@@ -132,7 +130,7 @@ export async function startInteractiveCli() {
 
   ui = createChatUI(renderer, {
     configured,
-    statsVisible: Boolean(fireworksApiKey || parallelApiKey),
+    statsVisible: Boolean(fireworksApiKey),
     commands: COMMANDS,
     contextLabel: formatContextUsage(
       contextUsage(estimateContextTokens(transcript.history, staticContextChars), autoCompactAtTokens),
@@ -152,8 +150,8 @@ export async function startInteractiveCli() {
       activeTurn?.abort()
     },
     onSetup: () => setupFlow.begin(),
-    onSetupSubmit: (credential, apiKey) => {
-      void setupFlow.submitCredential(credential, apiKey)
+    onSetupSubmit: (apiKey) => {
+      void setupFlow.submitCredential(apiKey)
     },
     onCloseModelPicker: () => setupFlow.closeModelPicker(),
     onSelectModel: (model) => {
@@ -192,19 +190,15 @@ export async function startInteractiveCli() {
     },
     onCredentialsChanged: (credentials) => {
       fireworksApiKey = credentials.fireworksApiKey
-      parallelApiKey = credentials.parallelApiKey
       if (fireworksApiKey && selectedModelId) {
         client = new FireworksClient({ apiKey: fireworksApiKey, model: selectedModelId })
       }
-      if (parallelApiKey) webClient = new ParallelClient({ apiKey: parallelApiKey })
       ui.showStats()
       void refreshLocalStats()
     },
     onModelSelected: applySelectedModel,
-    onConfigured: (fireworksKey: string, parallelKey: string, model: FireworksModel) => {
+    onConfigured: (fireworksKey: string, model: FireworksModel) => {
       fireworksApiKey = fireworksKey
-      parallelApiKey = parallelKey
-      webClient = new ParallelClient({ apiKey: parallelKey })
       applySelectedModel(model)
       configured = true
       void refreshLocalStats()
@@ -233,9 +227,9 @@ export async function startInteractiveCli() {
       if (updateCheckController === updateController) updateCheckController = undefined
     })
 
-  if (fireworksApiKey || parallelApiKey) void refreshLocalStats()
+  if (fireworksApiKey) void refreshLocalStats()
 
-  if (!configured && (fireworksApiKey || parallelApiKey)) setupFlow.begin()
+  if (!configured && fireworksApiKey) setupFlow.begin()
 
   if (transcript.entries.length > 0) {
     ui.showChatLayout()
@@ -269,7 +263,7 @@ async function handleInput(value: string) {
 
   const activeClient = client
   const activeWebClient = webClient
-  if (!configured || !fireworksApiKey || !parallelApiKey || !activeClient || !activeWebClient) {
+  if (!configured || !fireworksApiKey || !activeClient || !activeWebClient) {
     setupFlow.begin()
     return
   }
@@ -374,6 +368,7 @@ async function handleInput(value: string) {
       client: activeClient,
       webClient: activeWebClient,
       webClientModel: activeClient.model,
+      webSessionId: turnSession.id,
       transcript,
       ui,
       cwd: workspaceCwd,

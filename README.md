@@ -17,7 +17,8 @@ supports tools, give Otis a task, and let it inspect files, edit code, run comma
 local history of the work.
 
 The application, tools, configuration, sessions, diffs, and usage statistics live on your computer. Inference is provided
-directly by Fireworks (with Zero Data Retention by default) using your API key; web search and page reading uses Parallel with a separate key.
+directly by Fireworks (with Zero Data Retention by default) using your API key. Web search and page reading use Parallel's
+Search MCP from the local runtime;
 
 ## Install
 
@@ -55,27 +56,25 @@ Your terminal
       ├─ OpenTUI interface, agent loop, and local tools
       ├─ Private local configuration, sessions, diffs, and stats
       ├─ Fireworks API ── inference and model discovery
-      └─ Parallel API ─── web search and page extraction
+      └─ Parallel Search MCP ── web search and page reading
 ```
 
 ## First run
 
-Start `otis` and select **Set up Otis**. Setup opens each provider's official key page, hides key input, and walks
-through model selection before starting a session.
+Start `otis` and select **Set up Otis**. Setup opens Fireworks' official key page, hides key input, and walks through
+model selection before starting a session.
 
 | Provider | Why Otis needs it | Get a key |
 | --- | --- | --- |
 | Fireworks | Model catalog, inference, streaming, reasoning, and tool calling | [Fireworks API keys](https://app.fireworks.ai/api-keys) |
-| Parallel | The `web_search` and `web_read` tools | [Parallel platform](https://platform.parallel.ai/) |
 
 Keys entered during setup are written atomically to a user-only configuration file. On macOS and Linux, the directory
 uses mode `0700` and the file uses mode `0600`. The data lives outside the executable and survives `otis update`.
 
-Environment variables can be used instead of saving keys:
+An environment variable can be used instead of saving the Fireworks key:
 
 ```sh
 export FIREWORKS_API_KEY=fw_your_key
-export PARALLEL_API_KEY=your_parallel_key
 otis
 ```
 

@@ -1,23 +1,16 @@
 import { spawn } from "node:child_process"
-import type { SetupCredential } from "./ui/types.js"
 
-export const PROVIDER_KEY_URLS: Record<SetupCredential, string> = {
-  fireworks: "https://app.fireworks.ai/api-keys",
-  parallel: "https://platform.parallel.ai/",
-}
+export const FIREWORKS_KEY_URL = "https://app.fireworks.ai/api-keys"
 
 type BrowserLauncher = (command: string, args: string[]) => Promise<void>
 
-type OpenProviderKeyPageOptions = {
+type OpenFireworksKeyPageOptions = {
   platform?: NodeJS.Platform
   launch?: BrowserLauncher
 }
 
-export async function openProviderKeyPage(
-  credential: SetupCredential,
-  options: OpenProviderKeyPageOptions = {},
-): Promise<boolean> {
-  const command = browserCommand(options.platform ?? process.platform, PROVIDER_KEY_URLS[credential])
+export async function openFireworksKeyPage(options: OpenFireworksKeyPageOptions = {}): Promise<boolean> {
+  const command = browserCommand(options.platform ?? process.platform, FIREWORKS_KEY_URL)
   if (!command) return false
 
   try {
