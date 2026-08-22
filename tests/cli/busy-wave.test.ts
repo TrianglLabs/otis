@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { busyWave } from "../../src/cli/ui/busy-wave.js"
+import { BUSY_WAVE_ONE_WAY_MS, busyWave } from "../../src/cli/ui/busy-wave.js"
 
 describe("busyWave", () => {
   it("renders only the wave at the exact width when no label is given", () => {
@@ -26,6 +26,18 @@ describe("busyWave", () => {
 
     expect(first.intensities).not.toEqual(later.intensities)
     expect(first.text.indexOf(" THINKING ")).toBe(later.text.indexOf(" THINKING "))
+  })
+
+  it("bounces the pulse instead of wrapping around the bar", () => {
+    const width = 80
+    const spanMs = BUSY_WAVE_ONE_WAY_MS
+
+    expect(peakIndex(busyWave(0, width).intensities)).toBeLessThan(3)
+    expect(peakIndex(busyWave(spanMs, width).intensities)).toBeGreaterThan(width - 8)
+    expect(peakIndex(busyWave(spanMs * 2, width).intensities)).toBeLessThan(3)
+
+    const start = busyWave(0, width).intensities
+    expect(start.at(-1)).toBeLessThan(0.25)
   })
 
   it("keeps adjacent cells close in intensity so the wave stays smooth", () => {
@@ -57,3 +69,7 @@ describe("busyWave", () => {
     expect(busyWave(0, Number.NaN, "THINKING").text).toContain("THINKING")
   })
 })
+
+function peakIndex(intensities: number[]) {
+  return intensities.indexOf(Math.max(...intensities))
+}

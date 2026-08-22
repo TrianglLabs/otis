@@ -266,6 +266,70 @@ describe("chat UI theme switching", () => {
     expect(messages.content.backgroundColor.equals(RGBA.fromHex(colors.background))).toBe(true)
   })
 
+  it("recolors the open slash menu when the theme changes", async () => {
+    const harness = await setup({
+      commands: [
+        { name: "/theme", description: "Choose a theme" },
+        ...THEME_NAMES.map((theme) => ({ name: `/theme ${theme}`, description: "" })),
+      ],
+    })
+    harness.ui.showThemeMenu()
+
+    const previous = selectTheme("bright")
+    harness.ui.setTheme("bright", previous)
+
+    expect(harness.text("command-row-2")).toBe("› bright")
+    const menu = harness.get<BoxRenderable>("command-menu")
+    const selected = harness.get<TextRenderable>("command-row-2")
+    const other = harness.get<TextRenderable>("command-row-0")
+    expect(menu.backgroundColor.equals(RGBA.fromHex(colors.background))).toBe(true)
+    expect(menu.borderColor.equals(RGBA.fromHex(colors.border))).toBe(true)
+    expect(selected.bg.equals(RGBA.fromHex(colors.background))).toBe(true)
+    expect(selected.fg.equals(RGBA.fromHex(colors.accent))).toBe(true)
+    expect(other.bg.equals(RGBA.fromHex(colors.background))).toBe(true)
+    expect(other.fg.equals(RGBA.fromHex(colors.text))).toBe(true)
+  })
+
+  it("keeps an open slash menu on its current commands when the theme changes", async () => {
+    const harness = await setup({
+      commands: [
+        { name: "/history", description: "Open session history" },
+        { name: "/theme", description: "Choose a theme" },
+        ...THEME_NAMES.map((theme) => ({ name: `/theme ${theme}`, description: "" })),
+      ],
+    })
+    harness.setChatInput("/h")
+    expect(harness.text("command-row-0")).toBe("› /history")
+
+    const previous = selectTheme("bright")
+    harness.ui.setTheme("bright", previous)
+
+    expect(harness.childIds("command-menu")).toEqual(["command-row-0-box"])
+    expect(harness.text("command-row-0")).toBe("› /history")
+    expect(harness.get<TextRenderable>("command-row-0").bg.equals(RGBA.fromHex(colors.background))).toBe(true)
+    expect(harness.get<TextRenderable>("command-row-0").fg.equals(RGBA.fromHex(colors.accent))).toBe(true)
+  })
+
+  it("recolors slash menu rows after the menu is closed and opened again", async () => {
+    const harness = await setup({
+      commands: [{ name: "/history", description: "Open session history" }],
+    })
+    harness.setChatInput("/")
+    expect(harness.text("command-row-0")).toBe("› /history")
+    harness.setChatInput("")
+
+    const previous = selectTheme("bright")
+    harness.ui.setTheme("bright", previous)
+    harness.setChatInput("/")
+
+    const menu = harness.get<BoxRenderable>("command-menu")
+    const row = harness.get<TextRenderable>("command-row-0")
+    expect(menu.backgroundColor.equals(RGBA.fromHex(colors.background))).toBe(true)
+    expect(row.bg.equals(RGBA.fromHex(colors.background))).toBe(true)
+    expect(row.fg.equals(RGBA.fromHex(colors.accent))).toBe(true)
+    expect(harness.get<TextRenderable>("command-row-0-meta").fg.equals(RGBA.fromHex(colors.muted))).toBe(true)
+  })
+
   it("updates mounted colors for every theme transition", async () => {
     selectTheme("default")
     const harness = await setup({ theme: "default" })

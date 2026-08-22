@@ -88,7 +88,7 @@ export function createSessionPanel(renderer: Renderer) {
     rowsId: "session-rows",
     footerId: "session-panel-footer",
     header: "Sessions",
-    footer: "↑↓  enter\nn new  ·  d delete  ·  esc",
+    footer: "[↑↓] move · [n] new · [d] delete",
   })
 }
 
@@ -99,7 +99,7 @@ export function createModelPanel(renderer: Renderer) {
     rowsId: "model-rows",
     footerId: "model-panel-footer",
     header: "Models",
-    footer: "↑↓  enter\nesc",
+    footer: "[↑↓] move",
   })
 }
 

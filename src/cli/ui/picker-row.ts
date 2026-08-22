@@ -3,11 +3,13 @@ import { colors } from "../theme.js"
 import { colorPulseAmount, selectionOutline } from "./color-pulse.js"
 import type { Renderer } from "./types.js"
 
+export type PickerRowBg = "background" | "surface"
+
 export type PickerRow = {
   box: BoxRenderable
   title: TextRenderable
   meta: TextRenderable
-  bg: string
+  bg: PickerRowBg
   outline: boolean
 }
 
@@ -19,7 +21,7 @@ export type PickerRowSpec = {
 }
 
 export type PickerRowOptions = {
-  bg?: string
+  bg?: PickerRowBg
   outline?: boolean
 }
 
@@ -32,21 +34,22 @@ export function truncatePickerLabel(value: string, maximum: number) {
 }
 
 export function createPickerRow(renderer: Renderer, id: string, options: PickerRowOptions = {}): PickerRow {
-  const bg = options.bg ?? colors.surface
+  const bg = options.bg ?? "surface"
+  const fill = colors[bg]
   const outline = options.outline === true
   const box = new BoxRenderable(renderer, {
     id: pickerRowBoxId(id),
     flexDirection: "column",
     width: "100%",
     flexShrink: 0,
-    backgroundColor: bg,
+    backgroundColor: fill,
     paddingX: 0,
     paddingY: 0,
     ...(outline
       ? {
           border: true,
           borderStyle: "rounded" as const,
-          borderColor: bg,
+          borderColor: fill,
         }
       : {}),
   })
@@ -54,7 +57,7 @@ export function createPickerRow(renderer: Renderer, id: string, options: PickerR
     id,
     content: "",
     fg: colors.text,
-    bg,
+    bg: fill,
     selectable: false,
     truncate: true,
   })
@@ -62,7 +65,7 @@ export function createPickerRow(renderer: Renderer, id: string, options: PickerR
     id: `${id}-meta`,
     content: "",
     fg: colors.muted,
-    bg,
+    bg: fill,
     selectable: false,
     truncate: true,
     visible: false,
@@ -73,19 +76,24 @@ export function createPickerRow(renderer: Renderer, id: string, options: PickerR
 }
 
 export function stylePickerRow(row: PickerRow, spec: PickerRowSpec, elapsedMs = 0) {
+  const fill = rowFill(row)
   row.title.content = `${spec.selected ? "›" : " "} ${spec.title}`
   row.title.fg = spec.selected ? colors.accent : spec.fg
-  row.title.bg = row.bg
+  row.title.bg = fill
   row.meta.content = spec.meta ? `  ${spec.meta}` : ""
   row.meta.fg = colors.muted
-  row.meta.bg = row.bg
+  row.meta.bg = fill
   row.meta.visible = Boolean(spec.meta)
-  row.box.backgroundColor = row.bg
+  row.box.backgroundColor = fill
   if (row.outline) paintPickerOutline(row, spec.selected, elapsedMs)
 }
 
 export function paintPickerOutline(row: PickerRow, selected: boolean, elapsedMs: number) {
   // Color only — toggling `border` after init makes OpenTUI re-enable it and
   // jumps the row size. Outlined rows keep a reserved rounded frame.
-  row.box.borderColor = selected ? selectionOutline(colorPulseAmount(elapsedMs)) : row.bg
+  row.box.borderColor = selected ? selectionOutline(colorPulseAmount(elapsedMs)) : rowFill(row)
+}
+
+function rowFill(row: PickerRow) {
+  return colors[row.bg]
 }
