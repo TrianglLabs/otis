@@ -6,9 +6,10 @@ import { colors, type ThemeColors } from "./theme.js"
 import type { TranscriptEntry } from "./transcript.js"
 import { AgentStatus } from "./ui/agent-status.js"
 import { CommandMenu } from "./ui/command-menu.js"
-import { type AgentPhase, CHAT_INPUT_HINT, formatContextLabel, formatRuntimeHint, formatStats } from "./ui/format.js"
+import { type AgentPhase, CHAT_INPUT_HINT, formatContextLabel, formatRuntimeHint } from "./ui/format.js"
+import { HomeStats } from "./ui/home-stats.js"
 import { InputController } from "./ui/input-controller.js"
-import { createUILayout } from "./ui/layout.js"
+import { createUILayout, themeRootsFrom } from "./ui/layout.js"
 import { ModelPicker } from "./ui/model-picker.js"
 import { createScrollbarOptions } from "./ui/panels.js"
 import { PermissionController } from "./ui/permission-controller.js"
@@ -30,6 +31,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
   // Ignore the deferred empty input event emitted when opening the theme menu.
   let themeMenuOpen = false
 
+  const layout = createUILayout(renderer, options)
   const {
     agentBar,
     chatBody,
@@ -64,7 +66,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
     welcome,
     welcomePanel,
     welcomeQuit,
-  } = createUILayout(renderer, options)
+  } = layout
   const commands = new CommandMenu(renderer, commandMenu, options.commands ?? [])
   const models = new ModelPicker(renderer, modelRowsBox)
   const sessions = new SessionPicker(renderer, sessionRowsBox)
@@ -86,6 +88,11 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
     isWelcomeVisible: () => showingWelcome,
     isOverlayVisible: () => commandMenuVisible || permissions.isVisible,
     onInterrupt: options.onInterrupt,
+  })
+  const homeStats = new HomeStats({
+    renderer,
+    statBoxes,
+    isWelcomeVisible: () => showingWelcome,
   })
   let selectedModelName = options.modelLabel
   let runtimeHintVisible = false
@@ -235,6 +242,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
       chatBody.remove(modelPanel.id)
       modelPickerVisible = false
     }
+    models.stop()
     sessions.setItems(items)
 
     if (!sessionPickerVisible) {
@@ -248,6 +256,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
     inputController.hideSetupStatus()
     showChatLayout()
     if (sessionPickerVisible) {
+      sessions.stop()
       chatBody.remove(sessionPanel.id)
       sessionPickerVisible = false
     }
@@ -261,6 +270,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
 
   function hideModelPicker() {
     if (!modelPickerVisible) return
+    models.stop()
     chatBody.remove(modelPanel.id)
     modelPickerVisible = false
     focusInput()
@@ -269,6 +279,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
 
   function hideSessionPicker() {
     if (!sessionPickerVisible) return
+    sessions.stop()
     chatBody.remove(sessionPanel.id)
     sessionPickerVisible = false
     focusInput()
@@ -296,6 +307,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
     root.add(chatBody)
     root.add(inputArea)
     showingWelcome = false
+    homeStats.settle()
     renderer.requestRender()
   }
 
@@ -304,10 +316,12 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
 
     hideCommandMenu()
     if (sessionPickerVisible) {
+      sessions.stop()
       chatBody.remove(sessionPanel.id)
       sessionPickerVisible = false
     }
     if (modelPickerVisible) {
+      models.stop()
       chatBody.remove(modelPanel.id)
       modelPickerVisible = false
     }
@@ -330,6 +344,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
     welcomePanel.add(inputArea, 0)
     root.add(welcome)
     showingWelcome = true
+    homeStats.replay()
     renderer.requestRender()
   }
 
@@ -354,26 +369,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
 
   function setTheme(theme: ThemeName, previous: ThemeColors) {
     activeTheme = theme
-    // Chat-only views are detached while the welcome screen is shown. Recolor
-    // both mounted and detached roots before a layout transition attaches them.
-    recolorTree(
-      [
-        root,
-        topBar,
-        chatBody,
-        messages,
-        inputArea,
-        imageAttachments,
-        commandMenu,
-        permissionPrompt,
-        sessionPanel,
-        modelPanel,
-        setupButtonBox,
-        setupForm,
-        setupStatusBox,
-      ],
-      previous,
-    )
+    recolorTree(themeRootsFrom(layout), previous)
     input.focusedBackgroundColor = colors.background
     input.focusedTextColor = colors.text
     setupInput.focusedBackgroundColor = colors.background
@@ -554,13 +550,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
   focusInput()
 
   function setStats(stats: LocalStats) {
-    const items = formatStats(stats)
-    for (let i = 0; i < statBoxes.length; i++) {
-      const box = statBoxes[i]
-      setText(box.value, items[i].value)
-      setText(box.label, items[i].label)
-    }
-    renderer.requestRender()
+    homeStats.setStats(stats)
   }
 
   function showStats() {

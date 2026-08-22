@@ -234,6 +234,24 @@ describe("chat UI theme switching", () => {
     expect(messages.viewport.backgroundColor.equals(RGBA.fromHex(colors.background))).toBe(true)
   })
 
+  it("recolors the detached home layout after selecting a theme from chat", async () => {
+    const harness = await setup()
+    harness.ui.showChatLayout()
+
+    const previous = selectTheme("bright")
+    harness.ui.setTheme("bright", previous)
+    harness.ui.showHomeLayout()
+
+    expect(harness.get<BoxRenderable>("welcome-panel").backgroundColor.equals(RGBA.fromHex(colors.background))).toBe(
+      true,
+    )
+    expect(harness.get<TextRenderable>("welcome-brand-art").fg.equals(RGBA.fromHex(colors.accent))).toBe(true)
+    expect(harness.get<TextRenderable>("welcome-quit").fg.equals(RGBA.fromHex(colors.muted))).toBe(true)
+    expect(harness.get<TextRenderable>("welcome-version").fg.equals(RGBA.fromHex(colors.muted))).toBe(true)
+    expect(harness.get<TextRenderable>("welcome-stat-value-0").fg.equals(RGBA.fromHex(colors.accent))).toBe(true)
+    expect(harness.get<BoxRenderable>("welcome-stat-0").borderColor.equals(RGBA.fromHex(colors.border))).toBe(true)
+  })
+
   it("recolors the chat viewport from Matrix to Bright", async () => {
     selectTheme("matrix")
     const harness = await setup({ theme: "matrix" })

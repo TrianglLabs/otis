@@ -82,59 +82,33 @@ export function createStatsRow(renderer: Renderer) {
 }
 
 export function createSessionPanel(renderer: Renderer) {
-  const panel = new BoxRenderable(renderer, {
+  return createSidePanel(renderer, {
     id: "session-panel",
-    flexDirection: "column",
-    width: SIDE_PANEL_WIDTH,
-    minWidth: SIDE_PANEL_MIN_WIDTH,
-    flexShrink: 0,
-    height: "100%",
-    backgroundColor: colors.surface,
-    paddingLeft: 1,
-    paddingRight: 0,
-    paddingY: 1,
-    gap: 0,
-    marginRight: 1,
+    headerId: "session-panel-header",
+    rowsId: "session-rows",
+    footerId: "session-panel-footer",
+    header: "Sessions",
+    footer: "↑↓  enter\nn new  ·  d delete  ·  esc",
   })
-  const rows = new ScrollBoxRenderable(renderer, {
-    id: "session-rows",
-    flexGrow: 1,
-    flexShrink: 1,
-    minHeight: 1,
-    width: "100%",
-    scrollY: true,
-    backgroundColor: colors.surface,
-    contentOptions: { flexDirection: "column", backgroundColor: colors.surface },
-    verticalScrollbarOptions: createScrollbarOptions(),
-  })
-  panel.add(
-    new TextRenderable(renderer, {
-      id: "session-panel-header",
-      content: "Sessions",
-      fg: colors.accent,
-      bg: colors.surface,
-      marginBottom: 1,
-      selectable: false,
-    }),
-  )
-  panel.add(rows)
-  panel.add(
-    new TextRenderable(renderer, {
-      id: "session-panel-footer",
-      content: "[↑↓] select  [Enter] open\n[n] new  [d] delete  [Esc] close",
-      fg: colors.muted,
-      bg: colors.surface,
-      marginTop: 1,
-      selectable: false,
-      truncate: true,
-    }),
-  )
-  return { panel, rows }
 }
 
 export function createModelPanel(renderer: Renderer) {
-  const panel = new BoxRenderable(renderer, {
+  return createSidePanel(renderer, {
     id: "model-panel",
+    headerId: "model-panel-header",
+    rowsId: "model-rows",
+    footerId: "model-panel-footer",
+    header: "Models",
+    footer: "↑↓  enter\nesc",
+  })
+}
+
+function createSidePanel(
+  renderer: Renderer,
+  spec: { id: string; headerId: string; rowsId: string; footerId: string; header: string; footer: string },
+) {
+  const panel = new BoxRenderable(renderer, {
+    id: spec.id,
     flexDirection: "column",
     width: SIDE_PANEL_WIDTH,
     minWidth: SIDE_PANEL_MIN_WIDTH,
@@ -148,9 +122,12 @@ export function createModelPanel(renderer: Renderer) {
     marginRight: 1,
   })
   const rows = new ScrollBoxRenderable(renderer, {
-    id: "model-rows",
+    id: spec.rowsId,
     flexGrow: 1,
     flexShrink: 1,
+    // Leftover column space only; a content-sized basis lets a long list
+    // squeeze the header and keyboard-helper footer.
+    flexBasis: 0,
     minHeight: 1,
     width: "100%",
     scrollY: true,
@@ -160,22 +137,24 @@ export function createModelPanel(renderer: Renderer) {
   })
   panel.add(
     new TextRenderable(renderer, {
-      id: "model-panel-header",
-      content: "Choose a model · context window",
+      id: spec.headerId,
+      content: spec.header,
       fg: colors.accent,
       bg: colors.surface,
       marginBottom: 1,
+      flexShrink: 0,
       selectable: false,
     }),
   )
   panel.add(rows)
   panel.add(
     new TextRenderable(renderer, {
-      id: "model-panel-footer",
-      content: "[↑↓] select  [Enter] use model  [Esc] close",
+      id: spec.footerId,
+      content: spec.footer,
       fg: colors.muted,
       bg: colors.surface,
       marginTop: 1,
+      flexShrink: 0,
       selectable: false,
       truncate: true,
     }),
