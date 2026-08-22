@@ -6,7 +6,6 @@ import type { SessionPickerItem } from "../session-metadata.js"
 export type Renderer = Awaited<ReturnType<typeof import("@opentui/core").createCliRenderer>>
 
 export type InputMode = "chat" | "inactive" | "setupButton" | "setupInput" | "setupStatus"
-export type SetupCredential = "fireworks" | "parallel"
 
 export type CommandSuggestion = {
   name: string
@@ -33,7 +32,7 @@ export type ChatUIOptions = {
   onRemoveLastImage?: () => boolean
   onInterrupt?: () => void
   onSetup?: () => void
-  onSetupSubmit?: (credential: SetupCredential, apiKey: string) => void
+  onSetupSubmit?: (apiKey: string) => void
   onCloseModelPicker?: () => void
   onSelectModel?: (model: FireworksModel) => void
   onNewSession?: () => void

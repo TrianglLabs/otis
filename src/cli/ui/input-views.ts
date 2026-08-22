@@ -88,7 +88,7 @@ export function createSetupViews(renderer: Renderer) {
   setupButtonBox.add(
     new TextRenderable(renderer, {
       id: "setup-why",
-      content: "Otis needs two keys to work:",
+      content: "Otis needs a Fireworks key to work:",
       fg: colors.muted,
       selectable: false,
     }),
@@ -103,8 +103,8 @@ export function createSetupViews(renderer: Renderer) {
   )
   setupButtonBox.add(
     new TextRenderable(renderer, {
-      id: "setup-parallel",
-      content: "Parallel lets Otis search the web",
+      id: "setup-web",
+      content: "Web search is included",
       fg: colors.muted,
       selectable: false,
     }),

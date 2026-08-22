@@ -80,7 +80,7 @@ export async function* runAgent(
       permissionPolicy:
         options.permissionPolicy ??
         createPermissionPolicy({ cwd: options.cwd ?? process.cwd(), mode: DEFAULT_PERMISSION_MODE }),
-      webSession: {},
+      webSession: { id: options.webSession?.id },
     }
     yield { type: "context", messageCount: messages.length, contentChars: messagesContentChars(messages) }
 

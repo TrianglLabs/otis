@@ -7,7 +7,6 @@ import { localConfigDirectory } from "./paths.js"
 
 export type LocalSettings = {
   fireworksApiKey?: string
-  parallelApiKey?: string
   model?: string
   modelDisplayName?: string
   modelContextLength?: number
@@ -38,7 +37,6 @@ export type SettingsFileOptions = {
 type SettingsFile = {
   version: 1
   fireworksApiKey?: string
-  parallelApiKey?: string
   model?: string
   modelDisplayName?: string
   modelContextLength?: number
@@ -52,11 +50,9 @@ export async function loadLocalSettings(options: SettingsFileOptions = {}): Prom
   const env = options.env ?? process.env
   const saved = await readSettingsFile(options)
   const envFireworksApiKey = clean(env.FIREWORKS_API_KEY)
-  const envParallelApiKey = clean(env.PARALLEL_API_KEY)
 
   return {
     fireworksApiKey: envFireworksApiKey ?? saved?.fireworksApiKey,
-    parallelApiKey: envParallelApiKey ?? saved?.parallelApiKey,
     model: saved?.model,
     modelDisplayName: saved?.modelDisplayName,
     modelContextLength: saved?.modelContextLength,
@@ -73,11 +69,6 @@ export async function saveFireworksSetup(apiKey: string, model: FireworksModel, 
     withSelectedModel({ ...saved, fireworksApiKey: required(apiKey, "Fireworks API key") }, model),
     options,
   )
-}
-
-export async function saveParallelApiKey(apiKey: string, options: SettingsFileOptions = {}) {
-  const saved = (await readSettingsFile(options)) ?? { version: 1 }
-  await writeSettingsFile({ ...saved, parallelApiKey: required(apiKey, "Parallel API key") }, options)
 }
 
 export async function saveSelectedModel(model: FireworksModel, options: SettingsFileOptions = {}) {
@@ -137,7 +128,6 @@ function parseSettingsFile(value: unknown): SettingsFile {
   if (value.version !== 1) throw new Error("Invalid Otis config: unsupported version.")
 
   const fireworksApiKey = optionalString(value.fireworksApiKey, "fireworksApiKey")
-  const parallelApiKey = optionalString(value.parallelApiKey, "parallelApiKey")
   const model = optionalString(value.model, "model")
   const modelDisplayName = optionalString(value.modelDisplayName, "modelDisplayName")
   const modelContextLength = optionalPositiveInteger(value.modelContextLength, "modelContextLength")
@@ -151,7 +141,6 @@ function parseSettingsFile(value: unknown): SettingsFile {
   return {
     version: 1,
     ...(fireworksApiKey ? { fireworksApiKey } : {}),
-    ...(parallelApiKey ? { parallelApiKey } : {}),
     ...(model ? { model } : {}),
     ...(modelDisplayName ? { modelDisplayName } : {}),
     ...(modelContextLength ? { modelContextLength } : {}),
@@ -170,7 +159,6 @@ function withSelectedModel(settings: SettingsFile, model: FireworksModel): Setti
   return {
     version: 1,
     ...(settings.fireworksApiKey ? { fireworksApiKey: settings.fireworksApiKey } : {}),
-    ...(settings.parallelApiKey ? { parallelApiKey: settings.parallelApiKey } : {}),
     model: required(model.id, "Fireworks model"),
     modelDisplayName: required(model.displayName, "Fireworks model display name"),
     ...(contextLength ? { modelContextLength: contextLength } : {}),

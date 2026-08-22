@@ -4,7 +4,7 @@ import type { ToolCall, ToolContext, ToolResult } from "./types.js"
 type WebToolCall = Extract<ToolCall, { name: "web_search" | "web_read" }>
 
 export async function executeWebTool(call: WebToolCall, context: ToolContext): Promise<ToolResult> {
-  if (!context.webClient) throw new Error("Parallel API key is not configured.")
+  if (!context.webClient) throw new Error("Web client is not configured.")
 
   if (call.name === "web_search") {
     const response = await context.webClient.search({

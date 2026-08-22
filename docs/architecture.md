@@ -12,7 +12,7 @@ User terminal or server process
       -> local Agent Skills
       -> local JSONL sessions and usage
       -> Fireworks API with the user's key
-      -> Parallel API with the user's key
+      -> Parallel Search MCP
 ```
 
 There is no Otis control plane. Users do not create an Otis account, and the runtime has no dependency on an Otis
@@ -79,12 +79,15 @@ and keep per-block expansion as ephemeral UI state, while headless output includ
 
 ## Parallel boundary
 
-The user supplies a separate Parallel API key for web access. Otis sends it only in the `x-api-key` header on direct
-Parallel Search and Extract requests. Search receives one to three focused queries, and both operations cap returned
-content before it enters model context. Provider errors and malformed responses fail explicitly instead of falling
-back to an Otis service.
+Web search and page reading call Parallel's Search MCP directly from the local runtime. Otis does not send a Parallel
+API key. Requests POST JSON-RPC `tools/call` to `https://search.parallel.ai/mcp`.
 
-Neither provider key is written to sessions, transcripts, tool results, or usage events. Environment values override
+Otis keeps its own `web_search` and `web_read` tools. The Parallel adapter maps those to MCP `web_search` and
+`web_fetch`, unwraps the MCP text payload, and validates the inner result. Search uses Parallel's basic MCP mode.
+Page reads do not request full page content. `session_id` is the Otis session id, truncated to 100 characters, which
+Parallel uses as the free-tier rate-limit key. `model_name` is the selected Fireworks model.
+
+The Fireworks API key is not written to sessions, transcripts, tool results, or usage events. Environment values override
 saved values without being copied into `config.json`. Keys entered through setup are written atomically to the
 platform user-config directory; on macOS and Linux, that directory is mode `0700` and `config.json` is mode `0600`.
 This location is separate from the Otis executable, and the updater replaces only that executable.
