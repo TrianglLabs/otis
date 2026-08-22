@@ -124,8 +124,8 @@ export class ModelPicker {
 function modelMeta(item: ModelPickerItem) {
   const parts: string[] = []
   if (item.contextLength) parts.push(formatContext(item.contextLength))
-  if (item.supportsImageInput) parts.push("vision")
-  return parts.length > 0 ? parts.join(" · ") : undefined
+  parts.push(item.supportsImageInput ? "vision" : "text")
+  return parts.join(" · ")
 }
 
 function formatContext(tokens: number) {

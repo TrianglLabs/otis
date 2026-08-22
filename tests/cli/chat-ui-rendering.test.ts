@@ -295,9 +295,8 @@ describe("chat UI rendering", () => {
     await harness.renderOnce()
 
     const frame = harness.captureCharFrame()
-    expect(frame).toContain("n new")
-    expect(frame).toContain("d delete")
-    expect(harness.get<TextRenderable>("session-panel-footer").height).toBe(2)
+    expect(frame).toContain("[↑↓] move · [n] new · [d] delete")
+    expect(harness.get<TextRenderable>("session-panel-footer").height).toBe(1)
   })
 
   it("selects only models supplied by the verified model catalog", async () => {
@@ -325,7 +324,8 @@ describe("chat UI rendering", () => {
     expect(harness.text("model-row-0-meta")).toBe("  128K · vision")
     expect(harness.text("model-row-0")).not.toContain("accounts/fireworks")
     expect(harness.text("model-row-1")).toBe("  Beta")
-    expect(harness.text("model-row-1-meta")).toBe("")
+    expect(harness.text("model-row-1-meta")).toBe("  text")
+    expect(harness.text("model-panel-footer")).toBe("[↑↓] move")
 
     harness.press("down")
     harness.press("return")
