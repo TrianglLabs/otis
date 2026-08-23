@@ -1,7 +1,11 @@
 import type { TreeSitterClient } from "@opentui/core"
 import type { FireworksModel } from "../../inference/types.js"
 import type { ThemeName } from "../../local/settings.js"
+import type { LocalStats } from "../../local/stats.js"
 import type { SessionPickerItem } from "../session-metadata.js"
+import type { ThemeColors } from "../theme.js"
+import type { TranscriptEntry } from "../transcript.js"
+import type { AgentPhase } from "./format.js"
 
 export type Renderer = Awaited<ReturnType<typeof import("@opentui/core").createCliRenderer>>
 
@@ -42,6 +46,43 @@ export type ChatUIOptions = {
   onToggleMode?: () => void
   onPreviewTheme?: (theme: ThemeName) => void
   onCancelThemePreview?: () => void
+}
+
+export type ChatUI = {
+  clearInput(): void
+  focusInput(): void
+  hidePermissionPrompt(): void
+  hideModelPicker(): void
+  hideSessionPicker(): void
+  hideUpdateHint(): void
+  renderTranscript(entries: TranscriptEntry[], options?: { scrollToBottom?: boolean }): void
+  setBusy(value: boolean): void
+  setContextLabel(label: string, color?: string): void
+  setDiffStats(added: number, removed: number): void
+  setModeLabel(label: string): void
+  setImageAttachmentCount(count: number): void
+  setModelLabel(label: string): void
+  setConfigured(): void
+  setSessionLabel(label: string): void
+  setStats(stats: LocalStats): void
+  setTheme(theme: ThemeName, previous: ThemeColors): void
+  setThinkingVisible(visible: boolean): void
+  showStats(): void
+  showTransientHint(content: string): void
+  showModelPicker(items: ModelPickerItem[]): void
+  showSetupError(message: string): void
+  showSetupButton(): void
+  showSetupInput(message?: string): void
+  showSetupStatus(message?: string): void
+  showPermissionPrompt(detail: string): Promise<boolean>
+  showSessionPicker(items: SessionPickerItem[]): void
+  showThemeMenu(): void
+  showChatLayout(): void
+  showHomeLayout(): void
+  showUpdateHint(): void
+  setAgentPhase(phase: AgentPhase): void
+  startBusyIndicator(): void
+  stopBusyIndicator(): void
 }
 
 export type { FireworksModel, SessionPickerItem }

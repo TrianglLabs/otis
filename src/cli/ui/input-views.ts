@@ -1,4 +1,4 @@
-import { BoxRenderable, InputRenderable, TextareaRenderable, TextRenderable } from "@opentui/core"
+import { BoxRenderable, InputRenderable, MouseButton, TextareaRenderable, TextRenderable } from "@opentui/core"
 import { colors } from "../theme.js"
 import type { Renderer } from "./types.js"
 
@@ -88,23 +88,7 @@ export function createSetupViews(renderer: Renderer) {
   setupButtonBox.add(
     new TextRenderable(renderer, {
       id: "setup-why",
-      content: "Otis needs a Fireworks key to work:",
-      fg: colors.muted,
-      selectable: false,
-    }),
-  )
-  setupButtonBox.add(
-    new TextRenderable(renderer, {
-      id: "setup-hint",
-      content: "Fireworks provides access to open-weight models",
-      fg: colors.muted,
-      selectable: false,
-    }),
-  )
-  setupButtonBox.add(
-    new TextRenderable(renderer, {
-      id: "setup-web",
-      content: "Web search is included",
+      content: "Otis uses Fireworks as its inference provider.",
       fg: colors.muted,
       selectable: false,
     }),
@@ -112,30 +96,13 @@ export function createSetupViews(renderer: Renderer) {
   setupButtonBox.add(
     new TextRenderable(renderer, {
       id: "setup-local",
-      content: "Your data stays on your computer — no account, no cloud, you own it.",
+      content: "Your key and sessions stay on this machine.",
       fg: colors.muted,
       selectable: false,
     }),
   )
-  const setupButtonInner = new BoxRenderable(renderer, {
-    id: "setup-button-box",
-    flexDirection: "row",
-    paddingX: 2,
-    paddingY: 0,
-    backgroundColor: colors.accent,
-    flexShrink: 0,
-    marginTop: 1,
-  })
-  setupButtonInner.add(
-    new TextRenderable(renderer, {
-      id: "setup-button",
-      content: " Set up Otis ",
-      fg: colors.background,
-      bg: colors.accent,
-      selectable: false,
-    }),
-  )
-  setupButtonBox.add(setupButtonInner)
+  const setupStartButton = createAccentButton(renderer, "setup-button", "Set up Otis")
+  setupButtonBox.add(setupStartButton)
 
   const setupInput = new InputRenderable(renderer, {
     id: "setup-input",
@@ -151,13 +118,13 @@ export function createSetupViews(renderer: Renderer) {
   })
   const setupInputLabel = new TextRenderable(renderer, {
     id: "setup-input-label",
-    content: "API key",
+    content: "Fireworks API key",
     fg: colors.accent,
     selectable: false,
   })
   const setupMessage = new TextRenderable(renderer, {
     id: "setup-message",
-    content: " ",
+    content: "",
     fg: colors.muted,
     selectable: false,
     truncate: true,
@@ -179,24 +146,19 @@ export function createSetupViews(renderer: Renderer) {
   setupInputBox.add(setupInputLabel)
   setupInputBox.add(setupInput)
 
-  const setupKeyNote = new TextRenderable(renderer, {
-    id: "setup-key-note",
-    content: "Your key is stored only on this computer.",
-    fg: colors.muted,
-    selectable: false,
-  })
+  const setupContinueButton = createAccentButton(renderer, "setup-continue", "Continue")
   const setupForm = new BoxRenderable(renderer, {
     id: "setup-form",
     flexDirection: "column",
     width: "100%",
     minWidth: 24,
     flexShrink: 0,
+    alignItems: "center",
     backgroundColor: colors.background,
     gap: 1,
   })
   setupForm.add(setupInputBox)
-  setupForm.add(setupMessage)
-  setupForm.add(setupKeyNote)
+  setupForm.add(setupContinueButton)
 
   const setupStatusBox = new BoxRenderable(renderer, {
     id: "setup-status-box",
@@ -218,11 +180,12 @@ export function createSetupViews(renderer: Renderer) {
 
   return {
     setupButtonBox,
+    setupContinueButton,
     setupForm,
     setupInput,
     setupInputLabel,
-    setupKeyNote,
     setupMessage,
+    setupStartButton,
     setupStatus,
     setupStatusBox,
   }
@@ -262,4 +225,45 @@ export function createPermissionPrompt(renderer: Renderer) {
     }),
   )
   return { prompt, label }
+}
+
+function createAccentButton(renderer: Renderer, id: string, label: string) {
+  const box = new BoxRenderable(renderer, {
+    id: `${id}-box`,
+    flexDirection: "row",
+    paddingX: 2,
+    paddingY: 0,
+    backgroundColor: colors.accent,
+    flexShrink: 0,
+    marginTop: 1,
+  })
+  box.add(
+    new TextRenderable(renderer, {
+      id,
+      content: ` ${label} `,
+      fg: colors.background,
+      bg: colors.accent,
+      selectable: false,
+    }),
+  )
+  return box
+}
+
+export function bindAccentButton(button: BoxRenderable, renderer: Renderer, action: () => void) {
+  const activate = (event: { button: number; preventDefault(): void; stopPropagation(): void }) => {
+    if (event.button !== MouseButton.LEFT) return
+    event.preventDefault()
+    event.stopPropagation()
+    action()
+  }
+  const bind = (node: BoxRenderable | TextRenderable) => {
+    node.onMouseDown = activate
+    node.onMouseOver = () => renderer.setMousePointer("pointer")
+    node.onMouseOut = () => renderer.setMousePointer("default")
+    if (!(node instanceof BoxRenderable)) return
+    for (const child of node.getChildren()) {
+      if (child instanceof BoxRenderable || child instanceof TextRenderable) bind(child)
+    }
+  }
+  bind(button)
 }

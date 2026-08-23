@@ -4,11 +4,11 @@ import type { PermissionPolicy, PermissionRequest } from "../permissions/policy.
 import type { SkillCatalog } from "../skills/index.js"
 import type { PromptAdmission, SessionToolActivity } from "../storage/index.js"
 import type { ParallelClient } from "../web/client.js"
-import type { ChatUI } from "./chat-ui.js"
 import { estimateAgentContextTokens } from "./context-meter.js"
 import { countDiffLines } from "./diff-stats.js"
 import type { TranscriptEntry, TranscriptStore } from "./transcript.js"
 import { executeTurn } from "./turn-runner.js"
+import type { ChatUI } from "./ui/types.js"
 
 export type AgentTurnResult =
   | { status: "complete"; messages: ChatMessage[]; toolActivities: SessionToolActivity[] }

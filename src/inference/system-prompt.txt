@@ -23,8 +23,8 @@ Rules:
 - Prefer read, edit, and write for file operations.
 - Use bash for tests, builds, package managers, git, and shell-only inspection.
 - For edit, the old string must match exactly and appear once.
-- Use radar for discovery and visit for a specific URL.
-- Provide 2-3 short search_queries for radar when useful.
+- Use web_search for discovery and web_read for a specific URL.
+- Provide 2-3 short search_queries for web_search when useful.
 - Use the current year in searches for recent information.
 - Stop calling tools as soon as you have enough information to answer.
 - After tool results are provided, answer normally and cite sources or URLs when available.

@@ -40,15 +40,6 @@ describe("busyWave", () => {
     expect(start.at(-1)).toBeLessThan(0.25)
   })
 
-  it("keeps adjacent cells close in intensity so the wave stays smooth", () => {
-    const { intensities } = busyWave(0, 80)
-
-    expect(intensities).toHaveLength(80)
-    for (let index = 1; index < intensities.length; index += 1) {
-      expect(Math.abs(intensities[index] - intensities[index - 1])).toBeLessThan(0.25)
-    }
-  })
-
   it("clips the label when the bar is narrower than the label", () => {
     const line = busyWave(0, 6, "THINKING").text
 

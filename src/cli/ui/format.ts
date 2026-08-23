@@ -1,4 +1,5 @@
 import type { LocalStats } from "../../local/stats.js"
+import type { PermissionMode } from "../../permissions/policy.js"
 
 export const CHAT_INPUT_HINT = " [TAB] mode · [ESC] interrupt "
 
@@ -36,4 +37,23 @@ function formatDuration(seconds: number) {
   if (seconds >= 3600) return `${(seconds / 3600).toFixed(1)}H`
   if (seconds >= 60) return `${Math.round(seconds / 60)}M`
   return `${Math.round(seconds)}S`
+}
+
+export function formatModeLabel(mode: PermissionMode) {
+  if (mode === "ask") return "? ask"
+  if (mode === "auto") return "› auto"
+  return "× dontAsk"
+}
+
+export function formatModelName(model: string | undefined) {
+  if (!model) return ""
+  return model.includes("/") ? (model.split("/").at(-1) ?? model) : model
+}
+
+export function imageAttachmentLabel(count: number) {
+  if (count <= 0) return ""
+  const visible = Math.min(count, 2)
+  const labels = Array.from({ length: visible }, (_, index) => `[Image ${index + 1}]`)
+  if (count > visible) labels.push(`+${count - visible}`)
+  return labels.join(" ")
 }

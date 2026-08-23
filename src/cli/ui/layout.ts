@@ -24,8 +24,17 @@ export function createUILayout(
     truncate: true,
     selectable: false,
   })
-  const { setupButtonBox, setupForm, setupInput, setupInputLabel, setupMessage, setupStatus, setupStatusBox } =
-    createSetupViews(renderer)
+  const {
+    setupButtonBox,
+    setupContinueButton,
+    setupForm,
+    setupInput,
+    setupInputLabel,
+    setupMessage,
+    setupStartButton,
+    setupStatus,
+    setupStatusBox,
+  } = createSetupViews(renderer)
 
   const welcomePanel = new BoxRenderable(renderer, {
     id: "welcome-panel",
@@ -243,10 +252,12 @@ export function createUILayout(
     sessionPanel,
     sessionRowsBox,
     setupButtonBox,
+    setupContinueButton,
     setupForm,
     setupInput,
     setupInputLabel,
     setupMessage,
+    setupStartButton,
     setupStatus,
     setupStatusBox,
     statBoxes,
