@@ -19,13 +19,15 @@ jobs:
   release:
     name: Build and Publish
     runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ inputs.version }}
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
 
       - name: Configure Git
         run: |
@@ -35,7 +37,6 @@ jobs:
       - name: Preflight Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ inputs.version }}
         run: |
           if [[ "$GITHUB_REF_TYPE" != "branch" ]]; then
             printf '%s\n' 'Run releases from a branch so the version commit remains in repository history.' >&2
@@ -65,14 +66,14 @@ jobs:
         run: bun run verify
 
       - name: Bump Version
-        run: jq --arg v "${{ inputs.version }}" '.version = $v' package.json > tmp.json && mv tmp.json package.json
+        run: jq --arg v "$VERSION" '.version = $v' package.json > tmp.json && mv tmp.json package.json
 
       - name: Build Binaries
         run: bun run build
 
       - name: Tag Release
         run: |
-          version="v${{ inputs.version }}"
+          version="v$VERSION"
 
           git add package.json
           if git diff --cached --quiet; then
@@ -88,10 +89,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "v${{ inputs.version }}" \
+          gh release create "v$VERSION" \
             dist/public/install.sh \
             dist/public/releases/latest.txt \
-            dist/public/releases/v${{ inputs.version }}/* \
-            --title "v${{ inputs.version }}" \
+            dist/public/releases/v"$VERSION"/* \
+            --title "v$VERSION" \
             --generate-notes \
-            --repo ${{ github.repository }}
+            --repo "$GITHUB_REPOSITORY"
