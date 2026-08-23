@@ -34,7 +34,6 @@ describe("interactive CLI setup", () => {
     expect(mocks.calculateLocalStats).not.toHaveBeenCalled()
     mocks.uiOptions?.onSetup?.()
     expect(mocks.ui.showSetupInput).toHaveBeenCalledOnce()
-    expect(mocks.ui.showSetupInput).toHaveBeenCalledWith(expect.stringContaining("Inference"))
     expect(mocks.openFireworksKeyPage).toHaveBeenCalledOnce()
 
     mocks.uiOptions?.onSetupSubmit?.("fw_new_key")

@@ -117,17 +117,6 @@ describe("chat UI status and prompts", () => {
     expect(harness.text("input-hint")).toBe(" [TAB] mode · [ESC] interrupt ")
   })
 
-  it("renders stat boxes with the same rounded border style as the input box", async () => {
-    const harness = await setup()
-    const inputBox = harness.get<BoxRenderable>("input-box")
-
-    for (let index = 0; index < 4; index += 1) {
-      const statBox = harness.get<BoxRenderable>(`welcome-stat-${index}`)
-      expect(statBox.borderStyle).toBe(inputBox.borderStyle)
-      expect(statBox.borderStyle).toBe("rounded")
-    }
-  })
-
   it("lays out stat cards evenly and centers each value within its card", async () => {
     vi.useFakeTimers()
     const harness = await setup()

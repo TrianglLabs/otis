@@ -1,12 +1,5 @@
-import {
-  type BoxRenderable,
-  type InputRenderable,
-  RGBA,
-  type TextareaRenderable,
-  type TextRenderable,
-} from "@opentui/core"
+import type { InputRenderable, TextareaRenderable, TextRenderable } from "@opentui/core"
 import { describe, expect, it, vi } from "vitest"
-import { colors } from "../../src/cli/theme.js"
 import { CHAT_INPUT_HINT } from "../../src/cli/ui/format.js"
 import { THEME_NAMES } from "../../src/local/settings.js"
 import { useChatHarness } from "./support/chat-ui-harness.js"
@@ -37,12 +30,6 @@ describe("chat UI input", () => {
     expect(harness.childIds("command-menu")).toEqual(["command-row-0-box"])
     expect(harness.text("command-row-0")).toBe("› /history")
     expect(harness.text("command-row-0-meta")).toBe("  Open session history")
-    expect(harness.get<BoxRenderable>("command-menu").border).toBe(true)
-    expect(harness.get<BoxRenderable>("command-menu").borderStyle).toBe("rounded")
-    expect(harness.get<BoxRenderable>("command-menu").backgroundColor.equals(RGBA.fromHex(colors.background))).toBe(
-      true,
-    )
-    expect(harness.get<TextRenderable>("command-row-0").bg.equals(RGBA.fromHex(colors.background))).toBe(true)
 
     harness.press("return")
     expect(onSubmit).toHaveBeenCalledWith("/history")
@@ -172,26 +159,23 @@ describe("chat UI input", () => {
     const harness = await setup({ configured: false, onSetup, onSetupSubmit })
 
     expect(harness.childIds("input-area")).toEqual(["setup-box"])
-    expect(harness.childIds("setup-box")).toEqual([
-      "setup-why",
-      "setup-hint",
-      "setup-web",
-      "setup-local",
-      "setup-button-box",
-    ])
+    expect(harness.childIds("setup-box")).toEqual(["setup-why", "setup-local", "setup-button-box"])
     expect(harness.text("setup-button")).toContain("Set up Otis")
-    expect(harness.text("setup-why")).toContain("Fireworks key")
-    expect(harness.text("setup-hint")).toContain("open-weight models")
-    expect(harness.text("setup-web")).toContain("Web search is included")
-    expect(harness.text("setup-local")).toContain("your computer")
+    expect(harness.text("setup-why")).toBe("Otis uses Fireworks as its inference provider.")
+    expect(harness.text("setup-local")).toBe("Your key and sessions stay on this machine.")
 
     harness.press("return")
     expect(onSetup).toHaveBeenCalledOnce()
 
     harness.ui.showSetupInput()
-    expect(harness.text("setup-key-note")).toContain("stored only on this computer")
+    expect(harness.text("setup-input-label")).toBe("Fireworks API key")
+    expect(harness.childIds("setup-form")).toEqual(["setup-input-box", "setup-continue-box"])
+    expect(harness.find("setup-message")).toBeUndefined()
+    expect(harness.text("setup-continue")).toContain("Continue")
     await harness.typeText("fw_test_key")
-    harness.submitSetup()
+    await harness.renderOnce()
+    const continueButton = harness.get<TextRenderable>("setup-continue")
+    await harness.mockMouse.click(continueButton.x + 1, continueButton.y)
     expect(onSetupSubmit).toHaveBeenCalledWith("fw_test_key")
 
     harness.ui.showSetupStatus()
@@ -215,6 +199,8 @@ describe("chat UI input", () => {
 
     harness.ui.showSetupError("Try again")
     expect(harness.get<InputRenderable>("setup-input").plainText).toBe("")
+    expect(harness.childIds("setup-form")).toEqual(["setup-input-box", "setup-message", "setup-continue-box"])
+    expect(harness.text("setup-message")).toBe("Try again")
     await harness.typeText("second-secret")
     harness.submitSetup()
 

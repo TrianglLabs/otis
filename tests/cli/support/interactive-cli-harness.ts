@@ -175,7 +175,10 @@ vi.mock("../../../src/tools/index.js", () => ({
   TOOL_DEFINITIONS: [],
 }))
 vi.mock("../../../src/cli/chat-ui.js", () => ({ createChatUI: mocks.createChatUI }))
-vi.mock("../../../src/cli/provider-links.js", () => ({ openFireworksKeyPage: mocks.openFireworksKeyPage }))
+vi.mock("../../../src/cli/provider-links.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../src/cli/provider-links.js")>()
+  return { ...actual, openFireworksKeyPage: mocks.openFireworksKeyPage }
+})
 vi.mock("../../../src/cli/update.js", () => ({
   checkForUpdate: mocks.checkForUpdate,
   runUpdateCommand: mocks.runUpdateCommand,

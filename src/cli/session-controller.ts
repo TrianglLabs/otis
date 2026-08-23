@@ -1,6 +1,5 @@
 import type { FireworksClient } from "../inference/client.js"
 import { createSession, deleteSession, type JsonlSession, listSessions, openSession } from "../storage/index.js"
-import type { ChatUI } from "./chat-ui.js"
 import { countTranscriptDiffLines } from "./diff-stats.js"
 import {
   activeSessionLabel,
@@ -9,6 +8,7 @@ import {
   toSessionPickerItem,
 } from "./session-metadata.js"
 import type { TranscriptStore } from "./transcript.js"
+import type { ChatUI } from "./ui/types.js"
 
 type SessionControllerOptions = {
   client: () => FireworksClient | undefined

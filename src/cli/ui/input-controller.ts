@@ -6,6 +6,7 @@ import {
   type TextRenderable,
 } from "@opentui/core"
 import { colors } from "../theme.js"
+import { bindAccentButton } from "./input-views.js"
 import type { InputMode, Renderer } from "./types.js"
 
 type InputControllerOptions = {
@@ -15,15 +16,24 @@ type InputControllerOptions = {
   inputArea: BoxRenderable
   inputBox: BoxRenderable
   setupButtonBox: BoxRenderable
+  setupContinueButton: BoxRenderable
   setupForm: BoxRenderable
   setupInput: InputRenderable
   setupInputLabel: TextRenderable
   setupMessage: TextRenderable
+  setupStartButton: BoxRenderable
   setupStatus: TextRenderable
   setupStatusBox: BoxRenderable
   welcomeQuit: TextRenderable
   onBeforePrimaryInput: () => void
+  onSetup?: () => void
   onSetupSubmit?: (apiKey: string) => void
+}
+
+type SetupKey = {
+  name: string
+  preventDefault(): void
+  stopPropagation(): void
 }
 
 export class InputController {
@@ -31,9 +41,18 @@ export class InputController {
 
   constructor(private readonly options: InputControllerOptions) {
     this.mode = options.configured ? "chat" : "setupButton"
-    options.setupInput.on(InputRenderableEvents.ENTER, () => {
-      if (this.mode === "setupInput") options.onSetupSubmit?.(options.setupInput.value)
-    })
+    options.setupInput.on(InputRenderableEvents.ENTER, () => this.#submitSetup())
+    bindAccentButton(options.setupStartButton, options.renderer, () => options.onSetup?.())
+    bindAccentButton(options.setupContinueButton, options.renderer, () => this.#submitSetup())
+  }
+
+  handleKey(key: SetupKey) {
+    if (this.mode !== "setupButton") return false
+    if (key.name !== "return" && key.name !== "enter") return false
+    key.preventDefault()
+    key.stopPropagation()
+    this.options.onSetup?.()
+    return true
   }
 
   clear() {
@@ -64,18 +83,16 @@ export class InputController {
   showSetup(message = "") {
     this.clearSetupInput()
     this.mode = "setupInput"
-    this.options.setupInputLabel.content = "Fireworks key"
-    this.options.setupMessage.content = message
-    this.options.setupMessage.fg = colors.muted
+    this.options.setupInputLabel.content = "Fireworks API key"
     this.options.welcomeQuit.content = " "
+    this.#setSetupMessage(message, false)
     this.setPrimary(this.options.setupForm)
     this.focus()
   }
 
   showSetupError(message: string) {
     this.showSetup(message)
-    this.options.setupMessage.fg = colors.pink
-    this.options.renderer.requestRender()
+    this.#setSetupMessage(message, true)
   }
 
   showSetupStatus(message = "Loading models...") {
@@ -105,5 +122,23 @@ export class InputController {
 
   private clearSetupInput() {
     this.options.setupInput.value = ""
+  }
+
+  #submitSetup() {
+    if (this.mode !== "setupInput") return
+    this.options.onSetupSubmit?.(this.options.setupInput.value)
+  }
+
+  #setSetupMessage(message: string, error: boolean) {
+    const { setupForm, setupMessage } = this.options
+    setupMessage.content = message
+    setupMessage.fg = error ? colors.pink : colors.muted
+    const mounted = setupForm.getChildren().some((child) => child.id === setupMessage.id)
+    if (message) {
+      if (!mounted) setupForm.add(setupMessage, 1)
+    } else if (mounted) {
+      setupForm.remove(setupMessage.id)
+    }
+    this.options.renderer.requestRender()
   }
 }

@@ -2,8 +2,8 @@ import { listToolCapableModels } from "../inference/client.js"
 import { selectDefaultFireworksModel } from "../inference/model-policy.js"
 import type { FireworksModel } from "../inference/types.js"
 import { type LocalSettings, saveFireworksSetup, saveSelectedModel } from "../local/settings.js"
-import type { ChatUI } from "./chat-ui.js"
 import { openFireworksKeyPage } from "./provider-links.js"
+import type { ChatUI } from "./ui/types.js"
 
 type SetupFlowOptions = {
   ui: ChatUI
@@ -91,7 +91,7 @@ export class SetupFlow {
   }
 
   private requestFireworksKey() {
-    this.options.ui.showSetupInput("Inference + tool calling · Get key: app.fireworks.ai/api-keys")
+    this.options.ui.showSetupInput()
     if (this.#openedFireworksKeyPage) return
     this.#openedFireworksKeyPage = true
     void openFireworksKeyPage()

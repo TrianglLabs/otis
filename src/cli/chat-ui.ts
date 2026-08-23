@@ -1,35 +1,40 @@
-import { MouseButton, type RGBA, rgbToHex, ScrollBoxRenderable, type TextRenderable } from "@opentui/core"
-import { isThemeName, type ThemeName } from "../local/settings.js"
+import { MouseButton, type TextRenderable } from "@opentui/core"
+import type { ThemeName } from "../local/settings.js"
 import type { LocalStats } from "../local/stats.js"
 import { copyToClipboardNative } from "./clipboard.js"
 import { colors, type ThemeColors } from "./theme.js"
 import type { TranscriptEntry } from "./transcript.js"
 import { AgentStatus } from "./ui/agent-status.js"
 import { CommandMenu } from "./ui/command-menu.js"
-import { type AgentPhase, CHAT_INPUT_HINT, formatContextLabel, formatRuntimeHint } from "./ui/format.js"
+import {
+  type AgentPhase,
+  CHAT_INPUT_HINT,
+  formatContextLabel,
+  formatRuntimeHint,
+  imageAttachmentLabel,
+} from "./ui/format.js"
 import { HomeStats } from "./ui/home-stats.js"
 import { InputController } from "./ui/input-controller.js"
 import { createUILayout, themeRootsFrom } from "./ui/layout.js"
 import { ModelPicker } from "./ui/model-picker.js"
+import { OverlayHost } from "./ui/overlays.js"
 import { createScrollbarOptions } from "./ui/panels.js"
 import { PermissionController } from "./ui/permission-controller.js"
+import { recolorTree } from "./ui/recolor.js"
 import { SessionPicker } from "./ui/session-picker.js"
 import { SessionStatus } from "./ui/session-status.js"
 import { TranscriptView } from "./ui/transcript-view.js"
-import type { ChatUIOptions, ModelPickerItem, Renderer, SessionPickerItem } from "./ui/types.js"
+import type { ChatUI, ChatUIOptions, Renderer } from "./ui/types.js"
 
-export type { CommandSuggestion, ModelPickerItem, SessionPickerItem } from "./ui/types.js"
+export type { ChatUI, CommandSuggestion, ModelPickerItem, SessionPickerItem } from "./ui/types.js"
 
-export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
+export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI {
   let showingWelcome = true
-  let commandMenuVisible = false
-  let modelPickerVisible = false
-  let sessionPickerVisible = false
   let busy = false
   let updateHintVisible = false
   let activeTheme = options.theme ?? "default"
-  // Ignore the deferred empty input event emitted when opening the theme menu.
-  let themeMenuOpen = false
+  let selectedModelName = options.modelLabel
+  let runtimeHintVisible = false
 
   const layout = createUILayout(renderer, options)
   const {
@@ -53,10 +58,12 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
     sessionPanel,
     sessionRowsBox,
     setupButtonBox,
+    setupContinueButton,
     setupForm,
     setupInput,
     setupInputLabel,
     setupMessage,
+    setupStartButton,
     setupStatus,
     setupStatusBox,
     statBoxes,
@@ -71,14 +78,19 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
   const models = new ModelPicker(renderer, modelRowsBox)
   const sessions = new SessionPicker(renderer, sessionRowsBox)
   const sessionStatus = new SessionStatus(renderer, sessionLabel, options.sessionLabel)
-  let thinkingVisible = options.thinkingVisible ?? false
-  const transcriptView = new TranscriptView(renderer, messages, options.treeSitterClient, thinkingVisible)
+  const transcriptView = new TranscriptView(
+    renderer,
+    messages,
+    options.treeSitterClient,
+    options.thinkingVisible ?? false,
+  )
   const permissions = new PermissionController({
     renderer,
     inputArea,
     prompt: permissionPrompt,
     label: permissionLabel,
   })
+  let overlays: OverlayHost
   const status = new AgentStatus({
     renderer,
     root,
@@ -86,7 +98,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
     agentBar,
     inputHint,
     isWelcomeVisible: () => showingWelcome,
-    isOverlayVisible: () => commandMenuVisible || permissions.isVisible,
+    isOverlayVisible: () => overlays.commandMenuVisible || permissions.isVisible,
     onInterrupt: options.onInterrupt,
   })
   const homeStats = new HomeStats({
@@ -94,12 +106,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
     statBoxes,
     isWelcomeVisible: () => showingWelcome,
   })
-  let selectedModelName = options.modelLabel
-  let runtimeHintVisible = false
   status.setInputHint(homeModelHint(selectedModelName))
-  const setAgentPhase = (phase: AgentPhase) => status.setPhase(phase)
-  const startBusyIndicator = () => status.startBusyIndicator()
-  const stopBusyIndicator = () => status.stopBusyIndicator()
   const inputController = new InputController({
     renderer,
     configured: options.configured !== false,
@@ -107,49 +114,63 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
     inputArea,
     inputBox,
     setupButtonBox,
+    setupContinueButton,
     setupForm,
     setupInput,
     setupInputLabel,
     setupMessage,
+    setupStartButton,
     setupStatus,
     setupStatusBox,
     welcomeQuit,
-    onBeforePrimaryInput: hideCommandMenu,
+    onBeforePrimaryInput: () => overlays.hideCommandMenu(),
+    onSetup: options.onSetup,
     onSetupSubmit: options.onSetupSubmit,
+  })
+  overlays = new OverlayHost({
+    renderer,
+    chatBody,
+    inputArea,
+    commandMenu,
+    modelPanel,
+    sessionPanel,
+    commands,
+    models,
+    sessions,
+    showingWelcome: () => showingWelcome,
+    activeTheme: () => activeTheme,
+    onSubmit: options.onSubmit,
+    onPreviewTheme: options.onPreviewTheme,
+    onCancelThemePreview: options.onCancelThemePreview,
+    onCloseModelPicker: options.onCloseModelPicker,
+    onSelectModel: options.onSelectModel,
+    onNewSession: options.onNewSession,
+    onDeleteSession: options.onDeleteSession,
+    onSelectSession: options.onSelectSession,
+    showChatLayout,
+    hideSetupStatus: () => inputController.hideSetupStatus(),
+    clearInput,
+    focusInput,
+    suspendStatus: () => status.suspendForOverlay(),
+    restoreStatus: () => status.restoreAfterOverlay(),
   })
 
   input.onSubmit = () => {
     if (inputController.mode !== "chat") return
-
     const value = input.plainText
-
-    if (commandMenuVisible) {
-      const selected = commands.selected()
-      hideCommandMenu(false)
-      if (selected?.name === "/theme") {
-        clearInput()
-        showThemeMenu()
-        focusInput()
-        return
-      }
-      options.onSubmit(selected?.name ?? value.trim())
-      return
-    }
-
-    hideCommandMenu()
+    if (overlays.submitFromInput(value)) return
+    overlays.hideCommandMenu()
     options.onSubmit(value.trim())
   }
 
   input.onContentChange = () => {
     if (inputController.mode !== "chat") return
-
     const value = input.plainText
-    if (themeMenuOpen && value === "") {
+    if (overlays.themeMenuOpen && value === "") {
       options.onInputChange?.(value)
       return
     }
-    themeMenuOpen = false
-    updateCommandMenu(value)
+    overlays.updateCommandMenu(value)
     options.onInputChange?.(value)
   }
 
@@ -166,16 +187,9 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
   inputHint.onMouseOut = () => renderer.setMousePointer("default")
 
   renderer.keyInput.on("keypress", (key) => {
-    if (inputController.mode === "setupButton" && (key.name === "return" || key.name === "enter")) {
-      stopKey(key)
-      options.onSetup?.()
-      return
-    }
-
+    if (inputController.handleKey(key)) return
     if (permissions.handleKey(key)) return
-    if (commandMenuVisible && handleCommandMenuKey(key)) return
-    if (modelPickerVisible && handleModelPickerKey(key)) return
-    if (sessionPickerVisible && handleSessionPickerKey(key)) return
+    if (overlays.handleKey(key)) return
     if (inputController.mode !== "chat") return
 
     if (key.name === "escape") {
@@ -225,65 +239,12 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
     }
   })
 
-  function renderTranscript(entries: TranscriptEntry[], options: { scrollToBottom?: boolean } = {}) {
-    transcriptView.render(entries, options)
+  function renderTranscript(entries: TranscriptEntry[], renderOptions: { scrollToBottom?: boolean } = {}) {
+    transcriptView.render(entries, renderOptions)
   }
 
   function setThinkingVisible(visible: boolean) {
-    thinkingVisible = visible
     transcriptView.setThinkingVisible(visible)
-  }
-
-  const showTransientHint = (content: string) => status.showTransientHint(content)
-
-  function showSessionPicker(items: SessionPickerItem[]) {
-    showChatLayout()
-    if (modelPickerVisible) {
-      chatBody.remove(modelPanel.id)
-      modelPickerVisible = false
-    }
-    models.stop()
-    sessions.setItems(items)
-
-    if (!sessionPickerVisible) {
-      chatBody.add(sessionPanel, 0)
-      sessionPickerVisible = true
-    }
-    renderer.requestRender()
-  }
-
-  function showModelPicker(items: ModelPickerItem[]) {
-    inputController.hideSetupStatus()
-    showChatLayout()
-    if (sessionPickerVisible) {
-      sessions.stop()
-      chatBody.remove(sessionPanel.id)
-      sessionPickerVisible = false
-    }
-    models.setItems(items)
-    if (!modelPickerVisible) {
-      chatBody.add(modelPanel, 0)
-      modelPickerVisible = true
-    }
-    renderer.requestRender()
-  }
-
-  function hideModelPicker() {
-    if (!modelPickerVisible) return
-    models.stop()
-    chatBody.remove(modelPanel.id)
-    modelPickerVisible = false
-    focusInput()
-    renderer.requestRender()
-  }
-
-  function hideSessionPicker() {
-    if (!sessionPickerVisible) return
-    sessions.stop()
-    chatBody.remove(sessionPanel.id)
-    sessionPickerVisible = false
-    focusInput()
-    renderer.requestRender()
   }
 
   function showChatLayout() {
@@ -314,17 +275,8 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
   function showHomeLayout() {
     if (showingWelcome) return
 
-    hideCommandMenu()
-    if (sessionPickerVisible) {
-      sessions.stop()
-      chatBody.remove(sessionPanel.id)
-      sessionPickerVisible = false
-    }
-    if (modelPickerVisible) {
-      models.stop()
-      chatBody.remove(modelPanel.id)
-      modelPickerVisible = false
-    }
+    overlays.hideCommandMenu()
+    overlays.dismissPickers()
     status.hideForHome()
     runtimeHintVisible = false
     status.setInputHint(homeModelHint(selectedModelName))
@@ -350,7 +302,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
 
   function clearInput() {
     inputController.clear()
-    hideCommandMenu()
+    overlays.hideCommandMenu()
   }
 
   function setImageAttachmentCount(count: number) {
@@ -359,12 +311,6 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
     if (count > 0 && !mounted) inputBox.add(imageAttachments, 1)
     if (count === 0 && mounted) inputBox.remove(imageAttachments.id)
     renderer.requestRender()
-  }
-
-  function showThemeMenu() {
-    commands.update("/theme ", showingWelcome, activeTheme)
-    themeMenuOpen = true
-    showCommandMenu()
   }
 
   function setTheme(theme: ThemeName, previous: ThemeColors) {
@@ -381,7 +327,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
     renderer.setBackgroundColor(colors.background)
     status.refreshTheme(previous)
     transcriptView.refreshTheme()
-    if (commandMenuVisible) commands.refreshTheme(activeTheme)
+    overlays.refreshTheme()
     renderer.requestRender()
   }
 
@@ -392,22 +338,6 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
   function setConfigured() {
     inputController.setConfigured()
     showStats()
-  }
-
-  function showSetupButton() {
-    inputController.showSetupButton()
-  }
-
-  function showSetupInput(message?: string) {
-    inputController.showSetup(message)
-  }
-
-  function showSetupError(message: string) {
-    inputController.showSetupError(message)
-  }
-
-  function showSetupStatus(message?: string) {
-    inputController.showSetupStatus(message)
   }
 
   function setContextLabel(label: string, color = colors.muted) {
@@ -443,14 +373,6 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
     status.restoreAfterOverlay()
   }
 
-  function setSessionLabel(label: string) {
-    sessionStatus.setLabel(label)
-  }
-
-  function setDiffStats(added: number, removed: number) {
-    sessionStatus.setDiff(added, removed)
-  }
-
   function setBusy(value: boolean) {
     busy = value
     if (!value) status.clearInterrupt()
@@ -473,82 +395,6 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
     renderer.requestRender()
   }
 
-  function updateCommandMenu(value: string) {
-    if (!commands.update(value, showingWelcome, activeTheme)) {
-      hideCommandMenu()
-      return
-    }
-    showCommandMenu()
-  }
-
-  function showCommandMenu() {
-    if (!commandMenuVisible) {
-      status.suspendForOverlay()
-      inputArea.add(commandMenu)
-      commandMenuVisible = true
-    }
-    renderer.requestRender()
-  }
-
-  function hideCommandMenu(restoreThemePreview = true) {
-    if (!commandMenuVisible) return
-    inputArea.remove(commandMenu.id)
-    commandMenuVisible = false
-    themeMenuOpen = false
-    commands.clear()
-    if (restoreThemePreview) options.onCancelThemePreview?.()
-    status.restoreAfterOverlay()
-    renderer.requestRender()
-  }
-
-  function handleCommandMenuKey(key: { name: string; preventDefault(): void; stopPropagation(): void }) {
-    const handled = commands.handleKey(key, {
-      close: hideCommandMenu,
-      select: (command) => {
-        if (command.name === "/theme") {
-          clearInput()
-          showThemeMenu()
-          focusInput()
-          return
-        }
-        options.onSubmit(command.name)
-      },
-      preview: (command) => {
-        const theme = themeFromCommand(command.name)
-        if (theme) options.onPreviewTheme?.(theme)
-      },
-    })
-    if (handled && key.name === "escape") focusInput()
-    return handled
-  }
-
-  function handleSessionPickerKey(key: {
-    name: string
-    ctrl?: boolean
-    meta?: boolean
-    preventDefault(): void
-    stopPropagation(): void
-  }) {
-    return sessions.handleKey(key, {
-      close: hideSessionPicker,
-      create: () => options.onNewSession?.(),
-      delete: (sessionId) => options.onDeleteSession?.(sessionId),
-      select: (sessionId) => options.onSelectSession?.(sessionId),
-    })
-  }
-
-  function handleModelPickerKey(key: { name: string; preventDefault(): void; stopPropagation(): void }) {
-    return models.handleKey(key, {
-      close: () => {
-        hideModelPicker()
-        options.onCloseModelPicker?.()
-      },
-      select: (model) => options.onSelectModel?.(model),
-    })
-  }
-
-  focusInput()
-
   function setStats(stats: LocalStats) {
     homeStats.setStats(stats)
   }
@@ -558,102 +404,49 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions) {
     renderer.requestRender()
   }
 
+  focusInput()
+
   return {
     clearInput,
     focusInput,
     hidePermissionPrompt,
-    hideModelPicker,
-    hideSessionPicker,
+    hideModelPicker: () => overlays.hideModelPicker(),
+    hideSessionPicker: () => overlays.hideSessionPicker(),
     hideUpdateHint,
     renderTranscript,
     setBusy,
     setContextLabel,
-    setDiffStats,
+    setDiffStats: (added, removed) => sessionStatus.setDiff(added, removed),
     setModeLabel,
     setImageAttachmentCount,
     setModelLabel,
     setConfigured,
-    setSessionLabel,
+    setSessionLabel: (label) => sessionStatus.setLabel(label),
     setStats,
     setTheme,
     setThinkingVisible,
     showStats,
-    showTransientHint,
-    showModelPicker,
-    showSetupError,
-    showSetupButton,
-    showSetupInput,
-    showSetupStatus,
+    showTransientHint: (content) => status.showTransientHint(content),
+    showModelPicker: (items) => overlays.showModelPicker(items),
+    showSetupError: (message) => inputController.showSetupError(message),
+    showSetupButton: () => inputController.showSetupButton(),
+    showSetupInput: (message) => inputController.showSetup(message),
+    showSetupStatus: (message) => inputController.showSetupStatus(message),
     showPermissionPrompt,
-    showSessionPicker,
-    showThemeMenu,
+    showSessionPicker: (items) => overlays.showSessionPicker(items),
+    showThemeMenu: () => overlays.showThemeMenu(),
     showChatLayout,
     showHomeLayout,
     showUpdateHint,
-    setAgentPhase,
-    startBusyIndicator,
-    stopBusyIndicator,
+    setAgentPhase: (phase: AgentPhase) => status.setPhase(phase),
+    startBusyIndicator: () => status.startBusyIndicator(),
+    stopBusyIndicator: () => status.stopBusyIndicator(),
   }
-}
-
-function themeFromCommand(command: string): ThemeName | undefined {
-  const theme = command.slice("/theme ".length)
-  return isThemeName(theme) ? theme : undefined
-}
-
-const RECOLOR_KEYS = ["backgroundColor", "borderColor", "fg", "bg", "textColor", "cursorColor"] as const
-
-type RecolorNode = { getChildren?: () => unknown[] } & Record<string, unknown>
-
-function recolorTree(renderables: Iterable<{ getChildren(): unknown[] }>, previous: ThemeColors) {
-  const replacements = new Map<string, string>()
-  const visited = new WeakSet<object>()
-  for (const key of Object.keys(previous) as (keyof ThemeColors)[]) {
-    const oldHex = previous[key].toLowerCase()
-    const newHex = colors[key]
-    if (oldHex !== newHex.toLowerCase()) replacements.set(oldHex, newHex)
-  }
-
-  const visit = (current: RecolorNode | undefined) => {
-    if (!current || visited.has(current)) return
-    visited.add(current)
-    for (const key of RECOLOR_KEYS) {
-      const value = current[key]
-      if (isColor(value)) {
-        const replacement = replacements.get(rgbToHex(value).toLowerCase())
-        if (replacement) current[key] = replacement
-      } else if (typeof value === "string") {
-        const replacement = replacements.get(value.toLowerCase())
-        if (replacement && replacement.toLowerCase() !== value.toLowerCase()) current[key] = replacement
-      }
-    }
-    if (current instanceof ScrollBoxRenderable) {
-      visit(current.wrapper as unknown as RecolorNode)
-      visit(current.viewport as unknown as RecolorNode)
-      visit(current.content as unknown as RecolorNode)
-    }
-    for (const child of current.getChildren?.() ?? []) visit(child as RecolorNode)
-  }
-  for (const renderable of renderables) visit(renderable as RecolorNode)
-}
-
-function isColor(value: unknown): value is RGBA {
-  return typeof value === "object" && value !== null && "toInts" in value && typeof value.toInts === "function"
 }
 
 function homeModelHint(modelName: string) {
   return modelName ? ` ${modelName} ` : ""
 }
-
-function imageAttachmentLabel(count: number) {
-  if (count <= 0) return ""
-  const visible = Math.min(count, 2)
-  const labels = Array.from({ length: visible }, (_, index) => `[Image ${index + 1}]`)
-  if (count > visible) labels.push(`+${count - visible}`)
-  return labels.join(" ")
-}
-
-export type ChatUI = ReturnType<typeof createChatUI>
 
 function setText(renderable: TextRenderable, content: string) {
   renderable.content = content
