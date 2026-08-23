@@ -1,6 +1,6 @@
 {
   "name": "@triangllabs/otis",
-  "version": "0.1.23",
+  "version": "0.1.24",
   "description": "Local terminal agent powered by tool-capable open models",
   "private": true,
   "license": "MIT",
