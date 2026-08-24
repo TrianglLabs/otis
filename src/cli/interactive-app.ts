@@ -3,6 +3,7 @@ import { autoCompactThreshold, compactConversation } from "../core/compaction.js
 import { loadProjectContext } from "../core/context.js"
 import { FireworksClient } from "../inference/client.js"
 import { createUserMessage, summarizeUserMessage, userMessageContentChars } from "../inference/messages.js"
+import { isFastFireworksModel } from "../inference/serving-path.js"
 import { skillAdvertisementChars } from "../inference/system-prompt.js"
 import type { ContextFile, FireworksModel } from "../inference/types.js"
 import {
@@ -31,11 +32,11 @@ import { contextUsage, contextUsageColor, estimateContextTokens, formatContextUs
 import { ImageFlow } from "./image-flow.js"
 import { SessionController } from "./session-controller.js"
 import { SetupFlow } from "./setup-flow.js"
-import { parseSlashCommand, SLASH_COMMANDS, type SlashCommand, slashCommandIgnoresBusy } from "./slash-commands.js"
+import { parseSlashCommand, type SlashCommand, slashCommandIgnoresBusy, slashCommands } from "./slash-commands.js"
 import { initializeTreeSitterClient, TerminalController } from "./terminal.js"
 import { colors, selectTheme } from "./theme.js"
 import { TranscriptStore } from "./transcript.js"
-import { formatModeLabel, formatModelName } from "./ui/format.js"
+import { formatModeLabel, formatModelName, withFastModelMark } from "./ui/format.js"
 import type { ChatUI, Renderer } from "./ui/types.js"
 import { checkForUpdate } from "./update.js"
 import { formatWorkspaceLabel } from "./workspace-label.js"
@@ -75,6 +76,8 @@ export class InteractiveApp {
   #permissionRules: PermissionRule[] = []
   #selectedTheme: ThemeName = "default"
   #thinkingVisible = false
+  #fastMode = true
+  #fastAvailable = false
   #activeTurn: AbortController | undefined
   #updateCheckController: AbortController | undefined
 
@@ -88,6 +91,8 @@ export class InteractiveApp {
     selectTheme(settings.theme)
     this.#selectedTheme = settings.theme ?? "default"
     this.#thinkingVisible = settings.thinkingVisible ?? false
+    this.#fastMode = settings.fastMode ?? true
+    this.#fastAvailable = Boolean(settings.modelFastId) || isFastFireworksModel(settings.model ?? "")
     this.#fireworksApiKey = settings.fireworksApiKey
     this.#selectedModelId = settings.model
     this.#images.setModelCapability(settings.modelSupportsImageInput)
@@ -116,14 +121,17 @@ export class InteractiveApp {
     this.#ui = createChatUI(this.#renderer, {
       configured: this.#configured,
       statsVisible: Boolean(this.#fireworksApiKey),
-      commands: SLASH_COMMANDS,
+      commands: slashCommands({ fast: this.#fastAvailable }),
       contextLabel: formatContextUsage(
         contextUsage(
           estimateContextTokens(this.#transcript.history, this.#staticContextChars),
           this.#autoCompactAtTokens,
         ),
       ),
-      modelLabel: formatModelName(settings.modelDisplayName ?? this.#selectedModelId),
+      modelLabel: withFastModelMark(
+        formatModelName(settings.modelDisplayName ?? this.#selectedModelId),
+        Boolean(this.#selectedModelId && isFastFireworksModel(this.#selectedModelId)),
+      ),
       modeLabel: formatModeLabel(this.#permissionMode),
       sessionLabel: "Current session",
       theme: this.#selectedTheme,
@@ -190,6 +198,10 @@ export class InteractiveApp {
         this.#applySelectedModel(model)
         this.#configured = true
         void this.#refreshLocalStats()
+      },
+      fastMode: () => this.#fastMode,
+      onFastModeChanged: (fast) => {
+        this.#fastMode = fast
       },
       ui: this.#ui,
     })
@@ -274,6 +286,9 @@ export class InteractiveApp {
         await this.#setupFlow.openModelPicker(apiKey, this.#selectedModelId, true)
         return
       }
+      case "fast":
+        await this.#toggleFastServing()
+        return
       case "history":
         this.#ui.clearInput()
         await this.#sessions.openPicker()
@@ -520,8 +535,14 @@ export class InteractiveApp {
     this.#images.setModelCapability(model.supportsImageInput)
     this.#autoCompactAtTokens = autoCompactThreshold(model.contextLength)
     if (this.#fireworksApiKey) this.#client = new FireworksClient({ apiKey: this.#fireworksApiKey, model: model.id })
-    this.#ui.setModelLabel(formatModelName(model.displayName))
+    this.#ui.setModelLabel(withFastModelMark(formatModelName(model.displayName), isFastFireworksModel(model.id)))
+    this.#setFastAvailable(Boolean(model.fastId) || isFastFireworksModel(model.id))
     this.#updateContextIndicator()
+  }
+
+  #setFastAvailable(available: boolean) {
+    this.#fastAvailable = available
+    this.#ui.setCommands(slashCommands({ fast: available }))
   }
 
   #updateContextIndicator(pendingInput = "") {
@@ -564,6 +585,23 @@ export class InteractiveApp {
   #previewTheme(theme: ThemeName) {
     const previous = selectTheme(theme)
     this.#ui.setTheme(theme, previous)
+  }
+
+  async #toggleFastServing() {
+    if (!this.#configured || !this.#fireworksApiKey || !this.#selectedModelId) {
+      this.#setupFlow.begin()
+      return
+    }
+
+    this.#ui.clearInput()
+    const result = await this.#setupFlow.toggleFastServing()
+    this.#ui.focusInput()
+    if (result === "error") return
+    if (result === "unavailable") {
+      this.#ui.showTransientHint(" Fast serving is not available for this model ")
+      return
+    }
+    this.#ui.showTransientHint(result === "on" ? " Fast serving on " : " Fast serving off ")
   }
 
   async #setThinkingVisible(visible: boolean) {

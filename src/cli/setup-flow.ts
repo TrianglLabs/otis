@@ -1,7 +1,13 @@
 import { listToolCapableModels } from "../inference/client.js"
 import { selectDefaultFireworksModel } from "../inference/model-policy.js"
+import {
+  findFireworksModel,
+  fireworksServingModel,
+  isFastFireworksModel,
+  matchesFireworksModel,
+} from "../inference/serving-path.js"
 import type { FireworksModel } from "../inference/types.js"
-import { type LocalSettings, saveFireworksSetup, saveSelectedModel } from "../local/settings.js"
+import { type LocalSettings, saveFastMode, saveFireworksSetup, saveSelectedModel } from "../local/settings.js"
 import { openFireworksKeyPage } from "./provider-links.js"
 import type { ChatUI } from "./ui/types.js"
 
@@ -13,6 +19,8 @@ type SetupFlowOptions = {
   onCredentialsChanged: (credentials: { fireworksApiKey?: string }) => void
   onModelSelected: (model: FireworksModel) => void
   onConfigured: (fireworksApiKey: string, model: FireworksModel) => void
+  fastMode: () => boolean
+  onFastModeChanged: (fast: boolean) => void
 }
 
 export class SetupFlow {
@@ -61,7 +69,7 @@ export class SetupFlow {
 
   async selectModel(model: FireworksModel) {
     if (this.options.isBusy() || !this.#fireworksApiKey) return
-    const selected = this.#models.find((candidate) => candidate.id === model.id)
+    const selected = findFireworksModel(this.#models, model.id)
     if (!selected) {
       this.options.ui.showSetupError("Select a model from the verified Fireworks catalog.")
       return
@@ -75,6 +83,29 @@ export class SetupFlow {
     } catch (error) {
       this.options.ui.hideModelPicker()
       this.options.ui.showSetupError(errorMessage(error))
+    } finally {
+      this.options.setBusy(false)
+    }
+  }
+
+  async toggleFastServing() {
+    if (this.options.isBusy() || !this.#fireworksApiKey || !this.#selectedModel) return "unavailable" as const
+    this.options.setBusy(true)
+    const previousFast = this.options.fastMode()
+    try {
+      const models = this.#models.length > 0 ? this.#models : await this.loadVerifiedModels(this.#fireworksApiKey)
+      const selected = findFireworksModel(models, this.#selectedModel)
+      if (!selected?.fastId) return "unavailable" as const
+
+      const fast = !isFastFireworksModel(this.#selectedModel)
+      this.options.onFastModeChanged(fast)
+      await saveFastMode(fast)
+      await this.persistModelSelection(selected)
+      return fast ? ("on" as const) : ("off" as const)
+    } catch (error) {
+      this.options.onFastModeChanged(previousFast)
+      this.options.ui.showSetupError(errorMessage(error))
+      return "error" as const
     } finally {
       this.options.setBusy(false)
     }
@@ -110,7 +141,9 @@ export class SetupFlow {
     try {
       const models = await this.loadVerifiedModels(apiKey)
       this.#wasConfigured = wasConfigured
-      this.options.ui.showModelPicker(models.map((model) => ({ ...model, active: model.id === currentModel })))
+      this.options.ui.showModelPicker(
+        models.map((model) => ({ ...model, active: matchesFireworksModel(model, currentModel ?? "") })),
+      )
     } catch (error) {
       if (wasConfigured) {
         this.options.ui.showChatLayout()
@@ -153,26 +186,31 @@ export class SetupFlow {
   private async persistModelSelection(selected: FireworksModel) {
     const fireworksApiKey = this.#fireworksApiKey
     if (!fireworksApiKey) throw new Error("Fireworks API key is required.")
+    const serving = this.servingModel(selected)
 
-    if (this.#persistFireworksApiKey) await saveFireworksSetup(fireworksApiKey, selected)
-    else await saveSelectedModel(selected)
-    this.#selectedModel = selected.id
-    this.#selectedModelSupportsImageInput = selected.supportsImageInput
+    if (this.#persistFireworksApiKey) await saveFireworksSetup(fireworksApiKey, serving)
+    else await saveSelectedModel(serving)
+    this.#selectedModel = serving.id
+    this.#selectedModelSupportsImageInput = serving.supportsImageInput
     this.options.onCredentialsChanged({ fireworksApiKey })
-    this.options.onModelSelected(selected)
+    this.options.onModelSelected(serving)
   }
 
   private finish(model?: FireworksModel) {
     const fireworksApiKey = this.#fireworksApiKey
     const selected =
-      model ??
-      this.#models.find((candidate) => candidate.id === this.#selectedModel) ??
+      (model ? this.servingModel(model) : undefined) ??
+      (this.#selectedModel ? findFireworksModel(this.#models, this.#selectedModel) : undefined) ??
       (this.#selectedModel ? modelFromId(this.#selectedModel, this.#selectedModelSupportsImageInput) : undefined)
     if (!fireworksApiKey || !selected) return
 
-    this.options.onConfigured(fireworksApiKey, selected)
+    this.options.onConfigured(fireworksApiKey, this.servingModel(selected))
     this.options.ui.setConfigured()
     this.options.ui.focusInput()
+  }
+
+  private servingModel(model: FireworksModel) {
+    return fireworksServingModel(model, this.options.fastMode())
   }
 }
 

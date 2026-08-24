@@ -2,6 +2,7 @@ import type { LocalStats } from "../../local/stats.js"
 import type { PermissionMode } from "../../permissions/policy.js"
 
 export const CHAT_INPUT_HINT = " [TAB] mode · [ESC] interrupt "
+export const FAST_MODEL_LABEL = "Fast"
 
 export type AgentPhase = "thinking" | "working"
 
@@ -48,6 +49,11 @@ export function formatModeLabel(mode: PermissionMode) {
 export function formatModelName(model: string | undefined) {
   if (!model) return ""
   return model.includes("/") ? (model.split("/").at(-1) ?? model) : model
+}
+
+export function withFastModelMark(name: string, fast: boolean) {
+  if (!name || !fast) return name
+  return `${name} ${FAST_MODEL_LABEL}`
 }
 
 export function imageAttachmentLabel(count: number) {

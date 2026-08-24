@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import {
   loadLocalSettings,
+  saveFastMode,
   saveFireworksSetup,
   saveSelectedModel,
   saveSelectedTheme,
@@ -100,6 +101,39 @@ describe("local settings", () => {
     })
   })
 
+  it("stores a model's Fast serving path without selecting it", async () => {
+    const file = join(await tempDirectory(), "config.json")
+    await saveSelectedModel(
+      {
+        id: "accounts/fireworks/models/kimi-k3",
+        displayName: "Kimi K3",
+        supportsImageInput: false,
+        fastId: "accounts/fireworks/routers/kimi-k3-fast",
+      },
+      { file },
+    )
+
+    await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({
+      model: "accounts/fireworks/models/kimi-k3",
+      modelFastId: "accounts/fireworks/routers/kimi-k3-fast",
+    })
+
+    await saveSelectedModel(model("tool-model", "Tool Model"), { file })
+    expect(JSON.parse(await readFile(file, "utf8"))).not.toHaveProperty("modelFastId")
+  })
+
+  it("stores Fast serving preference independently from the selected model", async () => {
+    const file = join(await tempDirectory(), "config.json")
+    await saveFireworksSetup("fw_test_key", model("tool-model", "Tool Model"), { file })
+    await saveFastMode(false, { file })
+
+    await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({ fastMode: false })
+    expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({
+      fireworksApiKey: "fw_test_key",
+      fastMode: false,
+    })
+  })
+
   it("loads and preserves permission policy while changing other settings", async () => {
     const file = join(await tempDirectory(), "config.json")
     await writeFile(
@@ -161,17 +195,20 @@ describe("local settings", () => {
     const invalidMetadata = join(directory, "invalid-metadata.json")
     const invalidTheme = join(directory, "invalid-theme.json")
     const invalidThinking = join(directory, "invalid-thinking.json")
+    const invalidFastMode = join(directory, "invalid-fast-mode.json")
     await writeFile(malformed, "{broken", "utf8")
     await writeFile(unsupported, JSON.stringify({ version: 2 }), "utf8")
     await writeFile(invalidMetadata, JSON.stringify({ version: 1, modelContextLength: -1 }), "utf8")
     await writeFile(invalidTheme, JSON.stringify({ version: 1, theme: "blue" }), "utf8")
     await writeFile(invalidThinking, JSON.stringify({ version: 1, thinkingVisible: "sometimes" }), "utf8")
+    await writeFile(invalidFastMode, JSON.stringify({ version: 1, fastMode: "sometimes" }), "utf8")
 
     await expect(loadLocalSettings({ file: malformed, env: {} })).rejects.toThrow("Invalid Otis config")
     await expect(loadLocalSettings({ file: unsupported, env: {} })).rejects.toThrow("unsupported version")
     await expect(loadLocalSettings({ file: invalidMetadata, env: {} })).rejects.toThrow("positive integer")
     await expect(loadLocalSettings({ file: invalidTheme, env: {} })).rejects.toThrow("theme must be")
     await expect(loadLocalSettings({ file: invalidThinking, env: {} })).rejects.toThrow("thinkingVisible must be")
+    await expect(loadLocalSettings({ file: invalidFastMode, env: {} })).rejects.toThrow("fastMode must be")
   })
 })
 

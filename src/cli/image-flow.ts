@@ -1,6 +1,7 @@
 import { listToolCapableModels } from "../inference/client.js"
 import { loadImageFiles, parsePastedImagePaths, validateImageAttachments } from "../inference/images.js"
 import { createUserMessage, imageAttachmentsFromMessages, messagesContainImages } from "../inference/messages.js"
+import { findFireworksModel, fireworksServingModel, isFastFireworksModel } from "../inference/serving-path.js"
 import type { ImageContentPart } from "../inference/types.js"
 import { saveSelectedModel } from "../local/settings.js"
 import { PendingImages } from "./pending-images.js"
@@ -123,13 +124,13 @@ export class ImageFlow {
 
   async #resolveCapability(apiKey: string, modelId: string) {
     const models = await listToolCapableModels(apiKey)
-    const selected = models.find((model) => model.id === modelId)
+    const selected = findFireworksModel(models, modelId)
     if (!selected) throw new Error(`Selected model is no longer available: ${modelId}`)
     if (this.options.selectedModelId() !== modelId) {
       throw new Error("The selected model changed while checking image support.")
     }
     this.#supportsImageInput = selected.supportsImageInput
-    await saveSelectedModel(selected)
+    await saveSelectedModel(fireworksServingModel(selected, isFastFireworksModel(modelId)))
     if (!selected.supportsImageInput) throw new Error(`Selected model does not support image input: ${modelId}`)
   }
 }

@@ -420,6 +420,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     setModeLabel,
     setImageAttachmentCount,
     setModelLabel,
+    setCommands: (value) => commands.setCommands(value),
     setConfigured,
     setSessionLabel: (label) => sessionStatus.setLabel(label),
     setStats,

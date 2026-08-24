@@ -1,6 +1,7 @@
 import type { ScrollBoxRenderable } from "@opentui/core"
 import { colors } from "../theme.js"
 import { SelectionPulse } from "./color-pulse.js"
+import { FAST_MODEL_LABEL } from "./format.js"
 import {
   createPickerRow,
   type PickerRow,
@@ -91,7 +92,7 @@ export class ModelPicker {
     }
 
     return this.#items.map((item, index) => ({
-      title: truncatePickerLabel(item.displayName, 30),
+      title: modelPickerTitle(item),
       meta: modelMeta(item),
       fg: item.active ? colors.accent : colors.text,
       selected: index === this.#selectedIndex,
@@ -121,10 +122,15 @@ export class ModelPicker {
   }
 }
 
+function modelPickerTitle(item: ModelPickerItem) {
+  return truncatePickerLabel(item.displayName, 30)
+}
+
 function modelMeta(item: ModelPickerItem) {
   const parts: string[] = []
   if (item.contextLength) parts.push(formatContext(item.contextLength))
-  parts.push(item.supportsImageInput ? "vision" : "text")
+  parts.push(item.supportsImageInput ? "Vision" : "Text")
+  if (item.fastId) parts.push(FAST_MODEL_LABEL)
   return parts.join(" · ")
 }
 

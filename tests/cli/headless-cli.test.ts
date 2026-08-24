@@ -2,13 +2,14 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import type { FireworksModel } from "../../src/inference/types.js"
 import type { PermissionConfig } from "../../src/permissions/policy.js"
 import type { SkillCatalog } from "../../src/skills/index.js"
 
 const mocks = vi.hoisted(() => ({
   createSession: vi.fn(),
   listSessions: vi.fn(async () => []),
-  listToolCapableModels: vi.fn(async () => [
+  listToolCapableModels: vi.fn<() => Promise<FireworksModel[]>>(async () => [
     { id: "accounts/fireworks/models/test", displayName: "Test", supportsImageInput: false },
   ]),
   loadLocalSettings: vi.fn<
@@ -64,6 +65,7 @@ vi.mock("../../src/storage/index.js", () => ({
 }))
 
 import { runHeadlessCommand } from "../../src/cli/headless-cli.js"
+import { FireworksClient } from "../../src/inference/client.js"
 
 const temporaryDirectories: string[] = []
 
@@ -371,6 +373,56 @@ describe("runHeadlessCommand", () => {
     expect(records).toContainEqual(expect.objectContaining({ type: "reasoning" }))
     expect(output.stdout()).not.toContain("Sensitive context.")
     expect(records.at(-1)).not.toHaveProperty("reasoning")
+  })
+
+  it("uses an explicit Fast serving path when requested", async () => {
+    mocks.listToolCapableModels.mockResolvedValue([
+      {
+        id: "accounts/fireworks/models/kimi-k3",
+        displayName: "Kimi K3",
+        supportsImageInput: true,
+        fastId: "accounts/fireworks/routers/kimi-k3-fast",
+      },
+    ])
+    mocks.streamChat.mockImplementationOnce(async function* () {
+      yield { type: "text_delta", text: "ok" }
+    })
+    const output = streams()
+
+    const exitCode = await runHeadlessCommand(
+      ["--ephemeral", "--model", "accounts/fireworks/routers/kimi-k3-fast", "hello"],
+      output.options,
+    )
+
+    expect(exitCode).toBe(0)
+    expect(FireworksClient).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "accounts/fireworks/routers/kimi-k3-fast" }),
+    )
+  })
+
+  it("keeps an explicit catalog model on the base serving path", async () => {
+    mocks.listToolCapableModels.mockResolvedValue([
+      {
+        id: "accounts/fireworks/models/kimi-k3",
+        displayName: "Kimi K3",
+        supportsImageInput: true,
+        fastId: "accounts/fireworks/routers/kimi-k3-fast",
+      },
+    ])
+    mocks.streamChat.mockImplementationOnce(async function* () {
+      yield { type: "text_delta", text: "ok" }
+    })
+    const output = streams()
+
+    const exitCode = await runHeadlessCommand(
+      ["--ephemeral", "--model", "accounts/fireworks/models/kimi-k3", "hello"],
+      output.options,
+    )
+
+    expect(exitCode).toBe(0)
+    expect(FireworksClient).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "accounts/fireworks/models/kimi-k3" }),
+    )
   })
 
   it("validates an explicit model against the tool-capable catalog", async () => {

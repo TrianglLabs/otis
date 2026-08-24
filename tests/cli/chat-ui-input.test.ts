@@ -36,6 +36,25 @@ describe("chat UI input", () => {
     expect(harness.find("command-menu")).toBeUndefined()
   })
 
+  it("hides /fast unless the command list includes it", async () => {
+    const harness = await setup({
+      commands: [
+        { name: "/model", description: "Choose a Fireworks model" },
+        { name: "/exit", description: "Exit Otis" },
+      ],
+    })
+    harness.ui.showChatLayout()
+    harness.setChatInput("/f")
+    expect(harness.text("command-row-0")).toBe("  No matching commands")
+
+    harness.ui.setCommands([
+      { name: "/fast", description: "Toggle Fast serving" },
+      { name: "/model", description: "Choose a Fireworks model" },
+    ])
+    harness.setChatInput("/f")
+    expect(harness.text("command-row-0")).toBe("› /fast")
+  })
+
   it("hides home-only commands on the welcome screen", async () => {
     const harness = await setup({
       commands: [

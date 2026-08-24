@@ -321,11 +321,12 @@ describe("chat UI rendering", () => {
     expect(harness.childIds("input-area")).toContain("input-box")
     expect(harness.get<BoxRenderable>("model-panel").width).toBe(sessionPanelWidth)
     expect(harness.text("model-row-0")).toBe("› Alpha")
-    expect(harness.text("model-row-0-meta")).toBe("  128K · vision")
+    expect(harness.text("model-row-0-meta")).toBe("  128K · Vision")
     expect(harness.text("model-row-0")).not.toContain("accounts/fireworks")
     expect(harness.text("model-row-1")).toBe("  Beta")
-    expect(harness.text("model-row-1-meta")).toBe("  text")
+    expect(harness.text("model-row-1-meta")).toBe("  Text")
     expect(harness.text("model-panel-footer")).toBe("[↑↓] move")
+    expect(harness.text("model-panel-header")).toBe("Models")
 
     harness.press("down")
     harness.press("return")
@@ -334,6 +335,30 @@ describe("chat UI rendering", () => {
     harness.press("escape")
     expect(onCloseModelPicker).toHaveBeenCalledOnce()
     expect(harness.find("model-panel")).toBeUndefined()
+  })
+
+  it("labels models that have a Fast serving path", async () => {
+    const harness = await setup()
+    harness.ui.showModelPicker([
+      {
+        id: "accounts/fireworks/models/kimi-k3",
+        displayName: "Kimi K3",
+        supportsImageInput: true,
+        fastId: "accounts/fireworks/routers/kimi-k3-fast",
+        active: true,
+      },
+      {
+        id: "accounts/fireworks/models/inkling",
+        displayName: "Inkling",
+        supportsImageInput: false,
+      },
+    ])
+
+    expect(harness.text("model-row-0")).toBe("› Kimi K3")
+    expect(harness.text("model-row-0-meta")).toBe("  Vision · Fast")
+    expect(harness.text("model-row-1")).toBe("  Inkling")
+    expect(harness.text("model-row-1-meta")).toBe("  Text")
+    expect(harness.find("model-panel-header-helper")).toBeUndefined()
   })
 
   it("pulses a reserved outline on the selected session and model rows", async () => {

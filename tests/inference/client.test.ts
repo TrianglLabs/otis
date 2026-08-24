@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { FireworksClient, listToolCapableModels } from "../../src/inference/client.js"
+import { FireworksClient } from "../../src/inference/client.js"
 
 afterEach(() => vi.restoreAllMocks())
 
@@ -73,6 +73,7 @@ describe("FireworksClient", () => {
         },
       ],
     })
+    expect(body.service_tier).toBe("priority")
     expect(body).not.toHaveProperty("reasoning_effort")
     expect(body.messages[0].content).toContain("Use strict TypeScript.")
     expect(body.messages[0].content).toContain("2026-07-16")
@@ -132,9 +133,26 @@ describe("FireworksClient", () => {
     })
   })
 
+  it("omits service_tier for Fast serving-path model IDs", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => sseResponse([]))
+    const client = new FireworksClient({
+      apiKey: "fw_test_key",
+      model: "accounts/fireworks/routers/kimi-k3-fast",
+      fetch: fetchMock as typeof fetch,
+      inferenceURL: "http://localhost/v1/chat/completions",
+    })
+
+    await collect(client.streamChat({ messages: [{ role: "user", content: "hello" }] }))
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body))
+    expect(body.model).toBe("accounts/fireworks/routers/kimi-k3-fast")
+    expect(body).not.toHaveProperty("service_tier")
+  })
+
   it.each([
     ["accounts/fireworks/models/gpt-oss-120b", "high"],
     ["accounts/fireworks/models/glm-5p2", "max"],
+    ["accounts/fireworks/routers/glm-5p2-fast", "max"],
   ] as const)("sends %s requests with %s reasoning", async (model, reasoningEffort) => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => sseResponse([]))
     const client = new FireworksClient({
@@ -161,68 +179,6 @@ describe("FireworksClient", () => {
     ).toThrow("must use HTTPS")
   })
 })
-
-describe("listToolCapableModels", () => {
-  it("paginates the public catalog and returns only serverless models with tool support", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        Response.json({
-          models: [
-            model("accounts/fireworks/models/zeta", "Zeta", true, true, 128_000, true),
-            model("accounts/fireworks/models/chat-only", "Chat only", true, false),
-            model("accounts/fireworks/models/deployed", "Deployed", false, true),
-          ],
-          nextPageToken: "page-two",
-        }),
-      )
-      .mockResolvedValueOnce(Response.json({ models: [model("accounts/fireworks/models/alpha", "Alpha", true, true)] }))
-
-    const models = await listToolCapableModels("fw_test_key", {
-      fetch: fetchMock as typeof fetch,
-      modelsURL: "http://localhost/v1/accounts/fireworks/models",
-    })
-
-    expect(models).toEqual([
-      { id: "accounts/fireworks/models/alpha", displayName: "Alpha", supportsImageInput: false },
-      {
-        id: "accounts/fireworks/models/zeta",
-        displayName: "Zeta",
-        contextLength: 128_000,
-        supportsImageInput: true,
-      },
-    ])
-    expect(fetchMock).toHaveBeenCalledTimes(2)
-    const firstURL = new URL(String(fetchMock.mock.calls[0][0]))
-    expect(firstURL.searchParams.get("filter")).toBe("supports_serverless=true AND supports_tools=true")
-    expect(firstURL.searchParams.get("pageSize")).toBe("200")
-    const secondURL = new URL(String(fetchMock.mock.calls[1][0]))
-    expect(secondURL.searchParams.get("pageToken")).toBe("page-two")
-    expect(fetchMock.mock.calls[0][1]?.headers).toEqual({ authorization: "Bearer fw_test_key" })
-  })
-
-  it("rejects malformed catalog responses instead of accepting unverified model IDs", async () => {
-    const fetchMock = vi.fn(async () => Response.json({ items: [] }))
-
-    await expect(
-      listToolCapableModels("fw_test_key", {
-        fetch: fetchMock as typeof fetch,
-        modelsURL: "http://localhost/models",
-      }),
-    ).rejects.toThrow("models response was invalid")
-  })
-})
-
-function model(
-  name: string,
-  displayName: string,
-  supportsServerless: boolean,
-  supportsTools: boolean,
-  contextLength?: number,
-  supportsImageInput = false,
-) {
-  return { name, displayName, supportsServerless, supportsTools, contextLength, supportsImageInput }
-}
 
 function sseResponse(chunks: unknown[]) {
   const body = `${chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("")}data: [DONE]\n\n`
