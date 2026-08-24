@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest"
-import { parseSlashCommand, SLASH_COMMANDS, slashCommandIgnoresBusy } from "../../src/cli/slash-commands.js"
+import {
+  parseSlashCommand,
+  SLASH_COMMANDS,
+  slashCommandIgnoresBusy,
+  slashCommands,
+} from "../../src/cli/slash-commands.js"
 import { THEME_NAMES } from "../../src/local/settings.js"
 
 describe("slash commands", () => {
   it("parses known commands and leaves unknown input for the agent", () => {
     expect(parseSlashCommand("/exit")).toEqual({ type: "exit" })
+    expect(parseSlashCommand("/fast")).toEqual({ type: "fast" })
     expect(parseSlashCommand("/theme")).toEqual({ type: "theme-menu" })
     expect(parseSlashCommand("/theme nord")).toEqual({ type: "theme", name: "nord" })
     expect(parseSlashCommand("/compact")).toEqual({ type: "compact" })
@@ -27,18 +33,25 @@ describe("slash commands", () => {
 
   it("advertises every built-in command including theme names", () => {
     const names = SLASH_COMMANDS.map((command) => command.name)
-    expect(names.slice(0, 8)).toEqual([
+    expect(names.slice(0, 9)).toEqual([
       "/home",
       "/new",
       "/history",
       "/model",
+      "/fast",
       "/compact",
       "/debug",
       "/thinking",
       "/theme",
     ])
     expect(names.at(-1)).toBe("/exit")
-    expect(names.slice(8, -1)).toEqual(THEME_NAMES.map((theme) => `/theme ${theme}`))
+    expect(names.slice(9, -1)).toEqual(THEME_NAMES.map((theme) => `/theme ${theme}`))
+  })
+
+  it("omits /fast unless the current model has a Fast serving path", () => {
+    expect(slashCommands({ fast: true }).some((command) => command.name === "/fast")).toBe(true)
+    expect(slashCommands({ fast: false }).some((command) => command.name === "/fast")).toBe(false)
+    expect(parseSlashCommand("/fast")).toEqual({ type: "fast" })
   })
 
   it("parses every advertised command", () => {

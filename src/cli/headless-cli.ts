@@ -5,6 +5,7 @@ import { loadProjectContext } from "../core/context.js"
 import { FireworksClient, listToolCapableModels } from "../inference/client.js"
 import { loadImageFiles, validateImageAttachments } from "../inference/images.js"
 import { createUserMessage, imageAttachmentsFromMessages, messagesContainImages } from "../inference/messages.js"
+import { findFireworksModel, fireworksServingModel, isFastFireworksModel } from "../inference/serving-path.js"
 import { skillAdvertisementChars } from "../inference/system-prompt.js"
 import type { ChatMessage } from "../inference/types.js"
 import { loadLocalSettings, saveSelectedModel } from "../local/settings.js"
@@ -89,13 +90,18 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
     if (!model) throw new Error("A Fireworks model is not configured. Run Otis interactively or pass --model.")
     if (parsed.model || (images.length > 0 && modelSupportsImageInput === undefined)) {
       const models = await listToolCapableModels(settings.fireworksApiKey, { signal: controller.signal })
-      const selectedModel = models.find((candidate) => candidate.id === model)
+      const selectedModel = findFireworksModel(models, model)
       if (!selectedModel) {
         throw new Error(`Model is not a tool-capable Fireworks serverless model: ${model}`)
       }
-      modelContextLength = selectedModel.contextLength
-      modelSupportsImageInput = selectedModel.supportsImageInput
-      if (!parsed.model && settings.model === model) await saveSelectedModel(selectedModel)
+      const serving = fireworksServingModel(
+        selectedModel,
+        isFastFireworksModel(model) || (!parsed.model && (settings.fastMode ?? true)),
+      )
+      model = serving.id
+      modelContextLength = serving.contextLength
+      modelSupportsImageInput = serving.supportsImageInput
+      if (!parsed.model && settings.model === selectedModel.id) await saveSelectedModel(serving)
     }
     if (images.length > 0 && !modelSupportsImageInput) {
       throw new Error(`Selected model does not support image input: ${model}`)
@@ -119,13 +125,18 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
     const sessionContainsImages = session ? messagesContainImages(session.replayMessages()) : false
     if (sessionContainsImages && modelSupportsImageInput === undefined) {
       const models = await listToolCapableModels(settings.fireworksApiKey, { signal: controller.signal })
-      const selectedModel = models.find((candidate) => candidate.id === model)
+      const selectedModel = findFireworksModel(models, model)
       if (!selectedModel) {
         throw new Error(`Model is not a tool-capable Fireworks serverless model: ${model}`)
       }
-      modelContextLength = selectedModel.contextLength
-      modelSupportsImageInput = selectedModel.supportsImageInput
-      if (!parsed.model && settings.model === model) await saveSelectedModel(selectedModel)
+      const serving = fireworksServingModel(
+        selectedModel,
+        isFastFireworksModel(model) || (!parsed.model && (settings.fastMode ?? true)),
+      )
+      model = serving.id
+      modelContextLength = serving.contextLength
+      modelSupportsImageInput = serving.supportsImageInput
+      if (!parsed.model && settings.model === selectedModel.id) await saveSelectedModel(serving)
     }
     if (sessionContainsImages && !modelSupportsImageInput) {
       throw new Error(`Selected model does not support image input required by this session: ${model}`)

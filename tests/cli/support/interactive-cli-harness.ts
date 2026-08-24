@@ -50,6 +50,7 @@ const mocks = vi.hoisted(() => {
     setStats: vi.fn(),
     setTheme: vi.fn(),
     setThinkingVisible: vi.fn(),
+    setCommands: vi.fn(),
     showChatLayout: vi.fn(),
     showHomeLayout: vi.fn(),
     showModelPicker: vi.fn(),
@@ -103,6 +104,7 @@ const mocks = vi.hoisted(() => {
     saveSelectedModel: vi.fn(async () => undefined),
     saveSelectedTheme: vi.fn(async () => undefined),
     saveThinkingVisible: vi.fn(async () => undefined),
+    saveFastMode: vi.fn(async () => undefined),
     checkForUpdate: vi.fn<
       (options?: { signal?: AbortSignal }) => Promise<{ available: boolean; version: string } | null>
     >(async () => null),
@@ -162,6 +164,7 @@ vi.mock("../../../src/local/settings.js", () => ({
   saveSelectedModel: mocks.saveSelectedModel,
   saveSelectedTheme: mocks.saveSelectedTheme,
   saveThinkingVisible: mocks.saveThinkingVisible,
+  saveFastMode: mocks.saveFastMode,
 }))
 vi.mock("../../../src/local/stats.js", () => ({ calculateLocalStats: mocks.calculateLocalStats }))
 vi.mock("../../../src/storage/index.js", () => ({

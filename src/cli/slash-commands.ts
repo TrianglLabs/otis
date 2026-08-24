@@ -6,6 +6,7 @@ export type SlashCommand =
   | { type: "theme-menu" }
   | { type: "theme"; name: string }
   | { type: "model" }
+  | { type: "fast" }
   | { type: "history" }
   | { type: "new" }
   | { type: "home" }
@@ -26,6 +27,7 @@ const CATALOG: readonly CatalogCommand[] = [
   { type: "new", name: "/new", description: "Start a new session" },
   { type: "history", name: "/history", description: "Open session history" },
   { type: "model", name: "/model", description: "Choose a Fireworks model" },
+  { type: "fast", name: "/fast", description: "Toggle Fast serving" },
   { type: "compact", name: "/compact", description: "Summarize old conversation to free context" },
   { type: "debug", name: "/debug", description: "Toggle debug messages" },
   { type: "thinking", name: "/thinking", description: "Show or hide model thinking traces" },
@@ -34,7 +36,14 @@ const CATALOG: readonly CatalogCommand[] = [
   { type: "exit", name: "/exit", description: "Exit Otis" },
 ]
 
-export const SLASH_COMMANDS: CommandSuggestion[] = CATALOG.map(({ name, description }) => ({ name, description }))
+export function slashCommands(options: { fast?: boolean } = {}): CommandSuggestion[] {
+  return CATALOG.filter((command) => command.type !== "fast" || options.fast).map(({ name, description }) => ({
+    name,
+    description,
+  }))
+}
+
+export const SLASH_COMMANDS: CommandSuggestion[] = slashCommands({ fast: true })
 
 export function parseSlashCommand(value: string): SlashCommand | undefined {
   const exact = CATALOG.find((command) => command.name === value)

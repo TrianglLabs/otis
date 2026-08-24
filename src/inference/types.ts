@@ -84,6 +84,8 @@ export type FireworksModel = {
   displayName: string
   contextLength?: number
   supportsImageInput: boolean
+  /** Fast serving-path ID when Fireworks publishes one for this model. */
+  fastId?: string
 }
 
 export type FireworksClientConfig = {

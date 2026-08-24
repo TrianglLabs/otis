@@ -1,3 +1,4 @@
+import { isFastFireworksModel } from "./serving-path.js"
 import type { FireworksModel } from "./types.js"
 
 export const DEFAULT_FIREWORKS_MODEL_IDS = [
@@ -10,5 +11,5 @@ export function selectDefaultFireworksModel(models: readonly FireworksModel[]): 
     const model = models.find((candidate) => candidate.id === modelId)
     if (model) return model
   }
-  return models[0]
+  return models.find((model) => !isFastFireworksModel(model.id)) ?? models[0]
 }

@@ -125,6 +125,7 @@ Run `otis exec --help` for the full option list. Headless mode is non-interactiv
 | `/new` | Start a new session |
 | `/history` | Browse, open, or delete local sessions |
 | `/model` | Choose another tool-capable Fireworks model |
+| `/fast` | Toggle Fast serving when the current model allows it |
 | `/compact [instructions]` | Summarize older conversation and free context |
 | `/debug` | Toggle diagnostic transcript entries |
 | `/thinking` | Toggle model-provided thinking traces |

@@ -27,6 +27,13 @@ describe("Fireworks default model policy", () => {
   it("returns undefined for an empty catalog", () => {
     expect(selectDefaultFireworksModel([])).toBeUndefined()
   })
+
+  it("skips Fast serving-path entries when choosing a fallback default", () => {
+    const fast = model("accounts/fireworks/routers/kimi-k3-fast")
+    const standard = model("accounts/fireworks/models/kimi-k3")
+
+    expect(selectDefaultFireworksModel([fast, standard])).toBe(standard)
+  })
 })
 
 function model(id: string): FireworksModel {

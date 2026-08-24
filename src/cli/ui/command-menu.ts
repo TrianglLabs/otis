@@ -18,19 +18,26 @@ type MenuActions = {
 export class CommandMenu {
   readonly #rows: PickerRow[] = []
   #items: CommandSuggestion[] = []
+  #commands: readonly CommandSuggestion[]
   #selectedIndex = 0
 
   constructor(
     private readonly renderer: Renderer,
     private readonly container: BoxRenderable,
-    private readonly commands: readonly CommandSuggestion[],
-  ) {}
+    commands: readonly CommandSuggestion[],
+  ) {
+    this.#commands = commands
+  }
+
+  setCommands(commands: readonly CommandSuggestion[]) {
+    this.#commands = commands
+  }
 
   update(value: string, showingWelcome: boolean, activeTheme?: string) {
     const query = commandQuery(value)
     if (query === undefined) return false
 
-    const visibleCommands = this.commands.filter((command) => {
+    const visibleCommands = this.#commands.filter((command) => {
       if (!showingWelcome) return true
       return command.name !== "/home" && command.name !== "/compact" && command.name !== "/new"
     })

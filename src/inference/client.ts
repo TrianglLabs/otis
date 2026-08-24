@@ -2,23 +2,14 @@ import type { Skill } from "../skills/index.js"
 import { validateImageAttachments } from "./images.js"
 import { imageAttachmentsFromMessages } from "./messages.js"
 import { highestReasoningEffort } from "./reasoning.js"
+import { fireworksServiceTier } from "./serving-path.js"
 import { parseChatCompletionStream } from "./stream-parser.js"
 import { buildSystemPrompt } from "./system-prompt.js"
-import type {
-  ChatMessage,
-  ChatStreamEvent,
-  ContextFile,
-  FireworksClientConfig,
-  FireworksModel,
-  ToolDefinition,
-} from "./types.js"
+import type { ChatMessage, ChatStreamEvent, ContextFile, FireworksClientConfig, ToolDefinition } from "./types.js"
+
+export { listToolCapableModels } from "./catalog.js"
 
 const DEFAULT_INFERENCE_URL = "https://api.fireworks.ai/inference/v1/chat/completions"
-const DEFAULT_MODELS_URL = "https://api.fireworks.ai/v1/accounts/fireworks/models"
-const TOOL_CAPABLE_SERVERLESS_FILTER = "supports_serverless=true AND supports_tools=true"
-const MAX_MODEL_PAGES = 20
-// Route chat requests to the Fireworks Priority serving path for higher reliability during peak traffic.
-const SERVICE_TIER = "priority"
 
 export class FireworksClient {
   readonly model: string
@@ -67,51 +58,6 @@ export class FireworksClient {
   }
 }
 
-export async function listToolCapableModels(apiKey: string, options: ListModelsOptions = {}) {
-  const key = required(apiKey, "Fireworks API key")
-  const fetchImpl = options.fetch ?? fetch
-  const endpoint = validHttpsURL(options.modelsURL ?? DEFAULT_MODELS_URL, "Fireworks models URL")
-  const models: FireworksModel[] = []
-  const seenNames = new Set<string>()
-  const seenPageTokens = new Set<string>()
-  let pageToken: string | undefined
-
-  for (let page = 0; page < MAX_MODEL_PAGES; page += 1) {
-    const url = new URL(endpoint)
-    url.searchParams.set("pageSize", "200")
-    url.searchParams.set("filter", TOOL_CAPABLE_SERVERLESS_FILTER)
-    if (pageToken) url.searchParams.set("pageToken", pageToken)
-
-    const response = await fetchImpl(url, { headers: { authorization: `Bearer ${key}` }, signal: options.signal })
-    if (!response.ok) {
-      throw new Error(`Could not load Fireworks models (HTTP ${response.status}): ${await responseText(response)}`)
-    }
-
-    const result = parseModelsResponse(await response.json())
-    for (const model of result.models) {
-      if (!model.supportsServerless || !model.supportsTools || seenNames.has(model.name)) continue
-      seenNames.add(model.name)
-      models.push({
-        id: model.name,
-        displayName: model.displayName || model.name.split("/").at(-1) || model.name,
-        ...(model.contextLength === undefined ? {} : { contextLength: model.contextLength }),
-        supportsImageInput: model.supportsImageInput,
-      })
-    }
-
-    pageToken = result.nextPageToken
-    if (!pageToken) break
-    if (seenPageTokens.has(pageToken)) throw new Error("Fireworks model pagination returned a repeated page token.")
-    seenPageTokens.add(pageToken)
-  }
-
-  if (pageToken) throw new Error(`Fireworks model catalog exceeded ${MAX_MODEL_PAGES} pages.`)
-
-  return models.sort(
-    (left, right) => left.displayName.localeCompare(right.displayName) || left.id.localeCompare(right.id),
-  )
-}
-
 type StreamChatOptions = {
   messages: ChatMessage[]
   tools?: ToolDefinition[]
@@ -127,19 +73,14 @@ type CompleteOptions = {
   onUsage?: (usage: import("./types.js").TokenUsage) => void | Promise<void>
 }
 
-type ListModelsOptions = {
-  fetch?: typeof fetch
-  modelsURL?: string
-  signal?: AbortSignal
-}
-
 function chatRequest(model: string, options: StreamChatOptions) {
   const tools = options.tools ?? []
   validateImageAttachments(imageAttachmentsFromMessages(options.messages))
   const reasoningEffort = highestReasoningEffort(model)
+  const serviceTier = fireworksServiceTier(model)
   return {
     model,
-    service_tier: SERVICE_TIER,
+    ...(serviceTier ? { service_tier: serviceTier } : {}),
     messages: [
       { role: "system", content: buildSystemPrompt(options.projectContext, options.now, options.skills) },
       ...options.messages.map(providerMessage),
@@ -203,37 +144,6 @@ function providerTool(tool: ToolDefinition) {
   }
 }
 
-function parseModelsResponse(value: unknown) {
-  if (!isRecord(value) || !Array.isArray(value.models)) throw new Error("Fireworks models response was invalid.")
-  return {
-    models: value.models.map(parseModel).filter((model): model is RawModel => model !== undefined),
-    nextPageToken: nonEmptyString(value.nextPageToken),
-  }
-}
-
-type RawModel = {
-  name: string
-  displayName?: string
-  contextLength?: number
-  supportsServerless: boolean
-  supportsTools: boolean
-  supportsImageInput: boolean
-}
-
-function parseModel(value: unknown): RawModel | undefined {
-  if (!isRecord(value)) return undefined
-  const name = nonEmptyString(value.name)
-  if (!name) return undefined
-  return {
-    name,
-    displayName: nonEmptyString(value.displayName),
-    contextLength: positiveInteger(value.contextLength),
-    supportsServerless: value.supportsServerless === true,
-    supportsTools: value.supportsTools === true,
-    supportsImageInput: value.supportsImageInput === true,
-  }
-}
-
 function validHttpsURL(value: string, label: string) {
   let parsed: URL
   try {
@@ -258,16 +168,4 @@ async function responseText(response: Response) {
   } catch {
     return response.statusText
   }
-}
-
-function nonEmptyString(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined
-}
-
-function positiveInteger(value: unknown) {
-  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { getMocks, loadCli, localSettings, submit } from "./support/interactive-cli-harness.js"
+import { getMocks, loadCli, localSettings, submit, testModel } from "./support/interactive-cli-harness.js"
 
 const mocks = getMocks()
 
@@ -117,5 +117,48 @@ describe("CLI thinking visibility", () => {
     expect(mocks.saveThinkingVisible).toHaveBeenLastCalledWith(false)
     expect(mocks.ui.setThinkingVisible).toHaveBeenLastCalledWith(false)
     expect(mocks.ui.showTransientHint).toHaveBeenLastCalledWith(" Thinking traces hidden ")
+  })
+})
+
+describe("CLI Fast serving", () => {
+  it("toggles Fast serving for models that have a Fast path", async () => {
+    const kimi = testModel({
+      id: "accounts/fireworks/models/kimi-k3",
+      displayName: "Kimi K3",
+      fastId: "accounts/fireworks/routers/kimi-k3-fast",
+    })
+    mocks.listToolCapableModels.mockResolvedValue([kimi])
+    mocks.loadLocalSettings.mockResolvedValue(
+      localSettings({
+        model: kimi.fastId,
+        modelDisplayName: "Kimi K3",
+      }),
+    )
+    await loadCli()
+
+    await submit("/fast")
+    expect(mocks.saveFastMode).toHaveBeenCalledWith(false)
+    expect(mocks.saveSelectedModel).toHaveBeenCalledWith(kimi)
+    expect(mocks.ui.setModelLabel).toHaveBeenLastCalledWith("Kimi K3")
+    expect(mocks.ui.showTransientHint).toHaveBeenLastCalledWith(" Fast serving off ")
+    expect(mocks.ui.setCommands).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ name: "/fast" })]),
+    )
+
+    await submit("/fast")
+    expect(mocks.saveFastMode).toHaveBeenLastCalledWith(true)
+    expect(mocks.saveSelectedModel).toHaveBeenLastCalledWith({ ...kimi, id: kimi.fastId })
+    expect(mocks.ui.setModelLabel).toHaveBeenLastCalledWith("Kimi K3 Fast")
+    expect(mocks.ui.showTransientHint).toHaveBeenLastCalledWith(" Fast serving on ")
+  })
+
+  it("leaves models without a Fast path unchanged", async () => {
+    await loadCli()
+    await submit("/fast")
+
+    expect(mocks.saveFastMode).not.toHaveBeenCalled()
+    expect(mocks.saveSelectedModel).not.toHaveBeenCalled()
+    expect(mocks.ui.showTransientHint).toHaveBeenLastCalledWith(" Fast serving is not available for this model ")
+    expect(mocks.ui.setCommands).not.toHaveBeenCalled()
   })
 })

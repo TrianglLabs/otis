@@ -13,6 +13,8 @@ export type LocalSettings = {
   modelSupportsImageInput?: boolean
   theme?: ThemeName
   thinkingVisible?: boolean
+  fastMode?: boolean
+  modelFastId?: string
   permissions?: PermissionConfig
 }
 
@@ -43,6 +45,8 @@ type SettingsFile = {
   modelSupportsImageInput?: boolean
   theme?: ThemeName
   thinkingVisible?: boolean
+  fastMode?: boolean
+  modelFastId?: string
   permissions?: PermissionConfig
 }
 
@@ -59,6 +63,8 @@ export async function loadLocalSettings(options: SettingsFileOptions = {}): Prom
     ...(saved?.modelSupportsImageInput !== undefined ? { modelSupportsImageInput: saved.modelSupportsImageInput } : {}),
     ...(saved?.theme ? { theme: saved.theme } : {}),
     ...(saved?.thinkingVisible !== undefined ? { thinkingVisible: saved.thinkingVisible } : {}),
+    ...(saved?.fastMode !== undefined ? { fastMode: saved.fastMode } : {}),
+    ...(saved?.modelFastId ? { modelFastId: saved.modelFastId } : {}),
     ...(saved?.permissions ? { permissions: saved.permissions } : {}),
   }
 }
@@ -84,6 +90,11 @@ export async function saveSelectedTheme(theme: ThemeName, options: SettingsFileO
 export async function saveThinkingVisible(visible: boolean, options: SettingsFileOptions = {}) {
   const saved = (await readSettingsFile(options)) ?? { version: 1 }
   await writeSettingsFile({ ...saved, thinkingVisible: visible }, options)
+}
+
+export async function saveFastMode(fast: boolean, options: SettingsFileOptions = {}) {
+  const saved = (await readSettingsFile(options)) ?? { version: 1 }
+  await writeSettingsFile({ ...saved, fastMode: fast }, options)
 }
 
 function defaultSettingsFile() {
@@ -134,6 +145,8 @@ function parseSettingsFile(value: unknown): SettingsFile {
   const modelSupportsImageInput = optionalBoolean(value.modelSupportsImageInput, "modelSupportsImageInput")
   const theme = optionalTheme(value.theme)
   const thinkingVisible = optionalBoolean(value.thinkingVisible, "thinkingVisible")
+  const fastMode = optionalBoolean(value.fastMode, "fastMode")
+  const modelFastId = optionalString(value.modelFastId, "modelFastId")
   const permissions =
     value.permissions === undefined
       ? undefined
@@ -147,6 +160,8 @@ function parseSettingsFile(value: unknown): SettingsFile {
     ...(modelSupportsImageInput !== undefined ? { modelSupportsImageInput } : {}),
     ...(theme ? { theme } : {}),
     ...(thinkingVisible !== undefined ? { thinkingVisible } : {}),
+    ...(fastMode !== undefined ? { fastMode } : {}),
+    ...(modelFastId ? { modelFastId } : {}),
     ...(permissions ? { permissions } : {}),
   }
 }
@@ -163,8 +178,10 @@ function withSelectedModel(settings: SettingsFile, model: FireworksModel): Setti
     modelDisplayName: required(model.displayName, "Fireworks model display name"),
     ...(contextLength ? { modelContextLength: contextLength } : {}),
     modelSupportsImageInput: model.supportsImageInput,
+    ...(model.fastId ? { modelFastId: model.fastId } : {}),
     ...(settings.theme ? { theme: settings.theme } : {}),
     ...(settings.thinkingVisible !== undefined ? { thinkingVisible: settings.thinkingVisible } : {}),
+    ...(settings.fastMode !== undefined ? { fastMode: settings.fastMode } : {}),
     ...(settings.permissions ? { permissions: settings.permissions } : {}),
   }
 }

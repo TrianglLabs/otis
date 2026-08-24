@@ -62,6 +62,7 @@ export type ChatUI = {
   setModeLabel(label: string): void
   setImageAttachmentCount(count: number): void
   setModelLabel(label: string): void
+  setCommands(commands: CommandSuggestion[]): void
   setConfigured(): void
   setSessionLabel(label: string): void
   setStats(stats: LocalStats): void

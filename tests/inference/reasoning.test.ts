@@ -11,6 +11,7 @@ describe("highestReasoningEffort", () => {
     ["accounts/fireworks/models/deepseek-v3p2", "high"],
     ["accounts/fireworks/models/glm-5p1", "high"],
     ["accounts/fireworks/models/glm-4.5-air", "high"],
+    ["accounts/fireworks/routers/glm-5p2-fast", "max"],
   ] as const)("uses the highest supported tier for %s", (model, expected) => {
     expect(highestReasoningEffort(model)).toBe(expected)
   })
