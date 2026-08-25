@@ -1,9 +1,9 @@
-import type { FireworksClient } from "../inference/client.js"
 import { userMessageContentChars } from "../inference/messages.js"
 import type {
   ChatMessage,
   ChatToolCall,
   ContextFile,
+  InferenceClient,
   ReasoningTraceEvent,
   TokenUsage,
   UserChatMessage,
@@ -50,7 +50,7 @@ export type AgentEvent =
   | { type: "error"; message: string; messages?: ChatMessage[] }
 
 export type RunAgentOptions = ToolContext & {
-  client: FireworksClient
+  client: InferenceClient
   debug?: boolean
   onUsage?: (usage: TokenUsage) => void | Promise<void>
   permissionPolicy?: PermissionPolicy

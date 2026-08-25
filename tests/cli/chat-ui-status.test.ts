@@ -276,6 +276,50 @@ describe("chat UI status and prompts", () => {
     expect(onInterrupt).not.toHaveBeenCalled()
   })
 
+  it("quits on Ctrl+C instead of interrupting the turn", async () => {
+    const onInterrupt = vi.fn()
+    const onQuit = vi.fn()
+    const harness = await setup({ onInterrupt, onQuit })
+    harness.ui.showChatLayout()
+    harness.ui.setBusy(true)
+
+    harness.pressCtrlC()
+
+    expect(onQuit).toHaveBeenCalledOnce()
+    expect(onInterrupt).not.toHaveBeenCalled()
+  })
+
+  it("quits on Ctrl+C from the home screen, setup, and model picker", async () => {
+    const onQuit = vi.fn()
+    const harness = await setup({
+      configured: false,
+      onQuit,
+      onCloseModelPicker: vi.fn(),
+    })
+
+    harness.pressCtrlC()
+    expect(onQuit).toHaveBeenCalledOnce()
+
+    harness.ui.showSetupInput()
+    harness.pressCtrlC()
+    expect(onQuit).toHaveBeenCalledTimes(2)
+
+    harness.ui.showModelPicker([
+      {
+        kind: "model",
+        provider: "fireworks",
+        id: "accounts/fireworks/models/tool-model",
+        displayName: "Tool Model",
+        contextLength: 131_072,
+        supportsImageInput: false,
+        available: true,
+        active: false,
+      },
+    ])
+    harness.pressCtrlC()
+    expect(onQuit).toHaveBeenCalledTimes(3)
+  })
+
   it("centers a THINKING label in the wave only while the model is reasoning", async () => {
     const harness = await setup()
     harness.ui.showChatLayout()

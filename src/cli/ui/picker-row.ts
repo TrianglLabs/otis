@@ -1,4 +1,4 @@
-import { BoxRenderable, TextRenderable } from "@opentui/core"
+import { BoxRenderable, fg, TextRenderable, t } from "@opentui/core"
 import { colors } from "../theme.js"
 import { colorPulseAmount, selectionOutline } from "./color-pulse.js"
 import type { Renderer } from "./types.js"
@@ -15,9 +15,12 @@ export type PickerRow = {
 
 export type PickerRowSpec = {
   title: string
+  suffix?: { text: string; fg?: string }
   meta?: string
   fg: string
   selected: boolean
+  header?: boolean
+  disabled?: boolean
 }
 
 export type PickerRowOptions = {
@@ -77,15 +80,21 @@ export function createPickerRow(renderer: Renderer, id: string, options: PickerR
 
 export function stylePickerRow(row: PickerRow, spec: PickerRowSpec, elapsedMs = 0) {
   const fill = rowFill(row)
-  row.title.content = `${spec.selected ? "›" : " "} ${spec.title}`
-  row.title.fg = spec.selected ? colors.accent : spec.fg
+  const prefix = spec.header ? "" : spec.selected ? "›" : " "
+  const title = spec.header ? spec.title : `${prefix} ${spec.title}`
+  row.title.content = spec.suffix
+    ? spec.suffix.fg
+      ? t`${title}  ${fg(spec.suffix.fg)(spec.suffix.text)}`
+      : `${title}  ${spec.suffix.text}`
+    : title
+  row.title.fg = spec.selected && !spec.disabled && !spec.header ? colors.accent : spec.fg
   row.title.bg = fill
   row.meta.content = spec.meta ? `  ${spec.meta}` : ""
   row.meta.fg = colors.muted
   row.meta.bg = fill
   row.meta.visible = Boolean(spec.meta)
   row.box.backgroundColor = fill
-  if (row.outline) paintPickerOutline(row, spec.selected, elapsedMs)
+  if (row.outline) paintPickerOutline(row, spec.selected && !spec.header, elapsedMs)
 }
 
 export function paintPickerOutline(row: PickerRow, selected: boolean, elapsedMs: number) {

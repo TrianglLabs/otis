@@ -1,12 +1,12 @@
 import { autoCompactThreshold, compactConversation, compactionSummaryMessage } from "../core/compaction.js"
-import type { FireworksClient } from "../inference/client.js"
+import type { InferenceClient } from "../inference/client.js"
 import type { ChatMessage, TokenUsage } from "../inference/types.js"
 import type { JsonlSession, SessionToolActivity } from "../storage/index.js"
 import { estimateContextTokens } from "./context-meter.js"
 
 type SessionHistoryOptions = {
   session: JsonlSession
-  client: FireworksClient
+  client: InferenceClient
   contextLength?: number
   staticContextChars: number
   signal?: AbortSignal

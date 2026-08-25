@@ -1,7 +1,6 @@
 import { isCompactionSummary } from "../core/compaction.js"
-import type { FireworksClient } from "../inference/client.js"
 import { summarizeUserMessage, userMessageText } from "../inference/messages.js"
-import type { ChatMessage, TokenUsage } from "../inference/types.js"
+import type { ChatMessage, InferenceClient, TokenUsage } from "../inference/types.js"
 import type { SessionSummary } from "../storage/index.js"
 
 const GENERATED_TITLE_MAX_LENGTH = 60
@@ -33,7 +32,7 @@ export function toSessionPickerItem(summary: SessionSummary, activeSessionId?: s
 
 export async function generateSessionTitle(
   messages: readonly ChatMessage[],
-  options: { client: FireworksClient; onUsage?: (usage: TokenUsage) => void | Promise<void> },
+  options: { client: InferenceClient; onUsage?: (usage: TokenUsage) => void | Promise<void> },
 ): Promise<string | undefined> {
   const hasUser = messages.some((message) => message.role === "user" && !isCompactionSummary(message))
   if (!hasUser) return undefined

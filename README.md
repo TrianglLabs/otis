@@ -12,13 +12,13 @@
   <img src="docs/otis-demo.gif" alt="Otis terminal demo" width="720">
 </p>
 
-Otis is an open-source interactive agent built for the terminal. Choose any public serverless Fireworks model that
-supports tools, give Otis a task, and let it inspect files, edit code, run commands, search the web, and keep a durable
-local history of the work.
+Otis is an open-source interactive agent built for the terminal. Choose a local open-weight model or any public
+serverless Fireworks model that supports tools, give Otis a task, and let it inspect files, edit code, run commands,
+search the web, and keep a durable local history of the work.
 
-The application, tools, configuration, sessions, diffs, and usage statistics live on your computer. Inference is provided
-directly by Fireworks (with Zero Data Retention by default) using your API key. Web search and page reading use Parallel's
-Search MCP from the local runtime;
+The application, tools, configuration, sessions, diffs, and usage statistics live on your computer. Hosted inference is
+provided directly by Fireworks (with Zero Data Retention by default) using your API key. Local models run on your
+machine through llama.cpp. Web search and page reading use Parallel's Search MCP from the local runtime.
 
 ## Install
 
@@ -41,8 +41,10 @@ otis update
 ## Why Otis
 
 - **Your machine, your state.** Sessions, configuration, usage, tool activity, and diffs stay local.
-- **Your choice of open model.** The model picker is populated from Fireworks and only offers public serverless models
-  that explicitly support tool calling.
+- **Your choice of open model.** `/model` lists local llama.cpp models first, then public serverless Fireworks models
+  that explicitly support tool calling. Local rows show whether they fit in memory and grey out those that will not run
+  on this machine. On NVIDIA Linux, recommendations account for currently free VRAM without exposing transient device
+  details in the picker or treating another workload as a permanent hardware limit.
 - **Zero Data Retention (ZDR) inference.** Fireworks does not persist prompts or generations for open models by default
   unless you explicitly opt in. Service metadata such as token counts is still recorded.
 - **Inspectable history.** Append-only JSONL sessions retain messages, tool cards, diffs, titles, and provider-reported
@@ -55,7 +57,8 @@ Your terminal
   └─ Otis
       ├─ OpenTUI interface, agent loop, and local tools
       ├─ Private local configuration, sessions, diffs, and stats
-      ├─ Fireworks API ── inference and model discovery
+      ├─ llama.cpp ── local GGUF inference on localhost
+      ├─ Fireworks API ── hosted inference and model discovery
       └─ Parallel Search MCP ── web search and page reading
 ```
 
@@ -77,6 +80,16 @@ An environment variable can be used instead of saving the Fireworks key:
 export FIREWORKS_API_KEY=fw_your_key
 otis
 ```
+
+After setup, `/model` lists local llama.cpp models above Fireworks. Selecting a runnable local model downloads
+`llama-server` and the GGUF into Otis' local data directory and serves it on `127.0.0.1`. Download progress and
+Downloaded appear next to the model name in that list. Otis gives llama.cpp a hardware-scaled memory budget that keeps
+system headroom on unified-memory and CPU machines and per-device headroom on discrete GPUs. llama.cpp fits context and
+GPU offload inside that budget at startup, up to the checkpoint's native window, and Otis uses the context the server
+actually loaded. Unloaded rows say `Up to`; the active local model says `loaded` with its runtime context. Models that
+cannot fit even 8K inside the budget stay visible and greyed out.
+When at least one GGUF is present, `/delete-model` appears and opens a downloaded-model submenu. Deleting the active or
+final local model stops Otis' `llama-server`; deleting an inactive model leaves the current server untouched.
 
 ## Commands and controls
 
@@ -124,7 +137,8 @@ Run `otis exec --help` for the full option list. Headless mode is non-interactiv
 | `/home` | Return to the home screen |
 | `/new` | Start a new session |
 | `/history` | Browse, open, or delete local sessions |
-| `/model` | Choose another tool-capable Fireworks model |
+| `/model` | Choose a local llama.cpp model or a tool-capable Fireworks model |
+| `/delete-model` | Delete a local model from a slash-menu submenu (shown only when one is downloaded) |
 | `/fast` | Toggle Fast serving when the current model allows it |
 | `/compact [instructions]` | Summarize older conversation and free context |
 | `/debug` | Toggle diagnostic transcript entries |
@@ -262,7 +276,7 @@ The source tree follows a small set of explicit boundaries:
 src/
   cli/        OpenTUI application and command routing
   core/       Agent loop, project context, and compaction
-  inference/  Fireworks transport, model policy, and prompt assembly
+  inference/  Fireworks and local llama.cpp transport, model policy, and prompt assembly
   local/      Private settings, platform paths, and local statistics
   skills/     Agent Skill discovery, installation, validation, and confined resource loading
   storage/    Append-only session persistence and replay

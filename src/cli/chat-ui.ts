@@ -187,6 +187,11 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
   inputHint.onMouseOut = () => renderer.setMousePointer("default")
 
   renderer.keyInput.on("keypress", (key) => {
+    if (key.ctrl && !key.meta && key.name === "c") {
+      stopKey(key)
+      void options.onQuit?.()
+      return
+    }
     if (inputController.handleKey(key)) return
     if (permissions.handleKey(key)) return
     if (overlays.handleKey(key)) return
@@ -420,6 +425,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     setModeLabel,
     setImageAttachmentCount,
     setModelLabel,
+    setModelPickerStatus: (modelId, status) => models.setItemStatus(modelId, status),
     setCommands: (value) => commands.setCommands(value),
     setConfigured,
     setSessionLabel: (label) => sessionStatus.setLabel(label),
@@ -428,6 +434,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     setThinkingVisible,
     showStats,
     showTransientHint: (content) => status.showTransientHint(content),
+    showCommandSubmenu: (items) => overlays.showCommandSubmenu(items),
     showModelPicker: (items) => overlays.showModelPicker(items),
     showSetupError: (message) => inputController.showSetupError(message),
     showSetupButton: () => inputController.showSetupButton(),

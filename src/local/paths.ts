@@ -29,6 +29,18 @@ export function localDataDirectory() {
   return xdgDataHome ? join(xdgDataHome, "otis") : join(homedir(), ".local", "share", "otis")
 }
 
+export function llamaRuntimeDirectory() {
+  return join(localDataDirectory(), "llama")
+}
+
+export function llamaBinaryDirectory(releaseTag: string) {
+  return join(llamaRuntimeDirectory(), "bin", releaseTag)
+}
+
+export function llamaModelCacheDirectory() {
+  return join(llamaRuntimeDirectory(), "models")
+}
+
 function cleanEnvPath(value: string | undefined) {
   return value?.trim() || undefined
 }

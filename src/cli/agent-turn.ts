@@ -1,4 +1,4 @@
-import type { FireworksClient } from "../inference/client.js"
+import type { InferenceClient } from "../inference/client.js"
 import type { ChatMessage, ContextFile, TokenUsage } from "../inference/types.js"
 import type { PermissionPolicy, PermissionRequest } from "../permissions/policy.js"
 import type { SkillCatalog } from "../skills/index.js"
@@ -17,7 +17,7 @@ export type AgentTurnResult =
 
 type AgentTurnOptions = {
   admission: PromptAdmission
-  client: FireworksClient
+  client: InferenceClient
   webClient: ParallelClient
   webClientModel: string
   webSessionId?: string

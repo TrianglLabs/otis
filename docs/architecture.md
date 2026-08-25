@@ -2,7 +2,7 @@
 
 ## Overview
 
-Otis is a local terminal application with direct hosted inference.
+Otis is a local terminal application with direct hosted inference and optional on-device llama.cpp inference.
 
 ```txt
 User terminal or server process
@@ -12,6 +12,7 @@ User terminal or server process
       -> local Agent Skills
       -> local JSONL sessions and usage
       -> Fireworks API with the user's key
+      -> llama-server on 127.0.0.1
       -> Parallel Search MCP
 ```
 
@@ -33,8 +34,8 @@ src/cli
 - `src/cli` owns command routing, the UI-neutral turn coordinator, headless output adapters, application state, and
   OpenTUI rendering. Headless commands do not initialize OpenTUI.
 - `src/core` owns the agent loop, project instruction loading, and conversation compaction.
-- `src/inference` owns Fireworks request serialization, model discovery, the human-authored `system-prompt.txt`, prompt
-  assembly and project-context bounds, and SSE parsing.
+- `src/inference` owns Fireworks and local llama.cpp request serialization, model discovery, hardware fit, the
+  human-authored `system-prompt.txt`, prompt assembly and project-context bounds, and SSE parsing.
 - `src/local` owns platform paths, the private provider configuration file, and home-screen statistic derivation.
 - `src/skills` owns portable Agent Skill discovery, manifest validation, precedence, and confined resource reads.
 - `src/storage` owns append-only session events, validation, replay, titles, tool cards, and diffs.
@@ -76,6 +77,38 @@ thinking. Sessions persist the complete block for replay. Display policy is inde
 default and saves the user's `/thinking` visibility preference. Visible blocks render a compact three-line preview
 and keep per-block expansion as ephemeral UI state, while headless output includes trace text only when
 `--include-reasoning` is explicitly requested. These traces are provider output and may contain sensitive context.
+
+## Local llama.cpp boundary
+
+`/model` lists a curated local catalog above Fireworks. Identities are official Hugging Face checkpoints. GGUF files
+come from the model author when they publish GGUF, otherwise from ggml-org or a conversion of those official Instruct
+weights. Each row reports a fitted context and memory estimate; models that cannot fit even 8K context stay visible and
+unselectable. Context is the largest window that still fits, up to the checkpoint's native length. Memory math uses
+each checkpoint's real KV groups (full-attention layers vs sliding-window layers), not a uniform transformer cache.
+The fit policy reserves 15% of Apple unified memory (at least 3 GiB), 10% of CPU-only system memory (at least 2 GiB),
+and 1 GiB per discrete GPU. On NVIDIA Linux, the picker queries both total and currently free VRAM. Capacity after
+headroom controls hard availability, while currently free VRAM after the same headroom silently adjusts the
+recommendation when another GPU workload is active.
+Picker and settings rows are a provider-tagged catalog: Fireworks entries may include a Fast serving path; local entries
+carry a fitted context and never a `fastId`. Local rows not currently serving label that context `Up to`; the active
+local row receives the context returned by llama.cpp and labels it `loaded`.
+
+Selecting a runnable local model downloads the latest llama.cpp `b*` GitHub prerelease with real assets (Metal on
+Apple Silicon, Vulkan on Linux NVIDIA, otherwise CPU) and the selected GGUF into the platform local-data directory.
+Download percent and a loading state appear next to the model name in the `/model` picker. Local rows already on disk
+show Downloaded next to the name. Otis then starts `llama-server` on `127.0.0.1` with `--jinja` and without llama.cpp
+`--tools`. Chat then uses the same OpenAI-compatible SSE path as Fireworks, without Fireworks-only `service_tier` or
+`reasoning_effort` fields. Otis tools remain in the local runtime. `OTIS_LLAMA_SERVER` overrides the bundled binary.
+llama.cpp's native fitter is authoritative at startup. Otis passes the same per-device headroom used by preflight as
+`--fit-target`, reads `/props`, and persists the context actually loaded. Otis also removes inherited `LLAMA_ARG_*`
+variables from the child environment so a separate llama.cpp configuration cannot silently alter its managed server.
+When cached GGUFs exist, interactive mode exposes `/delete-model` with a second-level slash-menu list. It only targets files in Otis' model cache, stops
+Otis' server before deleting the active or final model, and clears an active selection before offering the model picker
+again. Inactive model deletion does not interrupt a different active local model.
+Interactive `/exit`, Ctrl+C, and SIGINT/SIGTERM wait for `llama-server` to stop before destroying the OpenTUI renderer.
+Headless `otis exec` awaits that stop in `finally`.
+
+First-run setup still requires a Fireworks key. Headless `otis exec --model <local-id>` does not.
 
 ## Parallel boundary
 

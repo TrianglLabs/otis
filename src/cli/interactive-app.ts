@@ -2,13 +2,26 @@ import { createCliRenderer } from "@opentui/core"
 import { autoCompactThreshold, compactConversation } from "../core/compaction.js"
 import { loadProjectContext } from "../core/context.js"
 import { FireworksClient } from "../inference/client.js"
+import { deleteLocalGguf, listDownloadedLocalModels } from "../inference/gguf-cache.js"
+import { detectHardware, type HardwareProbe } from "../inference/hardware.js"
+import { LlamaCppRuntime, type LocalServingEndpoint } from "../inference/llama-runtime.js"
+import {
+  catalogModelFromSpec,
+  findLocalModel,
+  isLocalModelId,
+  type LocalModelSpec,
+} from "../inference/local-catalog.js"
+import { LlamaCppClient } from "../inference/local-client.js"
+import { fitLocalModel, formatMemoryLabel, type LocalModelFit } from "../inference/local-fit.js"
 import { createUserMessage, summarizeUserMessage, userMessageContentChars } from "../inference/messages.js"
 import { isFastFireworksModel } from "../inference/serving-path.js"
 import { skillAdvertisementChars } from "../inference/system-prompt.js"
-import type { ContextFile, FireworksModel } from "../inference/types.js"
+import { type CatalogModel, type ContextFile, type InferenceClient, isLocalCatalogModel } from "../inference/types.js"
 import {
+  clearSelectedModel,
   isThemeName,
   loadLocalSettings,
+  saveSelectedModel,
   saveSelectedTheme,
   saveThinkingVisible,
   type ThemeName,
@@ -31,12 +44,12 @@ import { createChatUI } from "./chat-ui.js"
 import { contextUsage, contextUsageColor, estimateContextTokens, formatContextUsage } from "./context-meter.js"
 import { ImageFlow } from "./image-flow.js"
 import { SessionController } from "./session-controller.js"
-import { SetupFlow } from "./setup-flow.js"
+import { type PreparedModelSelection, SetupFlow } from "./setup-flow.js"
 import { parseSlashCommand, type SlashCommand, slashCommandIgnoresBusy, slashCommands } from "./slash-commands.js"
 import { initializeTreeSitterClient, TerminalController } from "./terminal.js"
 import { colors, selectTheme } from "./theme.js"
 import { TranscriptStore } from "./transcript.js"
-import { formatModeLabel, formatModelName, withFastModelMark } from "./ui/format.js"
+import { formatLocalLoadStatus, formatModeLabel, formatModelName, withFastModelMark } from "./ui/format.js"
 import type { ChatUI, Renderer } from "./ui/types.js"
 import { checkForUpdate } from "./update.js"
 import { formatWorkspaceLabel } from "./workspace-label.js"
@@ -66,11 +79,15 @@ export class InteractiveApp {
   #busy = false
   #debug = false
   #exiting = false
+  #quitPromise: Promise<void> | undefined
+  #localModelManagementTask: Promise<void> | undefined
+  #removeShutdownListeners: (() => void) | undefined
   #configured = false
   #fireworksApiKey: string | undefined
   #selectedModelId: string | undefined
   #autoCompactAtTokens = autoCompactThreshold()
-  #client: FireworksClient | undefined
+  #client: InferenceClient | undefined
+  #llama = new LlamaCppRuntime()
   #webClient: ParallelClient | undefined
   #permissionMode: PermissionMode = DEFAULT_PERMISSION_MODE
   #permissionRules: PermissionRule[] = []
@@ -78,8 +95,13 @@ export class InteractiveApp {
   #thinkingVisible = false
   #fastMode = true
   #fastAvailable = false
+  #downloadedModelsAvailable = false
   #activeTurn: AbortController | undefined
   #updateCheckController: AbortController | undefined
+  #startupModelController: AbortController | undefined
+  #modelApplyId = 0
+  #localLoadStatus: { modelId: string; label: string } | undefined
+  #activeLocalModel: { spec: LocalModelSpec; fit: LocalModelFit; hardware: HardwareProbe } | undefined
 
   static async start() {
     const app = new InteractiveApp()
@@ -93,20 +115,24 @@ export class InteractiveApp {
     this.#thinkingVisible = settings.thinkingVisible ?? false
     this.#fastMode = settings.fastMode ?? true
     this.#fastAvailable = Boolean(settings.modelFastId) || isFastFireworksModel(settings.model ?? "")
+    this.#downloadedModelsAvailable = (await listDownloadedLocalModels()).length > 0
     this.#fireworksApiKey = settings.fireworksApiKey
     this.#selectedModelId = settings.model
     this.#images.setModelCapability(settings.modelSupportsImageInput)
     this.#autoCompactAtTokens = autoCompactThreshold(settings.modelContextLength)
     this.#permissionMode = settings.permissions?.defaultMode ?? DEFAULT_PERMISSION_MODE
     this.#permissionRules = [...(settings.permissions?.rules ?? []), ...(await loadProjectPermissionRules(this.#cwd))]
-    this.#configured = Boolean(this.#fireworksApiKey && this.#selectedModelId)
-    if (this.#fireworksApiKey && this.#selectedModelId) {
+    this.#configured = Boolean(
+      this.#selectedModelId && (this.#fireworksApiKey || isLocalModelId(this.#selectedModelId)),
+    )
+    if (this.#fireworksApiKey && this.#selectedModelId && !isLocalModelId(this.#selectedModelId)) {
       this.#client = new FireworksClient({ apiKey: this.#fireworksApiKey, model: this.#selectedModelId })
     }
     this.#webClient = new ParallelClient()
 
     this.#renderer = await createCliRenderer({
-      exitOnCtrlC: true,
+      exitOnCtrlC: false,
+      exitSignals: [],
       targetFps: 60,
       backgroundColor: colors.background,
     })
@@ -121,7 +147,10 @@ export class InteractiveApp {
     this.#ui = createChatUI(this.#renderer, {
       configured: this.#configured,
       statsVisible: Boolean(this.#fireworksApiKey),
-      commands: slashCommands({ fast: this.#fastAvailable }),
+      commands: slashCommands({
+        fast: this.#fastAvailable,
+        downloadedModels: this.#downloadedModelsAvailable,
+      }),
       contextLabel: formatContextUsage(
         contextUsage(
           estimateContextTokens(this.#transcript.history, this.#staticContextChars),
@@ -145,6 +174,7 @@ export class InteractiveApp {
       onInterrupt: () => {
         this.#activeTurn?.abort()
       },
+      onQuit: () => this.#quit(),
       onSetup: () => this.#setupFlow.begin(),
       onSetupSubmit: (apiKey) => {
         void this.#setupFlow.submitCredential(apiKey)
@@ -186,16 +216,18 @@ export class InteractiveApp {
       },
       onCredentialsChanged: (credentials) => {
         this.#fireworksApiKey = credentials.fireworksApiKey
-        if (this.#fireworksApiKey && this.#selectedModelId) {
-          this.#client = new FireworksClient({ apiKey: this.#fireworksApiKey, model: this.#selectedModelId })
-        }
         this.#ui.showStats()
         void this.#refreshLocalStats()
       },
-      onModelSelected: (model) => this.#applySelectedModel(model),
-      onConfigured: (fireworksKey: string, model: FireworksModel) => {
+      prepareModelSelection: (model, selection) =>
+        this.#prepareSelectedModel(model, selection.fireworksApiKey, selection.signal),
+      localLoadStatus: () => this.#localLoadStatus,
+      loadedLocalModel: () =>
+        this.#activeLocalModel
+          ? { model: this.#activeLocalModel.spec.id, contextLength: this.#activeLocalModel.fit.contextLength }
+          : undefined,
+      onConfigured: (fireworksKey) => {
         this.#fireworksApiKey = fireworksKey
-        this.#applySelectedModel(model)
         this.#configured = true
         void this.#refreshLocalStats()
       },
@@ -211,10 +243,43 @@ export class InteractiveApp {
       () => this.#ui.focusInput(),
     )
     this.#terminal.installRecovery()
+    this.#installShutdownListeners()
     this.#startUpdateCheck()
 
     if (this.#fireworksApiKey) void this.#refreshLocalStats()
-    if (!this.#configured && this.#fireworksApiKey) this.#setupFlow.begin()
+    if (this.#selectedModelId && isLocalModelId(this.#selectedModelId)) {
+      const spec = findLocalModel(this.#selectedModelId)
+      if (spec) {
+        const startupController = new AbortController()
+        this.#startupModelController = startupController
+        let prepared: PreparedModelSelection | undefined
+        try {
+          prepared = await this.#prepareSelectedModel(
+            catalogModelFromSpec(spec, settings.modelContextLength),
+            this.#fireworksApiKey,
+            startupController.signal,
+          )
+          startupController.signal.throwIfAborted()
+          prepared.commit()
+          this.#configured = true
+          this.#ui.setConfigured()
+        } catch (error) {
+          if (prepared) await prepared.rollback({ restorePrevious: false })
+          if (startupController.signal.aborted || this.#exiting) return
+          this.#configured = false
+          this.#ui.showChatLayout()
+          this.#transcript.addAssistantMessage(
+            `Could not start ${spec.displayName}: ${error instanceof Error ? error.message : String(error)}`,
+          )
+          this.#ui.renderTranscript(this.#transcript.entries, { scrollToBottom: true })
+        } finally {
+          if (this.#startupModelController === startupController) this.#startupModelController = undefined
+        }
+      }
+    }
+    if (!this.#configured && this.#fireworksApiKey && !isLocalModelId(this.#selectedModelId ?? "")) {
+      this.#setupFlow.begin()
+    }
 
     if (this.#transcript.entries.length > 0) {
       this.#ui.showChatLayout()
@@ -253,15 +318,17 @@ export class InteractiveApp {
 
     if (this.#busy) return
 
-    if (!this.#configured || !this.#fireworksApiKey || !this.#client || !this.#webClient) {
-      this.#setupFlow.begin()
-      return
-    }
-
     if (command) {
       await this.#runSlashCommand(command)
       return
     }
+
+    if (!this.#configured || !this.#webClient) {
+      this.#setupFlow.begin()
+      return
+    }
+
+    if (!this.#client) return
 
     await this.#runPromptTurn(value)
   }
@@ -269,7 +336,7 @@ export class InteractiveApp {
   async #runSlashCommand(command: SlashCommand) {
     switch (command.type) {
       case "exit":
-        this.#quit()
+        await this.#quit()
         return
       case "theme-menu":
         this.#ui.clearInput()
@@ -280,10 +347,14 @@ export class InteractiveApp {
         await this.#selectThemeCommand(command.name)
         return
       case "model": {
-        const apiKey = this.#fireworksApiKey
-        if (!apiKey) return
         this.#ui.clearInput()
-        await this.#setupFlow.openModelPicker(apiKey, this.#selectedModelId, true)
+        await this.#setupFlow.openModelPicker(this.#fireworksApiKey, this.#selectedModelId, true)
+        return
+      }
+      case "delete-model": {
+        this.#ui.clearInput()
+        if (command.modelId) this.#startLocalModelDeletion(command.modelId)
+        else await this.#openLocalModelDeleteMenu()
         return
       }
       case "fast":
@@ -514,11 +585,39 @@ export class InteractiveApp {
     }
   }
 
+  #installShutdownListeners() {
+    const onSignal = () => {
+      void this.#quit()
+    }
+    process.once("SIGINT", onSignal)
+    process.once("SIGTERM", onSignal)
+    this.#removeShutdownListeners = () => {
+      process.off("SIGINT", onSignal)
+      process.off("SIGTERM", onSignal)
+      this.#removeShutdownListeners = undefined
+    }
+  }
+
   #quit() {
+    if (this.#quitPromise) return this.#quitPromise
+    this.#quitPromise = this.#runQuit()
+    return this.#quitPromise
+  }
+
+  async #runQuit() {
     this.#exiting = true
+    this.#removeShutdownListeners?.()
     this.#updateCheckController?.abort()
     this.#activeTurn?.abort()
-    this.#renderer.destroy()
+    this.#startupModelController?.abort()
+    this.#modelApplyId += 1
+    try {
+      await this.#setupFlow.shutdown()
+      await this.#localModelManagementTask?.catch(() => undefined)
+      await this.#llama.stop()
+    } finally {
+      this.#renderer.destroy()
+    }
   }
 
   async #refreshLocalStats() {
@@ -530,19 +629,278 @@ export class InteractiveApp {
     }
   }
 
-  #applySelectedModel(model: FireworksModel) {
+  async #openLocalModelDeleteMenu() {
+    const models = await listDownloadedLocalModels()
+    this.#setDownloadedModelsAvailable(models.length > 0)
+    if (models.length === 0) {
+      this.#ui.showTransientHint(" No downloaded local models. ")
+      this.#ui.focusInput()
+      return
+    }
+    this.#showLocalModelDeleteMenu(models)
+  }
+
+  #showLocalModelDeleteMenu(models: readonly LocalModelSpec[]) {
+    this.#ui.showCommandSubmenu(
+      models.map((model) => ({
+        name: model.displayName,
+        description: `${model.id === this.#selectedModelId ? "Active · " : ""}${model.quant} · ${formatMemoryLabel(model.weightBytes)}`,
+        submission: `/delete-model ${model.id}`,
+      })),
+    )
+    this.#ui.focusInput()
+  }
+
+  #startLocalModelDeletion(modelId: string) {
+    if (this.#localModelManagementTask) return
+    const task = this.#deleteLocalModel(modelId)
+    this.#localModelManagementTask = task
+    void task.then(
+      () => {
+        if (this.#localModelManagementTask === task) this.#localModelManagementTask = undefined
+      },
+      (error) => {
+        if (this.#localModelManagementTask === task) this.#localModelManagementTask = undefined
+        if (!this.#exiting) this.#ui.showTransientHint(` Could not manage local models: ${errorMessage(error)} `)
+      },
+    )
+  }
+
+  async #deleteLocalModel(modelId: string) {
+    if (this.#exiting || this.#busy) return
+    const spec = findLocalModel(modelId)
+    if (!spec) return
+
+    this.#busy = true
+    this.#ui.setBusy(true)
+    let active = false
+    let settingsCleared = false
+    let previousActive = this.#activeLocalModel
+    let previousModel = catalogModelFromSpec(spec, previousActive?.fit.contextLength)
+    let remaining: LocalModelSpec[] = []
+
+    try {
+      await this.#setupFlow.cancelModelSelection()
+      active = this.#selectedModelId === spec.id
+      previousActive = this.#activeLocalModel
+      previousModel = catalogModelFromSpec(spec, previousActive?.fit.contextLength)
+      const downloaded = await listDownloadedLocalModels()
+      const deletingLast = downloaded.length === 1 && downloaded[0]?.id === spec.id
+
+      if (active) {
+        await clearSelectedModel()
+        settingsCleared = true
+      }
+      if (active || deletingLast) await this.#llama.stop()
+      await deleteLocalGguf(spec)
+      remaining = await listDownloadedLocalModels()
+    } catch (error) {
+      let failure = error
+      if (active && settingsCleared) {
+        try {
+          await saveSelectedModel(previousModel)
+          if (previousActive) await this.#restoreLocalRuntime(previousActive)
+        } catch (rollbackError) {
+          failure = new AggregateError(
+            [error, rollbackError],
+            `${errorMessage(error)} The active local model could not be restored.`,
+          )
+        }
+      }
+      if (!this.#exiting) {
+        this.#ui.showTransientHint(` Could not delete ${spec.displayName}: ${errorMessage(failure)} `)
+        this.#ui.focusInput()
+      }
+      return
+    } finally {
+      this.#busy = false
+      if (!this.#exiting) this.#ui.setBusy(false)
+    }
+
+    this.#setDownloadedModelsAvailable(remaining.length > 0)
+    if (active) {
+      this.#modelApplyId += 1
+      this.#activeLocalModel = undefined
+      this.#selectedModelId = undefined
+      this.#client = undefined
+      this.#configured = false
+      this.#images.setModelCapability(false)
+      this.#autoCompactAtTokens = autoCompactThreshold()
+      this.#setupFlow.forgetSelectedModel(spec.id)
+      if (this.#exiting) return
+      this.#ui.setModelLabel("No model")
+      this.#setFastAvailable(false)
+      this.#updateContextIndicator()
+      await this.#setupFlow.openModelPicker(this.#fireworksApiKey, undefined, true)
+      if (!this.#exiting) this.#ui.showTransientHint(` Deleted ${spec.displayName}. Choose another model. `)
+      return
+    }
+
+    if (this.#exiting) return
+    if (remaining.length > 0) this.#showLocalModelDeleteMenu(remaining)
+    else {
+      this.#ui.showTransientHint(` Deleted ${spec.displayName}. `)
+      this.#ui.focusInput()
+    }
+  }
+
+  async #prepareSelectedModel(
+    model: CatalogModel,
+    fireworksApiKey: string | undefined,
+    signal: AbortSignal,
+  ): Promise<PreparedModelSelection> {
+    const applyId = ++this.#modelApplyId
+    if (this.#localLoadStatus && this.#localLoadStatus.modelId !== model.id) {
+      this.#ui.setModelPickerStatus(this.#localLoadStatus.modelId, undefined)
+      this.#localLoadStatus = undefined
+    }
+    const previousLocal = this.#activeLocalModel
+
+    if (isLocalCatalogModel(model)) {
+      const spec = findLocalModel(model.id)
+      if (!spec) throw new Error(`Unknown local model: ${model.id}`)
+      const name = formatModelName(model.displayName)
+      const hardware = await detectHardware()
+      signal.throwIfAborted()
+      const fit = fitLocalModel(spec, hardware)
+      let serving: LocalServingEndpoint
+      try {
+        serving = await this.#llama.ensureServing(spec, fit, hardware, {
+          signal,
+          onProgress: (progress) => {
+            if (applyId !== this.#modelApplyId || signal.aborted || this.#exiting) return
+            const label = formatLocalLoadStatus(progress)
+            this.#localLoadStatus = { modelId: spec.id, label }
+            this.#ui.setModelPickerStatus(spec.id, label)
+          },
+        })
+        signal.throwIfAborted()
+        this.#setDownloadedModelsAvailable(true)
+      } catch (error) {
+        this.#clearLocalLoadStatus(spec.id)
+        await this.#refreshDownloadedModelCommands()
+        if (!signal.aborted && !this.#exiting) await this.#restoreLocalRuntime(previousLocal, error, signal)
+        throw error
+      }
+      const activeModel = { ...model, contextLength: serving.contextLength }
+      let finalized = false
+      return {
+        model: activeModel,
+        commit: () => {
+          if (finalized) return
+          finalized = true
+          this.#activeLocalModel = {
+            spec,
+            fit: { ...fit, contextLength: serving.contextLength },
+            hardware,
+          }
+          this.#activateModel(
+            activeModel,
+            new LlamaCppClient({ model: spec.id, inferenceURL: serving.inferenceURL }),
+            name,
+          )
+          this.#clearLocalLoadStatus(spec.id)
+        },
+        rollback: async ({ restorePrevious }) => {
+          if (finalized) return
+          finalized = true
+          this.#clearLocalLoadStatus(spec.id)
+          if (restorePrevious) await this.#restoreLocalRuntime(previousLocal, undefined, signal)
+        },
+      }
+    }
+
+    if (!fireworksApiKey) throw new Error("Fireworks API key is required.")
+    try {
+      await this.#llama.stop()
+      signal.throwIfAborted()
+    } catch (error) {
+      if (!signal.aborted && !this.#exiting) await this.#restoreLocalRuntime(previousLocal, error, signal)
+      throw error
+    }
+    const client = new FireworksClient({ apiKey: fireworksApiKey, model: model.id })
+    let finalized = false
+    return {
+      model,
+      commit: () => {
+        if (finalized) return
+        finalized = true
+        this.#activeLocalModel = undefined
+        this.#activateModel(
+          model,
+          client,
+          withFastModelMark(formatModelName(model.displayName), isFastFireworksModel(model.id)),
+        )
+      },
+      rollback: async ({ restorePrevious }) => {
+        if (finalized) return
+        finalized = true
+        if (restorePrevious) await this.#restoreLocalRuntime(previousLocal, undefined, signal)
+      },
+    }
+  }
+
+  #activateModel(model: CatalogModel, client: InferenceClient, label: string) {
     this.#selectedModelId = model.id
     this.#images.setModelCapability(model.supportsImageInput)
     this.#autoCompactAtTokens = autoCompactThreshold(model.contextLength)
-    if (this.#fireworksApiKey) this.#client = new FireworksClient({ apiKey: this.#fireworksApiKey, model: model.id })
-    this.#ui.setModelLabel(withFastModelMark(formatModelName(model.displayName), isFastFireworksModel(model.id)))
-    this.#setFastAvailable(Boolean(model.fastId) || isFastFireworksModel(model.id))
-    this.#updateContextIndicator()
+    this.#client = client
+    this.#configured = true
+    if (!this.#exiting) {
+      this.#ui.setModelLabel(label)
+      this.#setFastAvailable(
+        model.provider === "fireworks" && (Boolean(model.fastId) || isFastFireworksModel(model.id)),
+      )
+      this.#updateContextIndicator()
+    }
+  }
+
+  async #restoreLocalRuntime(
+    previous: { spec: LocalModelSpec; fit: LocalModelFit; hardware: HardwareProbe } | undefined,
+    originalError?: unknown,
+    signal?: AbortSignal,
+  ) {
+    try {
+      if (!previous) {
+        await this.#llama.stop()
+        return
+      }
+      const serving = await this.#llama.ensureServing(previous.spec, previous.fit, previous.hardware, { signal })
+      signal?.throwIfAborted()
+      this.#client = new LlamaCppClient({ model: previous.spec.id, inferenceURL: serving.inferenceURL })
+    } catch (restoreError) {
+      if (originalError === undefined) throw restoreError
+      throw new AggregateError(
+        [originalError, restoreError],
+        `${errorMessage(originalError)} The previous local model could not be restored.`,
+      )
+    }
+  }
+
+  #clearLocalLoadStatus(modelId: string) {
+    if (this.#localLoadStatus?.modelId === modelId) this.#localLoadStatus = undefined
+    if (!this.#exiting) this.#ui.setModelPickerStatus(modelId, undefined)
   }
 
   #setFastAvailable(available: boolean) {
     this.#fastAvailable = available
-    this.#ui.setCommands(slashCommands({ fast: available }))
+    if (!this.#exiting) this.#refreshCommands()
+  }
+
+  #setDownloadedModelsAvailable(available: boolean) {
+    this.#downloadedModelsAvailable = available
+    if (!this.#exiting) this.#refreshCommands()
+  }
+
+  async #refreshDownloadedModelCommands() {
+    const available = (await listDownloadedLocalModels()).length > 0
+    if (!this.#exiting) this.#setDownloadedModelsAvailable(available)
+  }
+
+  #refreshCommands() {
+    this.#ui.setCommands(
+      slashCommands({ fast: this.#fastAvailable, downloadedModels: this.#downloadedModelsAvailable }),
+    )
   }
 
   #updateContextIndicator(pendingInput = "") {
@@ -635,4 +993,8 @@ export class InteractiveApp {
     const activity = describeToolCall(request.call)
     return this.#ui.showPermissionPrompt(activity.label)
   }
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error)
 }

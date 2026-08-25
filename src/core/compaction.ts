@@ -1,6 +1,5 @@
-import type { FireworksClient } from "../inference/client.js"
 import { summarizeUserMessage, userMessageContentChars, userMessageText } from "../inference/messages.js"
-import type { ChatMessage, TokenUsage } from "../inference/types.js"
+import type { ChatMessage, InferenceClient, TokenUsage } from "../inference/types.js"
 
 const CHARS_PER_TOKEN = 4
 const TOKENS_PER_MESSAGE = 4
@@ -27,7 +26,7 @@ export type CompactionResult = {
 }
 
 export type CompactionOptions = {
-  client: FireworksClient
+  client: InferenceClient
   instructions?: string
   onUsage?: (usage: TokenUsage) => void | Promise<void>
   signal?: AbortSignal
@@ -178,7 +177,7 @@ function messageContentLength(message: ChatMessage): number {
 
 async function generateSummary(
   messages: ChatMessage[],
-  client: FireworksClient,
+  client: InferenceClient,
   instructions: string | undefined,
   signal?: AbortSignal,
   onUsage?: (usage: TokenUsage) => void | Promise<void>,

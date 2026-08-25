@@ -69,5 +69,5 @@ describe("Fireworks serving paths", () => {
 })
 
 function model(id: string, displayName: string): FireworksModel {
-  return { id, displayName, supportsImageInput: true, contextLength: 128_000 }
+  return { provider: "fireworks", id, displayName, supportsImageInput: true, contextLength: 128_000 }
 }

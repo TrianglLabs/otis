@@ -33,6 +33,12 @@ export class CommandMenu {
     this.#commands = commands
   }
 
+  showSubmenu(items: readonly CommandSuggestion[]) {
+    this.#items = [...items]
+    this.#selectedIndex = 0
+    this.render()
+  }
+
   update(value: string, showingWelcome: boolean, activeTheme?: string) {
     const query = commandQuery(value)
     if (query === undefined) return false

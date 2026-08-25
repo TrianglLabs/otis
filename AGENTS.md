@@ -6,16 +6,18 @@ Otis is a general interactive terminal agent, with coding as an important capabi
 OpenTUI CLI.
 
 Otis is locally controlled. It has no user accounts, invite codes, hosted control plane, remote profile, cloud usage
-database, or cloud synchronization dependency. Inference goes directly to Fireworks with a user-owned API key.
-Web search and extraction go directly to Parallel's Search MCP.
+database, or cloud synchronization dependency. Hosted inference goes directly to Fireworks with a user-owned API key.
+Local inference runs `llama-server` on localhost. Web search and extraction go directly to Parallel's Search MCP.
 
 ## Current technical decisions
 
 - Frontend: OpenTUI.
 - Runtime and package manager: TypeScript on Bun.
-- Inference: Fireworks' OpenAI-compatible API, called directly from the local runtime.
+- Inference: Fireworks' OpenAI-compatible API, called directly from the local runtime; local models via llama.cpp
+  `llama-server` on `127.0.0.1`.
 - Web access: Parallel Search MCP, called directly from the local runtime.
-- Models: user-selectable public serverless Fireworks models that explicitly support tool calling.
+- Models: curated official Hugging Face checkpoints for local GGUF, plus user-selectable public serverless Fireworks
+  models that explicitly support tool calling.
 - Configuration: private local file, with `FIREWORKS_API_KEY` as an environment override.
 - Sessions and usage: append-only local JSONL events.
 - Tools: local structured tools plus direct Parallel-backed `web_search` and `web_read`.
@@ -26,16 +28,20 @@ proxy, or other Otis-owned runtime service without an explicit product decision.
 
 ## Model policy
 
-Never offer a model that the Fireworks public serverless catalog does not mark as tool-capable. Keep requests portable
-across supported models. Otis defaults to the highest reasoning tier Fireworks documents for each known model family;
-keep that compatibility policy centralized, and use the provider default when Fireworks has not documented a safe
-effort value. Avoid other model-specific reasoning, sampling, or token settings without an explicit capability model.
+Never offer a hosted model that the Fireworks public serverless catalog does not mark as tool-capable. Local catalog
+entries must use official Hugging Face checkpoints; GGUF files come from the model author when they publish GGUF,
+otherwise from ggml-org or a conversion of those official weights. Keep requests portable across supported models.
+Otis defaults to the highest reasoning tier Fireworks documents for each known model family; keep that compatibility
+policy centralized, and use the provider default when Fireworks has not documented a safe effort value. Avoid other
+model-specific reasoning, sampling, or token settings without an explicit capability model. Do not enable llama.cpp
+built-in `--tools`; Otis tools stay in the local runtime.
 
 Preserve provider-native reasoning and tool-call history when sending later turns.
 
 ## Privacy and secrets
 
-- Never log, persist in sessions, or place Fireworks API keys in model content.
+- Never log, persist in sessions, or place Fireworks API keys in model content. Hugging Face tokens, if present in the
+  process environment for Hub downloads, are not written to sessions.
 - Keep saved configuration and session files private on supported platforms.
 - Do not add telemetry or remote usage reporting.
 - Provider tests use fakes and must not access the network or real credentials.

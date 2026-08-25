@@ -28,8 +28,9 @@ describe("listToolCapableModels", () => {
     })
 
     expect(models).toEqual([
-      { id: "accounts/fireworks/models/alpha", displayName: "Alpha", supportsImageInput: false },
+      { provider: "fireworks", id: "accounts/fireworks/models/alpha", displayName: "Alpha", supportsImageInput: false },
       {
+        provider: "fireworks",
         id: "accounts/fireworks/models/zeta",
         displayName: "Zeta",
         contextLength: 128_000,
@@ -72,6 +73,7 @@ describe("listToolCapableModels", () => {
 
     expect(models).toEqual([
       {
+        provider: "fireworks",
         id: "accounts/fireworks/models/kimi-k3",
         displayName: "Kimi K3",
         contextLength: 1_048_576,
@@ -95,7 +97,14 @@ describe("listToolCapableModels", () => {
         modelsURL: "http://localhost/v1/accounts/fireworks/models",
         inferenceModelsURL: "http://localhost/inference/v1/models",
       }),
-    ).resolves.toEqual([{ id: "accounts/fireworks/models/kimi-k3", displayName: "Kimi K3", supportsImageInput: false }])
+    ).resolves.toEqual([
+      {
+        provider: "fireworks",
+        id: "accounts/fireworks/models/kimi-k3",
+        displayName: "Kimi K3",
+        supportsImageInput: false,
+      },
+    ])
   })
 
   it("rejects malformed catalog responses instead of accepting unverified model IDs", async () => {

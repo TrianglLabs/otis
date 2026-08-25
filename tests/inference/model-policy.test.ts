@@ -37,5 +37,5 @@ describe("Fireworks default model policy", () => {
 })
 
 function model(id: string): FireworksModel {
-  return { id, displayName: id, supportsImageInput: false }
+  return { provider: "fireworks", id, displayName: id, supportsImageInput: false }
 }

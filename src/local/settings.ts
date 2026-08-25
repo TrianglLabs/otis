@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto"
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { dirname, join, resolve } from "node:path"
-import type { FireworksModel } from "../inference/types.js"
+import { isLocalModelId } from "../inference/local-catalog.js"
+import type { CatalogModel, FireworksModel, ModelProvider } from "../inference/types.js"
 import { type PermissionConfig, parsePermissionConfig } from "../permissions/policy.js"
 import { localConfigDirectory } from "./paths.js"
 
@@ -11,6 +12,7 @@ export type LocalSettings = {
   modelDisplayName?: string
   modelContextLength?: number
   modelSupportsImageInput?: boolean
+  modelProvider?: ModelProvider
   theme?: ThemeName
   thinkingVisible?: boolean
   fastMode?: boolean
@@ -43,6 +45,7 @@ type SettingsFile = {
   modelDisplayName?: string
   modelContextLength?: number
   modelSupportsImageInput?: boolean
+  modelProvider?: ModelProvider
   theme?: ThemeName
   thinkingVisible?: boolean
   fastMode?: boolean
@@ -60,6 +63,9 @@ export async function loadLocalSettings(options: SettingsFileOptions = {}): Prom
     model: saved?.model,
     modelDisplayName: saved?.modelDisplayName,
     modelContextLength: saved?.modelContextLength,
+    ...(saved?.modelProvider || inferModelProvider(saved?.model)
+      ? { modelProvider: saved?.modelProvider ?? inferModelProvider(saved?.model) }
+      : {}),
     ...(saved?.modelSupportsImageInput !== undefined ? { modelSupportsImageInput: saved.modelSupportsImageInput } : {}),
     ...(saved?.theme ? { theme: saved.theme } : {}),
     ...(saved?.thinkingVisible !== undefined ? { thinkingVisible: saved.thinkingVisible } : {}),
@@ -77,9 +83,14 @@ export async function saveFireworksSetup(apiKey: string, model: FireworksModel, 
   )
 }
 
-export async function saveSelectedModel(model: FireworksModel, options: SettingsFileOptions = {}) {
+export async function saveSelectedModel(model: CatalogModel, options: SettingsFileOptions = {}) {
   const saved = (await readSettingsFile(options)) ?? { version: 1 }
   await writeSettingsFile(withSelectedModel(saved, model), options)
+}
+
+export async function clearSelectedModel(options: SettingsFileOptions = {}) {
+  const saved = (await readSettingsFile(options)) ?? { version: 1 }
+  await writeSettingsFile(withoutSelectedModel(saved), options)
 }
 
 export async function saveSelectedTheme(theme: ThemeName, options: SettingsFileOptions = {}) {
@@ -147,6 +158,7 @@ function parseSettingsFile(value: unknown): SettingsFile {
   const thinkingVisible = optionalBoolean(value.thinkingVisible, "thinkingVisible")
   const fastMode = optionalBoolean(value.fastMode, "fastMode")
   const modelFastId = optionalString(value.modelFastId, "modelFastId")
+  const modelProvider = optionalModelProvider(value.modelProvider)
   const permissions =
     value.permissions === undefined
       ? undefined
@@ -158,6 +170,7 @@ function parseSettingsFile(value: unknown): SettingsFile {
     ...(modelDisplayName ? { modelDisplayName } : {}),
     ...(modelContextLength ? { modelContextLength } : {}),
     ...(modelSupportsImageInput !== undefined ? { modelSupportsImageInput } : {}),
+    ...(modelProvider ? { modelProvider } : {}),
     ...(theme ? { theme } : {}),
     ...(thinkingVisible !== undefined ? { thinkingVisible } : {}),
     ...(fastMode !== undefined ? { fastMode } : {}),
@@ -166,24 +179,45 @@ function parseSettingsFile(value: unknown): SettingsFile {
   }
 }
 
-function withSelectedModel(settings: SettingsFile, model: FireworksModel): SettingsFile {
+function withSelectedModel(settings: SettingsFile, model: CatalogModel): SettingsFile {
   const contextLength =
-    model.contextLength === undefined
-      ? undefined
-      : positiveInteger(model.contextLength, "Fireworks model context length")
+    model.contextLength === undefined ? undefined : positiveInteger(model.contextLength, "model context length")
   return {
     version: 1,
     ...(settings.fireworksApiKey ? { fireworksApiKey: settings.fireworksApiKey } : {}),
-    model: required(model.id, "Fireworks model"),
-    modelDisplayName: required(model.displayName, "Fireworks model display name"),
+    model: required(model.id, "model"),
+    modelDisplayName: required(model.displayName, "model display name"),
+    modelProvider: model.provider,
     ...(contextLength ? { modelContextLength: contextLength } : {}),
     modelSupportsImageInput: model.supportsImageInput,
-    ...(model.fastId ? { modelFastId: model.fastId } : {}),
+    ...(model.provider === "fireworks" && model.fastId ? { modelFastId: model.fastId } : {}),
     ...(settings.theme ? { theme: settings.theme } : {}),
     ...(settings.thinkingVisible !== undefined ? { thinkingVisible: settings.thinkingVisible } : {}),
     ...(settings.fastMode !== undefined ? { fastMode: settings.fastMode } : {}),
     ...(settings.permissions ? { permissions: settings.permissions } : {}),
   }
+}
+
+function withoutSelectedModel(settings: SettingsFile): SettingsFile {
+  return {
+    version: 1,
+    ...(settings.fireworksApiKey ? { fireworksApiKey: settings.fireworksApiKey } : {}),
+    ...(settings.theme ? { theme: settings.theme } : {}),
+    ...(settings.thinkingVisible !== undefined ? { thinkingVisible: settings.thinkingVisible } : {}),
+    ...(settings.fastMode !== undefined ? { fastMode: settings.fastMode } : {}),
+    ...(settings.permissions ? { permissions: settings.permissions } : {}),
+  }
+}
+
+function inferModelProvider(modelId: string | undefined): ModelProvider | undefined {
+  if (!modelId) return undefined
+  return isLocalModelId(modelId) ? "local" : "fireworks"
+}
+
+function optionalModelProvider(value: unknown): ModelProvider | undefined {
+  if (value === undefined) return undefined
+  if (value === "fireworks" || value === "local") return value
+  throw new Error("Invalid Otis config: modelProvider must be fireworks or local.")
 }
 
 function optionalTheme(value: unknown): ThemeName | undefined {

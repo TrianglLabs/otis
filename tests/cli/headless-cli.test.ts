@@ -10,11 +10,11 @@ const mocks = vi.hoisted(() => ({
   createSession: vi.fn(),
   listSessions: vi.fn(async () => []),
   listToolCapableModels: vi.fn<() => Promise<FireworksModel[]>>(async () => [
-    { id: "accounts/fireworks/models/test", displayName: "Test", supportsImageInput: false },
+    { provider: "fireworks", id: "accounts/fireworks/models/test", displayName: "Test", supportsImageInput: false },
   ]),
   loadLocalSettings: vi.fn<
     () => Promise<{
-      fireworksApiKey: string
+      fireworksApiKey?: string
       model: string
       modelSupportsImageInput?: boolean
       permissions?: PermissionConfig
@@ -27,6 +27,27 @@ const mocks = vi.hoisted(() => ({
   loadSkillCatalog: vi.fn<() => Promise<SkillCatalog>>(async () => ({ skills: [], byName: new Map() })),
   saveSelectedModel: vi.fn(async () => undefined),
   streamChat: vi.fn(),
+  detectHardware: vi.fn(async () => ({
+    platform: "darwin" as const,
+    arch: "arm64",
+    totalMemoryBytes: 64 * 1024 ** 3,
+    gpuMemoryBytes: 64 * 1024 ** 3,
+    backend: "metal" as const,
+    unifiedMemory: true,
+  })),
+  ensureLocalServing: vi.fn<
+    (
+      spec: { id: string },
+      fit?: unknown,
+      hardware?: unknown,
+      options?: { signal?: AbortSignal },
+    ) => Promise<{ model: string; inferenceURL: string; contextLength: number }>
+  >(async (spec) => ({
+    model: spec.id,
+    inferenceURL: "http://127.0.0.1:18765/v1/chat/completions",
+    contextLength: 32_768,
+  })),
+  stopLocalRuntime: vi.fn(async () => undefined),
 }))
 
 const session = {
@@ -48,6 +69,20 @@ vi.mock("../../src/inference/client.js", () => ({
     return { model: config.model, streamChat: mocks.streamChat }
   }),
   listToolCapableModels: mocks.listToolCapableModels,
+}))
+vi.mock("../../src/inference/hardware.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/inference/hardware.js")>()
+  return { ...actual, detectHardware: mocks.detectHardware }
+})
+vi.mock("../../src/inference/llama-runtime.js", () => ({
+  LlamaCppRuntime: vi.fn(function LlamaCppRuntime() {
+    return { ensureServing: mocks.ensureLocalServing, stop: mocks.stopLocalRuntime }
+  }),
+}))
+vi.mock("../../src/inference/local-client.js", () => ({
+  LlamaCppClient: vi.fn(function LlamaCppClient(config: { model: string }) {
+    return { model: config.model, streamChat: mocks.streamChat }
+  }),
 }))
 vi.mock("../../src/local/settings.js", () => ({
   loadLocalSettings: mocks.loadLocalSettings,
@@ -81,6 +116,12 @@ beforeEach(() => {
   })
   mocks.createSession.mockResolvedValue(session)
   mocks.loadSkillCatalog.mockResolvedValue({ skills: [], byName: new Map() })
+  mocks.ensureLocalServing.mockImplementation(async (spec: { id: string }) => ({
+    model: spec.id,
+    inferenceURL: "http://127.0.0.1:18765/v1/chat/completions",
+    contextLength: 32_768,
+  }))
+  mocks.stopLocalRuntime.mockResolvedValue(undefined)
 })
 
 describe("runHeadlessCommand", () => {
@@ -378,6 +419,7 @@ describe("runHeadlessCommand", () => {
   it("uses an explicit Fast serving path when requested", async () => {
     mocks.listToolCapableModels.mockResolvedValue([
       {
+        provider: "fireworks",
         id: "accounts/fireworks/models/kimi-k3",
         displayName: "Kimi K3",
         supportsImageInput: true,
@@ -403,6 +445,7 @@ describe("runHeadlessCommand", () => {
   it("keeps an explicit catalog model on the base serving path", async () => {
     mocks.listToolCapableModels.mockResolvedValue([
       {
+        provider: "fireworks",
         id: "accounts/fireworks/models/kimi-k3",
         displayName: "Kimi K3",
         supportsImageInput: true,
@@ -436,6 +479,49 @@ describe("runHeadlessCommand", () => {
     expect(exitCode).toBe(1)
     expect(mocks.listToolCapableModels).toHaveBeenCalledOnce()
     expect(output.stderr()).toContain("not a tool-capable Fireworks serverless model")
+  })
+
+  it("passes the command cancellation signal into local model startup", async () => {
+    mocks.loadLocalSettings.mockResolvedValue({ model: "openai/gpt-oss-20b" })
+    mocks.streamChat.mockImplementationOnce(async function* () {
+      yield { type: "text_delta", text: "local answer" }
+    })
+    const output = streams()
+
+    const exitCode = await runHeadlessCommand(["--ephemeral", "hello locally"], output.options)
+
+    expect(exitCode).toBe(0)
+    expect(mocks.ensureLocalServing).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "openai/gpt-oss-20b" }),
+      expect.anything(),
+      expect.anything(),
+      { signal: expect.any(AbortSignal) },
+    )
+  })
+
+  it("interrupts local startup and stops the runtime on SIGINT", async () => {
+    mocks.loadLocalSettings.mockResolvedValue({ model: "openai/gpt-oss-20b" })
+    let startupSignal: AbortSignal | undefined
+    mocks.ensureLocalServing.mockImplementation(
+      (_spec, _fit, _hardware, options) =>
+        new Promise((_resolve, reject) => {
+          startupSignal = options?.signal
+          startupSignal?.addEventListener("abort", () => reject(startupSignal?.reason), { once: true })
+        }),
+    )
+    const once = vi.spyOn(process, "once")
+    try {
+      const running = runHeadlessCommand(["--ephemeral", "hello locally"], streams().options)
+      await vi.waitFor(() => expect(startupSignal).toBeDefined())
+      const interrupt = once.mock.calls.find(([event]) => event === "SIGINT")?.[1] as (() => void) | undefined
+      interrupt?.()
+
+      await expect(running).resolves.toBe(130)
+      expect(startupSignal?.aborted).toBe(true)
+      expect(mocks.stopLocalRuntime).toHaveBeenCalledOnce()
+    } finally {
+      once.mockRestore()
+    }
   })
 })
 
