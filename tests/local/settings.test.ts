@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import {
+  clearSelectedModel,
   loadLocalSettings,
   saveFastMode,
   saveFireworksSetup,
@@ -27,6 +28,7 @@ describe("local settings", () => {
       model: "accounts/fireworks/models/tool-model",
       modelDisplayName: "Tool Model",
       modelContextLength: 131_072,
+      modelProvider: "fireworks",
       modelSupportsImageInput: false,
     })
     expect(JSON.parse(await readFile(file, "utf8"))).toEqual({
@@ -35,6 +37,7 @@ describe("local settings", () => {
       model: "accounts/fireworks/models/tool-model",
       modelDisplayName: "Tool Model",
       modelContextLength: 131_072,
+      modelProvider: "fireworks",
       modelSupportsImageInput: false,
     })
     if (process.platform !== "win32") {
@@ -52,6 +55,7 @@ describe("local settings", () => {
       model: "accounts/fireworks/models/tool-model",
       modelDisplayName: "Tool Model",
       modelContextLength: 131_072,
+      modelProvider: "fireworks",
       modelSupportsImageInput: false,
     })
     expect(JSON.parse(await readFile(file, "utf8"))).toEqual({
@@ -59,6 +63,7 @@ describe("local settings", () => {
       model: "accounts/fireworks/models/tool-model",
       modelDisplayName: "Tool Model",
       modelContextLength: 131_072,
+      modelProvider: "fireworks",
       modelSupportsImageInput: false,
     })
   })
@@ -73,7 +78,26 @@ describe("local settings", () => {
       fireworksApiKey: "fw_test_key",
       model: "accounts/fireworks/models/new",
       modelDisplayName: "New",
+      modelProvider: "fireworks",
       modelSupportsImageInput: false,
+    })
+  })
+
+  it("clears only the selected model fields", async () => {
+    const file = join(await tempDirectory(), "config.json")
+    await saveFireworksSetup("fw_test_key", model("tool-model", "Tool Model", 32_768), { file })
+    await saveSelectedTheme("nord", { file })
+    await saveThinkingVisible(true, { file })
+    await saveFastMode(false, { file })
+
+    await clearSelectedModel({ file })
+
+    expect(JSON.parse(await readFile(file, "utf8"))).toEqual({
+      version: 1,
+      fireworksApiKey: "fw_test_key",
+      theme: "nord",
+      thinkingVisible: true,
+      fastMode: false,
     })
   })
 
@@ -105,6 +129,7 @@ describe("local settings", () => {
     const file = join(await tempDirectory(), "config.json")
     await saveSelectedModel(
       {
+        provider: "fireworks",
         id: "accounts/fireworks/models/kimi-k3",
         displayName: "Kimi K3",
         supportsImageInput: false,
@@ -169,6 +194,29 @@ describe("local settings", () => {
     await expect(loadLocalSettings({ file, env: {} })).rejects.toThrow("allow, ask, or deny")
   })
 
+  it("stores a selected local model without clearing a saved Fireworks key", async () => {
+    const file = join(await tempDirectory(), "config.json")
+    await saveFireworksSetup("fw_test_key", model("tool-model", "Tool Model"), { file })
+    await saveSelectedModel(
+      {
+        provider: "local",
+        id: "openai/gpt-oss-20b",
+        displayName: "gpt-oss 20B",
+        contextLength: 32_768,
+        supportsImageInput: false,
+      },
+      { file },
+    )
+
+    await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({
+      fireworksApiKey: "fw_test_key",
+      model: "openai/gpt-oss-20b",
+      modelProvider: "local",
+      modelContextLength: 32_768,
+    })
+    expect(JSON.parse(await readFile(file, "utf8"))).not.toHaveProperty("modelFastId")
+  })
+
   it("rejects unreleased theme aliases", async () => {
     const directory = await tempDirectory()
     for (const alias of ["dark", "gray", "white"]) {
@@ -220,6 +268,7 @@ async function tempDirectory() {
 
 function model(name: string, displayName: string, contextLength?: number) {
   return {
+    provider: "fireworks" as const,
     id: `accounts/fireworks/models/${name}`,
     displayName,
     supportsImageInput: false,

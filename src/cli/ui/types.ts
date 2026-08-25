@@ -1,5 +1,5 @@
 import type { TreeSitterClient } from "@opentui/core"
-import type { FireworksModel } from "../../inference/types.js"
+import type { ModelPickerItem } from "../../inference/picker-catalog.js"
 import type { ThemeName } from "../../local/settings.js"
 import type { LocalStats } from "../../local/stats.js"
 import type { SessionPickerItem } from "../session-metadata.js"
@@ -14,9 +14,10 @@ export type InputMode = "chat" | "inactive" | "setupButton" | "setupInput" | "se
 export type CommandSuggestion = {
   name: string
   description: string
+  submission?: string
 }
 
-export type ModelPickerItem = FireworksModel & { active?: boolean }
+export type { ModelPickerItem }
 
 export type ChatUIOptions = {
   configured?: boolean
@@ -35,10 +36,11 @@ export type ChatUIOptions = {
   onImagePathPaste?: (value: string) => boolean
   onRemoveLastImage?: () => boolean
   onInterrupt?: () => void
+  onQuit?: () => void | Promise<void>
   onSetup?: () => void
   onSetupSubmit?: (apiKey: string) => void
   onCloseModelPicker?: () => void
-  onSelectModel?: (model: FireworksModel) => void
+  onSelectModel?: (model: ModelPickerItem) => void
   onNewSession?: () => void
   onDeleteSession?: (sessionId: string) => void
   onSelectSession?: (sessionId: string) => void
@@ -62,6 +64,7 @@ export type ChatUI = {
   setModeLabel(label: string): void
   setImageAttachmentCount(count: number): void
   setModelLabel(label: string): void
+  setModelPickerStatus(modelId: string, status: string | undefined): void
   setCommands(commands: CommandSuggestion[]): void
   setConfigured(): void
   setSessionLabel(label: string): void
@@ -70,6 +73,7 @@ export type ChatUI = {
   setThinkingVisible(visible: boolean): void
   showStats(): void
   showTransientHint(content: string): void
+  showCommandSubmenu(items: CommandSuggestion[]): void
   showModelPicker(items: ModelPickerItem[]): void
   showSetupError(message: string): void
   showSetupButton(): void
@@ -86,4 +90,4 @@ export type ChatUI = {
   stopBusyIndicator(): void
 }
 
-export type { FireworksModel, SessionPickerItem }
+export type { SessionPickerItem }

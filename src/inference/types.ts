@@ -79,13 +79,58 @@ export type ContextFile = {
   content: string
 }
 
-export type FireworksModel = {
+export type ModelProvider = "fireworks" | "local"
+
+type SharedModelFields = {
   id: string
   displayName: string
   contextLength?: number
   supportsImageInput: boolean
+}
+
+export type FireworksModel = SharedModelFields & {
+  provider: "fireworks"
   /** Fast serving-path ID when Fireworks publishes one for this model. */
   fastId?: string
+}
+
+export type LocalCatalogModel = {
+  provider: "local"
+  id: string
+  displayName: string
+  contextLength: number
+  supportsImageInput: boolean
+}
+
+export type CatalogModel = FireworksModel | LocalCatalogModel
+
+export function fireworksModel(fields: Omit<FireworksModel, "provider">): FireworksModel {
+  return { provider: "fireworks", ...fields }
+}
+
+export function isLocalCatalogModel(model: CatalogModel): model is LocalCatalogModel {
+  return model.provider === "local"
+}
+
+export type InferenceClient = {
+  readonly model: string
+  streamChat(options: StreamChatOptions): AsyncGenerator<ChatStreamEvent>
+  complete(messages: ChatMessage[], options?: CompleteOptions): Promise<string>
+}
+
+export type StreamChatOptions = {
+  messages: ChatMessage[]
+  tools?: ToolDefinition[]
+  projectContext?: ContextFile[]
+  signal?: AbortSignal
+  now?: Date
+  skills?: readonly import("../skills/types.js").Skill[]
+}
+
+export type CompleteOptions = {
+  projectContext?: ContextFile[]
+  signal?: AbortSignal
+  onUsage?: (usage: TokenUsage) => void | Promise<void>
 }
 
 export type FireworksClientConfig = {
@@ -93,4 +138,11 @@ export type FireworksClientConfig = {
   model: string
   fetch?: typeof fetch
   inferenceURL?: string
+}
+
+export type LocalClientConfig = {
+  model: string
+  inferenceURL: string
+  fetch?: typeof fetch
+  apiKey?: string
 }

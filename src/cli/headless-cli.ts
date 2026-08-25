@@ -3,11 +3,16 @@ import { resolve } from "node:path"
 import { parseArgs } from "node:util"
 import { loadProjectContext } from "../core/context.js"
 import { FireworksClient, listToolCapableModels } from "../inference/client.js"
+import { detectHardware } from "../inference/hardware.js"
 import { loadImageFiles, validateImageAttachments } from "../inference/images.js"
+import { LlamaCppRuntime } from "../inference/llama-runtime.js"
+import { findLocalModel, isLocalModelId } from "../inference/local-catalog.js"
+import { LlamaCppClient } from "../inference/local-client.js"
+import { fitLocalModel } from "../inference/local-fit.js"
 import { createUserMessage, imageAttachmentsFromMessages, messagesContainImages } from "../inference/messages.js"
 import { findFireworksModel, fireworksServingModel, isFastFireworksModel } from "../inference/serving-path.js"
 import { skillAdvertisementChars } from "../inference/system-prompt.js"
-import type { ChatMessage } from "../inference/types.js"
+import type { ChatMessage, InferenceClient } from "../inference/types.js"
 import { loadLocalSettings, saveSelectedModel } from "../local/settings.js"
 import {
   createPermissionPolicy,
@@ -73,6 +78,7 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
   let model = parsed.model ?? ""
   let modelContextLength: number | undefined
   let usage = emptyUsage()
+  let llama: LlamaCppRuntime | undefined
 
   try {
     const cwd = resolve(options.processCwd ?? process.cwd(), parsed.cwd ?? ".")
@@ -83,31 +89,48 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
     const userMessage = createUserMessage(prompt, images)
 
     const settings = await loadLocalSettings({ env: options.env })
-    if (!settings.fireworksApiKey) throw new Error("Fireworks API key is not configured.")
     model = parsed.model ?? settings.model ?? ""
     modelContextLength = parsed.model ? undefined : settings.modelContextLength
     let modelSupportsImageInput = parsed.model ? undefined : settings.modelSupportsImageInput
-    if (!model) throw new Error("A Fireworks model is not configured. Run Otis interactively or pass --model.")
-    if (parsed.model || (images.length > 0 && modelSupportsImageInput === undefined)) {
-      const models = await listToolCapableModels(settings.fireworksApiKey, { signal: controller.signal })
-      const selectedModel = findFireworksModel(models, model)
-      if (!selectedModel) {
-        throw new Error(`Model is not a tool-capable Fireworks serverless model: ${model}`)
-      }
-      const serving = fireworksServingModel(
-        selectedModel,
-        isFastFireworksModel(model) || (!parsed.model && (settings.fastMode ?? true)),
-      )
-      model = serving.id
-      modelContextLength = serving.contextLength
-      modelSupportsImageInput = serving.supportsImageInput
-      if (!parsed.model && settings.model === selectedModel.id) await saveSelectedModel(serving)
-    }
-    if (images.length > 0 && !modelSupportsImageInput) {
-      throw new Error(`Selected model does not support image input: ${model}`)
-    }
+    if (!model) throw new Error("A model is not configured. Run Otis interactively or pass --model.")
 
-    const client = new FireworksClient({ apiKey: settings.fireworksApiKey, model })
+    let client: InferenceClient
+    if (isLocalModelId(model)) {
+      const spec = findLocalModel(model)
+      if (!spec) throw new Error(`Unknown local model: ${model}`)
+      modelSupportsImageInput = spec.supportsImageInput
+      if (images.length > 0 && !spec.supportsImageInput) {
+        throw new Error(`Selected model does not support image input: ${model}`)
+      }
+      const hardware = await detectHardware()
+      const fit = fitLocalModel(spec, hardware)
+      llama = new LlamaCppRuntime({ env: options.env })
+      const serving = await llama.ensureServing(spec, fit, hardware, { signal: controller.signal })
+      client = new LlamaCppClient({ model: spec.id, inferenceURL: serving.inferenceURL })
+      model = spec.id
+      modelContextLength = serving.contextLength
+    } else {
+      if (!settings.fireworksApiKey) throw new Error("Fireworks API key is not configured.")
+      if (parsed.model || (images.length > 0 && modelSupportsImageInput === undefined)) {
+        const models = await listToolCapableModels(settings.fireworksApiKey, { signal: controller.signal })
+        const selectedModel = findFireworksModel(models, model)
+        if (!selectedModel) {
+          throw new Error(`Model is not a tool-capable Fireworks serverless model: ${model}`)
+        }
+        const serving = fireworksServingModel(
+          selectedModel,
+          isFastFireworksModel(model) || (!parsed.model && (settings.fastMode ?? true)),
+        )
+        model = serving.id
+        modelContextLength = serving.contextLength
+        modelSupportsImageInput = serving.supportsImageInput
+        if (!parsed.model && settings.model === selectedModel.id) await saveSelectedModel(serving)
+      }
+      if (images.length > 0 && !modelSupportsImageInput) {
+        throw new Error(`Selected model does not support image input: ${model}`)
+      }
+      client = new FireworksClient({ apiKey: settings.fireworksApiKey, model })
+    }
     const projectContext = loadProjectContext(cwd)
     const skills = await loadSkillCatalog(cwd)
     const staticContextChars =
@@ -123,7 +146,7 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
       }
     }
     const sessionContainsImages = session ? messagesContainImages(session.replayMessages()) : false
-    if (sessionContainsImages && modelSupportsImageInput === undefined) {
+    if (sessionContainsImages && modelSupportsImageInput === undefined && settings.fireworksApiKey) {
       const models = await listToolCapableModels(settings.fireworksApiKey, { signal: controller.signal })
       const selectedModel = findFireworksModel(models, model)
       if (!selectedModel) {
@@ -242,6 +265,7 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
   } finally {
     if (timeout) clearTimeout(timeout)
     removeSignals()
+    await llama?.stop()
     await lock?.release()
   }
 }
@@ -409,7 +433,7 @@ Run one non-interactive Otis turn. If no prompt is given, the prompt is read fro
 
 Options:
   -C, --cwd <path>             Working directory
-  -m, --model <id>             Tool-capable Fireworks serverless model
+  -m, --model <id>             Local catalog id or Fireworks serverless model
       --image <path>           Attach an image; repeatable
   -s, --session <id>           Resume a specific local session
   -c, --continue               Resume the most recently updated session

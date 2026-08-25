@@ -10,6 +10,8 @@ import { describe, expect, it, vi } from "vitest"
 import { colors, selectTheme } from "../../src/cli/theme.js"
 import { TranscriptStore } from "../../src/cli/transcript.js"
 import { COLOR_PULSE_PERIOD_MS } from "../../src/cli/ui/color-pulse.js"
+import { toFireworksPickerChoice } from "../../src/inference/picker-catalog.js"
+import { fireworksModel } from "../../src/inference/types.js"
 import { useChatHarness } from "./support/chat-ui-harness.js"
 
 describe("chat UI rendering", () => {
@@ -192,7 +194,7 @@ describe("chat UI rendering", () => {
     expect(sessionRows.x + sessionRows.width).toBe(sessionPanel.x + sessionPanel.width)
 
     harness.ui.showModelPicker([
-      { id: "accounts/fireworks/models/alpha", displayName: "Alpha", supportsImageInput: false },
+      fireworksRow({ id: "accounts/fireworks/models/alpha", displayName: "Alpha", supportsImageInput: false }),
     ])
     const modelRows = harness.get<ScrollBoxRenderable>("model-rows")
     expect(modelRows.verticalScrollBar.slider.backgroundColor.equals(RGBA.fromHex(colors.border))).toBe(true)
@@ -304,14 +306,16 @@ describe("chat UI rendering", () => {
     const onSelectModel = vi.fn()
     const harness = await setup({ onCloseModelPicker, onSelectModel })
     const models = [
-      {
-        id: "accounts/fireworks/models/alpha",
-        displayName: "Alpha",
-        contextLength: 128_000,
-        supportsImageInput: true,
-        active: true,
-      },
-      { id: "accounts/fireworks/models/beta", displayName: "Beta", supportsImageInput: false },
+      fireworksRow(
+        {
+          id: "accounts/fireworks/models/alpha",
+          displayName: "Alpha",
+          contextLength: 128_000,
+          supportsImageInput: true,
+        },
+        true,
+      ),
+      fireworksRow({ id: "accounts/fireworks/models/beta", displayName: "Beta", supportsImageInput: false }),
     ]
 
     harness.ui.showSessionPicker([{ id: "session", title: "Session", detail: "now" }])
@@ -340,18 +344,16 @@ describe("chat UI rendering", () => {
   it("labels models that have a Fast serving path", async () => {
     const harness = await setup()
     harness.ui.showModelPicker([
-      {
-        id: "accounts/fireworks/models/kimi-k3",
-        displayName: "Kimi K3",
-        supportsImageInput: true,
-        fastId: "accounts/fireworks/routers/kimi-k3-fast",
-        active: true,
-      },
-      {
-        id: "accounts/fireworks/models/inkling",
-        displayName: "Inkling",
-        supportsImageInput: false,
-      },
+      fireworksRow(
+        {
+          id: "accounts/fireworks/models/kimi-k3",
+          displayName: "Kimi K3",
+          supportsImageInput: true,
+          fastId: "accounts/fireworks/routers/kimi-k3-fast",
+        },
+        true,
+      ),
+      fireworksRow({ id: "accounts/fireworks/models/inkling", displayName: "Inkling", supportsImageInput: false }),
     ])
 
     expect(harness.text("model-row-0")).toBe("› Kimi K3")
@@ -385,14 +387,16 @@ describe("chat UI rendering", () => {
     expect(harness.get<BoxRenderable>("session-panel").border).toBe(false)
 
     harness.ui.showModelPicker([
-      {
-        id: "accounts/fireworks/models/alpha",
-        displayName: "Alpha",
-        contextLength: 128_000,
-        supportsImageInput: true,
-        active: true,
-      },
-      { id: "accounts/fireworks/models/beta", displayName: "Beta", supportsImageInput: false },
+      fireworksRow(
+        {
+          id: "accounts/fireworks/models/alpha",
+          displayName: "Alpha",
+          contextLength: 128_000,
+          supportsImageInput: true,
+        },
+        true,
+      ),
+      fireworksRow({ id: "accounts/fireworks/models/beta", displayName: "Beta", supportsImageInput: false }),
     ])
     expect(harness.text("model-row-0")).toBe("› Alpha")
     expect(harness.text("model-row-1")).toBe("  Beta")
@@ -407,4 +411,128 @@ describe("chat UI rendering", () => {
     expect(modelOther.borderColor.equals(RGBA.fromHex(colors.surface))).toBe(true)
     expect(harness.get<BoxRenderable>("model-panel").border).toBe(false)
   })
+
+  it("lists local models above Fireworks and greys out models that will not fit", async () => {
+    const onSelectModel = vi.fn()
+    const harness = await setup({ onSelectModel })
+    const unavailable = {
+      kind: "model" as const,
+      provider: "local" as const,
+      id: "Qwen/Qwen3.8-27B",
+      displayName: "Qwen3.8 27B",
+      contextLength: 262_144,
+      supportsImageInput: false,
+      available: false,
+      availabilityLabel: "Needs 19 GB",
+      downloaded: true,
+      active: false,
+    }
+    const fireworks = fireworksRow(
+      {
+        id: "accounts/fireworks/models/alpha",
+        displayName: "Alpha",
+        supportsImageInput: false,
+      },
+      true,
+    )
+
+    harness.ui.showModelPicker([
+      { kind: "header", id: "header-local", displayName: "Local" },
+      unavailable,
+      { kind: "header", id: "header-fireworks", displayName: "Fireworks" },
+      fireworks,
+    ])
+
+    expect(harness.text("model-row-0")).toBe("LOCAL")
+    expect(harness.text("model-row-1")).toBe("  Qwen3.8 27B  Downloaded")
+    expect(harness.text("model-row-1-meta")).toBe("  Needs 19 GB · Text")
+    expect(harness.get<TextRenderable>("model-row-1").fg.equals(RGBA.fromHex(colors.muted))).toBe(true)
+    expect(harness.text("model-row-2")).toBe("FIREWORKS")
+    expect(harness.text("model-row-3")).toBe("› Alpha")
+
+    harness.press("return")
+    expect(onSelectModel).toHaveBeenCalledWith(fireworks)
+
+    harness.press("up")
+    expect(harness.text("model-row-1")).toBe("› Qwen3.8 27B  Downloaded")
+    harness.press("return")
+    expect(onSelectModel).toHaveBeenCalledTimes(1)
+  })
+
+  it("shows local download progress next to the model name", async () => {
+    const harness = await setup()
+    const local = {
+      kind: "model" as const,
+      provider: "local" as const,
+      id: "openai/gpt-oss-20b",
+      displayName: "gpt-oss 20B",
+      contextLength: 131_072,
+      supportsImageInput: false,
+      available: true,
+      availabilityLabel: "128K loaded · MXFP4 · 16 GB",
+      loadedContextLength: 131_072,
+      downloaded: true,
+      active: true,
+    }
+
+    harness.ui.showModelPicker([{ kind: "header", id: "header-local", displayName: "Local" }, local])
+    expect(harness.text("model-row-1")).toBe("› gpt-oss 20B  Downloaded")
+    const downloaded = harness.get<TextRenderable>("model-row-1").chunks.find((chunk) => chunk.text === "Downloaded")
+    expect(downloaded?.fg?.equals(RGBA.fromHex(colors.muted))).toBe(true)
+    expect(harness.text("model-row-1-meta")).toBe("  128K loaded · MXFP4 · 16 GB · Text")
+
+    harness.ui.setModelPickerStatus(local.id, "47%")
+    expect(harness.text("model-row-1")).toBe("› gpt-oss 20B  47%")
+    expect(harness.text("model-row-1-meta")).toBe("  128K loaded · MXFP4 · 16 GB · Text")
+
+    harness.ui.setModelPickerStatus(local.id, "loading")
+    expect(harness.text("model-row-1")).toBe("› gpt-oss 20B  loading")
+  })
+
+  it("keeps the Local header in view when the first model is selected", async () => {
+    const harness = await setup()
+    const local = {
+      kind: "model" as const,
+      provider: "local" as const,
+      id: "openai/gpt-oss-20b",
+      displayName: "gpt-oss 20B",
+      contextLength: 131_072,
+      supportsImageInput: false,
+      available: true,
+      availabilityLabel: "Up to 128K · MXFP4 · 16 GB",
+      downloaded: false,
+      active: true,
+    }
+    const fireworks = Array.from({ length: 12 }, (_, index) =>
+      fireworksRow({
+        id: `accounts/fireworks/models/model-${index}`,
+        displayName: `Model ${index}`,
+        supportsImageInput: false,
+      }),
+    )
+
+    harness.ui.showModelPicker([
+      { kind: "header", id: "header-local", displayName: "Local" },
+      local,
+      { kind: "header", id: "header-fireworks", displayName: "Fireworks" },
+      ...fireworks,
+    ])
+    await harness.renderOnce()
+
+    for (let step = 0; step < 12; step += 1) harness.press("down")
+    await harness.renderOnce()
+    expect(harness.get<ScrollBoxRenderable>("model-rows").scrollTop).toBeGreaterThan(0)
+
+    for (let step = 0; step < 20 && !harness.text("model-row-1").startsWith("›"); step += 1) {
+      harness.press("up")
+    }
+    await harness.renderOnce()
+
+    expect(harness.text("model-row-1").startsWith("›")).toBe(true)
+    expect(harness.get<ScrollBoxRenderable>("model-rows").scrollTop).toBe(0)
+  })
 })
+
+function fireworksRow(fields: Parameters<typeof fireworksModel>[0], active = false) {
+  return toFireworksPickerChoice(fireworksModel(fields), active ? fields.id : undefined)
+}

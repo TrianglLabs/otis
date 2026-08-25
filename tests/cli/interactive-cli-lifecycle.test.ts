@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
+import { findLocalModel } from "../../src/inference/local-catalog.js"
 import { getMocks, loadCli, settle, submit, testSession } from "./support/interactive-cli-harness.js"
 
 const mocks = getMocks()
@@ -71,6 +72,171 @@ describe("CLI update hint", () => {
     await settle()
 
     expect(capturedSignal?.aborted).toBe(true)
+  })
+})
+
+describe("CLI shutdown", () => {
+  it("disables OpenTUI's default Ctrl+C and signal exit so Otis can stop llama-server first", async () => {
+    await loadCli()
+
+    expect(mocks.createCliRenderer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        exitOnCtrlC: false,
+        exitSignals: [],
+      }),
+    )
+  })
+
+  it("waits for llama-server to stop before destroying the renderer on /exit", async () => {
+    let release = () => {}
+    mocks.stopLocalRuntime.mockImplementation(
+      () =>
+        new Promise<undefined>((resolve) => {
+          release = () => resolve(undefined)
+        }),
+    )
+
+    try {
+      await loadCli()
+      const exiting = submit("/exit")
+      await settle()
+
+      expect(mocks.stopLocalRuntime).toHaveBeenCalledOnce()
+      expect(mocks.renderer.destroy).not.toHaveBeenCalled()
+
+      release()
+      await exiting
+
+      expect(mocks.renderer.destroy).toHaveBeenCalledOnce()
+      expect(mocks.stopLocalRuntime.mock.invocationCallOrder[0]).toBeLessThan(
+        mocks.renderer.destroy.mock.invocationCallOrder[0],
+      )
+    } finally {
+      release()
+    }
+  })
+
+  it("uses the same stop-then-destroy path for Ctrl+C", async () => {
+    let release = () => {}
+    mocks.stopLocalRuntime.mockImplementation(
+      () =>
+        new Promise<undefined>((resolve) => {
+          release = () => resolve(undefined)
+        }),
+    )
+
+    try {
+      await loadCli()
+      const exiting = Promise.resolve(mocks.uiOptions?.onQuit?.())
+      await settle()
+
+      expect(mocks.stopLocalRuntime).toHaveBeenCalledOnce()
+      expect(mocks.renderer.destroy).not.toHaveBeenCalled()
+
+      release()
+      await exiting
+
+      expect(mocks.renderer.destroy).toHaveBeenCalledOnce()
+      expect(mocks.stopLocalRuntime.mock.invocationCallOrder[0]).toBeLessThan(
+        mocks.renderer.destroy.mock.invocationCallOrder[0],
+      )
+    } finally {
+      release()
+    }
+  })
+
+  it.each(["SIGINT", "SIGTERM"] as const)("uses the same stop-then-destroy path for %s", async (signal) => {
+    let release = () => {}
+    const once = vi.spyOn(process, "once")
+    mocks.stopLocalRuntime.mockImplementation(
+      () =>
+        new Promise<undefined>((resolve) => {
+          release = () => resolve(undefined)
+        }),
+    )
+
+    try {
+      await loadCli()
+      const handler = once.mock.calls.find(([event]) => event === signal)?.[1] as (() => void) | undefined
+      expect(handler).toBeTypeOf("function")
+      handler?.()
+      await settle()
+
+      expect(mocks.stopLocalRuntime).toHaveBeenCalledOnce()
+      expect(mocks.renderer.destroy).not.toHaveBeenCalled()
+
+      release()
+      await vi.waitFor(() => expect(mocks.renderer.destroy).toHaveBeenCalledOnce())
+      expect(mocks.stopLocalRuntime.mock.invocationCallOrder[0]).toBeLessThan(
+        mocks.renderer.destroy.mock.invocationCallOrder[0],
+      )
+    } finally {
+      release()
+      once.mockRestore()
+    }
+  })
+
+  it("stops llama-server only once when quit is requested twice", async () => {
+    await loadCli()
+    await mocks.uiOptions?.onQuit?.()
+    await mocks.uiOptions?.onQuit?.()
+
+    expect(mocks.stopLocalRuntime).toHaveBeenCalledOnce()
+    expect(mocks.renderer.destroy).toHaveBeenCalledOnce()
+  })
+
+  it("aborts model catalog discovery before destroying the renderer", async () => {
+    let catalogSignal: AbortSignal | undefined
+    mocks.listToolCapableModels.mockImplementation(
+      (_apiKey, options) =>
+        new Promise((_resolve, reject) => {
+          catalogSignal = options?.signal
+          catalogSignal?.addEventListener("abort", () => reject(catalogSignal?.reason), { once: true })
+        }),
+    )
+    await loadCli()
+
+    const opening = submit("/model")
+    await vi.waitFor(() => expect(catalogSignal).toBeDefined())
+    const quitting = Promise.resolve(mocks.uiOptions?.onQuit?.())
+
+    await quitting
+    await opening
+    expect(catalogSignal?.aborted).toBe(true)
+    expect(mocks.ui.showModelPicker).not.toHaveBeenCalled()
+    expect(mocks.renderer.destroy).toHaveBeenCalledOnce()
+  })
+
+  it("waits for local model deletion before destroying the renderer", async () => {
+    const cached = findLocalModel("openai/gpt-oss-20b")
+    if (!cached) throw new Error("missing local model")
+    let finishDelete = () => {}
+    mocks.listDownloadedLocalModels.mockResolvedValue([cached])
+    mocks.deleteLocalGguf.mockImplementation(
+      () =>
+        new Promise<undefined>((resolve) => {
+          finishDelete = () => {
+            mocks.listDownloadedLocalModels.mockResolvedValue([])
+            resolve(undefined)
+          }
+        }),
+    )
+
+    try {
+      await loadCli()
+      await submit(`/delete-model ${cached.id}`)
+      await vi.waitFor(() => expect(mocks.deleteLocalGguf).toHaveBeenCalled())
+
+      const quitting = Promise.resolve(mocks.uiOptions?.onQuit?.())
+      await settle()
+      expect(mocks.renderer.destroy).not.toHaveBeenCalled()
+
+      finishDelete()
+      await quitting
+      expect(mocks.renderer.destroy).toHaveBeenCalledOnce()
+    } finally {
+      finishDelete()
+    }
   })
 })
 

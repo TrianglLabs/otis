@@ -1,4 +1,11 @@
 import type { ScrollBoxRenderable } from "@opentui/core"
+import {
+  formatContextWindow,
+  isSelectablePickerItem,
+  type LocalPickerChoice,
+  type ModelPickerChoice,
+  type ModelPickerItem,
+} from "../../inference/picker-catalog.js"
 import { colors } from "../theme.js"
 import { SelectionPulse } from "./color-pulse.js"
 import { FAST_MODEL_LABEL } from "./format.js"
@@ -11,7 +18,7 @@ import {
   stylePickerRow,
   truncatePickerLabel,
 } from "./picker-row.js"
-import type { ModelPickerItem, Renderer } from "./types.js"
+import type { Renderer } from "./types.js"
 
 type PickerKey = {
   name: string
@@ -33,14 +40,25 @@ export class ModelPicker {
   }
 
   setItems(items: ModelPickerItem[]) {
+    const previousId = this.selectedId()
     this.#items = items
-    this.#selectedIndex = Math.max(
-      0,
-      items.findIndex((item) => item.active),
-    )
+    const keptIndex = previousId ? items.findIndex((item) => item.kind !== "header" && item.id === previousId) : -1
+    const activeIndex = items.findIndex((item) => item.kind !== "header" && "active" in item && item.active)
+    this.#selectedIndex = keptIndex >= 0 ? keptIndex : activeIndex >= 0 ? activeIndex : firstSelectableIndex(items)
     this.render()
     this.scrollToSelection()
     this.#pulse.start()
+  }
+
+  setItemStatus(id: string, status: string | undefined) {
+    const item = this.#items.find(
+      (candidate): candidate is LocalPickerChoice =>
+        candidate.kind === "model" && candidate.provider === "local" && candidate.id === id,
+    )
+    if (!item) return
+    item.statusLabel = status
+    this.render()
+    this.renderer.requestRender()
   }
 
   stop() {
@@ -61,7 +79,7 @@ export class ModelPicker {
     if (key.name === "return" || key.name === "enter") {
       stopKey(key)
       const selected = this.#items[this.#selectedIndex]
-      if (selected) actions.select(selected)
+      if (isSelectablePickerItem(selected)) actions.select(selected)
       return true
     }
     return false
@@ -69,10 +87,20 @@ export class ModelPicker {
 
   private move(delta: number) {
     if (this.#items.length === 0) return
-    this.#selectedIndex = (this.#selectedIndex + delta + this.#items.length) % this.#items.length
+    let next = this.#selectedIndex
+    for (let step = 0; step < this.#items.length; step += 1) {
+      next = (next + delta + this.#items.length) % this.#items.length
+      if (this.#items[next]?.kind !== "header") break
+    }
+    this.#selectedIndex = next
     this.render()
     this.scrollToSelection()
     this.renderer.requestRender()
+  }
+
+  private selectedId() {
+    const item = this.#items[this.#selectedIndex]
+    return item && item.kind !== "header" ? item.id : undefined
   }
 
   private render() {
@@ -91,12 +119,26 @@ export class ModelPicker {
       return [{ title: "No models found", fg: colors.muted, selected: false }]
     }
 
-    return this.#items.map((item, index) => ({
-      title: modelPickerTitle(item),
-      meta: modelMeta(item),
-      fg: item.active ? colors.accent : colors.text,
-      selected: index === this.#selectedIndex,
-    }))
+    return this.#items.map((item, index) => {
+      if (item.kind === "header") {
+        return {
+          title: item.displayName.toUpperCase(),
+          fg: colors.muted,
+          selected: false,
+          header: true,
+        }
+      }
+      const disabled = item.available === false
+      const suffix = localNameSuffix(item)
+      return {
+        title: modelTitle(item, suffix !== undefined),
+        suffix,
+        meta: modelMeta(item),
+        fg: disabled ? colors.muted : item.active ? colors.accent : colors.text,
+        selected: index === this.#selectedIndex,
+        disabled,
+      }
+    })
   }
 
   private setRow(index: number, spec: PickerRowSpec) {
@@ -105,7 +147,7 @@ export class ModelPicker {
       stylePickerRow(existing, spec, this.#pulse.elapsed())
       return
     }
-    const row = createPickerRow(this.renderer, `model-row-${index}`, { outline: true })
+    const row = createPickerRow(this.renderer, `model-row-${index}`, { outline: spec.header !== true })
     stylePickerRow(row, spec, this.#pulse.elapsed())
     this.#rows.push(row)
     this.container.add(row.box)
@@ -113,31 +155,51 @@ export class ModelPicker {
 
   private paintSelection(elapsedMs: number) {
     if (this.#items.length === 0) return
+    const item = this.#items[this.#selectedIndex]
     const row = this.#rows[this.#selectedIndex]
-    if (row) paintPickerOutline(row, true, elapsedMs)
+    if (row && item?.kind !== "header") paintPickerOutline(row, true, elapsedMs)
   }
 
   private scrollToSelection() {
+    if (this.#items[0]?.kind === "header" && this.#selectedIndex === 1) {
+      this.container.scrollTo(0)
+      return
+    }
+    const headerIndex = this.#selectedIndex - 1
+    if (this.#items[headerIndex]?.kind === "header") {
+      this.container.scrollChildIntoView(pickerRowBoxId(`model-row-${headerIndex}`))
+    }
     this.container.scrollChildIntoView(pickerRowBoxId(`model-row-${this.#selectedIndex}`))
   }
 }
 
-function modelPickerTitle(item: ModelPickerItem) {
-  return truncatePickerLabel(item.displayName, 30)
+function modelTitle(item: ModelPickerChoice, hasSuffix: boolean) {
+  return truncatePickerLabel(item.displayName, hasSuffix ? 20 : 30)
 }
 
-function modelMeta(item: ModelPickerItem) {
+function localNameSuffix(item: ModelPickerChoice) {
+  if (item.provider !== "local") return undefined
+  if (item.statusLabel) return { text: item.statusLabel }
+  if (item.downloaded) return { text: "Downloaded", fg: colors.muted }
+  return undefined
+}
+
+function modelMeta(item: ModelPickerChoice) {
+  if (item.provider === "local") {
+    return `${item.availabilityLabel} · ${item.supportsImageInput ? "Vision" : "Text"}`
+  }
   const parts: string[] = []
-  if (item.contextLength) parts.push(formatContext(item.contextLength))
+  if (item.contextLength) parts.push(formatContextWindow(item.contextLength))
   parts.push(item.supportsImageInput ? "Vision" : "Text")
   if (item.fastId) parts.push(FAST_MODEL_LABEL)
   return parts.join(" · ")
 }
 
-function formatContext(tokens: number) {
-  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`
-  if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}K`
-  return String(tokens)
+function firstSelectableIndex(items: readonly ModelPickerItem[]) {
+  const index = items.findIndex((item) => isSelectablePickerItem(item))
+  if (index >= 0) return index
+  const fallback = items.findIndex((item) => item.kind !== "header")
+  return Math.max(0, fallback)
 }
 
 function stopKey(key: PickerKey) {

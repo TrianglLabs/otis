@@ -1,5 +1,5 @@
 import { isFastFireworksModel, withFastServingPaths } from "./serving-path.js"
-import type { FireworksModel } from "./types.js"
+import { type FireworksModel, fireworksModel } from "./types.js"
 
 const DEFAULT_INFERENCE_MODELS_URL = "https://api.fireworks.ai/inference/v1/models"
 const DEFAULT_MODELS_URL = "https://api.fireworks.ai/v1/accounts/fireworks/models"
@@ -107,12 +107,12 @@ type RawModel = {
 }
 
 function toFireworksModel(model: RawModel): FireworksModel {
-  return {
+  return fireworksModel({
     id: model.name,
     displayName: model.displayName || model.name.split("/").at(-1) || model.name,
     ...(model.contextLength === undefined ? {} : { contextLength: model.contextLength }),
     supportsImageInput: model.supportsImageInput,
-  }
+  })
 }
 
 function parseModel(value: unknown): RawModel | undefined {

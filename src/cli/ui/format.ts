@@ -56,6 +56,13 @@ export function withFastModelMark(name: string, fast: boolean) {
   return `${name} ${FAST_MODEL_LABEL}`
 }
 
+export type LocalModelProgress = { phase: "download"; percent: number } | { phase: "loading" }
+
+export function formatLocalLoadStatus(progress: LocalModelProgress) {
+  if (progress.phase === "download") return `${progress.percent}%`
+  return "loading"
+}
+
 export function imageAttachmentLabel(count: number) {
   if (count <= 0) return ""
   const visible = Math.min(count, 2)

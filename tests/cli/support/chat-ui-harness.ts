@@ -15,6 +15,7 @@ export type ChatUIHarness = TestRendererSetup & {
   submitChat(): void
   submitSetup(): void
   press(name: string): void
+  pressCtrlC(): void
   typeText(value: string): Promise<void>
   destroy(): void
 }
@@ -35,7 +36,13 @@ export function useChatHarness() {
 }
 
 async function createChatHarness(overrides: Partial<ChatUIOptions>): Promise<ChatUIHarness> {
-  const testRenderer = await createTestRenderer({ width: 100, height: 30, kittyKeyboard: true })
+  const testRenderer = await createTestRenderer({
+    width: 100,
+    height: 30,
+    kittyKeyboard: true,
+    exitOnCtrlC: false,
+    exitSignals: [],
+  })
   const options: ChatUIOptions = {
     contextLabel: "□□□□□□□□ 0% · ~0",
     modelLabel: "Model: test",
@@ -84,6 +91,7 @@ async function createChatHarness(overrides: Partial<ChatUIOptions>): Promise<Cha
       get<InputRenderable>("setup-input").submit()
     },
     press: (name) => press(testRenderer, name),
+    pressCtrlC: () => testRenderer.mockInput.pressCtrlC(),
     typeText: (value) => testRenderer.mockInput.typeText(value),
     destroy: () => {
       ui.stopBusyIndicator()

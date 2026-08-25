@@ -1,4 +1,4 @@
-import type { FireworksClient } from "../inference/client.js"
+import type { InferenceClient } from "../inference/client.js"
 import { createSession, deleteSession, type JsonlSession, listSessions, openSession } from "../storage/index.js"
 import { countTranscriptDiffLines } from "./diff-stats.js"
 import {
@@ -11,7 +11,7 @@ import type { TranscriptStore } from "./transcript.js"
 import type { ChatUI } from "./ui/types.js"
 
 type SessionControllerOptions = {
-  client: () => FireworksClient | undefined
+  client: () => InferenceClient | undefined
   cwd: string
   transcript: TranscriptStore
   ui: ChatUI

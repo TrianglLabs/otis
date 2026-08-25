@@ -1,4 +1,5 @@
-import { beforeEach, vi } from "vitest"
+import { afterEach, beforeEach, vi } from "vitest"
+import type { LocalModelSpec } from "../../../src/inference/local-catalog.js"
 import type { ChatMessage, FireworksModel, UserChatMessage } from "../../../src/inference/types.js"
 import type { ThemeName } from "../../../src/local/settings.js"
 import type { SkillCatalog } from "../../../src/skills/index.js"
@@ -46,12 +47,14 @@ const mocks = vi.hoisted(() => {
     setModeLabel: vi.fn(),
     setImageAttachmentCount: vi.fn(),
     setModelLabel: vi.fn(),
+    setModelPickerStatus: vi.fn(),
     setSessionLabel: vi.fn(),
     setStats: vi.fn(),
     setTheme: vi.fn(),
     setThinkingVisible: vi.fn(),
     setCommands: vi.fn(),
     showChatLayout: vi.fn(),
+    showCommandSubmenu: vi.fn(),
     showHomeLayout: vi.fn(),
     showModelPicker: vi.fn(),
     showPermissionPrompt: vi.fn(() => Promise.resolve(true)),
@@ -77,6 +80,7 @@ const mocks = vi.hoisted(() => {
       avgTokensPerSession: 0,
       avgSessionSeconds: 0,
     })),
+    clearSelectedModel: vi.fn(async () => undefined),
     createChatUI: vi.fn((_renderer, options) => {
       mocks.uiOptions = options
       return ui
@@ -84,6 +88,7 @@ const mocks = vi.hoisted(() => {
     createCliRenderer: vi.fn(async () => renderer),
     createSession: vi.fn(),
     deleteSession: vi.fn(async () => undefined),
+    deleteLocalGguf: vi.fn(async () => undefined),
     describeToolCall: vi.fn(() => ({ kind: "shell", label: "Running tool" })),
     FireworksClient: vi.fn(function FireworksClient(config: { model: string }) {
       return { model: config.model, streamChat, complete: generateCompletion }
@@ -93,8 +98,11 @@ const mocks = vi.hoisted(() => {
     }),
     generateCompletion,
     getTreeSitterClient: vi.fn(() => ({ initialize: vi.fn(async () => undefined) })),
+    listDownloadedLocalModels: vi.fn<(_dataDirectory?: string) => Promise<LocalModelSpec[]>>(async () => []),
     listSessions: vi.fn<(_options?: unknown) => Promise<unknown[]>>(async () => []),
-    listToolCapableModels: vi.fn<() => Promise<FireworksModel[]>>(async () => [testModel()]),
+    listToolCapableModels: vi.fn<(_apiKey?: string, _options?: { signal?: AbortSignal }) => Promise<FireworksModel[]>>(
+      async () => [testModel()],
+    ),
     loadLocalSettings: vi.fn(async () => localSettings()),
     loadProjectContext: vi.fn<(_cwd: string) => Array<{ path: string; content: string }>>(() => []),
     loadSkillCatalog: vi.fn<() => Promise<SkillCatalog>>(async () => ({ skills: [], byName: new Map() })),
@@ -105,6 +113,31 @@ const mocks = vi.hoisted(() => {
     saveSelectedTheme: vi.fn(async () => undefined),
     saveThinkingVisible: vi.fn(async () => undefined),
     saveFastMode: vi.fn(async () => undefined),
+    detectHardware: vi.fn(async () => ({
+      platform: "darwin" as const,
+      arch: "arm64",
+      totalMemoryBytes: 128 * 1024 ** 3,
+      gpuMemoryBytes: 128 * 1024 ** 3,
+      backend: "metal" as const,
+      unifiedMemory: true,
+    })),
+    ensureLocalServing: vi.fn(
+      async (
+        spec: { id: string },
+        _fit?: unknown,
+        _hardware?: unknown,
+        options?: { signal?: AbortSignal; onProgress?: (progress: { phase: string; percent?: number }) => void },
+      ) => {
+        options?.onProgress?.({ phase: "download", percent: 47 })
+        options?.onProgress?.({ phase: "loading" })
+        return {
+          model: spec.id,
+          inferenceURL: "http://127.0.0.1:18765/v1/chat/completions",
+          contextLength: 32_768,
+        }
+      },
+    ),
+    stopLocalRuntime: vi.fn(async () => undefined),
     checkForUpdate: vi.fn<
       (options?: { signal?: AbortSignal }) => Promise<{ available: boolean; version: string } | null>
     >(async () => null),
@@ -123,11 +156,12 @@ const mocks = vi.hoisted(() => {
           onCloseModelPicker?(): void
           onDeleteSession?(sessionId: string): void
           onInterrupt?(): void
+          onQuit?(): void | Promise<void>
           onImagePaste?(bytes: Uint8Array, mimeType?: string): void | Promise<void>
           onImagePathPaste?(value: string): boolean
           onRemoveLastImage?(): boolean
           onPreviewTheme?(theme: ThemeName): void
-          onSelectModel?(model: FireworksModel): void
+          onSelectModel?(model: import("../../../src/inference/picker-catalog.js").ModelPickerItem): void
           onSelectSession?(sessionId: string): void
           onSetup?(): void
           onSetupSubmit?(apiKey: string): void
@@ -154,11 +188,20 @@ vi.mock("../../../src/inference/client.js", () => ({
   FireworksClient: mocks.FireworksClient,
   listToolCapableModels: mocks.listToolCapableModels,
 }))
+vi.mock("../../../src/inference/gguf-cache.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../src/inference/gguf-cache.js")>()
+  return {
+    ...actual,
+    deleteLocalGguf: mocks.deleteLocalGguf,
+    listDownloadedLocalModels: mocks.listDownloadedLocalModels,
+  }
+})
 vi.mock("../../../src/web/client.js", () => ({ ParallelClient: mocks.ParallelClient }))
 vi.mock("../../../src/local/settings.js", () => ({
   THEME_NAMES: ["default", "nord", "bright", "matrix", "midnight", "graphite", "beige", "vice", "eagan"],
   isThemeName: (value: unknown) =>
     ["default", "nord", "bright", "matrix", "midnight", "graphite", "beige", "vice", "eagan"].includes(String(value)),
+  clearSelectedModel: mocks.clearSelectedModel,
   loadLocalSettings: mocks.loadLocalSettings,
   saveFireworksSetup: mocks.saveFireworksSetup,
   saveSelectedModel: mocks.saveSelectedModel,
@@ -177,6 +220,15 @@ vi.mock("../../../src/tools/index.js", () => ({
   describeToolCall: mocks.describeToolCall,
   TOOL_DEFINITIONS: [],
 }))
+vi.mock("../../../src/inference/hardware.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../src/inference/hardware.js")>()
+  return { ...actual, detectHardware: mocks.detectHardware }
+})
+vi.mock("../../../src/inference/llama-runtime.js", () => ({
+  LlamaCppRuntime: vi.fn(function LlamaCppRuntime() {
+    return { ensureServing: mocks.ensureLocalServing, stop: mocks.stopLocalRuntime }
+  }),
+}))
 vi.mock("../../../src/cli/chat-ui.js", () => ({ createChatUI: mocks.createChatUI }))
 vi.mock("../../../src/cli/provider-links.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../../src/cli/provider-links.js")>()
@@ -191,17 +243,49 @@ export function getMocks() {
   return mocks
 }
 
+afterEach(async () => {
+  await mocks.uiOptions?.onQuit?.()
+})
+
 beforeEach(() => {
   vi.resetModules()
   vi.clearAllMocks()
   mocks.uiOptions = undefined
   mocks.rendererHandlers.clear()
   mocks.createSession.mockResolvedValue(testSession())
+  mocks.listDownloadedLocalModels.mockResolvedValue([])
   mocks.listSessions.mockResolvedValue([])
   mocks.listToolCapableModels.mockResolvedValue([testModel()])
   mocks.loadLocalSettings.mockResolvedValue(localSettings())
   mocks.loadSkillCatalog.mockResolvedValue({ skills: [], byName: new Map() })
   mocks.checkForUpdate.mockResolvedValue(null)
+  mocks.detectHardware.mockResolvedValue({
+    platform: "darwin",
+    arch: "arm64",
+    totalMemoryBytes: 128 * 1024 ** 3,
+    gpuMemoryBytes: 128 * 1024 ** 3,
+    backend: "metal",
+    unifiedMemory: true,
+  })
+  mocks.ensureLocalServing.mockImplementation(
+    async (
+      spec: { id: string },
+      _fit?: unknown,
+      _hardware?: unknown,
+      options?: { signal?: AbortSignal; onProgress?: (progress: { phase: string; percent?: number }) => void },
+    ) => {
+      options?.onProgress?.({ phase: "download", percent: 47 })
+      options?.onProgress?.({ phase: "loading" })
+      return {
+        model: spec.id,
+        inferenceURL: "http://127.0.0.1:18765/v1/chat/completions",
+        contextLength: 32_768,
+      }
+    },
+  )
+  mocks.clearSelectedModel.mockResolvedValue(undefined)
+  mocks.deleteLocalGguf.mockResolvedValue(undefined)
+  mocks.stopLocalRuntime.mockImplementation(async () => undefined)
 })
 
 export async function loadCli() {
@@ -257,6 +341,7 @@ export function localSettings(overrides: Record<string, unknown> = {}) {
 
 export function testModel(overrides: Partial<FireworksModel> = {}): FireworksModel {
   return {
+    provider: "fireworks",
     id: "accounts/fireworks/models/test-model",
     displayName: "Test Model",
     contextLength: 131_072,

@@ -6,6 +6,7 @@ export type SlashCommand =
   | { type: "theme-menu" }
   | { type: "theme"; name: string }
   | { type: "model" }
+  | { type: "delete-model"; modelId?: string }
   | { type: "fast" }
   | { type: "history" }
   | { type: "new" }
@@ -26,7 +27,8 @@ const CATALOG: readonly CatalogCommand[] = [
   { type: "home", name: "/home", description: "Return to home screen" },
   { type: "new", name: "/new", description: "Start a new session" },
   { type: "history", name: "/history", description: "Open session history" },
-  { type: "model", name: "/model", description: "Choose a Fireworks model" },
+  { type: "model", name: "/model", description: "Choose a model" },
+  { type: "delete-model", name: "/delete-model", description: "Delete a downloaded local model" },
   { type: "fast", name: "/fast", description: "Toggle Fast serving" },
   { type: "compact", name: "/compact", description: "Summarize old conversation to free context" },
   { type: "debug", name: "/debug", description: "Toggle debug messages" },
@@ -36,20 +38,27 @@ const CATALOG: readonly CatalogCommand[] = [
   { type: "exit", name: "/exit", description: "Exit Otis" },
 ]
 
-export function slashCommands(options: { fast?: boolean } = {}): CommandSuggestion[] {
-  return CATALOG.filter((command) => command.type !== "fast" || options.fast).map(({ name, description }) => ({
+export function slashCommands(options: { fast?: boolean; downloadedModels?: boolean } = {}): CommandSuggestion[] {
+  return CATALOG.filter(
+    (command) =>
+      (command.type !== "fast" || options.fast) && (command.type !== "delete-model" || options.downloadedModels),
+  ).map(({ name, description }) => ({
     name,
     description,
   }))
 }
 
-export const SLASH_COMMANDS: CommandSuggestion[] = slashCommands({ fast: true })
+export const SLASH_COMMANDS: CommandSuggestion[] = slashCommands({ fast: true, downloadedModels: true })
 
 export function parseSlashCommand(value: string): SlashCommand | undefined {
   const exact = CATALOG.find((command) => command.name === value)
   if (exact) return toSlashCommand(exact)
   if (value.startsWith("/compact ")) {
     return { type: "compact", instructions: value.slice("/compact".length).trim() }
+  }
+  if (value.startsWith("/delete-model ")) {
+    const modelId = value.slice("/delete-model".length).trim()
+    return modelId ? { type: "delete-model", modelId } : { type: "delete-model" }
   }
   if (value.startsWith("/theme ")) {
     return { type: "theme", name: value.slice("/theme".length).trim() }

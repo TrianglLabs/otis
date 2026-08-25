@@ -8,6 +8,8 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { colors, selectTheme } from "../../src/cli/theme.js"
 import { TranscriptStore } from "../../src/cli/transcript.js"
+import { toFireworksPickerChoice } from "../../src/inference/picker-catalog.js"
+import { fireworksModel } from "../../src/inference/types.js"
 import { THEME_NAMES, type ThemeName } from "../../src/local/settings.js"
 import { useChatHarness } from "./support/chat-ui-harness.js"
 
@@ -145,7 +147,13 @@ describe("chat UI theme switching", () => {
     const harness = await setup()
     harness.ui.showChatLayout()
     harness.ui.showModelPicker([
-      { id: "accounts/fireworks/models/alpha", displayName: "Alpha", supportsImageInput: false },
+      toFireworksPickerChoice(
+        fireworksModel({
+          id: "accounts/fireworks/models/alpha",
+          displayName: "Alpha",
+          supportsImageInput: false,
+        }),
+      ),
     ])
 
     const messages = harness.get<ScrollBoxRenderable>("messages")

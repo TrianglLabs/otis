@@ -40,7 +40,7 @@ function* processSSEEvent(rawEvent: string, state: StreamParserState): Generator
   if (!data || data === "[DONE]") return
 
   for (const chunk of parseSSEChunks(data)) {
-    if (chunk.error) throw new Error(`Fireworks stream failed: ${providerError(chunk.error)}`)
+    if (chunk.error) throw new Error(`Inference stream failed: ${providerError(chunk.error)}`)
 
     const usage = parseUsage(chunk.usage)
     if (usage) yield { type: "usage", usage }

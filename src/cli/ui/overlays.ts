@@ -87,6 +87,12 @@ export class OverlayHost {
     this.#showCommandMenu()
   }
 
+  showCommandSubmenu(items: readonly CommandSuggestion[]) {
+    this.#themeMenuOpen = false
+    this.options.commands.showSubmenu(items)
+    this.#showCommandMenu()
+  }
+
   hideCommandMenu(restoreThemePreview = true) {
     if (!this.#commandMenuVisible) return
     this.options.inputArea.remove(this.options.commandMenu.id)
@@ -159,7 +165,7 @@ export class OverlayHost {
       this.#openThemeMenu()
       return
     }
-    this.options.onSubmit(command?.name ?? fallback)
+    this.options.onSubmit(command?.submission ?? command?.name ?? fallback)
   }
 
   #openThemeMenu() {

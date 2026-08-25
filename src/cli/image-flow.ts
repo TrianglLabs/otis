@@ -1,5 +1,6 @@
 import { listToolCapableModels } from "../inference/client.js"
 import { loadImageFiles, parsePastedImagePaths, validateImageAttachments } from "../inference/images.js"
+import { findLocalModel } from "../inference/local-catalog.js"
 import { createUserMessage, imageAttachmentsFromMessages, messagesContainImages } from "../inference/messages.js"
 import { findFireworksModel, fireworksServingModel, isFastFireworksModel } from "../inference/serving-path.js"
 import type { ImageContentPart } from "../inference/types.js"
@@ -73,9 +74,16 @@ export class ImageFlow {
 
   async #ensureModelSupportsImages() {
     if (this.#supportsImageInput === true) return
-    const apiKey = this.options.apiKey()
     const modelId = this.options.selectedModelId()
-    if (!apiKey || !modelId) throw new Error("Select a Fireworks model first.")
+    if (!modelId) throw new Error("Select a model first.")
+    const local = findLocalModel(modelId)
+    if (local) {
+      this.#supportsImageInput = local.supportsImageInput
+      if (!local.supportsImageInput) throw new Error(`Selected model does not support image input: ${modelId}`)
+      return
+    }
+    const apiKey = this.options.apiKey()
+    if (!apiKey) throw new Error("Select a Fireworks model first.")
     if (this.#supportsImageInput === false) {
       throw new Error(`Selected model does not support image input: ${modelId}`)
     }

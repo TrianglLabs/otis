@@ -1,6 +1,8 @@
 import type { InputRenderable, TextareaRenderable, TextRenderable } from "@opentui/core"
 import { describe, expect, it, vi } from "vitest"
 import { CHAT_INPUT_HINT } from "../../src/cli/ui/format.js"
+import { toFireworksPickerChoice } from "../../src/inference/picker-catalog.js"
+import { fireworksModel } from "../../src/inference/types.js"
 import { THEME_NAMES } from "../../src/local/settings.js"
 import { useChatHarness } from "./support/chat-ui-harness.js"
 
@@ -36,10 +38,36 @@ describe("chat UI input", () => {
     expect(harness.find("command-menu")).toBeUndefined()
   })
 
+  it("shows a second-level command menu and submits its hidden command value", async () => {
+    const onSubmit = vi.fn()
+    const harness = await setup({ onSubmit })
+
+    harness.ui.showCommandSubmenu([
+      {
+        name: "gpt-oss 20B",
+        description: "MXFP4 · 12 GB",
+        submission: "/delete-model openai/gpt-oss-20b",
+      },
+      {
+        name: "Qwen3.8 27B",
+        description: "Q4_K_M · 17 GB",
+        submission: "/delete-model Qwen/Qwen3.8-27B",
+      },
+    ])
+
+    expect(harness.text("command-row-0")).toBe("› gpt-oss 20B")
+    expect(harness.text("command-row-0-meta")).toBe("  MXFP4 · 12 GB")
+    expect(harness.find("model-panel")).toBeUndefined()
+    harness.press("down")
+    harness.press("return")
+    expect(onSubmit).toHaveBeenCalledWith("/delete-model Qwen/Qwen3.8-27B")
+    expect(harness.find("command-menu")).toBeUndefined()
+  })
+
   it("hides /fast unless the command list includes it", async () => {
     const harness = await setup({
       commands: [
-        { name: "/model", description: "Choose a Fireworks model" },
+        { name: "/model", description: "Choose a model" },
         { name: "/exit", description: "Exit Otis" },
       ],
     })
@@ -49,7 +77,7 @@ describe("chat UI input", () => {
 
     harness.ui.setCommands([
       { name: "/fast", description: "Toggle Fast serving" },
-      { name: "/model", description: "Choose a Fireworks model" },
+      { name: "/model", description: "Choose a model" },
     ])
     harness.setChatInput("/f")
     expect(harness.text("command-row-0")).toBe("› /fast")
@@ -201,7 +229,13 @@ describe("chat UI input", () => {
     expect(harness.text("setup-status")).toBe("Loading models...")
 
     harness.ui.showModelPicker([
-      { id: "accounts/fireworks/models/tool-model", displayName: "Tool Model", supportsImageInput: false },
+      toFireworksPickerChoice(
+        fireworksModel({
+          id: "accounts/fireworks/models/tool-model",
+          displayName: "Tool Model",
+          supportsImageInput: false,
+        }),
+      ),
     ])
     expect(harness.find("setup-status-box")).toBeUndefined()
     expect(harness.childIds("input-area")).toEqual([])
