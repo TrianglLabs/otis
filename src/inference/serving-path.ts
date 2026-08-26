@@ -14,6 +14,11 @@ export function baseModelIdForFastServingPath(fastId: string) {
   return `accounts/fireworks/models/${slug.slice(0, -"-fast".length)}`
 }
 
+export function baseFireworksModelId(modelId: string) {
+  const resource = normalizedModelResource(modelId)
+  return baseModelIdForFastServingPath(resource) ?? resource
+}
+
 export function fireworksServiceTier(modelId: string) {
   return isFastFireworksModel(modelId) ? undefined : "priority"
 }
@@ -27,8 +32,8 @@ export function findFireworksModel(models: readonly FireworksModel[], modelId: s
 }
 
 /** Fast serving is opt-in. Keep an already-Fast model ID; otherwise require an explicit preference. */
-export function useFastServingPath(modelId: string | undefined, fastMode?: boolean) {
-  return Boolean(modelId && isFastFireworksModel(modelId)) || fastMode === true
+export function useFastServingPath(modelId: string | undefined, fast?: boolean) {
+  return Boolean(modelId && isFastFireworksModel(modelId)) || fast === true
 }
 
 export function fireworksServingModel(model: FireworksModel, fast: boolean): FireworksModel {

@@ -17,7 +17,7 @@ const mocks = vi.hoisted(() => ({
       fireworksApiKey?: string
       model: string
       modelSupportsImageInput?: boolean
-      fastMode?: boolean
+      fastServingModels?: string[]
       permissions?: PermissionConfig
     }>
   >(async () => ({
@@ -487,7 +487,7 @@ describe("runHeadlessCommand", () => {
     mocks.loadLocalSettings.mockResolvedValue({
       fireworksApiKey: "fw_test",
       model: "accounts/fireworks/models/kimi-k3",
-      fastMode: true,
+      fastServingModels: ["accounts/fireworks/models/kimi-k3"],
     })
     mocks.streamChat.mockImplementationOnce(async function* () {
       yield { type: "text_delta", text: "ok" }
@@ -515,7 +515,7 @@ describe("runHeadlessCommand", () => {
     mocks.loadLocalSettings.mockResolvedValue({
       fireworksApiKey: "fw_test",
       model: "accounts/fireworks/models/kimi-k3",
-      fastMode: true,
+      fastServingModels: ["accounts/fireworks/models/kimi-k3"],
     })
     mocks.streamChat.mockImplementationOnce(async function* () {
       yield { type: "text_delta", text: "ok" }

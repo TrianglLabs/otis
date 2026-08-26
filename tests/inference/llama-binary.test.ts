@@ -1,36 +1,29 @@
 import { describe, expect, it } from "vitest"
-import { assetNameFor, latestLlamaCppRelease, selectLlamaCppAsset } from "../../src/inference/llama-binary.js"
-
-const release = {
-  tag_name: "b10622",
-  assets: [
-    { name: "llama-b10622-bin-macos-arm64.tar.gz", browser_download_url: "https://example.test/mac", size: 10 },
-    { name: "llama-b10622-bin-ubuntu-vulkan-x64.tar.gz", browser_download_url: "https://example.test/vk", size: 11 },
-    { name: "llama-b10622-bin-ubuntu-x64.tar.gz", browser_download_url: "https://example.test/cpu", size: 12 },
-  ],
-}
+import { LLAMA_CPP_RELEASE_TAG, pinnedLlamaCppAsset, supportsLlamaCppTarget } from "../../src/inference/llama-binary.js"
 
 describe("llama.cpp binary selection", () => {
-  it("picks Metal, Vulkan, and CPU archives for the supported targets", () => {
-    expect(assetNameFor("b10622", { platform: "darwin", arch: "arm64", backend: "metal" })).toBe(
-      "llama-b10622-bin-macos-arm64.tar.gz",
-    )
-    expect(selectLlamaCppAsset(release, { platform: "linux", arch: "x64", backend: "vulkan" }).name).toBe(
+  it("builds deterministic asset URLs for the pinned release", () => {
+    expect(LLAMA_CPP_RELEASE_TAG).toBe("b10622")
+    expect(pinnedLlamaCppAsset({ platform: "darwin", arch: "arm64", backend: "metal" })).toEqual({
+      name: "llama-b10622-bin-macos-arm64.tar.gz",
+      url: "https://github.com/ggml-org/llama.cpp/releases/download/b10622/llama-b10622-bin-macos-arm64.tar.gz",
+      size: 10_954_906,
+      sha256: "c0116ec9957477a9c77e68d3cf31e79f9aede1a9210861c7c09d74acc3e9c3cf",
+    })
+    expect(pinnedLlamaCppAsset({ platform: "linux", arch: "x64", backend: "vulkan" }).name).toBe(
       "llama-b10622-bin-ubuntu-vulkan-x64.tar.gz",
     )
-    expect(selectLlamaCppAsset(release, { platform: "linux", arch: "x64", backend: "cpu" }).name).toBe(
+    expect(pinnedLlamaCppAsset({ platform: "linux", arch: "x64", backend: "cpu" }).name).toBe(
       "llama-b10622-bin-ubuntu-x64.tar.gz",
     )
   })
 
-  it("uses the newest b-release that actually has assets", () => {
-    const chosen = latestLlamaCppRelease([
-      {
-        tag_name: "v0.3.0",
-        assets: [{ name: "nightly-tag.txt", browser_download_url: "https://example.test/n", size: 1 }],
-      },
-      release,
-    ])
-    expect(chosen.tag_name).toBe("b10622")
+  it("rejects unsupported platforms before a model is selected", () => {
+    expect(supportsLlamaCppTarget({ platform: "linux", arch: "x64" })).toBe(true)
+    expect(supportsLlamaCppTarget({ platform: "darwin", arch: "arm64" })).toBe(true)
+    expect(supportsLlamaCppTarget({ platform: "win32", arch: "x64" })).toBe(false)
+    expect(() => pinnedLlamaCppAsset({ platform: "win32", arch: "x64", backend: "cpu" })).toThrow(
+      "Local inference is not supported on win32/x64.",
+    )
   })
 })

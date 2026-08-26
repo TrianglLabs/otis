@@ -1,4 +1,4 @@
-import { availableInferenceMemory, type HardwareProbe } from "./hardware.js"
+import { availableModelMemory, type HardwareProbe } from "./hardware.js"
 import {
   LOCAL_CONTEXT_ALIGNMENT,
   LOCAL_MIN_CONTEXT_LENGTH,
@@ -7,7 +7,10 @@ import {
   type LocalModelSpec,
 } from "./local-catalog.js"
 
-const GRAPH_OVERHEAD_BYTES = 512 * 1024 * 1024
+// The pinned llama.cpp estimator reports roughly 1.1 GiB of compute buffers for
+// the largest-context catalog model. Keep additional margin because graph memory
+// is architecture- and backend-dependent; llama.cpp remains authoritative at load.
+const RUNTIME_OVERHEAD_BYTES = 1.5 * 1024 ** 3
 const KV_ELEMENT_BYTES = 4 // f16 key + f16 value
 
 export type LocalModelFit = {
@@ -19,7 +22,7 @@ export type LocalModelFit = {
 }
 
 export function fitLocalModel(model: LocalModelSpec, hardware: HardwareProbe): LocalModelFit {
-  const memoryAvailableBytes = availableInferenceMemory(hardware)
+  const memoryAvailableBytes = availableModelMemory(hardware)
   return fitLocalModelWithinMemory(model, memoryAvailableBytes)
 }
 
@@ -73,7 +76,7 @@ export function memoryRequiredFor(model: LocalModelSpec, contextLength: number) 
   if (!Number.isSafeInteger(contextLength) || contextLength <= 0) {
     throw new Error("Context length must be a positive integer.")
   }
-  return model.weightBytes + kvCacheBytes(model.attention, contextLength) + GRAPH_OVERHEAD_BYTES
+  return model.weightBytes + kvCacheBytes(model.attention, contextLength) + RUNTIME_OVERHEAD_BYTES
 }
 
 export function kvCacheBytes(attention: LocalAttentionSpec, contextLength: number) {

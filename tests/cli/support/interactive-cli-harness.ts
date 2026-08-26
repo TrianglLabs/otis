@@ -60,9 +60,10 @@ const mocks = vi.hoisted(() => {
     showPermissionPrompt: vi.fn(() => Promise.resolve(true)),
     showSessionPicker: vi.fn(),
     showSetupError: vi.fn(),
-    showSetupButton: vi.fn(),
+    showSetupInferenceChoice: vi.fn(),
     showSetupInput: vi.fn(),
     showSetupStatus: vi.fn(),
+    showSlashCommandMenu: vi.fn(),
     showStats: vi.fn(),
     showTransientHint: vi.fn(),
     showUpdateHint: vi.fn(),
@@ -108,11 +109,12 @@ const mocks = vi.hoisted(() => {
     loadSkillCatalog: vi.fn<() => Promise<SkillCatalog>>(async () => ({ skills: [], byName: new Map() })),
     openSession: vi.fn(),
     openFireworksKeyPage: vi.fn(async () => true),
+    saveFireworksApiKey: vi.fn(async () => undefined),
     saveFireworksSetup: vi.fn(async () => undefined),
     saveSelectedModel: vi.fn(async () => undefined),
     saveSelectedTheme: vi.fn(async () => undefined),
     saveThinkingVisible: vi.fn(async () => undefined),
-    saveFastMode: vi.fn(async () => undefined),
+    saveFastServingSelection: vi.fn(async () => undefined),
     detectHardware: vi.fn(async () => ({
       platform: "darwin" as const,
       arch: "arm64",
@@ -163,6 +165,7 @@ const mocks = vi.hoisted(() => {
           onSelectModel?(model: import("../../../src/inference/picker-catalog.js").ModelPickerItem): void
           onSelectSession?(sessionId: string): void
           onSetup?(): void
+          onSetupInferenceChoice?(choice: "local" | "hosted"): void
           onSetupSubmit?(apiKey: string): void
           onSubmit(value: string): void | Promise<void>
           onToggleMode?(): void
@@ -202,11 +205,12 @@ vi.mock("../../../src/local/settings.js", () => ({
     ["default", "nord", "bright", "matrix", "midnight", "graphite", "beige", "vice", "eagan"].includes(String(value)),
   clearSelectedModel: mocks.clearSelectedModel,
   loadLocalSettings: mocks.loadLocalSettings,
+  saveFireworksApiKey: mocks.saveFireworksApiKey,
   saveFireworksSetup: mocks.saveFireworksSetup,
   saveSelectedModel: mocks.saveSelectedModel,
   saveSelectedTheme: mocks.saveSelectedTheme,
   saveThinkingVisible: mocks.saveThinkingVisible,
-  saveFastMode: mocks.saveFastMode,
+  saveFastServingSelection: mocks.saveFastServingSelection,
 }))
 vi.mock("../../../src/local/stats.js", () => ({ calculateLocalStats: mocks.calculateLocalStats }))
 vi.mock("../../../src/storage/index.js", () => ({

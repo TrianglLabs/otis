@@ -6,12 +6,11 @@ export type SlashCommand =
   | { type: "theme-menu" }
   | { type: "theme"; name: string }
   | { type: "model" }
-  | { type: "delete-model"; modelId?: string }
+  | { type: "settings"; setting?: "hosted" | "debug" | "delete-model"; modelId?: string }
   | { type: "fast" }
   | { type: "history" }
   | { type: "new" }
   | { type: "home" }
-  | { type: "debug" }
   | { type: "thinking" }
   | { type: "compact"; instructions?: string }
 
@@ -28,29 +27,30 @@ const CATALOG: readonly CatalogCommand[] = [
   { type: "new", name: "/new", description: "Start a new session" },
   { type: "history", name: "/history", description: "Open session history" },
   { type: "model", name: "/model", description: "Choose a model" },
-  { type: "delete-model", name: "/delete-model", description: "Delete a downloaded local model" },
+  { type: "settings", name: "/settings", description: "Configure Otis" },
   { type: "fast", name: "/fast", description: "Toggle Fast serving" },
   { type: "compact", name: "/compact", description: "Summarize old conversation to free context" },
-  { type: "debug", name: "/debug", description: "Toggle debug messages" },
   { type: "thinking", name: "/thinking", description: "Show or hide model thinking traces" },
   { type: "theme-menu", name: "/theme", description: "Choose a color theme" },
   ...THEME_NAMES.map((theme) => ({ type: "theme" as const, name: `/theme ${theme}`, description: "" })),
   { type: "exit", name: "/exit", description: "Exit Otis" },
 ]
 
-export function slashCommands(options: { fast?: boolean; downloadedModels?: boolean } = {}): CommandSuggestion[] {
-  return CATALOG.filter(
-    (command) =>
-      (command.type !== "fast" || options.fast) && (command.type !== "delete-model" || options.downloadedModels),
-  ).map(({ name, description }) => ({
+export function slashCommands(options: { fast?: boolean } = {}): CommandSuggestion[] {
+  return CATALOG.filter((command) => command.type !== "fast" || options.fast).map(({ name, description }) => ({
     name,
     description,
   }))
 }
 
-export const SLASH_COMMANDS: CommandSuggestion[] = slashCommands({ fast: true, downloadedModels: true })
+export const SLASH_COMMANDS: CommandSuggestion[] = slashCommands({ fast: true })
 
 export function parseSlashCommand(value: string): SlashCommand | undefined {
+  // `/debug` shipped before Debug mode moved into Settings. Keep the command
+  // working without advertising it in the top-level command catalog.
+  if (value === "/debug") return { type: "settings", setting: "debug" }
+  // Keep the former top-level model cleanup command working as a hidden alias.
+  if (value === "/delete-model") return { type: "settings", setting: "delete-model" }
   const exact = CATALOG.find((command) => command.name === value)
   if (exact) return toSlashCommand(exact)
   if (value.startsWith("/compact ")) {
@@ -58,7 +58,17 @@ export function parseSlashCommand(value: string): SlashCommand | undefined {
   }
   if (value.startsWith("/delete-model ")) {
     const modelId = value.slice("/delete-model".length).trim()
-    return modelId ? { type: "delete-model", modelId } : { type: "delete-model" }
+    return { type: "settings", setting: "delete-model", ...(modelId ? { modelId } : {}) }
+  }
+  if (value.startsWith("/settings ")) {
+    const setting = value.slice("/settings".length).trim()
+    if (setting === "hosted" || setting === "debug") return { type: "settings", setting }
+    if (setting === "delete-model") return { type: "settings", setting: "delete-model" }
+    if (setting.startsWith("delete-model ")) {
+      const modelId = setting.slice("delete-model".length).trim()
+      return { type: "settings", setting: "delete-model", ...(modelId ? { modelId } : {}) }
+    }
+    return undefined
   }
   if (value.startsWith("/theme ")) {
     return { type: "theme", name: value.slice("/theme".length).trim() }

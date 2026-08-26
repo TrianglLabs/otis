@@ -38,8 +38,16 @@ describe("interactive CLI setup", () => {
     expect(mocks.uiOptions?.modelLabel).toBe("")
     expect(mocks.calculateLocalStats).not.toHaveBeenCalled()
     mocks.uiOptions?.onSetup?.()
+    expect(mocks.ui.showSetupInferenceChoice).toHaveBeenCalledOnce()
+    expect(mocks.ui.showSetupInput).not.toHaveBeenCalled()
+    expect(mocks.openFireworksKeyPage).not.toHaveBeenCalled()
+
+    mocks.uiOptions?.onSetupInferenceChoice?.("hosted")
     expect(mocks.ui.showSetupInput).toHaveBeenCalledOnce()
     expect(mocks.openFireworksKeyPage).toHaveBeenCalledOnce()
+
+    mocks.uiOptions?.onSetupSubmit?.(" ")
+    expect(mocks.ui.showSetupError).toHaveBeenLastCalledWith("Fireworks API key is required.", "choice")
 
     mocks.uiOptions?.onSetupSubmit?.("fw_new_key")
     await settle()
@@ -51,6 +59,137 @@ describe("interactive CLI setup", () => {
     expect(mocks.ui.setModelLabel).toHaveBeenLastCalledWith("Muse Glimmer 30B")
     expect(mocks.ui.setConfigured).toHaveBeenCalledOnce()
     expect(mocks.ParallelClient).toHaveBeenCalledOnce()
+  })
+
+  it("opens the hardware-filtered local catalog without asking for a Fireworks key", async () => {
+    mocks.loadLocalSettings.mockResolvedValue(
+      localSettings({
+        fireworksApiKey: undefined,
+        model: undefined,
+        modelDisplayName: undefined,
+        modelContextLength: undefined,
+      }),
+    )
+    await loadCli()
+
+    mocks.uiOptions?.onSetup?.()
+    mocks.uiOptions?.onSetupInferenceChoice?.("local")
+    await vi.waitFor(() => expect(mocks.ui.showModelPicker).toHaveBeenCalledOnce())
+
+    expect(mocks.ui.showSetupStatus).toHaveBeenCalledOnce()
+    expect(mocks.listToolCapableModels).not.toHaveBeenCalled()
+    expect(mocks.openFireworksKeyPage).not.toHaveBeenCalled()
+    expect(mocks.ui.showSetupInput).not.toHaveBeenCalled()
+    const picker = (mocks.ui.showModelPicker.mock.calls[0]?.[0] ?? []) as ModelPickerItem[]
+    expect(picker[0]).toMatchObject({ kind: "header", displayName: "Local" })
+    expect(picker).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "openai/gpt-oss-20b", provider: "local" })]),
+    )
+    expect(picker).not.toEqual(expect.arrayContaining([expect.objectContaining({ provider: "fireworks" })]))
+  })
+
+  it("adds a validated hosted key from settings without replacing the active local model", async () => {
+    const local = findLocalModel("openai/gpt-oss-20b")
+    if (!local) throw new Error("missing local model")
+    const hosted = testModel({ displayName: "Hosted Model" })
+    mocks.listToolCapableModels.mockResolvedValue([hosted])
+    mocks.loadLocalSettings.mockResolvedValue(
+      localSettings({
+        fireworksApiKey: undefined,
+        model: local.id,
+        modelDisplayName: local.displayName,
+        modelContextLength: 32_768,
+        modelProvider: "local",
+      }),
+    )
+    await loadCli()
+    mocks.saveSelectedModel.mockClear()
+
+    await submit("/settings")
+    expect(mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[0]).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "Hosted inference", description: "Add API key" })]),
+    )
+
+    await submit("/settings hosted")
+    expect(mocks.ui.showSetupInput).toHaveBeenLastCalledWith("", "configured")
+    expect(mocks.openFireworksKeyPage).toHaveBeenCalledOnce()
+
+    mocks.uiOptions?.onSetupSubmit?.("fw_added_key")
+    await vi.waitFor(() => expect(mocks.saveFireworksApiKey).toHaveBeenCalledWith("fw_added_key"))
+
+    expect(mocks.listToolCapableModels).toHaveBeenCalledWith("fw_added_key", {
+      signal: expect.any(AbortSignal),
+    })
+    expect(mocks.saveSelectedModel).not.toHaveBeenCalled()
+    expect(mocks.saveFireworksSetup).not.toHaveBeenCalled()
+    expect(mocks.ui.showTransientHint).toHaveBeenLastCalledWith(" Hosted inference configured ")
+
+    mocks.ui.showModelPicker.mockClear()
+    await submit("/model")
+    const picker = (mocks.ui.showModelPicker.mock.calls[0]?.[0] ?? []) as ModelPickerItem[]
+    expect(picker).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "header", displayName: "Hosted" }),
+        expect.objectContaining({ id: hosted.id, provider: "fireworks" }),
+      ]),
+    )
+  })
+
+  it("keeps hosted key settings open when validation fails", async () => {
+    mocks.listToolCapableModels.mockRejectedValue(new Error("invalid API key"))
+    await loadCli()
+
+    await submit("/settings hosted")
+    mocks.uiOptions?.onSetupSubmit?.("fw_invalid")
+    await vi.waitFor(() => expect(mocks.ui.showSetupError).toHaveBeenCalledWith("invalid API key", "configured"))
+
+    expect(mocks.saveFireworksApiKey).not.toHaveBeenCalled()
+  })
+
+  it("discards a rejected hosted key draft when onboarding switches to local", async () => {
+    const hosted = testModel({ displayName: "Hosted Model" })
+    mocks.listToolCapableModels.mockImplementation(async (apiKey) => {
+      if (apiKey === "fw_rejected") throw new Error("invalid API key")
+      return [hosted]
+    })
+    mocks.loadLocalSettings.mockResolvedValue(
+      localSettings({
+        fireworksApiKey: undefined,
+        model: undefined,
+        modelDisplayName: undefined,
+        modelContextLength: undefined,
+      }),
+    )
+    await loadCli()
+
+    mocks.uiOptions?.onSetup?.()
+    mocks.uiOptions?.onSetupInferenceChoice?.("hosted")
+    mocks.uiOptions?.onSetupSubmit?.("fw_rejected")
+    await vi.waitFor(() => expect(mocks.ui.showSetupError).toHaveBeenCalledWith("invalid API key", "choice"))
+
+    mocks.uiOptions?.onSetupInferenceChoice?.("local")
+    await vi.waitFor(() => expect(mocks.ui.showModelPicker).toHaveBeenCalled())
+    const localPicker = (mocks.ui.showModelPicker.mock.calls.at(-1)?.[0] ?? []) as ModelPickerItem[]
+    const local = localPicker.find((item) => "provider" in item && item.provider === "local" && item.available)
+    if (!local) throw new Error("missing runnable local model")
+    mocks.uiOptions?.onSelectModel?.(local)
+    await vi.waitFor(() => expect(mocks.ui.setConfigured).toHaveBeenCalled())
+
+    await submit("/settings hosted")
+    mocks.uiOptions?.onSetupSubmit?.("fw_valid")
+    await vi.waitFor(() => expect(mocks.saveFireworksApiKey).toHaveBeenCalledWith("fw_valid"))
+
+    mocks.ui.showModelPicker.mockClear()
+    mocks.saveSelectedModel.mockClear()
+    await submit("/model")
+    const modelPicker = (mocks.ui.showModelPicker.mock.calls.at(-1)?.[0] ?? []) as ModelPickerItem[]
+    const hostedChoice = modelPicker.find((item) => "provider" in item && item.provider === "fireworks")
+    if (!hostedChoice) throw new Error("missing hosted model")
+    mocks.uiOptions?.onSelectModel?.(hostedChoice)
+    await settle()
+
+    expect(mocks.saveFireworksSetup).not.toHaveBeenCalled()
+    expect(mocks.saveSelectedModel).toHaveBeenCalledWith(hosted)
   })
 
   it("falls back to Inkling and does not copy an environment key into the config file", async () => {
@@ -119,12 +258,14 @@ describe("interactive CLI setup", () => {
     await loadCli()
 
     mocks.uiOptions?.onSetup?.()
+    mocks.uiOptions?.onSetupInferenceChoice?.("hosted")
     mocks.uiOptions?.onSetupSubmit?.("fw_new_key")
     await settle()
 
     expect(mocks.saveFireworksSetup).not.toHaveBeenCalled()
     expect(mocks.ui.showSetupError).toHaveBeenCalledWith(
-      "Fireworks returned no public serverless models with tool support.",
+      "The hosted provider returned no public models with tool support.",
+      "choice",
     )
     expect(mocks.ui.setConfigured).not.toHaveBeenCalled()
   })
@@ -142,10 +283,11 @@ describe("interactive CLI setup", () => {
     await loadCli()
 
     mocks.uiOptions?.onSetup?.()
+    mocks.uiOptions?.onSetupInferenceChoice?.("hosted")
     mocks.uiOptions?.onSetupSubmit?.("fw_new_key")
     await settle()
 
-    expect(mocks.ui.showSetupError).toHaveBeenCalledWith("Could not save Fireworks setup.")
+    expect(mocks.ui.showSetupError).toHaveBeenCalledWith("Could not save Fireworks setup.", "choice")
     expect(mocks.ui.setConfigured).not.toHaveBeenCalled()
   })
 
@@ -177,6 +319,7 @@ describe("interactive CLI setup", () => {
 
     expect(mocks.uiOptions?.configured).toBe(true)
     expect(mocks.calculateLocalStats).toHaveBeenCalled()
+    expect(mocks.ui.setConfigured).not.toHaveBeenCalled()
   })
 
   it("advertises /fast when the saved model has a Fast serving path", async () => {
@@ -185,28 +328,53 @@ describe("interactive CLI setup", () => {
         model: "accounts/fireworks/models/kimi-k3",
         modelDisplayName: "Kimi K3",
         modelFastId: "accounts/fireworks/routers/kimi-k3-fast",
-        fastMode: false,
       }),
     )
     await loadCli()
     expect(commandNames()).toContain("/fast")
   })
 
-  it("advertises local model deletion only when a model is downloaded", async () => {
+  it("offers local model deletion from settings only when a model is downloaded", async () => {
     const cached = findLocalModel("openai/gpt-oss-20b")
     if (!cached) throw new Error("missing local model")
     mocks.listDownloadedLocalModels.mockResolvedValue([cached])
 
     await loadCli()
 
-    expect(commandNames()).toContain("/delete-model")
-    await submit("/delete-model")
-    expect(mocks.ui.showCommandSubmenu).toHaveBeenCalledWith([
-      expect.objectContaining({
-        name: cached.displayName,
-        submission: `/delete-model ${cached.id}`,
-      }),
-    ])
+    expect(commandNames()).not.toContain("/delete-model")
+    await submit("/settings")
+    expect(mocks.ui.showCommandSubmenu).toHaveBeenLastCalledWith(
+      expect.arrayContaining([
+        {
+          name: "Delete local model",
+          description: "Choose a downloaded model",
+          submission: "/settings delete-model",
+        },
+      ]),
+      { onBack: expect.any(Function) },
+    )
+
+    await submit("/settings delete-model")
+    expect(mocks.ui.showCommandSubmenu).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          name: cached.displayName,
+          submission: `/settings delete-model ${cached.id}`,
+        }),
+      ],
+      { onBack: expect.any(Function) },
+    )
+
+    const onBack = mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[1]?.onBack
+    expect(onBack).toBeTypeOf("function")
+    onBack?.()
+    expect(mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[0]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "Hosted inference" }),
+        expect.objectContaining({ name: "Delete local model" }),
+        expect.objectContaining({ name: "Debug mode" }),
+      ]),
+    )
   })
 
   it("opens the verified model catalog from the model command", async () => {
@@ -308,7 +476,7 @@ describe("interactive CLI setup", () => {
       fastId: "accounts/fireworks/routers/kimi-k3-fast",
     })
     mocks.listToolCapableModels.mockResolvedValue([kimi])
-    mocks.loadLocalSettings.mockResolvedValue(localSettings({ fastMode: true }))
+    mocks.loadLocalSettings.mockResolvedValue(localSettings({ fastServingModels: [kimi.id] }))
     await loadCli()
     await submit("/model")
 
@@ -332,7 +500,7 @@ describe("interactive CLI setup", () => {
       fastId: "accounts/fireworks/routers/kimi-k3-fast",
     })
     mocks.listToolCapableModels.mockResolvedValue([kimi])
-    mocks.loadLocalSettings.mockResolvedValue(localSettings({ fastMode: false }))
+    mocks.loadLocalSettings.mockResolvedValue(localSettings({ fastServingModels: [] }))
     await loadCli()
     await submit("/model")
 
@@ -363,14 +531,22 @@ describe("interactive CLI setup", () => {
     expect(mocks.ensureLocalServing).toHaveBeenCalled()
     expect(mocks.ui.showTransientHint).not.toHaveBeenCalledWith(expect.stringMatching(/Starting /))
     expect(mocks.ui.showHomeLayout).not.toHaveBeenCalled()
-    expect(mocks.ui.setModelPickerStatus).toHaveBeenCalledWith("openai/gpt-oss-20b", "47%")
-    expect(mocks.ui.setModelPickerStatus).toHaveBeenCalledWith("openai/gpt-oss-20b", "Loading")
+    expect(mocks.ui.setModelPickerStatus).toHaveBeenCalledWith("openai/gpt-oss-20b", {
+      label: "Downloading 47%",
+      kind: "progress",
+    })
+    expect(mocks.ui.setModelPickerStatus).toHaveBeenCalledWith("openai/gpt-oss-20b", {
+      label: "Loading",
+      kind: "progress",
+    })
     expect(mocks.ui.setModelLabel).toHaveBeenLastCalledWith("gpt-oss 20B")
     expect(mocks.ui.setModelLabel).not.toHaveBeenCalledWith(expect.stringMatching(/%|loading/i))
     expect(mocks.ui.hideModelPicker).toHaveBeenCalled()
     expect(mocks.ui.setConfigured).toHaveBeenCalled()
-    expect(mocks.ui.setCommands).toHaveBeenCalledWith(
-      expect.arrayContaining([expect.objectContaining({ name: "/delete-model" })]),
+    await submit("/settings")
+    expect(mocks.ui.showCommandSubmenu).toHaveBeenLastCalledWith(
+      expect.arrayContaining([expect.objectContaining({ name: "Delete local model" })]),
+      { onBack: expect.any(Function) },
     )
 
     mocks.ui.showModelPicker.mockClear()
@@ -388,7 +564,7 @@ describe("interactive CLI setup", () => {
           (item): item is LocalPickerChoice =>
             item.kind === "model" && item.provider === "local" && item.id !== "openai/gpt-oss-20b",
         )
-        .every((item) => item.availabilityLabel.startsWith("Up to ")),
+        .every((item) => item.availabilityLabel.startsWith("Est. ")),
     ).toBe(true)
   })
 
@@ -400,12 +576,15 @@ describe("interactive CLI setup", () => {
       mocks.listDownloadedLocalModels.mockResolvedValue([])
     })
     await loadCli()
-    await submit(`/delete-model ${cached.id}`)
+    await submit(`/settings delete-model ${cached.id}`)
     await vi.waitFor(() => expect(mocks.deleteLocalGguf).toHaveBeenCalledWith(cached))
 
     expect(mocks.stopLocalRuntime).toHaveBeenCalledOnce()
     expect(mocks.clearSelectedModel).not.toHaveBeenCalled()
-    expect(latestCommandNames()).not.toContain("/delete-model")
+    await submit("/settings")
+    expect(mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[0]).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "Delete local model" })]),
+    )
   })
 
   it("deletes an inactive model without interrupting a different active local model", async () => {
@@ -427,18 +606,21 @@ describe("interactive CLI setup", () => {
     await loadCli()
     mocks.stopLocalRuntime.mockClear()
 
-    await submit(`/delete-model ${inactive.id}`)
+    await submit(`/settings delete-model ${inactive.id}`)
     await vi.waitFor(() => expect(mocks.deleteLocalGguf).toHaveBeenCalledWith(inactive))
 
     expect(mocks.stopLocalRuntime).not.toHaveBeenCalled()
     expect(mocks.clearSelectedModel).not.toHaveBeenCalled()
-    expect(mocks.ui.showCommandSubmenu).toHaveBeenLastCalledWith([
-      expect.objectContaining({
-        name: active.displayName,
-        description: expect.stringContaining("Active ·"),
-        submission: `/delete-model ${active.id}`,
-      }),
-    ])
+    expect(mocks.ui.showCommandSubmenu).toHaveBeenLastCalledWith(
+      [
+        expect.objectContaining({
+          name: active.displayName,
+          description: expect.stringContaining("Active ·"),
+          submission: `/settings delete-model ${active.id}`,
+        }),
+      ],
+      { onBack: expect.any(Function) },
+    )
   })
 
   it("stops llama.cpp and clears selection before deleting the active local model", async () => {
@@ -459,16 +641,18 @@ describe("interactive CLI setup", () => {
     await loadCli()
     mocks.stopLocalRuntime.mockClear()
 
-    await submit(`/delete-model ${cached.id}`)
+    await submit(`/settings delete-model ${cached.id}`)
     await vi.waitFor(() => expect(mocks.deleteLocalGguf).toHaveBeenCalledWith(cached))
 
     expect(mocks.clearSelectedModel).toHaveBeenCalledBefore(mocks.stopLocalRuntime)
     expect(mocks.stopLocalRuntime).toHaveBeenCalledBefore(mocks.deleteLocalGguf)
     expect(mocks.ui.showHomeLayout).not.toHaveBeenCalled()
-    expect(mocks.ui.showSetupButton).not.toHaveBeenCalled()
     expect(mocks.ui.setModelLabel).toHaveBeenCalledWith("No model")
     await vi.waitFor(() => expect(mocks.ui.showModelPicker).toHaveBeenCalled())
-    expect(latestCommandNames()).not.toContain("/delete-model")
+    await submit("/settings")
+    expect(mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[0]).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "Delete local model" })]),
+    )
   })
 
   it("restores an active local selection when its model file cannot be deleted", async () => {
@@ -487,7 +671,7 @@ describe("interactive CLI setup", () => {
     await loadCli()
     mocks.saveSelectedModel.mockClear()
 
-    await submit(`/delete-model ${cached.id}`)
+    await submit(`/settings delete-model ${cached.id}`)
     await vi.waitFor(() => expect(mocks.ui.showTransientHint).toHaveBeenCalledWith(expect.stringContaining("locked")))
 
     expect(mocks.clearSelectedModel).toHaveBeenCalled()
@@ -515,7 +699,11 @@ describe("interactive CLI setup", () => {
     expect(mocks.saveSelectedModel).not.toHaveBeenCalled()
     expect(mocks.ui.hideModelPicker).not.toHaveBeenCalled()
     expect(mocks.ui.setModelLabel).not.toHaveBeenCalledWith("gpt-oss 20B")
-    expect(mocks.ui.showSetupError).toHaveBeenCalledWith("model failed to load")
+    expect(mocks.ui.setModelPickerStatus).toHaveBeenLastCalledWith(local.id, {
+      label: "Failed: model failed to load",
+      kind: "error",
+    })
+    expect(mocks.ui.showSetupError).not.toHaveBeenCalled()
   })
 
   it("rolls back a prepared local runtime when saving the selection fails", async () => {
@@ -536,7 +724,11 @@ describe("interactive CLI setup", () => {
     expect(mocks.stopLocalRuntime).toHaveBeenCalledOnce()
     expect(mocks.ui.hideModelPicker).not.toHaveBeenCalled()
     expect(mocks.ui.setModelLabel).not.toHaveBeenCalledWith("gpt-oss 20B")
-    expect(mocks.ui.showSetupError).toHaveBeenCalledWith("config is read-only")
+    expect(mocks.ui.setModelPickerStatus).toHaveBeenLastCalledWith(local.id, {
+      label: "Failed: config is read-only",
+      kind: "error",
+    })
+    expect(mocks.ui.showSetupError).not.toHaveBeenCalled()
   })
 
   it("does not let a stale local load complete a newer selection", async () => {
@@ -644,9 +836,4 @@ describe("interactive CLI setup", () => {
 function commandNames() {
   const commands = getMocks().createChatUI.mock.calls.at(-1)?.[1]?.commands as Array<{ name: string }> | undefined
   return commands?.map((command) => command.name) ?? []
-}
-
-function latestCommandNames() {
-  const commands = getMocks().ui.setCommands.mock.calls.at(-1)?.[0] as Array<{ name: string }> | undefined
-  return commands?.map((command) => command.name) ?? commandNames()
 }

@@ -224,7 +224,7 @@ describe("CLI shutdown", () => {
 
     try {
       await loadCli()
-      await submit(`/delete-model ${cached.id}`)
+      await submit(`/settings delete-model ${cached.id}`)
       await vi.waitFor(() => expect(mocks.deleteLocalGguf).toHaveBeenCalled())
 
       const quitting = Promise.resolve(mocks.uiOptions?.onQuit?.())

@@ -5,17 +5,25 @@ import {
   isSelectablePickerItem,
   listModelPickerItems,
   type ModelPickerItem,
+  type ModelPickerStatus,
   toLocalCatalogModel,
 } from "../inference/picker-catalog.js"
 import { findFireworksModel, fireworksServingModel, isFastFireworksModel } from "../inference/serving-path.js"
 import type { CatalogModel, FireworksModel, LocalCatalogModel } from "../inference/types.js"
-import { type LocalSettings, saveFastMode, saveFireworksSetup, saveSelectedModel } from "../local/settings.js"
+import {
+  type LocalSettings,
+  saveFastServingSelection,
+  saveFireworksApiKey,
+  saveFireworksSetup,
+  saveSelectedModel,
+} from "../local/settings.js"
 import { openFireworksKeyPage } from "./provider-links.js"
-import type { ChatUI } from "./ui/types.js"
+import type { ChatUI, SetupInferenceChoice } from "./ui/types.js"
 
 type SetupFlowOptions = {
   ui: ChatUI
   settings: LocalSettings
+  localInferenceUnavailableReason?: string
   isBusy: () => boolean
   setBusy: (busy: boolean) => void
   onCredentialsChanged: (credentials: { fireworksApiKey?: string }) => void
@@ -23,11 +31,11 @@ type SetupFlowOptions = {
     model: CatalogModel,
     options: { signal: AbortSignal; fireworksApiKey?: string },
   ) => Promise<PreparedModelSelection>
-  localLoadStatus?: () => { modelId: string; label: string } | undefined
+  localLoadStatus?: () => { modelId: string; status: ModelPickerStatus } | undefined
   loadedLocalModel?: () => { model: string; contextLength: number } | undefined
   onConfigured: (fireworksApiKey?: string) => void
-  fastMode: () => boolean
-  onFastModeChanged: (fast: boolean) => void
+  fastEnabled: (modelId: string) => boolean
+  onFastChanged: (modelId: string, fast: boolean) => void
 }
 
 export type PreparedModelSelection = {
@@ -44,6 +52,7 @@ export class SetupFlow {
   #selectedModelSupportsImageInput: boolean | undefined
   #models: FireworksModel[] = []
   #persistFireworksApiKey = false
+  #credentialPurpose: "onboarding" | "settings" = "onboarding"
   #wasConfigured = false
   #openedFireworksKeyPage = false
   #catalogController: AbortController | undefined
@@ -61,8 +70,9 @@ export class SetupFlow {
 
   begin() {
     if (this.#closed || this.options.isBusy()) return
+    this.#credentialPurpose = "onboarding"
     if (!this.#fireworksApiKey) {
-      this.requestFireworksKey()
+      this.options.ui.showSetupInferenceChoice()
       return
     }
     if (!this.#selectedModel) {
@@ -76,11 +86,44 @@ export class SetupFlow {
     this.finish()
   }
 
+  selectInference(choice: SetupInferenceChoice) {
+    if (this.#closed || this.options.isBusy()) return
+    this.#credentialPurpose = "onboarding"
+    if (choice === "local") {
+      if (this.options.localInferenceUnavailableReason) {
+        this.options.ui.showSetupInferenceChoice(this.options.localInferenceUnavailableReason)
+        return
+      }
+      this.#fireworksApiKey = this.options.settings.fireworksApiKey
+      this.#models = []
+      this.#persistFireworksApiKey = false
+      this.#openedFireworksKeyPage = false
+      void this.openModelPicker(undefined, this.#selectedModel, false)
+      return
+    }
+    this.requestFireworksKey()
+  }
+
+  configureHostedInference() {
+    if (this.#closed || this.options.isBusy()) return
+    this.#credentialPurpose = "settings"
+    this.#openedFireworksKeyPage = false
+    this.requestFireworksKey()
+  }
+
   async submitCredential(value: string) {
     if (this.#closed) return
     const apiKey = value.trim()
     if (!apiKey) {
-      this.options.ui.showSetupError("Fireworks API key is required.")
+      this.options.ui.showSetupError(
+        "Fireworks API key is required.",
+        this.#credentialPurpose === "settings" ? "configured" : "choice",
+      )
+      return
+    }
+
+    if (this.#credentialPurpose === "settings") {
+      await this.saveHostedCredential(apiKey)
       return
     }
 
@@ -117,7 +160,8 @@ export class SetupFlow {
     return (
       (await this.enqueueSelection(async (signal) => {
         this.options.setBusy(true)
-        const previousFast = this.options.fastMode()
+        const selectedModelId = this.#selectedModel as string
+        const previousFast = this.options.fastEnabled(selectedModelId)
         try {
           const models =
             this.#models.length > 0
@@ -127,13 +171,14 @@ export class SetupFlow {
           if (!selected?.fastId) return "unavailable" as const
 
           const fast = !isFastFireworksModel(this.#selectedModel as string)
-          this.options.onFastModeChanged(fast)
-          await saveFastMode(fast)
-          await this.persistFireworksSelection(selected, signal)
+          this.options.onFastChanged(selectedModelId, fast)
+          await this.persistFireworksSelection(selected, signal, fast)
           return fast ? ("on" as const) : ("off" as const)
         } catch (error) {
-          this.options.onFastModeChanged(previousFast)
-          if (!signal.aborted && !this.#closed) this.options.ui.showSetupError(errorMessage(error))
+          this.options.onFastChanged(selectedModelId, previousFast)
+          if (!signal.aborted && !this.#closed) {
+            this.options.ui.showTransientHint(` Could not change Fast serving: ${errorMessage(error)} `)
+          }
           return signal.aborted ? ("unavailable" as const) : ("error" as const)
         } finally {
           this.options.setBusy(false)
@@ -150,7 +195,7 @@ export class SetupFlow {
       return
     }
     this.options.ui.showHomeLayout()
-    this.options.ui.showSetupButton()
+    this.options.ui.showSetupInferenceChoice()
   }
 
   async cancelModelSelection() {
@@ -174,10 +219,41 @@ export class SetupFlow {
   }
 
   private requestFireworksKey() {
-    this.options.ui.showSetupInput()
+    this.options.ui.showSetupInput("", this.#credentialPurpose === "settings" ? "configured" : "choice")
     if (this.#openedFireworksKeyPage) return
     this.#openedFireworksKeyPage = true
     void openFireworksKeyPage()
+  }
+
+  private async saveHostedCredential(apiKey: string) {
+    await this.runCatalogOperation((signal) => this.persistHostedCredential(apiKey, signal))
+  }
+
+  private async persistHostedCredential(apiKey: string, signal: AbortSignal) {
+    if (this.#closed || this.options.isBusy()) return
+    this.options.setBusy(true)
+    this.options.ui.showSetupStatus("Checking hosted inference...")
+
+    try {
+      const models = await listToolCapableModels(apiKey, { signal })
+      signal.throwIfAborted()
+      if (models.length === 0) throw new Error("The hosted provider returned no public models with tool support.")
+      await saveFireworksApiKey(apiKey)
+
+      this.#fireworksApiKey = apiKey
+      this.#models = models
+      if (this.#closed) return
+      this.options.onCredentialsChanged({ fireworksApiKey: apiKey })
+      this.options.ui.setConfigured()
+      this.options.ui.showTransientHint(" Hosted inference configured ")
+      this.options.ui.focusInput()
+    } catch (error) {
+      if (!signal.aborted && !this.#closed && !isAbortError(error)) {
+        this.options.ui.showSetupError(errorMessage(error), "configured")
+      }
+    } finally {
+      this.options.setBusy(false)
+    }
   }
 
   private async loadModels(
@@ -214,7 +290,7 @@ export class SetupFlow {
         this.options.ui.setConfigured()
         this.options.ui.focusInput()
       } else {
-        this.options.ui.showSetupError(errorMessage(error))
+        this.options.ui.showSetupInferenceChoice(errorMessage(error))
       }
     } finally {
       this.options.setBusy(false)
@@ -233,11 +309,13 @@ export class SetupFlow {
     try {
       const models = await this.loadVerifiedModels(apiKey, signal)
       const selected = selectDefaultFireworksModel(models)
-      if (!selected) throw new Error("Fireworks returned no public serverless models with tool support.")
+      if (!selected) throw new Error("The hosted provider returned no public models with tool support.")
       await this.persistFireworksSelection(selected, signal)
       if (!signal.aborted && !this.#closed) this.finish(selected)
     } catch (error) {
-      if (!signal.aborted && !this.#closed && !isAbortError(error)) this.options.ui.showSetupError(errorMessage(error))
+      if (!signal.aborted && !this.#closed && !isAbortError(error)) {
+        this.options.ui.showSetupError(errorMessage(error), "choice")
+      }
     } finally {
       this.options.setBusy(false)
     }
@@ -245,7 +323,7 @@ export class SetupFlow {
 
   private async loadVerifiedModels(apiKey: string, signal?: AbortSignal) {
     const models = await listToolCapableModels(apiKey, { signal })
-    if (models.length === 0) throw new Error("Fireworks returned no public serverless models with tool support.")
+    if (models.length === 0) throw new Error("The hosted provider returned no public models with tool support.")
     this.#fireworksApiKey = apiKey
     this.#models = models
     return models
@@ -261,7 +339,10 @@ export class SetupFlow {
       this.options.ui.focusInput()
     } catch (error) {
       if (signal.aborted || this.#closed || isAbortError(error)) return
-      this.options.ui.showSetupError(errorMessage(error))
+      this.options.ui.setModelPickerStatus(selected.id, {
+        label: `Failed: ${errorMessage(error)}`,
+        kind: "error",
+      })
     }
   }
 
@@ -269,7 +350,7 @@ export class SetupFlow {
     const selected = findFireworksModel(this.#models, modelId)
     if (!selected) {
       if (!signal.aborted && !this.#closed) {
-        this.options.ui.showSetupError("Select a model from the verified Fireworks catalog.")
+        this.options.ui.showTransientHint(" Select a model from the verified hosted catalog. ")
       }
       return
     }
@@ -282,20 +363,20 @@ export class SetupFlow {
       this.finish(selected)
     } catch (error) {
       if (signal.aborted || this.#closed || isAbortError(error)) return
-      this.options.ui.hideModelPicker()
-      this.options.ui.showSetupError(errorMessage(error))
+      this.options.ui.showTransientHint(` Could not select model: ${errorMessage(error)} `)
     } finally {
       this.options.setBusy(false)
     }
   }
 
-  private async persistFireworksSelection(selected: FireworksModel, signal: AbortSignal) {
+  private async persistFireworksSelection(selected: FireworksModel, signal: AbortSignal, fast?: boolean) {
     const fireworksApiKey = this.#fireworksApiKey
     if (!fireworksApiKey) throw new Error("Fireworks API key is required.")
     const serving = this.servingModel(selected)
 
     await this.persistSelection(serving, signal, async () => {
-      if (this.#persistFireworksApiKey) await saveFireworksSetup(fireworksApiKey, serving)
+      if (fast !== undefined) await saveFastServingSelection(serving, fast)
+      else if (this.#persistFireworksApiKey) await saveFireworksSetup(fireworksApiKey, serving)
       else await saveSelectedModel(serving)
     })
     this.#persistFireworksApiKey = false
@@ -384,7 +465,7 @@ export class SetupFlow {
   }
 
   private servingModel(model: FireworksModel) {
-    return fireworksServingModel(model, this.options.fastMode())
+    return fireworksServingModel(model, this.options.fastEnabled(model.id))
   }
 }
 

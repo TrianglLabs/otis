@@ -5,10 +5,11 @@ import {
   type LocalPickerChoice,
   type ModelPickerChoice,
   type ModelPickerItem,
+  type ModelPickerStatus,
 } from "../../inference/picker-catalog.js"
 import { colors } from "../theme.js"
 import { SelectionPulse } from "./color-pulse.js"
-import { FAST_MODEL_LABEL, LOCAL_LOADING_LABEL } from "./format.js"
+import { FAST_MODEL_LABEL } from "./format.js"
 import {
   createPickerRow,
   type PickerRow,
@@ -50,13 +51,13 @@ export class ModelPicker {
     this.#pulse.start()
   }
 
-  setItemStatus(id: string, status: string | undefined) {
+  setItemStatus(id: string, status: ModelPickerStatus | undefined) {
     const item = this.#items.find(
       (candidate): candidate is LocalPickerChoice =>
         candidate.kind === "model" && candidate.provider === "local" && candidate.id === id,
     )
     if (!item) return
-    item.statusLabel = status
+    item.status = status
     this.render()
     this.renderer.requestRender()
   }
@@ -185,8 +186,7 @@ function modelTitle(item: ModelPickerChoice, hasSuffix: boolean) {
 
 function localNameSuffix(item: ModelPickerChoice) {
   if (item.provider !== "local") return undefined
-  if (item.statusLabel === LOCAL_LOADING_LABEL) return { text: item.statusLabel, shimmer: true }
-  if (item.statusLabel) return { text: item.statusLabel }
+  if (item.status) return { text: item.status.label, shimmer: item.status.kind === "progress" }
   if (item.downloaded) return { text: "Downloaded", fg: colors.muted }
   return undefined
 }

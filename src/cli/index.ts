@@ -22,8 +22,10 @@ try {
     case "version":
       console.log(`otis ${version}`)
       break
-    default:
-      await (await import("./interactive-cli.js")).startInteractiveCli()
+    default: {
+      const { InteractiveApp } = await import("./interactive-app.js")
+      await InteractiveApp.start()
+    }
   }
 } catch (error) {
   console.error(`Error: ${error instanceof Error ? error.message : String(error)}`)

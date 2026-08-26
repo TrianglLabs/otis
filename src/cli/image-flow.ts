@@ -83,7 +83,7 @@ export class ImageFlow {
       return
     }
     const apiKey = this.options.apiKey()
-    if (!apiKey) throw new Error("Select a Fireworks model first.")
+    if (!apiKey) throw new Error("Select a hosted model first.")
     if (this.#supportsImageInput === false) {
       throw new Error(`Selected model does not support image input: ${modelId}`)
     }

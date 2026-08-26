@@ -4,6 +4,7 @@ import { loadProjectContext } from "../core/context.js"
 import { FireworksClient } from "../inference/client.js"
 import { deleteLocalGguf, listDownloadedLocalModels } from "../inference/gguf-cache.js"
 import { detectHardware, type HardwareProbe } from "../inference/hardware.js"
+import { supportsLlamaCppTarget, unsupportedLlamaCppTargetMessage } from "../inference/llama-binary.js"
 import { LlamaCppRuntime, type LocalServingEndpoint } from "../inference/llama-runtime.js"
 import {
   catalogModelFromSpec,
@@ -14,7 +15,8 @@ import {
 import { LlamaCppClient } from "../inference/local-client.js"
 import { fitLocalModel, formatMemoryLabel, type LocalModelFit } from "../inference/local-fit.js"
 import { createUserMessage, summarizeUserMessage, userMessageContentChars } from "../inference/messages.js"
-import { isFastFireworksModel } from "../inference/serving-path.js"
+import type { ModelPickerStatus } from "../inference/picker-catalog.js"
+import { baseFireworksModelId, isFastFireworksModel } from "../inference/serving-path.js"
 import { skillAdvertisementChars } from "../inference/system-prompt.js"
 import { type CatalogModel, type ContextFile, type InferenceClient, isLocalCatalogModel } from "../inference/types.js"
 import {
@@ -93,15 +95,17 @@ export class InteractiveApp {
   #permissionRules: PermissionRule[] = []
   #selectedTheme: ThemeName = "default"
   #thinkingVisible = false
-  #fastMode = false
+  #fastServingModels = new Set<string>()
   #fastAvailable = false
   #downloadedModelsAvailable = false
   #activeTurn: AbortController | undefined
   #updateCheckController: AbortController | undefined
   #startupModelController: AbortController | undefined
   #modelApplyId = 0
-  #localLoadStatus: { modelId: string; label: string } | undefined
-  #activeLocalModel: { spec: LocalModelSpec; fit: LocalModelFit; hardware: HardwareProbe } | undefined
+  #localLoadStatus: { modelId: string; status: ModelPickerStatus } | undefined
+  #activeLocalModel:
+    | { spec: LocalModelSpec; fit: LocalModelFit; hardware: HardwareProbe; contextLength: number }
+    | undefined
 
   static async start() {
     const app = new InteractiveApp()
@@ -110,10 +114,13 @@ export class InteractiveApp {
 
   async #boot() {
     const settings = await loadLocalSettings()
+    const localInferenceUnavailableReason = supportsLlamaCppTarget(process)
+      ? undefined
+      : unsupportedLlamaCppTargetMessage(process)
     selectTheme(settings.theme)
     this.#selectedTheme = settings.theme ?? "default"
     this.#thinkingVisible = settings.thinkingVisible ?? false
-    this.#fastMode = settings.fastMode ?? false
+    this.#fastServingModels = new Set(settings.fastServingModels ?? [])
     this.#fastAvailable = Boolean(settings.modelFastId) || isFastFireworksModel(settings.model ?? "")
     this.#downloadedModelsAvailable = (await listDownloadedLocalModels()).length > 0
     this.#fireworksApiKey = settings.fireworksApiKey
@@ -146,9 +153,9 @@ export class InteractiveApp {
 
     this.#ui = createChatUI(this.#renderer, {
       configured: this.#configured,
+      localInferenceUnavailableReason,
       commands: slashCommands({
         fast: this.#fastAvailable,
-        downloadedModels: this.#downloadedModelsAvailable,
       }),
       contextLabel: formatContextUsage(
         contextUsage(
@@ -175,6 +182,7 @@ export class InteractiveApp {
       },
       onQuit: () => this.#quit(),
       onSetup: () => this.#setupFlow.begin(),
+      onSetupInferenceChoice: (choice) => this.#setupFlow.selectInference(choice),
       onSetupSubmit: (apiKey) => {
         void this.#setupFlow.submitCredential(apiKey)
       },
@@ -209,12 +217,19 @@ export class InteractiveApp {
     })
     this.#setupFlow = new SetupFlow({
       settings,
+      localInferenceUnavailableReason,
       isBusy: () => this.#busy,
       setBusy: (value) => {
         this.#busy = value
       },
       onCredentialsChanged: (credentials) => {
         this.#fireworksApiKey = credentials.fireworksApiKey
+        if (credentials.fireworksApiKey && this.#selectedModelId && !isLocalModelId(this.#selectedModelId)) {
+          this.#client = new FireworksClient({
+            apiKey: credentials.fireworksApiKey,
+            model: this.#selectedModelId,
+          })
+        }
         this.#ui.showStats()
         void this.#refreshLocalStats()
       },
@@ -223,16 +238,18 @@ export class InteractiveApp {
       localLoadStatus: () => this.#localLoadStatus,
       loadedLocalModel: () =>
         this.#activeLocalModel
-          ? { model: this.#activeLocalModel.spec.id, contextLength: this.#activeLocalModel.fit.contextLength }
+          ? { model: this.#activeLocalModel.spec.id, contextLength: this.#activeLocalModel.contextLength }
           : undefined,
       onConfigured: (fireworksKey) => {
         if (fireworksKey) this.#fireworksApiKey = fireworksKey
         this.#configured = true
         void this.#refreshLocalStats()
       },
-      fastMode: () => this.#fastMode,
-      onFastModeChanged: (fast) => {
-        this.#fastMode = fast
+      fastEnabled: (modelId) => this.#fastServingModels.has(baseFireworksModelId(modelId)),
+      onFastChanged: (modelId, fast) => {
+        const baseModelId = baseFireworksModelId(modelId)
+        if (fast) this.#fastServingModels.add(baseModelId)
+        else this.#fastServingModels.delete(baseModelId)
       },
       ui: this.#ui,
     })
@@ -261,7 +278,6 @@ export class InteractiveApp {
           startupController.signal.throwIfAborted()
           prepared.commit()
           this.#configured = true
-          this.#ui.setConfigured()
         } catch (error) {
           if (prepared) await prepared.rollback({ restorePrevious: false })
           if (startupController.signal.aborted || this.#exiting) return
@@ -350,10 +366,18 @@ export class InteractiveApp {
         await this.#setupFlow.openModelPicker(this.#fireworksApiKey, this.#selectedModelId, true)
         return
       }
-      case "delete-model": {
+      case "settings": {
         this.#ui.clearInput()
-        if (command.modelId) this.#startLocalModelDeletion(command.modelId)
-        else await this.#openLocalModelDeleteMenu()
+        if (command.setting === "hosted") {
+          this.#setupFlow.configureHostedInference()
+        } else if (command.setting === "debug") {
+          this.#toggleDebugMode()
+        } else if (command.setting === "delete-model") {
+          if (command.modelId) this.#startLocalModelDeletion(command.modelId)
+          else await this.#openLocalModelDeleteMenu()
+        } else {
+          this.#openSettingsMenu()
+        }
         return
       }
       case "fast":
@@ -372,16 +396,6 @@ export class InteractiveApp {
         this.#ui.clearInput()
         this.#ui.showHomeLayout()
         void this.#refreshLocalStats()
-        this.#ui.focusInput()
-        return
-      case "debug":
-        this.#debug = !this.#debug
-        this.#ui.showChatLayout()
-        this.#transcript.addUserMessage("/debug")
-        this.#transcript.addAssistantMessage(`Debug mode ${this.#debug ? "enabled" : "disabled"}.`)
-        this.#ui.clearInput()
-        this.#updateContextIndicator()
-        this.#ui.renderTranscript(this.#transcript.entries, { scrollToBottom: true })
         this.#ui.focusInput()
         return
       case "thinking":
@@ -639,13 +653,46 @@ export class InteractiveApp {
     this.#showLocalModelDeleteMenu(models)
   }
 
+  #openSettingsMenu() {
+    const items = [
+      {
+        name: "Hosted inference",
+        description: this.#fireworksApiKey ? "Replace API key" : "Add API key",
+        submission: "/settings hosted",
+      },
+      ...(this.#downloadedModelsAvailable
+        ? [
+            {
+              name: "Delete local model",
+              description: "Choose a downloaded model",
+              submission: "/settings delete-model",
+            },
+          ]
+        : []),
+      {
+        name: "Debug mode",
+        description: this.#debug ? "On" : "Off",
+        submission: "/settings debug",
+      },
+    ]
+    this.#ui.showCommandSubmenu(items, { onBack: () => this.#ui.showSlashCommandMenu() })
+    this.#ui.focusInput()
+  }
+
+  #toggleDebugMode() {
+    this.#debug = !this.#debug
+    this.#ui.showTransientHint(` Debug mode ${this.#debug ? "on" : "off"} `)
+    this.#ui.focusInput()
+  }
+
   #showLocalModelDeleteMenu(models: readonly LocalModelSpec[]) {
     this.#ui.showCommandSubmenu(
       models.map((model) => ({
         name: model.displayName,
         description: `${model.id === this.#selectedModelId ? "Active · " : ""}${model.quant} · ${formatMemoryLabel(model.weightBytes)}`,
-        submission: `/delete-model ${model.id}`,
+        submission: `/settings delete-model ${model.id}`,
       })),
+      { onBack: () => this.#openSettingsMenu() },
     )
     this.#ui.focusInput()
   }
@@ -675,14 +722,14 @@ export class InteractiveApp {
     let active = false
     let settingsCleared = false
     let previousActive = this.#activeLocalModel
-    let previousModel = catalogModelFromSpec(spec, previousActive?.fit.contextLength)
+    let previousModel = catalogModelFromSpec(spec, previousActive?.contextLength)
     let remaining: LocalModelSpec[] = []
 
     try {
       await this.#setupFlow.cancelModelSelection()
       active = this.#selectedModelId === spec.id
       previousActive = this.#activeLocalModel
-      previousModel = catalogModelFromSpec(spec, previousActive?.fit.contextLength)
+      previousModel = catalogModelFromSpec(spec, previousActive?.contextLength)
       const downloaded = await listDownloadedLocalModels()
       const deletingLast = downloaded.length === 1 && downloaded[0]?.id === spec.id
 
@@ -768,16 +815,16 @@ export class InteractiveApp {
           signal,
           onProgress: (progress) => {
             if (applyId !== this.#modelApplyId || signal.aborted || this.#exiting) return
-            const label = formatLocalLoadStatus(progress)
-            this.#localLoadStatus = { modelId: spec.id, label }
-            this.#ui.setModelPickerStatus(spec.id, label)
+            const status: ModelPickerStatus = { label: formatLocalLoadStatus(progress), kind: "progress" }
+            this.#localLoadStatus = { modelId: spec.id, status }
+            this.#ui.setModelPickerStatus(spec.id, status)
           },
         })
         signal.throwIfAborted()
         this.#setDownloadedModelsAvailable(true)
       } catch (error) {
         this.#clearLocalLoadStatus(spec.id)
-        await this.#refreshDownloadedModelCommands()
+        await this.#refreshDownloadedModelAvailability()
         if (!signal.aborted && !this.#exiting) await this.#restoreLocalRuntime(previousLocal, error, signal)
         throw error
       }
@@ -790,8 +837,9 @@ export class InteractiveApp {
           finalized = true
           this.#activeLocalModel = {
             spec,
-            fit: { ...fit, contextLength: serving.contextLength },
+            fit,
             hardware,
+            contextLength: serving.contextLength,
           }
           this.#activateModel(
             activeModel,
@@ -855,7 +903,7 @@ export class InteractiveApp {
   }
 
   async #restoreLocalRuntime(
-    previous: { spec: LocalModelSpec; fit: LocalModelFit; hardware: HardwareProbe } | undefined,
+    previous: { spec: LocalModelSpec; fit: LocalModelFit; hardware: HardwareProbe; contextLength: number } | undefined,
     originalError?: unknown,
     signal?: AbortSignal,
   ) {
@@ -866,7 +914,13 @@ export class InteractiveApp {
       }
       const serving = await this.#llama.ensureServing(previous.spec, previous.fit, previous.hardware, { signal })
       signal?.throwIfAborted()
+      previous.contextLength = serving.contextLength
+      this.#activeLocalModel = previous
       this.#client = new LlamaCppClient({ model: previous.spec.id, inferenceURL: serving.inferenceURL })
+      if (this.#selectedModelId === previous.spec.id) {
+        this.#autoCompactAtTokens = autoCompactThreshold(serving.contextLength)
+        if (!this.#exiting) this.#updateContextIndicator()
+      }
     } catch (restoreError) {
       if (originalError === undefined) throw restoreError
       throw new AggregateError(
@@ -888,18 +942,15 @@ export class InteractiveApp {
 
   #setDownloadedModelsAvailable(available: boolean) {
     this.#downloadedModelsAvailable = available
-    if (!this.#exiting) this.#refreshCommands()
   }
 
-  async #refreshDownloadedModelCommands() {
+  async #refreshDownloadedModelAvailability() {
     const available = (await listDownloadedLocalModels()).length > 0
     if (!this.#exiting) this.#setDownloadedModelsAvailable(available)
   }
 
   #refreshCommands() {
-    this.#ui.setCommands(
-      slashCommands({ fast: this.#fastAvailable, downloadedModels: this.#downloadedModelsAvailable }),
-    )
+    this.#ui.setCommands(slashCommands({ fast: this.#fastAvailable }))
   }
 
   #updateContextIndicator(pendingInput = "") {

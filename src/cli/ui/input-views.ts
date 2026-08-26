@@ -88,21 +88,93 @@ export function createSetupViews(renderer: Renderer) {
   setupButtonBox.add(
     new TextRenderable(renderer, {
       id: "setup-why",
-      content: "Otis uses Fireworks as its inference provider.",
-      fg: colors.muted,
+      content: "Your terminal agent, powered by open models.",
+      fg: colors.text,
       selectable: false,
     }),
   )
   setupButtonBox.add(
     new TextRenderable(renderer, {
       id: "setup-local",
-      content: "Your key and sessions stay on this machine.",
+      content: "Inspect files, edit code, run commands, and search the web.",
       fg: colors.muted,
       selectable: false,
+      wrapMode: "word",
     }),
   )
   const setupStartButton = createAccentButton(renderer, "setup-button", "Set up Otis")
   setupButtonBox.add(setupStartButton)
+
+  const setupChoiceBox = new BoxRenderable(renderer, {
+    id: "setup-choice",
+    flexDirection: "column",
+    width: "100%",
+    minWidth: 24,
+    flexShrink: 0,
+    alignItems: "center",
+    backgroundColor: colors.background,
+    gap: 1,
+  })
+  setupChoiceBox.add(
+    new TextRenderable(renderer, {
+      id: "setup-choice-heading",
+      content: "Choose how Otis runs models",
+      fg: colors.text,
+      selectable: false,
+    }),
+  )
+
+  const setupChoiceCards = new BoxRenderable(renderer, {
+    id: "setup-choice-cards",
+    flexDirection: "row",
+    width: "100%",
+    minWidth: 1,
+    flexShrink: 0,
+    alignItems: "stretch",
+    gap: 2,
+  })
+  const setupLocalCard = createInferenceChoiceCard(renderer, {
+    id: "setup-choice-local",
+    title: "Local inference",
+    label: "Runs on your machine",
+    description: "Run open models on your own hardware.",
+    details: [
+      "Recommended hardware:",
+      "Apple silicon · 24 GB+ unified memory",
+      "Linux · 24 GB+ RAM",
+      "Vulkan GPU · 16 GB+ VRAM",
+      "12–19 GB disk per model",
+    ],
+  })
+  const setupHostedCard = createInferenceChoiceCard(renderer, {
+    id: "setup-choice-hosted",
+    title: "Hosted inference",
+    label: "Powered by Fireworks",
+    description: "Fast remote inference with no local hardware requirements.",
+    details: [
+      "Zero Data Retention by default.",
+      "Uses your own Fireworks API key.",
+      "Configure it anytime in Settings.",
+    ],
+  })
+  setupChoiceCards.add(setupLocalCard)
+  setupChoiceCards.add(setupHostedCard)
+  setupChoiceBox.add(setupChoiceCards)
+  const setupChoiceMessage = new TextRenderable(renderer, {
+    id: "setup-choice-message",
+    content: "",
+    fg: colors.pink,
+    selectable: false,
+    truncate: true,
+  })
+  setupChoiceBox.add(
+    new TextRenderable(renderer, {
+      id: "setup-choice-hint",
+      content: "[←→] move · [enter] select",
+      fg: colors.muted,
+      selectable: false,
+    }),
+  )
 
   const setupInput = new InputRenderable(renderer, {
     id: "setup-input",
@@ -180,6 +252,10 @@ export function createSetupViews(renderer: Renderer) {
 
   return {
     setupButtonBox,
+    setupChoiceBox,
+    setupChoiceMessage,
+    setupHostedCard,
+    setupLocalCard,
     setupContinueButton,
     setupForm,
     setupInput,
@@ -189,6 +265,74 @@ export function createSetupViews(renderer: Renderer) {
     setupStatus,
     setupStatusBox,
   }
+}
+
+type InferenceChoiceCardOptions = {
+  id: string
+  title: string
+  label: string
+  description: string
+  details: string[]
+}
+
+function createInferenceChoiceCard(renderer: Renderer, options: InferenceChoiceCardOptions) {
+  const card = new BoxRenderable(renderer, {
+    id: options.id,
+    flexDirection: "column",
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
+    minWidth: 1,
+    border: true,
+    borderStyle: "rounded",
+    borderColor: colors.border,
+    paddingX: 2,
+    paddingTop: 1,
+    paddingBottom: 0,
+    gap: 0,
+  })
+  const title = new TextRenderable(renderer, {
+    id: `${options.id}-title`,
+    content: options.title,
+    fg: colors.text,
+    alignSelf: "center",
+    selectable: false,
+    wrapMode: "word",
+  })
+  card.add(title)
+  card.add(
+    new TextRenderable(renderer, {
+      id: `${options.id}-label`,
+      content: options.label,
+      fg: colors.accent,
+      alignSelf: "center",
+      selectable: false,
+      wrapMode: "word",
+    }),
+  )
+  card.add(
+    new TextRenderable(renderer, {
+      id: `${options.id}-description`,
+      content: options.description,
+      fg: colors.text,
+      marginTop: 1,
+      selectable: false,
+      wrapMode: "word",
+    }),
+  )
+  options.details.forEach((detail, index) => {
+    card.add(
+      new TextRenderable(renderer, {
+        id: `${options.id}-detail-${index}`,
+        content: detail,
+        fg: colors.muted,
+        ...(index === 0 ? { marginTop: 1 } : {}),
+        selectable: false,
+        wrapMode: "word",
+      }),
+    )
+  })
+  return card
 }
 
 export function createPermissionPrompt(renderer: Renderer) {

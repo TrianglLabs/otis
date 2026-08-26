@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
+import { createHash } from "node:crypto"
+import { mkdir, mkdtemp, readFile, rm, stat, truncate, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -10,7 +11,7 @@ import {
   listDownloadedLocalModels,
   localGgufPath,
 } from "../../src/inference/gguf-cache.js"
-import { findLocalModel } from "../../src/inference/local-catalog.js"
+import { findLocalModel, type LocalModelSpec } from "../../src/inference/local-catalog.js"
 
 const tempDirectories: string[] = []
 
@@ -19,18 +20,14 @@ afterEach(async () => {
 })
 
 describe("local GGUF cache", () => {
-  it("downloads the Hugging Face file with percent progress", async () => {
-    const model = catalogModel()
+  it("downloads and verifies the pinned Hugging Face file with percent progress", async () => {
+    const body = new Uint8Array([1, 2, 3, 4])
+    const model = tinyModel(body)
     const directory = await tempDir()
     const percents: number[] = []
-    const body = new Uint8Array([1, 2, 3, 4])
     const dest = await ensureLocalGguf(model, {
       dataDirectory: directory,
-      fetch: (async () =>
-        new Response(Buffer.from(body), {
-          status: 200,
-          headers: { "content-length": String(body.byteLength) },
-        })) as typeof fetch,
+      fetch: response(body),
       onProgress: (percent) => percents.push(percent),
     })
 
@@ -38,93 +35,181 @@ describe("local GGUF cache", () => {
     expect(await readFile(dest)).toEqual(Buffer.from(body))
     expect(percents.at(-1)).toBe(100)
     expect(await isLocalGgufDownloaded(model, directory)).toBe(true)
+    await expect(readFile(`${dest}.otis.json`, "utf8")).resolves.toContain(model.ggufSha256)
   })
 
-  it("skips the network when the GGUF is already on disk", async () => {
+  it("verifies a legacy cached GGUF once and then skips the network", async () => {
+    const body = new Uint8Array([4, 3, 2, 1])
+    const model = tinyModel(body)
+    const directory = await tempDir()
+    const dest = localGgufPath(model, directory)
+    await mkdir(join(directory, "models"), { recursive: true })
+    await writeFile(dest, body)
+    const fetchImpl = vi.fn(async () => new Response("no", { status: 500 })) as unknown as typeof fetch
+
+    await ensureLocalGguf(model, { dataDirectory: directory, fetch: fetchImpl })
+    await ensureLocalGguf(model, { dataDirectory: directory, fetch: fetchImpl })
+
+    expect(fetchImpl).not.toHaveBeenCalled()
+    await expect(readFile(`${dest}.otis.json`, "utf8")).resolves.toContain(model.ggufRevision)
+  })
+
+  it("replaces a same-size cached file whose checksum is wrong", async () => {
+    const body = new Uint8Array([1, 2, 3, 4])
+    const model = tinyModel(body)
+    const directory = await tempDir()
+    const dest = localGgufPath(model, directory)
+    await mkdir(join(directory, "models"), { recursive: true })
+    await writeFile(dest, new Uint8Array([9, 9, 9, 9]))
+
+    await ensureLocalGguf(model, { dataDirectory: directory, fetch: response(body) })
+
+    expect(await readFile(dest)).toEqual(Buffer.from(body))
+  })
+
+  it("resumes a partial download with an exact byte range", async () => {
+    const body = new Uint8Array([1, 2, 3, 4, 5, 6])
+    const model = tinyModel(body)
+    const directory = await tempDir()
+    const dest = localGgufPath(model, directory)
+    await mkdir(join(directory, "models"), { recursive: true })
+    await writeFile(`${dest}.partial`, body.slice(0, 3))
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(new Headers(init?.headers).get("range")).toBe("bytes=3-")
+      return new Response(body.slice(3), {
+        status: 206,
+        headers: { "content-length": "3", "content-range": "bytes 3-5/6" },
+      })
+    }) as unknown as typeof fetch
+
+    await ensureLocalGguf(model, { dataDirectory: directory, fetch: fetchImpl })
+
+    expect(fetchImpl).toHaveBeenCalledOnce()
+    expect(await readFile(dest)).toEqual(Buffer.from(body))
+    await expect(stat(`${dest}.partial`)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("restarts cleanly when a server ignores the requested range", async () => {
+    const body = new Uint8Array([1, 2, 3, 4])
+    const model = tinyModel(body)
+    const directory = await tempDir()
+    const dest = localGgufPath(model, directory)
+    await mkdir(join(directory, "models"), { recursive: true })
+    await writeFile(`${dest}.partial`, body.slice(0, 2))
+
+    await ensureLocalGguf(model, { dataDirectory: directory, fetch: response(body) })
+
+    expect(await readFile(dest)).toEqual(Buffer.from(body))
+  })
+
+  it("rejects a resumed response that does not cover the exact remaining range", async () => {
+    const body = new Uint8Array([1, 2, 3, 4])
+    const model = tinyModel(body)
+    const directory = await tempDir()
+    const partial = `${localGgufPath(model, directory)}.partial`
+    await mkdir(join(directory, "models"), { recursive: true })
+    await writeFile(partial, body.slice(0, 2))
+
+    await expect(
+      ensureLocalGguf(model, {
+        dataDirectory: directory,
+        fetch: (async () =>
+          new Response(body.slice(2), {
+            status: 206,
+            headers: { "content-length": "2", "content-range": "bytes 2-2/4" },
+          })) as typeof fetch,
+      }),
+    ).rejects.toThrow("invalid byte range")
+    await expect(readFile(partial)).resolves.toEqual(Buffer.from(body.slice(0, 2)))
+  })
+
+  it("retains a partial file when the download is aborted", async () => {
+    const body = new Uint8Array([1, 2, 3, 4])
+    const model = tinyModel(body)
+    const directory = await tempDir()
+    const abort = new AbortController()
+    await expect(
+      ensureLocalGguf(model, {
+        dataDirectory: directory,
+        signal: abort.signal,
+        fetch: response(body.slice(0, 2), model.weightBytes),
+        onProgress: (percent) => {
+          if (percent === 50) abort.abort()
+        },
+      }),
+    ).rejects.toMatchObject({ name: "AbortError" })
+
+    await expect(readFile(`${localGgufPath(model, directory)}.partial`)).resolves.toEqual(Buffer.from([1, 2]))
+    expect(await isLocalGgufDownloaded(model, directory)).toBe(false)
+  })
+
+  it("serializes concurrent callers and publishes one verified download", async () => {
+    const body = new Uint8Array([1, 2])
+    const model = tinyModel(body)
+    const directory = await tempDir()
+    let stream: ReadableStreamDefaultController<Uint8Array> | undefined
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              stream = controller
+            },
+          }),
+          { status: 200, headers: { "content-length": "2" } },
+        ),
+    ) as unknown as typeof fetch
+
+    const first = ensureLocalGguf(model, { dataDirectory: directory, fetch: fetchImpl })
+    const second = ensureLocalGguf(model, { dataDirectory: directory, fetch: fetchImpl })
+    await vi.waitFor(() => expect(stream).toBeDefined())
+    stream?.enqueue(body)
+    stream?.close()
+    await Promise.all([first, second])
+
+    expect(fetchImpl).toHaveBeenCalledOnce()
+    expect(await readFile(localGgufPath(model, directory))).toEqual(Buffer.from(body))
+  })
+
+  it("rejects and removes a completed partial whose checksum is wrong", async () => {
+    const body = new Uint8Array([1, 2, 3, 4])
+    const model = tinyModel(body)
+    const directory = await tempDir()
+    const dest = localGgufPath(model, directory)
+
+    await expect(
+      ensureLocalGguf(model, {
+        dataDirectory: directory,
+        fetch: response(new Uint8Array([4, 3, 2, 1])),
+      }),
+    ).rejects.toThrow("SHA-256 verification failed")
+    await expect(stat(`${dest}.partial`)).rejects.toMatchObject({ code: "ENOENT" })
+    expect(await isLocalGgufDownloaded(model, directory)).toBe(false)
+  })
+
+  it("lists completed catalog files and deletes their data and partial state", async () => {
     const model = catalogModel()
     const directory = await tempDir()
     const dest = localGgufPath(model, directory)
     await mkdir(join(directory, "models"), { recursive: true })
-    await writeFile(dest, "cached")
-    let fetched = false
-    await ensureLocalGguf(model, {
-      dataDirectory: directory,
-      fetch: (async () => {
-        fetched = true
-        return new Response("no", { status: 500 })
-      }) as typeof fetch,
-    })
-    expect(fetched).toBe(false)
-    expect(await readFile(dest, "utf8")).toBe("cached")
-  })
-
-  it("lists and deletes only completed local model files", async () => {
-    const model = catalogModel()
-    const directory = await tempDir()
-    await mkdir(join(directory, "models"), { recursive: true })
-    await writeFile(localGgufPath(model, directory), "cached")
-    await writeFile(`${localGgufPath(model, directory)}.partial`, "unfinished")
+    await writeFile(dest, "")
+    await truncate(dest, model.weightBytes)
+    await writeFile(`${dest}.partial`, "unfinished")
+    await writeFile(`${dest}.otis.json`, "manifest")
 
     await expect(listDownloadedLocalModels(directory)).resolves.toEqual([model])
     await deleteLocalGguf(model, directory)
     await deleteLocalGguf(model, directory)
     await expect(listDownloadedLocalModels(directory)).resolves.toEqual([])
-    await expect(readFile(`${localGgufPath(model, directory)}.partial`, "utf8")).resolves.toBe("unfinished")
+    await expect(stat(`${dest}.partial`)).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(stat(`${dest}.otis.json`)).rejects.toMatchObject({ code: "ENOENT" })
   })
 
-  it("deletes a partial file when the download is aborted", async () => {
+  it("builds an immutable Hugging Face resolve URL", () => {
     const model = catalogModel()
-    const directory = await tempDir()
-    const abort = new AbortController()
-    const body = new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(new Uint8Array([1, 2]))
-        abort.abort()
-      },
-    })
-    await expect(
-      ensureLocalGguf(model, {
-        dataDirectory: directory,
-        signal: abort.signal,
-        fetch: (async () => new Response(body, { status: 200, headers: { "content-length": "4" } })) as typeof fetch,
-      }),
-    ).rejects.toMatchObject({ name: "AbortError" })
-
-    await expect(stat(`${localGgufPath(model, directory)}.partial`)).rejects.toMatchObject({ code: "ENOENT" })
-    expect(await isLocalGgufDownloaded(model, directory)).toBe(false)
-  })
-
-  it("publishes concurrent downloads from isolated partial files", async () => {
-    const model = catalogModel()
-    const directory = await tempDir()
-    const bodies: ReadableStreamDefaultController<Uint8Array>[] = []
-    const fetchImpl = (async () =>
-      new Response(
-        new ReadableStream<Uint8Array>({
-          start(controller) {
-            bodies.push(controller)
-          },
-        }),
-        { status: 200, headers: { "content-length": "2" } },
-      )) as typeof fetch
-
-    const first = ensureLocalGguf(model, { dataDirectory: directory, fetch: fetchImpl })
-    const second = ensureLocalGguf(model, { dataDirectory: directory, fetch: fetchImpl })
-    await vi.waitFor(() => expect(bodies).toHaveLength(2))
-
-    bodies[0]?.enqueue(new Uint8Array([1, 2]))
-    bodies[0]?.close()
-    bodies[1]?.enqueue(new Uint8Array([1, 2]))
-    bodies[1]?.close()
-    await Promise.all([first, second])
-
-    expect(await readFile(localGgufPath(model, directory))).toEqual(Buffer.from([1, 2]))
-    expect((await readdir(join(directory, "models"))).filter((name) => name.endsWith(".partial"))).toEqual([])
-  })
-
-  it("builds the official Hugging Face resolve URL", () => {
-    const model = catalogModel()
-    expect(huggingFaceGgufUrl(model)).toBe(`https://huggingface.co/${model.ggufRepo}/resolve/main/${model.ggufFile}`)
+    expect(huggingFaceGgufUrl(model)).toBe(
+      `https://huggingface.co/${model.ggufRepo}/resolve/${model.ggufRevision}/${model.ggufFile}`,
+    )
   })
 })
 
@@ -138,4 +223,20 @@ function catalogModel() {
   const model = findLocalModel("openai/gpt-oss-20b")
   if (!model) throw new Error("missing catalog entry")
   return model
+}
+
+function tinyModel(body: Uint8Array): LocalModelSpec {
+  return {
+    ...catalogModel(),
+    weightBytes: body.byteLength,
+    ggufSha256: createHash("sha256").update(body).digest("hex"),
+  }
+}
+
+function response(body: Uint8Array, contentLength = body.byteLength): typeof fetch {
+  return (async () =>
+    new Response(Buffer.from(body), {
+      status: 200,
+      headers: { "content-length": String(contentLength) },
+    })) as typeof fetch
 }

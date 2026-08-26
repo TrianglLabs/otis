@@ -15,7 +15,7 @@ import {
 } from "./ui/format.js"
 import { HomeStats } from "./ui/home-stats.js"
 import { InputController } from "./ui/input-controller.js"
-import { createUILayout, setTopBarSideMinWidth, themeRootsFrom } from "./ui/layout.js"
+import { createUILayout, setTopBarSideMinWidth, setWelcomePanelExpanded, themeRootsFrom } from "./ui/layout.js"
 import { ModelPicker } from "./ui/model-picker.js"
 import { OverlayHost } from "./ui/overlays.js"
 import { createScrollbarOptions } from "./ui/panels.js"
@@ -58,6 +58,10 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     sessionPanel,
     sessionRowsBox,
     setupButtonBox,
+    setupChoiceBox,
+    setupChoiceMessage,
+    setupHostedCard,
+    setupLocalCard,
     setupContinueButton,
     setupForm,
     setupInput,
@@ -112,10 +116,15 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
   const inputController = new InputController({
     renderer,
     configured: options.configured !== false,
+    localInferenceUnavailableReason: options.localInferenceUnavailableReason,
     input,
     inputArea,
     inputBox,
     setupButtonBox,
+    setupChoiceBox,
+    setupChoiceMessage,
+    setupHostedCard,
+    setupLocalCard,
     setupContinueButton,
     setupForm,
     setupInput,
@@ -126,7 +135,9 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     setupStatusBox,
     welcomeQuit,
     onBeforePrimaryInput: () => overlays.hideCommandMenu(),
+    onModeChange: (mode) => setWelcomePanelExpanded(welcomePanel, mode === "setupChoice"),
     onSetup: options.onSetup,
+    onSetupInferenceChoice: options.onSetupInferenceChoice,
     onSetupSubmit: options.onSetupSubmit,
   })
   overlays = new OverlayHost({
@@ -168,7 +179,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
   input.onContentChange = () => {
     if (inputController.mode !== "chat") return
     const value = input.plainText
-    if (overlays.themeMenuOpen && value === "") {
+    if (overlays.submenuOpen && value === "") {
       options.onInputChange?.(value)
       return
     }
@@ -312,6 +323,13 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     overlays.hideCommandMenu()
   }
 
+  function showSlashCommandMenu() {
+    input.setText("/")
+    overlays.updateCommandMenu("/")
+    options.onInputChange?.("/")
+    inputController.focus()
+  }
+
   function setImageAttachmentCount(count: number) {
     setText(imageAttachments, imageAttachmentLabel(count))
     const mounted = inputBox.getChildren().some((child) => child.id === imageAttachments.id)
@@ -438,11 +456,12 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     setThinkingVisible,
     showStats,
     showTransientHint: (content) => status.showTransientHint(content),
-    showCommandSubmenu: (items) => overlays.showCommandSubmenu(items),
+    showCommandSubmenu: (items, submenuOptions) => overlays.showCommandSubmenu(items, submenuOptions),
+    showSlashCommandMenu,
     showModelPicker: (items) => overlays.showModelPicker(items),
-    showSetupError: (message) => inputController.showSetupError(message),
-    showSetupButton: () => inputController.showSetupButton(),
-    showSetupInput: (message) => inputController.showSetup(message),
+    showSetupError: (message, cancelTarget) => inputController.showSetupError(message, cancelTarget),
+    showSetupInferenceChoice: (message) => inputController.showSetupInferenceChoice(message),
+    showSetupInput: (message, cancelTarget) => inputController.showSetup(message, cancelTarget),
     showSetupStatus: (message) => inputController.showSetupStatus(message),
     showPermissionPrompt,
     showSessionPicker: (items) => overlays.showSessionPicker(items),

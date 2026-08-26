@@ -10,7 +10,12 @@ import { findLocalModel, isLocalModelId } from "../inference/local-catalog.js"
 import { LlamaCppClient } from "../inference/local-client.js"
 import { fitLocalModel } from "../inference/local-fit.js"
 import { createUserMessage, imageAttachmentsFromMessages, messagesContainImages } from "../inference/messages.js"
-import { findFireworksModel, fireworksServingModel, useFastServingPath } from "../inference/serving-path.js"
+import {
+  baseFireworksModelId,
+  findFireworksModel,
+  fireworksServingModel,
+  useFastServingPath,
+} from "../inference/serving-path.js"
 import { skillAdvertisementChars } from "../inference/system-prompt.js"
 import type { ChatMessage, InferenceClient } from "../inference/types.js"
 import { loadLocalSettings, saveSelectedModel } from "../local/settings.js"
@@ -113,7 +118,7 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
       if (!settings.fireworksApiKey) throw new Error("Fireworks API key is not configured.")
       if (parsed.model || (images.length > 0 && modelSupportsImageInput === undefined)) {
         const resolved = await resolveFireworksServing(settings.fireworksApiKey, model, {
-          fastMode: parsed.model ? undefined : settings.fastMode,
+          fast: parsed.model ? undefined : settings.fastServingModels?.includes(baseFireworksModelId(model)),
           signal: controller.signal,
         })
         model = resolved.serving.id
@@ -143,7 +148,7 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
     const sessionContainsImages = session ? messagesContainImages(session.replayMessages()) : false
     if (sessionContainsImages && modelSupportsImageInput === undefined && settings.fireworksApiKey) {
       const resolved = await resolveFireworksServing(settings.fireworksApiKey, model, {
-        fastMode: parsed.model ? undefined : settings.fastMode,
+        fast: parsed.model ? undefined : settings.fastServingModels?.includes(baseFireworksModelId(model)),
         signal: controller.signal,
       })
       model = resolved.serving.id
@@ -416,14 +421,14 @@ function interruptionMessage(signal: AbortSignal) {
 async function resolveFireworksServing(
   apiKey: string,
   modelId: string,
-  options: { fastMode?: boolean; signal: AbortSignal },
+  options: { fast?: boolean; signal: AbortSignal },
 ) {
   const models = await listToolCapableModels(apiKey, { signal: options.signal })
   const selected = findFireworksModel(models, modelId)
   if (!selected) throw new Error(`Model is not a tool-capable Fireworks serverless model: ${modelId}`)
   return {
     selected,
-    serving: fireworksServingModel(selected, useFastServingPath(modelId, options.fastMode)),
+    serving: fireworksServingModel(selected, useFastServingPath(modelId, options.fast)),
   }
 }
 
