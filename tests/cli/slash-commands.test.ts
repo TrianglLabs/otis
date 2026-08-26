@@ -11,11 +11,23 @@ describe("slash commands", () => {
   it("parses known commands and leaves unknown input for the agent", () => {
     expect(parseSlashCommand("/exit")).toEqual({ type: "exit" })
     expect(parseSlashCommand("/fast")).toEqual({ type: "fast" })
-    expect(parseSlashCommand("/delete-model")).toEqual({ type: "delete-model" })
+    expect(parseSlashCommand("/delete-model")).toEqual({ type: "settings", setting: "delete-model" })
     expect(parseSlashCommand("/delete-model openai/gpt-oss-20b")).toEqual({
-      type: "delete-model",
+      type: "settings",
+      setting: "delete-model",
       modelId: "openai/gpt-oss-20b",
     })
+    expect(parseSlashCommand("/settings")).toEqual({ type: "settings" })
+    expect(parseSlashCommand("/settings hosted")).toEqual({ type: "settings", setting: "hosted" })
+    expect(parseSlashCommand("/settings debug")).toEqual({ type: "settings", setting: "debug" })
+    expect(parseSlashCommand("/settings delete-model")).toEqual({ type: "settings", setting: "delete-model" })
+    expect(parseSlashCommand("/settings delete-model openai/gpt-oss-20b")).toEqual({
+      type: "settings",
+      setting: "delete-model",
+      modelId: "openai/gpt-oss-20b",
+    })
+    expect(parseSlashCommand("/settings unknown")).toBeUndefined()
+    expect(parseSlashCommand("/debug")).toEqual({ type: "settings", setting: "debug" })
     expect(parseSlashCommand("/theme")).toEqual({ type: "theme-menu" })
     expect(parseSlashCommand("/theme nord")).toEqual({ type: "theme", name: "nord" })
     expect(parseSlashCommand("/compact")).toEqual({ type: "compact" })
@@ -38,20 +50,19 @@ describe("slash commands", () => {
 
   it("advertises every built-in command including theme names", () => {
     const names = SLASH_COMMANDS.map((command) => command.name)
-    expect(names.slice(0, 10)).toEqual([
+    expect(names.slice(0, 9)).toEqual([
       "/home",
       "/new",
       "/history",
       "/model",
-      "/delete-model",
+      "/settings",
       "/fast",
       "/compact",
-      "/debug",
       "/thinking",
       "/theme",
     ])
     expect(names.at(-1)).toBe("/exit")
-    expect(names.slice(10, -1)).toEqual(THEME_NAMES.map((theme) => `/theme ${theme}`))
+    expect(names.slice(9, -1)).toEqual(THEME_NAMES.map((theme) => `/theme ${theme}`))
   })
 
   it("omits /fast unless the current model has a Fast serving path", () => {
@@ -60,9 +71,9 @@ describe("slash commands", () => {
     expect(parseSlashCommand("/fast")).toEqual({ type: "fast" })
   })
 
-  it("omits /delete-model unless a local model is downloaded", () => {
-    expect(slashCommands({ downloadedModels: true }).some((command) => command.name === "/delete-model")).toBe(true)
-    expect(slashCommands({ downloadedModels: false }).some((command) => command.name === "/delete-model")).toBe(false)
+  it("keeps the former model deletion command as an unadvertised alias", () => {
+    expect(SLASH_COMMANDS.some((command) => command.name === "/delete-model")).toBe(false)
+    expect(parseSlashCommand("/delete-model")).toEqual({ type: "settings", setting: "delete-model" })
   })
 
   it("parses every advertised command", () => {

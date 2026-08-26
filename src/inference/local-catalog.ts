@@ -23,6 +23,10 @@ export type LocalModelSpec = {
   sourceModel: string
   ggufRepo: string
   ggufFile: string
+  /** Immutable Hugging Face repository commit containing `ggufFile`. */
+  ggufRevision: string
+  /** SHA-256 from the repository's Git LFS object metadata. */
+  ggufSha256: string
   quant: string
   weightBytes: number
   nativeContextLength: number
@@ -45,6 +49,8 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     sourceModel: "Qwen/Qwen3.8-27B",
     ggufRepo: "ggml-org/Qwen3.8-27B-GGUF",
     ggufFile: "Qwen3.8-27B-Q4_K_M.gguf",
+    ggufRevision: "0669b98607d47046c7c2b3f801011d54a08cfccf",
+    ggufSha256: "31629f53165ab6a7dad8c9847dcfd1fdf55829dac1e6e748f4a68581b0033d34",
     quant: "Q4_K_M",
     weightBytes: 18_973_870_432,
     nativeContextLength: 262_144,
@@ -58,6 +64,8 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     // Qwen's GGUF listing is not publicly readable; this is a Q4_K_M conversion of the official Instruct weights.
     ggufRepo: "lmstudio-community/Qwen3-Coder-30B-A3B-Instruct-GGUF",
     ggufFile: "Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf",
+    ggufRevision: "1f4ceb1041258b3fbfe59e1175d1321c6b41863b",
+    ggufSha256: "79ad15a5ee3caddc3f4ff0db33a14454a5a3eb503d7fa1c1e35feafc579de486",
     quant: "Q4_K_M",
     weightBytes: 18_632_186_176,
     nativeContextLength: 262_144,
@@ -70,6 +78,8 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     sourceModel: "openai/gpt-oss-20b",
     ggufRepo: "ggml-org/gpt-oss-20b-GGUF",
     ggufFile: "gpt-oss-20b-MXFP4.gguf",
+    ggufRevision: "ef9b12f2ff56c69cf32153a02784e7a3c88bf524",
+    ggufSha256: "27cd6c432c7672cb812a92f611cf3ba7bbc35928262bb1e1253ff4ee6ae35901",
     quant: "MXFP4",
     weightBytes: 12_109_566_624,
     nativeContextLength: 131_072,
@@ -87,6 +97,8 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     sourceModel: "google/gemma-4-26B-A4B-it",
     ggufRepo: "google/gemma-4-26B-A4B-it-qat-q4_0-gguf",
     ggufFile: "gemma-4-26B_q4_0-it.gguf",
+    ggufRevision: "d1c082be9cf3c8a514acf63b8761f4b41935842e",
+    ggufSha256: "3eca3b8f6d7baf218a7dd6bba5fb59a56ee25fe2d567b6f5f589b4f697eca51d",
     quant: "Q4_0",
     weightBytes: 14_439_363_584,
     nativeContextLength: 262_144,
@@ -104,6 +116,8 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     sourceModel: "google/gemma-4-31B-it",
     ggufRepo: "google/gemma-4-31B-it-qat-q4_0-gguf",
     ggufFile: "gemma-4-31B_q4_0-it.gguf",
+    ggufRevision: "59dde24573e7e61570dba08b18a2e1fe246955ed",
+    ggufSha256: "179cfb99212709597eae5929112cfca677e1bbf566178b479ae1da0c4772874b",
     quant: "Q4_0",
     weightBytes: 17_651_001_568,
     nativeContextLength: 262_144,

@@ -92,6 +92,26 @@ describe("chat UI status and prompts", () => {
     expect(harness.text("welcome-stat-value-3")).toBe("7M")
   })
 
+  it("keeps the slash menu open while home stats finish animating", async () => {
+    vi.useFakeTimers()
+    const harness = await setup({
+      commands: [
+        { name: "/model", description: "Choose a model" },
+        { name: "/settings", description: "Configure Otis" },
+      ],
+    })
+
+    harness.ui.setStats(sampleStats)
+    harness.setChatInput("/")
+    expect(harness.childIds("command-menu")).toEqual(["command-row-0-box", "command-row-1-box"])
+
+    settleStats()
+    await harness.renderOnce()
+
+    expect(harness.childIds("command-menu")).toEqual(["command-row-0-box", "command-row-1-box"])
+    expect(harness.text("command-row-0")).toBe("› /model")
+  })
+
   it("replays the count-up when returning home", async () => {
     vi.useFakeTimers()
     const harness = await setup()

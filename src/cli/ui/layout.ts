@@ -7,11 +7,20 @@ import type { ChatUIOptions, Renderer } from "./types.js"
 
 const version = process.env.OTIS_VERSION ?? "dev"
 const TOP_BAR_BRAND = " OTIS "
+const HOME_PANEL_WIDTH = "78%"
+const HOME_PANEL_MAX_WIDTH = 72
+const SETUP_CHOICE_PANEL_WIDTH = "88%"
+const SETUP_CHOICE_PANEL_MAX_WIDTH = 84
 
 export function setTopBarSideMinWidth(start: BoxRenderable, end: BoxRenderable, paddedContext: string) {
   const minWidth = Math.max(TOP_BAR_BRAND.length, paddedContext.length)
   start.minWidth = minWidth
   end.minWidth = minWidth
+}
+
+export function setWelcomePanelExpanded(panel: BoxRenderable, expanded: boolean) {
+  panel.width = expanded ? SETUP_CHOICE_PANEL_WIDTH : HOME_PANEL_WIDTH
+  panel.maxWidth = expanded ? SETUP_CHOICE_PANEL_MAX_WIDTH : HOME_PANEL_MAX_WIDTH
 }
 
 export function createUILayout(
@@ -34,6 +43,10 @@ export function createUILayout(
   })
   const {
     setupButtonBox,
+    setupChoiceBox,
+    setupChoiceMessage,
+    setupHostedCard,
+    setupLocalCard,
     setupContinueButton,
     setupForm,
     setupInput,
@@ -47,8 +60,8 @@ export function createUILayout(
   const welcomePanel = new BoxRenderable(renderer, {
     id: "welcome-panel",
     flexDirection: "column",
-    width: "78%",
-    maxWidth: 72,
+    width: HOME_PANEL_WIDTH,
+    maxWidth: HOME_PANEL_MAX_WIDTH,
     minWidth: 30,
     flexShrink: 0,
     alignSelf: "center",
@@ -295,6 +308,10 @@ export function createUILayout(
     sessionPanel,
     sessionRowsBox,
     setupButtonBox,
+    setupChoiceBox,
+    setupChoiceMessage,
+    setupHostedCard,
+    setupLocalCard,
     setupContinueButton,
     setupForm,
     setupInput,

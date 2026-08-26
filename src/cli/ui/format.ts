@@ -3,6 +3,7 @@ import type { PermissionMode } from "../../permissions/policy.js"
 
 export const CHAT_INPUT_HINT = " [TAB] mode · [ESC] interrupt "
 export const FAST_MODEL_LABEL = "Fast"
+export const LOCAL_DOWNLOADING_LABEL = "Downloading"
 export const LOCAL_LOADING_LABEL = "Loading"
 
 export type AgentPhase = "thinking" | "working"
@@ -60,7 +61,7 @@ export function withFastModelMark(name: string, fast: boolean) {
 export type LocalModelProgress = { phase: "download"; percent: number } | { phase: "loading" }
 
 export function formatLocalLoadStatus(progress: LocalModelProgress) {
-  if (progress.phase === "download") return `${progress.percent}%`
+  if (progress.phase === "download") return `${LOCAL_DOWNLOADING_LABEL} ${progress.percent}%`
   return LOCAL_LOADING_LABEL
 }
 

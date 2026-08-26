@@ -1,5 +1,13 @@
-import type { InputRenderable, TextareaRenderable, TextRenderable } from "@opentui/core"
+import {
+  type BoxRenderable,
+  type InputRenderable,
+  RGBA,
+  type TextareaRenderable,
+  type TextRenderable,
+} from "@opentui/core"
 import { describe, expect, it, vi } from "vitest"
+import { colors } from "../../src/cli/theme.js"
+import { COLOR_PULSE_PERIOD_MS, selectionOutline } from "../../src/cli/ui/color-pulse.js"
 import { CHAT_INPUT_HINT } from "../../src/cli/ui/format.js"
 import { toFireworksPickerChoice } from "../../src/inference/picker-catalog.js"
 import { fireworksModel } from "../../src/inference/types.js"
@@ -21,7 +29,7 @@ describe("chat UI input", () => {
       commands: [
         { name: "/new", description: "Start a new session" },
         { name: "/history", description: "Open session history" },
-        { name: "/debug", description: "Toggle debug messages" },
+        { name: "/settings", description: "Configure Otis" },
         { name: "/exit", description: "Exit Otis" },
       ],
       onSubmit,
@@ -46,12 +54,12 @@ describe("chat UI input", () => {
       {
         name: "gpt-oss 20B",
         description: "MXFP4 · 12 GB",
-        submission: "/delete-model openai/gpt-oss-20b",
+        submission: "/settings delete-model openai/gpt-oss-20b",
       },
       {
         name: "Qwen3.8 27B",
         description: "Q4_K_M · 17 GB",
-        submission: "/delete-model Qwen/Qwen3.8-27B",
+        submission: "/settings delete-model Qwen/Qwen3.8-27B",
       },
     ])
 
@@ -60,7 +68,90 @@ describe("chat UI input", () => {
     expect(harness.find("model-panel")).toBeUndefined()
     harness.press("down")
     harness.press("return")
-    expect(onSubmit).toHaveBeenCalledWith("/delete-model Qwen/Qwen3.8-27B")
+    expect(onSubmit).toHaveBeenCalledWith("/settings delete-model Qwen/Qwen3.8-27B")
+    expect(harness.find("command-menu")).toBeUndefined()
+  })
+
+  it("returns from a nested command submenu to its parent on Escape", async () => {
+    const harness = await setup()
+    const parent = [
+      { name: "Hosted inference", description: "Add API key", submission: "/settings hosted" },
+      { name: "Delete local model", description: "Choose a downloaded model", submission: "/settings delete-model" },
+      { name: "Debug mode", description: "Off", submission: "/settings debug" },
+    ]
+    const showParent = vi.fn(() => harness.ui.showCommandSubmenu(parent))
+    harness.ui.showCommandSubmenu(
+      [
+        {
+          name: "gpt-oss 20B",
+          description: "MXFP4 · 12 GB",
+          submission: "/settings delete-model openai/gpt-oss-20b",
+        },
+      ],
+      { onBack: showParent },
+    )
+
+    harness.press("escape")
+
+    expect(showParent).toHaveBeenCalledOnce()
+    expect(harness.text("command-row-0")).toBe("› Hosted inference")
+    expect(harness.text("command-row-1")).toBe("  Delete local model")
+    expect(harness.text("command-row-2")).toBe("  Debug mode")
+
+    harness.press("escape")
+    expect(harness.find("command-menu")).toBeUndefined()
+  })
+
+  it("opens the settings submenu from the slash menu", async () => {
+    let openSettings = () => {}
+    const onSubmit = vi.fn((value: string) => {
+      if (value === "/settings") openSettings()
+    })
+    const harness = await setup({
+      commands: [
+        { name: "/model", description: "Choose a model" },
+        { name: "/settings", description: "Configure Otis" },
+      ],
+      onSubmit,
+    })
+    openSettings = () => {
+      harness.ui.clearInput()
+      harness.ui.showCommandSubmenu(
+        [
+          {
+            name: "Hosted inference",
+            description: "Add API key",
+            submission: "/settings hosted",
+          },
+          {
+            name: "Debug mode",
+            description: "Off",
+            submission: "/settings debug",
+          },
+        ],
+        { onBack: () => harness.ui.showSlashCommandMenu() },
+      )
+      harness.ui.focusInput()
+    }
+    harness.setChatInput("/")
+    harness.press("down")
+    harness.press("return")
+
+    // The native textarea may deliver the content-change event from clearInput
+    // after the submenu has already been mounted.
+    harness.get<TextareaRenderable>("otis-input").onContentChange?.({} as never)
+
+    expect(onSubmit).toHaveBeenCalledOnce()
+    expect(onSubmit).toHaveBeenCalledWith("/settings")
+    expect(harness.text("command-row-0")).toBe("› Hosted inference")
+    expect(harness.text("command-row-1")).toBe("  Debug mode")
+
+    harness.press("escape")
+    expect(harness.get<TextareaRenderable>("otis-input").plainText).toBe("/")
+    expect(harness.text("command-row-0")).toBe("› /model")
+    expect(harness.text("command-row-1")).toBe("  /settings")
+
+    harness.press("escape")
     expect(harness.find("command-menu")).toBeUndefined()
   })
 
@@ -200,20 +291,91 @@ describe("chat UI input", () => {
     expect(harness.childIds("chat-body")).toEqual(["messages"])
   })
 
-  it("starts unconfigured and submits a Fireworks API key", async () => {
+  it("chooses local or hosted inference with arrow keys before accepting an API key", async () => {
     const onSetup = vi.fn()
+    const onSetupInferenceChoice = vi.fn()
     const onSetupSubmit = vi.fn()
-    const harness = await setup({ configured: false, onSetup, onSetupSubmit })
+    const harness = await setup({ configured: false, onSetup, onSetupInferenceChoice, onSetupSubmit })
 
     expect(harness.childIds("input-area")).toEqual(["setup-box"])
     expect(harness.childIds("setup-box")).toEqual(["setup-why", "setup-local", "setup-button-box"])
     expect(harness.text("setup-button")).toContain("Set up Otis")
-    expect(harness.text("setup-why")).toBe("Otis uses Fireworks as its inference provider.")
-    expect(harness.text("setup-local")).toBe("Your key and sessions stay on this machine.")
+    expect(harness.text("setup-why")).toBe("Your terminal agent, powered by open models.")
+    expect(harness.text("setup-local")).toBe("Inspect files, edit code, run commands, and search the web.")
+    await harness.renderOnce()
+    expect(harness.get<BoxRenderable>("welcome-panel").width).toBe(72)
 
     harness.press("return")
     expect(onSetup).toHaveBeenCalledOnce()
 
+    harness.ui.showSetupInferenceChoice()
+    expect(harness.childIds("input-area")).toEqual(["setup-choice"])
+    expect(harness.childIds("setup-choice")).toEqual([
+      "setup-choice-heading",
+      "setup-choice-cards",
+      "setup-choice-hint",
+    ])
+    expect(harness.text("setup-choice-heading")).toBe("Choose how Otis runs models")
+    expect(harness.find("setup-choice-subheading")).toBeUndefined()
+    expect(harness.childIds("setup-choice-cards")).toEqual(["setup-choice-local", "setup-choice-hosted"])
+    await harness.renderOnce()
+    expect(harness.get<BoxRenderable>("welcome-panel").width).toBe(84)
+    expect(
+      harness
+        .captureCharFrame()
+        .split("\n")
+        .some((line) => line.includes("Local inference") && line.includes("Hosted inference")),
+    ).toBe(true)
+    expect(harness.text("setup-choice-local-title")).toBe("Local inference")
+    expect(harness.text("setup-choice-local-label")).toBe("Runs on your machine")
+    expect(harness.text("setup-choice-local-description")).toBe("Run open models on your own hardware.")
+    expect(harness.text("setup-choice-local-detail-0")).toBe("Recommended hardware:")
+    expect(harness.text("setup-choice-local-detail-1")).toBe("Apple silicon · 24 GB+ unified memory")
+    expect(harness.text("setup-choice-local-detail-2")).toBe("Linux · 24 GB+ RAM")
+    expect(harness.text("setup-choice-local-detail-3")).toBe("Vulkan GPU · 16 GB+ VRAM")
+    expect(harness.text("setup-choice-local-detail-4")).toBe("12–19 GB disk per model")
+    expect(harness.text("setup-choice-hosted-label")).toBe("Powered by Fireworks")
+    expect(harness.text("setup-choice-hosted-description")).toBe(
+      "Fast remote inference with no local hardware requirements.",
+    )
+    expect(harness.text("setup-choice-hosted-detail-0")).toBe("Zero Data Retention by default.")
+    expect(harness.text("setup-choice-hosted-detail-1")).toBe("Uses your own Fireworks API key.")
+    expect(harness.text("setup-choice-hosted-detail-2")).toBe("Configure it anytime in Settings.")
+    expect(harness.text("setup-choice-hint")).toBe("[←→] move · [enter] select")
+
+    const localCard = harness.get<BoxRenderable>("setup-choice-local")
+    const hostedCard = harness.get<BoxRenderable>("setup-choice-hosted")
+    const localTitle = harness.get<TextRenderable>("setup-choice-local-title")
+    const hostedTitle = harness.get<TextRenderable>("setup-choice-hosted-title")
+    expect(localCard.borderColor.equals(RGBA.fromHex(colors.border))).toBe(false)
+    expect(hostedCard.borderColor.equals(RGBA.fromHex(colors.border))).toBe(true)
+    expect(Math.abs(localTitle.x + localTitle.width / 2 - (localCard.x + localCard.width / 2))).toBeLessThanOrEqual(1)
+    expect(Math.abs(hostedTitle.x + hostedTitle.width / 2 - (hostedCard.x + hostedCard.width / 2))).toBeLessThanOrEqual(
+      1,
+    )
+
+    harness.press("return")
+    expect(onSetupInferenceChoice).toHaveBeenLastCalledWith("local")
+    harness.ui.showSetupInferenceChoice()
+    harness.press("right")
+    expect(harness.text("setup-choice-hosted-title")).toBe("Hosted inference")
+    expect(hostedCard.borderColor.equals(RGBA.fromHex(colors.border))).toBe(false)
+    expect(localCard.borderColor.equals(RGBA.fromHex(colors.border))).toBe(true)
+    harness.press("left")
+    expect(harness.text("setup-choice-local-title")).toBe("Local inference")
+    harness.press("right")
+    harness.press("return")
+    expect(onSetupInferenceChoice).toHaveBeenLastCalledWith("hosted")
+
+    harness.ui.showSetupInput()
+    await harness.renderOnce()
+    expect(harness.get<BoxRenderable>("welcome-panel").width).toBe(72)
+    const setupInput = harness.get<InputRenderable>("setup-input")
+    expect(setupInput.focused).toBe(true)
+    harness.press("escape")
+    expect(setupInput.focused).toBe(false)
+    expect(harness.childIds("input-area")).toEqual(["setup-choice"])
+    expect(harness.text("setup-choice-hosted-title")).toBe("Hosted inference")
     harness.ui.showSetupInput()
     expect(harness.text("setup-input-label")).toBe("Fireworks API key")
     expect(harness.childIds("setup-form")).toEqual(["setup-input-box", "setup-continue-box"])
@@ -242,6 +404,24 @@ describe("chat UI input", () => {
     expect(harness.childIds("chat-body")).toEqual(["model-panel", "messages"])
   })
 
+  it("selects hosted inference up front when local inference is unsupported", async () => {
+    const onSetupInferenceChoice = vi.fn()
+    const reason = "Local inference is not supported on win32/x64."
+    const harness = await setup({
+      configured: false,
+      localInferenceUnavailableReason: reason,
+      onSetupInferenceChoice,
+    })
+
+    harness.ui.showSetupInferenceChoice()
+    expect(harness.text("setup-choice-message")).toBe(reason)
+    harness.press("left")
+    harness.press("return")
+
+    expect(onSetupInferenceChoice).toHaveBeenCalledOnce()
+    expect(onSetupInferenceChoice).toHaveBeenCalledWith("hosted")
+  })
+
   it("shows API keys in the input and clears them after an error", async () => {
     const onSetupSubmit = vi.fn()
     const harness = await setup({ configured: false, onSetupSubmit })
@@ -250,7 +430,7 @@ describe("chat UI input", () => {
     await harness.typeText("first-secret")
     expect(harness.get<InputRenderable>("setup-input").plainText).toBe("first-secret")
 
-    harness.ui.showSetupError("Try again")
+    harness.ui.showSetupError("Try again", "choice")
     expect(harness.get<InputRenderable>("setup-input").plainText).toBe("")
     expect(harness.childIds("setup-form")).toEqual(["setup-input-box", "setup-message", "setup-continue-box"])
     expect(harness.text("setup-message")).toBe("Try again")
@@ -259,6 +439,54 @@ describe("chat UI input", () => {
 
     expect(onSetupSubmit).toHaveBeenCalledWith("second-secret")
     expect(onSetupSubmit).not.toHaveBeenCalledWith("first-secret")
+  })
+
+  it("keeps both inference choices readable at 80 columns", async () => {
+    const harness = await setup({ configured: false })
+    harness.resize(80, 30)
+    harness.ui.showSetupInferenceChoice()
+    await harness.renderOnce()
+
+    const frame = harness.captureCharFrame()
+    expect(frame).toContain("____  _______________")
+    expect(
+      frame.split("\n").some((line) => line.includes("Local inference") && line.includes("Hosted inference")),
+    ).toBe(true)
+    expect(frame).toContain("Runs on your machine")
+    expect(frame).toContain("Powered by Fireworks")
+    expect(frame).toContain("[←→] move · [enter] select")
+  })
+
+  it("uses the model picker pulse for the selected inference card", async () => {
+    vi.useFakeTimers()
+    const harness = await setup({ configured: false })
+    harness.ui.showSetupInferenceChoice()
+
+    const localCard = harness.get<BoxRenderable>("setup-choice-local")
+    const hostedCard = harness.get<BoxRenderable>("setup-choice-hosted")
+    expect(localCard.borderColor.equals(RGBA.fromHex(selectionOutline(0)))).toBe(true)
+    expect(hostedCard.borderColor.equals(RGBA.fromHex(colors.border))).toBe(true)
+
+    vi.advanceTimersByTime(COLOR_PULSE_PERIOD_MS / 2)
+    expect(localCard.borderColor.equals(RGBA.fromHex(colors.accent))).toBe(true)
+
+    harness.press("right")
+    expect(localCard.borderColor.equals(RGBA.fromHex(colors.border))).toBe(true)
+    expect(hostedCard.borderColor.equals(RGBA.fromHex(colors.accent))).toBe(true)
+  })
+
+  it("returns to the configured input when hosted settings are cancelled", async () => {
+    const harness = await setup({ configured: true })
+
+    harness.ui.showSetupInput("", "configured")
+    const setupInput = harness.get<InputRenderable>("setup-input")
+    expect(setupInput.focused).toBe(true)
+    expect(harness.childIds("input-area")).toEqual(["setup-form"])
+
+    harness.press("escape")
+    expect(setupInput.focused).toBe(false)
+    expect(harness.get<TextareaRenderable>("otis-input").focused).toBe(true)
+    expect(harness.childIds("input-area")).toEqual(["input-box"])
   })
 
   it("submits multiline chat input and clears it", async () => {

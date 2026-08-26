@@ -85,30 +85,48 @@ come from the model author when they publish GGUF, otherwise from ggml-org or a 
 weights. Each row reports a fitted context and memory estimate; models that cannot fit even 8K context stay visible and
 unselectable. Context is the largest window that still fits, up to the checkpoint's native length. Memory math uses
 each checkpoint's real KV groups (full-attention layers vs sliding-window layers), not a uniform transformer cache.
-The fit policy reserves 15% of Apple unified memory (at least 3 GiB), 10% of CPU-only system memory (at least 2 GiB),
-and 1 GiB per discrete GPU. On NVIDIA Linux, the picker queries both total and currently free VRAM. Capacity after
-headroom controls hard availability, while currently free VRAM after the same headroom silently adjusts the
-recommendation when another GPU workload is active.
+Hard availability is based on host memory because llama.cpp can split a model between a discrete GPU and system RAM.
+The preflight estimate reserves 15% of Apple unified memory (at least 3 GiB), 10% of other system memory (at least
+2 GiB), and another 1.5 GiB for runtime buffers. It never requires the complete model to fit in VRAM. On Linux,
+`nvidia-smi` detects NVIDIA devices and DRM render nodes detect any other Vulkan-capable GPU, including AMD and Intel.
+If no render device is present, Otis uses the CPU build.
+
 Picker and settings rows are a provider-tagged catalog: Fireworks entries may include a Fast serving path; local entries
-carry a fitted context and never a `fastId`. Local rows not currently serving label that context `Up to`; the active
+carry a fitted context and never a `fastId`. Local rows not currently serving label that context `Est.`; the active
 local row receives the context returned by llama.cpp and labels it `loaded`.
 
-Selecting a runnable local model downloads the latest llama.cpp `b*` GitHub prerelease with real assets (Metal on
-Apple Silicon, Vulkan on Linux NVIDIA, otherwise CPU) and the selected GGUF into the platform local-data directory.
+Selecting a runnable local model downloads Otis' pinned llama.cpp `b10622` GitHub release (Metal on Apple Silicon,
+Vulkan on Linux with a render device, otherwise CPU) and the selected GGUF into the platform local-data directory.
+macOS and Linux on arm64 and x64 are supported; other targets are disabled before selection. Runtime asset sizes and
+SHA-256 digests are pinned with the release, and the archive is verified while streaming to disk. Updating the runtime
+requires an explicit Otis source change. Existing compatible manifest-v1 and pre-manifest bundles remain usable for
+released installations; newly installed bundles record the artifact digest, and obsolete `b*` directories are removed
+after the pinned runtime is available.
+
+Each GGUF URL contains an immutable Hugging Face revision. Otis verifies the pinned byte count and Git LFS SHA-256,
+publishes the completed file atomically, and records a private sidecar manifest so a verified cache does not need to be
+hashed on every launch. Interrupted downloads retain one stable partial file and resume with a validated byte-range
+request. A per-model lock serializes concurrent downloads and deletion across Otis processes.
+
 Download percent and a loading state appear next to the model name in the `/model` picker. Local rows already on disk
-show Downloaded next to the name. Otis then starts `llama-server` on `127.0.0.1` with `--jinja` and without llama.cpp
+show `Downloaded` next to the name. Otis then starts `llama-server` on `127.0.0.1` with `--jinja` and without llama.cpp
 `--tools`. Chat then uses the same OpenAI-compatible SSE path as Fireworks, without Fireworks-only `service_tier` or
 `reasoning_effort` fields. Otis tools remain in the local runtime. `OTIS_LLAMA_SERVER` overrides the bundled binary.
-llama.cpp's native fitter is authoritative at startup. Otis passes the same per-device headroom used by preflight as
-`--fit-target`, reads `/props`, and persists the context actually loaded. Otis also removes inherited `LLAMA_ARG_*`
+llama.cpp's native fitter is authoritative at startup. Otis passes 1 GiB of fit headroom for a discrete GPU, or the
+system-memory headroom for unified-memory and CPU backends, then reads `/props` and persists the context actually
+loaded. Layers that do not fit in discrete GPU memory remain in system RAM. Otis also removes inherited `LLAMA_ARG_*`
 variables from the child environment so a separate llama.cpp configuration cannot silently alter its managed server.
-When cached GGUFs exist, interactive mode exposes `/delete-model` with a second-level slash-menu list. It only targets files in Otis' model cache, stops
-Otis' server before deleting the active or final model, and clears an active selection before offering the model picker
-again. Inactive model deletion does not interrupt a different active local model.
+When cached GGUFs exist, Settings exposes a second-level local-model deletion list. It only targets files in Otis'
+model cache, stops Otis' server before deleting the active or final model, and clears an active selection before
+offering the model picker again. Inactive model deletion does not interrupt a different active local model.
 Interactive `/exit`, Ctrl+C, and SIGINT/SIGTERM wait for `llama-server` to stop before destroying the OpenTUI renderer.
 Headless `otis exec` awaits that stop in `finally`.
 
-First-run setup still requires a Fireworks key. Headless `otis exec --model <local-id>` does not.
+First-run setup offers local and hosted inference before requesting credentials. The local route opens the
+hardware-filtered catalog without a hosted inference API key; the hosted route requests the current provider's key and
+selects a verified tool-capable default model. Headless `otis exec --model <local-id>` also does not require a hosted
+inference API key. `/settings` can validate and save that key later without replacing the selected local model, opens
+cached-model deletion when a GGUF is present, and owns the ephemeral debug-mode toggle.
 
 ## Parallel boundary
 

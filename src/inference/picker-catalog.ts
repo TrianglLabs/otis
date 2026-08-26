@@ -1,14 +1,9 @@
 import { listToolCapableModels } from "./catalog.js"
 import { isLocalGgufDownloaded } from "./gguf-cache.js"
-import { currentlyAvailableInferenceMemory, detectHardware, type HardwareProbe } from "./hardware.js"
+import { detectHardware, type HardwareProbe } from "./hardware.js"
+import { supportsLlamaCppTarget, unsupportedLlamaCppTargetMessage } from "./llama-binary.js"
 import { LOCAL_MODELS } from "./local-catalog.js"
-import {
-  fitLocalModel,
-  fitLocalModelWithinMemory,
-  formatMemoryLabel,
-  type LocalModelFit,
-  memoryRequiredFor,
-} from "./local-fit.js"
+import { fitLocalModel, formatMemoryLabel, type LocalModelFit, memoryRequiredFor } from "./local-fit.js"
 import { matchesFireworksModel } from "./serving-path.js"
 import type { FireworksModel, LocalCatalogModel } from "./types.js"
 
@@ -20,13 +15,18 @@ export type ModelPickerHeader = {
   displayName: string
 }
 
+export type ModelPickerStatus = {
+  label: string
+  kind: "progress" | "error"
+}
+
 export type LocalPickerChoice = LocalCatalogModel & {
   kind: "model"
   available: boolean
   availabilityLabel: string
   loadedContextLength?: number
   downloaded: boolean
-  statusLabel?: string
+  status?: ModelPickerStatus
   active: boolean
 }
 
@@ -43,7 +43,7 @@ export type ListModelPickerOptions = {
   currentModel?: string
   hardware?: HardwareProbe
   dataDirectory?: string
-  loadStatus?: { modelId: string; label: string }
+  loadStatus?: { modelId: string; status: ModelPickerStatus }
   loadedLocalModel?: { model: string; contextLength: number }
   detect?: typeof detectHardware
   listFireworks?: typeof listToolCapableModels
@@ -52,13 +52,12 @@ export type ListModelPickerOptions = {
 
 export async function listModelPickerItems(options: ListModelPickerOptions = {}): Promise<ModelPickerItem[]> {
   const hardware = options.hardware ?? (await (options.detect ?? detectHardware)())
-  const currentInferenceMemory =
-    hardware.gpuMemoryFreeBytes !== undefined ? currentlyAvailableInferenceMemory(hardware) : undefined
+  const localUnavailableReason = supportsLlamaCppTarget(hardware)
+    ? undefined
+    : unsupportedLlamaCppTargetMessage(hardware)
   const localItems = await Promise.all(
     LOCAL_MODELS.map(async (model) => {
       const fit = fitLocalModel(model, hardware)
-      const currentFit =
-        currentInferenceMemory === undefined ? fit : fitLocalModelWithinMemory(model, currentInferenceMemory)
       const loadedContextLength =
         options.currentModel === model.id && options.loadedLocalModel?.model === model.id
           ? options.loadedLocalModel.contextLength
@@ -67,7 +66,7 @@ export async function listModelPickerItems(options: ListModelPickerOptions = {})
       return toLocalPickerChoice(
         model,
         fit,
-        currentFit,
+        localUnavailableReason,
         loadedContextLength,
         options.currentModel,
         downloaded,
@@ -113,7 +112,7 @@ export function toLocalCatalogModel(item: LocalPickerChoice): LocalCatalogModel 
 function fireworksSection(models: readonly FireworksModel[], currentModel?: string): ModelPickerItem[] {
   if (models.length === 0) return []
   return [
-    { kind: "header", id: "header-fireworks", displayName: "Fireworks" },
+    { kind: "header", id: "header-hosted", displayName: "Hosted" },
     ...models.map((model) => toFireworksPickerChoice(model, currentModel)),
   ]
 }
@@ -121,26 +120,24 @@ function fireworksSection(models: readonly FireworksModel[], currentModel?: stri
 function toLocalPickerChoice(
   model: (typeof LOCAL_MODELS)[number],
   fit: ReturnType<typeof fitLocalModel>,
-  currentFit: LocalModelFit,
+  localUnavailableReason: string | undefined,
   loadedContextLength: number | undefined,
   currentModel: string | undefined,
   downloaded: boolean,
-  loadStatus?: { modelId: string; label: string },
+  loadStatus?: { modelId: string; status: ModelPickerStatus },
 ): LocalPickerChoice {
   return {
     kind: "model",
     provider: "local",
     id: model.id,
     displayName: model.displayName,
-    contextLength:
-      loadedContextLength ??
-      (currentFit.available ? currentFit.contextLength : fit.available ? fit.contextLength : model.nativeContextLength),
+    contextLength: loadedContextLength ?? (fit.available ? fit.contextLength : model.nativeContextLength),
     supportsImageInput: model.supportsImageInput,
-    available: fit.available,
-    availabilityLabel: localAvailabilityLabel(model, fit, currentFit, loadedContextLength),
+    available: localUnavailableReason === undefined && fit.available,
+    availabilityLabel: localAvailabilityLabel(model, fit, localUnavailableReason, loadedContextLength),
     ...(loadedContextLength === undefined ? {} : { loadedContextLength }),
     downloaded,
-    statusLabel: loadStatus?.modelId === model.id ? loadStatus.label : undefined,
+    status: loadStatus?.modelId === model.id ? loadStatus.status : undefined,
     active: currentModel === model.id,
   }
 }
@@ -148,15 +145,15 @@ function toLocalPickerChoice(
 function localAvailabilityLabel(
   model: (typeof LOCAL_MODELS)[number],
   fit: LocalModelFit,
-  currentFit: LocalModelFit,
+  localUnavailableReason: string | undefined,
   loadedContextLength: number | undefined,
 ) {
+  if (localUnavailableReason) return localUnavailableReason
   if (loadedContextLength !== undefined) {
     return `${formatContextWindow(loadedContextLength)} loaded · ${model.quant} · ${formatMemoryLabel(memoryRequiredFor(model, loadedContextLength))}`
   }
   if (!fit.available) return `Needs ${formatMemoryLabel(fit.memoryRequiredBytes)}`
-  const recommendation = currentFit.available ? currentFit : fit
-  return `Up to ${formatContextWindow(recommendation.contextLength)} · ${model.quant} · ${formatMemoryLabel(recommendation.memoryRequiredBytes)}`
+  return `Est. ${formatContextWindow(fit.contextLength)} · ${model.quant} · ${formatMemoryLabel(fit.memoryRequiredBytes)}`
 }
 
 export function toFireworksPickerChoice(model: FireworksModel, currentModel?: string): FireworksPickerChoice {

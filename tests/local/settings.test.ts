@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it } from "vitest"
 import {
   clearSelectedModel,
   loadLocalSettings,
-  saveFastMode,
+  saveFastServingSelection,
+  saveFireworksApiKey,
   saveFireworksSetup,
   saveSelectedModel,
   saveSelectedTheme,
@@ -19,6 +20,29 @@ afterEach(async () => {
 })
 
 describe("local settings", () => {
+  it("stores a Fireworks key without replacing the selected local model", async () => {
+    const file = join(await tempDirectory(), "config", "config.json")
+    await saveSelectedModel(
+      {
+        provider: "local",
+        id: "openai/gpt-oss-20b",
+        displayName: "gpt-oss 20B",
+        contextLength: 32_768,
+        supportsImageInput: false,
+      },
+      { file },
+    )
+
+    await saveFireworksApiKey(" fw_test_key ", { file })
+
+    await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({
+      fireworksApiKey: "fw_test_key",
+      model: "openai/gpt-oss-20b",
+      modelProvider: "local",
+      modelContextLength: 32_768,
+    })
+  })
+
   it("stores the Fireworks key and selected model in a private local file", async () => {
     const file = join(await tempDirectory(), "config", "config.json")
     await saveFireworksSetup(" fw_test_key ", model("tool-model", "Tool Model", 131_072), { file })
@@ -88,7 +112,7 @@ describe("local settings", () => {
     await saveFireworksSetup("fw_test_key", model("tool-model", "Tool Model", 32_768), { file })
     await saveSelectedTheme("nord", { file })
     await saveThinkingVisible(true, { file })
-    await saveFastMode(false, { file })
+    await saveFastServingSelection(model("tool-model", "Tool Model"), false, { file })
 
     await clearSelectedModel({ file })
 
@@ -97,7 +121,7 @@ describe("local settings", () => {
       fireworksApiKey: "fw_test_key",
       theme: "nord",
       thinkingVisible: true,
-      fastMode: false,
+      fastServingModels: [],
     })
   })
 
@@ -147,16 +171,49 @@ describe("local settings", () => {
     expect(JSON.parse(await readFile(file, "utf8"))).not.toHaveProperty("modelFastId")
   })
 
-  it("stores Fast serving preference independently from the selected model", async () => {
+  it("stores Fast serving preferences per model", async () => {
     const file = join(await tempDirectory(), "config.json")
-    await saveFireworksSetup("fw_test_key", model("tool-model", "Tool Model"), { file })
-    await saveFastMode(false, { file })
+    const alpha = fastModel("alpha", "Alpha")
+    const beta = fastModel("beta", "Beta")
+    await saveFireworksSetup("fw_test_key", alpha, { file })
+    await saveFastServingSelection({ ...alpha, id: alpha.fastId }, true, { file })
+    await saveFastServingSelection({ ...beta, id: beta.fastId }, true, { file })
+    await saveFastServingSelection(alpha, false, { file })
 
-    await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({ fastMode: false })
+    await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({
+      model: alpha.id,
+      fastServingModels: [beta.id],
+    })
     expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({
       fireworksApiKey: "fw_test_key",
-      fastMode: false,
+      model: alpha.id,
+      fastServingModels: [beta.id],
     })
+  })
+
+  it("migrates the released global Fast preference to the selected model", async () => {
+    const file = join(await tempDirectory(), "config.json")
+    await writeFile(
+      file,
+      JSON.stringify({
+        version: 1,
+        model: "accounts/fireworks/models/alpha",
+        modelProvider: "fireworks",
+        fastMode: true,
+      }),
+      "utf8",
+    )
+
+    await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({
+      fastServingModels: ["accounts/fireworks/models/alpha"],
+    })
+
+    await saveSelectedModel(model("beta", "Beta"), { file })
+    expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({
+      model: "accounts/fireworks/models/beta",
+      fastServingModels: ["accounts/fireworks/models/alpha"],
+    })
+    expect(JSON.parse(await readFile(file, "utf8"))).not.toHaveProperty("fastMode")
   })
 
   it("loads and preserves permission policy while changing other settings", async () => {
@@ -244,12 +301,14 @@ describe("local settings", () => {
     const invalidTheme = join(directory, "invalid-theme.json")
     const invalidThinking = join(directory, "invalid-thinking.json")
     const invalidFastMode = join(directory, "invalid-fast-mode.json")
+    const invalidFastServingModels = join(directory, "invalid-fast-serving-models.json")
     await writeFile(malformed, "{broken", "utf8")
     await writeFile(unsupported, JSON.stringify({ version: 2 }), "utf8")
     await writeFile(invalidMetadata, JSON.stringify({ version: 1, modelContextLength: -1 }), "utf8")
     await writeFile(invalidTheme, JSON.stringify({ version: 1, theme: "blue" }), "utf8")
     await writeFile(invalidThinking, JSON.stringify({ version: 1, thinkingVisible: "sometimes" }), "utf8")
     await writeFile(invalidFastMode, JSON.stringify({ version: 1, fastMode: "sometimes" }), "utf8")
+    await writeFile(invalidFastServingModels, JSON.stringify({ version: 1, fastServingModels: [false] }), "utf8")
 
     await expect(loadLocalSettings({ file: malformed, env: {} })).rejects.toThrow("Invalid Otis config")
     await expect(loadLocalSettings({ file: unsupported, env: {} })).rejects.toThrow("unsupported version")
@@ -257,6 +316,9 @@ describe("local settings", () => {
     await expect(loadLocalSettings({ file: invalidTheme, env: {} })).rejects.toThrow("theme must be")
     await expect(loadLocalSettings({ file: invalidThinking, env: {} })).rejects.toThrow("thinkingVisible must be")
     await expect(loadLocalSettings({ file: invalidFastMode, env: {} })).rejects.toThrow("fastMode must be")
+    await expect(loadLocalSettings({ file: invalidFastServingModels, env: {} })).rejects.toThrow(
+      "fastServingModels must be",
+    )
   })
 })
 
@@ -273,5 +335,12 @@ function model(name: string, displayName: string, contextLength?: number) {
     displayName,
     supportsImageInput: false,
     ...(contextLength ? { contextLength } : {}),
+  }
+}
+
+function fastModel(name: string, displayName: string) {
+  return {
+    ...model(name, displayName),
+    fastId: `accounts/fireworks/routers/${name}-fast`,
   }
 }

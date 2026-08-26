@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { getMocks, loadCli, localSettings, submit, testModel } from "./support/interactive-cli-harness.js"
+import { getMocks, loadCli, localSettings, settle, submit, testModel } from "./support/interactive-cli-harness.js"
 
 const mocks = getMocks()
 
@@ -79,6 +79,44 @@ describe("CLI mode toggle", () => {
   })
 })
 
+describe("CLI settings", () => {
+  it("moves debug mode into the settings submenu", async () => {
+    await loadCli()
+
+    const commands = mocks.createChatUI.mock.calls.at(-1)?.[1].commands ?? []
+    expect(commands).toEqual(expect.arrayContaining([expect.objectContaining({ name: "/settings" })]))
+    expect(commands).not.toEqual(expect.arrayContaining([expect.objectContaining({ name: "/debug" })]))
+
+    await submit("/settings")
+    expect(mocks.ui.showCommandSubmenu).toHaveBeenLastCalledWith(
+      [
+        {
+          name: "Hosted inference",
+          description: "Replace API key",
+          submission: "/settings hosted",
+        },
+        {
+          name: "Debug mode",
+          description: "Off",
+          submission: "/settings debug",
+        },
+      ],
+      { onBack: expect.any(Function) },
+    )
+    const onBack = mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[1]?.onBack
+    onBack?.()
+    expect(mocks.ui.showSlashCommandMenu).toHaveBeenCalledOnce()
+
+    await submit("/settings debug")
+    expect(mocks.ui.showTransientHint).toHaveBeenLastCalledWith(" Debug mode on ")
+
+    await submit("/settings")
+    expect(mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[0]).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "Debug mode", description: "On" })]),
+    )
+  })
+})
+
 describe("CLI themes", () => {
   it("persists a selected theme without adding a transcript message", async () => {
     await loadCli()
@@ -132,13 +170,13 @@ describe("CLI Fast serving", () => {
       localSettings({
         model: kimi.fastId,
         modelDisplayName: "Kimi K3",
+        fastServingModels: [kimi.id],
       }),
     )
     await loadCli()
 
     await submit("/fast")
-    expect(mocks.saveFastMode).toHaveBeenCalledWith(false)
-    expect(mocks.saveSelectedModel).toHaveBeenCalledWith(kimi)
+    expect(mocks.saveFastServingSelection).toHaveBeenCalledWith(kimi, false)
     expect(mocks.ui.setModelLabel).toHaveBeenLastCalledWith("Kimi K3")
     expect(mocks.ui.showTransientHint).toHaveBeenLastCalledWith(" Fast serving off ")
     expect(mocks.ui.setCommands).toHaveBeenCalledWith(
@@ -146,8 +184,7 @@ describe("CLI Fast serving", () => {
     )
 
     await submit("/fast")
-    expect(mocks.saveFastMode).toHaveBeenLastCalledWith(true)
-    expect(mocks.saveSelectedModel).toHaveBeenLastCalledWith({ ...kimi, id: kimi.fastId })
+    expect(mocks.saveFastServingSelection).toHaveBeenLastCalledWith({ ...kimi, id: kimi.fastId }, true)
     expect(mocks.ui.setModelLabel).toHaveBeenLastCalledWith("Kimi K3 Fast")
     expect(mocks.ui.showTransientHint).toHaveBeenLastCalledWith(" Fast serving on ")
   })
@@ -156,9 +193,56 @@ describe("CLI Fast serving", () => {
     await loadCli()
     await submit("/fast")
 
-    expect(mocks.saveFastMode).not.toHaveBeenCalled()
+    expect(mocks.saveFastServingSelection).not.toHaveBeenCalled()
     expect(mocks.saveSelectedModel).not.toHaveBeenCalled()
     expect(mocks.ui.showTransientHint).toHaveBeenLastCalledWith(" Fast serving is not available for this model ")
     expect(mocks.ui.setCommands).not.toHaveBeenCalled()
   })
+
+  it("remembers Fast serving independently for each model", async () => {
+    const alpha = testModel({
+      id: "accounts/fireworks/models/alpha",
+      displayName: "Alpha",
+      fastId: "accounts/fireworks/routers/alpha-fast",
+    })
+    const beta = testModel({
+      id: "accounts/fireworks/models/beta",
+      displayName: "Beta",
+      fastId: "accounts/fireworks/routers/beta-fast",
+    })
+    mocks.listToolCapableModels.mockResolvedValue([alpha, beta])
+    mocks.loadLocalSettings.mockResolvedValue(
+      localSettings({
+        model: alpha.fastId,
+        modelDisplayName: alpha.displayName,
+        modelFastId: alpha.fastId,
+        fastServingModels: [alpha.id],
+      }),
+    )
+    await loadCli()
+
+    await selectModel(beta.id)
+    expect(mocks.saveSelectedModel).toHaveBeenLastCalledWith(beta)
+
+    await submit("/fast")
+    expect(mocks.saveFastServingSelection).toHaveBeenLastCalledWith({ ...beta, id: beta.fastId }, true)
+
+    await selectModel(alpha.id)
+    expect(mocks.saveSelectedModel).toHaveBeenLastCalledWith({ ...alpha, id: alpha.fastId })
+
+    await submit("/fast")
+    expect(mocks.saveFastServingSelection).toHaveBeenLastCalledWith(alpha, false)
+
+    await selectModel(beta.id)
+    expect(mocks.saveSelectedModel).toHaveBeenLastCalledWith({ ...beta, id: beta.fastId })
+  })
 })
+
+async function selectModel(modelId: string) {
+  await submit("/model")
+  const items = mocks.ui.showModelPicker.mock.calls.at(-1)?.[0] ?? []
+  const model = items.find((item: { id?: string }) => item.id === modelId)
+  if (!model) throw new Error(`Missing model picker item: ${modelId}`)
+  mocks.uiOptions?.onSelectModel?.(model)
+  await settle()
+}

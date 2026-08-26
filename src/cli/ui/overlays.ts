@@ -45,7 +45,8 @@ export class OverlayHost {
   #commandMenuVisible = false
   #modelPickerVisible = false
   #sessionPickerVisible = false
-  #themeMenuOpen = false
+  #submenuOpen = false
+  #submenuBack: (() => void) | undefined
 
   constructor(private readonly options: OverlayHostOptions) {}
 
@@ -53,8 +54,8 @@ export class OverlayHost {
     return this.#commandMenuVisible
   }
 
-  get themeMenuOpen() {
-    return this.#themeMenuOpen
+  get submenuOpen() {
+    return this.#submenuOpen
   }
 
   handleKey(key: OverlayKey) {
@@ -73,7 +74,8 @@ export class OverlayHost {
   }
 
   updateCommandMenu(value: string) {
-    this.#themeMenuOpen = false
+    this.#submenuOpen = false
+    this.#submenuBack = undefined
     if (!this.options.commands.update(value, this.options.showingWelcome(), this.options.activeTheme())) {
       this.hideCommandMenu()
       return
@@ -83,12 +85,14 @@ export class OverlayHost {
 
   showThemeMenu() {
     this.options.commands.update("/theme ", this.options.showingWelcome(), this.options.activeTheme())
-    this.#themeMenuOpen = true
+    this.#submenuOpen = true
+    this.#submenuBack = undefined
     this.#showCommandMenu()
   }
 
-  showCommandSubmenu(items: readonly CommandSuggestion[]) {
-    this.#themeMenuOpen = false
+  showCommandSubmenu(items: readonly CommandSuggestion[], options: { onBack?: () => void } = {}) {
+    this.#submenuOpen = true
+    this.#submenuBack = options.onBack
     this.options.commands.showSubmenu(items)
     this.#showCommandMenu()
   }
@@ -97,7 +101,8 @@ export class OverlayHost {
     if (!this.#commandMenuVisible) return
     this.options.inputArea.remove(this.options.commandMenu.id)
     this.#commandMenuVisible = false
-    this.#themeMenuOpen = false
+    this.#submenuOpen = false
+    this.#submenuBack = undefined
     this.options.commands.clear()
     if (restoreThemePreview) this.options.onCancelThemePreview?.()
     this.options.restoreStatus()
@@ -190,7 +195,15 @@ export class OverlayHost {
 
   #handleCommandMenuKey(key: OverlayKey) {
     const handled = this.options.commands.handleKey(key, {
-      close: (restoreThemePreview) => this.hideCommandMenu(restoreThemePreview),
+      close: (restoreThemePreview) => {
+        if (key.name === "escape" && this.#submenuBack) {
+          const back = this.#submenuBack
+          this.#submenuBack = undefined
+          back()
+          return
+        }
+        this.hideCommandMenu(restoreThemePreview)
+      },
       select: (command: CommandSuggestion) => this.#selectCommand(command, command.name),
       preview: (command) => {
         const theme = themeFromCommand(command.name)

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { dirname, join, resolve } from "node:path"
 import { isLocalModelId } from "../inference/local-catalog.js"
+import { baseFireworksModelId, isFastFireworksModel } from "../inference/serving-path.js"
 import type { CatalogModel, FireworksModel, ModelProvider } from "../inference/types.js"
 import { type PermissionConfig, parsePermissionConfig } from "../permissions/policy.js"
 import { localConfigDirectory } from "./paths.js"
@@ -15,7 +16,7 @@ export type LocalSettings = {
   modelProvider?: ModelProvider
   theme?: ThemeName
   thinkingVisible?: boolean
-  fastMode?: boolean
+  fastServingModels?: string[]
   modelFastId?: string
   permissions?: PermissionConfig
 }
@@ -48,7 +49,9 @@ type SettingsFile = {
   modelProvider?: ModelProvider
   theme?: ThemeName
   thinkingVisible?: boolean
+  /** Read only to migrate the released global preference to the selected model. */
   fastMode?: boolean
+  fastServingModels?: string[]
   modelFastId?: string
   permissions?: PermissionConfig
 }
@@ -57,6 +60,7 @@ export async function loadLocalSettings(options: SettingsFileOptions = {}): Prom
   const env = options.env ?? process.env
   const saved = await readSettingsFile(options)
   const envFireworksApiKey = clean(env.FIREWORKS_API_KEY)
+  const fastServingModels = saved ? migratedFastServingModels(saved) : []
 
   return {
     fireworksApiKey: envFireworksApiKey ?? saved?.fireworksApiKey,
@@ -69,7 +73,7 @@ export async function loadLocalSettings(options: SettingsFileOptions = {}): Prom
     ...(saved?.modelSupportsImageInput !== undefined ? { modelSupportsImageInput: saved.modelSupportsImageInput } : {}),
     ...(saved?.theme ? { theme: saved.theme } : {}),
     ...(saved?.thinkingVisible !== undefined ? { thinkingVisible: saved.thinkingVisible } : {}),
-    ...(saved?.fastMode !== undefined ? { fastMode: saved.fastMode } : {}),
+    ...(fastServingModels.length > 0 ? { fastServingModels } : {}),
     ...(saved?.modelFastId ? { modelFastId: saved.modelFastId } : {}),
     ...(saved?.permissions ? { permissions: saved.permissions } : {}),
   }
@@ -81,6 +85,11 @@ export async function saveFireworksSetup(apiKey: string, model: FireworksModel, 
     withSelectedModel({ ...saved, fireworksApiKey: required(apiKey, "Fireworks API key") }, model),
     options,
   )
+}
+
+export async function saveFireworksApiKey(apiKey: string, options: SettingsFileOptions = {}) {
+  const saved = (await readSettingsFile(options)) ?? { version: 1 }
+  await writeSettingsFile({ ...saved, fireworksApiKey: required(apiKey, "Fireworks API key") }, options)
 }
 
 export async function saveSelectedModel(model: CatalogModel, options: SettingsFileOptions = {}) {
@@ -103,9 +112,18 @@ export async function saveThinkingVisible(visible: boolean, options: SettingsFil
   await writeSettingsFile({ ...saved, thinkingVisible: visible }, options)
 }
 
-export async function saveFastMode(fast: boolean, options: SettingsFileOptions = {}) {
+export async function saveFastServingSelection(
+  model: FireworksModel,
+  fast: boolean,
+  options: SettingsFileOptions = {},
+) {
   const saved = (await readSettingsFile(options)) ?? { version: 1 }
-  await writeSettingsFile({ ...saved, fastMode: fast }, options)
+  const selected = withSelectedModel(saved, model)
+  const fastServingModels = new Set(selected.fastServingModels ?? [])
+  const modelId = baseFireworksModelId(model.id)
+  if (fast) fastServingModels.add(modelId)
+  else fastServingModels.delete(modelId)
+  await writeSettingsFile({ ...selected, fastServingModels: [...fastServingModels].sort() }, options)
 }
 
 function defaultSettingsFile() {
@@ -157,6 +175,7 @@ function parseSettingsFile(value: unknown): SettingsFile {
   const theme = optionalTheme(value.theme)
   const thinkingVisible = optionalBoolean(value.thinkingVisible, "thinkingVisible")
   const fastMode = optionalBoolean(value.fastMode, "fastMode")
+  const fastServingModels = optionalStringArray(value.fastServingModels, "fastServingModels")
   const modelFastId = optionalString(value.modelFastId, "modelFastId")
   const modelProvider = optionalModelProvider(value.modelProvider)
   const permissions =
@@ -174,6 +193,7 @@ function parseSettingsFile(value: unknown): SettingsFile {
     ...(theme ? { theme } : {}),
     ...(thinkingVisible !== undefined ? { thinkingVisible } : {}),
     ...(fastMode !== undefined ? { fastMode } : {}),
+    ...(fastServingModels !== undefined ? { fastServingModels } : {}),
     ...(modelFastId ? { modelFastId } : {}),
     ...(permissions ? { permissions } : {}),
   }
@@ -182,6 +202,7 @@ function parseSettingsFile(value: unknown): SettingsFile {
 function withSelectedModel(settings: SettingsFile, model: CatalogModel): SettingsFile {
   const contextLength =
     model.contextLength === undefined ? undefined : positiveInteger(model.contextLength, "model context length")
+  const fastServingModels = migratedFastServingModels(settings)
   return {
     version: 1,
     ...(settings.fireworksApiKey ? { fireworksApiKey: settings.fireworksApiKey } : {}),
@@ -193,20 +214,35 @@ function withSelectedModel(settings: SettingsFile, model: CatalogModel): Setting
     ...(model.provider === "fireworks" && model.fastId ? { modelFastId: model.fastId } : {}),
     ...(settings.theme ? { theme: settings.theme } : {}),
     ...(settings.thinkingVisible !== undefined ? { thinkingVisible: settings.thinkingVisible } : {}),
-    ...(settings.fastMode !== undefined ? { fastMode: settings.fastMode } : {}),
+    ...(shouldPersistFastServingModels(settings, fastServingModels) ? { fastServingModels } : {}),
     ...(settings.permissions ? { permissions: settings.permissions } : {}),
   }
 }
 
 function withoutSelectedModel(settings: SettingsFile): SettingsFile {
+  const fastServingModels = migratedFastServingModels(settings)
   return {
     version: 1,
     ...(settings.fireworksApiKey ? { fireworksApiKey: settings.fireworksApiKey } : {}),
     ...(settings.theme ? { theme: settings.theme } : {}),
     ...(settings.thinkingVisible !== undefined ? { thinkingVisible: settings.thinkingVisible } : {}),
-    ...(settings.fastMode !== undefined ? { fastMode: settings.fastMode } : {}),
+    ...(shouldPersistFastServingModels(settings, fastServingModels) ? { fastServingModels } : {}),
     ...(settings.permissions ? { permissions: settings.permissions } : {}),
   }
+}
+
+function migratedFastServingModels(settings: SettingsFile) {
+  if (settings.fastServingModels !== undefined) {
+    return [...new Set(settings.fastServingModels.map(baseFireworksModelId))].sort()
+  }
+  if (!settings.model || (settings.modelProvider ?? inferModelProvider(settings.model)) !== "fireworks") return []
+  return settings.fastMode === true || isFastFireworksModel(settings.model)
+    ? [baseFireworksModelId(settings.model)]
+    : []
+}
+
+function shouldPersistFastServingModels(settings: SettingsFile, models: string[]) {
+  return models.length > 0 || settings.fastServingModels !== undefined || settings.fastMode !== undefined
 }
 
 function inferModelProvider(modelId: string | undefined): ModelProvider | undefined {
@@ -240,6 +276,12 @@ function optionalString(value: unknown, name: string) {
   if (value === undefined) return undefined
   if (typeof value !== "string" || !value.trim()) throw new Error(`Invalid Otis config: ${name} must be a string.`)
   return value.trim()
+}
+
+function optionalStringArray(value: unknown, name: string) {
+  if (value === undefined) return undefined
+  if (!Array.isArray(value)) throw new Error(`Invalid Otis config: ${name} must be an array of strings.`)
+  return [...new Set(value.map((item) => optionalString(item, name) as string))]
 }
 
 function required(value: string, label: string) {

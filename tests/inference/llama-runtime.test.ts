@@ -1,5 +1,6 @@
+import { createHash } from "node:crypto"
 import { EventEmitter } from "node:events"
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, truncate, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -18,6 +19,16 @@ const hardware: HardwareProbe = {
   unifiedMemory: true,
 }
 
+const pinnedArchiveURL =
+  "https://github.com/ggml-org/llama.cpp/releases/download/b10622/llama-b10622-bin-macos-arm64.tar.gz"
+const archiveBody = Buffer.from("archive")
+const fakeRuntimeAsset: NonNullable<LlamaCppRuntimeOptions["runtimeAsset"]> = () => ({
+  name: "llama-b10622-bin-macos-arm64.tar.gz",
+  url: pinnedArchiveURL,
+  size: archiveBody.byteLength,
+  sha256: createHash("sha256").update(archiveBody).digest("hex"),
+})
+
 const tempDirectories: string[] = []
 
 afterEach(async () => {
@@ -33,6 +44,7 @@ describe("llama.cpp runtime", () => {
     const commands: string[] = []
     const runtime = new LlamaCppRuntime({
       env: {},
+      runtimeAsset: fakeRuntimeAsset,
       dataDirectory: directory,
       allocatePort: async () => 18764,
       spawn: ((command) => {
@@ -41,21 +53,7 @@ describe("llama.cpp runtime", () => {
       }) as LlamaCppRuntimeOptions["spawn"],
       fetch: (async (input: RequestInfo | URL) => {
         const url = String(input)
-        if (url.includes("api.github.com")) {
-          return Response.json([
-            {
-              tag_name: "b10622",
-              assets: [
-                {
-                  name: "llama-b10622-bin-macos-arm64.tar.gz",
-                  browser_download_url: "https://example.test/llama.tar.gz",
-                  size: 4,
-                },
-              ],
-            },
-          ])
-        }
-        if (url === "https://example.test/llama.tar.gz") return new Response("archive")
+        if (url === pinnedArchiveURL) return new Response(archiveBody)
         if (url.includes("/health")) return new Response("ok")
         if (url.includes("/props")) return runtimeProperties(fit.contextLength)
         return new Response("missing", { status: 404 })
@@ -75,22 +73,25 @@ describe("llama.cpp runtime", () => {
     const binary = commands[0]
     expect(binary).toBe(join(directory, "bin", "b10622", "llama-server"))
     expect(await readFile(join(dirname(binary as string), "libllama.dylib"), "utf8")).toBe("llama library")
-    expect(await readFile(join(dirname(binary as string), ".otis-runtime.json"), "utf8")).toContain('"backend":"metal"')
+    await expect(readFile(join(dirname(binary as string), ".otis-runtime.json"), "utf8")).resolves.toContain(
+      `"artifactSha256":"${fakeRuntimeAsset(hardware).sha256}"`,
+    )
     expect(await readFile(join(dirname(binary as string), "ggml-metal.metal"), "utf8")).toBe("metal backend")
     await runtime.stop()
   })
 
-  it("uses the newest cached llama.cpp release without querying GitHub", async () => {
+  it("uses only the pinned cached llama.cpp release without querying GitHub", async () => {
     const model = catalogModel()
     const fit = fitLocalModel(model, hardware)
     const directory = await tempDir()
     await cacheWeights(model, directory)
-    await installFakeBinary(directory, "b9999")
-    const newest = await installFakeBinary(directory, "b10622")
+    await installFakeBinary(directory, "b10623")
+    const pinned = await installFakeBinary(directory, "b10622")
     const urls: string[] = []
     let command = ""
     const runtime = new LlamaCppRuntime({
       env: {},
+      runtimeAsset: fakeRuntimeAsset,
       dataDirectory: directory,
       allocatePort: async () => 18763,
       spawn: ((nextCommand) => {
@@ -108,41 +109,39 @@ describe("llama.cpp runtime", () => {
 
     await runtime.ensureServing(model, fit, hardware)
 
-    expect(command).toBe(newest)
-    expect(urls.some((url) => url.includes("api.github.com"))).toBe(false)
+    expect(command).toBe(pinned)
+    expect(urls).not.toContain(pinnedArchiveURL)
+    await expect(stat(join(directory, "bin", "b10623"))).rejects.toMatchObject({ code: "ENOENT" })
     await runtime.stop()
   })
 
-  it("replaces a legacy cache containing only llama-server with a complete bundle", async () => {
+  it("replaces a cached bundle whose manifest does not match the pinned release", async () => {
     const model = catalogModel()
     const fit = fitLocalModel(model, hardware)
     const directory = await tempDir()
     await cacheWeights(model, directory)
-    const binary = await installLoneBinary(directory, "b10622")
+    const binary = await installFakeBinary(directory, "b10622")
+    await writeFile(
+      join(dirname(binary), ".otis-runtime.json"),
+      JSON.stringify({
+        version: 1,
+        releaseTag: "b10621",
+        platform: hardware.platform,
+        arch: hardware.arch,
+        backend: hardware.backend,
+      }),
+    )
     const urls: string[] = []
     const runtime = new LlamaCppRuntime({
       env: {},
+      runtimeAsset: fakeRuntimeAsset,
       dataDirectory: directory,
-      allocatePort: async () => 18762,
+      allocatePort: async () => 18760,
       spawn: ((_command, _args) => fakeChild()) as LlamaCppRuntimeOptions["spawn"],
       fetch: (async (input: RequestInfo | URL) => {
         const url = String(input)
         urls.push(url)
-        if (url.includes("api.github.com")) {
-          return Response.json([
-            {
-              tag_name: "b10622",
-              assets: [
-                {
-                  name: "llama-b10622-bin-macos-arm64.tar.gz",
-                  browser_download_url: "https://example.test/llama.tar.gz",
-                  size: 4,
-                },
-              ],
-            },
-          ])
-        }
-        if (url === "https://example.test/llama.tar.gz") return new Response("archive")
+        if (url === pinnedArchiveURL) return new Response(archiveBody)
         if (url.includes("/health")) return new Response("ok")
         if (url.includes("/props")) return runtimeProperties(fit.contextLength)
         return new Response("missing", { status: 404 })
@@ -158,21 +157,59 @@ describe("llama.cpp runtime", () => {
 
     await runtime.ensureServing(model, fit, hardware)
 
-    expect(urls.some((url) => url.includes("api.github.com"))).toBe(true)
+    expect(urls).toContain(pinnedArchiveURL)
+    expect(await readFile(binary, "utf8")).toBe("replacement server")
+    await runtime.stop()
+  })
+
+  it("replaces a legacy cache containing only llama-server with a complete bundle", async () => {
+    const model = catalogModel()
+    const fit = fitLocalModel(model, hardware)
+    const directory = await tempDir()
+    await cacheWeights(model, directory)
+    const binary = await installLoneBinary(directory, "b10622")
+    const urls: string[] = []
+    const runtime = new LlamaCppRuntime({
+      env: {},
+      runtimeAsset: fakeRuntimeAsset,
+      dataDirectory: directory,
+      allocatePort: async () => 18762,
+      spawn: ((_command, _args) => fakeChild()) as LlamaCppRuntimeOptions["spawn"],
+      fetch: (async (input: RequestInfo | URL) => {
+        const url = String(input)
+        urls.push(url)
+        if (url === pinnedArchiveURL) return new Response(archiveBody)
+        if (url.includes("/health")) return new Response("ok")
+        if (url.includes("/props")) return runtimeProperties(fit.contextLength)
+        return new Response("missing", { status: 404 })
+      }) as typeof fetch,
+      extractArchive: async (_archive, destination) => {
+        const bundle = join(destination, "bin")
+        await mkdir(bundle, { recursive: true })
+        await writeFile(join(bundle, "llama-server"), "replacement server")
+        await writeFile(join(bundle, "libllama.dylib"), "llama library")
+        await writeFile(join(bundle, "libggml.dylib"), "ggml library")
+      },
+    })
+
+    await runtime.ensureServing(model, fit, hardware)
+
+    expect(urls).toContain(pinnedArchiveURL)
     expect(await readFile(binary, "utf8")).toBe("replacement server")
     expect(await readFile(join(dirname(binary), "libllama.dylib"), "utf8")).toBe("llama library")
     await runtime.stop()
   })
 
   it("downloads the GGUF then starts llama-server with a local model path", async () => {
-    const model = findLocalModel("openai/gpt-oss-20b")
-    if (!model) throw new Error("missing catalog entry")
-    const fit = fitLocalModel(model, hardware)
+    const catalog = findLocalModel("openai/gpt-oss-20b")
+    if (!catalog) throw new Error("missing catalog entry")
     const spawned: string[][] = []
     const progress: Array<{ phase: string; percent?: number }> = []
     const child = fakeChild()
     const directory = await tempDir()
     const weights = new Uint8Array([1, 2, 3, 4])
+    const model = tinyModel(catalog, weights)
+    const fit = fitLocalModel(model, hardware)
     const fittedContext = 32_768
     const runtime = new LlamaCppRuntime({
       env: { OTIS_LLAMA_SERVER: process.execPath },
@@ -212,7 +249,9 @@ describe("llama.cpp runtime", () => {
     )
     expect(spawned[0]).not.toContain("--ctx-size")
     expect(spawned[0]).not.toContain("--n-gpu-layers")
-    expect((await runtime.ensureServing(model, fit, hardware)).contextLength).toBe(fittedContext)
+    expect((await runtime.ensureServing(model, { ...fit, contextLength: fittedContext }, hardware)).contextLength).toBe(
+      fittedContext,
+    )
     expect(spawned).toHaveLength(1)
     expect(progress).toEqual(expect.arrayContaining([{ phase: "download", percent: 100 }, { phase: "loading" }]))
     await runtime.stop()
@@ -256,8 +295,7 @@ describe("llama.cpp runtime", () => {
     if (!model) throw new Error("missing catalog entry")
     const fit = fitLocalModel(model, hardware)
     const directory = await tempDir()
-    await mkdir(join(directory, "models"), { recursive: true })
-    await writeFile(localGgufPath(model, directory), "cached-weights")
+    await cacheWeights(model, directory)
     const urls: string[] = []
     const runtime = new LlamaCppRuntime({
       env: { OTIS_LLAMA_SERVER: process.execPath },
@@ -284,8 +322,7 @@ describe("llama.cpp runtime", () => {
     if (!model) throw new Error("missing catalog entry")
     const fit = fitLocalModel(model, hardware)
     const directory = await tempDir()
-    await mkdir(join(directory, "models"), { recursive: true })
-    await writeFile(localGgufPath(model, directory), "cached-weights")
+    await cacheWeights(model, directory)
     const child = fakeChild()
     child.kill = () => {
       queueMicrotask(() => {
@@ -371,6 +408,120 @@ describe("llama.cpp runtime", () => {
     const runtime = new LlamaCppRuntime({ env: { OTIS_LLAMA_SERVER: process.execPath } })
     await expect(runtime.ensureServing(model, fitLocalModel(model, tight), tight)).rejects.toThrow("needs")
   })
+
+  it("rejects unsupported platforms before resolving or spawning a runtime", async () => {
+    const model = catalogModel()
+    const unsupported: HardwareProbe = {
+      ...hardware,
+      platform: "win32",
+      arch: "x64",
+      backend: "cpu",
+      unifiedMemory: false,
+    }
+    const spawnRuntime = vi.fn()
+    const runtime = new LlamaCppRuntime({
+      env: { OTIS_LLAMA_SERVER: process.execPath },
+      spawn: spawnRuntime as unknown as LlamaCppRuntimeOptions["spawn"],
+    })
+
+    await expect(runtime.ensureServing(model, fitLocalModel(model, unsupported), unsupported)).rejects.toThrow(
+      "Local inference is not supported on win32/x64.",
+    )
+    expect(spawnRuntime).not.toHaveBeenCalled()
+  })
+
+  it("does not spawn a superseded start after asynchronous port allocation", async () => {
+    const firstModel = catalogModel()
+    const secondModel = findLocalModel("Qwen/Qwen3.8-27B")
+    if (!secondModel) throw new Error("missing catalog entry")
+    const directory = await tempDir()
+    await cacheWeights(firstModel, directory)
+    await cacheWeights(secondModel, directory)
+    let releaseFirstPort: ((port: number) => void) | undefined
+    let firstPortStarted: (() => void) | undefined
+    const portStarted = new Promise<void>((resolve) => {
+      firstPortStarted = resolve
+    })
+    let allocation = 0
+    const spawnRuntime = vi.fn(() => fakeChild())
+    const runtime = new LlamaCppRuntime({
+      env: { OTIS_LLAMA_SERVER: process.execPath },
+      dataDirectory: directory,
+      allocatePort: async () => {
+        allocation += 1
+        if (allocation > 1) return 18771
+        firstPortStarted?.()
+        return await new Promise<number>((resolve) => {
+          releaseFirstPort = resolve
+        })
+      },
+      spawn: spawnRuntime as unknown as LlamaCppRuntimeOptions["spawn"],
+      fetch: (async (input: RequestInfo | URL) => {
+        if (String(input).includes("/props")) return runtimeProperties(32_768)
+        return new Response("ok")
+      }) as typeof fetch,
+    })
+
+    const first = runtime.ensureServing(firstModel, fitLocalModel(firstModel, hardware), hardware)
+    await portStarted
+    const second = runtime.ensureServing(secondModel, fitLocalModel(secondModel, hardware), hardware)
+    await second
+    releaseFirstPort?.(18770)
+
+    await expect(first).rejects.toMatchObject({ name: "AbortError" })
+    expect(spawnRuntime).toHaveBeenCalledTimes(1)
+    expect(runtime.serving?.model).toBe(secondModel.id)
+    await runtime.stop()
+  })
+
+  it("keeps the final 20 KB of startup logs across chunk boundaries", async () => {
+    const model = catalogModel()
+    const directory = await tempDir()
+    await cacheWeights(model, directory)
+    const child = fakeChild()
+    let emitted = false
+    const runtime = new LlamaCppRuntime({
+      env: { OTIS_LLAMA_SERVER: process.execPath },
+      dataDirectory: directory,
+      allocatePort: async () => 18772,
+      spawn: (() => child) as unknown as LlamaCppRuntimeOptions["spawn"],
+      fetch: (async () => new Response("loading", { status: 503 })) as typeof fetch,
+      sleep: async () => {
+        if (emitted) return
+        emitted = true
+        child.stderr.emit("data", `${"x".repeat(14_000)}FIRST-TAIL`)
+        child.stderr.emit("data", "y".repeat(5_000))
+        child.stderr.emit("data", `${"z".repeat(5_000)}FINAL`)
+        child.exitCode = 1
+      },
+    })
+
+    await expect(runtime.ensureServing(model, fitLocalModel(model, hardware), hardware)).rejects.toThrow(
+      /FIRST-TAIL[\s\S]*FINAL/,
+    )
+  })
+
+  it("rejects a llama.cpp archive whose checksum does not match the pin", async () => {
+    const model = catalogModel()
+    const directory = await tempDir()
+    await cacheWeights(model, directory)
+    const spawnRuntime = vi.fn()
+    const extractArchive = vi.fn()
+    const runtime = new LlamaCppRuntime({
+      env: {},
+      dataDirectory: directory,
+      runtimeAsset: () => ({ ...fakeRuntimeAsset(hardware), sha256: "0".repeat(64) }),
+      spawn: spawnRuntime as LlamaCppRuntimeOptions["spawn"],
+      extractArchive,
+      fetch: (async () => new Response(archiveBody)) as typeof fetch,
+    })
+
+    await expect(runtime.ensureServing(model, fitLocalModel(model, hardware), hardware)).rejects.toThrow(
+      "SHA-256 verification failed",
+    )
+    expect(extractArchive).not.toHaveBeenCalled()
+    expect(spawnRuntime).not.toHaveBeenCalled()
+  })
 })
 
 async function tempDir() {
@@ -407,7 +558,27 @@ function catalogModel() {
 
 async function cacheWeights(model: ReturnType<typeof catalogModel>, directory: string) {
   await mkdir(join(directory, "models"), { recursive: true })
-  await writeFile(localGgufPath(model, directory), "cached-weights")
+  const path = localGgufPath(model, directory)
+  await writeFile(path, "")
+  await truncate(path, model.weightBytes)
+  await writeFile(
+    `${path}.otis.json`,
+    JSON.stringify({
+      version: 1,
+      model: model.id,
+      revision: model.ggufRevision,
+      sha256: model.ggufSha256,
+      size: model.weightBytes,
+    }),
+  )
+}
+
+function tinyModel(model: ReturnType<typeof catalogModel>, contents: Uint8Array) {
+  return {
+    ...model,
+    weightBytes: contents.byteLength,
+    ggufSha256: createHash("sha256").update(contents).digest("hex"),
+  }
 }
 
 async function installFakeBinary(directory: string, release: string) {

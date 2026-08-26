@@ -1,5 +1,5 @@
 import type { TreeSitterClient } from "@opentui/core"
-import type { ModelPickerItem } from "../../inference/picker-catalog.js"
+import type { ModelPickerItem, ModelPickerStatus } from "../../inference/picker-catalog.js"
 import type { ThemeName } from "../../local/settings.js"
 import type { LocalStats } from "../../local/stats.js"
 import type { SessionPickerItem } from "../session-metadata.js"
@@ -9,7 +9,10 @@ import type { AgentPhase } from "./format.js"
 
 export type Renderer = Awaited<ReturnType<typeof import("@opentui/core").createCliRenderer>>
 
-export type InputMode = "chat" | "inactive" | "setupButton" | "setupInput" | "setupStatus"
+export type SetupInferenceChoice = "local" | "hosted"
+export type SetupInputCancelTarget = "choice" | "configured"
+
+export type InputMode = "chat" | "inactive" | "setupButton" | "setupChoice" | "setupInput" | "setupStatus"
 
 export type CommandSuggestion = {
   name: string
@@ -21,6 +24,7 @@ export type { ModelPickerItem }
 
 export type ChatUIOptions = {
   configured?: boolean
+  localInferenceUnavailableReason?: string
   commands?: CommandSuggestion[]
   contextLabel: string
   modelLabel: string
@@ -37,6 +41,7 @@ export type ChatUIOptions = {
   onInterrupt?: () => void
   onQuit?: () => void | Promise<void>
   onSetup?: () => void
+  onSetupInferenceChoice?: (choice: SetupInferenceChoice) => void
   onSetupSubmit?: (apiKey: string) => void
   onCloseModelPicker?: () => void
   onSelectModel?: (model: ModelPickerItem) => void
@@ -63,7 +68,7 @@ export type ChatUI = {
   setModeLabel(label: string): void
   setImageAttachmentCount(count: number): void
   setModelLabel(label: string): void
-  setModelPickerStatus(modelId: string, status: string | undefined): void
+  setModelPickerStatus(modelId: string, status: ModelPickerStatus | undefined): void
   setCommands(commands: CommandSuggestion[]): void
   setConfigured(): void
   setSessionLabel(label: string): void
@@ -72,11 +77,12 @@ export type ChatUI = {
   setThinkingVisible(visible: boolean): void
   showStats(): void
   showTransientHint(content: string): void
-  showCommandSubmenu(items: CommandSuggestion[]): void
+  showCommandSubmenu(items: CommandSuggestion[], options?: { onBack?: () => void }): void
+  showSlashCommandMenu(): void
   showModelPicker(items: ModelPickerItem[]): void
-  showSetupError(message: string): void
-  showSetupButton(): void
-  showSetupInput(message?: string): void
+  showSetupError(message: string, cancelTarget: SetupInputCancelTarget): void
+  showSetupInferenceChoice(message?: string): void
+  showSetupInput(message?: string, cancelTarget?: SetupInputCancelTarget): void
   showSetupStatus(message?: string): void
   showPermissionPrompt(detail: string): Promise<boolean>
   showSessionPicker(items: SessionPickerItem[]): void

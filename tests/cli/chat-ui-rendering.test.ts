@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from "vitest"
 import { colors, selectTheme } from "../../src/cli/theme.js"
 import { TranscriptStore } from "../../src/cli/transcript.js"
 import { COLOR_PULSE_PERIOD_MS, TEXT_SHIMMER_PERIOD_MS } from "../../src/cli/ui/color-pulse.js"
-import { LOCAL_LOADING_LABEL } from "../../src/cli/ui/format.js"
+import { LOCAL_DOWNLOADING_LABEL, LOCAL_LOADING_LABEL } from "../../src/cli/ui/format.js"
 import { toFireworksPickerChoice } from "../../src/inference/picker-catalog.js"
 import { fireworksModel } from "../../src/inference/types.js"
 import { useChatHarness } from "./support/chat-ui-harness.js"
@@ -448,7 +448,7 @@ describe("chat UI rendering", () => {
     expect(harness.get<BoxRenderable>("model-panel").border).toBe(false)
   })
 
-  it("lists local models above Fireworks and greys out models that will not fit", async () => {
+  it("lists local models above hosted models and greys out models that will not fit", async () => {
     const onSelectModel = vi.fn()
     const harness = await setup({ onSelectModel })
     const unavailable = {
@@ -475,7 +475,7 @@ describe("chat UI rendering", () => {
     harness.ui.showModelPicker([
       { kind: "header", id: "header-local", displayName: "Local" },
       unavailable,
-      { kind: "header", id: "header-fireworks", displayName: "Fireworks" },
+      { kind: "header", id: "header-hosted", displayName: "Hosted" },
       fireworks,
     ])
 
@@ -483,7 +483,7 @@ describe("chat UI rendering", () => {
     expect(harness.text("model-row-1")).toBe("  Qwen3.8 27B  Downloaded")
     expect(harness.text("model-row-1-meta")).toBe("  Needs 19 GB · Text")
     expect(harness.get<TextRenderable>("model-row-1").fg.equals(RGBA.fromHex(colors.muted))).toBe(true)
-    expect(harness.text("model-row-2")).toBe("FIREWORKS")
+    expect(harness.text("model-row-2")).toBe("HOSTED")
     expect(harness.text("model-row-3")).toBe("› Alpha")
 
     harness.press("return")
@@ -517,15 +517,18 @@ describe("chat UI rendering", () => {
     expect(downloaded?.fg?.equals(RGBA.fromHex(colors.muted))).toBe(true)
     expect(harness.text("model-row-1-meta")).toBe("  128K loaded · MXFP4 · 16 GB · Text")
 
-    harness.ui.setModelPickerStatus(local.id, "47%")
-    expect(harness.text("model-row-1")).toBe("› gpt-oss 20B  47%")
+    harness.ui.setModelPickerStatus(local.id, { label: "Downloading 47%", kind: "progress" })
+    expect(harness.text("model-row-1")).toBe("› gpt-oss 20B  Downloading 47%")
     expect(harness.text("model-row-1-meta")).toBe("  128K loaded · MXFP4 · 16 GB · Text")
 
-    harness.ui.setModelPickerStatus(local.id, LOCAL_LOADING_LABEL)
+    harness.ui.setModelPickerStatus(local.id, { label: LOCAL_LOADING_LABEL, kind: "progress" })
     expect(harness.text("model-row-1")).toBe("› gpt-oss 20B  Loading")
   })
 
-  it("shimmers Loading while a local model is starting", async () => {
+  it.each([
+    `${LOCAL_DOWNLOADING_LABEL} 47%`,
+    LOCAL_LOADING_LABEL,
+  ])("shimmers %s for local model progress", async (label) => {
     const harness = await setup()
     vi.useFakeTimers()
     const local = {
@@ -543,14 +546,14 @@ describe("chat UI rendering", () => {
     }
 
     harness.ui.showModelPicker([{ kind: "header", id: "header-local", displayName: "Local" }, local])
-    harness.ui.setModelPickerStatus(local.id, LOCAL_LOADING_LABEL)
+    harness.ui.setModelPickerStatus(local.id, { label, kind: "progress" })
 
-    const first = loadingLetterColors(harness.get<TextRenderable>("model-row-1"))
-    expect(first.map((letter) => letter.text).join("")).toBe("Loading")
+    const first = statusLetterColors(harness.get<TextRenderable>("model-row-1"), label)
+    expect(first.map((letter) => letter.text).join("")).toBe(label)
     expect(new Set(first.map((letter) => letter.color)).size).toBeGreaterThan(1)
 
     vi.advanceTimersByTime(TEXT_SHIMMER_PERIOD_MS / 2)
-    const later = loadingLetterColors(harness.get<TextRenderable>("model-row-1"))
+    const later = statusLetterColors(harness.get<TextRenderable>("model-row-1"), label)
     expect(later.map((letter) => letter.color)).not.toEqual(first.map((letter) => letter.color))
   })
 
@@ -564,7 +567,7 @@ describe("chat UI rendering", () => {
       contextLength: 131_072,
       supportsImageInput: false,
       available: true,
-      availabilityLabel: "Up to 128K · MXFP4 · 16 GB",
+      availabilityLabel: "Est. 128K · MXFP4 · 16 GB",
       downloaded: false,
       active: true,
     }
@@ -579,7 +582,7 @@ describe("chat UI rendering", () => {
     harness.ui.showModelPicker([
       { kind: "header", id: "header-local", displayName: "Local" },
       local,
-      { kind: "header", id: "header-fireworks", displayName: "Fireworks" },
+      { kind: "header", id: "header-hosted", displayName: "Hosted" },
       ...fireworks,
     ])
     await harness.renderOnce()
@@ -602,8 +605,8 @@ function fireworksRow(fields: Parameters<typeof fireworksModel>[0], active = fal
   return toFireworksPickerChoice(fireworksModel(fields), active ? fields.id : undefined)
 }
 
-function loadingLetterColors(row: TextRenderable) {
-  const letters = row.chunks.slice(-LOCAL_LOADING_LABEL.length)
+function statusLetterColors(row: TextRenderable, label: string) {
+  const letters = row.chunks.slice(-label.length)
   return letters.map((chunk) => ({
     text: chunk.text,
     color: chunk.fg ? chunk.fg.toInts().join(",") : "",

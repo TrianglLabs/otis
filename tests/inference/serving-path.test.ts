@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  baseFireworksModelId,
   baseModelIdForFastServingPath,
   fireworksServiceTier,
   fireworksServingModel,
@@ -25,6 +26,8 @@ describe("Fireworks serving paths", () => {
       "accounts/fireworks/models/kimi-k2p7-code",
     )
     expect(baseModelIdForFastServingPath("accounts/fireworks/models/kimi-k3")).toBeUndefined()
+    expect(baseFireworksModelId("accounts/fireworks/routers/kimi-k3-fast")).toBe("accounts/fireworks/models/kimi-k3")
+    expect(baseFireworksModelId("accounts/fireworks/models/kimi-k3")).toBe("accounts/fireworks/models/kimi-k3")
   })
 
   it("omits Priority on Fast requests and keeps it for base models", () => {
