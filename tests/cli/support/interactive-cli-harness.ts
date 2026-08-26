@@ -152,7 +152,6 @@ const mocks = vi.hoisted(() => {
       | {
           configured?: boolean
           modelLabel?: string
-          statsVisible?: boolean
           onCloseModelPicker?(): void
           onDeleteSession?(sessionId: string): void
           onInterrupt?(): void

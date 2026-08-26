@@ -9,7 +9,8 @@ import {
 import { describe, expect, it, vi } from "vitest"
 import { colors, selectTheme } from "../../src/cli/theme.js"
 import { TranscriptStore } from "../../src/cli/transcript.js"
-import { COLOR_PULSE_PERIOD_MS } from "../../src/cli/ui/color-pulse.js"
+import { COLOR_PULSE_PERIOD_MS, TEXT_SHIMMER_PERIOD_MS } from "../../src/cli/ui/color-pulse.js"
+import { LOCAL_LOADING_LABEL } from "../../src/cli/ui/format.js"
 import { toFireworksPickerChoice } from "../../src/inference/picker-catalog.js"
 import { fireworksModel } from "../../src/inference/types.js"
 import { useChatHarness } from "./support/chat-ui-harness.js"
@@ -83,11 +84,10 @@ describe("chat UI rendering", () => {
     expect(harness.find(`message-${reasoning.id}`)).toBeUndefined()
 
     harness.ui.setThinkingVisible(true)
-    expect(harness.text(`message-${reasoning.id}-reasoning-content`)).toContain("three\nfour\nfive")
-    expect(harness.text(`message-${reasoning.id}-reasoning-content`)).not.toContain("one")
+    expect(harness.text(`message-${reasoning.id}-reasoning-content`)).toContain("one\ntwo\nthree\nfour\nfive")
     expect(harness.text(`message-${reasoning.id}-reasoning-header`)).toBe("Thought for 1.3s · click to expand")
     expect(harness.childIds(`message-${reasoning.id}`)).toEqual([
-      `message-${reasoning.id}-reasoning-content`,
+      `message-${reasoning.id}-reasoning-preview`,
       `message-${reasoning.id}-reasoning-header`,
     ])
 
@@ -127,13 +127,12 @@ describe("chat UI rendering", () => {
     harness.ui.renderTranscript(transcript.entries)
 
     const markdown = harness.get<MarkdownRenderable>(`message-${reasoning.id}-reasoning-content`)
-    expect(markdown.content).toContain("three\nfour\nfive")
-    expect(markdown.content).not.toContain("one")
+    expect(markdown.content).toBe("one\ntwo\nthree\nfour\nfive")
     expect(harness.text(`message-${reasoning.id}-reasoning-header`)).toBe("Thinking… · click to expand")
     expect(markdown.fg?.equals(RGBA.fromHex(colors.muted))).toBe(true)
     expect(harness.childIds(`message-${reasoning.id}`)).toEqual([
       `message-${reasoning.id}-reasoning-header`,
-      `message-${reasoning.id}-reasoning-content`,
+      `message-${reasoning.id}-reasoning-preview`,
     ])
 
     await harness.renderOnce()
@@ -150,9 +149,46 @@ describe("chat UI rendering", () => {
     expect(markdown.content).toContain("one\ntwo\nthree\nfour\nfive")
     expect(harness.text(`message-${reasoning.id}-reasoning-header`)).toBe("Thought for 800ms · click to collapse")
     expect(harness.childIds(`message-${reasoning.id}`)).toEqual([
-      `message-${reasoning.id}-reasoning-content`,
+      `message-${reasoning.id}-reasoning-preview`,
       `message-${reasoning.id}-reasoning-header`,
     ])
+  })
+
+  it("keeps collapsed streaming traces clipped without replacing the markdown prefix", async () => {
+    const harness = await setup({ thinkingVisible: true })
+    const transcript = new TranscriptStore()
+    const reasoning = transcript.addReasoningMessage("alpha\n", { reasoningId: "reasoning_1", streaming: true })
+    harness.ui.showChatLayout()
+    harness.ui.renderTranscript(transcript.entries)
+    await harness.renderOnce()
+
+    const preview = harness.get<BoxRenderable>(`message-${reasoning.id}-reasoning-preview`)
+    const markdown = harness.get<MarkdownRenderable>(`message-${reasoning.id}-reasoning-content`)
+    expect(markdown.streaming).toBe(true)
+
+    transcript.updateEntry(reasoning.id, { text: "alpha\nbravo\ncharlie\ndelta\necho" })
+    harness.ui.renderTranscript(transcript.entries)
+    await harness.renderOnce()
+
+    expect(markdown.content).toBe("alpha\nbravo\ncharlie\ndelta\necho")
+    expect(markdown).toBe(harness.get(`message-${reasoning.id}-reasoning-content`))
+    expect(preview.height).toBeLessThanOrEqual(3)
+    expect(preview.overflow).toBe("hidden")
+
+    const lines = harness
+      .captureCharFrame()
+      .split("\n")
+      .slice(preview.y, preview.y + preview.height)
+      .map((line) => line.trimEnd())
+      .filter((line) => line.length > 0)
+    expect(lines.join("\n")).toContain("echo")
+    expect(lines.some((line) => line.includes("alpha"))).toBe(false)
+
+    const clippedHeight = preview.height
+    transcript.updateEntry(reasoning.id, { text: "alpha\nbravo\ncharlie\ndelta\necho\nfoxtrot" })
+    harness.ui.renderTranscript(transcript.entries)
+    await harness.renderOnce()
+    expect(preview.height).toBe(clippedHeight)
   })
 
   it("uses the theme text color as the Markdown and fenced-code fallback", async () => {
@@ -485,8 +521,37 @@ describe("chat UI rendering", () => {
     expect(harness.text("model-row-1")).toBe("› gpt-oss 20B  47%")
     expect(harness.text("model-row-1-meta")).toBe("  128K loaded · MXFP4 · 16 GB · Text")
 
-    harness.ui.setModelPickerStatus(local.id, "loading")
-    expect(harness.text("model-row-1")).toBe("› gpt-oss 20B  loading")
+    harness.ui.setModelPickerStatus(local.id, LOCAL_LOADING_LABEL)
+    expect(harness.text("model-row-1")).toBe("› gpt-oss 20B  Loading")
+  })
+
+  it("shimmers Loading while a local model is starting", async () => {
+    const harness = await setup()
+    vi.useFakeTimers()
+    const local = {
+      kind: "model" as const,
+      provider: "local" as const,
+      id: "openai/gpt-oss-20b",
+      displayName: "gpt-oss 20B",
+      contextLength: 131_072,
+      supportsImageInput: false,
+      available: true,
+      availabilityLabel: "128K loaded · MXFP4 · 16 GB",
+      loadedContextLength: 131_072,
+      downloaded: true,
+      active: true,
+    }
+
+    harness.ui.showModelPicker([{ kind: "header", id: "header-local", displayName: "Local" }, local])
+    harness.ui.setModelPickerStatus(local.id, LOCAL_LOADING_LABEL)
+
+    const first = loadingLetterColors(harness.get<TextRenderable>("model-row-1"))
+    expect(first.map((letter) => letter.text).join("")).toBe("Loading")
+    expect(new Set(first.map((letter) => letter.color)).size).toBeGreaterThan(1)
+
+    vi.advanceTimersByTime(TEXT_SHIMMER_PERIOD_MS / 2)
+    const later = loadingLetterColors(harness.get<TextRenderable>("model-row-1"))
+    expect(later.map((letter) => letter.color)).not.toEqual(first.map((letter) => letter.color))
   })
 
   it("keeps the Local header in view when the first model is selected", async () => {
@@ -535,4 +600,12 @@ describe("chat UI rendering", () => {
 
 function fireworksRow(fields: Parameters<typeof fireworksModel>[0], active = false) {
   return toFireworksPickerChoice(fireworksModel(fields), active ? fields.id : undefined)
+}
+
+function loadingLetterColors(row: TextRenderable) {
+  const letters = row.chunks.slice(-LOCAL_LOADING_LABEL.length)
+  return letters.map((chunk) => ({
+    text: chunk.text,
+    color: chunk.fg ? chunk.fg.toInts().join(",") : "",
+  }))
 }

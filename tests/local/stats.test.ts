@@ -58,6 +58,41 @@ describe("calculateLocalStats", () => {
     })
   })
 
+  it("counts active turn time including interrupts and skips idle gaps", async () => {
+    const root = await tempDirectory()
+    const now = new Date(2026, 6, 16, 12, 0, 0)
+    const yesterday = new Date(2026, 6, 15, 12, 0, 0)
+
+    await writeSession(root, "project-a", "resumed", [
+      event(1, "resumed", "session_started", localISO(yesterday, -10), { version: 1 }),
+      event(2, "resumed", "prompt_admitted", localISO(yesterday, 0), {
+        promptId: "prompt-a",
+        message: { role: "user", content: "hello" },
+      }),
+      event(3, "resumed", "turn_completed", localISO(yesterday, 20), {
+        promptId: "prompt-a",
+        messages: [{ role: "assistant", content: [{ type: "text", text: "hi" }] }],
+      }),
+      event(4, "resumed", "prompt_admitted", localISO(now, 0), {
+        promptId: "prompt-b",
+        message: { role: "user", content: "again" },
+      }),
+      event(5, "resumed", "turn_interrupted", localISO(now, 15), {
+        promptId: "prompt-b",
+        messages: [{ role: "assistant", content: [{ type: "text", text: "partial" }] }],
+      }),
+      event(6, "resumed", "prompt_admitted", localISO(now, 40), {
+        promptId: "prompt-c",
+        message: { role: "user", content: "unfinished" },
+      }),
+    ])
+
+    await expect(calculateLocalStats({ sessionsRoot: root, now })).resolves.toMatchObject({
+      sessionCount: 1,
+      avgSessionSeconds: 35,
+    })
+  })
+
   it("returns zeros when no local sessions exist", async () => {
     await expect(calculateLocalStats({ sessionsRoot: join(await tempDirectory(), "missing") })).resolves.toEqual({
       streak: 0,

@@ -41,10 +41,8 @@ otis update
 ## Why Otis
 
 - **Your machine, your state.** Sessions, configuration, usage, tool activity, and diffs stay local.
-- **Your choice of open model.** `/model` lists local llama.cpp models first, then public serverless Fireworks models
-  that explicitly support tool calling. Local rows show whether they fit in memory and grey out those that will not run
-  on this machine. On NVIDIA Linux, recommendations account for currently free VRAM without exposing transient device
-  details in the picker or treating another workload as a permanent hardware limit.
+- **Your choice of open model.** Run locally when you have the hardware, or use Fireworks serverless when you want even
+  more performance.
 - **Zero Data Retention (ZDR) inference.** Fireworks does not persist prompts or generations for open models by default
   unless you explicitly opt in. Service metadata such as token counts is still recorded.
 - **Inspectable history.** Append-only JSONL sessions retain messages, tool cards, diffs, titles, and provider-reported
@@ -292,5 +290,6 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes.
 
 Otis is released under the [MIT License](LICENSE). Copyright © 2026 Triangl Labs.
 
-The terminal interface is built with [OpenTUI](https://github.com/anomalyco/opentui). See
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for its license notice.
+The terminal interface is built with [OpenTUI](https://github.com/anomalyco/opentui). Local inference uses
+[llama.cpp](https://github.com/ggml-org/llama.cpp). See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for their
+license notices.

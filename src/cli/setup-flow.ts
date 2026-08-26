@@ -25,7 +25,7 @@ type SetupFlowOptions = {
   ) => Promise<PreparedModelSelection>
   localLoadStatus?: () => { modelId: string; label: string } | undefined
   loadedLocalModel?: () => { model: string; contextLength: number } | undefined
-  onConfigured: (fireworksApiKey: string, model: FireworksModel) => void
+  onConfigured: (fireworksApiKey?: string) => void
   fastMode: () => boolean
   onFastModeChanged: (fast: boolean) => void
 }
@@ -255,6 +255,7 @@ export class SetupFlow {
     try {
       await this.persistSelection(selected, signal, (serving) => saveSelectedModel(serving))
       if (selectionId !== this.#selectionId || this.#closed) return
+      this.options.onConfigured()
       this.options.ui.setConfigured()
       this.options.ui.hideModelPicker()
       this.options.ui.focusInput()
@@ -377,7 +378,7 @@ export class SetupFlow {
       (this.#selectedModel ? modelFromId(this.#selectedModel, this.#selectedModelSupportsImageInput) : undefined)
     if (!fireworksApiKey || !selected) return
 
-    this.options.onConfigured(fireworksApiKey, this.servingModel(selected))
+    this.options.onConfigured(fireworksApiKey)
     this.options.ui.setConfigured()
     this.options.ui.focusInput()
   }

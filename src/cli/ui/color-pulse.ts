@@ -1,9 +1,10 @@
-import { RGBA, rgbToHex } from "@opentui/core"
+import { fg, RGBA, rgbToHex, StyledText } from "@opentui/core"
 import { colors } from "../theme.js"
 import type { Renderer } from "./types.js"
 
 export const COLOR_PULSE_PERIOD_MS = 2400
 export const COLOR_PULSE_FRAME_MS = 50
+export const TEXT_SHIMMER_PERIOD_MS = 1300
 
 export function colorPulseAmount(elapsedMs: number) {
   const phase = wrap(elapsedMs / COLOR_PULSE_PERIOD_MS)
@@ -12,10 +13,28 @@ export function colorPulseAmount(elapsedMs: number) {
 
 const OUTLINE_REST = 0.42
 const OUTLINE_PEAK = 1
+const SHIMMER_SIGMA = 1.15
 
 export function selectionOutline(amount: number) {
   const mix = OUTLINE_REST + (OUTLINE_PEAK - OUTLINE_REST) * clamp(amount, 0, 1)
   return mix >= OUTLINE_PEAK ? colors.accent : mixHex(colors.surface, colors.accent, mix)
+}
+
+export function shimmerText(text: string, elapsedMs: number, rest = colors.muted, highlight = colors.accent) {
+  const amounts = shimmerAmounts(text.length, elapsedMs)
+  return new StyledText(
+    Array.from(text, (character, index) => fg(mixHex(rest, highlight, amounts[index] ?? 0))(character)),
+  )
+}
+
+export function shimmerAmounts(length: number, elapsedMs: number) {
+  if (length <= 0) return []
+  const travel = length + SHIMMER_SIGMA * 4
+  const peak = wrap(elapsedMs / TEXT_SHIMMER_PERIOD_MS) * travel - SHIMMER_SIGMA * 2
+  return Array.from({ length }, (_, index) => {
+    const distance = index - peak
+    return Math.exp(-(distance * distance) / (2 * SHIMMER_SIGMA * SHIMMER_SIGMA))
+  })
 }
 
 export class SelectionPulse {

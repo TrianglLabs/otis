@@ -1,14 +1,22 @@
 import { BoxRenderable, RGBA, TextRenderable } from "@opentui/core"
 import { colors } from "../theme.js"
+import { formatContextLabel } from "./format.js"
 import { createChatInput, createPermissionPrompt, createSetupViews } from "./input-views.js"
 import { createMessagesView, createModelPanel, createSessionPanel, createStatsRow } from "./panels.js"
 import type { ChatUIOptions, Renderer } from "./types.js"
 
 const version = process.env.OTIS_VERSION ?? "dev"
+const TOP_BAR_BRAND = " OTIS "
+
+export function setTopBarSideMinWidth(start: BoxRenderable, end: BoxRenderable, paddedContext: string) {
+  const minWidth = Math.max(TOP_BAR_BRAND.length, paddedContext.length)
+  start.minWidth = minWidth
+  end.minWidth = minWidth
+}
 
 export function createUILayout(
   renderer: Renderer,
-  options: Pick<ChatUIOptions, "configured" | "contextLabel" | "modeLabel" | "sessionLabel" | "statsVisible">,
+  options: Pick<ChatUIOptions, "configured" | "contextLabel" | "modeLabel" | "sessionLabel">,
 ) {
   const { statsRow, statBoxes } = createStatsRow(renderer)
   const { panel: sessionPanel, rows: sessionRowsBox } = createSessionPanel(renderer)
@@ -117,7 +125,7 @@ export function createUILayout(
     }),
   )
   welcome.add(welcomeBrand)
-  if (options.statsVisible ?? options.configured !== false) welcome.add(statsRow)
+  if (options.configured !== false) welcome.add(statsRow)
   welcome.add(welcomePanel)
   welcome.add(welcomeBottomSpacer)
   welcome.add(
@@ -131,42 +139,77 @@ export function createUILayout(
     }),
   )
 
+  const paddedContext = formatContextLabel(options.contextLabel)
   const topBar = new BoxRenderable(renderer, {
     id: "top-bar",
-    flexDirection: "column",
+    flexDirection: "row",
     width: "100%",
     flexShrink: 0,
+    alignItems: "center",
     backgroundColor: colors.background,
     paddingBottom: 1,
   })
-  const contextLabel = new TextRenderable(renderer, {
-    id: "context-label",
-    content: ` ${options.contextLabel} `,
-    fg: colors.muted,
-    position: "absolute",
-    top: 0,
-    right: 0,
+  const topBarStart = new BoxRenderable(renderer, {
+    id: "top-bar-start",
+    flexDirection: "row",
+    flexGrow: 1,
+    flexShrink: 0,
+    flexBasis: 0,
+    alignItems: "center",
+  })
+  topBarStart.add(
+    new TextRenderable(renderer, {
+      id: "title-bar",
+      content: TOP_BAR_BRAND,
+      fg: colors.accent,
+      flexShrink: 0,
+      wrapMode: "none",
+      selectable: false,
+    }),
+  )
+  const sessionSlot = new BoxRenderable(renderer, {
+    id: "session-slot",
+    flexDirection: "row",
+    flexShrink: 1,
+    minWidth: 0,
+    overflow: "hidden",
+    justifyContent: "center",
+    alignItems: "center",
   })
   const sessionLabel = new TextRenderable(renderer, {
     id: "session-label",
     content: options.sessionLabel,
     fg: colors.muted,
-    alignSelf: "center",
+    flexShrink: 1,
+    minWidth: 0,
+    maxWidth: "100%",
+    wrapMode: "none",
     truncate: true,
     selectable: false,
   })
-  topBar.add(
-    new TextRenderable(renderer, {
-      id: "title-bar",
-      content: " OTIS ",
-      fg: colors.accent,
-      position: "absolute",
-      top: 0,
-      left: 0,
-    }),
-  )
-  topBar.add(sessionLabel)
-  topBar.add(contextLabel)
+  sessionSlot.add(sessionLabel)
+  const contextLabel = new TextRenderable(renderer, {
+    id: "context-label",
+    content: paddedContext,
+    fg: colors.muted,
+    flexShrink: 0,
+    wrapMode: "none",
+    selectable: false,
+  })
+  const topBarEnd = new BoxRenderable(renderer, {
+    id: "top-bar-end",
+    flexDirection: "row",
+    flexGrow: 1,
+    flexShrink: 0,
+    flexBasis: 0,
+    justifyContent: "flex-end",
+    alignItems: "center",
+  })
+  topBarEnd.add(contextLabel)
+  setTopBarSideMinWidth(topBarStart, topBarEnd, paddedContext)
+  topBar.add(topBarStart)
+  topBar.add(sessionSlot)
+  topBar.add(topBarEnd)
 
   const commandMenu = new BoxRenderable(renderer, {
     id: "command-menu",
@@ -263,6 +306,8 @@ export function createUILayout(
     statBoxes,
     statsRow,
     topBar,
+    topBarEnd,
+    topBarStart,
     updateHint,
     welcome,
     welcomePanel,
