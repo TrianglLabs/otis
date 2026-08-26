@@ -52,6 +52,7 @@ type ReasoningCard = {
   kind: "reasoning"
   root: BoxRenderable
   header: TextRenderable
+  preview: BoxRenderable
   content: MarkdownRenderable
   entry: TranscriptEntry
   expanded: boolean
@@ -141,12 +142,14 @@ export class TranscriptView {
     if (renderable.kind === "reasoning") {
       renderable.root.marginTop = entryMarginTop(entry, previousEntry)
       renderable.entry = entry
-      const preview = reasoningPreview(entry.text, this.renderer.terminalWidth - 2)
-      const truncated = preview !== entry.text
-      renderable.header.content = reasoningHeader(entry, renderable.expanded, truncated)
+      renderable.header.content = reasoningHeader(
+        entry,
+        renderable.expanded,
+        reasoningExceedsPreview(entry.text, this.renderer.terminalWidth - 2),
+      )
       renderable.content.streaming = entry.streaming === true
-      renderable.content.maxHeight = renderable.expanded ? undefined : REASONING_PREVIEW_HEIGHT
-      renderable.content.content = (renderable.expanded ? entry.text : preview) || " "
+      renderable.content.content = entry.text || " "
+      this.applyReasoningPreview(renderable)
       this.orderReasoningCard(renderable, entry.streaming === true)
       return
     }
@@ -177,19 +180,28 @@ export class TranscriptView {
       content: reasoningHeader(entry),
       fg: colors.muted,
     })
+    const preview = new BoxRenderable(this.renderer, {
+      id: `message-${entry.id}-reasoning-preview`,
+      flexDirection: "column",
+      flexShrink: 0,
+      overflow: "hidden",
+      justifyContent: "flex-end",
+      maxHeight: REASONING_PREVIEW_HEIGHT,
+    })
     const content = this.createReasoningContent(entry)
+    preview.add(content)
     const card: ReasoningCard = {
       kind: "reasoning",
       root,
       header,
+      preview,
       content,
       entry,
       expanded: entry.reasoningId ? this.#expandedReasoningIDs.has(entry.reasoningId) : false,
     }
     header.onMouseDown = (event) => {
       if (event.button !== MouseButton.LEFT) return
-      const preview = reasoningPreview(card.entry.text, this.renderer.terminalWidth - 2)
-      if (preview === card.entry.text) return
+      if (!reasoningExceedsPreview(card.entry.text, this.renderer.terminalWidth - 2)) return
       event.preventDefault()
       event.stopPropagation()
       card.expanded = !card.expanded
@@ -214,12 +226,26 @@ export class TranscriptView {
       streaming: entry.streaming === true,
       internalBlockMode: "top-level",
       tableOptions: createMarkdownTableOptions(),
-      maxHeight: REASONING_PREVIEW_HEIGHT,
+      flexShrink: 0,
     })
   }
 
+  private applyReasoningPreview(card: ReasoningCard) {
+    // Keep the full markdown document so streaming can append. Clip the tail
+    // instead of rewriting a sliding window, which wiped the first preview line.
+    if (card.expanded) {
+      card.preview.maxHeight = undefined
+      card.preview.overflow = "visible"
+      card.preview.justifyContent = "flex-start"
+      return
+    }
+    card.preview.maxHeight = REASONING_PREVIEW_HEIGHT
+    card.preview.overflow = "hidden"
+    card.preview.justifyContent = "flex-end"
+  }
+
   private orderReasoningCard(card: ReasoningCard, streaming: boolean) {
-    const desired = streaming ? [card.header, card.content] : [card.content, card.header]
+    const desired = streaming ? [card.header, card.preview] : [card.preview, card.header]
     const current = card.root.getChildren()
     if (current.length === desired.length && current.every((child, index) => child.id === desired[index].id)) return
     for (const child of current) card.root.remove(child.id)
@@ -355,13 +381,16 @@ function reasoningHeader(entry: TranscriptEntry, expanded = false, truncated = f
   return truncated ? `${label} · click to ${expanded ? "collapse" : "expand"}` : label
 }
 
-function reasoningPreview(text: string, width: number) {
+function reasoningExceedsPreview(text: string, width: number) {
   const lines = text.replace(/\n+$/, "").split("\n")
-  const lineTail = lines.slice(-REASONING_PREVIEW_HEIGHT).join("\n")
-  const characters = Array.from(lineTail)
-  const characterLimit = Math.max(1, width) * REASONING_PREVIEW_HEIGHT
-  if (lines.length <= REASONING_PREVIEW_HEIGHT && characters.length <= characterLimit) return text
-  return characters.slice(-characterLimit).join("")
+  if (lines.length > REASONING_PREVIEW_HEIGHT) return true
+  const columns = Math.max(1, width)
+  let rows = 0
+  for (const line of lines) {
+    rows += Math.max(1, Math.ceil(Array.from(line).length / columns))
+    if (rows > REASONING_PREVIEW_HEIGHT) return true
+  }
+  return false
 }
 
 function formatDuration(durationMs: number) {

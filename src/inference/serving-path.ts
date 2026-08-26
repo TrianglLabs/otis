@@ -26,8 +26,9 @@ export function findFireworksModel(models: readonly FireworksModel[], modelId: s
   return models.find((model) => matchesFireworksModel(model, modelId))
 }
 
-export function fireworksInferenceModel(model: FireworksModel): FireworksModel {
-  return fireworksServingModel(model, true)
+/** Fast serving is opt-in. Keep an already-Fast model ID; otherwise require an explicit preference. */
+export function useFastServingPath(modelId: string | undefined, fastMode?: boolean) {
+  return Boolean(modelId && isFastFireworksModel(modelId)) || fastMode === true
 }
 
 export function fireworksServingModel(model: FireworksModel, fast: boolean): FireworksModel {

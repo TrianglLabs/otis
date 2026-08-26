@@ -150,8 +150,8 @@ describe("chat UI status and prompts", () => {
     }
   })
 
-  it("hides stats before credentials and reveals labeled zeros after setup", async () => {
-    const harness = await setup({ configured: false, statsVisible: false })
+  it("hides stats until configured and reveals labeled zeros after setup", async () => {
+    const harness = await setup({ configured: false })
 
     expect(harness.find("welcome-stats-row")).toBeUndefined()
     harness.ui.setConfigured()
@@ -430,5 +430,61 @@ describe("chat UI status and prompts", () => {
     expect(harness.text("session-label")).toContain("Refactor parser")
     expect(harness.text("session-label")).toContain("+12")
     expect(harness.text("session-label")).toContain("−3")
+  })
+
+  it("keeps a short session title centered in the top bar", async () => {
+    const harness = await setup()
+    harness.ui.showChatLayout()
+    harness.ui.setSessionLabel("Refactor parser")
+    await harness.renderOnce()
+
+    const bar = harness.get<BoxRenderable>("top-bar")
+    const session = harness.get<TextRenderable>("session-label")
+    const barCenter = bar.x + bar.width / 2
+    const sessionCenter = session.x + session.width / 2
+    expect(session.x).toBeGreaterThan(harness.get<TextRenderable>("title-bar").x)
+    expect(Math.abs(sessionCenter - barCenter)).toBeLessThanOrEqual(2)
+  })
+
+  it("keeps the session title centered after the context meter grows", async () => {
+    const harness = await setup()
+    harness.ui.showChatLayout()
+    harness.ui.setSessionLabel("Refactor parser")
+    harness.ui.setContextLabel("■■■■■■■■ 100% · ~250k")
+    await harness.renderOnce()
+
+    const bar = harness.get<BoxRenderable>("top-bar")
+    const session = harness.get<TextRenderable>("session-label")
+    const brand = harness.get<TextRenderable>("title-bar")
+    const context = harness.get<TextRenderable>("context-label")
+    const barCenter = bar.x + bar.width / 2
+    const sessionCenter = session.x + session.width / 2
+    expect(brand.x + brand.width).toBeLessThanOrEqual(session.x)
+    expect(session.x + session.width).toBeLessThanOrEqual(context.x)
+    expect(Math.abs(sessionCenter - barCenter)).toBeLessThanOrEqual(2)
+  })
+
+  it("truncates the session title instead of covering the context meter", async () => {
+    const harness = await setup()
+    harness.ui.showChatLayout()
+    harness.ui.setSessionLabel("A very long session title that should not cover the context meter")
+    harness.resize(42, 24)
+    await harness.renderOnce()
+
+    const brand = harness.get<TextRenderable>("title-bar")
+    const session = harness.get<TextRenderable>("session-label")
+    const context = harness.get<TextRenderable>("context-label")
+    expect(brand.x + brand.width).toBeLessThanOrEqual(session.x)
+    expect(session.x + session.width).toBeLessThanOrEqual(context.x)
+    expect(session.width).toBeLessThan(session.plainText.length)
+
+    const topLine = harness
+      .captureCharFrame()
+      .split("\n")
+      .find((line) => line.includes("OTIS"))
+    expect(topLine).toContain("OTIS")
+    expect(topLine).toContain("□□□□□□□□ 0% · ~0")
+    expect(topLine).toContain("...")
+    expect(topLine).not.toContain("A very long session title that should not cover the context meter")
   })
 })

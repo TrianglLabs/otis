@@ -8,7 +8,7 @@ import {
 } from "../../inference/picker-catalog.js"
 import { colors } from "../theme.js"
 import { SelectionPulse } from "./color-pulse.js"
-import { FAST_MODEL_LABEL } from "./format.js"
+import { FAST_MODEL_LABEL, LOCAL_LOADING_LABEL } from "./format.js"
 import {
   createPickerRow,
   type PickerRow,
@@ -36,7 +36,7 @@ export class ModelPicker {
     private readonly renderer: Renderer,
     private readonly container: ScrollBoxRenderable,
   ) {
-    this.#pulse = new SelectionPulse(renderer, (elapsed) => this.paintSelection(elapsed))
+    this.#pulse = new SelectionPulse(renderer, (elapsed) => this.paintPulse(elapsed))
   }
 
   setItems(items: ModelPickerItem[]) {
@@ -153,11 +153,17 @@ export class ModelPicker {
     this.container.add(row.box)
   }
 
-  private paintSelection(elapsedMs: number) {
-    if (this.#items.length === 0) return
-    const item = this.#items[this.#selectedIndex]
-    const row = this.#rows[this.#selectedIndex]
-    if (row && item?.kind !== "header") paintPickerOutline(row, true, elapsedMs)
+  private paintPulse(elapsedMs: number) {
+    const specs = this.rowData()
+    specs.forEach((spec, index) => {
+      const row = this.#rows[index]
+      if (!row) return
+      if (spec.suffix?.shimmer) {
+        stylePickerRow(row, spec, elapsedMs)
+        return
+      }
+      if (row.outline && spec.selected && spec.header !== true) paintPickerOutline(row, true, elapsedMs)
+    })
   }
 
   private scrollToSelection() {
@@ -179,6 +185,7 @@ function modelTitle(item: ModelPickerChoice, hasSuffix: boolean) {
 
 function localNameSuffix(item: ModelPickerChoice) {
   if (item.provider !== "local") return undefined
+  if (item.statusLabel === LOCAL_LOADING_LABEL) return { text: item.statusLabel, shimmer: true }
   if (item.statusLabel) return { text: item.statusLabel }
   if (item.downloaded) return { text: "Downloaded", fg: colors.muted }
   return undefined

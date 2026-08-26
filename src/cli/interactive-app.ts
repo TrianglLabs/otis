@@ -93,7 +93,7 @@ export class InteractiveApp {
   #permissionRules: PermissionRule[] = []
   #selectedTheme: ThemeName = "default"
   #thinkingVisible = false
-  #fastMode = true
+  #fastMode = false
   #fastAvailable = false
   #downloadedModelsAvailable = false
   #activeTurn: AbortController | undefined
@@ -113,7 +113,7 @@ export class InteractiveApp {
     selectTheme(settings.theme)
     this.#selectedTheme = settings.theme ?? "default"
     this.#thinkingVisible = settings.thinkingVisible ?? false
-    this.#fastMode = settings.fastMode ?? true
+    this.#fastMode = settings.fastMode ?? false
     this.#fastAvailable = Boolean(settings.modelFastId) || isFastFireworksModel(settings.model ?? "")
     this.#downloadedModelsAvailable = (await listDownloadedLocalModels()).length > 0
     this.#fireworksApiKey = settings.fireworksApiKey
@@ -146,7 +146,6 @@ export class InteractiveApp {
 
     this.#ui = createChatUI(this.#renderer, {
       configured: this.#configured,
-      statsVisible: Boolean(this.#fireworksApiKey),
       commands: slashCommands({
         fast: this.#fastAvailable,
         downloadedModels: this.#downloadedModelsAvailable,
@@ -227,7 +226,7 @@ export class InteractiveApp {
           ? { model: this.#activeLocalModel.spec.id, contextLength: this.#activeLocalModel.fit.contextLength }
           : undefined,
       onConfigured: (fireworksKey) => {
-        this.#fireworksApiKey = fireworksKey
+        if (fireworksKey) this.#fireworksApiKey = fireworksKey
         this.#configured = true
         void this.#refreshLocalStats()
       },
@@ -246,7 +245,7 @@ export class InteractiveApp {
     this.#installShutdownListeners()
     this.#startUpdateCheck()
 
-    if (this.#fireworksApiKey) void this.#refreshLocalStats()
+    if (this.#configured) void this.#refreshLocalStats()
     if (this.#selectedModelId && isLocalModelId(this.#selectedModelId)) {
       const spec = findLocalModel(this.#selectedModelId)
       if (spec) {

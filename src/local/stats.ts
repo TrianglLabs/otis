@@ -69,12 +69,27 @@ function tokenUsage(events: readonly SessionEvent[]) {
   return events.reduce((sum, event) => (event.type === "usage_recorded" ? sum + event.usage.totalTokens : sum), 0)
 }
 
+// Sum each prompt through its matching completed or interrupted turn so idle
+// gaps between turns (including sessions resumed later) are not counted.
 function sessionDurationSeconds(events: readonly SessionEvent[]) {
-  const activity = events.filter((event) => event.type === "prompt_admitted" || event.type === "turn_completed")
-  const first = timestamp(activity[0]?.at)
-  const last = timestamp(activity.at(-1)?.at)
-  if (first === undefined || last === undefined) return 0
-  return Math.max(0, (last - first) / 1000)
+  const started = new Map<string, number>()
+  let seconds = 0
+
+  for (const event of events) {
+    if (event.type === "prompt_admitted") {
+      const at = timestamp(event.at)
+      if (at !== undefined) started.set(event.promptId, at)
+      continue
+    }
+    if (event.type !== "turn_completed" && event.type !== "turn_interrupted") continue
+    const start = started.get(event.promptId)
+    const end = timestamp(event.at)
+    started.delete(event.promptId)
+    if (start === undefined || end === undefined) continue
+    seconds += Math.max(0, (end - start) / 1000)
+  }
+
+  return seconds
 }
 
 function activityDates(events: readonly SessionEvent[]) {

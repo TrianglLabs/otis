@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest"
 import { colors } from "../../src/cli/theme.js"
-import { COLOR_PULSE_PERIOD_MS, colorPulseAmount, selectionOutline } from "../../src/cli/ui/color-pulse.js"
+import {
+  COLOR_PULSE_PERIOD_MS,
+  colorPulseAmount,
+  selectionOutline,
+  shimmerAmounts,
+  TEXT_SHIMMER_PERIOD_MS,
+} from "../../src/cli/ui/color-pulse.js"
 
 describe("color pulse", () => {
   it("eases from rest to peak and back over one period", () => {
@@ -14,4 +20,16 @@ describe("color pulse", () => {
     expect(selectionOutline(0)).not.toBe(colors.surface)
     expect(selectionOutline(1)).toBe(colors.accent)
   })
+
+  it("sweeps a highlight through loading text", () => {
+    const start = shimmerAmounts(7, 0)
+    const mid = shimmerAmounts(7, TEXT_SHIMMER_PERIOD_MS / 2)
+    expect(peakIndex(start)).toBeLessThan(peakIndex(mid))
+    expect(start).not.toEqual(mid)
+    expect(shimmerAmounts(7, TEXT_SHIMMER_PERIOD_MS)).toEqual(start)
+  })
 })
+
+function peakIndex(amounts: number[]) {
+  return amounts.indexOf(Math.max(...amounts))
+}

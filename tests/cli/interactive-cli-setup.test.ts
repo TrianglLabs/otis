@@ -35,7 +35,6 @@ describe("interactive CLI setup", () => {
     await loadCli()
 
     expect(mocks.uiOptions?.configured).toBe(false)
-    expect(mocks.uiOptions?.statsVisible).toBe(false)
     expect(mocks.uiOptions?.modelLabel).toBe("")
     expect(mocks.calculateLocalStats).not.toHaveBeenCalled()
     mocks.uiOptions?.onSetup?.()
@@ -155,11 +154,29 @@ describe("interactive CLI setup", () => {
     await loadCli()
 
     expect(mocks.uiOptions?.configured).toBe(true)
-    expect(mocks.uiOptions?.statsVisible).toBe(true)
     expect(mocks.ui.showSetupInput).not.toHaveBeenCalled()
     expect(mocks.ParallelClient).toHaveBeenCalledOnce()
     expect(commandNames()).not.toContain("/fast")
     expect(commandNames()).not.toContain("/delete-model")
+  })
+
+  it("shows home stats when a local model is configured without a Fireworks key", async () => {
+    const cached = findLocalModel("openai/gpt-oss-20b")
+    if (!cached) throw new Error("missing local model")
+    mocks.loadLocalSettings.mockResolvedValue(
+      localSettings({
+        fireworksApiKey: undefined,
+        model: cached.id,
+        modelDisplayName: cached.displayName,
+        modelContextLength: 32_768,
+        modelProvider: "local",
+      }),
+    )
+    await loadCli()
+    await settle()
+
+    expect(mocks.uiOptions?.configured).toBe(true)
+    expect(mocks.calculateLocalStats).toHaveBeenCalled()
   })
 
   it("advertises /fast when the saved model has a Fast serving path", async () => {
@@ -235,7 +252,7 @@ describe("interactive CLI setup", () => {
     expect(mocks.ui.showSetupError).not.toHaveBeenCalled()
   })
 
-  it("uses the Fast serving path when the selected catalog model has one", async () => {
+  it("keeps the catalog serving path when Fast mode is unset", async () => {
     const kimi = testModel({
       id: "accounts/fireworks/models/kimi-k3",
       displayName: "Kimi K3",
@@ -255,13 +272,10 @@ describe("interactive CLI setup", () => {
     await loadCli()
     await settle()
 
-    expect(mocks.saveSelectedModel).toHaveBeenCalledWith({
-      ...kimi,
-      id: "accounts/fireworks/routers/kimi-k3-fast",
-    })
-    expect(mocks.ui.setModelLabel).toHaveBeenLastCalledWith("Kimi K3 Fast")
+    expect(mocks.saveSelectedModel).toHaveBeenCalledWith(kimi)
+    expect(mocks.ui.setModelLabel).toHaveBeenLastCalledWith("Kimi K3")
     expect(mocks.FireworksClient).toHaveBeenCalledWith(
-      expect.objectContaining({ model: "accounts/fireworks/routers/kimi-k3-fast" }),
+      expect.objectContaining({ model: "accounts/fireworks/models/kimi-k3" }),
     )
   })
 
@@ -287,13 +301,14 @@ describe("interactive CLI setup", () => {
     )
   })
 
-  it("saves the Fast serving path when a labeled catalog model is selected", async () => {
+  it("saves the Fast serving path when Fast mode is on and a labeled catalog model is selected", async () => {
     const kimi = testModel({
       id: "accounts/fireworks/models/kimi-k3",
       displayName: "Kimi K3",
       fastId: "accounts/fireworks/routers/kimi-k3-fast",
     })
     mocks.listToolCapableModels.mockResolvedValue([kimi])
+    mocks.loadLocalSettings.mockResolvedValue(localSettings({ fastMode: true }))
     await loadCli()
     await submit("/model")
 
@@ -349,9 +364,9 @@ describe("interactive CLI setup", () => {
     expect(mocks.ui.showTransientHint).not.toHaveBeenCalledWith(expect.stringMatching(/Starting /))
     expect(mocks.ui.showHomeLayout).not.toHaveBeenCalled()
     expect(mocks.ui.setModelPickerStatus).toHaveBeenCalledWith("openai/gpt-oss-20b", "47%")
-    expect(mocks.ui.setModelPickerStatus).toHaveBeenCalledWith("openai/gpt-oss-20b", "loading")
+    expect(mocks.ui.setModelPickerStatus).toHaveBeenCalledWith("openai/gpt-oss-20b", "Loading")
     expect(mocks.ui.setModelLabel).toHaveBeenLastCalledWith("gpt-oss 20B")
-    expect(mocks.ui.setModelLabel).not.toHaveBeenCalledWith(expect.stringMatching(/%|loading/))
+    expect(mocks.ui.setModelLabel).not.toHaveBeenCalledWith(expect.stringMatching(/%|loading/i))
     expect(mocks.ui.hideModelPicker).toHaveBeenCalled()
     expect(mocks.ui.setConfigured).toHaveBeenCalled()
     expect(mocks.ui.setCommands).toHaveBeenCalledWith(

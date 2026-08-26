@@ -21,7 +21,6 @@ export type { ModelPickerItem }
 
 export type ChatUIOptions = {
   configured?: boolean
-  statsVisible?: boolean
   commands?: CommandSuggestion[]
   contextLabel: string
   modelLabel: string

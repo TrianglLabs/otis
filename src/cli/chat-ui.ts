@@ -15,7 +15,7 @@ import {
 } from "./ui/format.js"
 import { HomeStats } from "./ui/home-stats.js"
 import { InputController } from "./ui/input-controller.js"
-import { createUILayout, themeRootsFrom } from "./ui/layout.js"
+import { createUILayout, setTopBarSideMinWidth, themeRootsFrom } from "./ui/layout.js"
 import { ModelPicker } from "./ui/model-picker.js"
 import { OverlayHost } from "./ui/overlays.js"
 import { createScrollbarOptions } from "./ui/panels.js"
@@ -69,6 +69,8 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     statBoxes,
     statsRow,
     topBar,
+    topBarEnd,
+    topBarStart,
     updateHint,
     welcome,
     welcomePanel,
@@ -346,8 +348,10 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
   }
 
   function setContextLabel(label: string, color = colors.muted) {
-    setText(contextLabel, formatContextLabel(label))
+    const padded = formatContextLabel(label)
+    setText(contextLabel, padded)
     contextLabel.fg = color
+    setTopBarSideMinWidth(topBarStart, topBarEnd, padded)
     status.setContextColor(color)
     renderer.requestRender()
   }

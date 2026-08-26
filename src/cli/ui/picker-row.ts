@@ -1,6 +1,6 @@
-import { BoxRenderable, fg, TextRenderable, t } from "@opentui/core"
+import { BoxRenderable, fg, StyledText, TextRenderable, t } from "@opentui/core"
 import { colors } from "../theme.js"
-import { colorPulseAmount, selectionOutline } from "./color-pulse.js"
+import { colorPulseAmount, selectionOutline, shimmerText } from "./color-pulse.js"
 import type { Renderer } from "./types.js"
 
 export type PickerRowBg = "background" | "surface"
@@ -15,7 +15,7 @@ export type PickerRow = {
 
 export type PickerRowSpec = {
   title: string
-  suffix?: { text: string; fg?: string }
+  suffix?: { text: string; fg?: string; shimmer?: boolean }
   meta?: string
   fg: string
   selected: boolean
@@ -82,11 +82,7 @@ export function stylePickerRow(row: PickerRow, spec: PickerRowSpec, elapsedMs = 
   const fill = rowFill(row)
   const prefix = spec.header ? "" : spec.selected ? "›" : " "
   const title = spec.header ? spec.title : `${prefix} ${spec.title}`
-  row.title.content = spec.suffix
-    ? spec.suffix.fg
-      ? t`${title}  ${fg(spec.suffix.fg)(spec.suffix.text)}`
-      : `${title}  ${spec.suffix.text}`
-    : title
+  row.title.content = titleWithSuffix(title, spec, elapsedMs)
   row.title.fg = spec.selected && !spec.disabled && !spec.header ? colors.accent : spec.fg
   row.title.bg = fill
   row.meta.content = spec.meta ? `  ${spec.meta}` : ""
@@ -105,4 +101,14 @@ export function paintPickerOutline(row: PickerRow, selected: boolean, elapsedMs:
 
 function rowFill(row: PickerRow) {
   return colors[row.bg]
+}
+
+function titleWithSuffix(title: string, spec: PickerRowSpec, elapsedMs: number) {
+  const suffix = spec.suffix
+  if (!suffix) return title
+  if (suffix.shimmer) {
+    return new StyledText([...t`${title}  `.chunks, ...shimmerText(suffix.text, elapsedMs).chunks])
+  }
+  if (suffix.fg) return t`${title}  ${fg(suffix.fg)(suffix.text)}`
+  return `${title}  ${suffix.text}`
 }

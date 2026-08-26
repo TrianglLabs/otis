@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest"
 import {
   baseModelIdForFastServingPath,
-  fireworksInferenceModel,
   fireworksServiceTier,
   fireworksServingModel,
   isFastFireworksModel,
   matchesFireworksModel,
+  useFastServingPath,
   withFastServingPaths,
 } from "../../src/inference/serving-path.js"
 import type { FireworksModel } from "../../src/inference/types.js"
@@ -49,13 +49,14 @@ describe("Fireworks serving paths", () => {
     ).toEqual([{ ...kimi, fastId: "accounts/fireworks/routers/kimi-k3-fast" }, glm])
   })
 
-  it("selects the Fast serving path for inference when one exists", () => {
-    const kimi = model("accounts/fireworks/models/kimi-k3", "Kimi K3")
-    const fast = { ...kimi, fastId: "accounts/fireworks/routers/kimi-k3-fast" }
-    expect(fireworksInferenceModel(kimi)).toBe(kimi)
-    expect(fireworksInferenceModel(fast)).toEqual({ ...fast, id: fast.fastId })
-    expect(matchesFireworksModel(fast, kimi.id)).toBe(true)
-    expect(matchesFireworksModel(fast, fast.fastId ?? "")).toBe(true)
+  it("keeps Fast serving opt-in unless the model ID is already a Fast router", () => {
+    expect(useFastServingPath("accounts/fireworks/models/kimi-k3")).toBe(false)
+    expect(useFastServingPath("accounts/fireworks/models/kimi-k3", false)).toBe(false)
+    expect(useFastServingPath("accounts/fireworks/models/kimi-k3", true)).toBe(true)
+    expect(useFastServingPath("accounts/fireworks/routers/kimi-k3-fast")).toBe(true)
+    expect(useFastServingPath("accounts/fireworks/routers/kimi-k3-fast", false)).toBe(true)
+    expect(useFastServingPath(undefined, true)).toBe(true)
+    expect(useFastServingPath(undefined)).toBe(false)
   })
 
   it("toggles a model between catalog and Fast serving IDs", () => {
@@ -65,6 +66,8 @@ describe("Fireworks serving paths", () => {
     expect(fireworksServingModel(fast, false)).toEqual(fast)
     expect(fireworksServingModel({ ...fast, id: fast.fastId }, false)).toEqual(fast)
     expect(fireworksServingModel(kimi, true)).toBe(kimi)
+    expect(matchesFireworksModel(fast, kimi.id)).toBe(true)
+    expect(matchesFireworksModel(fast, fast.fastId ?? "")).toBe(true)
   })
 })
 
