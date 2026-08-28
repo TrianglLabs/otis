@@ -5,6 +5,7 @@ import {
   type LocalAttentionSpec,
   type LocalKvGroup,
   type LocalModelSpec,
+  localModelWeightBytes,
 } from "./local-catalog.js"
 
 // The pinned llama.cpp estimator reports roughly 1.1 GiB of compute buffers for
@@ -76,7 +77,7 @@ export function memoryRequiredFor(model: LocalModelSpec, contextLength: number) 
   if (!Number.isSafeInteger(contextLength) || contextLength <= 0) {
     throw new Error("Context length must be a positive integer.")
   }
-  return model.weightBytes + kvCacheBytes(model.attention, contextLength) + RUNTIME_OVERHEAD_BYTES
+  return localModelWeightBytes(model) + kvCacheBytes(model.attention, contextLength) + RUNTIME_OVERHEAD_BYTES
 }
 
 export function kvCacheBytes(attention: LocalAttentionSpec, contextLength: number) {
@@ -94,7 +95,8 @@ export function formatMemoryLabel(bytes: number) {
 
 function groupKvBytes(group: LocalKvGroup, contextLength: number) {
   const tokens = group.window === undefined ? contextLength : Math.min(contextLength, group.window)
-  return group.layers * group.kvHeads * group.headDim * KV_ELEMENT_BYTES * tokens
+  const bytesPerTokenPerLayer = group.bytesPerTokenPerLayer ?? group.kvHeads * group.headDim * KV_ELEMENT_BYTES
+  return group.layers * bytesPerTokenPerLayer * tokens
 }
 
 function largestFittingContext(model: LocalModelSpec, memoryAvailableBytes: number) {

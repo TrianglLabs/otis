@@ -9,7 +9,7 @@ import {
 } from "../../inference/picker-catalog.js"
 import { colors } from "../theme.js"
 import { SelectionPulse } from "./color-pulse.js"
-import { FAST_MODEL_LABEL } from "./format.js"
+import { FAST_MODE_LABEL, RECOMMENDED_MODEL_MARK } from "./format.js"
 import {
   createPickerRow,
   type PickerRow,
@@ -181,7 +181,9 @@ export class ModelPicker {
 }
 
 function modelTitle(item: ModelPickerChoice, hasSuffix: boolean) {
-  return truncatePickerLabel(item.displayName, hasSuffix ? 20 : 30)
+  const marker = item.provider === "local" && item.recommended ? ` ${RECOMMENDED_MODEL_MARK}` : ""
+  const maximum = hasSuffix ? 20 : 30
+  return `${truncatePickerLabel(item.displayName, maximum - marker.length)}${marker}`
 }
 
 function localNameSuffix(item: ModelPickerChoice) {
@@ -198,7 +200,7 @@ function modelMeta(item: ModelPickerChoice) {
   const parts: string[] = []
   if (item.contextLength) parts.push(formatContextWindow(item.contextLength))
   parts.push(item.supportsImageInput ? "Vision" : "Text")
-  if (item.fastId) parts.push(FAST_MODEL_LABEL)
+  if (item.fastId) parts.push(FAST_MODE_LABEL)
   return parts.join(" · ")
 }
 

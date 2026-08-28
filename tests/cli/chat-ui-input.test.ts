@@ -319,7 +319,7 @@ describe("chat UI input", () => {
     expect(harness.find("setup-choice-subheading")).toBeUndefined()
     expect(harness.childIds("setup-choice-cards")).toEqual(["setup-choice-local", "setup-choice-hosted"])
     await harness.renderOnce()
-    expect(harness.get<BoxRenderable>("welcome-panel").width).toBe(84)
+    expect(harness.get<BoxRenderable>("welcome-panel").width).toBe(91)
     expect(
       harness
         .captureCharFrame()
@@ -333,7 +333,7 @@ describe("chat UI input", () => {
     expect(harness.text("setup-choice-local-detail-1")).toBe("Apple silicon · 24 GB+ unified memory")
     expect(harness.text("setup-choice-local-detail-2")).toBe("Linux · 24 GB+ RAM")
     expect(harness.text("setup-choice-local-detail-3")).toBe("Vulkan GPU · 16 GB+ VRAM")
-    expect(harness.text("setup-choice-local-detail-4")).toBe("12–19 GB disk per model")
+    expect(harness.find("setup-choice-local-detail-4")).toBeUndefined()
     expect(harness.text("setup-choice-hosted-label")).toBe("Powered by Fireworks")
     expect(harness.text("setup-choice-hosted-description")).toBe(
       "Fast remote inference with no local hardware requirements.",
@@ -345,6 +345,7 @@ describe("chat UI input", () => {
 
     const localCard = harness.get<BoxRenderable>("setup-choice-local")
     const hostedCard = harness.get<BoxRenderable>("setup-choice-hosted")
+    expect(Math.min(localCard.width, hostedCard.width)).toBeGreaterThanOrEqual(42)
     const localTitle = harness.get<TextRenderable>("setup-choice-local-title")
     const hostedTitle = harness.get<TextRenderable>("setup-choice-hosted-title")
     expect(localCard.borderColor.equals(RGBA.fromHex(colors.border))).toBe(false)

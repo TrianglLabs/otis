@@ -393,7 +393,7 @@ describe("chat UI rendering", () => {
     ])
 
     expect(harness.text("model-row-0")).toBe("› Kimi K3")
-    expect(harness.text("model-row-0-meta")).toBe("  Vision · Fast")
+    expect(harness.text("model-row-0-meta")).toBe("  Vision · Fast mode")
     expect(harness.text("model-row-1")).toBe("  Inkling")
     expect(harness.text("model-row-1-meta")).toBe("  Text")
     expect(harness.find("model-panel-header-helper")).toBeUndefined()
@@ -459,6 +459,7 @@ describe("chat UI rendering", () => {
       contextLength: 262_144,
       supportsImageInput: false,
       available: false,
+      recommended: false,
       availabilityLabel: "Needs 19 GB",
       downloaded: true,
       active: false,
@@ -505,24 +506,25 @@ describe("chat UI rendering", () => {
       contextLength: 131_072,
       supportsImageInput: false,
       available: true,
-      availabilityLabel: "128K loaded · MXFP4 · 16 GB",
+      recommended: true,
+      availabilityLabel: "128K · MXFP4 · 16 GB",
       loadedContextLength: 131_072,
       downloaded: true,
       active: true,
     }
 
     harness.ui.showModelPicker([{ kind: "header", id: "header-local", displayName: "Local" }, local])
-    expect(harness.text("model-row-1")).toBe("› gpt-oss 20B  Downloaded")
+    expect(harness.text("model-row-1")).toBe("› gpt-oss 20B *  Downloaded")
     const downloaded = harness.get<TextRenderable>("model-row-1").chunks.find((chunk) => chunk.text === "Downloaded")
     expect(downloaded?.fg?.equals(RGBA.fromHex(colors.muted))).toBe(true)
-    expect(harness.text("model-row-1-meta")).toBe("  128K loaded · MXFP4 · 16 GB · Text")
+    expect(harness.text("model-row-1-meta")).toBe("  128K · MXFP4 · 16 GB · Text")
 
     harness.ui.setModelPickerStatus(local.id, { label: "Downloading 47%", kind: "progress" })
-    expect(harness.text("model-row-1")).toBe("› gpt-oss 20B  Downloading 47%")
-    expect(harness.text("model-row-1-meta")).toBe("  128K loaded · MXFP4 · 16 GB · Text")
+    expect(harness.text("model-row-1")).toBe("› gpt-oss 20B *  Downloading 47%")
+    expect(harness.text("model-row-1-meta")).toBe("  128K · MXFP4 · 16 GB · Text")
 
     harness.ui.setModelPickerStatus(local.id, { label: LOCAL_LOADING_LABEL, kind: "progress" })
-    expect(harness.text("model-row-1")).toBe("› gpt-oss 20B  Loading")
+    expect(harness.text("model-row-1")).toBe("› gpt-oss 20B *  Loading")
   })
 
   it.each([
@@ -539,7 +541,8 @@ describe("chat UI rendering", () => {
       contextLength: 131_072,
       supportsImageInput: false,
       available: true,
-      availabilityLabel: "128K loaded · MXFP4 · 16 GB",
+      recommended: false,
+      availabilityLabel: "128K · MXFP4 · 16 GB",
       loadedContextLength: 131_072,
       downloaded: true,
       active: true,
@@ -567,6 +570,7 @@ describe("chat UI rendering", () => {
       contextLength: 131_072,
       supportsImageInput: false,
       available: true,
+      recommended: true,
       availabilityLabel: "Est. 128K · MXFP4 · 16 GB",
       downloaded: false,
       active: true,
@@ -596,7 +600,8 @@ describe("chat UI rendering", () => {
     }
     await harness.renderOnce()
 
-    expect(harness.text("model-row-1").startsWith("›")).toBe(true)
+    expect(harness.text("model-row-1")).toBe("› gpt-oss 20B *")
+    expect(harness.text("model-row-1-meta")).toBe("  Est. 128K · MXFP4 · 16 GB · Text")
     expect(harness.get<ScrollBoxRenderable>("model-rows").scrollTop).toBe(0)
   })
 })

@@ -10,6 +10,7 @@ import {
   isLocalGgufDownloaded,
   listDownloadedLocalModels,
   localGgufPath,
+  localGgufPaths,
 } from "../../src/inference/gguf-cache.js"
 import { findLocalModel, type LocalModelSpec } from "../../src/inference/local-catalog.js"
 
@@ -35,7 +36,7 @@ describe("local GGUF cache", () => {
     expect(await readFile(dest)).toEqual(Buffer.from(body))
     expect(percents.at(-1)).toBe(100)
     expect(await isLocalGgufDownloaded(model, directory)).toBe(true)
-    await expect(readFile(`${dest}.otis.json`, "utf8")).resolves.toContain(model.ggufSha256)
+    await expect(readFile(`${dest}.otis.json`, "utf8")).resolves.toContain(model.ggufFiles[0].sha256)
   })
 
   it("verifies a legacy cached GGUF once and then skips the network", async () => {
@@ -132,7 +133,7 @@ describe("local GGUF cache", () => {
       ensureLocalGguf(model, {
         dataDirectory: directory,
         signal: abort.signal,
-        fetch: response(body.slice(0, 2), model.weightBytes),
+        fetch: response(body.slice(0, 2), model.ggufFiles[0].size),
         onProgress: (percent) => {
           if (percent === 50) abort.abort()
         },
@@ -193,7 +194,7 @@ describe("local GGUF cache", () => {
     const dest = localGgufPath(model, directory)
     await mkdir(join(directory, "models"), { recursive: true })
     await writeFile(dest, "")
-    await truncate(dest, model.weightBytes)
+    await truncate(dest, model.ggufFiles[0].size)
     await writeFile(`${dest}.partial`, "unfinished")
     await writeFile(`${dest}.otis.json`, "manifest")
 
@@ -208,8 +209,40 @@ describe("local GGUF cache", () => {
   it("builds an immutable Hugging Face resolve URL", () => {
     const model = catalogModel()
     expect(huggingFaceGgufUrl(model)).toBe(
-      `https://huggingface.co/${model.ggufRepo}/resolve/${model.ggufRevision}/${model.ggufFile}`,
+      `https://huggingface.co/${model.ggufRepo}/resolve/${model.ggufRevision}/${model.ggufFiles[0].name}`,
     )
+  })
+
+  it("downloads, verifies, and deletes every shard in a split GGUF", async () => {
+    const shards = [new Uint8Array([1, 2]), new Uint8Array([3, 4, 5])]
+    const model = splitModel(shards)
+    const directory = await tempDir()
+    const percents: number[] = []
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const index = model.ggufFiles.findIndex((file) => String(input).endsWith(file.name))
+      const body = shards[index]
+      if (!body) return new Response("missing", { status: 404 })
+      return new Response(Buffer.from(body), { headers: { "content-length": String(body.byteLength) } })
+    }) as unknown as typeof fetch
+
+    const primary = await ensureLocalGguf(model, {
+      dataDirectory: directory,
+      fetch: fetchImpl,
+      onProgress: (percent) => percents.push(percent),
+    })
+    const paths = localGgufPaths(model, directory)
+
+    expect(primary).toBe(paths[0])
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    await expect(readFile(paths[0])).resolves.toEqual(Buffer.from(shards[0]))
+    await expect(readFile(paths[1])).resolves.toEqual(Buffer.from(shards[1]))
+    expect(percents.at(-1)).toBe(100)
+    await expect(isLocalGgufDownloaded(model, directory)).resolves.toBe(true)
+
+    await deleteLocalGguf(model, directory)
+    await expect(isLocalGgufDownloaded(model, directory)).resolves.toBe(false)
+    await expect(stat(paths[0])).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(stat(paths[1])).rejects.toMatchObject({ code: "ENOENT" })
   })
 })
 
@@ -228,9 +261,25 @@ function catalogModel() {
 function tinyModel(body: Uint8Array): LocalModelSpec {
   return {
     ...catalogModel(),
-    weightBytes: body.byteLength,
-    ggufSha256: createHash("sha256").update(body).digest("hex"),
+    ggufFiles: [
+      {
+        name: "tiny.gguf",
+        size: body.byteLength,
+        sha256: createHash("sha256").update(body).digest("hex"),
+      },
+    ],
   }
+}
+
+function splitModel(shards: readonly Uint8Array[]): LocalModelSpec {
+  const files = shards.map((body, index) => ({
+    name: `split/model-${index + 1}-of-${shards.length}.gguf`,
+    size: body.byteLength,
+    sha256: createHash("sha256").update(body).digest("hex"),
+  }))
+  const first = files[0]
+  if (!first) throw new Error("split model needs at least one shard")
+  return { ...catalogModel(), ggufFiles: [first, ...files.slice(1)] }
 }
 
 function response(body: Uint8Array, contentLength = body.byteLength): typeof fetch {

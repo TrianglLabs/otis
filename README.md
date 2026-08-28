@@ -66,7 +66,7 @@ Start `otis` and select **Set up Otis**, then choose where inference runs:
 
 - **Local inference** downloads and runs a model on your machine. For a good experience, use Apple silicon with at
   least 24 GB of unified memory, or Linux with at least 24 GB of RAM. A Vulkan-capable GPU improves speed; 16 GB or
-  more of VRAM is recommended. Each model uses 12–19 GB of disk space.
+  more of VRAM is recommended.
 - **Hosted inference** runs remote models using your own API key and has no local hardware requirements. You can
   configure hosted inference later in Settings.
 
@@ -90,15 +90,16 @@ otis
 After setup, `/model` lists local llama.cpp models above hosted models. Local inference is supported on macOS and Linux
 on arm64 and x64; unsupported platforms show local models as unavailable before a download starts. Selecting a runnable
 model downloads Otis' pinned, checksum-verified `llama-server` runtime and a revision-pinned, checksum-verified GGUF
-into the local data directory, then serves it on `127.0.0.1`. Interrupted GGUF downloads resume from a partial file;
-the complete result must still pass its pinned size and checksum. Download progress and `Downloaded` appear next to
-the model name in the picker.
+or split GGUF into the local data directory, then serves it on `127.0.0.1`. Interrupted shard downloads resume from a
+partial file; every completed file must still pass its pinned size and checksum. Download progress and `Downloaded`
+appear next to the model name in the picker.
+An `*` beside a local model identifies the model matched to the machine's detected system memory.
 
 Otis checks whether the model can fit in system memory, including a conservative runtime reserve. On Linux,
 llama.cpp uses Vulkan when a render device is present and can split the model between GPU memory and system RAM, so a
 smaller GPU does not make a model unavailable. CPU-only inference remains available but is slower. llama.cpp's fitter
 chooses the actual context and GPU offload at startup; Otis reports the context the server loaded. Unloaded rows show an
-`Est.` context, while the active local model shows `loaded`. Models that cannot fit even 8K stay visible and greyed out.
+`Est.` context, while the active local model shows `loaded`. Models that cannot fit even 8K are omitted from the picker.
 
 When at least one GGUF is present, Settings includes a local-model deletion menu. Deleting the active or final local
 model stops Otis' `llama-server`; deleting an inactive model leaves the current server untouched.

@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { localGgufPath } from "../../src/inference/gguf-cache.js"
 import { type HardwareProbe, inferenceMemoryBudget } from "../../src/inference/hardware.js"
 import { LlamaCppRuntime, type LlamaCppRuntimeOptions } from "../../src/inference/llama-runtime.js"
-import { findLocalModel } from "../../src/inference/local-catalog.js"
+import { findLocalModel, type LocalModelSpec } from "../../src/inference/local-catalog.js"
 import { fitLocalModel } from "../../src/inference/local-fit.js"
 
 const hardware: HardwareProbe = {
@@ -20,10 +20,10 @@ const hardware: HardwareProbe = {
 }
 
 const pinnedArchiveURL =
-  "https://github.com/ggml-org/llama.cpp/releases/download/b10622/llama-b10622-bin-macos-arm64.tar.gz"
+  "https://github.com/ggml-org/llama.cpp/releases/download/b10666/llama-b10666-bin-macos-arm64.tar.gz"
 const archiveBody = Buffer.from("archive")
 const fakeRuntimeAsset: NonNullable<LlamaCppRuntimeOptions["runtimeAsset"]> = () => ({
-  name: "llama-b10622-bin-macos-arm64.tar.gz",
+  name: "llama-b10666-bin-macos-arm64.tar.gz",
   url: pinnedArchiveURL,
   size: archiveBody.byteLength,
   sha256: createHash("sha256").update(archiveBody).digest("hex"),
@@ -71,7 +71,7 @@ describe("llama.cpp runtime", () => {
     await runtime.ensureServing(model, fit, hardware)
 
     const binary = commands[0]
-    expect(binary).toBe(join(directory, "bin", "b10622", "llama-server"))
+    expect(binary).toBe(join(directory, "bin", "b10666", "llama-server"))
     expect(await readFile(join(dirname(binary as string), "libllama.dylib"), "utf8")).toBe("llama library")
     await expect(readFile(join(dirname(binary as string), ".otis-runtime.json"), "utf8")).resolves.toContain(
       `"artifactSha256":"${fakeRuntimeAsset(hardware).sha256}"`,
@@ -85,8 +85,8 @@ describe("llama.cpp runtime", () => {
     const fit = fitLocalModel(model, hardware)
     const directory = await tempDir()
     await cacheWeights(model, directory)
-    await installFakeBinary(directory, "b10623")
-    const pinned = await installFakeBinary(directory, "b10622")
+    await installFakeBinary(directory, "b10667")
+    const pinned = await installFakeBinary(directory, "b10666")
     const urls: string[] = []
     let command = ""
     const runtime = new LlamaCppRuntime({
@@ -111,7 +111,7 @@ describe("llama.cpp runtime", () => {
 
     expect(command).toBe(pinned)
     expect(urls).not.toContain(pinnedArchiveURL)
-    await expect(stat(join(directory, "bin", "b10623"))).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(stat(join(directory, "bin", "b10667"))).rejects.toMatchObject({ code: "ENOENT" })
     await runtime.stop()
   })
 
@@ -120,7 +120,7 @@ describe("llama.cpp runtime", () => {
     const fit = fitLocalModel(model, hardware)
     const directory = await tempDir()
     await cacheWeights(model, directory)
-    const binary = await installFakeBinary(directory, "b10622")
+    const binary = await installFakeBinary(directory, "b10666")
     await writeFile(
       join(dirname(binary), ".otis-runtime.json"),
       JSON.stringify({
@@ -167,7 +167,7 @@ describe("llama.cpp runtime", () => {
     const fit = fitLocalModel(model, hardware)
     const directory = await tempDir()
     await cacheWeights(model, directory)
-    const binary = await installLoneBinary(directory, "b10622")
+    const binary = await installLoneBinary(directory, "b10666")
     const urls: string[] = []
     const runtime = new LlamaCppRuntime({
       env: {},
@@ -560,24 +560,29 @@ async function cacheWeights(model: ReturnType<typeof catalogModel>, directory: s
   await mkdir(join(directory, "models"), { recursive: true })
   const path = localGgufPath(model, directory)
   await writeFile(path, "")
-  await truncate(path, model.weightBytes)
+  await truncate(path, model.ggufFiles[0].size)
   await writeFile(
     `${path}.otis.json`,
     JSON.stringify({
       version: 1,
       model: model.id,
       revision: model.ggufRevision,
-      sha256: model.ggufSha256,
-      size: model.weightBytes,
+      sha256: model.ggufFiles[0].sha256,
+      size: model.ggufFiles[0].size,
     }),
   )
 }
 
-function tinyModel(model: ReturnType<typeof catalogModel>, contents: Uint8Array) {
+function tinyModel(model: ReturnType<typeof catalogModel>, contents: Uint8Array): LocalModelSpec {
   return {
     ...model,
-    weightBytes: contents.byteLength,
-    ggufSha256: createHash("sha256").update(contents).digest("hex"),
+    ggufFiles: [
+      {
+        name: "tiny.gguf",
+        size: contents.byteLength,
+        sha256: createHash("sha256").update(contents).digest("hex"),
+      },
+    ],
   }
 }
 

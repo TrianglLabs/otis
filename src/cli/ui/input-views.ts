@@ -143,7 +143,6 @@ export function createSetupViews(renderer: Renderer) {
       "Apple silicon · 24 GB+ unified memory",
       "Linux · 24 GB+ RAM",
       "Vulkan GPU · 16 GB+ VRAM",
-      "12–19 GB disk per model",
     ],
   })
   const setupHostedCard = createInferenceChoiceCard(renderer, {

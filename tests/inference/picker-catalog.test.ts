@@ -34,9 +34,28 @@ afterEach(async () => {
 })
 
 describe("model picker catalog", () => {
+  it.each([
+    [8, ["LiquidAI/LFM2.5-2.6B"]],
+    [16, ["ornith-ai/Ornith-1.5-9B", "google/gemma-4-12B-it"]],
+    [24, ["Qwen/Qwen3.8-27B"]],
+    [96, ["Qwen/Qwen3.8-Flash-Next"]],
+    [384, ["zai-org/GLM-5.3"]],
+  ])("marks the recommended fitting models at %d GB", async (memoryGB, modelIds) => {
+    const items = await listModelPickerItems({
+      hardware: { ...ample, totalMemoryBytes: memoryGB * 1024 ** 3, gpuMemoryBytes: memoryGB * 1024 ** 3 },
+      dataDirectory: await tempDir(),
+    })
+    const recommended = items.filter(
+      (item): item is LocalPickerChoice => item.kind === "model" && item.provider === "local" && item.recommended,
+    )
+
+    expect(recommended.map((model) => model.id)).toEqual(modelIds)
+    expect(recommended.every((model) => model.available)).toBe(true)
+  })
+
   it("lists official local models above hosted entries", async () => {
     const items = await listModelPickerItems({
-      hardware: ample,
+      hardware: { ...ample, totalMemoryBytes: 512 * 1024 ** 3, gpuMemoryBytes: 512 * 1024 ** 3 },
       dataDirectory: await tempDir(),
       currentModel: "accounts/fireworks/models/inkling",
       fireworksApiKey: "fw_test",
@@ -59,13 +78,34 @@ describe("model picker catalog", () => {
     })
   })
 
-  it("keeps local models visible but unavailable when they cannot fit", async () => {
+  it("hides local models that do not fit the detected system memory", async () => {
     const items = await listModelPickerItems({ hardware: tight, dataDirectory: await tempDir() })
     const local = items.filter((item): item is LocalPickerChoice => item.kind === "model" && item.provider === "local")
-    expect(local).toHaveLength(LOCAL_MODELS.length)
-    expect(local.every((item) => item.available === false)).toBe(true)
-    expect(local.every((item) => item.availabilityLabel.startsWith("Needs "))).toBe(true)
-    expect(local.every((item) => item.downloaded === false)).toBe(true)
+    expect(local).toEqual([
+      expect.objectContaining({
+        id: "LiquidAI/LFM2.5-2.6B",
+        recommended: true,
+        downloaded: false,
+      }),
+    ])
+    expect(local[0]).toMatchObject({
+      available: true,
+      availabilityLabel: expect.stringMatching(/^Est\. /),
+    })
+  })
+
+  it("omits an empty Local section when no catalog model fits", async () => {
+    const items = await listModelPickerItems({
+      hardware: { ...tight, totalMemoryBytes: 4 * 1024 ** 3, gpuMemoryBytes: 4 * 1024 ** 3 },
+      dataDirectory: await tempDir(),
+      fireworksApiKey: "fw_test",
+      listFireworks: async () => [
+        fireworksModel({ id: "accounts/fireworks/models/alpha", displayName: "Alpha", supportsImageInput: false }),
+      ],
+    })
+
+    expect(items.some((item) => item.kind === "header" && item.id === "header-local")).toBe(false)
+    expect(items[0]).toMatchObject({ kind: "header", id: "header-hosted" })
   })
 
   it("keeps hybrid-offload models available when system RAM is sufficient", async () => {
@@ -93,6 +133,7 @@ describe("model picker catalog", () => {
     const local = items.filter((item): item is LocalPickerChoice => item.kind === "model" && item.provider === "local")
 
     expect(local.every((item) => !item.available)).toBe(true)
+    expect(local.every((item) => !item.recommended)).toBe(true)
     expect(local.every((item) => item.availabilityLabel === "Local inference is not supported on win32/x64.")).toBe(
       true,
     )
@@ -104,7 +145,7 @@ describe("model picker catalog", () => {
     if (!cached) throw new Error("missing catalog entry")
     await mkdir(join(directory, "models"), { recursive: true })
     await writeFile(localGgufPath(cached, directory), "")
-    await truncate(localGgufPath(cached, directory), cached.weightBytes)
+    await truncate(localGgufPath(cached, directory), cached.ggufFiles[0].size)
 
     const items = await listModelPickerItems({ hardware: ample, dataDirectory: directory })
     const local = items.filter((item): item is LocalPickerChoice => item.kind === "model" && item.provider === "local")
@@ -130,7 +171,7 @@ describe("model picker catalog", () => {
       contextLength: 80_128,
       loadedContextLength: 80_128,
     })
-    expect(active?.availabilityLabel).toMatch(/^80K loaded · Q4_K_M · /)
+    expect(active?.availabilityLabel).toMatch(/^80K · Q4_K_M · /)
     expect(
       local.filter((item) => item.id !== model.id).every((item) => item.availabilityLabel.startsWith("Est. ")),
     ).toBe(true)
@@ -178,6 +219,10 @@ describe("model picker catalog", () => {
     const items = await listModelPickerItems({ hardware: ample, dataDirectory: await tempDir() })
     const local = items.filter((item): item is LocalPickerChoice => item.kind === "model" && item.provider === "local")
     expect(local.map((item) => item.availabilityLabel.split(" ·")[0])).toEqual([
+      "Est. 256K",
+      "Est. 256K",
+      "Est. 128K",
+      "Est. 256K",
       "Est. 256K",
       "Est. 256K",
       "Est. 128K",

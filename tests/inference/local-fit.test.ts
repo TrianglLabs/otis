@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { HardwareProbe } from "../../src/inference/hardware.js"
-import { findLocalModel, LOCAL_MODELS } from "../../src/inference/local-catalog.js"
+import { findLocalModel, LOCAL_MODELS, localModelWeightBytes } from "../../src/inference/local-catalog.js"
 import { fitLocalModel, kvCacheBytes, memoryRequiredFor } from "../../src/inference/local-fit.js"
 
 const apple128: HardwareProbe = {
@@ -20,8 +20,13 @@ const apple16: HardwareProbe = {
 
 describe("local model fit", () => {
   it("gives each model its native context when memory allows", () => {
+    const apple512: HardwareProbe = {
+      ...apple128,
+      totalMemoryBytes: 512 * 1024 ** 3,
+      gpuMemoryBytes: 512 * 1024 ** 3,
+    }
     for (const model of LOCAL_MODELS) {
-      const fit = fitLocalModel(model, apple128)
+      const fit = fitLocalModel(model, apple512)
       expect(fit.available).toBe(true)
       expect(fit.contextLength).toBe(model.nativeContextLength)
     }
@@ -43,6 +48,14 @@ describe("local model fit", () => {
     expect(fit.contextLength).toBeGreaterThanOrEqual(8_192)
     expect(fit.contextLength).toBeLessThan(model.nativeContextLength)
     expect(fit.contextLength % 1_024).toBe(0)
+  })
+
+  it("fits Gemma 4 12B at native context on a 16 GB Mac", () => {
+    const gemma = findLocalModel("google/gemma-4-12B-it")
+    if (!gemma) throw new Error("missing catalog entry")
+    const fit = fitLocalModel(gemma, apple16)
+    expect(fit.available).toBe(true)
+    expect(fit.contextLength).toBe(gemma.nativeContextLength)
   })
 
   it("uses the largest context that fits instead of a 32K cap", () => {
@@ -86,6 +99,22 @@ describe("local model fit", () => {
     expect(kvCacheBytes(qwen.attention, 32_768)).toBeLessThan(allLayers)
   })
 
+  it("counts only Ornith full-attention layers for KV", () => {
+    const ornith = findLocalModel("ornith-ai/Ornith-1.5-9B")
+    if (!ornith) throw new Error("missing catalog entry")
+    const allLayers = 32 * 4 * 256 * 4 * 32_768
+    expect(kvCacheBytes(ornith.attention, 32_768)).toBe(8 * 4 * 256 * 4 * 32_768)
+    expect(kvCacheBytes(ornith.attention, 32_768)).toBeLessThan(allLayers)
+  })
+
+  it("counts only LFM2.5 attention layers for KV", () => {
+    const lfm = findLocalModel("LiquidAI/LFM2.5-2.6B")
+    if (!lfm) throw new Error("missing catalog entry")
+    const allLayers = 30 * 8 * 64 * 4 * 32_768
+    expect(kvCacheBytes(lfm.attention, 32_768)).toBe(8 * 8 * 64 * 4 * 32_768)
+    expect(kvCacheBytes(lfm.attention, 32_768)).toBeLessThan(allLayers)
+  })
+
   it("uses Gemma 4 global-layer geometry instead of sliding-layer heads", () => {
     const gemma = findLocalModel("google/gemma-4-31B-it")
     if (!gemma) throw new Error("missing catalog entry")
@@ -93,7 +122,32 @@ describe("local model fit", () => {
     const expected = 10 * 4 * 512 * 4 * 32_768 + 50 * 16 * 256 * 4 * 1_024
     expect(kvCacheBytes(gemma.attention, 32_768)).toBe(expected)
     expect(kvCacheBytes(gemma.attention, 32_768)).toBeLessThan(naive)
-    expect(memoryRequiredFor(gemma, 32_768)).toBeGreaterThan(gemma.weightBytes)
+    expect(memoryRequiredFor(gemma, 32_768)).toBeGreaterThan(localModelWeightBytes(gemma))
+  })
+
+  it("uses Gemma 4 12B's official global and sliding-layer geometry", () => {
+    const gemma = findLocalModel("google/gemma-4-12B-it")
+    if (!gemma) throw new Error("missing catalog entry")
+    const expected = 8 * 1 * 512 * 4 * 32_768 + 40 * 8 * 256 * 4 * 1_024
+    expect(kvCacheBytes(gemma.attention, 32_768)).toBe(expected)
+  })
+
+  it("fits the selected large-model quants at the start of their recommendation tiers", () => {
+    const qwen = findLocalModel("Qwen/Qwen3.8-Flash-Next")
+    const glm = findLocalModel("zai-org/GLM-5.3")
+    if (!qwen || !glm) throw new Error("missing large catalog entry")
+
+    expect(fitLocalModel(qwen, { ...apple128, totalMemoryBytes: 96 * 1024 ** 3 }).available).toBe(true)
+    expect(fitLocalModel(glm, { ...apple128, totalMemoryBytes: 384 * 1024 ** 3 }).available).toBe(true)
+  })
+
+  it("uses the full-attention and MLA cache geometries for the new models", () => {
+    const qwen = findLocalModel("Qwen/Qwen3.8-Flash-Next")
+    const glm = findLocalModel("zai-org/GLM-5.3")
+    if (!qwen || !glm) throw new Error("missing large catalog entry")
+
+    expect(kvCacheBytes(qwen.attention, 8_192)).toBe(12 * 2 * 256 * 4 * 8_192)
+    expect(kvCacheBytes(glm.attention, 8_192)).toBe(78 * (512 + 64) * 2 * 8_192)
   })
 
   it("grows gpt-oss KV on the dense attention layers", () => {
