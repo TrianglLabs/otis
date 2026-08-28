@@ -9,8 +9,8 @@ const version = process.env.OTIS_VERSION ?? "dev"
 const TOP_BAR_BRAND = " OTIS "
 const HOME_PANEL_WIDTH = "78%"
 const HOME_PANEL_MAX_WIDTH = 72
-const SETUP_CHOICE_PANEL_WIDTH = "88%"
-const SETUP_CHOICE_PANEL_MAX_WIDTH = 84
+const SETUP_CHOICE_PANEL_WIDTH = "92%"
+const SETUP_CHOICE_PANEL_MAX_WIDTH = 92
 
 export function setTopBarSideMinWidth(start: BoxRenderable, end: BoxRenderable, paddedContext: string) {
   const minWidth = Math.max(TOP_BAR_BRAND.length, paddedContext.length)

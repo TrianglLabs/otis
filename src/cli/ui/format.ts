@@ -3,6 +3,8 @@ import type { PermissionMode } from "../../permissions/policy.js"
 
 export const CHAT_INPUT_HINT = " [TAB] mode · [ESC] interrupt "
 export const FAST_MODEL_LABEL = "Fast"
+export const FAST_MODE_LABEL = "Fast mode"
+export const RECOMMENDED_MODEL_MARK = "*"
 export const LOCAL_DOWNLOADING_LABEL = "Downloading"
 export const LOCAL_LOADING_LABEL = "Loading"
 

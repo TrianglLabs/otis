@@ -1,31 +1,31 @@
-export const LLAMA_CPP_RELEASE_TAG = "b10622"
+export const LLAMA_CPP_RELEASE_TAG = "b10666"
 
 const LLAMA_CPP_RELEASE_BASE_URL = `https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_CPP_RELEASE_TAG}`
 
 const LLAMA_CPP_ASSETS = {
-  "llama-b10622-bin-macos-arm64.tar.gz": {
-    size: 10_954_906,
-    sha256: "c0116ec9957477a9c77e68d3cf31e79f9aede1a9210861c7c09d74acc3e9c3cf",
+  "llama-b10666-bin-macos-arm64.tar.gz": {
+    size: 11_022_594,
+    sha256: "f2b5d7b445cfcdab2abe53e0e6e697790094fb902ef2bdaafd23c813bb297cbb",
   },
-  "llama-b10622-bin-macos-x64.tar.gz": {
-    size: 11_034_210,
-    sha256: "b772320b22bc5cf845930088c985012b94e284242c2ad05fad174297eb5e373e",
+  "llama-b10666-bin-macos-x64.tar.gz": {
+    size: 11_088_606,
+    sha256: "5af9cd7fbcc226dbdba8d24e66e07b732903fc58eff0e38d829f04264f8d4601",
   },
-  "llama-b10622-bin-ubuntu-arm64.tar.gz": {
-    size: 13_042_868,
-    sha256: "6730946e555d57cdd29ad28f9d445a9195fa3d72d5ed076fa6dcfe25a4f4c266",
+  "llama-b10666-bin-ubuntu-arm64.tar.gz": {
+    size: 13_124_929,
+    sha256: "80e7e23689b9a8d541b45270a202db4f72de99ea52eabc4910373d8cc96e98fe",
   },
-  "llama-b10622-bin-ubuntu-vulkan-arm64.tar.gz": {
-    size: 26_775_532,
-    sha256: "743e7d3ee6297daa22cdc5b2262ebed93512bdffaf3d5c7f05c24ff60e7e78cb",
+  "llama-b10666-bin-ubuntu-vulkan-arm64.tar.gz": {
+    size: 26_878_255,
+    sha256: "7293e6a49668e89b1d846b93151f3323bf29d99a73933a44264da0ac3cd5938f",
   },
-  "llama-b10622-bin-ubuntu-vulkan-x64.tar.gz": {
-    size: 32_916_111,
-    sha256: "2e9a07037f1aa89f9ccd85acc6a376c503a369e3feb916b42d8e9a1542c8828e",
+  "llama-b10666-bin-ubuntu-vulkan-x64.tar.gz": {
+    size: 33_018_827,
+    sha256: "50fe0c5ffe5d28a8b7c27b083e6f159592eb6d9554c234c434dac43f7bb42588",
   },
-  "llama-b10622-bin-ubuntu-x64.tar.gz": {
-    size: 16_291_802,
-    sha256: "6cc895c67bfa868faccda8aca06ec136e489609fc20f068550214f149d94fb4c",
+  "llama-b10666-bin-ubuntu-x64.tar.gz": {
+    size: 16_378_465,
+    sha256: "a3c75af6f70ca504dc2712263f51099d4610cc00d59331066fc2335711f1993e",
   },
 } as const
 

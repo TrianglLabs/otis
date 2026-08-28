@@ -4,6 +4,7 @@ import { detectHardware, type HardwareProbe } from "./hardware.js"
 import { supportsLlamaCppTarget, unsupportedLlamaCppTargetMessage } from "./llama-binary.js"
 import { LOCAL_MODELS } from "./local-catalog.js"
 import { fitLocalModel, formatMemoryLabel, type LocalModelFit, memoryRequiredFor } from "./local-fit.js"
+import { recommendedLocalModelIds } from "./local-recommendation.js"
 import { matchesFireworksModel } from "./serving-path.js"
 import type { FireworksModel, LocalCatalogModel } from "./types.js"
 
@@ -23,6 +24,7 @@ export type ModelPickerStatus = {
 export type LocalPickerChoice = LocalCatalogModel & {
   kind: "model"
   available: boolean
+  recommended: boolean
   availabilityLabel: string
   loadedContextLength?: number
   downloaded: boolean
@@ -55,33 +57,34 @@ export async function listModelPickerItems(options: ListModelPickerOptions = {})
   const localUnavailableReason = supportsLlamaCppTarget(hardware)
     ? undefined
     : unsupportedLlamaCppTargetMessage(hardware)
-  const localItems = await Promise.all(
-    LOCAL_MODELS.map(async (model) => {
-      const fit = fitLocalModel(model, hardware)
-      const loadedContextLength =
-        options.currentModel === model.id && options.loadedLocalModel?.model === model.id
-          ? options.loadedLocalModel.contextLength
-          : undefined
-      const downloaded = await isLocalGgufDownloaded(model, options.dataDirectory)
-      return toLocalPickerChoice(
-        model,
-        fit,
-        localUnavailableReason,
-        loadedContextLength,
-        options.currentModel,
-        downloaded,
-        options.loadStatus,
-      )
-    }),
-  )
+  const recommendedModelIds = new Set(recommendedLocalModelIds(hardware.totalMemoryBytes))
+  const localItems = (
+    await Promise.all(
+      LOCAL_MODELS.map(async (model) => {
+        const fit = fitLocalModel(model, hardware)
+        if (!fit.available) return undefined
+        const loadedContextLength =
+          options.currentModel === model.id && options.loadedLocalModel?.model === model.id
+            ? options.loadedLocalModel.contextLength
+            : undefined
+        const downloaded = await isLocalGgufDownloaded(model, options.dataDirectory)
+        return toLocalPickerChoice(
+          model,
+          fit,
+          recommendedModelIds,
+          localUnavailableReason,
+          loadedContextLength,
+          options.currentModel,
+          downloaded,
+          options.loadStatus,
+        )
+      }),
+    )
+  ).filter((item): item is LocalPickerChoice => item !== undefined)
 
   const fireworks = await loadFireworksModels(options)
 
-  return [
-    { kind: "header", id: "header-local", displayName: "Local" },
-    ...localItems,
-    ...fireworksSection(fireworks, options.currentModel),
-  ]
+  return [...localSection(localItems), ...fireworksSection(fireworks, options.currentModel)]
 }
 
 async function loadFireworksModels(options: ListModelPickerOptions) {
@@ -117,9 +120,15 @@ function fireworksSection(models: readonly FireworksModel[], currentModel?: stri
   ]
 }
 
+function localSection(models: readonly LocalPickerChoice[]): ModelPickerItem[] {
+  if (models.length === 0) return []
+  return [{ kind: "header", id: "header-local", displayName: "Local" }, ...models]
+}
+
 function toLocalPickerChoice(
   model: (typeof LOCAL_MODELS)[number],
   fit: ReturnType<typeof fitLocalModel>,
+  recommendedModelIds: ReadonlySet<string>,
   localUnavailableReason: string | undefined,
   loadedContextLength: number | undefined,
   currentModel: string | undefined,
@@ -134,6 +143,7 @@ function toLocalPickerChoice(
     contextLength: loadedContextLength ?? (fit.available ? fit.contextLength : model.nativeContextLength),
     supportsImageInput: model.supportsImageInput,
     available: localUnavailableReason === undefined && fit.available,
+    recommended: localUnavailableReason === undefined && fit.available && recommendedModelIds.has(model.id),
     availabilityLabel: localAvailabilityLabel(model, fit, localUnavailableReason, loadedContextLength),
     ...(loadedContextLength === undefined ? {} : { loadedContextLength }),
     downloaded,
@@ -150,7 +160,7 @@ function localAvailabilityLabel(
 ) {
   if (localUnavailableReason) return localUnavailableReason
   if (loadedContextLength !== undefined) {
-    return `${formatContextWindow(loadedContextLength)} loaded · ${model.quant} · ${formatMemoryLabel(memoryRequiredFor(model, loadedContextLength))}`
+    return `${formatContextWindow(loadedContextLength)} · ${model.quant} · ${formatMemoryLabel(memoryRequiredFor(model, loadedContextLength))}`
   }
   if (!fit.available) return `Needs ${formatMemoryLabel(fit.memoryRequiredBytes)}`
   return `Est. ${formatContextWindow(fit.contextLength)} · ${model.quant} · ${formatMemoryLabel(fit.memoryRequiredBytes)}`

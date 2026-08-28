@@ -556,7 +556,7 @@ describe("interactive CLI setup", () => {
       active: true,
       contextLength: 32_768,
       loadedContextLength: 32_768,
-      availabilityLabel: expect.stringMatching(/^32K loaded · /),
+      availabilityLabel: expect.stringMatching(/^32K · /),
     })
     expect(
       reopened
@@ -808,7 +808,7 @@ describe("interactive CLI setup", () => {
     }
   })
 
-  it("keeps local models that will not fit visible but unselectable", async () => {
+  it("hides local models that will not fit", async () => {
     mocks.detectHardware.mockResolvedValue({
       platform: "darwin",
       arch: "arm64",
@@ -821,15 +821,12 @@ describe("interactive CLI setup", () => {
     await submit("/model")
 
     const picker = (mocks.ui.showModelPicker.mock.calls[0]?.[0] ?? []) as ModelPickerItem[]
-    const local = picker.find((item) => "id" in item && item.id === "Qwen/Qwen3.8-27B")
-    expect(local).toMatchObject({ provider: "local", available: false })
-    if (!local) throw new Error("missing local picker item")
-    mocks.uiOptions?.onSelectModel?.(local)
-    await settle()
-
-    expect(mocks.saveSelectedModel).not.toHaveBeenCalled()
-    expect(mocks.ensureLocalServing).not.toHaveBeenCalled()
-    expect(mocks.ui.showTransientHint).toHaveBeenCalledWith(expect.stringMatching(/Needs /))
+    expect(picker.some((item) => "id" in item && item.id === "Qwen/Qwen3.8-27B")).toBe(false)
+    expect(picker).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "LiquidAI/LFM2.5-2.6B", provider: "local", available: true }),
+      ]),
+    )
   })
 })
 

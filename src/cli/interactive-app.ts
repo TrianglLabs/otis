@@ -11,6 +11,7 @@ import {
   findLocalModel,
   isLocalModelId,
   type LocalModelSpec,
+  localModelWeightBytes,
 } from "../inference/local-catalog.js"
 import { LlamaCppClient } from "../inference/local-client.js"
 import { fitLocalModel, formatMemoryLabel, type LocalModelFit } from "../inference/local-fit.js"
@@ -689,7 +690,7 @@ export class InteractiveApp {
     this.#ui.showCommandSubmenu(
       models.map((model) => ({
         name: model.displayName,
-        description: `${model.id === this.#selectedModelId ? "Active · " : ""}${model.quant} · ${formatMemoryLabel(model.weightBytes)}`,
+        description: `${model.id === this.#selectedModelId ? "Active · " : ""}${model.quant} · ${formatMemoryLabel(localModelWeightBytes(model))}`,
         submission: `/settings delete-model ${model.id}`,
       })),
       { onBack: () => this.#openSettingsMenu() },
