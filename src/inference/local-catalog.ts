@@ -1,6 +1,6 @@
 import type { LocalCatalogModel } from "./types.js"
 
-export const LOCAL_MIN_CONTEXT_LENGTH = 8_192
+export const LOCAL_MIN_CONTEXT_LENGTH = 65_536
 export const LOCAL_CONTEXT_ALIGNMENT = 1_024
 
 type StandardKvGeometry = {

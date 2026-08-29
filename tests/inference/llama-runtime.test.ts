@@ -210,7 +210,7 @@ describe("llama.cpp runtime", () => {
     const weights = new Uint8Array([1, 2, 3, 4])
     const model = tinyModel(catalog, weights)
     const fit = fitLocalModel(model, hardware)
-    const fittedContext = 32_768
+    const fittedContext = 65_536
     const runtime = new LlamaCppRuntime({
       env: { OTIS_LLAMA_SERVER: process.execPath },
       dataDirectory: directory,
@@ -244,7 +244,7 @@ describe("llama.cpp runtime", () => {
         "--fit-target",
         String(inferenceMemoryBudget(hardware).deviceHeadroomBytes / 1024 ** 2),
         "--fit-ctx",
-        "8192",
+        "65536",
       ]),
     )
     expect(spawned[0]).not.toContain("--ctx-size")
@@ -457,7 +457,7 @@ describe("llama.cpp runtime", () => {
       },
       spawn: spawnRuntime as unknown as LlamaCppRuntimeOptions["spawn"],
       fetch: (async (input: RequestInfo | URL) => {
-        if (String(input).includes("/props")) return runtimeProperties(32_768)
+        if (String(input).includes("/props")) return runtimeProperties(65_536)
         return new Response("ok")
       }) as typeof fetch,
     })
