@@ -32,22 +32,26 @@ describe("local model fit", () => {
     }
   })
 
-  it("greys out 27B-class weights on a 16 GB Mac", () => {
+  it("hides Qwen3.8 on a 24 GB Mac when it cannot sustain 64K context", () => {
     const qwen = findLocalModel("Qwen/Qwen3.8-27B")
     if (!qwen) throw new Error("missing catalog entry")
-    const fit = fitLocalModel(qwen, apple16)
+    const fit = fitLocalModel(qwen, {
+      ...apple128,
+      totalMemoryBytes: 24 * 1024 ** 3,
+      gpuMemoryBytes: 24 * 1024 ** 3,
+    })
     expect(fit.available).toBe(false)
+    expect(fit.contextLength).toBe(65_536)
     expect(fit.memoryRequiredBytes).toBeGreaterThan(fit.memoryAvailableBytes)
   })
 
-  it("fits gpt-oss 20B on a 16 GB Mac below native context", () => {
+  it("hides gpt-oss 20B on a 16 GB Mac when it cannot sustain 64K context", () => {
     const model = findLocalModel("openai/gpt-oss-20b")
     if (!model) throw new Error("missing catalog entry")
     const fit = fitLocalModel(model, apple16)
-    expect(fit.available).toBe(true)
-    expect(fit.contextLength).toBeGreaterThanOrEqual(8_192)
-    expect(fit.contextLength).toBeLessThan(model.nativeContextLength)
-    expect(fit.contextLength % 1_024).toBe(0)
+    expect(fit.available).toBe(false)
+    expect(fit.contextLength).toBe(65_536)
+    expect(fit.memoryRequiredBytes).toBeGreaterThan(fit.memoryAvailableBytes)
   })
 
   it("fits Gemma 4 12B at native context on a 16 GB Mac", () => {

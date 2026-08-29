@@ -37,7 +37,8 @@ describe("model picker catalog", () => {
   it.each([
     [8, ["LiquidAI/LFM2.5-2.6B"]],
     [16, ["ornith-ai/Ornith-1.5-9B", "google/gemma-4-12B-it"]],
-    [24, ["Qwen/Qwen3.8-27B"]],
+    [24, ["ornith-ai/Ornith-1.5-9B", "google/gemma-4-12B-it"]],
+    [32, ["Qwen/Qwen3.8-27B"]],
     [96, ["Qwen/Qwen3.8-Flash-Next"]],
     [384, ["zai-org/GLM-5.3"]],
   ])("marks the recommended fitting models at %d GB", async (memoryGB, modelIds) => {
