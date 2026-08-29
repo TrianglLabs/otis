@@ -12,6 +12,110 @@ import {
 const mocks = getMocks()
 
 describe("CLI session turn handling", () => {
+  it("steers a busy turn at the next agent boundary", async () => {
+    const session = testSession()
+    mocks.createSession.mockResolvedValue(session)
+    let markStarted = () => {}
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve
+    })
+    let releaseTurn = () => {}
+    const released = new Promise<void>((resolve) => {
+      releaseTurn = resolve
+    })
+
+    mocks.runAgent.mockImplementationOnce(async function* (input, _history, options) {
+      markStarted()
+      await released
+      const steering = (await options.steering?.drain()) ?? []
+      yield {
+        type: "complete",
+        messages: [input, ...steering, { role: "assistant", content: [{ type: "text", text: "Focused." }] }],
+      }
+    })
+
+    await loadCli()
+    const active = submit("review everything")
+    await started
+    await submit("focus on tests")
+    expect(mocks.ui.renderTranscript.mock.calls.at(-1)?.[0]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ speaker: "You", text: "focus on tests", delivery: "steering" }),
+      ]),
+    )
+    releaseTurn()
+    await active
+
+    expect(session.steerPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({ promptId: "prompt_review everything" }),
+      { role: "user", content: "focus on tests" },
+    )
+    expect(session.completeTurn).toHaveBeenCalledWith(
+      expect.objectContaining({ promptId: "prompt_review everything" }),
+      [
+        { role: "user", content: "review everything" },
+        { role: "user", content: "focus on tests" },
+        { role: "assistant", content: [{ type: "text", text: "Focused." }] },
+      ],
+      [],
+    )
+    expect(mocks.ui.renderTranscript.mock.calls.at(-1)?.[0]).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ delivery: "steering" })]),
+    )
+  })
+
+  it("runs an explicitly queued prompt as a separate turn", async () => {
+    const session = testSession()
+    const secondHistories: unknown[] = []
+    mocks.createSession.mockResolvedValue(session)
+    let markStarted = () => {}
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve
+    })
+    let releaseTurn = () => {}
+    const released = new Promise<void>((resolve) => {
+      releaseTurn = resolve
+    })
+    mocks.runAgent
+      .mockImplementationOnce(async function* (input) {
+        markStarted()
+        await released
+        yield {
+          type: "complete",
+          messages: [input, { role: "assistant", content: [{ type: "text", text: "First done." }] }],
+        }
+      })
+      .mockImplementationOnce(async function* (input, history) {
+        secondHistories.push(clone(history))
+        yield {
+          type: "complete",
+          messages: [input, { role: "assistant", content: [{ type: "text", text: "Follow-up done." }] }],
+        }
+      })
+
+    await loadCli()
+    const active = submit("first task")
+    await started
+    await submit("/queue follow-up task")
+    expect(mocks.ui.renderTranscript.mock.calls.at(-1)?.[0]).toEqual(
+      expect.arrayContaining([expect.objectContaining({ speaker: "You", text: "follow-up task", delivery: "queued" })]),
+    )
+    releaseTurn()
+    await active
+
+    expect(session.admitPrompt).toHaveBeenNthCalledWith(2, { role: "user", content: "follow-up task" })
+    expect(secondHistories).toEqual([
+      [
+        { role: "user", content: "first task" },
+        { role: "assistant", content: [{ type: "text", text: "First done." }] },
+      ],
+    ])
+    expect(mocks.runAgent).toHaveBeenCalledTimes(2)
+    expect(mocks.ui.renderTranscript.mock.calls.at(-1)?.[0]).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ delivery: "queued" })]),
+    )
+  })
+
   it("turns a dragged, shell-escaped image path into a multimodal prompt", async () => {
     const session = testSession()
     mocks.createSession.mockResolvedValue(session)
@@ -228,6 +332,45 @@ describe("CLI session turn handling", () => {
     expect(mocks.ui.hideSessionPicker).toHaveBeenCalled()
   })
 
+  it("opens history during an active turn and defers switching sessions", async () => {
+    const activeSession = testSession({ hasTitle: vi.fn(() => true) })
+    const savedSession = testSession({ id: "session_saved" })
+    mocks.createSession.mockResolvedValue(activeSession)
+    mocks.openSession.mockResolvedValue(savedSession)
+    mocks.listSessions.mockResolvedValue([
+      { id: "session_saved", title: "Saved", messageCount: 2, updatedAt: "2026-01-01T00:00:00Z", mtimeMs: 0 },
+    ])
+    let markStarted = () => {}
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve
+    })
+    let releaseTurn = () => {}
+    const released = new Promise<void>((resolve) => {
+      releaseTurn = resolve
+    })
+    mocks.runAgent.mockImplementationOnce(async function* (input) {
+      markStarted()
+      await released
+      yield { type: "complete", messages: [input] }
+    })
+
+    await loadCli()
+    const active = submit("keep working")
+    await started
+    await submit("/history")
+
+    expect(mocks.ui.showSessionPicker).toHaveBeenCalledWith([
+      expect.objectContaining({ id: "session_saved", title: "Saved" }),
+    ])
+    mocks.uiOptions?.onSelectSession?.("session_saved")
+    await settle()
+    expect(mocks.openSession).not.toHaveBeenCalled()
+
+    releaseTurn()
+    await active
+    expect(mocks.openSession).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "session_saved" }))
+  })
+
   it("deletes a session and refreshes the picker", async () => {
     mocks.listSessions.mockResolvedValue([
       { id: "session_1", title: "First", messageCount: 2, updatedAt: "2025-01-01T00:00:00Z", mtimeMs: 0 },
@@ -275,7 +418,7 @@ describe("CLI session turn handling", () => {
     ])
   })
 
-  it("re-syncs the session picker when delete is skipped because a turn is busy", async () => {
+  it("defers session deletion until the active turn finishes", async () => {
     mocks.listSessions.mockResolvedValue([
       { id: "session_1", title: "First", messageCount: 2, updatedAt: "2025-01-01T00:00:00Z", mtimeMs: 0 },
     ])
@@ -290,19 +433,17 @@ describe("CLI session turn handling", () => {
       yield { type: "model", phase: "start" }
       await turnFinished
     })
-    void submit("working on something")
+    const active = submit("working on something")
 
     mocks.ui.showSessionPicker.mockClear()
     mocks.uiOptions?.onDeleteSession?.("session_1")
     await settle()
 
     expect(mocks.deleteSession).not.toHaveBeenCalled()
-    expect(mocks.ui.showSessionPicker).toHaveBeenLastCalledWith([
-      expect.objectContaining({ id: "session_1", title: "First", active: false }),
-    ])
 
     finishTurn()
-    await settle()
+    await active
+    expect(mocks.deleteSession).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "session_1" }))
   })
 
   it("returns to the home screen with slash home", async () => {

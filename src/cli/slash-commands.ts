@@ -12,6 +12,7 @@ export type SlashCommand =
   | { type: "new" }
   | { type: "home" }
   | { type: "thinking" }
+  | { type: "queue"; prompt?: string }
   | { type: "compact"; instructions?: string }
 
 type CatalogCommand = {
@@ -20,7 +21,15 @@ type CatalogCommand = {
   description: string
 }
 
-const BUSY_SAFE_TYPES = new Set<SlashCommand["type"]>(["exit", "theme-menu", "theme"])
+const IMMEDIATE_TYPES = new Set<SlashCommand["type"]>([
+  "exit",
+  "history",
+  "home",
+  "model",
+  "thinking",
+  "theme-menu",
+  "theme",
+])
 
 const CATALOG: readonly CatalogCommand[] = [
   { type: "home", name: "/home", description: "Return to home screen" },
@@ -29,6 +38,7 @@ const CATALOG: readonly CatalogCommand[] = [
   { type: "model", name: "/model", description: "Choose a model" },
   { type: "settings", name: "/settings", description: "Configure Otis" },
   { type: "fast", name: "/fast", description: "Toggle Fast serving" },
+  { type: "queue", name: "/queue", description: "Queue a separate follow-up" },
   { type: "compact", name: "/compact", description: "Summarize old conversation to free context" },
   { type: "thinking", name: "/thinking", description: "Show or hide model thinking traces" },
   { type: "theme-menu", name: "/theme", description: "Choose a color theme" },
@@ -37,9 +47,10 @@ const CATALOG: readonly CatalogCommand[] = [
 ]
 
 export function slashCommands(options: { fast?: boolean } = {}): CommandSuggestion[] {
-  return CATALOG.filter((command) => command.type !== "fast" || options.fast).map(({ name, description }) => ({
-    name,
-    description,
+  return CATALOG.filter((command) => command.type !== "fast" || options.fast).map((command) => ({
+    name: command.name,
+    description: command.description,
+    ...(command.type === "queue" ? { draft: "/queue " } : {}),
   }))
 }
 
@@ -55,6 +66,10 @@ export function parseSlashCommand(value: string): SlashCommand | undefined {
   if (exact) return toSlashCommand(exact)
   if (value.startsWith("/compact ")) {
     return { type: "compact", instructions: value.slice("/compact".length).trim() }
+  }
+  if (value.startsWith("/queue ")) {
+    const prompt = value.slice("/queue".length).trim()
+    return { type: "queue", ...(prompt ? { prompt } : {}) }
   }
   if (value.startsWith("/delete-model ")) {
     const modelId = value.slice("/delete-model".length).trim()
@@ -76,12 +91,14 @@ export function parseSlashCommand(value: string): SlashCommand | undefined {
   return undefined
 }
 
-export function slashCommandIgnoresBusy(command: SlashCommand) {
-  return BUSY_SAFE_TYPES.has(command.type)
+export function slashCommandRunsImmediately(command: SlashCommand) {
+  if (command.type === "settings") return command.setting === undefined || command.setting === "debug"
+  return IMMEDIATE_TYPES.has(command.type)
 }
 
 function toSlashCommand(command: CatalogCommand): SlashCommand {
   if (command.type === "theme") return { type: "theme", name: command.name.slice("/theme ".length) }
   if (command.type === "compact") return { type: "compact" }
+  if (command.type === "queue") return { type: "queue" }
   return { type: command.type }
 }

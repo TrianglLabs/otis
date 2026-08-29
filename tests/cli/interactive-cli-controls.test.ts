@@ -70,6 +70,48 @@ describe("CLI mode toggle", () => {
     expect(mocks.ui.setModeLabel).toHaveBeenCalledWith("› auto")
   })
 
+  it("applies a busy mode change to the next turn without changing the active turn policy", async () => {
+    let releaseFirstTurn = () => {}
+    const firstTurnReleased = new Promise<void>((resolve) => {
+      releaseFirstTurn = resolve
+    })
+    let markFirstTurnStarted = () => {}
+    const firstTurnStarted = new Promise<void>((resolve) => {
+      markFirstTurnStarted = resolve
+    })
+    let activeEffectAfterToggle: string | undefined
+    let nextEffect: string | undefined
+
+    mocks.runAgent
+      .mockImplementationOnce(async function* (_input, _history, options) {
+        markFirstTurnStarted()
+        await firstTurnReleased
+        activeEffectAfterToggle = (
+          await options.permissionPolicy.evaluate({ name: "bash", input: { command: "git status" } })
+        ).effect
+        yield { type: "complete", messages: [] }
+      })
+      .mockImplementationOnce(async function* (_input, _history, options) {
+        nextEffect = (await options.permissionPolicy.evaluate({ name: "bash", input: { command: "git status" } }))
+          .effect
+        yield { type: "complete", messages: [] }
+      })
+
+    await loadCli()
+    const firstTurn = submit("inspect")
+    await firstTurnStarted
+
+    mocks.uiOptions?.onToggleMode?.()
+    expect(mocks.ui.setModeLabel).toHaveBeenLastCalledWith("? ask")
+
+    releaseFirstTurn()
+    await firstTurn
+    await submit("inspect again")
+
+    expect(activeEffectAfterToggle).toBe("allow")
+    expect(nextEffect).toBe("ask")
+  })
+
   it("honors an explicitly configured ask default", async () => {
     mocks.loadLocalSettings.mockResolvedValue(localSettings({ permissions: { defaultMode: "ask", rules: [] } }))
 
@@ -114,6 +156,50 @@ describe("CLI settings", () => {
     expect(mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[0]).toEqual(
       expect.arrayContaining([expect.objectContaining({ name: "Debug mode", description: "On" })]),
     )
+  })
+
+  it("opens model browsing immediately and defers the selected model until the turn finishes", async () => {
+    let releaseTurn = () => {}
+    const turnReleased = new Promise<void>((resolve) => {
+      releaseTurn = resolve
+    })
+    let markTurnStarted = () => {}
+    const turnStarted = new Promise<void>((resolve) => {
+      markTurnStarted = resolve
+    })
+    mocks.runAgent.mockImplementationOnce(async function* () {
+      markTurnStarted()
+      await turnReleased
+      yield { type: "complete", messages: [] }
+    })
+
+    await loadCli()
+    const turn = submit("inspect")
+    await turnStarted
+
+    await submit("/settings")
+    const settings = (mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[0] ?? []) as Array<{ name: string }>
+    expect(settings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "Hosted inference" }),
+        expect.objectContaining({ name: "Debug mode" }),
+      ]),
+    )
+
+    await submit("/model")
+    expect(mocks.listToolCapableModels).toHaveBeenCalled()
+    expect(mocks.ui.showModelPicker).toHaveBeenCalled()
+    const model = mocks.ui.showModelPicker.mock.calls
+      .at(-1)?.[0]
+      .find((item: { provider?: string }) => item.provider === "fireworks")
+    expect(model).toBeDefined()
+    mocks.uiOptions?.onSelectModel?.(model)
+    await settle()
+    expect(mocks.saveSelectedModel).not.toHaveBeenCalled()
+
+    releaseTurn()
+    await turn
+    expect(mocks.saveSelectedModel).toHaveBeenCalled()
   })
 })
 

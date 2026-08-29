@@ -36,6 +36,7 @@ type OverlayHostOptions = {
   showChatLayout: () => void
   hideSetupStatus: () => void
   clearInput: () => void
+  setInput: (value: string) => void
   focusInput: () => void
   suspendStatus: () => void
   restoreStatus: () => void
@@ -166,6 +167,10 @@ export class OverlayHost {
   }
 
   #selectCommand(command: CommandSuggestion | undefined, fallback: string) {
+    if (command?.draft !== undefined) {
+      this.options.setInput(command.draft)
+      return
+    }
     if (command?.name === "/theme") {
       this.#openThemeMenu()
       return

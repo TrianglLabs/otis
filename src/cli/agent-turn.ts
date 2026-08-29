@@ -1,3 +1,4 @@
+import type { SteeringSource } from "../core/steering.js"
 import type { InferenceClient } from "../inference/client.js"
 import type { ChatMessage, ContextFile, TokenUsage } from "../inference/types.js"
 import type { PermissionPolicy, PermissionRequest } from "../permissions/policy.js"
@@ -36,6 +37,7 @@ type AgentTurnOptions = {
   permissionPolicy: PermissionPolicy
   onPermissionRequest: (request: PermissionRequest) => Promise<boolean>
   onCompletion: () => void
+  steering?: SteeringSource
 }
 
 export async function runAgentTurn(options: AgentTurnOptions): Promise<AgentTurnResult> {
@@ -88,6 +90,7 @@ export async function runAgentTurn(options: AgentTurnOptions): Promise<AgentTurn
         skills: options.skills,
         permissionPolicy: options.permissionPolicy,
         onPermissionRequest: options.onPermissionRequest,
+        steering: options.steering,
       },
       onEvent: (event) => {
         if (event.type === "model") {

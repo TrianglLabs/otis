@@ -35,6 +35,7 @@ export type UsagePurpose = "agent" | "compaction" | "title"
 export type SessionEvent =
   | (BaseSessionEvent & { type: "session_started"; version: 1 })
   | (BaseSessionEvent & { type: "prompt_admitted"; promptId: string; message: UserChatMessage })
+  | (BaseSessionEvent & { type: "prompt_steered"; promptId: string; message: UserChatMessage })
   | (BaseSessionEvent & {
       type: "turn_completed"
       promptId: string
@@ -52,6 +53,7 @@ export type SessionEvent =
       summary: string
       messages: ChatMessage[]
       toolActivities?: SessionToolActivity[]
+      throughSeq?: number
     })
   | (BaseSessionEvent & {
       type: "usage_recorded"
@@ -64,6 +66,7 @@ export type SessionEvent =
 export type NewSessionEvent =
   | { type: "session_started"; version: 1 }
   | { type: "prompt_admitted"; promptId: string; message: UserChatMessage }
+  | { type: "prompt_steered"; promptId: string; message: UserChatMessage }
   | {
       type: "turn_completed"
       promptId: string
@@ -76,7 +79,13 @@ export type NewSessionEvent =
       messages: ChatMessage[]
       toolActivities?: SessionToolActivity[]
     }
-  | { type: "compacted"; summary: string; messages: ChatMessage[]; toolActivities?: SessionToolActivity[] }
+  | {
+      type: "compacted"
+      summary: string
+      messages: ChatMessage[]
+      toolActivities?: SessionToolActivity[]
+      throughSeq?: number
+    }
   | { type: "usage_recorded"; purpose: UsagePurpose; promptId?: string; usage: TokenUsage }
   | { type: "title_renamed"; title: string }
 
@@ -109,24 +118,54 @@ export async function readSessionEvents(filePath: string): Promise<SessionEvent[
 }
 
 export function replaySession(events: readonly SessionEvent[]): SessionReplay {
-  const messages: ChatMessage[] = []
-  const toolActivities: SessionToolActivity[] = []
+  let baseMessages: ChatMessage[] = []
+  let baseToolActivities: SessionToolActivity[] = []
+  const turns: Array<{
+    promptId?: string
+    admittedSeq?: number
+    messages: ChatMessage[]
+    toolActivities: SessionToolActivity[]
+  }> = []
 
   for (const event of events) {
     if (event.type === "compacted") {
-      messages.length = 0
-      toolActivities.length = 0
-      messages.push(compactionSummaryMessage(event.summary), ...event.messages)
-      toolActivities.push(...(event.toolActivities ?? []))
+      baseMessages = [compactionSummaryMessage(event.summary), ...event.messages]
+      baseToolActivities = [...(event.toolActivities ?? [])]
+      const throughSeq = event.throughSeq
+      const preserved =
+        throughSeq === undefined
+          ? []
+          : turns.filter((turn) => turn.admittedSeq !== undefined && turn.admittedSeq > throughSeq)
+      turns.length = 0
+      turns.push(...preserved)
     } else if (event.type === "prompt_admitted") {
-      messages.push(event.message)
+      turns.push({ promptId: event.promptId, admittedSeq: event.seq, messages: [event.message], toolActivities: [] })
+    } else if (event.type === "prompt_steered") {
+      const turn = findReplayTurn(turns, event.promptId)
+      if (turn) turn.messages.push(event.message)
+      else turns.push({ messages: [event.message], toolActivities: [] })
     } else if (event.type === "turn_completed" || event.type === "turn_interrupted") {
-      messages.push(...event.messages)
-      toolActivities.push(...(event.toolActivities ?? []))
+      const turn = findReplayTurn(turns, event.promptId)
+      if (turn) {
+        turn.messages = [turn.messages[0], ...event.messages]
+        turn.toolActivities = [...(event.toolActivities ?? [])]
+      } else {
+        turns.push({ messages: [...event.messages], toolActivities: [...(event.toolActivities ?? [])] })
+      }
     }
   }
 
-  return { messages, toolActivities }
+  return {
+    messages: [...baseMessages, ...turns.flatMap((turn) => turn.messages)],
+    toolActivities: [...baseToolActivities, ...turns.flatMap((turn) => turn.toolActivities)],
+  }
+}
+
+function findReplayTurn<T extends { promptId?: string }>(turns: T[], promptId: string) {
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    if (turns[index]?.promptId === promptId) return turns[index]
+  }
+  return undefined
 }
 
 export function replaySessionMessages(events: readonly SessionEvent[]) {
@@ -175,6 +214,11 @@ function parseSessionEvent(value: unknown, line: number): SessionEvent {
     if (!isUserMessage(value.message)) throw invalidEvent(line, "message must be a user chat message")
     return { seq, sessionId, at, type, promptId: value.promptId, message: value.message }
   }
+  if (type === "prompt_steered") {
+    if (typeof value.promptId !== "string" || !value.promptId) throw invalidEvent(line, "promptId must be a string")
+    if (!isUserMessage(value.message)) throw invalidEvent(line, "message must be a user chat message")
+    return { seq, sessionId, at, type, promptId: value.promptId, message: value.message }
+  }
   if (type === "turn_completed" || type === "turn_interrupted") {
     if (typeof value.promptId !== "string" || !value.promptId) throw invalidEvent(line, "promptId must be a string")
     if (!Array.isArray(value.messages) || !value.messages.every(isChatMessage)) {
@@ -197,6 +241,15 @@ function parseSessionEvent(value: unknown, line: number): SessionEvent {
       throw invalidEvent(line, "messages must be chat messages")
     }
     const toolActivities = parseToolActivities(value.toolActivities, value.messages, line)
+    if (
+      value.throughSeq !== undefined &&
+      (typeof value.throughSeq !== "number" ||
+        !Number.isInteger(value.throughSeq) ||
+        value.throughSeq < 1 ||
+        value.throughSeq >= seq)
+    ) {
+      throw invalidEvent(line, "compacted throughSeq must reference an earlier event")
+    }
     return {
       seq,
       sessionId,
@@ -205,6 +258,7 @@ function parseSessionEvent(value: unknown, line: number): SessionEvent {
       summary: value.summary,
       messages: value.messages,
       ...(toolActivities ? { toolActivities } : {}),
+      ...(value.throughSeq === undefined ? {} : { throughSeq: value.throughSeq }),
     }
   }
   if (type === "usage_recorded") {

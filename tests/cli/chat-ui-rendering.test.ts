@@ -259,6 +259,33 @@ describe("chat UI rendering", () => {
     expect(harness.text("message-1-content")).toBe("new user")
   })
 
+  it("pins pending user messages to the bottom with delivery labels", async () => {
+    const harness = await setup()
+    const transcript = new TranscriptStore()
+    transcript.addUserMessage("active task")
+    const queued = transcript.addQueuedUserMessage("separate follow-up")
+    transcript.addAssistantMessage("still working")
+    const steering = transcript.addSteeringUserMessage("focus on tests")
+
+    harness.ui.showChatLayout()
+    harness.ui.renderTranscript(transcript.entries)
+
+    expect(harness.childIds("messages")).toEqual([
+      "message-1",
+      "message-3",
+      `message-${queued.id}`,
+      `message-${steering.id}`,
+    ])
+    expect(harness.text(`message-${queued.id}-speaker`)).toBe("You · queued")
+    expect(harness.text(`message-${steering.id}-speaker`)).toBe("You · steering")
+
+    transcript.activatePendingUserMessage(steering.id)
+    harness.ui.renderTranscript(transcript.entries)
+
+    expect(harness.text(`message-${steering.id}-speaker`)).toBe("You")
+    expect(harness.childIds("messages").at(-1)).toBe(`message-${queued.id}`)
+  })
+
   it("uses sticky bottom scrolling without forcing normal render jumps", async () => {
     const harness = await setup()
     const transcript = new TranscriptStore()

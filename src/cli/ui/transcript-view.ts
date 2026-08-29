@@ -78,7 +78,8 @@ export class TranscriptView {
     for (const reasoningId of this.#expandedReasoningIDs) {
       if (!reasoningIDs.has(reasoningId)) this.#expandedReasoningIDs.delete(reasoningId)
     }
-    const visibleEntries = entries.filter((entry) => entry.kind !== "reasoning" || this.thinkingVisible)
+    const visible = entries.filter((entry) => entry.kind !== "reasoning" || this.thinkingVisible)
+    const visibleEntries = [...visible.filter((entry) => !entry.delivery), ...visible.filter((entry) => entry.delivery)]
     const entryIDs = new Set(visibleEntries.map((entry) => entry.id))
 
     for (const [id, renderable] of this.#renderables) {
@@ -105,6 +106,7 @@ export class TranscriptView {
         this.messages.add(renderable.root, index)
       }
     })
+    this.orderRenderables(visibleEntries)
 
     if (options.scrollToBottom) this.messages.scrollTo(this.messages.scrollHeight)
     this.renderer.requestRender()
@@ -122,6 +124,17 @@ export class TranscriptView {
     if (visible === this.thinkingVisible) return
     this.thinkingVisible = visible
     this.render(this.#entries)
+  }
+
+  private orderRenderables(entries: readonly TranscriptEntry[]) {
+    const desired = entries.flatMap((entry) => {
+      const renderable = this.#renderables.get(entry.id)
+      return renderable ? [renderable.root] : []
+    })
+    const current = this.messages.getChildren()
+    if (current.length === desired.length && current.every((child, index) => child.id === desired[index]?.id)) return
+    for (const root of desired) this.messages.remove(root.id)
+    for (const root of desired) this.messages.add(root)
   }
 
   private create(entry: TranscriptEntry, previousEntry?: TranscriptEntry): TranscriptRenderable {
@@ -158,7 +171,7 @@ export class TranscriptView {
     renderable.root.paddingY = entry.kind === "message" ? 1 : 0
     renderable.root.marginTop = entryMarginTop(entry, previousEntry)
     renderable.root.gap = entry.kind === "message" ? 1 : 0
-    renderable.speaker.content = entry.speaker
+    renderable.speaker.content = speakerLabel(entry)
     renderable.speaker.fg = speakerColor(entry)
     renderable.content.streaming = entry.streaming === true
     renderable.content.internalBlockMode = "top-level"
@@ -334,7 +347,7 @@ export class TranscriptView {
     })
     const speaker = new TextRenderable(this.renderer, {
       id: `message-${entry.id}-speaker`,
-      content: entry.speaker,
+      content: speakerLabel(entry),
       fg: speakerColor(entry),
     })
     const content = new MarkdownRenderable(this.renderer, {
@@ -401,6 +414,10 @@ function formatDuration(durationMs: number) {
 
 function speakerColor(entry: TranscriptEntry) {
   return entry.speaker === "You" ? colors.accent : colors.muted
+}
+
+function speakerLabel(entry: TranscriptEntry) {
+  return entry.delivery ? `${entry.speaker} · ${entry.delivery}` : entry.speaker
 }
 
 function toolIcon(entry: TranscriptEntry) {

@@ -31,6 +31,23 @@ describe("TranscriptStore", () => {
     ])
   })
 
+  it("moves a queued user message to the active transcript position", () => {
+    const transcript = new TranscriptStore()
+    transcript.addUserMessage("active")
+    const queued = transcript.addQueuedUserMessage("follow-up")
+    transcript.addAssistantMessage("active done")
+
+    expect(queued).toMatchObject({ speaker: "You", text: "follow-up", delivery: "queued" })
+
+    transcript.activatePendingUserMessage(queued.id)
+
+    expect(transcript.entries).toEqual([
+      { id: 1, kind: "message", speaker: "You", text: "active" },
+      { id: 3, kind: "message", speaker: "Otis", text: "active done" },
+      { id: 2, kind: "message", speaker: "You", text: "follow-up" },
+    ])
+  })
+
   it("reconstructs tool cards from older sessions without activity metadata", () => {
     const transcript = new TranscriptStore()
     const messages = [
