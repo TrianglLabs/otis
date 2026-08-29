@@ -61,6 +61,12 @@ export class JsonlSession {
     return { promptId: event.promptId, message: event.message }
   }
 
+  async steerPrompt(admission: PromptAdmission, prompt: string | UserChatMessage) {
+    const message = typeof prompt === "string" ? createUserMessage(prompt) : prompt
+    await this.append({ type: "prompt_steered", promptId: admission.promptId, message })
+    return message
+  }
+
   completeTurn(admission: PromptAdmission, turnMessages: ChatMessage[], toolActivities: SessionToolActivity[] = []) {
     return this.append({
       type: "turn_completed",
@@ -79,12 +85,13 @@ export class JsonlSession {
     })
   }
 
-  compact(summary: string, messages: ChatMessage[], toolActivities: SessionToolActivity[] = []) {
+  compact(summary: string, messages: ChatMessage[], toolActivities: SessionToolActivity[] = [], throughSeq?: number) {
     return this.append({
       type: "compacted",
       summary,
       messages,
       ...(toolActivities.length > 0 ? { toolActivities } : {}),
+      ...(throughSeq === undefined ? {} : { throughSeq }),
     })
   }
 

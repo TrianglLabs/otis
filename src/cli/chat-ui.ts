@@ -163,6 +163,11 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     showChatLayout,
     hideSetupStatus: () => inputController.hideSetupStatus(),
     clearInput,
+    setInput: (value) => {
+      input.setText(value)
+      options.onInputChange?.(value)
+      inputController.focus()
+    },
     focusInput,
     suspendStatus: () => status.suspendForOverlay(),
     restoreStatus: () => status.restoreAfterOverlay(),

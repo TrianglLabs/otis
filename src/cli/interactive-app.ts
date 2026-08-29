@@ -1,6 +1,7 @@
 import { createCliRenderer } from "@opentui/core"
 import { autoCompactThreshold, compactConversation } from "../core/compaction.js"
 import { loadProjectContext } from "../core/context.js"
+import { SteeringInbox } from "../core/steering.js"
 import { FireworksClient } from "../inference/client.js"
 import { deleteLocalGguf, listDownloadedLocalModels } from "../inference/gguf-cache.js"
 import { detectHardware, type HardwareProbe } from "../inference/hardware.js"
@@ -16,10 +17,16 @@ import {
 import { LlamaCppClient } from "../inference/local-client.js"
 import { fitLocalModel, formatMemoryLabel, type LocalModelFit } from "../inference/local-fit.js"
 import { createUserMessage, summarizeUserMessage, userMessageContentChars } from "../inference/messages.js"
-import type { ModelPickerStatus } from "../inference/picker-catalog.js"
+import type { ModelPickerItem, ModelPickerStatus } from "../inference/picker-catalog.js"
 import { baseFireworksModelId, isFastFireworksModel } from "../inference/serving-path.js"
 import { skillAdvertisementChars } from "../inference/system-prompt.js"
-import { type CatalogModel, type ContextFile, type InferenceClient, isLocalCatalogModel } from "../inference/types.js"
+import {
+  type CatalogModel,
+  type ContextFile,
+  type InferenceClient,
+  isLocalCatalogModel,
+  type UserChatMessage,
+} from "../inference/types.js"
 import {
   clearSelectedModel,
   isThemeName,
@@ -48,7 +55,7 @@ import { contextUsage, contextUsageColor, estimateContextTokens, formatContextUs
 import { ImageFlow } from "./image-flow.js"
 import { SessionController } from "./session-controller.js"
 import { type PreparedModelSelection, SetupFlow } from "./setup-flow.js"
-import { parseSlashCommand, type SlashCommand, slashCommandIgnoresBusy, slashCommands } from "./slash-commands.js"
+import { parseSlashCommand, type SlashCommand, slashCommandRunsImmediately, slashCommands } from "./slash-commands.js"
 import { initializeTreeSitterClient, TerminalController } from "./terminal.js"
 import { colors, selectTheme } from "./theme.js"
 import { TranscriptStore } from "./transcript.js"
@@ -58,6 +65,24 @@ import { checkForUpdate } from "./update.js"
 import { formatWorkspaceLabel } from "./workspace-label.js"
 
 const UPDATE_CHECK_TIMEOUT_MS = 5_000
+
+type ActiveAgentTurn = {
+  controller: AbortController
+  steering: SteeringInbox
+}
+
+type PendingAction =
+  | { type: "command"; command: SlashCommand }
+  | { type: "model-selection"; model: ModelPickerItem }
+  | { type: "session-selection"; sessionId: string }
+  | { type: "session-deletion"; sessionId: string }
+  | { type: "new-session" }
+  | {
+      type: "prompt"
+      admission: PromptAdmission
+      session: JsonlSession
+      transcriptEntryId: number
+    }
 
 export class InteractiveApp {
   readonly #cwd = process.cwd()
@@ -100,6 +125,9 @@ export class InteractiveApp {
   #fastAvailable = false
   #downloadedModelsAvailable = false
   #activeTurn: AbortController | undefined
+  #activeAgentTurn: ActiveAgentTurn | undefined
+  readonly #pendingActions: PendingAction[] = []
+  #drainingPendingActions = false
   #updateCheckController: AbortController | undefined
   #startupModelController: AbortController | undefined
   #modelApplyId = 0
@@ -189,18 +217,16 @@ export class InteractiveApp {
       },
       onCloseModelPicker: () => this.#setupFlow.closeModelPicker(),
       onSelectModel: (model) => {
-        void this.#setupFlow.selectModel(model)
+        void this.#selectModel(model)
       },
       onNewSession: () => {
-        this.#images.clear()
-        this.#sessions.startNew()
+        this.#startNewSession()
       },
       onDeleteSession: (sessionId) => {
-        void this.#sessions.delete(sessionId)
+        void this.#deleteSession(sessionId)
       },
       onSelectSession: (sessionId) => {
-        this.#images.clear()
-        void this.#sessions.select(sessionId)
+        void this.#selectSession(sessionId)
       },
       onSubmit: (value) => this.#handleInput(value),
       onPreviewTheme: (theme) => this.#previewTheme(theme),
@@ -327,15 +353,35 @@ export class InteractiveApp {
     this.#ui.hideUpdateHint()
 
     const command = parseSlashCommand(value)
-    if (command && slashCommandIgnoresBusy(command)) {
+    if (command?.type === "queue") {
+      if (!command.prompt) return
+      if (this.#busy) await this.#queuePrompt(createUserMessage(command.prompt))
+      else await this.#runPromptTurn(command.prompt)
+      await this.#drainPendingActions()
+      return
+    }
+
+    if (this.#busy && command && slashCommandRunsImmediately(command)) {
       await this.#runSlashCommand(command)
       return
     }
 
-    if (this.#busy) return
+    if (this.#busy) {
+      if (command) {
+        this.#ui.clearInput()
+        this.#pendingActions.push({ type: "command", command })
+        return
+      }
+
+      const activeTurn = this.#activeAgentTurn
+      if (activeTurn) await this.#steerActiveTurn(activeTurn, createUserMessage(value))
+      else await this.#queuePrompt(createUserMessage(value))
+      return
+    }
 
     if (command) {
       await this.#runSlashCommand(command)
+      await this.#drainPendingActions()
       return
     }
 
@@ -347,6 +393,136 @@ export class InteractiveApp {
     if (!this.#client) return
 
     await this.#runPromptTurn(value)
+    await this.#drainPendingActions()
+  }
+
+  async #steerActiveTurn(activeTurn: ActiveAgentTurn, message: UserChatMessage) {
+    let transcriptEntryId: number | undefined
+    const acceptance = activeTurn.steering.accept(message, () => {
+      if (transcriptEntryId === undefined) return
+      this.#transcript.activatePendingUserMessage(transcriptEntryId)
+      if (!this.#exiting) this.#ui.renderTranscript(this.#transcript.entries, { scrollToBottom: true })
+    })
+    if (!acceptance.accepted) {
+      await this.#queuePrompt(message)
+      return
+    }
+
+    const entry = this.#transcript.addSteeringUserMessage(message)
+    transcriptEntryId = entry.id
+    this.#images.clear()
+    this.#ui.clearInput()
+    this.#updateContextIndicator()
+    this.#ui.renderTranscript(this.#transcript.entries, { scrollToBottom: true })
+
+    try {
+      await acceptance.persisted
+    } catch (error) {
+      this.#transcript.removeEntry(entry.id)
+      this.#transcript.addDebugMessage(
+        `Could not save steering message: ${error instanceof Error ? error.message : String(error)}`,
+      )
+      this.#ui.renderTranscript(this.#transcript.entries, { scrollToBottom: true })
+    }
+  }
+
+  async #queuePrompt(message: UserChatMessage) {
+    if (!this.#configured || !this.#webClient || !this.#client) return
+
+    try {
+      const session = await this.#sessions.ensure()
+      const admission = await session.admitPrompt(message)
+      const entry = this.#transcript.addQueuedUserMessage(message)
+      const pending = { type: "prompt" as const, admission, session, transcriptEntryId: entry.id }
+      const firstStateChange = this.#pendingActions.findIndex((action) => action.type !== "prompt")
+      if (firstStateChange === -1) this.#pendingActions.push(pending)
+      else this.#pendingActions.splice(firstStateChange, 0, pending)
+      this.#images.clear()
+      this.#ui.clearInput()
+      this.#updateContextIndicator()
+      this.#ui.renderTranscript(this.#transcript.entries, { scrollToBottom: true })
+    } catch (error) {
+      this.#transcript.addDebugMessage(
+        `Could not queue prompt: ${error instanceof Error ? error.message : String(error)}`,
+      )
+      this.#ui.renderTranscript(this.#transcript.entries, { scrollToBottom: true })
+    }
+  }
+
+  async #selectModel(model: ModelPickerItem) {
+    if (this.#busy) {
+      this.#ui.hideModelPicker()
+      this.#pendingActions.push({ type: "model-selection", model })
+      return
+    }
+    await this.#setupFlow.selectModel(model)
+    await this.#drainPendingActions()
+  }
+
+  #startNewSession() {
+    this.#images.clear()
+    if (this.#busy) {
+      this.#ui.hideSessionPicker()
+      this.#pendingActions.push({ type: "new-session" })
+      return
+    }
+    this.#sessions.startNew()
+  }
+
+  async #selectSession(sessionId: string) {
+    this.#images.clear()
+    if (this.#busy) {
+      this.#ui.hideSessionPicker()
+      this.#pendingActions.push({ type: "session-selection", sessionId })
+      return
+    }
+    await this.#sessions.select(sessionId)
+    await this.#drainPendingActions()
+  }
+
+  async #deleteSession(sessionId: string) {
+    if (this.#busy) {
+      this.#pendingActions.push({ type: "session-deletion", sessionId })
+      return
+    }
+    await this.#sessions.delete(sessionId)
+    await this.#drainPendingActions()
+  }
+
+  async #drainPendingActions() {
+    if (this.#drainingPendingActions || this.#busy || this.#exiting) return
+    this.#drainingPendingActions = true
+    try {
+      while (!this.#busy && !this.#exiting) {
+        const pending = this.#pendingActions.shift()
+        if (!pending) return
+        await this.#runPendingAction(pending)
+      }
+    } finally {
+      this.#drainingPendingActions = false
+    }
+  }
+
+  async #runPendingAction(pending: PendingAction) {
+    switch (pending.type) {
+      case "command":
+        await this.#runSlashCommand(pending.command)
+        return
+      case "prompt":
+        await this.#runPromptTurn("", pending)
+        return
+      case "model-selection":
+        await this.#setupFlow.selectModel(pending.model)
+        return
+      case "session-selection":
+        await this.#sessions.select(pending.sessionId)
+        return
+      case "session-deletion":
+        await this.#sessions.delete(pending.sessionId)
+        return
+      case "new-session":
+        this.#sessions.startNew()
+    }
   }
 
   async #runSlashCommand(command: SlashCommand) {
@@ -364,7 +540,9 @@ export class InteractiveApp {
         return
       case "model": {
         this.#ui.clearInput()
-        await this.#setupFlow.openModelPicker(this.#fireworksApiKey, this.#selectedModelId, true)
+        await this.#setupFlow.openModelPicker(this.#fireworksApiKey, this.#selectedModelId, true, {
+          background: this.#busy,
+        })
         return
       }
       case "settings": {
@@ -402,6 +580,8 @@ export class InteractiveApp {
       case "thinking":
         await this.#setThinkingVisible(!this.#thinkingVisible)
         return
+      case "queue":
+        return
       case "compact":
         this.#ui.clearInput()
         await this.#runCompaction(command.instructions)
@@ -409,12 +589,12 @@ export class InteractiveApp {
     }
   }
 
-  async #runPromptTurn(value: string) {
+  async #runPromptTurn(value: string, queued?: Extract<PendingAction, { type: "prompt" }>) {
     const activeClient = this.#client
     const activeWebClient = this.#webClient
     if (!activeClient || !activeWebClient) return
 
-    const ready = this.#images.ensureReadyToSend(value)
+    const ready = queued ? undefined : this.#images.ensureReadyToSend(value)
     if (ready) {
       try {
         await ready
@@ -432,10 +612,10 @@ export class InteractiveApp {
 
     let admission: PromptAdmission
     let turnSession: JsonlSession
-    const userMessage = createUserMessage(value, this.#images.pending.items)
+    const userMessage = queued?.admission.message ?? createUserMessage(value, this.#images.pending.items)
     try {
-      turnSession = await this.#sessions.ensure()
-      admission = await turnSession.admitPrompt(userMessage)
+      turnSession = queued?.session ?? (await this.#sessions.ensure())
+      admission = queued?.admission ?? (await turnSession.admitPrompt(userMessage))
     } catch (error) {
       if (this.#activeTurn === turnController) this.#activeTurn = undefined
       this.#busy = false
@@ -446,7 +626,14 @@ export class InteractiveApp {
       return
     }
 
-    this.#transcript.addUserMessage(userMessage)
+    const steering = new SteeringInbox(async (message) => {
+      await turnSession.steerPrompt(admission, message)
+    })
+    this.#activeAgentTurn = { controller: turnController, steering }
+
+    if (!queued || !this.#transcript.activatePendingUserMessage(queued.transcriptEntryId)) {
+      this.#transcript.addUserMessage(userMessage)
+    }
     if (this.#transcript.history.length === 0) {
       this.#sessions.setProvisionalLabel(value || summarizeUserMessage(userMessage))
     }
@@ -456,9 +643,9 @@ export class InteractiveApp {
     this.#ui.clearInput()
     this.#ui.renderTranscript(this.#transcript.entries, { scrollToBottom: true })
 
-    let result: Awaited<ReturnType<typeof runAgentTurn>>
+    let shouldCompact = false
     try {
-      result = await runAgentTurn({
+      const result = await runAgentTurn({
         admission,
         client: activeClient,
         webClient: activeWebClient,
@@ -490,8 +677,54 @@ export class InteractiveApp {
         }),
         onPermissionRequest: (request) => this.#handlePermissionRequest(request),
         onCompletion: () => this.#terminal.notifyCompletion(),
+        steering,
       })
+
+      if (result.status === "interrupted") {
+        try {
+          await turnSession.interruptTurn(admission, result.messages, result.toolActivities)
+        } catch (error) {
+          this.#transcript.addDebugMessage(
+            `Could not save interrupted turn: ${error instanceof Error ? error.message : String(error)}`,
+          )
+          if (!this.#exiting) this.#ui.renderTranscript(this.#transcript.entries, { scrollToBottom: true })
+        }
+        if (!this.#exiting) this.#updateContextIndicator()
+        return
+      }
+
+      if (result.status !== "complete") {
+        if (!this.#exiting && result.status !== "incomplete") this.#updateContextIndicator()
+        return
+      }
+
+      this.#sessions.refreshLabel()
+      this.#updateContextIndicator()
+      this.#ui.renderTranscript(this.#transcript.entries)
+
+      try {
+        await turnSession.completeTurn(admission, result.messages, result.toolActivities)
+      } catch (error) {
+        this.#transcript.addDebugMessage(
+          `Could not save turn: ${error instanceof Error ? error.message : String(error)}`,
+        )
+        this.#ui.renderTranscript(this.#transcript.entries, { scrollToBottom: true })
+      }
+
+      if (!turnSession.hasTitle()) void this.#sessions.generateTitle(turnSession)
+      shouldCompact =
+        !this.#pendingActions.some((action) => action.type === "prompt") &&
+        estimateContextTokens(this.#transcript.history, this.#staticContextChars) >= this.#autoCompactAtTokens
     } finally {
+      try {
+        await steering.close()
+      } catch (error) {
+        this.#transcript.addDebugMessage(
+          `Could not save steering message: ${error instanceof Error ? error.message : String(error)}`,
+        )
+        if (!this.#exiting) this.#ui.renderTranscript(this.#transcript.entries, { scrollToBottom: true })
+      }
+      if (this.#activeAgentTurn?.controller === turnController) this.#activeAgentTurn = undefined
       if (this.#activeTurn === turnController) this.#activeTurn = undefined
       this.#busy = false
       this.#ui.setBusy(false)
@@ -500,43 +733,7 @@ export class InteractiveApp {
         this.#ui.focusInput()
       }
     }
-
-    if (result.status === "interrupted") {
-      try {
-        await turnSession.interruptTurn(admission, result.messages, result.toolActivities)
-      } catch (error) {
-        this.#transcript.addDebugMessage(
-          `Could not save interrupted turn: ${error instanceof Error ? error.message : String(error)}`,
-        )
-        if (!this.#exiting) this.#ui.renderTranscript(this.#transcript.entries, { scrollToBottom: true })
-      }
-      if (!this.#exiting) this.#updateContextIndicator()
-      return
-    }
-
-    if (result.status !== "complete") {
-      if (!this.#exiting && result.status !== "incomplete") this.#updateContextIndicator()
-      return
-    }
-
-    this.#sessions.refreshLabel()
-    this.#updateContextIndicator()
-    this.#ui.renderTranscript(this.#transcript.entries)
-
-    try {
-      await turnSession.completeTurn(admission, result.messages, result.toolActivities)
-    } catch (error) {
-      this.#transcript.addDebugMessage(`Could not save turn: ${error instanceof Error ? error.message : String(error)}`)
-      this.#ui.renderTranscript(this.#transcript.entries, { scrollToBottom: true })
-    }
-
-    if (!turnSession.hasTitle()) {
-      void this.#sessions.generateTitle(turnSession)
-    }
-
-    if (estimateContextTokens(this.#transcript.history, this.#staticContextChars) >= this.#autoCompactAtTokens) {
-      await this.#runCompaction(undefined, true)
-    }
+    if (shouldCompact) await this.#runCompaction(undefined, true)
   }
 
   async #runCompaction(instructions?: string, auto = false) {
@@ -567,6 +764,7 @@ export class InteractiveApp {
 
     try {
       const turnSession = await this.#sessions.ensure()
+      const throughSeq = turnSession.events.at(-1)?.seq
       const result = await compactConversation(this.#transcript.history, {
         client: activeClient,
         instructions,
@@ -577,7 +775,7 @@ export class InteractiveApp {
       })
       const keptToolActivities = this.#transcript.toolActivitiesFor(result.keptMessages)
 
-      await turnSession.compact(result.summary, result.keptMessages, keptToolActivities)
+      await turnSession.compact(result.summary, result.keptMessages, keptToolActivities, throughSeq)
 
       this.#transcript.loadCompacted(result.summary, result.keptMessages, keptToolActivities)
       this.#sessions.refreshLabel()
@@ -968,7 +1166,6 @@ export class InteractiveApp {
   }
 
   #toggleMode() {
-    if (this.#busy) return
     this.#permissionMode = this.#permissionMode === "ask" ? "auto" : "ask"
     this.#ui.setModeLabel(formatModeLabel(this.#permissionMode))
   }

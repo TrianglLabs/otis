@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import type { ChatMessage } from "../../src/inference/types.js"
 import {
   createSession,
@@ -40,6 +40,43 @@ describe("JsonlSession", () => {
     expect(session.replayMessages()).toEqual([
       { role: "user", content: "hello" },
       { role: "assistant", content: [{ type: "text", text: "hi" }] },
+    ])
+  })
+
+  it("persists steering and keeps queued admissions after the completed active turn", async () => {
+    const cwd = await trackedTempDir()
+    const directory = join(cwd, "sessions")
+    const session = await openSession({ cwd, directory })
+    const active = await session.admitPrompt("review the project")
+    await session.steerPrompt(active, "focus on tests")
+    const queued = await session.admitPrompt("then update the docs")
+    const activeMessages: ChatMessage[] = [
+      active.message,
+      { role: "assistant", content: [{ type: "text", text: "I started with the implementation." }] },
+      { role: "user", content: "focus on tests" },
+      { role: "assistant", content: [{ type: "text", text: "The tests need one change." }] },
+    ]
+
+    await session.completeTurn(active, activeMessages)
+
+    expect(session.replayMessages()).toEqual([...activeMessages, queued.message])
+    expect(session.events.map((event) => event.type)).toEqual([
+      "session_started",
+      "prompt_admitted",
+      "prompt_steered",
+      "prompt_admitted",
+      "turn_completed",
+    ])
+
+    await session.completeTurn(queued, [
+      queued.message,
+      { role: "assistant", content: [{ type: "text", text: "Docs updated." }] },
+    ])
+    const reopened = await openSession({ cwd, directory })
+    expect(reopened.replayMessages()).toEqual([
+      ...activeMessages,
+      queued.message,
+      { role: "assistant", content: [{ type: "text", text: "Docs updated." }] },
     ])
   })
 
@@ -191,22 +228,29 @@ describe("JsonlSession", () => {
   })
 
   it("lists sessions with titles and newest first", async () => {
-    const cwd = await trackedTempDir()
-    const directory = join(cwd, "sessions")
-    const first = await openSession({ cwd, directory, sessionId: "first" })
-    const second = await openSession({ cwd, directory, sessionId: "second" })
+    vi.useFakeTimers()
+    try {
+      const cwd = await trackedTempDir()
+      const directory = join(cwd, "sessions")
+      vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"))
+      const first = await openSession({ cwd, directory, sessionId: "first" })
+      const second = await openSession({ cwd, directory, sessionId: "second" })
 
-    await first.admitPrompt("older session\nwith details")
-    await second.admitPrompt("newer session")
+      await first.admitPrompt("older session\nwith details")
+      vi.setSystemTime(new Date("2026-01-01T00:00:00.001Z"))
+      await second.admitPrompt("newer session")
 
-    const sessions = await listSessions({ cwd, directory })
+      const sessions = await listSessions({ cwd, directory })
 
-    expect(
-      sessions.map((session) => ({ id: session.id, title: session.title, messageCount: session.messageCount })),
-    ).toEqual([
-      { id: "second", title: "newer session", messageCount: 1 },
-      { id: "first", title: "older session", messageCount: 1 },
-    ])
+      expect(
+        sessions.map((session) => ({ id: session.id, title: session.title, messageCount: session.messageCount })),
+      ).toEqual([
+        { id: "second", title: "newer session", messageCount: 1 },
+        { id: "first", title: "older session", messageCount: 1 },
+      ])
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("skips bad session files when listing sessions", async () => {
@@ -307,6 +351,36 @@ describe("JsonlSession", () => {
     expect(replayed).toEqual([
       { role: "user", content: "[Compacted conversation summary]\n\nCompacted summary" },
       { role: "user", content: "second" },
+    ])
+  })
+
+  it("preserves prompts admitted after a compaction snapshot", async () => {
+    const cwd = await trackedTempDir()
+    const session = await openSession({ cwd, directory: join(cwd, "sessions") })
+    const original = await session.admitPrompt("original")
+    await session.completeTurn(original, [
+      original.message,
+      { role: "assistant", content: [{ type: "text", text: "original reply" }] },
+    ])
+    const throughSeq = session.events.at(-1)?.seq
+    const queued = await session.admitPrompt("queued during compaction")
+
+    await session.compact(
+      "Original turn summary",
+      [{ role: "assistant", content: [{ type: "text", text: "original reply" }] }],
+      [],
+      throughSeq,
+    )
+    await session.completeTurn(queued, [
+      queued.message,
+      { role: "assistant", content: [{ type: "text", text: "queued reply" }] },
+    ])
+
+    expect(session.replayMessages()).toEqual([
+      { role: "user", content: "[Compacted conversation summary]\n\nOriginal turn summary" },
+      { role: "assistant", content: [{ type: "text", text: "original reply" }] },
+      queued.message,
+      { role: "assistant", content: [{ type: "text", text: "queued reply" }] },
     ])
   })
 

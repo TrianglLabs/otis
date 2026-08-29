@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { type AgentEvent, runAgent } from "../../src/core/agent.js"
+import { SteeringInbox } from "../../src/core/steering.js"
 import type { FireworksClient } from "../../src/inference/client.js"
 import { createPermissionPolicy, type PermissionRequest } from "../../src/permissions/policy.js"
 import { emptySkillCatalog } from "../../src/skills/index.js"
@@ -139,6 +140,63 @@ describe("runAgent", () => {
     const events = await collect(runAgent("answer", [], { client, cwd }))
 
     expect(events.some((event) => event.type === "reasoning")).toBe(false)
+  })
+
+  it("injects steering after the current response and before the next model call", async () => {
+    const requests: StreamAgentRequest[] = []
+    const steering = new SteeringInbox(async () => undefined)
+    streamAgentMock
+      .mockImplementationOnce(async function* (request) {
+        requests.push(clone(request) as StreamAgentRequest)
+        yield { type: "text_delta", text: "I will start broadly." }
+        steering.accept({ role: "user", content: "Focus only on the tests." })
+      })
+      .mockImplementationOnce(async function* (request) {
+        requests.push(clone(request) as StreamAgentRequest)
+        yield { type: "text_delta", text: "I will focus on the tests." }
+      })
+
+    const events = await collect(runAgent("Review the project.", [], { client, steering }))
+    const complete = events.find((event) => event.type === "complete")
+
+    expect(requests[1]?.messages).toEqual([
+      { role: "user", content: "Review the project." },
+      { role: "assistant", content: [{ type: "text", text: "I will start broadly." }] },
+      { role: "user", content: "Focus only on the tests." },
+    ])
+    expect(complete?.messages).toEqual([
+      ...requests[1].messages,
+      { role: "assistant", content: [{ type: "text", text: "I will focus on the tests." }] },
+    ])
+  })
+
+  it("waits for tool results before injecting steering", async () => {
+    const cwd = await trackedTempDir()
+    await writeFile(join(cwd, "note.txt"), "tool result", "utf8")
+    const requests: StreamAgentRequest[] = []
+    const steering = new SteeringInbox(async () => undefined)
+    streamAgentMock
+      .mockImplementationOnce(async function* (request) {
+        requests.push(clone(request) as StreamAgentRequest)
+        yield { type: "tool_call", toolCall: { id: "call_1", name: "read", arguments: '{"path":"note.txt"}' } }
+        steering.accept({ role: "user", content: "Also check the tests." })
+      })
+      .mockImplementationOnce(async function* (request) {
+        requests.push(clone(request) as StreamAgentRequest)
+        yield { type: "text_delta", text: "Done." }
+      })
+
+    await collect(runAgent("Read the note.", [], { client, cwd, steering }))
+
+    expect(requests[1]?.messages).toMatchObject([
+      { role: "user", content: "Read the note." },
+      {
+        role: "assistant",
+        content: [{ type: "tool_call", toolCall: { id: "call_1", name: "read" } }],
+      },
+      { role: "tool", toolCallId: "call_1", content: expect.stringContaining("tool result") },
+      { role: "user", content: "Also check the tests." },
+    ])
   })
 
   it("preserves multiple reasoning and text blocks in stream order", async () => {

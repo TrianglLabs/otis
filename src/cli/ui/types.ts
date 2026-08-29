@@ -18,6 +18,7 @@ export type CommandSuggestion = {
   name: string
   description: string
   submission?: string
+  draft?: string
 }
 
 export type { ModelPickerItem }

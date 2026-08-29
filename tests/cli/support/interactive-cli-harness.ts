@@ -318,6 +318,7 @@ function baseSession() {
     }),
     completeTurn: vi.fn(async () => undefined),
     interruptTurn: vi.fn(async () => undefined),
+    steerPrompt: vi.fn(async (_admission: unknown, message: UserChatMessage) => message),
     hasTitle: vi.fn(() => false),
     id: "session_test",
     recordUsage: vi.fn(async () => undefined),

@@ -7,6 +7,7 @@ import { parseSerializedToolCall } from "../tools/schema.js"
 
 export type TranscriptKind = "message" | "reasoning" | "tool" | "debug"
 export type TranscriptSpeaker = "You" | "Otis" | "Thinking" | "Tool" | "Debug"
+export type TranscriptDelivery = "queued" | "steering"
 
 export type TranscriptEntry = {
   id: number
@@ -21,6 +22,7 @@ export type TranscriptEntry = {
   durationMs?: number
   diff?: string
   streaming?: boolean
+  delivery?: TranscriptDelivery
 }
 
 export class TranscriptStore {
@@ -60,10 +62,33 @@ export class TranscriptStore {
   }
 
   addUserMessage(message: string | Extract<ChatMessage, { role: "user" }>) {
-    const text = typeof message === "string" ? message : displayUserMessage(message)
-    const entry = { id: this.nextMessageID++, kind: "message" as const, speaker: "You" as const, text }
-    this.entries.push(entry)
-    return entry
+    return this.addUserEntry(message)
+  }
+
+  addQueuedUserMessage(message: string | Extract<ChatMessage, { role: "user" }>) {
+    return this.addUserEntry(message, "queued")
+  }
+
+  addSteeringUserMessage(message: string | Extract<ChatMessage, { role: "user" }>) {
+    return this.addUserEntry(message, "steering")
+  }
+
+  activatePendingUserMessage(id: number) {
+    const index = this.entries.findIndex((entry) => entry.id === id)
+    if (index === -1) return false
+    const [entry] = this.entries.splice(index, 1)
+    if (!entry) return false
+    const active = { ...entry }
+    delete active.delivery
+    this.entries.push(active)
+    return true
+  }
+
+  removeEntry(id: number) {
+    const index = this.entries.findIndex((entry) => entry.id === id)
+    if (index === -1) return false
+    this.entries.splice(index, 1)
+    return true
   }
 
   addAssistantMessage(text: string) {
@@ -176,6 +201,19 @@ export class TranscriptStore {
         }
       }
     }
+  }
+
+  private addUserEntry(message: string | Extract<ChatMessage, { role: "user" }>, delivery?: TranscriptDelivery) {
+    const text = typeof message === "string" ? message : displayUserMessage(message)
+    const entry = {
+      id: this.nextMessageID++,
+      kind: "message" as const,
+      speaker: "You" as const,
+      text,
+      ...(delivery ? { delivery } : {}),
+    }
+    this.entries.push(entry)
+    return entry
   }
 
   private addReasoningPart(part: ReasoningContentPart) {

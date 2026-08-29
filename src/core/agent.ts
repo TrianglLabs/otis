@@ -28,6 +28,7 @@ import {
 } from "../tools/index.js"
 import { AssistantResponseBuilder } from "./assistant-response.js"
 import { loadProjectContext } from "./context.js"
+import type { SteeringSource } from "./steering.js"
 
 export type AgentEvent =
   | { type: "context"; messageCount: number; contentChars: number }
@@ -59,6 +60,7 @@ export type RunAgentOptions = ToolContext & {
   skills?: SkillCatalog
   tools?: ToolDefinition[]
   maxSteps?: number
+  steering?: SteeringSource
 }
 
 export async function* runAgent(
@@ -86,7 +88,13 @@ export async function* runAgent(
 
     let step = 0
     while (true) {
+      const steeringMessages = await options.steering?.drain()
+      if (steeringMessages?.length) {
+        messages.push(...steeringMessages)
+        yield { type: "context", messageCount: messages.length, contentChars: messagesContentChars(messages) }
+      }
       if (options.maxSteps !== undefined && step >= options.maxSteps) {
+        messages.push(...(await closeSteering(options.steering)))
         yield {
           type: "error",
           message: `Agent reached the ${options.maxSteps}-step limit.`,
@@ -108,6 +116,7 @@ export async function* runAgent(
         if (response.toolCalls.length > 0) {
           messages.push(...interruptedToolCalls([], response.toolCalls).messages)
         }
+        messages.push(...(await closeSteering(options.steering)))
         yield { type: "interrupted", messages: turnMessages(messages, history.length) }
         return
       }
@@ -115,6 +124,12 @@ export async function* runAgent(
       yield { type: "context", messageCount: messages.length, contentChars: messagesContentChars(messages) }
 
       if (response.toolCalls.length === 0) {
+        const steeringMessages = await options.steering?.drainOrClose()
+        if (steeringMessages?.length) {
+          messages.push(...steeringMessages)
+          yield { type: "context", messageCount: messages.length, contentChars: messagesContentChars(messages) }
+          continue
+        }
         if (!hasText(response)) {
           yield {
             type: "error",
@@ -130,12 +145,14 @@ export async function* runAgent(
       const execution = yield* executeToolCalls(response.toolCalls, toolContext)
       messages.push(...execution.messages)
       if (execution.interrupted) {
+        messages.push(...(await closeSteering(options.steering)))
         yield { type: "interrupted", messages: turnMessages(messages, history.length) }
         return
       }
       yield { type: "context", messageCount: messages.length, contentChars: messagesContentChars(messages) }
     }
   } catch (error) {
+    messages.push(...(await closeSteering(options.steering)))
     if (options.signal?.aborted) {
       yield { type: "interrupted", messages: turnMessages(messages, history.length) }
       return
@@ -145,6 +162,15 @@ export async function* runAgent(
       message: error instanceof Error ? error.message : String(error),
       messages: turnMessages(messages, history.length),
     }
+  }
+}
+
+async function closeSteering(steering: SteeringSource | undefined) {
+  if (!steering) return []
+  try {
+    return await steering.close()
+  } catch {
+    return []
   }
 }
 

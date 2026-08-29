@@ -46,6 +46,42 @@ describe("chat UI input", () => {
     expect(harness.find("command-menu")).toBeUndefined()
   })
 
+  it("keeps commands selectable while a turn is busy", async () => {
+    const onSubmit = vi.fn()
+    const harness = await setup({
+      commands: [
+        { name: "/new", description: "Start a new session" },
+        { name: "/theme", description: "Choose a theme" },
+      ],
+      onSubmit,
+    })
+    harness.ui.showChatLayout()
+    harness.ui.setBusy(true)
+
+    harness.setChatInput("/new")
+    expect(harness.text("command-row-0")).toBe("› /new")
+    expect(harness.text("command-row-0-meta")).toBe("  Start a new session")
+
+    harness.press("return")
+    expect(onSubmit).toHaveBeenCalledWith("/new")
+    expect(harness.find("command-menu")).toBeUndefined()
+  })
+
+  it("turns the queue menu item into an editable queue command", async () => {
+    const onSubmit = vi.fn()
+    const harness = await setup({
+      commands: [{ name: "/queue", description: "Queue a separate follow-up", draft: "/queue " }],
+      onSubmit,
+    })
+    harness.ui.showChatLayout()
+
+    harness.setChatInput("/queue")
+    harness.press("return")
+
+    expect(harness.get<TextareaRenderable>("otis-input").plainText).toBe("/queue ")
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
   it("shows a second-level command menu and submits its hidden command value", async () => {
     const onSubmit = vi.fn()
     const harness = await setup({ onSubmit })

@@ -22,6 +22,7 @@ type SessionControllerOptions = {
 
 export class SessionController {
   private session: JsonlSession | undefined
+  private sessionTask: Promise<JsonlSession> | undefined
   private title: string | undefined
   private addedLines = 0
   private removedLines = 0
@@ -29,7 +30,6 @@ export class SessionController {
   constructor(private readonly options: SessionControllerOptions) {}
 
   async openPicker() {
-    if (this.options.isBusy()) return
     try {
       await this.refreshPicker()
     } catch (error) {
@@ -77,8 +77,15 @@ export class SessionController {
   }
 
   async ensure() {
-    this.session ??= await createSession({ cwd: this.options.cwd })
-    return this.session
+    if (this.session) return this.session
+    const task = this.sessionTask ?? createSession({ cwd: this.options.cwd })
+    this.sessionTask = task
+    try {
+      this.session = await task
+      return this.session
+    } finally {
+      if (this.sessionTask === task) this.sessionTask = undefined
+    }
   }
 
   setProvisionalLabel(input: string) {
@@ -145,6 +152,7 @@ export class SessionController {
   }
 
   private resetCurrent() {
+    this.sessionTask = undefined
     this.session = undefined
     this.title = undefined
     this.addedLines = 0

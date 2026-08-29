@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   parseSlashCommand,
   SLASH_COMMANDS,
-  slashCommandIgnoresBusy,
+  slashCommandRunsImmediately,
   slashCommands,
 } from "../../src/cli/slash-commands.js"
 import { THEME_NAMES } from "../../src/local/settings.js"
@@ -35,34 +35,50 @@ describe("slash commands", () => {
       type: "compact",
       instructions: "keep the latest error",
     })
+    expect(parseSlashCommand("/queue check the tests too")).toEqual({
+      type: "queue",
+      prompt: "check the tests too",
+    })
     expect(parseSlashCommand("/compacted")).toBeUndefined()
     expect(parseSlashCommand("/themes")).toBeUndefined()
     expect(parseSlashCommand("hello")).toBeUndefined()
   })
 
-  it("lets exit and theme commands run while a turn is busy", () => {
-    expect(slashCommandIgnoresBusy({ type: "exit" })).toBe(true)
-    expect(slashCommandIgnoresBusy({ type: "theme-menu" })).toBe(true)
-    expect(slashCommandIgnoresBusy({ type: "theme", name: "nord" })).toBe(true)
-    expect(slashCommandIgnoresBusy({ type: "home" })).toBe(false)
-    expect(slashCommandIgnoresBusy({ type: "compact" })).toBe(false)
+  it("identifies commands that can mutate UI state immediately", () => {
+    expect(slashCommandRunsImmediately({ type: "exit" })).toBe(true)
+    expect(slashCommandRunsImmediately({ type: "history" })).toBe(true)
+    expect(slashCommandRunsImmediately({ type: "home" })).toBe(true)
+    expect(slashCommandRunsImmediately({ type: "model" })).toBe(true)
+    expect(slashCommandRunsImmediately({ type: "thinking" })).toBe(true)
+    expect(slashCommandRunsImmediately({ type: "theme-menu" })).toBe(true)
+    expect(slashCommandRunsImmediately({ type: "theme", name: "nord" })).toBe(true)
+    expect(slashCommandRunsImmediately({ type: "settings" })).toBe(true)
+    expect(slashCommandRunsImmediately({ type: "settings", setting: "debug" })).toBe(true)
+    expect(slashCommandRunsImmediately({ type: "settings", setting: "hosted" })).toBe(false)
+    expect(slashCommandRunsImmediately({ type: "compact" })).toBe(false)
+  })
+
+  it("advertises queue as an editable command", () => {
+    const commands = slashCommands({ fast: true })
+    expect(commands.find((command) => command.name === "/queue")).toMatchObject({ draft: "/queue " })
   })
 
   it("advertises every built-in command including theme names", () => {
     const names = SLASH_COMMANDS.map((command) => command.name)
-    expect(names.slice(0, 9)).toEqual([
+    expect(names.slice(0, 10)).toEqual([
       "/home",
       "/new",
       "/history",
       "/model",
       "/settings",
       "/fast",
+      "/queue",
       "/compact",
       "/thinking",
       "/theme",
     ])
     expect(names.at(-1)).toBe("/exit")
-    expect(names.slice(9, -1)).toEqual(THEME_NAMES.map((theme) => `/theme ${theme}`))
+    expect(names.slice(10, -1)).toEqual(THEME_NAMES.map((theme) => `/theme ${theme}`))
   })
 
   it("omits /fast unless the current model has a Fast serving path", () => {

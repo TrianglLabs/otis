@@ -46,6 +46,10 @@ export type PreparedModelSelection = {
   rollback: (options: { restorePrevious: boolean }) => Promise<void>
 }
 
+type ModelPickerOpenOptions = {
+  background?: boolean
+}
+
 export class SetupFlow {
   #fireworksApiKey: string | undefined
   #selectedModel: string | undefined
@@ -132,8 +136,16 @@ export class SetupFlow {
     await this.selectDefaultModel(apiKey)
   }
 
-  async openModelPicker(apiKey: string | undefined, currentModel: string | undefined, wasConfigured: boolean) {
-    await this.runCatalogOperation((signal) => this.loadModels(apiKey, currentModel, wasConfigured, signal))
+  async openModelPicker(
+    apiKey: string | undefined,
+    currentModel: string | undefined,
+    wasConfigured: boolean,
+    options: ModelPickerOpenOptions = {},
+  ) {
+    await this.runCatalogOperation(
+      (signal) => this.loadModels(apiKey, currentModel, wasConfigured, signal, options.background === true),
+      options.background === true,
+    )
   }
 
   async selectModel(item: ModelPickerItem) {
@@ -261,12 +273,13 @@ export class SetupFlow {
     currentModel: string | undefined,
     wasConfigured: boolean,
     signal: AbortSignal,
+    background: boolean,
   ) {
-    if (this.#closed || this.options.isBusy()) return
-    this.options.setBusy(true)
+    if (this.#closed || (!background && this.options.isBusy())) return
+    if (!background) this.options.setBusy(true)
     if (wasConfigured) {
       this.options.ui.showChatLayout()
-      this.options.ui.showTransientHint(" Loading models… ")
+      if (!background) this.options.ui.showTransientHint(" Loading models… ")
     } else {
       this.options.ui.showSetupStatus()
     }
@@ -293,7 +306,7 @@ export class SetupFlow {
         this.options.ui.showSetupInferenceChoice(errorMessage(error))
       }
     } finally {
-      this.options.setBusy(false)
+      if (!background) this.options.setBusy(false)
     }
   }
 
@@ -435,8 +448,8 @@ export class SetupFlow {
     })
   }
 
-  private async runCatalogOperation(operation: (signal: AbortSignal) => Promise<void>) {
-    if (this.#closed || this.options.isBusy()) return
+  private async runCatalogOperation(operation: (signal: AbortSignal) => Promise<void>, allowWhileBusy = false) {
+    if (this.#closed || (!allowWhileBusy && this.options.isBusy())) return
     this.#catalogController?.abort()
     const controller = new AbortController()
     this.#catalogController = controller
