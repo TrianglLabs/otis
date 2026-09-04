@@ -121,6 +121,18 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       ["command"],
     ),
   },
+  {
+    name: "agent",
+    description:
+      "Delegate a read-only exploration or research subtask to a subagent that works with its own context and returns only a final report. Use it for broad codebase exploration or multi-source research that would otherwise flood this conversation with tool output. Several agent calls in one response run in parallel. The subagent cannot see this conversation, so the prompt must contain everything it needs and state exactly what to report back.",
+    parameters: objectSchema(
+      {
+        description: stringSchema("Short label for the subtask, 3-7 words."),
+        prompt: stringSchema("Complete, self-contained task brief including what to report back."),
+      },
+      ["description", "prompt"],
+    ),
+  },
 ]
 
 export function parseSerializedToolCall(name: string, argumentsJSON: string): ToolCall {
@@ -213,6 +225,19 @@ export function parseStructuredToolCall(name: string, input: unknown): ToolCall 
       return { name, input: { path: input.path.trim(), old: input.old, new: input.new } }
     }
     throw new Error('edit requires string "path", "old", and "new"')
+  }
+
+  if (name === "agent") {
+    if (
+      isRecord(input) &&
+      typeof input.description === "string" &&
+      input.description.trim() &&
+      typeof input.prompt === "string" &&
+      input.prompt.trim()
+    ) {
+      return { name, input: { description: input.description.trim(), prompt: input.prompt.trim() } }
+    }
+    throw new Error('agent requires non-empty strings "description" and "prompt"')
   }
 
   if (isRecord(input) && typeof input.command === "string" && input.command.trim()) {

@@ -1,6 +1,7 @@
 import type { ScrollBoxRenderable } from "@opentui/core"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { runAgentTurn } from "../../src/cli/agent-turn.js"
+import { SubagentTraces } from "../../src/cli/subagents.js"
 import { TranscriptStore } from "../../src/cli/transcript.js"
 import type { TurnResult, TurnRunnerOptions } from "../../src/cli/turn-runner.js"
 import type { AgentEvent } from "../../src/core/agent.js"
@@ -50,6 +51,7 @@ describe("agent turn scrolling", () => {
     return {
       admission: { message: { role: "user", content: "hi" } },
       transcript,
+      subagents: new SubagentTraces(),
       ui: harness.ui,
       cwd: "/tmp",
       debug: false,
@@ -84,7 +86,7 @@ describe("agent turn scrolling", () => {
       }
       const messages: ChatMessage[] = [{ role: "assistant", content: [{ type: "text", text: "answer" }] }]
       await options.onEvent?.({ type: "complete", messages })
-      return { status: "complete", messages, toolActivities: [] }
+      return { status: "complete", messages, details: {} }
     })
   }
 

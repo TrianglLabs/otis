@@ -14,7 +14,7 @@ export function openaiChatCompletionRequest(
     model,
     ...(extras.serviceTier ? { service_tier: extras.serviceTier } : {}),
     messages: [
-      { role: "system", content: buildSystemPrompt(options.projectContext, options.now, options.skills) },
+      { role: "system", content: buildSystemPrompt(options.projectContext, options.now, options.skills, tools) },
       ...options.messages.map(openaiMessage),
     ],
     ...(tools.length > 0 ? { tools: tools.map(openaiTool) } : {}),

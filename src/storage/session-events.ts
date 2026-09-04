@@ -25,69 +25,43 @@ export type SessionToolActivity = {
   diff?: string
 }
 
+export type SessionSubagentStatus = "complete" | "failed" | "interrupted"
+
+/** The full trace of one delegated run, keyed by the parent's `agent` tool call in the same turn. */
+export type SessionSubagentRun = {
+  toolCallId: string
+  title: string
+  status: SessionSubagentStatus
+  messages: ChatMessage[]
+  toolActivities?: SessionToolActivity[]
+  durationMs?: number
+}
+
+/** Tool cards and delegated traces that accompany a turn's messages. */
+export type SessionTurnDetails = {
+  toolActivities?: SessionToolActivity[]
+  subagents?: SessionSubagentRun[]
+}
+
 export type SessionReplay = {
   messages: ChatMessage[]
   toolActivities: SessionToolActivity[]
+  subagents: SessionSubagentRun[]
 }
 
 export type UsagePurpose = "agent" | "compaction" | "title"
-
-export type SessionEvent =
-  | (BaseSessionEvent & { type: "session_started"; version: 1 })
-  | (BaseSessionEvent & { type: "prompt_admitted"; promptId: string; message: UserChatMessage })
-  | (BaseSessionEvent & { type: "prompt_steered"; promptId: string; message: UserChatMessage })
-  | (BaseSessionEvent & {
-      type: "turn_completed"
-      promptId: string
-      messages: ChatMessage[]
-      toolActivities?: SessionToolActivity[]
-    })
-  | (BaseSessionEvent & {
-      type: "turn_interrupted"
-      promptId: string
-      messages: ChatMessage[]
-      toolActivities?: SessionToolActivity[]
-    })
-  | (BaseSessionEvent & {
-      type: "compacted"
-      summary: string
-      messages: ChatMessage[]
-      toolActivities?: SessionToolActivity[]
-      throughSeq?: number
-    })
-  | (BaseSessionEvent & {
-      type: "usage_recorded"
-      purpose: UsagePurpose
-      promptId?: string
-      usage: TokenUsage
-    })
-  | (BaseSessionEvent & { type: "title_renamed"; title: string })
 
 export type NewSessionEvent =
   | { type: "session_started"; version: 1 }
   | { type: "prompt_admitted"; promptId: string; message: UserChatMessage }
   | { type: "prompt_steered"; promptId: string; message: UserChatMessage }
-  | {
-      type: "turn_completed"
-      promptId: string
-      messages: ChatMessage[]
-      toolActivities?: SessionToolActivity[]
-    }
-  | {
-      type: "turn_interrupted"
-      promptId: string
-      messages: ChatMessage[]
-      toolActivities?: SessionToolActivity[]
-    }
-  | {
-      type: "compacted"
-      summary: string
-      messages: ChatMessage[]
-      toolActivities?: SessionToolActivity[]
-      throughSeq?: number
-    }
+  | ({ type: "turn_completed"; promptId: string; messages: ChatMessage[] } & SessionTurnDetails)
+  | ({ type: "turn_interrupted"; promptId: string; messages: ChatMessage[] } & SessionTurnDetails)
+  | ({ type: "compacted"; summary: string; messages: ChatMessage[]; throughSeq?: number } & SessionTurnDetails)
   | { type: "usage_recorded"; purpose: UsagePurpose; promptId?: string; usage: TokenUsage }
   | { type: "title_renamed"; title: string }
+
+export type SessionEvent = BaseSessionEvent & NewSessionEvent
 
 export async function readSessionEvents(filePath: string): Promise<SessionEvent[]> {
   let content: string
@@ -117,20 +91,21 @@ export async function readSessionEvents(filePath: string): Promise<SessionEvent[
   return events
 }
 
+type ReplayTurn = {
+  promptId?: string
+  admittedSeq?: number
+  messages: ChatMessage[]
+  toolActivities: SessionToolActivity[]
+  subagents: SessionSubagentRun[]
+}
+
 export function replaySession(events: readonly SessionEvent[]): SessionReplay {
-  let baseMessages: ChatMessage[] = []
-  let baseToolActivities: SessionToolActivity[] = []
-  const turns: Array<{
-    promptId?: string
-    admittedSeq?: number
-    messages: ChatMessage[]
-    toolActivities: SessionToolActivity[]
-  }> = []
+  let base: ReplayTurn = { messages: [], toolActivities: [], subagents: [] }
+  const turns: ReplayTurn[] = []
 
   for (const event of events) {
     if (event.type === "compacted") {
-      baseMessages = [compactionSummaryMessage(event.summary), ...event.messages]
-      baseToolActivities = [...(event.toolActivities ?? [])]
+      base = replayTurn([compactionSummaryMessage(event.summary), ...event.messages], event)
       const throughSeq = event.throughSeq
       const preserved =
         throughSeq === undefined
@@ -139,26 +114,43 @@ export function replaySession(events: readonly SessionEvent[]): SessionReplay {
       turns.length = 0
       turns.push(...preserved)
     } else if (event.type === "prompt_admitted") {
-      turns.push({ promptId: event.promptId, admittedSeq: event.seq, messages: [event.message], toolActivities: [] })
+      turns.push({ ...replayTurn([event.message]), promptId: event.promptId, admittedSeq: event.seq })
     } else if (event.type === "prompt_steered") {
       const turn = findReplayTurn(turns, event.promptId)
       if (turn) turn.messages.push(event.message)
-      else turns.push({ messages: [event.message], toolActivities: [] })
+      else turns.push(replayTurn([event.message]))
     } else if (event.type === "turn_completed" || event.type === "turn_interrupted") {
       const turn = findReplayTurn(turns, event.promptId)
       if (turn) {
-        turn.messages = [turn.messages[0], ...event.messages]
-        turn.toolActivities = [...(event.toolActivities ?? [])]
+        const completed = replayTurn([turn.messages[0], ...event.messages], event)
+        turn.messages = completed.messages
+        turn.toolActivities = completed.toolActivities
+        turn.subagents = completed.subagents
       } else {
-        turns.push({ messages: [...event.messages], toolActivities: [...(event.toolActivities ?? [])] })
+        turns.push(replayTurn([...event.messages], event))
       }
     }
   }
 
+  const all = [base, ...turns]
   return {
-    messages: [...baseMessages, ...turns.flatMap((turn) => turn.messages)],
-    toolActivities: [...baseToolActivities, ...turns.flatMap((turn) => turn.toolActivities)],
+    messages: all.flatMap((turn) => turn.messages),
+    toolActivities: all.flatMap((turn) => turn.toolActivities),
+    subagents: all.flatMap((turn) => turn.subagents),
   }
+}
+
+function replayTurn(messages: ChatMessage[], details: SessionTurnDetails = {}): ReplayTurn {
+  return { messages, toolActivities: [...(details.toolActivities ?? [])], subagents: [...(details.subagents ?? [])] }
+}
+
+/** Keeps the records whose delegating tool call still appears in `messages`, e.g. after compaction. */
+export function forToolCalls<T extends { toolCallId: string }>(
+  records: readonly T[],
+  messages: readonly ChatMessage[],
+) {
+  const keptCallIds = new Set(toolCallCounts(messages).keys())
+  return records.filter((record) => keptCallIds.has(record.toolCallId))
 }
 
 function findReplayTurn<T extends { promptId?: string }>(turns: T[], promptId: string) {
@@ -221,26 +213,20 @@ function parseSessionEvent(value: unknown, line: number): SessionEvent {
   }
   if (type === "turn_completed" || type === "turn_interrupted") {
     if (typeof value.promptId !== "string" || !value.promptId) throw invalidEvent(line, "promptId must be a string")
-    if (!Array.isArray(value.messages) || !value.messages.every(isChatMessage)) {
-      throw invalidEvent(line, "messages must be chat messages")
-    }
-    const toolActivities = parseToolActivities(value.toolActivities, value.messages, line)
+    const messages = parseChatMessages(value.messages, line)
     return {
       seq,
       sessionId,
       at,
       type,
       promptId: value.promptId,
-      messages: value.messages,
-      ...(toolActivities ? { toolActivities } : {}),
+      messages,
+      ...parseTurnDetails(value, messages, line),
     }
   }
   if (type === "compacted") {
     if (typeof value.summary !== "string" || !value.summary) throw invalidEvent(line, "summary must be a string")
-    if (!Array.isArray(value.messages) || !value.messages.every(isChatMessage)) {
-      throw invalidEvent(line, "messages must be chat messages")
-    }
-    const toolActivities = parseToolActivities(value.toolActivities, value.messages, line)
+    const messages = parseChatMessages(value.messages, line)
     if (
       value.throughSeq !== undefined &&
       (typeof value.throughSeq !== "number" ||
@@ -256,8 +242,8 @@ function parseSessionEvent(value: unknown, line: number): SessionEvent {
       at,
       type,
       summary: value.summary,
-      messages: value.messages,
-      ...(toolActivities ? { toolActivities } : {}),
+      messages,
+      ...parseTurnDetails(value, messages, line),
       ...(value.throughSeq === undefined ? {} : { throughSeq: value.throughSeq }),
     }
   }
@@ -308,6 +294,17 @@ function nonNegativeInteger(value: unknown) {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined
 }
 
+function parseChatMessages(value: unknown, line: number): ChatMessage[] {
+  if (!Array.isArray(value) || !value.every(isChatMessage)) throw invalidEvent(line, "messages must be chat messages")
+  return value
+}
+
+function parseTurnDetails(value: Record<string, unknown>, messages: ChatMessage[], line: number): SessionTurnDetails {
+  const toolActivities = parseToolActivities(value.toolActivities, messages, line)
+  const subagents = parseSubagentRuns(value.subagents, messages, line)
+  return { ...(toolActivities ? { toolActivities } : {}), ...(subagents ? { subagents } : {}) }
+}
+
 function parseToolActivities(value: unknown, messages: ChatMessage[], line: number): SessionToolActivity[] | undefined {
   if (value === undefined) return undefined
   if (!Array.isArray(value)) throw invalidEvent(line, "toolActivities must be an array")
@@ -340,12 +337,51 @@ function parseToolActivities(value: unknown, messages: ChatMessage[], line: numb
   })
 }
 
-function toolCallCounts(messages: ChatMessage[]) {
+function parseSubagentRuns(value: unknown, messages: ChatMessage[], line: number): SessionSubagentRun[] | undefined {
+  if (value === undefined) return undefined
+  if (!Array.isArray(value)) throw invalidEvent(line, "subagents must be an array")
+  const remainingCalls = toolCallCounts(messages, "agent")
+
+  return value.map((run) => {
+    if (!isRecord(run)) throw invalidEvent(line, "subagents entries must be objects")
+    const { toolCallId } = run
+    const remaining = typeof toolCallId === "string" ? (remainingCalls.get(toolCallId) ?? 0) : 0
+    if (typeof toolCallId !== "string" || remaining === 0) {
+      throw invalidEvent(line, "subagent run did not match an agent tool call")
+    }
+    remainingCalls.set(toolCallId, remaining - 1)
+    if (typeof run.title !== "string" || !run.title.trim()) {
+      throw invalidEvent(line, "subagent run title must be a non-empty string")
+    }
+    if (!isSubagentStatus(run.status)) throw invalidEvent(line, "subagent run status was invalid")
+    const durationMs = run.durationMs === undefined ? undefined : nonNegativeInteger(run.durationMs)
+    if (run.durationMs !== undefined && durationMs === undefined) {
+      throw invalidEvent(line, "subagent run durationMs must be a non-negative integer")
+    }
+    const runMessages = parseChatMessages(run.messages, line)
+    const toolActivities = parseToolActivities(run.toolActivities, runMessages, line)
+
+    return {
+      toolCallId,
+      title: run.title,
+      status: run.status,
+      messages: runMessages,
+      ...(toolActivities ? { toolActivities } : {}),
+      ...(durationMs === undefined ? {} : { durationMs }),
+    }
+  })
+}
+
+function isSubagentStatus(value: unknown): value is SessionSubagentStatus {
+  return value === "complete" || value === "failed" || value === "interrupted"
+}
+
+function toolCallCounts(messages: readonly ChatMessage[], name?: string) {
   const counts = new Map<string, number>()
   for (const message of messages) {
     if (message.role !== "assistant") continue
     for (const part of message.content) {
-      if (part.type !== "tool_call") continue
+      if (part.type !== "tool_call" || (name !== undefined && part.toolCall.name !== name)) continue
       counts.set(part.toolCall.id, (counts.get(part.toolCall.id) ?? 0) + 1)
     }
   }

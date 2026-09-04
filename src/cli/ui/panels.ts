@@ -10,6 +10,7 @@ import type { Renderer } from "./types.js"
 
 const SIDE_PANEL_WIDTH = 41
 const SIDE_PANEL_MIN_WIDTH = 30
+const SUBAGENT_PANEL_WIDTH = 34
 
 // OpenTUI's scrollbar slider hardcodes a dark track (#252527) and gray thumb
 // (#9a9ea3); recolor both from the active theme so they stay visible.
@@ -103,15 +104,38 @@ export function createModelPanel(renderer: Renderer) {
   })
 }
 
+/** Delegated runs list beside the transcript; narrower than the pickers because titles are 3-7 words. */
+export function createSubagentPanel(renderer: Renderer) {
+  return createSidePanel(renderer, {
+    id: "subagent-panel",
+    headerId: "subagent-panel-header",
+    rowsId: "subagent-rows",
+    footerId: "subagent-panel-footer",
+    header: "Subagents",
+    footer: "click a run to inspect",
+    side: "right",
+    width: SUBAGENT_PANEL_WIDTH,
+  })
+}
+
 function createSidePanel(
   renderer: Renderer,
-  spec: { id: string; headerId: string; rowsId: string; footerId: string; header: string; footer: string },
+  spec: {
+    id: string
+    headerId: string
+    rowsId: string
+    footerId: string
+    header: string
+    footer: string
+    side?: "left" | "right"
+    width?: number
+  },
 ) {
   const panel = new BoxRenderable(renderer, {
     id: spec.id,
     flexDirection: "column",
-    width: SIDE_PANEL_WIDTH,
-    minWidth: SIDE_PANEL_MIN_WIDTH,
+    width: spec.width ?? SIDE_PANEL_WIDTH,
+    minWidth: Math.min(SIDE_PANEL_MIN_WIDTH, spec.width ?? SIDE_PANEL_WIDTH),
     flexShrink: 0,
     height: "100%",
     backgroundColor: colors.surface,
@@ -119,7 +143,7 @@ function createSidePanel(
     paddingRight: 0,
     paddingY: 1,
     gap: 0,
-    marginRight: 1,
+    ...(spec.side === "right" ? { marginLeft: 1, marginRight: 1 } : { marginRight: 1 }),
   })
   const rows = new ScrollBoxRenderable(renderer, {
     id: spec.rowsId,
@@ -147,24 +171,23 @@ function createSidePanel(
     }),
   )
   panel.add(rows)
-  panel.add(
-    new TextRenderable(renderer, {
-      id: spec.footerId,
-      content: spec.footer,
-      fg: colors.muted,
-      bg: colors.surface,
-      marginTop: 1,
-      flexShrink: 0,
-      selectable: false,
-      truncate: true,
-    }),
-  )
-  return { panel, rows }
+  const footer = new TextRenderable(renderer, {
+    id: spec.footerId,
+    content: spec.footer,
+    fg: colors.muted,
+    bg: colors.surface,
+    marginTop: 1,
+    flexShrink: 0,
+    selectable: false,
+    truncate: true,
+  })
+  panel.add(footer)
+  return { panel, rows, footer }
 }
 
-export function createMessagesView(renderer: Renderer) {
+export function createMessagesView(renderer: Renderer, id = "messages") {
   return new ScrollBoxRenderable(renderer, {
-    id: "messages",
+    id,
     flexGrow: 1,
     flexShrink: 1,
     minHeight: 1,

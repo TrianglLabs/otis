@@ -1,7 +1,18 @@
 import type { SkillCatalog } from "../skills/index.js"
 import type { ParallelClient } from "../web/client.js"
 
-export const TOOL_NAMES = ["web_search", "web_read", "skill", "read", "grep", "glob", "write", "edit", "bash"] as const
+export const TOOL_NAMES = [
+  "web_search",
+  "web_read",
+  "skill",
+  "read",
+  "grep",
+  "glob",
+  "write",
+  "edit",
+  "bash",
+  "agent",
+] as const
 
 export type ToolName = (typeof TOOL_NAMES)[number]
 
@@ -41,6 +52,10 @@ export type ToolCall =
   | {
       name: "bash"
       input: { command: string; timeoutMs?: number }
+    }
+  | {
+      name: "agent"
+      input: { description: string; prompt: string }
     }
 
 export type ToolResult = {

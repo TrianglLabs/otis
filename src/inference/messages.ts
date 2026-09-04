@@ -19,6 +19,20 @@ export function userMessageText(message: UserChatMessage): string {
     .join("")
 }
 
+/** Text of the most recent assistant message, which is the final answer of a completed turn. */
+export function lastAssistantText(messages: readonly ChatMessage[]): string {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (message.role !== "assistant") continue
+    return message.content
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("")
+      .trim()
+  }
+  return ""
+}
+
 export function userMessageImages(message: UserChatMessage): ImageContentPart[] {
   return typeof message.content === "string" ? [] : message.content.filter((part) => part.type === "image")
 }

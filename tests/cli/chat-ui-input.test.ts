@@ -8,7 +8,6 @@ import {
 import { describe, expect, it, vi } from "vitest"
 import { colors } from "../../src/cli/theme.js"
 import { COLOR_PULSE_PERIOD_MS, selectionOutline } from "../../src/cli/ui/color-pulse.js"
-import { CHAT_INPUT_HINT } from "../../src/cli/ui/format.js"
 import { toFireworksPickerChoice } from "../../src/inference/picker-catalog.js"
 import { fireworksModel } from "../../src/inference/types.js"
 import { THEME_NAMES } from "../../src/local/settings.js"
@@ -715,7 +714,7 @@ describe("chat UI input", () => {
   })
 
   it("keeps the chat hints fixed on one line when the input grows", async () => {
-    const harness = await setup()
+    const harness = await setup({ modelLabel: "Tool Model" })
     harness.ui.showChatLayout()
     const longInput = Array.from({ length: 12 }, (_, index) => `line ${index + 1} ${"x".repeat(70)}`).join("\n")
     harness.setChatInput(longInput)
@@ -730,7 +729,7 @@ describe("chat UI input", () => {
     expect(hint.height).toBe(1)
     expect(mode.y).toBe(input.y)
     expect(hint.y).toBe(input.y)
-    expect(hint.width).toBe(CHAT_INPUT_HINT.length)
-    expect(harness.captureCharFrame()).toContain("[TAB] mode · [ESC] interrupt")
+    expect(hint.width).toBe(" Tool Model · ~/work/otis ".length)
+    expect(harness.captureCharFrame()).toContain("Tool Model · ~/work/otis")
   })
 })

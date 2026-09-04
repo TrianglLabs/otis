@@ -120,6 +120,7 @@ async function permissionResources(call: ToolCall, cwd: string): Promise<string[
   if (call.name === "skill") return [`${call.input.skill}/${call.input.path ?? "SKILL.md"}`]
   if (call.name === "web_read") return [call.input.url]
   if (call.name === "web_search") return call.input.searchQueries
+  if (call.name === "agent") return [call.input.description]
   return workspaceResources(call.input.path, cwd)
 }
 

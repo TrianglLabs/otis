@@ -1,11 +1,12 @@
 import { type AgentEvent, type RunAgentOptions, runAgent } from "../core/agent.js"
 import type { ChatMessage, UserChatMessage } from "../inference/types.js"
-import type { SessionToolActivity } from "../storage/index.js"
+import type { SessionTurnDetails } from "../storage/index.js"
+import { TurnDetailsRecorder } from "./turn-details.js"
 
 export type TurnResult =
-  | { status: "complete" | "interrupted"; messages: ChatMessage[]; toolActivities: SessionToolActivity[] }
-  | { status: "error"; message: string; messages: ChatMessage[]; toolActivities: SessionToolActivity[] }
-  | { status: "incomplete"; toolActivities: SessionToolActivity[] }
+  | { status: "complete" | "interrupted"; messages: ChatMessage[]; details: SessionTurnDetails }
+  | { status: "error"; message: string; messages: ChatMessage[]; details: SessionTurnDetails }
+  | { status: "incomplete"; details: SessionTurnDetails }
 
 export type TurnRunnerOptions = {
   input: UserChatMessage
@@ -16,32 +17,24 @@ export type TurnRunnerOptions = {
 
 /** Runs one agent turn without making assumptions about UI, persistence, or output format. */
 export async function executeTurn(options: TurnRunnerOptions): Promise<TurnResult> {
-  const toolActivities: SessionToolActivity[] = []
-  const activityIndexes = new Map<string, number>()
+  const recorder = new TurnDetailsRecorder()
+  const details = (): SessionTurnDetails => ({
+    toolActivities: recorder.toolActivities,
+    subagents: recorder.subagents,
+  })
 
   for await (const event of runAgent(options.input, options.history ?? [], options.agent)) {
-    if (event.type === "tool" && event.phase === "start") {
-      activityIndexes.set(event.toolCallId, toolActivities.length)
-      toolActivities.push({
-        toolCallId: event.toolCallId,
-        activityKind: event.activityKind,
-        label: event.label,
-      })
-    }
-    if (event.type === "tool" && event.phase === "end" && event.diff) {
-      const index = activityIndexes.get(event.toolCallId)
-      if (index !== undefined) toolActivities[index] = { ...toolActivities[index], diff: event.diff }
-    }
+    recorder.record(event)
 
     const observation = options.onEvent?.(event)
     if (observation) await observation
 
-    if (event.type === "complete") return { status: "complete", messages: event.messages, toolActivities }
-    if (event.type === "interrupted") return { status: "interrupted", messages: event.messages, toolActivities }
+    if (event.type === "complete") return { status: "complete", messages: event.messages, details: details() }
+    if (event.type === "interrupted") return { status: "interrupted", messages: event.messages, details: details() }
     if (event.type === "error") {
-      return { status: "error", message: event.message, messages: event.messages ?? [], toolActivities }
+      return { status: "error", message: event.message, messages: event.messages ?? [], details: details() }
     }
   }
 
-  return { status: "incomplete", toolActivities }
+  return { status: "incomplete", details: details() }
 }

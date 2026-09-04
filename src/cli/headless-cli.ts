@@ -2,6 +2,7 @@ import { stat } from "node:fs/promises"
 import { resolve } from "node:path"
 import { parseArgs } from "node:util"
 import { loadProjectContext } from "../core/context.js"
+import { providerTools } from "../core/subagent.js"
 import { FireworksClient, listToolCapableModels } from "../inference/client.js"
 import { compactionContextLength } from "../inference/context-policy.js"
 import { detectHardware } from "../inference/hardware.js"
@@ -10,7 +11,12 @@ import { LlamaCppRuntime } from "../inference/llama-runtime.js"
 import { findLocalModel, isLocalModelId } from "../inference/local-catalog.js"
 import { LlamaCppClient } from "../inference/local-client.js"
 import { fitLocalModel } from "../inference/local-fit.js"
-import { createUserMessage, imageAttachmentsFromMessages, messagesContainImages } from "../inference/messages.js"
+import {
+  createUserMessage,
+  imageAttachmentsFromMessages,
+  lastAssistantText,
+  messagesContainImages,
+} from "../inference/messages.js"
 import { PairClient, pairEndpointForEngine } from "../inference/pair.js"
 import {
   baseFireworksModelId,
@@ -19,7 +25,7 @@ import {
   useFastServingPath,
 } from "../inference/serving-path.js"
 import { skillAdvertisementChars } from "../inference/system-prompt.js"
-import type { ChatMessage, InferenceClient } from "../inference/types.js"
+import type { InferenceClient, ModelProvider } from "../inference/types.js"
 import { loadLocalSettings, saveSelectedModel } from "../local/settings.js"
 import {
   createPermissionPolicy,
@@ -37,7 +43,7 @@ import {
   openSession,
   type SessionLock,
 } from "../storage/index.js"
-import { TOOL_DEFINITIONS, TOOL_NAMES, type ToolDefinition, type ToolName } from "../tools/index.js"
+import { TOOL_NAMES, type ToolDefinition, type ToolName } from "../tools/index.js"
 import { ParallelClient } from "../web/client.js"
 import { addUsage, emptyUsage, type HeadlessOutputFormat, HeadlessReporter } from "./headless-output.js"
 import { prepareSessionHistory } from "./session-history.js"
@@ -198,7 +204,7 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
     validateImageAttachments(imageAttachmentsFromMessages([...history, userMessage]))
     const admission = session ? await session.admitPrompt(userMessage) : undefined
     const webClient = new ParallelClient()
-    const tools = selectedTools(parsed.tools)
+    const tools = selectedTools(parsed.tools, modelProvider)
     const projectPermissionRules = await loadProjectPermissionRules(cwd)
     const permissionPolicy = createPermissionPolicy({
       cwd,
@@ -230,13 +236,13 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
       onEvent: (event) => reporter.event(event),
     })
 
-    const output = assistantText(result.status === "complete" || result.status === "interrupted" ? result.messages : [])
+    const output = lastAssistantText(
+      result.status === "complete" || result.status === "interrupted" ? result.messages : [],
+    )
     if (session && admission) {
-      if (result.status === "complete") await session.completeTurn(admission, result.messages, result.toolActivities)
-      else if (result.status === "interrupted") {
-        await session.interruptTurn(admission, result.messages, result.toolActivities)
-      } else if (result.status === "error") {
-        await session.interruptTurn(admission, result.messages, result.toolActivities)
+      if (result.status === "complete") await session.completeTurn(admission, result.messages, result.details)
+      else if (result.status === "interrupted" || result.status === "error") {
+        await session.interruptTurn(admission, result.messages, result.details)
       }
     }
 
@@ -370,9 +376,10 @@ async function resolveSessionId(parsed: ReturnType<typeof parseHeadlessArgs>, cw
   return sessions[0].id
 }
 
-function selectedTools(requestedTools: Set<ToolName> | undefined): ToolDefinition[] {
-  const requested = requestedTools ?? new Set<ToolName>(TOOL_NAMES)
-  return TOOL_DEFINITIONS.filter((tool) => requested.has(tool.name))
+/** `--tools` narrows the provider's catalog; it cannot enable a tool the provider does not offer. */
+function selectedTools(requestedTools: Set<ToolName> | undefined, provider: ModelProvider): ToolDefinition[] {
+  const available = providerTools(provider)
+  return requestedTools ? available.filter((tool) => requestedTools.has(tool.name)) : available
 }
 
 function parseToolNames(value: string) {
@@ -394,19 +401,6 @@ async function readPrompt(parts: string[], stdin: AsyncIterable<unknown>) {
   let stdinPrompt = ""
   for await (const chunk of stdin) stdinPrompt += String(chunk)
   return stdinPrompt.trim()
-}
-
-function assistantText(messages: ChatMessage[]) {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index]
-    if (message.role !== "assistant") continue
-    return message.content
-      .filter((part) => part.type === "text")
-      .map((part) => part.text)
-      .join("")
-      .trim()
-  }
-  return ""
 }
 
 function positiveInteger(value: string, label: string) {

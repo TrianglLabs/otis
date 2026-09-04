@@ -368,7 +368,7 @@ describe("JsonlSession", () => {
     await session.compact(
       "Original turn summary",
       [{ role: "assistant", content: [{ type: "text", text: "original reply" }] }],
-      [],
+      {},
       throughSeq,
     )
     await session.completeTurn(queued, [

@@ -11,6 +11,7 @@ import {
   savePairEndpoints,
   saveSelectedModel,
   saveSelectedTheme,
+  saveSubagentPanelVisible,
   saveThinkingVisible,
 } from "../../src/local/settings.js"
 
@@ -136,6 +137,21 @@ describe("local settings", () => {
       fireworksApiKey: "fw_test_key",
       theme: "graphite",
     })
+  })
+
+  it("stores subagent panel visibility independently from the selected model", async () => {
+    const file = join(await tempDirectory(), "config.json")
+    await saveFireworksSetup("fw_test_key", model("tool-model", "Tool Model"), { file })
+    await saveSubagentPanelVisible(false, { file })
+
+    await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({ subagentPanelVisible: false })
+    expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({
+      fireworksApiKey: "fw_test_key",
+      subagentPanelVisible: false,
+    })
+
+    await saveSelectedModel(model("accounts/fireworks/models/new", "New"), { file })
+    await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({ subagentPanelVisible: false })
   })
 
   it("stores thinking visibility independently from reasoning behavior", async () => {
@@ -371,6 +387,7 @@ describe("local settings", () => {
     const invalidMetadata = join(directory, "invalid-metadata.json")
     const invalidTheme = join(directory, "invalid-theme.json")
     const invalidThinking = join(directory, "invalid-thinking.json")
+    const invalidSubagentPanel = join(directory, "invalid-subagent-panel.json")
     const invalidFastMode = join(directory, "invalid-fast-mode.json")
     const invalidFastServingModels = join(directory, "invalid-fast-serving-models.json")
     const invalidPairEndpoints = join(directory, "invalid-pair-endpoints.json")
@@ -380,6 +397,7 @@ describe("local settings", () => {
     await writeFile(invalidMetadata, JSON.stringify({ version: 1, modelContextLength: -1 }), "utf8")
     await writeFile(invalidTheme, JSON.stringify({ version: 1, theme: "blue" }), "utf8")
     await writeFile(invalidThinking, JSON.stringify({ version: 1, thinkingVisible: "sometimes" }), "utf8")
+    await writeFile(invalidSubagentPanel, JSON.stringify({ version: 1, subagentPanelVisible: "sometimes" }), "utf8")
     await writeFile(invalidFastMode, JSON.stringify({ version: 1, fastMode: "sometimes" }), "utf8")
     await writeFile(invalidFastServingModels, JSON.stringify({ version: 1, fastServingModels: [false] }), "utf8")
     await writeFile(invalidPairEndpoints, JSON.stringify({ version: 1, pairEndpoints: [] }), "utf8")
@@ -390,6 +408,9 @@ describe("local settings", () => {
     await expect(loadLocalSettings({ file: invalidMetadata, env: {} })).rejects.toThrow("positive integer")
     await expect(loadLocalSettings({ file: invalidTheme, env: {} })).rejects.toThrow("theme must be")
     await expect(loadLocalSettings({ file: invalidThinking, env: {} })).rejects.toThrow("thinkingVisible must be")
+    await expect(loadLocalSettings({ file: invalidSubagentPanel, env: {} })).rejects.toThrow(
+      "subagentPanelVisible must be",
+    )
     await expect(loadLocalSettings({ file: invalidFastMode, env: {} })).rejects.toThrow("fastMode must be")
     await expect(loadLocalSettings({ file: invalidFastServingModels, env: {} })).rejects.toThrow(
       "fastServingModels must be",

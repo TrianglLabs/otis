@@ -21,6 +21,7 @@ describe("slash commands", () => {
     expect(parseSlashCommand("/settings hosted")).toEqual({ type: "settings", setting: "hosted" })
     expect(parseSlashCommand("/settings pair")).toEqual({ type: "settings", setting: "pair" })
     expect(parseSlashCommand("/settings debug")).toEqual({ type: "settings", setting: "debug" })
+    expect(parseSlashCommand("/settings subagents")).toEqual({ type: "settings", setting: "subagents" })
     expect(parseSlashCommand("/settings delete-model")).toEqual({ type: "settings", setting: "delete-model" })
     expect(parseSlashCommand("/settings delete-model openai/gpt-oss-20b")).toEqual({
       type: "settings",
@@ -55,6 +56,7 @@ describe("slash commands", () => {
     expect(slashCommandRunsImmediately({ type: "theme", name: "nord" })).toBe(true)
     expect(slashCommandRunsImmediately({ type: "settings" })).toBe(true)
     expect(slashCommandRunsImmediately({ type: "settings", setting: "debug" })).toBe(true)
+    expect(slashCommandRunsImmediately({ type: "settings", setting: "subagents" })).toBe(true)
     expect(slashCommandRunsImmediately({ type: "settings", setting: "hosted" })).toBe(false)
     expect(slashCommandRunsImmediately({ type: "settings", setting: "pair" })).toBe(false)
     expect(slashCommandRunsImmediately({ type: "compact" })).toBe(false)

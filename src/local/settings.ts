@@ -19,6 +19,8 @@ export type LocalSettings = {
   modelProvider?: ModelProvider
   theme?: ThemeName
   thinkingVisible?: boolean
+  /** When false, the chat side panel that lists delegated runs stays hidden. Omitted means shown. */
+  subagentPanelVisible?: boolean
   fastServingModels?: string[]
   modelFastId?: string
   permissions?: PermissionConfig
@@ -54,6 +56,7 @@ type SettingsFile = {
   modelProvider?: ModelProvider
   theme?: ThemeName
   thinkingVisible?: boolean
+  subagentPanelVisible?: boolean
   /** Read only to migrate the released global preference to the selected model. */
   fastMode?: boolean
   fastServingModels?: string[]
@@ -80,6 +83,7 @@ export async function loadLocalSettings(options: SettingsFileOptions = {}): Prom
     ...(saved?.modelSupportsImageInput !== undefined ? { modelSupportsImageInput: saved.modelSupportsImageInput } : {}),
     ...(saved?.theme ? { theme: saved.theme } : {}),
     ...(saved?.thinkingVisible !== undefined ? { thinkingVisible: saved.thinkingVisible } : {}),
+    ...(saved?.subagentPanelVisible !== undefined ? { subagentPanelVisible: saved.subagentPanelVisible } : {}),
     ...(fastServingModels.length > 0 ? { fastServingModels } : {}),
     ...(saved?.modelFastId ? { modelFastId: saved.modelFastId } : {}),
     ...(saved?.permissions ? { permissions: saved.permissions } : {}),
@@ -124,6 +128,11 @@ export async function saveSelectedTheme(theme: ThemeName, options: SettingsFileO
 export async function saveThinkingVisible(visible: boolean, options: SettingsFileOptions = {}) {
   const saved = (await readSettingsFile(options)) ?? { version: 1 }
   await writeSettingsFile({ ...saved, thinkingVisible: visible }, options)
+}
+
+export async function saveSubagentPanelVisible(visible: boolean, options: SettingsFileOptions = {}) {
+  const saved = (await readSettingsFile(options)) ?? { version: 1 }
+  await writeSettingsFile({ ...saved, subagentPanelVisible: visible }, options)
 }
 
 export async function saveFastServingSelection(
@@ -190,6 +199,7 @@ function parseSettingsFile(value: unknown): SettingsFile {
   const modelSupportsImageInput = optionalBoolean(value.modelSupportsImageInput, "modelSupportsImageInput")
   const theme = optionalTheme(value.theme)
   const thinkingVisible = optionalBoolean(value.thinkingVisible, "thinkingVisible")
+  const subagentPanelVisible = optionalBoolean(value.subagentPanelVisible, "subagentPanelVisible")
   const fastMode = optionalBoolean(value.fastMode, "fastMode")
   const fastServingModels = optionalStringArray(value.fastServingModels, "fastServingModels")
   const modelFastId = optionalString(value.modelFastId, "modelFastId")
@@ -210,6 +220,7 @@ function parseSettingsFile(value: unknown): SettingsFile {
     ...(modelProvider ? { modelProvider } : {}),
     ...(theme ? { theme } : {}),
     ...(thinkingVisible !== undefined ? { thinkingVisible } : {}),
+    ...(subagentPanelVisible !== undefined ? { subagentPanelVisible } : {}),
     ...(fastMode !== undefined ? { fastMode } : {}),
     ...(fastServingModels !== undefined ? { fastServingModels } : {}),
     ...(modelFastId ? { modelFastId } : {}),
@@ -241,6 +252,7 @@ function withSelectedModel(settings: SettingsFile, model: CatalogModel): Setting
     ...(model.provider === "fireworks" && model.fastId ? { modelFastId: model.fastId } : {}),
     ...(settings.theme ? { theme: settings.theme } : {}),
     ...(settings.thinkingVisible !== undefined ? { thinkingVisible: settings.thinkingVisible } : {}),
+    ...(settings.subagentPanelVisible !== undefined ? { subagentPanelVisible: settings.subagentPanelVisible } : {}),
     ...(shouldPersistFastServingModels(settings, fastServingModels) ? { fastServingModels } : {}),
     ...(settings.permissions ? { permissions: settings.permissions } : {}),
   }
@@ -255,6 +267,7 @@ function withoutSelectedModel(settings: SettingsFile): SettingsFile {
     ...(hasPairEndpoints(pairEndpoints) ? { pairEndpoints } : {}),
     ...(settings.theme ? { theme: settings.theme } : {}),
     ...(settings.thinkingVisible !== undefined ? { thinkingVisible: settings.thinkingVisible } : {}),
+    ...(settings.subagentPanelVisible !== undefined ? { subagentPanelVisible: settings.subagentPanelVisible } : {}),
     ...(shouldPersistFastServingModels(settings, fastServingModels) ? { fastServingModels } : {}),
     ...(settings.permissions ? { permissions: settings.permissions } : {}),
   }

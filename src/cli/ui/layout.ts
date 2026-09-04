@@ -2,7 +2,13 @@ import { BoxRenderable, RGBA, TextRenderable } from "@opentui/core"
 import { colors } from "../theme.js"
 import { formatContextLabel } from "./format.js"
 import { createChatInput, createPermissionPrompt, createSetupViews } from "./input-views.js"
-import { createMessagesView, createModelPanel, createSessionPanel, createStatsRow } from "./panels.js"
+import {
+  createMessagesView,
+  createModelPanel,
+  createSessionPanel,
+  createStatsRow,
+  createSubagentPanel,
+} from "./panels.js"
 import type { ChatUIOptions, Renderer } from "./types.js"
 
 const version = process.env.OTIS_VERSION ?? "dev"
@@ -30,6 +36,7 @@ export function createUILayout(
   const { statsRow, statBoxes } = createStatsRow(renderer)
   const { panel: sessionPanel, rows: sessionRowsBox } = createSessionPanel(renderer)
   const { panel: modelPanel, rows: modelRowsBox } = createModelPanel(renderer)
+  const { panel: subagentPanel, rows: subagentRowsBox, footer: subagentPanelFooter } = createSubagentPanel(renderer)
   const { input, inputBox, inputHint, modeLabel } = createChatInput(renderer, options.modeLabel)
   const imageAttachments = new TextRenderable(renderer, {
     id: "image-attachments",
@@ -338,6 +345,9 @@ export function createUILayout(
     setupStatusBox,
     statBoxes,
     statsRow,
+    subagentPanel,
+    subagentPanelFooter,
+    subagentRowsBox,
     topBar,
     topBarEnd,
     topBarStart,

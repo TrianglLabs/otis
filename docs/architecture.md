@@ -191,8 +191,36 @@ policy, executes approved tools in the local workspace, and appends bounded resu
 normalizes each call to a tool and resource, merges private user policy with restrictive project policy and temporary
 CLI rules, and resolves matching rules deny-first. An `ask` result is sent to the OpenTUI approval surface or denied in
 non-interactive execution. Current tools cover skill loading, web search, web reading, file reading, file search, file
-creation, exact edits, and shell commands. Web tools call
+creation, exact edits, shell commands, and subagent delegation. Web tools call
 Parallel directly; local file and shell tools never pass through a remote Otis service.
+
+The `agent` tool runs a nested, read-only agent loop inside the same process. The child shares the parent's inference
+client, workspace, permission policy, approval handler, usage sink, and abort signal, but starts from a fresh history
+that contains only the delegated brief. Its tool set is the read-only subset of the parent's tools: file reading and
+search, web search and reading, and skill loading. It never receives `write`, `edit`, `bash`, or `agent`, so a
+subagent cannot mutate the workspace or delegate again. The child honors the parent's step limit or a fixed default
+when the parent has none. Only the child's final assistant text returns to the parent as the tool result; its own
+text, reasoning, and context accounting stay private.
+
+The `agent` tool and its system-prompt guidance are offered only for hosted Fireworks models and NVIDIA PAIR
+clusters, which can serve several requests at once. Otis' managed `llama-server` runs a single slot, so local models
+receive the catalog without `agent`; headless `--tools` can narrow a provider's catalog but never widen it.
+
+Adjacent `agent` calls in one model response run concurrently, and their results are appended in the model's order.
+Every other tool call still runs one at a time so workspace mutations stay ordered. The approval surface accepts one
+request at a time, so concurrent children take turns when a rule requires approval.
+
+Every child event surfaces through the parent's event stream wrapped in a `subagent` envelope that names the
+delegating call and the run's title. The parent's own conversation still receives only the final report, but the
+interface can show the whole run. OpenTUI keeps the transcript flat with one agent card per delegation and lists the
+session's runs in a right-hand panel whose titles shimmer while they work; selecting a run swaps the conversation for
+that run's full trace, rendered by the same transcript view, until Escape or the next prompt returns to the chat. The
+panel also hides on narrow terminals and when `/settings subagents` turns it off; that preference is saved locally.
+Headless JSONL emits the envelope as `subagent` events with the inner public event,
+and plain output indents a child's tool lines beneath the delegation. Each run persists in the turn event as a
+subagent record with its title, status, messages, tool cards, and duration, validated against an `agent` tool call in
+the turn, so a resumed session can still open every trace; compaction keeps only the records whose delegating call
+survives.
 
 OpenTUI starts in `auto` mode unless private user configuration selects another mode. Headless execution keeps its
 fail-closed `dontAsk` default and requires `--auto` or an explicitly configured auto mode for unmatched mutations.

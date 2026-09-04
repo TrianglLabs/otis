@@ -13,7 +13,21 @@ describe("parseStructuredToolCall", () => {
       "write",
       "edit",
       "bash",
+      "agent",
     ])
+  })
+
+  it("parses subagent delegation and rejects empty briefs", () => {
+    expect(parseStructuredToolCall("agent", { description: " Map the notes ", prompt: " List note files. " })).toEqual({
+      name: "agent",
+      input: { description: "Map the notes", prompt: "List note files." },
+    })
+    expect(() => parseStructuredToolCall("agent", { description: "x", prompt: "  " })).toThrow(
+      'agent requires non-empty strings "description" and "prompt"',
+    )
+    expect(() => parseStructuredToolCall("agent", { prompt: "y" })).toThrow(
+      'agent requires non-empty strings "description" and "prompt"',
+    )
   })
 
   it("requires focused web queries and preserves an optional read objective", () => {

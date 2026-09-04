@@ -150,25 +150,19 @@ export class TranscriptStore {
     this.history.push(...messages)
   }
 
-  toolActivitiesFor(messages: ChatMessage[]) {
+  /** Collects the tool-card metadata for the given messages: the latest card per tool call, in transcript order. */
+  toolActivitiesFor(messages: readonly ChatMessage[]) {
     const remainingCalls = toolCallCounts(messages)
     const activities: SessionToolActivity[] = []
 
     for (let index = this.entries.length - 1; index >= 0; index -= 1) {
       const entry = this.entries[index]
-      if (entry.kind !== "tool" || !entry.toolCallId || !entry.activityKind) continue
+      if (!isToolCard(entry)) continue
       const remaining = remainingCalls.get(entry.toolCallId) ?? 0
       if (remaining === 0) continue
-
-      activities.push({
-        toolCallId: entry.toolCallId,
-        activityKind: entry.activityKind,
-        label: entry.text,
-        ...(entry.diff !== undefined ? { diff: entry.diff } : {}),
-      })
+      activities.push(toolActivity(entry))
       remainingCalls.set(entry.toolCallId, remaining - 1)
     }
-
     return activities.reverse()
   }
 
@@ -247,6 +241,21 @@ function takeToolActivity(grouped: Map<string, SessionToolActivity[]>, toolCallI
   return grouped.get(toolCallId)?.shift()
 }
 
+type ToolCardEntry = TranscriptEntry & { kind: "tool"; toolCallId: string; activityKind: ToolActivityKind }
+
+function isToolCard(entry: TranscriptEntry | undefined): entry is ToolCardEntry {
+  return entry?.kind === "tool" && Boolean(entry.toolCallId) && Boolean(entry.activityKind)
+}
+
+function toolActivity(entry: ToolCardEntry): SessionToolActivity {
+  return {
+    toolCallId: entry.toolCallId,
+    activityKind: entry.activityKind,
+    label: entry.text,
+    ...(entry.diff !== undefined ? { diff: entry.diff } : {}),
+  }
+}
+
 function activityFromToolCall(toolCall: ChatToolCall): SessionToolActivity | undefined {
   try {
     const activity = describeToolCall(parseSerializedToolCall(toolCall.name, toolCall.arguments))
@@ -256,7 +265,7 @@ function activityFromToolCall(toolCall: ChatToolCall): SessionToolActivity | und
   }
 }
 
-function toolCallCounts(messages: ChatMessage[]) {
+function toolCallCounts(messages: readonly ChatMessage[]) {
   const counts = new Map<string, number>()
   for (const message of messages) {
     if (message.role !== "assistant") continue

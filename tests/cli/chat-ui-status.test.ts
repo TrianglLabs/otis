@@ -1,7 +1,9 @@
-import type { BoxRenderable, TextareaRenderable, TextRenderable } from "@opentui/core"
+import { type BoxRenderable, RGBA, type TextareaRenderable, type TextRenderable } from "@opentui/core"
 import { createTestRenderer } from "@opentui/core/testing"
 import { describe, expect, it, vi } from "vitest"
 import { createChatUI } from "../../src/cli/chat-ui.js"
+import { colors } from "../../src/cli/theme.js"
+import { CHAT_KEY_HINT, CHAT_KEY_HINT_DURATION_MS } from "../../src/cli/ui/format.js"
 import { STAT_COUNT_SETTLE_MS } from "../../src/cli/ui/home-stats.js"
 import { useChatHarness } from "./support/chat-ui-harness.js"
 
@@ -20,31 +22,54 @@ function settleStats() {
 describe("chat UI status and prompts", () => {
   const setup = useChatHarness()
 
-  it("shows the selected model at home and keyboard controls in chat", async () => {
+  it("shows the selected model at home and the model with workspace in chat", async () => {
     const harness = await setup({ modelLabel: "Tool Model" })
 
     expect(harness.text("input-hint")).toBe(" Tool Model ")
     expect(harness.find("welcome-model")).toBeUndefined()
 
     harness.ui.showChatLayout()
-    expect(harness.text("input-hint")).toBe(" [TAB] mode · [ESC] interrupt ")
+    expect(harness.text("input-hint")).toBe(" Tool Model · ~/work/otis ")
     const inputBox = harness.get<BoxRenderable>("input-box")
     expect(inputBox.title).toBeUndefined()
     expect(inputBox.bottomTitle).toBeUndefined()
-    await harness.renderOnce()
-    const hint = harness.get<TextRenderable>("input-hint")
-    await harness.mockMouse.click(hint.x, hint.y)
-    expect(harness.text("input-hint")).toBe(" Tool Model · ~/work/otis ")
 
     harness.ui.setModelLabel("Replacement")
     expect(harness.text("input-hint")).toBe(" Replacement · ~/work/otis ")
     harness.ui.setThinkingVisible(true)
     expect(harness.text("input-hint")).toBe(" Replacement · ~/work/otis ")
-    await harness.renderOnce()
-    await harness.mockMouse.click(hint.x, hint.y)
-    expect(harness.text("input-hint")).toBe(" [TAB] mode · [ESC] interrupt ")
     harness.ui.showHomeLayout()
     expect(harness.text("input-hint")).toBe(" Replacement ")
+  })
+
+  it("briefly reveals the keyboard controls when the chat hint is clicked", async () => {
+    // Mouse simulation needs real time to pass; the hint timer is still driven explicitly below.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const harness = await setup({ modelLabel: "Tool Model" })
+    harness.ui.showChatLayout()
+    await harness.renderOnce()
+    const hint = harness.get<TextRenderable>("input-hint")
+
+    await harness.mockMouse.click(hint.x, hint.y)
+    expect(harness.text("input-hint")).toBe(CHAT_KEY_HINT)
+    expect(hint.fg.equals(RGBA.fromHex(colors.accent))).toBe(true)
+
+    // A model change while the hint is showing updates what the hint reverts to, not what is on screen.
+    harness.ui.setModelLabel("Replacement")
+    expect(harness.text("input-hint")).toBe(CHAT_KEY_HINT)
+
+    vi.advanceTimersByTime(CHAT_KEY_HINT_DURATION_MS)
+    expect(harness.text("input-hint")).toBe(" Replacement · ~/work/otis ")
+    expect(hint.fg.equals(RGBA.fromHex(colors.muted))).toBe(true)
+  })
+
+  it("ignores clicks on the home hint", async () => {
+    const harness = await setup({ modelLabel: "Tool Model" })
+    await harness.renderOnce()
+    const hint = harness.get<TextRenderable>("input-hint")
+
+    await harness.mockMouse.click(hint.x, hint.y)
+    expect(harness.text("input-hint")).toBe(" Tool Model ")
   })
 
   it("formats local stats and keeps labeled zero values", async () => {
@@ -125,16 +150,16 @@ describe("chat UI status and prompts", () => {
     expect(harness.text("welcome-stat-value-0")).toBe("7")
   })
 
-  it("shows transient status feedback and restores the keyboard hint", async () => {
+  it("shows transient status feedback and restores the model hint", async () => {
     vi.useFakeTimers()
-    const harness = await setup()
+    const harness = await setup({ modelLabel: "Tool Model" })
     harness.ui.showChatLayout()
 
     harness.ui.showTransientHint(" Thinking traces shown ")
     expect(harness.text("input-hint")).toBe(" Thinking traces shown ")
 
     vi.advanceTimersByTime(1_500)
-    expect(harness.text("input-hint")).toBe(" [TAB] mode · [ESC] interrupt ")
+    expect(harness.text("input-hint")).toBe(" Tool Model · ~/work/otis ")
   })
 
   it("lays out stat cards evenly and centers each value within its card", async () => {

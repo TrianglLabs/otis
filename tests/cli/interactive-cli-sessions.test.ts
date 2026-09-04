@@ -57,7 +57,7 @@ describe("CLI session turn handling", () => {
         { role: "user", content: "focus on tests" },
         { role: "assistant", content: [{ type: "text", text: "Focused." }] },
       ],
-      [],
+      { toolActivities: [], subagents: [] },
     )
     expect(mocks.ui.renderTranscript.mock.calls.at(-1)?.[0]).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ delivery: "steering" })]),
@@ -220,7 +220,7 @@ describe("CLI session turn handling", () => {
     expect(session.interruptTurn).toHaveBeenCalledWith(
       expect.objectContaining({ promptId: "prompt_add the setting" }),
       interruptedTurn,
-      [],
+      { toolActivities: [], subagents: [] },
     )
   })
 
@@ -268,14 +268,17 @@ describe("CLI session turn handling", () => {
     expect(session.completeTurn).toHaveBeenCalledWith(
       expect.objectContaining({ promptId: "prompt_edit app.ts" }),
       messages,
-      [
-        {
-          toolCallId: "call_edit",
-          activityKind: "file_edit",
-          label: "Editing file: app.ts",
-          diff: "--- app.ts\n+++ app.ts\n-a\n+b",
-        },
-      ],
+      {
+        toolActivities: [
+          {
+            toolCallId: "call_edit",
+            activityKind: "file_edit",
+            label: "Editing file: app.ts",
+            diff: "--- app.ts\n+++ app.ts\n-a\n+b",
+          },
+        ],
+        subagents: [],
+      },
     )
   })
 
@@ -302,7 +305,10 @@ describe("CLI session turn handling", () => {
         diff: "--- app.ts\n+++ app.ts\n-old\n+new",
       },
     ]
-    const session = testSession({ id: "session_saved", replay: vi.fn(() => ({ messages, toolActivities })) })
+    const session = testSession({
+      id: "session_saved",
+      replay: vi.fn(() => ({ messages, toolActivities, subagents: [] })),
+    })
     mocks.openSession.mockResolvedValue(session)
 
     await loadCli()

@@ -1,14 +1,16 @@
-import { MouseButton, type TextRenderable } from "@opentui/core"
+import { type BoxRenderable, MouseButton, type ScrollBoxRenderable, type TextRenderable } from "@opentui/core"
 import type { ThemeName } from "../local/settings.js"
 import type { LocalStats } from "../local/stats.js"
 import { copyToClipboardNative } from "./clipboard.js"
+import type { SubagentTrace } from "./subagents.js"
 import { colors, type ThemeColors } from "./theme.js"
 import type { TranscriptEntry } from "./transcript.js"
 import { AgentStatus } from "./ui/agent-status.js"
 import { CommandMenu } from "./ui/command-menu.js"
 import {
   type AgentPhase,
-  CHAT_INPUT_HINT,
+  CHAT_KEY_HINT,
+  CHAT_KEY_HINT_DURATION_MS,
   formatContextLabel,
   formatRuntimeHint,
   imageAttachmentLabel,
@@ -23,6 +25,8 @@ import { PermissionController } from "./ui/permission-controller.js"
 import { recolorTree } from "./ui/recolor.js"
 import { SessionPicker } from "./ui/session-picker.js"
 import { SessionStatus } from "./ui/session-status.js"
+import { SubagentPanel } from "./ui/subagent-panel.js"
+import { SubagentTraceView } from "./ui/subagent-trace-view.js"
 import { TranscriptView } from "./ui/transcript-view.js"
 import type { ChatUI, ChatUIOptions, Renderer } from "./ui/types.js"
 
@@ -34,7 +38,6 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
   let updateHintVisible = false
   let activeTheme = options.theme ?? "default"
   let selectedModelName = options.modelLabel
-  let runtimeHintVisible = false
 
   const layout = createUILayout(renderer, options)
   const {
@@ -80,6 +83,9 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     setupStatusBox,
     statBoxes,
     statsRow,
+    subagentPanel,
+    subagentPanelFooter,
+    subagentRowsBox,
     topBar,
     topBarEnd,
     topBarStart,
@@ -98,6 +104,17 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     options.treeSitterClient,
     options.thinkingVisible ?? false,
   )
+  const traceView = new SubagentTraceView(renderer, options.treeSitterClient, options.thinkingVisible ?? false)
+  const subagents = new SubagentPanel({
+    renderer,
+    chatBody,
+    panel: subagentPanel,
+    rows: subagentRowsBox,
+    footer: subagentPanelFooter,
+    onSelect: openSubagentTrace,
+  })
+  subagents.setVisible(options.subagentPanelVisible ?? true)
+  let subagentTraces: readonly SubagentTrace[] = []
   const permissions = new PermissionController({
     renderer,
     inputArea,
@@ -200,6 +217,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     const value = input.plainText
     if (overlays.submitFromInput(value)) return
     overlays.hideCommandMenu()
+    closeSubagentTrace()
     options.onSubmit(value.trim())
   }
 
@@ -218,8 +236,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     if (showingWelcome || event.button !== MouseButton.LEFT) return
     event.preventDefault()
     event.stopPropagation()
-    runtimeHintVisible = !runtimeHintVisible
-    status.setInputHint(chatInputHint())
+    status.showTransientHint(CHAT_KEY_HINT, CHAT_KEY_HINT_DURATION_MS)
   }
   inputHint.onMouseOver = () => {
     if (!showingWelcome) renderer.setMousePointer("pointer")
@@ -239,7 +256,8 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
 
     if (key.name === "escape") {
       stopKey(key)
-      if (busy) status.handleEscape()
+      if (traceView.trace) closeSubagentTrace()
+      else if (busy) status.handleEscape()
       return
     }
 
@@ -288,13 +306,53 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     transcriptView.render(entries, renderOptions)
   }
 
+  function renderSubagents(traces: readonly SubagentTrace[]) {
+    subagentTraces = traces
+    subagents.render(traces)
+    const wasOpen = traceView.trace !== undefined
+    traceView.update(traces)
+    if (wasOpen && !traceView.trace) {
+      // The open run left the session (e.g. a session switch); fall back to the conversation.
+      swapChatBodyChild(traceView.root, messages)
+      subagents.select(undefined)
+    }
+  }
+
+  function openSubagentTrace(toolCallId: string) {
+    const trace = subagentTraces.find((candidate) => candidate.toolCallId === toolCallId)
+    if (!trace || showingWelcome) return
+    overlays.hideCommandMenu()
+    // The trace takes the transcript's slot so pickers on the left and the run list on the right stay put.
+    if (!traceView.trace) swapChatBodyChild(messages, traceView.root)
+    traceView.open(trace)
+    subagents.select(toolCallId)
+  }
+
+  function closeSubagentTrace() {
+    if (!traceView.trace) return
+    swapChatBodyChild(traceView.root, messages)
+    traceView.close()
+    subagents.select(undefined)
+  }
+
+  function swapChatBodyChild(from: { id: string }, to: BoxRenderable | ScrollBoxRenderable) {
+    const slot = chatBody.getChildren().findIndex((child) => child.id === from.id)
+    chatBody.remove(from.id)
+    chatBody.add(to, slot)
+  }
+
   function setThinkingVisible(visible: boolean) {
     transcriptView.setThinkingVisible(visible)
+    traceView.setThinkingVisible(visible)
+  }
+
+  function setSubagentPanelVisible(visible: boolean) {
+    if (!visible) closeSubagentTrace()
+    subagents.setVisible(visible)
   }
 
   function showChatLayout() {
     if (!showingWelcome) return
-    runtimeHintVisible = false
     status.setInputHint(chatInputHint())
 
     root.live = false
@@ -309,7 +367,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     welcomePanel.remove(inputArea.id)
     root.remove(welcome.id)
     root.add(topBar)
-    chatBody.add(messages)
+    chatBody.add(messages, 0)
     root.add(chatBody)
     root.add(inputArea)
     showingWelcome = false
@@ -323,7 +381,6 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     overlays.hideCommandMenu()
     overlays.dismissPickers()
     status.hideForHome()
-    runtimeHintVisible = false
     status.setInputHint(homeModelHint(selectedModelName))
 
     root.live = true
@@ -334,6 +391,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     })
     inputArea.marginTop = 0
     inputArea.paddingRight = 0
+    closeSubagentTrace()
     root.remove(topBar.id)
     root.remove(chatBody.id)
     root.remove(inputArea.id)
@@ -367,7 +425,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
 
   function setTheme(theme: ThemeName, previous: ThemeColors) {
     activeTheme = theme
-    recolorTree(themeRootsFrom(layout), previous)
+    recolorTree([...themeRootsFrom(layout), traceView.root], previous)
     input.focusedBackgroundColor = colors.background
     input.focusedTextColor = colors.text
     setupInput.focusedBackgroundColor = colors.background
@@ -376,9 +434,12 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     messages.verticalScrollbarOptions = createScrollbarOptions()
     sessionRowsBox.verticalScrollbarOptions = createScrollbarOptions()
     modelRowsBox.verticalScrollbarOptions = createScrollbarOptions()
+    subagentRowsBox.verticalScrollbarOptions = createScrollbarOptions()
     renderer.setBackgroundColor(colors.background)
     status.refreshTheme(previous)
     transcriptView.refreshTheme()
+    traceView.refreshTheme()
+    subagents.refreshTheme()
     overlays.refreshTheme()
     renderer.requestRender()
   }
@@ -413,7 +474,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
   }
 
   function chatInputHint() {
-    return runtimeHintVisible ? formatRuntimeHint(selectedModelName, options.workspaceLabel) : CHAT_INPUT_HINT
+    return formatRuntimeHint(selectedModelName, options.workspaceLabel)
   }
 
   function showPermissionPrompt(detail: string): Promise<boolean> {
@@ -468,6 +529,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     hideSessionPicker: () => overlays.hideSessionPicker(),
     hideUpdateHint,
     renderTranscript,
+    renderSubagents,
     setBusy,
     setContextLabel,
     setDiffStats: (added, removed) => sessionStatus.setDiff(added, removed),
@@ -481,6 +543,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     setStats,
     setTheme,
     setThinkingVisible,
+    setSubagentPanelVisible,
     showStats,
     showTransientHint: (content) => status.showTransientHint(content),
     showCommandSubmenu: (items, submenuOptions) => overlays.showCommandSubmenu(items, submenuOptions),

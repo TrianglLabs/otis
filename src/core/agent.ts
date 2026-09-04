@@ -27,8 +27,10 @@ import {
   type ToolResult,
 } from "../tools/index.js"
 import { AssistantResponseBuilder } from "./assistant-response.js"
+import { mergeGenerators, serialized } from "./concurrency.js"
 import { loadProjectContext } from "./context.js"
 import type { SteeringSource } from "./steering.js"
+import { type SubagentCall, subagentBrief, subagentResult, subagentRunOptions } from "./subagent.js"
 
 export type AgentEvent =
   | { type: "context"; messageCount: number; contentChars: number }
@@ -46,6 +48,8 @@ export type AgentEvent =
       diff?: string
       outcome?: "completed" | "denied" | "failed"
     }
+  /** An event from a delegated child run, identified by the parent's `agent` tool call. */
+  | { type: "subagent"; toolCallId: string; title: string; event: AgentEvent }
   | { type: "interrupted"; messages: ChatMessage[] }
   | { type: "complete"; messages: ChatMessage[] }
   | { type: "error"; message: string; messages?: ChatMessage[] }
@@ -77,6 +81,7 @@ export async function* runAgent(
     const modelSkills = tools.some((tool) => tool.name === "skill") ? skills : emptySkills()
     const toolContext: RunAgentOptions = {
       ...options,
+      projectContext,
       skills,
       tools,
       permissionPolicy:
@@ -240,112 +245,153 @@ function turnMessages(messages: ChatMessage[], historyLength: number) {
   return messages.slice(historyLength)
 }
 
+type ToolCallOutcome = { message: ChatMessage; interrupted: boolean }
+
+/**
+ * Executes a response's tool calls in order. Adjacent `agent` calls run concurrently because each delegates
+ * read-only work to an isolated child; every other call runs one at a time so workspace mutations stay ordered.
+ */
 async function* executeToolCalls(
   calls: ChatToolCall[],
   context: RunAgentOptions,
 ): AsyncGenerator<AgentEvent, { messages: ChatMessage[]; interrupted: boolean }> {
   const messages: ChatMessage[] = []
+  // The approval surface handles one request at a time, so concurrent children must take turns asking.
+  const concurrentContext: RunAgentOptions = {
+    ...context,
+    onPermissionRequest: context.onPermissionRequest && serialized(context.onPermissionRequest),
+  }
 
-  for (const [index, rawCall] of calls.entries()) {
+  let index = 0
+  while (index < calls.length) {
     if (context.signal?.aborted) return interruptedToolCalls(messages, calls.slice(index))
-
-    const call = parseToolCall(rawCall)
-
-    if (!call.ok) {
-      if (context.debug) yield { type: "debug", message: `Invalid ${rawCall.name} tool call: ${call.message}` }
-      messages.push({ role: "tool", toolCallId: rawCall.id, content: `Invalid tool call: ${call.message}` })
-      continue
-    }
-
-    if (!(context.tools ?? TOOL_DEFINITIONS).some((tool) => tool.name === call.value.name)) {
-      const message = `Tool is not enabled: ${call.value.name}`
-      if (context.debug) yield { type: "debug", message }
-      messages.push({ role: "tool", toolCallId: rawCall.id, content: message })
-      continue
-    }
-
-    const activity = describeToolCall(call.value)
-
-    yield {
-      type: "tool",
-      phase: "start",
-      toolCallId: rawCall.id,
-      name: call.value.name,
-      activityKind: activity.kind,
-      label: activity.label,
-    }
-
-    let result: ToolResult | undefined
-    let outcome: "completed" | "denied" | "failed" = "completed"
-    try {
-      if (context.signal?.aborted) return interruptedToolCalls(messages, calls.slice(index))
-
-      const permission = await context.permissionPolicy?.evaluate(call.value)
-      if (permission?.effect === "deny") {
-        outcome = "denied"
-        const matchedRule = permission.rule ? `: ${permission.rule.tool}(${permission.rule.resource ?? "*"})` : ""
-        messages.push({ role: "tool", toolCallId: rawCall.id, content: `Permission denied by policy${matchedRule}.` })
-        continue
-      }
-      if (permission?.effect === "ask") {
-        if (!context.onPermissionRequest) {
-          outcome = "denied"
-          messages.push({
-            role: "tool",
-            toolCallId: rawCall.id,
-            content: "Permission approval required, but no approval handler is available.",
-          })
-          continue
-        }
-        const approved = await context.onPermissionRequest({ call: call.value, decision: permission })
-        if (context.signal?.aborted) return interruptedToolCalls(messages, calls.slice(index))
-        if (!approved) {
-          outcome = "denied"
-          messages.push({ role: "tool", toolCallId: rawCall.id, content: "Permission denied by user." })
-          continue
-        }
-      }
-
-      result = await executeToolCall(call.value, context)
-      messages.push({
-        role: "tool",
-        toolCallId: rawCall.id,
-        content: formatToolResult(call.value.name, result),
-      })
-    } catch (error) {
-      outcome = "failed"
-      if (context.signal?.aborted) return interruptedToolCalls(messages, calls.slice(index))
-      const message = error instanceof Error ? error.message : String(error)
-      if (context.debug) yield { type: "debug", message: `Tool ${call.value.name} failed: ${message}` }
-      messages.push({ role: "tool", toolCallId: rawCall.id, content: `Error: ${message}` })
-    } finally {
-      yield {
-        type: "tool",
-        phase: "end",
-        toolCallId: rawCall.id,
-        name: call.value.name,
-        activityKind: activity.kind,
-        label: activity.label,
-        diff: result?.diff,
-        outcome,
-      }
-    }
+    const batch = delegationBatch(calls, index)
+    const outcomes =
+      batch.length > 1
+        ? yield* mergeGenerators(batch.map((call) => executeSingleToolCall(call, concurrentContext)))
+        : [yield* executeSingleToolCall(calls[index], context)]
+    messages.push(...outcomes.map((outcome) => outcome.message))
+    index += outcomes.length
+    if (outcomes.some((outcome) => outcome.interrupted)) return interruptedToolCalls(messages, calls.slice(index))
   }
 
   return { messages, interrupted: false }
 }
 
+/** Returns the run of consecutive `agent` calls starting at `index`, or just the call at `index`. */
+function delegationBatch(calls: ChatToolCall[], index: number) {
+  if (calls[index].name !== "agent") return [calls[index]]
+  let end = index
+  while (end < calls.length && calls[end].name === "agent") end += 1
+  return calls.slice(index, end)
+}
+
+async function* executeSingleToolCall(
+  rawCall: ChatToolCall,
+  context: RunAgentOptions,
+): AsyncGenerator<AgentEvent, ToolCallOutcome> {
+  const toolMessage = (content: string): ToolCallOutcome => ({
+    message: { role: "tool", toolCallId: rawCall.id, content },
+    interrupted: false,
+  })
+  const interrupted = () => ({ message: interruptedToolMessage(rawCall), interrupted: true })
+
+  const call = parseToolCall(rawCall)
+  if (!call.ok) {
+    if (context.debug) yield { type: "debug", message: `Invalid ${rawCall.name} tool call: ${call.message}` }
+    return toolMessage(`Invalid tool call: ${call.message}`)
+  }
+  if (!(context.tools ?? TOOL_DEFINITIONS).some((tool) => tool.name === call.value.name)) {
+    const message = `Tool is not enabled: ${call.value.name}`
+    if (context.debug) yield { type: "debug", message }
+    return toolMessage(message)
+  }
+
+  const activity = describeToolCall(call.value)
+  yield {
+    type: "tool",
+    phase: "start",
+    toolCallId: rawCall.id,
+    name: call.value.name,
+    activityKind: activity.kind,
+    label: activity.label,
+  }
+
+  let result: ToolResult | undefined
+  let outcome: "completed" | "denied" | "failed" = "completed"
+  try {
+    if (context.signal?.aborted) return interrupted()
+
+    const permission = await context.permissionPolicy?.evaluate(call.value)
+    if (permission?.effect === "deny") {
+      outcome = "denied"
+      const matchedRule = permission.rule ? `: ${permission.rule.tool}(${permission.rule.resource ?? "*"})` : ""
+      return toolMessage(`Permission denied by policy${matchedRule}.`)
+    }
+    if (permission?.effect === "ask") {
+      if (!context.onPermissionRequest) {
+        outcome = "denied"
+        return toolMessage("Permission approval required, but no approval handler is available.")
+      }
+      const approved = await context.onPermissionRequest({ call: call.value, decision: permission })
+      if (context.signal?.aborted) return interrupted()
+      if (!approved) {
+        outcome = "denied"
+        return toolMessage("Permission denied by user.")
+      }
+    }
+
+    result =
+      call.value.name === "agent"
+        ? yield* executeSubagent(call.value, rawCall.id, context)
+        : await executeToolCall(call.value, context)
+    return toolMessage(formatToolResult(call.value.name, result))
+  } catch (error) {
+    outcome = "failed"
+    if (context.signal?.aborted) return interrupted()
+    const message = error instanceof Error ? error.message : String(error)
+    if (context.debug) yield { type: "debug", message: `Tool ${call.value.name} failed: ${message}` }
+    return toolMessage(`Error: ${message}`)
+  } finally {
+    yield {
+      type: "tool",
+      phase: "end",
+      toolCallId: rawCall.id,
+      name: call.value.name,
+      activityKind: activity.kind,
+      label: activity.label,
+      diff: result?.diff,
+      outcome,
+    }
+  }
+}
+
+/**
+ * Runs a delegated agent loop to completion. Every child event surfaces wrapped in a `subagent` envelope so the
+ * caller can render the full trace; the parent's own conversation only receives the child's final report.
+ */
+async function* executeSubagent(
+  call: SubagentCall,
+  toolCallId: string,
+  context: RunAgentOptions,
+): AsyncGenerator<AgentEvent, ToolResult> {
+  const title = call.input.description
+  for await (const event of runAgent(subagentBrief(call), [], subagentRunOptions(context))) {
+    yield { type: "subagent", toolCallId, title, event }
+    if (event.type === "complete") return subagentResult(call, event.messages)
+    if (event.type === "interrupted") throw new Error("Subagent interrupted.")
+    if (event.type === "error") throw new Error(`Subagent failed: ${event.message}`)
+  }
+  throw new Error("Subagent ended without a result.")
+}
+
 function interruptedToolCalls(messages: ChatMessage[], calls: ChatToolCall[]) {
-  messages.push(
-    ...calls.map(
-      (call): ChatMessage => ({
-        role: "tool",
-        toolCallId: call.id,
-        content: "Tool call interrupted by user.",
-      }),
-    ),
-  )
+  messages.push(...calls.map(interruptedToolMessage))
   return { messages, interrupted: true }
+}
+
+function interruptedToolMessage(call: ChatToolCall): ChatMessage {
+  return { role: "tool", toolCallId: call.id, content: "Tool call interrupted by user." }
 }
 
 function parseToolCall(rawCall: ChatToolCall): { ok: true; value: ToolCall } | { ok: false; message: string } {
