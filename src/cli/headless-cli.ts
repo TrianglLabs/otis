@@ -3,6 +3,7 @@ import { resolve } from "node:path"
 import { parseArgs } from "node:util"
 import { loadProjectContext } from "../core/context.js"
 import { FireworksClient, listToolCapableModels } from "../inference/client.js"
+import { compactionContextLength } from "../inference/context-policy.js"
 import { detectHardware } from "../inference/hardware.js"
 import { loadImageFiles, validateImageAttachments } from "../inference/images.js"
 import { LlamaCppRuntime } from "../inference/llama-runtime.js"
@@ -10,6 +11,7 @@ import { findLocalModel, isLocalModelId } from "../inference/local-catalog.js"
 import { LlamaCppClient } from "../inference/local-client.js"
 import { fitLocalModel } from "../inference/local-fit.js"
 import { createUserMessage, imageAttachmentsFromMessages, messagesContainImages } from "../inference/messages.js"
+import { PairClient, pairEndpointForEngine } from "../inference/pair.js"
 import {
   baseFireworksModelId,
   findFireworksModel,
@@ -95,12 +97,18 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
 
     const settings = await loadLocalSettings({ env: options.env })
     model = parsed.model ?? settings.model ?? ""
+    const modelProvider =
+      parsed.model && parsed.model !== settings.model
+        ? isLocalModelId(parsed.model)
+          ? "local"
+          : "fireworks"
+        : (settings.modelProvider ?? (isLocalModelId(model) ? "local" : "fireworks"))
     modelContextLength = parsed.model ? undefined : settings.modelContextLength
     let modelSupportsImageInput = parsed.model ? undefined : settings.modelSupportsImageInput
     if (!model) throw new Error("A model is not configured. Run Otis interactively or pass --model.")
 
     let client: InferenceClient
-    if (isLocalModelId(model)) {
+    if (modelProvider === "local") {
       const spec = findLocalModel(model)
       if (!spec) throw new Error(`Unknown local model: ${model}`)
       modelSupportsImageInput = spec.supportsImageInput
@@ -114,6 +122,13 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
       client = new LlamaCppClient({ model: spec.id, inferenceURL: serving.inferenceURL })
       model = spec.id
       modelContextLength = serving.contextLength
+    } else if (modelProvider === "pair") {
+      const pairEndpoint = pairEndpointForEngine(settings.pairEndpoints ?? {}, settings.pairEngine)
+      if (!pairEndpoint) throw new Error("NVIDIA PAIR endpoint is not configured for the selected engine.")
+      if (images.length > 0 && !modelSupportsImageInput) {
+        throw new Error(`Selected PAIR model does not support image input: ${model}`)
+      }
+      client = new PairClient({ baseURL: pairEndpoint, model })
     } else {
       if (!settings.fireworksApiKey) throw new Error("Fireworks API key is not configured.")
       if (parsed.model || (images.length > 0 && modelSupportsImageInput === undefined)) {
@@ -146,7 +161,12 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
       }
     }
     const sessionContainsImages = session ? messagesContainImages(session.replayMessages()) : false
-    if (sessionContainsImages && modelSupportsImageInput === undefined && settings.fireworksApiKey) {
+    if (
+      sessionContainsImages &&
+      modelProvider === "fireworks" &&
+      modelSupportsImageInput === undefined &&
+      settings.fireworksApiKey
+    ) {
       const resolved = await resolveFireworksServing(settings.fireworksApiKey, model, {
         fast: parsed.model ? undefined : settings.fastServingModels?.includes(baseFireworksModelId(model)),
         signal: controller.signal,
@@ -156,6 +176,7 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
       modelSupportsImageInput = resolved.serving.supportsImageInput
       if (!parsed.model && settings.model === resolved.selected.id) await saveSelectedModel(resolved.serving)
     }
+    modelContextLength = compactionContextLength({ provider: modelProvider, contextLength: modelContextLength })
     if (sessionContainsImages && !modelSupportsImageInput) {
       throw new Error(`Selected model does not support image input required by this session: ${model}`)
     }

@@ -15,7 +15,11 @@ const mocks = vi.hoisted(() => ({
   loadLocalSettings: vi.fn<
     () => Promise<{
       fireworksApiKey?: string
+      pairEndpoints?: { ollama?: string; lmStudio?: string }
+      pairEngine?: "ollama" | "lmstudio"
       model: string
+      modelProvider?: "fireworks" | "local" | "pair"
+      modelContextLength?: number
       modelSupportsImageInput?: boolean
       fastServingModels?: string[]
       permissions?: PermissionConfig
@@ -49,6 +53,9 @@ const mocks = vi.hoisted(() => ({
     contextLength: 32_768,
   })),
   stopLocalRuntime: vi.fn(async () => undefined),
+  PairClient: vi.fn(function PairClient(config: { model: string }) {
+    return { model: config.model, streamChat: mocks.streamChat }
+  }),
 }))
 
 const session = {
@@ -85,6 +92,10 @@ vi.mock("../../src/inference/local-client.js", () => ({
     return { model: config.model, streamChat: mocks.streamChat }
   }),
 }))
+vi.mock("../../src/inference/pair.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/inference/pair.js")>()),
+  PairClient: mocks.PairClient,
+}))
 vi.mock("../../src/local/settings.js", () => ({
   loadLocalSettings: mocks.loadLocalSettings,
   saveSelectedModel: mocks.saveSelectedModel,
@@ -102,6 +113,7 @@ vi.mock("../../src/storage/index.js", () => ({
 
 import { runHeadlessCommand } from "../../src/cli/headless-cli.js"
 import { FireworksClient } from "../../src/inference/client.js"
+import { PairClient } from "../../src/inference/pair.js"
 
 const temporaryDirectories: string[] = []
 
@@ -562,6 +574,46 @@ describe("runHeadlessCommand", () => {
       expect.anything(),
       { signal: expect.any(AbortSignal) },
     )
+  })
+
+  it("reuses the configured PAIR endpoint for headless execution", async () => {
+    mocks.loadLocalSettings.mockResolvedValue({
+      model: "qwen3.5:35b",
+      modelProvider: "pair",
+      modelContextLength: 32_768,
+      pairEndpoints: { ollama: "http://127.0.0.1:11434" },
+      pairEngine: "ollama",
+    })
+    mocks.streamChat.mockImplementationOnce(async function* () {
+      yield { type: "text_delta", text: "PAIR answer" }
+    })
+    const output = streams()
+
+    const exitCode = await runHeadlessCommand(["--ephemeral", "hello cluster"], output.options)
+
+    expect(exitCode).toBe(0)
+    expect(PairClient).toHaveBeenCalledWith({
+      baseURL: "http://127.0.0.1:11434",
+      model: "qwen3.5:35b",
+    })
+    expect(mocks.ensureLocalServing).not.toHaveBeenCalled()
+    expect(FireworksClient).not.toHaveBeenCalled()
+    expect(output.stdout()).toBe("PAIR answer\n")
+  })
+
+  it("fails clearly when a saved PAIR model has no endpoint", async () => {
+    mocks.loadLocalSettings.mockResolvedValue({
+      model: "qwen3.5:35b",
+      modelProvider: "pair",
+    })
+    const output = streams()
+
+    const exitCode = await runHeadlessCommand(["--ephemeral", "hello cluster"], output.options)
+
+    expect(exitCode).toBe(1)
+    expect(output.stderr()).toContain("NVIDIA PAIR endpoint is not configured")
+    expect(mocks.ensureLocalServing).not.toHaveBeenCalled()
+    expect(FireworksClient).not.toHaveBeenCalled()
   })
 
   it("interrupts local startup and stops the runtime on SIGINT", async () => {

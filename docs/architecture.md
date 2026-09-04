@@ -2,7 +2,8 @@
 
 ## Overview
 
-Otis is a local terminal application with direct hosted inference and optional on-device llama.cpp inference.
+Otis is a local terminal application with direct hosted inference, optional Otis-managed llama.cpp inference, and an
+optional connection to NVIDIA PAIR on loopback.
 
 ```txt
 User terminal or server process
@@ -13,6 +14,7 @@ User terminal or server process
       -> local JSONL sessions and usage
       -> Fireworks API with the user's key
       -> llama-server on 127.0.0.1
+      -> NVIDIA PAIR proxy on loopback -> one eligible Ollama or LM Studio engine
       -> Parallel Search MCP
 ```
 
@@ -34,7 +36,7 @@ src/cli
 - `src/cli` owns command routing, the UI-neutral turn coordinator, headless output adapters, application state, and
   OpenTUI rendering. Headless commands do not initialize OpenTUI.
 - `src/core` owns the agent loop, project instruction loading, and conversation compaction.
-- `src/inference` owns Fireworks and local llama.cpp request serialization, model discovery, hardware fit, the
+- `src/inference` owns Fireworks, PAIR, and local llama.cpp request serialization, model discovery, hardware fit, the
   human-authored `system-prompt.txt`, prompt assembly and project-context bounds, and SSE parsing.
 - `src/local` owns platform paths, the private provider configuration file, and home-screen statistic derivation.
 - `src/skills` owns portable Agent Skill discovery, manifest validation, precedence, and confined resource reads.
@@ -82,7 +84,7 @@ and keep per-block expansion as ephemeral UI state, while headless output includ
 
 `/model` lists a curated local catalog above Fireworks. Identities are official Hugging Face checkpoints. GGUF files
 come from the model author when they publish GGUF, otherwise from ggml-org or a conversion of those official Instruct
-weights. Each row reports a fitted context and memory estimate; models that cannot fit even 8K context stay visible and
+weights. Each row reports a fitted context and memory estimate; models that cannot fit even 64K context stay visible and
 unselectable. Context is the largest window that still fits, up to the checkpoint's native length. Memory math uses
 each checkpoint's real KV groups (full-attention layers vs sliding-window layers), not a uniform transformer cache.
 Hard availability is based on host memory because llama.cpp can split a model between a discrete GPU and system RAM.
@@ -91,9 +93,10 @@ The preflight estimate reserves 15% of Apple unified memory (at least 3 GiB), 10
 `nvidia-smi` detects NVIDIA devices and DRM render nodes detect any other Vulkan-capable GPU, including AMD and Intel.
 If no render device is present, Otis uses the CPU build.
 
-Picker and settings rows are a provider-tagged catalog: Fireworks entries may include a Fast serving path; local entries
-carry a fitted context and never a `fastId`. Local rows not currently serving label that context `Est.`; the active
-local row receives the context returned by llama.cpp and labels it `loaded`.
+Picker and settings rows are a provider-tagged catalog: Fireworks entries may include a Fast serving path; managed-local
+entries carry a fitted context and never a `fastId`; PAIR entries carry their endpoint identity. Managed-local rows not
+currently serving label that context `Est.`; the active managed-local row receives the context returned by llama.cpp
+and labels it `loaded`.
 
 Selecting a runnable local model downloads Otis' pinned llama.cpp `b10622` GitHub release (Metal on Apple Silicon,
 Vulkan on Linux with a render device, otherwise CPU) and the selected GGUF into the platform local-data directory.
@@ -122,11 +125,49 @@ offering the model picker again. Inactive model deletion does not interrupt a di
 Interactive `/exit`, Ctrl+C, and SIGINT/SIGTERM wait for `llama-server` to stop before destroying the OpenTUI renderer.
 Headless `otis exec` awaits that stop in `finally`.
 
-First-run setup offers local and hosted inference before requesting credentials. The local route opens the
-hardware-filtered catalog without a hosted inference API key; the hosted route requests the current provider's key and
-selects a verified tool-capable default model. Headless `otis exec --model <local-id>` also does not require a hosted
-inference API key. `/settings` can validate and save that key later without replacing the selected local model, opens
-cached-model deletion when a GGUF is present, and owns the ephemeral debug-mode toggle.
+First-run setup offers local and hosted inference before requesting credentials. Local inference then offers the
+existing Otis-managed path and the external PAIR path as separate choices. The managed route opens the hardware-filtered
+catalog without a hosted inference API key; the hosted route requests the current provider's key and selects a verified
+tool-capable default model. Headless `otis exec --model <local-id>` also does not require a hosted inference API key.
+`/settings` can validate and save that key later without replacing the selected local model, connect or reconnect
+PAIR, open cached-model deletion when a GGUF is present, and own the ephemeral debug-mode toggle.
+
+## NVIDIA PAIR boundary
+
+PAIR is external, user-managed infrastructure. Otis does not install PAIR, pair nodes together, control engines,
+download PAIR models, inspect the PAIR broker, or reproduce its scheduling logic. It connects only to loopback HTTP
+endpoints copied from PAIR's Endpoints window. Each proxy exposes the standard OpenAI `/v1/models` and
+`/v1/chat/completions` surface for its supported PAIR engine. The Ollama-compatible proxy normally uses port `11434`;
+the LM Studio-compatible proxy normally uses `1234`, although PAIR can move either. Otis accepts only `127.0.0.1`,
+`localhost`, or `::1`, so it never bypasses PAIR's local ingress boundary by addressing another cluster node directly.
+
+Model discovery uses only PAIR's cluster-aggregated Ollama `/api/tags` and LM Studio `/v1/models` routes. Each
+configured field has a known engine, so Otis sends one request to its corresponding inventory route instead of probing
+routes to infer the engine. Otis consumes the exact context, quantization, and capabilities currently reported in an
+aggregate Ollama record. It does not query LM Studio's native `/api/v1/models` route because PAIR forwards that route to
+one scheduled node rather than aggregating it; LM Studio metadata therefore remains unavailable when `/v1/models`
+contains only model IDs. The picker labels reported architecture limits as `model max`; they are neither persisted nor
+used for compaction. Missing metadata remains `Context unavailable` and `Quant unavailable`. Engine plus model ID is
+the stable selection identity, but every PAIR model appears under one NVIDIA PAIR section in the shared model picker.
+Internally, PAIR uses the same 64K minimum as managed-local admission solely as a conservative compaction guard while
+the routed-node runtime context is unknown; that guard is not represented as model metadata. Duplicate model IDs on
+its Ollama and LM Studio routes remain independently selectable.
+
+Selection is transactional but does not send a preflight inference request. Otis creates the normal OpenAI-compatible
+client, stops an active Otis-managed local runtime, saves the endpoint and model metadata to private settings, and
+activates the prepared selection. A preparation or persistence failure leaves the previous selection and runtime
+intact. Actual turns use Otis' local tool definitions, validation, permission policy, and execution; llama.cpp's
+built-in `--tools` is still not used. A model that cannot produce compatible tool calls reports that limitation during
+the conversation instead of being probed during selection.
+
+PAIR receives one complete inference request and routes it to one eligible engine. It does not split a request across
+machines, and it is not a subagent or orchestration layer. The OpenAI-compatible endpoint is deliberately transparent,
+so a PAIR proxy and a native compatible server cannot be distinguished through this API alone. Blank endpoint setup
+is avoided: setup presents separate Ollama and LM Studio fields pre-filled with the standard ports, then probes both
+independently. Copying the addresses from PAIR is the reliable way to select cluster routing when either proxy moves.
+Selecting PAIR stops only an Otis-managed `llama-server`, if one is active. Selecting a managed-local model later starts
+the original Otis process again. Every verified PAIR endpoint remains available in the shared picker when the active
+provider changes; the persisted selected engine resolves its endpoint from the engine-keyed endpoint map.
 
 ## Parallel boundary
 
@@ -136,7 +177,7 @@ API key. Requests POST JSON-RPC `tools/call` to `https://search.parallel.ai/mcp`
 Otis keeps its own `web_search` and `web_read` tools. The Parallel adapter maps those to MCP `web_search` and
 `web_fetch`, unwraps the MCP text payload, and validates the inner result. Search uses Parallel's basic MCP mode.
 Page reads do not request full page content. `session_id` is the Otis session id, truncated to 100 characters, which
-Parallel uses as the free-tier rate-limit key. `model_name` is the selected Fireworks model.
+Parallel uses as the free-tier rate-limit key. `model_name` is the selected inference model.
 
 The Fireworks API key is not written to sessions, transcripts, tool results, or usage events. Environment values override
 saved values without being copied into `config.json`. Keys entered through setup are written atomically to the
@@ -207,7 +248,7 @@ configured auto default, or the explicit `--auto` policy. Explicit deny rules re
 approval policy is separate from OS sandboxing; a future sandbox can be added at the tool-executor boundary
 without changing command output or session contracts.
 
-Every completed Fireworks request that reports usage adds a validated `usage_recorded` event before the surrounding
+Every completed inference request that reports usage adds a validated `usage_recorded` event before the surrounding
 agent turn, title generation, or compaction operation continues. Home-screen totals are calculated across local
 workspace session directories. Session counts, durations, and activity streaks are also derived from those local event
 timestamps.

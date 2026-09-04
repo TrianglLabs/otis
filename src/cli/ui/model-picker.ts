@@ -1,8 +1,8 @@
 import type { ScrollBoxRenderable } from "@opentui/core"
+import { pairEngineLabel } from "../../inference/pair.js"
 import {
   formatContextWindow,
   isSelectablePickerItem,
-  type LocalPickerChoice,
   type ModelPickerChoice,
   type ModelPickerItem,
   type ModelPickerStatus,
@@ -43,7 +43,9 @@ export class ModelPicker {
   setItems(items: ModelPickerItem[]) {
     const previousId = this.selectedId()
     this.#items = items
-    const keptIndex = previousId ? items.findIndex((item) => item.kind !== "header" && item.id === previousId) : -1
+    const keptIndex = previousId
+      ? items.findIndex((item) => item.kind !== "header" && modelPickerKey(item) === previousId)
+      : -1
     const activeIndex = items.findIndex((item) => item.kind !== "header" && "active" in item && item.active)
     this.#selectedIndex = keptIndex >= 0 ? keptIndex : activeIndex >= 0 ? activeIndex : firstSelectableIndex(items)
     this.render()
@@ -52,11 +54,8 @@ export class ModelPicker {
   }
 
   setItemStatus(id: string, status: ModelPickerStatus | undefined) {
-    const item = this.#items.find(
-      (candidate): candidate is LocalPickerChoice =>
-        candidate.kind === "model" && candidate.provider === "local" && candidate.id === id,
-    )
-    if (!item) return
+    const item = this.#items.find((candidate) => candidate.kind === "model" && modelPickerKey(candidate) === id)
+    if (!item || item.kind === "header" || item.provider === "fireworks") return
     item.status = status
     this.render()
     this.renderer.requestRender()
@@ -101,7 +100,7 @@ export class ModelPicker {
 
   private selectedId() {
     const item = this.#items[this.#selectedIndex]
-    return item && item.kind !== "header" ? item.id : undefined
+    return item && item.kind !== "header" ? modelPickerKey(item) : undefined
   }
 
   private render() {
@@ -130,10 +129,10 @@ export class ModelPicker {
         }
       }
       const disabled = item.available === false
-      const suffix = localNameSuffix(item)
+      const suffixes = modelNameSuffixes(item)
       return {
-        title: modelTitle(item, suffix !== undefined),
-        suffix,
+        title: modelTitle(item, suffixes.length > 0),
+        ...(suffixes.length > 0 ? { suffixes } : {}),
         meta: modelMeta(item),
         fg: disabled ? colors.muted : item.active ? colors.accent : colors.text,
         selected: index === this.#selectedIndex,
@@ -159,7 +158,7 @@ export class ModelPicker {
     specs.forEach((spec, index) => {
       const row = this.#rows[index]
       if (!row) return
-      if (spec.suffix?.shimmer) {
+      if (spec.suffixes?.some((suffix) => suffix.shimmer)) {
         stylePickerRow(row, spec, elapsedMs)
         return
       }
@@ -186,22 +185,39 @@ function modelTitle(item: ModelPickerChoice, hasSuffix: boolean) {
   return `${truncatePickerLabel(item.displayName, maximum - marker.length)}${marker}`
 }
 
-function localNameSuffix(item: ModelPickerChoice) {
-  if (item.provider !== "local") return undefined
-  if (item.status) return { text: item.status.label, shimmer: item.status.kind === "progress" }
-  if (item.downloaded) return { text: "Downloaded", fg: colors.muted }
-  return undefined
+function modelNameSuffixes(item: ModelPickerChoice) {
+  const suffixes: Array<{ text: string; fg?: string; shimmer?: boolean }> = []
+  if (item.provider === "pair") {
+    suffixes.push({ text: pairEngineLabel(item.engine), fg: colors.muted })
+    if (item.status) suffixes.push({ text: item.status.label, shimmer: item.status.kind === "progress" })
+    return suffixes
+  }
+  if (item.provider !== "local") return suffixes
+  if (item.status) suffixes.push({ text: item.status.label, shimmer: item.status.kind === "progress" })
+  else if (item.downloaded) suffixes.push({ text: "Downloaded", fg: colors.muted })
+  return suffixes
 }
 
 function modelMeta(item: ModelPickerChoice) {
   if (item.provider === "local") {
     return `${item.availabilityLabel} · ${item.supportsImageInput ? "Vision" : "Text"}`
   }
+  if (item.provider === "pair") {
+    const context = item.nativeContextLength
+      ? `${formatContextWindow(item.nativeContextLength)} model max`
+      : "Context unavailable"
+    const quantization = item.quantization ?? "Quant unavailable"
+    return `${context} · ${quantization} · ${item.supportsImageInput ? "Vision" : "Text"}`
+  }
   const parts: string[] = []
   if (item.contextLength) parts.push(formatContextWindow(item.contextLength))
   parts.push(item.supportsImageInput ? "Vision" : "Text")
   if (item.fastId) parts.push(FAST_MODE_LABEL)
   return parts.join(" · ")
+}
+
+function modelPickerKey(item: ModelPickerChoice) {
+  return item.provider === "pair" ? item.selectionKey : item.id
 }
 
 function firstSelectableIndex(items: readonly ModelPickerItem[]) {

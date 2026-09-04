@@ -330,8 +330,15 @@ describe("chat UI input", () => {
   it("chooses local or hosted inference with arrow keys before accepting an API key", async () => {
     const onSetup = vi.fn()
     const onSetupInferenceChoice = vi.fn()
+    const onSetupLocalInferenceChoice = vi.fn()
     const onSetupSubmit = vi.fn()
-    const harness = await setup({ configured: false, onSetup, onSetupInferenceChoice, onSetupSubmit })
+    const harness = await setup({
+      configured: false,
+      onSetup,
+      onSetupInferenceChoice,
+      onSetupLocalInferenceChoice,
+      onSetupSubmit,
+    })
 
     expect(harness.childIds("input-area")).toEqual(["setup-box"])
     expect(harness.childIds("setup-box")).toEqual(["setup-why", "setup-local", "setup-button-box"])
@@ -351,7 +358,7 @@ describe("chat UI input", () => {
       "setup-choice-cards",
       "setup-choice-hint",
     ])
-    expect(harness.text("setup-choice-heading")).toBe("Choose how Otis runs models")
+    expect(harness.text("setup-choice-heading")).toBe("Choose where Otis thinks")
     expect(harness.find("setup-choice-subheading")).toBeUndefined()
     expect(harness.childIds("setup-choice-cards")).toEqual(["setup-choice-local", "setup-choice-hosted"])
     await harness.renderOnce()
@@ -363,13 +370,11 @@ describe("chat UI input", () => {
         .some((line) => line.includes("Local inference") && line.includes("Hosted inference")),
     ).toBe(true)
     expect(harness.text("setup-choice-local-title")).toBe("Local inference")
-    expect(harness.text("setup-choice-local-label")).toBe("Runs on your machine")
-    expect(harness.text("setup-choice-local-description")).toBe("Run open models on your own hardware.")
-    expect(harness.text("setup-choice-local-detail-0")).toBe("Recommended hardware:")
-    expect(harness.text("setup-choice-local-detail-1")).toBe("Apple silicon · 24 GB+ unified memory")
-    expect(harness.text("setup-choice-local-detail-2")).toBe("Linux · 24 GB+ RAM")
-    expect(harness.text("setup-choice-local-detail-3")).toBe("Vulkan GPU · 16 GB+ VRAM")
-    expect(harness.find("setup-choice-local-detail-4")).toBeUndefined()
+    expect(harness.text("setup-choice-local-label")).toBe("Private, on your devices")
+    expect(harness.text("setup-choice-local-description")).toBe("Run on this machine or use an NVIDIA PAIR cluster.")
+    expect(harness.text("setup-choice-local-detail-0")).toBe("Managed llama.cpp built in.")
+    expect(harness.text("setup-choice-local-detail-1")).toBe("PAIR supports Ollama and LM Studio.")
+    expect(harness.find("setup-choice-local-detail-2")).toBeUndefined()
     expect(harness.text("setup-choice-hosted-label")).toBe("Powered by Fireworks")
     expect(harness.text("setup-choice-hosted-description")).toBe(
       "Fast remote inference with no local hardware requirements.",
@@ -393,6 +398,33 @@ describe("chat UI input", () => {
 
     harness.press("return")
     expect(onSetupInferenceChoice).toHaveBeenLastCalledWith("local")
+    harness.ui.showSetupLocalInferenceChoice()
+    expect(harness.childIds("input-area")).toEqual(["setup-local-choice"])
+    expect(harness.text("setup-local-choice-heading")).toBe("Choose local inference type")
+    expect(harness.childIds("setup-local-choice-cards")).toEqual([
+      "setup-local-choice-managed",
+      "setup-local-choice-pair",
+    ])
+    expect(harness.text("setup-local-choice-managed-title")).toBe("This machine")
+    expect(harness.text("setup-local-choice-managed-label")).toBe("Managed by Otis")
+    expect(harness.text("setup-local-choice-managed-description")).toBe(
+      "Download a curated model and run it with llama.cpp.",
+    )
+    expect(harness.text("setup-local-choice-managed-detail-0")).toBe("Recommended hardware:")
+    expect(harness.text("setup-local-choice-managed-detail-1")).toBe("Apple silicon · 24 GB+ unified memory")
+    expect(harness.text("setup-local-choice-managed-detail-2")).toBe("Linux · 24 GB+ RAM")
+    expect(harness.text("setup-local-choice-managed-detail-3")).toBe("Vulkan GPU · 16 GB+ VRAM")
+    expect(harness.find("setup-local-choice-managed-detail-4")).toBeUndefined()
+    expect(harness.text("setup-local-choice-pair-title")).toBe("NVIDIA PAIR")
+    expect(harness.text("setup-local-choice-pair-label")).toBe("Your home AI cluster")
+    expect(harness.text("setup-local-choice-pair-description")).toBe("Let PAIR choose a computer for each request.")
+    expect(harness.text("setup-local-choice-hint")).toContain("[esc] back")
+    harness.press("right")
+    harness.press("return")
+    expect(onSetupLocalInferenceChoice).toHaveBeenLastCalledWith("pair")
+    harness.ui.showSetupLocalInferenceChoice()
+    harness.press("escape")
+    expect(harness.childIds("input-area")).toEqual(["setup-choice"])
     harness.ui.showSetupInferenceChoice()
     harness.press("right")
     expect(harness.text("setup-choice-hosted-title")).toBe("Hosted inference")
@@ -441,22 +473,70 @@ describe("chat UI input", () => {
     expect(harness.childIds("chat-body")).toEqual(["model-panel", "messages"])
   })
 
-  it("selects hosted inference up front when local inference is unsupported", async () => {
+  it("keeps PAIR available when managed local inference is unsupported", async () => {
     const onSetupInferenceChoice = vi.fn()
+    const onSetupLocalInferenceChoice = vi.fn()
     const reason = "Local inference is not supported on win32/x64."
     const harness = await setup({
       configured: false,
       localInferenceUnavailableReason: reason,
       onSetupInferenceChoice,
+      onSetupLocalInferenceChoice,
     })
 
     harness.ui.showSetupInferenceChoice()
-    expect(harness.text("setup-choice-message")).toBe(reason)
     harness.press("left")
     harness.press("return")
+    expect(onSetupInferenceChoice).toHaveBeenCalledWith("local")
 
-    expect(onSetupInferenceChoice).toHaveBeenCalledOnce()
-    expect(onSetupInferenceChoice).toHaveBeenCalledWith("hosted")
+    harness.ui.showSetupLocalInferenceChoice()
+    expect(harness.text("setup-local-choice-message")).toBe(reason)
+    harness.press("left")
+    harness.press("return")
+    expect(onSetupLocalInferenceChoice).toHaveBeenCalledWith("pair")
+  })
+
+  it("edits and submits both NVIDIA PAIR proxy endpoints in one form", async () => {
+    const onPairSetupSubmit = vi.fn()
+    const harness = await setup({ configured: false, onPairSetupSubmit })
+    const endpoints = {
+      ollama: "http://127.0.0.1:11434",
+      lmStudio: "http://127.0.0.1:1234",
+    }
+
+    harness.ui.showPairSetup("Confirm both endpoints.", "local", endpoints)
+    await harness.renderOnce()
+
+    expect(harness.childIds("input-area")).toEqual(["setup-pair-form"])
+    expect(harness.get<BoxRenderable>("welcome-panel").width).toBe(91)
+    expect(harness.text("setup-pair-heading")).toBe("NVIDIA PAIR endpoints")
+    expect(harness.text("setup-pair-description")).toBe(
+      "These are PAIR's standard proxy addresses, or your last saved addresses. Only one working endpoint is required. Change an address only if PAIR → Endpoints shows a different proxy port.",
+    )
+    expect(harness.text("setup-pair-ollama-label")).toBe("Ollama")
+    expect(harness.text("setup-pair-lmstudio-label")).toBe("LM Studio")
+    expect(harness.get<InputRenderable>("setup-pair-ollama-input").plainText).toBe(endpoints.ollama)
+    expect(harness.get<InputRenderable>("setup-pair-lmstudio-input").plainText).toBe(endpoints.lmStudio)
+    expect(harness.find("setup-pair-continue-box")).toBeUndefined()
+    expect(harness.get<InputRenderable>("setup-pair-ollama-input").focused).toBe(true)
+    const frame = harness.captureCharFrame()
+    expect(frame).toContain("Ollama")
+    expect(frame).toContain("LM Studio")
+    expect(frame).toContain("http://127.0.0.1:11434")
+    expect(frame).toContain("http://127.0.0.1:1234")
+
+    harness.press("tab")
+    expect(harness.get<InputRenderable>("setup-pair-ollama-input").focused).toBe(false)
+    expect(harness.get<InputRenderable>("setup-pair-lmstudio-input").focused).toBe(true)
+    harness.get<InputRenderable>("setup-pair-lmstudio-input").submit()
+    expect(onPairSetupSubmit).toHaveBeenCalledWith(endpoints)
+
+    harness.ui.showPairSetupError("LM Studio is unavailable.", "local", endpoints)
+    expect(harness.text("setup-pair-message")).toBe("LM Studio is unavailable.")
+    expect(harness.get<InputRenderable>("setup-pair-ollama-input").plainText).toBe(endpoints.ollama)
+    expect(harness.get<InputRenderable>("setup-pair-lmstudio-input").plainText).toBe(endpoints.lmStudio)
+    harness.press("escape")
+    expect(harness.childIds("input-area")).toEqual(["setup-local-choice"])
   })
 
   it("shows API keys in the input and clears them after an error", async () => {
@@ -489,9 +569,30 @@ describe("chat UI input", () => {
     expect(
       frame.split("\n").some((line) => line.includes("Local inference") && line.includes("Hosted inference")),
     ).toBe(true)
-    expect(frame).toContain("Runs on your machine")
+    expect(frame).toContain("Private, on your devices")
     expect(frame).toContain("Powered by Fireworks")
     expect(frame).toContain("[←→] move · [enter] select")
+
+    harness.ui.showSetupLocalInferenceChoice()
+    await harness.renderOnce()
+    const localFrame = harness.captureCharFrame()
+    expect(localFrame).toContain("This machine")
+    expect(localFrame).toContain("NVIDIA PAIR")
+    expect(localFrame).toContain("Managed by Otis")
+    expect(localFrame).toContain("Your home AI cluster")
+
+    harness.ui.showPairSetup("Confirm either or both endpoints.", "local", {
+      ollama: "http://127.0.0.1:11434",
+      lmStudio: "http://127.0.0.1:1234",
+    })
+    await harness.renderOnce()
+    const pairFrame = harness.captureCharFrame()
+    expect(pairFrame).toContain("NVIDIA PAIR endpoints")
+    expect(pairFrame).toContain("Ollama")
+    expect(pairFrame).toContain("http://127.0.0.1:11434")
+    expect(pairFrame).toContain("LM Studio")
+    expect(pairFrame).toContain("http://127.0.0.1:1234")
+    expect(pairFrame).toContain("[tab] switch endpoint · [enter] continue · [esc] back")
   })
 
   it("uses the model picker pulse for the selected inference card", async () => {
@@ -510,6 +611,19 @@ describe("chat UI input", () => {
     harness.press("right")
     expect(localCard.borderColor.equals(RGBA.fromHex(colors.border))).toBe(true)
     expect(hostedCard.borderColor.equals(RGBA.fromHex(colors.accent))).toBe(true)
+
+    harness.ui.showSetupLocalInferenceChoice()
+    const managedCard = harness.get<BoxRenderable>("setup-local-choice-managed")
+    const pairCard = harness.get<BoxRenderable>("setup-local-choice-pair")
+    expect(managedCard.borderColor.equals(RGBA.fromHex(selectionOutline(0)))).toBe(true)
+    expect(pairCard.borderColor.equals(RGBA.fromHex(colors.border))).toBe(true)
+
+    vi.advanceTimersByTime(COLOR_PULSE_PERIOD_MS / 2)
+    expect(managedCard.borderColor.equals(RGBA.fromHex(colors.accent))).toBe(true)
+
+    harness.press("right")
+    expect(managedCard.borderColor.equals(RGBA.fromHex(colors.border))).toBe(true)
+    expect(pairCard.borderColor.equals(RGBA.fromHex(colors.accent))).toBe(true)
   })
 
   it("returns to the configured input when hosted settings are cancelled", async () => {

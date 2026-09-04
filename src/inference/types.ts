@@ -79,7 +79,8 @@ export type ContextFile = {
   content: string
 }
 
-export type ModelProvider = "fireworks" | "local"
+export type ModelProvider = "fireworks" | "local" | "pair"
+export type PairEngine = "ollama" | "lmstudio"
 
 type SharedModelFields = {
   id: string
@@ -102,7 +103,19 @@ export type LocalCatalogModel = {
   supportsImageInput: boolean
 }
 
-export type CatalogModel = FireworksModel | LocalCatalogModel
+export type PairCatalogModel = {
+  provider: "pair"
+  id: string
+  displayName: string
+  baseURL: string
+  engine: PairEngine
+  /** Model-architecture maximum; display metadata, never a PAIR runtime budget. */
+  nativeContextLength?: number
+  quantization?: string
+  supportsImageInput: boolean
+}
+
+export type CatalogModel = FireworksModel | LocalCatalogModel | PairCatalogModel
 
 export function fireworksModel(fields: Omit<FireworksModel, "provider">): FireworksModel {
   return { provider: "fireworks", ...fields }
@@ -110,6 +123,10 @@ export function fireworksModel(fields: Omit<FireworksModel, "provider">): Firewo
 
 export function isLocalCatalogModel(model: CatalogModel): model is LocalCatalogModel {
   return model.provider === "local"
+}
+
+export function isPairCatalogModel(model: CatalogModel): model is PairCatalogModel {
+  return model.provider === "pair"
 }
 
 export type InferenceClient = {

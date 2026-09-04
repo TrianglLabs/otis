@@ -15,7 +15,7 @@ export type PickerRow = {
 
 export type PickerRowSpec = {
   title: string
-  suffix?: { text: string; fg?: string; shimmer?: boolean }
+  suffixes?: Array<{ text: string; fg?: string; shimmer?: boolean }>
   meta?: string
   fg: string
   selected: boolean
@@ -82,7 +82,7 @@ export function stylePickerRow(row: PickerRow, spec: PickerRowSpec, elapsedMs = 
   const fill = rowFill(row)
   const prefix = spec.header ? "" : spec.selected ? "›" : " "
   const title = spec.header ? spec.title : `${prefix} ${spec.title}`
-  row.title.content = titleWithSuffix(title, spec, elapsedMs)
+  row.title.content = titleWithSuffixes(title, spec, elapsedMs)
   row.title.fg = spec.selected && !spec.disabled && !spec.header ? colors.accent : spec.fg
   row.title.bg = fill
   row.meta.content = spec.meta ? `  ${spec.meta}` : ""
@@ -103,12 +103,18 @@ function rowFill(row: PickerRow) {
   return colors[row.bg]
 }
 
-function titleWithSuffix(title: string, spec: PickerRowSpec, elapsedMs: number) {
-  const suffix = spec.suffix
-  if (!suffix) return title
-  if (suffix.shimmer) {
-    return new StyledText([...t`${title}  `.chunks, ...shimmerText(suffix.text, elapsedMs).chunks])
+function titleWithSuffixes(title: string, spec: PickerRowSpec, elapsedMs: number) {
+  if (!spec.suffixes?.length) return title
+  const chunks = [...t`${title}`.chunks]
+  for (const suffix of spec.suffixes) {
+    chunks.push(...t`  `.chunks)
+    if (suffix.shimmer) {
+      chunks.push(...shimmerText(suffix.text, elapsedMs).chunks)
+    } else if (suffix.fg) {
+      chunks.push(...t`${fg(suffix.fg)(suffix.text)}`.chunks)
+    } else {
+      chunks.push(...t`${suffix.text}`.chunks)
+    }
   }
-  if (suffix.fg) return t`${title}  ${fg(suffix.fg)(suffix.text)}`
-  return `${title}  ${suffix.text}`
+  return new StyledText(chunks)
 }

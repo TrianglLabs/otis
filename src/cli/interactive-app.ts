@@ -3,6 +3,7 @@ import { autoCompactThreshold, compactConversation } from "../core/compaction.js
 import { loadProjectContext } from "../core/context.js"
 import { SteeringInbox } from "../core/steering.js"
 import { FireworksClient } from "../inference/client.js"
+import { compactionContextLength } from "../inference/context-policy.js"
 import { deleteLocalGguf, listDownloadedLocalModels } from "../inference/gguf-cache.js"
 import { detectHardware, type HardwareProbe } from "../inference/hardware.js"
 import { supportsLlamaCppTarget, unsupportedLlamaCppTargetMessage } from "../inference/llama-binary.js"
@@ -17,6 +18,7 @@ import {
 import { LlamaCppClient } from "../inference/local-client.js"
 import { fitLocalModel, formatMemoryLabel, type LocalModelFit } from "../inference/local-fit.js"
 import { createUserMessage, summarizeUserMessage, userMessageContentChars } from "../inference/messages.js"
+import { PairClient, type PairEndpoints, pairEndpointForEngine } from "../inference/pair.js"
 import type { ModelPickerItem, ModelPickerStatus } from "../inference/picker-catalog.js"
 import { baseFireworksModelId, isFastFireworksModel } from "../inference/serving-path.js"
 import { skillAdvertisementChars } from "../inference/system-prompt.js"
@@ -25,6 +27,9 @@ import {
   type ContextFile,
   type InferenceClient,
   isLocalCatalogModel,
+  isPairCatalogModel,
+  type ModelProvider,
+  type PairEngine,
   type UserChatMessage,
 } from "../inference/types.js"
 import {
@@ -113,6 +118,9 @@ export class InteractiveApp {
   #configured = false
   #fireworksApiKey: string | undefined
   #selectedModelId: string | undefined
+  #selectedModelProvider: ModelProvider | undefined
+  #pairEngine: PairEngine | undefined
+  #pairEndpoints: PairEndpoints = {}
   #autoCompactAtTokens = autoCompactThreshold()
   #client: InferenceClient | undefined
   #llama = new LlamaCppRuntime()
@@ -150,19 +158,37 @@ export class InteractiveApp {
     this.#selectedTheme = settings.theme ?? "default"
     this.#thinkingVisible = settings.thinkingVisible ?? false
     this.#fastServingModels = new Set(settings.fastServingModels ?? [])
-    this.#fastAvailable = Boolean(settings.modelFastId) || isFastFireworksModel(settings.model ?? "")
     this.#downloadedModelsAvailable = (await listDownloadedLocalModels()).length > 0
     this.#fireworksApiKey = settings.fireworksApiKey
     this.#selectedModelId = settings.model
+    this.#selectedModelProvider =
+      settings.modelProvider ?? (settings.model ? (isLocalModelId(settings.model) ? "local" : "fireworks") : undefined)
+    this.#fastAvailable =
+      this.#selectedModelProvider === "fireworks" &&
+      (Boolean(settings.modelFastId) || isFastFireworksModel(settings.model ?? ""))
+    this.#pairEngine = settings.pairEngine
+    this.#pairEndpoints = { ...settings.pairEndpoints }
+    const pairEndpoint = pairEndpointForEngine(this.#pairEndpoints, this.#pairEngine)
     this.#images.setModelCapability(settings.modelSupportsImageInput)
-    this.#autoCompactAtTokens = autoCompactThreshold(settings.modelContextLength)
+    this.#autoCompactAtTokens = autoCompactThreshold(
+      compactionContextLength({
+        provider: this.#selectedModelProvider,
+        contextLength: settings.modelContextLength,
+      }),
+    )
     this.#permissionMode = settings.permissions?.defaultMode ?? DEFAULT_PERMISSION_MODE
     this.#permissionRules = [...(settings.permissions?.rules ?? []), ...(await loadProjectPermissionRules(this.#cwd))]
     this.#configured = Boolean(
-      this.#selectedModelId && (this.#fireworksApiKey || isLocalModelId(this.#selectedModelId)),
+      this.#selectedModelId &&
+        ((this.#selectedModelProvider === "fireworks" && this.#fireworksApiKey) ||
+          this.#selectedModelProvider === "local" ||
+          (this.#selectedModelProvider === "pair" && pairEndpoint)),
     )
-    if (this.#fireworksApiKey && this.#selectedModelId && !isLocalModelId(this.#selectedModelId)) {
+    if (this.#fireworksApiKey && this.#selectedModelId && this.#selectedModelProvider === "fireworks") {
       this.#client = new FireworksClient({ apiKey: this.#fireworksApiKey, model: this.#selectedModelId })
+    }
+    if (pairEndpoint && this.#selectedModelId && this.#selectedModelProvider === "pair") {
+      this.#client = new PairClient({ baseURL: pairEndpoint, model: this.#selectedModelId })
     }
     this.#webClient = new ParallelClient()
 
@@ -192,10 +218,15 @@ export class InteractiveApp {
           this.#autoCompactAtTokens,
         ),
       ),
-      modelLabel: withFastModelMark(
-        formatModelName(settings.modelDisplayName ?? this.#selectedModelId),
-        Boolean(this.#selectedModelId && isFastFireworksModel(this.#selectedModelId)),
-      ),
+      modelLabel:
+        this.#selectedModelProvider === "pair"
+          ? `${formatModelName(settings.modelDisplayName ?? this.#selectedModelId)} · NVIDIA PAIR`
+          : this.#selectedModelProvider === "local"
+            ? `${formatModelName(settings.modelDisplayName ?? this.#selectedModelId)} · Local`
+            : withFastModelMark(
+                formatModelName(settings.modelDisplayName ?? this.#selectedModelId),
+                Boolean(this.#selectedModelId && isFastFireworksModel(this.#selectedModelId)),
+              ),
       modeLabel: formatModeLabel(this.#permissionMode),
       sessionLabel: "Current session",
       theme: this.#selectedTheme,
@@ -212,8 +243,12 @@ export class InteractiveApp {
       onQuit: () => this.#quit(),
       onSetup: () => this.#setupFlow.begin(),
       onSetupInferenceChoice: (choice) => this.#setupFlow.selectInference(choice),
+      onSetupLocalInferenceChoice: (choice) => this.#setupFlow.selectLocalInference(choice),
       onSetupSubmit: (apiKey) => {
         void this.#setupFlow.submitCredential(apiKey)
+      },
+      onPairSetupSubmit: (endpoints) => {
+        void this.#setupFlow.submitPairEndpoints(endpoints)
       },
       onCloseModelPicker: () => this.#setupFlow.closeModelPicker(),
       onSelectModel: (model) => {
@@ -251,7 +286,7 @@ export class InteractiveApp {
       },
       onCredentialsChanged: (credentials) => {
         this.#fireworksApiKey = credentials.fireworksApiKey
-        if (credentials.fireworksApiKey && this.#selectedModelId && !isLocalModelId(this.#selectedModelId)) {
+        if (credentials.fireworksApiKey && this.#selectedModelId && this.#selectedModelProvider === "fireworks") {
           this.#client = new FireworksClient({
             apiKey: credentials.fireworksApiKey,
             model: this.#selectedModelId,
@@ -259,6 +294,9 @@ export class InteractiveApp {
         }
         this.#ui.showStats()
         void this.#refreshLocalStats()
+      },
+      onPairEndpointsChanged: (endpoints) => {
+        this.#pairEndpoints = { ...endpoints }
       },
       prepareModelSelection: (model, selection) =>
         this.#prepareSelectedModel(model, selection.fireworksApiKey, selection.signal),
@@ -290,7 +328,7 @@ export class InteractiveApp {
     this.#startUpdateCheck()
 
     if (this.#configured) void this.#refreshLocalStats()
-    if (this.#selectedModelId && isLocalModelId(this.#selectedModelId)) {
+    if (this.#selectedModelId && this.#selectedModelProvider === "local") {
       const spec = findLocalModel(this.#selectedModelId)
       if (spec) {
         const startupController = new AbortController()
@@ -319,7 +357,7 @@ export class InteractiveApp {
         }
       }
     }
-    if (!this.#configured && this.#fireworksApiKey && !isLocalModelId(this.#selectedModelId ?? "")) {
+    if (!this.#configured && this.#fireworksApiKey && this.#selectedModelProvider !== "local") {
       this.#setupFlow.begin()
     }
 
@@ -549,6 +587,8 @@ export class InteractiveApp {
         this.#ui.clearInput()
         if (command.setting === "hosted") {
           this.#setupFlow.configureHostedInference()
+        } else if (command.setting === "pair") {
+          this.#setupFlow.configurePairInference()
         } else if (command.setting === "debug") {
           this.#toggleDebugMode()
         } else if (command.setting === "delete-model") {
@@ -859,6 +899,14 @@ export class InteractiveApp {
         description: this.#fireworksApiKey ? "Replace API key" : "Add API key",
         submission: "/settings hosted",
       },
+      {
+        name: "NVIDIA PAIR",
+        description:
+          this.#pairEndpoints.ollama || this.#pairEndpoints.lmStudio
+            ? "Reconnect or choose model"
+            : "Connect local AI cluster",
+        submission: "/settings pair",
+      },
       ...(this.#downloadedModelsAvailable
         ? [
             {
@@ -888,7 +936,7 @@ export class InteractiveApp {
     this.#ui.showCommandSubmenu(
       models.map((model) => ({
         name: model.displayName,
-        description: `${model.id === this.#selectedModelId ? "Active · " : ""}${model.quant} · ${formatMemoryLabel(localModelWeightBytes(model))}`,
+        description: `${this.#selectedModelProvider === "local" && model.id === this.#selectedModelId ? "Active · " : ""}${model.quant} · ${formatMemoryLabel(localModelWeightBytes(model))}`,
         submission: `/settings delete-model ${model.id}`,
       })),
       { onBack: () => this.#openSettingsMenu() },
@@ -926,7 +974,7 @@ export class InteractiveApp {
 
     try {
       await this.#setupFlow.cancelModelSelection()
-      active = this.#selectedModelId === spec.id
+      active = this.#selectedModelProvider === "local" && this.#selectedModelId === spec.id
       previousActive = this.#activeLocalModel
       previousModel = catalogModelFromSpec(spec, previousActive?.contextLength)
       const downloaded = await listDownloadedLocalModels()
@@ -967,6 +1015,7 @@ export class InteractiveApp {
       this.#modelApplyId += 1
       this.#activeLocalModel = undefined
       this.#selectedModelId = undefined
+      this.#selectedModelProvider = undefined
       this.#client = undefined
       this.#configured = false
       this.#images.setModelCapability(false)
@@ -1004,7 +1053,7 @@ export class InteractiveApp {
     if (isLocalCatalogModel(model)) {
       const spec = findLocalModel(model.id)
       if (!spec) throw new Error(`Unknown local model: ${model.id}`)
-      const name = formatModelName(model.displayName)
+      const name = `${formatModelName(model.displayName)} · Local`
       const hardware = await detectHardware()
       signal.throwIfAborted()
       const fit = fitLocalModel(spec, hardware)
@@ -1056,6 +1105,32 @@ export class InteractiveApp {
       }
     }
 
+    if (isPairCatalogModel(model)) {
+      const client = new PairClient({ baseURL: model.baseURL, model: model.id })
+      try {
+        await this.#llama.stop()
+        signal.throwIfAborted()
+      } catch (error) {
+        if (!signal.aborted && !this.#exiting) await this.#restoreLocalRuntime(previousLocal, error, signal)
+        throw error
+      }
+      let finalized = false
+      return {
+        model,
+        commit: () => {
+          if (finalized) return
+          finalized = true
+          this.#activeLocalModel = undefined
+          this.#activateModel(model, client, `${formatModelName(model.displayName)} · NVIDIA PAIR`)
+        },
+        rollback: async ({ restorePrevious }) => {
+          if (finalized) return
+          finalized = true
+          if (restorePrevious) await this.#restoreLocalRuntime(previousLocal, undefined, signal)
+        },
+      }
+    }
+
     if (!fireworksApiKey) throw new Error("Fireworks API key is required.")
     try {
       await this.#llama.stop()
@@ -1088,8 +1163,10 @@ export class InteractiveApp {
 
   #activateModel(model: CatalogModel, client: InferenceClient, label: string) {
     this.#selectedModelId = model.id
+    this.#selectedModelProvider = model.provider
+    this.#pairEngine = model.provider === "pair" ? model.engine : undefined
     this.#images.setModelCapability(model.supportsImageInput)
-    this.#autoCompactAtTokens = autoCompactThreshold(model.contextLength)
+    this.#autoCompactAtTokens = autoCompactThreshold(compactionContextLength(model))
     this.#client = client
     this.#configured = true
     if (!this.#exiting) {
@@ -1116,6 +1193,7 @@ export class InteractiveApp {
       previous.contextLength = serving.contextLength
       this.#activeLocalModel = previous
       this.#client = new LlamaCppClient({ model: previous.spec.id, inferenceURL: serving.inferenceURL })
+      this.#selectedModelProvider = "local"
       if (this.#selectedModelId === previous.spec.id) {
         this.#autoCompactAtTokens = autoCompactThreshold(serving.contextLength)
         if (!this.#exiting) this.#updateContextIndicator()

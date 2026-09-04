@@ -118,8 +118,73 @@ export function createSetupViews(renderer: Renderer) {
   setupChoiceBox.add(
     new TextRenderable(renderer, {
       id: "setup-choice-heading",
-      content: "Choose how Otis runs models",
+      content: "Choose where Otis thinks",
       fg: colors.text,
+      selectable: false,
+    }),
+  )
+
+  const setupLocalChoiceBox = new BoxRenderable(renderer, {
+    id: "setup-local-choice",
+    flexDirection: "column",
+    width: "100%",
+    minWidth: 24,
+    flexShrink: 0,
+    alignItems: "center",
+    backgroundColor: colors.background,
+    gap: 1,
+  })
+  setupLocalChoiceBox.add(
+    new TextRenderable(renderer, {
+      id: "setup-local-choice-heading",
+      content: "Choose local inference type",
+      fg: colors.text,
+      selectable: false,
+    }),
+  )
+  const setupLocalChoiceCards = new BoxRenderable(renderer, {
+    id: "setup-local-choice-cards",
+    flexDirection: "row",
+    width: "100%",
+    minWidth: 1,
+    flexShrink: 0,
+    alignItems: "stretch",
+    gap: 2,
+  })
+  const setupManagedLocalCard = createInferenceChoiceCard(renderer, {
+    id: "setup-local-choice-managed",
+    title: "This machine",
+    label: "Managed by Otis",
+    description: "Download a curated model and run it with llama.cpp.",
+    details: [
+      "Recommended hardware:",
+      "Apple silicon · 24 GB+ unified memory",
+      "Linux · 24 GB+ RAM",
+      "Vulkan GPU · 16 GB+ VRAM",
+    ],
+  })
+  const setupPairCard = createInferenceChoiceCard(renderer, {
+    id: "setup-local-choice-pair",
+    title: "NVIDIA PAIR",
+    label: "Your home AI cluster",
+    description: "Let PAIR choose a computer for each request.",
+    details: ["Uses Ollama or LM Studio.", "Runs across your local network.", "PAIR must be running."],
+  })
+  setupLocalChoiceCards.add(setupManagedLocalCard)
+  setupLocalChoiceCards.add(setupPairCard)
+  setupLocalChoiceBox.add(setupLocalChoiceCards)
+  const setupLocalChoiceMessage = new TextRenderable(renderer, {
+    id: "setup-local-choice-message",
+    content: "",
+    fg: colors.pink,
+    selectable: false,
+    truncate: true,
+  })
+  setupLocalChoiceBox.add(
+    new TextRenderable(renderer, {
+      id: "setup-local-choice-hint",
+      content: "[←→] move · [enter] select · [esc] back",
+      fg: colors.muted,
       selectable: false,
     }),
   )
@@ -136,14 +201,9 @@ export function createSetupViews(renderer: Renderer) {
   const setupLocalCard = createInferenceChoiceCard(renderer, {
     id: "setup-choice-local",
     title: "Local inference",
-    label: "Runs on your machine",
-    description: "Run open models on your own hardware.",
-    details: [
-      "Recommended hardware:",
-      "Apple silicon · 24 GB+ unified memory",
-      "Linux · 24 GB+ RAM",
-      "Vulkan GPU · 16 GB+ VRAM",
-    ],
+    label: "Private, on your devices",
+    description: "Run on this machine or use an NVIDIA PAIR cluster.",
+    details: ["Managed llama.cpp built in.", "PAIR supports Ollama and LM Studio."],
   })
   const setupHostedCard = createInferenceChoiceCard(renderer, {
     id: "setup-choice-hosted",
@@ -231,6 +291,54 @@ export function createSetupViews(renderer: Renderer) {
   setupForm.add(setupInputBox)
   setupForm.add(setupContinueButton)
 
+  const setupPairForm = new BoxRenderable(renderer, {
+    id: "setup-pair-form",
+    flexDirection: "column",
+    width: "100%",
+    minWidth: 24,
+    flexShrink: 0,
+    alignItems: "center",
+    backgroundColor: colors.background,
+    gap: 1,
+  })
+  setupPairForm.add(
+    new TextRenderable(renderer, {
+      id: "setup-pair-heading",
+      content: "NVIDIA PAIR endpoints",
+      fg: colors.text,
+      selectable: false,
+    }),
+  )
+  setupPairForm.add(
+    new TextRenderable(renderer, {
+      id: "setup-pair-description",
+      content:
+        "These are PAIR's standard proxy addresses, or your last saved addresses. Only one working endpoint is required. Change an address only if PAIR → Endpoints shows a different proxy port.",
+      fg: colors.muted,
+      selectable: false,
+      wrapMode: "word",
+    }),
+  )
+  const ollamaEndpoint = createSetupInputRow(renderer, "setup-pair-ollama", "Ollama")
+  const lmStudioEndpoint = createSetupInputRow(renderer, "setup-pair-lmstudio", "LM Studio")
+  setupPairForm.add(ollamaEndpoint.box)
+  setupPairForm.add(lmStudioEndpoint.box)
+  const setupPairMessage = new TextRenderable(renderer, {
+    id: "setup-pair-message",
+    content: "",
+    fg: colors.muted,
+    selectable: false,
+    truncate: true,
+  })
+  setupPairForm.add(
+    new TextRenderable(renderer, {
+      id: "setup-pair-hint",
+      content: "[tab] switch endpoint · [enter] continue · [esc] back",
+      fg: colors.muted,
+      selectable: false,
+    }),
+  )
+
   const setupStatusBox = new BoxRenderable(renderer, {
     id: "setup-status-box",
     flexDirection: "column",
@@ -254,7 +362,15 @@ export function createSetupViews(renderer: Renderer) {
     setupChoiceBox,
     setupChoiceMessage,
     setupHostedCard,
+    setupLocalChoiceBox,
+    setupLocalChoiceMessage,
     setupLocalCard,
+    setupManagedLocalCard,
+    setupPairCard,
+    setupPairForm,
+    setupPairLMStudioInput: lmStudioEndpoint.input,
+    setupPairMessage,
+    setupPairOllamaInput: ollamaEndpoint.input,
     setupContinueButton,
     setupForm,
     setupInput,
@@ -264,6 +380,47 @@ export function createSetupViews(renderer: Renderer) {
     setupStatus,
     setupStatusBox,
   }
+}
+
+function createSetupInputRow(renderer: Renderer, id: string, label: string) {
+  const input = new InputRenderable(renderer, {
+    id: `${id}-input`,
+    placeholder: "",
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 1,
+    textColor: colors.text,
+    cursorColor: colors.accent,
+    backgroundColor: colors.background,
+    focusedBackgroundColor: colors.background,
+    focusedTextColor: colors.text,
+  })
+  const box = new BoxRenderable(renderer, {
+    id: `${id}-box`,
+    flexDirection: "row",
+    width: "100%",
+    minWidth: 24,
+    flexShrink: 0,
+    backgroundColor: colors.background,
+    border: true,
+    borderStyle: "rounded",
+    borderColor: colors.border,
+    paddingX: 1,
+    paddingY: 0,
+    gap: 1,
+  })
+  box.add(
+    new TextRenderable(renderer, {
+      id: `${id}-label`,
+      content: label,
+      width: 9,
+      flexShrink: 0,
+      fg: colors.accent,
+      selectable: false,
+    }),
+  )
+  box.add(input)
+  return { box, input }
 }
 
 type InferenceChoiceCardOptions = {

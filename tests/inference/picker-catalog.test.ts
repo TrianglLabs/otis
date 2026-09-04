@@ -210,6 +210,73 @@ describe("model picker catalog", () => {
     expect(items.some((item) => item.kind !== "header" && item.id === "openai/gpt-oss-20b")).toBe(true)
   })
 
+  it("puts every PAIR model in one unified section and keeps duplicate engine model IDs distinct", async () => {
+    const shared = {
+      provider: "pair" as const,
+      id: "qwen:latest",
+      displayName: "Qwen",
+      nativeContextLength: 262_144,
+      supportsImageInput: false,
+    }
+    const items = await listModelPickerItems({
+      hardware: ample,
+      dataDirectory: await tempDir(),
+      pairModels: [
+        {
+          ...shared,
+          baseURL: "http://127.0.0.1:11434",
+          engine: "ollama",
+        },
+        {
+          ...shared,
+          baseURL: "http://127.0.0.1:1234",
+          engine: "lmstudio",
+        },
+      ],
+      currentProvider: "pair",
+      currentModel: shared.id,
+      currentPairEngine: "lmstudio",
+    })
+
+    expect(items.filter((item) => item.kind === "header" && item.id === "header-pair")).toEqual([
+      { kind: "header", id: "header-pair", displayName: "NVIDIA PAIR" },
+    ])
+    const models = items.filter((item) => item.kind === "model" && item.provider === "pair")
+    expect(models[0]).toMatchObject({ provider: "pair", active: false })
+    expect(models[1]).toMatchObject({ provider: "pair", active: true })
+    expect("selectionKey" in models[0] && "selectionKey" in models[1] && models[0].selectionKey).not.toBe(
+      "selectionKey" in models[1] ? models[1].selectionKey : undefined,
+    )
+  })
+
+  it("does not mark a managed-local row active when PAIR exposes the same model ID", async () => {
+    const items = await listModelPickerItems({
+      hardware: ample,
+      dataDirectory: await tempDir(),
+      currentProvider: "pair",
+      currentModel: "openai/gpt-oss-20b",
+      currentPairEngine: "ollama",
+      pairModels: [
+        {
+          provider: "pair",
+          id: "openai/gpt-oss-20b",
+          displayName: "gpt-oss 20B",
+          baseURL: "http://127.0.0.1:11434",
+          engine: "ollama",
+          nativeContextLength: 262_144,
+          supportsImageInput: false,
+        },
+      ],
+    })
+
+    expect(
+      items.find((item) => item.kind === "model" && item.provider === "local" && item.id === "openai/gpt-oss-20b"),
+    ).toMatchObject({ active: false })
+    expect(
+      items.find((item) => item.kind === "model" && item.provider === "pair" && item.id === "openai/gpt-oss-20b"),
+    ).toMatchObject({ active: true })
+  })
+
   it("labels context windows without decimal rounding on binary sizes", async () => {
     expect(formatContextWindow(32_768)).toBe("32K")
     expect(formatContextWindow(16_384)).toBe("16K")

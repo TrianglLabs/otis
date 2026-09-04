@@ -83,9 +83,13 @@ export function inferenceEndpointURL(value: string, label: string) {
   } catch {
     throw new Error(`${label} is invalid.`)
   }
-  const localHTTP = parsed.protocol === "http:" && (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1")
+  const localHTTP = parsed.protocol === "http:" && isLoopbackHostname(parsed.hostname)
   if (parsed.protocol !== "https:" && !localHTTP) throw new Error(`${label} must use HTTPS.`)
   return parsed.toString()
+}
+
+export function isLoopbackHostname(hostname: string) {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]"
 }
 
 export function requiredText(value: string, label: string) {
