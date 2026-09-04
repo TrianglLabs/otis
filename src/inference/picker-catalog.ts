@@ -2,11 +2,12 @@ import { listToolCapableModels } from "./catalog.js"
 import { isLocalGgufDownloaded } from "./gguf-cache.js"
 import { detectHardware, type HardwareProbe } from "./hardware.js"
 import { supportsLlamaCppTarget, unsupportedLlamaCppTargetMessage } from "./llama-binary.js"
-import { LOCAL_MODELS } from "./local-catalog.js"
+import { isLocalModelId, LOCAL_MODELS } from "./local-catalog.js"
 import { fitLocalModel, formatMemoryLabel, type LocalModelFit, memoryRequiredFor } from "./local-fit.js"
 import { recommendedLocalModelIds } from "./local-recommendation.js"
+import { pairModelKey } from "./pair.js"
 import { matchesFireworksModel } from "./serving-path.js"
-import type { FireworksModel, LocalCatalogModel } from "./types.js"
+import type { FireworksModel, LocalCatalogModel, ModelProvider, PairCatalogModel, PairEngine } from "./types.js"
 
 export type ModelPickerItem = ModelPickerHeader | ModelPickerChoice
 
@@ -38,11 +39,22 @@ export type FireworksPickerChoice = FireworksModel & {
   active: boolean
 }
 
-export type ModelPickerChoice = LocalPickerChoice | FireworksPickerChoice
+export type PairPickerChoice = PairCatalogModel & {
+  kind: "model"
+  available: true
+  active: boolean
+  selectionKey: string
+  status?: ModelPickerStatus
+}
+
+export type ModelPickerChoice = LocalPickerChoice | FireworksPickerChoice | PairPickerChoice
 
 export type ListModelPickerOptions = {
   fireworksApiKey?: string
   currentModel?: string
+  currentProvider?: ModelProvider
+  currentPairEngine?: PairEngine
+  pairModels?: readonly PairCatalogModel[]
   hardware?: HardwareProbe
   dataDirectory?: string
   loadStatus?: { modelId: string; status: ModelPickerStatus }
@@ -54,6 +66,11 @@ export type ListModelPickerOptions = {
 
 export async function listModelPickerItems(options: ListModelPickerOptions = {}): Promise<ModelPickerItem[]> {
   const hardware = options.hardware ?? (await (options.detect ?? detectHardware)())
+  const currentProvider =
+    options.currentProvider ??
+    (options.currentModel ? (isLocalModelId(options.currentModel) ? "local" : "fireworks") : undefined)
+  const currentLocalModel = currentProvider === "local" ? options.currentModel : undefined
+  const currentFireworksModel = currentProvider === "fireworks" ? options.currentModel : undefined
   const localUnavailableReason = supportsLlamaCppTarget(hardware)
     ? undefined
     : unsupportedLlamaCppTargetMessage(hardware)
@@ -64,7 +81,7 @@ export async function listModelPickerItems(options: ListModelPickerOptions = {})
         const fit = fitLocalModel(model, hardware)
         if (!fit.available) return undefined
         const loadedContextLength =
-          options.currentModel === model.id && options.loadedLocalModel?.model === model.id
+          currentLocalModel === model.id && options.loadedLocalModel?.model === model.id
             ? options.loadedLocalModel.contextLength
             : undefined
         const downloaded = await isLocalGgufDownloaded(model, options.dataDirectory)
@@ -74,7 +91,7 @@ export async function listModelPickerItems(options: ListModelPickerOptions = {})
           recommendedModelIds,
           localUnavailableReason,
           loadedContextLength,
-          options.currentModel,
+          currentLocalModel,
           downloaded,
           options.loadStatus,
         )
@@ -84,7 +101,11 @@ export async function listModelPickerItems(options: ListModelPickerOptions = {})
 
   const fireworks = await loadFireworksModels(options)
 
-  return [...localSection(localItems), ...fireworksSection(fireworks, options.currentModel)]
+  return [
+    ...localSection(localItems),
+    ...pairSection(options.pairModels ?? [], options),
+    ...fireworksSection(fireworks, currentFireworksModel),
+  ]
 }
 
 async function loadFireworksModels(options: ListModelPickerOptions) {
@@ -112,6 +133,18 @@ export function toLocalCatalogModel(item: LocalPickerChoice): LocalCatalogModel 
   }
 }
 
+export function toPairCatalogModel(item: PairPickerChoice): PairCatalogModel {
+  const {
+    kind: _kind,
+    available: _available,
+    active: _active,
+    selectionKey: _selectionKey,
+    status: _status,
+    ...model
+  } = item
+  return model
+}
+
 function fireworksSection(models: readonly FireworksModel[], currentModel?: string): ModelPickerItem[] {
   if (models.length === 0) return []
   return [
@@ -123,6 +156,25 @@ function fireworksSection(models: readonly FireworksModel[], currentModel?: stri
 function localSection(models: readonly LocalPickerChoice[]): ModelPickerItem[] {
   if (models.length === 0) return []
   return [{ kind: "header", id: "header-local", displayName: "Local" }, ...models]
+}
+
+function pairSection(models: readonly PairCatalogModel[], options: ListModelPickerOptions): ModelPickerItem[] {
+  if (models.length === 0) return []
+  return [
+    { kind: "header", id: "header-pair", displayName: "NVIDIA PAIR" },
+    ...models.map(
+      (model): PairPickerChoice => ({
+        ...model,
+        kind: "model",
+        available: true,
+        active:
+          options.currentProvider === "pair" &&
+          options.currentModel === model.id &&
+          options.currentPairEngine === model.engine,
+        selectionKey: pairModelKey(model),
+      }),
+    ),
+  ]
 }
 
 function toLocalPickerChoice(

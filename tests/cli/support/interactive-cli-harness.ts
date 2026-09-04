@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, vi } from "vitest"
 import type { LocalModelSpec } from "../../../src/inference/local-catalog.js"
-import type { ChatMessage, FireworksModel, UserChatMessage } from "../../../src/inference/types.js"
+import type { ChatMessage, FireworksModel, PairCatalogModel, UserChatMessage } from "../../../src/inference/types.js"
 import type { ThemeName } from "../../../src/local/settings.js"
 import type { SkillCatalog } from "../../../src/skills/index.js"
 import type { SessionToolActivity } from "../../../src/storage/index.js"
@@ -61,7 +61,10 @@ const mocks = vi.hoisted(() => {
     showSessionPicker: vi.fn(),
     showSetupError: vi.fn(),
     showSetupInferenceChoice: vi.fn(),
+    showSetupLocalInferenceChoice: vi.fn(),
     showSetupInput: vi.fn(),
+    showPairSetup: vi.fn(),
+    showPairSetupError: vi.fn(),
     showSetupStatus: vi.fn(),
     showSlashCommandMenu: vi.fn(),
     showStats: vi.fn(),
@@ -97,6 +100,22 @@ const mocks = vi.hoisted(() => {
     ParallelClient: vi.fn(function ParallelClient() {
       return { search: vi.fn(), read: vi.fn() }
     }),
+    PairClient: vi.fn(function PairClient(config: { model: string }) {
+      return { model: config.model, streamChat, complete: generateCompletion }
+    }),
+    discoverPairModels: vi.fn<
+      (
+        _endpoints?: unknown,
+        _options?: unknown,
+      ) => Promise<{
+        ollama?: PairCatalogModel[]
+        lmStudio?: PairCatalogModel[]
+        errors: Array<{ engine: "ollama" | "lmstudio"; baseURL: string; error: Error }>
+      }>
+    >(async () => ({
+      ollama: [testPairModel()],
+      errors: [],
+    })),
     generateCompletion,
     getTreeSitterClient: vi.fn(() => ({ initialize: vi.fn(async () => undefined) })),
     listDownloadedLocalModels: vi.fn<(_dataDirectory?: string) => Promise<LocalModelSpec[]>>(async () => []),
@@ -111,6 +130,7 @@ const mocks = vi.hoisted(() => {
     openFireworksKeyPage: vi.fn(async () => true),
     saveFireworksApiKey: vi.fn(async () => undefined),
     saveFireworksSetup: vi.fn(async () => undefined),
+    savePairEndpoints: vi.fn(async () => undefined),
     saveSelectedModel: vi.fn(async () => undefined),
     saveSelectedTheme: vi.fn(async () => undefined),
     saveThinkingVisible: vi.fn(async () => undefined),
@@ -166,7 +186,9 @@ const mocks = vi.hoisted(() => {
           onSelectSession?(sessionId: string): void
           onSetup?(): void
           onSetupInferenceChoice?(choice: "local" | "hosted"): void
+          onSetupLocalInferenceChoice?(choice: "managed" | "pair"): void
           onSetupSubmit?(apiKey: string): void
+          onPairSetupSubmit?(endpoints: { ollama: string; lmStudio: string }): void
           onSubmit(value: string): void | Promise<void>
           onToggleMode?(): void
         },
@@ -190,6 +212,14 @@ vi.mock("../../../src/inference/client.js", () => ({
   FireworksClient: mocks.FireworksClient,
   listToolCapableModels: mocks.listToolCapableModels,
 }))
+vi.mock("../../../src/inference/pair.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../src/inference/pair.js")>()
+  return {
+    ...actual,
+    PairClient: mocks.PairClient,
+    discoverPairModels: mocks.discoverPairModels,
+  }
+})
 vi.mock("../../../src/inference/gguf-cache.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../../src/inference/gguf-cache.js")>()
   return {
@@ -207,6 +237,7 @@ vi.mock("../../../src/local/settings.js", () => ({
   loadLocalSettings: mocks.loadLocalSettings,
   saveFireworksApiKey: mocks.saveFireworksApiKey,
   saveFireworksSetup: mocks.saveFireworksSetup,
+  savePairEndpoints: mocks.savePairEndpoints,
   saveSelectedModel: mocks.saveSelectedModel,
   saveSelectedTheme: mocks.saveSelectedTheme,
   saveThinkingVisible: mocks.saveThinkingVisible,
@@ -259,6 +290,10 @@ beforeEach(() => {
   mocks.listDownloadedLocalModels.mockResolvedValue([])
   mocks.listSessions.mockResolvedValue([])
   mocks.listToolCapableModels.mockResolvedValue([testModel()])
+  mocks.discoverPairModels.mockResolvedValue({
+    ollama: [testPairModel()],
+    errors: [],
+  })
   mocks.loadLocalSettings.mockResolvedValue(localSettings())
   mocks.loadSkillCatalog.mockResolvedValue({ skills: [], byName: new Map() })
   mocks.checkForUpdate.mockResolvedValue(null)
@@ -349,6 +384,19 @@ export function testModel(overrides: Partial<FireworksModel> = {}): FireworksMod
     id: "accounts/fireworks/models/test-model",
     displayName: "Test Model",
     contextLength: 131_072,
+    supportsImageInput: false,
+    ...overrides,
+  }
+}
+
+export function testPairModel(overrides: Partial<PairCatalogModel> = {}): PairCatalogModel {
+  return {
+    provider: "pair",
+    id: "qwen3.5:35b",
+    displayName: "Qwen 3.5 35B",
+    baseURL: "http://127.0.0.1:11434",
+    engine: "ollama",
+    nativeContextLength: 262_144,
     supportsImageInput: false,
     ...overrides,
   }

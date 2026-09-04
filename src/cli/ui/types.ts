@@ -10,9 +10,19 @@ import type { AgentPhase } from "./format.js"
 export type Renderer = Awaited<ReturnType<typeof import("@opentui/core").createCliRenderer>>
 
 export type SetupInferenceChoice = "local" | "hosted"
-export type SetupInputCancelTarget = "choice" | "configured"
+export type SetupLocalInferenceChoice = "managed" | "pair"
+export type SetupInputCancelTarget = "choice" | "local" | "configured"
+export type PairEndpointInputs = { ollama: string; lmStudio: string }
 
-export type InputMode = "chat" | "inactive" | "setupButton" | "setupChoice" | "setupInput" | "setupStatus"
+export type InputMode =
+  | "chat"
+  | "inactive"
+  | "setupButton"
+  | "setupChoice"
+  | "setupLocalChoice"
+  | "setupInput"
+  | "setupPairInput"
+  | "setupStatus"
 
 export type CommandSuggestion = {
   name: string
@@ -43,7 +53,9 @@ export type ChatUIOptions = {
   onQuit?: () => void | Promise<void>
   onSetup?: () => void
   onSetupInferenceChoice?: (choice: SetupInferenceChoice) => void
-  onSetupSubmit?: (apiKey: string) => void
+  onSetupLocalInferenceChoice?: (choice: SetupLocalInferenceChoice) => void
+  onSetupSubmit?: (value: string) => void
+  onPairSetupSubmit?: (endpoints: PairEndpointInputs) => void
   onCloseModelPicker?: () => void
   onSelectModel?: (model: ModelPickerItem) => void
   onNewSession?: () => void
@@ -83,7 +95,10 @@ export type ChatUI = {
   showModelPicker(items: ModelPickerItem[]): void
   showSetupError(message: string, cancelTarget: SetupInputCancelTarget): void
   showSetupInferenceChoice(message?: string): void
+  showSetupLocalInferenceChoice(message?: string): void
   showSetupInput(message?: string, cancelTarget?: SetupInputCancelTarget): void
+  showPairSetup(message: string, cancelTarget: SetupInputCancelTarget, endpoints: PairEndpointInputs): void
+  showPairSetupError(message: string, cancelTarget: SetupInputCancelTarget, endpoints: PairEndpointInputs): void
   showSetupStatus(message?: string): void
   showPermissionPrompt(detail: string): Promise<boolean>
   showSessionPicker(items: SessionPickerItem[]): void

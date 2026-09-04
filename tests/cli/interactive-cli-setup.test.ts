@@ -5,7 +5,15 @@ import {
   type ModelPickerItem,
   toFireworksPickerChoice,
 } from "../../src/inference/picker-catalog.js"
-import { getMocks, loadCli, localSettings, settle, submit, testModel } from "./support/interactive-cli-harness.js"
+import {
+  getMocks,
+  loadCli,
+  localSettings,
+  settle,
+  submit,
+  testModel,
+  testPairModel,
+} from "./support/interactive-cli-harness.js"
 
 describe("interactive CLI setup", () => {
   const mocks = getMocks()
@@ -74,6 +82,8 @@ describe("interactive CLI setup", () => {
 
     mocks.uiOptions?.onSetup?.()
     mocks.uiOptions?.onSetupInferenceChoice?.("local")
+    expect(mocks.ui.showSetupLocalInferenceChoice).toHaveBeenCalledOnce()
+    mocks.uiOptions?.onSetupLocalInferenceChoice?.("managed")
     await vi.waitFor(() => expect(mocks.ui.showModelPicker).toHaveBeenCalledOnce())
 
     expect(mocks.ui.showSetupStatus).toHaveBeenCalledOnce()
@@ -86,6 +96,222 @@ describe("interactive CLI setup", () => {
       expect.arrayContaining([expect.objectContaining({ id: "openai/gpt-oss-20b", provider: "local" })]),
     )
     expect(picker).not.toEqual(expect.arrayContaining([expect.objectContaining({ provider: "fireworks" })]))
+  })
+
+  it("connects to PAIR, discovers cluster models, and saves the selected route", async () => {
+    const lmStudioModel = testPairModel({
+      id: "google/gemma-4-e4b",
+      displayName: "Gemma 4 E4B",
+      baseURL: "http://127.0.0.1:1234",
+      engine: "lmstudio",
+    })
+    mocks.discoverPairModels.mockResolvedValueOnce({
+      ollama: [testPairModel()],
+      lmStudio: [lmStudioModel],
+      errors: [],
+    })
+    mocks.loadLocalSettings.mockResolvedValue(
+      localSettings({
+        fireworksApiKey: undefined,
+        model: undefined,
+        modelDisplayName: undefined,
+        modelContextLength: undefined,
+        modelProvider: undefined,
+        pairEndpoints: {
+          ollama: "http://127.0.0.1:11434",
+          lmStudio: "http://127.0.0.1:1234",
+        },
+      }),
+    )
+    await loadCli()
+
+    mocks.uiOptions?.onSetup?.()
+    mocks.uiOptions?.onSetupInferenceChoice?.("local")
+    mocks.uiOptions?.onSetupLocalInferenceChoice?.("pair")
+    expect(mocks.ui.showPairSetup).toHaveBeenLastCalledWith("", "local", {
+      ollama: "http://127.0.0.1:11434",
+      lmStudio: "http://127.0.0.1:1234",
+    })
+
+    mocks.uiOptions?.onPairSetupSubmit?.({
+      ollama: "http://127.0.0.1:11434",
+      lmStudio: "http://127.0.0.1:1234",
+    })
+    await vi.waitFor(() => expect(mocks.ui.showModelPicker).toHaveBeenCalledOnce())
+    expect(mocks.ui.showSetupStatus).toHaveBeenCalledWith("Checking NVIDIA PAIR endpoints…")
+    expect(mocks.discoverPairModels).toHaveBeenCalledWith(
+      {
+        ollama: "http://127.0.0.1:11434",
+        lmStudio: "http://127.0.0.1:1234",
+      },
+      { signal: expect.any(AbortSignal) },
+    )
+    expect(mocks.savePairEndpoints).toHaveBeenCalledWith({
+      ollama: "http://127.0.0.1:11434",
+      lmStudio: "http://127.0.0.1:1234",
+    })
+    const picker = (mocks.ui.showModelPicker.mock.calls[0]?.[0] ?? []) as ModelPickerItem[]
+    expect(picker).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: "header", displayName: "NVIDIA PAIR" })]),
+    )
+    const pairModel = picker.find((item) => "provider" in item && item.provider === "pair")
+    if (!pairModel) throw new Error("missing PAIR model")
+
+    mocks.uiOptions?.onSelectModel?.(pairModel)
+    await vi.waitFor(() => expect(mocks.saveSelectedModel).toHaveBeenCalled())
+
+    expect(mocks.PairClient).toHaveBeenCalledWith({
+      baseURL: "http://127.0.0.1:11434",
+      model: "qwen3.5:35b",
+    })
+    expect(mocks.streamChat).not.toHaveBeenCalled()
+    expect(mocks.saveSelectedModel).toHaveBeenCalledWith(expect.objectContaining({ provider: "pair" }))
+    expect(mocks.ui.setModelLabel).toHaveBeenLastCalledWith("Qwen 3.5 35B · NVIDIA PAIR")
+    expect(mocks.ui.showTransientHint).toHaveBeenLastCalledWith(" Connected through NVIDIA PAIR · Ollama ")
+  })
+
+  it("reopens a saved PAIR model without starting Otis's managed llama.cpp runtime", async () => {
+    mocks.loadLocalSettings.mockResolvedValue(
+      localSettings({
+        model: "qwen3.5:35b",
+        modelDisplayName: "Qwen 3.5 35B",
+        modelContextLength: 8_192,
+        modelProvider: "pair",
+        pairEndpoints: { ollama: "http://127.0.0.1:11434" },
+        pairEngine: "ollama",
+      }),
+    )
+
+    await loadCli()
+
+    expect(mocks.uiOptions?.configured).toBe(true)
+    expect(mocks.uiOptions?.modelLabel).toBe("Qwen 3.5 35B · NVIDIA PAIR")
+    expect(mocks.PairClient).toHaveBeenCalledWith({
+      baseURL: "http://127.0.0.1:11434",
+      model: "qwen3.5:35b",
+    })
+    expect(mocks.ensureLocalServing).not.toHaveBeenCalled()
+    expect(mocks.stopLocalRuntime).not.toHaveBeenCalled()
+  })
+
+  it("accepts one reachable PAIR engine when the other standard proxy is unavailable", async () => {
+    mocks.loadLocalSettings.mockResolvedValue(
+      localSettings({
+        fireworksApiKey: undefined,
+        model: undefined,
+        modelDisplayName: undefined,
+        modelContextLength: undefined,
+        modelProvider: undefined,
+        pairEndpoints: {
+          ollama: "http://127.0.0.1:11434",
+          lmStudio: "http://127.0.0.1:1234",
+        },
+      }),
+    )
+    mocks.discoverPairModels.mockResolvedValueOnce({
+      ollama: [testPairModel()],
+      errors: [{ engine: "lmstudio", baseURL: "http://127.0.0.1:1234", error: new Error("offline") }],
+    })
+    await loadCli()
+
+    mocks.uiOptions?.onSetup?.()
+    mocks.uiOptions?.onSetupInferenceChoice?.("local")
+    mocks.uiOptions?.onSetupLocalInferenceChoice?.("pair")
+    mocks.uiOptions?.onPairSetupSubmit?.({
+      ollama: "http://127.0.0.1:11434",
+      lmStudio: "http://127.0.0.1:1234",
+    })
+
+    await vi.waitFor(() => expect(mocks.ui.showModelPicker).toHaveBeenCalledOnce())
+    expect(mocks.savePairEndpoints).toHaveBeenCalledWith({ ollama: "http://127.0.0.1:11434" })
+    expect(mocks.ui.showPairSetupError).not.toHaveBeenCalled()
+  })
+
+  it("uses the engine field directly instead of probing to infer its type", async () => {
+    const ollamaModel = testPairModel({
+      baseURL: "http://127.0.0.1:11434",
+      engine: "ollama",
+    })
+    mocks.discoverPairModels.mockResolvedValueOnce({
+      ollama: [ollamaModel],
+      errors: [],
+    })
+    await loadCli()
+    const inputs = { ollama: "http://127.0.0.1:11434", lmStudio: "" }
+
+    await submit("/settings pair")
+    mocks.uiOptions?.onPairSetupSubmit?.(inputs)
+
+    await vi.waitFor(() => expect(mocks.ui.showModelPicker).toHaveBeenCalled())
+    expect(mocks.discoverPairModels).toHaveBeenCalledWith(
+      { ollama: "http://127.0.0.1:11434" },
+      { signal: expect.any(AbortSignal) },
+    )
+    expect(mocks.savePairEndpoints).toHaveBeenCalledWith({ ollama: "http://127.0.0.1:11434" })
+    expect(mocks.ui.showPairSetupError).not.toHaveBeenCalled()
+  })
+
+  it("rejects the same PAIR proxy in both engine fields before discovery", async () => {
+    await loadCli()
+    const inputs = {
+      ollama: "http://localhost:11434",
+      lmStudio: "http://localhost:11434/v1",
+    }
+
+    await submit("/settings pair")
+    mocks.uiOptions?.onPairSetupSubmit?.(inputs)
+
+    await vi.waitFor(() =>
+      expect(mocks.ui.showPairSetupError).toHaveBeenCalledWith(
+        "Ollama and LM Studio endpoints must be different.",
+        "configured",
+        inputs,
+      ),
+    )
+    expect(mocks.discoverPairModels).not.toHaveBeenCalled()
+    expect(mocks.savePairEndpoints).not.toHaveBeenCalled()
+  })
+
+  it("offers PAIR in Settings and prefills a saved endpoint", async () => {
+    mocks.loadLocalSettings.mockResolvedValue(
+      localSettings({
+        pairEndpoints: { lmStudio: "http://127.0.0.1:1234" },
+      }),
+    )
+    await loadCli()
+
+    await submit("/settings")
+    expect(mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[0]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "NVIDIA PAIR", description: "Reconnect or choose model" }),
+      ]),
+    )
+
+    await submit("/settings pair")
+    expect(mocks.ui.showPairSetup).toHaveBeenLastCalledWith("", "configured", {
+      ollama: "http://127.0.0.1:11434",
+      lmStudio: "http://127.0.0.1:1234",
+    })
+  })
+
+  it("recovers an incomplete saved PAIR selection by asking for its endpoint", async () => {
+    mocks.loadLocalSettings.mockResolvedValue(
+      localSettings({
+        model: "qwen3.5:35b",
+        modelDisplayName: "Qwen 3.5 35B",
+        modelProvider: "pair",
+        pairEngine: "ollama",
+        pairEndpoints: { lmStudio: "http://127.0.0.1:1234" },
+      }),
+    )
+
+    await loadCli()
+
+    expect(mocks.uiOptions?.configured).toBe(false)
+    expect(mocks.ui.showPairSetup).toHaveBeenCalledWith("Reconnect to NVIDIA PAIR, then choose a model.", "local", {
+      ollama: "http://127.0.0.1:11434",
+      lmStudio: "http://127.0.0.1:1234",
+    })
   })
 
   it("adds a validated hosted key from settings without replacing the active local model", async () => {
@@ -168,6 +394,7 @@ describe("interactive CLI setup", () => {
     await vi.waitFor(() => expect(mocks.ui.showSetupError).toHaveBeenCalledWith("invalid API key", "choice"))
 
     mocks.uiOptions?.onSetupInferenceChoice?.("local")
+    mocks.uiOptions?.onSetupLocalInferenceChoice?.("managed")
     await vi.waitFor(() => expect(mocks.ui.showModelPicker).toHaveBeenCalled())
     const localPicker = (mocks.ui.showModelPicker.mock.calls.at(-1)?.[0] ?? []) as ModelPickerItem[]
     const local = localPicker.find((item) => "provider" in item && item.provider === "local" && item.available)
@@ -318,6 +545,7 @@ describe("interactive CLI setup", () => {
     await settle()
 
     expect(mocks.uiOptions?.configured).toBe(true)
+    expect(mocks.uiOptions?.modelLabel).toBe("gpt-oss 20B · Local")
     expect(mocks.calculateLocalStats).toHaveBeenCalled()
     expect(mocks.ui.setConfigured).not.toHaveBeenCalled()
   })
@@ -399,6 +627,42 @@ describe("interactive CLI setup", () => {
     expect(picker).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ ...replacement, provider: "fireworks", active: false, available: true }),
+      ]),
+    )
+  })
+
+  it("keeps every verified PAIR engine in one section of the normal model picker", async () => {
+    const endpoints = ["http://127.0.0.1:11434", "http://127.0.0.1:1234"]
+    const ollama = testPairModel()
+    const lmStudio = testPairModel({
+      id: "google/gemma-4-e4b",
+      displayName: "Gemma 4 E4B",
+      baseURL: endpoints[1],
+      engine: "lmstudio",
+      nativeContextLength: undefined,
+    })
+    mocks.loadLocalSettings.mockResolvedValue(
+      localSettings({ pairEndpoints: { ollama: endpoints[0], lmStudio: endpoints[1] } }),
+    )
+    mocks.discoverPairModels.mockResolvedValueOnce({
+      ollama: [ollama],
+      lmStudio: [lmStudio],
+      errors: [],
+    })
+    await loadCli()
+
+    await submit("/model")
+
+    expect(mocks.discoverPairModels).toHaveBeenCalledWith(
+      { ollama: endpoints[0], lmStudio: endpoints[1] },
+      { signal: expect.any(AbortSignal) },
+    )
+    const picker = (mocks.ui.showModelPicker.mock.calls[0]?.[0] ?? []) as ModelPickerItem[]
+    expect(picker.filter((item) => item.kind === "header" && item.id === "header-pair")).toHaveLength(1)
+    expect(picker.filter((item) => "provider" in item && item.provider === "pair")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: ollama.id, baseURL: endpoints[0], engine: "ollama" }),
+        expect.objectContaining({ id: lmStudio.id, baseURL: endpoints[1], engine: "lmstudio" }),
       ]),
     )
   })
@@ -539,7 +803,7 @@ describe("interactive CLI setup", () => {
       label: "Loading",
       kind: "progress",
     })
-    expect(mocks.ui.setModelLabel).toHaveBeenLastCalledWith("gpt-oss 20B")
+    expect(mocks.ui.setModelLabel).toHaveBeenLastCalledWith("gpt-oss 20B · Local")
     expect(mocks.ui.setModelLabel).not.toHaveBeenCalledWith(expect.stringMatching(/%|loading/i))
     expect(mocks.ui.hideModelPicker).toHaveBeenCalled()
     expect(mocks.ui.setConfigured).toHaveBeenCalled()
@@ -698,7 +962,7 @@ describe("interactive CLI setup", () => {
 
     expect(mocks.saveSelectedModel).not.toHaveBeenCalled()
     expect(mocks.ui.hideModelPicker).not.toHaveBeenCalled()
-    expect(mocks.ui.setModelLabel).not.toHaveBeenCalledWith("gpt-oss 20B")
+    expect(mocks.ui.setModelLabel).not.toHaveBeenCalledWith("gpt-oss 20B · Local")
     expect(mocks.ui.setModelPickerStatus).toHaveBeenLastCalledWith(local.id, {
       label: "Failed: model failed to load",
       kind: "error",
@@ -723,7 +987,7 @@ describe("interactive CLI setup", () => {
     expect(mocks.ensureLocalServing).toHaveBeenCalledBefore(mocks.saveSelectedModel)
     expect(mocks.stopLocalRuntime).toHaveBeenCalledOnce()
     expect(mocks.ui.hideModelPicker).not.toHaveBeenCalled()
-    expect(mocks.ui.setModelLabel).not.toHaveBeenCalledWith("gpt-oss 20B")
+    expect(mocks.ui.setModelLabel).not.toHaveBeenCalledWith("gpt-oss 20B · Local")
     expect(mocks.ui.setModelPickerStatus).toHaveBeenLastCalledWith(local.id, {
       label: "Failed: config is read-only",
       kind: "error",

@@ -426,6 +426,54 @@ describe("chat UI rendering", () => {
     expect(harness.find("model-panel-header-helper")).toBeUndefined()
   })
 
+  it("labels NVIDIA PAIR models with their model maximum and route", async () => {
+    const harness = await setup()
+    harness.ui.showModelPicker([
+      { kind: "header", id: "header-pair", displayName: "NVIDIA PAIR" },
+      {
+        kind: "model",
+        provider: "pair",
+        id: "qwen3.5:35b",
+        displayName: "Qwen 3.5 35B",
+        baseURL: "http://127.0.0.1:11434",
+        engine: "ollama",
+        nativeContextLength: 262_144,
+        quantization: "Q4_K_M",
+        supportsImageInput: false,
+        available: true,
+        active: true,
+        selectionKey: "pair:http://127.0.0.1:11434:qwen3.5:35b",
+      },
+    ])
+
+    expect(harness.text("model-row-0")).toBe("NVIDIA PAIR")
+    expect(harness.text("model-row-1")).toBe("› Qwen 3.5 35B  Ollama")
+    const engine = harness.get<TextRenderable>("model-row-1").chunks.find((chunk) => chunk.text === "Ollama")
+    expect(engine?.fg?.equals(RGBA.fromHex(colors.muted))).toBe(true)
+    expect(harness.text("model-row-1-meta")).toBe("  256K model max · Q4_K_M · Text")
+  })
+
+  it("does not invent missing NVIDIA PAIR context or quantization", async () => {
+    const harness = await setup()
+    harness.ui.showModelPicker([
+      {
+        kind: "model",
+        provider: "pair",
+        id: "remote/model",
+        displayName: "Remote model",
+        baseURL: "http://127.0.0.1:1234",
+        engine: "lmstudio",
+        supportsImageInput: true,
+        available: true,
+        active: false,
+        selectionKey: "pair:http://127.0.0.1:1234:remote/model",
+      },
+    ])
+
+    expect(harness.text("model-row-0")).toBe("› Remote model  LM Studio")
+    expect(harness.text("model-row-0-meta")).toBe("  Context unavailable · Quant unavailable · Vision")
+  })
+
   it("pulses a reserved outline on the selected session and model rows", async () => {
     const harness = await setup()
     vi.useFakeTimers()

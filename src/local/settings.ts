@@ -2,13 +2,16 @@ import { randomUUID } from "node:crypto"
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { dirname, join, resolve } from "node:path"
 import { isLocalModelId } from "../inference/local-catalog.js"
+import { normalizePairEndpoints, type PairEndpoints } from "../inference/pair.js"
 import { baseFireworksModelId, isFastFireworksModel } from "../inference/serving-path.js"
-import type { CatalogModel, FireworksModel, ModelProvider } from "../inference/types.js"
+import type { CatalogModel, FireworksModel, ModelProvider, PairEngine } from "../inference/types.js"
 import { type PermissionConfig, parsePermissionConfig } from "../permissions/policy.js"
 import { localConfigDirectory } from "./paths.js"
 
 export type LocalSettings = {
   fireworksApiKey?: string
+  pairEndpoints?: PairEndpoints
+  pairEngine?: PairEngine
   model?: string
   modelDisplayName?: string
   modelContextLength?: number
@@ -42,6 +45,8 @@ export type SettingsFileOptions = {
 type SettingsFile = {
   version: 1
   fireworksApiKey?: string
+  pairEndpoints?: PairEndpoints
+  pairEngine?: PairEngine
   model?: string
   modelDisplayName?: string
   modelContextLength?: number
@@ -61,15 +66,17 @@ export async function loadLocalSettings(options: SettingsFileOptions = {}): Prom
   const saved = await readSettingsFile(options)
   const envFireworksApiKey = clean(env.FIREWORKS_API_KEY)
   const fastServingModels = saved ? migratedFastServingModels(saved) : []
+  const pairEndpoints = saved?.pairEndpoints
+  const modelProvider = saved?.modelProvider ?? inferModelProvider(saved?.model)
 
   return {
     fireworksApiKey: envFireworksApiKey ?? saved?.fireworksApiKey,
+    ...(pairEndpoints && hasPairEndpoints(pairEndpoints) ? { pairEndpoints } : {}),
+    ...(saved?.pairEngine ? { pairEngine: saved.pairEngine } : {}),
     model: saved?.model,
     modelDisplayName: saved?.modelDisplayName,
     modelContextLength: saved?.modelContextLength,
-    ...(saved?.modelProvider || inferModelProvider(saved?.model)
-      ? { modelProvider: saved?.modelProvider ?? inferModelProvider(saved?.model) }
-      : {}),
+    ...(modelProvider ? { modelProvider } : {}),
     ...(saved?.modelSupportsImageInput !== undefined ? { modelSupportsImageInput: saved.modelSupportsImageInput } : {}),
     ...(saved?.theme ? { theme: saved.theme } : {}),
     ...(saved?.thinkingVisible !== undefined ? { thinkingVisible: saved.thinkingVisible } : {}),
@@ -90,6 +97,13 @@ export async function saveFireworksSetup(apiKey: string, model: FireworksModel, 
 export async function saveFireworksApiKey(apiKey: string, options: SettingsFileOptions = {}) {
   const saved = (await readSettingsFile(options)) ?? { version: 1 }
   await writeSettingsFile({ ...saved, fireworksApiKey: required(apiKey, "Fireworks API key") }, options)
+}
+
+export async function savePairEndpoints(endpoints: PairEndpoints, options: SettingsFileOptions = {}) {
+  const saved = (await readSettingsFile(options)) ?? { version: 1 }
+  const pairEndpoints = persistedPairEndpoints(endpoints)
+  if (!hasPairEndpoints(pairEndpoints)) throw new Error("At least one NVIDIA PAIR endpoint is required.")
+  await writeSettingsFile({ ...saved, pairEndpoints }, options)
 }
 
 export async function saveSelectedModel(model: CatalogModel, options: SettingsFileOptions = {}) {
@@ -168,6 +182,8 @@ function parseSettingsFile(value: unknown): SettingsFile {
   if (value.version !== 1) throw new Error("Invalid Otis config: unsupported version.")
 
   const fireworksApiKey = optionalString(value.fireworksApiKey, "fireworksApiKey")
+  const pairEndpoints = parsePairEndpoints(value.pairEndpoints)
+  const pairEngine = optionalPairEngine(value.pairEngine)
   const model = optionalString(value.model, "model")
   const modelDisplayName = optionalString(value.modelDisplayName, "modelDisplayName")
   const modelContextLength = optionalPositiveInteger(value.modelContextLength, "modelContextLength")
@@ -185,6 +201,8 @@ function parseSettingsFile(value: unknown): SettingsFile {
   return {
     version: 1,
     ...(fireworksApiKey ? { fireworksApiKey } : {}),
+    ...(hasPairEndpoints(pairEndpoints) ? { pairEndpoints } : {}),
+    ...(pairEngine ? { pairEngine } : {}),
     ...(model ? { model } : {}),
     ...(modelDisplayName ? { modelDisplayName } : {}),
     ...(modelContextLength ? { modelContextLength } : {}),
@@ -201,11 +219,20 @@ function parseSettingsFile(value: unknown): SettingsFile {
 
 function withSelectedModel(settings: SettingsFile, model: CatalogModel): SettingsFile {
   const contextLength =
-    model.contextLength === undefined ? undefined : positiveInteger(model.contextLength, "model context length")
+    model.provider === "pair" || model.contextLength === undefined
+      ? undefined
+      : positiveInteger(model.contextLength, "model context length")
   const fastServingModels = migratedFastServingModels(settings)
+  const pairEndpoints = persistedPairEndpoints(
+    model.provider === "pair"
+      ? { ...settings.pairEndpoints, [model.engine === "ollama" ? "ollama" : "lmStudio"]: model.baseURL }
+      : settings.pairEndpoints,
+  )
   return {
     version: 1,
     ...(settings.fireworksApiKey ? { fireworksApiKey: settings.fireworksApiKey } : {}),
+    ...(hasPairEndpoints(pairEndpoints) ? { pairEndpoints } : {}),
+    ...(model.provider === "pair" ? { pairEngine: model.engine } : {}),
     model: required(model.id, "model"),
     modelDisplayName: required(model.displayName, "model display name"),
     modelProvider: model.provider,
@@ -221,9 +248,11 @@ function withSelectedModel(settings: SettingsFile, model: CatalogModel): Setting
 
 function withoutSelectedModel(settings: SettingsFile): SettingsFile {
   const fastServingModels = migratedFastServingModels(settings)
+  const pairEndpoints = persistedPairEndpoints(settings.pairEndpoints)
   return {
     version: 1,
     ...(settings.fireworksApiKey ? { fireworksApiKey: settings.fireworksApiKey } : {}),
+    ...(hasPairEndpoints(pairEndpoints) ? { pairEndpoints } : {}),
     ...(settings.theme ? { theme: settings.theme } : {}),
     ...(settings.thinkingVisible !== undefined ? { thinkingVisible: settings.thinkingVisible } : {}),
     ...(shouldPersistFastServingModels(settings, fastServingModels) ? { fastServingModels } : {}),
@@ -252,8 +281,35 @@ function inferModelProvider(modelId: string | undefined): ModelProvider | undefi
 
 function optionalModelProvider(value: unknown): ModelProvider | undefined {
   if (value === undefined) return undefined
-  if (value === "fireworks" || value === "local") return value
-  throw new Error("Invalid Otis config: modelProvider must be fireworks or local.")
+  if (value === "fireworks" || value === "local" || value === "pair") return value
+  throw new Error("Invalid Otis config: modelProvider must be fireworks, local, or pair.")
+}
+
+function parsePairEndpoints(value: unknown) {
+  if (value === undefined) return {}
+  if (!isRecord(value)) throw new Error("Invalid Otis config: pairEndpoints must be an object.")
+  return persistedPairEndpoints({
+    ollama: optionalString(value.ollama, "pairEndpoints.ollama"),
+    lmStudio: optionalString(value.lmStudio, "pairEndpoints.lmStudio"),
+  })
+}
+
+function persistedPairEndpoints(values: PairEndpoints | undefined): PairEndpoints {
+  try {
+    return normalizePairEndpoints(values ?? {})
+  } catch (error) {
+    throw new Error(`Invalid Otis config: ${errorMessage(error)}`)
+  }
+}
+
+function optionalPairEngine(value: unknown): PairEngine | undefined {
+  if (value === undefined) return undefined
+  if (value === "ollama" || value === "lmstudio") return value
+  throw new Error("Invalid Otis config: pairEngine must be ollama or lmstudio.")
+}
+
+function hasPairEndpoints(endpoints: PairEndpoints) {
+  return Boolean(endpoints.ollama || endpoints.lmStudio)
 }
 
 function optionalTheme(value: unknown): ThemeName | undefined {

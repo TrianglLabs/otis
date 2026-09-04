@@ -8,6 +8,7 @@ import {
   saveFastServingSelection,
   saveFireworksApiKey,
   saveFireworksSetup,
+  savePairEndpoints,
   saveSelectedModel,
   saveSelectedTheme,
   saveThinkingVisible,
@@ -274,6 +275,76 @@ describe("local settings", () => {
     expect(JSON.parse(await readFile(file, "utf8"))).not.toHaveProperty("modelFastId")
   })
 
+  it("stores the selected PAIR engine and preserves configured endpoints across provider changes", async () => {
+    const file = join(await tempDirectory(), "config.json")
+    await saveFireworksSetup("fw_test_key", model("tool-model", "Tool Model"), { file })
+    await saveSelectedModel(
+      {
+        provider: "pair",
+        id: "qwen3.5:35b",
+        displayName: "Qwen 3.5 35B",
+        baseURL: "http://127.0.0.1:11434",
+        engine: "ollama",
+        nativeContextLength: 262_144,
+        supportsImageInput: false,
+      },
+      { file },
+    )
+
+    await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({
+      fireworksApiKey: "fw_test_key",
+      pairEndpoints: { ollama: "http://127.0.0.1:11434" },
+      pairEngine: "ollama",
+      model: "qwen3.5:35b",
+      modelProvider: "pair",
+      modelContextLength: undefined,
+    })
+    expect(JSON.parse(await readFile(file, "utf8"))).not.toHaveProperty("modelContextLength")
+
+    await saveSelectedModel(model("hosted", "Hosted"), { file })
+    const hostedSettings = await loadLocalSettings({ file, env: {} })
+    expect(hostedSettings).toMatchObject({
+      pairEndpoints: { ollama: "http://127.0.0.1:11434" },
+      modelProvider: "fireworks",
+    })
+    expect(hostedSettings.pairEngine).toBeUndefined()
+  })
+
+  it("normalizes saved PAIR endpoints and rejects non-local addresses", async () => {
+    const directory = await tempDirectory()
+    const local = join(directory, "local.json")
+    const remote = join(directory, "remote.json")
+    await writeFile(
+      local,
+      JSON.stringify({ version: 1, pairEndpoints: { ollama: "http://localhost:11434/v1" } }),
+      "utf8",
+    )
+    await writeFile(
+      remote,
+      JSON.stringify({ version: 1, pairEndpoints: { ollama: "http://192.168.1.10:11434" } }),
+      "utf8",
+    )
+
+    await expect(loadLocalSettings({ file: local, env: {} })).resolves.toMatchObject({
+      pairEndpoints: { ollama: "http://localhost:11434" },
+    })
+    await expect(loadLocalSettings({ file: remote, env: {} })).rejects.toThrow("Invalid Otis config")
+  })
+
+  it("stores every verified PAIR endpoint independently from the selected provider", async () => {
+    const file = join(await tempDirectory(), "config.json")
+    await saveSelectedModel(model("hosted", "Hosted"), { file })
+    await savePairEndpoints({ ollama: "http://127.0.0.1:22111/v1", lmStudio: "http://127.0.0.1:22112" }, { file })
+
+    await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({
+      pairEndpoints: {
+        ollama: "http://127.0.0.1:22111",
+        lmStudio: "http://127.0.0.1:22112",
+      },
+      modelProvider: "fireworks",
+    })
+  })
+
   it("rejects unreleased theme aliases", async () => {
     const directory = await tempDirectory()
     for (const alias of ["dark", "gray", "white"]) {
@@ -302,6 +373,8 @@ describe("local settings", () => {
     const invalidThinking = join(directory, "invalid-thinking.json")
     const invalidFastMode = join(directory, "invalid-fast-mode.json")
     const invalidFastServingModels = join(directory, "invalid-fast-serving-models.json")
+    const invalidPairEndpoints = join(directory, "invalid-pair-endpoints.json")
+    const invalidPairEngine = join(directory, "invalid-pair-engine.json")
     await writeFile(malformed, "{broken", "utf8")
     await writeFile(unsupported, JSON.stringify({ version: 2 }), "utf8")
     await writeFile(invalidMetadata, JSON.stringify({ version: 1, modelContextLength: -1 }), "utf8")
@@ -309,6 +382,8 @@ describe("local settings", () => {
     await writeFile(invalidThinking, JSON.stringify({ version: 1, thinkingVisible: "sometimes" }), "utf8")
     await writeFile(invalidFastMode, JSON.stringify({ version: 1, fastMode: "sometimes" }), "utf8")
     await writeFile(invalidFastServingModels, JSON.stringify({ version: 1, fastServingModels: [false] }), "utf8")
+    await writeFile(invalidPairEndpoints, JSON.stringify({ version: 1, pairEndpoints: [] }), "utf8")
+    await writeFile(invalidPairEngine, JSON.stringify({ version: 1, pairEngine: "llama.cpp" }), "utf8")
 
     await expect(loadLocalSettings({ file: malformed, env: {} })).rejects.toThrow("Invalid Otis config")
     await expect(loadLocalSettings({ file: unsupported, env: {} })).rejects.toThrow("unsupported version")
@@ -318,6 +393,12 @@ describe("local settings", () => {
     await expect(loadLocalSettings({ file: invalidFastMode, env: {} })).rejects.toThrow("fastMode must be")
     await expect(loadLocalSettings({ file: invalidFastServingModels, env: {} })).rejects.toThrow(
       "fastServingModels must be",
+    )
+    await expect(loadLocalSettings({ file: invalidPairEndpoints, env: {} })).rejects.toThrow(
+      "pairEndpoints must be an object",
+    )
+    await expect(loadLocalSettings({ file: invalidPairEngine, env: {} })).rejects.toThrow(
+      "pairEngine must be ollama or lmstudio",
     )
   })
 })

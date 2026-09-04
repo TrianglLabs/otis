@@ -90,13 +90,13 @@ function nextToolCallIndex(state: StreamParserState) {
 function* flushToolCalls(state: StreamParserState): Generator<ChatStreamEvent> {
   if (state.toolCalls.size === 0) {
     if (state.finishReason === "tool_calls" || state.finishReason === "function_call") {
-      throw new Error(`Fireworks stream ended with finish_reason=${state.finishReason} but included no tool calls`)
+      throw new Error(`Inference stream ended with finish_reason=${state.finishReason} but included no tool calls`)
     }
     return
   }
 
   for (const [index, toolCall] of [...state.toolCalls].sort(([left], [right]) => left - right)) {
-    if (!toolCall.name) throw new Error("Fireworks stream included a tool call without a function name")
+    if (!toolCall.name) throw new Error("Inference stream included a tool call without a function name")
     yield {
       type: "tool_call",
       toolCall: { id: toolCall.id || `call_${index}`, name: toolCall.name, arguments: toolCall.arguments },
@@ -136,10 +136,10 @@ function parseSSEChunks(data: string): RawChatCompletionChunk[] {
       try {
         return lines.map((line) => JSON.parse(line) as RawChatCompletionChunk)
       } catch (lineError) {
-        throw new Error(`Invalid Fireworks stream event: ${errorMessage(lineError)}`)
+        throw new Error(`Invalid inference stream event: ${errorMessage(lineError)}`)
       }
     }
-    throw new Error(`Invalid Fireworks stream event: ${errorMessage(error)}`)
+    throw new Error(`Invalid inference stream event: ${errorMessage(error)}`)
   }
 }
 
