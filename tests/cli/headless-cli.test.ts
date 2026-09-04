@@ -67,7 +67,7 @@ const session = {
   completeTurn: vi.fn(async () => undefined),
   interruptTurn: vi.fn(async () => undefined),
   recordUsage: vi.fn(async () => undefined),
-  replay: vi.fn(() => ({ messages: [], toolActivities: [] })),
+  replay: vi.fn(() => ({ messages: [], toolActivities: [], subagents: [] })),
   replayMessages: vi.fn(() => []),
 }
 
@@ -229,7 +229,7 @@ describe("runHeadlessCommand", () => {
     expect(session.completeTurn).toHaveBeenCalledWith(
       expect.objectContaining({ promptId: "prompt_test" }),
       expect.arrayContaining([{ role: "user", content: "save this" }]),
-      [],
+      { toolActivities: [], subagents: [] },
     )
   })
 

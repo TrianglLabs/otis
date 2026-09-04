@@ -45,11 +45,18 @@ export class HeadlessReporter {
       if (payload) await this.writeJsonLine(payload)
       return
     }
-    if (this.format === "plain" && event.type === "tool") {
-      const suffix =
-        event.phase === "end" && event.outcome && event.outcome !== "completed" ? ` (${event.outcome})` : ""
-      await writeOutput(this.stderr, `${event.phase === "start" ? "→" : "✓"} ${event.label}${suffix}\n`)
+    if (this.format === "plain") await this.plainToolEvent(event)
+  }
+
+  /** Plain output shows tool progress only; a subagent's tools appear indented beneath its delegating call. */
+  private async plainToolEvent(event: AgentEvent, indent = "") {
+    if (event.type === "subagent") {
+      await this.plainToolEvent(event.event, `${indent}  `)
+      return
     }
+    if (event.type !== "tool") return
+    const suffix = event.phase === "end" && event.outcome && event.outcome !== "completed" ? ` (${event.outcome})` : ""
+    await writeOutput(this.stderr, `${indent}${event.phase === "start" ? "→" : "✓"} ${event.label}${suffix}\n`)
   }
 
   async usage(usage: TokenUsage) {
@@ -145,6 +152,10 @@ function publicEvent(event: AgentEvent, includeReasoning: boolean): Record<strin
   if (event.type === "error") return { type: "error", message: event.message }
   if (event.type === "interrupted") return { type: "interrupted" }
   if (event.type === "complete") return { type: "turn_complete" }
+  if (event.type === "subagent") {
+    const inner = publicEvent(event.event, includeReasoning)
+    return inner ? { type: "subagent", toolCallId: event.toolCallId, title: event.title, event: inner } : undefined
+  }
   return {
     type: event.phase === "start" ? "tool_start" : "tool_end",
     toolCallId: event.toolCallId,

@@ -3,6 +3,7 @@ export {
   DEFAULT_SESSION_ID,
   defaultSessionDirectory,
   deleteSession,
+  forToolCalls,
   JsonlSession,
   listSessions,
   openSession,
@@ -12,8 +13,11 @@ export {
   replaySessionMessages,
   type SessionEvent,
   type SessionOptions,
+  type SessionSubagentRun,
+  type SessionSubagentStatus,
   type SessionSummary,
   type SessionToolActivity,
+  type SessionTurnDetails,
   type UsagePurpose,
 } from "./session.js"
 export { acquireSessionLock, type SessionLock } from "./session-lock.js"

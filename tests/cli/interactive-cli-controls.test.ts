@@ -147,6 +147,11 @@ describe("CLI settings", () => {
           description: "Off",
           submission: "/settings debug",
         },
+        {
+          name: "Subagents",
+          description: "Shown",
+          submission: "/settings subagents",
+        },
       ],
       { onBack: expect.any(Function) },
     )
@@ -230,6 +235,27 @@ describe("CLI themes", () => {
 
     expect(mocks.saveSelectedTheme).toHaveBeenCalledWith("nord")
     expect(mocks.ui.setTheme.mock.calls.at(-1)?.[0]).toBe("default")
+  })
+})
+
+describe("CLI subagent panel visibility", () => {
+  it("persists each subagent panel toggle from settings", async () => {
+    await loadCli()
+
+    await submit("/settings subagents")
+    expect(mocks.saveSubagentPanelVisible).toHaveBeenCalledWith(false)
+    expect(mocks.ui.setSubagentPanelVisible).toHaveBeenLastCalledWith(false)
+    expect(mocks.ui.showTransientHint).toHaveBeenLastCalledWith(" Subagents hidden ")
+
+    await submit("/settings")
+    expect(mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[0]).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "Subagents", description: "Hidden" })]),
+    )
+
+    await submit("/settings subagents")
+    expect(mocks.saveSubagentPanelVisible).toHaveBeenLastCalledWith(true)
+    expect(mocks.ui.setSubagentPanelVisible).toHaveBeenLastCalledWith(true)
+    expect(mocks.ui.showTransientHint).toHaveBeenLastCalledWith(" Subagents shown ")
   })
 })
 

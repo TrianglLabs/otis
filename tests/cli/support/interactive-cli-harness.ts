@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, vi } from "vitest"
 import type { LocalModelSpec } from "../../../src/inference/local-catalog.js"
-import type { ChatMessage, FireworksModel, PairCatalogModel, UserChatMessage } from "../../../src/inference/types.js"
+import type { FireworksModel, PairCatalogModel, UserChatMessage } from "../../../src/inference/types.js"
 import type { ThemeName } from "../../../src/local/settings.js"
 import type { SkillCatalog } from "../../../src/skills/index.js"
-import type { SessionToolActivity } from "../../../src/storage/index.js"
+import type { SessionReplay } from "../../../src/storage/session-events.js"
 
 const mocks = vi.hoisted(() => {
   const rendererHandlers = new Map<string, Array<() => void>>()
@@ -39,6 +39,7 @@ const mocks = vi.hoisted(() => {
     hideSessionPicker: vi.fn(),
     hideUpdateHint: vi.fn(),
     renderTranscript: vi.fn(),
+    renderSubagents: vi.fn(),
     setAgentPhase: vi.fn(),
     setBusy: vi.fn(),
     setConfigured: vi.fn(),
@@ -52,6 +53,7 @@ const mocks = vi.hoisted(() => {
     setStats: vi.fn(),
     setTheme: vi.fn(),
     setThinkingVisible: vi.fn(),
+    setSubagentPanelVisible: vi.fn(),
     setCommands: vi.fn(),
     showChatLayout: vi.fn(),
     showCommandSubmenu: vi.fn(),
@@ -134,6 +136,7 @@ const mocks = vi.hoisted(() => {
     saveSelectedModel: vi.fn(async () => undefined),
     saveSelectedTheme: vi.fn(async () => undefined),
     saveThinkingVisible: vi.fn(async () => undefined),
+    saveSubagentPanelVisible: vi.fn(async () => undefined),
     saveFastServingSelection: vi.fn(async () => undefined),
     detectHardware: vi.fn(async () => ({
       platform: "darwin" as const,
@@ -202,7 +205,10 @@ vi.mock("@opentui/core", () => ({
   SyntaxStyle: { fromStyles: (styles: unknown) => styles },
 }))
 
-vi.mock("../../../src/core/agent.js", () => ({ runAgent: mocks.runAgent }))
+vi.mock("../../../src/core/agent.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../src/core/agent.js")>()),
+  runAgent: mocks.runAgent,
+}))
 vi.mock("../../../src/core/context.js", () => ({ loadProjectContext: mocks.loadProjectContext }))
 vi.mock("../../../src/skills/index.js", () => ({
   emptySkillCatalog: () => ({ skills: [], byName: new Map() }),
@@ -241,6 +247,7 @@ vi.mock("../../../src/local/settings.js", () => ({
   saveSelectedModel: mocks.saveSelectedModel,
   saveSelectedTheme: mocks.saveSelectedTheme,
   saveThinkingVisible: mocks.saveThinkingVisible,
+  saveSubagentPanelVisible: mocks.saveSubagentPanelVisible,
   saveFastServingSelection: mocks.saveFastServingSelection,
 }))
 vi.mock("../../../src/local/stats.js", () => ({ calculateLocalStats: mocks.calculateLocalStats }))
@@ -358,10 +365,7 @@ function baseSession() {
     id: "session_test",
     recordUsage: vi.fn(async () => undefined),
     renameTitle: vi.fn(async () => undefined),
-    replay: vi.fn<() => { messages: ChatMessage[]; toolActivities: SessionToolActivity[] }>(() => ({
-      messages: [],
-      toolActivities: [],
-    })),
+    replay: vi.fn<() => SessionReplay>(() => ({ messages: [], toolActivities: [], subagents: [] })),
     replayMessages: vi.fn(() => []),
     title: vi.fn(() => "Current session"),
   }

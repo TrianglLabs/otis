@@ -16,6 +16,7 @@ import {
   createMutedMarkdownStyle,
 } from "../theme.js"
 import type { TranscriptEntry } from "../transcript.js"
+import { formatElapsed } from "./format.js"
 import type { Renderer } from "./types.js"
 
 const FALLBACK_TOOL_ICON = "›"
@@ -29,6 +30,7 @@ const TOOL_ICONS: Record<ToolActivityKind, string> = {
   file_inspect: "→",
   git: "⚙",
   shell: "⚙",
+  agent: "◇",
 }
 const useRichToolIcons = supportsRichToolIcons()
 const REASONING_PREVIEW_HEIGHT = 3
@@ -390,7 +392,7 @@ function reasoningHeader(entry: TranscriptEntry, expanded = false, truncated = f
     ? "Thinking…"
     : entry.durationMs === undefined
       ? "Thought"
-      : `Thought for ${formatDuration(entry.durationMs)}`
+      : `Thought for ${formatElapsed(entry.durationMs)}`
   return truncated ? `${label} · click to ${expanded ? "collapse" : "expand"}` : label
 }
 
@@ -404,12 +406,6 @@ function reasoningExceedsPreview(text: string, width: number) {
     if (rows > REASONING_PREVIEW_HEIGHT) return true
   }
   return false
-}
-
-function formatDuration(durationMs: number) {
-  if (durationMs < 1_000) return `${durationMs}ms`
-  const seconds = durationMs / 1_000
-  return `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)}s`
 }
 
 function speakerColor(entry: TranscriptEntry) {

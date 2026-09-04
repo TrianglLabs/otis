@@ -33,6 +33,10 @@ describe("describeToolCall", () => {
       kind: "file_edit",
       label: "Editing file: README.md",
     })
+    expect(describeToolCall({ name: "agent", input: { description: "Map the notes", prompt: "List." } })).toEqual({
+      kind: "agent",
+      label: "Delegating: Map the notes",
+    })
   })
 
   it.each<[string, BashToolCall["input"], ToolActivityKind]>([

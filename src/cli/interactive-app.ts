@@ -2,6 +2,7 @@ import { createCliRenderer } from "@opentui/core"
 import { autoCompactThreshold, compactConversation } from "../core/compaction.js"
 import { loadProjectContext } from "../core/context.js"
 import { SteeringInbox } from "../core/steering.js"
+import { providerTools } from "../core/subagent.js"
 import { FireworksClient } from "../inference/client.js"
 import { compactionContextLength } from "../inference/context-policy.js"
 import { deleteLocalGguf, listDownloadedLocalModels } from "../inference/gguf-cache.js"
@@ -38,6 +39,7 @@ import {
   loadLocalSettings,
   saveSelectedModel,
   saveSelectedTheme,
+  saveSubagentPanelVisible,
   saveThinkingVisible,
   type ThemeName,
 } from "../local/settings.js"
@@ -61,6 +63,7 @@ import { ImageFlow } from "./image-flow.js"
 import { SessionController } from "./session-controller.js"
 import { type PreparedModelSelection, SetupFlow } from "./setup-flow.js"
 import { parseSlashCommand, type SlashCommand, slashCommandRunsImmediately, slashCommands } from "./slash-commands.js"
+import { SubagentTraces } from "./subagents.js"
 import { initializeTreeSitterClient, TerminalController } from "./terminal.js"
 import { colors, selectTheme } from "./theme.js"
 import { TranscriptStore } from "./transcript.js"
@@ -92,6 +95,7 @@ type PendingAction =
 export class InteractiveApp {
   readonly #cwd = process.cwd()
   readonly #transcript = new TranscriptStore()
+  readonly #subagents = new SubagentTraces()
   readonly #images = new ImageFlow({
     cwd: this.#cwd,
     isBusy: () => this.#busy,
@@ -129,6 +133,7 @@ export class InteractiveApp {
   #permissionRules: PermissionRule[] = []
   #selectedTheme: ThemeName = "default"
   #thinkingVisible = false
+  #subagentPanelVisible = true
   #fastServingModels = new Set<string>()
   #fastAvailable = false
   #downloadedModelsAvailable = false
@@ -157,6 +162,7 @@ export class InteractiveApp {
     selectTheme(settings.theme)
     this.#selectedTheme = settings.theme ?? "default"
     this.#thinkingVisible = settings.thinkingVisible ?? false
+    this.#subagentPanelVisible = settings.subagentPanelVisible ?? true
     this.#fastServingModels = new Set(settings.fastServingModels ?? [])
     this.#downloadedModelsAvailable = (await listDownloadedLocalModels()).length > 0
     this.#fireworksApiKey = settings.fireworksApiKey
@@ -231,6 +237,7 @@ export class InteractiveApp {
       sessionLabel: "Current session",
       theme: this.#selectedTheme,
       thinkingVisible: this.#thinkingVisible,
+      subagentPanelVisible: this.#subagentPanelVisible,
       workspaceLabel: formatWorkspaceLabel(this.#cwd),
       treeSitterClient,
       onInputChange: (value) => this.#updateContextIndicator(value),
@@ -272,6 +279,7 @@ export class InteractiveApp {
       client: () => this.#client,
       cwd: this.#cwd,
       transcript: this.#transcript,
+      subagents: this.#subagents,
       ui: this.#ui,
       isBusy: () => this.#busy,
       isExiting: () => this.#exiting,
@@ -591,6 +599,8 @@ export class InteractiveApp {
           this.#setupFlow.configurePairInference()
         } else if (command.setting === "debug") {
           this.#toggleDebugMode()
+        } else if (command.setting === "subagents") {
+          await this.#setSubagentPanelVisible(!this.#subagentPanelVisible)
         } else if (command.setting === "delete-model") {
           if (command.modelId) this.#startLocalModelDeletion(command.modelId)
           else await this.#openLocalModelDeleteMenu()
@@ -632,7 +642,8 @@ export class InteractiveApp {
   async #runPromptTurn(value: string, queued?: Extract<PendingAction, { type: "prompt" }>) {
     const activeClient = this.#client
     const activeWebClient = this.#webClient
-    if (!activeClient || !activeWebClient) return
+    const activeProvider = this.#selectedModelProvider
+    if (!activeClient || !activeWebClient || !activeProvider) return
 
     const ready = queued ? undefined : this.#images.ensureReadyToSend(value)
     if (ready) {
@@ -692,12 +703,14 @@ export class InteractiveApp {
         webClientModel: activeClient.model,
         webSessionId: turnSession.id,
         transcript: this.#transcript,
+        subagents: this.#subagents,
         ui: this.#ui,
         cwd: this.#cwd,
         debug: this.#debug,
         signal: turnController.signal,
         projectContext: this.#loadedProjectContext,
         skills: this.#loadedSkills,
+        tools: providerTools(activeProvider),
         staticContextChars: this.#staticContextChars,
         isExiting: () => this.#exiting,
         onContext: (tokens) => {
@@ -722,7 +735,7 @@ export class InteractiveApp {
 
       if (result.status === "interrupted") {
         try {
-          await turnSession.interruptTurn(admission, result.messages, result.toolActivities)
+          await turnSession.interruptTurn(admission, result.messages, result.details)
         } catch (error) {
           this.#transcript.addDebugMessage(
             `Could not save interrupted turn: ${error instanceof Error ? error.message : String(error)}`,
@@ -743,7 +756,7 @@ export class InteractiveApp {
       this.#ui.renderTranscript(this.#transcript.entries)
 
       try {
-        await turnSession.completeTurn(admission, result.messages, result.toolActivities)
+        await turnSession.completeTurn(admission, result.messages, result.details)
       } catch (error) {
         this.#transcript.addDebugMessage(
           `Could not save turn: ${error instanceof Error ? error.message : String(error)}`,
@@ -814,10 +827,18 @@ export class InteractiveApp {
         signal: compactionController.signal,
       })
       const keptToolActivities = this.#transcript.toolActivitiesFor(result.keptMessages)
+      const keptSubagents = this.#subagents.runsFor(result.keptMessages)
 
-      await turnSession.compact(result.summary, result.keptMessages, keptToolActivities, throughSeq)
+      await turnSession.compact(
+        result.summary,
+        result.keptMessages,
+        { toolActivities: keptToolActivities, subagents: keptSubagents },
+        throughSeq,
+      )
 
       this.#transcript.loadCompacted(result.summary, result.keptMessages, keptToolActivities)
+      this.#subagents.load(keptSubagents)
+      this.#ui.renderSubagents(this.#subagents.all)
       this.#sessions.refreshLabel()
       this.#updateContextIndicator()
       this.#ui.renderTranscript(this.#transcript.entries, { scrollToBottom: true })
@@ -920,6 +941,11 @@ export class InteractiveApp {
         name: "Debug mode",
         description: this.#debug ? "On" : "Off",
         submission: "/settings debug",
+      },
+      {
+        name: "Subagents",
+        description: this.#subagentPanelVisible ? "Shown" : "Hidden",
+        submission: "/settings subagents",
       },
     ]
     this.#ui.showCommandSubmenu(items, { onBack: () => this.#ui.showSlashCommandMenu() })
@@ -1286,6 +1312,25 @@ export class InteractiveApp {
       return
     }
     this.#ui.showTransientHint(result === "on" ? " Fast serving on " : " Fast serving off ")
+  }
+
+  async #setSubagentPanelVisible(visible: boolean) {
+    const previous = this.#subagentPanelVisible
+    this.#subagentPanelVisible = visible
+    this.#ui.setSubagentPanelVisible(visible)
+    this.#ui.clearInput()
+    this.#ui.focusInput()
+    try {
+      await saveSubagentPanelVisible(visible)
+      this.#ui.showTransientHint(` Subagents ${visible ? "shown" : "hidden"} `)
+    } catch (error) {
+      this.#subagentPanelVisible = previous
+      this.#ui.setSubagentPanelVisible(previous)
+      this.#transcript.addDebugMessage(
+        `Could not save subagent panel visibility: ${error instanceof Error ? error.message : String(error)}`,
+      )
+      this.#ui.renderTranscript(this.#transcript.entries, { scrollToBottom: true })
+    }
   }
 
   async #setThinkingVisible(visible: boolean) {

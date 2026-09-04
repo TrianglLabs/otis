@@ -22,6 +22,22 @@ describe("permission policy", () => {
     expect((await dontAsk.evaluate({ name: "edit", input: { path: "out.txt", old: "a", new: "b" } })).effect).toBe(
       "deny",
     )
+    expect((await dontAsk.evaluate({ name: "agent", input: { description: "Map", prompt: "List." } })).effect).toBe(
+      "allow",
+    )
+  })
+
+  it("lets rules deny delegation by description", async () => {
+    const policy = createPermissionPolicy({
+      cwd: "/workspace",
+      mode: "auto",
+      rules: [{ tool: "agent", resource: "Deploy *", effect: "deny" }],
+    })
+    const call = (description: string) => ({ name: "agent" as const, input: { description, prompt: "Do it." } })
+
+    expect((await policy.evaluate(call("Deploy to production"))).effect).toBe("deny")
+    expect((await policy.evaluate(call("Map the notes"))).effect).toBe("allow")
+    expect(parsePermissionRuleString("agent", "deny")).toEqual({ tool: "agent", effect: "deny" })
   })
 
   it("evaluates matching rules with deny then ask then allow precedence", async () => {

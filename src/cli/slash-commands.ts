@@ -6,7 +6,7 @@ export type SlashCommand =
   | { type: "theme-menu" }
   | { type: "theme"; name: string }
   | { type: "model" }
-  | { type: "settings"; setting?: "hosted" | "pair" | "debug" | "delete-model"; modelId?: string }
+  | { type: "settings"; setting?: "hosted" | "pair" | "debug" | "subagents" | "delete-model"; modelId?: string }
   | { type: "fast" }
   | { type: "history" }
   | { type: "new" }
@@ -77,7 +77,9 @@ export function parseSlashCommand(value: string): SlashCommand | undefined {
   }
   if (value.startsWith("/settings ")) {
     const setting = value.slice("/settings".length).trim()
-    if (setting === "hosted" || setting === "pair" || setting === "debug") return { type: "settings", setting }
+    if (setting === "hosted" || setting === "pair" || setting === "debug" || setting === "subagents") {
+      return { type: "settings", setting }
+    }
     if (setting === "delete-model") return { type: "settings", setting: "delete-model" }
     if (setting.startsWith("delete-model ")) {
       const modelId = setting.slice("delete-model".length).trim()
@@ -92,7 +94,9 @@ export function parseSlashCommand(value: string): SlashCommand | undefined {
 }
 
 export function slashCommandRunsImmediately(command: SlashCommand) {
-  if (command.type === "settings") return command.setting === undefined || command.setting === "debug"
+  if (command.type === "settings") {
+    return command.setting === undefined || command.setting === "debug" || command.setting === "subagents"
+  }
   return IMMEDIATE_TYPES.has(command.type)
 }
 

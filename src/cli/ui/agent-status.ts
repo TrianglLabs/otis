@@ -1,7 +1,7 @@
 import type { BoxRenderable, TextRenderable } from "@opentui/core"
 import { colors, type ThemeColors } from "../theme.js"
 import { renderBusyWave } from "./busy-wave.js"
-import { AGENT_PHASE_LABELS, type AgentPhase, CHAT_INPUT_HINT } from "./format.js"
+import { AGENT_PHASE_LABELS, type AgentPhase } from "./format.js"
 import type { Renderer } from "./types.js"
 
 const BUSY_FRAME_INTERVAL_MS = 40
@@ -27,7 +27,7 @@ export class AgentStatus {
   private lastEscapeAt = 0
   private interruptVisible = false
   private transientHintTimer: NodeJS.Timeout | undefined
-  private idleInputHint = CHAT_INPUT_HINT
+  private idleInputHint = ""
   private phase: AgentPhase = "working"
 
   constructor(private readonly options: AgentStatusOptions) {}
@@ -104,7 +104,7 @@ export class AgentStatus {
     this.showTransientHint(" Copied! ")
   }
 
-  showTransientHint(content: string) {
+  showTransientHint(content: string, durationMs = TRANSIENT_HINT_DURATION_MS) {
     if (this.interruptVisible) return
     if (this.transientHintTimer) clearTimeout(this.transientHintTimer)
     this.options.inputHint.content = content
@@ -115,7 +115,7 @@ export class AgentStatus {
       this.options.inputHint.content = this.idleInputHint
       this.options.inputHint.fg = colors.muted
       this.options.renderer.requestRender()
-    }, TRANSIENT_HINT_DURATION_MS)
+    }, durationMs)
     this.transientHintTimer.unref?.()
   }
 

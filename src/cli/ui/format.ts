@@ -1,7 +1,9 @@
 import type { LocalStats } from "../../local/stats.js"
 import type { PermissionMode } from "../../permissions/policy.js"
 
-export const CHAT_INPUT_HINT = " [TAB] mode · [ESC] interrupt "
+/** Keyboard hints, shown briefly when the chat input hint is clicked. */
+export const CHAT_KEY_HINT = " [TAB] mode · [ESC] interrupt "
+export const CHAT_KEY_HINT_DURATION_MS = 3000
 export const FAST_MODEL_LABEL = "Fast"
 export const FAST_MODE_LABEL = "Fast mode"
 export const RECOMMENDED_MODEL_MARK = "*"
@@ -19,8 +21,16 @@ export function formatContextLabel(label: string) {
   return ` ${label} `
 }
 
+/** The idle chat input hint: the active model and workspace. */
 export function formatRuntimeHint(model: string, workspace: string) {
   return ` ${model || "No model selected"} · ${workspace} `
+}
+
+/** A short wall-clock span for cards and panels, e.g. `850ms`, `3.2s`, `34s`. */
+export function formatElapsed(durationMs: number) {
+  if (durationMs < 1_000) return `${durationMs}ms`
+  const seconds = durationMs / 1_000
+  return `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)}s`
 }
 
 export function formatStats(stats: LocalStats) {

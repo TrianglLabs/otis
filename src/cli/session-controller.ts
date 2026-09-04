@@ -7,6 +7,7 @@ import {
   generateSessionTitle,
   toSessionPickerItem,
 } from "./session-metadata.js"
+import type { SubagentTraces } from "./subagents.js"
 import type { TranscriptStore } from "./transcript.js"
 import type { ChatUI } from "./ui/types.js"
 
@@ -14,6 +15,7 @@ type SessionControllerOptions = {
   client: () => InferenceClient | undefined
   cwd: string
   transcript: TranscriptStore
+  subagents: SubagentTraces
   ui: ChatUI
   isBusy: () => boolean
   isExiting: () => boolean
@@ -140,6 +142,7 @@ export class SessionController {
     this.title = this.session.hasTitle() ? this.session.title() : undefined
     const replay = this.session.replay()
     this.options.transcript.replaceMessages(replay.messages, replay.toolActivities)
+    this.options.subagents.load(replay.subagents)
     const diff = countTranscriptDiffLines(this.options.transcript.entries)
     this.addedLines = diff.added
     this.removedLines = diff.removed
@@ -147,6 +150,7 @@ export class SessionController {
     this.refreshLabel()
     this.options.ui.showChatLayout()
     this.options.ui.renderTranscript(this.options.transcript.entries, { scrollToBottom: true })
+    this.options.ui.renderSubagents(this.options.subagents.all)
     this.options.onTranscriptChange()
     this.options.ui.focusInput()
   }
@@ -158,9 +162,11 @@ export class SessionController {
     this.addedLines = 0
     this.removedLines = 0
     this.options.transcript.replaceMessages([])
+    this.options.subagents.load([])
     this.options.ui.setDiffStats(0, 0)
     this.refreshLabel()
     this.options.ui.renderTranscript(this.options.transcript.entries, { scrollToBottom: true })
+    this.options.ui.renderSubagents(this.options.subagents.all)
     this.options.onTranscriptChange()
   }
 

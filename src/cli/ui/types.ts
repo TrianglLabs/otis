@@ -3,6 +3,7 @@ import type { ModelPickerItem, ModelPickerStatus } from "../../inference/picker-
 import type { ThemeName } from "../../local/settings.js"
 import type { LocalStats } from "../../local/stats.js"
 import type { SessionPickerItem } from "../session-metadata.js"
+import type { SubagentTrace } from "../subagents.js"
 import type { ThemeColors } from "../theme.js"
 import type { TranscriptEntry } from "../transcript.js"
 import type { AgentPhase } from "./format.js"
@@ -44,6 +45,8 @@ export type ChatUIOptions = {
   workspaceLabel: string
   theme?: ThemeName
   thinkingVisible?: boolean
+  /** When false, the delegated-run side panel stays hidden even if the session has subagents. */
+  subagentPanelVisible?: boolean
   treeSitterClient?: TreeSitterClient
   onInputChange?: (value: string) => void
   onImagePaste?: (bytes: Uint8Array, mimeType?: string) => void | Promise<void>
@@ -75,6 +78,8 @@ export type ChatUI = {
   hideSessionPicker(): void
   hideUpdateHint(): void
   renderTranscript(entries: TranscriptEntry[], options?: { scrollToBottom?: boolean }): void
+  /** Lists the session's delegated runs in the side panel and refreshes an open trace view. */
+  renderSubagents(traces: readonly SubagentTrace[]): void
   setBusy(value: boolean): void
   setContextLabel(label: string, color?: string): void
   setDiffStats(added: number, removed: number): void
@@ -88,6 +93,7 @@ export type ChatUI = {
   setStats(stats: LocalStats): void
   setTheme(theme: ThemeName, previous: ThemeColors): void
   setThinkingVisible(visible: boolean): void
+  setSubagentPanelVisible(visible: boolean): void
   showStats(): void
   showTransientHint(content: string): void
   showCommandSubmenu(items: CommandSuggestion[], options?: { onBack?: () => void }): void

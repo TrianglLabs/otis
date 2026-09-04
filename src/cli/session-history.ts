@@ -1,7 +1,7 @@
 import { autoCompactThreshold, compactConversation, compactionSummaryMessage } from "../core/compaction.js"
 import type { InferenceClient } from "../inference/client.js"
 import type { ChatMessage, TokenUsage } from "../inference/types.js"
-import type { JsonlSession, SessionToolActivity } from "../storage/index.js"
+import { forToolCalls, type JsonlSession } from "../storage/index.js"
 import { estimateContextTokens } from "./context-meter.js"
 
 type SessionHistoryOptions = {
@@ -27,21 +27,9 @@ export async function prepareSessionHistory(options: SessionHistoryOptions): Pro
     signal: options.signal,
     onUsage: options.onUsage,
   })
-  await options.session.compact(
-    result.summary,
-    result.keptMessages,
-    keptToolActivities(result.keptMessages, replay.toolActivities),
-  )
+  await options.session.compact(result.summary, result.keptMessages, {
+    toolActivities: forToolCalls(replay.toolActivities, result.keptMessages),
+    subagents: forToolCalls(replay.subagents, result.keptMessages),
+  })
   return [compactionSummaryMessage(result.summary), ...result.keptMessages]
-}
-
-function keptToolActivities(messages: ChatMessage[], activities: SessionToolActivity[]) {
-  const keptCallIds = new Set<string>()
-  for (const message of messages) {
-    if (message.role !== "assistant") continue
-    for (const part of message.content) {
-      if (part.type === "tool_call") keptCallIds.add(part.toolCall.id)
-    }
-  }
-  return activities.filter((activity) => keptCallIds.has(activity.toolCallId))
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { buildSystemPrompt } from "../../src/inference/system-prompt.js"
+import { TOOL_DEFINITIONS } from "../../src/tools/index.js"
 
 describe("system prompt", () => {
   it("keeps sequence diagram guidance while avoiding mermaid syntax", () => {
@@ -16,6 +17,24 @@ describe("system prompt", () => {
     expect(prompt).toContain("Provide 2-3 short search_queries for web_search when useful.")
     expect(prompt).not.toContain("radar")
     expect(prompt).not.toMatch(/\bvisit\b/)
+  })
+
+  it("explains delegation only when the agent tool is offered", () => {
+    const now = new Date("2026-07-16T12:00:00Z")
+    const withAgent = buildSystemPrompt([], now, [], TOOL_DEFINITIONS)
+    const withoutAgent = buildSystemPrompt(
+      [],
+      now,
+      [],
+      TOOL_DEFINITIONS.filter((tool) => tool.name !== "agent"),
+    )
+
+    expect(withAgent).toContain("Delegation:")
+    expect(withAgent).toContain("they run in parallel")
+    expect(withoutAgent).not.toContain("Delegation:")
+    expect(withoutAgent).not.toContain("Use agent")
+    expect(withoutAgent).not.toContain("subagent")
+    expect(buildSystemPrompt([], now)).not.toContain("Delegation:")
   })
 
   it("serializes escaped project instructions between the base prompt and current date", () => {

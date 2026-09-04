@@ -15,6 +15,7 @@ export type { ToolCall, ToolContext, ToolName, ToolResult } from "./types.js"
 export { TOOL_NAMES } from "./types.js"
 
 export async function executeToolCall(call: ToolCall, context: ToolContext = {}): Promise<ToolResult> {
+  if (call.name === "agent") throw new Error("The agent tool runs inside the agent loop, not as a standalone tool.")
   if (call.name === "web_search" || call.name === "web_read") return executeWebTool(call, context)
   if (call.name === "skill") {
     if (!context.skills) throw new Error("No skills are available.")

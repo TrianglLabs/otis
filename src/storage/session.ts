@@ -6,6 +6,7 @@ import { createUserMessage, summarizeUserMessage, userMessageText } from "../inf
 import type { ChatMessage, TokenUsage, UserChatMessage } from "../inference/types.js"
 import {
   type BaseSessionEvent,
+  forToolCalls,
   isInvalidSessionFileError,
   isNotFoundError,
   messagesAfterAdmittedPrompt,
@@ -15,7 +16,10 @@ import {
   replaySession,
   replaySessionMessages,
   type SessionEvent,
+  type SessionSubagentRun,
+  type SessionSubagentStatus,
   type SessionToolActivity,
+  type SessionTurnDetails,
   type UsagePurpose,
 } from "./session-events.js"
 import {
@@ -67,30 +71,30 @@ export class JsonlSession {
     return message
   }
 
-  completeTurn(admission: PromptAdmission, turnMessages: ChatMessage[], toolActivities: SessionToolActivity[] = []) {
+  completeTurn(admission: PromptAdmission, turnMessages: ChatMessage[], details: SessionTurnDetails = {}) {
     return this.append({
       type: "turn_completed",
       promptId: admission.promptId,
       messages: messagesAfterAdmittedPrompt(admission.message, turnMessages),
-      ...(toolActivities.length > 0 ? { toolActivities } : {}),
+      ...presentTurnDetails(details),
     })
   }
 
-  interruptTurn(admission: PromptAdmission, turnMessages: ChatMessage[], toolActivities: SessionToolActivity[] = []) {
+  interruptTurn(admission: PromptAdmission, turnMessages: ChatMessage[], details: SessionTurnDetails = {}) {
     return this.append({
       type: "turn_interrupted",
       promptId: admission.promptId,
       messages: messagesAfterAdmittedPrompt(admission.message, turnMessages),
-      ...(toolActivities.length > 0 ? { toolActivities } : {}),
+      ...presentTurnDetails(details),
     })
   }
 
-  compact(summary: string, messages: ChatMessage[], toolActivities: SessionToolActivity[] = [], throughSeq?: number) {
+  compact(summary: string, messages: ChatMessage[], details: SessionTurnDetails = {}, throughSeq?: number) {
     return this.append({
       type: "compacted",
       summary,
       messages,
-      ...(toolActivities.length > 0 ? { toolActivities } : {}),
+      ...presentTurnDetails(details),
       ...(throughSeq === undefined ? {} : { throughSeq }),
     })
   }
@@ -230,5 +234,23 @@ function newSessionId() {
   return `session_${timestamp}_${randomUUID().slice(0, 8)}`
 }
 
-export type { PromptAdmission, SessionEvent, SessionOptions, SessionSummary, SessionToolActivity, UsagePurpose }
-export { defaultSessionDirectory, readSessionEvents, replaySession, replaySessionMessages }
+/** Omits empty detail lists so persisted turns stay compact. */
+function presentTurnDetails(details: SessionTurnDetails): SessionTurnDetails {
+  return {
+    ...(details.toolActivities?.length ? { toolActivities: details.toolActivities } : {}),
+    ...(details.subagents?.length ? { subagents: details.subagents } : {}),
+  }
+}
+
+export type {
+  PromptAdmission,
+  SessionEvent,
+  SessionOptions,
+  SessionSubagentRun,
+  SessionSubagentStatus,
+  SessionSummary,
+  SessionToolActivity,
+  SessionTurnDetails,
+  UsagePurpose,
+}
+export { defaultSessionDirectory, forToolCalls, readSessionEvents, replaySession, replaySessionMessages }

@@ -1,6 +1,6 @@
 import type { Skill } from "../skills/index.js"
 import promptText from "./system-prompt.txt" with { type: "text" }
-import type { ContextFile } from "./types.js"
+import type { ContextFile, ToolDefinition } from "./types.js"
 
 const MAX_CONTEXT_FILES = 10
 const MAX_CONTEXT_FILE_BYTES = 32 * 1024
@@ -8,12 +8,21 @@ const MAX_CONTEXT_TOTAL_BYTES = 64 * 1024
 
 const BASE_PROMPT = promptText.trim()
 
+/** Included only when the agent tool is offered, so models without delegation are never told to delegate. */
+const DELEGATION_GUIDANCE = [
+  "Delegation:",
+  "- Use agent for read-only exploration or research whose tool output would otherwise flood this conversation, such as mapping an unfamiliar codebase or comparing several sources. Do not delegate narrow lookups you can answer with one or two tool calls, and do not delegate edits or commands.",
+  "- A subagent cannot see this conversation. Give it a complete brief and state exactly what to report back. To explore independent areas at once, make several agent calls in the same response with non-overlapping scopes; they run in parallel.",
+].join("\n")
+
 export function buildSystemPrompt(
   projectContext: readonly ContextFile[] = [],
   now = new Date(),
   skills: readonly Skill[] = [],
+  tools: readonly ToolDefinition[] = [],
 ) {
   const sections = [BASE_PROMPT]
+  if (tools.some((tool) => tool.name === "agent")) sections.push(DELEGATION_GUIDANCE)
   if (projectContext.length > 0) sections.push(formatProjectContext(projectContext))
   if (skills.length > 0) sections.push(formatAvailableSkills(skills))
   sections.push(`The current date is ${formatDate(now)}. Use this date when searching for recent information.`)
