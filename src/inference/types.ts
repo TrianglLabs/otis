@@ -62,6 +62,7 @@ export type ChatStreamEvent =
   | { type: "reasoning_delta"; text: string; field: OpenAICompatibleReasoningField }
   | { type: "tool_call"; toolCall: ChatToolCall }
   | { type: "usage"; usage: TokenUsage }
+  | { type: "finish"; reason: string }
 
 export type ReasoningTraceEvent =
   | {

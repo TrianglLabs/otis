@@ -28,6 +28,46 @@ function child(toolCallId: string, event: AgentEvent): AgentEvent {
 }
 
 describe("executeTurn", () => {
+  it("checkpoints retained history and current tool cards, then records only new continuation cards", async () => {
+    const call = (id: string): ChatMessage => ({
+      role: "assistant",
+      content: [{ type: "tool_call", toolCall: { id, name: "read", arguments: "{}" } }],
+    })
+    const kept = [call("old_kept"), call("current_kept")]
+    const checkpoint = vi.fn()
+    mocks.runAgent.mockImplementation(async function* (_input, _history, options) {
+      yield toolEvent("start", "current_dropped", "Dropped")
+      yield toolEvent("start", "current_kept", "Kept")
+      await options.onCompaction({ summary: "Summary.", keptMessages: kept }, 2)
+      yield { type: "compaction", phase: "complete", summary: "Summary.", keptMessages: kept }
+      yield toolEvent("start", "new_call", "New")
+      yield { type: "complete", messages: [call("new_call")] }
+    })
+    const result = await executeTurn({
+      input: { role: "user", content: "continue" },
+      agent: { client: { model: "fake", streamChat: vi.fn(), complete: vi.fn() } },
+      historyDetails: {
+        toolActivities: [
+          { toolCallId: "old_kept", activityKind: "file_read", label: "Old kept" },
+          { toolCallId: "old_dropped", activityKind: "file_read", label: "Old dropped" },
+        ],
+      },
+      onCompaction: checkpoint,
+    })
+    expect(checkpoint).toHaveBeenCalledWith(
+      { summary: "Summary.", keptMessages: kept },
+      {
+        toolActivities: [
+          { toolCallId: "old_kept", activityKind: "file_read", label: "Old kept" },
+          { toolCallId: "current_kept", activityKind: "file_read", label: "Kept" },
+        ],
+        subagents: [],
+      },
+      2,
+    )
+    expect(result.details.toolActivities).toEqual([{ toolCallId: "new_call", activityKind: "file_read", label: "New" }])
+  })
+
   it("records the turn's tool cards and each delegated run's trace for persistence", async () => {
     const script: AgentEvent[] = [
       toolEvent("start", "call_agent", "Delegating: Map", { name: "agent", activityKind: "agent" }),

@@ -57,7 +57,6 @@ describe("agent turn scrolling", () => {
       debug: false,
       signal: new AbortController().signal,
       projectContext: [],
-      staticContextChars: 0,
       isExiting: () => false,
       onContext: () => {},
       onDiff: () => {},

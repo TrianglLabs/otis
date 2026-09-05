@@ -46,14 +46,14 @@ describe("compaction summary messages", () => {
 describe("compactConversation", () => {
   afterEach(() => streamAgentMock.mockReset())
 
-  it("refuses to compact when there are fewer than 4 messages", async () => {
+  it("refuses to summarize an unanswered prompt", async () => {
     await expect(compactConversation([{ role: "user", content: "hi" }], { client })).rejects.toThrow(
       "Not enough conversation history to compact.",
     )
     expect(streamAgentMock).not.toHaveBeenCalled()
   })
 
-  it("refuses when there is only one turn", async () => {
+  it("compacts a single turn without separating a tool call from its result", async () => {
     const messages: ChatMessage[] = [
       { role: "user", content: "do something" },
       {
@@ -63,16 +63,17 @@ describe("compactConversation", () => {
       { role: "tool", toolCallId: "call_1", content: "result" },
       { role: "assistant", content: [{ type: "text", text: "ok" }] },
     ]
-    await expect(compactConversation(messages, { client })).rejects.toThrow(
-      "Not enough conversation history to compact.",
-    )
-    expect(streamAgentMock).not.toHaveBeenCalled()
+    streamAgentMock.mockImplementationOnce(async function* () {
+      yield { type: "text_delta", text: "Work summarized." }
+    })
+    const result = await compactConversation(messages, { client, keepRecentTokens: 10 })
+    expect(result.keptMessages).toEqual([messages[3]])
   })
 
   it("summarizes older messages and keeps the last turn", async () => {
     const messages: ChatMessage[] = [
       { role: "user", content: "first question" },
-      { role: "assistant", content: [{ type: "text", text: "first answer" }] },
+      { role: "assistant", content: [{ type: "text", text: "first answer".repeat(20) }] },
       { role: "user", content: "second question" },
       { role: "assistant", content: [{ type: "text", text: "second answer" }] },
     ]
@@ -81,7 +82,7 @@ describe("compactConversation", () => {
       yield { type: "text_delta", text: "## Goal\nDo stuff" }
     })
 
-    const result = await compactConversation(messages, { client, keepRecentTokens: 1 })
+    const result = await compactConversation(messages, { client, keepRecentTokens: 32 })
 
     expect(result.summary).toBe("## Goal\nDo stuff")
     expect(result.keptMessages).toEqual([
@@ -109,7 +110,7 @@ describe("compactConversation", () => {
       yield { type: "text_delta", text: "Summary" }
     })
 
-    await compactConversation(messages, { client, keepRecentTokens: 1 })
+    await compactConversation(messages, { client, keepRecentTokens: 32 })
 
     expect(capturedPrompt).toContain("[Image: screen.png (image/png, 6 bytes)]")
     expect(capturedPrompt).not.toContain("c2VjcmV0")
@@ -135,7 +136,7 @@ describe("compactConversation", () => {
       yield { type: "text_delta", text: "Summary of first turn" }
     })
 
-    const result = await compactConversation(messages, { client, keepRecentTokens: 1 })
+    const result = await compactConversation(messages, { client, keepRecentTokens: 32 })
 
     expect(result.keptMessages).toEqual([
       { role: "user", content: "now edit it" },
@@ -147,9 +148,9 @@ describe("compactConversation", () => {
   it("passes custom instructions through to the summarization prompt", async () => {
     const messages: ChatMessage[] = [
       { role: "user", content: "first" },
-      { role: "assistant", content: [{ type: "text", text: "response" }] },
+      { role: "assistant", content: [{ type: "text", text: "response".repeat(20) }] },
       { role: "user", content: "second" },
-      { role: "assistant", content: [{ type: "text", text: "response" }] },
+      { role: "assistant", content: [{ type: "text", text: "response".repeat(20) }] },
     ]
 
     let capturedPrompt = ""
@@ -161,7 +162,7 @@ describe("compactConversation", () => {
     await compactConversation(messages, {
       client,
       instructions: "Focus on the API design decisions",
-      keepRecentTokens: 1,
+      keepRecentTokens: 32,
     })
 
     expect(capturedPrompt).toContain("Focus on the API design decisions")
@@ -170,9 +171,9 @@ describe("compactConversation", () => {
   it("does not include custom instructions in the prompt when none are provided", async () => {
     const messages: ChatMessage[] = [
       { role: "user", content: "first" },
-      { role: "assistant", content: [{ type: "text", text: "response" }] },
+      { role: "assistant", content: [{ type: "text", text: "response".repeat(20) }] },
       { role: "user", content: "second" },
-      { role: "assistant", content: [{ type: "text", text: "response" }] },
+      { role: "assistant", content: [{ type: "text", text: "response".repeat(20) }] },
     ]
 
     let capturedPrompt = ""
@@ -181,7 +182,7 @@ describe("compactConversation", () => {
       yield { type: "text_delta", text: "Summary" }
     })
 
-    await compactConversation(messages, { client, keepRecentTokens: 1 })
+    await compactConversation(messages, { client, keepRecentTokens: 32 })
 
     expect(capturedPrompt).not.toContain("Additional focus")
   })
@@ -189,22 +190,22 @@ describe("compactConversation", () => {
   it("throws when the model returns an empty summary", async () => {
     const messages: ChatMessage[] = [
       { role: "user", content: "first" },
-      { role: "assistant", content: [{ type: "text", text: "response" }] },
+      { role: "assistant", content: [{ type: "text", text: "response".repeat(20) }] },
       { role: "user", content: "second" },
-      { role: "assistant", content: [{ type: "text", text: "response" }] },
+      { role: "assistant", content: [{ type: "text", text: "response".repeat(20) }] },
     ]
 
     streamAgentMock.mockImplementationOnce(async function* () {
       yield* []
     })
 
-    await expect(compactConversation(messages, { client, keepRecentTokens: 1 })).rejects.toThrow("empty summary")
+    await expect(compactConversation(messages, { client, keepRecentTokens: 32 })).rejects.toThrow("empty summary")
   })
 
   it("keeps only the last turn when conversation fits within the keep budget", async () => {
     const messages: ChatMessage[] = [
       { role: "user", content: "turn one" },
-      { role: "assistant", content: [{ type: "text", text: "reply one" }] },
+      { role: "assistant", content: [{ type: "text", text: "reply one".repeat(20) }] },
       { role: "user", content: "turn two" },
       { role: "assistant", content: [{ type: "text", text: "reply two" }] },
       { role: "user", content: "turn three" },

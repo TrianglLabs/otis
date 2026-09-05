@@ -224,14 +224,27 @@ describe("TranscriptStore", () => {
 
     expect(transcript.entries).toEqual([
       {
-        id: 1,
+        id: 3,
         kind: "message",
         speaker: "Otis",
         text: "**Conversation compacted.** Older messages were summarized to free context.\n\n## Goal\nDo the thing",
       },
-      { id: 2, kind: "message", speaker: "You", text: "recent question" },
-      { id: 3, kind: "message", speaker: "Otis", text: "recent answer" },
+      { id: 4, kind: "message", speaker: "You", text: "recent question" },
+      { id: 5, kind: "message", speaker: "Otis", text: "recent answer" },
     ])
+  })
+
+  it("preserves pending prompt identities when a compaction replaces rendered history", () => {
+    const transcript = new TranscriptStore()
+    transcript.loadMessages([{ role: "user", content: "old task" }])
+    const queued = transcript.addQueuedUserMessage("queued task")
+    const steering = transcript.addSteeringUserMessage("new direction")
+    transcript.loadCompacted("Summary.", [{ role: "assistant", content: [{ type: "text", text: "Kept." }] }])
+    expect(new Set(transcript.entries.map((entry) => entry.id)).size).toBe(transcript.entries.length)
+    expect(transcript.activatePendingUserMessage(queued.id)).toBe(true)
+    expect(transcript.activatePendingUserMessage(steering.id)).toBe(true)
+    expect(transcript.entries.slice(-2).map((entry) => entry.text)).toEqual(["queued task", "new direction"])
+    expect(transcript.entries.some((entry) => entry.delivery)).toBe(false)
   })
 
   it("renders compaction summary as an Otis message when reloading a compacted session", () => {

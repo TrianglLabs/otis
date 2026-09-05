@@ -47,6 +47,11 @@ export class SubagentTraces {
     }
 
     const event = envelope.event
+    if (event.type === "compaction" && event.phase === "complete") {
+      const transcript = live.trace.transcript
+      transcript.loadCompacted(event.summary, event.keptMessages, transcript.toolActivitiesFor(event.keptMessages))
+      live.projector = new TranscriptProjector(transcript)
+    }
     live.projector.apply(event)
     if (event.type === "complete" || event.type === "interrupted" || event.type === "error") {
       live.projector.finishStreaming()

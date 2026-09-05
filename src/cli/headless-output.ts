@@ -50,6 +50,13 @@ export class HeadlessReporter {
 
   /** Plain output shows tool progress only; a subagent's tools appear indented beneath its delegating call. */
   private async plainToolEvent(event: AgentEvent, indent = "") {
+    if (event.type === "compaction") {
+      await writeOutput(
+        this.stderr,
+        `${indent}${event.phase === "start" ? "Compacting conversation…" : "Conversation compacted."}\n`,
+      )
+      return
+    }
     if (event.type === "subagent") {
       await this.plainToolEvent(event.event, `${indent}  `)
       return
@@ -123,6 +130,7 @@ async function writeOutput(stream: OutputStream, chunk: string) {
 }
 
 function publicEvent(event: AgentEvent, includeReasoning: boolean): Record<string, unknown> | undefined {
+  if (event.type === "compaction") return { type: "compaction", phase: event.phase }
   if (event.type === "model") return { type: "model_start" }
   if (event.type === "reasoning") {
     if (!includeReasoning) return event.phase === "delta" ? { type: "reasoning" } : undefined
@@ -146,7 +154,7 @@ function publicEvent(event: AgentEvent, includeReasoning: boolean): Record<strin
   }
   if (event.type === "delta") return { type: "assistant_delta", text: event.text }
   if (event.type === "context") {
-    return { type: "context", messageCount: event.messageCount, contentChars: event.contentChars }
+    return { type: "context", messageCount: event.messageCount, contentChars: event.contentChars, tokens: event.tokens }
   }
   if (event.type === "debug") return { type: "debug", message: event.message }
   if (event.type === "error") return { type: "error", message: event.message }

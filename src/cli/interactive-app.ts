@@ -1,6 +1,7 @@
 import { createCliRenderer } from "@opentui/core"
 import { autoCompactThreshold, compactConversation } from "../core/compaction.js"
 import { loadProjectContext } from "../core/context.js"
+import { requestContextEstimator } from "../core/context-tokens.js"
 import { SteeringInbox } from "../core/steering.js"
 import { providerTools } from "../core/subagent.js"
 import { FireworksClient } from "../inference/client.js"
@@ -18,11 +19,10 @@ import {
 } from "../inference/local-catalog.js"
 import { LlamaCppClient } from "../inference/local-client.js"
 import { fitLocalModel, formatMemoryLabel, type LocalModelFit } from "../inference/local-fit.js"
-import { createUserMessage, summarizeUserMessage, userMessageContentChars } from "../inference/messages.js"
+import { createUserMessage, summarizeUserMessage } from "../inference/messages.js"
 import { PairClient, type PairEndpoints, pairEndpointForEngine } from "../inference/pair.js"
 import type { ModelPickerItem, ModelPickerStatus } from "../inference/picker-catalog.js"
 import { baseFireworksModelId, isFastFireworksModel } from "../inference/serving-path.js"
-import { skillAdvertisementChars } from "../inference/system-prompt.js"
 import {
   type CatalogModel,
   type ContextFile,
@@ -58,7 +58,7 @@ import { describeToolCall } from "../tools/index.js"
 import { ParallelClient } from "../web/client.js"
 import { runAgentTurn } from "./agent-turn.js"
 import { createChatUI } from "./chat-ui.js"
-import { contextUsage, contextUsageColor, estimateContextTokens, formatContextUsage } from "./context-meter.js"
+import { contextUsage, contextUsageColor, formatContextUsage } from "./context-meter.js"
 import { ImageFlow } from "./image-flow.js"
 import { SessionController } from "./session-controller.js"
 import { type PreparedModelSelection, SetupFlow } from "./setup-flow.js"
@@ -110,7 +110,6 @@ export class InteractiveApp {
   #sessions!: SessionController
   #setupFlow!: SetupFlow
   #terminal!: TerminalController
-  #staticContextChars = 0
   #loadedProjectContext: ContextFile[] = []
   #loadedSkills: SkillCatalog = emptySkillCatalog()
   #busy = false
@@ -208,9 +207,6 @@ export class InteractiveApp {
     const treeSitterClient = await initializeTreeSitterClient()
     this.#loadedProjectContext = loadProjectContext(this.#cwd)
     this.#loadedSkills = await loadSkillCatalog(this.#cwd)
-    this.#staticContextChars =
-      this.#loadedProjectContext.reduce((sum, file) => sum + file.content.length, 0) +
-      skillAdvertisementChars(this.#loadedSkills.skills)
 
     this.#ui = createChatUI(this.#renderer, {
       configured: this.#configured,
@@ -219,10 +215,7 @@ export class InteractiveApp {
         fast: this.#fastAvailable,
       }),
       contextLabel: formatContextUsage(
-        contextUsage(
-          estimateContextTokens(this.#transcript.history, this.#staticContextChars),
-          this.#autoCompactAtTokens,
-        ),
+        contextUsage(this.#contextEstimator()(this.#transcript.history), this.#autoCompactAtTokens),
       ),
       modelLabel:
         this.#selectedModelProvider === "pair"
@@ -694,7 +687,6 @@ export class InteractiveApp {
     this.#ui.clearInput()
     this.#ui.renderTranscript(this.#transcript.entries, { scrollToBottom: true })
 
-    let shouldCompact = false
     try {
       const result = await runAgentTurn({
         admission,
@@ -711,7 +703,13 @@ export class InteractiveApp {
         projectContext: this.#loadedProjectContext,
         skills: this.#loadedSkills,
         tools: providerTools(activeProvider),
-        staticContextChars: this.#staticContextChars,
+        autoCompactAtTokens: this.#autoCompactAtTokens,
+        onCompaction: async (result, details, steeringCount) => {
+          await turnSession.compactTurn(admission, result.summary, result.keptMessages, details, steeringCount)
+        },
+        onCompactionUsage: async (usage) => {
+          await turnSession.recordUsage(usage, "compaction", admission.promptId)
+        },
         isExiting: () => this.#exiting,
         onContext: (tokens) => {
           const usage = contextUsage(tokens, this.#autoCompactAtTokens)
@@ -733,7 +731,7 @@ export class InteractiveApp {
         steering,
       })
 
-      if (result.status === "interrupted") {
+      if (result.status === "interrupted" || result.status === "error") {
         try {
           await turnSession.interruptTurn(admission, result.messages, result.details)
         } catch (error) {
@@ -765,9 +763,6 @@ export class InteractiveApp {
       }
 
       if (!turnSession.hasTitle()) void this.#sessions.generateTitle(turnSession)
-      shouldCompact =
-        !this.#pendingActions.some((action) => action.type === "prompt") &&
-        estimateContextTokens(this.#transcript.history, this.#staticContextChars) >= this.#autoCompactAtTokens
     } finally {
       try {
         await steering.close()
@@ -786,30 +781,18 @@ export class InteractiveApp {
         this.#ui.focusInput()
       }
     }
-    if (shouldCompact) await this.#runCompaction(undefined, true)
   }
 
-  async #runCompaction(instructions?: string, auto = false) {
+  async #runCompaction(instructions?: string) {
     if (this.#busy) return
     const activeClient = this.#client
     if (!activeClient) return
-    if (this.#transcript.history.length < 4) {
-      if (!auto) {
-        this.#ui.showChatLayout()
-        this.#transcript.addAssistantMessage("Not enough conversation history to compact.")
-        this.#ui.renderTranscript(this.#transcript.entries, { scrollToBottom: true })
-        this.#ui.focusInput()
-      }
-      return
-    }
 
     this.#busy = true
     this.#ui.setBusy(true)
     this.#ui.showChatLayout()
     this.#ui.startBusyIndicator()
-    this.#transcript.addAssistantMessage(
-      auto ? "Context window filling up — auto-compacting conversation…" : "Compacting conversation…",
-    )
+    this.#transcript.addAssistantMessage("Compacting conversation…")
     this.#ui.renderTranscript(this.#transcript.entries, { scrollToBottom: true })
 
     const compactionController = new AbortController()
@@ -821,6 +804,9 @@ export class InteractiveApp {
       const result = await compactConversation(this.#transcript.history, {
         client: activeClient,
         instructions,
+        targetTokens: Math.floor(this.#autoCompactAtTokens / 2),
+        maxInputTokens: this.#autoCompactAtTokens,
+        estimateContextTokens: this.#contextEstimator(),
         onUsage: async (usage) => {
           await turnSession.recordUsage(usage, "compaction")
         },
@@ -1259,14 +1245,24 @@ export class InteractiveApp {
   #updateContextIndicator(pendingInput = "") {
     const pendingMessage = createUserMessage(pendingInput, this.#images.pending.items)
     const usage = contextUsage(
-      estimateContextTokens(
-        this.#transcript.history,
-        this.#staticContextChars,
-        userMessageContentChars(pendingMessage),
-      ),
+      this.#contextEstimator()([
+        ...this.#transcript.history,
+        ...(pendingInput || this.#images.pending.items.length > 0 ? [pendingMessage] : []),
+      ]),
       this.#autoCompactAtTokens,
     )
     this.#ui.setContextLabel(formatContextUsage(usage), contextUsageColor(usage.percent))
+  }
+
+  #contextEstimator() {
+    const tools = providerTools(this.#selectedModelProvider ?? "fireworks").filter(
+      (tool) => tool.name !== "skill" || this.#loadedSkills.skills.length > 0,
+    )
+    return requestContextEstimator({
+      tools,
+      projectContext: this.#loadedProjectContext,
+      skills: tools.some((tool) => tool.name === "skill") ? this.#loadedSkills.skills : [],
+    })
   }
 
   #toggleMode() {

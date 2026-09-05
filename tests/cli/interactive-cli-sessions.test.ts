@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
+import { compactionSummaryMessage } from "../../src/core/compaction.js"
 import {
   clone,
   getMocks,
@@ -12,6 +13,74 @@ import {
 const mocks = getMocks()
 
 describe("CLI session turn handling", () => {
+  it("checkpoints during a busy turn and preserves queued and steering entries across compaction", async () => {
+    const session = testSession()
+    mocks.createSession.mockResolvedValue(session)
+    let markCompacting = () => {}
+    const compacting = new Promise<void>((resolve) => {
+      markCompacting = resolve
+    })
+    let finishSummary = () => {}
+    const summaryReady = new Promise<void>((resolve) => {
+      finishSummary = resolve
+    })
+    const histories: unknown[] = []
+    mocks.runAgent
+      .mockImplementationOnce(async function* (input, _history, options) {
+        yield { type: "compaction", phase: "start" }
+        markCompacting()
+        await summaryReady
+        const result = { summary: "Task progress.", keptMessages: [input] }
+        await options.onCompactionUsage?.({ promptTokens: 10, completionTokens: 2, totalTokens: 12 })
+        await options.onCompaction?.(result, 0)
+        yield { type: "compaction", phase: "complete", ...result }
+        const steering = (await options.steering?.drain()) ?? []
+        yield { type: "delta", text: "Finished." }
+        yield {
+          type: "complete",
+          messages: [...steering, { role: "assistant", content: [{ type: "text", text: "Finished." }] }],
+        }
+      })
+      .mockImplementationOnce(async function* (input, history) {
+        histories.push(clone(history))
+        yield {
+          type: "complete",
+          messages: [input, { role: "assistant", content: [{ type: "text", text: "Queued done." }] }],
+        }
+      })
+    await loadCli()
+    const active = submit("task")
+    await compacting
+    await submit("/queue follow-up")
+    await submit("focus on tests")
+    finishSummary()
+    await active
+    expect(session.compactTurn).toHaveBeenCalledWith(
+      expect.objectContaining({ promptId: "prompt_task" }),
+      "Task progress.",
+      [{ role: "user", content: "task" }],
+      { toolActivities: [], subagents: [] },
+      0,
+    )
+    expect(session.recordUsage).toHaveBeenCalledWith(
+      { promptTokens: 10, completionTokens: 2, totalTokens: 12 },
+      "compaction",
+      "prompt_task",
+    )
+    expect(histories).toEqual([
+      [
+        compactionSummaryMessage("Task progress."),
+        { role: "user", content: "task" },
+        { role: "user", content: "focus on tests" },
+        { role: "assistant", content: [{ type: "text", text: "Finished." }] },
+      ],
+    ])
+    const entries = mocks.ui.renderTranscript.mock.calls.at(-1)?.[0]
+    expect(entries.filter((entry: { text: string }) => entry.text === "follow-up")).toHaveLength(1)
+    expect(entries.filter((entry: { text: string }) => entry.text === "focus on tests")).toHaveLength(1)
+    expect(entries.some((entry: { delivery?: string }) => entry.delivery)).toBe(false)
+  })
+
   it("steers a busy turn at the next agent boundary", async () => {
     const session = testSession()
     mocks.createSession.mockResolvedValue(session)
@@ -576,9 +645,9 @@ describe("CLI session turn handling", () => {
     const session = testSession()
     mocks.createSession.mockResolvedValue(session)
     mocks.runAgent.mockImplementationOnce(async function* () {
-      yield { type: "context", messageCount: 1, contentChars: 100 }
+      yield { type: "context", messageCount: 1, contentChars: 100, tokens: 1_000 }
       yield { type: "delta", text: "working" }
-      yield { type: "context", messageCount: 3, contentChars: 500_000 }
+      yield { type: "context", messageCount: 3, contentChars: 500_000, tokens: 126_000 }
       yield { type: "complete", messages: [{ role: "user", content: "test" }] }
     })
 
@@ -599,7 +668,7 @@ describe("CLI session turn handling", () => {
     mocks.createSession.mockResolvedValue(session)
     mocks.loadLocalSettings.mockResolvedValue(localSettings({ modelContextLength: 1_000_000 }))
     mocks.runAgent.mockImplementationOnce(async function* () {
-      yield { type: "context", messageCount: 1, contentChars: 500_000 }
+      yield { type: "context", messageCount: 1, contentChars: 500_000, tokens: 126_000 }
       yield { type: "delta", text: "working" }
       yield { type: "complete", messages: [{ role: "user", content: "test" }] }
     })
@@ -620,7 +689,6 @@ describe("CLI session turn handling", () => {
     mocks.createSession.mockResolvedValue(session)
     mocks.loadProjectContext.mockReturnValue([{ path: "/repo/AGENTS.md", content: "A".repeat(4_000) }])
     mocks.runAgent.mockImplementationOnce(async function* () {
-      yield { type: "context", messageCount: 1, contentChars: 100 }
       yield { type: "delta", text: "done" }
       yield { type: "complete", messages: [{ role: "user", content: "test" }] }
     })
@@ -630,10 +698,7 @@ describe("CLI session turn handling", () => {
     await submit("test")
 
     const labels = mocks.ui.setContextLabel.mock.calls.map((call) => call[0] as string)
-    // 4000 chars of project context = 1000 extra tokens beyond the baseline.
-    // Baseline with 100 contentChars: 1000 + ceil((2 + 4000 + 100) / 4) + 1*4 = 1000 + 1026 + 4 = 2030
-    // Without project context it would be: 1000 + ceil((2 + 100) / 4) + 4 = 1000 + 26 + 4 = 1030
-    // The label must reflect the ~2030 estimate, not ~1030.
+    // The idle meter includes the real system prompt and 1,000 tokens of project context.
     expect(labels.some((label) => label.includes("~2k"))).toBe(true)
     expect(labels.some((label) => label.includes("~1k"))).toBe(false)
   })

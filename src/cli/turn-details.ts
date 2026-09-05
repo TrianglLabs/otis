@@ -1,5 +1,12 @@
 import type { AgentEvent } from "../core/agent.js"
-import type { SessionSubagentRun, SessionSubagentStatus, SessionToolActivity } from "../storage/index.js"
+import { compactionSummaryMessage } from "../core/compaction.js"
+import type { ChatMessage } from "../inference/types.js"
+import {
+  forToolCalls,
+  type SessionSubagentRun,
+  type SessionSubagentStatus,
+  type SessionToolActivity,
+} from "../storage/index.js"
 
 type SubagentRecording = {
   toolCallId: string
@@ -15,6 +22,16 @@ type SubagentRecording = {
 export class ToolActivityRecorder {
   readonly activities: SessionToolActivity[] = []
   readonly #indexes = new Map<string, number>()
+
+  retain(messages: ChatMessage[]) {
+    const kept = forToolCalls(this.activities, messages)
+    this.activities.length = 0
+    this.activities.push(...kept)
+    this.#indexes.clear()
+    this.activities.forEach((activity, index) => {
+      this.#indexes.set(activity.toolCallId, index)
+    })
+  }
 
   record(event: AgentEvent) {
     if (event.type !== "tool") return
@@ -69,9 +86,13 @@ export class TurnDetailsRecorder {
     }
     const event = envelope.event
     run.tools.record(event)
+    if (event.type === "compaction" && event.phase === "complete") {
+      run.messages = [compactionSummaryMessage(event.summary), ...event.keptMessages]
+      run.tools.retain(event.keptMessages)
+    }
     if (event.type === "complete" || event.type === "interrupted" || event.type === "error") {
       run.status = event.type === "complete" ? "complete" : event.type === "interrupted" ? "interrupted" : "failed"
-      run.messages = event.messages ?? []
+      run.messages.push(...(event.messages ?? []))
       run.durationMs = Date.now() - run.startedAt
     }
   }

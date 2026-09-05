@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
 import { SubagentTraces } from "../../src/cli/subagents.js"
+import { TurnDetailsRecorder } from "../../src/cli/turn-details.js"
 import type { AgentEvent } from "../../src/core/agent.js"
+import { compactionSummaryMessage } from "../../src/core/compaction.js"
 import type { ChatMessage } from "../../src/inference/types.js"
 
 const childMessages: ChatMessage[] = [
@@ -29,6 +31,42 @@ function envelope(toolCallId: string, event: AgentEvent): Extract<AgentEvent, { 
 }
 
 describe("SubagentTraces", () => {
+  it("keeps child checkpoints and continuation messages consistent between the live trace and saved run", () => {
+    const traces = new SubagentTraces()
+    const recorder = new TurnDetailsRecorder()
+    const events: AgentEvent[] = [
+      {
+        type: "tool",
+        phase: "start",
+        toolCallId: "old_read",
+        name: "read",
+        activityKind: "file_read",
+        label: "Reading old file",
+      },
+      { type: "compaction", phase: "complete", summary: "Earlier exploration.", keptMessages: [] },
+      {
+        type: "tool",
+        phase: "start",
+        toolCallId: "read_1",
+        name: "read",
+        activityKind: "file_read",
+        label: "Reading a.ts",
+      },
+      { type: "delta", text: "Report." },
+      { type: "complete", messages: childMessages },
+    ]
+    for (const event of events) {
+      const wrapped = envelope("call_a", event)
+      traces.apply(wrapped)
+      recorder.record(wrapped)
+    }
+    const saved = recorder.subagents[0]
+    expect(saved.messages).toEqual([compactionSummaryMessage("Earlier exploration."), ...childMessages])
+    expect(traces.get("call_a")?.transcript.history).toEqual(saved.messages)
+    expect(saved.toolActivities?.map((activity) => activity.toolCallId)).toEqual(["read_1"])
+    expect(traces.runsFor(parentMessages)[0].toolActivities).toEqual(saved.toolActivities)
+  })
+
   it("builds a live transcript per run and settles its status from the child's terminal event", () => {
     const traces = new SubagentTraces()
 

@@ -33,6 +33,42 @@ const delegateCall = (id: string, description = "Map the notes", prompt = "List 
 })
 
 describe("agent tool", () => {
+  it("compacts a long child without checkpointing or inflating the parent's context", async () => {
+    const cwd = await trackedTempDir()
+    await writeFile(join(cwd, "note.txt"), "note", "utf8")
+    const parentCheckpoint = vi.fn()
+    streamMock
+      .mockImplementationOnce(async function* () {
+        yield delegateCall("call_agent")
+      })
+      .mockImplementationOnce(async function* () {
+        yield { type: "reasoning_delta", field: "reasoning_content", text: "x".repeat(100_000) }
+        yield { type: "tool_call", toolCall: { id: "read_1", name: "read", arguments: '{"path":"note.txt"}' } }
+        yield { type: "usage", usage: { promptTokens: 2_000, completionTokens: 25_000, totalTokens: 27_000 } }
+      })
+      .mockImplementationOnce(async function* () {
+        yield { type: "text_delta", text: "Child progress summarized." }
+      })
+      .mockImplementationOnce(async function* () {
+        yield { type: "text_delta", text: "Child report." }
+      })
+      .mockImplementationOnce(async function* () {
+        yield { type: "text_delta", text: "Finished." }
+      })
+    const events = await collect(
+      runAgent("delegate", [], { client, cwd, autoCompactAtTokens: 20_000, onCompaction: parentCheckpoint }),
+    )
+    expect(events.at(-1)?.type).toBe("complete")
+    expect(
+      events.filter(
+        (event) => event.type === "subagent" && event.event.type === "compaction" && event.event.phase === "complete",
+      ),
+    ).toHaveLength(1)
+    expect(parentCheckpoint).not.toHaveBeenCalled()
+    expect(events.some((event) => event.type === "compaction")).toBe(false)
+    expect(streamMock).toHaveBeenCalledTimes(5)
+  })
+
   it("runs the delegated brief in a fresh context and returns only the final report", async () => {
     const cwd = await trackedTempDir()
     await writeFile(join(cwd, "note.txt"), "first line", "utf8")
