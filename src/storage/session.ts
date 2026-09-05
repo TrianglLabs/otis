@@ -75,7 +75,7 @@ export class JsonlSession {
     return this.append({
       type: "turn_completed",
       promptId: admission.promptId,
-      messages: messagesAfterAdmittedPrompt(admission.message, turnMessages),
+      messages: this.continuationMessages(admission, turnMessages),
       ...presentTurnDetails(details),
     })
   }
@@ -84,7 +84,7 @@ export class JsonlSession {
     return this.append({
       type: "turn_interrupted",
       promptId: admission.promptId,
-      messages: messagesAfterAdmittedPrompt(admission.message, turnMessages),
+      messages: this.continuationMessages(admission, turnMessages),
       ...presentTurnDetails(details),
     })
   }
@@ -96,6 +96,29 @@ export class JsonlSession {
       messages,
       ...presentTurnDetails(details),
       ...(throughSeq === undefined ? {} : { throughSeq }),
+    })
+  }
+
+  /** Checkpoints an active turn, leaving later queued prompts outside its context. */
+  compactTurn(
+    admission: PromptAdmission,
+    summary: string,
+    messages: ChatMessage[],
+    details: SessionTurnDetails,
+    steeringCount: number,
+  ) {
+    const admitted = this.events.find(
+      (event) => event.type === "prompt_admitted" && event.promptId === admission.promptId,
+    )
+    if (!admitted) throw new Error("Cannot compact a turn without its admitted prompt.")
+    return this.append({
+      type: "compacted",
+      promptId: admission.promptId,
+      throughSeq: admitted.seq,
+      steeringCount,
+      summary,
+      messages,
+      ...presentTurnDetails(details),
     })
   }
 
@@ -117,6 +140,13 @@ export class JsonlSession {
 
   async start() {
     if (this.events.length === 0) await this.append({ type: "session_started", version: 1 })
+  }
+
+  private continuationMessages(admission: PromptAdmission, messages: ChatMessage[]) {
+    const checkpointed = this.events.some(
+      (event) => event.type === "compacted" && event.promptId === admission.promptId,
+    )
+    return checkpointed ? messages : messagesAfterAdmittedPrompt(admission.message, messages)
   }
 
   private append<T extends NewSessionEvent>(event: T): Promise<BaseSessionEvent & T> {

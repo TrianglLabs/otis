@@ -1,6 +1,7 @@
 import { stat } from "node:fs/promises"
 import { resolve } from "node:path"
 import { parseArgs } from "node:util"
+import { autoCompactThreshold } from "../core/compaction.js"
 import { loadProjectContext } from "../core/context.js"
 import { providerTools } from "../core/subagent.js"
 import { FireworksClient, listToolCapableModels } from "../inference/client.js"
@@ -24,7 +25,6 @@ import {
   fireworksServingModel,
   useFastServingPath,
 } from "../inference/serving-path.js"
-import { skillAdvertisementChars } from "../inference/system-prompt.js"
 import type { InferenceClient, ModelProvider } from "../inference/types.js"
 import { loadLocalSettings, saveSelectedModel } from "../local/settings.js"
 import {
@@ -46,7 +46,6 @@ import {
 import { TOOL_NAMES, type ToolDefinition, type ToolName } from "../tools/index.js"
 import { ParallelClient } from "../web/client.js"
 import { addUsage, emptyUsage, type HeadlessOutputFormat, HeadlessReporter } from "./headless-output.js"
-import { prepareSessionHistory } from "./session-history.js"
 import { executeTurn } from "./turn-runner.js"
 
 const DEFAULT_MAX_STEPS = 50
@@ -154,8 +153,6 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
     }
     const projectContext = loadProjectContext(cwd)
     const skills = await loadSkillCatalog(cwd)
-    const staticContextChars =
-      projectContext.reduce((sum, file) => sum + file.content.length, 0) + skillAdvertisementChars(skills.skills)
 
     if (!parsed.ephemeral) {
       const selectedSessionId = await resolveSessionId(parsed, cwd)
@@ -187,20 +184,8 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
       throw new Error(`Selected model does not support image input required by this session: ${model}`)
     }
 
-    const history = session
-      ? await prepareSessionHistory({
-          session,
-          client,
-          contextLength: modelContextLength,
-          staticContextChars,
-          signal: controller.signal,
-          onUsage: async (nextUsage) => {
-            usage = addUsage(usage, nextUsage)
-            await reporter.usage(nextUsage)
-            await session?.recordUsage(nextUsage, "compaction")
-          },
-        })
-      : []
+    const replay = session?.replay()
+    const history = replay?.messages ?? []
     validateImageAttachments(imageAttachmentsFromMessages([...history, userMessage]))
     const admission = session ? await session.admitPrompt(userMessage) : undefined
     const webClient = new ParallelClient()
@@ -215,6 +200,11 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
     const result = await executeTurn({
       input: userMessage,
       history,
+      historyDetails: replay,
+      onCompaction: async (result, details, steeringCount) => {
+        if (session && admission)
+          await session.compactTurn(admission, result.summary, result.keptMessages, details, steeringCount)
+      },
       agent: {
         client,
         webClient,
@@ -226,6 +216,12 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
         skills,
         tools,
         maxSteps: parsed.maxSteps,
+        autoCompactAtTokens: autoCompactThreshold(modelContextLength),
+        onCompactionUsage: async (nextUsage) => {
+          usage = addUsage(usage, nextUsage)
+          await reporter.usage(nextUsage)
+          if (session && admission) await session.recordUsage(nextUsage, "compaction", admission.promptId)
+        },
         permissionPolicy,
         onUsage: async (nextUsage) => {
           usage = addUsage(usage, nextUsage)

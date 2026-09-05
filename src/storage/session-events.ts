@@ -57,7 +57,14 @@ export type NewSessionEvent =
   | { type: "prompt_steered"; promptId: string; message: UserChatMessage }
   | ({ type: "turn_completed"; promptId: string; messages: ChatMessage[] } & SessionTurnDetails)
   | ({ type: "turn_interrupted"; promptId: string; messages: ChatMessage[] } & SessionTurnDetails)
-  | ({ type: "compacted"; summary: string; messages: ChatMessage[]; throughSeq?: number } & SessionTurnDetails)
+  | ({
+      type: "compacted"
+      summary: string
+      messages: ChatMessage[]
+      throughSeq?: number
+      promptId?: string
+      steeringCount?: number
+    } & SessionTurnDetails)
   | { type: "usage_recorded"; purpose: UsagePurpose; promptId?: string; usage: TokenUsage }
   | { type: "title_renamed"; title: string }
 
@@ -94,6 +101,9 @@ export async function readSessionEvents(filePath: string): Promise<SessionEvent[
 type ReplayTurn = {
   promptId?: string
   admittedSeq?: number
+  continuation?: boolean
+  /** All steering admitted for this turn, so a checkpoint can preserve the unconsumed suffix. */
+  steered?: UserChatMessage[]
   messages: ChatMessage[]
   toolActivities: SessionToolActivity[]
   subagents: SessionSubagentRun[]
@@ -105,6 +115,7 @@ export function replaySession(events: readonly SessionEvent[]): SessionReplay {
 
   for (const event of events) {
     if (event.type === "compacted") {
+      const active = event.promptId ? findReplayTurn(turns, event.promptId) : undefined
       base = replayTurn([compactionSummaryMessage(event.summary), ...event.messages], event)
       const throughSeq = event.throughSeq
       const preserved =
@@ -112,17 +123,30 @@ export function replaySession(events: readonly SessionEvent[]): SessionReplay {
           ? []
           : turns.filter((turn) => turn.admittedSeq !== undefined && turn.admittedSeq > throughSeq)
       turns.length = 0
+      if (event.promptId) {
+        const steered = active?.steered ?? []
+        turns.push({
+          ...replayTurn(steered.slice(event.steeringCount)),
+          promptId: event.promptId,
+          admittedSeq: throughSeq,
+          continuation: true,
+          steered,
+        })
+      }
       turns.push(...preserved)
     } else if (event.type === "prompt_admitted") {
       turns.push({ ...replayTurn([event.message]), promptId: event.promptId, admittedSeq: event.seq })
     } else if (event.type === "prompt_steered") {
       const turn = findReplayTurn(turns, event.promptId)
-      if (turn) turn.messages.push(event.message)
-      else turns.push(replayTurn([event.message]))
+      if (turn) {
+        turn.messages.push(event.message)
+        turn.steered ??= []
+        turn.steered.push(event.message)
+      } else turns.push(replayTurn([event.message]))
     } else if (event.type === "turn_completed" || event.type === "turn_interrupted") {
       const turn = findReplayTurn(turns, event.promptId)
       if (turn) {
-        const completed = replayTurn([turn.messages[0], ...event.messages], event)
+        const completed = replayTurn(turn.continuation ? event.messages : [turn.messages[0], ...event.messages], event)
         turn.messages = completed.messages
         turn.toolActivities = completed.toolActivities
         turn.subagents = completed.subagents
@@ -228,6 +252,15 @@ function parseSessionEvent(value: unknown, line: number): SessionEvent {
     if (typeof value.summary !== "string" || !value.summary) throw invalidEvent(line, "summary must be a string")
     const messages = parseChatMessages(value.messages, line)
     if (
+      value.promptId !== undefined &&
+      (typeof value.promptId !== "string" ||
+        !value.promptId ||
+        value.throughSeq === undefined ||
+        nonNegativeInteger(value.steeringCount) === undefined)
+    ) {
+      throw invalidEvent(line, "compacted promptId requires a prompt ID, throughSeq, and steeringCount")
+    }
+    if (
       value.throughSeq !== undefined &&
       (typeof value.throughSeq !== "number" ||
         !Number.isInteger(value.throughSeq) ||
@@ -245,6 +278,9 @@ function parseSessionEvent(value: unknown, line: number): SessionEvent {
       messages,
       ...parseTurnDetails(value, messages, line),
       ...(value.throughSeq === undefined ? {} : { throughSeq: value.throughSeq }),
+      ...(value.promptId === undefined
+        ? {}
+        : { promptId: value.promptId as string, steeringCount: value.steeringCount as number }),
     }
   }
   if (type === "usage_recorded") {

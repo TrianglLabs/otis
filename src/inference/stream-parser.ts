@@ -28,6 +28,7 @@ export async function* parseChatCompletionStream(stream: ReadableStream<Uint8Arr
   }
 
   yield* flushToolCalls(state)
+  if (state.finishReason) yield { type: "finish", reason: state.finishReason }
 }
 
 function* processSSEEvent(rawEvent: string, state: StreamParserState): Generator<ChatStreamEvent> {

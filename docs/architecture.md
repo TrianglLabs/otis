@@ -256,6 +256,26 @@ skill metadata is not advertised to the model.
 
 ## Sessions and local statistics
 
+The agent checks context before every model request, including requests within a tool loop and after steering input.
+The trigger is 80% of the serving context, capped at 250,000 tokens; unknown context uses the 250,000-token fallback.
+Hosted and managed-local models use their configured serving context, while PAIR uses its separate conservative
+65,536-token policy budget. A completed task waits until the next request before compacting.
+
+The runtime and context meter share one estimator, including the assembled system prompt, tool definitions, native
+reasoning, and tool history. During an active run, the last request's reported prompt and completion usage informs
+context checks, with estimates for newly added content. New turns, reopened sessions, and freshly compacted history
+use character estimates until the next response reports usage. Token accounting adds no metadata to chat messages.
+
+Compaction targets half the trigger budget, retains a bounded suffix of complete tool exchanges, and preserves
+unanswered user messages. A summary is accepted only when it reduces context, fits the target, and has not reported an
+incomplete finish. Oversized histories are summarized in bounded chunks. Provider errors surface without automatic
+compaction retries. A failed summary leaves the original history unchanged.
+
+An active-turn compaction saves a `compacted` checkpoint before inference continues. Its prompt ID associates later
+completion or interruption with the continuation; its admission sequence and consumed steering count preserve queued
+prompts and steering received during summarization. Live transcripts and replay use the same checkpoint plus
+continuation messages. Compaction usage and child-agent checkpoints remain separate from the parent's context.
+
 Each session is an append-only JSONL event stream. A completed turn stores model-facing messages separately from local
 tool-card metadata, which preserves diffs and activity history without placing UI state into future model requests.
 Image bytes are stored inline as base64 in the same private local session stream so resumed turns preserve native

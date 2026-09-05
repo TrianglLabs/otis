@@ -1,3 +1,4 @@
+import type { CompactionResult } from "../core/compaction.js"
 import type { SteeringSource } from "../core/steering.js"
 import type { InferenceClient } from "../inference/client.js"
 import type { ChatMessage, ContextFile, TokenUsage } from "../inference/types.js"
@@ -6,7 +7,6 @@ import type { SkillCatalog } from "../skills/index.js"
 import type { PromptAdmission, SessionTurnDetails } from "../storage/index.js"
 import type { ToolDefinition } from "../tools/index.js"
 import type { ParallelClient } from "../web/client.js"
-import { estimateAgentContextTokens } from "./context-meter.js"
 import { countDiffLines } from "./diff-stats.js"
 import type { SubagentTraces } from "./subagents.js"
 import type { TranscriptStore } from "./transcript.js"
@@ -17,7 +17,8 @@ import type { ChatUI } from "./ui/types.js"
 export type AgentTurnResult =
   | { status: "complete"; messages: ChatMessage[]; details: SessionTurnDetails }
   | { status: "interrupted"; messages: ChatMessage[]; details: SessionTurnDetails }
-  | { status: "error" | "incomplete" }
+  | { status: "error"; messages: ChatMessage[]; details: SessionTurnDetails }
+  | { status: "incomplete" }
 
 type AgentTurnOptions = {
   admission: PromptAdmission
@@ -34,7 +35,9 @@ type AgentTurnOptions = {
   projectContext: ContextFile[]
   skills: SkillCatalog
   tools: ToolDefinition[]
-  staticContextChars: number
+  autoCompactAtTokens?: number
+  onCompaction?: (result: CompactionResult, details: SessionTurnDetails, steeringCount: number) => void | Promise<void>
+  onCompactionUsage?: (usage: TokenUsage) => void | Promise<void>
   isExiting: () => boolean
   onContext: (tokens: number) => void
   onDiff: (added: number, removed: number) => void
@@ -47,12 +50,13 @@ type AgentTurnOptions = {
 
 export async function runAgentTurn(options: AgentTurnOptions): Promise<AgentTurnResult> {
   const { admission, signal, transcript, subagents, ui } = options
-  const projector = new TranscriptProjector(transcript)
+  let projector = new TranscriptProjector(transcript)
+  let checkpointed = false
   let recordedTurn = false
 
   const recordAdmittedPrompt = () => {
     if (recordedTurn) return
-    transcript.addMessages([admission.message])
+    if (!checkpointed) transcript.addMessages([admission.message])
     recordedTurn = true
   }
   const recordCompletedTurn = (messages: ChatMessage[]) => {
@@ -82,6 +86,11 @@ export async function runAgentTurn(options: AgentTurnOptions): Promise<AgentTurn
     const result = await executeTurn({
       input: admission.message,
       history: transcript.history,
+      historyDetails: {
+        toolActivities: transcript.toolActivitiesFor(transcript.history),
+        subagents: subagents.runsFor(transcript.history),
+      },
+      onCompaction: options.onCompaction,
       agent: {
         client: options.client,
         webClient: options.webClient,
@@ -90,6 +99,8 @@ export async function runAgentTurn(options: AgentTurnOptions): Promise<AgentTurn
         cwd: options.cwd,
         debug: options.debug,
         onUsage: options.onUsage,
+        autoCompactAtTokens: options.autoCompactAtTokens,
+        onCompactionUsage: options.onCompactionUsage,
         signal,
         projectContext: options.projectContext,
         skills: options.skills,
@@ -99,6 +110,23 @@ export async function runAgentTurn(options: AgentTurnOptions): Promise<AgentTurn
         steering: options.steering,
       },
       onEvent: (event) => {
+        if (event.type === "compaction") {
+          projector.finishStreaming()
+          if (event.phase === "start") {
+            transcript.addAssistantMessage("Context window filling up — auto-compacting conversation…")
+            ui.startBusyIndicator()
+          } else {
+            const activities = transcript.toolActivitiesFor(event.keptMessages)
+            const keptSubagents = subagents.runsFor(event.keptMessages)
+            transcript.loadCompacted(event.summary, event.keptMessages, activities)
+            subagents.load(keptSubagents)
+            ui.renderSubagents(subagents.all)
+            projector = new TranscriptProjector(transcript)
+            checkpointed = true
+          }
+          ui.renderTranscript(transcript.entries)
+          return
+        }
         if (event.type === "model") {
           ui.setAgentPhase("working")
           ui.startBusyIndicator()
@@ -110,9 +138,7 @@ export async function runAgentTurn(options: AgentTurnOptions): Promise<AgentTurn
           return
         }
         if (event.type === "context") {
-          options.onContext(
-            estimateAgentContextTokens(event.contentChars, event.messageCount, options.staticContextChars),
-          )
+          options.onContext(event.tokens)
           return
         }
         if (event.type === "complete") {
@@ -135,8 +161,10 @@ export async function runAgentTurn(options: AgentTurnOptions): Promise<AgentTurn
     if (result.status === "interrupted") return interruptionResult(result.messages, result.details)
     if (result.status === "error") {
       if (interrupted()) return interruptionResult(result.messages, result.details)
+      const messages = result.messages.length > 0 ? result.messages : checkpointed ? [] : [admission.message]
+      recordCompletedTurn(messages)
       showError(result.message)
-      return { status: "error" }
+      return { ...result, messages }
     }
     if (result.status === "incomplete") return { status: "incomplete" }
 
@@ -145,8 +173,8 @@ export async function runAgentTurn(options: AgentTurnOptions): Promise<AgentTurn
     options.onCompletion()
     return result
   } catch (error) {
-    if (interrupted()) return interruptionResult([admission.message], {})
+    if (interrupted()) return interruptionResult(checkpointed ? [] : [admission.message], {})
     showError(error instanceof Error ? error.message : String(error))
-    return { status: "error" }
+    return { status: "error", messages: checkpointed ? [] : [admission.message], details: {} }
   }
 }

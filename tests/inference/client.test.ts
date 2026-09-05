@@ -56,6 +56,7 @@ describe("FireworksClient", () => {
         type: "tool_call",
         toolCall: { id: "call_1", name: "read", arguments: '{"path":"README.md"}' },
       },
+      { type: "finish", reason: "tool_calls" },
     ])
 
     const [url, init] = fetchMock.mock.calls[0]

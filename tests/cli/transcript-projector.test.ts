@@ -79,7 +79,7 @@ describe("TranscriptProjector", () => {
     const projector = new TranscriptProjector(transcript)
 
     expect(projector.apply({ type: "model", phase: "start" })).toBe(false)
-    expect(projector.apply({ type: "context", messageCount: 1, contentChars: 10 })).toBe(false)
+    expect(projector.apply({ type: "context", messageCount: 1, contentChars: 10, tokens: 1_000 })).toBe(false)
     expect(projector.apply({ type: "reasoning", phase: "delta", reasoningId: "unknown", text: "x" })).toBe(false)
     expect(projector.apply({ type: "complete", messages: [] })).toBe(false)
     expect(transcript.entries).toEqual([])

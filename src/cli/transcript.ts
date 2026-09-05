@@ -49,9 +49,9 @@ export class TranscriptStore {
    * displayed as an Otis message in the transcript.
    */
   loadCompacted(summary: string, keptMessages: ChatMessage[], toolActivities: SessionToolActivity[] = []) {
+    const pending = this.entries.filter((entry) => entry.delivery)
     this.entries.length = 0
     this.history.length = 0
-    this.nextMessageID = 1
 
     this.history.push(compactionSummaryMessage(summary), ...keptMessages)
     this.addAssistantMessage(
@@ -59,6 +59,7 @@ export class TranscriptStore {
     )
 
     this.loadEntries(keptMessages, toolActivities)
+    this.entries.push(...pending)
   }
 
   addUserMessage(message: string | Extract<ChatMessage, { role: "user" }>) {

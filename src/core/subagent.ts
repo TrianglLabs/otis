@@ -39,6 +39,7 @@ export function subagentRunOptions(parent: RunAgentOptions): RunAgentOptions {
     tools: subagentTools(parent.tools ?? []),
     maxSteps: parent.maxSteps ?? SUBAGENT_MAX_STEPS,
     steering: undefined,
+    onCompaction: undefined,
   }
 }
 

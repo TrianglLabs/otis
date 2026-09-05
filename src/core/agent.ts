@@ -1,4 +1,3 @@
-import { userMessageContentChars } from "../inference/messages.js"
 import type {
   ChatMessage,
   ChatToolCall,
@@ -27,13 +26,22 @@ import {
   type ToolResult,
 } from "../tools/index.js"
 import { AssistantResponseBuilder } from "./assistant-response.js"
+import {
+  autoCompactThreshold,
+  type CompactionResult,
+  compactConversation,
+  compactionSummaryMessage,
+} from "./compaction.js"
 import { mergeGenerators, serialized } from "./concurrency.js"
 import { loadProjectContext } from "./context.js"
+import { messagesContentChars, requestContextEstimator } from "./context-tokens.js"
 import type { SteeringSource } from "./steering.js"
 import { type SubagentCall, subagentBrief, subagentResult, subagentRunOptions } from "./subagent.js"
 
 export type AgentEvent =
-  | { type: "context"; messageCount: number; contentChars: number }
+  | { type: "context"; messageCount: number; contentChars: number; tokens: number }
+  | { type: "compaction"; phase: "start" }
+  | ({ type: "compaction"; phase: "complete" } & CompactionResult)
   | { type: "debug"; message: string }
   | { type: "model"; phase: "start" }
   | ReasoningTraceEvent
@@ -50,6 +58,7 @@ export type AgentEvent =
     }
   /** An event from a delegated child run, identified by the parent's `agent` tool call. */
   | { type: "subagent"; toolCallId: string; title: string; event: AgentEvent }
+  /** Terminal messages contain only the continuation after the latest compaction, or the full turn otherwise. */
   | { type: "interrupted"; messages: ChatMessage[] }
   | { type: "complete"; messages: ChatMessage[] }
   | { type: "error"; message: string; messages?: ChatMessage[] }
@@ -64,6 +73,9 @@ export type RunAgentOptions = ToolContext & {
   skills?: SkillCatalog
   tools?: ToolDefinition[]
   maxSteps?: number
+  autoCompactAtTokens?: number
+  onCompaction?: (result: CompactionResult, steeringCount: number) => void | Promise<void>
+  onCompactionUsage?: (usage: TokenUsage) => void | Promise<void>
   steering?: SteeringSource
 }
 
@@ -73,12 +85,27 @@ export async function* runAgent(
   options: RunAgentOptions,
 ): AsyncGenerator<AgentEvent> {
   const userMessage: UserChatMessage = typeof input === "string" ? { role: "user", content: input } : input
-  const messages: ChatMessage[] = [...history, userMessage]
+  let messages: ChatMessage[] = [...history, userMessage]
+  let turnStart = history.length
+  let steeringCount = 0
   try {
     const projectContext = options.projectContext ?? loadProjectContext(options.cwd ?? process.cwd())
     const skills = options.skills ?? (await loadSkillCatalog(options.cwd ?? process.cwd()))
     const tools = availableTools(options.tools ?? TOOL_DEFINITIONS, skills)
     const modelSkills = tools.some((tool) => tool.name === "skill") ? skills : emptySkills()
+    const estimate = requestContextEstimator({ tools, projectContext, skills: modelSkills.skills })
+    let observed: { tokens: number; estimate: number } | undefined
+    const contextTokens = (value: ChatMessage[]) => {
+      const estimated = estimate(value)
+      return observed ? Math.max(estimated, observed.tokens + estimated - observed.estimate) : estimated
+    }
+    const threshold = options.autoCompactAtTokens ?? autoCompactThreshold()
+    const contextEvent = (): AgentEvent => ({
+      type: "context",
+      messageCount: messages.length,
+      contentChars: messagesContentChars(messages),
+      tokens: contextTokens(messages),
+    })
     const toolContext: RunAgentOptions = {
       ...options,
       projectContext,
@@ -89,23 +116,45 @@ export async function* runAgent(
         createPermissionPolicy({ cwd: options.cwd ?? process.cwd(), mode: DEFAULT_PERMISSION_MODE }),
       webSession: { id: options.webSession?.id },
     }
-    yield { type: "context", messageCount: messages.length, contentChars: messagesContentChars(messages) }
+    yield contextEvent()
 
     let step = 0
     while (true) {
       const steeringMessages = await options.steering?.drain()
       if (steeringMessages?.length) {
+        steeringCount += steeringMessages.length
         messages.push(...steeringMessages)
-        yield { type: "context", messageCount: messages.length, contentChars: messagesContentChars(messages) }
+        yield contextEvent()
       }
       if (options.maxSteps !== undefined && step >= options.maxSteps) {
         messages.push(...(await closeSteering(options.steering)))
         yield {
           type: "error",
           message: `Agent reached the ${options.maxSteps}-step limit.`,
-          messages: turnMessages(messages, history.length),
+          messages: turnMessages(messages, turnStart),
         }
         return
+      }
+      options.signal?.throwIfAborted()
+      if (contextTokens(messages) >= threshold) {
+        yield { type: "compaction", phase: "start" }
+        const result = await compactConversation(messages, {
+          client: options.client,
+          signal: options.signal,
+          onUsage: options.onCompactionUsage ?? options.onUsage,
+          targetTokens: Math.floor(threshold / 2),
+          maxInputTokens: threshold,
+          estimateContextTokens: estimate,
+        })
+        // Persist the checkpoint before committing it to live context or sending another request.
+        await options.onCompaction?.(result, steeringCount)
+        messages = [compactionSummaryMessage(result.summary), ...result.keptMessages]
+        turnStart = messages.length
+        observed = undefined
+        yield { type: "compaction", phase: "complete", ...result }
+        yield contextEvent()
+        // Steering received during summarization must be drained before the next request.
+        continue
       }
       step += 1
       yield { type: "model", phase: "start" }
@@ -116,34 +165,41 @@ export async function* runAgent(
       })
       const assistantMessage = assistantMessageFromResponse(response)
       if (assistantMessage.content.length > 0) messages.push(assistantMessage)
+      if (response.usage) {
+        observed = {
+          tokens: response.usage.promptTokens + response.usage.completionTokens,
+          estimate: estimate(messages),
+        }
+      }
 
       if (response.interrupted) {
         if (response.toolCalls.length > 0) {
           messages.push(...interruptedToolCalls([], response.toolCalls).messages)
         }
         messages.push(...(await closeSteering(options.steering)))
-        yield { type: "interrupted", messages: turnMessages(messages, history.length) }
+        yield { type: "interrupted", messages: turnMessages(messages, turnStart) }
         return
       }
 
-      yield { type: "context", messageCount: messages.length, contentChars: messagesContentChars(messages) }
+      yield contextEvent()
 
       if (response.toolCalls.length === 0) {
         const steeringMessages = await options.steering?.drainOrClose()
         if (steeringMessages?.length) {
+          steeringCount += steeringMessages.length
           messages.push(...steeringMessages)
-          yield { type: "context", messageCount: messages.length, contentChars: messagesContentChars(messages) }
+          yield contextEvent()
           continue
         }
         if (!hasText(response)) {
           yield {
             type: "error",
             message: "The model returned an empty response.",
-            messages: turnMessages(messages, history.length),
+            messages: turnMessages(messages, turnStart),
           }
           return
         }
-        yield { type: "complete", messages: turnMessages(messages, history.length) }
+        yield { type: "complete", messages: turnMessages(messages, turnStart) }
         return
       }
 
@@ -151,21 +207,21 @@ export async function* runAgent(
       messages.push(...execution.messages)
       if (execution.interrupted) {
         messages.push(...(await closeSteering(options.steering)))
-        yield { type: "interrupted", messages: turnMessages(messages, history.length) }
+        yield { type: "interrupted", messages: turnMessages(messages, turnStart) }
         return
       }
-      yield { type: "context", messageCount: messages.length, contentChars: messagesContentChars(messages) }
+      yield contextEvent()
     }
   } catch (error) {
     messages.push(...(await closeSteering(options.steering)))
     if (options.signal?.aborted) {
-      yield { type: "interrupted", messages: turnMessages(messages, history.length) }
+      yield { type: "interrupted", messages: turnMessages(messages, turnStart) }
       return
     }
     yield {
       type: "error",
       message: error instanceof Error ? error.message : String(error),
-      messages: turnMessages(messages, history.length),
+      messages: turnMessages(messages, turnStart),
     }
   }
 }
@@ -184,6 +240,7 @@ type AssistantResponse = {
   toolCalls: ChatToolCall[]
   hasText: boolean
   interrupted: boolean
+  usage?: TokenUsage
 }
 
 async function* streamAssistantResponse(
@@ -193,6 +250,7 @@ async function* streamAssistantResponse(
 ): AsyncGenerator<AgentEvent, AssistantResponse> {
   const response = new AssistantResponseBuilder()
   const projectContext = options.projectContext ?? []
+  let usage: TokenUsage | undefined
 
   try {
     for await (const event of options.client.streamChat({
@@ -210,7 +268,10 @@ async function* streamAssistantResponse(
         yield* response.appendReasoning(event.text, event.field)
       }
       if (event.type === "tool_call") yield* response.appendToolCall(event.toolCall)
-      if (event.type === "usage") await options.onUsage?.(event.usage)
+      if (event.type === "usage") {
+        usage = event.usage
+        await options.onUsage?.(event.usage)
+      }
     }
   } catch (error) {
     if (!options.signal?.aborted) throw error
@@ -223,6 +284,7 @@ async function* streamAssistantResponse(
     toolCalls: response.toolCalls,
     hasText: response.hasText(),
     interrupted: options.signal?.aborted ?? false,
+    usage,
   }
 }
 
@@ -413,20 +475,4 @@ function truncate(text: string, maxLength = 16_000) {
 
 function hasText(response: AssistantResponse) {
   return response.hasText
-}
-
-function messagesContentChars(messages: ChatMessage[]): number {
-  return messages.reduce((sum, message) => sum + messageContentChars(message), 0)
-}
-
-function messageContentChars(message: ChatMessage): number {
-  let chars = message.role.length
-  if (message.role === "user") return chars + userMessageContentChars(message)
-  if (message.role === "tool") return chars + message.toolCallId.length + message.content.length
-  for (const part of message.content) {
-    if (part.type === "text") chars += part.text.length
-    else if (part.type === "reasoning") chars += part.text.length
-    else chars += part.toolCall.id.length + part.toolCall.name.length + part.toolCall.arguments.length
-  }
-  return chars
 }

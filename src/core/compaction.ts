@@ -1,10 +1,9 @@
-import { summarizeUserMessage, userMessageContentChars, userMessageText } from "../inference/messages.js"
+import { summarizeUserMessage, userMessageText } from "../inference/messages.js"
 import type { ChatMessage, InferenceClient, TokenUsage } from "../inference/types.js"
 
-const CHARS_PER_TOKEN = 4
-const TOKENS_PER_MESSAGE = 4
+import { estimateMessageTokens, requestContextEstimator } from "./context-tokens.js"
+
 const DEFAULT_KEEP_RECENT_TOKENS = 20_000
-const MIN_MESSAGES_TO_COMPACT = 4
 export const AUTO_COMPACT_THRESHOLD_TOKENS = 250_000
 const AUTO_COMPACT_CONTEXT_RATIO = 0.8
 
@@ -31,6 +30,11 @@ export type CompactionOptions = {
   onUsage?: (usage: TokenUsage) => void | Promise<void>
   signal?: AbortSignal
   keepRecentTokens?: number
+  /** Maximum estimated context after compaction, including the summary and static prompt. */
+  targetTokens?: number
+  estimateContextTokens?: (messages: ChatMessage[]) => number
+  /** Bounds each summarization request when resuming an oversized conversation. */
+  maxInputTokens?: number
 }
 
 export function compactionSummaryMessage(summary: string): ChatMessage {
@@ -52,158 +56,117 @@ export function extractCompactionSummary(message: ChatMessage): string {
   return content.startsWith(prefix) ? content.slice(prefix.length) : content
 }
 
-/**
- * Compact a conversation by summarizing older messages while keeping recent ones.
- *
- * 1. Walk backwards from the newest message, accumulating token estimates
- *    until `keepRecentTokens` is reached.
- * 2. Adjust the cut point to a turn boundary (user message) so we never
- *    split a tool call from its results.
- * 3. Send the older messages to the LLM for a structured summary.
- * 4. Return the summary + kept messages so the caller can replace history.
- *
- * If the conversation is shorter than the keep budget, the last complete
- * turn is kept and everything before it is summarized. If there is only
- * one turn, compaction is refused.
- */
+/** Summarizes a prefix, retaining whole tool exchanges and any unanswered user messages. */
 export async function compactConversation(
   messages: ChatMessage[],
   options: CompactionOptions,
 ): Promise<CompactionResult> {
-  const keepRecentTokens = options.keepRecentTokens ?? DEFAULT_KEEP_RECENT_TOKENS
-
-  if (messages.length < MIN_MESSAGES_TO_COMPACT) {
-    throw new Error("Not enough conversation history to compact.")
-  }
-
-  const cutIndex = findCutPoint(messages, keepRecentTokens)
-  if (cutIndex <= 0) {
-    throw new Error("Not enough conversation history to compact.")
-  }
-
-  const messagesToSummarize = messages.slice(0, cutIndex)
-  const keptMessages = messages.slice(cutIndex)
-
-  const summary = await generateSummary(
-    messagesToSummarize,
-    options.client,
-    options.instructions,
-    options.signal,
-    options.onUsage,
+  options.signal?.throwIfAborted()
+  const targetTokens = options.targetTokens ?? Math.floor(AUTO_COMPACT_THRESHOLD_TOKENS / 2)
+  const keepRecentTokens = Math.min(
+    options.keepRecentTokens ?? DEFAULT_KEEP_RECENT_TOKENS,
+    Math.floor(targetTokens / 2),
   )
+  const cutIndex = findCutPoint(messages, keepRecentTokens)
+  if (cutIndex <= 0) throw new Error("Not enough conversation history to compact.")
 
+  const keptMessages = messages.slice(cutIndex)
+  const estimate = options.estimateContextTokens ?? estimateMessageTokens
+  if (estimate(keptMessages) >= targetTokens) {
+    throw new Error(
+      "The latest input and fixed context leave no room for a compaction summary. Reduce the input or project context.",
+    )
+  }
+  const summary = await generateSummary(messages.slice(0, cutIndex), options)
+  options.signal?.throwIfAborted()
+  const compacted = [compactionSummaryMessage(summary), ...keptMessages]
+  if (estimate(compacted) > targetTokens || estimate(compacted) >= estimate(messages)) {
+    throw new Error("Compaction did not free enough context. The conversation was left unchanged.")
+  }
   return { summary, keptMessages }
 }
 
-/**
- * Find the index at which to split the message array.
- * Messages before the index are summarized; messages from the index onwards are kept.
- * Returns 0 when there is nothing safe to summarize.
- */
+/** Prefer user boundaries; split long turns only between complete tool exchanges. */
 function findCutPoint(messages: ChatMessage[], keepRecentTokens: number): number {
-  const totalTokens = estimateTokens(messages)
+  // Never summarize a prompt that has not received a response yet.
+  let lastCut = messages.length
+  while (lastCut > 0 && messages[lastCut - 1].role === "user") lastCut -= 1
+  if (lastCut === 0) return 0
 
-  // Conversation fits within the keep budget — keep only the last complete turn.
-  if (totalTokens <= keepRecentTokens) {
-    return lastTurnStart(messages)
+  const suffixTokens = new Array<number>(messages.length + 1).fill(0)
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    suffixTokens[index] = suffixTokens[index + 1] + estimateMessageTokens([messages[index]])
   }
-
-  // Walk backwards until we've accumulated enough tokens to keep.
-  let accumulated = 0
-  for (let i = messages.length - 1; i >= 0; i--) {
-    accumulated += estimateMessageTokens(messages[i])
-
-    if (accumulated >= keepRecentTokens) {
-      // Snap to the nearest user message (turn boundary) at or before this point.
-      for (let j = i; j >= 1; j--) {
-        if (messages[j].role === "user") return j
-      }
-      // The first turn alone exceeds the budget — keep the last turn instead.
-      return lastTurnStart(messages)
-    }
-  }
-
-  return 0
-}
-
-/**
- * Return the index of the user message that starts the last turn,
- * or 0 if there is only one turn (nothing to summarize).
- */
-function lastTurnStart(messages: ChatMessage[]): number {
-  for (let i = messages.length - 1; i >= 1; i--) {
-    if (messages[i].role === "user") return i
-  }
-  return 0
-}
-
-function estimateTokens(messages: ChatMessage[]): number {
-  let chars = 0
-  let messageCount = 0
-
-  for (const message of messages) {
-    chars += messageContentLength(message) + message.role.length
-    messageCount += 1
-
+  const pendingCalls = new Set<string>()
+  const boundaries: number[] = []
+  let hasHistory = false
+  for (let index = 0; index < lastCut; index += 1) {
+    const message = messages[index]
+    if (!isCompactionSummary(message)) hasHistory = true
     if (message.role === "assistant") {
       for (const part of message.content) {
-        if (part.type === "tool_call") {
-          chars += part.toolCall.id.length + part.toolCall.name.length + part.toolCall.arguments.length
-        }
+        if (part.type === "tool_call") pendingCalls.add(part.toolCall.id)
+      }
+    } else if (message.role === "tool") pendingCalls.delete(message.toolCallId)
+    const cut = index + 1
+    if (hasHistory && pendingCalls.size === 0 && messages[cut]?.role !== "tool") boundaries.push(cut)
+  }
+  if (suffixTokens[0] <= keepRecentTokens) {
+    const lastUser = [...boundaries].reverse().find((cut) => messages[cut]?.role === "user")
+    if (lastUser !== undefined) return lastUser
+  }
+  const fitting = boundaries.filter((cut) => suffixTokens[cut] <= keepRecentTokens)
+  return (
+    fitting.find((cut) => messages[cut]?.role === "user") ?? fitting[0] ?? (boundaries.includes(lastCut) ? lastCut : 0)
+  )
+}
+
+async function generateSummary(messages: ChatMessage[], options: CompactionOptions): Promise<string> {
+  const conversation = serializeConversation(messages)
+  const estimate = requestContextEstimator({ tools: [] })
+  const maxInputTokens = options.maxInputTokens ?? AUTO_COMPACT_THRESHOLD_TOKENS
+  let summary = ""
+  let offset = 0
+  while (offset < conversation.length) {
+    options.signal?.throwIfAborted()
+    const previous = summary ? `Previous summary:\n${summary}\n\nMore conversation:\n` : ""
+    const overhead = estimate([{ role: "user", content: buildSummarizationPrompt(previous, options.instructions) }])
+    const availableChars = Math.floor((maxInputTokens - overhead) * 4)
+    if (availableChars <= 0) throw new Error("The summary is too large to compact within the context budget.")
+    let end = Math.min(conversation.length, offset + availableChars)
+    // A chunk boundary must not turn a Unicode surrogate pair into two invalid strings.
+    const lastCodeUnit = conversation.charCodeAt(end - 1)
+    const nextCodeUnit = conversation.charCodeAt(end)
+    if (lastCodeUnit >= 0xd800 && lastCodeUnit <= 0xdbff && nextCodeUnit >= 0xdc00 && nextCodeUnit <= 0xdfff) end -= 1
+    if (end <= offset) throw new Error("The context budget is too small for a summary request.")
+    const chunk = conversation.slice(offset, end)
+    const prompt = buildSummarizationPrompt(previous + chunk, options.instructions)
+    let text = ""
+    for await (const event of options.client.streamChat({
+      messages: [{ role: "user", content: prompt }],
+      tools: [],
+      signal: options.signal,
+    })) {
+      if (event.type === "text_delta") text += event.text
+      if (event.type === "usage") await options.onUsage?.(event.usage)
+      if (event.type === "finish" && event.reason !== "stop") {
+        throw new Error(
+          `Compaction failed: the model did not finish its summary (${event.reason}). The conversation was left unchanged.`,
+        )
       }
     }
-
-    if (message.role === "tool") {
-      chars += message.toolCallId.length
-    }
+    options.signal?.throwIfAborted()
+    summary = text.trim()
+    if (!summary) throw new Error("Compaction failed: the model returned an empty summary.")
+    offset += chunk.length
   }
-
-  return Math.max(0, Math.ceil(chars / CHARS_PER_TOKEN) + messageCount * TOKENS_PER_MESSAGE)
+  return summary
 }
 
-function estimateMessageTokens(message: ChatMessage): number {
-  return estimateTokens([message])
-}
-
-function messageContentLength(message: ChatMessage): number {
-  if (message.role === "user") return userMessageContentChars(message)
-  if (message.role === "tool") return message.content.length
-  return message.content.reduce((length, part) => {
-    if (part.type === "text") return length + part.text.length
-    if (part.type === "reasoning") return length + part.text.length
-    return length
-  }, 0)
-}
-
-async function generateSummary(
-  messages: ChatMessage[],
-  client: InferenceClient,
-  instructions: string | undefined,
-  signal?: AbortSignal,
-  onUsage?: (usage: TokenUsage) => void | Promise<void>,
-): Promise<string> {
-  const prompt = buildSummarizationPrompt(messages, instructions)
-  let text = ""
-
-  for await (const event of client.streamChat({
-    messages: [{ role: "user", content: prompt }],
-    tools: [],
-    signal,
-  })) {
-    if (event.type === "text_delta") text += event.text
-    if (event.type === "usage") await onUsage?.(event.usage)
-  }
-
-  const trimmed = text.trim()
-  if (!trimmed) throw new Error("Compaction failed: the model returned an empty summary.")
-  return trimmed
-}
-
-function buildSummarizationPrompt(messages: ChatMessage[], instructions?: string): string {
-  const conversation = serializeConversation(messages)
+function buildSummarizationPrompt(conversation: string, instructions?: string): string {
   const focus = instructions ? `\nAdditional focus for this summary: ${instructions}\n` : ""
 
-  return `You are summarizing a conversation to compact context. Produce a structured summary that preserves all critical information needed to continue the work. Be concise but thorough — do not omit important details, decisions, or context.
+  return `You are summarizing a conversation to compact context. Produce a structured summary that preserves all critical information needed to continue the work. Keep the summary concise (aim for at most 2,000 tokens). Preserve the current task, user instructions, decisions, and details needed for the next action.
 
 Use this format:
 
@@ -242,26 +205,21 @@ function serializeConversation(messages: ChatMessage[]): string {
 
   for (const message of messages) {
     if (message.role === "user") {
-      lines.push(`User: ${truncate(summarizeUserMessage(message), 8000)}`)
+      lines.push(`User: ${summarizeUserMessage(message)}`)
     } else if (message.role === "assistant") {
       const parts: string[] = []
       for (const part of message.content) {
         if (part.type === "text") {
           parts.push(part.text)
         } else if (part.type === "tool_call") {
-          parts.push(`[Tool call: ${part.toolCall.name}(${truncate(part.toolCall.arguments, 500)})]`)
+          parts.push(`[Tool call: ${part.toolCall.name}(${part.toolCall.arguments})]`)
         }
       }
-      lines.push(`Assistant: ${truncate(parts.join("\n"), 8000)}`)
+      lines.push(`Assistant: ${parts.join("\n")}`)
     } else if (message.role === "tool") {
-      lines.push(`Tool result: ${truncate(message.content, 2000)}`)
+      lines.push(`Tool result: ${message.content}`)
     }
   }
 
   return lines.join("\n\n")
-}
-
-function truncate(text: string, maxLength: number): string {
-  if (text.length <= maxLength) return text
-  return `${text.slice(0, maxLength)}…[truncated]`
 }

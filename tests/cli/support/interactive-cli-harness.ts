@@ -251,7 +251,8 @@ vi.mock("../../../src/local/settings.js", () => ({
   saveFastServingSelection: mocks.saveFastServingSelection,
 }))
 vi.mock("../../../src/local/stats.js", () => ({ calculateLocalStats: mocks.calculateLocalStats }))
-vi.mock("../../../src/storage/index.js", () => ({
+vi.mock("../../../src/storage/index.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../src/storage/index.js")>()),
   createSession: mocks.createSession,
   deleteSession: mocks.deleteSession,
   listSessions: mocks.listSessions,
@@ -359,6 +360,7 @@ function baseSession() {
       return { promptId: `prompt_${text}`, message }
     }),
     completeTurn: vi.fn(async () => undefined),
+    compactTurn: vi.fn(async () => undefined),
     interruptTurn: vi.fn(async () => undefined),
     steerPrompt: vi.fn(async (_admission: unknown, message: UserChatMessage) => message),
     hasTitle: vi.fn(() => false),

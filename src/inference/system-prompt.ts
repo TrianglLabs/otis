@@ -29,10 +29,6 @@ export function buildSystemPrompt(
   return sections.join("\n\n")
 }
 
-export function skillAdvertisementChars(skills: readonly Skill[]) {
-  return skills.length > 0 ? formatAvailableSkills(skills).length : 0
-}
-
 function formatAvailableSkills(skills: readonly Skill[]) {
   const entries = skills.map(
     (skill) => `  <skill name="${escapeAttribute(skill.name)}">${escapeText(skill.description)}</skill>`,

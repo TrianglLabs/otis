@@ -65,6 +65,7 @@ const session = {
     message,
   })),
   completeTurn: vi.fn(async () => undefined),
+  compactTurn: vi.fn(async () => undefined),
   interruptTurn: vi.fn(async () => undefined),
   recordUsage: vi.fn(async () => undefined),
   replay: vi.fn(() => ({ messages: [], toolActivities: [], subagents: [] })),
@@ -104,7 +105,8 @@ vi.mock("../../src/skills/index.js", () => ({
   loadSkillCatalog: mocks.loadSkillCatalog,
   readSkillResource: vi.fn(),
 }))
-vi.mock("../../src/storage/index.js", () => ({
+vi.mock("../../src/storage/index.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/storage/index.js")>()),
   acquireSessionLock: vi.fn(),
   createSession: mocks.createSession,
   listSessions: mocks.listSessions,
@@ -123,6 +125,7 @@ afterEach(async () => {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mocks.streamChat.mockReset()
   mocks.loadLocalSettings.mockResolvedValue({
     fireworksApiKey: "fw_test",
     model: "accounts/fireworks/models/test",
@@ -138,6 +141,52 @@ beforeEach(() => {
 })
 
 describe("runHeadlessCommand", () => {
+  it.each([false, true])("compacts during headless tool execution with ephemeral=%s", async (ephemeral) => {
+    mocks.loadLocalSettings.mockResolvedValue({ fireworksApiKey: "fw_test", model: "test", modelContextLength: 25_000 })
+    mocks.streamChat
+      .mockImplementationOnce(async function* () {
+        yield { type: "reasoning_delta", field: "reasoning_content", text: "x".repeat(100_000) }
+        yield { type: "tool_call", toolCall: { id: "read_1", name: "read", arguments: '{"path":"missing.txt"}' } }
+      })
+      .mockImplementationOnce(async function* () {
+        yield { type: "text_delta", text: "Progress summarized." }
+        yield { type: "usage", usage: { promptTokens: 100, completionTokens: 10, totalTokens: 110 } }
+      })
+      .mockImplementationOnce(async function* (request) {
+        expect(request.messages[0].content).toContain("[Compacted conversation summary]")
+        yield { type: "text_delta", text: "Finished." }
+      })
+    const output = streams()
+    const code = await runHeadlessCommand(
+      [...(ephemeral ? ["--ephemeral"] : []), "--output-format", "jsonl", "task"],
+      output.options,
+    )
+    expect(code, output.stdout() + output.stderr()).toBe(0)
+    const events = output
+      .stdout()
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line))
+    expect(events.filter((event) => event.type === "compaction").map((event) => event.phase)).toEqual([
+      "start",
+      "complete",
+    ])
+    expect(events.at(-1)).toMatchObject({ type: "result", output: "Finished.", usage: { totalTokens: 110 } })
+    expect(session.compactTurn).toHaveBeenCalledTimes(ephemeral ? 0 : 1)
+    if (!ephemeral) {
+      expect(session.recordUsage).toHaveBeenCalledWith(
+        { promptTokens: 100, completionTokens: 10, totalTokens: 110 },
+        "compaction",
+        "prompt_test",
+      )
+      expect(session.completeTurn).toHaveBeenCalledWith(
+        expect.anything(),
+        [{ role: "assistant", content: [{ type: "text", text: "Finished." }] }],
+        expect.anything(),
+      )
+    }
+  })
+
   it("passes discovered skills to the shared headless agent runtime", async () => {
     const skill = {
       name: "review",
