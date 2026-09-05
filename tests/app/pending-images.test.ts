@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { PendingImages } from "../../src/cli/pending-images.js"
+import { PendingImages } from "../../src/app/pending-images.js"
 
 describe("pending images", () => {
   it("names pasted attachments with an incrementing sequence", () => {

@@ -1,7 +1,9 @@
 import type { BaseRenderable, InputRenderable, TextareaRenderable } from "@opentui/core"
 import { createTestRenderer, type TestRendererSetup } from "@opentui/core/testing"
 import { afterEach, vi } from "vitest"
+import { contextUsage } from "../../../src/app/context-usage.js"
 import { type ChatUI, createChatUI } from "../../../src/cli/chat-ui.js"
+import { formatContextUsage } from "../../../src/cli/context-meter.js"
 import type { ChatUIOptions } from "../../../src/cli/ui/types.js"
 
 export type ChatUIHarness = TestRendererSetup & {
@@ -44,7 +46,7 @@ async function createChatHarness(overrides: Partial<ChatUIOptions>): Promise<Cha
     exitSignals: [],
   })
   const options: ChatUIOptions = {
-    contextLabel: "□□□□□□□□ 0% · ~0",
+    contextLabel: formatContextUsage(contextUsage(0, 1)),
     modelLabel: "Model: test",
     modeLabel: "› auto",
     sessionLabel: "default",

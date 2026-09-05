@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
-import { SubagentTraces } from "../../src/cli/subagents.js"
-import { TurnDetailsRecorder } from "../../src/cli/turn-details.js"
+import { SubagentTraces } from "../../src/app/subagents.js"
+import { TurnDetailsRecorder } from "../../src/app/turn-details.js"
 import type { AgentEvent } from "../../src/core/agent.js"
 import { compactionSummaryMessage } from "../../src/core/compaction.js"
 import type { ChatMessage } from "../../src/inference/types.js"

@@ -1,10 +1,10 @@
 import { type BoxRenderable, MouseButton, type ScrollBoxRenderable, type TextRenderable } from "@opentui/core"
+import type { SubagentTrace } from "../app/subagents.js"
+import type { TranscriptEntry } from "../app/transcript.js"
 import type { ThemeName } from "../local/settings.js"
 import type { LocalStats } from "../local/stats.js"
 import { copyToClipboardNative } from "./clipboard.js"
-import type { SubagentTrace } from "./subagents.js"
 import { colors, type ThemeColors } from "./theme.js"
-import type { TranscriptEntry } from "./transcript.js"
 import { AgentStatus } from "./ui/agent-status.js"
 import { CommandMenu } from "./ui/command-menu.js"
 import {

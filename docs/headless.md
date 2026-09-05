@@ -1,7 +1,7 @@
 # Headless execution
 
-`otis exec` runs one agent task without initializing OpenTUI. It uses the same model clients, agent loop, tools,
-permissions, sessions, and compaction behavior as the interactive application.
+`otis exec` runs one agent task without initializing OpenTUI. It uses the same shared application, model clients,
+agent loop, tools, permissions, sessions, and compaction behavior as the interactive terminal.
 
 ## Examples
 

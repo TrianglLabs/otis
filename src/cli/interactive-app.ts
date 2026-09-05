@@ -1,42 +1,27 @@
 import { createCliRenderer } from "@opentui/core"
-import { autoCompactThreshold, compactConversation } from "../core/compaction.js"
-import { loadProjectContext } from "../core/context.js"
-import { requestContextEstimator } from "../core/context-tokens.js"
-import { SteeringInbox } from "../core/steering.js"
-import { providerTools } from "../core/subagent.js"
+import { Application } from "../app/application.js"
+import { contextUsage } from "../app/context-usage.js"
+import type { ConversationHooks, ConversationSink, QueuedPrompt } from "../app/conversation.js"
+import type { PersistSelectionOptions, PreparedModelSelection } from "../app/models.js"
+import { formatWorkspaceLabel } from "../app/workspace-label.js"
+import { autoCompactThreshold } from "../core/compaction.js"
 import { FireworksClient } from "../inference/client.js"
-import { compactionContextLength } from "../inference/context-policy.js"
 import { deleteLocalGguf, listDownloadedLocalModels } from "../inference/gguf-cache.js"
-import { detectHardware, type HardwareProbe } from "../inference/hardware.js"
 import { supportsLlamaCppTarget, unsupportedLlamaCppTargetMessage } from "../inference/llama-binary.js"
-import { LlamaCppRuntime, type LocalServingEndpoint } from "../inference/llama-runtime.js"
 import {
   catalogModelFromSpec,
   findLocalModel,
-  isLocalModelId,
   type LocalModelSpec,
   localModelWeightBytes,
 } from "../inference/local-catalog.js"
-import { LlamaCppClient } from "../inference/local-client.js"
-import { fitLocalModel, formatMemoryLabel, type LocalModelFit } from "../inference/local-fit.js"
+import { formatMemoryLabel } from "../inference/local-fit.js"
 import { createUserMessage, summarizeUserMessage } from "../inference/messages.js"
-import { PairClient, type PairEndpoints, pairEndpointForEngine } from "../inference/pair.js"
 import type { ModelPickerItem, ModelPickerStatus } from "../inference/picker-catalog.js"
 import { baseFireworksModelId, isFastFireworksModel } from "../inference/serving-path.js"
-import {
-  type CatalogModel,
-  type ContextFile,
-  type InferenceClient,
-  isLocalCatalogModel,
-  isPairCatalogModel,
-  type ModelProvider,
-  type PairEngine,
-  type UserChatMessage,
-} from "../inference/types.js"
+import { type CatalogModel, isLocalCatalogModel, type UserChatMessage } from "../inference/types.js"
 import {
   clearSelectedModel,
   isThemeName,
-  loadLocalSettings,
   saveSelectedModel,
   saveSelectedTheme,
   saveSubagentPanelVisible,
@@ -44,40 +29,21 @@ import {
   type ThemeName,
 } from "../local/settings.js"
 import { calculateLocalStats } from "../local/stats.js"
-import {
-  createPermissionPolicy,
-  DEFAULT_PERMISSION_MODE,
-  type PermissionMode,
-  type PermissionRequest,
-  type PermissionRule,
-} from "../permissions/policy.js"
-import { loadProjectPermissionRules } from "../permissions/project-policy.js"
-import { emptySkillCatalog, loadSkillCatalog, type SkillCatalog } from "../skills/index.js"
-import type { JsonlSession, PromptAdmission } from "../storage/index.js"
+import type { PermissionRequest } from "../permissions/policy.js"
 import { describeToolCall } from "../tools/index.js"
-import { ParallelClient } from "../web/client.js"
-import { runAgentTurn } from "./agent-turn.js"
 import { createChatUI } from "./chat-ui.js"
-import { contextUsage, contextUsageColor, formatContextUsage } from "./context-meter.js"
+import { contextUsageColor, formatContextUsage } from "./context-meter.js"
 import { ImageFlow } from "./image-flow.js"
 import { SessionController } from "./session-controller.js"
-import { type PreparedModelSelection, SetupFlow } from "./setup-flow.js"
+import { SetupFlow } from "./setup-flow.js"
 import { parseSlashCommand, type SlashCommand, slashCommandRunsImmediately, slashCommands } from "./slash-commands.js"
-import { SubagentTraces } from "./subagents.js"
 import { initializeTreeSitterClient, TerminalController } from "./terminal.js"
 import { colors, selectTheme } from "./theme.js"
-import { TranscriptStore } from "./transcript.js"
 import { formatLocalLoadStatus, formatModeLabel, formatModelName, withFastModelMark } from "./ui/format.js"
 import type { ChatUI, Renderer } from "./ui/types.js"
 import { checkForUpdate } from "./update.js"
-import { formatWorkspaceLabel } from "./workspace-label.js"
 
 const UPDATE_CHECK_TIMEOUT_MS = 5_000
-
-type ActiveAgentTurn = {
-  controller: AbortController
-  steering: SteeringInbox
-}
 
 type PendingAction =
   | { type: "command"; command: SlashCommand }
@@ -85,33 +51,15 @@ type PendingAction =
   | { type: "session-selection"; sessionId: string }
   | { type: "session-deletion"; sessionId: string }
   | { type: "new-session" }
-  | {
-      type: "prompt"
-      admission: PromptAdmission
-      session: JsonlSession
-      transcriptEntryId: number
-    }
 
 export class InteractiveApp {
-  readonly #cwd = process.cwd()
-  readonly #transcript = new TranscriptStore()
-  readonly #subagents = new SubagentTraces()
-  readonly #images = new ImageFlow({
-    cwd: this.#cwd,
-    isBusy: () => this.#busy,
-    apiKey: () => this.#fireworksApiKey,
-    selectedModelId: () => this.#selectedModelId,
-    ui: () => this.#ui,
-    transcript: this.#transcript,
-    onContextChange: () => this.#updateContextIndicator(),
-  })
+  #app!: Application
+  #images!: ImageFlow
   #renderer!: Renderer
   #ui!: ChatUI
   #sessions!: SessionController
   #setupFlow!: SetupFlow
   #terminal!: TerminalController
-  #loadedProjectContext: ContextFile[] = []
-  #loadedSkills: SkillCatalog = emptySkillCatalog()
   #busy = false
   #debug = false
   #exiting = false
@@ -119,34 +67,17 @@ export class InteractiveApp {
   #localModelManagementTask: Promise<void> | undefined
   #removeShutdownListeners: (() => void) | undefined
   #configured = false
-  #fireworksApiKey: string | undefined
-  #selectedModelId: string | undefined
-  #selectedModelProvider: ModelProvider | undefined
-  #pairEngine: PairEngine | undefined
-  #pairEndpoints: PairEndpoints = {}
-  #autoCompactAtTokens = autoCompactThreshold()
-  #client: InferenceClient | undefined
-  #llama = new LlamaCppRuntime()
-  #webClient: ParallelClient | undefined
-  #permissionMode: PermissionMode = DEFAULT_PERMISSION_MODE
-  #permissionRules: PermissionRule[] = []
   #selectedTheme: ThemeName = "default"
   #thinkingVisible = false
   #subagentPanelVisible = true
   #fastServingModels = new Set<string>()
   #fastAvailable = false
   #downloadedModelsAvailable = false
-  #activeTurn: AbortController | undefined
-  #activeAgentTurn: ActiveAgentTurn | undefined
   readonly #pendingActions: PendingAction[] = []
   #drainingPendingActions = false
   #updateCheckController: AbortController | undefined
   #startupModelController: AbortController | undefined
-  #modelApplyId = 0
   #localLoadStatus: { modelId: string; status: ModelPickerStatus } | undefined
-  #activeLocalModel:
-    | { spec: LocalModelSpec; fit: LocalModelFit; hardware: HardwareProbe; contextLength: number }
-    | undefined
 
   static async start() {
     const app = new InteractiveApp()
@@ -154,7 +85,12 @@ export class InteractiveApp {
   }
 
   async #boot() {
-    const settings = await loadLocalSettings()
+    this.#app = await Application.create({
+      isBusy: () => this.#busy,
+      isExiting: () => this.#exiting,
+    })
+    const settings = this.#app.settings
+    const models = this.#app.models
     const localInferenceUnavailableReason = supportsLlamaCppTarget(process)
       ? undefined
       : unsupportedLlamaCppTargetMessage(process)
@@ -164,38 +100,20 @@ export class InteractiveApp {
     this.#subagentPanelVisible = settings.subagentPanelVisible ?? true
     this.#fastServingModels = new Set(settings.fastServingModels ?? [])
     this.#downloadedModelsAvailable = (await listDownloadedLocalModels()).length > 0
-    this.#fireworksApiKey = settings.fireworksApiKey
-    this.#selectedModelId = settings.model
-    this.#selectedModelProvider =
-      settings.modelProvider ?? (settings.model ? (isLocalModelId(settings.model) ? "local" : "fireworks") : undefined)
     this.#fastAvailable =
-      this.#selectedModelProvider === "fireworks" &&
+      models.selectedProvider === "fireworks" &&
       (Boolean(settings.modelFastId) || isFastFireworksModel(settings.model ?? ""))
-    this.#pairEngine = settings.pairEngine
-    this.#pairEndpoints = { ...settings.pairEndpoints }
-    const pairEndpoint = pairEndpointForEngine(this.#pairEndpoints, this.#pairEngine)
-    this.#images.setModelCapability(settings.modelSupportsImageInput)
-    this.#autoCompactAtTokens = autoCompactThreshold(
-      compactionContextLength({
-        provider: this.#selectedModelProvider,
-        contextLength: settings.modelContextLength,
-      }),
-    )
-    this.#permissionMode = settings.permissions?.defaultMode ?? DEFAULT_PERMISSION_MODE
-    this.#permissionRules = [...(settings.permissions?.rules ?? []), ...(await loadProjectPermissionRules(this.#cwd))]
-    this.#configured = Boolean(
-      this.#selectedModelId &&
-        ((this.#selectedModelProvider === "fireworks" && this.#fireworksApiKey) ||
-          this.#selectedModelProvider === "local" ||
-          (this.#selectedModelProvider === "pair" && pairEndpoint)),
-    )
-    if (this.#fireworksApiKey && this.#selectedModelId && this.#selectedModelProvider === "fireworks") {
-      this.#client = new FireworksClient({ apiKey: this.#fireworksApiKey, model: this.#selectedModelId })
-    }
-    if (pairEndpoint && this.#selectedModelId && this.#selectedModelProvider === "pair") {
-      this.#client = new PairClient({ baseURL: pairEndpoint, model: this.#selectedModelId })
-    }
-    this.#webClient = new ParallelClient()
+    this.#configured = this.#app.hasConfiguredSelection()
+    this.#images = new ImageFlow({
+      cwd: this.#app.cwd,
+      isBusy: () => this.#isBusy(),
+      apiKey: () => this.#app.fireworksApiKey,
+      selectedModelId: () => this.#app.models.selectedId,
+      ui: () => this.#ui,
+      transcript: this.#app.transcript,
+      onContextChange: () => this.#updateContextIndicator(),
+    })
+    this.#images.setModelCapability(models.supportsImageInput)
 
     this.#renderer = await createCliRenderer({
       exitOnCtrlC: false,
@@ -205,8 +123,6 @@ export class InteractiveApp {
     })
 
     const treeSitterClient = await initializeTreeSitterClient()
-    this.#loadedProjectContext = loadProjectContext(this.#cwd)
-    this.#loadedSkills = await loadSkillCatalog(this.#cwd)
 
     this.#ui = createChatUI(this.#renderer, {
       configured: this.#configured,
@@ -215,30 +131,30 @@ export class InteractiveApp {
         fast: this.#fastAvailable,
       }),
       contextLabel: formatContextUsage(
-        contextUsage(this.#contextEstimator()(this.#transcript.history), this.#autoCompactAtTokens),
+        contextUsage(this.#app.contextEstimator()(this.#app.transcript.history), models.autoCompactAtTokens),
       ),
       modelLabel:
-        this.#selectedModelProvider === "pair"
-          ? `${formatModelName(settings.modelDisplayName ?? this.#selectedModelId)} · NVIDIA PAIR`
-          : this.#selectedModelProvider === "local"
-            ? `${formatModelName(settings.modelDisplayName ?? this.#selectedModelId)} · Local`
+        models.selectedProvider === "pair"
+          ? `${formatModelName(settings.modelDisplayName ?? models.selectedId)} · NVIDIA PAIR`
+          : models.selectedProvider === "local"
+            ? `${formatModelName(settings.modelDisplayName ?? models.selectedId)} · Local`
             : withFastModelMark(
-                formatModelName(settings.modelDisplayName ?? this.#selectedModelId),
-                Boolean(this.#selectedModelId && isFastFireworksModel(this.#selectedModelId)),
+                formatModelName(settings.modelDisplayName ?? models.selectedId),
+                Boolean(models.selectedId && isFastFireworksModel(models.selectedId)),
               ),
-      modeLabel: formatModeLabel(this.#permissionMode),
+      modeLabel: formatModeLabel(this.#app.permissionMode),
       sessionLabel: "Current session",
       theme: this.#selectedTheme,
       thinkingVisible: this.#thinkingVisible,
       subagentPanelVisible: this.#subagentPanelVisible,
-      workspaceLabel: formatWorkspaceLabel(this.#cwd),
+      workspaceLabel: formatWorkspaceLabel(this.#app.cwd),
       treeSitterClient,
       onInputChange: (value) => this.#updateContextIndicator(value),
       onImagePaste: (bytes, mimeType) => this.#images.attachPasted(bytes, mimeType),
       onImagePathPaste: (value) => this.#images.handlePathPaste(value),
       onRemoveLastImage: () => this.#images.removeLast(),
       onInterrupt: () => {
-        this.#activeTurn?.abort()
+        this.#app.conversation.cancel()
       },
       onQuit: () => this.#quit(),
       onSetup: () => this.#setupFlow.begin(),
@@ -269,45 +185,40 @@ export class InteractiveApp {
       onToggleMode: () => this.#toggleMode(),
     })
     this.#sessions = new SessionController({
-      client: () => this.#client,
-      cwd: this.#cwd,
-      transcript: this.#transcript,
-      subagents: this.#subagents,
+      sessions: this.#app.sessions,
       ui: this.#ui,
-      isBusy: () => this.#busy,
-      isExiting: () => this.#exiting,
       onTranscriptChange: () => this.#updateContextIndicator(),
     })
     this.#setupFlow = new SetupFlow({
       settings,
+      models: this.#app.models,
       localInferenceUnavailableReason,
-      isBusy: () => this.#busy,
+      isBusy: () => this.#isBusy(),
       setBusy: (value) => {
         this.#busy = value
       },
       onCredentialsChanged: (credentials) => {
-        this.#fireworksApiKey = credentials.fireworksApiKey
-        if (credentials.fireworksApiKey && this.#selectedModelId && this.#selectedModelProvider === "fireworks") {
-          this.#client = new FireworksClient({
+        this.#app.fireworksApiKey = credentials.fireworksApiKey
+        if (credentials.fireworksApiKey && models.selectedId && models.selectedProvider === "fireworks") {
+          models.client = new FireworksClient({
             apiKey: credentials.fireworksApiKey,
-            model: this.#selectedModelId,
+            model: models.selectedId,
           })
         }
         this.#ui.showStats()
         void this.#refreshLocalStats()
       },
       onPairEndpointsChanged: (endpoints) => {
-        this.#pairEndpoints = { ...endpoints }
+        this.#app.pairEndpoints = { ...endpoints }
       },
-      prepareModelSelection: (model, selection) =>
-        this.#prepareSelectedModel(model, selection.fireworksApiKey, selection.signal),
+      persistSelection: (model, options) => this.#persistSelection(model, options),
       localLoadStatus: () => this.#localLoadStatus,
       loadedLocalModel: () =>
-        this.#activeLocalModel
-          ? { model: this.#activeLocalModel.spec.id, contextLength: this.#activeLocalModel.contextLength }
+        models.activeLocal
+          ? { model: models.activeLocal.spec.id, contextLength: models.activeLocal.contextLength }
           : undefined,
       onConfigured: (fireworksKey) => {
-        if (fireworksKey) this.#fireworksApiKey = fireworksKey
+        if (fireworksKey) this.#app.fireworksApiKey = fireworksKey
         this.#configured = true
         void this.#refreshLocalStats()
       },
@@ -329,8 +240,8 @@ export class InteractiveApp {
     this.#startUpdateCheck()
 
     if (this.#configured) void this.#refreshLocalStats()
-    if (this.#selectedModelId && this.#selectedModelProvider === "local") {
-      const spec = findLocalModel(this.#selectedModelId)
+    if (models.selectedId && models.selectedProvider === "local") {
+      const spec = findLocalModel(models.selectedId)
       if (spec) {
         const startupController = new AbortController()
         this.#startupModelController = startupController
@@ -338,7 +249,7 @@ export class InteractiveApp {
         try {
           prepared = await this.#prepareSelectedModel(
             catalogModelFromSpec(spec, settings.modelContextLength),
-            this.#fireworksApiKey,
+            this.#app.fireworksApiKey,
             startupController.signal,
           )
           startupController.signal.throwIfAborted()
@@ -349,22 +260,22 @@ export class InteractiveApp {
           if (startupController.signal.aborted || this.#exiting) return
           this.#configured = false
           this.#ui.showChatLayout()
-          this.#transcript.addAssistantMessage(
+          this.#app.transcript.addAssistantMessage(
             `Could not start ${spec.displayName}: ${error instanceof Error ? error.message : String(error)}`,
           )
-          this.#ui.renderTranscript(this.#transcript.entries, { scrollToBottom: true })
+          this.#ui.renderTranscript(this.#app.transcript.entries, { scrollToBottom: true })
         } finally {
           if (this.#startupModelController === startupController) this.#startupModelController = undefined
         }
       }
     }
-    if (!this.#configured && this.#fireworksApiKey && this.#selectedModelProvider !== "local") {
+    if (!this.#configured && this.#app.fireworksApiKey && models.selectedProvider !== "local") {
       this.#setupFlow.begin()
     }
 
-    if (this.#transcript.entries.length > 0) {
+    if (this.#app.transcript.entries.length > 0) {
       this.#ui.showChatLayout()
-      this.#ui.renderTranscript(this.#transcript.entries, { scrollToBottom: true })
+      this.#ui.renderTranscript(this.#app.transcript.entries, { scrollToBottom: true })
     }
   }
 
@@ -394,26 +305,25 @@ export class InteractiveApp {
     const command = parseSlashCommand(value)
     if (command?.type === "queue") {
       if (!command.prompt) return
-      if (this.#busy) await this.#queuePrompt(createUserMessage(command.prompt))
+      if (this.#isBusy()) await this.#queuePrompt(createUserMessage(command.prompt))
       else await this.#runPromptTurn(command.prompt)
       await this.#drainPendingActions()
       return
     }
 
-    if (this.#busy && command && slashCommandRunsImmediately(command)) {
+    if (this.#isBusy() && command && slashCommandRunsImmediately(command)) {
       await this.#runSlashCommand(command)
       return
     }
 
-    if (this.#busy) {
+    if (this.#isBusy()) {
       if (command) {
         this.#ui.clearInput()
         this.#pendingActions.push({ type: "command", command })
         return
       }
 
-      const activeTurn = this.#activeAgentTurn
-      if (activeTurn) await this.#steerActiveTurn(activeTurn, createUserMessage(value))
+      if (this.#app.conversation.busy) await this.#steerActiveTurn(createUserMessage(value))
       else await this.#queuePrompt(createUserMessage(value))
       return
     }
@@ -424,72 +334,48 @@ export class InteractiveApp {
       return
     }
 
-    if (!this.#configured || !this.#webClient) {
+    if (!this.#configured) {
       this.#setupFlow.begin()
       return
     }
 
-    if (!this.#client) return
+    if (!this.#app.models.client) return
 
     await this.#runPromptTurn(value)
     await this.#drainPendingActions()
   }
 
-  async #steerActiveTurn(activeTurn: ActiveAgentTurn, message: UserChatMessage) {
-    let transcriptEntryId: number | undefined
-    const acceptance = activeTurn.steering.accept(message, () => {
-      if (transcriptEntryId === undefined) return
-      this.#transcript.activatePendingUserMessage(transcriptEntryId)
-      if (!this.#exiting) this.#ui.renderTranscript(this.#transcript.entries, { scrollToBottom: true })
-    })
-    if (!acceptance.accepted) {
-      await this.#queuePrompt(message)
+  async #steerActiveTurn(message: UserChatMessage) {
+    try {
+      await this.#app.conversation.steer(message, () => {
+        if (!this.#exiting) this.#ui.renderTranscript(this.#app.transcript.entries, { scrollToBottom: true })
+      })
+    } catch {
+      this.#ui.renderTranscript(this.#app.transcript.entries, { scrollToBottom: true })
       return
     }
-
-    const entry = this.#transcript.addSteeringUserMessage(message)
-    transcriptEntryId = entry.id
     this.#images.clear()
     this.#ui.clearInput()
     this.#updateContextIndicator()
-    this.#ui.renderTranscript(this.#transcript.entries, { scrollToBottom: true })
-
-    try {
-      await acceptance.persisted
-    } catch (error) {
-      this.#transcript.removeEntry(entry.id)
-      this.#transcript.addDebugMessage(
-        `Could not save steering message: ${error instanceof Error ? error.message : String(error)}`,
-      )
-      this.#ui.renderTranscript(this.#transcript.entries, { scrollToBottom: true })
-    }
+    this.#ui.renderTranscript(this.#app.transcript.entries, { scrollToBottom: true })
   }
 
   async #queuePrompt(message: UserChatMessage) {
-    if (!this.#configured || !this.#webClient || !this.#client) return
+    if (!this.#configured || !this.#app.models.client) return
 
     try {
-      const session = await this.#sessions.ensure()
-      const admission = await session.admitPrompt(message)
-      const entry = this.#transcript.addQueuedUserMessage(message)
-      const pending = { type: "prompt" as const, admission, session, transcriptEntryId: entry.id }
-      const firstStateChange = this.#pendingActions.findIndex((action) => action.type !== "prompt")
-      if (firstStateChange === -1) this.#pendingActions.push(pending)
-      else this.#pendingActions.splice(firstStateChange, 0, pending)
+      await this.#app.conversation.queue(message)
       this.#images.clear()
       this.#ui.clearInput()
       this.#updateContextIndicator()
-      this.#ui.renderTranscript(this.#transcript.entries, { scrollToBottom: true })
-    } catch (error) {
-      this.#transcript.addDebugMessage(
-        `Could not queue prompt: ${error instanceof Error ? error.message : String(error)}`,
-      )
-      this.#ui.renderTranscript(this.#transcript.entries, { scrollToBottom: true })
+      this.#ui.renderTranscript(this.#app.transcript.entries, { scrollToBottom: true })
+    } catch {
+      this.#ui.renderTranscript(this.#app.transcript.entries, { scrollToBottom: true })
     }
   }
 
   async #selectModel(model: ModelPickerItem) {
-    if (this.#busy) {
+    if (this.#isBusy()) {
       this.#ui.hideModelPicker()
       this.#pendingActions.push({ type: "model-selection", model })
       return
@@ -500,7 +386,7 @@ export class InteractiveApp {
 
   #startNewSession() {
     this.#images.clear()
-    if (this.#busy) {
+    if (this.#isBusy()) {
       this.#ui.hideSessionPicker()
       this.#pendingActions.push({ type: "new-session" })
       return
@@ -510,7 +396,7 @@ export class InteractiveApp {
 
   async #selectSession(sessionId: string) {
     this.#images.clear()
-    if (this.#busy) {
+    if (this.#isBusy()) {
       this.#ui.hideSessionPicker()
       this.#pendingActions.push({ type: "session-selection", sessionId })
       return
@@ -520,7 +406,7 @@ export class InteractiveApp {
   }
 
   async #deleteSession(sessionId: string) {
-    if (this.#busy) {
+    if (this.#isBusy()) {
       this.#pendingActions.push({ type: "session-deletion", sessionId })
       return
     }
@@ -529,10 +415,15 @@ export class InteractiveApp {
   }
 
   async #drainPendingActions() {
-    if (this.#drainingPendingActions || this.#busy || this.#exiting) return
+    if (this.#drainingPendingActions || this.#isBusy() || this.#exiting) return
     this.#drainingPendingActions = true
     try {
-      while (!this.#busy && !this.#exiting) {
+      while (!this.#isBusy() && !this.#exiting) {
+        const queued = this.#app.conversation.takeQueued()
+        if (queued) {
+          await this.#runPromptTurn("", queued)
+          continue
+        }
         const pending = this.#pendingActions.shift()
         if (!pending) return
         await this.#runPendingAction(pending)
@@ -546,9 +437,6 @@ export class InteractiveApp {
     switch (pending.type) {
       case "command":
         await this.#runSlashCommand(pending.command)
-        return
-      case "prompt":
-        await this.#runPromptTurn("", pending)
         return
       case "model-selection":
         await this.#setupFlow.selectModel(pending.model)
@@ -579,8 +467,8 @@ export class InteractiveApp {
         return
       case "model": {
         this.#ui.clearInput()
-        await this.#setupFlow.openModelPicker(this.#fireworksApiKey, this.#selectedModelId, true, {
-          background: this.#busy,
+        await this.#setupFlow.openModelPicker(this.#app.fireworksApiKey, this.#app.models.selectedId, true, {
+          background: this.#isBusy(),
         })
         return
       }
@@ -632,11 +520,8 @@ export class InteractiveApp {
     }
   }
 
-  async #runPromptTurn(value: string, queued?: Extract<PendingAction, { type: "prompt" }>) {
-    const activeClient = this.#client
-    const activeWebClient = this.#webClient
-    const activeProvider = this.#selectedModelProvider
-    if (!activeClient || !activeWebClient || !activeProvider) return
+  async #runPromptTurn(value: string, queued?: QueuedPrompt) {
+    if (!this.#app.models.client || !this.#app.models.selectedProvider) return
 
     const ready = queued ? undefined : this.#images.ensureReadyToSend(value)
     if (ready) {
@@ -648,133 +533,37 @@ export class InteractiveApp {
       }
     }
 
-    const turnController = new AbortController()
-    this.#activeTurn = turnController
-    this.#busy = true
     this.#ui.setBusy(true)
     this.#ui.showChatLayout()
-
-    let admission: PromptAdmission
-    let turnSession: JsonlSession
     const userMessage = queued?.admission.message ?? createUserMessage(value, this.#images.pending.items)
-    try {
-      turnSession = queued?.session ?? (await this.#sessions.ensure())
-      admission = queued?.admission ?? (await turnSession.admitPrompt(userMessage))
-    } catch (error) {
-      if (this.#activeTurn === turnController) this.#activeTurn = undefined
-      this.#busy = false
-      this.#ui.setBusy(false)
-      this.#transcript.addAssistantMessage(`Error: ${error instanceof Error ? error.message : String(error)}`)
-      this.#ui.renderTranscript(this.#transcript.entries, { scrollToBottom: true })
-      this.#ui.focusInput()
-      return
-    }
-
-    const steering = new SteeringInbox(async (message) => {
-      await turnSession.steerPrompt(admission, message)
-    })
-    this.#activeAgentTurn = { controller: turnController, steering }
-
-    if (!queued || !this.#transcript.activatePendingUserMessage(queued.transcriptEntryId)) {
-      this.#transcript.addUserMessage(userMessage)
-    }
-    if (this.#transcript.history.length === 0) {
-      this.#sessions.setProvisionalLabel(value || summarizeUserMessage(userMessage))
-    }
-    this.#images.clear()
-    this.#updateContextIndicator()
-
-    this.#ui.clearInput()
-    this.#ui.renderTranscript(this.#transcript.entries, { scrollToBottom: true })
 
     try {
-      const result = await runAgentTurn({
-        admission,
-        client: activeClient,
-        webClient: activeWebClient,
-        webClientModel: activeClient.model,
-        webSessionId: turnSession.id,
-        transcript: this.#transcript,
-        subagents: this.#subagents,
-        ui: this.#ui,
-        cwd: this.#cwd,
-        debug: this.#debug,
-        signal: turnController.signal,
-        projectContext: this.#loadedProjectContext,
-        skills: this.#loadedSkills,
-        tools: providerTools(activeProvider),
-        autoCompactAtTokens: this.#autoCompactAtTokens,
-        onCompaction: async (result, details, steeringCount) => {
-          await turnSession.compactTurn(admission, result.summary, result.keptMessages, details, steeringCount)
+      const result = await this.#app.conversation.start(queued ?? userMessage, {
+        ...this.#conversationHooks(),
+        onReady: (message) => {
+          if (this.#app.transcript.history.length === 1) {
+            this.#sessions.setProvisionalLabel(value || summarizeUserMessage(message))
+          }
+          this.#images.clear()
+          this.#updateContextIndicator()
+          this.#ui.clearInput()
+          this.#ui.renderTranscript(this.#app.transcript.entries, { scrollToBottom: true })
         },
-        onCompactionUsage: async (usage) => {
-          await turnSession.recordUsage(usage, "compaction", admission.promptId)
-        },
-        isExiting: () => this.#exiting,
-        onContext: (tokens) => {
-          const usage = contextUsage(tokens, this.#autoCompactAtTokens)
-          this.#ui.setContextLabel(formatContextUsage(usage), contextUsageColor(usage.percent))
-        },
-        onDiff: (added, removed) => {
-          this.#sessions.addDiff(added, removed)
-        },
-        onUsage: async (usage) => {
-          await turnSession.recordUsage(usage, "agent", admission.promptId)
-        },
-        permissionPolicy: createPermissionPolicy({
-          cwd: this.#cwd,
-          mode: this.#permissionMode,
-          rules: this.#permissionRules,
-        }),
-        onPermissionRequest: (request) => this.#handlePermissionRequest(request),
-        onCompletion: () => this.#terminal.notifyCompletion(),
-        steering,
       })
-
+      if (!this.#exiting) this.#ui.renderTranscript(this.#app.transcript.entries)
       if (result.status === "interrupted" || result.status === "error") {
-        try {
-          await turnSession.interruptTurn(admission, result.messages, result.details)
-        } catch (error) {
-          this.#transcript.addDebugMessage(
-            `Could not save interrupted turn: ${error instanceof Error ? error.message : String(error)}`,
-          )
-          if (!this.#exiting) this.#ui.renderTranscript(this.#transcript.entries, { scrollToBottom: true })
-        }
         if (!this.#exiting) this.#updateContextIndicator()
         return
       }
-
       if (result.status !== "complete") {
         if (!this.#exiting && result.status !== "incomplete") this.#updateContextIndicator()
         return
       }
-
       this.#sessions.refreshLabel()
       this.#updateContextIndicator()
-      this.#ui.renderTranscript(this.#transcript.entries)
-
-      try {
-        await turnSession.completeTurn(admission, result.messages, result.details)
-      } catch (error) {
-        this.#transcript.addDebugMessage(
-          `Could not save turn: ${error instanceof Error ? error.message : String(error)}`,
-        )
-        this.#ui.renderTranscript(this.#transcript.entries, { scrollToBottom: true })
-      }
-
-      if (!turnSession.hasTitle()) void this.#sessions.generateTitle(turnSession)
+      const turnSession = this.#app.sessions.current
+      if (turnSession && !turnSession.hasTitle()) void this.#sessions.generateTitle(turnSession)
     } finally {
-      try {
-        await steering.close()
-      } catch (error) {
-        this.#transcript.addDebugMessage(
-          `Could not save steering message: ${error instanceof Error ? error.message : String(error)}`,
-        )
-        if (!this.#exiting) this.#ui.renderTranscript(this.#transcript.entries, { scrollToBottom: true })
-      }
-      if (this.#activeAgentTurn?.controller === turnController) this.#activeAgentTurn = undefined
-      if (this.#activeTurn === turnController) this.#activeTurn = undefined
-      this.#busy = false
       this.#ui.setBusy(false)
       if (!this.#exiting) {
         this.#ui.stopBusyIndicator()
@@ -784,60 +573,20 @@ export class InteractiveApp {
   }
 
   async #runCompaction(instructions?: string) {
-    if (this.#busy) return
-    const activeClient = this.#client
-    if (!activeClient) return
+    if (this.#isBusy() || !this.#app.models.client) return
 
-    this.#busy = true
     this.#ui.setBusy(true)
     this.#ui.showChatLayout()
     this.#ui.startBusyIndicator()
-    this.#transcript.addAssistantMessage("Compacting conversation…")
-    this.#ui.renderTranscript(this.#transcript.entries, { scrollToBottom: true })
-
-    const compactionController = new AbortController()
-    this.#activeTurn = compactionController
-
     try {
-      const turnSession = await this.#sessions.ensure()
-      const throughSeq = turnSession.events.at(-1)?.seq
-      const result = await compactConversation(this.#transcript.history, {
-        client: activeClient,
-        instructions,
-        targetTokens: Math.floor(this.#autoCompactAtTokens / 2),
-        maxInputTokens: this.#autoCompactAtTokens,
-        estimateContextTokens: this.#contextEstimator(),
-        onUsage: async (usage) => {
-          await turnSession.recordUsage(usage, "compaction")
-        },
-        signal: compactionController.signal,
+      await this.#app.conversation.compact(instructions, this.#app.contextEstimator(), () => {
+        this.#ui.renderTranscript(this.#app.transcript.entries, { scrollToBottom: true })
       })
-      const keptToolActivities = this.#transcript.toolActivitiesFor(result.keptMessages)
-      const keptSubagents = this.#subagents.runsFor(result.keptMessages)
-
-      await turnSession.compact(
-        result.summary,
-        result.keptMessages,
-        { toolActivities: keptToolActivities, subagents: keptSubagents },
-        throughSeq,
-      )
-
-      this.#transcript.loadCompacted(result.summary, result.keptMessages, keptToolActivities)
-      this.#subagents.load(keptSubagents)
-      this.#ui.renderSubagents(this.#subagents.all)
+      this.#ui.renderSubagents(this.#app.subagents.all)
       this.#sessions.refreshLabel()
       this.#updateContextIndicator()
-      this.#ui.renderTranscript(this.#transcript.entries, { scrollToBottom: true })
-    } catch (error) {
-      if (compactionController.signal.aborted) return
-      this.#ui.showChatLayout()
-      this.#transcript.addAssistantMessage(
-        `Compaction failed: ${error instanceof Error ? error.message : String(error)}`,
-      )
-      this.#ui.renderTranscript(this.#transcript.entries, { scrollToBottom: true })
+      this.#ui.renderTranscript(this.#app.transcript.entries, { scrollToBottom: true })
     } finally {
-      if (this.#activeTurn === compactionController) this.#activeTurn = undefined
-      this.#busy = false
       this.#ui.setBusy(false)
       this.#ui.stopBusyIndicator()
       if (!this.#exiting) this.#ui.focusInput()
@@ -867,13 +616,12 @@ export class InteractiveApp {
     this.#exiting = true
     this.#removeShutdownListeners?.()
     this.#updateCheckController?.abort()
-    this.#activeTurn?.abort()
     this.#startupModelController?.abort()
-    this.#modelApplyId += 1
+    this.#ui.hidePermissionPrompt()
     try {
       await this.#setupFlow.shutdown()
       await this.#localModelManagementTask?.catch(() => undefined)
-      await this.#llama.stop()
+      await this.#app.shutdown()
     } finally {
       this.#renderer.destroy()
     }
@@ -903,13 +651,13 @@ export class InteractiveApp {
     const items = [
       {
         name: "Hosted inference",
-        description: this.#fireworksApiKey ? "Replace API key" : "Add API key",
+        description: this.#app.fireworksApiKey ? "Replace API key" : "Add API key",
         submission: "/settings hosted",
       },
       {
         name: "NVIDIA PAIR",
         description:
-          this.#pairEndpoints.ollama || this.#pairEndpoints.lmStudio
+          this.#app.pairEndpoints.ollama || this.#app.pairEndpoints.lmStudio
             ? "Reconnect or choose model"
             : "Connect local AI cluster",
         submission: "/settings pair",
@@ -948,7 +696,7 @@ export class InteractiveApp {
     this.#ui.showCommandSubmenu(
       models.map((model) => ({
         name: model.displayName,
-        description: `${this.#selectedModelProvider === "local" && model.id === this.#selectedModelId ? "Active · " : ""}${model.quant} · ${formatMemoryLabel(localModelWeightBytes(model))}`,
+        description: `${this.#app.models.selectedProvider === "local" && model.id === this.#app.models.selectedId ? "Active · " : ""}${model.quant} · ${formatMemoryLabel(localModelWeightBytes(model))}`,
         submission: `/settings delete-model ${model.id}`,
       })),
       { onBack: () => this.#openSettingsMenu() },
@@ -972,7 +720,7 @@ export class InteractiveApp {
   }
 
   async #deleteLocalModel(modelId: string) {
-    if (this.#exiting || this.#busy) return
+    if (this.#exiting || this.#isBusy()) return
     const spec = findLocalModel(modelId)
     if (!spec) return
 
@@ -980,14 +728,14 @@ export class InteractiveApp {
     this.#ui.setBusy(true)
     let active = false
     let settingsCleared = false
-    let previousActive = this.#activeLocalModel
+    let previousActive = this.#app.models.activeLocal
     let previousModel = catalogModelFromSpec(spec, previousActive?.contextLength)
     let remaining: LocalModelSpec[] = []
 
     try {
       await this.#setupFlow.cancelModelSelection()
-      active = this.#selectedModelProvider === "local" && this.#selectedModelId === spec.id
-      previousActive = this.#activeLocalModel
+      active = this.#app.models.selectedProvider === "local" && this.#app.models.selectedId === spec.id
+      previousActive = this.#app.models.activeLocal
       previousModel = catalogModelFromSpec(spec, previousActive?.contextLength)
       const downloaded = await listDownloadedLocalModels()
       const deletingLast = downloaded.length === 1 && downloaded[0]?.id === spec.id
@@ -996,7 +744,7 @@ export class InteractiveApp {
         await clearSelectedModel()
         settingsCleared = true
       }
-      if (active || deletingLast) await this.#llama.stop()
+      if (active || deletingLast) await this.#app.models.llama.stop()
       await deleteLocalGguf(spec)
       remaining = await listDownloadedLocalModels()
     } catch (error) {
@@ -1004,7 +752,7 @@ export class InteractiveApp {
       if (active && settingsCleared) {
         try {
           await saveSelectedModel(previousModel)
-          if (previousActive) await this.#restoreLocalRuntime(previousActive)
+          if (previousActive) await this.#app.models.restorePrevious(previousActive)
         } catch (rollbackError) {
           failure = new AggregateError(
             [error, rollbackError],
@@ -1024,20 +772,20 @@ export class InteractiveApp {
 
     this.#setDownloadedModelsAvailable(remaining.length > 0)
     if (active) {
-      this.#modelApplyId += 1
-      this.#activeLocalModel = undefined
-      this.#selectedModelId = undefined
-      this.#selectedModelProvider = undefined
-      this.#client = undefined
+      this.#app.models.cancelPrepare()
+      this.#app.models.activeLocal = undefined
+      this.#app.models.selectedId = undefined
+      this.#app.models.selectedProvider = undefined
+      this.#app.models.client = undefined
       this.#configured = false
       this.#images.setModelCapability(false)
-      this.#autoCompactAtTokens = autoCompactThreshold()
+      this.#app.models.autoCompactAtTokens = autoCompactThreshold()
       this.#setupFlow.forgetSelectedModel(spec.id)
       if (this.#exiting) return
       this.#ui.setModelLabel("No model")
       this.#setFastAvailable(false)
       this.#updateContextIndicator()
-      await this.#setupFlow.openModelPicker(this.#fireworksApiKey, undefined, true)
+      await this.#setupFlow.openModelPicker(this.#app.fireworksApiKey, undefined, true)
       if (!this.#exiting) this.#ui.showTransientHint(` Deleted ${spec.displayName}. Choose another model. `)
       return
     }
@@ -1055,168 +803,54 @@ export class InteractiveApp {
     fireworksApiKey: string | undefined,
     signal: AbortSignal,
   ): Promise<PreparedModelSelection> {
-    const applyId = ++this.#modelApplyId
     if (this.#localLoadStatus && this.#localLoadStatus.modelId !== model.id) {
       this.#ui.setModelPickerStatus(this.#localLoadStatus.modelId, undefined)
       this.#localLoadStatus = undefined
     }
-    const previousLocal = this.#activeLocalModel
-
-    if (isLocalCatalogModel(model)) {
-      const spec = findLocalModel(model.id)
-      if (!spec) throw new Error(`Unknown local model: ${model.id}`)
-      const name = `${formatModelName(model.displayName)} · Local`
-      const hardware = await detectHardware()
-      signal.throwIfAborted()
-      const fit = fitLocalModel(spec, hardware)
-      let serving: LocalServingEndpoint
-      try {
-        serving = await this.#llama.ensureServing(spec, fit, hardware, {
-          signal,
-          onProgress: (progress) => {
-            if (applyId !== this.#modelApplyId || signal.aborted || this.#exiting) return
-            const status: ModelPickerStatus = { label: formatLocalLoadStatus(progress), kind: "progress" }
-            this.#localLoadStatus = { modelId: spec.id, status }
-            this.#ui.setModelPickerStatus(spec.id, status)
-          },
-        })
-        signal.throwIfAborted()
-        this.#setDownloadedModelsAvailable(true)
-      } catch (error) {
-        this.#clearLocalLoadStatus(spec.id)
-        await this.#refreshDownloadedModelAvailability()
-        if (!signal.aborted && !this.#exiting) await this.#restoreLocalRuntime(previousLocal, error, signal)
-        throw error
-      }
-      const activeModel = { ...model, contextLength: serving.contextLength }
-      let finalized = false
-      return {
-        model: activeModel,
-        commit: () => {
-          if (finalized) return
-          finalized = true
-          this.#activeLocalModel = {
-            spec,
-            fit,
-            hardware,
-            contextLength: serving.contextLength,
-          }
-          this.#activateModel(
-            activeModel,
-            new LlamaCppClient({ model: spec.id, inferenceURL: serving.inferenceURL }),
-            name,
-          )
-          this.#clearLocalLoadStatus(spec.id)
-        },
-        rollback: async ({ restorePrevious }) => {
-          if (finalized) return
-          finalized = true
-          this.#clearLocalLoadStatus(spec.id)
-          if (restorePrevious) await this.#restoreLocalRuntime(previousLocal, undefined, signal)
-        },
-      }
-    }
-
-    if (isPairCatalogModel(model)) {
-      const client = new PairClient({ baseURL: model.baseURL, model: model.id })
-      try {
-        await this.#llama.stop()
-        signal.throwIfAborted()
-      } catch (error) {
-        if (!signal.aborted && !this.#exiting) await this.#restoreLocalRuntime(previousLocal, error, signal)
-        throw error
-      }
-      let finalized = false
-      return {
-        model,
-        commit: () => {
-          if (finalized) return
-          finalized = true
-          this.#activeLocalModel = undefined
-          this.#activateModel(model, client, `${formatModelName(model.displayName)} · NVIDIA PAIR`)
-        },
-        rollback: async ({ restorePrevious }) => {
-          if (finalized) return
-          finalized = true
-          if (restorePrevious) await this.#restoreLocalRuntime(previousLocal, undefined, signal)
-        },
-      }
-    }
-
-    if (!fireworksApiKey) throw new Error("Fireworks API key is required.")
     try {
-      await this.#llama.stop()
-      signal.throwIfAborted()
+      const prepared = await this.#app.models.prepare(model, {
+        fireworksApiKey,
+        signal,
+        isExiting: () => this.#exiting,
+        onLocalProgress: (progress) => {
+          const status: ModelPickerStatus = { label: formatLocalLoadStatus(progress), kind: "progress" }
+          this.#localLoadStatus = { modelId: model.id, status }
+          this.#ui.setModelPickerStatus(model.id, status)
+        },
+      })
+      if (isLocalCatalogModel(prepared.model)) this.#setDownloadedModelsAvailable(true)
+      return {
+        model: prepared.model,
+        commit: () => {
+          prepared.commit()
+          this.#syncActivatedModel(prepared.model)
+          this.#clearLocalLoadStatus(prepared.model.id)
+        },
+        rollback: async (options) => {
+          this.#clearLocalLoadStatus(prepared.model.id)
+          await prepared.rollback(options)
+        },
+      }
     } catch (error) {
-      if (!signal.aborted && !this.#exiting) await this.#restoreLocalRuntime(previousLocal, error, signal)
+      this.#clearLocalLoadStatus(model.id)
+      if (isLocalCatalogModel(model)) await this.#refreshDownloadedModelAvailability()
       throw error
     }
-    const client = new FireworksClient({ apiKey: fireworksApiKey, model: model.id })
-    let finalized = false
-    return {
-      model,
-      commit: () => {
-        if (finalized) return
-        finalized = true
-        this.#activeLocalModel = undefined
-        this.#activateModel(
-          model,
-          client,
-          withFastModelMark(formatModelName(model.displayName), isFastFireworksModel(model.id)),
-        )
-      },
-      rollback: async ({ restorePrevious }) => {
-        if (finalized) return
-        finalized = true
-        if (restorePrevious) await this.#restoreLocalRuntime(previousLocal, undefined, signal)
-      },
-    }
   }
 
-  #activateModel(model: CatalogModel, client: InferenceClient, label: string) {
-    this.#selectedModelId = model.id
-    this.#selectedModelProvider = model.provider
-    this.#pairEngine = model.provider === "pair" ? model.engine : undefined
-    this.#images.setModelCapability(model.supportsImageInput)
-    this.#autoCompactAtTokens = autoCompactThreshold(compactionContextLength(model))
-    this.#client = client
+  #syncActivatedModel(model: CatalogModel) {
+    this.#images.setModelCapability(this.#app.models.supportsImageInput)
     this.#configured = true
-    if (!this.#exiting) {
-      this.#ui.setModelLabel(label)
-      this.#setFastAvailable(
-        model.provider === "fireworks" && (Boolean(model.fastId) || isFastFireworksModel(model.id)),
-      )
-      this.#updateContextIndicator()
-    }
+    if (this.#exiting) return
+    this.#ui.setModelLabel(this.#formatModelLabel(model))
+    this.#setFastAvailable(model.provider === "fireworks" && (Boolean(model.fastId) || isFastFireworksModel(model.id)))
+    this.#updateContextIndicator()
   }
 
-  async #restoreLocalRuntime(
-    previous: { spec: LocalModelSpec; fit: LocalModelFit; hardware: HardwareProbe; contextLength: number } | undefined,
-    originalError?: unknown,
-    signal?: AbortSignal,
-  ) {
-    try {
-      if (!previous) {
-        await this.#llama.stop()
-        return
-      }
-      const serving = await this.#llama.ensureServing(previous.spec, previous.fit, previous.hardware, { signal })
-      signal?.throwIfAborted()
-      previous.contextLength = serving.contextLength
-      this.#activeLocalModel = previous
-      this.#client = new LlamaCppClient({ model: previous.spec.id, inferenceURL: serving.inferenceURL })
-      this.#selectedModelProvider = "local"
-      if (this.#selectedModelId === previous.spec.id) {
-        this.#autoCompactAtTokens = autoCompactThreshold(serving.contextLength)
-        if (!this.#exiting) this.#updateContextIndicator()
-      }
-    } catch (restoreError) {
-      if (originalError === undefined) throw restoreError
-      throw new AggregateError(
-        [originalError, restoreError],
-        `${errorMessage(originalError)} The previous local model could not be restored.`,
-      )
-    }
+  #formatModelLabel(model: CatalogModel) {
+    if (model.provider === "pair") return `${formatModelName(model.displayName)} · NVIDIA PAIR`
+    if (model.provider === "local") return `${formatModelName(model.displayName)} · Local`
+    return withFastModelMark(formatModelName(model.displayName), isFastFireworksModel(model.id))
   }
 
   #clearLocalLoadStatus(modelId: string) {
@@ -1242,32 +876,87 @@ export class InteractiveApp {
     this.#ui.setCommands(slashCommands({ fast: this.#fastAvailable }))
   }
 
+  #isBusy() {
+    return this.#busy || this.#app.conversation.busy
+  }
+
+  #conversationHooks(): ConversationHooks {
+    return {
+      sink: this.#conversationSink(),
+      debug: this.#debug,
+      onContext: (tokens) => {
+        const usage = contextUsage(tokens, this.#app.models.autoCompactAtTokens)
+        this.#ui.setContextLabel(formatContextUsage(usage), contextUsageColor(usage.percent))
+      },
+      onDiff: (added, removed) => {
+        this.#sessions.addDiff(added, removed)
+      },
+      onPermissionRequest: (request) => this.#handlePermissionRequest(request),
+      onCompletion: () => this.#terminal.notifyCompletion(),
+    }
+  }
+
+  async #persistSelection(model: CatalogModel, options: PersistSelectionOptions) {
+    if (this.#localLoadStatus && this.#localLoadStatus.modelId !== model.id) {
+      this.#ui.setModelPickerStatus(this.#localLoadStatus.modelId, undefined)
+      this.#localLoadStatus = undefined
+    }
+    try {
+      const activated = await this.#app.models.persistSelection(model, {
+        ...options,
+        isExiting: () => this.#exiting,
+        onLocalProgress: (progress) => {
+          const status: ModelPickerStatus = { label: formatLocalLoadStatus(progress), kind: "progress" }
+          this.#localLoadStatus = { modelId: model.id, status }
+          this.#ui.setModelPickerStatus(model.id, status)
+        },
+        wrap: (prepared) => ({
+          model: prepared.model,
+          commit: () => {
+            prepared.commit()
+            this.#syncActivatedModel(prepared.model)
+            this.#clearLocalLoadStatus(prepared.model.id)
+          },
+          rollback: async (rollback) => {
+            this.#clearLocalLoadStatus(prepared.model.id)
+            await prepared.rollback(rollback)
+          },
+        }),
+      })
+      if (isLocalCatalogModel(activated)) this.#setDownloadedModelsAvailable(true)
+      return activated
+    } catch (error) {
+      this.#clearLocalLoadStatus(model.id)
+      if (isLocalCatalogModel(model)) await this.#refreshDownloadedModelAvailability()
+      throw error
+    }
+  }
+
+  #conversationSink(): ConversationSink {
+    return {
+      renderTranscript: (options) => this.#ui.renderTranscript(this.#app.transcript.entries, options),
+      renderSubagents: () => this.#ui.renderSubagents(this.#app.subagents.all),
+      setPhase: (phase) => this.#ui.setAgentPhase(phase),
+      startBusy: () => this.#ui.startBusyIndicator(),
+      stopBusy: () => this.#ui.stopBusyIndicator(),
+    }
+  }
+
   #updateContextIndicator(pendingInput = "") {
     const pendingMessage = createUserMessage(pendingInput, this.#images.pending.items)
     const usage = contextUsage(
-      this.#contextEstimator()([
-        ...this.#transcript.history,
+      this.#app.contextEstimator()([
+        ...this.#app.transcript.history,
         ...(pendingInput || this.#images.pending.items.length > 0 ? [pendingMessage] : []),
       ]),
-      this.#autoCompactAtTokens,
+      this.#app.models.autoCompactAtTokens,
     )
     this.#ui.setContextLabel(formatContextUsage(usage), contextUsageColor(usage.percent))
   }
 
-  #contextEstimator() {
-    const tools = providerTools(this.#selectedModelProvider ?? "fireworks").filter(
-      (tool) => tool.name !== "skill" || this.#loadedSkills.skills.length > 0,
-    )
-    return requestContextEstimator({
-      tools,
-      projectContext: this.#loadedProjectContext,
-      skills: tools.some((tool) => tool.name === "skill") ? this.#loadedSkills.skills : [],
-    })
-  }
-
   #toggleMode() {
-    this.#permissionMode = this.#permissionMode === "ask" ? "auto" : "ask"
-    this.#ui.setModeLabel(formatModeLabel(this.#permissionMode))
+    this.#app.permissionMode = this.#app.permissionMode === "ask" ? "auto" : "ask"
+    this.#ui.setModeLabel(formatModeLabel(this.#app.permissionMode))
   }
 
   async #selectThemeCommand(value: string) {
@@ -1294,7 +983,7 @@ export class InteractiveApp {
   }
 
   async #toggleFastServing() {
-    if (!this.#configured || !this.#fireworksApiKey || !this.#selectedModelId) {
+    if (!this.#configured || !this.#app.fireworksApiKey || !this.#app.models.selectedId) {
       this.#setupFlow.begin()
       return
     }
@@ -1322,10 +1011,10 @@ export class InteractiveApp {
     } catch (error) {
       this.#subagentPanelVisible = previous
       this.#ui.setSubagentPanelVisible(previous)
-      this.#transcript.addDebugMessage(
+      this.#app.transcript.addDebugMessage(
         `Could not save subagent panel visibility: ${error instanceof Error ? error.message : String(error)}`,
       )
-      this.#ui.renderTranscript(this.#transcript.entries, { scrollToBottom: true })
+      this.#ui.renderTranscript(this.#app.transcript.entries, { scrollToBottom: true })
     }
   }
 
@@ -1341,18 +1030,18 @@ export class InteractiveApp {
     } catch (error) {
       this.#thinkingVisible = previous
       this.#ui.setThinkingVisible(previous)
-      this.#transcript.addDebugMessage(
+      this.#app.transcript.addDebugMessage(
         `Could not save thinking visibility: ${error instanceof Error ? error.message : String(error)}`,
       )
-      this.#ui.renderTranscript(this.#transcript.entries, { scrollToBottom: true })
+      this.#ui.renderTranscript(this.#app.transcript.entries, { scrollToBottom: true })
     }
   }
 
   #showThemeMessage(message: string) {
     this.#ui.showChatLayout()
-    this.#transcript.addAssistantMessage(message)
+    this.#app.transcript.addAssistantMessage(message)
     this.#ui.clearInput()
-    this.#ui.renderTranscript(this.#transcript.entries)
+    this.#ui.renderTranscript(this.#app.transcript.entries)
     this.#ui.focusInput()
   }
 

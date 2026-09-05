@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { formatWorkspaceLabel } from "../../src/cli/workspace-label.js"
+import { formatWorkspaceLabel } from "../../src/app/workspace-label.js"
 
 describe("workspace label", () => {
   it("abbreviates paths inside the home directory", () => {

@@ -1,7 +1,9 @@
 import { type BoxRenderable, RGBA, type TextareaRenderable, type TextRenderable } from "@opentui/core"
 import { createTestRenderer } from "@opentui/core/testing"
 import { describe, expect, it, vi } from "vitest"
+import { contextUsage } from "../../src/app/context-usage.js"
 import { createChatUI } from "../../src/cli/chat-ui.js"
+import { formatContextUsage } from "../../src/cli/context-meter.js"
 import { colors } from "../../src/cli/theme.js"
 import { CHAT_KEY_HINT, CHAT_KEY_HINT_DURATION_MS } from "../../src/cli/ui/format.js"
 import { STAT_COUNT_SETTLE_MS } from "../../src/cli/ui/home-stats.js"
@@ -209,7 +211,7 @@ describe("chat UI status and prompts", () => {
     // Needs a 24-row terminal to force the overflow; the shared harness is 30 rows.
     const testRenderer = await createTestRenderer({ width: 80, height: 24, kittyKeyboard: true })
     const ui = createChatUI(testRenderer.renderer, {
-      contextLabel: "□□□□□□□□ 0% · ~0",
+      contextLabel: formatContextUsage(contextUsage(0, 1)),
       modelLabel: "Model: test",
       modeLabel: "› auto",
       sessionLabel: "default",
@@ -252,7 +254,7 @@ describe("chat UI status and prompts", () => {
   it("keeps home content vertically centered when everything fits", async () => {
     const testRenderer = await createTestRenderer({ width: 80, height: 24, kittyKeyboard: true })
     const ui = createChatUI(testRenderer.renderer, {
-      contextLabel: "□□□□□□□□ 0% · ~0",
+      contextLabel: formatContextUsage(contextUsage(0, 1)),
       modelLabel: "Model: test",
       modeLabel: "› auto",
       sessionLabel: "default",
@@ -438,6 +440,14 @@ describe("chat UI status and prompts", () => {
     expect(harness.find("permission-prompt")).toBeUndefined()
   })
 
+  it("dismisses an open permission prompt as denied", async () => {
+    const harness = await setup()
+    const decision = harness.ui.showPermissionPrompt("Running command: ls")
+    harness.ui.hidePermissionPrompt()
+    await expect(decision).resolves.toBe(false)
+    expect(harness.find("permission-prompt")).toBeUndefined()
+  })
+
   it("suspends the busy wave while a permission prompt is visible", async () => {
     const harness = await setup()
     harness.ui.showChatLayout()
@@ -495,7 +505,7 @@ describe("chat UI status and prompts", () => {
     const harness = await setup()
     harness.ui.showChatLayout()
     harness.ui.setSessionLabel("Refactor parser")
-    harness.ui.setContextLabel("■■■■■■■■ 100% · ~250k")
+    harness.ui.setContextLabel(formatContextUsage(contextUsage(250_000, 250_000)))
     await harness.renderOnce()
 
     const bar = harness.get<BoxRenderable>("top-bar")
@@ -513,7 +523,7 @@ describe("chat UI status and prompts", () => {
     const harness = await setup()
     harness.ui.showChatLayout()
     harness.ui.setSessionLabel("A very long session title that should not cover the context meter")
-    harness.resize(42, 24)
+    harness.resize(48, 24)
     await harness.renderOnce()
 
     const brand = harness.get<TextRenderable>("title-bar")
@@ -528,7 +538,7 @@ describe("chat UI status and prompts", () => {
       .split("\n")
       .find((line) => line.includes("OTIS"))
     expect(topLine).toContain("OTIS")
-    expect(topLine).toContain("□□□□□□□□ 0% · ~0")
+    expect(topLine).toContain(formatContextUsage(contextUsage(0, 1)))
     expect(topLine).toContain("...")
     expect(topLine).not.toContain("A very long session title that should not cover the context meter")
   })

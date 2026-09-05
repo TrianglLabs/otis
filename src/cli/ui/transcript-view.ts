@@ -7,6 +7,7 @@ import {
   TextRenderable,
   type TreeSitterClient,
 } from "@opentui/core"
+import type { TranscriptEntry } from "../../app/transcript.js"
 import type { ToolActivityKind } from "../../tools/index.js"
 import {
   colors,
@@ -15,7 +16,6 @@ import {
   createMarkdownTableOptions,
   createMutedMarkdownStyle,
 } from "../theme.js"
-import type { TranscriptEntry } from "../transcript.js"
 import { formatElapsed } from "./format.js"
 import type { Renderer } from "./types.js"
 

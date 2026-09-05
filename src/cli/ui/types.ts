@@ -1,11 +1,11 @@
 import type { TreeSitterClient } from "@opentui/core"
+import type { SessionPickerItem } from "../../app/session-metadata.js"
+import type { SubagentTrace } from "../../app/subagents.js"
+import type { TranscriptEntry } from "../../app/transcript.js"
 import type { ModelPickerItem, ModelPickerStatus } from "../../inference/picker-catalog.js"
 import type { ThemeName } from "../../local/settings.js"
 import type { LocalStats } from "../../local/stats.js"
-import type { SessionPickerItem } from "../session-metadata.js"
-import type { SubagentTrace } from "../subagents.js"
 import type { ThemeColors } from "../theme.js"
-import type { TranscriptEntry } from "../transcript.js"
 import type { AgentPhase } from "./format.js"
 
 export type Renderer = Awaited<ReturnType<typeof import("@opentui/core").createCliRenderer>>

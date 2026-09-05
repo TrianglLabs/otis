@@ -13,7 +13,8 @@ Parallel's Search MCP.
 
 ## Current technical decisions
 
-- Frontend: OpenTUI.
+- Frontend: OpenTUI CLI, with shared application behavior in `src/app` for the terminal, headless, and future adapters.
+  `src/app` owns conversation lifecycle and model-selection transactions; adapters own screens and rendering.
 - Runtime and package manager: TypeScript on Bun.
 - Inference: Fireworks' OpenAI-compatible API, called directly from the local runtime; local models via either
   Otis-managed llama.cpp `llama-server` or a user-managed NVIDIA PAIR endpoint on `127.0.0.1`.
@@ -57,5 +58,7 @@ Preserve provider-native reasoning and tool-call history when sending later turn
 - Prefer small, direct modules with names that describe their responsibility.
 - Do not add compatibility layers unless persisted user data or a released interface requires one.
 - Keep network transport, persistence, tool execution, and UI rendering in their existing source boundaries.
+- Keep reusable conversation, session, and model coordination in `src/app`. `src/app` must not import OpenTUI,
+  Electron, React, or anything from `src/cli`.
 - Add tests that assert real behavior and failure modes. Remove obsolete tests instead of preserving dead product flows.
 - Run the relevant tests, typecheck, formatter/linter checks, and release build before declaring work complete.

@@ -7,8 +7,8 @@ import {
   type TextRenderable,
 } from "@opentui/core"
 import { describe, expect, it, vi } from "vitest"
+import { TranscriptStore } from "../../src/app/transcript.js"
 import { colors, selectTheme } from "../../src/cli/theme.js"
-import { TranscriptStore } from "../../src/cli/transcript.js"
 import { COLOR_PULSE_PERIOD_MS, TEXT_SHIMMER_PERIOD_MS } from "../../src/cli/ui/color-pulse.js"
 import { LOCAL_DOWNLOADING_LABEL, LOCAL_LOADING_LABEL } from "../../src/cli/ui/format.js"
 import { toFireworksPickerChoice } from "../../src/inference/picker-catalog.js"

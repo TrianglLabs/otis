@@ -1,17 +1,13 @@
+import type { ContextUsage } from "../app/context-usage.js"
 import { colors } from "./theme.js"
 
-const METER_BLOCKS = 8
+const TRACK = 10
+const FILL = "━"
+const TIP = "╸"
+const START = "╺"
+const EMPTY = "─"
 
-export function contextUsage(usedTokens: number, contextWindowTokens: number) {
-  const percent = contextWindowTokens > 0 ? (usedTokens / contextWindowTokens) * 100 : 0
-  return {
-    usedTokens,
-    contextWindowTokens,
-    percent: Math.min(100, Math.max(0, percent)),
-  }
-}
-
-export function formatContextUsage(usage: ReturnType<typeof contextUsage>) {
+export function formatContextUsage(usage: ContextUsage) {
   return `${contextMeter(usage.percent)} ${formatPercent(usage.percent)} · ~${formatTokenCount(usage.usedTokens)}`
 }
 
@@ -22,8 +18,16 @@ export function contextUsageColor(percent: number) {
 }
 
 function contextMeter(percent: number) {
-  const filled = Math.min(METER_BLOCKS, Math.max(0, Math.floor((percent / 100) * METER_BLOCKS)))
-  return `${"■".repeat(filled)}${"□".repeat(METER_BLOCKS - filled)}`
+  const value = Math.min(100, Math.max(0, percent))
+  if (value <= 0) return EMPTY.repeat(TRACK)
+  if (value >= 100) return FILL.repeat(TRACK)
+
+  const units = (value / 100) * TRACK
+  const filled = Math.min(TRACK - 1, Math.floor(units))
+  const fraction = units - filled
+  const head = fraction >= 0.5 ? TIP : filled === 0 ? START : ""
+  const body = `${FILL.repeat(filled)}${head}`
+  return `${body}${EMPTY.repeat(TRACK - body.length)}`
 }
 
 function formatPercent(percent: number) {

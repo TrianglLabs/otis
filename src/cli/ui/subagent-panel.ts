@@ -7,7 +7,7 @@ import {
   type TextRenderable,
   t,
 } from "@opentui/core"
-import type { SubagentStatus, SubagentTrace } from "../subagents.js"
+import type { SubagentStatus, SubagentTrace } from "../../app/subagents.js"
 import { colors } from "../theme.js"
 import { SelectionPulse, shimmerText } from "./color-pulse.js"
 import { formatElapsed } from "./format.js"

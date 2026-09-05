@@ -1,17 +1,16 @@
 import type { ScrollBoxRenderable } from "@opentui/core"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { runAgentTurn } from "../../src/cli/agent-turn.js"
-import { SubagentTraces } from "../../src/cli/subagents.js"
-import { TranscriptStore } from "../../src/cli/transcript.js"
-import type { TurnResult, TurnRunnerOptions } from "../../src/cli/turn-runner.js"
+import { type ConversationTurnOptions, runConversationTurn } from "../../src/app/conversation.js"
+import { SubagentTraces } from "../../src/app/subagents.js"
+import { TranscriptStore } from "../../src/app/transcript.js"
+import type { TurnResult, TurnRunnerOptions } from "../../src/app/turn-runner.js"
+import type { ChatUI } from "../../src/cli/ui/types.js"
 import type { AgentEvent } from "../../src/core/agent.js"
 import type { ChatMessage } from "../../src/inference/types.js"
 import { useChatHarness } from "./support/chat-ui-harness.js"
 
 const mocks = vi.hoisted(() => ({ executeTurn: vi.fn() }))
-vi.mock("../../src/cli/turn-runner.js", () => ({ executeTurn: mocks.executeTurn }))
-
-type AgentTurnOptions = Parameters<typeof runAgentTurn>[0]
+vi.mock("../../src/app/turn-runner.js", () => ({ executeTurn: mocks.executeTurn }))
 
 const reasoningScript: AgentEvent[] = [
   { type: "model", phase: "start" },
@@ -40,19 +39,33 @@ const reasoningScript: AgentEvent[] = [
   },
 ]
 
-describe("agent turn scrolling", () => {
+function conversationSink(ui: ChatUI, transcript: TranscriptStore, subagents: SubagentTraces) {
+  return {
+    renderTranscript: (options?: { scrollToBottom?: boolean }) => ui.renderTranscript(transcript.entries, options),
+    renderSubagents: () => ui.renderSubagents(subagents.all),
+    setPhase: (phase: "thinking" | "working") => ui.setAgentPhase(phase),
+    startBusy: () => ui.startBusyIndicator(),
+    stopBusy: () => ui.stopBusyIndicator(),
+  }
+}
+
+describe("conversation scrolling", () => {
   const setup = useChatHarness()
 
   beforeEach(() => {
     mocks.executeTurn.mockReset()
   })
 
-  function turnOptions(harness: { ui: AgentTurnOptions["ui"] }, transcript: TranscriptStore): AgentTurnOptions {
+  function turnOptions(
+    harness: { ui: ChatUI },
+    transcript: TranscriptStore,
+    subagents: SubagentTraces,
+  ): ConversationTurnOptions {
     return {
       admission: { message: { role: "user", content: "hi" } },
       transcript,
-      subagents: new SubagentTraces(),
-      ui: harness.ui,
+      subagents,
+      sink: conversationSink(harness.ui, transcript, subagents),
       cwd: "/tmp",
       debug: false,
       signal: new AbortController().signal,
@@ -62,7 +75,7 @@ describe("agent turn scrolling", () => {
       onDiff: () => {},
       onUsage: () => {},
       onCompletion: () => {},
-    } as unknown as AgentTurnOptions
+    } as unknown as ConversationTurnOptions
   }
 
   async function fillTranscript(
@@ -92,6 +105,7 @@ describe("agent turn scrolling", () => {
   it("does not yank the transcript back to the bottom while reasoning streams", async () => {
     const harness = await setup()
     const transcript = new TranscriptStore()
+    const subagents = new SubagentTraces()
     await fillTranscript(harness, transcript)
     mockReasoningTurn(harness)
 
@@ -100,7 +114,7 @@ describe("agent turn scrolling", () => {
     await harness.renderOnce()
     expect(messages.scrollTop).toBe(0)
 
-    await runAgentTurn(turnOptions(harness, transcript))
+    await runConversationTurn(turnOptions(harness, transcript, subagents))
     await harness.renderOnce()
 
     expect(messages.scrollTop).toBe(0)
@@ -109,11 +123,12 @@ describe("agent turn scrolling", () => {
   it("keeps following new content when the user is already at the bottom", async () => {
     const harness = await setup({ thinkingVisible: true })
     const transcript = new TranscriptStore()
+    const subagents = new SubagentTraces()
     await fillTranscript(harness, transcript)
     mockReasoningTurn(harness)
 
     const messages = harness.get<ScrollBoxRenderable>("messages")
-    await runAgentTurn(turnOptions(harness, transcript))
+    await runConversationTurn(turnOptions(harness, transcript, subagents))
     await harness.renderOnce()
 
     const maxScrollTop = messages.scrollHeight - messages.viewport.height

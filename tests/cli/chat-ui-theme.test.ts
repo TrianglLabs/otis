@@ -6,8 +6,8 @@ import {
   type TextRenderable,
 } from "@opentui/core"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { TranscriptStore } from "../../src/app/transcript.js"
 import { colors, selectTheme } from "../../src/cli/theme.js"
-import { TranscriptStore } from "../../src/cli/transcript.js"
 import { toFireworksPickerChoice } from "../../src/inference/picker-catalog.js"
 import { fireworksModel } from "../../src/inference/types.js"
 import { THEME_NAMES, type ThemeName } from "../../src/local/settings.js"

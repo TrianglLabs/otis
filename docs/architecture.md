@@ -8,8 +8,8 @@ optional connection to NVIDIA PAIR on loopback.
 ```txt
 User terminal or server process
   -> OpenTUI CLI or headless command
-    -> shared local TypeScript turn runtime
-      -> local tools
+    -> shared application
+      -> agent loop, tools, permissions, sessions, and inference
       -> local Agent Skills
       -> local JSONL sessions and usage
       -> Fireworks API with the user's key
@@ -25,16 +25,21 @@ server, remote profile, cloud database, or Otis-hosted tool service.
 
 ```txt
 src/cli
-  +-> src/core ------> src/inference
-  |      +----------> src/tools
-  |                       +------> src/web
-  +-> src/skills -----> local skill packages
-  +-> src/local -----> src/storage
-  +-> src/storage ---> src/core message types
+  +-> src/app ------> src/core ------> src/inference
+  |                     |      +----------> src/tools
+  |                     |                       +------> src/web
+  |                     +-> src/skills -----> local skill packages
+  |                     +-> src/local -----> src/storage
+  |                     +-> src/storage ---> src/core message types
+  +-> OpenTUI rendering and headless process adapters
 ```
 
-- `src/cli` owns command routing, the UI-neutral turn coordinator, headless output adapters, application state, and
-  OpenTUI rendering. Headless commands do not initialize OpenTUI.
+- `src/cli` owns command routing, OpenTUI rendering, and headless process adapters. It must not be imported by
+  `src/app` or backend modules. Headless commands do not initialize OpenTUI.
+- `src/app` owns shared application composition: conversation projection and turn lifecycle, session ownership, model
+  selection transactions, and workspace loading. Adapters call this layer; it does not import OpenTUI, Electron, React,
+  or `src/cli`. `Application.shutdown()` cancels an active conversation and in-flight model selection, then stops the
+  model runtime.
 - `src/core` owns the agent loop, project instruction loading, and conversation compaction.
 - `src/inference` owns Fireworks, PAIR, and local llama.cpp request serialization, model discovery, hardware fit, the
   human-authored `system-prompt.txt`, prompt assembly and project-context bounds, and SSE parsing.
@@ -285,7 +290,7 @@ same sequence numbers. Ephemeral headless turns bypass session persistence entir
 
 ## Headless execution
 
-`otis exec` is a one-turn process interface over the same coordinator and agent loop used by OpenTUI. Its plain mode
+`otis exec` is a one-turn process interface over the same shared application and agent loop used by OpenTUI. Its plain mode
 reserves stdout for the final assistant message and sends progress to stderr. JSON mode emits one result object; JSONL
 mode emits versioned, Otis-owned events rather than exposing provider stream shapes. The command accepts explicit
 working-directory, model, tool-allowlist, step-limit, timeout, and session policies, making process invocation the
