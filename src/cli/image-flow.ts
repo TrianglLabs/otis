@@ -1,3 +1,5 @@
+import { PendingImages } from "../app/pending-images.js"
+import type { TranscriptStore } from "../app/transcript.js"
 import { listToolCapableModels } from "../inference/client.js"
 import { loadImageFiles, parsePastedImagePaths, validateImageAttachments } from "../inference/images.js"
 import { findLocalModel } from "../inference/local-catalog.js"
@@ -5,8 +7,6 @@ import { createUserMessage, imageAttachmentsFromMessages, messagesContainImages 
 import { findFireworksModel, fireworksServingModel, isFastFireworksModel } from "../inference/serving-path.js"
 import type { ImageContentPart } from "../inference/types.js"
 import { saveSelectedModel } from "../local/settings.js"
-import { PendingImages } from "./pending-images.js"
-import type { TranscriptStore } from "./transcript.js"
 import type { ChatUI } from "./ui/types.js"
 
 type ImageFlowOptions = {

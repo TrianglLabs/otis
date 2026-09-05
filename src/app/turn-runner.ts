@@ -18,7 +18,6 @@ export type TurnRunnerOptions = {
   onEvent?: (event: AgentEvent) => void | Promise<void>
 }
 
-/** Runs one agent turn without making assumptions about UI, persistence, or output format. */
 export async function executeTurn(options: TurnRunnerOptions): Promise<TurnResult> {
   let recorder = new TurnDetailsRecorder()
   let historyDetails = options.historyDetails

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
-import { TranscriptStore } from "../../src/cli/transcript.js"
-import { TranscriptProjector } from "../../src/cli/transcript-projector.js"
+import { TranscriptStore } from "../../src/app/transcript.js"
+import { TranscriptProjector } from "../../src/app/transcript-projector.js"
 import type { AgentEvent } from "../../src/core/agent.js"
 
 describe("TranscriptProjector", () => {

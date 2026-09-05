@@ -1,40 +1,30 @@
 import { stat } from "node:fs/promises"
 import { resolve } from "node:path"
 import { parseArgs } from "node:util"
+import { Application } from "../app/application.js"
+import { resolveFireworksServing } from "../app/models.js"
+import { executeTurn } from "../app/turn-runner.js"
 import { autoCompactThreshold } from "../core/compaction.js"
-import { loadProjectContext } from "../core/context.js"
 import { providerTools } from "../core/subagent.js"
-import { FireworksClient, listToolCapableModels } from "../inference/client.js"
 import { compactionContextLength } from "../inference/context-policy.js"
-import { detectHardware } from "../inference/hardware.js"
 import { loadImageFiles, validateImageAttachments } from "../inference/images.js"
-import { LlamaCppRuntime } from "../inference/llama-runtime.js"
 import { findLocalModel, isLocalModelId } from "../inference/local-catalog.js"
-import { LlamaCppClient } from "../inference/local-client.js"
-import { fitLocalModel } from "../inference/local-fit.js"
 import {
   createUserMessage,
   imageAttachmentsFromMessages,
   lastAssistantText,
   messagesContainImages,
 } from "../inference/messages.js"
-import { PairClient, pairEndpointForEngine } from "../inference/pair.js"
-import {
-  baseFireworksModelId,
-  findFireworksModel,
-  fireworksServingModel,
-  useFastServingPath,
-} from "../inference/serving-path.js"
+import { pairEndpointForEngine } from "../inference/pair.js"
+import { baseFireworksModelId } from "../inference/serving-path.js"
 import type { InferenceClient, ModelProvider } from "../inference/types.js"
-import { loadLocalSettings, saveSelectedModel } from "../local/settings.js"
+import { saveSelectedModel } from "../local/settings.js"
 import {
   createPermissionPolicy,
   type PermissionEffect,
   type PermissionMode,
   parsePermissionRuleString,
 } from "../permissions/policy.js"
-import { loadProjectPermissionRules } from "../permissions/project-policy.js"
-import { loadSkillCatalog } from "../skills/index.js"
 import {
   acquireSessionLock,
   createSession,
@@ -44,9 +34,7 @@ import {
   type SessionLock,
 } from "../storage/index.js"
 import { TOOL_NAMES, type ToolDefinition, type ToolName } from "../tools/index.js"
-import { ParallelClient } from "../web/client.js"
 import { addUsage, emptyUsage, type HeadlessOutputFormat, HeadlessReporter } from "./headless-output.js"
-import { executeTurn } from "./turn-runner.js"
 
 const DEFAULT_MAX_STEPS = 50
 
@@ -90,7 +78,7 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
   let model = parsed.model ?? ""
   let modelContextLength: number | undefined
   let usage = emptyUsage()
-  let llama: LlamaCppRuntime | undefined
+  let app: Application | undefined
 
   try {
     const cwd = resolve(options.processCwd ?? process.cwd(), parsed.cwd ?? ".")
@@ -100,7 +88,12 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
     if (!prompt.trim() && images.length === 0) throw new Error("A prompt or image is required.")
     const userMessage = createUserMessage(prompt, images)
 
-    const settings = await loadLocalSettings({ env: options.env })
+    app = await Application.create({
+      cwd,
+      env: options.env,
+      isExiting: () => controller.signal.aborted,
+    })
+    const settings = app.settings
     model = parsed.model ?? settings.model ?? ""
     const modelProvider =
       parsed.model && parsed.model !== settings.model
@@ -120,20 +113,29 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
       if (images.length > 0 && !spec.supportsImageInput) {
         throw new Error(`Selected model does not support image input: ${model}`)
       }
-      const hardware = await detectHardware()
-      const fit = fitLocalModel(spec, hardware)
-      llama = new LlamaCppRuntime({ env: options.env })
-      const serving = await llama.ensureServing(spec, fit, hardware, { signal: controller.signal })
-      client = new LlamaCppClient({ model: spec.id, inferenceURL: serving.inferenceURL })
-      model = spec.id
-      modelContextLength = serving.contextLength
+      const connected = await app.models.connect({
+        provider: "local",
+        modelId: model,
+        signal: controller.signal,
+      })
+      client = connected.client
+      model = connected.modelId
+      modelContextLength = connected.contextLength
     } else if (modelProvider === "pair") {
       const pairEndpoint = pairEndpointForEngine(settings.pairEndpoints ?? {}, settings.pairEngine)
       if (!pairEndpoint) throw new Error("NVIDIA PAIR endpoint is not configured for the selected engine.")
       if (images.length > 0 && !modelSupportsImageInput) {
         throw new Error(`Selected PAIR model does not support image input: ${model}`)
       }
-      client = new PairClient({ baseURL: pairEndpoint, model })
+      const connected = await app.models.connect({
+        provider: "pair",
+        modelId: model,
+        pairEndpoint,
+        pairEngine: settings.pairEngine,
+        supportsImageInput: modelSupportsImageInput,
+        signal: controller.signal,
+      })
+      client = connected.client
     } else {
       if (!settings.fireworksApiKey) throw new Error("Fireworks API key is not configured.")
       if (parsed.model || (images.length > 0 && modelSupportsImageInput === undefined)) {
@@ -149,10 +151,16 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
       if (images.length > 0 && !modelSupportsImageInput) {
         throw new Error(`Selected model does not support image input: ${model}`)
       }
-      client = new FireworksClient({ apiKey: settings.fireworksApiKey, model })
+      const connected = await app.models.connect({
+        provider: "fireworks",
+        modelId: model,
+        fireworksApiKey: settings.fireworksApiKey,
+        contextLength: modelContextLength,
+        supportsImageInput: modelSupportsImageInput,
+        signal: controller.signal,
+      })
+      client = connected.client
     }
-    const projectContext = loadProjectContext(cwd)
-    const skills = await loadSkillCatalog(cwd)
 
     if (!parsed.ephemeral) {
       const selectedSessionId = await resolveSessionId(parsed, cwd)
@@ -188,13 +196,11 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
     const history = replay?.messages ?? []
     validateImageAttachments(imageAttachmentsFromMessages([...history, userMessage]))
     const admission = session ? await session.admitPrompt(userMessage) : undefined
-    const webClient = new ParallelClient()
     const tools = selectedTools(parsed.tools, modelProvider)
-    const projectPermissionRules = await loadProjectPermissionRules(cwd)
     const permissionPolicy = createPermissionPolicy({
       cwd,
       mode: headlessPermissionMode(parsed.permissionMode, settings.permissions?.defaultMode),
-      rules: [...(settings.permissions?.rules ?? []), ...projectPermissionRules, ...parsed.permissionRules],
+      rules: [...app.permissionRules, ...parsed.permissionRules],
     })
 
     const result = await executeTurn({
@@ -207,13 +213,13 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
       },
       agent: {
         client,
-        webClient,
+        webClient: app.webClient,
         webClientModel: model,
         webSession: session ? { id: session.id } : undefined,
         cwd,
         signal: controller.signal,
-        projectContext,
-        skills,
+        projectContext: app.projectContext,
+        skills: app.skills,
         tools,
         maxSteps: parsed.maxSteps,
         autoCompactAtTokens: autoCompactThreshold(modelContextLength),
@@ -283,7 +289,7 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
   } finally {
     if (timeout) clearTimeout(timeout)
     removeSignals()
-    await llama?.stop()
+    await app?.shutdown()
     await lock?.release()
   }
 }
@@ -427,20 +433,6 @@ function interruptionMessage(signal: AbortSignal) {
   if (reason?.type === "timeout") return `Timed out after ${reason.timeoutMs ?? "unknown"}ms.`
   if (reason?.signal) return `Interrupted by ${reason.signal}.`
   return undefined
-}
-
-async function resolveFireworksServing(
-  apiKey: string,
-  modelId: string,
-  options: { fast?: boolean; signal: AbortSignal },
-) {
-  const models = await listToolCapableModels(apiKey, { signal: options.signal })
-  const selected = findFireworksModel(models, modelId)
-  if (!selected) throw new Error(`Model is not a tool-capable Fireworks serverless model: ${modelId}`)
-  return {
-    selected,
-    serving: fireworksServingModel(selected, useFastServingPath(modelId, options.fast)),
-  }
 }
 
 function errorMessage(error: unknown) {

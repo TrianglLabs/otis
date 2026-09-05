@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { executeTurn } from "../../src/cli/turn-runner.js"
+import { executeTurn } from "../../src/app/turn-runner.js"
 import type { AgentEvent } from "../../src/core/agent.js"
 import type { ChatMessage } from "../../src/inference/types.js"
 

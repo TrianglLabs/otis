@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { TranscriptStore } from "../../src/cli/transcript.js"
+import { TranscriptStore } from "../../src/app/transcript.js"
 
 describe("TranscriptStore", () => {
   it("records transcript entries in insertion order with stable IDs", () => {

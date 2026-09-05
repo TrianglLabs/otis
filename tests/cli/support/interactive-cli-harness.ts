@@ -211,7 +211,6 @@ vi.mock("../../../src/core/agent.js", async (importOriginal) => ({
 }))
 vi.mock("../../../src/core/context.js", () => ({ loadProjectContext: mocks.loadProjectContext }))
 vi.mock("../../../src/skills/index.js", () => ({
-  emptySkillCatalog: () => ({ skills: [], byName: new Map() }),
   loadSkillCatalog: mocks.loadSkillCatalog,
 }))
 vi.mock("../../../src/inference/client.js", () => ({
@@ -345,7 +344,9 @@ export async function submit(value: string) {
 }
 
 export async function settle() {
-  for (let index = 0; index < 10; index += 1) await Promise.resolve()
+  await new Promise<void>((resolve) => {
+    setImmediate(resolve)
+  })
 }
 
 export function testSession(overrides: Partial<ReturnType<typeof baseSession>> = {}) {

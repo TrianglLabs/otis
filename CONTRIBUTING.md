@@ -31,6 +31,8 @@ release tooling.
 ## Code organization
 
 - `src/cli` owns command routing and terminal interaction.
+- `src/app` owns shared application composition used by the CLI and future adapters, including conversation lifecycle
+  and model-selection transactions.
 - `src/core` owns the agent loop and conversation behavior.
 - `src/inference` owns Fireworks HTTP transport, model discovery, and stream parsing.
 - `src/local` owns local configuration, paths, and derived statistics.
@@ -38,8 +40,8 @@ release tooling.
 - `src/tools` owns structured tool definitions, local execution, and web-tool adapters.
 - `src/web` owns direct Parallel HTTP transport and response validation.
 
-Keep dependencies pointed toward those boundaries. Do not put network transport, persistence, or tool execution into
-the UI controller.
+Keep dependencies pointed toward those boundaries. `src/app` must not import `src/cli`. Do not put network transport,
+persistence, or tool execution into the UI controller.
 
 ## Tests
 

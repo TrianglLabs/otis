@@ -1,5 +1,5 @@
 import { BoxRenderable, fg, type ScrollBoxRenderable, TextRenderable, type TreeSitterClient, t } from "@opentui/core"
-import type { SubagentTrace } from "../subagents.js"
+import type { SubagentTrace } from "../../app/subagents.js"
 import { colors } from "../theme.js"
 import { createMessagesView, createScrollbarOptions } from "./panels.js"
 import { subagentGlyph, subagentGlyphColor, subagentSummary } from "./subagent-panel.js"

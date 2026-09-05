@@ -37,11 +37,7 @@ export class PermissionController {
   }
 
   hide() {
-    if (!this.visible) return
-    this.options.inputArea.remove(this.options.prompt.id)
-    this.visible = false
-    this.resolve = undefined
-    this.options.renderer.requestRender()
+    this.finish(false)
   }
 
   handleKey(key: PermissionKey) {
@@ -61,7 +57,12 @@ export class PermissionController {
 
   private finish(approved: boolean) {
     const resolve = this.resolve
-    this.hide()
+    if (this.visible) {
+      this.options.inputArea.remove(this.options.prompt.id)
+      this.visible = false
+      this.options.renderer.requestRender()
+    }
+    this.resolve = undefined
     resolve?.(approved)
   }
 }

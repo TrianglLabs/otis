@@ -1,3 +1,4 @@
+import type { ModelHost, PersistSelectionOptions } from "../app/models.js"
 import { listToolCapableModels } from "../inference/client.js"
 import { isLocalModelId } from "../inference/local-catalog.js"
 import { selectDefaultFireworksModel } from "../inference/model-policy.js"
@@ -40,28 +41,18 @@ import type { ChatUI, PairEndpointInputs, SetupInferenceChoice, SetupLocalInfere
 type SetupFlowOptions = {
   ui: ChatUI
   settings: LocalSettings
+  models: ModelHost
   localInferenceUnavailableReason?: string
   isBusy: () => boolean
   setBusy: (busy: boolean) => void
   onCredentialsChanged: (credentials: { fireworksApiKey?: string }) => void
   onPairEndpointsChanged: (endpoints: PairEndpoints) => void
-  prepareModelSelection: (
-    model: CatalogModel,
-    options: { signal: AbortSignal; fireworksApiKey?: string },
-  ) => Promise<PreparedModelSelection>
+  persistSelection: (model: CatalogModel, options: PersistSelectionOptions) => Promise<CatalogModel>
   localLoadStatus?: () => { modelId: string; status: ModelPickerStatus } | undefined
   loadedLocalModel?: () => { model: string; contextLength: number } | undefined
   onConfigured: (fireworksApiKey?: string) => void
   fastEnabled: (modelId: string) => boolean
   onFastChanged: (modelId: string, fast: boolean) => void
-}
-
-export type PreparedModelSelection = {
-  /** The exact serving model resolved during preparation, including its runtime context. */
-  model: CatalogModel
-  /** Commit must synchronously activate the already-prepared model and must not fail. */
-  commit: () => void
-  rollback: (options: { restorePrevious: boolean }) => Promise<void>
 }
 
 type ModelPickerOpenOptions = {
@@ -85,9 +76,6 @@ export class SetupFlow {
   #openedFireworksKeyPage = false
   #catalogController: AbortController | undefined
   #catalogTask: Promise<void> | undefined
-  #selectionController: AbortController | undefined
-  #selectionTail: Promise<void> = Promise.resolve()
-  #selectionId = 0
   #closed = false
 
   constructor(private readonly options: SetupFlowOptions) {
@@ -211,16 +199,17 @@ export class SetupFlow {
       this.options.ui.showTransientHint(` ${item.availabilityLabel ?? "This model will not fit in memory"} `)
       return
     }
-    await this.enqueueSelection(async (signal, selectionId) => {
+    await this.options.models.enqueueSelection(async (signal) => {
+      if (this.#closed) return
       if (item.provider === "local") {
-        await this.selectLocalModel(toLocalCatalogModel(item), signal, selectionId)
+        await this.selectLocalModel(toLocalCatalogModel(item), signal)
         return
       }
       if (item.provider === "pair") {
-        await this.selectPairModel(toPairCatalogModel(item), signal, selectionId)
+        await this.selectPairModel(toPairCatalogModel(item), signal)
         return
       }
-      await this.selectFireworksModel(item.id, signal, selectionId)
+      await this.selectFireworksModel(item.id, signal)
     })
   }
 
@@ -230,7 +219,8 @@ export class SetupFlow {
     }
     if (this.#selectedModelProvider !== "fireworks") return "unavailable" as const
     return (
-      (await this.enqueueSelection(async (signal) => {
+      (await this.options.models.enqueueSelection(async (signal) => {
+        if (this.#closed) return "unavailable" as const
         this.options.setBusy(true)
         const selectedModelId = this.#selectedModel as string
         const previousFast = this.options.fastEnabled(selectedModelId)
@@ -272,9 +262,8 @@ export class SetupFlow {
   }
 
   async cancelModelSelection() {
-    this.#selectionId += 1
-    this.#selectionController?.abort()
-    await this.#selectionTail
+    this.options.models.cancelSelection()
+    await this.options.models.waitForSelection()
   }
 
   forgetSelectedModel(modelId: string) {
@@ -287,8 +276,8 @@ export class SetupFlow {
     if (this.#closed) return
     this.#closed = true
     this.#catalogController?.abort()
-    this.#selectionController?.abort()
-    await Promise.allSettled([this.#catalogTask, this.#selectionTail])
+    this.options.models.cancelSelection()
+    await Promise.allSettled([this.#catalogTask, this.options.models.waitForSelection()])
   }
 
   private requestFireworksKey() {
@@ -474,10 +463,10 @@ export class SetupFlow {
     return models
   }
 
-  private async selectLocalModel(selected: LocalCatalogModel, signal: AbortSignal, selectionId: number) {
+  private async selectLocalModel(selected: LocalCatalogModel, signal: AbortSignal) {
     try {
       await this.persistSelection(selected, signal, (serving) => saveSelectedModel(serving))
-      if (selectionId !== this.#selectionId || this.#closed) return
+      if (signal.aborted || this.#closed) return
       this.options.onConfigured()
       this.options.ui.setConfigured()
       this.options.ui.hideModelPicker()
@@ -491,11 +480,11 @@ export class SetupFlow {
     }
   }
 
-  private async selectPairModel(selected: PairCatalogModel, signal: AbortSignal, selectionId: number) {
+  private async selectPairModel(selected: PairCatalogModel, signal: AbortSignal) {
     const key = pairModelKey(selected)
     try {
       await this.persistSelection(selected, signal, (serving) => saveSelectedModel(serving))
-      if (selectionId !== this.#selectionId || this.#closed) return
+      if (signal.aborted || this.#closed) return
       this.options.onConfigured()
       this.options.ui.setConfigured()
       this.options.ui.hideModelPicker()
@@ -510,7 +499,7 @@ export class SetupFlow {
     }
   }
 
-  private async selectFireworksModel(modelId: string, signal: AbortSignal, selectionId: number) {
+  private async selectFireworksModel(modelId: string, signal: AbortSignal) {
     const selected = findFireworksModel(this.#models, modelId)
     if (!selected) {
       if (!signal.aborted && !this.#closed) {
@@ -522,7 +511,7 @@ export class SetupFlow {
     this.options.setBusy(true)
     try {
       await this.persistFireworksSelection(selected, signal)
-      if (selectionId !== this.#selectionId || this.#closed) return
+      if (signal.aborted || this.#closed) return
       this.options.ui.hideModelPicker()
       this.finish(selected)
     } catch (error) {
@@ -552,53 +541,16 @@ export class SetupFlow {
     signal: AbortSignal,
     persist: (serving: CatalogModel) => Promise<void>,
   ) {
-    let prepared: PreparedModelSelection | undefined
-    try {
-      prepared = await this.options.prepareModelSelection(selected, {
-        signal,
-        fireworksApiKey: this.#fireworksApiKey,
-      })
-      signal.throwIfAborted()
-      await persist(prepared.model)
-    } catch (error) {
-      if (prepared) {
-        try {
-          await prepared.rollback({ restorePrevious: !signal.aborted && !this.#closed })
-        } catch (rollbackError) {
-          throw new AggregateError(
-            [error, rollbackError],
-            `${errorMessage(error)} The previous model could not be restored.`,
-          )
-        }
-      }
-      throw error
-    }
-
-    // No await is allowed between persistence and commit: they become visible
-    // as one selection before another queued request can supersede it.
-    prepared.commit()
-    this.#selectedModel = prepared.model.id
-    this.#selectedModelProvider = prepared.model.provider
-    this.#selectedModelSupportsImageInput = prepared.model.supportsImageInput
-    this.#pairEngine = prepared.model.provider === "pair" ? prepared.model.engine : undefined
-  }
-
-  private enqueueSelection<T>(operation: (signal: AbortSignal, selectionId: number) => Promise<T>) {
-    const selectionId = ++this.#selectionId
-    this.#selectionController?.abort()
-    const controller = new AbortController()
-    this.#selectionController = controller
-    const result = this.#selectionTail.then(async () => {
-      if (controller.signal.aborted || this.#closed) return undefined
-      return await operation(controller.signal, selectionId)
+    const model = await this.options.persistSelection(selected, {
+      signal,
+      persist,
+      fireworksApiKey: this.#fireworksApiKey,
+      isClosed: () => this.#closed,
     })
-    this.#selectionTail = result.then(
-      () => undefined,
-      () => undefined,
-    )
-    return result.finally(() => {
-      if (this.#selectionController === controller) this.#selectionController = undefined
-    })
+    this.#selectedModel = model.id
+    this.#selectedModelProvider = model.provider
+    this.#selectedModelSupportsImageInput = model.supportsImageInput
+    this.#pairEngine = model.provider === "pair" ? model.engine : undefined
   }
 
   private async runCatalogOperation(operation: (signal: AbortSignal) => Promise<void>, allowWhileBusy = false) {
