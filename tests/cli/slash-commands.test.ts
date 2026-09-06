@@ -5,7 +5,6 @@ import {
   slashCommandRunsImmediately,
   slashCommands,
 } from "../../src/cli/slash-commands.js"
-import { THEME_NAMES } from "../../src/local/settings.js"
 
 describe("slash commands", () => {
   it("parses known commands and leaves unknown input for the agent", () => {
@@ -22,6 +21,8 @@ describe("slash commands", () => {
     expect(parseSlashCommand("/settings pair")).toEqual({ type: "settings", setting: "pair" })
     expect(parseSlashCommand("/settings debug")).toEqual({ type: "settings", setting: "debug" })
     expect(parseSlashCommand("/settings subagents")).toEqual({ type: "settings", setting: "subagents" })
+    expect(parseSlashCommand("/settings theme")).toEqual({ type: "settings", setting: "theme" })
+    expect(parseSlashCommand("/settings theme nord")).toEqual({ type: "theme", name: "nord" })
     expect(parseSlashCommand("/settings delete-model")).toEqual({ type: "settings", setting: "delete-model" })
     expect(parseSlashCommand("/settings delete-model openai/gpt-oss-20b")).toEqual({
       type: "settings",
@@ -30,7 +31,7 @@ describe("slash commands", () => {
     })
     expect(parseSlashCommand("/settings unknown")).toBeUndefined()
     expect(parseSlashCommand("/debug")).toEqual({ type: "settings", setting: "debug" })
-    expect(parseSlashCommand("/theme")).toEqual({ type: "theme-menu" })
+    expect(parseSlashCommand("/theme")).toEqual({ type: "settings", setting: "theme" })
     expect(parseSlashCommand("/theme nord")).toEqual({ type: "theme", name: "nord" })
     expect(parseSlashCommand("/compact")).toEqual({ type: "compact" })
     expect(parseSlashCommand("/compact keep the latest error")).toEqual({
@@ -52,11 +53,11 @@ describe("slash commands", () => {
     expect(slashCommandRunsImmediately({ type: "home" })).toBe(true)
     expect(slashCommandRunsImmediately({ type: "model" })).toBe(true)
     expect(slashCommandRunsImmediately({ type: "thinking" })).toBe(true)
-    expect(slashCommandRunsImmediately({ type: "theme-menu" })).toBe(true)
     expect(slashCommandRunsImmediately({ type: "theme", name: "nord" })).toBe(true)
     expect(slashCommandRunsImmediately({ type: "settings" })).toBe(true)
     expect(slashCommandRunsImmediately({ type: "settings", setting: "debug" })).toBe(true)
     expect(slashCommandRunsImmediately({ type: "settings", setting: "subagents" })).toBe(true)
+    expect(slashCommandRunsImmediately({ type: "settings", setting: "theme" })).toBe(true)
     expect(slashCommandRunsImmediately({ type: "settings", setting: "hosted" })).toBe(false)
     expect(slashCommandRunsImmediately({ type: "settings", setting: "pair" })).toBe(false)
     expect(slashCommandRunsImmediately({ type: "compact" })).toBe(false)
@@ -67,9 +68,9 @@ describe("slash commands", () => {
     expect(commands.find((command) => command.name === "/queue")).toMatchObject({ draft: "/queue " })
   })
 
-  it("advertises every built-in command including theme names", () => {
+  it("advertises the top-level commands without the settings-only theme picker", () => {
     const names = SLASH_COMMANDS.map((command) => command.name)
-    expect(names.slice(0, 10)).toEqual([
+    expect(names).toEqual([
       "/home",
       "/new",
       "/history",
@@ -79,10 +80,14 @@ describe("slash commands", () => {
       "/queue",
       "/compact",
       "/thinking",
-      "/theme",
+      "/exit",
     ])
-    expect(names.at(-1)).toBe("/exit")
-    expect(names.slice(10, -1)).toEqual(THEME_NAMES.map((theme) => `/theme ${theme}`))
+  })
+
+  it("keeps the former theme command as an unadvertised alias", () => {
+    expect(SLASH_COMMANDS.some((command) => command.name === "/theme")).toBe(false)
+    expect(parseSlashCommand("/theme")).toEqual({ type: "settings", setting: "theme" })
+    expect(parseSlashCommand("/theme nord")).toEqual({ type: "theme", name: "nord" })
   })
 
   it("omits /fast unless the current model has a Fast serving path", () => {

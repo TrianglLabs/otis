@@ -1,5 +1,5 @@
 import type { BoxRenderable } from "@opentui/core"
-import { isThemeName, type ThemeName } from "../../local/settings.js"
+import { isThemeName, THEME_NAMES, type ThemeName } from "../../local/settings.js"
 import type { CommandMenu } from "./command-menu.js"
 import type { ModelPicker } from "./model-picker.js"
 import type { SessionPicker } from "./session-picker.js"
@@ -85,16 +85,20 @@ export class OverlayHost {
   }
 
   showThemeMenu() {
-    this.options.commands.update("/theme ", this.options.showingWelcome(), this.options.activeTheme())
-    this.#submenuOpen = true
-    this.#submenuBack = undefined
-    this.#showCommandMenu()
+    this.showCommandSubmenu(
+      THEME_NAMES.map((theme) => ({
+        name: theme,
+        description: theme === this.options.activeTheme() ? "Active" : "",
+        submission: `/settings theme ${theme}`,
+      })),
+    )
   }
 
   showCommandSubmenu(items: readonly CommandSuggestion[], options: { onBack?: () => void } = {}) {
     this.#submenuOpen = true
     this.#submenuBack = options.onBack
     this.options.commands.showSubmenu(items)
+    this.options.commands.refreshTheme(this.options.activeTheme())
     this.#showCommandMenu()
   }
 
@@ -240,6 +244,11 @@ export class OverlayHost {
 }
 
 function themeFromCommand(command: string): ThemeName | undefined {
-  const theme = command.slice("/theme ".length)
-  return isThemeName(theme) ? theme : undefined
+  if (isThemeName(command)) return command
+  for (const prefix of ["/theme ", "/settings theme "]) {
+    if (!command.startsWith(prefix)) continue
+    const theme = command.slice(prefix.length)
+    if (isThemeName(theme)) return theme
+  }
+  return undefined
 }

@@ -55,16 +55,13 @@ export class CommandMenu {
         : query === "/"
           ? regularCommands
           : regularCommands.filter((command) => command.name.startsWith(query))
-    this.#selectedIndex = Math.max(
-      0,
-      this.#items.findIndex((command) => command.name === `/theme ${activeTheme}`),
-    )
+    this.#selectedIndex = Math.max(0, themeItemIndex(this.#items, activeTheme))
     this.render()
     return true
   }
 
   refreshTheme(activeTheme?: string) {
-    const themeIndex = this.#items.findIndex((command) => command.name === `/theme ${activeTheme}`)
+    const themeIndex = themeItemIndex(this.#items, activeTheme)
     if (themeIndex >= 0) this.#selectedIndex = themeIndex
     this.render()
   }
@@ -144,6 +141,11 @@ export class CommandMenu {
     this.#rows.push(row)
     this.container.add(row.box)
   }
+}
+
+function themeItemIndex(items: readonly CommandSuggestion[], activeTheme?: string) {
+  if (!activeTheme) return -1
+  return items.findIndex((command) => command.name === activeTheme || command.name === `/theme ${activeTheme}`)
 }
 
 function commandQuery(value: string) {

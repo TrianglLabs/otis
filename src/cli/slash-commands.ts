@@ -1,12 +1,14 @@
-import { THEME_NAMES } from "../local/settings.js"
 import type { CommandSuggestion } from "./ui/types.js"
 
 export type SlashCommand =
   | { type: "exit" }
-  | { type: "theme-menu" }
   | { type: "theme"; name: string }
   | { type: "model" }
-  | { type: "settings"; setting?: "hosted" | "pair" | "debug" | "subagents" | "delete-model"; modelId?: string }
+  | {
+      type: "settings"
+      setting?: "hosted" | "pair" | "debug" | "subagents" | "delete-model" | "theme"
+      modelId?: string
+    }
   | { type: "fast" }
   | { type: "history" }
   | { type: "new" }
@@ -16,20 +18,12 @@ export type SlashCommand =
   | { type: "compact"; instructions?: string }
 
 type CatalogCommand = {
-  type: SlashCommand["type"]
+  type: Exclude<SlashCommand["type"], "theme">
   name: string
   description: string
 }
 
-const IMMEDIATE_TYPES = new Set<SlashCommand["type"]>([
-  "exit",
-  "history",
-  "home",
-  "model",
-  "thinking",
-  "theme-menu",
-  "theme",
-])
+const IMMEDIATE_TYPES = new Set<SlashCommand["type"]>(["exit", "history", "home", "model", "thinking", "theme"])
 
 const CATALOG: readonly CatalogCommand[] = [
   { type: "home", name: "/home", description: "Return to home screen" },
@@ -41,8 +35,6 @@ const CATALOG: readonly CatalogCommand[] = [
   { type: "queue", name: "/queue", description: "Queue a separate follow-up" },
   { type: "compact", name: "/compact", description: "Summarize old conversation to free context" },
   { type: "thinking", name: "/thinking", description: "Show or hide model thinking traces" },
-  { type: "theme-menu", name: "/theme", description: "Choose a color theme" },
-  ...THEME_NAMES.map((theme) => ({ type: "theme" as const, name: `/theme ${theme}`, description: "" })),
   { type: "exit", name: "/exit", description: "Exit Otis" },
 ]
 
@@ -62,6 +54,8 @@ export function parseSlashCommand(value: string): SlashCommand | undefined {
   if (value === "/debug") return { type: "settings", setting: "debug" }
   // Keep the former top-level model cleanup command working as a hidden alias.
   if (value === "/delete-model") return { type: "settings", setting: "delete-model" }
+  // `/theme` shipped before Theme moved into Settings.
+  if (value === "/theme") return { type: "settings", setting: "theme" }
   const exact = CATALOG.find((command) => command.name === value)
   if (exact) return toSlashCommand(exact)
   if (value.startsWith("/compact ")) {
@@ -77,13 +71,22 @@ export function parseSlashCommand(value: string): SlashCommand | undefined {
   }
   if (value.startsWith("/settings ")) {
     const setting = value.slice("/settings".length).trim()
-    if (setting === "hosted" || setting === "pair" || setting === "debug" || setting === "subagents") {
+    if (
+      setting === "hosted" ||
+      setting === "pair" ||
+      setting === "debug" ||
+      setting === "subagents" ||
+      setting === "theme"
+    ) {
       return { type: "settings", setting }
     }
     if (setting === "delete-model") return { type: "settings", setting: "delete-model" }
     if (setting.startsWith("delete-model ")) {
       const modelId = setting.slice("delete-model".length).trim()
       return { type: "settings", setting: "delete-model", ...(modelId ? { modelId } : {}) }
+    }
+    if (setting.startsWith("theme ")) {
+      return { type: "theme", name: setting.slice("theme".length).trim() }
     }
     return undefined
   }
@@ -95,13 +98,17 @@ export function parseSlashCommand(value: string): SlashCommand | undefined {
 
 export function slashCommandRunsImmediately(command: SlashCommand) {
   if (command.type === "settings") {
-    return command.setting === undefined || command.setting === "debug" || command.setting === "subagents"
+    return (
+      command.setting === undefined ||
+      command.setting === "debug" ||
+      command.setting === "subagents" ||
+      command.setting === "theme"
+    )
   }
   return IMMEDIATE_TYPES.has(command.type)
 }
 
 function toSlashCommand(command: CatalogCommand): SlashCommand {
-  if (command.type === "theme") return { type: "theme", name: command.name.slice("/theme ".length) }
   if (command.type === "compact") return { type: "compact" }
   if (command.type === "queue") return { type: "queue" }
   return { type: command.type }
