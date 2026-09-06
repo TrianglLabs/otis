@@ -135,7 +135,7 @@ existing Otis-managed path and the external PAIR path as separate choices. The m
 catalog without a hosted inference API key; the hosted route requests the current provider's key and selects a verified
 tool-capable default model. Headless `otis exec --model <local-id>` also does not require a hosted inference API key.
 `/settings` can validate and save that key later without replacing the selected local model, connect or reconnect
-PAIR, open cached-model deletion when a GGUF is present, and own the ephemeral debug-mode toggle.
+PAIR, open cached-model deletion when a GGUF is present, choose a color theme, and own the ephemeral debug-mode toggle.
 
 ## NVIDIA PAIR boundary
 
@@ -218,8 +218,9 @@ request at a time, so concurrent children take turns when a rule requires approv
 Every child event surfaces through the parent's event stream wrapped in a `subagent` envelope that names the
 delegating call and the run's title. The parent's own conversation still receives only the final report, but the
 interface can show the whole run. OpenTUI keeps the transcript flat with one agent card per delegation and lists the
-session's runs in a right-hand panel whose titles shimmer while they work; selecting a run swaps the conversation for
-that run's full trace, rendered by the same transcript view, until Escape or the next prompt returns to the chat. The
+session's runs in a right-hand panel whose titles shimmer while they work; clicking a run or focusing the panel with
+arrow keys and Enter swaps the conversation for that run's full trace, rendered by the same transcript view, until
+Escape, Left, or the next prompt returns to the chat. The
 panel also hides on narrow terminals and when `/settings subagents` turns it off; that preference is saved locally.
 Headless JSONL emits the envelope as `subagent` events with the inner public event,
 and plain output indents a child's tool lines beneath the delegation. Each run persists in the turn event as a

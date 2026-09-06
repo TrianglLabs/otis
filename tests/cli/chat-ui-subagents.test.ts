@@ -130,7 +130,7 @@ describe("chat UI subagents", () => {
     await harness.renderOnce()
     expect(harness.childIds("chat-body")).toEqual(["messages", "subagent-panel"])
     expect(harness.text(subagentRowId("call_a"))).toBe("  ✓ Map the notes")
-    expect(harness.text("subagent-panel-footer")).toBe("click a run to inspect")
+    expect(harness.text("subagent-panel-footer")).toBe("[→] focus")
     expect(harness.captureCharFrame()).toContain("Delegating: Map the notes")
   })
 
@@ -177,6 +177,86 @@ describe("chat UI subagents", () => {
     harness.ui.setSubagentPanelVisible(false)
     expect(harness.childIds("chat-body")).toEqual(["messages"])
     expect(harness.find("subagent-trace")).toBeUndefined()
+  })
+
+  it("focuses the panel with arrow keys, moves between runs, and opens the focused run", async () => {
+    const harness = await setup()
+    harness.ui.showChatLayout()
+    const traces = startedTraces()
+    harness.ui.renderSubagents(traces.all)
+    await harness.renderOnce()
+
+    expect(harness.text(subagentRowId("call_a"))).toBe("  ◇ Map the notes")
+    harness.press("right")
+    await harness.renderOnce()
+    expect(harness.text(subagentRowId("call_a"))).toBe("› ◇ Map the notes")
+    expect(harness.text("subagent-panel-footer")).toBe("[↑↓] move · [enter] inspect")
+
+    harness.press("down")
+    await harness.renderOnce()
+    expect(harness.text(subagentRowId("call_a"))).toBe("  ◇ Map the notes")
+    expect(harness.text(subagentRowId("call_b"))).toBe("› ◇ Check the docs")
+
+    harness.press("enter")
+    await harness.renderOnce()
+    expect(harness.childIds("chat-body")).toEqual(["subagent-trace", "subagent-panel"])
+    expect(harness.text("subagent-trace-header")).toBe("◇ Check the docs · 0 tools · running")
+    expect(harness.text("subagent-panel-footer")).toBe("[esc] back to chat")
+
+    harness.press("escape")
+    await harness.renderOnce()
+    expect(harness.childIds("chat-body")).toEqual(["messages", "subagent-panel"])
+    expect(harness.text(subagentRowId("call_b"))).toBe("  ◇ Check the docs")
+    expect(harness.text("subagent-panel-footer")).toBe("[→] focus")
+  })
+
+  it("leaves the panel with left or escape and does not steal arrows from a non-empty input", async () => {
+    const harness = await setup()
+    harness.ui.showChatLayout()
+    harness.ui.renderSubagents(startedTraces().all)
+    await harness.renderOnce()
+
+    harness.press("down")
+    await harness.renderOnce()
+    expect(harness.text(subagentRowId("call_a"))).toBe("› ◇ Map the notes")
+
+    harness.press("left")
+    await harness.renderOnce()
+    expect(harness.text(subagentRowId("call_a"))).toBe("  ◇ Map the notes")
+    expect(harness.text("subagent-panel-footer")).toBe("[→] focus")
+
+    harness.press("up")
+    await harness.renderOnce()
+    expect(harness.text(subagentRowId("call_a"))).toBe("› ◇ Map the notes")
+    harness.press("escape")
+    await harness.renderOnce()
+    expect(harness.text(subagentRowId("call_a"))).toBe("  ◇ Map the notes")
+
+    harness.setChatInput("draft")
+    harness.press("right")
+    harness.press("up")
+    harness.press("down")
+    await harness.renderOnce()
+    expect(harness.text(subagentRowId("call_a"))).toBe("  ◇ Map the notes")
+    expect(harness.text(subagentRowId("call_b"))).toBe("  ◇ Check the docs")
+  })
+
+  it("switches the open trace when arrowing to another run", async () => {
+    const harness = await setup()
+    harness.ui.showChatLayout()
+    harness.ui.renderSubagents(startedTraces().all)
+    await harness.renderOnce()
+
+    const row = harness.get<BoxRenderable>(`${subagentRowId("call_a")}-box`)
+    await harness.mockMouse.click(row.x + 2, row.y)
+    await harness.renderOnce()
+    expect(harness.text("subagent-trace-header")).toBe("◇ Map the notes · 1 tool · running")
+
+    harness.press("down")
+    await harness.renderOnce()
+    expect(harness.childIds("chat-body")).toEqual(["subagent-trace", "subagent-panel"])
+    expect(harness.text("subagent-trace-header")).toBe("◇ Check the docs · 0 tools · running")
+    expect(harness.text(subagentRowId("call_b"))).toBe("› ◇ Check the docs")
   })
 
   it("does not let escape interrupt the agent while a trace is open", async () => {

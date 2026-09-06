@@ -112,7 +112,7 @@ export function createSubagentPanel(renderer: Renderer) {
     rowsId: "subagent-rows",
     footerId: "subagent-panel-footer",
     header: "Subagents",
-    footer: "click a run to inspect",
+    footer: "[→] focus",
     side: "right",
     width: SUBAGENT_PANEL_WIDTH,
   })

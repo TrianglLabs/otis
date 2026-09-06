@@ -11,10 +11,10 @@ import type { SubagentStatus, SubagentTrace } from "../../app/subagents.js"
 import { colors } from "../theme.js"
 import { SelectionPulse, shimmerText } from "./color-pulse.js"
 import { formatElapsed } from "./format.js"
-import { createPickerRow, type PickerRow, truncatePickerLabel } from "./picker-row.js"
+import { createPickerRow, type PickerRow, pickerRowBoxId, truncatePickerLabel } from "./picker-row.js"
 import type { Renderer } from "./types.js"
 
-/** Below this width the panel would squeeze the transcript, so it stays hidden and traces remain click-free. */
+/** Below this width the panel would squeeze the transcript, so it stays hidden and traces stay in the conversation. */
 export const SUBAGENT_PANEL_MIN_TERMINAL_WIDTH = 96
 const TITLE_WIDTH = 28
 const STATUS_GLYPHS: Record<SubagentStatus, string> = {
@@ -50,6 +50,10 @@ export function subagentSummary(trace: SubagentTrace) {
   return parts.join(" · ")
 }
 
+const FOOTER_IDLE = "[→] focus"
+const FOOTER_FOCUSED = "[↑↓] move · [enter] inspect"
+const FOOTER_OPEN = "[esc] back to chat"
+
 type SubagentPanelOptions = {
   renderer: Renderer
   chatBody: BoxRenderable
@@ -59,12 +63,20 @@ type SubagentPanelOptions = {
   onSelect: (toolCallId: string) => void
 }
 
+type PanelKey = {
+  name: string
+  preventDefault(): void
+  stopPropagation(): void
+}
+
 /** Lists the session's delegated runs beside the transcript, shimmering titles while they work. */
 export class SubagentPanel {
   readonly #rows = new Map<string, PickerRow>()
   readonly #pulse: SelectionPulse
   #traces: readonly SubagentTrace[] = []
   #selectedId: string | undefined
+  #focusIndex = 0
+  #focused = false
   #preferredVisible = true
   #mounted = false
 
@@ -77,12 +89,19 @@ export class SubagentPanel {
     return this.#mounted
   }
 
+  get focused() {
+    return this.#focused
+  }
+
   render(traces: readonly SubagentTrace[]) {
+    const focusedId = this.#traces[this.#focusIndex]?.toolCallId
     this.#traces = traces
+    this.syncFocusIndex(focusedId)
     this.syncRows()
     this.layout()
     if (traces.some((trace) => trace.status === "running")) this.#pulse.start()
     else this.#pulse.stop()
+    this.syncFooter()
     this.paint(this.#pulse.elapsed())
     this.options.renderer.requestRender()
   }
@@ -97,9 +116,48 @@ export class SubagentPanel {
   /** Highlights the run whose trace is open; `undefined` when the transcript is showing. */
   select(toolCallId: string | undefined) {
     this.#selectedId = toolCallId
-    this.options.footer.content = toolCallId ? "[esc] back to chat" : "click a run to inspect"
+    if (toolCallId) this.syncFocusIndex(toolCallId)
+    this.syncFooter()
     this.paint(this.#pulse.elapsed())
     this.options.renderer.requestRender()
+  }
+
+  focus() {
+    if (!this.#mounted || this.#traces.length === 0) return
+    this.#focused = true
+    this.syncFocusIndex(this.#selectedId ?? this.#traces[this.#focusIndex]?.toolCallId)
+    this.syncFooter()
+    this.paint(this.#pulse.elapsed())
+    this.scrollFocusedIntoView()
+    this.options.renderer.requestRender()
+  }
+
+  blur() {
+    if (!this.#focused) return
+    this.#focused = false
+    this.syncFooter()
+    this.paint(this.#pulse.elapsed())
+    this.options.renderer.requestRender()
+  }
+
+  handleKey(key: PanelKey) {
+    if (!this.#mounted || this.#traces.length === 0) return false
+    if (key.name === "up" || key.name === "down") {
+      stopKey(key)
+      this.move(key.name === "up" ? -1 : 1)
+      return true
+    }
+    if (key.name === "return" || key.name === "enter") {
+      stopKey(key)
+      const id = this.#traces[this.#focusIndex]?.toolCallId
+      if (id) this.options.onSelect(id)
+      return true
+    }
+    if (key.name === "right") {
+      stopKey(key)
+      return true
+    }
+    return false
   }
 
   refreshTheme() {
@@ -119,9 +177,42 @@ export class SubagentPanel {
       this.options.renderer.terminalWidth >= SUBAGENT_PANEL_MIN_TERMINAL_WIDTH
     if (shouldMount === this.#mounted) return
     if (shouldMount) this.options.chatBody.add(this.options.panel)
-    else this.options.chatBody.remove(this.options.panel.id)
+    else {
+      this.#focused = false
+      this.options.chatBody.remove(this.options.panel.id)
+    }
     this.#mounted = shouldMount
     this.options.renderer.requestRender()
+  }
+
+  private move(delta: number) {
+    if (this.#traces.length === 0) return
+    this.#focusIndex = (this.#focusIndex + delta + this.#traces.length) % this.#traces.length
+    this.paint(this.#pulse.elapsed())
+    this.scrollFocusedIntoView()
+    this.options.renderer.requestRender()
+    if (!this.#selectedId) return
+    const id = this.#traces[this.#focusIndex]?.toolCallId
+    if (id && id !== this.#selectedId) this.options.onSelect(id)
+  }
+
+  private syncFocusIndex(preferredId: string | undefined) {
+    if (this.#traces.length === 0) {
+      this.#focusIndex = 0
+      this.#focused = false
+      return
+    }
+    const index = preferredId ? this.#traces.findIndex((trace) => trace.toolCallId === preferredId) : -1
+    this.#focusIndex = index >= 0 ? index : Math.min(this.#focusIndex, this.#traces.length - 1)
+  }
+
+  private syncFooter() {
+    this.options.footer.content = this.#selectedId ? FOOTER_OPEN : this.#focused ? FOOTER_FOCUSED : FOOTER_IDLE
+  }
+
+  private scrollFocusedIntoView() {
+    const id = this.#traces[this.#focusIndex]?.toolCallId
+    if (id) this.options.rows.scrollChildIntoView(pickerRowBoxId(subagentRowId(id)))
   }
 
   private syncRows() {
@@ -149,15 +240,21 @@ export class SubagentPanel {
   }
 
   private paint(elapsedMs: number) {
-    for (const trace of this.#traces) {
+    this.#traces.forEach((trace, index) => {
       const row = this.#rows.get(trace.toolCallId)
-      if (!row) continue
-      const selected = trace.toolCallId === this.#selectedId
-      row.title.content = rowTitle(trace, selected, elapsedMs)
+      if (!row) return
+      const highlighted =
+        trace.toolCallId === this.#selectedId || (this.#focused && !this.#selectedId && index === this.#focusIndex)
+      row.title.content = rowTitle(trace, highlighted, elapsedMs)
       row.meta.content = `   ${subagentSummary(trace)}`
       row.meta.fg = colors.muted
-    }
+    })
   }
+}
+
+function stopKey(key: PanelKey) {
+  key.preventDefault()
+  key.stopPropagation()
 }
 
 function rowTitle(trace: SubagentTrace, selected: boolean, elapsedMs: number) {

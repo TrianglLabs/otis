@@ -229,6 +229,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
       return
     }
     overlays.updateCommandMenu(value)
+    if (value !== "") subagents.blur()
     options.onInputChange?.(value)
   }
 
@@ -254,10 +255,38 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     if (overlays.handleKey(key)) return
     if (inputController.mode !== "chat") return
 
+    if (subagents.mounted && subagents.focused) {
+      if (subagents.handleKey(key)) return
+    } else if (
+      subagents.mounted &&
+      input.plainText === "" &&
+      (key.name === "right" || key.name === "up" || key.name === "down")
+    ) {
+      stopKey(key)
+      subagents.focus()
+      if (key.name !== "right" && traceView.trace) subagents.handleKey(key)
+      return
+    }
+
     if (key.name === "escape") {
       stopKey(key)
-      if (traceView.trace) closeSubagentTrace()
-      else if (busy) status.handleEscape()
+      if (traceView.trace) {
+        closeSubagentTrace()
+        subagents.blur()
+        return
+      }
+      if (subagents.focused) {
+        subagents.blur()
+        return
+      }
+      if (busy) status.handleEscape()
+      return
+    }
+
+    if (key.name === "left" && input.plainText === "" && (traceView.trace || subagents.focused)) {
+      stopKey(key)
+      closeSubagentTrace()
+      subagents.blur()
       return
     }
 

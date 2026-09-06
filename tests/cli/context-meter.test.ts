@@ -7,13 +7,13 @@ describe("formatContextUsage", () => {
     expect(formatContextUsage(contextUsage(0, 100_000))).toBe("────────── 0% · ~0")
   })
 
-  it("shows a start tick as soon as any context is used", () => {
-    expect(formatContextUsage(contextUsage(400, 100_000))).toBe("╺───────── <1% · ~400")
+  it("shows the first cell as soon as any context is used", () => {
+    expect(formatContextUsage(contextUsage(400, 100_000))).toBe("━───────── <1% · ~400")
   })
 
-  it("fills from the left with a tip on the half-cell", () => {
+  it("fills whole cells from the left", () => {
     expect(formatContextUsage(contextUsage(50_000, 100_000))).toBe("━━━━━───── 50% · ~50k")
-    expect(formatContextUsage(contextUsage(55_000, 100_000))).toBe("━━━━━╸──── 55% · ~55k")
+    expect(formatContextUsage(contextUsage(55_000, 100_000))).toBe("━━━━━━──── 55% · ~55k")
   })
 
   it("renders a solid track at 100%", () => {

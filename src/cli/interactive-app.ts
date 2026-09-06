@@ -26,6 +26,7 @@ import {
   saveSelectedTheme,
   saveSubagentPanelVisible,
   saveThinkingVisible,
+  THEME_NAMES,
   type ThemeName,
 } from "../local/settings.js"
 import { calculateLocalStats } from "../local/stats.js"
@@ -457,11 +458,6 @@ export class InteractiveApp {
       case "exit":
         await this.#quit()
         return
-      case "theme-menu":
-        this.#ui.clearInput()
-        this.#ui.showThemeMenu()
-        this.#ui.focusInput()
-        return
       case "theme":
         await this.#selectThemeCommand(command.name)
         return
@@ -482,6 +478,8 @@ export class InteractiveApp {
           this.#toggleDebugMode()
         } else if (command.setting === "subagents") {
           await this.#setSubagentPanelVisible(!this.#subagentPanelVisible)
+        } else if (command.setting === "theme") {
+          this.#openThemeMenu()
         } else if (command.setting === "delete-model") {
           if (command.modelId) this.#startLocalModelDeletion(command.modelId)
           else await this.#openLocalModelDeleteMenu()
@@ -672,6 +670,11 @@ export class InteractiveApp {
           ]
         : []),
       {
+        name: "Theme",
+        description: this.#selectedTheme,
+        submission: "/settings theme",
+      },
+      {
         name: "Debug mode",
         description: this.#debug ? "On" : "Off",
         submission: "/settings debug",
@@ -683,6 +686,19 @@ export class InteractiveApp {
       },
     ]
     this.#ui.showCommandSubmenu(items, { onBack: () => this.#ui.showSlashCommandMenu() })
+    this.#ui.focusInput()
+  }
+
+  #openThemeMenu() {
+    this.#ui.clearInput()
+    this.#ui.showCommandSubmenu(
+      THEME_NAMES.map((theme) => ({
+        name: theme,
+        description: theme === this.#selectedTheme ? "Active" : "",
+        submission: `/settings theme ${theme}`,
+      })),
+      { onBack: () => this.#openSettingsMenu() },
+    )
     this.#ui.focusInput()
   }
 
@@ -961,7 +977,7 @@ export class InteractiveApp {
 
   async #selectThemeCommand(value: string) {
     if (!isThemeName(value)) {
-      this.#showThemeMessage("Choose a theme with `/theme`.")
+      this.#showThemeMessage("Choose a theme with `/settings theme`.")
       return
     }
 

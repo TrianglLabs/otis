@@ -143,6 +143,11 @@ describe("CLI settings", () => {
           submission: "/settings pair",
         },
         {
+          name: "Theme",
+          description: "default",
+          submission: "/settings theme",
+        },
+        {
           name: "Debug mode",
           description: "Off",
           submission: "/settings debug",
@@ -214,11 +219,24 @@ describe("CLI settings", () => {
 })
 
 describe("CLI themes", () => {
-  it("persists a selected theme without adding a transcript message", async () => {
+  it("opens the theme picker from settings and persists a selected theme", async () => {
     await loadCli()
     const transcriptRenderCount = mocks.ui.renderTranscript.mock.calls.length
-    await submit("/theme nord")
 
+    await submit("/settings theme")
+    expect(mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[0]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "default", description: "Active", submission: "/settings theme default" }),
+        expect.objectContaining({ name: "nord", submission: "/settings theme nord" }),
+      ]),
+    )
+    const onBack = mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[1]?.onBack
+    onBack?.()
+    expect(mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[0]).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "Theme", description: "default" })]),
+    )
+
+    await submit("/settings theme nord")
     expect(mocks.saveSelectedTheme).toHaveBeenCalledWith("nord")
     expect(mocks.ui.setTheme).toHaveBeenCalled()
     expect(mocks.ui.renderTranscript).toHaveBeenCalledTimes(transcriptRenderCount)
@@ -226,12 +244,18 @@ describe("CLI themes", () => {
     expect(mocks.ui.focusInput).toHaveBeenCalled()
   })
 
+  it("keeps the former /theme command as an alias", async () => {
+    await loadCli()
+    await submit("/theme nord")
+    expect(mocks.saveSelectedTheme).toHaveBeenCalledWith("nord")
+  })
+
   it("restores the selected theme when saving a preview fails", async () => {
     mocks.saveSelectedTheme.mockRejectedValueOnce(new Error("disk full"))
     await loadCli()
 
     mocks.uiOptions?.onPreviewTheme?.("nord")
-    await submit("/theme nord")
+    await submit("/settings theme nord")
 
     expect(mocks.saveSelectedTheme).toHaveBeenCalledWith("nord")
     expect(mocks.ui.setTheme.mock.calls.at(-1)?.[0]).toBe("default")
