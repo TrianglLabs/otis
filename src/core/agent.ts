@@ -72,7 +72,6 @@ export type RunAgentOptions = ToolContext & {
   projectContext?: ContextFile[]
   skills?: SkillCatalog
   tools?: ToolDefinition[]
-  maxSteps?: number
   /** Last observed size of this history in the current application session, for the same client. */
   historyTokens?: number
   autoCompactAtTokens?: number
@@ -122,23 +121,12 @@ export async function* runAgent(
     }
     yield contextEvent()
 
-    let step = 0
     while (true) {
       const steeringMessages = await options.steering?.drain()
       if (steeringMessages?.length) {
         steeringCount += steeringMessages.length
         messages.push(...steeringMessages)
         yield contextEvent()
-      }
-      if (options.maxSteps !== undefined && step >= options.maxSteps) {
-        messages.push(...(await closeSteering(options.steering)))
-        yield contextEvent()
-        yield {
-          type: "error",
-          message: `Agent reached the ${options.maxSteps}-step limit.`,
-          messages: turnMessages(messages, turnStart),
-        }
-        return
       }
       options.signal?.throwIfAborted()
       if (contextTokens(messages) >= threshold) {
@@ -162,7 +150,6 @@ export async function* runAgent(
         // Steering received during summarization must be drained before the next request.
         continue
       }
-      step += 1
       yield { type: "model", phase: "start" }
       const response = yield* streamAssistantResponse(messages, tools, {
         ...options,

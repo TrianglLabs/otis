@@ -19,17 +19,6 @@ afterEach(async () => {
 })
 
 describe("runAgent", () => {
-  it("stops before exceeding the configured model step limit", async () => {
-    streamAgentMock.mockImplementation(async function* () {
-      yield { type: "tool_call", toolCall: { id: crypto.randomUUID(), name: "read", arguments: '{"path":"."}' } }
-    })
-
-    const events = await collect(runAgent("keep going", [], { client, tools: [], maxSteps: 1 }))
-
-    expect(streamAgentMock).toHaveBeenCalledOnce()
-    expect(events.find((event) => event.type === "error")?.message).toContain("1-step limit")
-  })
-
   it("does not execute a tool omitted from the enabled tool definitions", async () => {
     streamAgentMock
       .mockImplementationOnce(async function* () {

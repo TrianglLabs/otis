@@ -3,6 +3,7 @@ import {
   DiffRenderable,
   MarkdownRenderable,
   MouseButton,
+  RenderableEvents,
   type ScrollBoxRenderable,
   TextRenderable,
   type TreeSitterClient,
@@ -218,6 +219,8 @@ export class TranscriptView {
       maxHeight: REASONING_PREVIEW_HEIGHT,
     })
     const content = this.createReasoningContent(entry)
+    // The card owns this style; release it after recursive child destruction.
+    root.once(RenderableEvents.DESTROYED, () => content.syntaxStyle.destroy())
     preview.add(content)
     const card: ReasoningCard = {
       kind: "reasoning",
@@ -321,6 +324,7 @@ export class TranscriptView {
       return
     }
 
+    const syntaxStyle = createCodeSyntaxStyle()
     const diff = new DiffRenderable(this.renderer, {
       id: `message-${entry.id}-diff`,
       width: "100%",
@@ -328,7 +332,7 @@ export class TranscriptView {
       diff: entry.diff,
       view: "split",
       filetype: filetypeFromPath(entry.text),
-      syntaxStyle: createCodeSyntaxStyle(),
+      syntaxStyle,
       treeSitterClient: this.treeSitterClient,
       showLineNumbers: true,
       syncScroll: true,
@@ -346,6 +350,7 @@ export class TranscriptView {
       addedSignColor: colors.green,
       removedSignColor: colors.pink,
     })
+    card.root.once(RenderableEvents.DESTROYED, () => syntaxStyle.destroy())
     card.root.add(diff)
     card.diff = diff
   }
@@ -375,6 +380,7 @@ export class TranscriptView {
       internalBlockMode: "top-level",
       tableOptions: createMarkdownTableOptions(),
     })
+    card.once(RenderableEvents.DESTROYED, () => content.syntaxStyle.destroy())
     card.add(speaker)
     card.add(content)
 

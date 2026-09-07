@@ -30,8 +30,8 @@ are denied. Pass `--auto`, configure auto mode, or add a matching `--allow` rule
 remain effective in auto mode.
 
 Use repeatable `--allow`, `--ask`, and `--deny` flags for one-run rules. `ask` fails closed in headless mode because
-there is no approval interface. Use `--tools` to narrow the available tools, `--max-steps` to bound the agent loop, and
-`--timeout` to set a wall-clock limit. See [Tool permissions](tool-permissions.md) for rule syntax and precedence.
+there is no approval interface. Use `--tools` to narrow the available tools and `--timeout` to set an optional wall-clock
+limit. Runs have no fixed model-step limit. See [Tool permissions](tool-permissions.md) for rule syntax and precedence.
 
 ## Sessions
 
