@@ -1,0 +1,169 @@
+/* Theme overrides mirroring src/cli/theme.ts. The default theme lives in tokens.css (:root). */
+
+[data-theme="nord"] {
+  --bg: #252525;
+  --bg-elev: #343434;
+  --bg-user: #322e42;
+  --accent: #b8a1ff;
+  --text: #f0f0f0;
+  --text-dim: #a0a0a0;
+  --cyan: #8ddbff;
+  --green: #b8f5d0;
+  --orange: #ffd09a;
+  --pink: #ffb0b8;
+  --yellow: #ffe7a3;
+  --border: #4a4a4a;
+  --diff-add-bg: #263a2c;
+  --diff-add-content: #314b38;
+  --diff-remove-bg: #402a2e;
+  --diff-remove-content: #503237;
+  --diff-context-bg: #252525;
+  --diff-ln: #777777;
+}
+
+[data-theme="bright"] {
+  --bg: #d8d8d6;
+  --bg-elev: #cececa;
+  --bg-user: #c9c5d5;
+  --accent: #44318d;
+  --text: #292532;
+  --text-dim: #4f4a59;
+  --cyan: #334b7b;
+  --green: #326247;
+  --orange: #7a4900;
+  --pink: #8d3151;
+  --yellow: #654f00;
+  --border: #a0a0a0;
+  --diff-add-bg: #c2d8cc;
+  --diff-add-content: #acceb8;
+  --diff-remove-bg: #e0c8cd;
+  --diff-remove-content: #d6acb4;
+  --diff-context-bg: #d8d8d6;
+  --diff-ln: #707070;
+}
+
+[data-theme="matrix"] {
+  --bg: #0d0d0d;
+  --bg-elev: #1b1b1b;
+  --bg-user: #141414;
+  --accent: #00ff66;
+  --text: #00ff41;
+  --text-dim: #4d7a52;
+  --cyan: #5dff8c;
+  --green: #7dffa0;
+  --orange: #a8ffb8;
+  --pink: #36e05a;
+  --yellow: #b6ffcc;
+  --border: #2a2a2a;
+  --diff-add-bg: #102a18;
+  --diff-add-content: #163d20;
+  --diff-remove-bg: #2a1414;
+  --diff-remove-content: #3d1818;
+  --diff-context-bg: #0d0d0d;
+  --diff-ln: #4d7a52;
+}
+
+[data-theme="midnight"] {
+  --bg: #0b1020;
+  --bg-elev: #111827;
+  --bg-user: #18142d;
+  --accent: #a78bfa;
+  --text: #e5e7eb;
+  --text-dim: #7c879e;
+  --cyan: #67e8f9;
+  --green: #6ee7b7;
+  --orange: #fdba74;
+  --pink: #f9a8d4;
+  --yellow: #fde68a;
+  --border: #334155;
+  --diff-add-bg: #0d2a24;
+  --diff-add-content: #124235;
+  --diff-remove-bg: #2a1421;
+  --diff-remove-content: #421c2e;
+  --diff-context-bg: #0b1020;
+  --diff-ln: #526078;
+}
+
+[data-theme="graphite"] {
+  --bg: #09090b;
+  --bg-elev: #111113;
+  --bg-user: #1a1a1e;
+  --accent: #e4e4e7;
+  --text: #e7e7ea;
+  --text-dim: #92929b;
+  --cyan: #a5d8e8;
+  --green: #a7d7b5;
+  --orange: #d6b07a;
+  --pink: #d6a1b8;
+  --yellow: #d8c894;
+  --border: #45454b;
+  --diff-add-bg: #132019;
+  --diff-add-content: #1a3022;
+  --diff-remove-bg: #241518;
+  --diff-remove-content: #381d23;
+  --diff-context-bg: #09090b;
+  --diff-ln: #66666f;
+}
+
+[data-theme="beige"] {
+  --bg: #eae3ce;
+  --bg-elev: #ddd3b6;
+  --bg-user: #dcc79a;
+  --accent: #8a4b1f;
+  --text: #33291d;
+  --text-dim: #8a7a5c;
+  --cyan: #3f6e66;
+  --green: #667b2f;
+  --orange: #a05e10;
+  --pink: #9e4f5e;
+  --yellow: #8a6d1f;
+  --border: #b9aa85;
+  --diff-add-bg: #cdd8ac;
+  --diff-add-content: #bfcb96;
+  --diff-remove-bg: #e3c4b4;
+  --diff-remove-content: #d8b09e;
+  --diff-context-bg: #eae3ce;
+  --diff-ln: #a89a76;
+}
+
+[data-theme="vice"] {
+  --bg: #1b1035;
+  --bg-elev: #2a1b4a;
+  --bg-user: #3d1b4e;
+  --accent: #ff6ec7;
+  --text: #ede6f7;
+  --text-dim: #8f7fb8;
+  --cyan: #4dd8e8;
+  --green: #7bf1a8;
+  --orange: #ffb86b;
+  --pink: #ff7eb6;
+  --yellow: #ffe873;
+  --border: #4a3670;
+  --diff-add-bg: #1f3d33;
+  --diff-add-content: #2a4a3a;
+  --diff-remove-bg: #4a1e3d;
+  --diff-remove-content: #5c284c;
+  --diff-context-bg: #1b1035;
+  --diff-ln: #6b5a94;
+}
+
+[data-theme="eagan"] {
+  --bg: #010a13;
+  --bg-elev: #0a1e28;
+  --bg-user: #0d2b33;
+  --accent: #1eefff;
+  --text: #abffe9;
+  --text-dim: #4e7e7c;
+  --cyan: #05c3a8;
+  --green: #8fe3b4;
+  --orange: #f0a868;
+  --pink: #df81d5;
+  --yellow: #f9ecbb;
+  --border: #1a464a;
+  --diff-add-bg: #0b2e24;
+  --diff-add-content: #123b2e;
+  --diff-remove-bg: #2e1524;
+  --diff-remove-content: #3d1c30;
+  --diff-context-bg: #010a13;
+  --diff-ln: #2e5e58;
+}

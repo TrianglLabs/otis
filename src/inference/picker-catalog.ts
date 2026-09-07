@@ -37,6 +37,7 @@ export type FireworksPickerChoice = FireworksModel & {
   kind: "model"
   available: true
   active: boolean
+  status?: ModelPickerStatus
 }
 
 export type PairPickerChoice = PairCatalogModel & {
@@ -162,8 +163,9 @@ function pairSection(models: readonly PairCatalogModel[], options: ListModelPick
   if (models.length === 0) return []
   return [
     { kind: "header", id: "header-pair", displayName: "NVIDIA PAIR" },
-    ...models.map(
-      (model): PairPickerChoice => ({
+    ...models.map((model): PairPickerChoice => {
+      const selectionKey = pairModelKey(model)
+      return {
         ...model,
         kind: "model",
         available: true,
@@ -171,9 +173,11 @@ function pairSection(models: readonly PairCatalogModel[], options: ListModelPick
           options.currentProvider === "pair" &&
           options.currentModel === model.id &&
           options.currentPairEngine === model.engine,
-        selectionKey: pairModelKey(model),
-      }),
-    ),
+        selectionKey,
+        // Load status is keyed like the renderer's rows: PAIR entries by selectionKey, not the bare model id.
+        ...(options.loadStatus?.modelId === selectionKey ? { status: options.loadStatus.status } : {}),
+      }
+    }),
   ]
 }
 

@@ -2,12 +2,13 @@ import { createCliRenderer } from "@opentui/core"
 import { Application } from "../app/application.js"
 import { contextUsage } from "../app/context-usage.js"
 import type { ConversationHooks, ConversationSink, QueuedPrompt } from "../app/conversation.js"
-import type { PersistSelectionOptions, PreparedModelSelection } from "../app/models.js"
+import type { PersistSelectionOptions } from "../app/models.js"
 import { formatWorkspaceLabel } from "../app/workspace-label.js"
 import { autoCompactThreshold } from "../core/compaction.js"
 import { FireworksClient } from "../inference/client.js"
 import { deleteLocalGguf, listDownloadedLocalModels } from "../inference/gguf-cache.js"
 import { supportsLlamaCppTarget, unsupportedLlamaCppTargetMessage } from "../inference/llama-binary.js"
+import { formatLocalLoadStatus, type LocalLoadProgress } from "../inference/llama-runtime.js"
 import {
   catalogModelFromSpec,
   findLocalModel,
@@ -40,7 +41,7 @@ import { SetupFlow } from "./setup-flow.js"
 import { parseSlashCommand, type SlashCommand, slashCommandRunsImmediately, slashCommands } from "./slash-commands.js"
 import { initializeTreeSitterClient, TerminalController } from "./terminal.js"
 import { colors, selectTheme } from "./theme.js"
-import { formatLocalLoadStatus, formatModeLabel, formatModelName, withFastModelMark } from "./ui/format.js"
+import { formatModeLabel, formatModelName, withFastModelMark } from "./ui/format.js"
 import type { ChatUI, Renderer } from "./ui/types.js"
 import { checkForUpdate } from "./update.js"
 
@@ -246,18 +247,19 @@ export class InteractiveApp {
       if (spec) {
         const startupController = new AbortController()
         this.#startupModelController = startupController
-        let prepared: PreparedModelSelection | undefined
+        const model = catalogModelFromSpec(spec, settings.modelContextLength)
         try {
-          prepared = await this.#prepareSelectedModel(
-            catalogModelFromSpec(spec, settings.modelContextLength),
-            this.#app.fireworksApiKey,
-            startupController.signal,
-          )
-          startupController.signal.throwIfAborted()
-          prepared.commit()
-          this.#configured = true
+          await this.#app.startSavedSelection({
+            signal: startupController.signal,
+            isExiting: () => this.#exiting,
+            onLocalProgress: (progress) => this.#showLocalLoadProgress(model.id, progress),
+          })
+          this.#setDownloadedModelsAvailable(true)
+          this.#syncActivatedModel(model)
+          this.#clearLocalLoadStatus(model.id)
         } catch (error) {
-          if (prepared) await prepared.rollback({ restorePrevious: false })
+          this.#clearLocalLoadStatus(model.id)
+          await this.#refreshDownloadedModelAvailability()
           if (startupController.signal.aborted || this.#exiting) return
           this.#configured = false
           this.#ui.showChatLayout()
@@ -814,44 +816,10 @@ export class InteractiveApp {
     }
   }
 
-  async #prepareSelectedModel(
-    model: CatalogModel,
-    fireworksApiKey: string | undefined,
-    signal: AbortSignal,
-  ): Promise<PreparedModelSelection> {
-    if (this.#localLoadStatus && this.#localLoadStatus.modelId !== model.id) {
-      this.#ui.setModelPickerStatus(this.#localLoadStatus.modelId, undefined)
-      this.#localLoadStatus = undefined
-    }
-    try {
-      const prepared = await this.#app.models.prepare(model, {
-        fireworksApiKey,
-        signal,
-        isExiting: () => this.#exiting,
-        onLocalProgress: (progress) => {
-          const status: ModelPickerStatus = { label: formatLocalLoadStatus(progress), kind: "progress" }
-          this.#localLoadStatus = { modelId: model.id, status }
-          this.#ui.setModelPickerStatus(model.id, status)
-        },
-      })
-      if (isLocalCatalogModel(prepared.model)) this.#setDownloadedModelsAvailable(true)
-      return {
-        model: prepared.model,
-        commit: () => {
-          prepared.commit()
-          this.#syncActivatedModel(prepared.model)
-          this.#clearLocalLoadStatus(prepared.model.id)
-        },
-        rollback: async (options) => {
-          this.#clearLocalLoadStatus(prepared.model.id)
-          await prepared.rollback(options)
-        },
-      }
-    } catch (error) {
-      this.#clearLocalLoadStatus(model.id)
-      if (isLocalCatalogModel(model)) await this.#refreshDownloadedModelAvailability()
-      throw error
-    }
+  #showLocalLoadProgress(modelId: string, progress: LocalLoadProgress) {
+    const status: ModelPickerStatus = { label: formatLocalLoadStatus(progress), kind: "progress" }
+    this.#localLoadStatus = { modelId, status }
+    this.#ui.setModelPickerStatus(modelId, status)
   }
 
   #syncActivatedModel(model: CatalogModel) {

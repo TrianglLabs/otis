@@ -2,6 +2,8 @@ import { resolve } from "node:path"
 import { loadProjectContext } from "../core/context.js"
 import { requestContextEstimator } from "../core/context-tokens.js"
 import { providerTools } from "../core/subagent.js"
+import type { LocalLoadProgress } from "../inference/llama-runtime.js"
+import { catalogModelFromSpec, findLocalModel } from "../inference/local-catalog.js"
 import { type PairEndpoints, pairEndpointForEngine } from "../inference/pair.js"
 import type { ContextFile, UserChatMessage } from "../inference/types.js"
 import { type LocalSettings, loadLocalSettings } from "../local/settings.js"
@@ -125,6 +127,41 @@ export class Application {
           model.selectedProvider === "local" ||
           (model.selectedProvider === "pair" && pairEndpoint)),
     )
+  }
+
+  /**
+   * Activates the saved selection. Fireworks and PAIR clients already exist after `applySavedSelection`; a saved
+   * local model still needs its managed llama-server started before any conversation can run. Throws with the
+   * serving error when startup fails; the previous selection is left untouched.
+   */
+  async startSavedSelection(
+    options: {
+      signal?: AbortSignal
+      isExiting?: () => boolean
+      onLocalProgress?: (progress: LocalLoadProgress) => void
+    } = {},
+  ): Promise<"ready" | "unconfigured"> {
+    const models = this.models
+    if (models.client) return "ready"
+    if (!models.selectedId || !models.selectedProvider) return "unconfigured"
+    if (models.selectedProvider !== "local") return "unconfigured"
+
+    const spec = findLocalModel(models.selectedId)
+    if (!spec) throw new Error(`Unknown local model: ${models.selectedId}`)
+    const prepared = await models.prepare(catalogModelFromSpec(spec, this.settings.modelContextLength), {
+      fireworksApiKey: this.fireworksApiKey,
+      signal: options.signal ?? new AbortController().signal,
+      isExiting: options.isExiting,
+      onLocalProgress: options.onLocalProgress,
+    })
+    try {
+      options.signal?.throwIfAborted()
+    } catch (error) {
+      await prepared.rollback({ restorePrevious: false })
+      throw error
+    }
+    prepared.commit()
+    return "ready"
   }
 
   async shutdown() {

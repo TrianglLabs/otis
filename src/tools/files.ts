@@ -1,5 +1,12 @@
 import { readdir, readFile, stat, writeFile } from "node:fs/promises"
 import { createPatch } from "diff"
+
+/** Unified diffs without jsdiff's decorative Index/underline header lines. */
+const PATCH_OPTIONS = {
+  context: 3,
+  headerOptions: { includeIndex: false, includeUnderline: false, includeFileHeaders: true },
+}
+
 import { detectImageMimeType } from "../inference/images.js"
 import type { ToolContext, ToolResult } from "./types.js"
 import { isNotFoundError, resolveWorkspacePath } from "./workspace.js"
@@ -47,10 +54,10 @@ export async function writeLocalFile(path: string, content: string, context: Too
 
   try {
     const existing = await readFile(filePath, "utf8")
-    diff = existing === content ? "" : createPatch(filePath, existing, content, "", "", { context: 3 })
+    diff = existing === content ? "" : createPatch(filePath, existing, content, "", "", PATCH_OPTIONS)
   } catch (error) {
     if (!isNotFoundError(error)) throw error
-    diff = createPatch(filePath, "", content, "", "", { context: 3 })
+    diff = createPatch(filePath, "", content, "", "", PATCH_OPTIONS)
   }
 
   await writeFile(filePath, content, "utf8")
@@ -82,7 +89,7 @@ export async function editLocalFile(
   return {
     title: `Edit: ${filePath}`,
     output: `Replaced ${oldText.length} characters with ${newText.length} characters.`,
-    diff: createPatch(filePath, content, updated, "", "", { context: 3 }),
+    diff: createPatch(filePath, content, updated, "", "", PATCH_OPTIONS),
   }
 }
 

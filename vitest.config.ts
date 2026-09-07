@@ -1,9 +1,12 @@
 import { readFile } from "node:fs/promises"
+import react from "@vitejs/plugin-react"
 import { defineConfig } from "vitest/config"
 
 export default defineConfig({
   // Mirror Bun's built-in .txt loader in Vitest's Vite pipeline.
   plugins: [
+    // Automatic JSX runtime for renderer component tests (tests/desktop/renderer/*.tsx).
+    react(),
     {
       name: "inline-text",
       enforce: "pre",

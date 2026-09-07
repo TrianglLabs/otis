@@ -90,49 +90,81 @@ export async function loadLocalSettings(options: SettingsFileOptions = {}): Prom
   }
 }
 
-export async function saveFireworksSetup(apiKey: string, model: FireworksModel, options: SettingsFileOptions = {}) {
-  const saved = (await readSettingsFile(options)) ?? { version: 1 }
-  await writeSettingsFile(
-    withSelectedModel({ ...saved, fireworksApiKey: required(apiKey, "Fireworks API key") }, model),
-    options,
+/**
+ * Every save helper reads the settings file and rewrites it whole. Chain those read-modify-write pairs so
+ * overlapping updates — a model switch landing while a panel preference saves, for example — cannot clobber one
+ * another with a stale read.
+ */
+let settingsWriteChain: Promise<unknown> = Promise.resolve()
+
+function serializeSettingsWrite<T>(save: () => Promise<T>): Promise<T> {
+  const run = settingsWriteChain.then(save)
+  settingsWriteChain = run.then(
+    () => undefined,
+    () => undefined,
   )
+  return run
+}
+
+export async function saveFireworksSetup(apiKey: string, model: FireworksModel, options: SettingsFileOptions = {}) {
+  await serializeSettingsWrite(async () => {
+    const saved = (await readSettingsFile(options)) ?? { version: 1 }
+    await writeSettingsFile(
+      withSelectedModel({ ...saved, fireworksApiKey: required(apiKey, "Fireworks API key") }, model),
+      options,
+    )
+  })
 }
 
 export async function saveFireworksApiKey(apiKey: string, options: SettingsFileOptions = {}) {
-  const saved = (await readSettingsFile(options)) ?? { version: 1 }
-  await writeSettingsFile({ ...saved, fireworksApiKey: required(apiKey, "Fireworks API key") }, options)
+  await serializeSettingsWrite(async () => {
+    const saved = (await readSettingsFile(options)) ?? { version: 1 }
+    await writeSettingsFile({ ...saved, fireworksApiKey: required(apiKey, "Fireworks API key") }, options)
+  })
 }
 
 export async function savePairEndpoints(endpoints: PairEndpoints, options: SettingsFileOptions = {}) {
-  const saved = (await readSettingsFile(options)) ?? { version: 1 }
-  const pairEndpoints = persistedPairEndpoints(endpoints)
-  if (!hasPairEndpoints(pairEndpoints)) throw new Error("At least one NVIDIA PAIR endpoint is required.")
-  await writeSettingsFile({ ...saved, pairEndpoints }, options)
+  await serializeSettingsWrite(async () => {
+    const saved = (await readSettingsFile(options)) ?? { version: 1 }
+    const pairEndpoints = persistedPairEndpoints(endpoints)
+    if (!hasPairEndpoints(pairEndpoints)) throw new Error("At least one NVIDIA PAIR endpoint is required.")
+    await writeSettingsFile({ ...saved, pairEndpoints }, options)
+  })
 }
 
 export async function saveSelectedModel(model: CatalogModel, options: SettingsFileOptions = {}) {
-  const saved = (await readSettingsFile(options)) ?? { version: 1 }
-  await writeSettingsFile(withSelectedModel(saved, model), options)
+  await serializeSettingsWrite(async () => {
+    const saved = (await readSettingsFile(options)) ?? { version: 1 }
+    await writeSettingsFile(withSelectedModel(saved, model), options)
+  })
 }
 
 export async function clearSelectedModel(options: SettingsFileOptions = {}) {
-  const saved = (await readSettingsFile(options)) ?? { version: 1 }
-  await writeSettingsFile(withoutSelectedModel(saved), options)
+  await serializeSettingsWrite(async () => {
+    const saved = (await readSettingsFile(options)) ?? { version: 1 }
+    await writeSettingsFile(withoutSelectedModel(saved), options)
+  })
 }
 
 export async function saveSelectedTheme(theme: ThemeName, options: SettingsFileOptions = {}) {
-  const saved = (await readSettingsFile(options)) ?? { version: 1 }
-  await writeSettingsFile({ ...saved, theme }, options)
+  await serializeSettingsWrite(async () => {
+    const saved = (await readSettingsFile(options)) ?? { version: 1 }
+    await writeSettingsFile({ ...saved, theme }, options)
+  })
 }
 
 export async function saveThinkingVisible(visible: boolean, options: SettingsFileOptions = {}) {
-  const saved = (await readSettingsFile(options)) ?? { version: 1 }
-  await writeSettingsFile({ ...saved, thinkingVisible: visible }, options)
+  await serializeSettingsWrite(async () => {
+    const saved = (await readSettingsFile(options)) ?? { version: 1 }
+    await writeSettingsFile({ ...saved, thinkingVisible: visible }, options)
+  })
 }
 
 export async function saveSubagentPanelVisible(visible: boolean, options: SettingsFileOptions = {}) {
-  const saved = (await readSettingsFile(options)) ?? { version: 1 }
-  await writeSettingsFile({ ...saved, subagentPanelVisible: visible }, options)
+  await serializeSettingsWrite(async () => {
+    const saved = (await readSettingsFile(options)) ?? { version: 1 }
+    await writeSettingsFile({ ...saved, subagentPanelVisible: visible }, options)
+  })
 }
 
 export async function saveFastServingSelection(
@@ -140,13 +172,15 @@ export async function saveFastServingSelection(
   fast: boolean,
   options: SettingsFileOptions = {},
 ) {
-  const saved = (await readSettingsFile(options)) ?? { version: 1 }
-  const selected = withSelectedModel(saved, model)
-  const fastServingModels = new Set(selected.fastServingModels ?? [])
-  const modelId = baseFireworksModelId(model.id)
-  if (fast) fastServingModels.add(modelId)
-  else fastServingModels.delete(modelId)
-  await writeSettingsFile({ ...selected, fastServingModels: [...fastServingModels].sort() }, options)
+  await serializeSettingsWrite(async () => {
+    const saved = (await readSettingsFile(options)) ?? { version: 1 }
+    const selected = withSelectedModel(saved, model)
+    const fastServingModels = new Set(selected.fastServingModels ?? [])
+    const modelId = baseFireworksModelId(model.id)
+    if (fast) fastServingModels.add(modelId)
+    else fastServingModels.delete(modelId)
+    await writeSettingsFile({ ...selected, fastServingModels: [...fastServingModels].sort() }, options)
+  })
 }
 
 function defaultSettingsFile() {

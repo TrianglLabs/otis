@@ -32,6 +32,15 @@ export type LocalServingEndpoint = {
 
 export type LocalLoadProgress = { phase: "download"; percent: number } | { phase: "loading" }
 
+export const LOCAL_DOWNLOADING_LABEL = "Downloading"
+export const LOCAL_LOADING_LABEL = "Loading"
+
+/** Short picker-row label for a managed local model being downloaded or loaded. Shared by the TUI and desktop. */
+export function formatLocalLoadStatus(progress: LocalLoadProgress) {
+  if (progress.phase === "download") return `${LOCAL_DOWNLOADING_LABEL} ${progress.percent}%`
+  return LOCAL_LOADING_LABEL
+}
+
 export type EnsureServingOptions = {
   signal?: AbortSignal
   onProgress?: (progress: LocalLoadProgress) => void

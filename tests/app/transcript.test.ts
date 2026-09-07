@@ -224,15 +224,7 @@ describe("TranscriptStore", () => {
       { role: "assistant", content: [{ type: "text", text: "recent answer" }] },
     ])
 
-    expect(transcript.entries).toEqual([
-      ...previous,
-      {
-        id: 5,
-        kind: "message",
-        speaker: "Otis",
-        text: "**Conversation compacted.** Older messages were summarized to free context.\n\n## Goal\nDo the thing",
-      },
-    ])
+    expect(transcript.entries).toEqual(previous)
     expect(transcript.entries[0]).toBe(previous[0])
   })
 
@@ -249,7 +241,7 @@ describe("TranscriptStore", () => {
     expect(transcript.entries.some((entry) => entry.delivery)).toBe(false)
   })
 
-  it("renders compaction summary as an Otis message when reloading a compacted session", () => {
+  it("keeps compaction summaries in model context without displaying them on session reload", () => {
     const transcript = new TranscriptStore()
     const messages = [
       { role: "user" as const, content: "[Compacted conversation summary]\n\n## Goal\nDo the thing" },
@@ -261,14 +253,8 @@ describe("TranscriptStore", () => {
 
     expect(transcript.history).toEqual(messages)
     expect(transcript.entries).toEqual([
-      {
-        id: 1,
-        kind: "message",
-        speaker: "Otis",
-        text: "**Conversation compacted.** Older messages were summarized to free context.\n\n## Goal\nDo the thing",
-      },
-      { id: 2, kind: "message", speaker: "You", text: "recent question" },
-      { id: 3, kind: "message", speaker: "Otis", text: "recent answer" },
+      { id: 1, kind: "message", speaker: "You", text: "recent question" },
+      { id: 2, kind: "message", speaker: "Otis", text: "recent answer" },
     ])
   })
 })

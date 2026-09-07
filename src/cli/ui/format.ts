@@ -7,8 +7,6 @@ export const CHAT_KEY_HINT_DURATION_MS = 3000
 export const FAST_MODEL_LABEL = "Fast"
 export const FAST_MODE_LABEL = "Fast mode"
 export const RECOMMENDED_MODEL_MARK = "*"
-export const LOCAL_DOWNLOADING_LABEL = "Downloading"
-export const LOCAL_LOADING_LABEL = "Loading"
 
 export type AgentPhase = "thinking" | "working"
 
@@ -68,13 +66,6 @@ export function formatModelName(model: string | undefined) {
 export function withFastModelMark(name: string, fast: boolean) {
   if (!name || !fast) return name
   return `${name} ${FAST_MODEL_LABEL}`
-}
-
-export type LocalModelProgress = { phase: "download"; percent: number } | { phase: "loading" }
-
-export function formatLocalLoadStatus(progress: LocalModelProgress) {
-  if (progress.phase === "download") return `${LOCAL_DOWNLOADING_LABEL} ${progress.percent}%`
-  return LOCAL_LOADING_LABEL
 }
 
 export function imageAttachmentLabel(count: number) {

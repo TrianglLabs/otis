@@ -1,4 +1,4 @@
-import { compactionSummaryMessage, extractCompactionSummary, isCompactionSummary } from "../core/compaction.js"
+import { compactionSummaryMessage, isCompactionSummary } from "../core/compaction.js"
 import { displayUserMessage } from "../inference/messages.js"
 import type { ChatMessage, ChatToolCall, InferenceClient, ReasoningContentPart } from "../inference/types.js"
 import type { SessionToolActivity } from "../storage/index.js"
@@ -8,6 +8,12 @@ import { parseSerializedToolCall } from "../tools/schema.js"
 export type TranscriptKind = "message" | "reasoning" | "tool" | "debug"
 export type TranscriptSpeaker = "You" | "Otis" | "Thinking" | "Tool" | "Debug"
 export type TranscriptDelivery = "queued" | "steering"
+
+/**
+ * One mutation of the transcript. `upsert` covers both appended and patched entries; `reset` means the entry list
+ * was replaced wholesale (session load, new session) and earlier changes no longer apply.
+ */
+export type TranscriptChange = { op: "reset" } | { op: "upsert"; id: number } | { op: "remove"; id: number }
 
 export type TranscriptEntry = {
   id: number
@@ -31,6 +37,19 @@ export class TranscriptStore {
   private nextMessageID = 1
   private nextLocalReasoningID = 1
   private observedContext?: { client: InferenceClient; tokens: number }
+  private listeners = new Set<(change: TranscriptChange) => void>()
+
+  /** Notifies about every mutation. Returns an unsubscribe function. */
+  subscribe(listener: (change: TranscriptChange) => void) {
+    this.listeners.add(listener)
+    return () => {
+      this.listeners.delete(listener)
+    }
+  }
+
+  private emit(change: TranscriptChange) {
+    for (const listener of this.listeners) listener(change)
+  }
 
   contextTokens(client: InferenceClient | undefined) {
     return client && this.observedContext?.client === client ? this.observedContext.tokens : undefined
@@ -50,6 +69,7 @@ export class TranscriptStore {
     this.history.length = 0
     this.nextMessageID = 1
     this.observedContext = undefined
+    this.emit({ op: "reset" })
     this.loadMessages(messages, toolActivities, displayMessages)
   }
 
@@ -61,9 +81,6 @@ export class TranscriptStore {
     this.observedContext = undefined
 
     this.history.push(compactionSummaryMessage(summary), ...keptMessages)
-    this.addAssistantMessage(
-      `**Conversation compacted.** Older messages were summarized to free context.\n\n${summary}`,
-    )
   }
 
   addUserMessage(message: string | Extract<ChatMessage, { role: "user" }>) {
@@ -86,6 +103,8 @@ export class TranscriptStore {
     const active = { ...entry }
     delete active.delivery
     this.entries.push(active)
+    this.emit({ op: "remove", id: entry.id })
+    this.emit({ op: "upsert", id: active.id })
     return true
   }
 
@@ -93,12 +112,14 @@ export class TranscriptStore {
     const index = this.entries.findIndex((entry) => entry.id === id)
     if (index === -1) return false
     this.entries.splice(index, 1)
+    this.emit({ op: "remove", id })
     return true
   }
 
   addAssistantMessage(text: string) {
     const entry = { id: this.nextMessageID++, kind: "message" as const, speaker: "Otis" as const, text }
     this.entries.push(entry)
+    this.emit({ op: "upsert", id: entry.id })
     return entry
   }
 
@@ -112,6 +133,7 @@ export class TranscriptStore {
       ...details,
     }
     this.entries.push(entry)
+    this.emit({ op: "upsert", id: entry.id })
     return entry
   }
 
@@ -135,12 +157,14 @@ export class TranscriptStore {
       reasoningId,
     }
     this.entries.push(entry)
+    this.emit({ op: "upsert", id: entry.id })
     return entry
   }
 
   addDebugMessage(text: string) {
     const entry = { id: this.nextMessageID++, kind: "debug" as const, speaker: "Debug" as const, text }
     this.entries.push(entry)
+    this.emit({ op: "upsert", id: entry.id })
     return entry
   }
 
@@ -149,6 +173,7 @@ export class TranscriptStore {
     if (index === -1) return
 
     this.entries[index] = { ...this.entries[index], ...patch }
+    this.emit({ op: "upsert", id })
   }
 
   addMessages(messages: ChatMessage[]) {
@@ -175,15 +200,7 @@ export class TranscriptStore {
     const activities = groupToolActivities(toolActivities)
 
     for (const message of messages) {
-      if (message.role === "user") {
-        if (isCompactionSummary(message)) {
-          this.addAssistantMessage(
-            `**Conversation compacted.** Older messages were summarized to free context.\n\n${extractCompactionSummary(message)}`,
-          )
-        } else {
-          this.addUserMessage(message)
-        }
-      }
+      if (message.role === "user" && !isCompactionSummary(message)) this.addUserMessage(message)
 
       if (message.role !== "assistant") continue
 
@@ -212,6 +229,7 @@ export class TranscriptStore {
       ...(delivery ? { delivery } : {}),
     }
     this.entries.push(entry)
+    this.emit({ op: "upsert", id: entry.id })
     return entry
   }
 

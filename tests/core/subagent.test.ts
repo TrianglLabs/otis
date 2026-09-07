@@ -15,6 +15,7 @@ import type { ModelProvider } from "../../src/inference/types.js"
 import { createPermissionPolicy, type PermissionRequest } from "../../src/permissions/policy.js"
 import { emptySkillCatalog } from "../../src/skills/index.js"
 import { executeToolCall, TOOL_DEFINITIONS } from "../../src/tools/index.js"
+import { summaryFixture } from "../support/compaction.js"
 
 const streamMock = vi.hoisted(() => vi.fn())
 const client = { model: "accounts/fireworks/models/test", streamChat: streamMock } as unknown as FireworksClient
@@ -46,7 +47,7 @@ describe("agent tool", () => {
         yield { type: "usage", usage: { promptTokens: 2_000, completionTokens: 25_000, totalTokens: 27_000 } }
       })
       .mockImplementationOnce(async function* () {
-        yield { type: "text_delta", text: "Child progress summarized." }
+        yield { type: "text_delta", text: summaryFixture("Child progress summarized.") }
       })
       .mockImplementationOnce(async function* () {
         yield { type: "text_delta", text: "Child report." }

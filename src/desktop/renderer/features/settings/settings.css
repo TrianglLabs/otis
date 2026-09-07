@@ -1,0 +1,267 @@
+/* Settings page — takes over the whole window; the header row doubles as a window drag region. */
+
+.settingsPage {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+  background: var(--bg);
+}
+
+/* Same metrics as the workspace header: drag region with a hairline below. */
+.settingsPage-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: 40px;
+  padding: 0 10px 0 16px;
+  border-bottom: var(--hairline);
+  -webkit-app-region: drag;
+  flex-shrink: 0;
+}
+
+.settingsPage-scroll {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  scrollbar-gutter: stable;
+}
+
+.settingsPage-column {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 10px 24px 40px;
+}
+
+/* Same label treatment as the sidebar's sections. */
+.settings-section {
+  padding: 12px 0 6px;
+  font-size: var(--text-micro);
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+/* --- Theme grid --- */
+
+.themeGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.themeTile {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 5px;
+  padding: 6px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-meta);
+  text-transform: capitalize;
+  cursor: pointer;
+  text-align: left;
+}
+
+.themeTile:hover {
+  background: var(--bg-hover);
+}
+
+.themeTile-active,
+.themeTile-active:hover {
+  border-color: var(--accent);
+  background: var(--bg-hover);
+}
+
+.themeTile-name {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+/* The swatch renders the theme's own variables, so it previews the real palette. */
+.themeTile-preview {
+  position: relative;
+  height: 30px;
+  padding: 6px 7px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.themeTile-line {
+  display: block;
+  height: 2px;
+}
+
+.themeTile-lineText {
+  width: 62%;
+  background: var(--text);
+}
+
+.themeTile-lineDim {
+  width: 44%;
+  background: var(--text-dim);
+}
+
+.themeTile-dot {
+  position: absolute;
+  right: 6px;
+  bottom: 5px;
+  width: 6px;
+  height: 6px;
+  background: var(--accent);
+}
+
+/* --- Behavior rows --- */
+
+.settingsRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 0;
+  font-size: var(--text-ui);
+}
+
+.settingsRow + .settingsRow {
+  border-top: var(--hairline);
+}
+
+.settingsRow-label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.settingsRow-meta {
+  font-size: var(--text-meta);
+  color: var(--text-dim);
+}
+
+.settings-message {
+  padding: 6px 0 0;
+  font-size: var(--text-meta);
+}
+
+.settings-error {
+  color: var(--pink);
+}
+
+/* --- Rectangular switch --- */
+
+.toggle {
+  flex-shrink: 0;
+  position: relative;
+  width: 28px;
+  height: 15px;
+  padding: 0;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.toggle:hover:not(:disabled) {
+  border-color: var(--text-dim);
+}
+
+.toggle:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 9px;
+  height: 9px;
+  background: var(--text-dim);
+  transition:
+    transform var(--motion) ease-out,
+    background var(--motion) ease-out;
+}
+
+.toggle-on {
+  border-color: var(--accent);
+}
+
+.toggle-on .toggle-knob {
+  transform: translateX(13px);
+  background: var(--accent);
+}
+
+/* --- Provider forms --- */
+
+/* Expandable provider rows behave like quiet buttons. */
+.settingsRow-expand {
+  width: 100%;
+  background: none;
+  border: none;
+  border-radius: var(--radius);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.settingsRow-expand:hover {
+  background: var(--bg-hover);
+}
+
+.settingsRow-expand .icon {
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.settingsForm {
+  padding: 4px 0 12px;
+}
+
+.settingsForm-note {
+  margin: 0 0 8px;
+  font-size: var(--text-meta);
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.settingsForm-label {
+  display: block;
+  margin: 8px 0 4px;
+  font-size: var(--text-meta);
+  color: var(--text-dim);
+}
+
+.settingsForm-input {
+  width: 100%;
+  padding: 6px 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-ui);
+  outline: none;
+}
+
+.settingsForm-input:focus {
+  border-color: var(--accent);
+}
+
+.settingsForm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}

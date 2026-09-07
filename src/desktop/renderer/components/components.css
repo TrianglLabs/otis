@@ -1,0 +1,251 @@
+/* Shared primitives: buttons, icon buttons, markdown, code blocks. */
+
+/* Shared overlay scaffolding: the dimmed click-catcher behind modal dialogs and the centered panel's enter
+   animation. Used by the model picker and the subagent trace view. */
+
+.overlayBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-backdrop);
+  cursor: default;
+  background: rgb(0 0 0 / 0.45);
+  animation: overlay-fade var(--motion);
+}
+
+@keyframes overlay-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes overlay-enter {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-6px);
+  }
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid transparent;
+  font-size: var(--text-ui);
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  transition:
+    background-color var(--motion),
+    border-color var(--motion),
+    color var(--motion);
+}
+
+.btn-md {
+  height: 28px;
+  padding: 0 12px;
+}
+
+.btn-sm {
+  height: 22px;
+  padding: 0 8px;
+  font-size: var(--text-meta);
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 88%, #fff);
+}
+
+.btn-outline {
+  border-color: var(--border);
+  color: var(--text);
+  background: transparent;
+}
+
+.btn-outline:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.btn-ghost {
+  color: var(--text-dim);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.btn-danger {
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  color: var(--danger);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+}
+
+.iconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  border-radius: var(--radius);
+  transition:
+    background-color var(--motion),
+    color var(--motion);
+}
+
+.iconBtn:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.iconBtn:disabled {
+  opacity: 0.4;
+}
+
+/* Markdown */
+
+.md {
+  font-size: var(--text-prose);
+  line-height: 1.6;
+  overflow-wrap: break-word;
+}
+
+.md > :first-child {
+  margin-top: 0;
+}
+
+.md > :last-child {
+  margin-bottom: 0;
+}
+
+.codeBlock {
+  background: var(--bg-code);
+}
+
+.md p,
+.md ul,
+.md ol,
+.md blockquote,
+.md .codeBlock,
+.md .md-tableWrap {
+  margin: 10px 0;
+}
+
+.md h1,
+.md h2,
+.md h3,
+.md h4 {
+  margin: 18px 0 8px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.md h1 {
+  font-size: 17px;
+}
+
+.md h2 {
+  font-size: 15.5px;
+}
+
+.md h3,
+.md h4 {
+  font-size: 14px;
+}
+
+.md ul,
+.md ol {
+  padding-left: 22px;
+}
+
+.md li + li {
+  margin-top: 3px;
+}
+
+.md a {
+  color: var(--cyan);
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--cyan) 40%, transparent);
+}
+
+.md a:hover {
+  border-bottom-color: var(--cyan);
+}
+
+.md code:not(pre code) {
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  background: var(--bg-code);
+  padding: 1px 5px;
+}
+
+.md blockquote {
+  border-left: 2px solid var(--accent-line);
+  padding-left: 12px;
+  color: var(--text-dim);
+}
+
+.md hr {
+  border: none;
+  border-top: 1px solid var(--hairline);
+  margin: 16px 0;
+}
+
+.md table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: var(--text-ui);
+}
+
+.md th,
+.md td {
+  border: 1px solid var(--hairline);
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.md th {
+  background: var(--bg-elev);
+  font-weight: 600;
+}
+
+/* Code blocks */
+
+.codeBlock figcaption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 6px 4px 10px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.codeBlock-lang {
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.codeBlock pre {
+  margin: 0;
+  padding: 12px;
+  overflow-x: auto;
+}
+
+.codeBlock code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text);
+}
