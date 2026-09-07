@@ -182,6 +182,53 @@ describe("bounded compaction", () => {
 })
 
 describe("autocompaction at model request boundaries", () => {
+  it.each([
+    true,
+    false,
+  ])("publishes the final context after interruption (provider usage: %s)", async (reportsUsage) => {
+    const controller = new AbortController()
+    const client = summaryClient()
+    const partial = "Partial answer. ".repeat(1_000)
+    client.streamChat = vi.fn<InferenceClient["streamChat"]>(async function* () {
+      yield { type: "text_delta", text: partial }
+      if (reportsUsage)
+        yield { type: "usage", usage: { promptTokens: 7_000, completionTokens: 2_000, totalTokens: 9_000 } }
+      controller.abort()
+    })
+    const events = await collect(
+      runAgent("task", [], {
+        client,
+        tools: [],
+        skills: emptySkills,
+        projectContext: [],
+        signal: controller.signal,
+      }),
+    )
+    const messages = [user("task"), answer(partial)]
+    expect(events.at(-1)).toEqual({ type: "interrupted", messages })
+    const expectedTokens = reportsUsage ? 9_000 : requestContextEstimator({ tools: [] })(messages)
+    expect(events.at(-2)).toMatchObject({ type: "context", messageCount: 2, tokens: expectedTokens })
+  })
+
+  it("uses the preceding turn's observed context before the next request", async () => {
+    const history = [user("task"), answer("prior response ".repeat(300))]
+    const client = summaryClient("Short summary.")
+    const events = await collect(
+      runAgent("continue", history, {
+        client,
+        tools: [],
+        skills: emptySkills,
+        projectContext: [],
+        historyTokens: 10_000,
+        autoCompactAtTokens: 10_000,
+      }),
+    )
+    expect(events[0]).toMatchObject({ type: "context", tokens: expect.any(Number) })
+    expect(events[1]).toEqual({ type: "compaction", phase: "start" })
+    expect(events.filter((event) => event.type === "compaction" && event.phase === "complete")).toHaveLength(1)
+    expect(events.at(-1)?.type).toBe("complete")
+  })
+
   it.each(["request", "summary"])("surfaces a rejected %s without retrying or replacing history", async (phase) => {
     const client = summaryClient()
     client.streamChat = vi.fn<InferenceClient["streamChat"]>(() => {
@@ -294,7 +341,7 @@ describe("autocompaction at model request boundaries", () => {
       }),
     )
     expect(requests).toBe(2)
-    expect(checkpoint).toHaveBeenCalledWith(expect.anything(), 0)
+    expect(checkpoint).toHaveBeenCalledWith(expect.anything(), 0, [user("continue")])
     expect(events.at(-1)).toEqual({ type: "complete", messages: [user("new direction"), answer("Done.")] })
   })
 

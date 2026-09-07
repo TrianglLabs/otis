@@ -32,8 +32,8 @@ describe("CLI session turn handling", () => {
         await summaryReady
         const result = { summary: "Task progress.", keptMessages: [input] }
         await options.onCompactionUsage?.({ promptTokens: 10, completionTokens: 2, totalTokens: 12 })
-        await options.onCompaction?.(result, 0)
-        yield { type: "compaction", phase: "complete", ...result }
+        await options.onCompaction?.(result, 0, [input])
+        yield { type: "compaction", phase: "complete", ...result, messages: [input] }
         const steering = (await options.steering?.drain()) ?? []
         yield { type: "delta", text: "Finished." }
         yield {
@@ -61,6 +61,7 @@ describe("CLI session turn handling", () => {
       [{ role: "user", content: "task" }],
       { toolActivities: [], subagents: [] },
       0,
+      { messages: [{ role: "user", content: "task" }], toolActivities: [], subagents: [] },
     )
     expect(session.recordUsage).toHaveBeenCalledWith(
       { promptTokens: 10, completionTokens: 2, totalTokens: 12 },
@@ -377,6 +378,7 @@ describe("CLI session turn handling", () => {
     const session = testSession({
       id: "session_saved",
       replay: vi.fn(() => ({ messages, toolActivities, subagents: [] })),
+      replayTranscript: vi.fn(() => ({ messages, toolActivities, subagents: [] })),
     })
     mocks.openSession.mockResolvedValue(session)
 
@@ -661,6 +663,11 @@ describe("CLI session turn handling", () => {
     // so ~126k tokens reads 100%, not 96% of the full context window.
     expect(labels.some((label) => label.includes("100%"))).toBe(true)
     expect(labels.some((label) => label.includes("96%"))).toBe(false)
+    expect(labels.at(-1)).toContain("~126k")
+    mocks.uiOptions?.onInputChange?.("next prompt")
+    expect(mocks.ui.setContextLabel.mock.calls.at(-1)?.[0]).toContain("~126k")
+    await submit("next prompt")
+    expect(mocks.runAgent.mock.calls.at(-1)?.[2].historyTokens).toBe(126_000)
   })
 
   it("shows context usage relative to the 250K auto-compact threshold on a 1M-context model", async () => {

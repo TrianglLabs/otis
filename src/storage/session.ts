@@ -15,11 +15,13 @@ import {
   readSessionEvents,
   replaySession,
   replaySessionMessages,
+  replaySessionTranscript,
   type SessionEvent,
   type SessionSubagentRun,
   type SessionSubagentStatus,
   type SessionToolActivity,
   type SessionTurnDetails,
+  type SessionTurnSegment,
   type UsagePurpose,
 } from "./session-events.js"
 import {
@@ -53,6 +55,10 @@ export class JsonlSession {
 
   replay() {
     return replaySession(this.events)
+  }
+
+  replayTranscript() {
+    return replaySessionTranscript(this.events)
   }
 
   async admitPrompt(prompt: string | UserChatMessage): Promise<PromptAdmission> {
@@ -106,6 +112,7 @@ export class JsonlSession {
     messages: ChatMessage[],
     details: SessionTurnDetails,
     steeringCount: number,
+    turn: SessionTurnSegment,
   ) {
     const admitted = this.events.find(
       (event) => event.type === "prompt_admitted" && event.promptId === admission.promptId,
@@ -116,6 +123,7 @@ export class JsonlSession {
       promptId: admission.promptId,
       throughSeq: admitted.seq,
       steeringCount,
+      turn: { messages: turn.messages, ...presentTurnDetails(turn) },
       summary,
       messages,
       ...presentTurnDetails(details),
@@ -281,6 +289,7 @@ export type {
   SessionSummary,
   SessionToolActivity,
   SessionTurnDetails,
+  SessionTurnSegment,
   UsagePurpose,
 }
 export { defaultSessionDirectory, forToolCalls, readSessionEvents, replaySession, replaySessionMessages }

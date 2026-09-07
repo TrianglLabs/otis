@@ -34,12 +34,13 @@ describe("executeTurn", () => {
       content: [{ type: "tool_call", toolCall: { id, name: "read", arguments: "{}" } }],
     })
     const kept = [call("old_kept"), call("current_kept")]
+    const segment = [call("current_dropped"), call("current_kept")]
     const checkpoint = vi.fn()
     mocks.runAgent.mockImplementation(async function* (_input, _history, options) {
       yield toolEvent("start", "current_dropped", "Dropped")
       yield toolEvent("start", "current_kept", "Kept")
-      await options.onCompaction({ summary: "Summary.", keptMessages: kept }, 2)
-      yield { type: "compaction", phase: "complete", summary: "Summary.", keptMessages: kept }
+      await options.onCompaction({ summary: "Summary.", keptMessages: kept }, 2, segment)
+      yield { type: "compaction", phase: "complete", summary: "Summary.", keptMessages: kept, messages: segment }
       yield toolEvent("start", "new_call", "New")
       yield { type: "complete", messages: [call("new_call")] }
     })
@@ -64,6 +65,14 @@ describe("executeTurn", () => {
         subagents: [],
       },
       2,
+      {
+        messages: segment,
+        toolActivities: [
+          { toolCallId: "current_dropped", activityKind: "file_read", label: "Dropped" },
+          { toolCallId: "current_kept", activityKind: "file_read", label: "Kept" },
+        ],
+        subagents: [],
+      },
     )
     expect(result.details.toolActivities).toEqual([{ toolCallId: "new_call", activityKind: "file_read", label: "New" }])
   })

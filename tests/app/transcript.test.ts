@@ -201,7 +201,7 @@ describe("TranscriptStore", () => {
     expect(transcript.entries).toEqual([{ id: 1, kind: "message", speaker: "You", text: "new" }])
   })
 
-  it("replaces history and transcript with compaction summary + kept messages", () => {
+  it("compacts model history while preserving existing scrollback exactly once", () => {
     const transcript = new TranscriptStore()
 
     transcript.loadMessages([
@@ -214,6 +214,8 @@ describe("TranscriptStore", () => {
       { role: "assistant" as const, content: [{ type: "text" as const, text: "recent answer" }] },
     ]
 
+    transcript.loadMessages(keptMessages)
+    const previous = [...transcript.entries]
     transcript.loadCompacted("## Goal\nDo the thing", keptMessages)
 
     expect(transcript.history).toEqual([
@@ -223,18 +225,18 @@ describe("TranscriptStore", () => {
     ])
 
     expect(transcript.entries).toEqual([
+      ...previous,
       {
-        id: 3,
+        id: 5,
         kind: "message",
         speaker: "Otis",
         text: "**Conversation compacted.** Older messages were summarized to free context.\n\n## Goal\nDo the thing",
       },
-      { id: 4, kind: "message", speaker: "You", text: "recent question" },
-      { id: 5, kind: "message", speaker: "Otis", text: "recent answer" },
     ])
+    expect(transcript.entries[0]).toBe(previous[0])
   })
 
-  it("preserves pending prompt identities when a compaction replaces rendered history", () => {
+  it("preserves pending prompt identities when model history is compacted", () => {
     const transcript = new TranscriptStore()
     transcript.loadMessages([{ role: "user", content: "old task" }])
     const queued = transcript.addQueuedUserMessage("queued task")

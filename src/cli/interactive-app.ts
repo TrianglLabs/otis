@@ -961,10 +961,7 @@ export class InteractiveApp {
   #updateContextIndicator(pendingInput = "") {
     const pendingMessage = createUserMessage(pendingInput, this.#images.pending.items)
     const usage = contextUsage(
-      this.#app.contextEstimator()([
-        ...this.#app.transcript.history,
-        ...(pendingInput || this.#images.pending.items.length > 0 ? [pendingMessage] : []),
-      ]),
+      this.#app.contextTokens(pendingInput || this.#images.pending.items.length > 0 ? pendingMessage : undefined),
       this.#app.models.autoCompactAtTokens,
     )
     this.#ui.setContextLabel(formatContextUsage(usage), contextUsageColor(usage.percent))

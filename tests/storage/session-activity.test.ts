@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
+import { compactionSummaryMessage } from "../../src/core/compaction.js"
 import type { ChatMessage } from "../../src/inference/types.js"
 import { openSession, readSessionEvents } from "../../src/storage/session.js"
 
@@ -12,6 +13,38 @@ afterEach(async () => {
 })
 
 describe("session tool activity", () => {
+  it("archives active-turn tool cards and subagent traces independently of retained model context", async () => {
+    const cwd = await trackedTempDir()
+    const options = { cwd, directory: join(cwd, "sessions") }
+    const session = await openSession(options)
+    const admission = await session.admitPrompt("map the repo")
+    const messages = delegationMessages("call_agent")
+    const toolActivities = [{ toolCallId: "call_agent", activityKind: "agent" as const, label: "Delegating: Map" }]
+    const subagents = [
+      {
+        toolCallId: "call_agent",
+        title: "Map",
+        status: "complete" as const,
+        messages: toolMessages("child_edit", "a.ts"),
+        toolActivities: [toolActivity("child_edit", "a.ts", "saved diff")],
+      },
+    ]
+    await session.compactTurn(admission, "Progress.", [], {}, 0, { messages, toolActivities, subagents })
+    await session.completeTurn(admission, [])
+    await session.compact("Final summary.", [])
+    const reopened = await openSession(options)
+    expect(reopened.replay()).toEqual({
+      messages: [compactionSummaryMessage("Final summary.")],
+      toolActivities: [],
+      subagents: [],
+    })
+    expect(reopened.replayTranscript()).toEqual({
+      messages: [...messages, compactionSummaryMessage("Progress."), compactionSummaryMessage("Final summary.")],
+      toolActivities,
+      subagents,
+    })
+  })
+
   it("persists tool activities and diffs across a close and reopen", async () => {
     const cwd = await trackedTempDir()
     const directory = join(cwd, "sessions")

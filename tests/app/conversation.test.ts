@@ -79,14 +79,20 @@ describe("runConversationTurn", () => {
     expect(observer.renderTranscript).toHaveBeenCalled()
   })
 
-  it("reloads the transcript from a compaction checkpoint", async () => {
+  it("preserves scrollback while replacing model context at a compaction checkpoint", async () => {
     const transcript = new TranscriptStore()
-    transcript.addMessages([{ role: "user", content: "old" }])
+    transcript.loadMessages([{ role: "user", content: "old" }])
     const observer = sink()
     const kept: ChatMessage[] = [{ role: "user", content: "kept" }]
     mocks.executeTurn.mockImplementation(async (options: TurnRunnerOptions): Promise<TurnResult> => {
       await options.onEvent?.({ type: "compaction", phase: "start" })
-      await options.onEvent?.({ type: "compaction", phase: "complete", summary: "Summary.", keptMessages: kept })
+      await options.onEvent?.({
+        type: "compaction",
+        phase: "complete",
+        summary: "Summary.",
+        keptMessages: kept,
+        messages: [],
+      })
       await options.onEvent?.({
         type: "complete",
         messages: [{ role: "assistant", content: [{ type: "text", text: "ok" }] }],
@@ -100,7 +106,8 @@ describe("runConversationTurn", () => {
 
     await runConversationTurn(turnOptions(transcript, observer))
 
-    expect(transcript.history[0]).toMatchObject({ role: "user" })
+    expect(transcript.history).not.toContainEqual({ role: "user", content: "old" })
+    expect(transcript.entries[0].text).toBe("old")
     expect(transcript.entries.some((entry) => entry.text.includes("Conversation compacted"))).toBe(true)
     expect(observer.startBusy).toHaveBeenCalled()
   })

@@ -40,6 +40,7 @@ export function subagentRunOptions(parent: RunAgentOptions): RunAgentOptions {
     maxSteps: parent.maxSteps ?? SUBAGENT_MAX_STEPS,
     steering: undefined,
     onCompaction: undefined,
+    historyTokens: undefined,
   }
 }
 

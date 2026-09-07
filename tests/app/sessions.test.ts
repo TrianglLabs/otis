@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import { SessionCoordinator } from "../../src/app/sessions.js"
 import { SubagentTraces } from "../../src/app/subagents.js"
 import { TranscriptStore } from "../../src/app/transcript.js"
+import { compactionSummaryMessage } from "../../src/core/compaction.js"
 import { createSession, defaultSessionDirectory } from "../../src/storage/index.js"
 import { useOtisHome } from "./support/otis-home.js"
 
@@ -57,5 +58,20 @@ describe("SessionCoordinator", () => {
     const { sessions } = await coordinator()
     const session = await sessions.ensure()
     expect(await sessions.select(session.id)).toBe("noop")
+  })
+
+  it("reopens pre-compaction scrollback while keeping only compacted context for inference", async () => {
+    const { cwd, sessions, transcript } = await coordinator()
+    const stored = await createSession({ cwd })
+    const admission = await stored.admitPrompt("old question")
+    await stored.completeTurn(admission, [{ role: "assistant", content: [{ type: "text", text: "old answer" }] }])
+    await stored.compact("Saved progress.", [])
+    await sessions.select(stored.id)
+    expect(transcript.history).toEqual([compactionSummaryMessage("Saved progress.")])
+    expect(transcript.entries.map((entry) => entry.text)).toEqual([
+      "old question",
+      "old answer",
+      "**Conversation compacted.** Older messages were summarized to free context.\n\nSaved progress.",
+    ])
   })
 })

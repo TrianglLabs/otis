@@ -41,7 +41,7 @@ import { type SubagentCall, subagentBrief, subagentResult, subagentRunOptions } 
 export type AgentEvent =
   | { type: "context"; messageCount: number; contentChars: number; tokens: number }
   | { type: "compaction"; phase: "start" }
-  | ({ type: "compaction"; phase: "complete" } & CompactionResult)
+  | ({ type: "compaction"; phase: "complete"; messages: ChatMessage[] } & CompactionResult)
   | { type: "debug"; message: string }
   | { type: "model"; phase: "start" }
   | ReasoningTraceEvent
@@ -73,8 +73,10 @@ export type RunAgentOptions = ToolContext & {
   skills?: SkillCatalog
   tools?: ToolDefinition[]
   maxSteps?: number
+  /** Last observed size of this history in the current application session, for the same client. */
+  historyTokens?: number
   autoCompactAtTokens?: number
-  onCompaction?: (result: CompactionResult, steeringCount: number) => void | Promise<void>
+  onCompaction?: (result: CompactionResult, steeringCount: number, messages: ChatMessage[]) => void | Promise<void>
   onCompactionUsage?: (usage: TokenUsage) => void | Promise<void>
   steering?: SteeringSource
 }
@@ -88,19 +90,21 @@ export async function* runAgent(
   let messages: ChatMessage[] = [...history, userMessage]
   let turnStart = history.length
   let steeringCount = 0
+  let contextEvent: (() => AgentEvent) | undefined
   try {
     const projectContext = options.projectContext ?? loadProjectContext(options.cwd ?? process.cwd())
     const skills = options.skills ?? (await loadSkillCatalog(options.cwd ?? process.cwd()))
     const tools = availableTools(options.tools ?? TOOL_DEFINITIONS, skills)
     const modelSkills = tools.some((tool) => tool.name === "skill") ? skills : emptySkills()
     const estimate = requestContextEstimator({ tools, projectContext, skills: modelSkills.skills })
-    let observed: { tokens: number; estimate: number } | undefined
+    let observed =
+      options.historyTokens === undefined ? undefined : { tokens: options.historyTokens, estimate: estimate(history) }
     const contextTokens = (value: ChatMessage[]) => {
       const estimated = estimate(value)
       return observed ? Math.max(estimated, observed.tokens + estimated - observed.estimate) : estimated
     }
     const threshold = options.autoCompactAtTokens ?? autoCompactThreshold()
-    const contextEvent = (): AgentEvent => ({
+    contextEvent = (): AgentEvent => ({
       type: "context",
       messageCount: messages.length,
       contentChars: messagesContentChars(messages),
@@ -128,6 +132,7 @@ export async function* runAgent(
       }
       if (options.maxSteps !== undefined && step >= options.maxSteps) {
         messages.push(...(await closeSteering(options.steering)))
+        yield contextEvent()
         yield {
           type: "error",
           message: `Agent reached the ${options.maxSteps}-step limit.`,
@@ -147,11 +152,12 @@ export async function* runAgent(
           estimateContextTokens: estimate,
         })
         // Persist the checkpoint before committing it to live context or sending another request.
-        await options.onCompaction?.(result, steeringCount)
+        const segment = turnMessages(messages, turnStart)
+        await options.onCompaction?.(result, steeringCount, segment)
         messages = [compactionSummaryMessage(result.summary), ...result.keptMessages]
         turnStart = messages.length
         observed = undefined
-        yield { type: "compaction", phase: "complete", ...result }
+        yield { type: "compaction", phase: "complete", ...result, messages: segment }
         yield contextEvent()
         // Steering received during summarization must be drained before the next request.
         continue
@@ -177,6 +183,7 @@ export async function* runAgent(
           messages.push(...interruptedToolCalls([], response.toolCalls).messages)
         }
         messages.push(...(await closeSteering(options.steering)))
+        yield contextEvent()
         yield { type: "interrupted", messages: turnMessages(messages, turnStart) }
         return
       }
@@ -207,6 +214,7 @@ export async function* runAgent(
       messages.push(...execution.messages)
       if (execution.interrupted) {
         messages.push(...(await closeSteering(options.steering)))
+        yield contextEvent()
         yield { type: "interrupted", messages: turnMessages(messages, turnStart) }
         return
       }
@@ -214,6 +222,7 @@ export async function* runAgent(
     }
   } catch (error) {
     messages.push(...(await closeSteering(options.steering)))
+    if (contextEvent) yield contextEvent()
     if (options.signal?.aborted) {
       yield { type: "interrupted", messages: turnMessages(messages, turnStart) }
       return

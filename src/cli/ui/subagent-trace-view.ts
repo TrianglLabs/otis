@@ -60,6 +60,7 @@ export class SubagentTraceView {
 
   close() {
     this.#trace = undefined
+    this.#view.render([])
     this.renderer.requestRender()
   }
 
@@ -68,7 +69,7 @@ export class SubagentTraceView {
     if (!this.#trace) return
     const current = traces.find((trace) => trace.toolCallId === this.#trace?.toolCallId)
     if (!current) {
-      this.#trace = undefined
+      this.close()
       return
     }
     this.#trace = current
