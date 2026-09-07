@@ -36,8 +36,6 @@ import {
 import { TOOL_NAMES, type ToolDefinition, type ToolName } from "../tools/index.js"
 import { addUsage, emptyUsage, type HeadlessOutputFormat, HeadlessReporter } from "./headless-output.js"
 
-const DEFAULT_MAX_STEPS = 50
-
 type OutputStream = { write(chunk: string): unknown }
 
 export type HeadlessCommandOptions = {
@@ -221,7 +219,6 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
         projectContext: app.projectContext,
         skills: app.skills,
         tools,
-        maxSteps: parsed.maxSteps,
         autoCompactAtTokens: autoCompactThreshold(modelContextLength),
         onCompactionUsage: async (nextUsage) => {
           usage = addUsage(usage, nextUsage)
@@ -313,7 +310,6 @@ function parseHeadlessArgs(argv: string[]) {
       ask: { type: "string", multiple: true },
       deny: { type: "string", multiple: true },
       tools: { type: "string" },
-      "max-steps": { type: "string" },
       timeout: { type: "string" },
       "output-format": { type: "string", default: "plain" },
       "include-reasoning": { type: "boolean" },
@@ -343,7 +339,6 @@ function parseHeadlessArgs(argv: string[]) {
       ...parseCliPermissionRules(values.deny, "deny"),
     ],
     tools: values.tools === undefined ? undefined : parseToolNames(values.tools),
-    maxSteps: positiveInteger(values["max-steps"] ?? String(DEFAULT_MAX_STEPS), "--max-steps"),
     timeoutMs: values.timeout ? positiveInteger(values.timeout, "--timeout") * 1_000 : undefined,
     outputFormat: outputFormat as HeadlessOutputFormat,
     includeReasoning: values["include-reasoning"] ?? false,
@@ -456,7 +451,6 @@ Options:
       --ask <rule>             Require approval for matching calls; repeatable
       --deny <rule>            Deny matching Tool(resource); repeatable
       --tools <names>          Comma-separated tool allowlist
-      --max-steps <count>      Maximum model/tool loop steps (default: ${DEFAULT_MAX_STEPS})
       --timeout <seconds>      Abort after the given duration
       --output-format <format> plain, json, or jsonl (default: plain)
       --include-reasoning      Include model-provided thinking traces in output

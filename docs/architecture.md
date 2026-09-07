@@ -203,9 +203,8 @@ The `agent` tool runs a nested, read-only agent loop inside the same process. Th
 client, workspace, permission policy, approval handler, usage sink, and abort signal, but starts from a fresh history
 that contains only the delegated brief. Its tool set is the read-only subset of the parent's tools: file reading and
 search, web search and reading, and skill loading. It never receives `write`, `edit`, `bash`, or `agent`, so a
-subagent cannot mutate the workspace or delegate again. The child honors the parent's step limit or a fixed default
-when the parent has none. Only the child's final assistant text returns to the parent as the tool result; its own
-text, reasoning, and context accounting stay private.
+subagent cannot mutate the workspace or delegate again. Agent runs have no fixed step cap. Only the child's final
+assistant text returns to the parent as the tool result; its own text, reasoning, and context accounting stay private.
 
 The `agent` tool and its system-prompt guidance are offered only for hosted Fireworks models and NVIDIA PAIR
 clusters, which can serve several requests at once. Otis' managed `llama-server` runs a single slot, so local models
@@ -294,7 +293,7 @@ same sequence numbers. Ephemeral headless turns bypass session persistence entir
 `otis exec` is a one-turn process interface over the same shared application and agent loop used by OpenTUI. Its plain mode
 reserves stdout for the final assistant message and sends progress to stderr. JSON mode emits one result object; JSONL
 mode emits versioned, Otis-owned events rather than exposing provider stream shapes. The command accepts explicit
-working-directory, model, tool-allowlist, step-limit, timeout, and session policies, making process invocation the
+working-directory, model, tool-allowlist, timeout, and session policies, making process invocation the
 stable boundary for CI and server workers.
 
 Headless execution never prompts. Write, edit, and shell calls are denied by default and require an allow rule, a

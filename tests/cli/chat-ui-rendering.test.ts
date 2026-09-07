@@ -26,9 +26,59 @@ describe("chat UI rendering", () => {
     harness.ui.renderTranscript(transcript.entries)
     const root = harness.get<BoxRenderable>(`message-${reasoning.id}`)
     const content = harness.get<MarkdownRenderable>(`message-${reasoning.id}-reasoning-content`)
+    const destroyStyle = vi.spyOn(content.syntaxStyle, "destroy")
     harness.ui.setThinkingVisible(false)
     expect(root.isDestroyed).toBe(true)
     expect(content.isDestroyed).toBe(true)
+    expect(destroyStyle).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(["clear", "theme", "shutdown"])("releases card syntax styles on %s", async (action) => {
+    const harness = await setup({ thinkingVisible: true })
+    const transcript = new TranscriptStore()
+    const assistant = transcript.addAssistantMessage("# Answer\n```ts\nconst value = 1\n```")
+    const reasoning = transcript.addReasoningMessage("Checking the change", { reasoningId: "thought" })
+    const tool = transcript.addToolMessage("Editing src/app.ts", "file_edit")
+    transcript.updateEntry(tool.id, {
+      diff: ["--- a/src/app.ts", "+++ b/src/app.ts", "@@ -1 +1 @@", "-old", "+new"].join("\n"),
+    })
+    harness.ui.showChatLayout()
+    harness.ui.renderTranscript(transcript.entries)
+    await harness.renderOnce()
+
+    const contents = [
+      harness.get<MarkdownRenderable>(`message-${assistant.id}-content`),
+      harness.get<MarkdownRenderable>(`message-${reasoning.id}-reasoning-content`),
+      harness.get<DiffRenderable>(`message-${tool.id}-diff`),
+    ]
+    const destroyStyles = contents.map((content) => {
+      const style = content.syntaxStyle
+      if (!style) throw new Error("Card has no syntax style")
+      const destroy = style.destroy.bind(style)
+      return vi.spyOn(style, "destroy").mockImplementation(() => {
+        expect(content.isDestroyed).toBe(true)
+        destroy()
+      })
+    })
+
+    try {
+      if (action === "clear") {
+        transcript.replaceMessages([])
+        harness.ui.renderTranscript(transcript.entries)
+      } else if (action === "theme") {
+        const previous = selectTheme("nord")
+        harness.ui.setTheme("nord", previous)
+        await harness.renderOnce()
+        expect(harness.get(`message-${assistant.id}-content`)).not.toBe(contents[0])
+      } else {
+        harness.destroy()
+      }
+      for (const destroyStyle of destroyStyles) expect(destroyStyle).toHaveBeenCalledTimes(1)
+      harness.destroy()
+      for (const destroyStyle of destroyStyles) expect(destroyStyle).toHaveBeenCalledTimes(1)
+    } finally {
+      selectTheme("default")
+    }
   })
 
   it("does not update unchanged history while another message streams", async () => {

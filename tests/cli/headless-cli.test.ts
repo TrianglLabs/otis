@@ -141,6 +141,44 @@ beforeEach(() => {
 })
 
 describe("runHeadlessCommand", () => {
+  it.each([false, true])("finishes beyond 50 model steps with delegation=%s", async (delegate) => {
+    const cwd = await temporaryDirectory()
+    await writeFile(join(cwd, "note.txt"), "note", "utf8")
+    if (delegate) {
+      mocks.streamChat.mockImplementationOnce(async function* () {
+        yield {
+          type: "tool_call",
+          toolCall: {
+            id: "call_agent",
+            name: "agent",
+            arguments: JSON.stringify({ description: "Read notes", prompt: "Read the notes and report back." }),
+          },
+        }
+      })
+    }
+    for (let step = 0; step < 51; step += 1) {
+      mocks.streamChat.mockImplementationOnce(async function* () {
+        yield { type: "tool_call", toolCall: { id: `read_${step}`, name: "read", arguments: '{"path":"note.txt"}' } }
+      })
+    }
+    mocks.streamChat.mockImplementationOnce(async function* () {
+      yield { type: "text_delta", text: "Done." }
+    })
+    if (delegate) {
+      mocks.streamChat.mockImplementationOnce(async function* () {
+        yield { type: "text_delta", text: "Done." }
+      })
+    }
+    const output = streams({ processCwd: cwd })
+
+    const exitCode = await runHeadlessCommand(["--ephemeral", "read the notes"], output.options)
+
+    expect(exitCode, output.stderr()).toBe(0)
+    expect(output.stdout()).toBe("Done.\n")
+    expect(output.stderr()).not.toContain("(failed)")
+    expect(mocks.streamChat).toHaveBeenCalledTimes(delegate ? 54 : 52)
+  })
+
   it.each([false, true])("compacts during headless tool execution with ephemeral=%s", async (ephemeral) => {
     mocks.loadLocalSettings.mockResolvedValue({ fireworksApiKey: "fw_test", model: "test", modelContextLength: 25_000 })
     mocks.streamChat

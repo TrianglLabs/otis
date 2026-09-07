@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { type AgentEvent, runAgent } from "../../src/core/agent.js"
 import {
   providerTools,
-  SUBAGENT_MAX_STEPS,
   subagentBrief,
   subagentRunOptions,
   subagentTools,
@@ -360,33 +359,38 @@ describe("agent tool", () => {
     })
   })
 
-  it("bounds the child by the parent's step limit", async () => {
+  it("lets a child finish beyond 50 model steps", async () => {
+    const cwd = await trackedTempDir()
+    await writeFile(join(cwd, "note.txt"), "note", "utf8")
+    streamMock.mockImplementationOnce(async function* () {
+      yield delegateCall("call_agent")
+    })
+    for (let step = 0; step < 51; step += 1) {
+      streamMock.mockImplementationOnce(async function* () {
+        yield { type: "tool_call", toolCall: { id: `read_${step}`, name: "read", arguments: '{"path":"note.txt"}' } }
+      })
+    }
     streamMock
       .mockImplementationOnce(async function* () {
-        yield delegateCall("call_agent")
+        yield { type: "text_delta", text: "Child report." }
       })
-      .mockImplementation(async function* () {
-        yield { type: "tool_call", toolCall: { id: crypto.randomUUID(), name: "read", arguments: '{"path":"."}' } }
+      .mockImplementationOnce(async function* (request) {
+        expect(request.messages).toContainEqual({
+          role: "tool",
+          toolCallId: "call_agent",
+          content: "agent: Map the notes\n\nChild report.",
+        })
+        yield { type: "text_delta", text: "Done." }
       })
 
-    const events = await collect(runAgent("delegate", [], { client, maxSteps: 2, tools: TOOL_DEFINITIONS }))
+    const events = await collect(runAgent("delegate", [], { client, cwd }))
 
-    // Parent step 1 delegates; the child spends its 2 steps on reads and fails; the parent takes its second step
-    // and then its own limit ends the run.
-    expect(
-      events.filter(
-        (event) =>
-          event.type === "subagent" &&
-          event.toolCallId === "call_agent" &&
-          event.event.type === "tool" &&
-          event.event.phase === "end",
-      ),
-    ).toHaveLength(2)
-    expect(
-      events.find((event) => event.type === "tool" && event.phase === "end" && event.toolCallId === "call_agent"),
-    ).toMatchObject({ outcome: "failed" })
-    expect(streamMock).toHaveBeenCalledTimes(4)
-    expect(events.find((event) => event.type === "error")?.message).toContain("2-step limit")
+    expect(events.at(-1)?.type).toBe("complete")
+    expect(events.find((event) => event.type === "tool" && event.phase === "end")).toMatchObject({
+      toolCallId: "call_agent",
+      outcome: "completed",
+    })
+    expect(streamMock).toHaveBeenCalledTimes(54)
   })
 
   it("interrupts the parent turn when the shared signal aborts during a child run", async () => {
@@ -459,9 +463,7 @@ describe("subagent helpers", () => {
     expect(child.cwd).toBe("/workspace")
     expect(child.onUsage).toBe(parent.onUsage)
     expect(child.steering).toBeUndefined()
-    expect(child.maxSteps).toBe(SUBAGENT_MAX_STEPS)
     expect(child.tools?.map((tool) => tool.name)).toEqual(["web_search", "web_read", "skill", "read", "grep", "glob"])
-    expect(subagentRunOptions({ ...parent, maxSteps: 7 }).maxSteps).toBe(7)
   })
 
   it("offers the agent tool for hosted and PAIR models but not the single-slot local runtime", () => {

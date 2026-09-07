@@ -5,9 +5,6 @@ import type { RunAgentOptions } from "./agent.js"
 
 export type SubagentCall = Extract<ToolCall, { name: "agent" }>
 
-/** Bounds a delegated run when the parent has no step limit of its own. */
-export const SUBAGENT_MAX_STEPS = 50
-
 /** Subagents explore and research only; they never mutate the workspace, run commands, or delegate again. */
 const SUBAGENT_TOOLS: ReadonlySet<ToolName> = new Set(["read", "grep", "glob", "web_search", "web_read", "skill"])
 
@@ -37,7 +34,6 @@ export function subagentRunOptions(parent: RunAgentOptions): RunAgentOptions {
   return {
     ...parent,
     tools: subagentTools(parent.tools ?? []),
-    maxSteps: parent.maxSteps ?? SUBAGENT_MAX_STEPS,
     steering: undefined,
     onCompaction: undefined,
     historyTokens: undefined,
