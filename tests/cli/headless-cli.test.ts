@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { FireworksModel } from "../../src/inference/types.js"
 import type { PermissionConfig } from "../../src/permissions/policy.js"
 import type { SkillCatalog } from "../../src/skills/index.js"
+import { summaryFixture } from "../support/compaction.js"
 
 const mocks = vi.hoisted(() => ({
   createSession: vi.fn(),
@@ -187,7 +188,7 @@ describe("runHeadlessCommand", () => {
         yield { type: "tool_call", toolCall: { id: "read_1", name: "read", arguments: '{"path":"missing.txt"}' } }
       })
       .mockImplementationOnce(async function* () {
-        yield { type: "text_delta", text: "Progress summarized." }
+        yield { type: "text_delta", text: summaryFixture("Progress summarized.") }
         yield { type: "usage", usage: { promptTokens: 100, completionTokens: 10, totalTokens: 110 } }
       })
       .mockImplementationOnce(async function* (request) {

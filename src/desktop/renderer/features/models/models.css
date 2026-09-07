@@ -1,0 +1,158 @@
+/* The composer's model chip and the catalog popover it opens. Sharp edges and hairline borders, matching the
+   composer box and the session list. */
+
+/* Command-palette placement: centered, near the top, above the dimmed workspace. */
+.modelPicker {
+  position: fixed;
+  top: 15vh;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-overlay);
+  width: 440px;
+  max-height: min(520px, 70vh);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-float);
+  overflow: hidden;
+  animation: overlay-enter var(--motion);
+}
+
+.modelPicker-message {
+  padding: 8px 20px;
+  font-size: var(--text-ui);
+  color: var(--text-dim);
+}
+
+.modelPicker-error {
+  color: var(--danger);
+}
+
+.modelPicker-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px 6px 20px;
+  border-bottom: 1px solid var(--hairline);
+  font-size: var(--text-ui);
+  font-weight: 500;
+  color: var(--text);
+  flex-shrink: 0;
+}
+
+.modelPicker-list {
+  overflow-y: auto;
+  min-height: 0; /* let the list shrink inside the max-height dialog so lower rows scroll into view */
+  /* Same even-inset scheme as the sidebar: 10px left padding mirrors the 10px scrollbar gutter on the right. */
+  scrollbar-gutter: stable;
+  padding: 4px 0 6px 10px;
+}
+
+/* Same label treatment as the sidebar's session section. */
+.modelPicker-header {
+  padding: 10px 10px 6px;
+  font-size: var(--text-micro);
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+/* Same row anatomy as session rows: whole-row hover, elevated active row, mono micro detail line. */
+.modelPicker-row {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+}
+
+.modelPicker-row:hover {
+  background: var(--bg-hover);
+}
+
+.modelPicker-row.active,
+.modelPicker-row.active:hover {
+  background: var(--bg-elev);
+}
+
+.modelPicker-select {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px 7px 10px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.modelPicker-select:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.modelPicker-rowText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.modelPicker-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--text-ui);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.modelPicker-recommended {
+  color: var(--warning);
+  display: inline-flex;
+}
+
+.modelPicker-detail {
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+  color: var(--text-dim);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.modelPicker-detail.error {
+  color: var(--danger);
+}
+
+.modelPicker-spinner {
+  display: inline-flex;
+  animation: modelPicker-spin 1s linear infinite;
+}
+
+@keyframes modelPicker-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.modelPicker-downloadHint {
+  color: var(--text-dim);
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.modelPicker-cancel {
+  align-self: center;
+  flex-shrink: 0;
+  margin-right: 6px;
+}

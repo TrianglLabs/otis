@@ -272,14 +272,18 @@ context checks, with estimates for newly added content. New turns, reopened sess
 use character estimates until the next response reports usage. Token accounting adds no metadata to chat messages.
 
 Compaction targets half the trigger budget, retains a bounded suffix of complete tool exchanges, and preserves
-unanswered user messages. A summary is accepted only when it reduces context, fits the target, and has not reported an
-incomplete finish. Oversized histories are summarized in bounded chunks. Provider errors surface without automatic
-compaction retries. A failed summary leaves the original history unchanged.
+unanswered user messages. Summarization uses its own system instructions with no tools; historical conversation is
+input data rather than an instruction to continue working. A summary must include non-empty Goal, Progress, and Next
+Steps sections, reduce context, fit the target, and finish without requesting tools or reporting an incomplete finish.
+Oversized histories are summarized in bounded chunks using those same instructions. Provider errors surface without
+automatic compaction retries. A failed summary leaves the original history unchanged.
 
 An active-turn compaction saves a `compacted` checkpoint before inference continues. Its prompt ID associates later
 completion or interruption with the continuation; its admission sequence and consumed steering count preserve queued
-prompts and steering received during summarization. Live transcripts and replay use the same checkpoint plus
-continuation messages. Compaction usage and child-agent checkpoints remain separate from the parent's context.
+prompts and steering received during summarization. Model context uses the checkpoint plus continuation messages;
+visible transcripts preserve the original scrollback and omit internal summaries both live and on session reload.
+The active task continues automatically after successful compaction. Compaction usage and child-agent checkpoints
+remain separate from the parent's context.
 
 Each session is an append-only JSONL event stream. A completed turn stores model-facing messages separately from local
 tool-card metadata, which preserves diffs and activity history without placing UI state into future model requests.

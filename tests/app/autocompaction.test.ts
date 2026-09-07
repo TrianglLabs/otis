@@ -8,6 +8,7 @@ import { SteeringInbox } from "../../src/core/steering.js"
 import type { ChatMessage, InferenceClient, UserChatMessage } from "../../src/inference/types.js"
 import { openSession } from "../../src/storage/session.js"
 import { TOOL_DEFINITIONS } from "../../src/tools/index.js"
+import { summaryFixture } from "../support/compaction.js"
 
 const directories: string[] = []
 afterEach(async () => {
@@ -61,13 +62,12 @@ describe("compaction checkpoints during active turns", () => {
       model: "fake",
       complete: vi.fn(),
       streamChat: async function* (request) {
-        const prompt = request.messages[0]?.content
-        if (typeof prompt === "string" && prompt.startsWith("You are summarizing")) {
+        if (request.systemPrompt?.startsWith("You are a conversation summarizer")) {
           summaries += 1
           const accepted = steering.accept(user(`steering ${summaries}`))
           if (!accepted.accepted) throw new Error("Steering was unexpectedly closed")
           await accepted.persisted
-          yield { type: "text_delta", text: `Summary ${summaries}.` }
+          yield { type: "text_delta", text: summaryFixture(`Summary ${summaries}.`) }
           return
         }
         requests += 1
@@ -113,10 +113,15 @@ describe("compaction checkpoints during active turns", () => {
     await session.completeTurn(admission, result.messages, result.details)
     expect(summaries).toBe(2)
     expect(checkpoints).toEqual([
-      [compactionSummaryMessage("Summary 1."), user("steering 1"), queued.message],
-      [compactionSummaryMessage("Summary 2."), user("steering 2"), queued.message],
+      [compactionSummaryMessage(summaryFixture("Summary 1.")), user("steering 1"), queued.message],
+      [compactionSummaryMessage(summaryFixture("Summary 2.")), user("steering 2"), queued.message],
     ])
-    const expected = [compactionSummaryMessage("Summary 2."), user("steering 2"), answer("Finished."), queued.message]
+    const expected = [
+      compactionSummaryMessage(summaryFixture("Summary 2.")),
+      user("steering 2"),
+      answer("Finished."),
+      queued.message,
+    ]
     expect(session.replayMessages()).toEqual(expected)
     expect((await openSession(options)).replayMessages()).toEqual(expected)
     await session.completeTurn(queued, [queued.message, answer("Queued task finished.")])
@@ -155,7 +160,7 @@ describe("compaction checkpoints during active turns", () => {
       complete: vi.fn(),
       streamChat: async function* () {
         requests += 1
-        if (requests === 1) yield { type: "text_delta", text: "Summary." }
+        if (requests === 1) yield { type: "text_delta", text: summaryFixture("Summary.") }
         else throw new Error("Provider unavailable")
       },
     }
@@ -182,14 +187,14 @@ describe("compaction checkpoints during active turns", () => {
     await session.interruptTurn(admission, result.messages, result.details)
     expect(result.messages).toEqual([])
     expect((await openSession(options)).replayMessages()).toEqual([
-      compactionSummaryMessage("Summary."),
+      compactionSummaryMessage(summaryFixture("Summary.")),
       admission.message,
     ])
     expect(requests).toBe(ending === "abort" ? 1 : 2)
     expect((await openSession(options)).replayTranscript().messages).toEqual([
       ...history,
       admission.message,
-      compactionSummaryMessage("Summary."),
+      compactionSummaryMessage(summaryFixture("Summary.")),
     ])
   })
 })

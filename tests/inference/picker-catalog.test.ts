@@ -9,6 +9,7 @@ import {
   formatContextWindow,
   type LocalPickerChoice,
   listModelPickerItems,
+  type PairPickerChoice,
 } from "../../src/inference/picker-catalog.js"
 import { fireworksModel } from "../../src/inference/types.js"
 
@@ -195,6 +196,39 @@ describe("model picker catalog", () => {
     expect(local.filter((item) => item.id !== "openai/gpt-oss-20b").every((item) => item.status === undefined)).toBe(
       true,
     )
+  })
+
+  it("attaches load status to a PAIR row by selectionKey, not by bare model id", async () => {
+    const pairModel = {
+      provider: "pair" as const,
+      id: "qwen3:32b",
+      displayName: "qwen3:32b",
+      baseURL: "http://127.0.0.1:11434",
+      engine: "ollama" as const,
+      nativeContextLength: 262_144,
+      supportsImageInput: false,
+    }
+    const items = await listModelPickerItems({
+      hardware: ample,
+      dataDirectory: await tempDir(),
+      pairModels: [pairModel],
+      loadStatus: { modelId: "pair:ollama:qwen3:32b", status: { label: "Failed: endpoint went away", kind: "error" } },
+    })
+    const pair = items.filter((item): item is PairPickerChoice => item.kind === "model" && item.provider === "pair")
+    expect(pair).toHaveLength(1)
+    expect(pair[0]?.status).toEqual({ label: "Failed: endpoint went away", kind: "error" })
+
+    // A bare model id never matches a PAIR row.
+    const unmatched = await listModelPickerItems({
+      hardware: ample,
+      dataDirectory: await tempDir(),
+      pairModels: [pairModel],
+      loadStatus: { modelId: "qwen3:32b", status: { label: "Failed", kind: "error" } },
+    })
+    const unmatchedPair = unmatched.filter(
+      (item): item is PairPickerChoice => item.kind === "model" && item.provider === "pair",
+    )
+    expect(unmatchedPair[0]?.status).toBeUndefined()
   })
 
   it("still shows local models when the Fireworks catalog fails", async () => {

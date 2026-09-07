@@ -4,11 +4,11 @@ import {
   COMPACTION_SUMMARY_PREFIX,
   compactConversation,
   compactionSummaryMessage,
-  extractCompactionSummary,
   isCompactionSummary,
 } from "../../src/core/compaction.js"
 import type { FireworksClient } from "../../src/inference/client.js"
-import type { ChatMessage } from "../../src/inference/types.js"
+import type { ChatMessage, StreamChatOptions } from "../../src/inference/types.js"
+import { summaryFixture } from "../support/compaction.js"
 
 const streamAgentMock = vi.hoisted(() => vi.fn())
 const client = { model: "accounts/fireworks/models/test", streamChat: streamAgentMock } as unknown as FireworksClient
@@ -24,7 +24,7 @@ describe("autoCompactThreshold", () => {
 })
 
 describe("compaction summary messages", () => {
-  it("marks and extracts summaries", () => {
+  it("marks summaries", () => {
     const message = compactionSummaryMessage("## Goal\nDo the thing")
 
     expect(message).toEqual({
@@ -32,14 +32,8 @@ describe("compaction summary messages", () => {
       content: `${COMPACTION_SUMMARY_PREFIX}\n\n## Goal\nDo the thing`,
     })
     expect(isCompactionSummary(message)).toBe(true)
-    expect(extractCompactionSummary(message)).toBe("## Goal\nDo the thing")
     expect(isCompactionSummary({ role: "user", content: "hello" })).toBe(false)
     expect(isCompactionSummary({ role: "assistant", content: [{ type: "text", text: "hi" }] })).toBe(false)
-  })
-
-  it("leaves regular user content unchanged", () => {
-    const message: ChatMessage = { role: "user", content: "no prefix here" }
-    expect(extractCompactionSummary(message)).toBe("no prefix here")
   })
 })
 
@@ -60,11 +54,11 @@ describe("compactConversation", () => {
         role: "assistant",
         content: [{ type: "tool_call", toolCall: { id: "call_1", name: "read", arguments: "{}" } }],
       },
-      { role: "tool", toolCallId: "call_1", content: "result" },
+      { role: "tool", toolCallId: "call_1", content: "result".repeat(100) },
       { role: "assistant", content: [{ type: "text", text: "ok" }] },
     ]
     streamAgentMock.mockImplementationOnce(async function* () {
-      yield { type: "text_delta", text: "Work summarized." }
+      yield { type: "text_delta", text: summaryFixture("Work summarized.") }
     })
     const result = await compactConversation(messages, { client, keepRecentTokens: 10 })
     expect(result.keptMessages).toEqual([messages[3]])
@@ -79,12 +73,12 @@ describe("compactConversation", () => {
     ]
 
     streamAgentMock.mockImplementationOnce(async function* () {
-      yield { type: "text_delta", text: "## Goal\nDo stuff" }
+      yield { type: "text_delta", text: summaryFixture("Do stuff") }
     })
 
     const result = await compactConversation(messages, { client, keepRecentTokens: 32 })
 
-    expect(result.summary).toBe("## Goal\nDo stuff")
+    expect(result.summary).toBe(summaryFixture("Do stuff"))
     expect(result.keptMessages).toEqual([
       { role: "user", content: "second question" },
       { role: "assistant", content: [{ type: "text", text: "second answer" }] },
@@ -107,7 +101,7 @@ describe("compactConversation", () => {
     let capturedPrompt = ""
     streamAgentMock.mockImplementationOnce(async function* (request: { messages: ChatMessage[] }) {
       capturedPrompt = request.messages[0].content as string
-      yield { type: "text_delta", text: "Summary" }
+      yield { type: "text_delta", text: summaryFixture("Summary") }
     })
 
     await compactConversation(messages, { client, keepRecentTokens: 32 })
@@ -133,7 +127,7 @@ describe("compactConversation", () => {
     ]
 
     streamAgentMock.mockImplementationOnce(async function* () {
-      yield { type: "text_delta", text: "Summary of first turn" }
+      yield { type: "text_delta", text: summaryFixture("Summary of first turn") }
     })
 
     const result = await compactConversation(messages, { client, keepRecentTokens: 32 })
@@ -154,9 +148,9 @@ describe("compactConversation", () => {
     ]
 
     let capturedPrompt = ""
-    streamAgentMock.mockImplementationOnce(async function* (request: { messages: ChatMessage[] }) {
-      capturedPrompt = request.messages[0].content as string
-      yield { type: "text_delta", text: "Summary" }
+    streamAgentMock.mockImplementationOnce(async function* (request: StreamChatOptions) {
+      capturedPrompt = request.systemPrompt ?? ""
+      yield { type: "text_delta", text: summaryFixture("Summary") }
     })
 
     await compactConversation(messages, {
@@ -177,9 +171,9 @@ describe("compactConversation", () => {
     ]
 
     let capturedPrompt = ""
-    streamAgentMock.mockImplementationOnce(async function* (request: { messages: ChatMessage[] }) {
-      capturedPrompt = request.messages[0].content as string
-      yield { type: "text_delta", text: "Summary" }
+    streamAgentMock.mockImplementationOnce(async function* (request: StreamChatOptions) {
+      capturedPrompt = request.systemPrompt ?? ""
+      yield { type: "text_delta", text: summaryFixture("Summary") }
     })
 
     await compactConversation(messages, { client, keepRecentTokens: 32 })
@@ -213,7 +207,7 @@ describe("compactConversation", () => {
     ]
 
     streamAgentMock.mockImplementationOnce(async function* () {
-      yield { type: "text_delta", text: "Summary of turns one and two" }
+      yield { type: "text_delta", text: summaryFixture("Summary of turns one and two") }
     })
 
     const result = await compactConversation(messages, { client, keepRecentTokens: 100_000 })

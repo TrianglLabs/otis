@@ -25,7 +25,7 @@ export function estimateMessageTokens(messages: readonly ChatMessage[]): number 
 /** Shared estimate for request checks, summary budgets, and the context meter. */
 export function requestContextEstimator(options: Omit<StreamChatOptions, "messages">) {
   const staticChars =
-    buildSystemPrompt(options.projectContext, options.now, options.skills, options.tools).length +
-    JSON.stringify((options.tools ?? []).map(openaiTool)).length
+    (options.systemPrompt ?? buildSystemPrompt(options.projectContext, options.now, options.skills, options.tools))
+      .length + JSON.stringify((options.tools ?? []).map(openaiTool)).length
   return (messages: readonly ChatMessage[]) => Math.ceil(staticChars / 4) + 4 + estimateMessageTokens(messages)
 }

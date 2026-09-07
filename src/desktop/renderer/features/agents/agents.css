@@ -1,0 +1,182 @@
+/* The delegated-runs rail and the trace overlay. Rows clone the session-row anatomy; the overlay reuses the
+   shared backdrop and enter animation from components.css. */
+
+.agentsRail {
+  width: 240px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: color-mix(in srgb, var(--bg-elev) 45%, var(--bg));
+  border-left: 1px solid var(--hairline);
+  user-select: none;
+  min-height: 0;
+}
+
+/* Keeps the window drag strip and the header's bottom hairline continuous across the rail. */
+.agentsRail-topspace {
+  height: var(--header-height);
+  border-bottom: 1px solid var(--hairline);
+  flex-shrink: 0;
+  -webkit-app-region: drag;
+}
+
+/* Same label treatment as the sidebar's sections, plus the rail's hide button. */
+.agentsRail-section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px 6px 20px;
+  font-size: var(--text-micro);
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.agentsRail-list {
+  list-style: none;
+  margin: 0;
+  flex: 1;
+  overflow-y: auto;
+  /* Same even-inset scheme as the sidebar: 10px left padding mirrors the 10px scrollbar gutter. */
+  scrollbar-gutter: stable;
+  padding: 0 0 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.agentsRail-item {
+  display: contents;
+}
+
+.agentsRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px 7px 10px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.agentsRow:hover {
+  background: var(--bg-hover);
+}
+
+.agentsRow-open,
+.agentsRow-open:hover {
+  background: var(--bg-elev);
+}
+
+.agentsRow-status {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--text-dim);
+}
+
+.agentsRow-running {
+  color: var(--accent);
+  animation: agentsRow-spin 1s linear infinite;
+}
+
+.agentsRow-complete {
+  color: var(--success);
+}
+
+.agentsRow-failed {
+  color: var(--danger);
+}
+
+@keyframes agentsRow-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.agentsRow-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.agentsRow-title {
+  font-size: var(--text-ui);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agentsRow-detail {
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The trace view: a wide centered overlay showing the run's transcript with the main entry components. */
+.agentTrace {
+  position: fixed;
+  top: 10vh;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-overlay);
+  width: 640px;
+  max-width: calc(100vw - 64px);
+  max-height: 76vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-float);
+  overflow: hidden;
+  animation: overlay-enter var(--motion);
+}
+
+.agentTrace-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 20px;
+  border-bottom: 1px solid var(--hairline);
+  flex-shrink: 0;
+}
+
+.agentTrace-name {
+  font-size: var(--text-ui);
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agentTrace-summary {
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+  color: var(--text-dim);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.agentTrace-titleSpace {
+  flex: 1;
+}
+
+.agentTrace-list {
+  flex: 1;
+  overflow-y: auto;
+  /* Even insets: 18px left, 8px + the 10px scrollbar gutter on the right. */
+  scrollbar-gutter: stable;
+  padding: 14px 8px 18px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}

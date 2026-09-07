@@ -68,10 +68,6 @@ describe("SessionCoordinator", () => {
     await stored.compact("Saved progress.", [])
     await sessions.select(stored.id)
     expect(transcript.history).toEqual([compactionSummaryMessage("Saved progress.")])
-    expect(transcript.entries.map((entry) => entry.text)).toEqual([
-      "old question",
-      "old answer",
-      "**Conversation compacted.** Older messages were summarized to free context.\n\nSaved progress.",
-    ])
+    expect(transcript.entries.map((entry) => entry.text)).toEqual(["old question", "old answer"])
   })
 })

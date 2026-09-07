@@ -4,6 +4,7 @@ import { compactConversation, compactionSummaryMessage } from "../../src/core/co
 import { estimateMessageTokens, requestContextEstimator } from "../../src/core/context-tokens.js"
 import { SteeringInbox } from "../../src/core/steering.js"
 import type { ChatMessage, InferenceClient, StreamChatOptions } from "../../src/inference/types.js"
+import { summaryFixture } from "../support/compaction.js"
 
 const user = (content: string): ChatMessage => ({ role: "user", content })
 const answer = (text: string): ChatMessage => ({ role: "assistant", content: [{ type: "text", text }] })
@@ -20,7 +21,7 @@ const summaryClient = (summary = "Task and progress summarized."): InferenceClie
   model: "fake",
   complete: vi.fn(),
   streamChat: vi.fn<InferenceClient["streamChat"]>(async function* () {
-    yield { type: "text_delta", text: summary }
+    yield { type: "text_delta", text: summaryFixture(summary) }
   }),
 })
 
@@ -108,7 +109,7 @@ describe("bounded compaction", () => {
     const client = summaryClient()
     client.streamChat = vi.fn<InferenceClient["streamChat"]>(async function* (request) {
       requests.push(request)
-      yield { type: "text_delta", text: "Summary." }
+      yield { type: "text_delta", text: summaryFixture("Summary.") }
     })
     await compactConversation([user(`a${"😀".repeat(10_000)}`), answer("done"), user("continue")], {
       client,
@@ -143,7 +144,7 @@ describe("bounded compaction", () => {
     const client = summaryClient()
     client.streamChat = vi.fn<InferenceClient["streamChat"]>(async function* (request) {
       requests.push(request)
-      yield { type: "text_delta", text: "Summary so far." }
+      yield { type: "text_delta", text: summaryFixture("Summary so far.") }
     })
     await compactConversation([user(`${"a".repeat(40_000)}TAIL_MARKER`), answer("done"), user("continue")], {
       client,
@@ -151,8 +152,7 @@ describe("bounded compaction", () => {
       targetTokens: 2_000,
     })
     expect(requests.length).toBeGreaterThan(1)
-    const estimate = requestContextEstimator({ tools: [] })
-    expect(requests.every((request) => estimate(request.messages) <= 4_000)).toBe(true)
+    expect(requests.every((request) => requestContextEstimator(request)(request.messages) <= 4_000)).toBe(true)
     expect(requests[1].messages[0].content).toContain("Summary so far.")
     expect(requests.at(-1)?.messages[0].content).toContain("TAIL_MARKER")
   })
@@ -162,7 +162,7 @@ describe("bounded compaction", () => {
     const client = summaryClient()
     client.streamChat = vi.fn<InferenceClient["streamChat"]>(async function* (request) {
       requests.push(request)
-      yield { type: "text_delta", text: "Summary." }
+      yield { type: "text_delta", text: summaryFixture("Summary.") }
     })
     const messages: ChatMessage[] = [
       user("task"),
@@ -177,7 +177,7 @@ describe("bounded compaction", () => {
     await compactConversation(messages, { client, maxInputTokens: 4_000, targetTokens: 2_000 })
     expect(requests.some((request) => String(request.messages[0].content).includes("ASSISTANT_TAIL"))).toBe(true)
     expect(requests.some((request) => String(request.messages[0].content).includes("TOOL_TAIL"))).toBe(true)
-    expect(requests.every((request) => requestContextEstimator({ tools: [] })(request.messages) <= 4_000)).toBe(true)
+    expect(requests.every((request) => requestContextEstimator(request)(request.messages) <= 4_000)).toBe(true)
   })
 })
 
@@ -260,7 +260,7 @@ describe("autocompaction at model request boundaries", () => {
       if (requests === 1) {
         yield { type: "tool_call", toolCall: { id: "a", name: "read", arguments: "{}" } }
         yield { type: "usage", usage: { promptTokens: 7_000, completionTokens: 3_000, totalTokens: 10_000 } }
-      } else if (requests === 2) yield { type: "text_delta", text: "Task summarized." }
+      } else if (requests === 2) yield { type: "text_delta", text: summaryFixture("Task summarized.") }
       else yield { type: "text_delta", text: "Finished." }
     })
     const events = await collect(
@@ -288,7 +288,7 @@ describe("autocompaction at model request boundaries", () => {
         yield { type: "reasoning_delta", field: "reasoning_content", text: large }
         yield { type: "tool_call", toolCall: { id: "a", name: "read", arguments: "{}" } }
       } else if (requests.length === 2) {
-        yield { type: "text_delta", text: "Task and progress summarized." }
+        yield { type: "text_delta", text: summaryFixture("Task and progress summarized.") }
       } else {
         expect(checkpointed).toBe(true)
         expect(request.messages[0].content).toContain("[Compacted conversation summary]")
@@ -323,7 +323,7 @@ describe("autocompaction at model request boundaries", () => {
         const acceptance = steering.accept({ role: "user", content: "new direction" })
         if (!acceptance.accepted) throw new Error("Steering was unexpectedly closed")
         await acceptance.persisted
-        yield { type: "text_delta", text: "Summary." }
+        yield { type: "text_delta", text: summaryFixture("Summary.") }
       } else {
         expect(request.messages).toContainEqual(user("new direction"))
         expect(request.messages).toContainEqual(user("continue"))

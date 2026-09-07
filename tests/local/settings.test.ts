@@ -22,6 +22,30 @@ afterEach(async () => {
 })
 
 describe("local settings", () => {
+  it("keeps overlapping whole-file saves from clobbering one another", async () => {
+    const file = join(await tempDirectory(), "config", "config.json")
+    await saveSubagentPanelVisible(false, { file })
+
+    // Both saves read and rewrite the whole file; fired together they must still each survive.
+    await Promise.all([
+      saveSelectedModel(
+        {
+          provider: "local",
+          id: "openai/gpt-oss-20b",
+          displayName: "gpt-oss 20B",
+          contextLength: 32_768,
+          supportsImageInput: false,
+        },
+        { file },
+      ),
+      saveSubagentPanelVisible(true, { file }),
+    ])
+
+    const saved = await loadLocalSettings({ file })
+    expect(saved.model).toBe("openai/gpt-oss-20b")
+    expect(saved.subagentPanelVisible).toBe(true)
+  })
+
   it("stores a Fireworks key without replacing the selected local model", async () => {
     const file = join(await tempDirectory(), "config", "config.json")
     await saveSelectedModel(

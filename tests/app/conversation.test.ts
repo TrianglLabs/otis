@@ -108,7 +108,7 @@ describe("runConversationTurn", () => {
 
     expect(transcript.history).not.toContainEqual({ role: "user", content: "old" })
     expect(transcript.entries[0].text).toBe("old")
-    expect(transcript.entries.some((entry) => entry.text.includes("Conversation compacted"))).toBe(true)
+    expect(transcript.entries.some((entry) => entry.text.includes("Summary."))).toBe(false)
     expect(observer.startBusy).toHaveBeenCalled()
   })
 })

@@ -266,11 +266,16 @@ vi.mock("../../../src/inference/hardware.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../../src/inference/hardware.js")>()
   return { ...actual, detectHardware: mocks.detectHardware }
 })
-vi.mock("../../../src/inference/llama-runtime.js", () => ({
-  LlamaCppRuntime: vi.fn(function LlamaCppRuntime() {
-    return { ensureServing: mocks.ensureLocalServing, stop: mocks.stopLocalRuntime }
-  }),
-}))
+vi.mock("../../../src/inference/llama-runtime.js", async (importOriginal) => {
+  // The pure progress formatting stays real; only the process-spawning runtime is faked.
+  const actual = await importOriginal<typeof import("../../../src/inference/llama-runtime.js")>()
+  return {
+    ...actual,
+    LlamaCppRuntime: vi.fn(function LlamaCppRuntime() {
+      return { ensureServing: mocks.ensureLocalServing, stop: mocks.stopLocalRuntime }
+    }),
+  }
+})
 vi.mock("../../../src/cli/chat-ui.js", () => ({ createChatUI: mocks.createChatUI }))
 vi.mock("../../../src/cli/provider-links.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../../src/cli/provider-links.js")>()

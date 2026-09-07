@@ -103,12 +103,13 @@ export class SessionCoordinator {
   async generateTitle(turnSession: JsonlSession): Promise<string | undefined> {
     const client = this.options.client()
     if (!client) return undefined
+    // Title generation is best-effort: an inference failure must not take down the caller's turn completion path.
     const title = await generateSessionTitle(this.options.transcript.history, {
       client,
       onUsage: async (usage) => {
         await turnSession.recordUsage(usage, "title")
       },
-    })
+    }).catch(() => undefined)
     if (!title || this.options.isExiting() || this.#session?.id !== turnSession.id) return undefined
     await turnSession.renameTitle(title)
     if (this.options.isExiting() || this.#session?.id !== turnSession.id) return undefined

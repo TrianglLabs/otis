@@ -1,0 +1,300 @@
+/* Application shell: sidebar, workspace header, layout grid. */
+
+.appShell {
+  display: flex;
+  height: 100%;
+  background: var(--bg);
+  position: relative;
+}
+
+.mainColumn {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Settings covers the window without unmounting the conversation: absolute takes the column out of the flex
+   layout; visibility (not display) keeps its layout boxes alive so scroll position and local state are kept. */
+.mainColumn-hidden {
+  position: absolute;
+  inset: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* Sidebar */
+
+.sidebar {
+  width: var(--sidebar-width);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: color-mix(in srgb, var(--bg-elev) 45%, var(--bg));
+  border-right: 1px solid var(--hairline);
+  user-select: none;
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--header-height);
+  padding: 0 10px 0 14px;
+  border-bottom: 1px solid var(--hairline);
+  -webkit-app-region: drag;
+  flex-shrink: 0;
+}
+
+.platform-darwin .sidebar-header {
+  padding-left: 80px;
+}
+
+.sidebar-workspace {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--text-dim);
+}
+
+.sidebar-workspaceLabel {
+  font-family: var(--font-mono);
+  font-size: var(--text-meta);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-collapse {
+  margin-left: auto;
+  -webkit-app-region: no-drag;
+}
+
+.sidebar-newSession {
+  padding: 10px 10px 6px;
+}
+
+.sidebar-newButton {
+  width: 100%;
+  justify-content: flex-start;
+  color: var(--text);
+}
+
+.sidebar-newButton:hover:not(:disabled) {
+  color: var(--accent-ink);
+}
+
+.sidebar-section {
+  padding: 10px 14px 6px 20px;
+  font-size: var(--text-micro);
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.sidebar-list {
+  list-style: none;
+  margin: 0;
+  flex: 1;
+  overflow-y: auto;
+  /* The 10px scrollbar gutter stands in for right padding, so rows keep an even 10px inset on both sides,
+     scrollable or not. */
+  scrollbar-gutter: stable;
+  padding: 0 0 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.sidebar-empty {
+  padding: 8px 10px;
+  color: var(--text-dim);
+  font-size: var(--text-meta);
+}
+
+/* Session rows */
+
+.sessionRow {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+}
+
+.sessionRow:hover {
+  background: var(--bg-hover);
+}
+
+.sessionRow-active,
+.sessionRow-active:hover {
+  background: var(--bg-elev);
+}
+
+.sessionRow-title {
+  font-size: var(--text-ui);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sessionRow-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 8px 7px 10px;
+  text-align: left;
+}
+
+.sessionRow-main:disabled {
+  opacity: 0.55;
+}
+
+.sessionRow-detail {
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sessionRow-delete {
+  align-self: center;
+  margin-right: 6px;
+  opacity: 0;
+}
+
+.sessionRow:hover .sessionRow-delete,
+.sessionRow-delete:focus-visible {
+  opacity: 1;
+}
+
+.sessionRow-confirm {
+  flex-direction: column;
+  padding: 8px 10px;
+  gap: 8px;
+  background: color-mix(in srgb, var(--danger) 7%, var(--bg));
+  border-left-color: var(--danger);
+}
+
+.sessionRow-confirmActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+/* Workspace header */
+
+.workspaceHeader {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: var(--header-height);
+  padding: 0 12px;
+  border-bottom: 1px solid var(--hairline);
+  -webkit-app-region: drag;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+/* Centered window title, macOS-style; sits above the drag region. */
+.workspaceHeader-title {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 42%;
+  font-size: var(--text-ui);
+  font-weight: 600;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+.platform-darwin.sidebarCollapsed .workspaceHeader {
+  padding-left: 80px;
+}
+
+/* Settings takes over the window, so its header owns the traffic-light inset while it's open. */
+.platform-darwin.settingsOpen .settingsPage-header {
+  padding-left: 80px;
+}
+
+.workspaceHeader-left,
+.workspaceHeader-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.workspaceHeader-folder {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-dim);
+}
+
+.workspaceHeader-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-meta);
+  color: var(--text);
+}
+
+.headerDiff {
+  display: inline-flex;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: var(--text-meta);
+}
+
+.headerDiff-add {
+  color: var(--green);
+}
+
+.headerDiff-remove {
+  color: var(--pink);
+}
+
+.contextMeter {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.contextMeter-track {
+  width: 64px;
+  height: 5px;
+  background: var(--bg-code);
+  border: 1px solid var(--hairline);
+  display: inline-block;
+}
+
+.contextMeter-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.contextMeter-text {
+  font-family: var(--font-mono);
+  font-size: var(--text-meta);
+  color: var(--text-dim);
+}
+
+.noDrag {
+  -webkit-app-region: no-drag;
+}
+
+.sidebar-listItem {
+  display: contents;
+}

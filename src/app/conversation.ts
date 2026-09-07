@@ -279,6 +279,11 @@ export class Conversation {
     return this.#queued.shift()
   }
 
+  /** The next queued prompt without removing it, so a caller can check the backlog before committing to a drain. */
+  peekQueued() {
+    return this.#queued[0]
+  }
+
   async queue(message: UserChatMessage): Promise<QueuedPrompt> {
     try {
       const session = await this.options.sessions.ensure()

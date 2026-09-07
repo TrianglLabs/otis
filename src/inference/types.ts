@@ -138,6 +138,8 @@ export type InferenceClient = {
 
 export type StreamChatOptions = {
   messages: ChatMessage[]
+  /** Replaces the working agent instructions for internal tasks such as compaction. */
+  systemPrompt?: string
   tools?: ToolDefinition[]
   projectContext?: ContextFile[]
   signal?: AbortSignal
