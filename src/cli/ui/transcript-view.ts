@@ -60,7 +60,11 @@ type ReasoningCard = {
   expanded: boolean
 }
 
-type TranscriptRenderable = MessageCard | ReasoningCard | ToolCard
+type TranscriptRenderable = (MessageCard | ReasoningCard | ToolCard) & {
+  entry?: TranscriptEntry
+  previousKind?: TranscriptEntry["kind"]
+  width?: number
+}
 
 export class TranscriptView {
   readonly #renderables = new Map<number, TranscriptRenderable>()
@@ -86,7 +90,7 @@ export class TranscriptView {
 
     for (const [id, renderable] of this.#renderables) {
       if (entryIDs.has(id)) continue
-      this.messages.remove(renderable.root.id)
+      renderable.root.destroyRecursively()
       this.#renderables.delete(id)
     }
 
@@ -95,15 +99,22 @@ export class TranscriptView {
       let existing = this.#renderables.get(entry.id)
 
       if (existing && !canReuse(existing, entry)) {
-        this.messages.remove(existing.root.id)
+        existing.root.destroyRecursively()
         this.#renderables.delete(entry.id)
         existing = undefined
       }
 
       if (existing) {
-        this.update(existing, entry, previousEntry)
+        if (
+          existing.entry !== entry ||
+          existing.previousKind !== previousEntry?.kind ||
+          existing.width !== this.renderer.terminalWidth
+        ) {
+          this.update(existing, entry, previousEntry)
+        }
       } else {
         const renderable = this.create(entry, previousEntry)
+        this.update(renderable, entry, previousEntry)
         this.#renderables.set(entry.id, renderable)
         this.messages.add(renderable.root, index)
       }
@@ -116,7 +127,7 @@ export class TranscriptView {
 
   refreshTheme() {
     const scrollTop = this.messages.scrollTop
-    for (const renderable of this.#renderables.values()) this.messages.remove(renderable.root.id)
+    for (const renderable of this.#renderables.values()) renderable.root.destroyRecursively()
     this.#renderables.clear()
     this.render(this.#entries)
     this.messages.scrollTo(scrollTop)
@@ -146,6 +157,9 @@ export class TranscriptView {
   }
 
   private update(renderable: TranscriptRenderable, entry: TranscriptEntry, previousEntry?: TranscriptEntry) {
+    renderable.entry = entry
+    renderable.previousKind = previousEntry?.kind
+    renderable.width = this.renderer.terminalWidth
     if (renderable.kind === "tool") {
       renderable.root.marginTop = entryMarginTop(entry, previousEntry)
       renderable.icon.content = toolIcon(entry)
@@ -227,7 +241,6 @@ export class TranscriptView {
       this.update(card, card.entry)
       this.renderer.requestRender()
     }
-    this.update(card, entry, previousEntry)
     return card
   }
 
@@ -366,7 +379,6 @@ export class TranscriptView {
     card.add(content)
 
     const messageCard: MessageCard = { kind: "message", root: card, speaker, content }
-    this.update(messageCard, entry, previousEntry)
     return messageCard
   }
 }
@@ -397,12 +409,26 @@ function reasoningHeader(entry: TranscriptEntry, expanded = false, truncated = f
 }
 
 function reasoningExceedsPreview(text: string, width: number) {
-  const lines = text.replace(/\n+$/, "").split("\n")
-  if (lines.length > REASONING_PREVIEW_HEIGHT) return true
+  let end = text.length
+  while (end > 0 && text[end - 1] === "\n") end -= 1
   const columns = Math.max(1, width)
-  let rows = 0
-  for (const line of lines) {
-    rows += Math.max(1, Math.ceil(Array.from(line).length / columns))
+  let rows = 1
+  let column = 0
+  let offset = 0
+  // Inspect only the preview, even when the reasoning trace is hundreds of thousands of characters.
+  for (const character of text) {
+    if (offset >= end) break
+    offset += character.length
+    if (character === "\n") {
+      rows += 1
+      column = 0
+    } else {
+      if (column === columns) {
+        rows += 1
+        column = 0
+      }
+      column += 1
+    }
     if (rows > REASONING_PREVIEW_HEIGHT) return true
   }
   return false

@@ -180,6 +180,7 @@ const mocks = vi.hoisted(() => {
           onCloseModelPicker?(): void
           onDeleteSession?(sessionId: string): void
           onInterrupt?(): void
+          onInputChange?(value: string): void
           onQuit?(): void | Promise<void>
           onImagePaste?(bytes: Uint8Array, mimeType?: string): void | Promise<void>
           onImagePathPaste?(value: string): boolean
@@ -369,6 +370,7 @@ function baseSession() {
     recordUsage: vi.fn(async () => undefined),
     renameTitle: vi.fn(async () => undefined),
     replay: vi.fn<() => SessionReplay>(() => ({ messages: [], toolActivities: [], subagents: [] })),
+    replayTranscript: vi.fn<() => SessionReplay>(() => ({ messages: [], toolActivities: [], subagents: [] })),
     replayMessages: vi.fn(() => []),
     title: vi.fn(() => "Current session"),
   }

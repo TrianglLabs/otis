@@ -3,7 +3,7 @@ import { loadProjectContext } from "../core/context.js"
 import { requestContextEstimator } from "../core/context-tokens.js"
 import { providerTools } from "../core/subagent.js"
 import { type PairEndpoints, pairEndpointForEngine } from "../inference/pair.js"
-import type { ContextFile } from "../inference/types.js"
+import type { ContextFile, UserChatMessage } from "../inference/types.js"
 import { type LocalSettings, loadLocalSettings } from "../local/settings.js"
 import {
   createPermissionPolicy,
@@ -108,6 +108,12 @@ export class Application {
       projectContext: this.projectContext,
       skills: tools.some((tool) => tool.name === "skill") ? this.skills.skills : [],
     })
+  }
+
+  contextTokens(pendingInput?: UserChatMessage) {
+    const estimate = this.contextEstimator()
+    const tokens = this.transcript.contextTokens(this.models.client) ?? estimate(this.transcript.history)
+    return pendingInput ? tokens + estimate([pendingInput]) - estimate([]) : tokens
   }
 
   hasConfiguredSelection() {

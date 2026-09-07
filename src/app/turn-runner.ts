@@ -1,7 +1,7 @@
 import { type AgentEvent, type RunAgentOptions, runAgent } from "../core/agent.js"
 import type { CompactionResult } from "../core/compaction.js"
 import type { ChatMessage, UserChatMessage } from "../inference/types.js"
-import { forToolCalls, type SessionTurnDetails } from "../storage/index.js"
+import { forToolCalls, type SessionTurnDetails, type SessionTurnSegment } from "../storage/index.js"
 import { TurnDetailsRecorder } from "./turn-details.js"
 
 export type TurnResult =
@@ -14,7 +14,12 @@ export type TurnRunnerOptions = {
   history?: ChatMessage[]
   agent: Omit<RunAgentOptions, "onCompaction">
   historyDetails?: SessionTurnDetails
-  onCompaction?: (result: CompactionResult, details: SessionTurnDetails, steeringCount: number) => void | Promise<void>
+  onCompaction?: (
+    result: CompactionResult,
+    details: SessionTurnDetails,
+    steeringCount: number,
+    turn: SessionTurnSegment,
+  ) => void | Promise<void>
   onEvent?: (event: AgentEvent) => void | Promise<void>
 }
 
@@ -28,7 +33,7 @@ export async function executeTurn(options: TurnRunnerOptions): Promise<TurnResul
 
   const agent: RunAgentOptions = {
     ...options.agent,
-    onCompaction: async (result, steeringCount) => {
+    onCompaction: async (result, steeringCount, messages) => {
       const retained = {
         toolActivities: forToolCalls(
           [...(historyDetails?.toolActivities ?? []), ...recorder.toolActivities],
@@ -36,7 +41,7 @@ export async function executeTurn(options: TurnRunnerOptions): Promise<TurnResul
         ),
         subagents: forToolCalls([...(historyDetails?.subagents ?? []), ...recorder.subagents], result.keptMessages),
       }
-      await options.onCompaction?.(result, retained, steeringCount)
+      await options.onCompaction?.(result, retained, steeringCount, { messages, ...details() })
       historyDetails = retained
       recorder = new TurnDetailsRecorder()
     },

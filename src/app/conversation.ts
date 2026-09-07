@@ -14,7 +14,7 @@ import type { SessionCoordinator } from "./sessions.js"
 import type { SubagentTraces } from "./subagents.js"
 import type { TranscriptStore } from "./transcript.js"
 import { TranscriptProjector } from "./transcript-projector.js"
-import { executeTurn } from "./turn-runner.js"
+import { executeTurn, type TurnRunnerOptions } from "./turn-runner.js"
 
 export type ConversationTurnResult =
   | { status: "complete"; messages: ChatMessage[]; details: SessionTurnDetails }
@@ -46,7 +46,7 @@ export type ConversationTurnOptions = {
   skills: SkillCatalog
   tools: ToolDefinition[]
   autoCompactAtTokens?: number
-  onCompaction?: (result: CompactionResult, details: SessionTurnDetails, steeringCount: number) => void | Promise<void>
+  onCompaction?: TurnRunnerOptions["onCompaction"]
   onCompactionUsage?: (usage: TokenUsage) => void | Promise<void>
   isExiting: () => boolean
   onContext: (tokens: number) => void
@@ -110,6 +110,7 @@ export async function runConversationTurn(options: ConversationTurnOptions): Pro
         debug: options.debug,
         onUsage: options.onUsage,
         autoCompactAtTokens: options.autoCompactAtTokens,
+        historyTokens: transcript.contextTokens(options.client),
         onCompactionUsage: options.onCompactionUsage,
         signal,
         projectContext: options.projectContext,
@@ -126,10 +127,7 @@ export async function runConversationTurn(options: ConversationTurnOptions): Pro
             transcript.addAssistantMessage("Context window filling up — auto-compacting conversation…")
             sink.startBusy()
           } else {
-            const activities = transcript.toolActivitiesFor(event.keptMessages)
-            const keptSubagents = subagents.runsFor(event.keptMessages)
-            transcript.loadCompacted(event.summary, event.keptMessages, activities)
-            subagents.load(keptSubagents)
+            transcript.loadCompacted(event.summary, event.keptMessages)
             sink.renderSubagents()
             projector = new TranscriptProjector(transcript)
             checkpointed = true
@@ -148,6 +146,7 @@ export async function runConversationTurn(options: ConversationTurnOptions): Pro
           return
         }
         if (event.type === "context") {
+          transcript.observeContext(options.client, event.tokens)
           options.onContext(event.tokens)
           return
         }
@@ -219,8 +218,7 @@ export async function compactConversationTranscript(options: CompactConversation
     { toolActivities: keptToolActivities, subagents: keptSubagents },
     throughSeq,
   )
-  options.transcript.loadCompacted(result.summary, result.keptMessages, keptToolActivities)
-  options.subagents.load(keptSubagents)
+  options.transcript.loadCompacted(result.summary, result.keptMessages)
   return result
 }
 
@@ -418,8 +416,15 @@ export class Conversation {
         skills: this.options.skills(),
         tools: providerTools(provider),
         autoCompactAtTokens: this.options.models.autoCompactAtTokens,
-        onCompaction: async (compaction, details, steeringCount) => {
-          await session.compactTurn(admission, compaction.summary, compaction.keptMessages, details, steeringCount)
+        onCompaction: async (compaction, details, steeringCount, turn) => {
+          await session.compactTurn(
+            admission,
+            compaction.summary,
+            compaction.keptMessages,
+            details,
+            steeringCount,
+            turn,
+          )
         },
         onCompactionUsage: async (usage) => {
           await session.recordUsage(usage, "compaction", admission.promptId)

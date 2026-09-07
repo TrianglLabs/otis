@@ -1,6 +1,6 @@
 import { compactionSummaryMessage, extractCompactionSummary, isCompactionSummary } from "../core/compaction.js"
 import { displayUserMessage } from "../inference/messages.js"
-import type { ChatMessage, ChatToolCall, ReasoningContentPart } from "../inference/types.js"
+import type { ChatMessage, ChatToolCall, InferenceClient, ReasoningContentPart } from "../inference/types.js"
 import type { SessionToolActivity } from "../storage/index.js"
 import { describeToolCall, type ToolActivityKind } from "../tools/activity.js"
 import { parseSerializedToolCall } from "../tools/schema.js"
@@ -30,36 +30,40 @@ export class TranscriptStore {
   readonly history: ChatMessage[] = []
   private nextMessageID = 1
   private nextLocalReasoningID = 1
+  private observedContext?: { client: InferenceClient; tokens: number }
 
-  loadMessages(messages: ChatMessage[], toolActivities: SessionToolActivity[] = []) {
-    this.history.push(...messages)
-    this.loadEntries(messages, toolActivities)
+  contextTokens(client: InferenceClient | undefined) {
+    return client && this.observedContext?.client === client ? this.observedContext.tokens : undefined
   }
 
-  replaceMessages(messages: ChatMessage[], toolActivities: SessionToolActivity[] = []) {
+  observeContext(client: InferenceClient, tokens: number) {
+    this.observedContext = { client, tokens }
+  }
+
+  loadMessages(messages: ChatMessage[], toolActivities: SessionToolActivity[] = [], displayMessages = messages) {
+    this.history.push(...messages)
+    this.loadEntries(displayMessages, toolActivities)
+  }
+
+  replaceMessages(messages: ChatMessage[], toolActivities: SessionToolActivity[] = [], displayMessages = messages) {
     this.entries.length = 0
     this.history.length = 0
     this.nextMessageID = 1
-    this.loadMessages(messages, toolActivities)
+    this.observedContext = undefined
+    this.loadMessages(messages, toolActivities, displayMessages)
   }
 
   /**
-   * Replace the entire transcript with a compaction summary + kept messages.
-   * The summary is stored as a user message in history (for the LLM) but
-   * displayed as an Otis message in the transcript.
+   * Replace model context while keeping the user's scrollback and pending entries intact.
    */
-  loadCompacted(summary: string, keptMessages: ChatMessage[], toolActivities: SessionToolActivity[] = []) {
-    const pending = this.entries.filter((entry) => entry.delivery)
-    this.entries.length = 0
+  loadCompacted(summary: string, keptMessages: ChatMessage[]) {
     this.history.length = 0
+    this.observedContext = undefined
 
     this.history.push(compactionSummaryMessage(summary), ...keptMessages)
     this.addAssistantMessage(
       `**Conversation compacted.** Older messages were summarized to free context.\n\n${summary}`,
     )
-
-    this.loadEntries(keptMessages, toolActivities)
-    this.entries.push(...pending)
   }
 
   addUserMessage(message: string | Extract<ChatMessage, { role: "user" }>) {

@@ -67,8 +67,10 @@ describe("chat UI subagents", () => {
     harness.resize(120, 30)
     expect(harness.childIds("chat-body")).toEqual(["messages", "subagent-panel"])
 
+    const row = harness.get<BoxRenderable>(`${subagentRowId("call_a")}-box`)
     harness.ui.renderSubagents([])
     expect(harness.childIds("chat-body")).toEqual(["messages"])
+    expect(row.isDestroyed).toBe(true)
   })
 
   it("shimmers running titles and settles them with a status glyph, tool count, and duration", async () => {
@@ -126,12 +128,14 @@ describe("chat UI subagents", () => {
     harness.ui.renderSubagents(traces.all)
     expect(harness.text("subagent-trace-header")).toMatch(/^✓ Map the notes · 1 tool · \d+ms$/)
 
+    const traceCard = harness.get<BoxRenderable>("message-2")
     harness.press("escape")
     await harness.renderOnce()
     expect(harness.childIds("chat-body")).toEqual(["messages", "subagent-panel"])
     expect(harness.text(subagentRowId("call_a"))).toBe("  ✓ Map the notes")
     expect(harness.text("subagent-panel-footer")).toBe("[→] focus")
     expect(harness.captureCharFrame()).toContain("Delegating: Map the notes")
+    expect(traceCard.isDestroyed).toBe(true)
   })
 
   it("closes an open trace when its run leaves the session or a prompt is submitted", async () => {

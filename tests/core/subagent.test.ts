@@ -418,6 +418,7 @@ describe("agent tool", () => {
       "context",
       "model",
       "delta",
+      "context",
       "interrupted",
     ])
   })

@@ -10,6 +10,26 @@ vi.mock("../../src/app/turn-runner.js", () => ({ executeTurn: mocks.executeTurn 
 const isolate = useOtisHome()
 
 describe("Application", () => {
+  it("retains observed context during input refreshes and resets it for another model or session", async () => {
+    const home = await isolate("otis-app-context-")
+    const app = await Application.create({ cwd: home, env: {} })
+    const client = { model: "fake", streamChat: vi.fn(), complete: vi.fn() }
+    app.models.client = client
+    const pending = { role: "user" as const, content: "next prompt" }
+    app.transcript.observeContext(client, 90_000)
+    expect(app.contextTokens()).toBe(90_000)
+    expect(app.contextTokens(pending)).toBe(90_000 + app.contextEstimator()([pending]) - app.contextEstimator()([]))
+    app.models.client = { ...client }
+    expect(app.contextTokens()).toBe(app.contextEstimator()([]))
+    app.models.client = client
+    app.transcript.loadCompacted("Summary.", [])
+    expect(app.contextTokens()).toBe(app.contextEstimator()(app.transcript.history))
+    app.transcript.observeContext(client, 90_000)
+    app.sessions.startNew()
+    expect(app.contextTokens()).toBe(app.contextEstimator()([]))
+    await app.shutdown()
+  })
+
   it("composes workspace, session, and model coordinators without a frontend", async () => {
     const home = await isolate("otis-app-")
 

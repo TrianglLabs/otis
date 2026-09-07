@@ -219,7 +219,7 @@ export class SubagentPanel {
     const ids = new Set(this.#traces.map((trace) => trace.toolCallId))
     for (const [id, row] of this.#rows) {
       if (ids.has(id)) continue
-      this.options.rows.remove(row.box.id)
+      row.box.destroyRecursively()
       this.#rows.delete(id)
     }
     this.#traces.forEach((trace, index) => {

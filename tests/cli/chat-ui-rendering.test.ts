@@ -18,6 +18,35 @@ import { useChatHarness } from "./support/chat-ui-harness.js"
 describe("chat UI rendering", () => {
   const setup = useChatHarness()
 
+  it("destroys discarded transcript cards and their native children", async () => {
+    const harness = await setup({ thinkingVisible: true })
+    const transcript = new TranscriptStore()
+    const reasoning = transcript.addReasoningMessage("Long thought. ".repeat(1_000), { reasoningId: "old" })
+    harness.ui.showChatLayout()
+    harness.ui.renderTranscript(transcript.entries)
+    const root = harness.get<BoxRenderable>(`message-${reasoning.id}`)
+    const content = harness.get<MarkdownRenderable>(`message-${reasoning.id}-reasoning-content`)
+    harness.ui.setThinkingVisible(false)
+    expect(root.isDestroyed).toBe(true)
+    expect(content.isDestroyed).toBe(true)
+  })
+
+  it("does not update unchanged history while another message streams", async () => {
+    const harness = await setup({ thinkingVisible: true })
+    const transcript = new TranscriptStore()
+    const old = transcript.addReasoningMessage("Old thought. ".repeat(10_000), { reasoningId: "old" })
+    const live = transcript.addAssistantMessage("Starting")
+    harness.ui.showChatLayout()
+    harness.ui.renderTranscript(transcript.entries)
+    const oldContent = harness.get<MarkdownRenderable>(`message-${old.id}-reasoning-content`)
+    const contentUpdates = vi.spyOn(oldContent, "content", "set")
+    for (let index = 0; index < 10; index += 1) {
+      transcript.updateEntry(live.id, { text: `Starting ${index}`, streaming: true })
+      harness.ui.renderTranscript(transcript.entries)
+    }
+    expect(contentUpdates.mock.calls.length).toBe(0)
+  })
+
   it("updates streaming assistant markdown in place", async () => {
     const harness = await setup()
     const transcript = new TranscriptStore()

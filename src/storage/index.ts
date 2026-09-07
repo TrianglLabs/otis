@@ -18,6 +18,7 @@ export {
   type SessionSummary,
   type SessionToolActivity,
   type SessionTurnDetails,
+  type SessionTurnSegment,
   type UsagePurpose,
 } from "./session.js"
 export { acquireSessionLock, type SessionLock } from "./session-lock.js"

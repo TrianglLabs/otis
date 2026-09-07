@@ -43,6 +43,9 @@ export type SessionTurnDetails = {
   subagents?: SessionSubagentRun[]
 }
 
+/** The part of an active turn archived before its model context is compacted. */
+export type SessionTurnSegment = SessionTurnDetails & { messages: ChatMessage[] }
+
 export type SessionReplay = {
   messages: ChatMessage[]
   toolActivities: SessionToolActivity[]
@@ -64,6 +67,7 @@ export type NewSessionEvent =
       throughSeq?: number
       promptId?: string
       steeringCount?: number
+      turn?: SessionTurnSegment
     } & SessionTurnDetails)
   | { type: "usage_recorded"; purpose: UsagePurpose; promptId?: string; usage: TokenUsage }
   | { type: "title_renamed"; title: string }
@@ -166,6 +170,60 @@ export function replaySession(events: readonly SessionEvent[]): SessionReplay {
 
 function replayTurn(messages: ChatMessage[], details: SessionTurnDetails = {}): ReplayTurn {
   return { messages, toolActivities: [...(details.toolActivities ?? [])], subagents: [...(details.subagents ?? [])] }
+}
+
+/** Replays human scrollback. Compaction changes model context, never earlier transcript entries. */
+export function replaySessionTranscript(events: readonly SessionEvent[]): SessionReplay {
+  const turns: (ReplayTurn & { archived?: SessionReplay })[] = []
+  for (const event of events) {
+    if (event.type === "prompt_admitted") {
+      turns.push({ ...replayTurn([event.message]), promptId: event.promptId, admittedSeq: event.seq })
+    } else if (event.type === "prompt_steered") {
+      const turn = findReplayTurn(turns, event.promptId)
+      if (turn) {
+        turn.messages.push(event.message)
+        turn.steered ??= []
+        turn.steered.push(event.message)
+      } else turns.push(replayTurn([event.message]))
+    } else if (event.type === "compacted") {
+      const marker = compactionSummaryMessage(event.summary)
+      const turn = event.promptId ? findReplayTurn(turns, event.promptId) : undefined
+      if (turn) {
+        const pending = (turn.steered ?? []).slice(event.steeringCount)
+        const archived = event.turn
+          ? {
+              messages: [...(turn.archived?.messages ?? []), ...event.turn.messages, marker],
+              toolActivities: [...(turn.archived?.toolActivities ?? []), ...(event.turn.toolActivities ?? [])],
+              subagents: [...(turn.archived?.subagents ?? []), ...(event.turn.subagents ?? [])],
+            }
+          : {
+              // Released checkpoints lack archived turns; preserve the prompt events already replayed.
+              messages: [...turn.messages.slice(0, turn.messages.length - pending.length), marker],
+              toolActivities: turn.toolActivities,
+              subagents: turn.subagents,
+            }
+        Object.assign(turn, archived, { archived, messages: [...archived.messages, ...pending] })
+      } else {
+        const queued = turns.findIndex(
+          (entry) =>
+            event.throughSeq !== undefined && entry.admittedSeq !== undefined && entry.admittedSeq > event.throughSeq,
+        )
+        turns.splice(queued < 0 ? turns.length : queued, 0, replayTurn([marker]))
+      }
+    } else if (event.type === "turn_completed" || event.type === "turn_interrupted") {
+      const turn = findReplayTurn(turns, event.promptId)
+      if (turn) {
+        turn.messages = [...(turn.archived?.messages ?? turn.messages.slice(0, 1)), ...event.messages]
+        turn.toolActivities = [...(turn.archived?.toolActivities ?? []), ...(event.toolActivities ?? [])]
+        turn.subagents = [...(turn.archived?.subagents ?? []), ...(event.subagents ?? [])]
+      } else turns.push(replayTurn([...event.messages], event))
+    }
+  }
+  return {
+    messages: turns.flatMap((turn) => turn.messages),
+    toolActivities: turns.flatMap((turn) => turn.toolActivities),
+    subagents: turns.flatMap((turn) => turn.subagents),
+  }
 }
 
 /** Keeps the records whose delegating tool call still appears in `messages`, e.g. after compaction. */
@@ -276,6 +334,7 @@ function parseSessionEvent(value: unknown, line: number): SessionEvent {
       type,
       summary: value.summary,
       messages,
+      ...(value.turn === undefined ? {} : { turn: parseTurnSegment(value.turn, line) }),
       ...parseTurnDetails(value, messages, line),
       ...(value.throughSeq === undefined ? {} : { throughSeq: value.throughSeq }),
       ...(value.promptId === undefined
@@ -306,6 +365,12 @@ function parseSessionEvent(value: unknown, line: number): SessionEvent {
     return { seq, sessionId, at, type, title: value.title.trim() }
   }
   throw invalidEvent(line, "unknown event type")
+}
+
+function parseTurnSegment(value: unknown, line: number): SessionTurnSegment {
+  if (!isRecord(value)) throw invalidEvent(line, "compacted turn must be an object")
+  const messages = parseChatMessages(value.messages, line)
+  return { messages, ...parseTurnDetails(value, messages, line) }
 }
 
 function parseTokenUsage(value: unknown, line: number): TokenUsage {

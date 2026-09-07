@@ -207,9 +207,9 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
       input: userMessage,
       history,
       historyDetails: replay,
-      onCompaction: async (result, details, steeringCount) => {
+      onCompaction: async (result, details, steeringCount, turn) => {
         if (session && admission)
-          await session.compactTurn(admission, result.summary, result.keptMessages, details, steeringCount)
+          await session.compactTurn(admission, result.summary, result.keptMessages, details, steeringCount, turn)
       },
       agent: {
         client,

@@ -34,6 +34,14 @@ describe("SubagentTraces", () => {
   it("keeps child checkpoints and continuation messages consistent between the live trace and saved run", () => {
     const traces = new SubagentTraces()
     const recorder = new TurnDetailsRecorder()
+    const prefix: ChatMessage[] = [
+      { role: "user", content: "Explore first." },
+      {
+        role: "assistant",
+        content: [{ type: "tool_call", toolCall: { id: "old_read", name: "read", arguments: "{}" } }],
+      },
+      { role: "tool", toolCallId: "old_read", content: "old file" },
+    ]
     const events: AgentEvent[] = [
       {
         type: "tool",
@@ -43,7 +51,7 @@ describe("SubagentTraces", () => {
         activityKind: "file_read",
         label: "Reading old file",
       },
-      { type: "compaction", phase: "complete", summary: "Earlier exploration.", keptMessages: [] },
+      { type: "compaction", phase: "complete", summary: "Earlier exploration.", keptMessages: [], messages: prefix },
       {
         type: "tool",
         phase: "start",
@@ -61,9 +69,13 @@ describe("SubagentTraces", () => {
       recorder.record(wrapped)
     }
     const saved = recorder.subagents[0]
-    expect(saved.messages).toEqual([compactionSummaryMessage("Earlier exploration."), ...childMessages])
-    expect(traces.get("call_a")?.transcript.history).toEqual(saved.messages)
-    expect(saved.toolActivities?.map((activity) => activity.toolCallId)).toEqual(["read_1"])
+    expect(saved.messages).toEqual([...prefix, compactionSummaryMessage("Earlier exploration."), ...childMessages])
+    expect(traces.runsFor(parentMessages)[0].messages).toEqual(saved.messages)
+    expect(traces.get("call_a")?.transcript.history).toEqual([
+      compactionSummaryMessage("Earlier exploration."),
+      ...childMessages,
+    ])
+    expect(saved.toolActivities?.map((activity) => activity.toolCallId)).toEqual(["old_read", "read_1"])
     expect(traces.runsFor(parentMessages)[0].toolActivities).toEqual(saved.toolActivities)
   })
 
