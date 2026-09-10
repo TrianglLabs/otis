@@ -16,7 +16,7 @@ const BOTTOM_THRESHOLD_PX = 32
  * The conversation column: transcript, pending approval, composer. Follows new content while the user is at the
  * bottom and preserves their reading position once they scroll up. Text stays selectable at all times.
  */
-export function ConversationView() {
+export function ConversationView({ installing = false }: { installing?: boolean }) {
   const { api } = useDesktop()
   const state = useDesktopState()
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -79,7 +79,7 @@ export function ConversationView() {
         </button>
       ) : null}
       <div className="composerWrap">
-        <Composer />
+        <Composer installing={installing} />
       </div>
     </div>
   )

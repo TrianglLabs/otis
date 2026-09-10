@@ -18,6 +18,7 @@ export type LocalSettings = {
   modelSupportsImageInput?: boolean
   modelProvider?: ModelProvider
   theme?: ThemeName
+  lastWorkspace?: string
   thinkingVisible?: boolean
   /** When false, the chat side panel that lists delegated runs stays hidden. Omitted means shown. */
   subagentPanelVisible?: boolean
@@ -55,6 +56,7 @@ type SettingsFile = {
   modelSupportsImageInput?: boolean
   modelProvider?: ModelProvider
   theme?: ThemeName
+  lastWorkspace?: string
   thinkingVisible?: boolean
   subagentPanelVisible?: boolean
   /** Read only to migrate the released global preference to the selected model. */
@@ -82,6 +84,7 @@ export async function loadLocalSettings(options: SettingsFileOptions = {}): Prom
     ...(modelProvider ? { modelProvider } : {}),
     ...(saved?.modelSupportsImageInput !== undefined ? { modelSupportsImageInput: saved.modelSupportsImageInput } : {}),
     ...(saved?.theme ? { theme: saved.theme } : {}),
+    ...(saved?.lastWorkspace ? { lastWorkspace: saved.lastWorkspace } : {}),
     ...(saved?.thinkingVisible !== undefined ? { thinkingVisible: saved.thinkingVisible } : {}),
     ...(saved?.subagentPanelVisible !== undefined ? { subagentPanelVisible: saved.subagentPanelVisible } : {}),
     ...(fastServingModels.length > 0 ? { fastServingModels } : {}),
@@ -97,8 +100,13 @@ export async function loadLocalSettings(options: SettingsFileOptions = {}): Prom
  */
 let settingsWriteChain: Promise<unknown> = Promise.resolve()
 
-function serializeSettingsWrite<T>(save: () => Promise<T>): Promise<T> {
-  const run = settingsWriteChain.then(save)
+function serializeSettingsWrite<T>(
+  options: SettingsFileOptions,
+  save: (pinned: SettingsFileOptions) => Promise<T>,
+): Promise<T> {
+  // Resolve the target file before queueing: read-modify-write must not span an env change.
+  const pinned: SettingsFileOptions = { ...options, file: settingsFilePath(options) }
+  const run = settingsWriteChain.then(() => save(pinned))
   settingsWriteChain = run.then(
     () => undefined,
     () => undefined,
@@ -107,8 +115,8 @@ function serializeSettingsWrite<T>(save: () => Promise<T>): Promise<T> {
 }
 
 export async function saveFireworksSetup(apiKey: string, model: FireworksModel, options: SettingsFileOptions = {}) {
-  await serializeSettingsWrite(async () => {
-    const saved = (await readSettingsFile(options)) ?? { version: 1 }
+  await serializeSettingsWrite(options, async (pinned) => {
+    const saved = (await readSettingsFile(pinned)) ?? { version: 1 }
     await writeSettingsFile(
       withSelectedModel({ ...saved, fireworksApiKey: required(apiKey, "Fireworks API key") }, model),
       options,
@@ -117,53 +125,60 @@ export async function saveFireworksSetup(apiKey: string, model: FireworksModel, 
 }
 
 export async function saveFireworksApiKey(apiKey: string, options: SettingsFileOptions = {}) {
-  await serializeSettingsWrite(async () => {
-    const saved = (await readSettingsFile(options)) ?? { version: 1 }
-    await writeSettingsFile({ ...saved, fireworksApiKey: required(apiKey, "Fireworks API key") }, options)
+  await serializeSettingsWrite(options, async (pinned) => {
+    const saved = (await readSettingsFile(pinned)) ?? { version: 1 }
+    await writeSettingsFile({ ...saved, fireworksApiKey: required(apiKey, "Fireworks API key") }, pinned)
   })
 }
 
 export async function savePairEndpoints(endpoints: PairEndpoints, options: SettingsFileOptions = {}) {
-  await serializeSettingsWrite(async () => {
-    const saved = (await readSettingsFile(options)) ?? { version: 1 }
+  await serializeSettingsWrite(options, async (pinned) => {
+    const saved = (await readSettingsFile(pinned)) ?? { version: 1 }
     const pairEndpoints = persistedPairEndpoints(endpoints)
     if (!hasPairEndpoints(pairEndpoints)) throw new Error("At least one NVIDIA PAIR endpoint is required.")
-    await writeSettingsFile({ ...saved, pairEndpoints }, options)
+    await writeSettingsFile({ ...saved, pairEndpoints }, pinned)
   })
 }
 
 export async function saveSelectedModel(model: CatalogModel, options: SettingsFileOptions = {}) {
-  await serializeSettingsWrite(async () => {
-    const saved = (await readSettingsFile(options)) ?? { version: 1 }
-    await writeSettingsFile(withSelectedModel(saved, model), options)
+  await serializeSettingsWrite(options, async (pinned) => {
+    const saved = (await readSettingsFile(pinned)) ?? { version: 1 }
+    await writeSettingsFile(withSelectedModel(saved, model), pinned)
   })
 }
 
 export async function clearSelectedModel(options: SettingsFileOptions = {}) {
-  await serializeSettingsWrite(async () => {
-    const saved = (await readSettingsFile(options)) ?? { version: 1 }
-    await writeSettingsFile(withoutSelectedModel(saved), options)
+  await serializeSettingsWrite(options, async (pinned) => {
+    const saved = (await readSettingsFile(pinned)) ?? { version: 1 }
+    await writeSettingsFile(withoutSelectedModel(saved), pinned)
   })
 }
 
 export async function saveSelectedTheme(theme: ThemeName, options: SettingsFileOptions = {}) {
-  await serializeSettingsWrite(async () => {
-    const saved = (await readSettingsFile(options)) ?? { version: 1 }
-    await writeSettingsFile({ ...saved, theme }, options)
+  await serializeSettingsWrite(options, async (pinned) => {
+    const saved = (await readSettingsFile(pinned)) ?? { version: 1 }
+    await writeSettingsFile({ ...saved, theme }, pinned)
+  })
+}
+
+export async function saveLastWorkspace(workspacePath: string, options: SettingsFileOptions = {}) {
+  await serializeSettingsWrite(options, async (pinned) => {
+    const saved = (await readSettingsFile(pinned)) ?? { version: 1 }
+    await writeSettingsFile({ ...saved, lastWorkspace: workspacePath }, pinned)
   })
 }
 
 export async function saveThinkingVisible(visible: boolean, options: SettingsFileOptions = {}) {
-  await serializeSettingsWrite(async () => {
-    const saved = (await readSettingsFile(options)) ?? { version: 1 }
-    await writeSettingsFile({ ...saved, thinkingVisible: visible }, options)
+  await serializeSettingsWrite(options, async (pinned) => {
+    const saved = (await readSettingsFile(pinned)) ?? { version: 1 }
+    await writeSettingsFile({ ...saved, thinkingVisible: visible }, pinned)
   })
 }
 
 export async function saveSubagentPanelVisible(visible: boolean, options: SettingsFileOptions = {}) {
-  await serializeSettingsWrite(async () => {
-    const saved = (await readSettingsFile(options)) ?? { version: 1 }
-    await writeSettingsFile({ ...saved, subagentPanelVisible: visible }, options)
+  await serializeSettingsWrite(options, async (pinned) => {
+    const saved = (await readSettingsFile(pinned)) ?? { version: 1 }
+    await writeSettingsFile({ ...saved, subagentPanelVisible: visible }, pinned)
   })
 }
 
@@ -172,14 +187,14 @@ export async function saveFastServingSelection(
   fast: boolean,
   options: SettingsFileOptions = {},
 ) {
-  await serializeSettingsWrite(async () => {
-    const saved = (await readSettingsFile(options)) ?? { version: 1 }
+  await serializeSettingsWrite(options, async (pinned) => {
+    const saved = (await readSettingsFile(pinned)) ?? { version: 1 }
     const selected = withSelectedModel(saved, model)
     const fastServingModels = new Set(selected.fastServingModels ?? [])
     const modelId = baseFireworksModelId(model.id)
     if (fast) fastServingModels.add(modelId)
     else fastServingModels.delete(modelId)
-    await writeSettingsFile({ ...selected, fastServingModels: [...fastServingModels].sort() }, options)
+    await writeSettingsFile({ ...selected, fastServingModels: [...fastServingModels].sort() }, pinned)
   })
 }
 
@@ -232,6 +247,7 @@ function parseSettingsFile(value: unknown): SettingsFile {
   const modelContextLength = optionalPositiveInteger(value.modelContextLength, "modelContextLength")
   const modelSupportsImageInput = optionalBoolean(value.modelSupportsImageInput, "modelSupportsImageInput")
   const theme = optionalTheme(value.theme)
+  const lastWorkspace = optionalString(value.lastWorkspace, "lastWorkspace")
   const thinkingVisible = optionalBoolean(value.thinkingVisible, "thinkingVisible")
   const subagentPanelVisible = optionalBoolean(value.subagentPanelVisible, "subagentPanelVisible")
   const fastMode = optionalBoolean(value.fastMode, "fastMode")
@@ -253,6 +269,7 @@ function parseSettingsFile(value: unknown): SettingsFile {
     ...(modelSupportsImageInput !== undefined ? { modelSupportsImageInput } : {}),
     ...(modelProvider ? { modelProvider } : {}),
     ...(theme ? { theme } : {}),
+    ...(lastWorkspace ? { lastWorkspace } : {}),
     ...(thinkingVisible !== undefined ? { thinkingVisible } : {}),
     ...(subagentPanelVisible !== undefined ? { subagentPanelVisible } : {}),
     ...(fastMode !== undefined ? { fastMode } : {}),
@@ -285,6 +302,7 @@ function withSelectedModel(settings: SettingsFile, model: CatalogModel): Setting
     modelSupportsImageInput: model.supportsImageInput,
     ...(model.provider === "fireworks" && model.fastId ? { modelFastId: model.fastId } : {}),
     ...(settings.theme ? { theme: settings.theme } : {}),
+    ...(settings.lastWorkspace ? { lastWorkspace: settings.lastWorkspace } : {}),
     ...(settings.thinkingVisible !== undefined ? { thinkingVisible: settings.thinkingVisible } : {}),
     ...(settings.subagentPanelVisible !== undefined ? { subagentPanelVisible: settings.subagentPanelVisible } : {}),
     ...(shouldPersistFastServingModels(settings, fastServingModels) ? { fastServingModels } : {}),
@@ -300,6 +318,7 @@ function withoutSelectedModel(settings: SettingsFile): SettingsFile {
     ...(settings.fireworksApiKey ? { fireworksApiKey: settings.fireworksApiKey } : {}),
     ...(hasPairEndpoints(pairEndpoints) ? { pairEndpoints } : {}),
     ...(settings.theme ? { theme: settings.theme } : {}),
+    ...(settings.lastWorkspace ? { lastWorkspace: settings.lastWorkspace } : {}),
     ...(settings.thinkingVisible !== undefined ? { thinkingVisible: settings.thinkingVisible } : {}),
     ...(settings.subagentPanelVisible !== undefined ? { subagentPanelVisible: settings.subagentPanelVisible } : {}),
     ...(shouldPersistFastServingModels(settings, fastServingModels) ? { fastServingModels } : {}),

@@ -9,13 +9,16 @@ files:
 extraResources:
   - from: resources/icon.png
     to: icon.png
-  - from: resources/icons
-    to: icons
-# Releases are attached by the GitHub workflow, never by electron-builder.
-publish: null
+# Auto-update feed. Artifacts are still attached by the workflow (--publish never); this only tells
+# electron-builder to emit the latest*.yml manifests electron-updater reads.
+publish:
+  - provider: github
+    owner: triangllabs
+    repo: otis
 artifactName: "${productName}-${version}-${os}-${arch}.${ext}"
 mac:
-  icon: resources/icon.icns
+  # macOS selects the default, dark, and mono appearances from the compiled asset catalog.
+  icon: resources/Otis.icon
   category: public.app-category.developer-tools
   target:
     - target: dmg
@@ -26,6 +29,8 @@ mac:
   # electron-builder applies Electron's hardened-runtime entitlements (JIT etc.) automatically.
   hardenedRuntime: true
   notarize: true
+dmg:
+  icon: resources/icon.icns
 linux:
   # Keep the GUI launcher distinct from the otis terminal command.
   executableName: otis-desktop

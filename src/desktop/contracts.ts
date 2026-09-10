@@ -1,4 +1,4 @@
-import type { SessionPickerItem } from "../app/session-metadata.js"
+import type { GlobalSessionPickerItem } from "../app/global-sessions.js"
 import type { TranscriptEntry } from "../app/transcript.js"
 import type { ModelPickerItem, ModelPickerStatus } from "../inference/picker-catalog.js"
 import type { ModelProvider } from "../inference/types.js"
@@ -17,6 +17,12 @@ export const DESKTOP_CHANNELS = {
   selectSession: "desktop:select-session",
   searchSessions: "desktop:search-sessions",
   startNewSession: "desktop:start-new-session",
+  openSessionAt: "desktop:open-session-at",
+  openWorkspace: "desktop:open-workspace",
+  locateWorkspace: "desktop:locate-workspace",
+  pickWorkspaceFolder: "desktop:pick-workspace-folder",
+  registerWorkspace: "desktop:register-workspace",
+  refreshSessions: "desktop:refresh-sessions",
   deleteSession: "desktop:delete-session",
   listModels: "desktop:list-models",
   selectModel: "desktop:select-model",
@@ -32,6 +38,7 @@ export const DESKTOP_CHANNELS = {
   listDownloadedModels: "desktop:list-downloaded-models",
   deleteLocalModel: "desktop:delete-local-model",
   setDebugMode: "desktop:set-debug-mode",
+  installUpdate: "desktop:install-update",
   event: "desktop:event",
 } as const
 
@@ -64,7 +71,12 @@ export type DesktopStatus = {
   modelState: ModelState
   modelError: string | undefined
   session: { id: string; title: string } | null
-  sessions: SessionPickerItem[]
+  /** The active session's working folder is unknown or gone; locate it before agent work continues. */
+  needsWorkspace: boolean
+  /** Global history: sessions from every registered workspace, recency-ordered. */
+  sessions: GlobalSessionPickerItem[]
+  /** The workspace this window is working in. */
+  workspace: { label: string; path: string }
   contextTokens: number | undefined
   contextLimit: number
   diffs: { added: number; removed: number }
@@ -94,6 +106,8 @@ export type DesktopStatus = {
   pairEndpoints: { ollama?: string; lmStudio?: string }
   /** Session-only debug mode, mirroring the TUI's /debug toggle; applies from the next turn. */
   debug: boolean
+  /** A newer release is downloaded and installs on restart; undefined until the updater finds one. */
+  update?: { version: string }
 }
 
 /** A downloaded local model, listed in settings for deletion; detail mirrors the TUI's delete menu rows. */
@@ -108,7 +122,6 @@ export type DownloadedLocalModel = {
 export type DesktopSnapshot = DesktopStatus & {
   platform: NodeJS.Platform
   version: string
-  workspace: { label: string; path: string }
   entries: TranscriptEntry[]
   revision: number
 }
@@ -140,11 +153,24 @@ export type DesktopApi = {
   sendPrompt(text: string): Promise<SendPromptResult>
   stop(): Promise<void>
   respondToPermission(id: number, allow: boolean): Promise<void>
-  selectSession(id: string): Promise<SessionOpResult>
+  selectSession(id: string, dirName?: string): Promise<SessionOpResult>
   /** Title-first session search for the command palette; content matches carry a snippet. */
-  searchSessions(query: string): Promise<SessionPickerItem[]>
+  searchSessions(query: string): Promise<GlobalSessionPickerItem[]>
   startNewSession(): Promise<SessionOpResult>
-  deleteSession(id: string): Promise<SessionOpResult>
+  deleteSession(id: string, dirName?: string): Promise<SessionOpResult>
+  /** Recomputes the global session list; the palette calls this when it opens so external (TUI) sessions appear. */
+  refreshSessions(): Promise<void>
+  /** Opens a session from global history, switching workspace first when it lives elsewhere. dirName pins the
+   * session's storage identity so a relocated or duplicate id can't resolve to a different conversation. */
+  openSessionAt(workspacePath: string, sessionId: string, dirName?: string): Promise<SessionOpResult>
+  /** Switches the window to another workspace (validated, refused during active work). */
+  openWorkspace(path: string): Promise<SessionOpResult>
+  /** Locates the working folder for a read-only pending session and completes its recovery. */
+  locateWorkspace(path: string): Promise<SessionOpResult>
+  /** Native folder picker; undefined when cancelled. */
+  pickWorkspaceFolder(): Promise<string | undefined>
+  /** "Locate workspace": registers the folder for a session dir that predates workspace registration. */
+  registerWorkspace(dirName: string, path: string): Promise<SessionOpResult>
   /** The picker catalog for this machine: local fits, saved PAIR endpoints, and the verified hosted list. */
   listModels(): Promise<ModelPickerItem[]>
   /**
@@ -177,5 +203,7 @@ export type DesktopApi = {
   deleteLocalModel(id: string): Promise<ModelSelectResult>
   /** Session-only debug mode; applies from the next turn. */
   setDebugMode(enabled: boolean): Promise<void>
+  /** Restarts into the downloaded update. No-op when no update is ready. */
+  installUpdate(): Promise<void>
   subscribe(listener: (event: DesktopEvent) => void): () => void
 }

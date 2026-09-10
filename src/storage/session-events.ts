@@ -55,7 +55,7 @@ export type SessionReplay = {
 export type UsagePurpose = "agent" | "compaction" | "title"
 
 export type NewSessionEvent =
-  | { type: "session_started"; version: 1 }
+  | { type: "session_started"; version: 1; cwd?: string }
   | { type: "prompt_admitted"; promptId: string; message: UserChatMessage }
   | { type: "prompt_steered"; promptId: string; message: UserChatMessage }
   | ({ type: "turn_completed"; promptId: string; messages: ChatMessage[] } & SessionTurnDetails)
@@ -281,7 +281,10 @@ function parseSessionEvent(value: unknown, line: number): SessionEvent {
 
   if (type === "session_started") {
     if (value.version !== 1) throw invalidEvent(line, "session_started version must be 1")
-    return { seq, sessionId, at, type, version: 1 }
+    if (value.cwd !== undefined && typeof value.cwd !== "string") throw invalidEvent(line, "cwd must be a string")
+    return value.cwd === undefined
+      ? { seq, sessionId, at, type, version: 1 }
+      : { seq, sessionId, at, type, version: 1, cwd: value.cwd }
   }
   if (type === "prompt_admitted") {
     if (typeof value.promptId !== "string" || !value.promptId) throw invalidEvent(line, "promptId must be a string")

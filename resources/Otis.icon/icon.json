@@ -1,0 +1,104 @@
+{
+  "fill-specializations" : [
+    {
+      "value" : {
+        "linear-gradient" : [
+          "display-p3:0.10217,0.10217,0.10217,1.00000",
+          "display-p3:0.10217,0.10217,0.10217,1.00000"
+        ]
+      }
+    },
+    {
+      "appearance" : "dark",
+      "value" : {
+        "linear-gradient" : [
+          "display-p3:0.10217,0.10217,0.10217,1.00000",
+          "display-p3:0.10217,0.10217,0.10217,1.00000"
+        ]
+      }
+    }
+  ],
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "display-p3:0.53607,0.48787,0.96802,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "display-p3:0.53607,0.48787,0.96802,1.00000"
+              }
+            }
+          ],
+          "image-name" : "03-o-face 2.svg",
+          "name" : "03-o-face 2"
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "display-p3:0.28174,0.28174,0.28174,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "display-p3:0.28174,0.28174,0.28174,1.00000"
+              }
+            },
+            {
+              "appearance" : "tinted",
+              "value" : {
+                "solid" : "display-p3:0.60634,0.59643,0.61931,1.00000"
+              }
+            }
+          ],
+          "image-name" : "02-left 2.svg",
+          "name" : "02-left 2"
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "display-p3:0.37939,0.37939,0.37939,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "display-p3:0.37939,0.37939,0.37939,1.00000"
+              }
+            },
+            {
+              "appearance" : "tinted",
+              "value" : {
+                "solid" : "display-p3:0.73828,0.73828,0.73828,1.00000"
+              }
+            }
+          ],
+          "image-name" : "01-top 2.svg",
+          "name" : "01-top 2"
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.3
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
+  }
+}

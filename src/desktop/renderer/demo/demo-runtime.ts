@@ -140,10 +140,49 @@ class DemoRuntime implements DesktopApi {
     modelState: "ready",
     modelError: undefined,
     session: { id: "session_demo1", title: "Sidebar keyboard shortcut" },
+    needsWorkspace: false,
+    workspace: { label: "~/Projects/otis", path: "/Users/dev/Projects/otis" },
     sessions: [
-      { id: "session_demo1", title: "Sidebar keyboard shortcut", detail: "Just now", active: true },
-      { id: "session_demo2", title: "Fix flaky session lock test", detail: "3h ago" },
-      { id: "session_demo3", title: "Refactor GGUF cache cleanup", detail: "Yesterday" },
+      {
+        id: "session_demo1",
+        title: "Sidebar keyboard shortcut",
+        detail: "Just now",
+        active: true,
+        dirName: "otis-demo",
+        workspaceLabel: "otis",
+        workspacePath: "/Users/dev/Projects/otis",
+      },
+      {
+        id: "session_demo2",
+        title: "Fix flaky session lock test",
+        detail: "3h ago",
+        dirName: "otis-demo",
+        workspaceLabel: "otis",
+        workspacePath: "/Users/dev/Projects/otis",
+      },
+      {
+        id: "session_demo3",
+        title: "Refactor GGUF cache cleanup",
+        detail: "Yesterday",
+        dirName: "otis-demo",
+        workspaceLabel: "otis",
+        workspacePath: "/Users/dev/Projects/otis",
+      },
+      {
+        id: "session_notes",
+        title: "Reading list cleanup",
+        detail: "2d ago",
+        dirName: "notes-demo",
+        workspaceLabel: "notes",
+        workspacePath: "/Users/dev/Projects/notes",
+      },
+      {
+        id: "session_old",
+        title: "Legacy import dry run",
+        detail: "2w ago",
+        dirName: "oldstuff-demo",
+        workspaceLabel: "oldstuff",
+      },
     ],
     contextTokens: 18_420,
     contextLimit: 128_000,
@@ -166,6 +205,8 @@ class DemoRuntime implements DesktopApi {
     pairConfigured: false,
     pairEndpoints: {},
     debug: false,
+    // Showcases the header's update affordance.
+    update: { version: "0.2.0" },
     subagents: [
       {
         toolCallId: "demo_agent_1",
@@ -238,6 +279,8 @@ class DemoRuntime implements DesktopApi {
     return { ok: true }
   }
 
+  async installUpdate(): Promise<void> {}
+
   async setDebugMode(enabled: boolean): Promise<void> {
     this.#state = { ...this.#state, debug: enabled }
     this.#emitStatus()
@@ -296,7 +339,6 @@ class DemoRuntime implements DesktopApi {
     return {
       platform: "darwin",
       version: "0.1.35",
-      workspace: { label: "~/Projects/otis", path: "/Users/dev/Projects/otis" },
       revision: this.#revision,
       entries: [...this.#state.entries],
       ...this.#status(),
@@ -338,6 +380,38 @@ class DemoRuntime implements DesktopApi {
     const needle = query.trim().toLowerCase()
     if (!needle) return this.#state.sessions
     return this.#state.sessions.filter((session) => session.title.toLowerCase().includes(needle))
+  }
+
+  async openSessionAt(workspacePath: string, sessionId: string): Promise<SessionOpResult> {
+    if (workspacePath === this.#state.workspace.path) return this.selectSession(sessionId)
+    // Demo: pretend the other workspace exists and reuse the local fixtures.
+    const result = await this.selectSession(sessionId)
+    if (result.ok) {
+      this.#state = {
+        ...this.#state,
+        workspace: { label: `~/Projects/${workspacePath.split("/").pop()}`, path: workspacePath },
+      }
+      this.#emit({ type: "status", revision: ++this.#revision, status: this.#status() })
+    }
+    return result
+  }
+
+  async locateWorkspace(_path: string): Promise<SessionOpResult> {
+    return { ok: true }
+  }
+
+  async openWorkspace(path: string): Promise<SessionOpResult> {
+    return this.openSessionAt(path, "session_demo3")
+  }
+
+  async pickWorkspaceFolder(): Promise<string | undefined> {
+    return undefined
+  }
+
+  async refreshSessions(): Promise<void> {}
+
+  async registerWorkspace(_dirName: string, _path: string): Promise<SessionOpResult> {
+    return { ok: true }
   }
 
   async selectSession(id: string): Promise<SessionOpResult> {

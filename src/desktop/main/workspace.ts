@@ -3,13 +3,18 @@ import { join, parse, resolve } from "node:path"
 
 /**
  * Where the desktop app works. A terminal launch keeps the shell's cwd; a Finder/Dock launch reports "/" as the
- * cwd, which would scope sessions — and the agent's file tools — to the filesystem root. GUI-only users instead
- * get a dedicated ~/Otis workspace, created by the caller.
+ * cwd, which would scope sessions — and the agent's file tools — to the filesystem root. GUI launches resume the
+ * last workspace used in the GUI; first run gets a dedicated ~/Otis workspace, created by the caller.
  */
-export function resolveWorkspaceCwd(env: NodeJS.ProcessEnv, cwd: string, home = homedir()): string {
+export function resolveWorkspaceCwd(
+  env: NodeJS.ProcessEnv,
+  cwd: string,
+  home = homedir(),
+  lastWorkspace?: string,
+): string {
   if (env.OTIS_WORKSPACE) return env.OTIS_WORKSPACE
   if (parse(resolve(cwd)).root !== resolve(cwd)) return cwd
-  return join(home, "Otis")
+  return lastWorkspace ?? join(home, "Otis")
 }
 
 export type WorkspaceRecovery = {

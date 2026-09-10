@@ -147,6 +147,16 @@
   white-space: nowrap;
 }
 
+.palette-rowWorkspace {
+  font-size: var(--text-meta);
+  color: var(--text-dim);
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 180px;
+}
+
 .palette-rowDetail {
   margin-left: auto;
   font-size: var(--text-meta);

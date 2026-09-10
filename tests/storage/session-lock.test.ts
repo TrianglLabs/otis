@@ -24,3 +24,16 @@ describe("session locks", () => {
     await second.release()
   })
 })
+
+describe("same-process contention", () => {
+  it("grants exactly one owner when 100 acquisitions race", async () => {
+    const home = await mkdtemp(join(tmpdir(), "otis-lock-"))
+    tempDirectories.push(home)
+    const results = await Promise.allSettled(
+      Array.from({ length: 100 }, () => acquireSessionLock({ cwd: home, sessionId: "contended" })),
+    )
+    const granted = results.filter((r) => r.status === "fulfilled")
+    expect(granted).toHaveLength(1)
+    for (const r of granted) if (r.status === "fulfilled") await r.value.release()
+  })
+})
