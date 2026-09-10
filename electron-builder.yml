@@ -27,10 +27,15 @@ mac:
   hardenedRuntime: true
   notarize: true
 linux:
+  # Keep the GUI launcher distinct from the otis terminal command.
+  executableName: otis-desktop
   icon: resources/icon.png
   category: Development
+  syncDesktopName: true
   target:
     - target: AppImage
       arch: [x64, arm64]
     - target: deb
       arch: [x64, arm64]
+deb:
+  packageName: otis-desktop
