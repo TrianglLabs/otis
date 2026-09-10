@@ -1,13 +1,14 @@
 import { join } from "node:path"
-import { BrowserWindow, shell } from "electron"
+import { BrowserWindow, type NativeImage, shell } from "electron"
 
-export function createMainWindow() {
+export function createMainWindow(icon?: NativeImage) {
   const window = new BrowserWindow({
     width: 1280,
     height: 832,
     minWidth: 960,
     minHeight: 600,
     title: "Otis",
+    icon,
     backgroundColor: "#1A1A1A",
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : undefined,
     trafficLightPosition: process.platform === "darwin" ? { x: 16, y: 16 } : undefined,

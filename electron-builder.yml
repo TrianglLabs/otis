@@ -1,0 +1,36 @@
+appId: ai.triangllabs.otis
+productName: Otis
+directories:
+  buildResources: resources
+  output: dist/desktop
+files:
+  - out/**/*
+  - "!node_modules/**/*"
+extraResources:
+  - from: resources/icon.png
+    to: icon.png
+  - from: resources/icons
+    to: icons
+# Releases are attached by the GitHub workflow, never by electron-builder.
+publish: null
+artifactName: "${productName}-${version}-${os}-${arch}.${ext}"
+mac:
+  icon: resources/icon.icns
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+  # Developer ID signed + notarized when the CI secrets are present (CSC_LINK, CSC_KEY_PASSWORD, APPLE_API_*).
+  # electron-builder applies Electron's hardened-runtime entitlements (JIT etc.) automatically.
+  hardenedRuntime: true
+  notarize: true
+linux:
+  icon: resources/icon.png
+  category: Development
+  target:
+    - target: AppImage
+      arch: [x64, arm64]
+    - target: deb
+      arch: [x64, arm64]

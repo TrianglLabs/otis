@@ -16,4 +16,11 @@ describe("visible entries", () => {
     const entries = [entry(1, "message"), entry(2, "reasoning"), entry(3, "message")]
     expect(visibleEntries(entries, true)).toBe(entries)
   })
+
+  it("keeps a live thinking trace visible when thinking is hidden, then folds it away when done", () => {
+    const live: TranscriptEntry = { ...entry(2, "reasoning"), streaming: true }
+    const done: TranscriptEntry = { ...entry(4, "reasoning"), streaming: false }
+    const entries = [entry(1, "message"), live, entry(3, "message"), done]
+    expect(visibleEntries(entries, false).map((e) => e.id)).toEqual([1, 2, 3])
+  })
 })

@@ -1,8 +1,8 @@
-import { ArrowUp, ChevronDown, Square } from "lucide-react"
+import { ArrowUp, ChevronDown, Square, Zap } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import { Button } from "../../components/Button.js"
 import { Icon } from "../../components/Icon.js"
-import { fastModelMark, PROVIDER_LABELS, shortModelId } from "../../format.js"
+import { PROVIDER_LABELS, shortModelId } from "../../format.js"
 import { useDesktop, useDesktopState } from "../../runtime.js"
 import { ModelPicker } from "../models/ModelPicker.js"
 import { draftAfterSend } from "./draft.js"
@@ -65,7 +65,9 @@ export function Composer() {
           The model could not start: {state.modelError}
         </div>
       ) : null}
-      <div className={`composer-box${modelState !== "ready" && !busy ? " composer-boxDisabled" : ""}`}>
+      <div
+        className={`composer-box${busy ? " composer-boxWorking" : ""}${modelState !== "ready" && !busy ? " composer-boxDisabled" : ""}`}
+      >
         <textarea
           ref={textareaRef}
           value={draft}
@@ -94,11 +96,12 @@ export function Composer() {
                 type="button"
                 className={`composer-model${state.modelState === "starting" || state.modelState === "failed" ? ` composer-model-${state.modelState}` : ""}`}
                 onClick={() => setPickerOpen((open) => !open)}
-                title={`${state.model.id} · ${PROVIDER_LABELS[state.model.provider] ?? state.model.provider} — select a model`}
+                title={`${state.model.id} · ${PROVIDER_LABELS[state.model.provider] ?? state.model.provider}${state.fastServing.enabled ? " · Fast serving" : ""} — select a model`}
                 aria-haspopup="dialog"
                 aria-expanded={pickerOpen}
               >
-                {fastModelMark(state.model.displayName ?? shortModelId(state.model.id), state.fastServing.enabled)}
+                {state.fastServing.enabled ? <Icon icon={Zap} size={11} className="composer-fast" /> : null}
+                {state.model.displayName ?? shortModelId(state.model.id)}
                 <Icon icon={ChevronDown} size={11} />
               </button>
               {pickerOpen ? <ModelPicker onClose={() => setPickerOpen(false)} /> : null}

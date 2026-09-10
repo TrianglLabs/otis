@@ -11,8 +11,8 @@ export function App() {
           size={22}
           strokeWidth={1.25}
           fill="currentColor"
-          strokeLinecap="butt"
-          strokeLinejoin="miter"
+          strokeLinecap="round"
+          strokeLinejoin="round"
           aria-hidden
         />
         <span>Loading workspace…</span>
@@ -30,8 +30,8 @@ export function BridgeMissing() {
         size={22}
         strokeWidth={1.25}
         fill="currentColor"
-        strokeLinecap="butt"
-        strokeLinejoin="miter"
+        strokeLinecap="round"
+        strokeLinejoin="round"
         aria-hidden
       />
       <span>The desktop bridge is unavailable.</span>

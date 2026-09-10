@@ -13,12 +13,14 @@ export {
   replaySessionMessages,
   type SessionEvent,
   type SessionOptions,
+  type SessionSearchResult,
   type SessionSubagentRun,
   type SessionSubagentStatus,
   type SessionSummary,
   type SessionToolActivity,
   type SessionTurnDetails,
   type SessionTurnSegment,
+  searchSessions,
   type UsagePurpose,
 } from "./session.js"
 export { acquireSessionLock, type SessionLock } from "./session-lock.js"

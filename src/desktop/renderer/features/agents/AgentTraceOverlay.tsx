@@ -73,7 +73,7 @@ export function AgentTraceOverlay({ toolCallId, onClose }: { toolCallId: string;
               <Icon icon={AGENT_STATUS_ICONS[run.status]} size={12} />
             </span>
           ) : null}
-          <span className="agentTrace-name">{run?.title ?? "Subagent"}</span>
+          <span className="agentTrace-name">{run?.title ?? "Coworker"}</span>
           {run ? <span className="agentTrace-summary">{agentSummary(run)}</span> : null}
           <span className="agentTrace-titleSpace" />
           <IconButton icon={X} label="Close trace" size={22} onClick={onClose} />
@@ -84,7 +84,7 @@ export function AgentTraceOverlay({ toolCallId, onClose }: { toolCallId: string;
           ref={listRef}
         >
           {visibleEntries(entries, state?.thinkingVisible ?? false).map((entry) => (
-            <EntryView key={entry.id} entry={entry} active={false} />
+            <EntryView key={entry.id} entry={entry} active={false} thinkingVisible={state?.thinkingVisible ?? false} />
           ))}
         </div>
       </div>

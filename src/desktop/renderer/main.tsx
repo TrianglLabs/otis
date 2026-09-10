@@ -11,8 +11,10 @@ import "./components/components.css"
 import "./shell/shell.css"
 import "./features/conversation/conversation.css"
 import "./features/models/models.css"
+import "./features/palette/palette.css"
 import "./features/agents/agents.css"
 import "./features/settings/settings.css"
+import "./features/onboarding/onboarding.css"
 
 const container = document.getElementById("root")
 if (!container) throw new Error("Missing #root element")

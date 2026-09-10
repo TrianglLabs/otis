@@ -11,6 +11,8 @@ export type SessionPickerItem = {
   title: string
   detail: string
   active?: boolean
+  /** First content match context; set only by search, when the match is not in the title. */
+  snippet?: string
 }
 
 export function activeSessionLabel(messages: readonly ChatMessage[], title?: string) {

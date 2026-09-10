@@ -1,0 +1,193 @@
+/* Command palette — the ⌘K session/action finder. Shares the overlayBackdrop/overlay-enter scaffolding from
+   components.css with the model picker. */
+
+.palette {
+  position: fixed;
+  top: 15vh;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-overlay);
+  width: 520px;
+  max-height: min(480px, 65vh);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-float);
+  overflow: hidden;
+  animation: overlay-enter var(--motion);
+}
+
+.palette-input {
+  padding: 12px 16px;
+  font: inherit;
+  font-size: var(--text-body);
+  color: var(--text);
+  background: none;
+  border: none;
+  border-bottom: var(--hairline);
+  outline: none;
+  flex-shrink: 0;
+}
+
+.palette-input::placeholder {
+  color: var(--text-dim);
+}
+
+.palette-list {
+  overflow-y: auto;
+  min-height: 0;
+  padding: 6px;
+}
+
+.palette-section {
+  padding: 8px 10px 4px;
+  font-size: var(--text-micro);
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+/* Session rows are a div so the delete-confirm state can swap the row's contents; action rows are plain buttons. */
+.palette-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.palette-row-selected {
+  background: var(--bg-hover);
+}
+
+.palette-rowMain {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Right-click context menu for destructive session actions. */
+.palette-menu {
+  position: fixed;
+  z-index: calc(var(--z-overlay) + 1);
+  min-width: 150px;
+  padding: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-float);
+  animation: overlay-enter var(--motion);
+}
+
+.palette-menuItem {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 5px 8px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--danger);
+  font: inherit;
+  font-size: var(--text-ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+.palette-menuItem:hover {
+  background: var(--bg-hover);
+}
+
+.palette-confirm {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  width: 100%;
+}
+
+.palette-confirmText {
+  margin-right: auto;
+  font-size: var(--text-ui);
+  color: var(--danger);
+}
+
+.palette-rowText {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.palette-rowTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--text-ui);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.palette-rowDetail {
+  margin-left: auto;
+  font-size: var(--text-meta);
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.palette-rowSnippet {
+  flex-basis: 100%;
+  font-size: var(--text-meta);
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.palette-kbd {
+  margin-left: auto;
+  font-family: var(--font-ui);
+  font-size: var(--text-meta);
+  color: var(--text-dim);
+}
+
+.palette-message,
+.palette-empty {
+  padding: 8px 16px;
+  font-size: var(--text-ui);
+  color: var(--text-dim);
+}
+
+.palette-error {
+  color: var(--danger);
+}
+
+.palette-footer {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 16px;
+  border-top: var(--hairline);
+  font-size: var(--text-meta);
+  color: var(--text-dim);
+  flex-shrink: 0;
+}

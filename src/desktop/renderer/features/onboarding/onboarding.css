@@ -1,0 +1,282 @@
+/* First-run onboarding: the same quiet, centered language as the home screen — brand mark, muted guidance,
+   borderless hover rows like the model picker. */
+.onboarding {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 40px 28px;
+  animation: rise 200ms ease-out;
+}
+
+/* Onboarding owns the window while it shows (the workspace header is hidden), so it provides the drag strip;
+   Back sits next to the traffic lights on macOS. */
+.onboarding-topbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--header-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.platform-darwin .onboarding-topbar {
+  padding-left: 80px;
+}
+
+.onboarding-sub {
+  margin-top: -8px;
+  font-size: var(--text-ui);
+  color: var(--text-dim);
+  text-align: center;
+  max-width: 400px;
+}
+
+.onboarding-choose {
+  margin-top: 6px;
+  font-size: var(--text-meta);
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.onboarding-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(400px, 100%);
+}
+
+/* Choices are real buttons: bordered panels with a chevron, like settings rows. */
+.onboarding-card {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 12px 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color var(--motion) ease,
+    background var(--motion) ease;
+}
+
+.onboarding-card:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.onboarding-cardChevron {
+  margin-left: auto;
+  color: var(--text-faint);
+  flex-shrink: 0;
+  transition: color var(--motion) ease;
+}
+
+.onboarding-card:hover .onboarding-cardChevron {
+  color: var(--accent);
+}
+
+.onboarding-cardIcon {
+  margin-top: 1px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.onboarding-cardText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* Inline text link (Get a free key). */
+.onboarding-link {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.onboarding-link:hover {
+  text-decoration: underline;
+}
+
+.onboarding-cardTitle {
+  font-size: var(--text-ui);
+  font-weight: 600;
+}
+
+.onboarding-cardBody {
+  font-size: var(--text-meta);
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.onboarding-panel {
+  width: min(440px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.onboarding-panel .home-logo {
+  align-self: center;
+}
+
+.onboarding-panelTitle {
+  font-size: var(--text-ui);
+  font-weight: 600;
+  text-align: center;
+}
+
+.onboarding-keyRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel);
+}
+
+.onboarding-keyRow:focus-within {
+  border-color: var(--accent);
+}
+
+.onboarding-keyIcon {
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+.onboarding-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: var(--text-ui);
+  color: var(--text);
+  outline: none;
+}
+
+.onboarding-input::placeholder {
+  color: var(--text-faint);
+}
+
+.onboarding-hint {
+  font-size: var(--text-meta);
+  color: var(--text-dim);
+}
+
+.onboarding-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 44vh;
+  overflow-y: auto;
+}
+
+.onboarding-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: var(--radius);
+}
+
+.onboarding-row:hover {
+  background: var(--bg-hover);
+}
+
+.onboarding-rowSelect {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+.onboarding-rowSelect:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.onboarding-rowName {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.onboarding-recommended {
+  display: inline-flex;
+  color: var(--warning);
+}
+
+.onboarding-rowDetail {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--text-meta);
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.onboarding-rowDetail.error {
+  color: var(--danger);
+}
+
+.onboarding-error {
+  font-size: var(--text-meta);
+  color: var(--danger);
+}
+
+/* Local step: brand mark, one recommendation, one action. */
+.onboarding-local {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding-top: 8px;
+  text-align: center;
+}
+
+.onboarding-localPick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.onboarding-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

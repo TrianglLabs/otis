@@ -38,6 +38,7 @@
     background-color var(--motion),
     border-color var(--motion),
     color var(--motion);
+  border-radius: var(--radius);
 }
 
 .btn-md {
@@ -53,7 +54,7 @@
 
 .btn-primary {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .btn-primary:hover:not(:disabled) {
@@ -130,6 +131,7 @@
 
 .codeBlock {
   background: var(--bg-code);
+  border-radius: var(--radius-lg);
 }
 
 .md p,
@@ -186,6 +188,7 @@
   font-family: var(--font-mono);
   font-size: 0.86em;
   background: var(--bg-code);
+  border-radius: var(--radius-sm);
   padding: 1px 5px;
 }
 

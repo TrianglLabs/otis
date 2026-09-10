@@ -1,5 +1,6 @@
 import { Application } from "../../app/application.js"
 import type { ConversationHooks, ConversationTurnResult, QueuedPrompt } from "../../app/conversation.js"
+import type { SessionPickerItem } from "../../app/session-metadata.js"
 import type { TranscriptChange, TranscriptEntry } from "../../app/transcript.js"
 import { formatWorkspaceLabel } from "../../app/workspace-label.js"
 import { autoCompactThreshold } from "../../core/compaction.js"
@@ -230,6 +231,11 @@ export class DesktopRuntime {
     return { ok: true }
   }
 
+  /** The command palette's session search, resolved against the workspace's stored sessions. */
+  async searchSessions(query: string): Promise<SessionPickerItem[]> {
+    return this.app.sessions.searchPickerItems(typeof query === "string" ? query : "")
+  }
+
   startNewSession(): SessionOpResult {
     if (!this.app.sessions.startNew()) return { ok: false, reason: "Finish the current work before starting over." }
     this.#markStateDirty()
@@ -401,7 +407,7 @@ export class DesktopRuntime {
     this.#markStateDirty()
   }
 
-  /** Shows or hides reasoning traces, mirroring the TUI's /thinking toggle. */
+  /** Switches reasoning between trace cards and plain muted text, mirroring the TUI's /thinking toggle. */
   async setThinkingVisible(visible: boolean) {
     if (typeof visible !== "boolean") return
     await saveThinkingVisible(visible)

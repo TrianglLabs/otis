@@ -15,6 +15,7 @@ export const DESKTOP_CHANNELS = {
   stop: "desktop:stop",
   respondToPermission: "desktop:respond-to-permission",
   selectSession: "desktop:select-session",
+  searchSessions: "desktop:search-sessions",
   startNewSession: "desktop:start-new-session",
   deleteSession: "desktop:delete-session",
   listModels: "desktop:list-models",
@@ -81,7 +82,7 @@ export type DesktopStatus = {
   agentsPanelVisible: boolean
   /** The active color theme; persisted in local settings. */
   theme: ThemeName
-  /** Whether reasoning traces are shown; persisted as thinkingVisible in local settings. */
+  /** Reasoning renders as trace cards when on; plain muted text when off. Persisted in local settings. */
   thinkingVisible: boolean
   /** Fast serving for the selected hosted model: whether it has a fast path, and whether that path is active. */
   fastServing: { available: boolean; enabled: boolean }
@@ -140,6 +141,8 @@ export type DesktopApi = {
   stop(): Promise<void>
   respondToPermission(id: number, allow: boolean): Promise<void>
   selectSession(id: string): Promise<SessionOpResult>
+  /** Title-first session search for the command palette; content matches carry a snippet. */
+  searchSessions(query: string): Promise<SessionPickerItem[]>
   startNewSession(): Promise<SessionOpResult>
   deleteSession(id: string): Promise<SessionOpResult>
   /** The picker catalog for this machine: local fits, saved PAIR endpoints, and the verified hosted list. */
@@ -157,8 +160,9 @@ export type DesktopApi = {
   setAgentsPanelVisible(visible: boolean): Promise<void>
   /** Applies and persists a color theme. Unknown theme names are ignored. */
   setTheme(theme: ThemeName): Promise<void>
-  /** Shows or hides reasoning traces in the transcript and subagent traces; persisted across launches. */
+  /** Shows thinking as trace cards or as plain muted text; persisted in local settings. */
   setThinkingVisible(visible: boolean): Promise<void>
+  /** Shows or hides reasoning traces in the transcript and subagent traces; persisted across launches. */
   /** Toggles Fast serving for the selected hosted model, re-selecting it on the fast or standard path. */
   setFastServing(fast: boolean): Promise<ModelSelectResult>
   /** Opens https://app.fireworks.ai/api-keys in the system browser. */

@@ -52,6 +52,13 @@ textarea {
   outline-offset: 1px;
 }
 
+/* Lucide SVGs render inline by default, which sits them on the text baseline with descender space below.
+   Middle-align them so icons and adjacent text share a vertical center. (Flex/grid items ignore this.) */
+.lucide {
+  display: inline-block;
+  vertical-align: middle;
+}
+
 /* Thin scrollbars that appear on hover. */
 ::-webkit-scrollbar {
   width: 10px;
@@ -61,6 +68,7 @@ textarea {
 ::-webkit-scrollbar-thumb {
   background: transparent;
   border: 3px solid transparent;
+  border-radius: var(--radius-pill);
   background-clip: content-box;
 }
 
@@ -113,4 +121,15 @@ textarea {
 .bootScreen-hint {
   font-size: var(--text-meta);
   color: var(--text-dim);
+}
+
+.spin {
+  display: inline-flex;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

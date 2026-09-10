@@ -57,7 +57,12 @@ export function ConversationView() {
         >
           <div className="transcript">
             {entries.map((entry, index) => (
-              <EntryView key={entry.id} entry={entry} active={isActiveEntry(entries, index, state?.busy ?? false)} />
+              <EntryView
+                key={entry.id}
+                entry={entry}
+                active={isActiveEntry(entries, index, state?.busy ?? false)}
+                thinkingVisible={state?.thinkingVisible ?? false}
+              />
             ))}
             {permission ? (
               <PermissionCard

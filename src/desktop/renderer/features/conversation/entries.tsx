@@ -6,8 +6,16 @@ import { formatDuration } from "../../format.js"
 import { ToolCard } from "./ToolCard.js"
 
 /** Renders one transcript entry. The same components render live turns and replayed sessions. */
-export function EntryView({ entry, active }: { entry: TranscriptEntry; active: boolean }) {
-  if (entry.kind === "reasoning") return <ReasoningCard entry={entry} />
+export function EntryView({
+  entry,
+  active,
+  thinkingVisible,
+}: {
+  entry: TranscriptEntry
+  active: boolean
+  thinkingVisible: boolean
+}) {
+  if (entry.kind === "reasoning") return <ReasoningCard entry={entry} thinkingVisible={thinkingVisible} />
   if (entry.kind === "tool") return <ToolCard entry={entry} active={active} />
   if (entry.kind === "debug") return <DebugLine entry={entry} />
   if (entry.speaker === "You") return <UserMessage entry={entry} />
@@ -34,14 +42,31 @@ function AssistantMessage({ entry }: { entry: TranscriptEntry }) {
   )
 }
 
-function ReasoningCard({ entry }: { entry: TranscriptEntry }) {
-  // Collapsed by default, including while streaming; the header still shows the live "Thinking…" label.
+function ReasoningCard({ entry, thinkingVisible }: { entry: TranscriptEntry; thinkingVisible: boolean }) {
   const [expanded, setExpanded] = useState(false)
-  const label = entry.streaming
-    ? "Thinking…"
-    : entry.durationMs !== undefined
-      ? `Thought for ${formatDuration(entry.durationMs)}`
-      : "Thought"
+
+  if (!thinkingVisible) {
+    // Traces off: only live thinking reaches here (finished traces are filtered upstream) — a quiet status
+    // line, never the trace content itself.
+    return <div className="reasoning-text">Thinking…</div>
+  }
+
+  if (entry.streaming) {
+    // Live thinking streams openly: a muted preview of the freshest lines, not interactive.
+    const preview = entry.text.trimEnd().split("\n").slice(-3).join("\n")
+    return (
+      <div className="reasoning">
+        <div className="reasoning-header reasoning-headerLive">
+          <Brain size={13} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden />
+          <span className="reasoning-label reasoning-live">Thinking…</span>
+        </div>
+        {preview ? <div className="reasoning-body reasoning-preview">{preview}</div> : null}
+      </div>
+    )
+  }
+
+  // Finished thinking is collapsed behind a quiet summary row.
+  const label = entry.durationMs !== undefined ? `Thought for ${formatDuration(entry.durationMs)}` : "Thought"
   return (
     <div className="reasoning">
       <button
@@ -50,8 +75,8 @@ function ReasoningCard({ entry }: { entry: TranscriptEntry }) {
         onClick={() => setExpanded((value) => !value)}
         aria-expanded={expanded}
       >
-        <Brain size={13} strokeWidth={1.5} strokeLinecap="butt" strokeLinejoin="miter" aria-hidden />
-        <span className={entry.streaming ? "reasoning-label reasoning-live" : "reasoning-label"}>{label}</span>
+        <Brain size={13} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden />
+        <span className="reasoning-label">{label}</span>
         {expanded ? <ChevronDown size={13} aria-hidden /> : <ChevronRight size={13} aria-hidden />}
       </button>
       {expanded && entry.text ? <div className="reasoning-body">{entry.text}</div> : null}

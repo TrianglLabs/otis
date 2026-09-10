@@ -7,6 +7,7 @@ const api: DesktopApi = {
   stop: () => ipcRenderer.invoke(DESKTOP_CHANNELS.stop),
   respondToPermission: (id, allow) => ipcRenderer.invoke(DESKTOP_CHANNELS.respondToPermission, id, allow),
   selectSession: (id) => ipcRenderer.invoke(DESKTOP_CHANNELS.selectSession, id),
+  searchSessions: (query) => ipcRenderer.invoke(DESKTOP_CHANNELS.searchSessions, query),
   startNewSession: () => ipcRenderer.invoke(DESKTOP_CHANNELS.startNewSession),
   deleteSession: (id) => ipcRenderer.invoke(DESKTOP_CHANNELS.deleteSession, id),
   listModels: () => ipcRenderer.invoke(DESKTOP_CHANNELS.listModels),

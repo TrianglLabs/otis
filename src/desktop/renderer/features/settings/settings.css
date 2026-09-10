@@ -8,14 +8,13 @@
   background: var(--bg);
 }
 
-/* Same metrics as the workspace header: drag region with a hairline below. */
+/* Same metrics as the workspace header, so the close button lands exactly where the settings gear was. */
 .settingsPage-header {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  height: 40px;
-  padding: 0 10px 0 16px;
-  border-bottom: var(--hairline);
+  height: var(--header-height);
+  padding: 0 12px;
   -webkit-app-region: drag;
   flex-shrink: 0;
 }
@@ -24,7 +23,8 @@
   flex: 1;
   overflow-y: auto;
   min-height: 0;
-  scrollbar-gutter: stable;
+  /* both-edges keeps the 720px column centered on the window; a right-only gutter would shift it left. */
+  scrollbar-gutter: stable both-edges;
 }
 
 .settingsPage-column {
@@ -33,14 +33,20 @@
   padding: 10px 24px 40px;
 }
 
-/* Same label treatment as the sidebar's sections. */
+/* Section label treatment shared across overlays and pages. The section owns the inter-section gap via its top
+   margin, so the distance is the same no matter what block (rows, grid, form) ends the previous section. */
 .settings-section {
-  padding: 12px 0 6px;
+  margin-top: 20px;
+  padding: 0 0 6px;
   font-size: var(--text-micro);
   font-weight: 700;
   letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--text-dim);
+}
+
+.settingsPage-column > .settings-section:first-child {
+  margin-top: 6px;
 }
 
 /* --- Theme grid --- */
@@ -96,6 +102,7 @@
   background: var(--bg);
   border: 1px solid var(--border);
   overflow: hidden;
+  border-radius: var(--radius-sm);
 }
 
 .themeTile-line {
@@ -106,11 +113,13 @@
 .themeTile-lineText {
   width: 62%;
   background: var(--text);
+  border-radius: var(--radius-pill);
 }
 
 .themeTile-lineDim {
   width: 44%;
   background: var(--text-dim);
+  border-radius: var(--radius-pill);
 }
 
 .themeTile-dot {
@@ -120,6 +129,7 @@
   width: 6px;
   height: 6px;
   background: var(--accent);
+  border-radius: 50%;
 }
 
 /* --- Behavior rows --- */
@@ -168,7 +178,7 @@
   padding: 0;
   background: none;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-pill);
   cursor: pointer;
 }
 
@@ -187,6 +197,7 @@
   left: 2px;
   width: 9px;
   height: 9px;
+  border-radius: var(--radius-pill);
   background: var(--text-dim);
   transition:
     transform var(--motion) ease-out,
@@ -226,7 +237,7 @@
 }
 
 .settingsForm {
-  padding: 4px 0 12px;
+  padding: 4px 0;
 }
 
 .settingsForm-note {
