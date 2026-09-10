@@ -1,6 +1,7 @@
 {
   "name": "@triangllabs/otis",
   "productName": "Otis",
+  "desktopName": "ai.triangllabs.otis.desktop",
   "version": "0.1.37",
   "description": "Local terminal agent powered by tool-capable open models",
   "private": true,
@@ -53,7 +54,7 @@
     "@vitest/coverage-v8": "^4.1.9",
     "diff": "^9.0.0",
     "electron": "^44.2.0",
-    "electron-builder": "^26.15.3",
+    "electron-builder": "^26.16.1",
     "electron-vite": "^5.0.0",
     "happy-dom": "^20.14.0",
     "typescript": "^5.8.0",
