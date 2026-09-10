@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises"
+import { appendFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { Application } from "../../../src/app/application.js"
@@ -17,6 +17,12 @@ import type {
 import type { ChatMessage, InferenceClient, PairCatalogModel } from "../../../src/inference/types.js"
 import { loadLocalSettings, saveSelectedModel } from "../../../src/local/settings.js"
 import type { PermissionRequest } from "../../../src/permissions/policy.js"
+import {
+  acquireSessionLock,
+  readWorkspacePath,
+  registerWorkspacePath,
+  sessionRootDirectory,
+} from "../../../src/storage/index.js"
 import { useOtisHome } from "../../app/support/otis-home.js"
 
 const mocks = vi.hoisted(() => ({
@@ -48,7 +54,7 @@ function turnEvents(text: string) {
   }
 }
 
-async function setup(configureClient = true) {
+async function setup(configureClient = true, extra: Record<string, unknown> = {}) {
   const home = await isolate("otis-desktop-")
   const cwd = join(home, "workspace")
   await mkdir(cwd, { recursive: true })
@@ -64,8 +70,28 @@ async function setup(configureClient = true) {
     version: "test",
     platform: "darwin",
     send: (event) => sent.push(event),
+    ...extra,
   })
   return { app, runtime, sent, cwd }
+}
+
+async function foreignSession(dirName: string, sessionId: string, text: string) {
+  const dir = join(sessionRootDirectory(), dirName)
+  await mkdir(dir, { recursive: true })
+  const line = (event: Record<string, unknown>) => `${JSON.stringify(event)}\n`
+  await appendFile(
+    join(dir, `${sessionId}.jsonl`),
+    line({ seq: 1, sessionId, at: new Date().toISOString(), type: "session_started", version: 1 }) +
+      line({
+        seq: 2,
+        sessionId,
+        at: new Date().toISOString(),
+        type: "prompt_admitted",
+        promptId: "p1",
+        message: { role: "user", content: text },
+      }),
+    { mode: 0o600 },
+  )
 }
 
 /** Flushes the runtime's batched event pump (32ms interval). */
@@ -1598,6 +1624,358 @@ describe("DesktopRuntime model selection", () => {
     await flush()
     const last = sent.filter((event) => event.type === "status").at(-1)
     expect(last?.status.modelLoad).toBeNull()
+    await runtime.shutdown()
+  })
+})
+
+describe("DesktopRuntime updates", () => {
+  it("exposes a downloaded update in the snapshot, emits it once, and delegates install", async () => {
+    const install = vi.fn()
+    const { runtime, sent } = await setup(true, { installUpdate: install })
+
+    expect((await runtime.snapshot()).update).toBeUndefined()
+    runtime.setUpdateAvailable("9.9.9")
+    expect((await runtime.snapshot()).update).toEqual({ version: "9.9.9" })
+    runtime.setUpdateAvailable("9.9.9") // same version again: no duplicate emit
+
+    await flush()
+    const updateEvents = sent.filter((event) => event.type === "status" && "update" in event.status)
+    expect(updateEvents).toHaveLength(1)
+
+    runtime.installUpdate()
+    expect(install).toHaveBeenCalledOnce()
+    await runtime.shutdown()
+  })
+})
+
+describe("update shutdown", () => {
+  it("rejects new work once the runtime has shut down for an install", async () => {
+    const { runtime } = await setup()
+    mocks.executeTurn.mockImplementation(turnEvents("reply"))
+    await runtime.sendPrompt("hello")
+    await vi.waitFor(async () => expect((await runtime.snapshot()).entries.some((e) => e.text === "reply")).toBe(true))
+
+    await runtime.shutdown() // installUpdate's first step
+
+    const prompt = await runtime.sendPrompt("too late")
+    expect(prompt.accepted).toBe(false)
+    if (!prompt.accepted) expect(prompt.reason).toMatch(/restarting/i)
+    const selected = await runtime.selectSession("anything")
+    expect(selected.ok).toBe(false)
+    expect(runtime.startNewSession().ok).toBe(false)
+    expect((await runtime.deleteSession("anything")).ok).toBe(false)
+    expect((await runtime.switchWorkspace("/tmp")).ok).toBe(false)
+  })
+})
+
+describe("pending workspace (locate flow)", () => {
+  it("opens unregistered history in place: transcript loads, work is blocked until located", async () => {
+    const { runtime } = await setup()
+    await foreignSession("legacy-deadbeef0001", "legacy-1", "ancient history")
+
+    const opened = await runtime.selectSession("legacy-1", "legacy-deadbeef0001")
+    expect(opened.ok).toBe(true)
+
+    const snapshot = await runtime.snapshot()
+    expect(snapshot.entries.some((entry) => entry.text === "ancient history")).toBe(true)
+    expect(snapshot.needsWorkspace).toBe(true)
+
+    const prompt = await runtime.sendPrompt("continue this")
+    expect(prompt.accepted).toBe(false)
+    if (!prompt.accepted) expect(prompt.reason).toMatch(/locate/i)
+    await runtime.shutdown()
+  })
+
+  it("locating the folder registers it and moves the session into the real workspace", async () => {
+    const { runtime, cwd } = await setup()
+    await foreignSession("legacy-deadbeef0002", "legacy-2", "old work")
+    expect((await runtime.selectSession("legacy-2", "legacy-deadbeef0002")).ok).toBe(true)
+    expect((await runtime.snapshot()).needsWorkspace).toBe(true)
+
+    const located = join(cwd, "..", "located-ws")
+    await mkdir(located, { recursive: true })
+    const moved = await runtime.locateWorkspace(located)
+    expect(moved.ok).toBe(true)
+
+    const snapshot = await runtime.snapshot()
+    expect(snapshot.needsWorkspace).toBe(false)
+    expect(snapshot.workspace.path).toBe(located)
+    expect(snapshot.session?.id).toBe("legacy-2")
+    expect(snapshot.entries.some((entry) => entry.text === "old work")).toBe(true)
+
+    // The association persisted: opening again never asks twice.
+    expect(await readWorkspacePath(join(sessionRootDirectory(), "legacy-deadbeef0002"))).toBe(located)
+    await runtime.shutdown()
+  })
+
+  it("a missing registered folder falls back to in-place history with the locate banner", async () => {
+    const { runtime } = await setup()
+    await foreignSession("gone-deadbeef0003", "legacy-3", "folder was deleted")
+    await registerWorkspacePath(join(sessionRootDirectory(), "gone-deadbeef0003"), "/definitely/not/here")
+
+    const opened = await runtime.switchWorkspace("/definitely/not/here", "legacy-3", "gone-deadbeef0003")
+    expect(opened.ok).toBe(true)
+    const snapshot = await runtime.snapshot()
+    expect(snapshot.entries.some((entry) => entry.text === "folder was deleted")).toBe(true)
+    expect(snapshot.needsWorkspace).toBe(true)
+    await runtime.shutdown()
+  })
+})
+
+describe("pending workspace edge cases", () => {
+  it("a prompt submitted while foreign history is still opening is rejected, not run in the current folder", async () => {
+    const { runtime } = await setup()
+    await foreignSession("legacy-gap00000001", "gap-1", "slow open")
+
+    const opening = runtime.selectSession("gap-1", "legacy-gap00000001")
+    // The select has started (its guard is held synchronously) but not settled.
+    const slipped = await runtime.sendPrompt("sneaky work")
+    expect(slipped.accepted).toBe(false)
+    if (!slipped.accepted) expect(slipped.reason).toMatch(/opening/i)
+    expect((await opening).ok).toBe(true)
+    await runtime.shutdown()
+  })
+
+  it("a stale row whose workspace was registered after the palette loaded switches into it", async () => {
+    const { runtime, cwd } = await setup()
+    await foreignSession("stale-aa0000000002", "stale-1", "registered meanwhile")
+    // The "palette loaded" here: the dir was unregistered. Another instance registers it before the click.
+    const elsewhere = join(cwd, "..", "registered-elsewhere")
+    await mkdir(elsewhere, { recursive: true })
+    await registerWorkspacePath(join(sessionRootDirectory(), "stale-aa0000000002"), elsewhere)
+
+    const opened = await runtime.selectSession("stale-1", "stale-aa0000000002")
+    expect(opened.ok).toBe(true)
+    const snapshot = await runtime.snapshot()
+    expect(snapshot.workspace.path).toBe(elsewhere) // switched, not opened in the wrong folder
+    expect(snapshot.needsWorkspace).toBe(false)
+    expect(snapshot.session?.id).toBe("stale-1")
+    await runtime.shutdown()
+  })
+
+  it("locating to the folder already open relocks the session and lifts the read-only state", async () => {
+    const { runtime, cwd } = await setup()
+    await foreignSession("legacy-samefolder03", "same-1", "already home")
+    expect((await runtime.selectSession("same-1", "legacy-samefolder03")).ok).toBe(true)
+    expect((await runtime.snapshot()).needsWorkspace).toBe(true)
+
+    const located = await runtime.locateWorkspace(cwd)
+    expect(located.ok).toBe(true)
+    const snapshot = await runtime.snapshot()
+    expect(snapshot.needsWorkspace).toBe(false)
+    expect(snapshot.workspace.path).toBe(cwd)
+    expect(snapshot.session?.id).toBe("same-1")
+
+    // The write lock is really held again: no second acquirer, and prompts flow.
+    await expect(
+      acquireSessionLock({ cwd, directory: join(sessionRootDirectory(), "legacy-samefolder03"), sessionId: "same-1" }),
+    ).rejects.toThrow(/already in use/)
+    mocks.executeTurn.mockImplementation(turnEvents("back to work"))
+    expect((await runtime.sendPrompt("continue")).accepted).toBe(true)
+    await vi.waitFor(async () =>
+      expect((await runtime.snapshot()).entries.some((e) => e.text === "back to work")).toBe(true),
+    )
+    await runtime.shutdown()
+  })
+
+  it("Open Folder while previewing unknown history switches away without registering the preview", async () => {
+    const { runtime, cwd } = await setup()
+    await foreignSession("legacy-openfolder04", "prev-1", "just browsing")
+    expect((await runtime.selectSession("prev-1", "legacy-openfolder04")).ok).toBe(true)
+    expect((await runtime.snapshot()).needsWorkspace).toBe(true)
+
+    const somewhere = join(cwd, "..", "somewhere-else")
+    await mkdir(somewhere, { recursive: true })
+    const opened = await runtime.openWorkspace(somewhere)
+    expect(opened.ok).toBe(true)
+
+    const snapshot = await runtime.snapshot()
+    expect(snapshot.workspace.path).toBe(somewhere)
+    expect(snapshot.needsWorkspace).toBe(false)
+    // No silent association: the previewed dir remains unregistered.
+    expect(await readWorkspacePath(join(sessionRootDirectory(), "legacy-openfolder04"))).toBeUndefined()
+    await runtime.shutdown()
+  })
+})
+
+describe("missing-folder fallback guard", () => {
+  it("holds prompts through fallback loading and read-only classification", async () => {
+    const { app, runtime } = await setup()
+    await foreignSession("gone-fallback0005", "fall-1", "deleted folder history")
+
+    // Gate the fallback's session load so the test can submit a prompt mid-flight.
+    let entered!: () => void
+    let release!: () => void
+    const enteredPromise = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const original = app.sessions.select.bind(app.sessions)
+    vi.spyOn(app.sessions, "select").mockImplementation(async (id, storage) => {
+      entered()
+      await gate
+      return original(id, storage)
+    })
+
+    const switching = runtime.switchWorkspace("/definitely/not/here", "fall-1", "gone-fallback0005")
+    await enteredPromise // the fallback load has started; #switching must still be held
+
+    const slipped = await runtime.sendPrompt("wrong-folder work")
+    expect(slipped.accepted).toBe(false)
+
+    release()
+    expect((await switching).ok).toBe(true)
+    expect((await runtime.snapshot()).needsWorkspace).toBe(true)
+    await runtime.shutdown()
+  })
+})
+
+describe("locate race safety", () => {
+  it("refuses overlapping session changes while a locate is completing", async () => {
+    const { app, runtime, cwd } = await setup()
+    await foreignSession("race-aa0000000006", "session-a", "session A history")
+    await foreignSession("race-bb0000000007", "session-b", "session B history")
+    expect((await runtime.selectSession("session-a", "race-aa0000000006")).ok).toBe(true)
+    expect((await runtime.snapshot()).needsWorkspace).toBe(true)
+
+    // Hold the locate at the relock step.
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let entered!: () => void
+    const enteredPromise = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    const originalRelock = app.sessions.relock.bind(app.sessions)
+    vi.spyOn(app.sessions, "relock").mockImplementation(async () => {
+      entered()
+      await gate
+      return originalRelock()
+    })
+
+    const locating = runtime.locateWorkspace(cwd)
+    await enteredPromise
+
+    // The reproduced step 2: switching to another unknown session mid-locate must be refused.
+    const switched = await runtime.selectSession("session-b", "race-bb0000000007")
+    expect(switched.ok).toBe(false)
+    if (!switched.ok) expect(switched.reason).toMatch(/locating/i)
+    expect(runtime.startNewSession().ok).toBe(false)
+    expect((await runtime.deleteSession("session-b", "race-bb0000000007")).ok).toBe(false)
+    expect((await runtime.switchWorkspace(cwd)).ok).toBe(false)
+
+    release()
+    expect((await locating).ok).toBe(true)
+
+    // Only A was recovered: it is current, editable, and no longer read-only.
+    const snapshot = await runtime.snapshot()
+    expect(snapshot.needsWorkspace).toBe(false)
+    expect(snapshot.session?.id).toBe("session-a")
+    await runtime.shutdown()
+  })
+
+  it("verifies the pending (dirName, sessionId) before restoring write access", async () => {
+    const { app, runtime, cwd } = await setup()
+    await foreignSession("drift-aa0000000008", "session-a", "session A history")
+    await foreignSession("drift-bb0000000009", "session-b", "session B history")
+    expect((await runtime.selectSession("session-a", "drift-aa0000000008")).ok).toBe(true)
+    expect((await runtime.snapshot()).needsWorkspace).toBe(true)
+
+    // State drift underneath the runtime (defense-in-depth path): the coordinator now holds B.
+    expect(
+      await app.sessions.select("session-b", { directory: join(sessionRootDirectory(), "drift-bb0000000009") }),
+    ).toBe("loaded")
+
+    const relockSpy = vi.spyOn(app.sessions, "relock")
+    const located = await runtime.locateWorkspace(cwd)
+    expect(located.ok).toBe(false)
+    if (!located.ok) expect(located.reason).toMatch(/changed while locating/i)
+    // B was never relocked by the locate, and the read-only restriction was not lifted.
+    expect(relockSpy).not.toHaveBeenCalled()
+    expect((await runtime.snapshot()).needsWorkspace).toBe(true)
+    await app.sessions.releaseLock()
+    await runtime.shutdown()
+  })
+})
+
+describe("locate overlap exclusion", () => {
+  it("rejects a locate while a session selection is in flight", async () => {
+    const { app, runtime, cwd } = await setup()
+    await foreignSession("ord-aa0000000010", "session-a", "session A history")
+    await foreignSession("ord-bb0000000011", "session-b", "session B history")
+    expect((await runtime.selectSession("session-a", "ord-aa0000000010")).ok).toBe(true)
+    expect((await runtime.snapshot()).needsWorkspace).toBe(true)
+
+    // Start selecting B and hold it mid-load: the selection began before the locate.
+    let entered!: () => void
+    let release!: () => void
+    const enteredPromise = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const original = app.sessions.select.bind(app.sessions)
+    vi.spyOn(app.sessions, "select").mockImplementation(async (id, storage) => {
+      entered()
+      await gate
+      return original(id, storage)
+    })
+
+    const selecting = runtime.selectSession("session-b", "ord-bb0000000011")
+    await enteredPromise
+
+    const located = await runtime.locateWorkspace(cwd)
+    expect(located.ok).toBe(false)
+    if (!located.ok) expect(located.reason).toMatch(/still opening/i)
+
+    release()
+    expect((await selecting).ok).toBe(true)
+    // B's own pending state was computed by its select: still read-only, nothing wrongly unlocked.
+    const snapshot = await runtime.snapshot()
+    expect(snapshot.needsWorkspace).toBe(true)
+    expect(snapshot.session?.id).toBe("session-b")
+    // A's marker was never written by the refused locate.
+    expect(await readWorkspacePath(join(sessionRootDirectory(), "ord-aa0000000010"))).toBeUndefined()
+    await runtime.shutdown()
+  })
+
+  it("rejects a second locate while the first is still running", async () => {
+    const { app, runtime, cwd } = await setup()
+    await foreignSession("ord-cc0000000012", "session-a", "session A history")
+    expect((await runtime.selectSession("session-a", "ord-cc0000000012")).ok).toBe(true)
+    expect((await runtime.snapshot()).needsWorkspace).toBe(true)
+
+    let entered!: () => void
+    let release!: () => void
+    const enteredPromise = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const originalRelock = app.sessions.relock.bind(app.sessions)
+    vi.spyOn(app.sessions, "relock").mockImplementation(async () => {
+      entered()
+      await gate
+      return originalRelock()
+    })
+
+    const first = runtime.locateWorkspace(cwd)
+    await enteredPromise
+
+    const second = await runtime.locateWorkspace(cwd)
+    expect(second.ok).toBe(false)
+    if (!second.ok) expect(second.reason).toMatch(/locating/i)
+
+    release()
+    expect((await first).ok).toBe(true)
+    const snapshot = await runtime.snapshot()
+    expect(snapshot.needsWorkspace).toBe(false)
+    expect(snapshot.session?.id).toBe("session-a")
     await runtime.shutdown()
   })
 })

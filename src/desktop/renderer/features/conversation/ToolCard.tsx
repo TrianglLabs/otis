@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react"
-import { Bot, FileText, FolderSearch, GitBranch, Globe, Pencil, Search, SquareTerminal } from "lucide-react"
+import { Box, FileText, FolderSearch, GitBranch, Globe, Pencil, Search, SquareTerminal } from "lucide-react"
 import type { TranscriptEntry } from "../../../../app/transcript.js"
 import type { ToolActivityKind } from "../../../../tools/activity.js"
 import { Icon } from "../../components/Icon.js"
@@ -15,7 +15,7 @@ const KIND_ICONS: Record<ToolActivityKind, LucideIcon> = {
   file_inspect: FolderSearch,
   git: GitBranch,
   shell: SquareTerminal,
-  agent: Bot,
+  agent: Box,
 }
 
 /**

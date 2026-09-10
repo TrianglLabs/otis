@@ -449,7 +449,16 @@ button.reasoning-header:hover {
   padding: 4px 8px 8px 12px;
 }
 
-.composer-model {
+/* Model and workspace chips sit together on the left; space-between only separates them from the actions. */
+.composer-context {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.composer-model,
+.composer-workspace {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -466,6 +475,12 @@ button.reasoning-header:hover {
   border-radius: var(--radius);
 }
 
+/* The workspace label can be long; the model name keeps priority for footer space. */
+.composer-workspace {
+  max-width: 180px;
+  flex-shrink: 1;
+}
+
 /* Fast-serving bolt, amber like the picker's recommended star. */
 .composer-fast {
   color: var(--warning);
@@ -474,7 +489,8 @@ button.reasoning-header:hover {
 
 /* The interactive chip is a hairline control matching the footer buttons' metrics; the border carries model
    state instead of a status dot. */
-button.composer-model {
+button.composer-model,
+button.composer-workspace {
   /* 12px footer padding minus 4px: with the box border, the chip sits 9px out — the send button's inset. */
   margin-left: -4px;
   height: 22px;
@@ -485,6 +501,14 @@ button.composer-model {
     border-color var(--motion),
     color var(--motion),
     background var(--motion);
+}
+
+button.composer-model:hover,
+button.composer-model[aria-expanded="true"],
+button.composer-workspace:hover {
+  border-color: var(--border);
+  background: var(--bg-hover);
+  color: var(--text);
 }
 
 button.composer-model:hover,

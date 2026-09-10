@@ -6,6 +6,10 @@ import type { SessionOptions } from "./session-types.js"
 
 export type SessionLock = { release(): Promise<void> }
 
+/** Tokens this process currently holds. A lock file owned by our pid but with an unknown token is a leftover from
+ * a released (or crashed-mid-flight) acquisition in this same process — reclaim it instead of self-conflicting. */
+const heldTokens = new Set<string>()
+
 /** Prevents multiple Otis processes from appending turns to the same session. */
 export async function acquireSessionLock(
   options: Omit<SessionOptions, "sessionId"> & { sessionId: string },
@@ -13,36 +17,51 @@ export async function acquireSessionLock(
   assertSessionId(options.sessionId)
   const lockPath = `${sessionFile(options, options.sessionId)}.lock`
   const token = randomUUID()
+  // Register before creating the file: a concurrent acquisition in this process must see this token as held,
+  // never mistake the half-finished acquisition for a stale leftover and reclaim it.
+  heldTokens.add(token)
   await mkdir(dirname(lockPath), { recursive: true, mode: 0o700 })
   if (process.platform !== "win32") await chmod(dirname(lockPath), 0o700)
 
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      const handle = await open(lockPath, "wx", 0o600)
+  try {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
-        await handle.writeFile(JSON.stringify({ pid: process.pid, token }), "utf8")
-        await handle.sync()
-      } finally {
-        await handle.close()
+        const handle = await open(lockPath, "wx", 0o600)
+        try {
+          await handle.writeFile(JSON.stringify({ pid: process.pid, token }), "utf8")
+          await handle.sync()
+        } finally {
+          await handle.close()
+        }
+        return {
+          async release() {
+            heldTokens.delete(token)
+            if ((await lockToken(lockPath)) === token) await rm(lockPath, { force: true })
+          },
+        }
+      } catch (error) {
+        if (!isAlreadyExists(error)) throw error
+        const owner = await lockOwner(lockPath)
+        const heldElsewhere =
+          owner !== undefined &&
+          (owner.pid !== process.pid
+            ? processIsAlive(owner.pid)
+            : owner.token !== undefined && heldTokens.has(owner.token))
+        if (heldElsewhere) {
+          throw new Error(`Session ${options.sessionId} is already in use by process ${owner?.pid}.`)
+        }
+        if (owner === undefined && !(await lockIsStale(lockPath))) {
+          throw new Error(`Session ${options.sessionId} is already being locked by another process.`)
+        }
+        await rm(lockPath, { force: true })
       }
-      return {
-        async release() {
-          if ((await lockToken(lockPath)) === token) await rm(lockPath, { force: true })
-        },
-      }
-    } catch (error) {
-      if (!isAlreadyExists(error)) throw error
-      const owner = await lockOwner(lockPath)
-      if (owner !== undefined && processIsAlive(owner)) {
-        throw new Error(`Session ${options.sessionId} is already in use by process ${owner}.`)
-      }
-      if (owner === undefined && !(await lockIsStale(lockPath))) {
-        throw new Error(`Session ${options.sessionId} is already being locked by another process.`)
-      }
-      await rm(lockPath, { force: true })
     }
+  } catch (error) {
+    heldTokens.delete(token)
+    throw error
   }
 
+  heldTokens.delete(token)
   throw new Error(`Could not acquire session ${options.sessionId}.`)
 }
 
@@ -54,11 +73,11 @@ async function lockIsStale(path: string) {
   }
 }
 
-async function lockOwner(path: string) {
+async function lockOwner(path: string): Promise<{ pid: number; token: string | undefined } | undefined> {
   try {
     const value = JSON.parse(await readFile(path, "utf8")) as unknown
     if (isRecord(value) && typeof value.pid === "number" && Number.isSafeInteger(value.pid) && value.pid > 0) {
-      return value.pid
+      return { pid: value.pid, token: typeof value.token === "string" ? value.token : undefined }
     }
   } catch {
     // The caller checks the file age before treating malformed or partial content as stale.

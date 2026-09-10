@@ -169,6 +169,7 @@ export class Application {
     this.models.cancelPrepare()
     this.models.cancelSelection()
     await Promise.allSettled([this.conversation.wait(), this.models.waitForSelection()])
+    await this.sessions.releaseLock()
     await this.models.stop()
   }
 }

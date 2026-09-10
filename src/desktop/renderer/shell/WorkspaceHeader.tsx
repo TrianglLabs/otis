@@ -22,19 +22,21 @@ export function WorkspaceHeader({
 
   return (
     <header className="workspaceHeader">
-      {/* Only once a conversation exists — on the empty home screen, you are already at a fresh start. */}
-      {state.entries.length > 0 ? (
-        <Button
-          variant="ghost"
-          icon={SquarePen}
-          className="workspaceHeader-new noDrag"
-          disabled={state.busy}
-          title={state.busy ? "Finish the current work before starting over" : "New session (⌘N)"}
-          onClick={() => void api.startNewSession()}
-        >
-          Fresh start
-        </Button>
-      ) : null}
+      <div className="workspaceHeader-left">
+        {/* Only once a conversation exists — on the empty home screen, you are already at a fresh start. */}
+        {state.entries.length > 0 ? (
+          <Button
+            variant="ghost"
+            icon={SquarePen}
+            className="workspaceHeader-new noDrag"
+            disabled={state.busy}
+            title={state.busy ? "Finish the current work before starting over" : "New session (⌘N)"}
+            onClick={() => void api.startNewSession()}
+          >
+            Fresh start
+          </Button>
+        ) : null}
+      </div>
 
       {state.session ? <div className="workspaceHeader-title">{state.session.title}</div> : null}
 
@@ -45,7 +47,7 @@ export function WorkspaceHeader({
             <span className="headerDiff-remove">−{diffs.removed}</span>
           </span>
         ) : null}
-        {contextTokens !== undefined ? (
+        {state.entries.length > 0 && contextTokens !== undefined ? (
           <span
             className="contextMeter noDrag"
             title={`${contextTokens.toLocaleString()} of ~${contextLimit.toLocaleString()} tokens`}

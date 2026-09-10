@@ -32,6 +32,7 @@ import {
   sessionFile,
 } from "./session-files.js"
 import type { PromptAdmission, SessionOptions, SessionSummary } from "./session-types.js"
+import { registerWorkspacePath } from "./workspace-registry.js"
 
 export const DEFAULT_SESSION_ID = "default"
 
@@ -44,6 +45,7 @@ export class JsonlSession {
     readonly id: string,
     readonly filePath: string,
     events: SessionEvent[] = [],
+    private readonly cwd?: string,
   ) {
     this.events = [...events]
     this.nextSeq = nextSequence(this.events)
@@ -147,7 +149,9 @@ export class JsonlSession {
   }
 
   async start() {
-    if (this.events.length === 0) await this.append({ type: "session_started", version: 1 })
+    if (this.events.length === 0) {
+      await this.append({ type: "session_started", version: 1, ...(this.cwd ? { cwd: this.cwd } : {}) })
+    }
   }
 
   private continuationMessages(admission: PromptAdmission, messages: ChatMessage[]) {
@@ -184,8 +188,12 @@ export async function openSession(options: SessionOptions) {
   const sessionId = options.sessionId ?? DEFAULT_SESSION_ID
   assertSessionId(sessionId)
 
+  // A real cwd (not a bare directory override) registers the workspace for global history; pre-existing
+  // session dirs gain their marker the first time they're opened from a known location.
+  if (!options.directory) await registerWorkspacePath(defaultSessionDirectory(options.cwd), options.cwd)
+
   const filePath = sessionFile(options, sessionId)
-  const session = new JsonlSession(sessionId, filePath, await readSessionEvents(filePath))
+  const session = new JsonlSession(sessionId, filePath, await readSessionEvents(filePath), options.cwd)
   await session.start()
   return session
 }

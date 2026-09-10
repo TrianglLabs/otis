@@ -1,4 +1,4 @@
-import { ArrowUp, ChevronDown, Square, Zap } from "lucide-react"
+import { ArrowUp, ChevronDown, FolderOpen, Square, Zap } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import { Button } from "../../components/Button.js"
 import { Icon } from "../../components/Icon.js"
@@ -12,18 +12,26 @@ import { draftAfterSend } from "./draft.js"
  * cleared after the application accepts the prompt (recorded in the session); on rejection the text stays put and
  * the reason is shown.
  */
-export function Composer() {
+/** The chip shows just the folder name; the full path stays in the tooltip. */
+function workspaceFolderName(workspace: { label: string; path: string }): string {
+  const parts = workspace.path.split("/").filter(Boolean)
+  return parts.at(-1) ?? workspace.label
+}
+
+export function Composer({ installing = false }: { installing?: boolean }) {
   const { api } = useDesktop()
   const state = useDesktopState()
   const [draft, setDraft] = useState("")
   const [sendError, setSendError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
+  const [workspaceError, setWorkspaceError] = useState<string>()
   const [pickerOpen, setPickerOpen] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const busy = state?.busy ?? false
   const modelState = state?.modelState ?? "unconfigured"
-  const canSend = modelState === "ready" && draft.trim().length > 0 && !sending
+  const needsWorkspace = state?.needsWorkspace ?? false
+  const canSend = modelState === "ready" && draft.trim().length > 0 && !sending && !installing && !needsWorkspace
 
   useEffect(() => {
     const textarea = textareaRef.current
@@ -32,9 +40,17 @@ export function Composer() {
     textarea.style.height = `${Math.min(textarea.scrollHeight, 240)}px`
   }, [draft])
 
+  const openFolder = async () => {
+    const path = await api.pickWorkspaceFolder()
+    if (!path) return
+    setWorkspaceError(undefined)
+    const result = await api.openWorkspace(path)
+    if (!result.ok) setWorkspaceError(result.reason)
+  }
+
   const submit = async () => {
     const text = draft
-    if (!text.trim() || sending || modelState !== "ready") return
+    if (!text.trim() || sending || modelState !== "ready" || installing || needsWorkspace) return
     setSending(true)
     setSendError(null)
     try {
@@ -49,14 +65,17 @@ export function Composer() {
     }
   }
 
-  const placeholder =
-    modelState === "starting"
-      ? "Starting the model…"
-      : modelState === "ready"
-        ? busy
-          ? "Steer the active turn, or queue a follow-up…"
-          : "Ask Otis anything…"
-        : "Set up a model to start chatting"
+  const placeholder = installing
+    ? "Restarting into the update…"
+    : needsWorkspace
+      ? "Locate the working folder to continue this session"
+      : modelState === "starting"
+        ? "Starting the model…"
+        : modelState === "ready"
+          ? busy
+            ? "Steer the active turn, or queue a follow-up…"
+            : "Ask Otis anything…"
+          : "Set up a model to start chatting"
 
   return (
     <div className="composer">
@@ -90,25 +109,36 @@ export function Composer() {
           }}
         />
         <div className="composer-footer">
-          {state?.model ? (
-            <>
+          <span className="composer-context">
+            {state?.model ? (
+              <>
+                <button
+                  type="button"
+                  className={`composer-model${state.modelState === "starting" || state.modelState === "failed" ? ` composer-model-${state.modelState}` : ""}`}
+                  onClick={() => setPickerOpen((open) => !open)}
+                  title={`${state.model.id} · ${PROVIDER_LABELS[state.model.provider] ?? state.model.provider}${state.fastServing.enabled ? " · Fast serving" : ""} — select a model`}
+                  aria-haspopup="dialog"
+                  aria-expanded={pickerOpen}
+                >
+                  {state.fastServing.enabled ? <Icon icon={Zap} size={11} className="composer-fast" /> : null}
+                  {state.model.displayName ?? shortModelId(state.model.id)}
+                  <Icon icon={ChevronDown} size={11} />
+                </button>
+                {pickerOpen ? <ModelPicker onClose={() => setPickerOpen(false)} /> : null}
+              </>
+            ) : null}
+            {state ? (
               <button
                 type="button"
-                className={`composer-model${state.modelState === "starting" || state.modelState === "failed" ? ` composer-model-${state.modelState}` : ""}`}
-                onClick={() => setPickerOpen((open) => !open)}
-                title={`${state.model.id} · ${PROVIDER_LABELS[state.model.provider] ?? state.model.provider}${state.fastServing.enabled ? " · Fast serving" : ""} — select a model`}
-                aria-haspopup="dialog"
-                aria-expanded={pickerOpen}
+                className="composer-workspace noDrag"
+                title={workspaceError ?? `${state.workspace.path} — open a different folder`}
+                onClick={() => void openFolder()}
               >
-                {state.fastServing.enabled ? <Icon icon={Zap} size={11} className="composer-fast" /> : null}
-                {state.model.displayName ?? shortModelId(state.model.id)}
-                <Icon icon={ChevronDown} size={11} />
+                <Icon icon={FolderOpen} size={11} />
+                {workspaceFolderName(state.workspace)}
               </button>
-              {pickerOpen ? <ModelPicker onClose={() => setPickerOpen(false)} /> : null}
-            </>
-          ) : (
-            <span className="composer-model" />
-          )}
+            ) : null}
+          </span>
           <span className="composer-actions">
             {busy ? (
               <Button variant="danger" size="sm" icon={Square} onClick={() => void api.stop()} title="Stop (Esc)">
@@ -118,7 +148,7 @@ export function Composer() {
             <Button
               variant="primary"
               size="sm"
-              icon={ArrowUp}
+              iconAfter={ArrowUp}
               disabled={!canSend}
               onClick={() => void submit()}
               title={busy ? "Send as follow-up (Enter)" : "Send (Enter)"}

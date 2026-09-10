@@ -159,11 +159,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         working-directory: dist/desktop
-        run: gh release upload "v$VERSION" ./*.dmg ./*.zip --clobber --repo "$GITHUB_REPOSITORY"
+        run: gh release upload "v$VERSION" ./*.dmg ./*.zip ./latest-mac.yml ./*.blockmap --clobber --repo "$GITHUB_REPOSITORY"
 
       - name: Attach Linux Artifacts
         if: matrix.os == 'Linux'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         working-directory: dist/desktop
-        run: gh release upload "v$VERSION" ./*.AppImage ./*.deb --clobber --repo "$GITHUB_REPOSITORY"
+        run: gh release upload "v$VERSION" ./*.AppImage ./*.deb ./latest-linux.yml ./latest-linux-arm64.yml --clobber --repo "$GITHUB_REPOSITORY"

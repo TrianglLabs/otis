@@ -22,6 +22,10 @@ export class SessionController {
   async select(sessionId: string) {
     try {
       const result = await this.options.sessions.select(sessionId)
+      if (result === "locked") {
+        this.reportError("Could not open session", new Error("It is open in another Otis window."))
+        return
+      }
       if (result === "noop") {
         this.options.ui.focusInput()
         return
@@ -37,6 +41,11 @@ export class SessionController {
     try {
       const result = await this.options.sessions.delete(sessionId)
       if (result === "busy") {
+        await this.refreshPickerIfPossible()
+        return
+      }
+      if (result === "locked") {
+        this.reportError("Could not delete session", new Error("It is open in another Otis window."))
         await this.refreshPickerIfPossible()
         return
       }

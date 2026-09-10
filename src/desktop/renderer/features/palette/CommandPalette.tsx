@@ -1,14 +1,25 @@
-import { Check, CornerDownLeft, FilePlus2, Trash2 } from "lucide-react"
+import { Check, CornerDownLeft, FilePlus2, FolderOpen, Trash2 } from "lucide-react"
 import { Fragment, useEffect, useRef, useState } from "react"
-import type { SessionPickerItem } from "../../../../app/session-metadata.js"
+import type { GlobalSessionPickerItem } from "../../../../app/global-sessions.js"
 import { Button } from "../../components/Button.js"
 import { Icon } from "../../components/Icon.js"
 import { useDesktop, useDesktopState } from "../../runtime.js"
 import { useScrollbarFlash } from "../../useScrollbarFlash.js"
 
 type PaletteRow =
-  | { kind: "action"; id: string; label: string; hint?: string; run: () => void }
-  | { kind: "session"; item: SessionPickerItem }
+  | {
+      kind: "action"
+      id: string
+      label: string
+      hint?: string
+      icon?: typeof FilePlus2
+      run: () => void | Promise<void>
+    }
+  | { kind: "session"; item: GlobalSessionPickerItem }
+
+function rowKey(item: GlobalSessionPickerItem) {
+  return `${item.dirName}:${item.id}`
+}
 
 const SEARCH_DEBOUNCE_MS = 150
 /**
@@ -22,10 +33,10 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
   const [query, setQuery] = useState("")
   const scrollbar = useScrollbarFlash()
   // Results are tagged with the query that produced them — stale hits are never shown or activated.
-  const [found, setFound] = useState<{ query: string; items: SessionPickerItem[] }>()
+  const [found, setFound] = useState<{ query: string; items: GlobalSessionPickerItem[] }>()
   const [selected, setSelected] = useState(0)
-  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string>()
-  const [menu, setMenu] = useState<{ id: string; x: number; y: number }>()
+  const [confirmingDeleteKey, setConfirmingDeleteKey] = useState<string>()
+  const [menu, setMenu] = useState<{ key: string; x: number; y: number }>()
   const [actionError, setActionError] = useState<string>()
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
@@ -107,6 +118,11 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
     return () => window.removeEventListener("keydown", onKeyDown, true)
   }, [onClose, menu])
 
+  // Opening the palette refreshes history: sessions created outside this window (e.g. the TUI) appear.
+  useEffect(() => {
+    void api.refreshSessions()
+  }, [api])
+
   // Any click outside the context menu dismisses it (its own item handles its click before this fires).
   useEffect(() => {
     if (!menu) return
@@ -126,6 +142,20 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
         onClose()
       },
     },
+    {
+      kind: "action",
+      id: "open-folder",
+      label: "Open Folder",
+      icon: FolderOpen,
+      run: async () => {
+        const path = await api.pickWorkspaceFolder()
+        if (!path) return
+        setActionError(undefined)
+        const result = await api.openWorkspace(path)
+        if (result.ok) onClose()
+        else setActionError(result.reason)
+      },
+    },
   ]
   const actions = allActions.filter(
     (action) => action.kind === "action" && (!needle || action.label.toLowerCase().includes(needle.toLowerCase())),
@@ -141,21 +171,29 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
   const activate = async (row: PaletteRow | undefined) => {
     if (!row) return
     if (row.kind === "action") {
-      row.run()
+      void row.run()
       return
     }
     // A row in its delete-confirm state takes a deliberate mouse click — Enter stays safe.
-    if (row.item.id === confirmingDeleteId) return
+    if (rowKey(row.item) === confirmingDeleteKey) return
     setActionError(undefined)
-    const result = await api.selectSession(row.item.id)
-    if (result.ok) onClose()
-    else setActionError(result.reason)
+    try {
+      // Unknown or missing folder: open the history in place; the banner's locate flow takes it from there.
+      const result =
+        row.item.workspacePath !== undefined && row.item.workspacePath !== state?.workspace.path
+          ? await api.openSessionAt(row.item.workspacePath, row.item.id, row.item.dirName)
+          : await api.selectSession(row.item.id, row.item.dirName)
+      if (result.ok) onClose()
+      else setActionError(result.reason)
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error))
+    }
   }
 
-  const deleteSession = async (id: string) => {
-    setConfirmingDeleteId(undefined)
+  const deleteSession = async (id: string, dirName: string) => {
+    setConfirmingDeleteKey(undefined)
     setActionError(undefined)
-    const result = await api.deleteSession(id)
+    const result = await api.deleteSession(id, dirName)
     if (result.ok) {
       // Search results are local state, so they don't refresh from the snapshot like the recents list does.
       setFound((current) => (current ? { ...current, items: current.items.filter((item) => item.id !== id) } : current))
@@ -211,8 +249,12 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
         >
           {rows.map((row, index) => {
             const firstSession = row.kind === "session" && rows[index - 1]?.kind !== "session"
+            const key = row.kind === "action" ? row.id : rowKey(row.item)
+            const otherWorkspace =
+              row.kind === "session" &&
+              (row.item.workspacePath === undefined || row.item.workspacePath !== state?.workspace.path)
             return (
-              <Fragment key={row.kind === "action" ? row.id : row.item.id}>
+              <Fragment key={key}>
                 {!needle && index === 0 && row.kind === "action" ? (
                   <div className="palette-section">Actions</div>
                 ) : null}
@@ -226,7 +268,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
                   >
                     <span className="palette-rowText">
                       <span className="palette-rowTitle">
-                        <Icon icon={FilePlus2} size={12} />
+                        <Icon icon={row.icon ?? FilePlus2} size={12} />
                         {row.label}
                       </span>
                       {row.hint ? <kbd className="palette-kbd">{row.hint}</kbd> : null}
@@ -234,13 +276,17 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
                   </button>
                 ) : (
                   <div className={`palette-row${index === selected ? " palette-row-selected" : ""}`}>
-                    {confirmingDeleteId === row.item.id ? (
+                    {confirmingDeleteKey === key ? (
                       <div className="palette-confirm">
                         <span className="palette-confirmText">Delete this session?</span>
-                        <Button variant="ghost" size="sm" onClick={() => setConfirmingDeleteId(undefined)}>
+                        <Button variant="ghost" size="sm" onClick={() => setConfirmingDeleteKey(undefined)}>
                           Keep
                         </Button>
-                        <Button variant="danger" size="sm" onClick={() => void deleteSession(row.item.id)}>
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          onClick={() => void deleteSession(row.item.id, row.item.dirName)}
+                        >
                           Delete
                         </Button>
                       </div>
@@ -250,17 +296,22 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
                         className="palette-rowMain"
                         onMouseEnter={() => setSelected(index)}
                         onClick={() => void activate(row)}
-                        onContextMenu={(event) => {
-                          event.preventDefault()
-                          setSelected(index)
-                          setMenu({ id: row.item.id, x: event.clientX, y: event.clientY })
-                        }}
+                        onContextMenu={
+                          otherWorkspace
+                            ? undefined
+                            : (event) => {
+                                event.preventDefault()
+                                setSelected(index)
+                                setMenu({ key, x: event.clientX, y: event.clientY })
+                              }
+                        }
                       >
                         <span className="palette-rowText">
                           <span className="palette-rowTitle">
                             {row.item.title}
                             {row.item.active ? <Icon icon={Check} size={12} /> : null}
                           </span>
+                          <span className="palette-rowWorkspace">{row.item.workspaceLabel}</span>
                           <span className="palette-rowDetail">{row.item.detail}</span>
                           {row.item.snippet ? <span className="palette-rowSnippet">{row.item.snippet}</span> : null}
                         </span>
@@ -296,7 +347,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
             className="palette-menuItem"
             onClick={() => {
               setMenu(undefined)
-              setConfirmingDeleteId(menu.id)
+              setConfirmingDeleteKey(menu.key)
             }}
           >
             <Icon icon={Trash2} size={12} />

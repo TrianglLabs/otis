@@ -469,3 +469,24 @@ function fastModel(name: string, displayName: string) {
     fastId: `accounts/fireworks/routers/${name}-fast`,
   }
 }
+
+describe("settings write path pinning", () => {
+  it("resolves the target file before queueing, so an OTIS_HOME flip mid-write cannot redirect it", async () => {
+    const first = await tempDirectory()
+    const second = await tempDirectory()
+    process.env.OTIS_HOME = first
+    try {
+      const { saveLastWorkspace } = await import("../../src/local/settings.js")
+      // Not awaited: the write runs while the environment flips to another home.
+      const pending = saveLastWorkspace(join(first, "workspace"))
+      process.env.OTIS_HOME = second
+      await pending
+      // The save must land entirely in the home that was active when it was requested.
+      const written = JSON.parse(await readFile(join(first, "config.json"), "utf8"))
+      expect(written.lastWorkspace).toBe(join(first, "workspace"))
+      await expect(readFile(join(second, "config.json"), "utf8")).rejects.toThrow()
+    } finally {
+      delete process.env.OTIS_HOME
+    }
+  })
+})

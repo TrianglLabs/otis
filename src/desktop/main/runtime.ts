@@ -1,6 +1,9 @@
+import { stat } from "node:fs/promises"
+import { basename, join, resolve } from "node:path"
 import { Application } from "../../app/application.js"
 import type { ConversationHooks, ConversationTurnResult, QueuedPrompt } from "../../app/conversation.js"
-import type { SessionPickerItem } from "../../app/session-metadata.js"
+import type { GlobalSessionPickerItem } from "../../app/global-sessions.js"
+import { listGlobalSessionPickerItems, searchGlobalSessionPickerItems } from "../../app/global-sessions.js"
 import type { TranscriptChange, TranscriptEntry } from "../../app/transcript.js"
 import { formatWorkspaceLabel } from "../../app/workspace-label.js"
 import { autoCompactThreshold } from "../../core/compaction.js"
@@ -34,6 +37,7 @@ import {
   isThemeName,
   saveFastServingSelection,
   saveFireworksApiKey,
+  saveLastWorkspace,
   savePairEndpoints,
   saveSelectedModel,
   saveSelectedTheme,
@@ -42,6 +46,13 @@ import {
 } from "../../local/settings.js"
 import { calculateLocalStats } from "../../local/stats.js"
 import type { PermissionRequest } from "../../permissions/policy.js"
+import {
+  defaultSessionDirectory,
+  readWorkspacePath,
+  registerWorkspacePath,
+  sessionFile,
+  sessionRootDirectory,
+} from "../../storage/index.js"
 import { describeToolCall } from "../../tools/activity.js"
 import type {
   DesktopEvent,
@@ -68,6 +79,8 @@ export type DesktopRuntimeOptions = {
   discoverPair?: typeof discoverPairModels
   /** Test seam for verifying a Fireworks key against the hosted catalog. */
   listToolCapableModels?: typeof listToolCapableModels
+  /** Quits and installs the downloaded update; provided by the main process once a release is ready. */
+  installUpdate?: () => Promise<void>
 }
 
 /** Maximum prompt size accepted from the renderer, matching what a session file can reasonably hold. */
@@ -91,14 +104,25 @@ export class DesktopRuntime {
   #modelError: string | undefined
   /** In-flight selectModel requests; prompt admission is rejected while any are open. */
   #selecting = 0
+  /** A session open is in flight; prompts are rejected until its workspace state settles. */
+  #sessionSelecting = 0
+  /** A locate is completing; session changes are refused so recovery can't attach to the wrong session. */
+  #locating = false
   /** The most recent picker listing; feeds fast-serving availability without a fetch per status. */
   #lastPickerItems: ModelPickerItem[] | undefined
   /** Session-only debug mode, mirroring the TUI's /debug toggle. */
   #debug = false
+  /** A workspace switch in flight; switches and conflicting session operations are refused until it settles. */
+  #switching = false
+  /** Session opened in place whose working folder is unknown or gone; agent work is blocked until located. */
+  #pendingWorkspace: { dirName: string; sessionId: string } | undefined
+  /** Global session listing is disk-heavy; recomputed only when sessions change, not on streaming flushes. */
+  #sessionsCache: GlobalSessionPickerItem[] | undefined
   /** A local-model deletion is in flight; model switches are rejected until its cleanup settles. */
   #deleting = false
   #modelLoad: { modelId: string; status: ModelPickerStatus } | undefined
   #stats: DesktopStatus["stats"]
+  #update: DesktopStatus["update"]
   #queuedChanges: TranscriptChange[] = []
   #stateDirty = false
   #flushTimer: ReturnType<typeof setTimeout> | undefined
@@ -138,7 +162,6 @@ export class DesktopRuntime {
     return {
       platform: this.options.platform,
       version: this.options.version,
-      workspace: { label: formatWorkspaceLabel(this.app.cwd), path: this.app.cwd },
       entries: [...this.app.transcript.entries],
       revision: this.#revision,
       ...(await this.#status()),
@@ -146,6 +169,14 @@ export class DesktopRuntime {
   }
 
   async sendPrompt(text: string): Promise<SendPromptResult> {
+    // Once shutdown starts (update install), the session lock is released and no renderer receives updates.
+    if (this.#disposed) return { accepted: false, reason: "Otis is restarting to finish an update." }
+    if (this.#switching) return { accepted: false, reason: "Switching workspaces — try again in a moment." }
+    if (this.#pendingWorkspace) {
+      return { accepted: false, reason: "Locate the working folder to continue this session." }
+    }
+    // A foreign session's read-only restriction is set after its async open; prompts must not slip through first.
+    if (this.#sessionSelecting > 0) return { accepted: false, reason: "Opening the session — try again in a moment." }
     // A live renderer sending a prompt un-gates the queue after a renderer crash; queued work never resumes on its own.
     this.#rendererGone = false
     if (typeof text !== "string" || !text.trim()) return { accepted: false, reason: "The prompt is empty." }
@@ -223,29 +254,280 @@ export class DesktopRuntime {
     this.#markStateDirty()
   }
 
-  async selectSession(sessionId: string): Promise<SessionOpResult> {
+  /** Called by the main process when the auto-updater has a release ready to install. */
+  setUpdateAvailable(version: string): void {
+    if (this.#update?.version === version) return
+    this.#update = { version }
+    this.#markStateDirty()
+  }
+
+  async installUpdate(): Promise<void> {
+    await this.options.installUpdate?.()
+  }
+
+  async selectSession(sessionId: string, dirName?: string): Promise<SessionOpResult> {
+    if (this.#disposed) return { ok: false, reason: "Otis is restarting to finish an update." }
+    if (this.#switching) return { ok: false, reason: "Switching workspaces — try again in a moment." }
+    if (this.#locating) return { ok: false, reason: "Locating the working folder — try again in a moment." }
     if (typeof sessionId !== "string" || !sessionId) return { ok: false, reason: "Invalid session id." }
-    const result = await this.app.sessions.select(sessionId)
+    // Held synchronously from here until the open settles: a prompt admitted in between would run against the
+    // wrong workspace state (the read-only restriction lands only after the load).
+    this.#sessionSelecting += 1
+    try {
+      // The palette row may be stale: another instance can register the dir's workspace after the list loaded.
+      // Re-resolve now — a known, present, different folder means this session belongs to a workspace switch.
+      if (dirName !== undefined && dirName !== basename(defaultSessionDirectory(this.app.cwd))) {
+        const registered = await readWorkspacePath(join(sessionRootDirectory(), dirName))
+        if (registered && resolve(registered) !== this.app.cwd && (await pathExists(registered))) {
+          return await this.switchWorkspace(registered, sessionId, dirName)
+        }
+      }
+      const result = await this.app.sessions.select(sessionId, this.#storageFor(dirName))
+      if (result === "loaded") {
+        await this.#updatePendingWorkspace()
+        this.#sessionsCache = undefined
+        this.#markStateDirty()
+      }
+      return this.#selectResult(result)
+    } finally {
+      this.#sessionSelecting -= 1
+    }
+  }
+
+  /**
+   * Whether the active session's working folder is known and present. Sessions from before workspace
+   * registration — or whose folder was since removed — open in place so their history is readable, but agent
+   * work stays blocked until the user locates the folder (file tools would otherwise run in the wrong place).
+   */
+  async #updatePendingWorkspace(): Promise<void> {
+    this.#pendingWorkspace = undefined
+    const current = this.app.sessions.current
+    const dirName = this.app.sessions.currentDirName
+    if (!current || !dirName) return
+    if (dirName === basename(defaultSessionDirectory(this.app.cwd))) return // the workspace's own store is home
+    const registered = await readWorkspacePath(join(sessionRootDirectory(), dirName))
+    if (registered && (await pathExists(registered))) return
+    this.#pendingWorkspace = { dirName, sessionId: current.id }
+    // An in-place session is a read-only view (prompts are rejected): drop the write lock so the locate
+    // switch — or another Otis instance — can acquire it. Writes resume only after the workspace is real.
+    await this.app.sessions.releaseLock()
+  }
+
+  /** Storage identity for a session row: its dir under the shared sessions root, when the caller knows it. */
+  #storageFor(dirName: string | undefined): { directory: string } | undefined {
+    if (dirName === undefined) return undefined
+    if (!/^[A-Za-z0-9._-]+$/.test(dirName)) throw new Error("Invalid session directory")
+    return { directory: join(sessionRootDirectory(), dirName) }
+  }
+
+  /** The palette recomputes history when it opens, so sessions a TUI instance created get listed. */
+  refreshSessions(): void {
+    this.#sessionsCache = undefined
+    this.#markStateDirty()
+  }
+
+  #selectResult(result: "noop" | "loaded" | "locked"): SessionOpResult {
+    if (result === "locked") return { ok: false, reason: "That session is open in another Otis window." }
     if (result === "noop") return { ok: false, reason: "Finish the current work before switching sessions." }
+    return { ok: true }
+  }
+
+  /**
+   * Moves the window to another workspace, optionally straight into one of its sessions (global history). The
+   * destination application — and session, lock included — is fully acquired before the current one shuts down,
+   * so any failure leaves this workspace running untouched. `dirName` pins the session's storage identity when
+   * the caller located history by hand; without it the session must live in the folder's own store.
+   */
+  async switchWorkspace(path: string, sessionId?: string, dirName?: string): Promise<SessionOpResult> {
+    if (this.#locating) return { ok: false, reason: "Locating the working folder — try again in a moment." }
+    return this.#performSwitch(path, sessionId, dirName)
+  }
+
+  /** The switch itself; locateWorkspace calls this directly since it holds the locating guard. */
+  async #performSwitch(path: string, sessionId?: string, dirName?: string): Promise<SessionOpResult> {
+    const cwd = resolve(path)
+    if (this.#disposed) return { ok: false, reason: "Otis is restarting to finish an update." }
+    if (cwd === this.app.cwd) return sessionId ? this.selectSession(sessionId, dirName) : { ok: true }
+    if (this.#switching) return { ok: false, reason: "A workspace switch is already in progress." }
+    if (this.app.conversation.busy || this.#draining || this.#selecting > 0 || this.#modelLoad) {
+      return { ok: false, reason: "Finish the current work before switching workspaces." }
+    }
+    // Set synchronously, before any await: two overlapping calls must not both pass validation.
+    this.#switching = true
+    try {
+      if (!(await pathExists(cwd)) || !(await stat(cwd)).isDirectory()) {
+        // Folder gone but history present: open the session in place; the locate flow takes it from there.
+        // Awaited, so #switching stays held until loading and read-only classification finish.
+        if (sessionId && dirName) return await this.#switchFallbackSelect(sessionId, dirName)
+        return { ok: false, reason: "That folder is no longer available." }
+      }
+      const sessionDir = this.#storageFor(dirName)?.directory ?? defaultSessionDirectory(cwd)
+      if (sessionId && !(await pathExists(sessionFile({ cwd, directory: sessionDir }, sessionId)))) {
+        return { ok: false, reason: "That session is no longer available." }
+      }
+
+      let next: Application
+      try {
+        next = await Application.create({ cwd })
+      } catch (error) {
+        return { ok: false, reason: `Could not open that folder: ${errorMessage(error)}` }
+      }
+
+      // Open the destination session (write lock included) before committing: a refusal here must not strand
+      // the user in a workspace they never entered.
+      if (sessionId) {
+        const result = this.#selectResult(await next.sessions.select(sessionId, { directory: sessionDir }))
+        if (!result.ok) {
+          await next.shutdown()
+          return result
+        }
+      }
+
+      this.#unsubscribeTranscript()
+      await this.app.shutdown()
+      this.#app = next
+      this.#unsubscribeTranscript = next.transcript.subscribe((change) => this.#onTranscriptChange(change))
+      this.#queuedChanges = []
+      this.#pendingWorkspace = undefined // the destination workspace is real and present
+      this.#sessionsCache = undefined
+      this.#modelState = next.models.client ? "ready" : next.hasConfiguredSelection() ? "starting" : "unconfigured"
+      this.#modelError = undefined
+      this.#modelLoad = undefined
+      void this.#startSavedSelection()
+      this.#revision += 1
+      this.options.send({
+        type: "transcript",
+        revision: this.#revision,
+        ops: [{ op: "reset", entries: [...next.transcript.entries] }],
+      })
+      await saveLastWorkspace(cwd)
+      this.#markStateDirty()
+      return { ok: true }
+    } finally {
+      this.#switching = false
+    }
+  }
+
+  /** Opens a session in the current window without its workspace — the locate flow follows from the banner. */
+  async #switchFallbackSelect(sessionId: string, dirName: string): Promise<SessionOpResult> {
+    // Defense in depth alongside #switching (held by the caller through this await): no prompt slips in mid-load.
+    this.#sessionSelecting += 1
+    try {
+      const result = await this.app.sessions.select(sessionId, this.#storageFor(dirName))
+      if (result === "loaded") {
+        await this.#updatePendingWorkspace()
+        this.#sessionsCache = undefined
+        this.#markStateDirty()
+      }
+      return this.#selectResult(result)
+    } finally {
+      this.#sessionSelecting -= 1
+    }
+  }
+
+  /** "Open Folder" — always a plain workspace switch, never a locate; previewing history stays unregistered. */
+  async openWorkspace(path: string): Promise<SessionOpResult> {
+    return this.switchWorkspace(path)
+  }
+
+  /**
+   * The locate banner's action: associates the pending read-only session with the picked folder and completes
+   * recovery. Picking the folder already open in this window reacquires the session's write lock in place —
+   * selecting it again would no-op against itself and leave the session stuck read-only.
+   */
+  async locateWorkspace(path: string): Promise<SessionOpResult> {
+    if (this.#disposed) return { ok: false, reason: "Otis is restarting to finish an update." }
+    // Mutual exclusion, both directions: session operations refuse while a locate runs, and a locate refuses
+    // while any of them is in flight — otherwise an earlier selection settling mid-locate could be relocked.
+    if (this.#locating) return { ok: false, reason: "Locating the working folder — try again in a moment." }
+    if (this.#switching) return { ok: false, reason: "Switching workspaces — try again in a moment." }
+    if (this.#sessionSelecting > 0) return { ok: false, reason: "A session is still opening — try again in a moment." }
+    const pending = this.#pendingWorkspace
+    if (!pending) return { ok: false, reason: "Nothing is waiting for a working folder." }
+    if (typeof path !== "string" || !path) return { ok: false, reason: "No folder was picked." }
+    // Held synchronously from here: session operations are refused until recovery completes, so the session
+    // that gets its write access back is provably the one whose folder was registered.
+    this.#locating = true
+    try {
+      if (!(await pathExists(path))) return { ok: false, reason: "That folder is no longer available." }
+      await registerWorkspacePath(join(sessionRootDirectory(), pending.dirName), path)
+      // Registered first: even if the switch is refused (busy elsewhere), the folder association survives.
+      // Verify the pending session is still the active one before touching write access — the guard makes a
+      // mismatch impossible through the public API, so one here means internal drift: fail, don't unlock.
+      if (
+        this.#pendingWorkspace !== pending ||
+        this.app.sessions.current?.id !== pending.sessionId ||
+        this.app.sessions.currentDirName !== pending.dirName
+      ) {
+        return { ok: false, reason: "The session changed while locating — try again." }
+      }
+      if (resolve(path) === this.app.cwd) {
+        const relock = await this.app.sessions.relock()
+        if (relock === "locked") return { ok: false, reason: "That session is open in another Otis window." }
+        this.#pendingWorkspace = undefined
+        this.#sessionsCache = undefined
+        this.#markStateDirty()
+        return { ok: true }
+      }
+      return await this.#performSwitch(path, pending.sessionId, pending.dirName)
+    } finally {
+      this.#locating = false
+    }
+  }
+
+  /** "Locate workspace": a folder the user picked for history that predates workspace registration. */
+  async registerWorkspace(dirName: string, path: string): Promise<SessionOpResult> {
+    if (typeof dirName !== "string" || !/^[A-Za-z0-9._-]+$/.test(dirName)) throw new Error("Invalid session directory")
+    if (typeof path !== "string" || !path) return { ok: false, reason: "No folder was picked." }
+    if (!(await pathExists(path))) return { ok: false, reason: "That folder is no longer available." }
+    await registerWorkspacePath(join(sessionRootDirectory(), dirName), path)
+    this.#sessionsCache = undefined
     this.#markStateDirty()
     return { ok: true }
   }
 
-  /** The command palette's session search, resolved against the workspace's stored sessions. */
-  async searchSessions(query: string): Promise<SessionPickerItem[]> {
-    return this.app.sessions.searchPickerItems(typeof query === "string" ? query : "")
+  /** The cached global session list; invalidated by every operation that creates, opens, or removes one. */
+  async #globalSessions(): Promise<GlobalSessionPickerItem[]> {
+    if (this.#sessionsCache === undefined) {
+      this.#sessionsCache = await listGlobalSessionPickerItems({
+        activeId: this.app.sessions.current?.id,
+        activeDirName: this.app.sessions.currentDirName,
+        seeds: [this.app.cwd],
+      })
+    }
+    return this.#sessionsCache
+  }
+
+  /** The command palette's session search, across every workspace's stored sessions. */
+  async searchSessions(query: string): Promise<GlobalSessionPickerItem[]> {
+    return searchGlobalSessionPickerItems(typeof query === "string" ? query : "", {
+      activeId: this.app.sessions.current?.id,
+      activeDirName: this.app.sessions.currentDirName,
+      seeds: [this.app.cwd],
+    })
   }
 
   startNewSession(): SessionOpResult {
+    if (this.#disposed) return { ok: false, reason: "Otis is restarting to finish an update." }
+    if (this.#switching) return { ok: false, reason: "Switching workspaces — try again in a moment." }
+    if (this.#locating) return { ok: false, reason: "Locating the working folder — try again in a moment." }
     if (!this.app.sessions.startNew()) return { ok: false, reason: "Finish the current work before starting over." }
+    this.#pendingWorkspace = undefined
+    this.#sessionsCache = undefined
     this.#markStateDirty()
     return { ok: true }
   }
 
-  async deleteSession(sessionId: string): Promise<SessionOpResult> {
+  async deleteSession(sessionId: string, dirName?: string): Promise<SessionOpResult> {
+    if (this.#disposed) return { ok: false, reason: "Otis is restarting to finish an update." }
+    if (this.#switching) return { ok: false, reason: "Switching workspaces — try again in a moment." }
+    if (this.#locating) return { ok: false, reason: "Locating the working folder — try again in a moment." }
     if (typeof sessionId !== "string" || !sessionId) return { ok: false, reason: "Invalid session id." }
-    const result = await this.app.sessions.delete(sessionId)
+    const result = await this.app.sessions.delete(sessionId, this.#storageFor(dirName))
+    if (result === "locked") return { ok: false, reason: "That session is open in another Otis window." }
     if (result === "busy") return { ok: false, reason: "Finish the current work before deleting sessions." }
+    if (this.app.sessions.current === undefined) this.#pendingWorkspace = undefined
+    this.#sessionsCache = undefined
     void this.#refreshStats()
     this.#markStateDirty()
     return { ok: true }
@@ -711,7 +993,8 @@ export class DesktopRuntime {
     await this.app.shutdown()
   }
 
-  private get app(): Application {
+  /** The live application for the current workspace; re-pointed by switchWorkspace. Exposed for tests. */
+  get app(): Application {
     return this.#app
   }
 
@@ -738,6 +1021,7 @@ export class DesktopRuntime {
     } finally {
       this.#draining = false
       this.#phase = "idle"
+      this.#sessionsCache = undefined
       this.#markStateDirty()
       this.#flushNow()
     }
@@ -985,7 +1269,9 @@ export class DesktopRuntime {
       modelState: this.#modelState,
       modelError: this.#modelError,
       session: app.sessions.current ? { id: app.sessions.current.id, title: app.sessions.activeLabel() } : null,
-      sessions: await app.sessions.listPickerItems(),
+      needsWorkspace: this.#pendingWorkspace !== undefined,
+      sessions: await this.#globalSessions(),
+      workspace: { label: formatWorkspaceLabel(app.cwd), path: app.cwd },
       contextTokens: app.contextTokens(),
       contextLimit: app.models.autoCompactAtTokens,
       diffs: app.sessions.diffs,
@@ -1000,6 +1286,7 @@ export class DesktopRuntime {
       pairConfigured: Boolean(app.pairEndpoints.ollama || app.pairEndpoints.lmStudio),
       pairEndpoints: { ...app.pairEndpoints },
       debug: this.#debug,
+      ...(this.#update ? { update: this.#update } : {}),
       subagents: this.app.subagents.all.map((trace) => ({
         toolCallId: trace.toolCallId,
         title: trace.title,
@@ -1008,6 +1295,15 @@ export class DesktopRuntime {
         tools: trace.transcript.entries.filter((entry) => entry.kind === "tool").length,
       })),
     }
+  }
+}
+
+async function pathExists(path: string) {
+  try {
+    await stat(path)
+    return true
+  } catch {
+    return false
   }
 }
 

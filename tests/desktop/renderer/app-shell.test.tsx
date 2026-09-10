@@ -2,7 +2,26 @@
 
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import type { SessionPickerItem } from "../../../src/app/session-metadata.js"
+import type { GlobalSessionPickerItem } from "../../../src/app/global-sessions.js"
+
+const WS = "/ws"
+
+function sessionItem(partial: {
+  id: string
+  title: string
+  detail: string
+  active?: boolean
+  snippet?: string
+  workspacePath?: string
+}): GlobalSessionPickerItem {
+  return {
+    dirName: "ws-0123456789ab",
+    workspaceLabel: "ws",
+    workspacePath: WS,
+    ...partial,
+  }
+}
+
 import type { DesktopApi, DesktopEvent, DesktopSnapshot } from "../../../src/desktop/contracts.js"
 import { App } from "../../../src/desktop/renderer/App.js"
 import { DesktopProvider } from "../../../src/desktop/renderer/runtime.js"
@@ -20,7 +39,18 @@ const SNAPSHOT: DesktopSnapshot = {
   modelState: "ready",
   modelError: undefined,
   session: { id: "session-1", title: "Test session" },
-  sessions: [{ id: "session-1", title: "Test session", detail: "just now", active: true }],
+  needsWorkspace: false,
+  sessions: [
+    {
+      id: "session-1",
+      title: "Test session",
+      detail: "just now",
+      active: true,
+      dirName: "ws-0123456789ab",
+      workspaceLabel: "ws",
+      workspacePath: "/ws",
+    },
+  ],
   contextTokens: undefined,
   contextLimit: 32_768,
   diffs: { added: 0, removed: 0 },
@@ -38,7 +68,7 @@ const SNAPSHOT: DesktopSnapshot = {
   debug: false,
   platform: "darwin",
   version: "0.0.0-test",
-  workspace: { label: "otis", path: "/tmp/otis" },
+  workspace: { label: "ws", path: "/ws" },
   entries: [],
   revision: 1,
 }
@@ -53,6 +83,12 @@ function fakeApi(overrides: Partial<DesktopApi> = {}): DesktopApi {
     searchSessions: vi.fn(async () => []),
     startNewSession: vi.fn(async () => ({ ok: true as const })),
     deleteSession: vi.fn(async () => ({ ok: true as const })),
+    openSessionAt: vi.fn(async () => ({ ok: true as const })),
+    openWorkspace: vi.fn(async () => ({ ok: true as const })),
+    locateWorkspace: vi.fn(async () => ({ ok: true as const })),
+    pickWorkspaceFolder: vi.fn(async () => undefined),
+    registerWorkspace: vi.fn(async () => ({ ok: true as const })),
+    refreshSessions: vi.fn(async () => {}),
     listModels: vi.fn(async () => []),
     selectModel: vi.fn(async () => ({ ok: true as const })),
     cancelModelSelection: vi.fn(async () => {}),
@@ -67,6 +103,7 @@ function fakeApi(overrides: Partial<DesktopApi> = {}): DesktopApi {
     listDownloadedModels: vi.fn(async () => []),
     deleteLocalModel: vi.fn(async () => ({ ok: true as const })),
     setDebugMode: vi.fn(async () => {}),
+    installUpdate: vi.fn(async () => {}),
     subscribe: vi.fn(() => () => {}),
     ...overrides,
   }
@@ -111,13 +148,24 @@ describe("AppShell settings navigation", () => {
     expect(restored.closest(".mainColumn")?.classList.contains("mainColumn-hidden")).toBe(false)
   })
 
+  it("shows an update chip only when an update is downloaded", async () => {
+    const api = fakeApi()
+    await renderApp(api)
+    expect(screen.queryByRole("button", { name: "Update" })).toBeNull()
+    cleanup()
+
+    const updated = fakeApi({
+      getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, update: { version: "9.9.9" } })),
+    })
+    await renderApp(updated)
+    fireEvent.click(await screen.findByRole("button", { name: "Update" }))
+    expect(updated.installUpdate).toHaveBeenCalled()
+  })
+
   it("lists every session in the palette — no recents cap", async () => {
-    const many = Array.from({ length: 12 }, (_, i) => ({
-      id: `session-${i}`,
-      title: `Session number ${i}`,
-      detail: "just now",
-      active: i === 0,
-    }))
+    const many = Array.from({ length: 12 }, (_, i) =>
+      sessionItem({ id: `session-${i}`, title: `Session number ${i}`, detail: "just now", active: i === 0 }),
+    )
     const api = fakeApi({ getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, sessions: many })) })
     await renderApp(api)
     fireEvent.keyDown(window, { key: "k", metaKey: true })
@@ -126,12 +174,12 @@ describe("AppShell settings navigation", () => {
   })
 
   it("opens the ⌘K palette, searches sessions, and opens the picked session", async () => {
-    const hit: SessionPickerItem = {
+    const hit = sessionItem({
       id: "session-2",
       title: "Refactor the view store",
       detail: "2h ago",
       snippet: "…keep selectors stable…",
-    }
+    })
     const api = fakeApi({ searchSessions: vi.fn(async () => [hit]) })
     await renderApp(api)
 
@@ -154,7 +202,7 @@ describe("AppShell settings navigation", () => {
     fireEvent.click(screen.getByText("Refactor the view store"))
     await act(async () => {})
 
-    expect(api.selectSession).toHaveBeenCalledWith("session-2")
+    expect(api.selectSession).toHaveBeenCalledWith("session-2", "ws-0123456789ab")
     expect(screen.queryByLabelText("Search sessions and actions")).toBeNull()
   })
 
@@ -173,7 +221,7 @@ describe("AppShell settings navigation", () => {
   })
 
   it("never opens a result from a stale query", async () => {
-    const alpha: SessionPickerItem = { id: "session-alpha", title: "Alpha session", detail: "1h ago" }
+    const alpha = sessionItem({ id: "session-alpha", title: "Alpha session", detail: "1h ago" })
     const api = fakeApi({ searchSessions: vi.fn(async (q: string) => (q === "alpha" ? [alpha] : [])) })
     await renderApp(api)
 
@@ -199,7 +247,7 @@ describe("AppShell settings navigation", () => {
   })
 
   it("keeps a valid selection when results arrive after an ArrowDown during loading", async () => {
-    const hit: SessionPickerItem = { id: "session-z", title: "Zephyr notes", detail: "1d ago" }
+    const hit = sessionItem({ id: "session-z", title: "Zephyr notes", detail: "1d ago" })
     const api = fakeApi({ searchSessions: vi.fn(async () => [hit]) })
     await renderApp(api)
 
@@ -221,7 +269,7 @@ describe("AppShell settings navigation", () => {
     expect(row?.classList.contains("palette-row-selected")).toBe(true)
     fireEvent.keyDown(input, { key: "Enter" })
     await act(async () => {})
-    expect(api.selectSession).toHaveBeenCalledWith("session-z")
+    expect(api.selectSession).toHaveBeenCalledWith("session-z", "ws-0123456789ab")
   })
 
   it("keeps Tab focus inside the palette and restores it to the composer on close", async () => {
@@ -343,6 +391,142 @@ describe("AppShell settings navigation", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Delete session" }))
     fireEvent.click(palette.getByRole("button", { name: "Delete" }))
     await act(async () => {})
-    expect(api.deleteSession).toHaveBeenCalledWith("session-1")
+    expect(api.deleteSession).toHaveBeenCalledWith("session-1", "ws-0123456789ab")
+  })
+})
+
+describe("global session history", () => {
+  it("refreshes history when the palette opens", async () => {
+    const api = fakeApi()
+    await renderApp(api)
+    fireEvent.keyDown(window, { key: "k", metaKey: true })
+    await screen.findByRole("dialog")
+    expect(api.refreshSessions).toHaveBeenCalled()
+  })
+
+  it("labels sessions from other workspaces and opens them via openSessionAt", async () => {
+    const foreign = sessionItem({
+      id: "session-foreign",
+      title: "Notes cleanup",
+      detail: "1d ago",
+      workspacePath: "/other/notes",
+    })
+    foreign.workspaceLabel = "notes"
+    const api = fakeApi({ getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, sessions: [foreign] })) })
+    await renderApp(api)
+
+    fireEvent.keyDown(window, { key: "k", metaKey: true })
+    const palette = within(await screen.findByRole("dialog"))
+
+    fireEvent.click(palette.getByText("Notes cleanup"))
+    await act(async () => {})
+    expect(api.openSessionAt).toHaveBeenCalledWith("/other/notes", "session-foreign", "ws-0123456789ab")
+    expect(api.selectSession).not.toHaveBeenCalled()
+  })
+
+  it("opens history without a registered folder in place — no folder dialog first", async () => {
+    const legacy = sessionItem({ id: "session-legacy", title: "Old stuff", detail: "2w ago" })
+    delete legacy.workspacePath
+    legacy.workspaceLabel = "oldstuff"
+    legacy.dirName = "oldstuff-0123456789ab"
+    const api = fakeApi({
+      getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, sessions: [legacy] })),
+      pickWorkspaceFolder: vi.fn(async () => "/picked/oldstuff"),
+    })
+    await renderApp(api)
+
+    fireEvent.keyDown(window, { key: "k", metaKey: true })
+    const palette = within(await screen.findByRole("dialog"))
+    fireEvent.click(palette.getByText("Old stuff"))
+    await act(async () => {})
+    await act(async () => {})
+    expect(api.pickWorkspaceFolder).not.toHaveBeenCalled()
+    expect(api.selectSession).toHaveBeenCalledWith("session-legacy", "oldstuff-0123456789ab")
+  })
+
+  it("shows the workspace label beside each session row", async () => {
+    const legacy = sessionItem({ id: "session-legacy", title: "Old stuff", detail: "2w ago" })
+    delete legacy.workspacePath
+    legacy.workspaceLabel = "oldstuff"
+    legacy.dirName = "oldstuff-0123456789ab"
+    const api = fakeApi({ getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, sessions: [legacy] })) })
+    await renderApp(api)
+
+    fireEvent.keyDown(window, { key: "k", metaKey: true })
+    const palette = within(await screen.findByRole("dialog"))
+    expect(palette.getByText("oldstuff")).toBeTruthy()
+  })
+
+  it("locate banner picks a folder and completes the pending session's recovery", async () => {
+    const api = fakeApi({
+      getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, needsWorkspace: true })),
+      pickWorkspaceFolder: vi.fn(async () => "/picked/oldstuff"),
+    })
+    await renderApp(api)
+
+    fireEvent.click(await screen.findByRole("button", { name: /Locate working folder/ }))
+    await act(async () => {})
+    await act(async () => {})
+    expect(api.openWorkspace).not.toHaveBeenCalled()
+    expect(api.locateWorkspace).toHaveBeenCalledWith("/picked/oldstuff")
+  })
+
+  it("locate banner shows the failure reason instead of hiding it", async () => {
+    const api = fakeApi({
+      getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, needsWorkspace: true })),
+      pickWorkspaceFolder: vi.fn(async () => "/picked/oldstuff"),
+      locateWorkspace: vi.fn(async () => ({
+        ok: false as const,
+        reason: "That session is open in another Otis window.",
+      })),
+    })
+    await renderApp(api)
+
+    fireEvent.click(await screen.findByRole("button", { name: /Locate working folder/ }))
+    await act(async () => {})
+    await act(async () => {})
+    expect(await screen.findByText(/open in another Otis window/)).toBeTruthy()
+  })
+
+  it("opens a folder from the palette action", async () => {
+    const api = fakeApi({ pickWorkspaceFolder: vi.fn(async () => "/picked/ws") })
+    await renderApp(api)
+    fireEvent.keyDown(window, { key: "k", metaKey: true })
+    const palette = within(await screen.findByRole("dialog"))
+    fireEvent.click(palette.getByText("Open Folder"))
+    await act(async () => {})
+    await act(async () => {})
+    expect(api.openWorkspace).toHaveBeenCalledWith("/picked/ws")
+  })
+
+  it("shows the active workspace next to the model in the composer and opens the folder picker from it", async () => {
+    const api = fakeApi({ pickWorkspaceFolder: vi.fn(async () => "/picked/elsewhere") })
+    await renderApp(api)
+    const footer = document.querySelector(".composer-footer")
+    expect(footer?.textContent).toContain("ws")
+    const chip = footer?.querySelector(".composer-workspace")
+    expect(chip).toBeTruthy()
+    expect(document.querySelector(".workspaceHeader-workspace")).toBeNull() // moved out of the header
+    fireEvent.click(chip as Element)
+    await act(async () => {})
+    await act(async () => {})
+    expect(api.pickWorkspaceFolder).toHaveBeenCalled()
+    expect(api.openWorkspace).toHaveBeenCalledWith("/picked/elsewhere")
+  })
+})
+
+describe("header context meter", () => {
+  it("stays hidden on the home screen and appears once a conversation exists", async () => {
+    const withTokens: DesktopSnapshot = { ...SNAPSHOT, contextTokens: 12_400 }
+    await renderApp(fakeApi({ getSnapshot: vi.fn(async () => withTokens) }))
+    expect(document.body.querySelector(".contextMeter")).toBeNull()
+    cleanup()
+
+    const inConversation: DesktopSnapshot = {
+      ...withTokens,
+      entries: [{ id: 1, kind: "message", speaker: "You", text: "hello" }],
+    }
+    await renderApp(fakeApi({ getSnapshot: vi.fn(async () => inConversation) }))
+    expect(document.body.querySelector(".contextMeter")).toBeTruthy()
   })
 })

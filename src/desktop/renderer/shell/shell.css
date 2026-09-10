@@ -41,14 +41,22 @@
   flex-shrink: 0;
 }
 
-/* Same 26px hover box as the header's icon buttons; tighter side padding keeps the label from floating. */
-.workspaceHeader-new {
+.workspaceHeader-left {
   grid-column: 1;
   justify-self: start;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* Same 26px hover box as the header's icon buttons; tighter side padding keeps the label from floating. */
+.workspaceHeader-new {
   height: 26px;
   padding: 0 8px;
 }
 
+/* The active workspace: quiet label, FolderOpen affordance, opens the folder picker. */
 /* Centered window title, macOS-style; sits above the drag region. */
 .workspaceHeader-title {
   grid-column: 2;
@@ -134,4 +142,52 @@
 
 .noDrag {
   -webkit-app-region: no-drag;
+}
+
+/* Update-ready chip floating bottom-left: panel-quiet until hovered. */
+.updateFab {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 30;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-panel);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: var(--text-meta);
+  font-weight: 550;
+  padding: 5px 11px;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+  transition:
+    border-color var(--motion) ease,
+    color var(--motion) ease,
+    background var(--motion) ease;
+}
+
+.updateFab:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.workspaceBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 16px;
+  font-size: var(--text-ui);
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.workspaceBanner-error {
+  color: var(--danger, #e5534b);
+  margin-left: 8px;
 }

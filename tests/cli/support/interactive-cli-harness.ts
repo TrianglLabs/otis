@@ -92,6 +92,7 @@ const mocks = vi.hoisted(() => {
       return ui
     }),
     createCliRenderer: vi.fn(async () => renderer),
+    acquireSessionLock: vi.fn(),
     createSession: vi.fn(),
     deleteSession: vi.fn(async () => undefined),
     deleteLocalGguf: vi.fn(async () => undefined),
@@ -253,6 +254,7 @@ vi.mock("../../../src/local/settings.js", () => ({
 vi.mock("../../../src/local/stats.js", () => ({ calculateLocalStats: mocks.calculateLocalStats }))
 vi.mock("../../../src/storage/index.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../src/storage/index.js")>()),
+  acquireSessionLock: mocks.acquireSessionLock,
   createSession: mocks.createSession,
   deleteSession: mocks.deleteSession,
   listSessions: mocks.listSessions,
@@ -299,6 +301,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.uiOptions = undefined
   mocks.rendererHandlers.clear()
+  mocks.acquireSessionLock.mockResolvedValue({ release: async () => {} })
   mocks.createSession.mockResolvedValue(testSession())
   mocks.listDownloadedLocalModels.mockResolvedValue([])
   mocks.listSessions.mockResolvedValue([])

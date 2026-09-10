@@ -1,4 +1,7 @@
+import { Download, FolderOpen } from "lucide-react"
 import { useEffect, useState } from "react"
+import { Button } from "../components/Button.js"
+import { Icon } from "../components/Icon.js"
 import { AgentsPanel } from "../features/agents/AgentsPanel.js"
 import { ConversationView } from "../features/conversation/Transcript.js"
 import { OnboardingPage } from "../features/onboarding/OnboardingPage.js"
@@ -16,6 +19,8 @@ export function AppShell() {
   const { api } = useDesktop()
   const state = useDesktopState()
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [installing, setInstalling] = useState(false)
+  const [locateError, setLocateError] = useState<string | undefined>(undefined)
   const [paletteOpen, setPaletteOpen] = useState(false)
 
   useEffect(() => {
@@ -54,11 +59,50 @@ export function AppShell() {
         ) : (
           <>
             <WorkspaceHeader onOpenPalette={() => setPaletteOpen(true)} onOpenSettings={() => setSettingsOpen(true)} />
-            <ConversationView />
+            {state?.needsWorkspace ? (
+              <div className="workspaceBanner">
+                <span>
+                  This session&apos;s working folder is unknown — history is read-only until you locate it.
+                  {locateError ? <span className="workspaceBanner-error">{locateError}</span> : null}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() =>
+                    void api.pickWorkspaceFolder().then(async (path) => {
+                      if (!path) return
+                      const result = await api.locateWorkspace(path)
+                      setLocateError(result.ok ? undefined : (result.reason ?? "Could not open that folder."))
+                    })
+                  }
+                >
+                  <Icon icon={FolderOpen} size={12} />
+                  Locate working folder
+                </Button>
+              </div>
+            ) : null}
+            <ConversationView installing={installing} />
           </>
         )}
       </div>
       {settingsOpen ? null : <AgentsPanel />}
+      {state?.update ? (
+        <button
+          type="button"
+          className="updateFab noDrag"
+          disabled={installing}
+          title={
+            installing ? "Restarting into the update…" : `Otis ${state.update.version} is ready — restart to update`
+          }
+          onClick={() => {
+            setInstalling(true)
+            void api.installUpdate()
+          }}
+        >
+          <Icon icon={Download} size={12} />
+          {installing ? "Restarting…" : "Update"}
+        </button>
+      ) : null}
       {paletteOpen ? <CommandPalette onClose={() => setPaletteOpen(false)} /> : null}
     </div>
   )

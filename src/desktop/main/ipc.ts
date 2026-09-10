@@ -1,4 +1,4 @@
-import { type IpcMainInvokeEvent, ipcMain, shell } from "electron"
+import { BrowserWindow, dialog, type IpcMainInvokeEvent, ipcMain, shell } from "electron"
 import { DESKTOP_CHANNELS } from "../contracts.js"
 import type { DesktopRuntime } from "./runtime.js"
 
@@ -23,9 +23,10 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
     runtime.respondToPermission(id, allow)
   })
 
-  handle(DESKTOP_CHANNELS.selectSession, (id) => {
+  handle(DESKTOP_CHANNELS.selectSession, (id, dirName) => {
     if (typeof id !== "string") throw new Error("selectSession expects a string id")
-    return runtime.selectSession(id)
+    if (dirName !== undefined && typeof dirName !== "string") throw new Error("selectSession expects a dir name")
+    return runtime.selectSession(id, dirName)
   })
 
   handle(DESKTOP_CHANNELS.searchSessions, (query) => {
@@ -35,9 +36,48 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
 
   handle(DESKTOP_CHANNELS.startNewSession, () => runtime.startNewSession())
 
-  handle(DESKTOP_CHANNELS.deleteSession, (id) => {
+  handle(DESKTOP_CHANNELS.openSessionAt, (workspacePath, sessionId, dirName) => {
+    if (typeof workspacePath !== "string" || typeof sessionId !== "string") {
+      throw new Error("openSessionAt expects a workspace path and a session id")
+    }
+    if (dirName !== undefined && typeof dirName !== "string") throw new Error("openSessionAt expects a dir name")
+    return runtime.switchWorkspace(workspacePath, sessionId, dirName)
+  })
+
+  handle(DESKTOP_CHANNELS.openWorkspace, (path) => {
+    if (typeof path !== "string" || !path) throw new Error("openWorkspace expects a path")
+    return runtime.openWorkspace(path)
+  })
+  handle(DESKTOP_CHANNELS.locateWorkspace, (path) => {
+    if (typeof path !== "string" || !path) throw new Error("locateWorkspace expects a path")
+    return runtime.locateWorkspace(path)
+  })
+
+  ipcMain.handle(DESKTOP_CHANNELS.pickWorkspaceFolder, async (event: IpcMainInvokeEvent) => {
+    assertTrustedSender(event)
+    const result = await dialog.showOpenDialog(
+      BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getAllWindows()[0],
+      {
+        title: "Open Folder",
+        properties: ["openDirectory", "createDirectory"],
+      },
+    )
+    return result.canceled ? undefined : result.filePaths[0]
+  })
+
+  handle(DESKTOP_CHANNELS.registerWorkspace, (dirName, path) => {
+    if (typeof dirName !== "string" || typeof path !== "string") {
+      throw new Error("registerWorkspace expects a session dir name and a path")
+    }
+    return runtime.registerWorkspace(dirName, path)
+  })
+
+  handle(DESKTOP_CHANNELS.refreshSessions, () => runtime.refreshSessions())
+
+  handle(DESKTOP_CHANNELS.deleteSession, (id, dirName) => {
     if (typeof id !== "string") throw new Error("deleteSession expects a string id")
-    return runtime.deleteSession(id)
+    if (dirName !== undefined && typeof dirName !== "string") throw new Error("deleteSession expects a dir name")
+    return runtime.deleteSession(id, dirName)
   })
 
   handle(DESKTOP_CHANNELS.listModels, () => runtime.listModels())
@@ -80,6 +120,7 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
     if (typeof id !== "string") throw new Error("Invalid model id.")
     return runtime.deleteLocalModel(id)
   })
+  handle(DESKTOP_CHANNELS.installUpdate, () => runtime.installUpdate())
   handle(DESKTOP_CHANNELS.setDebugMode, (enabled) => {
     if (typeof enabled !== "boolean") throw new Error("Invalid debug flag.")
     return runtime.setDebugMode(enabled)

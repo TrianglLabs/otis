@@ -8,6 +8,7 @@ export function Button({
   variant = "outline",
   size = "md",
   icon,
+  iconAfter,
   children,
   className,
   ...rest
@@ -15,12 +16,15 @@ export function Button({
   variant?: ButtonVariant
   size?: "sm" | "md"
   icon?: LucideIcon
+  /** Trailing icon, after the label (Send, Continue…). */
+  iconAfter?: LucideIcon
   children?: ReactNode
 }) {
   return (
     <button type="button" className={`btn btn-${variant} btn-${size} ${className ?? ""}`} {...rest}>
       {icon ? <Icon icon={icon} size={size === "sm" ? 12 : 14} /> : null}
       {children}
+      {iconAfter ? <Icon icon={iconAfter} size={size === "sm" ? 12 : 14} /> : null}
     </button>
   )
 }

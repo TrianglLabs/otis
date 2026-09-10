@@ -1,20 +1,29 @@
 import { mkdir } from "node:fs/promises"
+import { homedir } from "node:os"
 import { app, type BrowserWindow, dialog } from "electron"
+import electronUpdater from "electron-updater"
+import { loadLocalSettings } from "../../local/settings.js"
 import { DESKTOP_CHANNELS } from "../contracts.js"
-import { AppIcon } from "./app-icon.js"
+import { configureAppIcon } from "./app-icon.js"
 import { registerDesktopIpc } from "./ipc.js"
 import { DesktopRuntime } from "./runtime.js"
+import { startAutoUpdates } from "./updater.js"
 import { createMainWindow } from "./window.js"
 import { recoverWorkspaceCwd, resolveWorkspaceCwd } from "./workspace.js"
 
+const { autoUpdater } = electronUpdater
+
 let mainWindow: BrowserWindow | undefined
 let runtime: DesktopRuntime | undefined
+let updater: { install: () => void; isInstalling: () => boolean } = { install: () => {}, isInstalling: () => false }
 
 // In dev the binary is Electron's; keep the product name consistent with packaged builds.
 app.setName("Otis")
 
 async function workspaceCwd() {
-  const cwd = resolveWorkspaceCwd(process.env, process.cwd())
+  // The last GUI workspace only applies when the shell handed us no cwd (Finder/Dock relaunch).
+  const lastWorkspace = (await loadLocalSettings()).lastWorkspace
+  const cwd = resolveWorkspaceCwd(process.env, process.cwd(), homedir(), lastWorkspace)
   try {
     await mkdir(cwd, { recursive: true })
     return cwd
@@ -56,10 +65,11 @@ if (!gotLock) {
   })
 
   void app.whenReady().then(async () => {
-    const appIcon = new AppIcon({
+    const appIcon = configureAppIcon({
       packaged: app.isPackaged,
       resourcesPath: process.resourcesPath,
       mainDir: __dirname,
+      platform: process.platform,
     })
     const cwd = await workspaceCwd()
     if (!cwd) {
@@ -68,19 +78,42 @@ if (!gotLock) {
     }
     runtime = await DesktopRuntime.create({
       cwd,
+      installUpdate: async () => {
+        // The replacement process must find the single-instance lock free and managed servers stopped.
+        await runtime?.shutdown().catch(() => {})
+        app.releaseSingleInstanceLock()
+        updater.install()
+      },
       version: app.getVersion(),
       platform: process.platform,
       send: (event) => {
-        if (event.type === "status") appIcon.update(event.status.theme, mainWindow)
         if (mainWindow && !mainWindow.webContents.isDestroyed()) {
           mainWindow.webContents.send(DESKTOP_CHANNELS.event, event)
         }
       },
     })
     registerDesktopIpc(runtime)
+    updater = startAutoUpdates({
+      isPackaged: app.isPackaged,
+      onDownloaded: (version) => runtime?.setUpdateAvailable(version),
+      onUpdaterError: (listener) => {
+        autoUpdater.on("error", listener)
+        return () => autoUpdater.removeListener("error", listener)
+      },
+      onBeforeQuit: (listener) => {
+        app.once("before-quit", listener)
+        return () => app.removeListener("before-quit", listener)
+      },
+      onInstallFailed: () => {
+        dialog.showErrorBox(
+          "The update couldn't be installed",
+          "Otis will now close. Nothing was lost — reopen the app to keep working on the current version.",
+        )
+        app.exit(1)
+      },
+    })
 
-    // Apply the saved theme before showing the window, including in packaged apps.
-    mainWindow = createMainWindow(appIcon.update((await runtime.snapshot()).theme))
+    mainWindow = createMainWindow(appIcon)
     mainWindow.on("closed", () => {
       mainWindow = undefined
     })
@@ -90,13 +123,16 @@ if (!gotLock) {
   })
 
   // v1 policy: one window, one workspace. Closing the window quits the app so no managed processes outlive it.
+  // During an update install both quit paths stand down: quitAndInstall owns the shutdown, and racing it with
+  // app.quit()/app.exit(0) would kill the installer handoff.
   app.on("window-all-closed", () => {
+    if (updater.isInstalling()) return
     app.quit()
   })
 
   let quitting = false
   app.on("before-quit", (event) => {
-    if (quitting || !runtime) return
+    if (quitting || !runtime || updater.isInstalling()) return
     quitting = true
     event.preventDefault()
     void runtime.shutdown().finally(() => app.exit(0))
