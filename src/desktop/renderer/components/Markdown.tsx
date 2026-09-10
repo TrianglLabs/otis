@@ -36,7 +36,8 @@ function CodeBlock({ children }: { children?: React.ReactNode }) {
     ? children.props
     : undefined
   const language = /language-(\w+)/.exec(codeProps?.className ?? "")?.[1]
-  const text = extractText(codeProps?.children)
+  // react-markdown appends a trailing newline to fenced code; it renders as a blank last line.
+  const text = extractText(codeProps?.children).replace(/\n+$/, "")
   const [copied, setCopied] = useState(false)
 
   const copy = async () => {

@@ -385,12 +385,14 @@ describe("local settings", () => {
     })
   })
 
-  it("rejects unreleased theme aliases", async () => {
+  it("falls back to the default theme for unrecognized saved names", async () => {
     const directory = await tempDirectory()
-    for (const alias of ["dark", "gray", "white"]) {
-      const file = join(directory, `${alias}.json`)
+    // Aliases must not resolve to a theme, and a removed or unknown name must not block startup.
+    for (const alias of ["dark", "gray", "white", "meadow", 42]) {
+      const file = join(directory, `${String(alias)}.json`)
       await writeFile(file, JSON.stringify({ version: 1, theme: alias }), "utf8")
-      await expect(loadLocalSettings({ file, env: {} })).rejects.toThrow("theme must be")
+      const loaded = await loadLocalSettings({ file, env: {} })
+      expect(loaded.theme, String(alias)).toBeUndefined()
     }
   })
 
@@ -409,7 +411,6 @@ describe("local settings", () => {
     const malformed = join(directory, "malformed.json")
     const unsupported = join(directory, "unsupported.json")
     const invalidMetadata = join(directory, "invalid-metadata.json")
-    const invalidTheme = join(directory, "invalid-theme.json")
     const invalidThinking = join(directory, "invalid-thinking.json")
     const invalidSubagentPanel = join(directory, "invalid-subagent-panel.json")
     const invalidFastMode = join(directory, "invalid-fast-mode.json")
@@ -419,7 +420,6 @@ describe("local settings", () => {
     await writeFile(malformed, "{broken", "utf8")
     await writeFile(unsupported, JSON.stringify({ version: 2 }), "utf8")
     await writeFile(invalidMetadata, JSON.stringify({ version: 1, modelContextLength: -1 }), "utf8")
-    await writeFile(invalidTheme, JSON.stringify({ version: 1, theme: "blue" }), "utf8")
     await writeFile(invalidThinking, JSON.stringify({ version: 1, thinkingVisible: "sometimes" }), "utf8")
     await writeFile(invalidSubagentPanel, JSON.stringify({ version: 1, subagentPanelVisible: "sometimes" }), "utf8")
     await writeFile(invalidFastMode, JSON.stringify({ version: 1, fastMode: "sometimes" }), "utf8")
@@ -430,7 +430,6 @@ describe("local settings", () => {
     await expect(loadLocalSettings({ file: malformed, env: {} })).rejects.toThrow("Invalid Otis config")
     await expect(loadLocalSettings({ file: unsupported, env: {} })).rejects.toThrow("unsupported version")
     await expect(loadLocalSettings({ file: invalidMetadata, env: {} })).rejects.toThrow("positive integer")
-    await expect(loadLocalSettings({ file: invalidTheme, env: {} })).rejects.toThrow("theme must be")
     await expect(loadLocalSettings({ file: invalidThinking, env: {} })).rejects.toThrow("thinkingVisible must be")
     await expect(loadLocalSettings({ file: invalidSubagentPanel, env: {} })).rejects.toThrow(
       "subagentPanelVisible must be",

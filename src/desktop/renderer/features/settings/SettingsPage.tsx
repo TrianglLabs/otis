@@ -1,9 +1,11 @@
 import { Check, ChevronDown, ChevronRight, Trash2, X } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
+import type { PairPickerChoice } from "../../../../inference/picker-catalog.js"
 import type { DownloadedLocalModel, ThemeName } from "../../../contracts.js"
 import { Button, IconButton } from "../../components/Button.js"
 import { Icon } from "../../components/Icon.js"
 import { useDesktop, useDesktopState } from "../../runtime.js"
+import { pickerDetailLabel } from "../models/model-list.js"
 
 /** Mirrors THEME_NAMES in src/local/settings.ts; that module reads the filesystem and cannot be bundled here. */
 const THEME_NAMES: ThemeName[] = [
@@ -22,7 +24,7 @@ const THEME_NAMES: ThemeName[] = [
 const PAIR_DEFAULT_ENDPOINTS = { ollama: "http://127.0.0.1:11434", lmStudio: "http://127.0.0.1:1234" }
 
 /**
- * The settings page, opened from the sidebar's gear button. It takes over the whole window, sidebar included.
+ * The settings page, opened from the header's gear button or the ⌘K palette. It takes over the whole window.
  * Mirrors the TUI's /settings submenu: hosted API key, NVIDIA PAIR endpoints, local-model deletion, theme, plus
  * the /thinking, /fast, and /debug toggles. Model selection lives in the composer's model picker.
  * Every control writes through the main process; status events update the UI.
@@ -40,6 +42,8 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
   const [lmStudio, setLmStudio] = useState("")
   const [pairPending, setPairPending] = useState(false)
   const [pairError, setPairError] = useState<string>()
+  const [pairModels, setPairModels] = useState<PairPickerChoice[]>()
+  const [pairCatalogReload, setPairCatalogReload] = useState(0)
 
   const [downloaded, setDownloaded] = useState<DownloadedLocalModel[]>()
   const [deleting, setDeleting] = useState<string>()
@@ -100,12 +104,42 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
     }
   }
 
+  // Connecting is only half the setup: once endpoints answer, list PAIR's models so one can be selected here.
+  useEffect(() => {
+    if (openForm !== "pair" || !state.pairConfigured) return
+    let cancelled = false
+    void api
+      .listModels()
+      .then((items) => {
+        if (!cancelled) {
+          setPairModels(
+            items.filter((item): item is PairPickerChoice => item.kind === "model" && item.provider === "pair"),
+          )
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setPairModels([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [openForm, state.pairConfigured, pairCatalogReload, api])
+
+  const selectPairModel = async (item: PairPickerChoice) => {
+    setPairError(undefined)
+    const result = await api.selectModel(item.selectionKey)
+    if (result.ok) setPairCatalogReload((n) => n + 1)
+    else setPairError(result.reason)
+  }
+
   const submitPair = async () => {
     setPairError(undefined)
     setPairPending(true)
     try {
       const result = await api.connectPairEndpoints({ ollama, lmStudio })
-      if (result.ok) setOpenForm(undefined)
+      // The form stays open on success: model selection happens here now. Every successful connect —
+      // including reconnects to a changed endpoint — refetches the catalog.
+      if (result.ok) setPairCatalogReload((n) => n + 1)
       else setPairError(result.reason)
     } finally {
       setPairPending(false)
@@ -144,7 +178,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
   return (
     <div className="settingsPage">
       <div className="settingsPage-header">
-        <IconButton icon={X} label="Close settings (Esc)" size={22} className="noDrag" onClick={onClose} />
+        <IconButton icon={X} label="Close settings (Esc)" className="noDrag" onClick={onClose} />
       </div>
 
       <div className="settingsPage-scroll">
@@ -153,7 +187,6 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
 
           <button type="button" className="settingsRow settingsRow-expand" onClick={() => toggleForm("hosted")}>
             <span className="settingsRow-label">Hosted inference</span>
-            <span className="settingsRow-meta">{state.hostedConfigured ? "Replace API key" : "Add API key"}</span>
             <Icon icon={openForm === "hosted" ? ChevronDown : ChevronRight} size={12} />
           </button>
           {openForm === "hosted" ? (
@@ -188,9 +221,6 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
 
           <button type="button" className="settingsRow settingsRow-expand" onClick={() => toggleForm("pair")}>
             <span className="settingsRow-label">NVIDIA PAIR</span>
-            <span className="settingsRow-meta">
-              {state.pairConfigured ? "Reconnect or choose model" : "Connect local AI cluster"}
-            </span>
             <Icon icon={openForm === "pair" ? ChevronDown : ChevronRight} size={12} />
           </button>
           {openForm === "pair" ? (
@@ -231,6 +261,29 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
               </div>
               {pairPending ? <div className="settings-message">Checking NVIDIA PAIR endpoints…</div> : null}
               {pairError ? <div className="settings-message settings-error">{pairError}</div> : null}
+              {state.pairConfigured ? (
+                <>
+                  <div className="settingsForm-label">Models on your network</div>
+                  {pairModels === undefined ? <div className="settings-message">Loading models…</div> : null}
+                  {pairModels?.length === 0 ? (
+                    <div className="settings-message">PAIR's endpoints report no models.</div>
+                  ) : null}
+                  {pairModels?.map((item) => (
+                    <button
+                      type="button"
+                      key={item.selectionKey}
+                      className="settingsRow settingsRow-expand"
+                      onClick={() => void selectPairModel(item)}
+                    >
+                      <span className="settingsRow-label">
+                        {item.displayName}
+                        <span className="settingsRow-meta">{pickerDetailLabel(item)}</span>
+                      </span>
+                      {item.active ? <Icon icon={Check} size={13} /> : null}
+                    </button>
+                  ))}
+                </>
+              ) : null}
             </div>
           ) : null}
 
@@ -335,7 +388,7 @@ function ThemeTile({
   )
 }
 
-/** A rectangular switch, in keeping with the app's sharp corners. */
+/** A pill switch, in keeping with the app's soft geometry. */
 function Toggle({
   label,
   checked,

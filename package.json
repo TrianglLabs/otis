@@ -14,6 +14,8 @@
     "dev:demo": "OTIS_DEMO=1 electron-vite dev",
     "build": "bun run scripts/build.ts",
     "build:desktop": "electron-vite build",
+    "build:desktop:icons": "bun run scripts/build-desktop-icons.tsx",
+    "pack:desktop": "bun run build:desktop && electron-builder --dir",
     "format": "biome format --write .",
     "lint": "biome lint .",
     "check": "biome check . && bash -n scripts/install.sh",
@@ -64,5 +66,9 @@
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
     "yaml": "^2.9.0"
+  },
+  "author": {
+    "name": "Triangl Labs",
+    "email": "nikita@triangllabs.ai"
   }
 }

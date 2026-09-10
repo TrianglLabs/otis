@@ -22,11 +22,6 @@ export function formatContextWindow(tokens: number): string {
 
 /** `accounts/fireworks/models/kimi-k2p5-turbo` → `kimi-k2p5-turbo` */
 /** Mirrors withFastModelMark in src/cli/ui/format.ts; the CLI module cannot be imported into the renderer bundle. */
-export function fastModelMark(name: string, fast: boolean) {
-  if (!name || !fast) return name
-  return `${name} Fast`
-}
-
 export function shortModelId(id: string): string {
   const segments = id.split("/")
   return segments[segments.length - 1] ?? id

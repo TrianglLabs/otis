@@ -28,6 +28,11 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
     return runtime.selectSession(id)
   })
 
+  handle(DESKTOP_CHANNELS.searchSessions, (query) => {
+    if (typeof query !== "string") throw new Error("searchSessions expects a string query")
+    return runtime.searchSessions(query)
+  })
+
   handle(DESKTOP_CHANNELS.startNewSession, () => runtime.startNewSession())
 
   handle(DESKTOP_CHANNELS.deleteSession, (id) => {

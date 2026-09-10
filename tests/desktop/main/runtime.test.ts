@@ -294,13 +294,15 @@ describe("DesktopRuntime subagents", () => {
   })
 
   it("applies and persists the theme and thinking preferences", async () => {
-    const { runtime } = await setup()
+    const { runtime, sent } = await setup()
     expect((await runtime.snapshot()).theme).toBe("default")
     expect((await runtime.snapshot()).thinkingVisible).toBe(false)
 
     await runtime.setTheme("nord")
     expect((await runtime.snapshot()).theme).toBe("nord")
     expect((await loadLocalSettings()).theme).toBe("nord")
+    await flush()
+    expect(sent.some((event) => event.type === "status" && event.status.theme === "nord")).toBe(true)
 
     await runtime.setTheme("not-a-theme")
     expect((await runtime.snapshot()).theme).toBe("nord")

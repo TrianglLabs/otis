@@ -88,7 +88,7 @@ export function createSetupViews(renderer: Renderer) {
   setupButtonBox.add(
     new TextRenderable(renderer, {
       id: "setup-why",
-      content: "Your terminal agent, powered by open models.",
+      content: "Your personal AI agent, powered by open models.",
       fg: colors.text,
       selectable: false,
     }),

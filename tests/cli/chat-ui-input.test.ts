@@ -342,7 +342,7 @@ describe("chat UI input", () => {
     expect(harness.childIds("input-area")).toEqual(["setup-box"])
     expect(harness.childIds("setup-box")).toEqual(["setup-why", "setup-local", "setup-button-box"])
     expect(harness.text("setup-button")).toContain("Set up Otis")
-    expect(harness.text("setup-why")).toBe("Your terminal agent, powered by open models.")
+    expect(harness.text("setup-why")).toBe("Your personal AI agent, powered by open models.")
     expect(harness.text("setup-local")).toBe("Inspect files, edit code, run commands, and search the web.")
     await harness.renderOnce()
     expect(harness.get<BoxRenderable>("welcome-panel").width).toBe(72)

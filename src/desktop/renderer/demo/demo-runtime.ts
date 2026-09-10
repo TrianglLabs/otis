@@ -182,6 +182,11 @@ class DemoRuntime implements DesktopApi {
     this.#emitStatus()
   }
 
+  async setThinkingVisible(visible: boolean): Promise<void> {
+    this.#state = { ...this.#state, thinkingVisible: visible }
+    this.#emitStatus()
+  }
+
   async setTheme(theme: ThemeName): Promise<void> {
     this.#state = { ...this.#state, theme }
     this.#emitStatus()
@@ -235,11 +240,6 @@ class DemoRuntime implements DesktopApi {
 
   async setDebugMode(enabled: boolean): Promise<void> {
     this.#state = { ...this.#state, debug: enabled }
-    this.#emitStatus()
-  }
-
-  async setThinkingVisible(visible: boolean): Promise<void> {
-    this.#state = { ...this.#state, thinkingVisible: visible }
     this.#emitStatus()
   }
 
@@ -332,6 +332,12 @@ class DemoRuntime implements DesktopApi {
     this.#emitStatus()
     this.#permissionResolve?.(allow)
     this.#permissionResolve = undefined
+  }
+
+  async searchSessions(query: string) {
+    const needle = query.trim().toLowerCase()
+    if (!needle) return this.#state.sessions
+    return this.#state.sessions.filter((session) => session.title.toLowerCase().includes(needle))
   }
 
   async selectSession(id: string): Promise<SessionOpResult> {

@@ -22,6 +22,19 @@
   padding-right: 10px;
 }
 
+/* Entries fade and rise a few pixels as they land; keyed elements persist across token updates, so this runs
+   once per entry, on mount. */
+.transcript > * {
+  animation: entry-enter 180ms ease-out;
+}
+
+@keyframes entry-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
 .transcript {
   max-width: var(--content-max);
   margin: 0 auto;
@@ -43,6 +56,7 @@
 .userMessage {
   max-width: 80%;
   background: var(--bg-user);
+  border-radius: var(--radius-lg);
   padding: 9px 12px;
   font-size: var(--text-body);
   line-height: 1.5;
@@ -59,6 +73,7 @@
   background: var(--accent-soft);
   border: 1px solid var(--accent-line);
   padding: 2px 6px;
+  border-radius: var(--radius-pill);
 }
 
 /* Assistant message */
@@ -85,8 +100,22 @@
   font-size: var(--text-meta);
 }
 
-.reasoning-header:hover {
+button.reasoning-header:hover {
   color: var(--text);
+}
+
+.reasoning-headerLive {
+  cursor: default;
+}
+
+/* Traces off: live thinking shows as plain muted text, no card chrome. */
+.reasoning-text {
+  color: var(--text-dim);
+  font-size: var(--text-ui);
+  font-style: italic;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
 }
 
 .reasoning-label {
@@ -110,6 +139,18 @@
   line-height: 1.55;
   white-space: pre-wrap;
   overflow-wrap: break-word;
+}
+
+/* The live preview shows the freshest three lines; a mask fades the oldest so it reads as a scrolling tail.
+   Bottom-anchored: wrapped lines still overflow at the top, so the newest text is always visible. */
+.reasoning-preview {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  max-height: calc(1.55em * 3 + 6px);
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 40%);
+  mask-image: linear-gradient(to bottom, transparent, #000 40%);
 }
 
 @keyframes softPulse {
@@ -157,30 +198,6 @@
   flex: 1;
 }
 
-.toolCard-status {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.toolCard-running {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--text-micro);
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--accent-ink);
-}
-
-.pulseDot {
-  width: 6px;
-  height: 6px;
-  background: var(--accent);
-  animation: softPulse 1.2s ease-in-out infinite;
-}
-
 /* Diffs */
 
 .diffView {
@@ -191,11 +208,18 @@
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.6;
+  border-radius: var(--radius-lg);
+}
+
+.diffView-inner {
+  /* Widest-line shrink-to-fit, floored at the viewport width; rows fill it, so add/remove backgrounds
+     cover the whole scroll width instead of ending at each line's own content edge. */
+  width: max-content;
+  min-width: 100%;
 }
 
 .diffLine {
   display: flex;
-  min-width: max-content;
   padding: 0 14px 0 0;
 }
 
@@ -261,6 +285,7 @@
 .permissionCard {
   border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
   border-left-width: 2px;
+  border-radius: var(--radius-lg);
   background: color-mix(in srgb, var(--warning) 7%, var(--bg));
   padding: 12px;
   display: flex;
@@ -308,6 +333,7 @@
   border: 1px solid var(--hairline);
   padding: 2px 6px;
   overflow-wrap: anywhere;
+  border-radius: var(--radius-sm);
 }
 
 .permissionCard-actions {
@@ -332,14 +358,62 @@
   font-size: var(--text-meta);
   padding: 8px 10px;
   margin-bottom: 8px;
+  border-radius: var(--radius-lg);
 }
 
 .composer-box {
+  position: relative;
   border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-soft);
   background: var(--bg-elev);
   transition:
     border-color var(--motion),
     box-shadow var(--motion);
+}
+
+/* While the agent works, a soft accent highlight orbits the composer's border. The ring is a masked
+   pseudo-element (center cut out), so it never affects layout or stacking; it fades in and out gently. */
+@property --composer-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+.composer-box::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: calc(var(--radius-lg) + 1px);
+  padding: 1.5px;
+  background: conic-gradient(
+    from var(--composer-angle),
+    transparent 0deg,
+    color-mix(in srgb, var(--accent) 75%, transparent) 50deg,
+    transparent 140deg,
+    transparent 180deg,
+    color-mix(in srgb, var(--accent) 30%, transparent) 250deg,
+    transparent 320deg
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 500ms ease;
+  pointer-events: none;
+}
+
+.composer-boxWorking::before {
+  opacity: 1;
+  animation: composer-orbit 3.2s linear infinite;
+}
+
+@keyframes composer-orbit {
+  to {
+    --composer-angle: 360deg;
+  }
 }
 
 .composer-box:focus-within {
@@ -389,6 +463,13 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  border-radius: var(--radius);
+}
+
+/* Fast-serving bolt, amber like the picker's recommended star. */
+.composer-fast {
+  color: var(--warning);
+  flex-shrink: 0;
 }
 
 /* The interactive chip is a hairline control matching the footer buttons' metrics; the border carries model
@@ -456,6 +537,7 @@ button.composer-model-failed {
   left: 50%;
   transform: translateX(-50%);
   bottom: 118px;
+  border-radius: var(--radius-pill);
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -476,63 +558,72 @@ button.composer-model-failed {
 
 .home {
   flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: 28px;
   padding: 40px 28px;
   text-align: center;
 }
 
-.home-logo {
-  margin-bottom: 10px;
-  width: 148px;
-  height: auto;
-  user-select: none;
-}
-
-/* A clean hairline-banded strip: dividers between stats, none floating around them. */
-.homeStats {
-  display: flex;
-  align-items: stretch;
-  margin-top: 22px;
-  border-top: var(--hairline);
-  border-bottom: var(--hairline);
-}
-
-.homeStats-item {
+.home-recents {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 14px 26px;
-  min-width: 108px;
+  gap: 2px;
+  width: min(360px, 100%);
 }
 
-.homeStats-item + .homeStats-item {
-  border-left: var(--hairline);
-}
-
-.homeStats-value {
-  font-family: var(--font-mono);
-  font-size: 22px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
+.home-recentRow {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 12px;
+  border: none;
+  border-radius: var(--radius);
+  background: none;
   color: var(--text);
+  font: inherit;
+  font-size: var(--text-ui);
+  text-align: left;
+  cursor: pointer;
 }
 
-.homeStats-label {
-  font-size: var(--text-micro);
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-dim);
+.home-recentRow:hover {
+  background: var(--bg-hover);
+}
+
+.home-recentTitle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.home-recentDetail {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: var(--text-meta);
+  color: var(--text-dim);
+}
+
+.home-hint {
+  margin-top: 10px;
+  font-size: var(--text-meta);
+  color: var(--text-dim);
+  text-align: center;
+}
+
+.home-logo {
+  display: block;
+  width: 128px;
+  height: auto;
+  color: var(--text-dim);
+  user-select: none;
+}
+
 .home-setup {
-  margin-top: 16px;
   max-width: 440px;
   color: var(--text-dim);
   font-size: var(--text-ui);
@@ -548,4 +639,5 @@ button.composer-model-failed {
   border: 1px solid var(--hairline);
   padding: 1px 6px;
   color: var(--accent-ink);
+  border-radius: var(--radius-sm);
 }

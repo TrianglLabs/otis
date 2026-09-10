@@ -1,5 +1,4 @@
-/* The composer's model chip and the catalog popover it opens. Sharp edges and hairline borders, matching the
-   composer box and the session list. */
+/* The composer's model chip and the catalog popover it opens. */
 
 /* Command-palette placement: centered, near the top, above the dimmed workspace. */
 .modelPicker {
@@ -14,6 +13,7 @@
   flex-direction: column;
   background: var(--bg);
   border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-float);
   overflow: hidden;
   animation: overlay-enter var(--motion);
@@ -29,27 +29,15 @@
   color: var(--danger);
 }
 
-.modelPicker-title {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 8px 6px 20px;
-  border-bottom: 1px solid var(--hairline);
-  font-size: var(--text-ui);
-  font-weight: 500;
-  color: var(--text);
-  flex-shrink: 0;
-}
-
 .modelPicker-list {
   overflow-y: auto;
   min-height: 0; /* let the list shrink inside the max-height dialog so lower rows scroll into view */
-  /* Same even-inset scheme as the sidebar: 10px left padding mirrors the 10px scrollbar gutter on the right. */
+  /* Even inset: the 10px left padding mirrors the 10px scrollbar gutter on the right. */
   scrollbar-gutter: stable;
-  padding: 4px 0 6px 10px;
+  padding: 6px 0 6px 10px;
 }
 
-/* Same label treatment as the sidebar's session section. */
+/* Section label treatment shared across overlays and pages. */
 .modelPicker-header {
   padding: 10px 10px 6px;
   font-size: var(--text-micro);
@@ -59,11 +47,14 @@
   color: var(--text-dim);
 }
 
-/* Same row anatomy as session rows: whole-row hover, elevated active row, mono micro detail line. */
+/* Whole-row hover with an elevated active row, mono micro detail line. The row carries the background, so the
+   row carries the radius; the 6px row inset on both sides evens out against the list's scrollbar gutter. */
 .modelPicker-row {
   position: relative;
   display: flex;
   align-items: stretch;
+  margin: 0 var(--row-inset);
+  border-radius: var(--radius);
 }
 
 .modelPicker-row:hover {

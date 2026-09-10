@@ -77,14 +77,10 @@ export function ModelPicker({ onClose }: { onClose: () => void }) {
     <>
       <button type="button" className="overlayBackdrop" aria-label="Close model picker" onClick={onClose} />
       <div className="modelPicker noDrag" role="dialog" aria-modal="true" aria-label="Select a model">
-        <div className="modelPicker-title">
-          <span>Models</span>
-          <IconButton icon={X} label="Close model picker" size={22} onClick={onClose} />
-        </div>
         {listError ? <div className="modelPicker-message modelPicker-error">{listError}</div> : null}
         {actionError ? <div className="modelPicker-message modelPicker-error">{actionError}</div> : null}
         {!items && !listError ? <div className="modelPicker-message">Loading models…</div> : null}
-        {/* The thumb appears on hover and flashes while scrolling, like the sidebar and transcript lists. */}
+        {/* The thumb appears on hover and flashes while scrolling, like the transcript. */}
         <div className={`modelPicker-list${scrollbar.scrolling ? " scrolling" : ""}`} onScroll={scrollbar.onScroll}>
           {rows.map((item) =>
             item.kind === "header" ? (

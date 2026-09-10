@@ -1,20 +1,17 @@
-import { useEffect, useRef, useState } from "react"
-import type { LocalStats } from "../../../../local/stats.js"
-import logoUrl from "../../assets/logo.svg"
-import { useDesktopState } from "../../runtime.js"
+import { OtisMark } from "../../components/OtisMark.js"
+import { useDesktop, useDesktopState } from "../../runtime.js"
 
-/**
- * The home screen: brand mark and the usage strip. When inference is not usable it also carries the guidance to
- * get running — the only actionable state on an empty screen.
- */
+/** A quiet home screen centered on the brand mark, with guidance when inference is not usable. */
 export function EmptyState() {
+  const { api } = useDesktop()
   const state = useDesktopState()
   if (!state) return null
 
+  const recents = state.sessions.filter((session) => !session.active).slice(0, 3)
+
   return (
     <div className="home">
-      <img className="home-logo" src={logoUrl} alt="Otis" draggable={false} />
-      {state.stats && state.stats.sessionCount > 0 ? <StatsStrip stats={state.stats} /> : null}
+      <OtisMark className="home-logo" />
       {state.modelState === "starting" ? (
         <p className="home-setup">The selected model is starting…</p>
       ) : state.modelState === "failed" ? (
@@ -31,83 +28,22 @@ export function EmptyState() {
           </p>
         </div>
       ) : null}
-    </div>
-  )
-}
-
-const STAT_DEFS: { pick: (stats: LocalStats) => number; label: string; format: (value: number) => string }[] = [
-  { pick: (stats) => stats.streak, label: "day streak", format: formatPlain },
-  { pick: (stats) => stats.totalTokens, label: "tokens", format: formatCompact },
-  { pick: (stats) => stats.avgTokensPerSession, label: "tokens / session", format: formatCompact },
-  { pick: (stats) => stats.avgSessionSeconds, label: "time / session", format: formatSeconds },
-]
-
-function StatsStrip({ stats }: { stats: LocalStats }) {
-  const targets = STAT_DEFS.map((def) => def.pick(stats))
-  const values = useCountUp(targets)
-  return (
-    <div className="homeStats">
-      {STAT_DEFS.map((def, index) => (
-        <div key={def.label} className="homeStats-item">
-          <span className="homeStats-value">{def.format(values[index] ?? 0)}</span>
-          <span className="homeStats-label">{def.label}</span>
+      {recents.length > 0 ? (
+        <div className="home-recents">
+          {recents.map((session) => (
+            <button
+              key={session.id}
+              type="button"
+              className="home-recentRow"
+              onClick={() => void api.selectSession(session.id)}
+            >
+              <span className="home-recentTitle">{session.title}</span>
+              <span className="home-recentDetail">{session.detail}</span>
+            </button>
+          ))}
+          <span className="home-hint">⌘K to search all sessions</span>
         </div>
-      ))}
+      ) : null}
     </div>
   )
-}
-
-const COUNT_UP_MS = 900
-const COUNT_UP_STAGGER_MS = 70
-
-/** Animates each target from 0 with a staggered ease-out; skipped entirely under reduced motion. */
-function useCountUp(targets: number[]): number[] {
-  const [values, setValues] = useState(targets)
-  const key = targets.join(",")
-  const previousKey = useRef("")
-
-  useEffect(() => {
-    // New data (e.g. after a turn) snaps to the real numbers; the count-up plays once per home display.
-    const animate = previousKey.current !== key
-    previousKey.current = key
-    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches
-    if (!animate || reduceMotion || targets.every((target) => target === 0)) {
-      setValues(targets)
-      return
-    }
-    const startedAt = performance.now()
-    const total = COUNT_UP_MS + (targets.length - 1) * COUNT_UP_STAGGER_MS
-    let frame = 0
-    const tick = (now: number) => {
-      const elapsed = now - startedAt
-      setValues(
-        targets.map((target, index) => {
-          const progress = Math.min(1, Math.max(0, (elapsed - index * COUNT_UP_STAGGER_MS) / COUNT_UP_MS))
-          return Math.round(target * (1 - (1 - progress) ** 3))
-        }),
-      )
-      if (elapsed < total) frame = requestAnimationFrame(tick)
-    }
-    frame = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(frame)
-    // `targets` is derived from `key`; re-run only when the values actually change.
-  }, [key])
-
-  return values
-}
-
-function formatPlain(value: number): string {
-  return value.toLocaleString()
-}
-
-function formatCompact(value: number): string {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
-  if (value >= 1_000) return `${Math.round(value / 1_000)}K`
-  return String(value)
-}
-
-function formatSeconds(seconds: number): string {
-  if (seconds >= 3600) return `${(seconds / 3600).toFixed(1)}h`
-  if (seconds >= 60) return `${Math.round(seconds / 60)}m`
-  return `${Math.round(seconds)}s`
 }

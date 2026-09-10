@@ -1,5 +1,5 @@
-import { ChevronRight, PanelRightClose } from "lucide-react"
-import { useState } from "react"
+import { ChevronRight, ChevronsRight } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
 import { IconButton } from "../../components/Button.js"
 import { Icon } from "../../components/Icon.js"
 import { useDesktop, useDesktopState } from "../../runtime.js"
@@ -23,19 +23,30 @@ export function AgentsPanel() {
     setOpenTraceId(undefined)
   }
   const runs = state?.subagents ?? []
-  if (runs.length === 0) return null
   const visible = state?.agentsPanelVisible ?? true
+
+  // Runs appearing from an empty rail means coworkers started doing stuff — open the rail on its own. The
+  // first effect after a mount only records state: opening Settings unmounts this panel, and remounting must
+  // not treat existing runs as new. Hiding it manually is respected until the runs list empties and fills again.
+  const hadRuns = useRef<boolean | undefined>(undefined)
+  useEffect(() => {
+    const hasRuns = runs.length > 0
+    const had = hadRuns.current
+    hadRuns.current = hasRuns
+    if (had !== false || !hasRuns || visible) return
+    void api.setAgentsPanelVisible(true)
+  }, [runs.length, visible, api])
+
+  if (runs.length === 0) return null
   return (
     <>
       {visible ? (
-        <aside className="agentsRail" aria-label="Delegated runs">
-          <div className="agentsRail-topspace" />
+        <aside className="agentsRail" aria-label="Coworkers">
           <div className="agentsRail-section">
-            <span>Subagents</span>
+            <span>Coworkers</span>
             <IconButton
-              icon={PanelRightClose}
-              label="Hide subagents panel"
-              size={22}
+              icon={ChevronsRight}
+              label="Hide coworkers panel"
               className="noDrag"
               onClick={() => void api.setAgentsPanelVisible(false)}
             />

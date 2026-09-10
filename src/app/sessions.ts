@@ -1,5 +1,12 @@
 import type { InferenceClient } from "../inference/client.js"
-import { createSession, deleteSession, type JsonlSession, listSessions, openSession } from "../storage/index.js"
+import {
+  createSession,
+  deleteSession,
+  type JsonlSession,
+  listSessions,
+  openSession,
+  searchSessions,
+} from "../storage/index.js"
 import { countTranscriptDiffLines, type DiffStats } from "./diff-stats.js"
 import {
   activeSessionLabel,
@@ -84,6 +91,12 @@ export class SessionCoordinator {
   async listPickerItems(): Promise<SessionPickerItem[]> {
     const summaries = await listSessions({ cwd: this.options.cwd })
     return summaries.map((summary) => toSessionPickerItem(summary, this.#session?.id))
+  }
+
+  /** Title-first session search for the desktop command palette; content hits carry a snippet. */
+  async searchPickerItems(query: string): Promise<SessionPickerItem[]> {
+    const results = await searchSessions({ cwd: this.options.cwd }, query)
+    return results.map((result) => ({ ...toSessionPickerItem(result, this.#session?.id), snippet: result.snippet }))
   }
 
   provisionalLabel(input: string) {

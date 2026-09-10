@@ -13,6 +13,7 @@ const DELEGATION_GUIDANCE = [
   "Delegation:",
   "- Use agent for read-only exploration or research whose tool output would otherwise flood this conversation, such as mapping an unfamiliar codebase or comparing several sources. Do not delegate narrow lookups you can answer with one or two tool calls, and do not delegate edits or commands.",
   "- A subagent cannot see this conversation. Give it a complete brief and state exactly what to report back. To explore independent areas at once, make several agent calls in the same response with non-overlapping scopes; they run in parallel.",
+  '- In Otis, subagents are called "coworkers": delegated agent runs appear to the user as coworkers in the app. Use the word coworkers when referring to subagents, and mention what each coworker is doing in plain language.',
 ].join("\n")
 
 export function buildSystemPrompt(

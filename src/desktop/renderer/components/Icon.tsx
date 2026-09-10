@@ -1,7 +1,7 @@
 import type { LucideIcon } from "lucide-react"
 
 /**
- * Lucide icons with square line caps and miter joins, matching Otis's straight-angled geometry.
+ * Lucide icons with round line caps and joins, matching Otis's soft geometry.
  * Icons are decorative; adjacent text carries the accessible name.
  */
 export function Icon({
@@ -19,8 +19,8 @@ export function Icon({
     <IconComponent
       size={size}
       strokeWidth={strokeWidth}
-      strokeLinecap="butt"
-      strokeLinejoin="miter"
+      strokeLinecap="round"
+      strokeLinejoin="round"
       className={className}
       aria-hidden
     />

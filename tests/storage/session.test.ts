@@ -432,6 +432,40 @@ describe("JsonlSession", () => {
     expect(sessions[0].title).toBe("follow up question")
   })
 
+  it("caps a long first-message title at a word boundary", async () => {
+    const cwd = await trackedTempDir()
+    const directory = join(cwd, "sessions")
+    const session = await openSession({ cwd, directory, sessionId: "rambling" })
+
+    const longPrompt =
+      "please refactor the entire renderer layer of the desktop app and also rewrite all of the session storage code while you are at it"
+    const admission = await session.admitPrompt(longPrompt)
+    await session.completeTurn(admission, [
+      { role: "user", content: longPrompt },
+      { role: "assistant", content: [{ type: "text", text: "on it" }] },
+    ])
+
+    const sessions = await listSessions({ cwd, directory })
+    expect(sessions[0].title).toBe("please refactor the entire renderer layer of the desktop…")
+    expect(sessions[0].title.length).toBeLessThanOrEqual(61)
+  })
+
+  it("hard-cuts a long first-message title with no spaces", async () => {
+    const cwd = await trackedTempDir()
+    const directory = join(cwd, "sessions")
+    const session = await openSession({ cwd, directory, sessionId: "url" })
+
+    const longUrl = `https://example.com/${"a".repeat(120)}`
+    const admission = await session.admitPrompt(longUrl)
+    await session.completeTurn(admission, [
+      { role: "user", content: longUrl },
+      { role: "assistant", content: [{ type: "text", text: "on it" }] },
+    ])
+
+    const sessions = await listSessions({ cwd, directory })
+    expect(sessions[0].title).toBe(`${"https://example.com/".padEnd(60, "a")}…`)
+  })
+
   it("persists and replays a renamed title", async () => {
     const cwd = await trackedTempDir()
     const directory = join(cwd, "sessions")

@@ -12,25 +12,21 @@
   min-height: 0;
 }
 
-/* Keeps the window drag strip and the header's bottom hairline continuous across the rail. */
-.agentsRail-topspace {
-  height: var(--header-height);
-  border-bottom: 1px solid var(--hairline);
-  flex-shrink: 0;
-  -webkit-app-region: drag;
-}
-
-/* Same label treatment as the sidebar's sections, plus the rail's hide button. */
+/* The rail reaches the top edge — its section header doubles as the window drag strip (the hide button opts
+   out with noDrag). */
 .agentsRail-section {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 10px 6px 20px;
+  height: var(--header-height);
+  padding: 0 12px 0 20px;
   font-size: var(--text-micro);
   font-weight: 700;
   letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--text-dim);
+  -webkit-app-region: drag;
+  flex-shrink: 0;
 }
 
 .agentsRail-list {
@@ -38,7 +34,7 @@
   margin: 0;
   flex: 1;
   overflow-y: auto;
-  /* Same even-inset scheme as the sidebar: 10px left padding mirrors the 10px scrollbar gutter. */
+  /* Even inset: the 10px left padding mirrors the 10px scrollbar gutter on the right. */
   scrollbar-gutter: stable;
   padding: 0 0 10px 10px;
   display: flex;
@@ -54,9 +50,10 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  width: 100%;
   padding: 7px 8px 7px 10px;
   border: none;
+  margin: 0 var(--row-inset);
+  border-radius: var(--radius);
   background: transparent;
   color: var(--text);
   text-align: left;
@@ -138,14 +135,15 @@
   box-shadow: var(--shadow-float);
   overflow: hidden;
   animation: overlay-enter var(--motion);
+  border-radius: var(--radius-lg);
 }
 
+/* Borderless like the app's other headers; the run's status icon, title, and summary do the talking. */
 .agentTrace-title {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 8px 6px 20px;
-  border-bottom: 1px solid var(--hairline);
+  padding: 10px 8px 8px 20px;
   flex-shrink: 0;
 }
 

@@ -226,6 +226,71 @@ export async function listSessions(options: Omit<SessionOptions, "sessionId">): 
   })
 }
 
+export type SessionSearchResult = SessionSummary & {
+  /** The first content match, flattened to one line with context. Absent when only the title matched. */
+  snippet?: string
+}
+
+/**
+ * Title-first substring search over sessions, recency-ordered. Title hits rank above content hits, which carry a
+ * snippet from the first matching message. Compaction summaries are excluded from the searchable text.
+ */
+export async function searchSessions(
+  options: Omit<SessionOptions, "sessionId">,
+  query: string,
+): Promise<SessionSearchResult[]> {
+  const needle = query.trim().toLowerCase()
+  const summaries = await listSessions(options)
+  if (!needle) return summaries
+
+  const titleHits: SessionSearchResult[] = []
+  const contentHits: SessionSearchResult[] = []
+  for (const summary of summaries) {
+    if (summary.title.toLowerCase().includes(needle)) {
+      titleHits.push(summary)
+      continue
+    }
+    try {
+      const events = await readSessionEvents(join(sessionDirectory(options), `${summary.id}.jsonl`))
+      // Search the full transcript, not the model-context replay: compaction drops pre-compaction messages from
+      // the model's view, but the user's original text is still on disk and should stay searchable.
+      const snippet = firstMatchSnippet(replaySessionTranscript(events).messages, needle)
+      if (snippet !== undefined) contentHits.push({ ...summary, snippet })
+    } catch (error) {
+      if (isNotFoundError(error) || isInvalidSessionFileError(error)) continue
+      throw error
+    }
+  }
+  return [...titleHits, ...contentHits]
+}
+
+/** The flattened text window around the first case-insensitive match in any user or assistant message. */
+function firstMatchSnippet(messages: readonly ChatMessage[], needle: string): string | undefined {
+  for (const message of messages) {
+    if (isCompactionSummary(message)) continue
+    const text = searchableText(message)
+    const index = text.toLowerCase().indexOf(needle)
+    if (index === -1) continue
+    const from = Math.max(0, index - 40)
+    const to = Math.min(text.length, index + needle.length + 80)
+    return `${from > 0 ? "…" : ""}${text.slice(from, to)}${to < text.length ? "…" : ""}`
+  }
+  return undefined
+}
+
+function searchableText(message: ChatMessage): string {
+  if (message.role === "user") return userMessageText(message).replace(/\s+/g, " ").trim()
+  if (message.role === "assistant") {
+    return message.content
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("")
+      .replace(/\s+/g, " ")
+      .trim()
+  }
+  return ""
+}
+
 async function summarizeSessionFile(
   options: Omit<SessionOptions, "sessionId">,
   fileName: string,
@@ -246,6 +311,12 @@ async function summarizeSessionFile(
   }
 }
 
+/**
+ * Fallback titles derive from the first user message, which can be a pasted paragraph — cap them so pickers and
+ * headers stay neat. Mirrors GENERATED_TITLE_MAX_LENGTH in src/app/session-metadata.ts (storage can't import app).
+ */
+const FALLBACK_TITLE_MAX_LENGTH = 60
+
 function sessionTitleFromEvents(events: readonly SessionEvent[], messages: readonly ChatMessage[]) {
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index]
@@ -255,9 +326,16 @@ function sessionTitleFromEvents(events: readonly SessionEvent[], messages: reado
   const firstUser = messages.find(
     (message): message is UserChatMessage => message.role === "user" && !isCompactionSummary(message),
   )
-  return firstUser
-    ? (userMessageText(firstUser) || summarizeUserMessage(firstUser)).trim().split("\n")[0]?.trim() || "Current session"
-    : "Current session"
+  if (!firstUser) return "Current session"
+  const firstLine = (userMessageText(firstUser) || summarizeUserMessage(firstUser)).trim().split("\n")[0]?.trim()
+  return firstLine ? truncateSessionTitle(firstLine) : "Current session"
+}
+
+function truncateSessionTitle(text: string) {
+  if (text.length <= FALLBACK_TITLE_MAX_LENGTH) return text
+  const cut = text.slice(0, FALLBACK_TITLE_MAX_LENGTH)
+  const lastSpace = cut.lastIndexOf(" ")
+  return `${(lastSpace > 0 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`
 }
 
 function newEventId(prefix: string) {

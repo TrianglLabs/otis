@@ -47,6 +47,7 @@
   --bg-elev: #1b1b1b;
   --bg-user: #141414;
   --accent: #00ff66;
+  --on-accent: #052e12;
   --text: #00ff41;
   --text-dim: #4d7a52;
   --cyan: #5dff8c;
@@ -89,6 +90,7 @@
   --bg-elev: #111113;
   --bg-user: #1a1a1e;
   --accent: #e4e4e7;
+  --on-accent: #18181b;
   --text: #e7e7ea;
   --text-dim: #92929b;
   --cyan: #a5d8e8;
@@ -152,6 +154,7 @@
   --bg-elev: #0a1e28;
   --bg-user: #0d2b33;
   --accent: #1eefff;
+  --on-accent: #083032;
   --text: #abffe9;
   --text-dim: #4e7e7c;
   --cyan: #05c3a8;

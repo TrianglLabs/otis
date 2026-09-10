@@ -85,6 +85,7 @@ describe("DesktopViewStore", () => {
         stop: async () => {},
         respondToPermission: async () => {},
         selectSession: async () => ({ ok: true }),
+        searchSessions: async () => [],
         startNewSession: async () => ({ ok: true }),
         getSubagentTrace: async () => [],
         setAgentsPanelVisible: async () => {},

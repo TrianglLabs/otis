@@ -362,7 +362,9 @@ function hasPairEndpoints(endpoints: PairEndpoints) {
 function optionalTheme(value: unknown): ThemeName | undefined {
   if (value === undefined) return undefined
   if (isThemeName(value)) return value
-  throw new Error(`Invalid Otis config: theme must be one of: ${THEME_NAMES.join(", ")}.`)
+  // The theme list changes across releases; an unrecognized saved name (e.g. a removed theme) falls back to
+  // the default rather than blocking startup over a cosmetic preference.
+  return undefined
 }
 
 function optionalBoolean(value: unknown, name: string): boolean | undefined {

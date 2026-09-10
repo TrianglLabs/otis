@@ -32,13 +32,6 @@ export function ToolCard({ entry, active }: { entry: TranscriptEntry; active: bo
           <Icon icon={icon} size={13} />
         </span>
         <span className="toolCard-label">{entry.text}</span>
-        <span className="toolCard-status">
-          {active ? (
-            <span className="toolCard-running">
-              <span className="pulseDot" aria-hidden /> Running
-            </span>
-          ) : null}
-        </span>
       </div>
       {entry.diff ? <DiffView diff={entry.diff} /> : null}
     </div>
@@ -50,18 +43,21 @@ export function DiffView({ diff }: { diff: string }) {
   const rows = parseDiffDisplay(diff)
   return (
     <div className="diffView">
-      {rows.map((row, index) =>
-        row.kind === "gap" ? (
-          <div key={index} className="diffGap" aria-hidden="true" />
-        ) : (
-          <div key={index} className={`diffLine diffLine-${row.kind}`}>
-            <span className="diffLine-no">{row.oldLine ?? ""}</span>
-            <span className="diffLine-no">{row.newLine ?? ""}</span>
-            <span className="diffLine-sign">{row.kind === "add" ? "+" : row.kind === "remove" ? "-" : " "}</span>
-            <span className="diffLine-text">{row.text}</span>
-          </div>
-        ),
-      )}
+      {/* Shrink-fits the widest line so every row's background spans the full scroll width. */}
+      <div className="diffView-inner">
+        {rows.map((row, index) =>
+          row.kind === "gap" ? (
+            <div key={index} className="diffGap" aria-hidden="true" />
+          ) : (
+            <div key={index} className={`diffLine diffLine-${row.kind}`}>
+              <span className="diffLine-no">{row.oldLine ?? ""}</span>
+              <span className="diffLine-no">{row.newLine ?? ""}</span>
+              <span className="diffLine-sign">{row.kind === "add" ? "+" : row.kind === "remove" ? "-" : " "}</span>
+              <span className="diffLine-text">{row.text}</span>
+            </div>
+          ),
+        )}
+      </div>
     </div>
   )
 }

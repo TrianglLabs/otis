@@ -19,6 +19,7 @@
   --accent-ink: color-mix(in srgb, var(--accent) 82%, var(--text));
   --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
   --accent-line: color-mix(in srgb, var(--accent) 45%, transparent);
+  --on-accent: #fff;
 
   /* Text */
   --text: #d8dee9;
@@ -57,13 +58,17 @@
   --text-body: 13.5px;
   --text-prose: 14px;
 
-  /* Geometry: Otis uses straight angles everywhere. */
-  --radius: 0;
-  --sidebar-width: 264px;
+  /* Geometry: soft corners and inset row highlights are the Otis design language. */
+  --radius-sm: 4px; /* inline chips: code spans, swatches */
+  --radius: 8px; /* controls: buttons, inputs, rows */
+  --radius-lg: 14px; /* cards, overlays, the composer box */
+  --radius-pill: 999px; /* toggles and floating pills */
+  --row-inset: 6px; /* horizontal inset for list-row highlights */
   --header-height: 48px;
   --composer-max: 240px;
   --content-max: 780px;
 
   --shadow-float: 0 4px 20px rgb(0 0 0 / 0.4);
+  --shadow-soft: 0 1px 3px rgb(0 0 0 / 0.22);
   --motion: 140ms cubic-bezier(0.2, 0.7, 0.3, 1);
 }
