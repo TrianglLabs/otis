@@ -1,11 +1,23 @@
 import type { LucideIcon } from "lucide-react"
-import { Box, FileText, FolderSearch, GitBranch, Globe, Pencil, Search, SquareTerminal } from "lucide-react"
+import {
+  Box,
+  ChevronDown,
+  ChevronRight,
+  FileText,
+  FolderSearch,
+  GitBranch,
+  Globe,
+  Pencil,
+  Search,
+  SquareTerminal,
+} from "lucide-react"
 import { type ComponentProps, forwardRef, memo, useMemo } from "react"
 import { Virtuoso } from "react-virtuoso"
 import type { TranscriptEntry } from "../../../../app/transcript.js"
 import type { ToolActivityKind } from "../../../../tools/activity.js"
 import { Icon } from "../../components/Icon.js"
 import { type DiffDisplayRow, parseDiffDisplay } from "./diff.js"
+import type { ToolRun } from "./tool-runs.js"
 
 const KIND_ICONS: Record<ToolActivityKind, LucideIcon> = {
   web_search: Globe,
@@ -36,6 +48,50 @@ export function ToolCard({ entry, active }: { entry: TranscriptEntry; active: bo
         <span className="toolCard-label">{entry.text}</span>
       </div>
       {entry.diff ? <DiffView diff={entry.diff} /> : null}
+    </div>
+  )
+}
+
+/**
+ * The row for a run of consecutive tool activity. The label is keyed by the latest action, so each new action
+ * replaces it with a short rise-and-fade (see toolRun-label-in) — a live burst reads as one status line in
+ * motion instead of a stack of cards. The row never renders its actions itself: expanding flattens them into
+ * the virtualized transcript (see flattenExpandedRuns), keeping long runs windowed.
+ */
+export function ToolRunCard({
+  run,
+  active,
+  expanded,
+  onExpandedChange,
+}: {
+  run: ToolRun
+  active: boolean
+  expanded: boolean
+  onExpandedChange: (id: number, expanded: boolean) => void
+}) {
+  const latest = run.entries[run.entries.length - 1]
+  if (!latest) return null
+  const icon = KIND_ICONS[latest.activityKind ?? "shell"]
+
+  return (
+    <div className={`toolCard toolRun${active ? " toolCard-active" : ""}`}>
+      <button
+        type="button"
+        className="toolCard-header toolRun-header"
+        onClick={() => onExpandedChange(run.id, !expanded)}
+        aria-expanded={expanded}
+        aria-label={`${run.entries.length} tool actions, latest: ${latest.text}`}
+      >
+        <span className="toolCard-icon">
+          <Icon icon={icon} size={13} />
+        </span>
+        <span className="toolCard-label toolRun-label" key={latest.id}>
+          {latest.text}
+        </span>
+        <span className="toolRun-chevron">
+          {expanded ? <ChevronDown size={13} aria-hidden /> : <ChevronRight size={13} aria-hidden />}
+        </span>
+      </button>
     </div>
   )
 }

@@ -4,6 +4,8 @@ import { Virtuoso } from "react-virtuoso"
 import type { TranscriptEntry } from "../../../../app/transcript.js"
 import { Icon } from "../../components/Icon.js"
 import { EntryView } from "./entries.js"
+import { ToolRunCard } from "./ToolCard.js"
+import { flattenExpandedRuns, groupToolRuns, type TranscriptItem } from "./tool-runs.js"
 import { useTranscriptScroll } from "./useTranscriptScroll.js"
 import { visibleEntries } from "./visible-entries.js"
 
@@ -23,7 +25,9 @@ function Header() {
   return <div style={{ height: 24 }} />
 }
 const components = { List, Header, Footer }
-const itemKey = (_index: number, entry: TranscriptEntry) => entry.id
+// A run's id is its first entry's id; when the run is expanded, that entry follows the run's row as its own
+// item — so run rows key with a prefix to never collide with entry rows.
+const itemKey = (_index: number, item: TranscriptItem) => (item.kind === "toolRun" ? `run-${item.id}` : item.id)
 const initialPosition = { index: "LAST", align: "end" } as const
 
 /** Only the visible slice mounts. Virtuoso measures rows; the scroll hook owns following the live tail. */
@@ -51,30 +55,48 @@ export const TranscriptList = memo(function TranscriptList({
       return next
     })
   }, [])
+  // Expanded runs flatten into ordinary rows, so a long run stays windowed like the rest of the transcript.
+  const { items, expandedEntries } = useMemo(
+    () => flattenExpandedRuns(groupToolRuns(visible), expanded),
+    [visible, expanded],
+  )
   const context = useMemo(() => ({ footer }), [footer])
   const renderEntry = useCallback(
-    (index: number, entry: TranscriptEntry) => (
-      <div className="transcriptEntry" data-entry-id={entry.id}>
-        <EntryView
-          entry={entry}
-          active={busy && index === visible.length - 1}
-          thinkingVisible={thinkingVisible}
-          expanded={expanded.has(entry.id)}
-          onExpandedChange={setEntryExpanded}
-        />
-      </div>
-    ),
-    [busy, visible.length, thinkingVisible, expanded, setEntryExpanded],
+    (index: number, item: TranscriptItem) =>
+      item.kind === "toolRun" ? (
+        <div className="transcriptEntry" data-run-id={item.id}>
+          <ToolRunCard
+            run={item}
+            active={busy && index === items.length - 1}
+            expanded={expanded.has(item.id)}
+            onExpandedChange={setEntryExpanded}
+          />
+        </div>
+      ) : (
+        <div
+          className={`transcriptEntry${expandedEntries.has(item.id) ? " transcriptEntry-inRun" : ""}`}
+          data-entry-id={item.id}
+        >
+          <EntryView
+            entry={item}
+            active={busy && index === items.length - 1}
+            thinkingVisible={thinkingVisible}
+            expanded={expanded.has(item.id)}
+            onExpandedChange={setEntryExpanded}
+          />
+        </div>
+      ),
+    [busy, items.length, thinkingVisible, expanded, expandedEntries, setEntryExpanded],
   )
 
   return (
     <div className="transcriptViewport">
-      <Virtuoso<TranscriptEntry, ListContext>
+      <Virtuoso<TranscriptItem, ListContext>
         scrollerRef={scroll.scrollerRef}
         onScrollCapture={scroll.onScrollCapture}
         totalListHeightChanged={scroll.totalListHeightChanged}
         className={`transcriptScroll${scrolling ? " scrolling" : ""}`}
-        data={visible}
+        data={items}
         computeItemKey={itemKey}
         components={components}
         context={context}

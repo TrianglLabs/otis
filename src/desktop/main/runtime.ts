@@ -39,6 +39,7 @@ import {
   saveFireworksApiKey,
   saveLastWorkspace,
   savePairEndpoints,
+  savePermissionMode,
   saveSelectedModel,
   saveSelectedTheme,
   saveSubagentPanelVisible,
@@ -703,6 +704,17 @@ export class DesktopRuntime {
     this.#markStateDirty()
   }
 
+  /** Applies and persists the interactive permission mode for subsequent tool calls. */
+  async setPermissionMode(mode: "ask" | "auto") {
+    await savePermissionMode(mode)
+    this.app.permissionMode = mode
+    this.app.settings.permissions = {
+      defaultMode: mode,
+      rules: [...(this.app.settings.permissions?.rules ?? [])],
+    }
+    this.#markStateDirty()
+  }
+
   /**
    * Toggles Fast serving for the selected hosted model, mirroring the TUI's /fast command: the model is
    * re-selected on its fast or standard path and the preference is persisted per base model id.
@@ -1287,6 +1299,7 @@ export class DesktopRuntime {
       agentsPanelVisible: this.app.settings.subagentPanelVisible ?? true,
       theme: this.app.settings.theme ?? "default",
       thinkingVisible: this.app.settings.thinkingVisible ?? false,
+      permissionMode: app.permissionMode,
       fastServing: this.#fastServingState(),
       hostedConfigured: Boolean(app.fireworksApiKey),
       pairConfigured: Boolean(app.pairEndpoints.ollama || app.pairEndpoints.lmStudio),

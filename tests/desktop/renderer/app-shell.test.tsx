@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import type { ReactNode } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { GlobalSessionPickerItem } from "../../../src/app/global-sessions.js"
+import type { TranscriptEntry } from "../../../src/app/transcript.js"
 
 const WS = "/ws"
 
@@ -17,7 +18,7 @@ vi.mock("react-virtuoso", () => ({
     components,
     context,
   }: {
-    data?: { id?: number }[]
+    data?: { id?: number; kind?: string }[]
     itemContent: (index: number, item: unknown) => ReactNode
     className?: string
     components?: { Footer?: (props: { context: unknown }) => ReactNode }
@@ -25,7 +26,8 @@ vi.mock("react-virtuoso", () => ({
   }) => (
     <div className={className}>
       {data.map((item, index) => (
-        <div key={item.id ?? index}>{itemContent(index, item)}</div>
+        // A run row and its first flattened entry share a numeric id; kind keeps keys unique.
+        <div key={`${item.kind ?? "item"}-${item.id ?? index}`}>{itemContent(index, item)}</div>
       ))}
       {components?.Footer ? <components.Footer context={context} /> : null}
     </div>
@@ -87,6 +89,7 @@ const SNAPSHOT: DesktopSnapshot = {
   agentsPanelVisible: true,
   theme: "default",
   thinkingVisible: false,
+  permissionMode: "auto",
   fastServing: { available: false, enabled: false },
   hostedConfigured: true,
   pairConfigured: false,
@@ -123,6 +126,7 @@ function fakeApi(overrides: Partial<DesktopApi> = {}): DesktopApi {
     setAgentsPanelVisible: vi.fn(async () => {}),
     setTheme: vi.fn(async () => {}),
     setThinkingVisible: vi.fn(async () => {}),
+    setPermissionMode: vi.fn(async () => {}),
     setFastServing: vi.fn(async () => ({ ok: true as const })),
     openFireworksKeyPage: vi.fn(async () => {}),
     setFireworksApiKey: vi.fn(async () => ({ ok: true as const })),
@@ -148,7 +152,11 @@ async function renderApp(api: DesktopApi) {
   return store
 }
 
-afterEach(() => cleanup())
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+  document.documentElement.removeAttribute("data-theme")
+})
 
 describe("AppShell settings navigation", () => {
   it("keeps the composer's unsent draft when settings is opened and closed", async () => {
@@ -174,6 +182,23 @@ describe("AppShell settings navigation", () => {
     expect(restored).toBe(textarea)
     expect(restored.value).toBe("refactor the view store")
     expect(restored.closest(".mainColumn")?.classList.contains("mainColumn-hidden")).toBe(false)
+  })
+
+  it("changes the interactive permission mode from Settings", async () => {
+    const api = fakeApi({
+      getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, permissionMode: "ask" as const })),
+      setPermissionMode: vi.fn(async () => {}),
+    })
+    await renderApp(api)
+
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }))
+    await act(async () => {})
+    const select = screen.getByRole("combobox", { name: "Permission mode" }) as HTMLSelectElement
+    expect(select.value).toBe("ask")
+    expect(Array.from(select.options, (option) => option.text)).toEqual(["Ask", "Auto"])
+
+    fireEvent.change(select, { target: { value: "auto" } })
+    expect(api.setPermissionMode).toHaveBeenCalledExactlyOnceWith("auto")
   })
 
   it("shows an update chip only when an update is downloaded", async () => {
@@ -427,8 +452,9 @@ describe("AppShell settings navigation", () => {
     expect(screen.queryByText("old finished trace")).toBeNull()
     // Trace content never renders in hidden mode — just the quiet status line.
     expect(screen.queryByText("live current thought")).toBeNull()
-    const status = await screen.findByText("Thinking…")
-    expect(status.classList.contains("reasoning-text")).toBe(true)
+    const status = await screen.findByRole("status")
+    expect(status.textContent).toBe("Thinking…")
+    expect(status.closest(".reasoning-text")).not.toBeNull()
     expect(document.querySelector(".reasoning-header")).toBeNull()
     expect(document.querySelector(".reasoning-preview")).toBeNull()
   })
@@ -710,5 +736,62 @@ describe("header context meter", () => {
     }
     await renderApp(fakeApi({ getSnapshot: vi.fn(async () => inConversation) }))
     expect(document.body.querySelector(".contextMeter")).toBeTruthy()
+  })
+})
+
+describe("theme application", () => {
+  it("applies the workspace theme to the document and remembers it for the next boot", async () => {
+    const storage = new Map<string, string>()
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => storage.set(key, value),
+    })
+    await renderApp(fakeApi({ getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, theme: "matrix" as const })) }))
+    expect(document.documentElement.dataset.theme).toBe("matrix")
+    expect(storage.get("otis.theme")).toBe("matrix")
+  })
+})
+
+describe("tool run condensing", () => {
+  const entries = [
+    { id: 1, kind: "message", speaker: "You", text: "fix the shell" },
+    { id: 2, kind: "tool", speaker: "Tool", text: "Searching files: keydown", activityKind: "file_search" },
+    { id: 3, kind: "tool", speaker: "Tool", text: "Reading files: AppShell.tsx", activityKind: "file_read" },
+    { id: 4, kind: "tool", speaker: "Tool", text: "Running command: bun test", activityKind: "shell" },
+    {
+      id: 5,
+      kind: "tool",
+      speaker: "Tool",
+      text: "Editing file: AppShell.tsx",
+      activityKind: "file_edit",
+      diff: "@@ -1 +1 @@\n-old\n+new",
+    },
+    { id: 6, kind: "message", speaker: "Otis", text: "Done." },
+  ] satisfies TranscriptEntry[]
+
+  it("condenses consecutive tool activity behind one row that expands into list rows on click", async () => {
+    await renderApp(fakeApi({ getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, entries })) }))
+
+    // Collapsed: user message, run row, standalone diff card, answer — the run's actions mount nothing.
+    expect(document.querySelectorAll(".transcriptEntry")).toHaveLength(4)
+    const run = screen.getByRole("button", { name: "3 tool actions, latest: Running command: bun test" })
+    expect(screen.queryByText("Searching files: keydown")).toBeNull()
+    expect(screen.queryByText("Reading files: AppShell.tsx")).toBeNull()
+
+    // The edit's diff is content, not a summary: it stays standalone outside the run.
+    expect(screen.getByText("Editing file: AppShell.tsx")).toBeTruthy()
+
+    fireEvent.click(run)
+    // Expanding flattens the actions into ordinary virtualized rows beside the run's row, indented as its.
+    expect(document.querySelectorAll(".transcriptEntry")).toHaveLength(7)
+    expect(document.querySelectorAll(".transcriptEntry-inRun")).toHaveLength(3)
+    expect(screen.getByText("Searching files: keydown")).toBeTruthy()
+    expect(screen.getByText("Reading files: AppShell.tsx")).toBeTruthy()
+    // The row keeps the latest-action label; the flattened action adds its own row.
+    expect(screen.getAllByText("Running command: bun test")).toHaveLength(2)
+
+    fireEvent.click(run)
+    expect(document.querySelectorAll(".transcriptEntry")).toHaveLength(4)
+    expect(screen.queryByText("Searching files: keydown")).toBeNull()
   })
 })

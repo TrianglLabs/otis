@@ -110,10 +110,6 @@ textarea {
   font-size: var(--text-ui);
 }
 
-.bootScreen svg {
-  color: var(--accent);
-}
-
 .bootScreen-error svg {
   color: var(--danger);
 }

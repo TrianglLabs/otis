@@ -5,7 +5,7 @@ import { isLocalModelId } from "../inference/local-catalog.js"
 import { normalizePairEndpoints, type PairEndpoints } from "../inference/pair.js"
 import { baseFireworksModelId, isFastFireworksModel } from "../inference/serving-path.js"
 import type { CatalogModel, FireworksModel, ModelProvider, PairEngine } from "../inference/types.js"
-import { type PermissionConfig, parsePermissionConfig } from "../permissions/policy.js"
+import { type PermissionConfig, type PermissionMode, parsePermissionConfig } from "../permissions/policy.js"
 import { localConfigDirectory } from "./paths.js"
 
 export type LocalSettings = {
@@ -172,6 +172,14 @@ export async function saveThinkingVisible(visible: boolean, options: SettingsFil
   await serializeSettingsWrite(options, async (pinned) => {
     const saved = (await readSettingsFile(pinned)) ?? { version: 1 }
     await writeSettingsFile({ ...saved, thinkingVisible: visible }, pinned)
+  })
+}
+
+export async function savePermissionMode(mode: PermissionMode, options: SettingsFileOptions = {}) {
+  await serializeSettingsWrite(options, async (pinned) => {
+    const saved = (await readSettingsFile(pinned)) ?? { version: 1 }
+    const permissions = saved.permissions ?? { rules: [] }
+    await writeSettingsFile({ ...saved, permissions: { ...permissions, defaultMode: mode } }, pinned)
   })
 }
 

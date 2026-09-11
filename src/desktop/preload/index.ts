@@ -24,6 +24,7 @@ const api: DesktopApi = {
   setAgentsPanelVisible: (visible: boolean) => ipcRenderer.invoke(DESKTOP_CHANNELS.setAgentsPanelVisible, visible),
   setTheme: (theme: string) => ipcRenderer.invoke(DESKTOP_CHANNELS.setTheme, theme),
   setThinkingVisible: (visible: boolean) => ipcRenderer.invoke(DESKTOP_CHANNELS.setThinkingVisible, visible),
+  setPermissionMode: (mode: "ask" | "auto") => ipcRenderer.invoke(DESKTOP_CHANNELS.setPermissionMode, mode),
   setFastServing: (fast: boolean) => ipcRenderer.invoke(DESKTOP_CHANNELS.setFastServing, fast),
   openFireworksKeyPage: () => ipcRenderer.invoke(DESKTOP_CHANNELS.openFireworksKeyPage),
   setFireworksApiKey: (apiKey: string) => ipcRenderer.invoke(DESKTOP_CHANNELS.setFireworksApiKey, apiKey),

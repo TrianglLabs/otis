@@ -1,8 +1,15 @@
 /** Shared cube artwork: muted faces and an O face in the current theme's accent. */
-export function OtisMark({ className }: { className?: string }) {
+export function OtisMark({ className, decorative = false }: { className?: string; decorative?: boolean }) {
   return (
-    <svg className={className} viewBox="0 0 120 136" fill="currentColor" role="img" aria-label="Otis">
-      <title>Otis</title>
+    <svg
+      className={className}
+      viewBox="0 0 120 136"
+      fill="currentColor"
+      role={decorative ? undefined : "img"}
+      aria-label={decorative ? undefined : "Otis"}
+      aria-hidden={decorative || undefined}
+    >
+      {decorative ? null : <title>Otis</title>}
       <g transform="matrix(.866025 .5 -.866025 .5 60 8)" opacity="var(--otis-mark-top-opacity, .7)">
         <rect x="2" y="2" width="16" height="16" rx="2" />
         <rect x="22" y="2" width="16" height="16" rx="2" />

@@ -168,6 +168,27 @@
   color: var(--pink);
 }
 
+.settingsSelect {
+  flex-shrink: 0;
+  min-width: 92px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-meta);
+}
+
+.settingsSelect:hover {
+  border-color: var(--text-dim);
+}
+
+.settingsSelect:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
 /* --- Rectangular switch --- */
 
 .toggle {

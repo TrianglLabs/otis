@@ -128,7 +128,7 @@ button.reasoning-header:hover {
   cursor: default;
 }
 
-/* Traces off: live thinking shows as plain muted text, no card chrome. */
+/* Traces off: the same live status, without the reasoning preview. */
 .reasoning-text {
   color: var(--text-dim);
   font-size: var(--text-ui);
@@ -144,9 +144,55 @@ button.reasoning-header:hover {
   font-style: italic;
 }
 
-.reasoning-live {
-  color: var(--accent-ink);
-  animation: softPulse 1.6s ease-in-out infinite;
+.reasoning-cube {
+  display: block;
+  flex-shrink: 0;
+  width: 18px;
+  height: 20.4px;
+}
+
+.thinkingStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.thinking-label {
+  background: linear-gradient(
+    105deg,
+    var(--text-dim) 30%,
+    var(--accent-ink) 45%,
+    var(--text) 50%,
+    var(--accent-ink) 55%,
+    var(--text-dim) 70%
+  );
+  background-size: 250% 100%;
+  background-clip: text;
+  color: transparent;
+  font-style: italic;
+  animation: thinking-shimmer 3.6s ease-in-out infinite;
+}
+
+@keyframes thinking-shimmer {
+  0%,
+  15% {
+    background-position: 100% 0;
+  }
+  85%,
+  100% {
+    background-position: 0% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thinking-label {
+    animation: none;
+  }
+
+  .thinking-label {
+    background: none;
+    color: var(--text-dim);
+  }
 }
 
 .reasoning-body {
@@ -171,12 +217,6 @@ button.reasoning-header:hover {
   overflow: hidden;
   -webkit-mask-image: linear-gradient(to bottom, transparent, #000 40%);
   mask-image: linear-gradient(to bottom, transparent, #000 40%);
-}
-
-@keyframes softPulse {
-  50% {
-    opacity: 0.55;
-  }
 }
 
 /* Debug lines */
@@ -216,6 +256,52 @@ button.reasoning-header:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   flex: 1;
+}
+
+/* Tool runs: consecutive activity condensed behind one row */
+
+.toolRun-header {
+  width: 100%;
+  text-align: left;
+}
+
+.toolRun-header .toolCard-label {
+  color: var(--text-dim);
+  transition: color var(--motion) ease;
+}
+
+.toolCard-active .toolRun-header .toolCard-label {
+  color: var(--text);
+}
+
+/* Keyed by the latest action, so each new action replays this settle-in. */
+.toolRun-label {
+  animation: toolRun-label-in var(--motion);
+}
+
+@keyframes toolRun-label-in {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+}
+
+.toolRun-chevron {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--text-dim);
+  transition: color var(--motion) ease;
+}
+
+.toolRun-header:hover .toolCard-label,
+.toolRun-header:hover .toolRun-chevron {
+  color: var(--text);
+}
+
+/* An expanded run's entries are ordinary virtualized rows, indented under the run's row. No enter animation
+   here: rows remount as they scroll back into the viewport, and motion must not replay on scroll. */
+.transcriptEntry-inRun {
+  margin-left: 22px;
 }
 
 /* Diffs */
@@ -316,62 +402,78 @@ button.reasoning-header:hover {
 /* Permission card */
 
 .permissionCard {
-  border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
-  border-left-width: 2px;
+  min-width: 0;
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background: color-mix(in srgb, var(--warning) 7%, var(--bg));
-  padding: 12px;
+  background: var(--bg-elev);
+  padding: 14px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
 .permissionCard-head {
   display: flex;
-  gap: 10px;
+  align-items: center;
+  gap: 7px;
 }
 
 .permissionCard-icon {
-  color: var(--warning);
+  color: var(--text-dim);
   display: inline-flex;
-  margin-top: 1px;
+  flex-shrink: 0;
 }
 
 .permissionCard-title {
-  font-size: var(--text-micro);
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--warning);
+  font-size: var(--text-ui);
+  font-weight: 500;
+  color: var(--text);
+}
+
+.permissionCard-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
 }
 
 .permissionCard-label {
-  margin-top: 3px;
-  font-family: var(--font-mono);
   font-size: var(--text-ui);
+  color: var(--text);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .permissionCard-resources {
-  margin-top: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 160px;
+  overflow-y: auto;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--bg-code);
+}
+
+.permissionCard-resources li + li {
+  border-top: 1px solid var(--hairline);
 }
 
 .permissionCard-resources code {
+  display: block;
+  padding: 8px 10px;
   font-family: var(--font-mono);
   font-size: var(--text-meta);
-  color: var(--text-dim);
-  background: var(--bg-code);
-  border: 1px solid var(--hairline);
-  padding: 2px 6px;
+  line-height: 1.55;
+  color: var(--text);
+  white-space: pre-wrap;
   overflow-wrap: anywhere;
-  border-radius: var(--radius-sm);
 }
 
 .permissionCard-actions {
   display: flex;
-  justify-content: flex-end;
+  margin-left: auto;
   gap: 8px;
 }
 

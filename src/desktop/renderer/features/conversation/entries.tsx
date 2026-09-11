@@ -1,8 +1,9 @@
-import { Brain, ChevronDown, ChevronRight, ShipWheel } from "lucide-react"
+import { ChevronDown, ChevronRight, ShipWheel } from "lucide-react"
 import { memo } from "react"
 import type { TranscriptEntry } from "../../../../app/transcript.js"
 import { Icon } from "../../components/Icon.js"
 import { Markdown } from "../../components/Markdown.js"
+import { OtisMark } from "../../components/OtisMark.js"
 import { formatDuration } from "../../format.js"
 import { ToolCard } from "./ToolCard.js"
 
@@ -59,6 +60,15 @@ function AssistantMessage({ entry }: { entry: TranscriptEntry }) {
   )
 }
 
+function ThinkingStatus() {
+  return (
+    <span className="thinkingStatus" role="status">
+      <OtisMark className="reasoning-cube" decorative />
+      <span className="thinking-label">Thinking…</span>
+    </span>
+  )
+}
+
 function ReasoningCard({
   entry,
   thinkingVisible,
@@ -73,7 +83,11 @@ function ReasoningCard({
   if (!thinkingVisible) {
     // Traces off: only live thinking reaches here (finished traces are filtered upstream) — a quiet status
     // line, never the trace content itself.
-    return <div className="reasoning-text">Thinking…</div>
+    return (
+      <div className="reasoning-text">
+        <ThinkingStatus />
+      </div>
+    )
   }
 
   if (entry.streaming) {
@@ -82,8 +96,7 @@ function ReasoningCard({
     return (
       <div className="reasoning">
         <div className="reasoning-header reasoning-headerLive">
-          <Brain size={13} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden />
-          <span className="reasoning-label reasoning-live">Thinking…</span>
+          <ThinkingStatus />
         </div>
         {preview ? <div className="reasoning-body reasoning-preview">{preview}</div> : null}
       </div>
@@ -100,7 +113,7 @@ function ReasoningCard({
         onClick={() => onExpandedChange(entry.id, !expanded)}
         aria-expanded={expanded}
       >
-        <Brain size={13} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden />
+        <OtisMark className="reasoning-cube" decorative />
         <span className="reasoning-label">{label}</span>
         {expanded ? <ChevronDown size={13} aria-hidden /> : <ChevronRight size={13} aria-hidden />}
       </button>

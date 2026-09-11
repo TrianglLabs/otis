@@ -1,7 +1,7 @@
 # Desktop app icon
 
-`Otis.icon` is the source artwork, authored in Apple's Icon Composer. Both its default and dark appearances use
-the dark design; the mono variant remains available. macOS selects appearances through its Icon & widget style
+`Otis.icon` is the source artwork, authored in Apple's Icon Composer. Its default appearance uses the light design;
+the dark and mono variants remain available. macOS selects appearances through its Icon & widget style
 setting, which is separate from system Dark Mode. Otis themes do not change the application icon. Packaged macOS
 builds compile the file into `Assets.car` and a legacy ICNS using electron-builder and Xcode 26 or later.
 

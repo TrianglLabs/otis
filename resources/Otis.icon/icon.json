@@ -3,13 +3,22 @@
     {
       "value" : {
         "linear-gradient" : [
+          "display-p3:0.84600,0.84600,0.83900,1.00000",
+          "display-p3:0.84600,0.84600,0.83900,1.00000"
+        ]
+      }
+    },
+    {
+      "appearance" : "dark",
+      "value" : {
+        "linear-gradient" : [
           "display-p3:0.10217,0.10217,0.10217,1.00000",
           "display-p3:0.10217,0.10217,0.10217,1.00000"
         ]
       }
     },
     {
-      "appearance" : "dark",
+      "appearance" : "tinted",
       "value" : {
         "linear-gradient" : [
           "display-p3:0.10217,0.10217,0.10217,1.00000",
@@ -25,11 +34,17 @@
           "fill-specializations" : [
             {
               "value" : {
-                "solid" : "display-p3:0.53607,0.48787,0.96802,1.00000"
+                "solid" : "display-p3:0.25500,0.19300,0.53200,1.00000"
               }
             },
             {
               "appearance" : "dark",
+              "value" : {
+                "solid" : "display-p3:0.53607,0.48787,0.96802,1.00000"
+              }
+            },
+            {
+              "appearance" : "tinted",
               "value" : {
                 "solid" : "display-p3:0.53607,0.48787,0.96802,1.00000"
               }
@@ -42,7 +57,7 @@
           "fill-specializations" : [
             {
               "value" : {
-                "solid" : "display-p3:0.28174,0.28174,0.28174,1.00000"
+                "solid" : "display-p3:0.60500,0.59500,0.61700,1.00000"
               }
             },
             {
@@ -65,7 +80,7 @@
           "fill-specializations" : [
             {
               "value" : {
-                "solid" : "display-p3:0.37939,0.37939,0.37939,1.00000"
+                "solid" : "display-p3:0.57822,0.56711,0.59233,1.00000"
               }
             },
             {

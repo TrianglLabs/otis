@@ -3,8 +3,10 @@ import type { TranscriptEntry } from "../app/transcript.js"
 import type { ModelPickerItem, ModelPickerStatus } from "../inference/picker-catalog.js"
 import type { ModelProvider } from "../inference/types.js"
 import type { ThemeName } from "../local/settings.js"
+import type { PermissionMode } from "../permissions/policy.js"
 
 export type { ThemeName } from "../local/settings.js"
+export type { PermissionMode } from "../permissions/policy.js"
 
 import type { LocalStats } from "../local/stats.js"
 import type { ToolActivityKind } from "../tools/activity.js"
@@ -31,6 +33,7 @@ export const DESKTOP_CHANNELS = {
   setAgentsPanelVisible: "desktop:set-agents-panel-visible",
   setTheme: "desktop:set-theme",
   setThinkingVisible: "desktop:set-thinking-visible",
+  setPermissionMode: "desktop:set-permission-mode",
   setFastServing: "desktop:set-fast-serving",
   openFireworksKeyPage: "desktop:open-fireworks-key-page",
   setFireworksApiKey: "desktop:set-fireworks-api-key",
@@ -103,6 +106,8 @@ export type DesktopStatus = {
   theme: ThemeName
   /** Reasoning renders as trace cards when on; plain muted text when off. Persisted in local settings. */
   thinkingVisible: boolean
+  /** Permission behavior for mutating tools. Interactive controls offer ask and auto. */
+  permissionMode: PermissionMode
   /** Fast serving for the selected hosted model: whether it has a fast path, and whether that path is active. */
   fastServing: { available: boolean; enabled: boolean }
   /** A Fireworks API key is configured. The key itself is never sent to the renderer. */
@@ -194,6 +199,8 @@ export type DesktopApi = {
   setTheme(theme: ThemeName): Promise<void>
   /** Shows thinking as trace cards or as plain muted text; persisted in local settings. */
   setThinkingVisible(visible: boolean): Promise<void>
+  /** Persists the permission behavior used by subsequent tool calls. */
+  setPermissionMode(mode: "ask" | "auto"): Promise<void>
   /** Shows or hides reasoning traces in the transcript and subagent traces; persisted across launches. */
   /** Toggles Fast serving for the selected hosted model, re-selecting it on the fast or standard path. */
   setFastServing(fast: boolean): Promise<ModelSelectResult>
