@@ -38,6 +38,7 @@ export const DESKTOP_CHANNELS = {
   listDownloadedModels: "desktop:list-downloaded-models",
   deleteLocalModel: "desktop:delete-local-model",
   setDebugMode: "desktop:set-debug-mode",
+  checkForUpdates: "desktop:check-for-updates",
   installUpdate: "desktop:install-update",
   event: "desktop:event",
 } as const
@@ -53,6 +54,12 @@ export type PendingPermission = {
 
 /** Lifecycle of the selected model's inference client. Prompts are only accepted in the `ready` state. */
 export type ModelState = "unconfigured" | "starting" | "ready" | "failed"
+
+/** Update lifecycle shared by automatic checks, Settings, and the restart affordance. */
+export type DesktopUpdateState =
+  | { status: "idle" | "checking" | "current" | "unavailable" }
+  | { status: "downloading" | "ready"; version: string }
+  | { status: "error"; message: string }
 
 /** One delegated run as the panel lists it: identity, lifecycle, and its tool-call count. */
 export type SubagentSummary = {
@@ -106,8 +113,7 @@ export type DesktopStatus = {
   pairEndpoints: { ollama?: string; lmStudio?: string }
   /** Session-only debug mode, mirroring the TUI's /debug toggle; applies from the next turn. */
   debug: boolean
-  /** A newer release is downloaded and installs on restart; undefined until the updater finds one. */
-  update?: { version: string }
+  update: DesktopUpdateState
 }
 
 /** A downloaded local model, listed in settings for deletion; detail mirrors the TUI's delete menu rows. */
@@ -203,6 +209,8 @@ export type DesktopApi = {
   deleteLocalModel(id: string): Promise<ModelSelectResult>
   /** Session-only debug mode; applies from the next turn. */
   setDebugMode(enabled: boolean): Promise<void>
+  /** Checks the release feed; progress and results arrive through the status stream. */
+  checkForUpdates(): Promise<void>
   /** Restarts into the downloaded update. No-op when no update is ready. */
   installUpdate(): Promise<void>
   subscribe(listener: (event: DesktopEvent) => void): () => void

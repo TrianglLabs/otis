@@ -120,6 +120,7 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
     if (typeof id !== "string") throw new Error("Invalid model id.")
     return runtime.deleteLocalModel(id)
   })
+  handle(DESKTOP_CHANNELS.checkForUpdates, () => runtime.checkForUpdates())
   handle(DESKTOP_CHANNELS.installUpdate, () => runtime.installUpdate())
   handle(DESKTOP_CHANNELS.setDebugMode, (enabled) => {
     if (typeof enabled !== "boolean") throw new Error("Invalid debug flag.")

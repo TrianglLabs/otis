@@ -32,6 +32,7 @@ const api: DesktopApi = {
   listDownloadedModels: () => ipcRenderer.invoke(DESKTOP_CHANNELS.listDownloadedModels),
   deleteLocalModel: (id: string) => ipcRenderer.invoke(DESKTOP_CHANNELS.deleteLocalModel, id),
   setDebugMode: (enabled: boolean) => ipcRenderer.invoke(DESKTOP_CHANNELS.setDebugMode, enabled),
+  checkForUpdates: () => ipcRenderer.invoke(DESKTOP_CHANNELS.checkForUpdates),
   installUpdate: () => ipcRenderer.invoke(DESKTOP_CHANNELS.installUpdate),
   subscribe: (listener) => {
     const wrapped = (_event: IpcRendererEvent, payload: DesktopEvent) => listener(payload)

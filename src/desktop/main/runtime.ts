@@ -81,6 +81,7 @@ export type DesktopRuntimeOptions = {
   listToolCapableModels?: typeof listToolCapableModels
   /** Quits and installs the downloaded update; provided by the main process once a release is ready. */
   installUpdate?: () => Promise<void>
+  checkForUpdates?: () => Promise<void>
 }
 
 /** Maximum prompt size accepted from the renderer, matching what a session file can reasonably hold. */
@@ -122,7 +123,7 @@ export class DesktopRuntime {
   #deleting = false
   #modelLoad: { modelId: string; status: ModelPickerStatus } | undefined
   #stats: DesktopStatus["stats"]
-  #update: DesktopStatus["update"]
+  #update: DesktopStatus["update"] = { status: "idle" }
   #queuedChanges: TranscriptChange[] = []
   #stateDirty = false
   #flushTimer: ReturnType<typeof setTimeout> | undefined
@@ -254,14 +255,19 @@ export class DesktopRuntime {
     this.#markStateDirty()
   }
 
-  /** Called by the main process when the auto-updater has a release ready to install. */
-  setUpdateAvailable(version: string): void {
-    if (this.#update?.version === version) return
-    this.#update = { version }
+  /** Update state belongs to the main-process updater and survives Settings being closed. */
+  setUpdateState(update: DesktopStatus["update"]): void {
+    this.#update = update
     this.#markStateDirty()
   }
 
+  async checkForUpdates(): Promise<void> {
+    if (this.#disposed) return
+    await this.options.checkForUpdates?.()
+  }
+
   async installUpdate(): Promise<void> {
+    if (this.#disposed || this.#update.status !== "ready") return
     await this.options.installUpdate?.()
   }
 
@@ -1286,7 +1292,7 @@ export class DesktopRuntime {
       pairConfigured: Boolean(app.pairEndpoints.ollama || app.pairEndpoints.lmStudio),
       pairEndpoints: { ...app.pairEndpoints },
       debug: this.#debug,
-      ...(this.#update ? { update: this.#update } : {}),
+      update: this.#update,
       subagents: this.app.subagents.all.map((trace) => ({
         toolCallId: trace.toolCallId,
         title: trace.title,

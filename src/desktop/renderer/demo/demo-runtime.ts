@@ -206,7 +206,7 @@ class DemoRuntime implements DesktopApi {
     pairEndpoints: {},
     debug: false,
     // Showcases the header's update affordance.
-    update: { version: "0.2.0" },
+    update: { status: "ready", version: "0.2.0" },
     subagents: [
       {
         toolCallId: "demo_agent_1",
@@ -280,6 +280,8 @@ class DemoRuntime implements DesktopApi {
   }
 
   async installUpdate(): Promise<void> {}
+
+  async checkForUpdates(): Promise<void> {}
 
   async setDebugMode(enabled: boolean): Promise<void> {
     this.#state = { ...this.#state, debug: enabled }

@@ -1,4 +1,5 @@
 import electronUpdater from "electron-updater"
+import type { DesktopUpdateState } from "../contracts.js"
 
 const { autoUpdater } = electronUpdater
 
@@ -6,36 +7,85 @@ const CHECK_INTERVAL_MS = 60 * 60 * 1000
 
 /**
  * GitHub Releases auto-update. Checks on launch and hourly; downloads in the background and reports
- * when a release is ready, leaving the restart decision to the user (the renderer shows the affordance).
- * Dev builds skip entirely; failures stay quiet — a missed update check is never worth an error dialog.
+ * progress to Settings, leaving the restart decision to the user. Automatic and manual checks share one
+ * in-flight operation, including its download. Dev builds skip entirely; failures never open an error dialog.
  */
 export function startAutoUpdates(deps: {
   isPackaged: boolean
-  onDownloaded: (version: string) => void
+  onState: (state: DesktopUpdateState) => void
   /** Installer error event subscription (autoUpdater.on("error")); returns an unsubscribe. */
   onUpdaterError: (listener: (error: Error) => void) => () => void
   /** App quit-start subscription (app.once("before-quit")); returns an unsubscribe. */
   onBeforeQuit: (listener: () => void) => () => void
   /** Install didn't take (user cancelled, installer error): the app must explain and exit cleanly. */
   onInstallFailed: () => void
-}): { install: () => void; isInstalling: () => boolean } {
-  if (!deps.isPackaged) return { install: () => {}, isInstalling: () => false } // dev: no feed, no guard
+}): { check: () => Promise<void>; install: () => void; isInstalling: () => boolean } {
+  if (!deps.isPackaged) {
+    deps.onState({ status: "unavailable" })
+    return { check: async () => {}, install: () => {}, isInstalling: () => false }
+  }
+
+  let state: DesktopUpdateState = { status: "idle" }
+  let pending: Promise<void> | undefined
+  let installing = false
+  const report = (next: DesktopUpdateState) => {
+    state = next
+    deps.onState(next)
+  }
+  const reportError = () => {
+    if (installing || state.status === "ready" || state.status === "error") return
+    report({
+      status: "error",
+      message:
+        state.status === "downloading"
+          ? "The update couldn’t be downloaded. Please try again."
+          : "Couldn’t check for updates. Please try again.",
+    })
+  }
 
   autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = false
-  autoUpdater.on("update-downloaded", (info) => deps.onDownloaded(info.version))
-  autoUpdater.on("error", (error) => console.warn("Auto-update check failed:", error.message))
+  autoUpdater.on("update-downloaded", (info) => report({ status: "ready", version: info.version }))
+  autoUpdater.on("error", (error) => {
+    console.warn("Auto-update failed:", error.message)
+    reportError()
+  })
 
-  const check = () => checkForUpdatesSilently(autoUpdater)
-  check()
-  setInterval(check, CHECK_INTERVAL_MS).unref()
+  const runCheck = async () => {
+    report({ status: "checking" })
+    try {
+      const result = await autoUpdater.checkForUpdates()
+      // A cached download can emit update-downloaded before the check promise resolves.
+      if (state.status !== "ready" && state.status !== "error") {
+        if (!result) report({ status: "unavailable" })
+        else if (result.isUpdateAvailable) report({ status: "downloading", version: result.updateInfo.version })
+        else report({ status: "current" })
+      }
+      await result?.downloadPromise
+    } catch {
+      // Both the version check and download may reject, with or without an error event.
+      reportError()
+    }
+  }
+  const check = (): Promise<void> => {
+    if (pending) return pending
+    if (installing || state.status === "ready") return Promise.resolve()
+    pending = runCheck().finally(() => {
+      pending = undefined
+    })
+    return pending
+  }
+
+  void check()
+  setInterval(() => void check(), CHECK_INTERVAL_MS).unref()
 
   // While installing, the normal window-all-closed → app.quit() and before-quit interception must stand down:
   // quitAndInstall owns the quit, and app.exit(0) before it runs would kill the installer handoff.
-  let installing = false
   return {
+    check,
     isInstalling: () => installing,
     install: () => {
+      if (installing || state.status !== "ready") return
       installing = true
       return createInstallGuard({
         quitAndInstall: () => autoUpdater.quitAndInstall(),
@@ -45,16 +95,6 @@ export function startAutoUpdates(deps: {
       })()
     },
   }
-}
-
-/** A failed version check or download is a skipped update, never a crash: both promises are swallowed. */
-export function checkForUpdatesSilently(updater: {
-  checkForUpdates(): Promise<{ downloadPromise?: Promise<unknown> | null } | null | undefined>
-}): void {
-  updater
-    .checkForUpdates()
-    .then((result) => void result?.downloadPromise?.catch(() => {}))
-    .catch(() => {})
 }
 
 /**

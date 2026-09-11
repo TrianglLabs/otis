@@ -22,7 +22,7 @@ function sessionItem(partial: {
   }
 }
 
-import type { DesktopApi, DesktopEvent, DesktopSnapshot } from "../../../src/desktop/contracts.js"
+import type { DesktopApi, DesktopEvent, DesktopSnapshot, DesktopUpdateState } from "../../../src/desktop/contracts.js"
 import { App } from "../../../src/desktop/renderer/App.js"
 import { DesktopProvider } from "../../../src/desktop/renderer/runtime.js"
 import { DesktopViewStore } from "../../../src/desktop/renderer/state.js"
@@ -68,6 +68,7 @@ const SNAPSHOT: DesktopSnapshot = {
   debug: false,
   platform: "darwin",
   version: "0.0.0-test",
+  update: { status: "idle" },
   workspace: { label: "ws", path: "/ws" },
   entries: [],
   revision: 1,
@@ -104,6 +105,7 @@ function fakeApi(overrides: Partial<DesktopApi> = {}): DesktopApi {
     deleteLocalModel: vi.fn(async () => ({ ok: true as const })),
     setDebugMode: vi.fn(async () => {}),
     installUpdate: vi.fn(async () => {}),
+    checkForUpdates: vi.fn(async () => {}),
     subscribe: vi.fn(() => () => {}),
     ...overrides,
   }
@@ -155,11 +157,101 @@ describe("AppShell settings navigation", () => {
     cleanup()
 
     const updated = fakeApi({
-      getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, update: { version: "9.9.9" } })),
+      getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, update: { status: "ready" as const, version: "9.9.9" } })),
     })
     await renderApp(updated)
     fireEvent.click(await screen.findByRole("button", { name: "Update" }))
     expect(updated.installUpdate).toHaveBeenCalled()
+  })
+
+  it("checks for updates only from Settings and keeps download progress when Settings reopens", async () => {
+    let emit!: (event: DesktopEvent) => void
+    let finish!: () => void
+    const api = fakeApi({
+      checkForUpdates: vi.fn(
+        () =>
+          new Promise<void>((resolve) => {
+            finish = resolve
+          }),
+      ),
+      subscribe: vi.fn((listener) => {
+        emit = listener
+        return () => {}
+      }),
+    })
+    await renderApp(api)
+    expect(screen.queryByRole("button", { name: "Check for updates" })).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }))
+    await act(async () => {})
+    expect(screen.getByText("0.0.0-test")).toBeTruthy()
+    expect(api.checkForUpdates).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole("button", { name: "Check for updates" }))
+    expect(api.checkForUpdates).toHaveBeenCalledOnce()
+    expect((screen.getByRole("button", { name: "Checking…" }) as HTMLButtonElement).disabled).toBe(true)
+    act(() =>
+      emit({
+        type: "status",
+        revision: 2,
+        status: { ...SNAPSHOT, update: { status: "downloading", version: "9.9.9" } },
+      }),
+    )
+    expect(screen.getByRole("status").textContent).toContain("Downloading Otis 9.9.9")
+    expect(screen.queryByRole("button", { name: "Update" })).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: /close settings/i }))
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }))
+    await act(async () => {})
+    expect((screen.getByRole("button", { name: "Downloading…" }) as HTMLButtonElement).disabled).toBe(true)
+    await act(async () => {
+      emit({ type: "status", revision: 3, status: { ...SNAPSHOT, update: { status: "ready", version: "9.9.9" } } })
+      finish()
+    })
+    expect(screen.getByRole("status").textContent).toBe("Otis 9.9.9 is ready to install.")
+    expect(screen.getByRole("button", { name: "Update" })).toBeTruthy()
+    expect(api.installUpdate).not.toHaveBeenCalled()
+  })
+
+  it.each<{ update: DesktopUpdateState; message: string; disabled: boolean }>([
+    { update: { status: "current" }, message: "You’re up to date.", disabled: false },
+    {
+      update: { status: "error", message: "The update couldn’t be downloaded. Please try again." },
+      message: "The update couldn’t be downloaded. Please try again.",
+      disabled: false,
+    },
+    {
+      update: { status: "unavailable" },
+      message: "Update checks aren’t available in this build of Otis.",
+      disabled: true,
+    },
+  ])("shows $update.status update feedback in Settings", async ({ update, message, disabled }) => {
+    await renderApp(fakeApi({ getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, update })) }))
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }))
+    await act(async () => {})
+    expect(screen.getByRole("status").textContent).toBe(message)
+    expect((screen.getByRole("button", { name: "Check for updates" }) as HTMLButtonElement).disabled).toBe(disabled)
+    expect(screen.queryByRole("button", { name: "Update" })).toBeNull()
+  })
+
+  it("shows a failed bridge request and lets the user retry to an up-to-date result", async () => {
+    let emit!: (event: DesktopEvent) => void
+    const check = vi.fn<DesktopApi["checkForUpdates"]>().mockRejectedValueOnce(new Error("bridge unavailable"))
+    const api = fakeApi({
+      checkForUpdates: check,
+      subscribe: vi.fn((listener) => {
+        emit = listener
+        return () => {}
+      }),
+    })
+    await renderApp(api)
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }))
+    await act(async () => {})
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Check for updates" })))
+    expect(screen.getByRole("status").textContent).toBe("Couldn’t check for updates. Please try again.")
+    check.mockImplementationOnce(async () => {
+      emit({ type: "status", revision: 2, status: { ...SNAPSHOT, update: { status: "current" } } })
+    })
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Check for updates" })))
+    expect(check).toHaveBeenCalledTimes(2)
+    expect(screen.getByRole("status").textContent).toBe("You’re up to date.")
   })
 
   it("lists every session in the palette — no recents cap", async () => {
@@ -396,6 +488,70 @@ describe("AppShell settings navigation", () => {
 })
 
 describe("global session history", () => {
+  it.each([
+    { name: "another workspace", workspacePath: "/other/project" },
+    { name: "an unknown workspace", workspacePath: undefined },
+  ])("allows confirmed deletion from $name without opening its folder", async ({ workspacePath }) => {
+    const item = sessionItem({ id: "foreign", title: "Foreign history", detail: "1d ago", workspacePath })
+    item.dirName = "foreign-0123456789ab"
+    const api = fakeApi({ getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, sessions: [item] })) })
+    await renderApp(api)
+    fireEvent.keyDown(window, { key: "k", metaKey: true })
+    const palette = within(await screen.findByRole("dialog"))
+
+    fireEvent.contextMenu(palette.getByText("Foreign history"))
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete session" }))
+    expect(api.deleteSession).not.toHaveBeenCalled()
+    fireEvent.click(palette.getByRole("button", { name: "Delete" }))
+    await act(async () => {})
+
+    expect(api.deleteSession).toHaveBeenCalledWith("foreign", item.dirName)
+    expect(api.openSessionAt).not.toHaveBeenCalled()
+    expect(api.selectSession).not.toHaveBeenCalled()
+    expect(api.pickWorkspaceFolder).not.toHaveBeenCalled()
+  })
+
+  it("removes only the deleted search result when different folders share a session id", async () => {
+    const first = sessionItem({ id: "default", title: "First shared history", detail: "1d ago" })
+    const second = { ...first, dirName: "other-0123456789ab", title: "Second shared history", workspacePath: "/other" }
+    const api = fakeApi({ searchSessions: vi.fn(async () => [first, second]) })
+    await renderApp(api)
+    fireEvent.keyDown(window, { key: "k", metaKey: true })
+    const palette = within(await screen.findByRole("dialog"))
+    fireEvent.change(palette.getByRole("textbox"), { target: { value: "shared" } })
+
+    fireEvent.contextMenu(await palette.findByText(second.title))
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete session" }))
+    fireEvent.click(palette.getByRole("button", { name: "Delete" }))
+    await act(async () => {})
+
+    expect(api.deleteSession).toHaveBeenCalledWith("default", second.dirName)
+    expect(palette.queryByText(second.title)).toBeNull()
+    expect(palette.getByText(first.title)).toBeTruthy()
+  })
+
+  it.each(["locked", "failed"])("keeps foreign history visible and explains a %s deletion", async (failure) => {
+    const item = sessionItem({ id: "foreign", title: "Foreign history", detail: "1d ago", workspacePath: "/other" })
+    const reason =
+      failure === "locked" ? "That session is open in another Otis window." : "Could not remove the session file."
+    const api = fakeApi({
+      getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, sessions: [item] })),
+      deleteSession: vi.fn(async () => {
+        if (failure === "failed") throw new Error(reason)
+        return { ok: false as const, reason }
+      }),
+    })
+    await renderApp(api)
+    fireEvent.keyDown(window, { key: "k", metaKey: true })
+    const palette = within(await screen.findByRole("dialog"))
+    fireEvent.contextMenu(palette.getByText(item.title))
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete session" }))
+    fireEvent.click(palette.getByRole("button", { name: "Delete" }))
+    await act(async () => {})
+    expect(palette.getByText(reason)).toBeTruthy()
+    expect(palette.getByText(item.title)).toBeTruthy()
+  })
+
   it("refreshes history when the palette opens", async () => {
     const api = fakeApi()
     await renderApp(api)

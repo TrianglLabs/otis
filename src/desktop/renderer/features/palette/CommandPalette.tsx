@@ -193,12 +193,20 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
   const deleteSession = async (id: string, dirName: string) => {
     setConfirmingDeleteKey(undefined)
     setActionError(undefined)
-    const result = await api.deleteSession(id, dirName)
-    if (result.ok) {
-      // Search results are local state, so they don't refresh from the snapshot like the recents list does.
-      setFound((current) => (current ? { ...current, items: current.items.filter((item) => item.id !== id) } : current))
-    } else {
-      setActionError(result.reason)
+    try {
+      const result = await api.deleteSession(id, dirName)
+      if (result.ok) {
+        // Search results are local state; remove only this storage identity, since ids repeat across folders.
+        setFound((current) =>
+          current
+            ? { ...current, items: current.items.filter((item) => item.id !== id || item.dirName !== dirName) }
+            : current,
+        )
+      } else {
+        setActionError(result.reason)
+      }
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error))
     }
   }
 
@@ -250,9 +258,6 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
           {rows.map((row, index) => {
             const firstSession = row.kind === "session" && rows[index - 1]?.kind !== "session"
             const key = row.kind === "action" ? row.id : rowKey(row.item)
-            const otherWorkspace =
-              row.kind === "session" &&
-              (row.item.workspacePath === undefined || row.item.workspacePath !== state?.workspace.path)
             return (
               <Fragment key={key}>
                 {!needle && index === 0 && row.kind === "action" ? (
@@ -296,15 +301,11 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
                         className="palette-rowMain"
                         onMouseEnter={() => setSelected(index)}
                         onClick={() => void activate(row)}
-                        onContextMenu={
-                          otherWorkspace
-                            ? undefined
-                            : (event) => {
-                                event.preventDefault()
-                                setSelected(index)
-                                setMenu({ key, x: event.clientX, y: event.clientY })
-                              }
-                        }
+                        onContextMenu={(event) => {
+                          event.preventDefault()
+                          setSelected(index)
+                          setMenu({ key, x: event.clientX, y: event.clientY })
+                        }}
                       >
                         <span className="palette-rowText">
                           <span className="palette-rowTitle">

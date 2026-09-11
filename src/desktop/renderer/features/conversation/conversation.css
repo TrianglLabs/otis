@@ -53,6 +53,23 @@
   gap: 4px;
 }
 
+.userRow-steering {
+  flex-direction: row;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+
+.steeringIndicator {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--accent-ink);
+}
+
+.steeringIndicator svg {
+  animation: spin 6s linear infinite;
+}
+
 .userMessage {
   max-width: 80%;
   background: var(--bg-user);

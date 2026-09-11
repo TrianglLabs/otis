@@ -1,6 +1,7 @@
-import { Brain, ChevronDown, ChevronRight } from "lucide-react"
+import { Brain, ChevronDown, ChevronRight, ShipWheel } from "lucide-react"
 import { useState } from "react"
 import type { TranscriptEntry } from "../../../../app/transcript.js"
+import { Icon } from "../../components/Icon.js"
 import { Markdown } from "../../components/Markdown.js"
 import { formatDuration } from "../../format.js"
 import { ToolCard } from "./ToolCard.js"
@@ -23,11 +24,15 @@ export function EntryView({
 }
 
 function UserMessage({ entry }: { entry: TranscriptEntry }) {
+  const steering = entry.delivery === "steering"
   return (
-    <div className="userRow">
-      {entry.delivery ? (
-        <span className="deliveryTag">{entry.delivery === "queued" ? "Queued" : "Steering"}</span>
+    <div className={`userRow${steering ? " userRow-steering" : ""}`}>
+      {steering ? (
+        <span className="steeringIndicator" role="img" aria-label="Steering" title="Steering the active turn">
+          <Icon icon={ShipWheel} size={16} />
+        </span>
       ) : null}
+      {entry.delivery === "queued" ? <span className="deliveryTag">Queued</span> : null}
       <div className="userMessage">{entry.text}</div>
     </div>
   )
