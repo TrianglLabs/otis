@@ -2,7 +2,7 @@
   "name": "@triangllabs/otis",
   "productName": "Otis",
   "desktopName": "ai.triangllabs.otis.desktop",
-  "version": "0.1.40",
+  "version": "0.1.41",
   "description": "Local terminal agent powered by tool-capable open models",
   "private": true,
   "license": "MIT",
