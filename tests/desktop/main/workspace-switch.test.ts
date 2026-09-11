@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises"
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { basename, join, resolve } from "node:path"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { Application } from "../../../src/app/application.js"
@@ -7,7 +7,7 @@ import type { DesktopEvent } from "../../../src/desktop/contracts.js"
 import { DesktopRuntime } from "../../../src/desktop/main/runtime.js"
 import type { ChatMessage, InferenceClient } from "../../../src/inference/types.js"
 import { loadLocalSettings } from "../../../src/local/settings.js"
-import { createSession } from "../../../src/storage/index.js"
+import { acquireSessionLock, createSession, defaultSessionDirectory, sessionFile } from "../../../src/storage/index.js"
 import { useOtisHome } from "../../app/support/otis-home.js"
 
 const mocks = vi.hoisted(() => ({ executeTurn: vi.fn() }))
@@ -58,6 +58,71 @@ beforeEach(() => {
 })
 
 describe("DesktopRuntime workspace switching", () => {
+  it("opens a known session in its folder automatically, including that folder's instructions", async () => {
+    const { runtime, cwd, otherCwd } = await setup()
+    try {
+      await writeFile(join(otherCwd, "AGENTS.md"), "Beta project rules")
+      const foreign = await createSession({ cwd: otherCwd })
+      await foreign.admitPrompt("beta history")
+
+      expect((await runtime.selectSession(foreign.id, basename(defaultSessionDirectory(otherCwd)))).ok).toBe(true)
+      const snapshot = await runtime.snapshot()
+      expect(snapshot.workspace.path).toBe(otherCwd)
+      expect(snapshot.workspace.path).not.toBe(cwd)
+      expect(snapshot.needsWorkspace).toBe(false)
+      expect(snapshot.entries.some((entry) => entry.text === "beta history")).toBe(true)
+      expect(runtime.app.projectContext.some((file) => file.path === join(otherCwd, "AGENTS.md"))).toBe(true)
+    } finally {
+      await runtime.shutdown()
+    }
+  })
+
+  it.each([
+    "known",
+    "unknown",
+    "missing",
+  ])("deletes %s foreign history without switching or deleting a same-id local session", async (workspace) => {
+    const { runtime, cwd, otherCwd } = await setup()
+    try {
+      const local = await openSessionDefault(cwd)
+      await local.admitPrompt("keep alpha history")
+      expect((await runtime.selectSession(local.id)).ok).toBe(true)
+      const foreign = await openSessionDefault(otherCwd)
+      await foreign.admitPrompt("remove beta history")
+      const directory = defaultSessionDirectory(otherCwd)
+      if (workspace === "unknown") await rm(join(directory, "workspace.json"))
+      if (workspace === "missing") await rm(otherCwd, { recursive: true })
+
+      expect((await runtime.deleteSession(foreign.id, basename(directory))).ok).toBe(true)
+      await expect(readFile(sessionFile({ cwd: otherCwd }, foreign.id), "utf8")).rejects.toMatchObject({
+        code: "ENOENT",
+      })
+      expect(await readFile(sessionFile({ cwd }, local.id), "utf8")).toContain("keep alpha history")
+      const snapshot = await runtime.snapshot()
+      expect(snapshot.workspace.path).toBe(cwd)
+      expect(snapshot.session?.id).toBe(local.id)
+      expect(snapshot.entries.some((entry) => entry.text === "keep alpha history")).toBe(true)
+    } finally {
+      await runtime.shutdown()
+    }
+  })
+
+  it("refuses to delete foreign history while another instance owns its write lock", async () => {
+    const { runtime, cwd, otherCwd } = await setup()
+    const foreign = await createSession({ cwd: otherCwd })
+    await foreign.admitPrompt("keep locked beta history")
+    const owner = await acquireSessionLock({ cwd: otherCwd, sessionId: foreign.id })
+    try {
+      const result = await runtime.deleteSession(foreign.id, basename(defaultSessionDirectory(otherCwd)))
+      expect(result).toEqual({ ok: false, reason: "That session is open in another Otis window." })
+      expect(await readFile(sessionFile({ cwd: otherCwd }, foreign.id), "utf8")).toContain("keep locked beta history")
+      expect((await runtime.snapshot()).workspace.path).toBe(cwd)
+    } finally {
+      await owner.release()
+      await runtime.shutdown()
+    }
+  })
+
   it("lists sessions from every workspace in the status", async () => {
     const { runtime, cwd, otherCwd } = await setup()
     const local = await runtime.app.sessions.ensure()

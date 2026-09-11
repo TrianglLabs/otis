@@ -34,6 +34,7 @@ const SNAPSHOT: DesktopSnapshot = {
   pairConfigured: false,
   pairEndpoints: {},
   debug: false,
+  update: { status: "idle" },
   platform: "darwin",
   version: "0.0.0-test",
   workspace: { label: "otis", path: "/tmp/otis" },
@@ -123,6 +124,7 @@ function fakeApi(overrides: Partial<DesktopApi> = {}): DesktopApi {
     deleteLocalModel: vi.fn(async () => ({ ok: true as const })),
     setDebugMode: vi.fn(async () => {}),
     installUpdate: vi.fn(async () => {}),
+    checkForUpdates: vi.fn(async () => {}),
     subscribe: vi.fn(() => () => {}),
     ...overrides,
   }

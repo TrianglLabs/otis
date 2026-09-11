@@ -62,7 +62,8 @@ export function AppShell() {
             {state?.needsWorkspace ? (
               <div className="workspaceBanner">
                 <span>
-                  This session&apos;s working folder is unknown — history is read-only until you locate it.
+                  Otis couldn&apos;t find this session&apos;s working folder. You can read its history; choose the
+                  folder once to continue. Otis will remember it.
                   {locateError ? <span className="workspaceBanner-error">{locateError}</span> : null}
                 </span>
                 <Button
@@ -86,7 +87,7 @@ export function AppShell() {
         )}
       </div>
       {settingsOpen ? null : <AgentsPanel />}
-      {state?.update ? (
+      {state?.update.status === "ready" ? (
         <button
           type="button"
           className="updateFab noDrag"

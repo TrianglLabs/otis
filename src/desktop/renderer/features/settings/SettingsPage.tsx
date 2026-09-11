@@ -6,6 +6,7 @@ import { Button, IconButton } from "../../components/Button.js"
 import { Icon } from "../../components/Icon.js"
 import { useDesktop, useDesktopState } from "../../runtime.js"
 import { pickerDetailLabel } from "../models/model-list.js"
+import { SoftwareUpdates } from "./SoftwareUpdates.js"
 
 /** Mirrors THEME_NAMES in src/local/settings.ts; that module reads the filesystem and cannot be bundled here. */
 const THEME_NAMES: ThemeName[] = [
@@ -352,6 +353,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
             <Toggle label="Toggle debug mode" checked={state.debug} onChange={(on) => void api.setDebugMode(on)} />
           </div>
           {fastError ? <div className="settings-message settings-error">{fastError}</div> : null}
+          <SoftwareUpdates />
         </div>
       </div>
     </div>

@@ -64,6 +64,7 @@ describe("DesktopViewStore", () => {
     pairConfigured: false,
     pairEndpoints: {},
     debug: false,
+    update: { status: "idle" },
   }
 
   function snapshot(): DesktopSnapshot {
@@ -106,6 +107,7 @@ describe("DesktopViewStore", () => {
         deleteLocalModel: async () => ({ ok: true }),
         setDebugMode: async () => {},
         installUpdate: async () => {},
+        checkForUpdates: async () => {},
         deleteSession: async () => ({ ok: true }),
         listModels: async () => [],
         selectModel: async () => ({ ok: true }),

@@ -204,17 +204,32 @@
   margin: 16px 0;
 }
 
+.md .md-tableWrap {
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  overflow-x: auto;
+}
+
 .md table {
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   width: 100%;
   font-size: var(--text-ui);
 }
 
 .md th,
 .md td {
-  border: 1px solid var(--hairline);
   padding: 6px 10px;
   text-align: left;
+}
+
+.md th + th,
+.md td + td {
+  border-left: 1px solid var(--hairline);
+}
+
+.md td {
+  border-top: 1px solid var(--hairline);
 }
 
 .md th {

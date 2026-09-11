@@ -15,7 +15,7 @@ const { autoUpdater } = electronUpdater
 
 let mainWindow: BrowserWindow | undefined
 let runtime: DesktopRuntime | undefined
-let updater: { install: () => void; isInstalling: () => boolean } = { install: () => {}, isInstalling: () => false }
+let updater: ReturnType<typeof startAutoUpdates> | undefined
 
 // In dev the binary is Electron's; keep the product name consistent with packaged builds.
 app.setName("Otis")
@@ -78,11 +78,12 @@ if (!gotLock) {
     }
     runtime = await DesktopRuntime.create({
       cwd,
+      checkForUpdates: async () => updater?.check(),
       installUpdate: async () => {
         // The replacement process must find the single-instance lock free and managed servers stopped.
         await runtime?.shutdown().catch(() => {})
         app.releaseSingleInstanceLock()
-        updater.install()
+        updater?.install()
       },
       version: app.getVersion(),
       platform: process.platform,
@@ -95,7 +96,7 @@ if (!gotLock) {
     registerDesktopIpc(runtime)
     updater = startAutoUpdates({
       isPackaged: app.isPackaged,
-      onDownloaded: (version) => runtime?.setUpdateAvailable(version),
+      onState: (state) => runtime?.setUpdateState(state),
       onUpdaterError: (listener) => {
         autoUpdater.on("error", listener)
         return () => autoUpdater.removeListener("error", listener)
@@ -126,13 +127,13 @@ if (!gotLock) {
   // During an update install both quit paths stand down: quitAndInstall owns the shutdown, and racing it with
   // app.quit()/app.exit(0) would kill the installer handoff.
   app.on("window-all-closed", () => {
-    if (updater.isInstalling()) return
+    if (updater?.isInstalling()) return
     app.quit()
   })
 
   let quitting = false
   app.on("before-quit", (event) => {
-    if (quitting || !runtime || updater.isInstalling()) return
+    if (quitting || !runtime || updater?.isInstalling()) return
     quitting = true
     event.preventDefault()
     void runtime.shutdown().finally(() => app.exit(0))

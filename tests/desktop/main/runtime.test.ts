@@ -1629,22 +1629,34 @@ describe("DesktopRuntime model selection", () => {
 })
 
 describe("DesktopRuntime updates", () => {
-  it("exposes a downloaded update in the snapshot, emits it once, and delegates install", async () => {
+  it("exposes updater state in snapshots and events, and only installs a ready update", async () => {
     const install = vi.fn()
-    const { runtime, sent } = await setup(true, { installUpdate: install })
+    const check = vi.fn()
+    const { runtime, sent } = await setup(true, { installUpdate: install, checkForUpdates: check })
 
-    expect((await runtime.snapshot()).update).toBeUndefined()
-    runtime.setUpdateAvailable("9.9.9")
-    expect((await runtime.snapshot()).update).toEqual({ version: "9.9.9" })
-    runtime.setUpdateAvailable("9.9.9") // same version again: no duplicate emit
+    expect((await runtime.snapshot()).update).toEqual({ status: "idle" })
+    await runtime.installUpdate()
+    expect(install).not.toHaveBeenCalled()
+    await runtime.checkForUpdates()
+    expect(check).toHaveBeenCalledOnce()
+    runtime.setUpdateState({ status: "downloading", version: "9.9.9" })
+    expect((await runtime.snapshot()).update).toEqual({ status: "downloading", version: "9.9.9" })
+    await runtime.installUpdate()
+    expect(install).not.toHaveBeenCalled()
+    runtime.setUpdateState({ status: "ready", version: "9.9.9" })
+    expect((await runtime.snapshot()).update).toEqual({ status: "ready", version: "9.9.9" })
 
     await flush()
-    const updateEvents = sent.filter((event) => event.type === "status" && "update" in event.status)
+    const updateEvents = sent.filter((event) => event.type === "status" && event.status.update.status === "ready")
     expect(updateEvents).toHaveLength(1)
 
-    runtime.installUpdate()
+    await runtime.installUpdate()
     expect(install).toHaveBeenCalledOnce()
     await runtime.shutdown()
+    await runtime.checkForUpdates()
+    await runtime.installUpdate()
+    expect(check).toHaveBeenCalledOnce()
+    expect(install).toHaveBeenCalledOnce()
   })
 })
 
