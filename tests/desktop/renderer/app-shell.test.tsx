@@ -1,10 +1,36 @@
 // @vitest-environment happy-dom
 
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react"
+import type { ReactNode } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { GlobalSessionPickerItem } from "../../../src/app/global-sessions.js"
 
 const WS = "/ws"
+
+// Happy DOM has no layout/scroll measurements. Shell tests exercise the rows and footer; the production
+// virtualizer, scrolling, and bounded DOM are covered by `bun run test:desktop:ui` in real Electron.
+vi.mock("react-virtuoso", () => ({
+  Virtuoso: ({
+    data = [],
+    itemContent,
+    className,
+    components,
+    context,
+  }: {
+    data?: { id?: number }[]
+    itemContent: (index: number, item: unknown) => ReactNode
+    className?: string
+    components?: { Footer?: (props: { context: unknown }) => ReactNode }
+    context: unknown
+  }) => (
+    <div className={className}>
+      {data.map((item, index) => (
+        <div key={item.id ?? index}>{itemContent(index, item)}</div>
+      ))}
+      {components?.Footer ? <components.Footer context={context} /> : null}
+    </div>
+  ),
+}))
 
 function sessionItem(partial: {
   id: string
@@ -401,7 +427,7 @@ describe("AppShell settings navigation", () => {
     expect(screen.queryByText("old finished trace")).toBeNull()
     // Trace content never renders in hidden mode — just the quiet status line.
     expect(screen.queryByText("live current thought")).toBeNull()
-    const status = screen.getByText("Thinking…")
+    const status = await screen.findByText("Thinking…")
     expect(status.classList.contains("reasoning-text")).toBe(true)
     expect(document.querySelector(".reasoning-header")).toBeNull()
     expect(document.querySelector(".reasoning-preview")).toBeNull()

@@ -26,7 +26,7 @@ import { isPickerRowSelectable, mergeModelLoad, pickerDetailLabel, pickerItemKey
  */
 export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void }) {
   const { api } = useDesktop()
-  const state = useDesktopState()
+  const state = useDesktopState("hostedConfigured", "modelLoad")
   const [path, setPath] = useState<"welcome" | "cloud" | "local">("welcome")
   const [apiKey, setApiKey] = useState("")
   const [items, setItems] = useState<ModelPickerItem[]>()

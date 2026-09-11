@@ -1,5 +1,5 @@
 import { Brain, ChevronDown, ChevronRight, ShipWheel } from "lucide-react"
-import { useState } from "react"
+import { memo } from "react"
 import type { TranscriptEntry } from "../../../../app/transcript.js"
 import { Icon } from "../../components/Icon.js"
 import { Markdown } from "../../components/Markdown.js"
@@ -7,21 +7,33 @@ import { formatDuration } from "../../format.js"
 import { ToolCard } from "./ToolCard.js"
 
 /** Renders one transcript entry. The same components render live turns and replayed sessions. */
-export function EntryView({
+export const EntryView = memo(function EntryView({
   entry,
   active,
   thinkingVisible,
+  expanded,
+  onExpandedChange,
 }: {
   entry: TranscriptEntry
   active: boolean
   thinkingVisible: boolean
+  expanded: boolean
+  onExpandedChange: (id: number, expanded: boolean) => void
 }) {
-  if (entry.kind === "reasoning") return <ReasoningCard entry={entry} thinkingVisible={thinkingVisible} />
+  if (entry.kind === "reasoning")
+    return (
+      <ReasoningCard
+        entry={entry}
+        thinkingVisible={thinkingVisible}
+        expanded={expanded}
+        onExpandedChange={onExpandedChange}
+      />
+    )
   if (entry.kind === "tool") return <ToolCard entry={entry} active={active} />
   if (entry.kind === "debug") return <DebugLine entry={entry} />
   if (entry.speaker === "You") return <UserMessage entry={entry} />
   return <AssistantMessage entry={entry} />
-}
+})
 
 function UserMessage({ entry }: { entry: TranscriptEntry }) {
   const steering = entry.delivery === "steering"
@@ -47,9 +59,17 @@ function AssistantMessage({ entry }: { entry: TranscriptEntry }) {
   )
 }
 
-function ReasoningCard({ entry, thinkingVisible }: { entry: TranscriptEntry; thinkingVisible: boolean }) {
-  const [expanded, setExpanded] = useState(false)
-
+function ReasoningCard({
+  entry,
+  thinkingVisible,
+  expanded,
+  onExpandedChange,
+}: {
+  entry: TranscriptEntry
+  thinkingVisible: boolean
+  expanded: boolean
+  onExpandedChange: (id: number, expanded: boolean) => void
+}) {
   if (!thinkingVisible) {
     // Traces off: only live thinking reaches here (finished traces are filtered upstream) — a quiet status
     // line, never the trace content itself.
@@ -77,7 +97,7 @@ function ReasoningCard({ entry, thinkingVisible }: { entry: TranscriptEntry; thi
       <button
         type="button"
         className="reasoning-header"
-        onClick={() => setExpanded((value) => !value)}
+        onClick={() => onExpandedChange(entry.id, !expanded)}
         aria-expanded={expanded}
       >
         <Brain size={13} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden />

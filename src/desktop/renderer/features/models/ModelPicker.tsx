@@ -14,7 +14,7 @@ import { isPickerRowSelectable, mergeModelLoad, pickerDetailLabel, pickerItemKey
  */
 export function ModelPicker({ onClose }: { onClose: () => void }) {
   const { api } = useDesktop()
-  const state = useDesktopState()
+  const state = useDesktopState("modelLoad")
   const [items, setItems] = useState<ModelPickerItem[]>()
   const [listError, setListError] = useState<string>()
   const [actionError, setActionError] = useState<string>()

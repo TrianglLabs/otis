@@ -29,7 +29,7 @@ const SEARCH_DEBOUNCE_MS = 150
  */
 export function CommandPalette({ onClose }: { onClose: () => void }) {
   const { api } = useDesktop()
-  const state = useDesktopState()
+  const state = useDesktopState("sessions", "workspace")
   const [query, setQuery] = useState("")
   const scrollbar = useScrollbarFlash()
   // Results are tagged with the query that produced them — stale hits are never shown or activated.

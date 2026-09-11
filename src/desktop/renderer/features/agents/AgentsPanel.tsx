@@ -13,7 +13,7 @@ import { AGENT_STATUS_ICONS, agentSummary } from "./agent-list.js"
  */
 export function AgentsPanel() {
   const { api } = useDesktop()
-  const state = useDesktopState()
+  const state = useDesktopState("session", "subagents", "agentsPanelVisible")
   const [openTraceId, setOpenTraceId] = useState<string>()
   const [traceSessionId, setTraceSessionId] = useState(state?.session?.id)
   // A session switch retires every run: drop the open trace during render so it cannot reopen for the
@@ -74,7 +74,9 @@ export function AgentsPanel() {
           </ul>
         </aside>
       ) : null}
-      {openTraceId ? <AgentTraceOverlay toolCallId={openTraceId} onClose={() => setOpenTraceId(undefined)} /> : null}
+      {openTraceId ? (
+        <AgentTraceOverlay key={openTraceId} toolCallId={openTraceId} onClose={() => setOpenTraceId(undefined)} />
+      ) : null}
     </>
   )
 }

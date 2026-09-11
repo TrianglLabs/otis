@@ -168,13 +168,8 @@
   flex: 1;
 }
 
-.agentTrace-list {
-  flex: 1;
-  overflow-y: auto;
-  /* Even insets: 18px left, 8px + the 10px scrollbar gutter on the right. */
-  scrollbar-gutter: stable;
-  padding: 14px 8px 18px 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
+.agentTrace .transcript,
+.agentTrace .transcriptFooter {
+  padding-left: 18px;
+  padding-right: 8px;
 }

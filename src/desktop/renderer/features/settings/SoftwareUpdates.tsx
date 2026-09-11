@@ -6,7 +6,7 @@ import { useDesktop, useDesktopState } from "../../runtime.js"
 
 export function SoftwareUpdates() {
   const { api } = useDesktop()
-  const state = useDesktopState()
+  const state = useDesktopState("update", "version")
   const [requesting, setRequesting] = useState(false)
   const [requestFailed, setRequestFailed] = useState(false)
   if (!state) return null
