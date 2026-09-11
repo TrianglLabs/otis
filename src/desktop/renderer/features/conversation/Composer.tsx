@@ -1,5 +1,5 @@
 import { ArrowUp, ChevronDown, FolderOpen, Square, Zap } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
+import { memo, useEffect, useRef, useState } from "react"
 import { Button } from "../../components/Button.js"
 import { Icon } from "../../components/Icon.js"
 import { PROVIDER_LABELS, shortModelId } from "../../format.js"
@@ -18,9 +18,17 @@ function workspaceFolderName(workspace: { label: string; path: string }): string
   return parts.at(-1) ?? workspace.label
 }
 
-export function Composer({ installing = false }: { installing?: boolean }) {
+export const Composer = memo(function Composer({ installing = false }: { installing?: boolean }) {
   const { api } = useDesktop()
-  const state = useDesktopState()
+  const state = useDesktopState(
+    "busy",
+    "modelState",
+    "needsWorkspace",
+    "modelError",
+    "model",
+    "fastServing",
+    "workspace",
+  )
   const [draft, setDraft] = useState("")
   const [sendError, setSendError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
@@ -165,4 +173,4 @@ export function Composer({ installing = false }: { installing?: boolean }) {
       ) : null}
     </div>
   )
-}
+})

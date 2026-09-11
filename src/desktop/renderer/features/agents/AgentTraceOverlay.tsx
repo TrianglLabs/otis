@@ -1,12 +1,11 @@
 import { X } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 import type { TranscriptEntry } from "../../../../app/transcript.js"
 import { IconButton } from "../../components/Button.js"
 import { Icon } from "../../components/Icon.js"
 import { useDesktop, useDesktopState } from "../../runtime.js"
-import { useScrollbarFlash } from "../../useScrollbarFlash.js"
-import { EntryView } from "../conversation/entries.js"
-import { visibleEntries } from "../conversation/visible-entries.js"
+import { reconcileTraceEntries } from "../../state.js"
+import { TranscriptList } from "../conversation/TranscriptList.js"
 import { AGENT_STATUS_ICONS, agentSummary } from "./agent-list.js"
 import { createCoalescedLoader } from "./trace-loader.js"
 
@@ -17,12 +16,10 @@ import { createCoalescedLoader } from "./trace-loader.js"
  */
 export function AgentTraceOverlay({ toolCallId, onClose }: { toolCallId: string; onClose: () => void }) {
   const { api } = useDesktop()
-  const state = useDesktopState()
+  const state = useDesktopState("subagents", "thinkingVisible")
   const run = state?.subagents.find((candidate) => candidate.toolCallId === toolCallId)
   const [entries, setEntries] = useState<TranscriptEntry[]>([])
-  const scrollbar = useScrollbarFlash()
-  const listRef = useRef<HTMLDivElement>(null)
-  const scrolledToEnd = useRef(false)
+  const running = run?.status === "running"
 
   // Status events stream live progress: each one can mean new trace entries. Refreshes coalesce behind the
   // in-flight request instead of discarding it, and changing the selected trace tears the loader down so a
@@ -30,15 +27,19 @@ export function AgentTraceOverlay({ toolCallId, onClose }: { toolCallId: string;
   useEffect(() => {
     const loader = createCoalescedLoader(
       () => api.getSubagentTrace(toolCallId),
-      (fetched) => setEntries(fetched),
+      (fetched) => setEntries((previous) => reconcileTraceEntries(previous, fetched)),
     )
     loader.refresh()
-    const unsubscribe = api.subscribe(loader.refresh)
+    const unsubscribe = running
+      ? api.subscribe((event) => {
+          if (event.type === "status") loader.refresh()
+        })
+      : undefined
     return () => {
-      unsubscribe()
+      unsubscribe?.()
       loader.dispose()
     }
-  }, [api, toolCallId])
+  }, [api, toolCallId, running])
 
   // The run left the session (a session switch or reset): nothing to show anymore.
   useEffect(() => {
@@ -55,14 +56,6 @@ export function AgentTraceOverlay({ toolCallId, onClose }: { toolCallId: string;
     return () => window.removeEventListener("keydown", onKeyDown, true)
   }, [onClose])
 
-  // Open at the end of the run, like the TUI trace view; later updates keep the user's scroll position.
-  useEffect(() => {
-    if (scrolledToEnd.current || entries.length === 0) return
-    scrolledToEnd.current = true
-    const list = listRef.current
-    if (list) list.scrollTop = list.scrollHeight
-  }, [entries])
-
   return (
     <>
       <button type="button" className="overlayBackdrop" aria-label="Close trace" onClick={onClose} />
@@ -78,15 +71,9 @@ export function AgentTraceOverlay({ toolCallId, onClose }: { toolCallId: string;
           <span className="agentTrace-titleSpace" />
           <IconButton icon={X} label="Close trace" size={22} onClick={onClose} />
         </div>
-        <div
-          className={`agentTrace-list${scrollbar.scrolling ? " scrolling" : ""}`}
-          onScroll={scrollbar.onScroll}
-          ref={listRef}
-        >
-          {visibleEntries(entries, state?.thinkingVisible ?? false).map((entry) => (
-            <EntryView key={entry.id} entry={entry} active={false} thinkingVisible={state?.thinkingVisible ?? false} />
-          ))}
-        </div>
+        {entries.length > 0 ? (
+          <TranscriptList key={toolCallId} entries={entries} thinkingVisible={state?.thinkingVisible ?? false} />
+        ) : null}
       </div>
     </>
   )

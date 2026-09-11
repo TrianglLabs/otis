@@ -4,7 +4,7 @@ import { useDesktop, useDesktopState } from "../../runtime.js"
 /** A quiet home screen centered on the brand mark, with guidance when inference is not usable. */
 export function EmptyState() {
   const { api } = useDesktop()
-  const state = useDesktopState()
+  const state = useDesktopState("sessions", "modelState", "modelError")
   if (!state) return null
 
   const recents = state.sessions.filter((session) => !session.active).slice(0, 3)

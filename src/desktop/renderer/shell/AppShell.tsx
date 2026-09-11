@@ -17,7 +17,7 @@ import { WorkspaceHeader } from "./WorkspaceHeader.js"
  */
 export function AppShell() {
   const { api } = useDesktop()
-  const state = useDesktopState()
+  const state = useDesktopState("theme", "platform", "model", "needsWorkspace", "update")
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [installing, setInstalling] = useState(false)
   const [locateError, setLocateError] = useState<string | undefined>(undefined)

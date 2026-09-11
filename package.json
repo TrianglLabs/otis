@@ -21,6 +21,7 @@
     "lint": "biome lint .",
     "check": "biome check . && bash -n scripts/install.sh",
     "test": "bunx --bun vitest run",
+    "test:desktop:ui": "bun run scripts/test-desktop-ui.ts",
     "test:coverage": "vitest run --coverage --exclude='tests/cli/chat-ui-*.test.ts' && bunx --bun vitest run tests/cli/chat-ui-*.test.ts",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.desktop-renderer.json",
     "verify": "bun run check && bun run typecheck && bun run test",
@@ -50,6 +51,7 @@
     "@types/node": "^24.0.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
+    "@types/use-sync-external-store": "^1.7.0",
     "@vitejs/plugin-react": "^6.1.1",
     "@vitest/coverage-v8": "^4.1.9",
     "diff": "^9.0.0",
@@ -66,7 +68,9 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-markdown": "^10.1.0",
+    "react-virtuoso": "^4.18.13",
     "remark-gfm": "^4.0.1",
+    "use-sync-external-store": "^1.7.0",
     "yaml": "^2.9.0"
   },
   "author": {

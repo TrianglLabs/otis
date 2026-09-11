@@ -1,10 +1,10 @@
 import { Diamond } from "lucide-react"
-import { useDesktopState } from "./runtime.js"
+import { useDesktopSelector } from "./runtime.js"
 import { AppShell } from "./shell/AppShell.js"
 
 export function App() {
-  const state = useDesktopState()
-  if (!state) {
+  const ready = useDesktopSelector((state) => state !== undefined)
+  if (!ready) {
     return (
       <div className="bootScreen">
         <Diamond

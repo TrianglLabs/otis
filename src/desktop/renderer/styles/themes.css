@@ -22,6 +22,7 @@
 }
 
 [data-theme="bright"] {
+  --otis-mark-top-opacity: 0.5;
   --bg: #d8d8d6;
   --bg-elev: #cececa;
   --bg-user: #c9c5d5;
@@ -108,6 +109,7 @@
 }
 
 [data-theme="beige"] {
+  --otis-mark-top-opacity: 0.5;
   --bg: #eae3ce;
   --bg-elev: #ddd3b6;
   --bg-user: #dcc79a;

@@ -1,13 +1,33 @@
 import { describe, expect, it } from "vitest"
 import type { TranscriptEntry } from "../../../src/app/transcript.js"
 import type { DesktopApi, DesktopEvent, DesktopSnapshot, DesktopStatus } from "../../../src/desktop/contracts.js"
-import { applyTranscriptOps, DesktopViewStore } from "../../../src/desktop/renderer/state.js"
+import { applyTranscriptOps, DesktopViewStore, reconcileTraceEntries } from "../../../src/desktop/renderer/state.js"
 
 function entry(id: number, text: string): TranscriptEntry {
   return { id, kind: "message", speaker: "Otis", text }
 }
 
 describe("applyTranscriptOps", () => {
+  it("preserves unchanged rows and ignores identical deliveries without replacing the array", () => {
+    const base = [entry(1, "a"), entry(2, "b")]
+    expect(
+      applyTranscriptOps(base, [
+        { op: "upsert", entry: { ...base[0] } },
+        { op: "remove", id: 99 },
+      ]),
+    ).toBe(base)
+    const next = applyTranscriptOps(base, [{ op: "upsert", entry: entry(2, "changed") }])
+    expect(next[0]).toBe(base[0])
+    expect(next[1]).not.toBe(base[1])
+  })
+
+  it("retains unchanged trace rows across IPC snapshots while honoring edits, deletions, and ordering", () => {
+    const base = [entry(1, "a"), entry(2, "b"), entry(3, "c")]
+    expect(reconcileTraceEntries(base, structuredClone(base))).toBe(base)
+    const next = reconcileTraceEntries(base, [entry(3, "c"), entry(2, "updated")])
+    expect(next[0]).toBe(base[2])
+    expect(next.map((row) => row.text)).toEqual(["c", "updated"])
+  })
   it("appends new entries and patches existing ones in place", () => {
     const base = [entry(1, "a"), entry(2, "b")]
     const next = applyTranscriptOps(base, [

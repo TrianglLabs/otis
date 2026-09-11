@@ -1,7 +1,7 @@
 import { ChevronsLeft, Search, Settings, SquarePen } from "lucide-react"
 import { Button, IconButton } from "../components/Button.js"
 import { formatTokenCount } from "../format.js"
-import { useDesktop, useDesktopState } from "../runtime.js"
+import { useDesktop, useDesktopSelector, useDesktopState } from "../runtime.js"
 
 /**
  * The compact bar above the conversation: session title centered, session metadata (diffs, context) plus search
@@ -15,7 +15,16 @@ export function WorkspaceHeader({
   onOpenSettings: () => void
 }) {
   const { api } = useDesktop()
-  const state = useDesktopState()
+  const state = useDesktopState(
+    "diffs",
+    "contextTokens",
+    "contextLimit",
+    "busy",
+    "session",
+    "subagents",
+    "agentsPanelVisible",
+  )
+  const hasEntries = useDesktopSelector((snapshot) => (snapshot?.entries.length ?? 0) > 0)
   if (!state) return <header className="workspaceHeader" />
 
   const { diffs, contextTokens, contextLimit } = state
@@ -24,7 +33,7 @@ export function WorkspaceHeader({
     <header className="workspaceHeader">
       <div className="workspaceHeader-left">
         {/* Only once a conversation exists — on the empty home screen, you are already at a fresh start. */}
-        {state.entries.length > 0 ? (
+        {hasEntries ? (
           <Button
             variant="ghost"
             icon={SquarePen}
@@ -47,7 +56,7 @@ export function WorkspaceHeader({
             <span className="headerDiff-remove">−{diffs.removed}</span>
           </span>
         ) : null}
-        {state.entries.length > 0 && contextTokens !== undefined ? (
+        {hasEntries && contextTokens !== undefined ? (
           <span
             className="contextMeter noDrag"
             title={`${contextTokens.toLocaleString()} of ~${contextLimit.toLocaleString()} tokens`}

@@ -32,7 +32,16 @@ const PAIR_DEFAULT_ENDPOINTS = { ollama: "http://127.0.0.1:11434", lmStudio: "ht
  */
 export function SettingsPage({ onClose }: { onClose: () => void }) {
   const { api } = useDesktop()
-  const state = useDesktopState()
+  const state = useDesktopState(
+    "fastServing",
+    "busy",
+    "pairEndpoints",
+    "pairConfigured",
+    "theme",
+    "thinkingVisible",
+    "model",
+    "debug",
+  )
   const [openForm, setOpenForm] = useState<"hosted" | "pair">()
 
   const [apiKey, setApiKey] = useState("")

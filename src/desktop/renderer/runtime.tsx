@@ -1,6 +1,7 @@
-import { createContext, useContext, useSyncExternalStore } from "react"
+import { createContext, useContext } from "react"
+import { useSyncExternalStoreWithSelector } from "use-sync-external-store/with-selector"
 import type { DesktopApi } from "../contracts.js"
-import type { DesktopViewStore, ViewState } from "./state.js"
+import { type DesktopViewStore, shallowEqual, type ViewState } from "./state.js"
 
 export type DesktopContextValue = { api: DesktopApi; store: DesktopViewStore }
 
@@ -16,8 +17,15 @@ export function useDesktop(): DesktopContextValue {
   return value
 }
 
-/** The application display copy. Undefined until the initial snapshot arrives. */
-export function useDesktopState(): ViewState | undefined {
+/** Subscribe only to the display values this component uses. */
+export function useDesktopSelector<T>(selector: (state: ViewState | undefined) => T) {
   const { store } = useDesktop()
-  return useSyncExternalStore(store.subscribe, store.getState, () => undefined)
+  return useSyncExternalStoreWithSelector(store.subscribe, store.getState, undefined, selector, shallowEqual)
+}
+
+/** A field selection stays unchanged when unrelated transcript/status events arrive. */
+export function useDesktopState<K extends keyof ViewState>(...keys: [K, ...K[]]): Pick<ViewState, K> | undefined {
+  return useDesktopSelector((state) =>
+    state ? (Object.fromEntries(keys.map((key) => [key, state[key]])) as Pick<ViewState, K>) : undefined,
+  )
 }

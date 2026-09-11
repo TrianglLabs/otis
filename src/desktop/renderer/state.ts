@@ -61,22 +61,42 @@ export class DesktopViewStore {
   }
 }
 
-export function applyTranscriptOps(entries: readonly TranscriptEntry[], ops: TranscriptPatchOp[]): TranscriptEntry[] {
-  const next = [...entries]
+export function applyTranscriptOps(entries: TranscriptEntry[], ops: TranscriptPatchOp[]): TranscriptEntry[] {
+  // Map insertion order matches the transcript: replacing keeps a position, remove + upsert moves it to the end.
+  // Index once per batch instead of scanning the entire history for every operation.
+  const next = new Map(entries.map((entry) => [entry.id, entry]))
   for (const op of ops) {
     if (op.op === "reset") {
-      next.length = 0
-      next.push(...op.entries)
+      next.clear()
+      for (const entry of op.entries) next.set(entry.id, entry)
       continue
     }
     if (op.op === "upsert") {
-      const index = next.findIndex((entry) => entry.id === op.entry.id)
-      if (index === -1) next.push(op.entry)
-      else next[index] = op.entry
+      if (!shallowEqual(next.get(op.entry.id), op.entry)) next.set(op.entry.id, op.entry)
       continue
     }
-    const index = next.findIndex((entry) => entry.id === op.id)
-    if (index !== -1) next.splice(index, 1)
+    next.delete(op.id)
   }
-  return next
+  const result = [...next.values()]
+  return result.length === entries.length && result.every((entry, index) => entry === entries[index]) ? entries : result
+}
+
+/** Trace snapshots cross IPC as fresh objects. Preserve unchanged rows just as transcript patches do. */
+export function reconcileTraceEntries(previous: TranscriptEntry[], fetched: TranscriptEntry[]): TranscriptEntry[] {
+  const byId = new Map(previous.map((entry) => [entry.id, entry]))
+  const next = fetched.map((entry) => {
+    const existing = byId.get(entry.id)
+    return existing && shallowEqual(existing, entry) ? existing : entry
+  })
+  return next.length === previous.length && next.every((entry, index) => entry === previous[index]) ? previous : next
+}
+
+export function shallowEqual<T>(left: T, right: T): boolean {
+  if (Object.is(left, right)) return true
+  if (!left || !right || typeof left !== "object" || typeof right !== "object") return false
+  const keys = Object.keys(left) as (keyof T)[]
+  return (
+    keys.length === Object.keys(right).length &&
+    keys.every((key) => Object.hasOwn(right, key) && Object.is(left[key], right[key]))
+  )
 }

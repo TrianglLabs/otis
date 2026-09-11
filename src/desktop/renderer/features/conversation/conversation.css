@@ -17,31 +17,34 @@
   scrollbar-gutter: stable;
 }
 
+.transcriptViewport {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
 /* Mirrors the transcript's scrollbar gutter so the composer box shares the transcript text's exact edges. */
 .composerWrap {
   padding-right: 10px;
 }
 
-/* Entries fade and rise a few pixels as they land; keyed elements persist across token updates, so this runs
-   once per entry, on mount. */
-.transcript > * {
-  animation: entry-enter 180ms ease-out;
-}
-
-@keyframes entry-enter {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-}
-
-.transcript {
+.transcript,
+.transcriptFooter {
   max-width: var(--content-max);
   margin: 0 auto;
-  padding: 24px 28px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
+  padding-left: 28px;
+  padding-right: 28px;
+}
+
+/* Spacing is part of each measured item; collapsing margins and flex gaps break virtual list measurements. */
+.transcriptEntry {
+  padding-bottom: 14px;
+  display: flow-root;
+}
+
+.transcriptFooter {
+  padding-bottom: 16px;
 }
 
 /* User message */
@@ -235,6 +238,12 @@ button.reasoning-header:hover {
   min-width: 100%;
 }
 
+.diffView-windowed {
+  padding: 0;
+  tab-size: 4;
+  scrollbar-gutter: stable;
+}
+
 .diffLine {
   display: flex;
   padding: 0 14px 0 0;
@@ -254,6 +263,13 @@ button.reasoning-header:hover {
   height: 1px;
   margin: 5px 0;
   background: var(--hairline);
+}
+
+.diffView-windowed .diffGap {
+  /* Include the separator's whitespace in its measured height. */
+  height: 11px;
+  margin: 0;
+  background: linear-gradient(to bottom, transparent 5px, var(--hairline) 5px, var(--hairline) 6px, transparent 6px);
 }
 
 .diffLine-text {
@@ -577,7 +593,7 @@ button.composer-model-failed {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  bottom: 118px;
+  bottom: 16px;
   border-radius: var(--radius-pill);
   display: inline-flex;
   align-items: center;

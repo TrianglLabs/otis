@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { cleanup, fireEvent, render } from "@testing-library/react"
+import { type ComponentProps, useState } from "react"
 import { afterEach, describe, expect, it } from "vitest"
 import type { TranscriptEntry } from "../../../src/app/transcript.js"
 import { EntryView } from "../../../src/desktop/renderer/features/conversation/entries.js"
@@ -11,12 +12,17 @@ function reasoningEntry(overrides: Partial<TranscriptEntry>): TranscriptEntry {
   return { id: 1, kind: "reasoning", speaker: "Thinking", text: "", ...overrides }
 }
 
+function TestEntry(props: Pick<ComponentProps<typeof EntryView>, "entry" | "active" | "thinkingVisible">) {
+  const [expanded, setExpanded] = useState(false)
+  return <EntryView {...props} expanded={expanded} onExpandedChange={(_id, open) => setExpanded(open)} />
+}
+
 afterEach(() => cleanup())
 
 describe("ReasoningCard", () => {
   it("streams a preview of the freshest lines while thinking", () => {
     const { container } = render(
-      <EntryView
+      <TestEntry
         entry={reasoningEntry({
           streaming: true,
           text: "first thought\nsecond thought\nthird thought\nfourth thought",
@@ -31,7 +37,7 @@ describe("ReasoningCard", () => {
 
   it("keeps finished thinking collapsed until the row is clicked", () => {
     const { container } = render(
-      <EntryView
+      <TestEntry
         entry={reasoningEntry({ streaming: false, durationMs: 2300, text: "some reasoning" })}
         active={false}
         thinkingVisible={true}
@@ -45,7 +51,7 @@ describe("ReasoningCard", () => {
   })
   it("shows only the Thinking… status when traces are off, never the content", () => {
     const { container } = render(
-      <EntryView
+      <TestEntry
         entry={reasoningEntry({ streaming: true, text: "weighing the options" })}
         active={false}
         thinkingVisible={false}
