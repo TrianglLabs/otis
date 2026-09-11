@@ -100,6 +100,10 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
     if (typeof visible !== "boolean") throw new Error("Invalid visibility flag.")
     return runtime.setThinkingVisible(visible)
   })
+  handle(DESKTOP_CHANNELS.setPermissionMode, (mode) => {
+    if (mode !== "ask" && mode !== "auto") throw new Error("Invalid permission mode.")
+    return runtime.setPermissionMode(mode)
+  })
   handle(DESKTOP_CHANNELS.setFastServing, (fast) => {
     if (typeof fast !== "boolean") throw new Error("Invalid Fast serving flag.")
     return runtime.setFastServing(fast)

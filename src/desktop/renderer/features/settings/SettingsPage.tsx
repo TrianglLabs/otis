@@ -39,6 +39,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
     "pairConfigured",
     "theme",
     "thinkingVisible",
+    "permissionMode",
     "model",
     "debug",
   )
@@ -332,6 +333,35 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
           </div>
 
           <div className="settings-section">Behavior</div>
+          <div className="settingsRow">
+            <span className="settingsRow-label">
+              Permission mode
+              <span className="settingsRow-meta">
+                {state.permissionMode === "auto"
+                  ? "Run shell commands and file changes automatically"
+                  : state.permissionMode === "ask"
+                    ? "Ask before shell commands and file changes"
+                    : "Deny shell commands and file changes without asking"}
+              </span>
+            </span>
+            <select
+              className="settingsSelect"
+              aria-label="Permission mode"
+              value={state.permissionMode}
+              onChange={(event) => {
+                const mode = event.target.value
+                if (mode === "ask" || mode === "auto") void api.setPermissionMode(mode)
+              }}
+            >
+              {state.permissionMode === "dontAsk" ? (
+                <option value="dontAsk" disabled>
+                  Don’t ask
+                </option>
+              ) : null}
+              <option value="ask">Ask</option>
+              <option value="auto">Auto</option>
+            </select>
+          </div>
           <div className="settingsRow">
             <span className="settingsRow-label">Thinking traces</span>
             <Toggle

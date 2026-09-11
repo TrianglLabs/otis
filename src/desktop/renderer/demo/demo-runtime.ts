@@ -200,6 +200,7 @@ class DemoRuntime implements DesktopApi {
     agentsPanelVisible: true,
     theme: "default",
     thinkingVisible: true,
+    permissionMode: "auto",
     fastServing: { available: true, enabled: false },
     hostedConfigured: true,
     pairConfigured: false,
@@ -225,6 +226,11 @@ class DemoRuntime implements DesktopApi {
 
   async setThinkingVisible(visible: boolean): Promise<void> {
     this.#state = { ...this.#state, thinkingVisible: visible }
+    this.#emitStatus()
+  }
+
+  async setPermissionMode(mode: "ask" | "auto"): Promise<void> {
+    this.#state = { ...this.#state, permissionMode: mode }
     this.#emitStatus()
   }
 
@@ -623,22 +629,42 @@ class DemoRuntime implements DesktopApi {
         activityKind: "file_search",
         toolCallId: `call_${generation}_1`,
       })
-      this.#after(generation, 500, () => {
+      this.#after(generation, 450, () => {
         this.#push({
           id: this.#nextId++,
           kind: "tool",
           speaker: "Tool",
-          text: "Editing file: src/desktop/renderer/shell/AppShell.tsx",
-          activityKind: "file_edit",
+          text: "Reading files: src/desktop/renderer/shell/AppShell.tsx",
+          activityKind: "file_read",
           toolCallId: `call_${generation}_2`,
-          diff: SAMPLE_DIFF,
         })
-        this.#state = {
-          ...this.#state,
-          diffs: { added: this.#state.diffs.added + 5, removed: this.#state.diffs.removed + 2 },
-        }
-        this.#emitStatus()
-        this.#requestPermission(generation, reply)
+        this.#after(generation, 450, () => {
+          this.#push({
+            id: this.#nextId++,
+            kind: "tool",
+            speaker: "Tool",
+            text: "Running command: bun run typecheck",
+            activityKind: "shell",
+            toolCallId: `call_${generation}_3`,
+          })
+          this.#after(generation, 500, () => {
+            this.#push({
+              id: this.#nextId++,
+              kind: "tool",
+              speaker: "Tool",
+              text: "Editing file: src/desktop/renderer/shell/AppShell.tsx",
+              activityKind: "file_edit",
+              toolCallId: `call_${generation}_4`,
+              diff: SAMPLE_DIFF,
+            })
+            this.#state = {
+              ...this.#state,
+              diffs: { added: this.#state.diffs.added + 5, removed: this.#state.diffs.removed + 2 },
+            }
+            this.#emitStatus()
+            this.#requestPermission(generation, reply)
+          })
+        })
       })
     })
   }
@@ -661,7 +687,7 @@ class DemoRuntime implements DesktopApi {
             speaker: "Tool",
             text: "Running command: bun test",
             activityKind: "shell",
-            toolCallId: `call_${generation}_3`,
+            toolCallId: `call_${generation}_5`,
           })
           this.#after(generation, 700, () => this.#finishTurn(generation, reply.final))
         } else {

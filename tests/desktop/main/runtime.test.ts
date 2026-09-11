@@ -319,10 +319,11 @@ describe("DesktopRuntime subagents", () => {
     await runtime.shutdown()
   })
 
-  it("applies and persists the theme and thinking preferences", async () => {
-    const { runtime, sent } = await setup()
+  it("applies and persists the theme, thinking, and permission preferences", async () => {
+    const { app, runtime, sent } = await setup()
     expect((await runtime.snapshot()).theme).toBe("default")
     expect((await runtime.snapshot()).thinkingVisible).toBe(false)
+    expect((await runtime.snapshot()).permissionMode).toBe("auto")
 
     await runtime.setTheme("nord")
     expect((await runtime.snapshot()).theme).toBe("nord")
@@ -336,6 +337,15 @@ describe("DesktopRuntime subagents", () => {
     await runtime.setThinkingVisible(true)
     expect((await runtime.snapshot()).thinkingVisible).toBe(true)
     expect((await loadLocalSettings()).thinkingVisible).toBe(true)
+
+    await runtime.setPermissionMode("ask")
+    expect((await runtime.snapshot()).permissionMode).toBe("ask")
+    expect((await loadLocalSettings()).permissions?.defaultMode).toBe("ask")
+    expect(await app.createPermissionPolicy().evaluate({ name: "bash", input: { command: "bun test" } })).toMatchObject(
+      { effect: "ask" },
+    )
+    await flush()
+    expect(sent.some((event) => event.type === "status" && event.status.permissionMode === "ask")).toBe(true)
     await runtime.shutdown()
   })
 

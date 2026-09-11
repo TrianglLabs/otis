@@ -1,4 +1,5 @@
 import { Diamond } from "lucide-react"
+import { OtisMark } from "./components/OtisMark.js"
 import { useDesktopSelector } from "./runtime.js"
 import { AppShell } from "./shell/AppShell.js"
 
@@ -6,16 +7,8 @@ export function App() {
   const ready = useDesktopSelector((state) => state !== undefined)
   if (!ready) {
     return (
-      <div className="bootScreen">
-        <Diamond
-          size={22}
-          strokeWidth={1.25}
-          fill="currentColor"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden
-        />
-        <span>Loading workspace…</span>
+      <div className="bootScreen" role="status" aria-label="Loading workspace…">
+        <OtisMark className="home-logo" />
       </div>
     )
   }

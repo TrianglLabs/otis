@@ -9,6 +9,7 @@ import {
   saveFireworksApiKey,
   saveFireworksSetup,
   savePairEndpoints,
+  savePermissionMode,
   saveSelectedModel,
   saveSelectedTheme,
   saveSubagentPanelVisible,
@@ -277,6 +278,30 @@ describe("local settings", () => {
       theme: "nord",
       permissions: {
         defaultMode: "ask",
+        rules: [{ tool: "bash", resource: "git status", effect: "allow" }],
+      },
+    })
+  })
+
+  it("updates the default permission mode without clearing permission rules", async () => {
+    const file = join(await tempDirectory(), "config.json")
+    await writeFile(
+      file,
+      JSON.stringify({
+        version: 1,
+        permissions: {
+          defaultMode: "ask",
+          rules: [{ tool: "bash", resource: "git status", effect: "allow" }],
+        },
+      }),
+      "utf8",
+    )
+
+    await savePermissionMode("auto", { file })
+
+    await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({
+      permissions: {
+        defaultMode: "auto",
         rules: [{ tool: "bash", resource: "git status", effect: "allow" }],
       },
     })

@@ -20,6 +20,51 @@ function TestEntry(props: Pick<ComponentProps<typeof EntryView>, "entry" | "acti
 afterEach(() => cleanup())
 
 describe("ReasoningCard", () => {
+  it.each([true, false])("keeps the live status stable while streaming with traces visible=%s", (thinkingVisible) => {
+    const { getByRole, container, rerender } = render(
+      <TestEntry
+        entry={reasoningEntry({ streaming: true, text: "Considering the first option" })}
+        active={false}
+        thinkingVisible={thinkingVisible}
+      />,
+    )
+    const status = getByRole("status")
+    const cube = status.querySelector("svg")
+    const label = status.querySelector(".thinking-label")
+    expect(status.textContent).toBe("Thinking…")
+    expect(cube?.getAttribute("aria-hidden")).toBe("true")
+
+    rerender(
+      <TestEntry
+        entry={reasoningEntry({ streaming: true, text: "Considering the first option and a second one" })}
+        active={false}
+        thinkingVisible={thinkingVisible}
+      />,
+    )
+    expect(getByRole("status")).toBe(status)
+    expect(status.querySelector("svg")).toBe(cube)
+    expect(status.querySelector(".thinking-label")).toBe(label)
+    if (!thinkingVisible) expect(container.textContent).not.toContain("Considering")
+  })
+
+  it("replaces the live effect with a static summary when thinking finishes", () => {
+    const { container, queryByRole, getByRole, rerender } = render(
+      <TestEntry entry={reasoningEntry({ streaming: true })} active={true} thinkingVisible={true} />,
+    )
+    expect(getByRole("status")).toBeTruthy()
+    rerender(
+      <TestEntry
+        entry={reasoningEntry({ streaming: false, durationMs: 2300, text: "Finished reasoning" })}
+        active={false}
+        thinkingVisible={true}
+      />,
+    )
+    expect(queryByRole("status")).toBeNull()
+    expect(container.querySelector(".thinking-label")).toBeNull()
+    expect(getByRole("button", { name: "Thought for 2.3s" }).querySelector(".reasoning-cube")).toBeTruthy()
+    expect(container.querySelector(".reasoning-body")).toBeNull()
+  })
+
   it("streams a preview of the freshest lines while thinking", () => {
     const { container } = render(
       <TestEntry

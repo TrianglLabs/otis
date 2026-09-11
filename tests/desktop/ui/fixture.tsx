@@ -213,6 +213,35 @@ async function runDesktopUiChecks() {
   assert(!document.querySelector(".reasoning-body"), "New session inherited expanded reasoning")
   assert(document.body.textContent?.includes("Test approval"), "Permission footer was not rendered")
 
+  // An expanded tool run must stay virtualized: its actions become ordinary windowed rows instead of mounting
+  // at once inside the run's row.
+  status({ session: { id: "long-run", title: "Long run" }, thinkingVisible: true, permission: null })
+  const longRun: TranscriptEntry[] = Array.from({ length: 800 }, (_, index) => ({
+    id: index + 1,
+    kind: "tool",
+    speaker: "Tool",
+    text: `Running command: step-${index + 1}`,
+    activityKind: "shell",
+  }))
+  patch({ op: "reset", entries: longRun })
+  await until(() => !!document.querySelector(".toolRun-header"), "Long tool run did not condense")
+  const mountedCollapsed = document.querySelectorAll(".transcriptEntry").length
+  assert(mountedCollapsed < 40, `Collapsed run mounted ${mountedCollapsed} rows for 800 actions`)
+  element<HTMLButtonElement>(".toolRun-header").click()
+  await pause(300)
+  const mountedExpanded = document.querySelectorAll(".transcriptEntry").length
+  assert(mountedExpanded < 100, `Expanded run mounted ${mountedExpanded} of 800 actions`)
+  assert(!document.querySelector('[data-entry-id="400"]'), "Expanded run mounted an offscreen action")
+  // Session switching creates a new scroller; exercise that live element, not the old session's detached one.
+  const runScroll = element(".transcriptScroll")
+  runScroll.scrollTop = 0
+  await until(() => !!document.querySelector('[data-entry-id="1"]'), "Expanded run's first action is unreachable")
+  assert(!document.querySelector('[data-entry-id="800"]'), "Scrolling up kept the end of the run mounted")
+  runScroll.scrollTop = (runScroll.scrollHeight - runScroll.clientHeight) / 2
+  await until(() => !!document.querySelector('[data-entry-id="400"]'), "Expanded run's middle action is unreachable")
+  runScroll.scrollTop = runScroll.scrollHeight
+  await until(() => !!document.querySelector('[data-entry-id="800"]'), "Expanded run's final action is unreachable")
+
   root.unmount()
   store.dispose()
   return {
@@ -221,6 +250,8 @@ async function runDesktopUiChecks() {
     mountedEntries: mounted,
     diffLines: 12000,
     diffRowsMounted,
+    expandedRunActions: 800,
+    expandedRunMounted: mountedExpanded,
     maxStreamingDelayMs: Math.round(maxUpdateDelay),
   }
 }

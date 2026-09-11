@@ -8,6 +8,7 @@ import { OnboardingPage } from "../features/onboarding/OnboardingPage.js"
 import { CommandPalette } from "../features/palette/CommandPalette.js"
 import { SettingsPage } from "../features/settings/SettingsPage.js"
 import { useDesktop, useDesktopState } from "../runtime.js"
+import { rememberTheme } from "../theme.js"
 import { WorkspaceHeader } from "./WorkspaceHeader.js"
 
 /**
@@ -24,7 +25,9 @@ export function AppShell() {
   const [paletteOpen, setPaletteOpen] = useState(false)
 
   useEffect(() => {
-    document.documentElement.dataset.theme = state?.theme ?? "default"
+    const theme = state?.theme ?? "default"
+    document.documentElement.dataset.theme = theme
+    rememberTheme(theme)
   }, [state?.theme])
 
   useEffect(() => {
