@@ -119,7 +119,6 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
     if (!endpoints || typeof endpoints !== "object") throw new Error("Invalid PAIR endpoints.")
     return runtime.connectPairEndpoints(endpoints)
   })
-  handle(DESKTOP_CHANNELS.listDownloadedModels, () => runtime.listDownloadedModels())
   handle(DESKTOP_CHANNELS.deleteLocalModel, (id) => {
     if (typeof id !== "string") throw new Error("Invalid model id.")
     return runtime.deleteLocalModel(id)

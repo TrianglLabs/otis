@@ -7,6 +7,7 @@ import type { HardwareProbe } from "../../src/inference/hardware.js"
 import { LOCAL_MODELS } from "../../src/inference/local-catalog.js"
 import {
   formatContextWindow,
+  isSelectablePickerItem,
   type LocalPickerChoice,
   listModelPickerItems,
   type PairPickerChoice,
@@ -94,6 +95,32 @@ describe("model picker catalog", () => {
       available: true,
       availabilityLabel: expect.stringMatching(/^Est\. /),
     })
+  })
+
+  it("keeps a downloaded over-budget model listed when included, with selection unavailable", async () => {
+    const directory = await tempDir()
+    const cached = LOCAL_MODELS.find((model) => model.id === "openai/gpt-oss-20b")
+    if (!cached) throw new Error("missing catalog entry")
+    await mkdir(join(directory, "models"), { recursive: true })
+    await writeFile(localGgufPath(cached, directory), "")
+    await truncate(localGgufPath(cached, directory), cached.ggufFiles[0].size)
+
+    const withCached = await listModelPickerItems({
+      hardware: tight,
+      dataDirectory: directory,
+      includeDownloadedUnavailable: true,
+    })
+    const cachedRow = withCached.find(
+      (item): item is LocalPickerChoice => item.kind === "model" && "id" in item && item.id === cached.id,
+    )
+    // Listed so its cached files stay deletable from the catalog, but never selectable.
+    expect(cachedRow).toMatchObject({ available: false, downloaded: true, recommended: false })
+    expect(cachedRow?.availabilityLabel).toMatch(/^Needs /)
+    expect(isSelectablePickerItem(cachedRow)).toBe(false)
+
+    // The default catalog keeps hiding it — CLI behavior is unchanged.
+    const byDefault = await listModelPickerItems({ hardware: tight, dataDirectory: directory })
+    expect(byDefault.some((item) => "id" in item && item.id === cached.id)).toBe(false)
   })
 
   it("omits an empty Local section when no catalog model fits", async () => {

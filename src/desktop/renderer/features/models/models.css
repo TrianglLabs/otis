@@ -19,6 +19,28 @@
   animation: overlay-enter var(--motion);
 }
 
+/* Borderless title bar like the trace overlay's header — label left, close button flush right. */
+.modelPicker-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 8px 8px 20px;
+  flex-shrink: 0;
+}
+
+.modelPicker-titleText {
+  font-size: var(--text-ui);
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.modelPicker-titleSpace {
+  flex: 1;
+}
+
 .modelPicker-message {
   padding: 8px 20px;
   font-size: var(--text-ui);
@@ -34,7 +56,15 @@
   min-height: 0; /* let the list shrink inside the max-height dialog so lower rows scroll into view */
   /* Even inset: the 10px left padding mirrors the 10px scrollbar gutter on the right. */
   scrollbar-gutter: stable;
-  padding: 6px 0 6px 10px;
+  /* No top padding: the title bar (or a message row) above already ends in 8px of breathing room, so the
+     first section label sits as close to the title as the trace overlay's content does. */
+  padding: 0 0 6px 10px;
+}
+
+/* Section labels separate provider groups mid-list; the first one follows the title bar directly, so it
+   skips the group-separation padding and lets the title's own bottom padding be the gap. */
+.modelPicker-list .modelPicker-header:first-child {
+  padding-top: 0;
 }
 
 /* Section label treatment shared across overlays and pages. */
@@ -136,14 +166,57 @@
   }
 }
 
+/* Trailing marks (active check, download hint) borrow the icon buttons' exact box — 22px square, 6px inset —
+   so every row-level glyph sits on one right rail: check, hint, cancel, and delete all line up across rows. */
+.modelPicker-mark {
+  align-self: center;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-right: 6px;
+}
+
 .modelPicker-downloadHint {
   color: var(--text-dim);
-  display: inline-flex;
-  flex-shrink: 0;
 }
 
 .modelPicker-cancel {
   align-self: center;
   flex-shrink: 0;
   margin-right: 6px;
+}
+
+/* Destructive affordance stays out of sight until the row is hovered or focused via keyboard. */
+.modelPicker-delete {
+  align-self: center;
+  flex-shrink: 0;
+  margin-right: 6px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.modelPicker-row:hover .modelPicker-delete,
+.modelPicker-delete:focus-visible {
+  opacity: 1;
+}
+
+/* The confirmation replaces the row's content, so confirming can never be a misclick on the select button. */
+.modelPicker-confirm {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  width: 100%;
+  /* The 22px buttons must fill the two-line row they replace (7 + 18.1 name + 2 gap + 15.2 detail + 7 ≈
+     49px), so the rows below hold still while the confirmation is up. */
+  padding: 13.5px 8px 13.5px 10px;
+}
+
+.modelPicker-confirmText {
+  margin-right: auto;
+  font-size: var(--text-ui);
+  color: var(--danger);
 }

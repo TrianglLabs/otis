@@ -22,7 +22,7 @@ function Footer({ context }: { context?: ListContext }) {
   return <div className="transcriptFooter">{context?.footer}</div>
 }
 function Header() {
-  return <div style={{ height: 24 }} />
+  return <div className="transcriptHeader" />
 }
 const components = { List, Header, Footer }
 // A run's id is its first entry's id; when the run is expanded, that entry follows the run's row as its own
@@ -44,7 +44,6 @@ export const TranscriptList = memo(function TranscriptList({
 }) {
   const visible = useMemo(() => visibleEntries(entries, thinkingVisible), [entries, thinkingVisible])
   const scroll = useTranscriptScroll()
-  const [scrolling, setScrolling] = useState(false)
   // Disclosure state belongs to the transcript, so scrolling a row out of the viewport doesn't collapse it.
   const [expanded, setExpanded] = useState<ReadonlySet<number>>(() => new Set())
   const setEntryExpanded = useCallback((id: number, open: boolean) => {
@@ -91,11 +90,18 @@ export const TranscriptList = memo(function TranscriptList({
 
   return (
     <div className="transcriptViewport">
+      {/* Steady thumb while a turn streams: event-driven reveals flicker with the follow jumps, and a
+          hidden thumb reads as "the scrollbar is gone" when the pointer sits on the composer. */}
       <Virtuoso<TranscriptItem, ListContext>
         scrollerRef={scroll.scrollerRef}
         onScrollCapture={scroll.onScrollCapture}
+        onWheelCapture={scroll.onWheelCapture}
+        onKeyDown={scroll.onKeyDown}
+        onPointerDownCapture={scroll.onPointerDownCapture}
+        onTouchStartCapture={scroll.onTouchStartCapture}
+        onTouchMoveCapture={scroll.onTouchMoveCapture}
         totalListHeightChanged={scroll.totalListHeightChanged}
-        className={`transcriptScroll${scrolling ? " scrolling" : ""}`}
+        className={`transcriptScroll${scroll.scrolling || busy ? " scrolling" : ""}`}
         data={items}
         computeItemKey={itemKey}
         components={components}
@@ -104,7 +110,7 @@ export const TranscriptList = memo(function TranscriptList({
         initialTopMostItemIndex={initialPosition}
         defaultItemHeight={80}
         increaseViewportBy={300}
-        isScrolling={setScrolling}
+        isScrolling={scroll.isScrolling}
       />
       {!scroll.atBottom && visible.length > 0 ? (
         <button type="button" className="jumpToLatest" onClick={scroll.jumpToLatest}>

@@ -120,6 +120,9 @@
   justify-content: flex-end;
   gap: 6px;
   width: 100%;
+  /* The 22px button box outweighs the 12.5px/1.45 text line it replaces by ~4px; hand 2px back on each
+     side so the confirming row keeps the height of the one-line entry and the rows below don't shift. */
+  margin-block: -2px;
 }
 
 .palette-confirmText {

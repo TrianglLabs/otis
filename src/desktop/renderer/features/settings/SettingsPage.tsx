@@ -1,7 +1,7 @@
-import { Check, ChevronDown, ChevronRight, Trash2, X } from "lucide-react"
-import { useCallback, useEffect, useState } from "react"
+import { Check, ChevronDown, ChevronRight, X } from "lucide-react"
+import { useEffect, useState } from "react"
 import type { PairPickerChoice } from "../../../../inference/picker-catalog.js"
-import type { DownloadedLocalModel, ThemeName } from "../../../contracts.js"
+import type { ThemeName } from "../../../contracts.js"
 import { Button, IconButton } from "../../components/Button.js"
 import { Icon } from "../../components/Icon.js"
 import { useDesktop, useDesktopState } from "../../runtime.js"
@@ -26,8 +26,9 @@ const PAIR_DEFAULT_ENDPOINTS = { ollama: "http://127.0.0.1:11434", lmStudio: "ht
 
 /**
  * The settings page, opened from the header's gear button or the ⌘K palette. It takes over the whole window.
- * Mirrors the TUI's /settings submenu: hosted API key, NVIDIA PAIR endpoints, local-model deletion, theme, plus
- * the /thinking, /fast, and /debug toggles. Model selection lives in the composer's model picker.
+ * Mirrors the TUI's /settings submenu: hosted API key, NVIDIA PAIR endpoints, theme, plus the /thinking and /fast
+ * toggles; the /debug toggle is development-only and never renders in production builds. Model selection and
+ * local-model deletion live in the composer's model picker.
  * Every control writes through the main process; status events update the UI.
  */
 export function SettingsPage({ onClose }: { onClose: () => void }) {
@@ -56,24 +57,8 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
   const [pairModels, setPairModels] = useState<PairPickerChoice[]>()
   const [pairCatalogReload, setPairCatalogReload] = useState(0)
 
-  const [downloaded, setDownloaded] = useState<DownloadedLocalModel[]>()
-  const [deleting, setDeleting] = useState<string>()
-  const [deleteError, setDeleteError] = useState<string>()
-
   const [fastError, setFastError] = useState<string>()
   const [fastPending, setFastPending] = useState(false)
-
-  const reloadDownloaded = useCallback(async () => {
-    try {
-      setDownloaded(await api.listDownloadedModels())
-    } catch {
-      setDownloaded([])
-    }
-  }, [api])
-
-  useEffect(() => {
-    void reloadDownloaded()
-  }, [reloadDownloaded])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -154,18 +139,6 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
       else setPairError(result.reason)
     } finally {
       setPairPending(false)
-    }
-  }
-
-  const deleteModel = async (id: string) => {
-    setDeleteError(undefined)
-    setDeleting(id)
-    try {
-      const result = await api.deleteLocalModel(id)
-      if (!result.ok) setDeleteError(result.reason)
-      await reloadDownloaded()
-    } finally {
-      setDeleting(undefined)
     }
   }
 
@@ -298,28 +271,6 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
             </div>
           ) : null}
 
-          {downloaded && downloaded.length > 0 ? (
-            <>
-              <div className="settings-section">Local models</div>
-              {downloaded.map((model) => (
-                <div key={model.id} className="settingsRow">
-                  <span className="settingsRow-label">
-                    {model.displayName}
-                    <span className="settingsRow-meta">{model.detail}</span>
-                  </span>
-                  <IconButton
-                    icon={Trash2}
-                    label={`Delete ${model.displayName}`}
-                    size={22}
-                    disabled={deleting !== undefined}
-                    onClick={() => void deleteModel(model.id)}
-                  />
-                </div>
-              ))}
-              {deleteError ? <div className="settings-message settings-error">{deleteError}</div> : null}
-            </>
-          ) : null}
-
           <div className="settings-section">Theme</div>
           <div className="themeGrid">
             {THEME_NAMES.map((theme) => (
@@ -332,7 +283,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
             ))}
           </div>
 
-          <div className="settings-section">Behavior</div>
+          <div className="settings-section">Security</div>
           <div className="settingsRow">
             <span className="settingsRow-label">
               Permission mode
@@ -362,6 +313,8 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
               <option value="auto">Auto</option>
             </select>
           </div>
+
+          <div className="settings-section">Behavior</div>
           <div className="settingsRow">
             <span className="settingsRow-label">Thinking traces</span>
             <Toggle
@@ -387,10 +340,12 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
               onChange={(fast) => void toggleFast(fast)}
             />
           </div>
-          <div className="settingsRow" title="Session only — applies from the next turn">
-            <span className="settingsRow-label">Debug mode</span>
-            <Toggle label="Toggle debug mode" checked={state.debug} onChange={(on) => void api.setDebugMode(on)} />
-          </div>
+          {!import.meta.env.PROD ? (
+            <div className="settingsRow" title="Session only — applies from the next turn">
+              <span className="settingsRow-label">Debug mode</span>
+              <Toggle label="Toggle debug mode" checked={state.debug} onChange={(on) => void api.setDebugMode(on)} />
+            </div>
+          ) : null}
           {fastError ? <div className="settings-message settings-error">{fastError}</div> : null}
           <SoftwareUpdates />
         </div>

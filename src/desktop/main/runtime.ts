@@ -11,8 +11,7 @@ import { listToolCapableModels } from "../../inference/catalog.js"
 import { FireworksClient } from "../../inference/client.js"
 import { deleteLocalGguf, listDownloadedLocalModels } from "../../inference/gguf-cache.js"
 import { formatLocalLoadStatus } from "../../inference/llama-runtime.js"
-import { catalogModelFromSpec, findLocalModel, localModelWeightBytes } from "../../inference/local-catalog.js"
-import { formatMemoryLabel } from "../../inference/local-fit.js"
+import { catalogModelFromSpec, findLocalModel } from "../../inference/local-catalog.js"
 import {
   discoverPairModels,
   normalizePairEndpoints,
@@ -59,7 +58,6 @@ import type {
   DesktopEvent,
   DesktopSnapshot,
   DesktopStatus,
-  DownloadedLocalModel,
   ModelSelectResult,
   ModelState,
   PendingPermission,
@@ -568,6 +566,8 @@ export class DesktopRuntime {
       loadedLocalModel: activeLocal
         ? { model: activeLocal.spec.id, contextLength: activeLocal.contextLength }
         : undefined,
+      // Over-budget cached models stay listed (selection disabled) so they remain deletable from the catalog.
+      includeDownloadedUnavailable: true,
     })
     this.#lastPickerItems = items
     return items
@@ -876,24 +876,11 @@ export class DesktopRuntime {
     return { ok: true as const }
   }
 
-  /** The downloaded local models for the settings delete list, labeled like the TUI's delete menu rows. */
-  async listDownloadedModels(): Promise<DownloadedLocalModel[]> {
-    const downloaded = await listDownloadedLocalModels()
-    return downloaded.map((model) => {
-      const active = this.app.models.selectedProvider === "local" && this.app.models.selectedId === model.id
-      return {
-        id: model.id,
-        displayName: model.displayName,
-        detail: `${active ? "Active · " : ""}${model.quant} · ${formatMemoryLabel(localModelWeightBytes(model))}`,
-        active,
-      }
-    })
-  }
-
   /**
-   * Deletes a downloaded local model, mirroring the TUI's /settings delete-model flow including the rollback.
-   * Holds the selection counter for the entire operation — the same exclusion a model switch gets — so a prompt
-   * cannot be admitted, and another selection cannot commit and then be cleared, mid-delete.
+   * Deletes a downloaded local model from the model catalog, mirroring the TUI's /settings delete-model flow
+   * including the rollback. Holds the selection counter for the entire operation — the same exclusion a model
+   * switch gets — so a prompt cannot be admitted, and another selection cannot commit and then be cleared,
+   * mid-delete.
    */
   async deleteLocalModel(modelId: string): Promise<ModelSelectResult> {
     if (this.#deleting || this.app.conversation.busy || this.#draining || this.#selecting > 0) {

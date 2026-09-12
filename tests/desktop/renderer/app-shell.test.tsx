@@ -5,6 +5,7 @@ import type { ReactNode } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { GlobalSessionPickerItem } from "../../../src/app/global-sessions.js"
 import type { TranscriptEntry } from "../../../src/app/transcript.js"
+import type { ModelPickerItem } from "../../../src/inference/picker-catalog.js"
 
 const WS = "/ws"
 
@@ -131,7 +132,6 @@ function fakeApi(overrides: Partial<DesktopApi> = {}): DesktopApi {
     openFireworksKeyPage: vi.fn(async () => {}),
     setFireworksApiKey: vi.fn(async () => ({ ok: true as const })),
     connectPairEndpoints: vi.fn(async () => ({ ok: true as const })),
-    listDownloadedModels: vi.fn(async () => []),
     deleteLocalModel: vi.fn(async () => ({ ok: true as const })),
     setDebugMode: vi.fn(async () => {}),
     installUpdate: vi.fn(async () => {}),
@@ -168,7 +168,7 @@ describe("AppShell settings navigation", () => {
 
     // Open Settings from the header gear: the page takes over the window…
     fireEvent.click(screen.getByRole("button", { name: "Settings" }))
-    await act(async () => {}) // flush SettingsPage's listDownloadedModels effect
+    await act(async () => {}) // flush SettingsPage's mount effects
     expect(screen.getByText("Providers")).toBeTruthy()
 
     // …but the conversation column is hidden, not unmounted: the very same textarea node stays in the document.
@@ -193,12 +193,161 @@ describe("AppShell settings navigation", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Settings" }))
     await act(async () => {})
+    expect(screen.getByText("Security")).toBeTruthy()
     const select = screen.getByRole("combobox", { name: "Permission mode" }) as HTMLSelectElement
     expect(select.value).toBe("ask")
     expect(Array.from(select.options, (option) => option.text)).toEqual(["Ask", "Auto"])
 
     fireEvent.change(select, { target: { value: "auto" } })
     expect(api.setPermissionMode).toHaveBeenCalledExactlyOnceWith("auto")
+  })
+
+  it("deletes a downloaded local model from the model catalog with confirmation", async () => {
+    const cached: ModelPickerItem = {
+      kind: "model",
+      provider: "local",
+      id: "Qwen/Qwen3-Coder-30B-A3B-Instruct",
+      displayName: "Qwen3 Coder 30B",
+      contextLength: 32_768,
+      supportsImageInput: false,
+      available: true,
+      availabilityLabel: "32K · Q4_K_M · 18 GB",
+      recommended: false,
+      downloaded: true,
+      active: false,
+    }
+    const uncached: ModelPickerItem = {
+      kind: "model",
+      provider: "local",
+      id: "openai/gpt-oss-120b",
+      displayName: "gpt-oss 120B",
+      contextLength: 65_536,
+      supportsImageInput: false,
+      available: true,
+      availabilityLabel: "Est. 64K · MXFP4 · 63 GB",
+      recommended: false,
+      downloaded: false,
+      active: false,
+    }
+    const overBudget: ModelPickerItem = {
+      // Cached on a bigger machine: too large to run here, but the weights can still be deleted.
+      kind: "model",
+      provider: "local",
+      id: "zai-org/GLM-5.3",
+      displayName: "GLM-5.3",
+      contextLength: 65_536,
+      supportsImageInput: false,
+      available: false,
+      availabilityLabel: "Needs 390 GB",
+      recommended: false,
+      downloaded: true,
+      active: false,
+    }
+    let catalog: ModelPickerItem[] = [cached, uncached, overBudget]
+    // Deletion stays pending until the test resolves it, like a real multi-GB removal.
+    let resolveDelete: ((result: { ok: true }) => void) | undefined
+    const deleteLocalModel = vi.fn(
+      () =>
+        new Promise<{ ok: true }>((resolve) => {
+          resolveDelete = resolve
+        }),
+    )
+    const api = fakeApi({
+      listModels: vi.fn(async () => catalog),
+      deleteLocalModel,
+    })
+    await renderApp(api)
+
+    // Open the catalog from the composer's model chip.
+    fireEvent.click(screen.getByRole("button", { name: "gpt-oss 20B" }))
+    await act(async () => {})
+    // The catalog opens with the same borderless title bar as the coworker trace overlay.
+    expect(screen.getByText("Select a model")).toBeTruthy()
+
+    // Downloaded managed-local rows carry the delete affordance — including the over-budget cache,
+    // which cannot run on this machine but can still be freed.
+    expect(screen.getByRole("button", { name: "Delete Qwen3 Coder 30B" })).toBeTruthy()
+    expect(screen.getByRole("button", { name: "Delete GLM-5.3" })).toBeTruthy()
+    expect(screen.queryByRole("button", { name: "Delete gpt-oss 120B" })).toBeNull()
+    // The over-budget row is listed with selection disabled.
+    const overBudgetSelect = screen
+      .getByText(/Needs 390 GB/)
+      .closest(".modelPicker-row")
+      ?.querySelector(".modelPicker-select")
+    expect((overBudgetSelect as HTMLButtonElement).disabled).toBe(true)
+
+    // Requesting deletion replaces the row with a confirmation.
+    fireEvent.click(screen.getByRole("button", { name: "Delete Qwen3 Coder 30B" }))
+    expect(screen.getByText("Delete Qwen3 Coder 30B?")).toBeTruthy()
+
+    // The first Escape cancels the confirmation, not the catalog.
+    fireEvent.keyDown(window, { key: "Escape" })
+    expect(screen.queryByText("Delete Qwen3 Coder 30B?")).toBeNull()
+    expect(screen.getByRole("dialog", { name: "Select a model" })).toBeTruthy()
+
+    // Keep backs out without touching the disk.
+    fireEvent.click(screen.getByRole("button", { name: "Delete Qwen3 Coder 30B" }))
+    fireEvent.click(screen.getByRole("button", { name: "Keep" }))
+    expect(deleteLocalModel).not.toHaveBeenCalled()
+
+    // Confirming hands the removal to the main process; until it settles, the row shows progress and
+    // every conflicting control is disabled.
+    fireEvent.click(screen.getByRole("button", { name: "Delete Qwen3 Coder 30B" }))
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }))
+    await act(async () => {})
+    expect(deleteLocalModel).toHaveBeenCalledWith("Qwen/Qwen3-Coder-30B-A3B-Instruct")
+    expect(screen.getByText("Deleting Qwen3 Coder 30B…")).toBeTruthy()
+    expect((screen.getByRole("button", { name: "Delete GLM-5.3" }) as HTMLButtonElement).disabled).toBe(true)
+    const uncachedSelect = screen
+      .getByText(/Est\. 64K · MXFP4 · 63 GB/)
+      .closest(".modelPicker-row")
+      ?.querySelector(".modelPicker-select")
+    expect((uncachedSelect as HTMLButtonElement).disabled).toBe(true)
+    expect(api.listModels).toHaveBeenCalledTimes(1) // no refetch while the deletion is pending
+
+    // The removal settles: the catalog refetches and the disabled controls come back.
+    catalog = catalog.map((item) =>
+      "downloaded" in item && item.id === cached.id ? { ...item, downloaded: false } : item,
+    )
+    await act(async () => {
+      resolveDelete?.({ ok: true })
+    })
+    await act(async () => {})
+    expect(api.listModels).toHaveBeenCalledTimes(2)
+    expect(screen.queryByText("Deleting Qwen3 Coder 30B…")).toBeNull()
+    // The row is back to its downloadable state: no delete affordance, name still listed, selection live.
+    expect(screen.queryByRole("button", { name: "Delete Qwen3 Coder 30B" })).toBeNull()
+    expect(screen.getByText("Qwen3 Coder 30B")).toBeTruthy()
+    expect((uncachedSelect as HTMLButtonElement).disabled).toBe(false)
+
+    // The title bar's close button dismisses the catalog, like the trace overlay's header.
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Select a model" })).getByRole("button", {
+        name: "Close model picker",
+      }),
+    )
+    await act(async () => {})
+    expect(screen.queryByRole("dialog", { name: "Select a model" })).toBeNull()
+  })
+
+  it("shows the Debug mode toggle only outside production builds", async () => {
+    await renderApp(fakeApi())
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }))
+    await act(async () => {})
+    expect(screen.getByRole("switch", { name: "Toggle debug mode" })).toBeTruthy()
+
+    cleanup()
+    vi.stubEnv("PROD", true)
+    try {
+      await renderApp(fakeApi())
+      fireEvent.click(screen.getByRole("button", { name: "Settings" }))
+      await act(async () => {})
+      expect(screen.queryByRole("switch", { name: "Toggle debug mode" })).toBeNull()
+      // Only the debug row is gated; the rest of the Behavior section stays.
+      expect(screen.getByRole("switch", { name: "Show or hide model thinking traces" })).toBeTruthy()
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 
   it("shows an update chip only when an update is downloaded", async () => {
@@ -256,13 +405,12 @@ describe("AppShell settings navigation", () => {
       emit({ type: "status", revision: 3, status: { ...SNAPSHOT, update: { status: "ready", version: "9.9.9" } } })
       finish()
     })
-    expect(screen.getByRole("status").textContent).toBe("Otis 9.9.9 is ready to install.")
+    expect(screen.queryByRole("status")).toBeNull()
     expect(screen.getByRole("button", { name: "Update" })).toBeTruthy()
     expect(api.installUpdate).not.toHaveBeenCalled()
   })
 
   it.each<{ update: DesktopUpdateState; message: string; disabled: boolean }>([
-    { update: { status: "current" }, message: "You’re up to date.", disabled: false },
     {
       update: { status: "error", message: "The update couldn’t be downloaded. Please try again." },
       message: "The update couldn’t be downloaded. Please try again.",
@@ -303,6 +451,16 @@ describe("AppShell settings navigation", () => {
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Check for updates" })))
     expect(check).toHaveBeenCalledTimes(2)
     expect(screen.getByRole("status").textContent).toBe("You’re up to date.")
+  })
+
+  it("stays quiet about being current until the user checks for updates", async () => {
+    const api = fakeApi({
+      getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, update: { status: "current" as const } })),
+    })
+    await renderApp(api)
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }))
+    await act(async () => {})
+    expect(screen.queryByRole("status")).toBeNull()
   })
 
   it("lists every session in the palette — no recents cap", async () => {

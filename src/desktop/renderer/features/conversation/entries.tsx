@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, ShipWheel } from "lucide-react"
+import { ChevronDown, ChevronRight, ListEnd, ShipWheel } from "lucide-react"
 import { memo } from "react"
 import type { TranscriptEntry } from "../../../../app/transcript.js"
 import { Icon } from "../../components/Icon.js"
@@ -38,14 +38,19 @@ export const EntryView = memo(function EntryView({
 
 function UserMessage({ entry }: { entry: TranscriptEntry }) {
   const steering = entry.delivery === "steering"
+  const queued = entry.delivery === "queued"
   return (
-    <div className={`userRow${steering ? " userRow-steering" : ""}`}>
+    <div className={`userRow${steering ? " userRow-steering" : ""}${queued ? " userRow-queued" : ""}`}>
       {steering ? (
         <span className="steeringIndicator" role="img" aria-label="Steering" title="Steering the active turn">
           <Icon icon={ShipWheel} size={16} />
         </span>
       ) : null}
-      {entry.delivery === "queued" ? <span className="deliveryTag">Queued</span> : null}
+      {queued ? (
+        <span className="queuedIndicator" role="img" aria-label="Queued" title="Queued for the next turn">
+          <Icon icon={ListEnd} size={16} />
+        </span>
+      ) : null}
       <div className="userMessage">{entry.text}</div>
     </div>
   )

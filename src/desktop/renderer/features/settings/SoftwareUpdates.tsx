@@ -9,6 +9,8 @@ export function SoftwareUpdates() {
   const state = useDesktopState("update", "version")
   const [requesting, setRequesting] = useState(false)
   const [requestFailed, setRequestFailed] = useState(false)
+  // "You're up to date." is a check result, not a resting status: it only appears after a manual check.
+  const [hasChecked, setHasChecked] = useState(false)
   if (!state) return null
 
   const { update } = state
@@ -21,6 +23,7 @@ export function SoftwareUpdates() {
   const check = async () => {
     setRequesting(true)
     setRequestFailed(false)
+    setHasChecked(true)
     try {
       await api.checkForUpdates()
     } catch {
@@ -38,12 +41,12 @@ export function SoftwareUpdates() {
         ? update.message
         : downloading
           ? `Downloading Otis ${update.version} in the background…`
-          : ready
-            ? `Otis ${update.version} is ready to install.`
-            : unavailable
-              ? "Update checks aren’t available in this build of Otis."
-              : update.status === "current"
-                ? "You’re up to date."
+          : unavailable
+            ? "Update checks aren’t available in this build of Otis."
+            : hasChecked && update.status === "current"
+              ? "You’re up to date."
+              : update.status === "current" || ready
+                ? undefined
                 : "Updates download in the background. You choose when to restart."
 
   return (
@@ -62,9 +65,11 @@ export function SoftwareUpdates() {
           {checking ? "Checking…" : downloading ? "Downloading…" : ready ? "Update ready" : "Check for updates"}
         </Button>
       </div>
-      <div className={`settings-message${failed ? " settings-error" : ""}`} role="status">
-        {message}
-      </div>
+      {message ? (
+        <div className={`settings-message${failed ? " settings-error" : ""}`} role="status">
+          {message}
+        </div>
+      ) : null}
     </>
   )
 }

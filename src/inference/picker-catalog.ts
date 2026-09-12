@@ -62,6 +62,12 @@ export type ListModelPickerOptions = {
   loadedLocalModel?: { model: string; contextLength: number }
   detect?: typeof detectHardware
   listFireworks?: typeof listToolCapableModels
+  /**
+   * Keep downloaded local models listed even when they cannot run on this machine — selection stays
+   * unavailable. The desktop catalog opts in so cached files remain deletable from the GUI; the default
+   * (CLI) behavior keeps them hidden.
+   */
+  includeDownloadedUnavailable?: boolean
   signal?: AbortSignal
 }
 
@@ -80,12 +86,12 @@ export async function listModelPickerItems(options: ListModelPickerOptions = {})
     await Promise.all(
       LOCAL_MODELS.map(async (model) => {
         const fit = fitLocalModel(model, hardware)
-        if (!fit.available) return undefined
+        const downloaded = await isLocalGgufDownloaded(model, options.dataDirectory)
+        if (!fit.available && !(options.includeDownloadedUnavailable === true && downloaded)) return undefined
         const loadedContextLength =
           currentLocalModel === model.id && options.loadedLocalModel?.model === model.id
             ? options.loadedLocalModel.contextLength
             : undefined
-        const downloaded = await isLocalGgufDownloaded(model, options.dataDirectory)
         return toLocalPickerChoice(
           model,
           fit,

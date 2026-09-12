@@ -38,7 +38,6 @@ export const DESKTOP_CHANNELS = {
   openFireworksKeyPage: "desktop:open-fireworks-key-page",
   setFireworksApiKey: "desktop:set-fireworks-api-key",
   connectPairEndpoints: "desktop:connect-pair-endpoints",
-  listDownloadedModels: "desktop:list-downloaded-models",
   deleteLocalModel: "desktop:delete-local-model",
   setDebugMode: "desktop:set-debug-mode",
   checkForUpdates: "desktop:check-for-updates",
@@ -121,15 +120,6 @@ export type DesktopStatus = {
   update: DesktopUpdateState
 }
 
-/** A downloaded local model, listed in settings for deletion; detail mirrors the TUI's delete menu rows. */
-export type DownloadedLocalModel = {
-  id: string
-  displayName: string
-  /** "Active · Q4_K_M · 4.8 GB" — the TUI delete-menu description. */
-  detail: string
-  active: boolean
-}
-
 export type DesktopSnapshot = DesktopStatus & {
   platform: NodeJS.Platform
   version: string
@@ -210,9 +200,7 @@ export type DesktopApi = {
   setFireworksApiKey(apiKey: string): Promise<ModelSelectResult>
   /** Validates, probes, and persists NVIDIA PAIR endpoints, keeping only the ones that respond. */
   connectPairEndpoints(endpoints: { ollama?: string; lmStudio?: string }): Promise<ModelSelectResult>
-  /** The downloaded local models, for the settings delete list. */
-  listDownloadedModels(): Promise<DownloadedLocalModel[]>
-  /** Deletes a downloaded local model, clearing the selection first when it is the active one. */
+  /** Deletes a downloaded local model from the model catalog, clearing the selection first when it is active. */
   deleteLocalModel(id: string): Promise<ModelSelectResult>
   /** Session-only debug mode; applies from the next turn. */
   setDebugMode(enabled: boolean): Promise<void>
