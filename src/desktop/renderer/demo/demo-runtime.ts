@@ -3,6 +3,7 @@ import type { ModelPickerChoice, ModelPickerItem } from "../../../inference/pick
 import type {
   DesktopApi,
   DesktopEvent,
+  DesktopImageInput,
   DesktopSnapshot,
   DesktopStatus,
   ModelSelectResult,
@@ -119,7 +120,7 @@ const DEMO_MODELS: ModelPickerChoice[] = [
     id: "accounts/fireworks/models/kimi-k2p5-turbo",
     displayName: "Kimi K2.5 Turbo",
     contextLength: 262_144,
-    supportsImageInput: false,
+    supportsImageInput: true,
     available: true,
     active: true,
   },
@@ -150,7 +151,12 @@ class DemoRuntime implements DesktopApi {
   #state: DemoState = {
     busy: false,
     phase: "idle",
-    model: { id: "accounts/fireworks/models/kimi-k2p5-turbo", provider: "fireworks", displayName: "Kimi K2.5 Turbo" },
+    model: {
+      id: "accounts/fireworks/models/kimi-k2p5-turbo",
+      provider: "fireworks",
+      displayName: "Kimi K2.5 Turbo",
+      supportsImageInput: true,
+    },
     modelState: "ready",
     modelError: undefined,
     session: { id: "session_demo1", title: "Sidebar keyboard shortcut" },
@@ -301,6 +307,7 @@ class DemoRuntime implements DesktopApi {
         id: fast ? "accounts/fireworks/routers/kimi-k2p5-turbo-fast" : "accounts/fireworks/models/kimi-k2p5-turbo",
         provider: "fireworks",
         displayName: "Kimi K2.5 Turbo",
+        supportsImageInput: true,
       },
     }
     this.#emitStatus()
@@ -353,15 +360,16 @@ class DemoRuntime implements DesktopApi {
     }
   }
 
-  async sendPrompt(text: string): Promise<SendPromptResult> {
-    if (!text.trim()) return { accepted: false, reason: "The prompt is empty." }
+  async sendPrompt(text: string, images: readonly DesktopImageInput[] = []): Promise<SendPromptResult> {
+    if (!text.trim() && images.length === 0) return { accepted: false, reason: "The prompt is empty." }
+    const display = [text, ...images.map((image) => `📎 ${image.name}`)].filter(Boolean).join("\n")
     if (this.#state.busy) {
-      this.#queued.push(text)
-      this.#push({ ...this.#entry("You", text), delivery: "queued" })
+      this.#queued.push(display)
+      this.#push({ ...this.#entry("You", display), delivery: "queued" })
       return { accepted: true, delivery: "queued" }
     }
-    this.#push(this.#entry("You", text))
-    this.#runTurn(text, ++this.#generation)
+    this.#push(this.#entry("You", display))
+    this.#runTurn(display, ++this.#generation)
     return { accepted: true, delivery: "started" }
   }
 
@@ -582,7 +590,7 @@ class DemoRuntime implements DesktopApi {
   #activateModel(item: ModelPickerChoice) {
     this.#state = {
       ...this.#state,
-      model: { id: item.id, provider: item.provider },
+      model: { id: item.id, provider: item.provider, supportsImageInput: item.supportsImageInput },
       modelState: "ready",
       modelError: undefined,
       modelLoad: null,

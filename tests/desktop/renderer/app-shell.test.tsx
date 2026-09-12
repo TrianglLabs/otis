@@ -64,7 +64,12 @@ import { DesktopViewStore } from "../../../src/desktop/renderer/state.js"
 const SNAPSHOT: DesktopSnapshot = {
   busy: false,
   phase: "idle",
-  model: { id: "openai/gpt-oss-20b", provider: "fireworks", displayName: "gpt-oss 20B" },
+  model: {
+    id: "openai/gpt-oss-20b",
+    provider: "fireworks",
+    displayName: "gpt-oss 20B",
+    supportsImageInput: false,
+  },
   modelState: "ready",
   modelError: undefined,
   session: { id: "session-1", title: "Test session" },
@@ -184,6 +189,71 @@ describe("AppShell settings navigation", () => {
     expect(restored.closest(".mainColumn")?.classList.contains("mainColumn-hidden")).toBe(false)
   })
 
+  it("attaches an image from the upload control and sends an image-only message", async () => {
+    const createObjectURL = vi.fn(() => "blob:screen")
+    const revokeObjectURL = vi.fn()
+    vi.stubGlobal("URL", { ...URL, createObjectURL, revokeObjectURL })
+    const sendPrompt = vi.fn<DesktopApi["sendPrompt"]>(async () => ({ accepted: true, delivery: "started" }))
+    await renderApp(
+      fakeApi({
+        getSnapshot: vi.fn(async () => ({
+          ...SNAPSHOT,
+          model: { id: "vision-model", provider: "fireworks" as const, supportsImageInput: true },
+        })),
+        sendPrompt,
+      }),
+    )
+
+    const file = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], "screen.png", {
+      type: "image/png",
+    })
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]')
+    if (!input) throw new Error("expected image input")
+    fireEvent.change(input, { target: { files: [file] } })
+
+    expect(await screen.findByRole("button", { name: "Remove screen.png" })).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Send" }))
+    await act(async () => {})
+
+    expect(sendPrompt).toHaveBeenCalledExactlyOnceWith("", [
+      expect.objectContaining({ name: "screen.png", mimeType: "image/png" }),
+    ])
+    expect(screen.queryByRole("button", { name: "Remove screen.png" })).toBeNull()
+    expect(createObjectURL).toHaveBeenCalledWith(file)
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:screen")
+  })
+
+  it("explains why image upload is unavailable for a text-only model", async () => {
+    await renderApp(fakeApi())
+
+    const upload = screen.getByRole("button", { name: "Add images" }) as HTMLButtonElement
+    expect(upload.disabled).toBe(true)
+    expect(upload.parentElement?.title).toBe("The selected model does not support image input")
+  })
+
+  it("accepts dropped images and keeps them when submission is rejected", async () => {
+    vi.stubGlobal("URL", { ...URL, createObjectURL: () => "blob:dropped", revokeObjectURL: vi.fn() })
+    const sendPrompt = vi.fn<DesktopApi["sendPrompt"]>(async () => ({ accepted: false, reason: "Session is locked." }))
+    await renderApp(
+      fakeApi({
+        getSnapshot: vi.fn(async () => ({
+          ...SNAPSHOT,
+          model: { id: "vision-model", provider: "fireworks" as const, supportsImageInput: true },
+        })),
+        sendPrompt,
+      }),
+    )
+    const file = new File([new Uint8Array([0xff, 0xd8, 0xff])], "photo.jpg", { type: "image/jpeg" })
+    const box = document.querySelector(".composer-box")
+    if (!box) throw new Error("expected composer")
+
+    fireEvent.drop(box, { dataTransfer: { files: [file], types: ["Files"], dropEffect: "none" } })
+    expect(await screen.findByRole("button", { name: "Remove photo.jpg" })).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Send" }))
+    expect(await screen.findByText("Session is locked. Your message was kept.")).toBeTruthy()
+    expect(screen.getByRole("button", { name: "Remove photo.jpg" })).toBeTruthy()
+  })
+
   it("changes the interactive permission mode from Settings", async () => {
     const api = fakeApi({
       getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, permissionMode: "ask" as const })),
@@ -200,6 +270,39 @@ describe("AppShell settings navigation", () => {
 
     fireEvent.change(select, { target: { value: "auto" } })
     expect(api.setPermissionMode).toHaveBeenCalledExactlyOnceWith("auto")
+  })
+
+  it("shows text and vision capability icons in the model catalog", async () => {
+    const models: ModelPickerItem[] = [
+      {
+        kind: "model",
+        provider: "fireworks",
+        id: "text-model",
+        displayName: "Text model",
+        supportsImageInput: false,
+        available: true,
+        active: true,
+      },
+      {
+        kind: "model",
+        provider: "fireworks",
+        id: "vision-model",
+        displayName: "Vision model",
+        supportsImageInput: true,
+        available: true,
+        active: false,
+      },
+    ]
+    await renderApp(fakeApi({ listModels: vi.fn(async () => models) }))
+
+    fireEvent.click(screen.getByRole("button", { name: /gpt-oss 20B/i }))
+    await screen.findByRole("dialog", { name: "Select a model" })
+    const text = document.querySelector(".modelPicker-modality-text")
+    const vision = document.querySelector(".modelPicker-modality-vision")
+    expect(text?.textContent).toBe("Text")
+    expect(vision?.textContent).toBe("Vision")
+    expect(text?.querySelector("svg")).toBeTruthy()
+    expect(vision?.querySelector("svg")).toBeTruthy()
   })
 
   it("deletes a downloaded local model from the model catalog with confirmation", async () => {
@@ -679,7 +782,9 @@ describe("AppShell settings navigation", () => {
     const palette = within(screen.getByRole("dialog"))
 
     // The recents list shows the active session; deletion hides behind a right-click context menu.
-    fireEvent.contextMenu(palette.getByText("Test session"))
+    const activeSession = palette.getByText("Test session")
+    expect(activeSession.closest(".palette-row")?.classList.contains("palette-row-active")).toBe(true)
+    fireEvent.contextMenu(activeSession)
     fireEvent.click(screen.getByRole("menuitem", { name: "Delete session" }))
     expect(palette.getByText("Delete this session?")).toBeTruthy()
     expect(api.deleteSession).not.toHaveBeenCalled()
@@ -859,10 +964,23 @@ describe("global session history", () => {
     await renderApp(api)
     fireEvent.keyDown(window, { key: "k", metaKey: true })
     const palette = within(await screen.findByRole("dialog"))
+    expect(palette.getByText("⌘O")).toBeTruthy()
     fireEvent.click(palette.getByText("Open Folder"))
     await act(async () => {})
     await act(async () => {})
     expect(api.openWorkspace).toHaveBeenCalledWith("/picked/ws")
+  })
+
+  it("opens a folder with the standard keyboard shortcut", async () => {
+    const api = fakeApi({ pickWorkspaceFolder: vi.fn(async () => "/picked/shortcut") })
+    await renderApp(api)
+
+    fireEvent.keyDown(window, { key: "o", metaKey: true })
+    await act(async () => {})
+    await act(async () => {})
+
+    expect(api.pickWorkspaceFolder).toHaveBeenCalledOnce()
+    expect(api.openWorkspace).toHaveBeenCalledWith("/picked/shortcut")
   })
 
   it("shows the active workspace next to the model in the composer and opens the folder picker from it", async () => {

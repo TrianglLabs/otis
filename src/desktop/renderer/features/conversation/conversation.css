@@ -162,6 +162,7 @@ button.reasoning-header:hover {
   display: inline-flex;
   align-items: center;
   gap: 7px;
+  animation: activity-status-in var(--motion);
 }
 
 .thinking-label {
@@ -281,12 +282,14 @@ button.reasoning-header:hover {
   color: var(--text);
 }
 
-/* Keyed by the latest action, so each new action replays this settle-in. */
+/* Thinking enters once; the run icon and label are keyed by the latest action so each command replays the same
+   short settle-in. Shared timing keeps the live activity language consistent. */
+.toolRun-icon,
 .toolRun-label {
-  animation: toolRun-label-in var(--motion);
+  animation: activity-status-in var(--motion);
 }
 
-@keyframes toolRun-label-in {
+@keyframes activity-status-in {
   from {
     opacity: 0;
     transform: translateY(-2px);
@@ -505,6 +508,9 @@ button.reasoning-header:hover {
 
 .composer-box {
   position: relative;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-soft);
@@ -565,6 +571,75 @@ button.reasoning-header:hover {
 
 .composer-boxDisabled {
   opacity: 0.65;
+}
+
+.composer-boxDrop {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+  box-shadow:
+    var(--shadow-soft),
+    0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.composer-dropOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-lg);
+  color: var(--text);
+  background: color-mix(in srgb, var(--bg-elev) 90%, transparent);
+  backdrop-filter: blur(4px);
+  font-size: var(--text-ui);
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.composer-attachments {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px 2px;
+  list-style: none;
+  overflow-x: auto;
+}
+
+.composer-attachment {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  flex: 0 0 52px;
+  overflow: visible;
+}
+
+.composer-attachment img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-code);
+}
+
+.composer-attachment button {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  padding: 0;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--bg-elev);
+  box-shadow: var(--shadow-soft);
+}
+
+.composer-attachment button:hover:not(:disabled) {
+  background: var(--bg-hover);
 }
 
 .composer-box textarea {
@@ -682,7 +757,21 @@ button.composer-model-failed {
 
 .composer-actions {
   display: inline-flex;
+  align-items: center;
   gap: 8px;
+}
+
+.composer-uploadWrap {
+  display: inline-flex;
+}
+
+.composer-upload {
+  width: 22px;
+  height: 22px;
+}
+
+.composer-upload:disabled {
+  pointer-events: none;
 }
 
 .composer-hint {
@@ -737,7 +826,7 @@ button.composer-model-failed {
 .home-recents {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--row-gap);
   width: min(360px, 100%);
 }
 

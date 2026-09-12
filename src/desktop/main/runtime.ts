@@ -10,8 +10,10 @@ import { autoCompactThreshold } from "../../core/compaction.js"
 import { listToolCapableModels } from "../../inference/catalog.js"
 import { FireworksClient } from "../../inference/client.js"
 import { deleteLocalGguf, listDownloadedLocalModels } from "../../inference/gguf-cache.js"
+import { createImageAttachment, validateImageAttachments } from "../../inference/images.js"
 import { formatLocalLoadStatus } from "../../inference/llama-runtime.js"
 import { catalogModelFromSpec, findLocalModel } from "../../inference/local-catalog.js"
+import { createUserMessage, imageAttachmentsFromMessages } from "../../inference/messages.js"
 import {
   discoverPairModels,
   normalizePairEndpoints,
@@ -30,7 +32,7 @@ import {
   toPairCatalogModel,
 } from "../../inference/picker-catalog.js"
 import { baseFireworksModelId, fireworksServingModel, isFastFireworksModel } from "../../inference/serving-path.js"
-import type { CatalogModel, PairCatalogModel, UserChatMessage } from "../../inference/types.js"
+import type { CatalogModel, ImageContentPart, PairCatalogModel, UserChatMessage } from "../../inference/types.js"
 import {
   clearSelectedModel,
   isThemeName,
@@ -56,6 +58,7 @@ import {
 import { describeToolCall } from "../../tools/activity.js"
 import type {
   DesktopEvent,
+  DesktopImageInput,
   DesktopSnapshot,
   DesktopStatus,
   ModelSelectResult,
@@ -168,7 +171,7 @@ export class DesktopRuntime {
     }
   }
 
-  async sendPrompt(text: string): Promise<SendPromptResult> {
+  async sendPrompt(text: string, images: readonly DesktopImageInput[] = []): Promise<SendPromptResult> {
     // Once shutdown starts (update install), the session lock is released and no renderer receives updates.
     if (this.#disposed) return { accepted: false, reason: "Otis is restarting to finish an update." }
     if (this.#switching) return { accepted: false, reason: "Switching workspaces — try again in a moment." }
@@ -179,7 +182,9 @@ export class DesktopRuntime {
     if (this.#sessionSelecting > 0) return { accepted: false, reason: "Opening the session — try again in a moment." }
     // A live renderer sending a prompt un-gates the queue after a renderer crash; queued work never resumes on its own.
     this.#rendererGone = false
-    if (typeof text !== "string" || !text.trim()) return { accepted: false, reason: "The prompt is empty." }
+    if (typeof text !== "string" || (!text.trim() && images.length === 0)) {
+      return { accepted: false, reason: "The prompt is empty." }
+    }
     if (text.length > MAX_PROMPT_CHARS) return { accepted: false, reason: "The prompt is too long." }
     // Model switching and prompt admission are mutually exclusive: preparation may stop the server this prompt
     // would run on, and the busy window alone does not cover the asynchronous selection span.
@@ -196,7 +201,23 @@ export class DesktopRuntime {
       }
     }
 
-    const message: UserChatMessage = { role: "user", content: text }
+    if (images.length > 0 && this.app.models.supportsImageInput !== true) {
+      const modelName = this.app.settings.modelDisplayName ?? this.app.models.selectedId ?? "The selected model"
+      return { accepted: false, reason: `${modelName} does not support image input. Choose a vision model.` }
+    }
+
+    const attachments: ImageContentPart[] = []
+    const priorAttachments = imageAttachmentsFromMessages(this.app.transcript.history)
+    try {
+      for (const image of images) {
+        attachments.push(createImageAttachment(image.bytes, image.name, image.mimeType || undefined))
+      }
+      validateImageAttachments([...priorAttachments, ...attachments])
+    } catch (error) {
+      return { accepted: false, reason: error instanceof Error ? error.message : String(error) }
+    }
+
+    const message = createUserMessage(text, attachments)
     const { conversation } = this.app
     if (conversation.busy || this.#draining) {
       // steer() and queue() admit the prompt to the session before returning, so an accepted result here means the
@@ -1268,6 +1289,7 @@ export class DesktopRuntime {
         ? {
             id: app.models.selectedId,
             provider: app.models.selectedProvider ?? "fireworks",
+            supportsImageInput: app.models.supportsImageInput === true,
             ...(app.settings.modelDisplayName ? { displayName: app.settings.modelDisplayName } : {}),
           }
         : null,

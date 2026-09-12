@@ -1,5 +1,5 @@
 import { BrowserWindow, dialog, type IpcMainInvokeEvent, ipcMain, shell } from "electron"
-import { DESKTOP_CHANNELS } from "../contracts.js"
+import { DESKTOP_CHANNELS, type DesktopImageInput } from "../contracts.js"
 import type { DesktopRuntime } from "./runtime.js"
 
 /**
@@ -9,9 +9,12 @@ import type { DesktopRuntime } from "./runtime.js"
 export function registerDesktopIpc(runtime: DesktopRuntime) {
   handle(DESKTOP_CHANNELS.getSnapshot, () => runtime.snapshot())
 
-  handle(DESKTOP_CHANNELS.sendPrompt, (text) => {
+  handle(DESKTOP_CHANNELS.sendPrompt, (text, images) => {
     if (typeof text !== "string") throw new Error("sendPrompt expects a string")
-    return runtime.sendPrompt(text)
+    if (images !== undefined && !isDesktopImageInputs(images)) {
+      throw new Error("sendPrompt expects valid image attachments")
+    }
+    return runtime.sendPrompt(text, images)
   })
 
   handle(DESKTOP_CHANNELS.stop, () => runtime.stop())
@@ -133,6 +136,20 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
     if (typeof toolCallId !== "string" || !toolCallId) throw new Error("Invalid tool call id.")
     return runtime.getSubagentTrace(toolCallId)
   })
+}
+
+function isDesktopImageInputs(value: unknown): value is DesktopImageInput[] {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (image) =>
+        typeof image === "object" &&
+        image !== null &&
+        typeof image.name === "string" &&
+        typeof image.mimeType === "string" &&
+        image.bytes instanceof Uint8Array,
+    )
+  )
 }
 
 function handle<T extends unknown[]>(channel: string, handler: (...args: T) => unknown) {

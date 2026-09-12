@@ -76,7 +76,7 @@ export type SubagentSummary = {
 export type DesktopStatus = {
   busy: boolean
   phase: TurnPhase
-  model: { id: string; provider: ModelProvider; displayName?: string } | null
+  model: { id: string; provider: ModelProvider; displayName?: string; supportsImageInput: boolean } | null
   modelState: ModelState
   modelError: string | undefined
   session: { id: string; title: string } | null
@@ -144,6 +144,13 @@ export type SendPromptResult =
   | { accepted: true; delivery: "started" | "steered" | "queued" }
   | { accepted: false; reason: string }
 
+/** Raw local image selected by the renderer. The main process validates and converts it before session admission. */
+export type DesktopImageInput = {
+  name: string
+  mimeType: string
+  bytes: Uint8Array
+}
+
 export type SessionOpResult = { ok: true } | { ok: false; reason: string }
 
 export type ModelSelectResult = { ok: true } | { ok: false; reason: string }
@@ -151,7 +158,7 @@ export type ModelSelectResult = { ok: true } | { ok: false; reason: string }
 /** The API surface exposed to the renderer through the preload bridge. */
 export type DesktopApi = {
   getSnapshot(): Promise<DesktopSnapshot>
-  sendPrompt(text: string): Promise<SendPromptResult>
+  sendPrompt(text: string, images?: readonly DesktopImageInput[]): Promise<SendPromptResult>
   stop(): Promise<void>
   respondToPermission(id: number, allow: boolean): Promise<void>
   selectSession(id: string, dirName?: string): Promise<SessionOpResult>

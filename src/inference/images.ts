@@ -1,12 +1,17 @@
 import { readFile, stat } from "node:fs/promises"
 import { basename, extname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import {
+  MAX_BASE64_IMAGE_BYTES,
+  MAX_IMAGES_PER_REQUEST,
+  MAX_RAW_IMAGE_BYTES,
+  SUPPORTED_IMAGE_EXTENSIONS,
+} from "./image-constraints.js"
 import type { ImageContentPart, ImageMimeType } from "./types.js"
 
-export const MAX_IMAGES_PER_REQUEST = 30
-export const MAX_BASE64_IMAGE_BYTES = 10_000_000
-const MAX_RAW_IMAGE_BYTES = Math.floor(((MAX_BASE64_IMAGE_BYTES - 1) * 3) / 4)
-const IMAGE_FILE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tif", ".tiff", ".ppm"])
+export { MAX_BASE64_IMAGE_BYTES, MAX_IMAGES_PER_REQUEST, MAX_RAW_IMAGE_BYTES } from "./image-constraints.js"
+
+const IMAGE_FILE_EXTENSIONS = new Set<string>(SUPPORTED_IMAGE_EXTENSIONS)
 
 export async function loadImageFile(path: string, cwd: string): Promise<ImageContentPart> {
   const absolutePath = resolve(cwd, path)

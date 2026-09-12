@@ -254,7 +254,12 @@ describe("OnboardingPage", () => {
         status: {
           ...status,
           pairConfigured: true,
-          model: { id: "qwen3:32b", provider: "pair", displayName: "PAIR cluster model" },
+          model: {
+            id: "qwen3:32b",
+            provider: "pair",
+            displayName: "PAIR cluster model",
+            supportsImageInput: false,
+          },
           modelState: "ready" as const,
         },
       }),
