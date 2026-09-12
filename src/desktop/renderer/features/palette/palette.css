@@ -65,8 +65,17 @@
   cursor: pointer;
 }
 
+.palette-row + .palette-row {
+  margin-top: var(--row-gap);
+}
+
 .palette-row-selected {
   background: var(--bg-hover);
+}
+
+.palette-row-active,
+.palette-row-active:hover {
+  background: var(--bg-elev);
 }
 
 .palette-rowMain {

@@ -39,7 +39,7 @@
   padding: 0 0 10px 10px;
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: var(--row-gap);
 }
 
 .agentsRail-item {

@@ -39,6 +39,11 @@ export function AppShell() {
       } else if (event.key === "n") {
         event.preventDefault()
         void api.startNewSession()
+      } else if (event.key === "o") {
+        event.preventDefault()
+        void api.pickWorkspaceFolder().then(async (path) => {
+          if (path) await api.openWorkspace(path)
+        })
       }
     }
     window.addEventListener("keydown", onKeyDown)

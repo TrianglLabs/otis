@@ -1,11 +1,11 @@
-import { Check, Download, Loader2, Star, Trash2, X } from "lucide-react"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { Check, Download, Eye, Loader2, Star, Text, Trash2, X } from "lucide-react"
+import { Fragment, useCallback, useEffect, useRef, useState } from "react"
 import type { ModelPickerChoice, ModelPickerItem } from "../../../../inference/picker-catalog.js"
 import { Button, IconButton } from "../../components/Button.js"
 import { Icon } from "../../components/Icon.js"
 import { useDesktop, useDesktopState } from "../../runtime.js"
 import { useScrollbarFlash } from "../../useScrollbarFlash.js"
-import { isPickerRowSelectable, mergeModelLoad, pickerDetailLabel, pickerItemKey } from "./model-list.js"
+import { isPickerRowSelectable, mergeModelLoad, pickerDetailParts, pickerItemKey } from "./model-list.js"
 
 /**
  * The model catalog overlay, opened from the composer's model chip. The catalog loads on open and reloads when an
@@ -208,7 +208,7 @@ function ModelRow({
               </span>
               <span className={`modelPicker-detail${status?.kind === "error" ? " error" : ""}`}>
                 {loading ? <span className="modelPicker-spinner">{<Icon icon={Loader2} size={11} />}</span> : null}
-                {status?.label ?? pickerDetailLabel(item)}
+                {status?.label ?? <ModelDetail item={item} />}
               </span>
             </span>
           </button>
@@ -247,4 +247,16 @@ function ModelRow({
       )}
     </div>
   )
+}
+
+function ModelDetail({ item }: { item: ModelPickerChoice }) {
+  return pickerDetailParts(item).map((part, index) => (
+    <Fragment key={`${part.label}-${index}`}>
+      {index > 0 ? <span aria-hidden>·</span> : null}
+      <span className={part.modality ? `modelPicker-modality modelPicker-modality-${part.modality}` : undefined}>
+        {part.modality ? <Icon icon={part.modality === "vision" ? Eye : Text} size={11} /> : null}
+        {part.label}
+      </span>
+    </Fragment>
+  ))
 }

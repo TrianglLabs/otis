@@ -3,7 +3,7 @@ import { DESKTOP_CHANNELS, type DesktopApi, type DesktopEvent } from "../contrac
 
 const api: DesktopApi = {
   getSnapshot: () => ipcRenderer.invoke(DESKTOP_CHANNELS.getSnapshot),
-  sendPrompt: (text) => ipcRenderer.invoke(DESKTOP_CHANNELS.sendPrompt, text),
+  sendPrompt: (text, images) => ipcRenderer.invoke(DESKTOP_CHANNELS.sendPrompt, text, images),
   stop: () => ipcRenderer.invoke(DESKTOP_CHANNELS.stop),
   respondToPermission: (id, allow) => ipcRenderer.invoke(DESKTOP_CHANNELS.respondToPermission, id, allow),
   selectSession: (id, dirName) => ipcRenderer.invoke(DESKTOP_CHANNELS.selectSession, id, dirName),

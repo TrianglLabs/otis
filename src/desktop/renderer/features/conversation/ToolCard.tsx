@@ -54,7 +54,7 @@ export function ToolCard({ entry, active }: { entry: TranscriptEntry; active: bo
 
 /**
  * The row for a run of consecutive tool activity. The label is keyed by the latest action, so each new action
- * replaces it with a short rise-and-fade (see toolRun-label-in) — a live burst reads as one status line in
+ * replaces it with a short rise-and-fade (see activity-status-in) — a live burst reads as one status line in
  * motion instead of a stack of cards. The row never renders its actions itself: expanding flattens them into
  * the virtualized transcript (see flattenExpandedRuns), keeping long runs windowed.
  */
@@ -82,7 +82,7 @@ export function ToolRunCard({
         aria-expanded={expanded}
         aria-label={`${run.entries.length} tool actions, latest: ${latest.text}`}
       >
-        <span className="toolCard-icon">
+        <span className="toolCard-icon toolRun-icon" key={`icon-${latest.id}`}>
           <Icon icon={icon} size={13} />
         </span>
         <span className="toolCard-label toolRun-label" key={latest.id}>

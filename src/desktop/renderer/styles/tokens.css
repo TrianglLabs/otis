@@ -64,6 +64,7 @@
   --radius-lg: 14px; /* cards, overlays, the composer box */
   --radius-pill: 999px; /* toggles and floating pills */
   --row-inset: 6px; /* horizontal inset for list-row highlights */
+  --row-gap: 2px; /* vertical separation between rounded interactive list rows */
   --header-height: 48px;
   --composer-max: 240px;
   --content-max: 780px;

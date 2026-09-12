@@ -1,11 +1,42 @@
-import { ArrowUp, ChevronDown, FolderOpen, Square, Zap } from "lucide-react"
+import { ArrowUp, ChevronDown, FolderOpen, ImagePlus, Square, X, Zap } from "lucide-react"
 import { memo, useEffect, useRef, useState } from "react"
+import {
+  base64EncodedLength,
+  MAX_BASE64_IMAGE_BYTES,
+  MAX_IMAGES_PER_REQUEST,
+  MAX_RAW_IMAGE_BYTES,
+  SUPPORTED_IMAGE_EXTENSIONS,
+} from "../../../../inference/image-constraints.js"
+import type { DesktopImageInput } from "../../../contracts.js"
 import { Button } from "../../components/Button.js"
 import { Icon } from "../../components/Icon.js"
 import { PROVIDER_LABELS, shortModelId } from "../../format.js"
 import { useDesktop, useDesktopState } from "../../runtime.js"
 import { ModelPicker } from "../models/ModelPicker.js"
 import { draftAfterSend } from "./draft.js"
+
+type PendingImage = DesktopImageInput & { id: number; previewUrl: string }
+
+const IMAGE_ACCEPT = "image/png,image/jpeg,image/gif,image/bmp,image/tiff,.tif,.tiff,.ppm"
+const SUPPORTED_EXTENSIONS = new Set<string>(SUPPORTED_IMAGE_EXTENSIONS)
+const SUPPORTED_MIME_TYPES = new Set([
+  "image/png",
+  "image/x-png",
+  "image/jpeg",
+  "image/jpg",
+  "image/gif",
+  "image/bmp",
+  "image/tiff",
+  "image/x-portable-pixmap",
+])
+
+function supportedImageFile(file: File) {
+  const dot = file.name.lastIndexOf(".")
+  return (
+    SUPPORTED_MIME_TYPES.has(file.type.toLowerCase()) ||
+    (dot !== -1 && SUPPORTED_EXTENSIONS.has(file.name.slice(dot).toLowerCase()))
+  )
+}
 
 /**
  * The prompt composer. Enter sends, Shift+Enter inserts a newline, Escape stops active work. The draft is only
@@ -34,12 +65,36 @@ export const Composer = memo(function Composer({ installing = false }: { install
   const [sending, setSending] = useState(false)
   const [workspaceError, setWorkspaceError] = useState<string>()
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [pendingImages, setPendingImages] = useState<PendingImage[]>([])
+  const [addingImages, setAddingImages] = useState(false)
+  const [dragActive, setDragActive] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const imageInputRef = useRef<HTMLInputElement>(null)
+  const pendingImagesRef = useRef<PendingImage[]>([])
+  const addingImagesRef = useRef(false)
+  const nextImageId = useRef(1)
+  const dragDepth = useRef(0)
 
   const busy = state?.busy ?? false
   const modelState = state?.modelState ?? "unconfigured"
   const needsWorkspace = state?.needsWorkspace ?? false
-  const canSend = modelState === "ready" && draft.trim().length > 0 && !sending && !installing && !needsWorkspace
+  const supportsImages = state?.model?.supportsImageInput === true
+  const hasMessage = draft.trim().length > 0 || pendingImages.length > 0
+  const canSend =
+    modelState === "ready" &&
+    hasMessage &&
+    !sending &&
+    !addingImages &&
+    !installing &&
+    !needsWorkspace &&
+    (pendingImages.length === 0 || supportsImages)
+  const canAttach =
+    modelState === "ready" && supportsImages && !sending && !addingImages && !installing && !needsWorkspace
+
+  const replacePendingImages = (images: PendingImage[]) => {
+    pendingImagesRef.current = images
+    setPendingImages(images)
+  }
 
   useEffect(() => {
     const textarea = textareaRef.current
@@ -47,6 +102,79 @@ export const Composer = memo(function Composer({ installing = false }: { install
     textarea.style.height = "0"
     textarea.style.height = `${Math.min(textarea.scrollHeight, 240)}px`
   }, [draft])
+
+  useEffect(
+    () => () => {
+      for (const image of pendingImagesRef.current) URL.revokeObjectURL(image.previewUrl)
+    },
+    [],
+  )
+
+  const addImageFiles = async (files: File[]) => {
+    if (files.length === 0 || addingImagesRef.current) return
+    if (!supportsImages) {
+      setSendError("The selected model does not support image input. Choose a vision model.")
+      return
+    }
+
+    const current = pendingImagesRef.current
+    if (current.length + files.length > MAX_IMAGES_PER_REQUEST) {
+      setSendError(`You can attach at most ${MAX_IMAGES_PER_REQUEST} images to one message.`)
+      return
+    }
+    const unsupported = files.find((file) => !supportedImageFile(file))
+    if (unsupported) {
+      setSendError(
+        `${unsupported.name || "That file"} is not a supported image. Use PNG, JPEG, GIF, BMP, TIFF, or PPM.`,
+      )
+      return
+    }
+    const invalidSize = files.find((file) => file.size === 0 || file.size > MAX_RAW_IMAGE_BYTES)
+    if (invalidSize) {
+      setSendError(
+        invalidSize.size === 0
+          ? `${invalidSize.name} is empty.`
+          : `${invalidSize.name} is too large. Image data must stay under the 10 MB request limit.`,
+      )
+      return
+    }
+    const encodedBytes =
+      current.reduce((total, image) => total + base64EncodedLength(image.bytes.byteLength), 0) +
+      files.reduce((total, file) => total + base64EncodedLength(file.size), 0)
+    if (encodedBytes >= MAX_BASE64_IMAGE_BYTES) {
+      setSendError("The attached images are too large together. Total image data must stay under 10 MB.")
+      return
+    }
+
+    addingImagesRef.current = true
+    setAddingImages(true)
+    setSendError(null)
+    try {
+      const bytes = await Promise.all(files.map(async (file) => new Uint8Array(await file.arrayBuffer())))
+      const additions = files.map(
+        (file, index): PendingImage => ({
+          id: nextImageId.current++,
+          name: file.name,
+          mimeType: SUPPORTED_MIME_TYPES.has(file.type.toLowerCase()) ? file.type : "",
+          bytes: bytes[index],
+          previewUrl: URL.createObjectURL(file),
+        }),
+      )
+      replacePendingImages([...current, ...additions])
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : "The image could not be read.")
+    } finally {
+      addingImagesRef.current = false
+      setAddingImages(false)
+    }
+  }
+
+  const removeImage = (id: number) => {
+    const image = pendingImagesRef.current.find((candidate) => candidate.id === id)
+    if (image) URL.revokeObjectURL(image.previewUrl)
+    replacePendingImages(pendingImagesRef.current.filter((candidate) => candidate.id !== id))
+    setSendError(null)
+  }
 
   const openFolder = async () => {
     const path = await api.pickWorkspaceFolder()
@@ -58,15 +186,37 @@ export const Composer = memo(function Composer({ installing = false }: { install
 
   const submit = async () => {
     const text = draft
-    if (!text.trim() || sending || modelState !== "ready" || installing || needsWorkspace) return
+    const images = pendingImagesRef.current
+    if (
+      (!text.trim() && images.length === 0) ||
+      sending ||
+      addingImages ||
+      modelState !== "ready" ||
+      installing ||
+      needsWorkspace
+    ) {
+      return
+    }
+    if (images.length > 0 && !supportsImages) {
+      setSendError("The selected model does not support image input. Choose a vision model.")
+      return
+    }
     setSending(true)
     setSendError(null)
     try {
-      const result = await api.sendPrompt(text)
-      if (result.accepted) setDraft((current) => draftAfterSend(current, text, true))
-      else setSendError(result.reason)
+      const result = await api.sendPrompt(
+        text,
+        images.map(({ name, mimeType, bytes }) => ({ name, mimeType, bytes })),
+      )
+      if (result.accepted) {
+        setDraft((current) => draftAfterSend(current, text, true))
+        for (const image of images) URL.revokeObjectURL(image.previewUrl)
+        replacePendingImages([])
+      } else {
+        setSendError(`${result.reason} Your message was kept.`)
+      }
     } catch (error) {
-      setSendError(error instanceof Error ? error.message : String(error))
+      setSendError(`${error instanceof Error ? error.message : String(error)} Your message was kept.`)
     } finally {
       setSending(false)
       textareaRef.current?.focus()
@@ -92,9 +242,55 @@ export const Composer = memo(function Composer({ installing = false }: { install
           The model could not start: {state.modelError}
         </div>
       ) : null}
-      <div
-        className={`composer-box${busy ? " composer-boxWorking" : ""}${modelState !== "ready" && !busy ? " composer-boxDisabled" : ""}`}
+      <form
+        aria-label="Message composer"
+        className={`composer-box${busy ? " composer-boxWorking" : ""}${modelState !== "ready" && !busy ? " composer-boxDisabled" : ""}${dragActive ? " composer-boxDrop" : ""}`}
+        onSubmit={(event) => {
+          event.preventDefault()
+          void submit()
+        }}
+        onDragEnter={(event) => {
+          if (!event.dataTransfer.types.includes("Files")) return
+          event.preventDefault()
+          dragDepth.current += 1
+          setDragActive(true)
+        }}
+        onDragOver={(event) => {
+          if (!event.dataTransfer.types.includes("Files")) return
+          event.preventDefault()
+          event.dataTransfer.dropEffect = "copy"
+        }}
+        onDragLeave={(event) => {
+          if (!event.dataTransfer.types.includes("Files")) return
+          event.preventDefault()
+          dragDepth.current = Math.max(0, dragDepth.current - 1)
+          if (dragDepth.current === 0) setDragActive(false)
+        }}
+        onDrop={(event) => {
+          event.preventDefault()
+          dragDepth.current = 0
+          setDragActive(false)
+          void addImageFiles(Array.from(event.dataTransfer.files))
+        }}
       >
+        {dragActive ? <div className="composer-dropOverlay">Drop images here</div> : null}
+        {pendingImages.length > 0 ? (
+          <ul className="composer-attachments" aria-label="Attached images">
+            {pendingImages.map((image) => (
+              <li className="composer-attachment" key={image.id} title={image.name}>
+                <img src={image.previewUrl} alt="" />
+                <button
+                  type="button"
+                  aria-label={`Remove ${image.name}`}
+                  disabled={sending}
+                  onClick={() => removeImage(image.id)}
+                >
+                  <Icon icon={X} size={11} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
         <textarea
           ref={textareaRef}
           value={draft}
@@ -153,22 +349,47 @@ export const Composer = memo(function Composer({ installing = false }: { install
                 Stop
               </Button>
             ) : null}
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept={IMAGE_ACCEPT}
+              multiple
+              hidden
+              onChange={(event) => {
+                void addImageFiles(Array.from(event.target.files ?? []))
+                event.target.value = ""
+              }}
+            />
+            <span
+              className="composer-uploadWrap"
+              title={supportsImages ? "Add images" : "The selected model does not support image input"}
+            >
+              <button
+                type="button"
+                className="composer-upload iconBtn"
+                aria-label="Add images"
+                disabled={!canAttach}
+                onClick={() => imageInputRef.current?.click()}
+              >
+                <Icon icon={ImagePlus} size={14} />
+              </button>
+            </span>
             <Button
+              type="submit"
               variant="primary"
               size="sm"
               iconAfter={ArrowUp}
               disabled={!canSend}
-              onClick={() => void submit()}
               title={busy ? "Send as follow-up (Enter)" : "Send (Enter)"}
             >
               {busy ? "Follow up" : "Send"}
             </Button>
           </span>
         </div>
-      </div>
+      </form>
       {sendError ? (
         <div className="composer-hint">
-          <span className="composer-error">{sendError} Your draft was kept.</span>
+          <span className="composer-error">{sendError}</span>
         </div>
       ) : null}
     </div>

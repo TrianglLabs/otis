@@ -87,6 +87,10 @@
   border-radius: var(--radius);
 }
 
+.modelPicker-row + .modelPicker-row {
+  margin-top: var(--row-gap);
+}
+
 .modelPicker-row:hover {
   background: var(--bg-hover);
 }
@@ -153,6 +157,12 @@
 
 .modelPicker-detail.error {
   color: var(--danger);
+}
+
+.modelPicker-modality {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
 }
 
 .modelPicker-spinner {

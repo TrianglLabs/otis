@@ -31,6 +31,33 @@ export function isPickerRowSelectable(
 /** Mirrors FAST_MODE_LABEL in src/cli/ui/format.ts; the CLI module cannot be imported into the renderer bundle. */
 const FAST_MODE_LABEL = "Fast mode"
 
+export type PickerDetailPart = { label: string; modality?: "text" | "vision" }
+
+/** Structured row metadata lets the GUI decorate capabilities without parsing the TUI-compatible label. */
+export function pickerDetailParts(item: ModelPickerChoice): PickerDetailPart[] {
+  const modality: PickerDetailPart = item.supportsImageInput
+    ? { label: "Vision", modality: "vision" }
+    : { label: "Text", modality: "text" }
+  if (item.provider === "local") return [{ label: item.availabilityLabel }, modality]
+  if (item.provider === "pair") {
+    return [
+      { label: item.engine === "ollama" ? "Ollama" : "LM Studio" },
+      {
+        label: item.nativeContextLength
+          ? `${formatContextWindow(item.nativeContextLength)} model max`
+          : "Context unavailable",
+      },
+      { label: item.quantization ?? "Quant unavailable" },
+      modality,
+    ]
+  }
+  const parts: PickerDetailPart[] = []
+  if (item.contextLength) parts.push({ label: formatContextWindow(item.contextLength) })
+  parts.push(modality)
+  if (item.fastId) parts.push({ label: FAST_MODE_LABEL })
+  return parts
+}
+
 /**
  * Row subtitle when no live status overrides it. Mirrors modelMeta in the TUI's model picker
  * (src/cli/ui/model-picker.ts) string-for-string — "Est." is a managed-local concept, hosted rows show the exact
@@ -38,19 +65,7 @@ const FAST_MODE_LABEL = "Fast mode"
  * picker has no suffix column.
  */
 export function pickerDetailLabel(item: ModelPickerChoice): string {
-  const modality = item.supportsImageInput ? "Vision" : "Text"
-  if (item.provider === "local") return `${item.availabilityLabel} · ${modality}`
-  if (item.provider === "pair") {
-    const engine = item.engine === "ollama" ? "Ollama" : "LM Studio"
-    const context = item.nativeContextLength
-      ? `${formatContextWindow(item.nativeContextLength)} model max`
-      : "Context unavailable"
-    const quantization = item.quantization ?? "Quant unavailable"
-    return `${engine} · ${context} · ${quantization} · ${modality}`
-  }
-  const parts: string[] = []
-  if (item.contextLength) parts.push(formatContextWindow(item.contextLength))
-  parts.push(modality)
-  if (item.fastId) parts.push(FAST_MODE_LABEL)
-  return parts.join(" · ")
+  return pickerDetailParts(item)
+    .map((part) => part.label)
+    .join(" · ")
 }

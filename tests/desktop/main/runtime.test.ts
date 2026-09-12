@@ -897,6 +897,51 @@ describe("DesktopRuntime conversation flow", () => {
     await runtime.shutdown()
   })
 
+  it("validates and admits image-only prompts through the shared message pipeline", async () => {
+    const { runtime, app } = await setup()
+    app.models.supportsImageInput = true
+    mocks.executeTurn.mockImplementation(turnEvents("I can see the image"))
+    const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+
+    expect(await runtime.sendPrompt("", [{ name: "screen.png", mimeType: "image/png", bytes }])).toEqual({
+      accepted: true,
+      delivery: "started",
+    })
+    await vi.waitFor(() => expect(mocks.executeTurn).toHaveBeenCalled())
+
+    const input = mocks.executeTurn.mock.calls[0]?.[0].input
+    expect(input).toMatchObject({
+      role: "user",
+      content: [
+        {
+          type: "image",
+          name: "screen.png",
+          mimeType: "image/png",
+          sizeBytes: bytes.byteLength,
+        },
+      ],
+    })
+    expect(app.transcript.entries.find((entry) => entry.speaker === "You")?.text).toBe("📎 screen.png")
+    await runtime.shutdown()
+  })
+
+  it("rejects image data before session admission when the model or file is incompatible", async () => {
+    const { runtime, app } = await setup()
+    const png = { name: "screen.png", mimeType: "image/png", bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]) }
+
+    const unsupportedModel = await runtime.sendPrompt("describe this", [png])
+    expect(unsupportedModel).toMatchObject({ accepted: false, reason: expect.stringContaining("does not support") })
+
+    app.models.supportsImageInput = true
+    const invalidFile = await runtime.sendPrompt("describe this", [
+      { name: "fake.png", mimeType: "image/png", bytes: new Uint8Array([1, 2, 3]) },
+    ])
+    expect(invalidFile).toMatchObject({ accepted: false, reason: expect.stringContaining("Unsupported image format") })
+    expect(app.transcript.entries).toHaveLength(0)
+    expect(mocks.executeTurn).not.toHaveBeenCalled()
+    await runtime.shutdown()
+  })
+
   it("drains queued follow-ups through the conversation after the active turn settles", async () => {
     const { runtime, app } = await setup()
 
@@ -1374,6 +1419,7 @@ describe("DesktopRuntime model selection", () => {
       id: localChoice.id,
       provider: "local",
       displayName: "Qwen Coder",
+      supportsImageInput: false,
     })
     await runtime.shutdown()
   })

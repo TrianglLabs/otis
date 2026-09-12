@@ -37,7 +37,7 @@
    margin, so the distance is the same no matter what block (rows, grid, form) ends the previous section. */
 .settings-section {
   margin-top: 20px;
-  padding: 0 0 6px;
+  padding: 0 10px 6px;
   font-size: var(--text-micro);
   font-weight: 700;
   letter-spacing: 0.09em;
@@ -55,6 +55,7 @@
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
+  padding: 0 10px;
 }
 
 .themeTile {
@@ -139,7 +140,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 7px 0;
+  padding: 7px 10px;
   font-size: var(--text-ui);
 }
 
@@ -252,13 +253,18 @@
   background: var(--bg-hover);
 }
 
+.settingsRow-expand + .settingsRow-expand {
+  margin-top: var(--row-gap);
+  border-top: none;
+}
+
 .settingsRow-expand .icon {
   color: var(--text-dim);
   flex-shrink: 0;
 }
 
 .settingsForm {
-  padding: 4px 0;
+  padding: 4px 10px;
 }
 
 .settingsForm-note {

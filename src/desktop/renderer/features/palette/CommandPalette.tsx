@@ -146,6 +146,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
       kind: "action",
       id: "open-folder",
       label: "Open Folder",
+      hint: "⌘O",
       icon: FolderOpen,
       run: async () => {
         const path = await api.pickWorkspaceFolder()
@@ -280,7 +281,9 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
                     </span>
                   </button>
                 ) : (
-                  <div className={`palette-row${index === selected ? " palette-row-selected" : ""}`}>
+                  <div
+                    className={`palette-row${row.item.active ? " palette-row-active" : ""}${index === selected ? " palette-row-selected" : ""}`}
+                  >
                     {confirmingDeleteKey === key ? (
                       <div className="palette-confirm">
                         <span className="palette-confirmText">Delete this session?</span>
