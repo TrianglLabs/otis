@@ -122,7 +122,6 @@ function fakeApi(overrides: Partial<DesktopApi> = {}): DesktopApi {
     openFireworksKeyPage: vi.fn(async () => {}),
     setFireworksApiKey: vi.fn(async () => ({ ok: true as const })),
     connectPairEndpoints: vi.fn(async () => ({ ok: true as const })),
-    listDownloadedModels: vi.fn(async () => []),
     deleteLocalModel: vi.fn(async () => ({ ok: true as const })),
     setDebugMode: vi.fn(async () => {}),
     installUpdate: vi.fn(async () => {}),

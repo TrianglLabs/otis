@@ -47,8 +47,9 @@ the active session's context meter and compaction behavior.
 
 ## Delete downloaded models
 
-When at least one GGUF is cached, open **Settings → Local models** to delete it. Otis only deletes files from its own
-model cache.
+When at least one GGUF is cached, delete it from the model catalog: open the catalog from the composer's model chip
+in the desktop app, or choose **Delete local model** under `/settings` in the terminal. Otis only deletes files
+from its own model cache.
 
 - Deleting an inactive model does not interrupt the active server.
 - Deleting the active model stops `llama-server` and clears the selection.

@@ -30,7 +30,6 @@ const api: DesktopApi = {
   setFireworksApiKey: (apiKey: string) => ipcRenderer.invoke(DESKTOP_CHANNELS.setFireworksApiKey, apiKey),
   connectPairEndpoints: (endpoints: { ollama?: string; lmStudio?: string }) =>
     ipcRenderer.invoke(DESKTOP_CHANNELS.connectPairEndpoints, endpoints),
-  listDownloadedModels: () => ipcRenderer.invoke(DESKTOP_CHANNELS.listDownloadedModels),
   deleteLocalModel: (id: string) => ipcRenderer.invoke(DESKTOP_CHANNELS.deleteLocalModel, id),
   setDebugMode: (enabled: boolean) => ipcRenderer.invoke(DESKTOP_CHANNELS.setDebugMode, enabled),
   checkForUpdates: () => ipcRenderer.invoke(DESKTOP_CHANNELS.checkForUpdates),

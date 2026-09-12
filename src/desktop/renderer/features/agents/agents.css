@@ -120,6 +120,8 @@
 
 /* The trace view: a wide centered overlay showing the run's transcript with the main entry components. */
 .agentTrace {
+  /* The title bar provides the content gap, as it does in the model picker. */
+  --transcript-top-inset: 0px;
   position: fixed;
   top: 10vh;
   left: 50%;
@@ -127,7 +129,8 @@
   z-index: var(--z-overlay);
   width: 640px;
   max-width: calc(100vw - 64px);
-  max-height: 76vh;
+  /* Virtualized rows need a definite viewport height; a maximum alone lets the flex body collapse. */
+  height: 76vh;
   display: flex;
   flex-direction: column;
   background: var(--bg);

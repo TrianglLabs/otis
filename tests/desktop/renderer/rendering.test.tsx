@@ -7,6 +7,7 @@ import { Markdown } from "../../../src/desktop/renderer/components/Markdown.js"
 import { createDemoRuntime } from "../../../src/desktop/renderer/demo/demo-runtime.js"
 import { AgentTraceOverlay } from "../../../src/desktop/renderer/features/agents/AgentTraceOverlay.js"
 import * as diff from "../../../src/desktop/renderer/features/conversation/diff.js"
+import { EntryView } from "../../../src/desktop/renderer/features/conversation/entries.js"
 import { ToolCard } from "../../../src/desktop/renderer/features/conversation/ToolCard.js"
 import { DesktopProvider, useDesktopState } from "../../../src/desktop/renderer/runtime.js"
 import { DesktopViewStore } from "../../../src/desktop/renderer/state.js"
@@ -62,6 +63,45 @@ describe("stable message rendering", () => {
     view.rerender(<ToolCard entry={{ ...entry, diff: "@@ -1 +1 @@\n-old\n+changed" }} active={false} />)
     expect(parse).toHaveBeenCalledTimes(2)
     expect(view.container.textContent).toContain("changed")
+  })
+})
+
+describe("user delivery markers", () => {
+  it("marks a queued prompt with a list-end icon instead of a text badge", () => {
+    const entry = {
+      id: 1,
+      kind: "message" as const,
+      speaker: "You" as const,
+      text: "Follow up",
+      delivery: "queued" as const,
+    }
+    const view = render(
+      <EntryView entry={entry} active={false} thinkingVisible={false} expanded={false} onExpandedChange={() => {}} />,
+    )
+    expect(view.container.querySelector(".userRow-queued")).toBeTruthy()
+    expect(screen.getByRole("img", { name: "Queued" })).toBeTruthy()
+    expect(view.container.querySelector(".deliveryTag")).toBeNull()
+    const row = view.container.querySelector(".userRow") as HTMLElement
+    expect(row.firstElementChild?.className).toContain("queuedIndicator")
+    expect(row.querySelector(".userMessage")?.textContent).toBe("Follow up")
+  })
+
+  it("keeps the steering wheel in front of the message", () => {
+    const entry = {
+      id: 2,
+      kind: "message" as const,
+      speaker: "You" as const,
+      text: "Steer this",
+      delivery: "steering" as const,
+    }
+    const view = render(
+      <EntryView entry={entry} active={false} thinkingVisible={false} expanded={false} onExpandedChange={() => {}} />,
+    )
+    expect(view.container.querySelector(".userRow-steering")).toBeTruthy()
+    expect(screen.getByRole("img", { name: "Steering" })).toBeTruthy()
+    const row = view.container.querySelector(".userRow") as HTMLElement
+    expect(row.firstElementChild?.className).toContain("steeringIndicator")
+    expect(row.querySelector(".userMessage")?.textContent).toBe("Steer this")
   })
 })
 

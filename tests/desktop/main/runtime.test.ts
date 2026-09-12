@@ -523,11 +523,6 @@ describe("DesktopRuntime subagents", () => {
     mocks.listDownloaded.mockResolvedValue([findLocalModel("openai/gpt-oss-20b")])
     const runtime = DesktopRuntime.forApplication(app, { cwd, version: "test", platform: "darwin", send: () => {} })
 
-    const listed = await runtime.listDownloadedModels()
-    expect(listed).toHaveLength(1)
-    expect(listed[0]?.active).toBe(true)
-    expect(listed[0]?.detail).toContain("Active · ")
-
     const result = await runtime.deleteLocalModel("openai/gpt-oss-20b")
     expect(result).toEqual({ ok: true })
     expect(mocks.deleteGguf).toHaveBeenCalledOnce()
@@ -809,12 +804,6 @@ describe("DesktopRuntime subagents", () => {
       supportsImageInput: false,
     })
     const app = await Application.create({ cwd })
-    app.models.client = fakeClient
-    app.models.selectedId = "openai/gpt-oss-20b"
-    app.models.selectedProvider = "local"
-    app.models.activeLocal = { spec: { id: "openai/gpt-oss-20b" }, contextLength: 32_768 } as never
-    vi.spyOn(app.models.llama, "stop").mockResolvedValue(undefined)
-    mocks.listDownloaded.mockResolvedValue([findLocalModel("openai/gpt-oss-20b")])
     const kimi: FireworksPickerChoice = {
       kind: "model",
       provider: "fireworks",
@@ -824,6 +813,8 @@ describe("DesktopRuntime subagents", () => {
       available: true,
       active: false,
     }
+    // The saved model's startup fails, so the runtime is left without a usable client.
+    vi.spyOn(app.models, "prepare").mockRejectedValueOnce(new Error("model failed to load"))
     const runtime = DesktopRuntime.forApplication(app, {
       cwd,
       version: "test",
@@ -832,15 +823,14 @@ describe("DesktopRuntime subagents", () => {
       listPickerItems: async () => [kimi],
       discoverPair: async () => ({ errors: [] }),
     })
+    await vi.waitFor(async () => expect((await runtime.snapshot()).modelState).toBe("failed"))
 
     // A parked follow-up: admitted to the session, waiting for a driver.
     await app.conversation.queue({ role: "user", content: "hold this" })
     expect(app.conversation.peekQueued()).toBeTruthy()
 
-    // Deleting the active model leaves no usable client; the settle must not drain the queue into the void.
-    expect(await runtime.deleteLocalModel("openai/gpt-oss-20b")).toEqual({ ok: true })
+    // The failed start leaves nothing that can serve the queue; it must not drain into the void.
     expect(app.models.client).toBeUndefined()
-    expect(app.conversation.peekQueued()).toBeTruthy()
     expect(mocks.executeTurn).not.toHaveBeenCalled()
 
     // Once a selection commits, the parked follow-up resumes on the new model.

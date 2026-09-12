@@ -5,7 +5,6 @@ import type {
   DesktopEvent,
   DesktopSnapshot,
   DesktopStatus,
-  DownloadedLocalModel,
   ModelSelectResult,
   SendPromptResult,
   SessionOpResult,
@@ -76,6 +75,20 @@ const DEMO_MODELS: ModelPickerChoice[] = [
     active: false,
   },
   {
+    // Cached on a bigger machine: too large to run here, but the weights can still be deleted.
+    kind: "model",
+    provider: "local",
+    id: "zai-org/GLM-5.3",
+    displayName: "GLM-5.3",
+    contextLength: 65_536,
+    supportsImageInput: false,
+    available: false,
+    recommended: false,
+    availabilityLabel: "Needs 390 GB",
+    downloaded: true,
+    active: false,
+  },
+  {
     kind: "model",
     provider: "local",
     id: "openai/gpt-oss-20b",
@@ -132,6 +145,7 @@ class DemoRuntime implements DesktopApi {
   #permissionResolve: ((allow: boolean) => void) | undefined
   #modelTimer: ReturnType<typeof setTimeout> | undefined
   #modelSeq = 0
+  #deletedLocalIds = new Set<string>()
 
   #state: DemoState = {
     busy: false,
@@ -260,27 +274,6 @@ class DemoRuntime implements DesktopApi {
     if (endpoints.ollama?.trim()) saved.ollama = endpoints.ollama.trim()
     if (endpoints.lmStudio?.trim()) saved.lmStudio = endpoints.lmStudio.trim()
     this.#state = { ...this.#state, pairConfigured: true, pairEndpoints: saved }
-    this.#emitStatus()
-    return { ok: true }
-  }
-
-  #downloaded: DownloadedLocalModel[] = [
-    {
-      id: "Qwen/Qwen3-Coder-30B-A3B-Instruct",
-      displayName: "Qwen Coder 30B",
-      detail: "Q4_K_M · 18.6 GB",
-      active: false,
-    },
-    { id: "openai/gpt-oss-20b", displayName: "gpt-oss 20B", detail: "MXFP4 · 12.1 GB", active: false },
-  ]
-
-  async listDownloadedModels(): Promise<DownloadedLocalModel[]> {
-    return [...this.#downloaded]
-  }
-
-  async deleteLocalModel(id: string): Promise<ModelSelectResult> {
-    await new Promise((resolve) => setTimeout(resolve, 500))
-    this.#downloaded = this.#downloaded.filter((model) => model.id !== id)
     this.#emitStatus()
     return { ok: true }
   }
@@ -481,11 +474,22 @@ class DemoRuntime implements DesktopApi {
       const key = item.provider === "pair" ? item.selectionKey : item.id
       const active = current?.provider === item.provider && current.id === item.id
       const status = load?.modelId === key ? load.status : undefined
-      return { ...item, active, ...(status ? { status } : {}) }
+      // Deleted weights are gone from disk: the row returns to its downloadable state.
+      const downloaded = "downloaded" in item && item.downloaded && !this.#deletedLocalIds.has(item.id)
+      return {
+        ...item,
+        active,
+        ...(status ? { status } : {}),
+        ...("downloaded" in item ? { downloaded } : {}),
+      }
     })
     return [
       { kind: "header", id: "header-local", displayName: "Local" },
-      ...rows.filter((item) => item.provider === "local"),
+      // Like the real catalog: an over-budget model stays listed while its weights are cached, then
+      // disappears once they are deleted.
+      ...rows.filter(
+        (item) => item.provider === "local" && (item.available || !("downloaded" in item) || item.downloaded),
+      ),
       { kind: "header", id: "header-pair", displayName: "NVIDIA PAIR" },
       ...rows.filter((item) => item.provider === "pair"),
       { kind: "header", id: "header-hosted", displayName: "Hosted" },
@@ -525,6 +529,28 @@ class DemoRuntime implements DesktopApi {
     }
   }
 
+  async deleteLocalModel(id: string): Promise<ModelSelectResult> {
+    if (this.#state.busy) return { ok: false, reason: "Finish the current work before deleting a model." }
+    const known = DEMO_MODELS.some((item) => item.provider === "local" && item.id === id)
+    if (!known) return { ok: false, reason: "That model is not in the local catalog." }
+    // Slow enough to review the pending state, like deleting hundreds of GBs for real.
+    await new Promise((resolve) => setTimeout(resolve, 1200))
+    this.#deletedLocalIds.add(id)
+    // Deleting the active managed model clears the selection, like the real runtime.
+    const deletingActive = this.#state.model?.provider === "local" && this.#state.model.id === id
+    if (deletingActive) {
+      this.#state = {
+        ...this.#state,
+        model: null,
+        modelState: "unconfigured",
+        modelError: undefined,
+        modelLoad: null,
+      }
+    }
+    this.#emitStatus()
+    return { ok: true }
+  }
+
   #simulateModelLoad(item: ModelPickerChoice, seq: number): Promise<ModelSelectResult> {
     const steps = ["Downloading 12%", "Downloading 45%", "Downloading 78%", "Loading"]
     return new Promise((resolve) => {
@@ -544,6 +570,8 @@ class DemoRuntime implements DesktopApi {
           this.#modelTimer = setTimeout(step, 650)
           return
         }
+        // The simulated download put the weights back on disk: the row is deletable again.
+        this.#deletedLocalIds.delete(item.id)
         this.#activateModel(item)
         resolve({ ok: true })
       }

@@ -125,7 +125,6 @@ describe("DesktopViewStore", () => {
         openFireworksKeyPage: async () => {},
         setFireworksApiKey: async () => ({ ok: true }),
         connectPairEndpoints: async () => ({ ok: true }),
-        listDownloadedModels: async () => [],
         deleteLocalModel: async () => ({ ok: true }),
         setDebugMode: async () => {},
         installUpdate: async () => {},

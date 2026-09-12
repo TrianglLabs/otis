@@ -24,6 +24,10 @@
   min-width: 0;
 }
 
+.transcriptHeader {
+  height: var(--transcript-top-inset, 24px);
+}
+
 /* Mirrors the transcript's scrollbar gutter so the composer box shares the transcript text's exact edges. */
 .composerWrap {
   padding-right: 10px;
@@ -73,6 +77,21 @@
   animation: spin 6s linear infinite;
 }
 
+.userRow-queued {
+  flex-direction: row;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Same slot and treatment as the steering wheel — it leads the message — minus the spin: queued
+   delivery is passive, not in motion. */
+.queuedIndicator {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--accent-ink);
+}
+
 .userMessage {
   max-width: 80%;
   background: var(--bg-user);
@@ -82,18 +101,6 @@
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: break-word;
-}
-
-.deliveryTag {
-  font-size: var(--text-micro);
-  font-weight: 600;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--accent-ink);
-  background: var(--accent-soft);
-  border: 1px solid var(--accent-line);
-  padding: 2px 6px;
-  border-radius: var(--radius-pill);
 }
 
 /* Assistant message */
