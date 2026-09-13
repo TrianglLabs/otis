@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { useTranscriptScroll } from "../../../src/desktop/renderer/features/conversation/useTranscriptScroll.js"
 
 type Scroll = ReturnType<typeof useTranscriptScroll>
@@ -49,6 +49,22 @@ function stubMetrics(scroller: HTMLElement, top: number, height: number, viewpor
   Object.defineProperty(scroller, "clientHeight", { configurable: true, get: () => viewport })
 }
 
+function stubWidth(scroller: HTMLElement, content: number, gutter: number) {
+  Object.defineProperty(scroller, "clientWidth", { configurable: true, get: () => content })
+  Object.defineProperty(scroller, "offsetWidth", { configurable: true, get: () => content + gutter })
+  scroller.getBoundingClientRect = () => ({
+    x: 0,
+    y: 0,
+    left: 0,
+    top: 0,
+    right: content + gutter,
+    bottom: 200,
+    width: content + gutter,
+    height: 200,
+    toJSON: () => ({}),
+  })
+}
+
 function mount(top: number, height: number, viewport: number): { holder: Holder; scroller: HTMLElement } {
   const holder: Holder = {}
   render(<Probe holder={holder} />)
@@ -59,7 +75,10 @@ function mount(top: number, height: number, viewport: number): { holder: Holder;
 
 const nextFrame = () => act(async () => new Promise((resolve) => requestAnimationFrame(() => resolve())))
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+})
 
 describe("useTranscriptScroll", () => {
   it("jumps to the new bottom as streamed content grows the list", async () => {
@@ -93,13 +112,40 @@ describe("useTranscriptScroll", () => {
   it.each(["keyboard", "scrollbar"])("pauses following for upward %s scrolling", async (input) => {
     const { holder, scroller } = mount(800, 1000, 200)
     if (input === "keyboard") fireEvent.keyDown(scroller, { key: "PageUp" })
-    else fireEvent.pointerDown(scroller, { button: 0 })
+    else {
+      stubWidth(scroller, 200, 15)
+      fireEvent.pointerDown(scroller, { button: 0, clientX: 210 })
+    }
     scroller.scrollTop = 400
     fireEvent.scroll(scroller)
     act(() => scrollOf(holder).totalListHeightChanged(1000))
     await nextFrame()
     expect(scroller.scrollTop).toBe(400)
     expect(scrollOf(holder).atBottom).toBe(false)
+  })
+
+  it("does not leave the tail when empty transcript space is clicked", async () => {
+    const { holder, scroller } = mount(800, 1000, 200)
+    stubWidth(scroller, 200, 15)
+
+    fireEvent.pointerDown(scroller, { button: 0, clientX: 100 })
+    stubMetrics(scroller, 800, 1100, 200)
+    act(() => scrollOf(holder).totalListHeightChanged(1100))
+    await nextFrame()
+
+    expect(scroller.scrollTop).toBe(900)
+    expect(scrollOf(holder).atBottom).toBe(true)
+  })
+
+  it("keeps the Latest button hidden when text is selected at the tail", () => {
+    const { holder, scroller } = mount(800, 1000, 200)
+    const text = document.createTextNode("selected message")
+    scroller.append(text)
+    vi.spyOn(document, "getSelection").mockReturnValue({ isCollapsed: false, anchorNode: text } as unknown as Selection)
+
+    act(() => document.dispatchEvent(new Event("selectionchange")))
+
+    expect(scrollOf(holder).atBottom).toBe(true)
   })
 
   it("does not pause the transcript when a nested diff consumes the wheel input", async () => {
