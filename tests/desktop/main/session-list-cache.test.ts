@@ -30,6 +30,20 @@ const isolate = useOtisHome()
 const fakeClient: InferenceClient = { model: "fake", streamChat: vi.fn(), complete: vi.fn() }
 
 describe("global session list caching", () => {
+  it("coalesces concurrent snapshots into one history scan", async () => {
+    const home = await isolate("otis-cache-")
+    const cwd = join(home, "workspace")
+    await mkdir(cwd, { recursive: true })
+    const app = await Application.create({ cwd })
+    const runtime = DesktopRuntime.forApplication(app, { cwd, version: "test", platform: "darwin", send: () => {} })
+    const scansBefore = mocks.listGlobal.mock.calls.length
+
+    await Promise.all(Array.from({ length: 10 }, () => runtime.snapshot()))
+
+    expect(mocks.listGlobal.mock.calls.length).toBe(scansBefore + 1)
+    await runtime.shutdown()
+  })
+
   it("refreshSessions surfaces sessions created externally (TUI) after launch", async () => {
     const home = await isolate("otis-cache-")
     const cwd = join(home, "workspace")

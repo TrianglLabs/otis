@@ -1,37 +1,57 @@
-<div align="center">
-  <img src="docs/logo.svg" alt="Otis" width="128">
-  <p><strong>Local terminal agent powered by open-weight models.</strong></p>
-  <p>
-    <a href="https://github.com/TrianglLabs/otis/actions/workflows/pr-ci.yml"><img alt="PR CI" src="https://github.com/TrianglLabs/otis/actions/workflows/pr-ci.yml/badge.svg"></a>
-    <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-2563eb.svg"></a>
-    <a href="#install"><img alt="macOS and Linux" src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-444.svg"></a>
-  </p>
-</div>
+<!-- LOGO -->
 
+<h1>
 <p align="center">
-  <img src="docs/otis-demo.gif" alt="Otis terminal demo" width="720">
+  <img src="resources/icon.png" alt="Otis" width="128">
+  <br>Otis
+</h1>
+  <p align="center">
+    Your personal AI agent, powered by open models.
+    <br />
+    <a href="#why-otis">About</a>
+    ·
+    <a href="#install">Download</a>
+    ·
+    <a href="#documentation">Documentation</a>
+    ·
+    <a href="CONTRIBUTING.md">Contributing</a>
+  </p>
 </p>
 
-Otis is an open-source interactive agent built for the terminal. Give it a task and it can inspect files, edit code,
-run commands, search the web, and retain a durable local history of the work.
+<p align="center">
+  <img src="docs/otis-gui.png" alt="Otis desktop interface" width="720">
+</p>
 
-Run a model on this machine, connect an [NVIDIA PAIR](https://github.com/NVIDIA/Personal-AI-Router) cluster, or use a
-tool-capable serverless model on Fireworks. Otis itself remains local: there is no product account, hosted control
-plane, telemetry backend, or cloud synchronization dependency.
+Otis is an open-source personal AI agent with a native desktop app, an OpenTUI terminal interface, and a headless mode
+for scripts and CI. Use it for everyday work, from planning a trip and drafting an email to exploring a codebase and
+fixing a bug. Otis can inspect files, edit code, run commands, search the web, and delegate focused work to subagents.
+
+Otis makes local models easy to run. During setup it recommends a model for your hardware, downloads it, and runs it
+through llama.cpp. With a local model, Otis works fully offline: there is no account, telemetry, hosted control plane,
+or cloud synchronization, and your configuration and history stay on disk.
+
+If you have additional NVIDIA hardware on your network, Otis can connect to an
+[NVIDIA PAIR](https://github.com/NVIDIA/Personal-AI-Router) cluster. When you want a larger open-weight model, it can
+also connect directly to Fireworks with your own API key; Fireworks documents Zero Data Retention for open-model
+inference by default.
 
 ## Install
 
 Otis supports macOS and Linux on arm64 and x64.
+
+### Desktop app
+
+Download Otis for macOS or Linux from [triangllabs.ai/otis](https://triangllabs.ai/otis). Every desktop build is also
+available from [GitHub Releases](https://github.com/TrianglLabs/otis/releases/latest).
+
+### Terminal
 
 ```sh
 curl -fsSL https://github.com/triangllabs/otis/releases/latest/download/install.sh | bash
 otis
 ```
 
-The installer verifies the release checksum before placing `otis` in `~/.local/bin`. Set `OTIS_INSTALL_DIR` or pass
-`--install-dir` to choose another location.
-
-Update an existing installation with:
+Update an existing CLI installation with:
 
 ```sh
 otis update
@@ -42,6 +62,9 @@ otis update
 - **Your machine, your state.** Configuration, sessions, tool activity, diffs, and usage statistics stay local.
 - **Your choice of open model.** Use an Otis-managed GGUF, let PAIR route across your computers, or use Fireworks
   serverless when you want hosted performance.
+- **Desktop, terminal, or automation.** Use the native desktop app, the OpenTUI interface, or headless mode with the
+  same agent behavior and local sessions.
+- **Focused delegation.** Otis can hand off exploration and research to subagents whose work remains inspectable.
 - **Direct provider connections.** Hosted inference goes directly to Fireworks with your API key; web access goes
   directly to Parallel's Search MCP.
 - **Inspectable history.** Append-only JSONL sessions preserve messages, tool cards, diffs, and provider-reported usage.
@@ -49,9 +72,9 @@ otis update
 ## How it works
 
 ```txt
-Your terminal
-  └─ Otis
-      ├─ OpenTUI interface, agent loop, tools, and permissions
+Desktop app / OpenTUI terminal / headless CLI
+  └─ Otis shared application runtime
+      ├─ Conversation lifecycle, tools, permissions, and subagents
       ├─ Private local configuration, sessions, diffs, and stats
       ├─ llama.cpp ── Otis-managed local GGUF inference
       ├─ NVIDIA PAIR ── routing across your local AI cluster
@@ -61,7 +84,7 @@ Your terminal
 
 ## Get started
 
-Start `otis`, select **Set up Otis**, and choose where Otis thinks.
+Open the desktop app or run `otis`, complete first-time setup, and choose where Otis thinks.
 
 ### Local inference
 
@@ -98,7 +121,9 @@ otis
 Open `/model` at any time to switch between managed-local, configured PAIR, and hosted models in one picker. The active
 model label identifies local models with `Local` and routed models with `NVIDIA PAIR`.
 
-## Everyday use
+## Terminal commands
+
+The OpenTUI interface supports these commands and controls:
 
 | Command | Action |
 | --- | --- |
@@ -154,6 +179,7 @@ for complete runtime boundaries, and [SECURITY.md](SECURITY.md) for private vuln
 
 ## Documentation
 
+- [Desktop app and downloads](https://triangllabs.ai/otis) — native macOS and Linux builds
 - [Managed local inference](docs/local-inference.md) — hardware fit, downloads, context, and model deletion
 - [NVIDIA PAIR](docs/nvidia-pair.md) — endpoint setup, routing, inventory, and metadata
 - [Headless execution](docs/headless.md) — output formats, limits, sessions, and images
@@ -170,7 +196,8 @@ for complete runtime boundaries, and [SECURITY.md](SECURITY.md) for private vuln
 git clone https://github.com/TrianglLabs/otis.git
 cd otis
 bun install --frozen-lockfile
-bun run dev
+bun run dev          # OpenTUI terminal interface
+bun run dev:desktop  # Desktop app
 ```
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) for source boundaries, testing guidance, and the verification checklist.
