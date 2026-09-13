@@ -68,11 +68,21 @@ export function useTranscriptScroll() {
 
   useEffect(() => {
     const onSelectionChange = () => {
-      if (hasSelection()) pauseFollowing()
+      const scroll = element.current
+      if (!scroll || scroll.clientHeight === 0) return
+      if (hasSelection()) {
+        // Preserve the selection while content streams, but keep the Latest button tied to the real scroll
+        // position. Selecting text at the tail has not moved the reader away from it.
+        following.current = false
+        setAtBottom(isAtBottom(scroll))
+      } else if (isAtBottom(scroll)) {
+        following.current = true
+        setAtBottom(true)
+      }
     }
     document.addEventListener("selectionchange", onSelectionChange)
     return () => document.removeEventListener("selectionchange", onSelectionChange)
-  }, [hasSelection, pauseFollowing])
+  }, [hasSelection])
 
   const onScrollCapture = useCallback(
     (event: UIEvent<HTMLElement>) => {
@@ -80,9 +90,12 @@ export function useTranscriptScroll() {
       if (event.target !== scroll || scroll.clientHeight === 0) return
       // Layout corrections also dispatch scroll events. Only returning to the tail changes follow mode here;
       // leaving it is driven by the user's input, never inferred from automatic scroll-position changes.
-      if (scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight <= BOTTOM_THRESHOLD && !hasSelection()) {
-        following.current = true
+      if (isAtBottom(scroll)) {
         setAtBottom(true)
+        if (!hasSelection()) following.current = true
+      } else if (hasSelection()) {
+        // Drag-selecting can auto-scroll the transcript without wheel or keyboard input.
+        setAtBottom(false)
       }
     },
     [hasSelection],
@@ -108,8 +121,9 @@ export function useTranscriptScroll() {
 
   const onPointerDownCapture = useCallback(
     (event: PointerEvent<HTMLElement>) => {
-      // Native scrollbar presses target the scroller itself, unlike content or nested diff controls.
-      if (event.button === 0 && event.target === event.currentTarget) pauseFollowing()
+      if (event.button === 0 && event.target === event.currentTarget && pressesVerticalScrollbar(event)) {
+        pauseFollowing()
+      }
     },
     [pauseFollowing],
   )
@@ -164,4 +178,17 @@ function scrollsTranscript(target: EventTarget, scroller: HTMLElement) {
     }
   }
   return scroller.scrollTop > 0
+}
+
+function isAtBottom(scroller: HTMLElement) {
+  return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= BOTTOM_THRESHOLD
+}
+
+/** Empty transcript space and the native scrollbar share the scroller as their event target. */
+function pressesVerticalScrollbar(event: PointerEvent<HTMLElement>) {
+  const scroller = event.currentTarget
+  const gutter = scroller.offsetWidth - scroller.clientWidth
+  if (gutter <= 0) return false
+  const { right } = scroller.getBoundingClientRect()
+  return event.clientX >= right - gutter && event.clientX <= right
 }

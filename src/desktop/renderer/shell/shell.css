@@ -7,6 +7,12 @@
   position: relative;
 }
 
+/* Native macOS traffic lights at y=16 have a 22px visual center. A 44px title bar puts every shared header
+   on that same centerline; other platforms keep the roomier default height. */
+.appShell.platform-darwin {
+  --header-height: 44px;
+}
+
 .mainColumn {
   display: flex;
   flex-direction: column;
@@ -72,8 +78,8 @@
   pointer-events: none;
 }
 
-.platform-darwin .workspaceHeader {
-  padding-left: 80px;
+.platform-darwin .workspaceHeader-left {
+  padding-left: 76px;
 }
 
 /* Settings takes over the window, so its header owns the traffic-light inset while it's open. */
