@@ -119,8 +119,8 @@ export class DesktopRuntime {
   #switching = false
   /** Session opened in place whose working folder is unknown or gone; agent work is blocked until located. */
   #pendingWorkspace: { dirName: string; sessionId: string } | undefined
-  /** Global session listing is disk-heavy; recomputed only when sessions change, not on streaming flushes. */
-  #sessionsCache: GlobalSessionPickerItem[] | undefined
+  /** Global session listing is disk-heavy; the shared promise coalesces concurrent status snapshots. */
+  #sessionsCache: Promise<GlobalSessionPickerItem[]> | undefined
   /** A local-model deletion is in flight; model switches are rejected until its cleanup settles. */
   #deleting = false
   #modelLoad: { modelId: string; status: ModelPickerStatus } | undefined
@@ -512,13 +512,17 @@ export class DesktopRuntime {
     return { ok: true }
   }
 
-  /** The cached global session list; invalidated by every operation that creates, opens, or removes one. */
-  async #globalSessions(): Promise<GlobalSessionPickerItem[]> {
+  /** The cached global session scan; invalidated by every operation that creates, opens, or removes one. */
+  #globalSessions(): Promise<GlobalSessionPickerItem[]> {
     if (this.#sessionsCache === undefined) {
-      this.#sessionsCache = await listGlobalSessionPickerItems({
+      const pending = listGlobalSessionPickerItems({
         activeId: this.app.sessions.current?.id,
         activeDirName: this.app.sessions.currentDirName,
         seeds: [this.app.cwd],
+      })
+      this.#sessionsCache = pending
+      void pending.catch(() => {
+        if (this.#sessionsCache === pending) this.#sessionsCache = undefined
       })
     }
     return this.#sessionsCache
