@@ -699,7 +699,7 @@ describe("runHeadlessCommand", () => {
     const exitCode = await runHeadlessCommand(["--ephemeral", "hello cluster"], output.options)
 
     expect(exitCode).toBe(1)
-    expect(output.stderr()).toContain("NVIDIA PAIR endpoint is not configured")
+    expect(output.stderr()).toContain("Local model server endpoint is not configured")
     expect(mocks.ensureLocalServing).not.toHaveBeenCalled()
     expect(FireworksClient).not.toHaveBeenCalled()
   })

@@ -8,7 +8,7 @@ import { DesktopProvider } from "../../../src/desktop/renderer/runtime.js"
 import { DesktopViewStore } from "../../../src/desktop/renderer/state.js"
 import type { ModelPickerItem } from "../../../src/inference/picker-catalog.js"
 
-/** First-run onboarding: it owns the window until a model is configured, and never offers PAIR. */
+/** First-run onboarding: it owns the window until a model is configured and exposes every inference path. */
 
 const SNAPSHOT: DesktopSnapshot = {
   busy: false,
@@ -152,7 +152,9 @@ function rowButton(name: HTMLElement): HTMLButtonElement {
 describe("OnboardingPage", () => {
   it("owns the window until a model is configured — no composer, no transcript", async () => {
     await renderApp(fakeApi())
+    expect(await screen.findByRole("heading", { name: "Otis" })).toBeTruthy()
     expect(await screen.findByText(/Your personal AI agent, powered by open models/)).toBeTruthy()
+    expect(screen.getByText("Choose a model setup")).toBeTruthy()
     expect(screen.queryByLabelText("Prompt")).toBeNull()
     // The workspace header stays out of onboarding (no Search / context meter)…
     expect(screen.queryByRole("button", { name: /search/i })).toBeNull()
@@ -213,7 +215,10 @@ describe("OnboardingPage", () => {
   it("local path shows only the top recommended model with a download-and-continue action", async () => {
     const api = fakeApi()
     await renderApp(api)
-    fireEvent.click(await screen.findByRole("button", { name: /On this Mac/ }))
+    fireEvent.click(await screen.findByRole("button", { name: /^Local/ }))
+    const managed = await screen.findByRole("button", { name: /Managed by Otis/ })
+    expect(managed.querySelector(".onboarding-cardOtisMark")).toBeTruthy()
+    fireEvent.click(managed)
 
     expect(await screen.findByText("Qwen 3.5 9B")).toBeTruthy()
     // No list to dig through: other local models, hosted models, and PAIR inventory stay hidden.
@@ -222,6 +227,30 @@ describe("OnboardingPage", () => {
     expect(screen.queryByText("PAIR cluster model")).toBeNull()
     fireEvent.click(screen.getByRole("button", { name: /Download and continue/ }))
     expect(api.selectModel).toHaveBeenCalledWith("Qwen/Qwen3.5-9B")
+  })
+
+  it("connects directly to Ollama, LM Studio, or PAIR during local onboarding", async () => {
+    const api = fakeApi()
+    await renderApp(api)
+    fireEvent.click(await screen.findByRole("button", { name: /^Local/ }))
+    const servers = await screen.findByRole("button", { name: /Ollama or LM Studio/ })
+    expect(servers.querySelectorAll("img")).toHaveLength(2)
+    fireEvent.click(servers)
+
+    expect(screen.getByText(/default local addresses are prefilled/)).toBeTruthy()
+    expect((screen.getByLabelText("Ollama") as HTMLInputElement).value).toBe("http://127.0.0.1:11434")
+    expect((screen.getByLabelText("LM Studio") as HTMLInputElement).value).toBe("http://127.0.0.1:1234")
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }))
+
+    expect(api.connectPairEndpoints).toHaveBeenCalledWith({
+      ollama: "http://127.0.0.1:11434",
+      lmStudio: "http://127.0.0.1:1234",
+    })
+    expect(await screen.findByText("Choose a model")).toBeTruthy()
+    expect(screen.queryByLabelText("Ollama")).toBeNull()
+    const row = rowButton(await screen.findByText("PAIR cluster model"))
+    fireEvent.click(row)
+    expect(api.selectModel).toHaveBeenCalledWith("ollama:qwen3:32b")
   })
 
   it("PAIR as first provider: connect in Settings, pick a model there, land in the workspace", async () => {
@@ -237,7 +266,7 @@ describe("OnboardingPage", () => {
 
     // Settings is reachable from onboarding; PAIR lives there exclusively.
     fireEvent.click(screen.getByRole("button", { name: "Settings" }))
-    fireEvent.click(await screen.findByRole("button", { name: /NVIDIA PAIR/ }))
+    fireEvent.click(await screen.findByRole("button", { name: /Local model servers/ }))
     fireEvent.click(screen.getByRole("button", { name: "Connect" }))
     expect(api.connectPairEndpoints).toHaveBeenCalled()
 
@@ -290,7 +319,7 @@ describe("OnboardingPage", () => {
     await renderApp(api)
 
     fireEvent.click(screen.getByRole("button", { name: "Settings" }))
-    fireEvent.click(await screen.findByRole("button", { name: /NVIDIA PAIR/ }))
+    fireEvent.click(await screen.findByRole("button", { name: /Local model servers/ }))
     expect(await screen.findByText("PAIR cluster model")).toBeTruthy()
 
     // The endpoint changed behind our back; reconnecting must drop the old catalog.
@@ -308,7 +337,7 @@ describe("OnboardingPage", () => {
     })
     await renderApp(api)
     fireEvent.click(screen.getByRole("button", { name: "Settings" }))
-    fireEvent.click(await screen.findByRole("button", { name: /NVIDIA PAIR/ }))
+    fireEvent.click(await screen.findByRole("button", { name: /Local model servers/ }))
 
     const row = rowButton(await screen.findByText("PAIR cluster model"))
     expect(row.querySelector("svg")).toBeNull()
@@ -325,7 +354,7 @@ describe("OnboardingPage", () => {
 
   it("back returns to the path cards", async () => {
     await renderApp(fakeApi())
-    fireEvent.click(await screen.findByRole("button", { name: /On this Mac/ }))
+    fireEvent.click(await screen.findByRole("button", { name: /^Local/ }))
     fireEvent.click(screen.getByRole("button", { name: "Back" }))
     expect(await screen.findByText(/Your personal AI agent, powered by open models/)).toBeTruthy()
   })

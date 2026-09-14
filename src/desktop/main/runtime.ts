@@ -839,7 +839,7 @@ export class DesktopRuntime {
    */
   async connectPairEndpoints(input: { ollama?: string; lmStudio?: string }): Promise<ModelSelectResult> {
     if (!input || typeof input !== "object") {
-      return { ok: false as const, reason: "Enter at least one NVIDIA PAIR endpoint." }
+      return { ok: false as const, reason: "Enter at least one Ollama, LM Studio, or NVIDIA PAIR endpoint." }
     }
     const requested: PairEndpoints = {}
     const ollama = typeof input.ollama === "string" ? input.ollama.trim() : ""
@@ -847,7 +847,7 @@ export class DesktopRuntime {
     if (ollama) requested.ollama = ollama
     if (lmStudio) requested.lmStudio = lmStudio
     if (!requested.ollama && !requested.lmStudio) {
-      return { ok: false as const, reason: "Enter at least one NVIDIA PAIR endpoint." }
+      return { ok: false as const, reason: "Enter at least one Ollama, LM Studio, or NVIDIA PAIR endpoint." }
     }
     let normalized: PairEndpoints
     try {
@@ -865,13 +865,13 @@ export class DesktopRuntime {
     if (!discovery.ollama && !discovery.lmStudio) {
       return {
         ok: false as const,
-        reason: "NVIDIA PAIR was not found. Start PAIR, enable Ollama or LM Studio, then copy its local endpoint here.",
+        reason: "No compatible model server was found. Start Ollama, LM Studio, or NVIDIA PAIR and check its address.",
       }
     }
     if ((discovery.ollama?.length ?? 0) + (discovery.lmStudio?.length ?? 0) === 0) {
       return {
         ok: false as const,
-        reason: "PAIR is running, but its cluster has no available models. Add a model in PAIR and try again.",
+        reason: "The connected model servers report no available models. Add or load a model and try again.",
       }
     }
     const endpoints: PairEndpoints = {}
@@ -893,7 +893,7 @@ export class DesktopRuntime {
         this.app.models.client = undefined
         this.#modelState = "failed"
         this.#modelError =
-          "The NVIDIA PAIR endpoint for the selected model is no longer available. Reconnect or choose another model."
+          "The local model server for the selected model is no longer available. Reconnect or choose another model."
       }
     }
     this.#lastPickerItems = undefined

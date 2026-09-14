@@ -160,6 +160,20 @@
   color: var(--text-dim);
 }
 
+.settingsProviderMark {
+  box-sizing: border-box;
+  display: block;
+  width: 17px;
+  height: 17px;
+  object-fit: contain;
+  border-radius: 4px;
+}
+
+.settingsProviderMark-ollama {
+  padding: 2px 4px;
+  background: #fff;
+}
+
 .settings-message {
   padding: 6px 0 0;
   font-size: var(--text-meta);
@@ -275,10 +289,33 @@
 }
 
 .settingsForm-label {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin: 8px 0 4px;
   font-size: var(--text-meta);
   color: var(--text-dim);
+}
+
+.settingsEndpoints {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px 10px;
+}
+
+.settingsEndpoint-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font-size: var(--text-meta);
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.settingsModels-label {
+  padding-left: 10px;
 }
 
 .settingsForm-input {

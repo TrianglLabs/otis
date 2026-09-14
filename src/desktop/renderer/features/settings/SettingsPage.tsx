@@ -1,7 +1,9 @@
-import { Check, ChevronDown, ChevronRight, X } from "lucide-react"
+import { Check, ChevronDown, ChevronRight, Plug, X } from "lucide-react"
 import { useEffect, useState } from "react"
 import type { PairPickerChoice } from "../../../../inference/picker-catalog.js"
 import type { ThemeName } from "../../../contracts.js"
+import lmStudioIcon from "../../assets/lm-studio.svg"
+import ollamaIcon from "../../assets/ollama.svg"
 import { Button, IconButton } from "../../components/Button.js"
 import { Icon } from "../../components/Icon.js"
 import { useDesktop, useDesktopState } from "../../runtime.js"
@@ -26,7 +28,7 @@ const PAIR_DEFAULT_ENDPOINTS = { ollama: "http://127.0.0.1:11434", lmStudio: "ht
 
 /**
  * The settings page, opened from the header's gear button or the ⌘K palette. It takes over the whole window.
- * Mirrors the TUI's /settings submenu: hosted API key, NVIDIA PAIR endpoints, theme, plus the /thinking and /fast
+ * Mirrors the TUI's /settings submenu: hosted API key, local model-server endpoints, theme, plus /thinking and /fast
  * toggles; the /debug toggle is development-only and never renders in production builds. Model selection and
  * local-model deletion live in the composer's model picker.
  * Every control writes through the main process; status events update the UI.
@@ -100,7 +102,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
     }
   }
 
-  // Connecting is only half the setup: once endpoints answer, list PAIR's models so one can be selected here.
+  // Connecting is only half the setup: once endpoints answer, list their models so one can be selected here.
   useEffect(() => {
     if (openForm !== "pair" || !state.pairConfigured) return
     let cancelled = false
@@ -204,53 +206,63 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
           ) : null}
 
           <button type="button" className="settingsRow settingsRow-expand" onClick={() => toggleForm("pair")}>
-            <span className="settingsRow-label">NVIDIA PAIR</span>
+            <span className="settingsRow-label">Local model servers</span>
             <Icon icon={openForm === "pair" ? ChevronDown : ChevronRight} size={12} />
           </button>
           {openForm === "pair" ? (
             <div className="settingsForm">
               <p className="settingsForm-note">
-                These are PAIR's standard proxy addresses, or your last saved addresses. Only one working endpoint is
-                required. Change an address only if PAIR → Endpoints shows a different proxy port.
+                Connect to Ollama or LM Studio directly. If you use NVIDIA PAIR, enter the loopback addresses shown in
+                PAIR → Endpoints. Only one working endpoint is required.
               </p>
-              <label className="settingsForm-label" htmlFor="settings-pair-ollama">
-                Ollama
-              </label>
-              <input
-                id="settings-pair-ollama"
-                className="settingsForm-input"
-                value={ollama}
-                onChange={(event) => setOllama(event.target.value)}
-                spellCheck={false}
-                autoComplete="off"
-              />
-              <label className="settingsForm-label" htmlFor="settings-pair-lmstudio">
-                LM Studio
-              </label>
-              <input
-                id="settings-pair-lmstudio"
-                className="settingsForm-input"
-                value={lmStudio}
-                onChange={(event) => setLmStudio(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") void submitPair()
-                }}
-                spellCheck={false}
-                autoComplete="off"
-              />
+              <div className="settingsEndpoints">
+                <label className="settingsEndpoint-label" htmlFor="settings-pair-ollama">
+                  <img
+                    className="settingsProviderMark settingsProviderMark-ollama"
+                    src={ollamaIcon}
+                    alt=""
+                    aria-hidden
+                  />
+                  Ollama
+                </label>
+                <input
+                  id="settings-pair-ollama"
+                  className="settingsForm-input"
+                  value={ollama}
+                  onChange={(event) => setOllama(event.target.value)}
+                  spellCheck={false}
+                  autoComplete="off"
+                />
+                <label className="settingsEndpoint-label" htmlFor="settings-pair-lmstudio">
+                  <img className="settingsProviderMark" src={lmStudioIcon} alt="" aria-hidden />
+                  LM Studio
+                </label>
+                <input
+                  id="settings-pair-lmstudio"
+                  className="settingsForm-input"
+                  value={lmStudio}
+                  onChange={(event) => setLmStudio(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") void submitPair()
+                  }}
+                  spellCheck={false}
+                  autoComplete="off"
+                />
+              </div>
               <div className="settingsForm-actions">
                 <Button variant="primary" size="sm" disabled={pairPending} onClick={() => void submitPair()}>
+                  <Icon icon={Plug} size={13} />
                   Connect
                 </Button>
               </div>
-              {pairPending ? <div className="settings-message">Checking NVIDIA PAIR endpoints…</div> : null}
+              {pairPending ? <div className="settings-message">Checking local model servers…</div> : null}
               {pairError ? <div className="settings-message settings-error">{pairError}</div> : null}
               {state.pairConfigured ? (
                 <>
-                  <div className="settingsForm-label">Models on your network</div>
+                  <div className="settingsForm-label settingsModels-label">Available models</div>
                   {pairModels === undefined ? <div className="settings-message">Loading models…</div> : null}
                   {pairModels?.length === 0 ? (
-                    <div className="settings-message">PAIR's endpoints report no models.</div>
+                    <div className="settings-message">The connected endpoints report no models.</div>
                   ) : null}
                   {pairModels?.map((item) => (
                     <button

@@ -115,7 +115,7 @@ export function ModelPicker({ onClose }: { onClose: () => void }) {
           {rows.map((item) =>
             item.kind === "header" ? (
               <div key={item.id} className="modelPicker-header">
-                {item.displayName}
+                {item.id === "header-pair" ? "Ollama, LM Studio & PAIR" : item.displayName}
               </div>
             ) : (
               <ModelRow
