@@ -165,6 +165,28 @@ describe("OnboardingPage", () => {
     expect(await screen.findByText(/Your personal AI agent/)).toBeTruthy()
   })
 
+  it("never shows the coworkers panel while onboarding owns the window", async () => {
+    const api = fakeApi({
+      getSnapshot: vi.fn(async () => ({
+        ...SNAPSHOT,
+        subagents: [
+          {
+            toolCallId: "stale-run",
+            title: "Stale delegated run",
+            status: "complete" as const,
+            tools: 1,
+            durationMs: 100,
+          },
+        ],
+        agentsPanelVisible: true,
+      })),
+    })
+    await renderApp(api)
+
+    expect(await screen.findByRole("heading", { name: "Otis" })).toBeTruthy()
+    expect(screen.queryByLabelText("Coworkers")).toBeNull()
+  })
+
   it("cloud path saves the Fireworks key, then lists hosted models without PAIR entries", async () => {
     const api = fakeApi({
       getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, hostedConfigured: true })),
@@ -227,6 +249,66 @@ describe("OnboardingPage", () => {
     expect(screen.queryByText("PAIR cluster model")).toBeNull()
     fireEvent.click(screen.getByRole("button", { name: /Download and continue/ }))
     expect(api.selectModel).toHaveBeenCalledWith("Qwen/Qwen3.5-9B")
+  })
+
+  it.each([
+    ["a reported failure", "download failed", vi.fn(async () => ({ ok: false as const, reason: "download failed" }))],
+    [
+      "a rejected desktop call",
+      "bridge disconnected",
+      vi.fn(async () => {
+        throw new Error("bridge disconnected")
+      }),
+    ],
+  ])("keeps %s visible inside the centered local model panel", async (_case, expectedMessage, selectModel) => {
+    await renderApp(fakeApi({ selectModel }))
+    fireEvent.click(await screen.findByRole("button", { name: /^Local/ }))
+    fireEvent.click(await screen.findByRole("button", { name: /Managed by Otis/ }))
+    fireEvent.click(await screen.findByRole("button", { name: /Download and continue/ }))
+
+    const message = await screen.findByText(expectedMessage)
+    expect(message.classList.contains("onboarding-error")).toBe(true)
+    expect(message.closest(".onboarding-local")).toBeTruthy()
+  })
+
+  it("deduplicates the managed load status and final action error below the button", async () => {
+    const failure = "Could not download llama.cpp (HTTP 504)."
+    const api = fakeApi({
+      getSnapshot: vi.fn(async () => ({
+        ...SNAPSHOT,
+        modelLoad: {
+          modelId: LOCAL_ITEM.id,
+          status: { label: `Failed: ${failure}`, kind: "error" as const },
+        },
+      })),
+      selectModel: vi.fn(async () => ({ ok: false as const, reason: failure })),
+    })
+    await renderApp(api)
+    fireEvent.click(await screen.findByRole("button", { name: /^Local/ }))
+    fireEvent.click(await screen.findByRole("button", { name: /Managed by Otis/ }))
+    fireEvent.click(await screen.findByRole("button", { name: /Download and continue/ }))
+
+    const messages = await screen.findAllByText(failure)
+    expect(messages).toHaveLength(1)
+    expect(messages[0]?.classList.contains("onboarding-error")).toBe(true)
+    expect(messages[0]?.previousElementSibling?.classList.contains("onboarding-actions")).toBe(true)
+    expect(screen.queryByText(`Failed: ${failure}`)).toBeNull()
+  })
+
+  it("shows a managed catalog failure instead of leaving the local recommendation loading", async () => {
+    const api = fakeApi({
+      listModels: vi.fn(async () => {
+        throw new Error("catalog unavailable")
+      }),
+    })
+    await renderApp(api)
+    fireEvent.click(await screen.findByRole("button", { name: /^Local/ }))
+    fireEvent.click(await screen.findByRole("button", { name: /Managed by Otis/ }))
+
+    const message = await screen.findByText("catalog unavailable")
+    expect(message.classList.contains("onboarding-error")).toBe(true)
+    expect(message.closest(".onboarding-local")).toBeTruthy()
+    expect(screen.queryByText("Loading models…")).toBeNull()
   })
 
   it("connects directly to Ollama, LM Studio, or PAIR during local onboarding", async () => {

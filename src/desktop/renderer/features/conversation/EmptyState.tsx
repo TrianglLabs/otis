@@ -32,10 +32,10 @@ export function EmptyState() {
         <div className="home-recents">
           {recents.map((session) => (
             <button
-              key={session.id}
+              key={`${session.dirName}:${session.id}`}
               type="button"
               className="home-recentRow"
-              onClick={() => void api.selectSession(session.id)}
+              onClick={() => void api.selectSession(session.id, session.dirName)}
             >
               <span className="home-recentTitle">{session.title}</span>
               <span className="home-recentDetail">{session.detail}</span>

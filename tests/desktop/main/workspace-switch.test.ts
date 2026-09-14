@@ -65,13 +65,17 @@ describe("DesktopRuntime workspace switching", () => {
       const foreign = await createSession({ cwd: otherCwd })
       await foreign.admitPrompt("beta history")
 
-      expect((await runtime.selectSession(foreign.id, basename(defaultSessionDirectory(otherCwd)))).ok).toBe(true)
+      const recent = (await runtime.snapshot()).sessions.find((session) => session.id === foreign.id)
+      if (!recent) throw new Error("The foreign session is missing from recent history.")
+      expect((await runtime.selectSession(recent.id, recent.dirName)).ok).toBe(true)
       const snapshot = await runtime.snapshot()
       expect(snapshot.workspace.path).toBe(otherCwd)
       expect(snapshot.workspace.path).not.toBe(cwd)
       expect(snapshot.needsWorkspace).toBe(false)
       expect(snapshot.entries.some((entry) => entry.text === "beta history")).toBe(true)
       expect(runtime.app.projectContext.some((file) => file.path === join(otherCwd, "AGENTS.md"))).toBe(true)
+      // Opening global history must never create an empty copy under the previous workspace.
+      await expect(readFile(sessionFile({ cwd }, foreign.id), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
     } finally {
       await runtime.shutdown()
     }
