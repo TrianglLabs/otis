@@ -94,7 +94,7 @@ export function AppShell() {
           </>
         )}
       </div>
-      {settingsOpen ? null : <AgentsPanel />}
+      {settingsOpen || state?.model === null ? null : <AgentsPanel />}
       {state?.update.status === "ready" ? (
         <button
           type="button"

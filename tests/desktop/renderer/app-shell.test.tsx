@@ -163,6 +163,32 @@ afterEach(() => {
   document.documentElement.removeAttribute("data-theme")
 })
 
+describe("Dashboard session navigation", () => {
+  it("opens each recent session by its storage directory even when ids repeat across folders", async () => {
+    const local = sessionItem({ id: "default", title: "Current folder history", detail: "1h ago" })
+    const foreign = {
+      ...sessionItem({ id: "default", title: "Other folder history", detail: "2h ago", workspacePath: "/other/notes" }),
+      dirName: "notes-0123456789ab",
+      workspaceLabel: "notes",
+    }
+    const legacy = {
+      ...sessionItem({ id: "default", title: "Unregistered folder history", detail: "3h ago" }),
+      dirName: "legacy-0123456789ab",
+      workspacePath: undefined,
+    }
+    const sessions = [local, foreign, legacy]
+    const api = fakeApi({ getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, sessions })) })
+    await renderApp(api)
+
+    for (const session of sessions) {
+      await act(async () => fireEvent.click(screen.getByRole("button", { name: new RegExp(session.title) })))
+      expect(api.selectSession).toHaveBeenLastCalledWith(session.id, session.dirName)
+    }
+    expect(api.selectSession).toHaveBeenCalledTimes(sessions.length)
+    expect(api.startNewSession).not.toHaveBeenCalled()
+  })
+})
+
 describe("AppShell settings navigation", () => {
   it("keeps the composer's unsent draft when settings is opened and closed", async () => {
     await renderApp(fakeApi())

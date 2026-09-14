@@ -450,8 +450,12 @@
 }
 
 .onboarding-error {
+  margin: 0;
   font-size: var(--text-meta);
+  line-height: 1.45;
   color: var(--danger);
+  text-align: center;
+  overflow-wrap: anywhere;
 }
 
 /* Local step: brand mark, one recommendation, one action. */

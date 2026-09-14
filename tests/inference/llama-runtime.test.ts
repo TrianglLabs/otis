@@ -6,7 +6,11 @@ import { dirname, join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { localGgufPath } from "../../src/inference/gguf-cache.js"
 import { type HardwareProbe, inferenceMemoryBudget } from "../../src/inference/hardware.js"
-import { LlamaCppRuntime, type LlamaCppRuntimeOptions } from "../../src/inference/llama-runtime.js"
+import {
+  formatLocalLoadStatus,
+  LlamaCppRuntime,
+  type LlamaCppRuntimeOptions,
+} from "../../src/inference/llama-runtime.js"
 import { findLocalModel, type LocalModelSpec } from "../../src/inference/local-catalog.js"
 import { fitLocalModel } from "../../src/inference/local-fit.js"
 
@@ -36,6 +40,10 @@ afterEach(async () => {
 })
 
 describe("llama.cpp runtime", () => {
+  it("labels the runtime download separately from model weights", () => {
+    expect(formatLocalLoadStatus({ phase: "runtime-download" })).toBe("Downloading llama.cpp")
+  })
+
   it("installs the complete llama.cpp runtime bundle beside llama-server", async () => {
     const model = catalogModel()
     const fit = fitLocalModel(model, hardware)
@@ -113,6 +121,290 @@ describe("llama.cpp runtime", () => {
     expect(urls).not.toContain(pinnedArchiveURL)
     await expect(stat(join(directory, "bin", "b10667"))).rejects.toMatchObject({ code: "ENOENT" })
     await runtime.stop()
+  })
+
+  it("reports the runtime phase and retries a transient gateway failure", async () => {
+    const model = catalogModel()
+    const directory = await tempDir()
+    await cacheWeights(model, directory)
+    let downloads = 0
+    const delays: number[] = []
+    const progress: Parameters<typeof formatLocalLoadStatus>[0][] = []
+    const runtime = new LlamaCppRuntime(
+      runtimeDownloadOptions(
+        directory,
+        async (input) => {
+          const url = String(input)
+          if (url === pinnedArchiveURL) {
+            downloads += 1
+            if (downloads === 1) {
+              return new Response("gateway timeout", { status: 504, headers: { "retry-after": "2" } })
+            }
+            if (downloads === 2) throw new TypeError("connection reset")
+            return new Response(archiveBody)
+          }
+          if (url.includes("/health")) return new Response("ok")
+          if (url.includes("/props")) return runtimeProperties(65_536)
+          return new Response("missing", { status: 404 })
+        },
+        { sleep: async (ms) => void delays.push(ms) },
+      ),
+    )
+
+    await runtime.ensureServing(model, fitLocalModel(model, hardware), hardware, {
+      onProgress: (event) => progress.push(event),
+    })
+
+    expect(downloads).toBe(3)
+    expect(delays).toEqual([2_000, 1_000])
+    expect(progress[0]).toEqual({ phase: "runtime-download" })
+    await runtime.stop()
+  })
+
+  it("does not retry a permanent runtime download response", async () => {
+    const model = catalogModel()
+    const directory = await tempDir()
+    await cacheWeights(model, directory)
+    const fetchRuntime = vi.fn(async () => new Response("missing", { status: 404 }))
+    const retry = vi.fn(async () => {})
+    const runtime = new LlamaCppRuntime(runtimeDownloadOptions(directory, fetchRuntime, { sleep: retry }))
+
+    await expect(runtime.ensureServing(model, fitLocalModel(model, hardware), hardware)).rejects.toThrow(
+      "Could not download llama.cpp (HTTP 404).",
+    )
+    expect(fetchRuntime).toHaveBeenCalledTimes(1)
+    expect(retry).not.toHaveBeenCalled()
+  })
+
+  it("finishes a steadily progressing download that takes longer than the inactivity limit", async () => {
+    const model = catalogModel()
+    const directory = await tempDir()
+    await cacheWeights(model, directory)
+    let downloads = 0
+    const runtime = new LlamaCppRuntime(
+      runtimeDownloadOptions(
+        directory,
+        async (input, init) => {
+          if (String(input).includes("/health")) return new Response("ok")
+          if (String(input).includes("/props")) return runtimeProperties(65_536)
+          downloads += 1
+          const signal = init?.signal
+          if (!signal) throw new Error("missing request signal")
+          const body = new ReadableStream<Uint8Array>({
+            start(controller) {
+              let offset = 0
+              const timer = setInterval(() => {
+                controller.enqueue(archiveBody.subarray(offset, ++offset))
+                if (offset === archiveBody.length) {
+                  clearInterval(timer)
+                  signal.removeEventListener("abort", abort)
+                  controller.close()
+                }
+              }, 100)
+              const abort = () => {
+                clearInterval(timer)
+                controller.error(signal.reason)
+              }
+              signal.addEventListener("abort", abort, { once: true })
+            },
+          })
+          return new Response(body)
+        },
+        { runtimeDownloadTimeoutMs: 500, sleep: async () => {} },
+      ),
+    )
+
+    try {
+      const endpoint = await runtime.ensureServing(model, fitLocalModel(model, hardware), hardware)
+      expect(endpoint.model).toBe(model.id)
+      expect(downloads).toBe(1)
+    } finally {
+      await runtime.stop()
+    }
+  })
+
+  it.each([
+    { status: 504, attempts: 3, message: "HTTP 504" },
+    { status: 404, attempts: 1, message: "HTTP 404" },
+    { status: 200, contentLength: "invalid", attempts: 3, message: "invalid content length" },
+    { status: 200, contentLength: "100", attempts: 3, message: "expected 7 bytes but received 100" },
+    { status: 200, attempts: 3, message: "exceeded the pinned artifact size" },
+  ])("closes rejected runtime responses before retrying ($message)", async ({
+    status,
+    contentLength,
+    attempts,
+    message,
+  }) => {
+    const model = catalogModel()
+    const directory = await tempDir()
+    const responses: { response: Response; signal: AbortSignal; cancel: ReturnType<typeof vi.fn> }[] = []
+    const assertClosed = () => {
+      for (const { response, signal, cancel } of responses) {
+        expect(signal.aborted).toBe(true)
+        expect(cancel).toHaveBeenCalledTimes(1)
+        expect(response.body?.locked).toBe(false)
+      }
+    }
+    const fetchRuntime = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      assertClosed()
+      const signal = init?.signal
+      if (!signal) throw new Error("missing request signal")
+      const cancel = vi.fn()
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(Buffer.from("oversized archive"))
+        },
+        cancel,
+      })
+      const response = new Response(body, {
+        status,
+        headers: contentLength === undefined ? undefined : { "content-length": contentLength },
+      })
+      responses.push({ response, signal, cancel })
+      return response
+    })
+    const extractArchive = vi.fn()
+    const runtime = new LlamaCppRuntime(
+      runtimeDownloadOptions(directory, fetchRuntime, { sleep: async () => {}, extractArchive }),
+    )
+
+    try {
+      await expect(runtime.ensureServing(model, fitLocalModel(model, hardware), hardware)).rejects.toThrow(message)
+      expect(fetchRuntime).toHaveBeenCalledTimes(attempts)
+      expect(extractArchive).not.toHaveBeenCalled()
+      assertClosed()
+    } finally {
+      await runtime.stop()
+      for (const { response } of responses) {
+        if (!response.body?.locked) await response.body?.cancel()
+      }
+    }
+  })
+
+  it("bounds a stalled runtime download and retries it", async () => {
+    const model = catalogModel()
+    const directory = await tempDir()
+    await cacheWeights(model, directory)
+    const fetchRuntime = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) =>
+        await new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal
+          if (!signal) throw new Error("missing request signal")
+          if (signal.aborted) reject(signal.reason)
+          else signal.addEventListener("abort", () => reject(signal.reason), { once: true })
+        }),
+    )
+    const runtime = new LlamaCppRuntime(
+      runtimeDownloadOptions(directory, fetchRuntime, {
+        runtimeDownloadAttempts: 2,
+        runtimeDownloadTimeoutMs: 5,
+        sleep: async () => {},
+      }),
+    )
+
+    await expect(runtime.ensureServing(model, fitLocalModel(model, hardware), hardware)).rejects.toThrow(
+      "Could not download llama.cpp: the request timed out.",
+    )
+    expect(fetchRuntime).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([
+    "timeout",
+    "cancel",
+  ] as const)("handles %s after the response body stops delivering bytes", async (action) => {
+    const model = catalogModel()
+    const directory = await tempDir()
+    const abort = new AbortController()
+    const responses: { response: Response; signal: AbortSignal }[] = []
+    let reading: () => void = () => {}
+    const readStarted = new Promise<void>((resolve) => {
+      reading = resolve
+    })
+    const fetchRuntime = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const signal = init?.signal
+      if (!signal) throw new Error("missing request signal")
+      const response = new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(archiveBody.subarray(0, 1))
+            signal.addEventListener("abort", () => controller.error(signal.reason), { once: true })
+          },
+          pull() {
+            reading()
+          },
+        }),
+      )
+      responses.push({ response, signal })
+      return response
+    })
+    const extractArchive = vi.fn()
+    const runtime = new LlamaCppRuntime(
+      runtimeDownloadOptions(directory, fetchRuntime, {
+        runtimeDownloadAttempts: 2,
+        runtimeDownloadTimeoutMs: 200,
+        sleep: async () => {},
+        extractArchive,
+      }),
+    )
+
+    try {
+      const pending = runtime.ensureServing(model, fitLocalModel(model, hardware), hardware, { signal: abort.signal })
+      const result =
+        action === "cancel"
+          ? expect(pending).rejects.toMatchObject({ name: "AbortError" })
+          : expect(pending).rejects.toThrow("Could not download llama.cpp: the request timed out.")
+      if (action === "cancel") {
+        await readStarted
+        abort.abort()
+      }
+      await result
+      expect(fetchRuntime).toHaveBeenCalledTimes(action === "cancel" ? 1 : 2)
+      expect(extractArchive).not.toHaveBeenCalled()
+      for (const { response, signal } of responses) {
+        expect(signal.aborted).toBe(true)
+        expect(response.body?.locked).toBe(false)
+      }
+    } finally {
+      await runtime.stop()
+    }
+  })
+
+  it("cancels immediately during runtime download backoff", async () => {
+    const model = catalogModel()
+    const directory = await tempDir()
+    const abort = new AbortController()
+    let closed: () => void = () => {}
+    const responseClosed = new Promise<void>((resolve) => {
+      closed = resolve
+    })
+    const fetchRuntime = vi.fn(
+      async () =>
+        new Response(
+          new ReadableStream({
+            cancel() {
+              closed()
+            },
+          }),
+          { status: 504, headers: { "retry-after": "30" } },
+        ),
+    )
+    const runtime = new LlamaCppRuntime(runtimeDownloadOptions(directory, fetchRuntime))
+
+    try {
+      const result = expect(
+        runtime.ensureServing(model, fitLocalModel(model, hardware), hardware, {
+          signal: abort.signal,
+        }),
+      ).rejects.toMatchObject({ name: "AbortError" })
+      await responseClosed
+      // Let the failed attempt enter its real 30-second backoff before cancelling it.
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      abort.abort()
+      await result
+      expect(fetchRuntime).toHaveBeenCalledTimes(1)
+    } finally {
+      await runtime.stop()
+    }
   })
 
   it("replaces a cached bundle whose manifest does not match the pinned release", async () => {
@@ -514,6 +806,7 @@ describe("llama.cpp runtime", () => {
       spawn: spawnRuntime as LlamaCppRuntimeOptions["spawn"],
       extractArchive,
       fetch: (async () => new Response(archiveBody)) as typeof fetch,
+      sleep: async () => {},
     })
 
     await expect(runtime.ensureServing(model, fitLocalModel(model, hardware), hardware)).rejects.toThrow(
@@ -615,4 +908,27 @@ function huggingfaceFetch(body: Uint8Array, contextLength: number): typeof fetch
 
 function runtimeProperties(contextLength: number) {
   return Response.json({ default_generation_settings: { n_ctx: contextLength } })
+}
+
+function runtimeDownloadOptions(
+  directory: string,
+  fetchRuntime: typeof fetch,
+  overrides: Partial<LlamaCppRuntimeOptions> = {},
+): LlamaCppRuntimeOptions {
+  return {
+    env: {},
+    dataDirectory: directory,
+    runtimeAsset: fakeRuntimeAsset,
+    allocatePort: async () => 18773,
+    spawn: (() => fakeChild()) as unknown as LlamaCppRuntimeOptions["spawn"],
+    fetch: fetchRuntime,
+    extractArchive: async (_archive, destination) => {
+      const bundle = join(destination, "bin")
+      await mkdir(bundle, { recursive: true })
+      await writeFile(join(bundle, "llama-server"), "server")
+      await writeFile(join(bundle, "libllama.dylib"), "llama library")
+      await writeFile(join(bundle, "libggml.dylib"), "ggml library")
+    },
+    ...overrides,
+  }
 }

@@ -1,7 +1,19 @@
 import { type ChildProcess, spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import type { Dirent } from "node:fs"
-import { chmod, mkdir, mkdtemp, open, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
+import {
+  chmod,
+  type FileHandle,
+  mkdir,
+  mkdtemp,
+  open,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
@@ -20,6 +32,10 @@ import { LOCAL_MIN_CONTEXT_LENGTH, type LocalModelSpec } from "./local-catalog.j
 import type { LocalModelFit } from "./local-fit.js"
 
 const DEFAULT_READY_TIMEOUT_MS = 30 * 60 * 1000
+const DEFAULT_RUNTIME_DOWNLOAD_ATTEMPTS = 3
+const DEFAULT_RUNTIME_DOWNLOAD_TIMEOUT_MS = 2 * 60 * 1000
+const RUNTIME_DOWNLOAD_RETRY_BASE_MS = 500
+const MAX_RETRY_AFTER_MS = 30_000
 const STOP_TIMEOUT_MS = 5_000
 const KILL_WAIT_MS = 1_000
 const RUNTIME_MANIFEST = ".otis-runtime.json"
@@ -30,13 +46,18 @@ export type LocalServingEndpoint = {
   contextLength: number
 }
 
-export type LocalLoadProgress = { phase: "download"; percent: number } | { phase: "loading" }
+export type LocalLoadProgress =
+  | { phase: "runtime-download" }
+  | { phase: "download"; percent: number }
+  | { phase: "loading" }
 
+export const LOCAL_RUNTIME_DOWNLOADING_LABEL = "Downloading llama.cpp"
 export const LOCAL_DOWNLOADING_LABEL = "Downloading"
 export const LOCAL_LOADING_LABEL = "Loading"
 
 /** Short picker-row label for a managed local model being downloaded or loaded. Shared by the TUI and desktop. */
 export function formatLocalLoadStatus(progress: LocalLoadProgress) {
+  if (progress.phase === "runtime-download") return LOCAL_RUNTIME_DOWNLOADING_LABEL
   if (progress.phase === "download") return `${LOCAL_DOWNLOADING_LABEL} ${progress.percent}%`
   return LOCAL_LOADING_LABEL
 }
@@ -55,6 +76,9 @@ export type LlamaCppRuntimeOptions = {
   runtimeAsset?: (target: Parameters<typeof pinnedLlamaCppAsset>[0]) => LlamaCppAsset
   dataDirectory?: string
   readyTimeoutMs?: number
+  runtimeDownloadAttempts?: number
+  /** Maximum wait for response headers or further archive bytes, not a total transfer deadline. */
+  runtimeDownloadTimeoutMs?: number
   sleep?: (ms: number) => Promise<void>
 }
 
@@ -134,7 +158,7 @@ export class LlamaCppRuntime {
     signal: AbortSignal,
     onProgress: EnsureServingOptions["onProgress"],
   ) {
-    const binary = await this.#resolveBinary(hardware, signal)
+    const binary = await this.#resolveBinary(hardware, signal, onProgress)
     signal.throwIfAborted()
     const modelPath = await ensureLocalGguf(model, {
       dataDirectory: this.#options.dataDirectory,
@@ -182,7 +206,7 @@ export class LlamaCppRuntime {
     }
   }
 
-  async #resolveBinary(hardware: HardwareProbe, signal?: AbortSignal) {
+  async #resolveBinary(hardware: HardwareProbe, signal?: AbortSignal, onProgress?: EnsureServingOptions["onProgress"]) {
     const configured = (this.#options.env ?? process.env).OTIS_LLAMA_SERVER?.trim()
     if (configured) {
       await assertExecutable(configured)
@@ -207,7 +231,13 @@ export class LlamaCppRuntime {
 
     const fetchImpl = this.#options.fetch ?? fetch
     await mkdir(binaryRoot, { recursive: true, mode: 0o700 })
-    const download = await downloadToTemp(asset, fetchImpl, signal)
+    onProgress?.({ phase: "runtime-download" })
+    const download = await downloadToTemp(asset, fetchImpl, {
+      signal,
+      attempts: this.#options.runtimeDownloadAttempts,
+      timeoutMs: this.#options.runtimeDownloadTimeoutMs,
+      sleep: this.#options.sleep,
+    })
     let extractDir: string | undefined
     let candidateDir: string | undefined
     try {
@@ -326,55 +356,178 @@ function llamaServerEnvironment(env: NodeJS.ProcessEnv, modelCache: string) {
   return childEnv
 }
 
-async function downloadToTemp(asset: LlamaCppAsset, fetchImpl: typeof fetch, signal?: AbortSignal) {
-  const response = await fetchImpl(asset.url, { headers: { "user-agent": "otis" }, signal })
-  if (!response.ok || !response.body) {
-    throw new Error(`Could not download llama.cpp (HTTP ${response.status}).`)
+type RuntimeDownloadOptions = {
+  signal?: AbortSignal
+  attempts?: number
+  timeoutMs?: number
+  sleep?: (ms: number) => Promise<void>
+}
+
+class RetryableRuntimeDownloadError extends Error {
+  constructor(
+    message: string,
+    readonly retryAfterMs?: number,
+  ) {
+    super(message)
   }
-  const contentLengthHeader = response.headers.get("content-length")
-  const contentLength = contentLengthHeader === null ? undefined : Number(contentLengthHeader)
-  if (contentLength !== undefined && (!Number.isSafeInteger(contentLength) || contentLength < 0)) {
-    throw new Error("Could not download llama.cpp: the server returned an invalid content length.")
+}
+
+async function downloadToTemp(asset: LlamaCppAsset, fetchImpl: typeof fetch, options: RuntimeDownloadOptions = {}) {
+  const attempts = Math.max(1, options.attempts ?? DEFAULT_RUNTIME_DOWNLOAD_ATTEMPTS)
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await downloadToTempOnce(asset, fetchImpl, options.signal, options.timeoutMs)
+    } catch (error) {
+      options.signal?.throwIfAborted()
+      if (!(error instanceof RetryableRuntimeDownloadError) || attempt >= attempts) throw error
+      const retryDelay = error.retryAfterMs ?? RUNTIME_DOWNLOAD_RETRY_BASE_MS * 2 ** (attempt - 1)
+      await waitForRetry(retryDelay, options.signal, options.sleep)
+    }
   }
-  if (contentLength !== undefined && contentLength !== asset.size) {
-    throw new Error(`Could not download llama.cpp: expected ${asset.size} bytes but received ${contentLength}.`)
+}
+
+async function downloadToTempOnce(
+  asset: LlamaCppAsset,
+  fetchImpl: typeof fetch,
+  signal?: AbortSignal,
+  timeoutMs = DEFAULT_RUNTIME_DOWNLOAD_TIMEOUT_MS,
+) {
+  const request = new AbortController()
+  const requestSignal = signal ? AbortSignal.any([signal, request.signal]) : request.signal
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  const resetTimeout = () => {
+    clearTimeout(timeout)
+    timeout = setTimeout(() => {
+      request.abort(new RetryableRuntimeDownloadError("Could not download llama.cpp: the request timed out."))
+    }, timeoutMs)
   }
-  const directory = await mkdtemp(join(tmpdir(), "otis-llama-dl-"))
-  const archivePath = join(directory, "llama.tar.gz")
-  const file = await open(archivePath, "wx", 0o600)
-  const hash = createHash("sha256")
-  let received = 0
-  let closed = false
+  let response: Response | undefined
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
+  let directory: string | undefined
+  let file: FileHandle | undefined
   let complete = false
   try {
-    const reader = response.body.getReader()
+    requestSignal.throwIfAborted()
+    resetTimeout()
+    try {
+      response = await fetchImpl(asset.url, { headers: { "user-agent": "otis" }, signal: requestSignal })
+    } catch (error) {
+      requestSignal.throwIfAborted()
+      throw new RetryableRuntimeDownloadError(`Could not download llama.cpp: ${errorMessage(error)}`)
+    }
+    requestSignal.throwIfAborted()
+    resetTimeout()
+    if (!response.ok) {
+      const message = `Could not download llama.cpp (HTTP ${response.status}).`
+      if (isRetryableDownloadStatus(response.status)) {
+        throw new RetryableRuntimeDownloadError(message, retryAfterMilliseconds(response.headers.get("retry-after")))
+      }
+      throw new Error(message)
+    }
+    if (!response.body) throw new RetryableRuntimeDownloadError("Could not download llama.cpp: empty response body.")
+    const contentLengthHeader = response.headers.get("content-length")
+    const contentLength = contentLengthHeader === null ? undefined : Number(contentLengthHeader)
+    if (contentLength !== undefined && (!Number.isSafeInteger(contentLength) || contentLength < 0)) {
+      throw new RetryableRuntimeDownloadError(
+        "Could not download llama.cpp: the server returned an invalid content length.",
+      )
+    }
+    if (contentLength !== undefined && contentLength !== asset.size) {
+      throw new RetryableRuntimeDownloadError(
+        `Could not download llama.cpp: expected ${asset.size} bytes but received ${contentLength}.`,
+      )
+    }
+    directory = await mkdtemp(join(tmpdir(), "otis-llama-dl-"))
+    const archivePath = join(directory, "llama.tar.gz")
+    file = await open(archivePath, "wx", 0o600)
+    const hash = createHash("sha256")
+    let received = 0
+    reader = response.body.getReader()
     for (;;) {
-      const { done, value } = await reader.read()
+      let chunk: ReadableStreamReadResult<Uint8Array>
+      try {
+        chunk = await reader.read()
+      } catch (error) {
+        requestSignal.throwIfAborted()
+        throw new RetryableRuntimeDownloadError(`Could not download llama.cpp: ${errorMessage(error)}`)
+      }
+      requestSignal.throwIfAborted()
+      const { done, value } = chunk
       if (done) break
-      signal?.throwIfAborted()
       if (!value || value.byteLength === 0) continue
+      resetTimeout()
       if (received + value.byteLength > asset.size) {
-        throw new Error("Could not download llama.cpp: the response exceeded the pinned artifact size.")
+        throw new RetryableRuntimeDownloadError(
+          "Could not download llama.cpp: the response exceeded the pinned artifact size.",
+        )
       }
       await file.writeFile(value)
       hash.update(value)
       received += value.byteLength
     }
+    clearTimeout(timeout)
     signal?.throwIfAborted()
     if (received !== asset.size) {
-      throw new Error(`Could not download llama.cpp: expected ${asset.size} bytes but received ${received}.`)
+      throw new RetryableRuntimeDownloadError(
+        `Could not download llama.cpp: expected ${asset.size} bytes but received ${received}.`,
+      )
     }
     if (hash.digest("hex") !== asset.sha256) {
-      throw new Error("Could not download llama.cpp: SHA-256 verification failed.")
+      throw new RetryableRuntimeDownloadError("Could not download llama.cpp: SHA-256 verification failed.")
     }
     await file.close()
-    closed = true
+    file = undefined
     complete = true
     return { archivePath, directory }
   } finally {
-    if (!closed) await file.close().catch(() => undefined)
-    if (!complete) await rm(directory, { recursive: true, force: true })
+    clearTimeout(timeout)
+    if (!complete) {
+      request.abort()
+      const body = reader ?? response?.body
+      await body?.cancel().catch(() => undefined)
+    }
+    reader?.releaseLock()
+    await file?.close().catch(() => undefined)
+    if (!complete && directory) await rm(directory, { recursive: true, force: true })
   }
+}
+
+function isRetryableDownloadStatus(status: number) {
+  return status === 408 || status === 429 || (status >= 500 && status <= 599)
+}
+
+function retryAfterMilliseconds(value: string | null) {
+  if (!value) return undefined
+  const seconds = Number(value)
+  const milliseconds = Number.isFinite(seconds) && seconds >= 0 ? seconds * 1_000 : Date.parse(value) - Date.now()
+  if (!Number.isFinite(milliseconds) || milliseconds < 0) return undefined
+  return Math.min(milliseconds, MAX_RETRY_AFTER_MS)
+}
+
+async function waitForRetry(ms: number, signal?: AbortSignal, sleep?: (ms: number) => Promise<void>) {
+  signal?.throwIfAborted()
+  if (sleep) {
+    await sleep(ms)
+    signal?.throwIfAborted()
+    return
+  }
+  await abortableDelay(ms, signal)
+}
+
+function abortableDelay(ms: number, signal?: AbortSignal) {
+  if (!signal) return delay(ms)
+  signal.throwIfAborted()
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", abort)
+      resolve()
+    }, ms)
+    const abort = () => {
+      clearTimeout(timer)
+      reject(signal.reason)
+    }
+    signal.addEventListener("abort", abort, { once: true })
+  })
 }
 
 async function extractTarGz(archivePath: string, destination: string) {

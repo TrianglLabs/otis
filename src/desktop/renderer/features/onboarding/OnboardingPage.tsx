@@ -79,13 +79,17 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
   async function select(item: ModelPickerChoice) {
     if (!isPickerRowSelectable(item)) return
     setError(undefined)
-    const result = await api.selectModel(pickerItemKey(item))
-    if (
-      !result.ok &&
-      result.reason !== "The selection was cancelled." &&
-      result.reason !== "The selection was superseded."
-    ) {
-      setError(result.reason)
+    try {
+      const result = await api.selectModel(pickerItemKey(item))
+      if (
+        !result.ok &&
+        result.reason !== "The selection was cancelled." &&
+        result.reason !== "The selection was superseded."
+      ) {
+        setError(result.reason)
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
     }
   }
 
@@ -251,7 +255,9 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
 
         {path === "cloud" && hostedConfigured ? <p className="onboarding-hint">Key saved. Now pick a model:</p> : null}
 
-        {path === "managed" ? <LocalPick items={rows} itemsLoaded={items !== undefined} onSelect={select} /> : null}
+        {path === "managed" ? (
+          <LocalPick items={rows} itemsLoaded={items !== undefined} error={error} onSelect={select} />
+        ) : null}
 
         {path === "server" ? (
           <>
@@ -378,7 +384,7 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
           </div>
         ) : null}
 
-        {error ? <p className="onboarding-error">{error}</p> : null}
+        {path !== "managed" && error ? <p className="onboarding-error">{error}</p> : null}
       </div>
     </main>
   )
@@ -388,10 +394,12 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
 function LocalPick({
   items,
   itemsLoaded,
+  error,
   onSelect,
 }: {
   items: ModelPickerChoice[]
   itemsLoaded: boolean
+  error: string | undefined
   onSelect: (item: ModelPickerChoice) => void
 }) {
   const { api } = useDesktop()
@@ -402,14 +410,19 @@ function LocalPick({
     return (
       <div className="onboarding-local">
         <OtisMark className="onboarding-logo" />
-        <p className="onboarding-hint">
-          {itemsLoaded ? "No local model fits this Mac — go back and pick Hosted." : "Loading models…"}
-        </p>
+        {error ? (
+          <p className="onboarding-error">{error}</p>
+        ) : (
+          <p className="onboarding-hint">
+            {itemsLoaded ? "No local model fits this Mac — go back and pick Hosted." : "Loading models…"}
+          </p>
+        )}
       </div>
     )
   }
   const status = "status" in pick ? pick.status : undefined
   const loading = status?.kind === "progress"
+  const displayedError = error ?? (status?.kind === "error" ? status.label : undefined)
   return (
     <div className="onboarding-local">
       <OtisMark className="onboarding-logo" />
@@ -423,9 +436,7 @@ function LocalPick({
             </span>
           ) : null}
         </span>
-        <span className={`onboarding-rowDetail${status?.kind === "error" ? " error" : ""}`}>
-          {status?.label ?? pickerDetailLabel(pick)}
-        </span>
+        <span className="onboarding-rowDetail">{loading ? status.label : pickerDetailLabel(pick)}</span>
       </div>
       <div className="onboarding-actions">
         <Button
@@ -441,6 +452,7 @@ function LocalPick({
           <IconButton icon={X} label="Cancel model load" size={22} onClick={() => void api.cancelModelSelection()} />
         ) : null}
       </div>
+      {displayedError ? <p className="onboarding-error">{displayedError}</p> : null}
     </div>
   )
 }
