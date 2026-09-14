@@ -121,7 +121,7 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
       modelContextLength = connected.contextLength
     } else if (modelProvider === "pair") {
       const pairEndpoint = pairEndpointForEngine(settings.pairEndpoints ?? {}, settings.pairEngine)
-      if (!pairEndpoint) throw new Error("NVIDIA PAIR endpoint is not configured for the selected engine.")
+      if (!pairEndpoint) throw new Error("Local model server endpoint is not configured for the selected engine.")
       if (images.length > 0 && !modelSupportsImageInput) {
         throw new Error(`Selected PAIR model does not support image input: ${model}`)
       }

@@ -302,7 +302,8 @@ export class ModelHost {
     }
 
     if (options.provider === "pair") {
-      if (!options.pairEndpoint) throw new Error("NVIDIA PAIR endpoint is not configured for the selected engine.")
+      if (!options.pairEndpoint)
+        throw new Error("Local model server endpoint is not configured for the selected engine.")
       const client = new PairClient({ baseURL: options.pairEndpoint, model: options.modelId })
       await this.llama.stop()
       this.activate(

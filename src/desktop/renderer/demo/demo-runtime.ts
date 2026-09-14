@@ -273,7 +273,7 @@ class DemoRuntime implements DesktopApi {
 
   async connectPairEndpoints(endpoints: { ollama?: string; lmStudio?: string }): Promise<ModelSelectResult> {
     if (!endpoints.ollama?.trim() && !endpoints.lmStudio?.trim()) {
-      return { ok: false, reason: "Enter at least one NVIDIA PAIR endpoint." }
+      return { ok: false, reason: "Enter at least one Ollama, LM Studio, or NVIDIA PAIR endpoint." }
     }
     await new Promise((resolve) => setTimeout(resolve, 900))
     const saved: { ollama?: string; lmStudio?: string } = {}

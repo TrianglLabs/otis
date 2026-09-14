@@ -480,17 +480,17 @@ describe("DesktopRuntime subagents", () => {
 
     expect(await runtime.connectPairEndpoints({})).toEqual({
       ok: false,
-      reason: "Enter at least one NVIDIA PAIR endpoint.",
+      reason: "Enter at least one Ollama, LM Studio, or NVIDIA PAIR endpoint.",
     })
     expect(await runtime.connectPairEndpoints({ ollama: "https://example.com" })).toEqual({
       ok: false,
-      reason: "PAIR endpoint must use HTTP on 127.0.0.1, localhost, or ::1.",
+      reason: "Local model server endpoint must use HTTP on 127.0.0.1, localhost, or ::1.",
     })
 
     discoverPair.mockResolvedValueOnce({ errors: [{ engine: "ollama", message: "down" }] } as never)
     expect(await runtime.connectPairEndpoints({ ollama: "http://127.0.0.1:11434" })).toEqual({
       ok: false,
-      reason: "NVIDIA PAIR was not found. Start PAIR, enable Ollama or LM Studio, then copy its local endpoint here.",
+      reason: "No compatible model server was found. Start Ollama, LM Studio, or NVIDIA PAIR and check its address.",
     })
 
     const result = await runtime.connectPairEndpoints({ ollama: "http://127.0.0.1:11434/" })

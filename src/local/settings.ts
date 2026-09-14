@@ -135,7 +135,7 @@ export async function savePairEndpoints(endpoints: PairEndpoints, options: Setti
   await serializeSettingsWrite(options, async (pinned) => {
     const saved = (await readSettingsFile(pinned)) ?? { version: 1 }
     const pairEndpoints = persistedPairEndpoints(endpoints)
-    if (!hasPairEndpoints(pairEndpoints)) throw new Error("At least one NVIDIA PAIR endpoint is required.")
+    if (!hasPairEndpoints(pairEndpoints)) throw new Error("At least one local model server endpoint is required.")
     await writeSettingsFile({ ...saved, pairEndpoints }, pinned)
   })
 }

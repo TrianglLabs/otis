@@ -772,6 +772,9 @@ describe("AppShell settings navigation", () => {
     const working: DesktopSnapshot = { ...SNAPSHOT, busy: true }
     await renderApp(fakeApi({ getSnapshot: vi.fn(async () => working) }))
     expect(document.querySelector(".composer-box")?.classList.contains("composer-boxWorking")).toBe(true)
+    const upload = screen.getByRole("button", { name: "Add images" })
+    const stop = screen.getByRole("button", { name: "Stop" })
+    expect(upload.compareDocumentPosition(stop) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it("deletes a session from the palette via right-click, only after the confirm step", async () => {

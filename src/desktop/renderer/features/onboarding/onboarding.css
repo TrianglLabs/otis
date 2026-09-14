@@ -9,8 +9,54 @@
   align-items: center;
   justify-content: center;
   gap: 20px;
-  padding: 40px 28px;
+  padding: 48px 28px 24px;
+  overflow-y: auto;
   animation: rise 200ms ease-out;
+}
+
+.onboarding-step {
+  height: min(340px, calc(100vh - 96px));
+  flex-shrink: 0;
+  will-change: transform, opacity;
+}
+
+.onboarding-step-forward {
+  animation: onboarding-step-forward 190ms cubic-bezier(0.2, 0.75, 0.25, 1) both;
+}
+
+.onboarding-step-back {
+  animation: onboarding-step-back 190ms cubic-bezier(0.2, 0.75, 0.25, 1) both;
+}
+
+@keyframes onboarding-step-forward {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes onboarding-step-back {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-step-forward,
+  .onboarding-step-back {
+    animation: none;
+  }
 }
 
 /* Onboarding owns the window while it shows (the workspace header is hidden), so it provides the drag strip;
@@ -33,26 +79,68 @@
   padding-left: 80px;
 }
 
+.onboarding-welcome {
+  width: min(400px, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+}
+
+.onboarding-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  text-align: center;
+}
+
+.onboarding-logo {
+  display: block;
+  width: 88px;
+  height: auto;
+  margin-bottom: 3px;
+  color: var(--text-dim);
+  user-select: none;
+}
+
+.onboarding-title {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  color: var(--text);
+}
+
 .onboarding-sub {
-  margin-top: -8px;
+  margin: 0;
   font-size: var(--text-ui);
   color: var(--text-dim);
   text-align: center;
   max-width: 400px;
 }
 
+.onboarding-choices {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .onboarding-choose {
-  margin-top: 6px;
+  margin: 0;
   font-size: var(--text-meta);
   font-weight: 600;
-  color: var(--text-dim);
+  color: var(--text);
+  text-align: center;
 }
 
 .onboarding-cards {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  width: min(400px, 100%);
+  width: 100%;
 }
 
 /* Choices are real buttons: bordered panels with a chevron, like settings rows. */
@@ -95,6 +183,44 @@
   flex-shrink: 0;
 }
 
+.onboarding-cardMark {
+  width: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.onboarding-cardOtisMark {
+  display: block;
+  width: 18px;
+  height: auto;
+  color: var(--text-dim);
+  --accent: currentColor;
+}
+
+.onboarding-providerMarks {
+  width: 48px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.onboarding-providerMark {
+  box-sizing: border-box;
+  display: block;
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  border-radius: 5px;
+}
+
+.onboarding-providerMarkOllama {
+  padding: 3px 5px;
+  background: #fff;
+}
+
 .onboarding-cardText {
   display: flex;
   flex-direction: column;
@@ -128,19 +254,29 @@
 }
 
 .onboarding-panel {
-  width: min(440px, 100%);
+  width: min(400px, 100%);
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
-.onboarding-panel .home-logo {
+.onboarding-panel .onboarding-logo {
   align-self: center;
 }
 
 .onboarding-panelTitle {
+  margin: 0;
   font-size: var(--text-ui);
   font-weight: 600;
+  text-align: center;
+}
+
+.onboarding-stepHeader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
   text-align: center;
 }
 
@@ -179,8 +315,64 @@
 }
 
 .onboarding-hint {
+  margin: 0;
   font-size: var(--text-meta);
   color: var(--text-dim);
+}
+
+.onboarding-endpoints {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px 10px;
+}
+
+.onboarding-endpointLabel,
+.onboarding-listLabel {
+  margin: 0;
+  font-size: var(--text-meta);
+  color: var(--text-dim);
+}
+
+.onboarding-endpointLabel {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.onboarding-endpointMark {
+  box-sizing: border-box;
+  display: block;
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  border-radius: 4px;
+}
+
+.onboarding-endpointMark.onboarding-providerMarkOllama {
+  padding: 2px 4px;
+}
+
+.onboarding-endpointInput {
+  min-width: 0;
+  padding: 7px 9px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-ui);
+  outline: none;
+}
+
+.onboarding-endpointInput:focus {
+  border-color: var(--accent);
+}
+
+.onboarding-listLabel {
+  padding: 3px 10px 0;
+  font-weight: 600;
 }
 
 .onboarding-list {
@@ -189,6 +381,10 @@
   gap: 1px;
   max-height: 44vh;
   overflow-y: auto;
+}
+
+.onboarding-serverModels {
+  max-height: 190px;
 }
 
 .onboarding-row {
@@ -263,8 +459,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
-  padding-top: 8px;
+  gap: 12px;
   text-align: center;
 }
 
@@ -279,4 +474,9 @@
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.onboarding-actionsEnd {
+  grid-column: 1 / -1;
+  justify-content: flex-end;
 }

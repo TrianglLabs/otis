@@ -302,21 +302,23 @@ export class SetupFlow {
   private async loadPairModels(inputs: PairEndpointInputs, signal: AbortSignal) {
     if (this.#closed || this.options.isBusy()) return
     this.options.setBusy(true)
-    this.options.ui.showSetupStatus("Checking NVIDIA PAIR endpoints…")
+    this.options.ui.showSetupStatus("Checking local model server endpoints…")
     const cancelTarget = this.#credentialPurpose === "settings" ? "configured" : "local"
     try {
       const requested = pairEndpointsFromInputs(inputs)
-      if (!requested.ollama && !requested.lmStudio) throw new Error("Enter at least one NVIDIA PAIR endpoint.")
+      if (!requested.ollama && !requested.lmStudio) {
+        throw new Error("Enter at least one Ollama, LM Studio, or NVIDIA PAIR endpoint.")
+      }
       const discovery = await discoverPairModels(requested, { signal })
       signal.throwIfAborted()
       if (discovery.ollama === undefined && discovery.lmStudio === undefined) {
         throw new Error(
-          "NVIDIA PAIR was not found. Start PAIR, enable Ollama or LM Studio, then copy its local endpoint here.",
+          "No compatible model server was found. Start Ollama, LM Studio, or NVIDIA PAIR and check its address.",
         )
       }
       const models = [...(discovery.ollama ?? []), ...(discovery.lmStudio ?? [])]
       if (models.length === 0) {
-        throw new Error("PAIR is running, but its cluster has no available models. Add a model in PAIR and try again.")
+        throw new Error("The connected model servers report no available models. Add or load a model and try again.")
       }
       this.#pairEndpoints = {
         ...(discovery.ollama !== undefined && requested.ollama ? { ollama: requested.ollama } : {}),

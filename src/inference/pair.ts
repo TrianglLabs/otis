@@ -45,9 +45,9 @@ export class PairClient extends OpenAICompatibleClient {
       model: config.model,
       inferenceURL: pairEndpointURL(baseURL, "/v1/chat/completions"),
       fetch: config.fetch,
-      modelLabel: "PAIR model",
-      inferenceURLLabel: "PAIR inference URL",
-      requestLabel: "NVIDIA PAIR",
+      modelLabel: "Local model-server model",
+      inferenceURLLabel: "Local model-server inference URL",
+      requestLabel: "Local model server",
     })
   }
 }
@@ -112,22 +112,22 @@ export function normalizePairEndpoints(endpoints: PairEndpoints): PairEndpoints 
 
 export function normalizePairBaseURL(value: string) {
   const input = value.trim()
-  if (!input) throw new Error("PAIR endpoint is required.")
+  if (!input) throw new Error("Local model server endpoint is required.")
   let parsed: URL
   try {
     parsed = new URL(input)
   } catch {
-    throw new Error("PAIR endpoint is invalid.")
+    throw new Error("Local model server endpoint is invalid.")
   }
   if (parsed.protocol !== "http:" || !isLoopbackHostname(parsed.hostname)) {
-    throw new Error("PAIR endpoint must use HTTP on 127.0.0.1, localhost, or ::1.")
+    throw new Error("Local model server endpoint must use HTTP on 127.0.0.1, localhost, or ::1.")
   }
   if (parsed.username || parsed.password || parsed.search || parsed.hash) {
-    throw new Error("PAIR endpoint must not include credentials, query parameters, or a fragment.")
+    throw new Error("Local model server endpoint must not include credentials, query parameters, or a fragment.")
   }
   const path = parsed.pathname.replace(/\/+$/, "")
   if (path && path !== "/v1") {
-    throw new Error("PAIR endpoint must be the base URL shown in PAIR's Endpoints window.")
+    throw new Error("Local model server endpoint must be a base URL without an API path.")
   }
   parsed.pathname = "/"
   return parsed.toString().replace(/\/$/, "")
@@ -150,7 +150,7 @@ export function pairModelKey(model: Pick<PairCatalogModel, "engine" | "id">) {
 async function loadOllamaModels(baseURL: string, options: PairDiscoveryOptions) {
   const body = await requirePairJSON(baseURL, "/api/tags", options)
   if (!isRecord(body) || (!Array.isArray(body.models) && body.models !== null)) {
-    throw new Error(`NVIDIA PAIR at ${baseURL} returned an invalid Ollama model list.`)
+    throw new Error(`Model server at ${baseURL} returned an invalid Ollama model list.`)
   }
   return pairModelsFromOllama(baseURL, Array.isArray(body.models) ? body.models : [])
 }
@@ -158,7 +158,7 @@ async function loadOllamaModels(baseURL: string, options: PairDiscoveryOptions) 
 async function loadLMStudioModels(baseURL: string, options: PairDiscoveryOptions) {
   const body = await requirePairJSON(baseURL, "/v1/models", options)
   if (!isRecord(body) || (!Array.isArray(body.data) && body.data !== null)) {
-    throw new Error(`NVIDIA PAIR at ${baseURL} returned an invalid LM Studio model list.`)
+    throw new Error(`Model server at ${baseURL} returned an invalid LM Studio model list.`)
   }
   return pairModelsFromLMStudio(baseURL, Array.isArray(body.data) ? body.data : [])
 }
@@ -225,15 +225,15 @@ async function requirePairJSON(baseURL: string, path: string, options: PairDisco
     response = await pairFetch(baseURL, path, options)
   } catch (error) {
     options.signal?.throwIfAborted()
-    throw new Error(`Could not reach NVIDIA PAIR at ${baseURL}: ${errorMessage(error)}`)
+    throw new Error(`Could not reach a model server at ${baseURL}: ${errorMessage(error)}`)
   }
   if (!response.ok) {
-    throw new Error(`NVIDIA PAIR at ${baseURL} returned HTTP ${response.status}: ${await responsePreview(response)}`)
+    throw new Error(`Model server at ${baseURL} returned HTTP ${response.status}: ${await responsePreview(response)}`)
   }
   try {
     return (await response.json()) as unknown
   } catch (error) {
-    throw new Error(`NVIDIA PAIR at ${baseURL} returned an invalid model list: ${errorMessage(error)}`)
+    throw new Error(`Model server at ${baseURL} returned an invalid model list: ${errorMessage(error)}`)
   }
 }
 

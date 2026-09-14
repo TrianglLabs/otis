@@ -344,11 +344,6 @@ export const Composer = memo(function Composer({ installing = false }: { install
             ) : null}
           </span>
           <span className="composer-actions">
-            {busy ? (
-              <Button variant="danger" size="sm" icon={Square} onClick={() => void api.stop()} title="Stop (Esc)">
-                Stop
-              </Button>
-            ) : null}
             <input
               ref={imageInputRef}
               type="file"
@@ -374,6 +369,11 @@ export const Composer = memo(function Composer({ installing = false }: { install
                 <Icon icon={ImagePlus} size={14} />
               </button>
             </span>
+            {busy ? (
+              <Button variant="danger" size="sm" icon={Square} onClick={() => void api.stop()} title="Stop (Esc)">
+                Stop
+              </Button>
+            ) : null}
             <Button
               type="submit"
               variant="primary"

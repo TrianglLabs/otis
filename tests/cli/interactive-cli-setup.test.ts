@@ -138,7 +138,7 @@ describe("interactive CLI setup", () => {
       lmStudio: "http://127.0.0.1:1234",
     })
     await vi.waitFor(() => expect(mocks.ui.showModelPicker).toHaveBeenCalledOnce())
-    expect(mocks.ui.showSetupStatus).toHaveBeenCalledWith("Checking NVIDIA PAIR endpoints…")
+    expect(mocks.ui.showSetupStatus).toHaveBeenCalledWith("Checking local model server endpoints…")
     expect(mocks.discoverPairModels).toHaveBeenCalledWith(
       {
         ollama: "http://127.0.0.1:11434",

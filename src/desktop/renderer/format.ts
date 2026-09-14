@@ -35,5 +35,5 @@ export function formatDuration(ms: number): string {
 export const PROVIDER_LABELS: Record<string, string> = {
   fireworks: "Fireworks",
   local: "Local",
-  pair: "NVIDIA PAIR",
+  pair: "Local model server",
 }

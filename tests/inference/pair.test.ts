@@ -167,8 +167,8 @@ describe("NVIDIA PAIR inference", () => {
     expect(normalizePairBaseURL("http://[::1]:1234")).toBe("http://[::1]:1234")
     expect(() => normalizePairBaseURL("http://192.168.1.5:11434")).toThrow("must use HTTP")
     expect(() => normalizePairBaseURL("https://localhost:11434")).toThrow("must use HTTP")
-    expect(() => normalizePairBaseURL("http://localhost:11434/v1/models")).toThrow("base URL shown in PAIR")
-    expect(() => normalizePairBaseURL("http://localhost:11434/v1/chat/completions")).toThrow("base URL shown in PAIR")
+    expect(() => normalizePairBaseURL("http://localhost:11434/v1/models")).toThrow("without an API path")
+    expect(() => normalizePairBaseURL("http://localhost:11434/v1/chat/completions")).toThrow("without an API path")
   })
 
   it("normalizes engine-specific endpoints and rejects one proxy in both fields", () => {
