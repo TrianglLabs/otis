@@ -9,3 +9,14 @@ After saving changes in Icon Composer, run `bun run build:desktop:icons` on a Ma
 the `.icon` package together with the generated `icon.icns` and `icon.png`. These exports use Apple's legacy
 rendition, including its mask and padding. The ICNS is the DMG volume icon; the PNG is used on Linux and in Electron
 development builds. Native Liquid Glass and system appearance selection require a packaged macOS app.
+
+## macOS status bar icons
+
+`tray/` holds the template images for the macOS status bar item: the idle, working, and alert cube variants at
+20×22 and 40×44 (`@2x`). They are pure black with alpha, so the system tints them for both menu bar appearances.
+`scripts/tray-icon-render.ts` derives them from the shared mark geometry, so regenerate after changing
+`src/desktop/renderer/mark.ts`:
+
+    bun run build:desktop:tray
+
+The committed PNGs are verified byte-for-byte against the generator in `tests/desktop/main/tray.test.ts`.
