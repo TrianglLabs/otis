@@ -145,7 +145,7 @@ export class DesktopRuntime {
   }
 
   static async create(options: DesktopRuntimeOptions) {
-    const app = await Application.create({ cwd: options.cwd })
+    const app = await Application.create({ cwd: options.cwd, outputCapabilities: { mermaid: true } })
     return DesktopRuntime.forApplication(app, options)
   }
 
@@ -394,7 +394,7 @@ export class DesktopRuntime {
 
       let next: Application
       try {
-        next = await Application.create({ cwd })
+        next = await Application.create({ cwd, outputCapabilities: { mermaid: true } })
       } catch (error) {
         return { ok: false, reason: `Could not open that folder: ${errorMessage(error)}` }
       }
@@ -420,14 +420,9 @@ export class DesktopRuntime {
       this.#modelError = undefined
       this.#modelLoad = undefined
       void this.#startSavedSelection()
-      this.#revision += 1
-      this.options.send({
-        type: "transcript",
-        revision: this.#revision,
-        ops: [{ op: "reset", entries: [...next.transcript.entries] }],
-      })
-      await saveLastWorkspace(cwd)
+      this.#onTranscriptChange({ op: "reset" })
       this.#markStateDirty()
+      await saveLastWorkspace(cwd)
       return { ok: true }
     } finally {
       this.#switching = false
@@ -1226,8 +1221,20 @@ export class DesktopRuntime {
 
   async #deliver(changes: TranscriptChange[], sendState: boolean) {
     const ops = this.#toPatchOps(changes)
+    // A session reset and its metadata are one display transaction. Keep the old view intact while history
+    // is scanned; a standalone reset would show Home with the previous session's title and coworkers.
+    if (ops.some((op) => op.op === "reset")) {
+      const revision = ++this.#revision
+      const status = await this.#status()
+      this.options.send({ type: "status", revision, status, ops })
+      return
+    }
     if (ops.length > 0) this.options.send({ type: "transcript", revision: ++this.#revision, ops })
-    if (sendState) this.options.send({ type: "status", revision: ++this.#revision, status: await this.#status() })
+    if (sendState) {
+      const revision = ++this.#revision
+      const status = await this.#status()
+      this.options.send({ type: "status", revision, status })
+    }
   }
 
   /** Compacts queued store mutations into renderer ops. A reset invalidates every change queued before it. */
@@ -1301,7 +1308,6 @@ export class DesktopRuntime {
       modelError: this.#modelError,
       session: app.sessions.current ? { id: app.sessions.current.id, title: app.sessions.activeLabel() } : null,
       needsWorkspace: this.#pendingWorkspace !== undefined,
-      sessions: await this.#globalSessions(),
       workspace: { label: formatWorkspaceLabel(app.cwd), path: app.cwd },
       contextTokens: app.contextTokens(),
       contextLimit: app.models.autoCompactAtTokens,
@@ -1326,6 +1332,8 @@ export class DesktopRuntime {
         ...(trace.durationMs === undefined ? {} : { durationMs: trace.durationMs }),
         tools: trace.transcript.entries.filter((entry) => entry.kind === "tool").length,
       })),
+      // Capture all live fields before yielding so a slow history scan cannot mix two sessions' metadata.
+      sessions: await this.#globalSessions(),
     }
   }
 }

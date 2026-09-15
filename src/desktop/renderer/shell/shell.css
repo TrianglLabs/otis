@@ -5,6 +5,7 @@
   height: 100%;
   background: var(--bg);
   position: relative;
+  overflow: hidden;
 }
 
 /* Native macOS traffic lights at y=16 have a 22px visual center. A 44px title bar puts every shared header
@@ -13,21 +14,35 @@
   --header-height: 44px;
 }
 
-.mainColumn {
+.workspaceView {
   display: flex;
-  flex-direction: column;
   flex: 1;
   min-width: 0;
   min-height: 0;
 }
 
-/* Settings covers the window without unmounting the conversation: absolute takes the column out of the flex
-   layout; visibility (not display) keeps its layout boxes alive so scroll position and local state are kept. */
-.mainColumn-hidden {
-  position: absolute;
-  inset: 0;
+.workspaceView-hidden {
   visibility: hidden;
   pointer-events: none;
+}
+
+.settingsLayer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg);
+}
+
+.mainColumn {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  container: main-column / inline-size;
 }
 
 /* Workspace header */
@@ -80,6 +95,11 @@
 
 .platform-darwin .workspaceHeader-left {
   padding-left: 76px;
+}
+
+/* Native fullscreen has no traffic lights, so only their reserved inset disappears; the shared 12px gutter stays. */
+.platform-darwin.windowFullscreen .workspaceHeader-left {
+  padding-left: 0;
 }
 
 /* Settings takes over the window, so its header owns the traffic-light inset while it's open. */
@@ -179,6 +199,13 @@
   border-color: var(--accent);
   background: var(--accent-soft);
   color: var(--accent);
+}
+
+/* Canvas can squeeze the conversation while the window itself stays wide, so availability follows the column. */
+@container main-column (max-width: 920px) {
+  .updateFab {
+    display: none;
+  }
 }
 
 .workspaceBanner {

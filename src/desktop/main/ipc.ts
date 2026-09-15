@@ -9,6 +9,11 @@ import type { DesktopRuntime } from "./runtime.js"
 export function registerDesktopIpc(runtime: DesktopRuntime) {
   handle(DESKTOP_CHANNELS.getSnapshot, () => runtime.snapshot())
 
+  ipcMain.handle(DESKTOP_CHANNELS.getWindowState, (event: IpcMainInvokeEvent) => {
+    assertTrustedSender(event)
+    return { fullscreen: BrowserWindow.fromWebContents(event.sender)?.isFullScreen() ?? false }
+  })
+
   handle(DESKTOP_CHANNELS.sendPrompt, (text, images) => {
     if (typeof text !== "string") throw new Error("sendPrompt expects a string")
     if (images !== undefined && !isDesktopImageInputs(images)) {

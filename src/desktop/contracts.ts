@@ -42,6 +42,8 @@ export const DESKTOP_CHANNELS = {
   setDebugMode: "desktop:set-debug-mode",
   checkForUpdates: "desktop:check-for-updates",
   installUpdate: "desktop:install-update",
+  getWindowState: "desktop:get-window-state",
+  windowState: "desktop:window-state",
   event: "desktop:event",
 } as const
 
@@ -135,10 +137,11 @@ export type TranscriptPatchOp =
 /**
  * Ordered updates from the main process. Every event carries the shared revision counter so a renderer that
  * reloaded can discard anything it already received in its snapshot.
+ * Status events can include transcript operations so session resets update content and metadata together.
  */
 export type DesktopEvent =
   | { type: "transcript"; revision: number; ops: TranscriptPatchOp[] }
-  | { type: "status"; revision: number; status: DesktopStatus }
+  | { type: "status"; revision: number; status: DesktopStatus; ops?: TranscriptPatchOp[] }
 
 export type SendPromptResult =
   | { accepted: true; delivery: "started" | "steered" | "queued" }
@@ -155,9 +158,12 @@ export type SessionOpResult = { ok: true } | { ok: false; reason: string }
 
 export type ModelSelectResult = { ok: true } | { ok: false; reason: string }
 
+export type DesktopWindowState = { fullscreen: boolean }
+
 /** The API surface exposed to the renderer through the preload bridge. */
 export type DesktopApi = {
   getSnapshot(): Promise<DesktopSnapshot>
+  getWindowState(): Promise<DesktopWindowState>
   sendPrompt(text: string, images?: readonly DesktopImageInput[]): Promise<SendPromptResult>
   stop(): Promise<void>
   respondToPermission(id: number, allow: boolean): Promise<void>
@@ -215,5 +221,6 @@ export type DesktopApi = {
   checkForUpdates(): Promise<void>
   /** Restarts into the downloaded update. No-op when no update is ready. */
   installUpdate(): Promise<void>
+  subscribeWindowState(listener: (state: DesktopWindowState) => void): () => void
   subscribe(listener: (event: DesktopEvent) => void): () => void
 }

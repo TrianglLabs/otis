@@ -5,6 +5,7 @@ import { join, resolve } from "node:path"
 import react from "@vitejs/plugin-react"
 import electron from "electron"
 import { build } from "vite"
+import { inlineCanvas } from "./vite-inline-canvas.js"
 
 // Real Electron layout with a fake DesktopApi. No provider, workspace, installed app, or browser automation is used.
 const output = await mkdtemp(join(tmpdir(), "otis-desktop-ui-"))
@@ -14,7 +15,26 @@ try {
     root: resolve("tests/desktop/ui"),
     base: "./",
     plugins: [react()],
-    build: { outDir: output, emptyOutDir: true },
+    build: {
+      outDir: output,
+      emptyOutDir: true,
+      rollupOptions: {
+        input: resolve("tests/desktop/ui/index.html"),
+      },
+    },
+  })
+  await build({
+    configFile: false,
+    root: resolve("src/desktop/renderer"),
+    base: "./",
+    plugins: [inlineCanvas()],
+    build: {
+      outDir: output,
+      emptyOutDir: false,
+      rollupOptions: {
+        input: resolve("src/desktop/renderer/canvas.html"),
+      },
+    },
   })
   const code = await new Promise<number>((resolveExit, reject) => {
     const child = spawn(electron as unknown as string, [resolve("tests/desktop/ui/run.cjs"), output], {

@@ -4,6 +4,7 @@ import type {
   ContextFile,
   InferenceClient,
   ReasoningTraceEvent,
+  StreamChatOptions,
   TokenUsage,
   UserChatMessage,
 } from "../inference/types.js"
@@ -78,6 +79,7 @@ export type RunAgentOptions = ToolContext & {
   onCompaction?: (result: CompactionResult, steeringCount: number, messages: ChatMessage[]) => void | Promise<void>
   onCompactionUsage?: (usage: TokenUsage) => void | Promise<void>
   steering?: SteeringSource
+  outputCapabilities?: StreamChatOptions["outputCapabilities"]
 }
 
 export async function* runAgent(
@@ -95,7 +97,12 @@ export async function* runAgent(
     const skills = options.skills ?? (await loadSkillCatalog(options.cwd ?? process.cwd()))
     const tools = availableTools(options.tools ?? TOOL_DEFINITIONS, skills)
     const modelSkills = tools.some((tool) => tool.name === "skill") ? skills : emptySkills()
-    const estimate = requestContextEstimator({ tools, projectContext, skills: modelSkills.skills })
+    const estimate = requestContextEstimator({
+      tools,
+      projectContext,
+      skills: modelSkills.skills,
+      outputCapabilities: options.outputCapabilities,
+    })
     let observed =
       options.historyTokens === undefined ? undefined : { tokens: options.historyTokens, estimate: estimate(history) }
     const contextTokens = (value: ChatMessage[]) => {
@@ -242,7 +249,7 @@ type AssistantResponse = {
 async function* streamAssistantResponse(
   messages: ChatMessage[],
   tools = TOOL_DEFINITIONS,
-  options: Pick<RunAgentOptions, "client" | "signal" | "projectContext" | "skills" | "onUsage">,
+  options: Pick<RunAgentOptions, "client" | "signal" | "projectContext" | "skills" | "onUsage" | "outputCapabilities">,
 ): AsyncGenerator<AgentEvent, AssistantResponse> {
   const response = new AssistantResponseBuilder()
   const projectContext = options.projectContext ?? []
@@ -254,6 +261,7 @@ async function* streamAssistantResponse(
       tools,
       projectContext: projectContext.length > 0 ? projectContext : undefined,
       skills: options.skills?.skills,
+      outputCapabilities: options.outputCapabilities,
       signal: options.signal,
     })) {
       if (event.type === "text_delta") {

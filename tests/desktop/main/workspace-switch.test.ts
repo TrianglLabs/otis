@@ -144,7 +144,7 @@ describe("DesktopRuntime workspace switching", () => {
     await runtime.shutdown()
   })
 
-  it("switches into another workspace's session: transcript resets, status follows, last workspace persists", async () => {
+  it("switches workspace content and status together and persists the last workspace", async () => {
     const { runtime, sent, otherCwd } = await setup()
     mocks.executeTurn.mockImplementation(turnEvents("alpha reply"))
     await runtime.sendPrompt("hello alpha")
@@ -166,11 +166,12 @@ describe("DesktopRuntime workspace switching", () => {
     expect(snapshot.entries.some((e) => e.text === "alpha reply")).toBe(false)
     // The transcript swap went out as a reset op with a monotonically increasing revision.
     const reset = sent.find(
-      (event): event is Extract<DesktopEvent, { type: "transcript" }> =>
-        event.type === "transcript" && event.ops.some((op) => op.op === "reset"),
+      (event): event is Extract<DesktopEvent, { type: "status" }> =>
+        event.type === "status" && event.ops?.some((op) => op.op === "reset") === true,
     )
     expect(reset).toBeTruthy()
     expect(reset && reset.revision > revisionBefore).toBe(true)
+    expect(reset).toMatchObject({ status: { session: { id: foreign.id }, workspace: { path: resolve(otherCwd) } } })
     // GUI relaunches resume the last workspace.
     expect((await loadLocalSettings()).lastWorkspace).toBe(resolve(otherCwd))
     await runtime.shutdown()

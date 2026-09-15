@@ -1,6 +1,6 @@
 import type { Skill } from "../skills/index.js"
 import promptText from "./system-prompt.txt" with { type: "text" }
-import type { ContextFile, ToolDefinition } from "./types.js"
+import type { ContextFile, OutputCapabilities, ToolDefinition } from "./types.js"
 
 const MAX_CONTEXT_FILES = 10
 const MAX_CONTEXT_FILE_BYTES = 32 * 1024
@@ -16,14 +16,27 @@ const DELEGATION_GUIDANCE = [
   '- In Otis, subagents are called "coworkers": delegated agent runs appear to the user as coworkers in the app. Use the word coworkers when referring to subagents, and mention what each coworker is doing in plain language.',
 ].join("\n")
 
+const MERMAID_GUIDANCE = [
+  "Canvas:",
+  "- This interface lets the user open fenced Mermaid diagrams in a visual Canvas.",
+  "- When brainstorming or completing new, complex functionality, use a ```mermaid fenced block when it materially clarifies architecture, state, or information flow.",
+  "- Choose the diagram type that best matches the information; use sequenceDiagram only for time-ordered interactions.",
+  "- Canvas does not support Mermaid mindmap or architecture diagrams; use another supported diagram type instead.",
+  "- Keep the surrounding explanation self-contained. Do not use click directives, HTML labels, or external resources.",
+].join("\n")
+
+const NO_MERMAID_GUIDANCE = "- Avoid mermaid diagrams; this interface cannot render them."
+
 export function buildSystemPrompt(
   projectContext: readonly ContextFile[] = [],
   now = new Date(),
   skills: readonly Skill[] = [],
   tools: readonly ToolDefinition[] = [],
+  outputCapabilities: OutputCapabilities = {},
 ) {
   const sections = [BASE_PROMPT]
   if (tools.some((tool) => tool.name === "agent")) sections.push(DELEGATION_GUIDANCE)
+  sections.push(outputCapabilities.mermaid ? MERMAID_GUIDANCE : NO_MERMAID_GUIDANCE)
   if (projectContext.length > 0) sections.push(formatProjectContext(projectContext))
   if (skills.length > 0) sections.push(formatAvailableSkills(skills))
   sections.push(`The current date is ${formatDate(now)}. Use this date when searching for recent information.`)

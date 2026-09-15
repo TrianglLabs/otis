@@ -1,5 +1,6 @@
 import { join } from "node:path"
 import { BrowserWindow, type NativeImage, shell } from "electron"
+import { DESKTOP_CHANNELS } from "../contracts.js"
 
 export function createMainWindow(icon?: NativeImage) {
   const window = new BrowserWindow({
@@ -22,6 +23,15 @@ export function createMainWindow(icon?: NativeImage) {
   })
 
   window.once("ready-to-show", () => window.show())
+
+  const sendWindowState = () => {
+    if (!window.webContents.isDestroyed()) {
+      window.webContents.send(DESKTOP_CHANNELS.windowState, { fullscreen: window.isFullScreen() })
+    }
+  }
+  window.webContents.on("did-finish-load", sendWindowState)
+  window.on("enter-full-screen", sendWindowState)
+  window.on("leave-full-screen", sendWindowState)
 
   // The renderer never navigates or opens windows itself; links go to the system browser.
   window.webContents.setWindowOpenHandler(({ url }) => {

@@ -694,7 +694,7 @@ describe("CLI session turn handling", () => {
   it("includes project context size in the context meter estimate", async () => {
     const session = testSession()
     mocks.createSession.mockResolvedValue(session)
-    mocks.loadProjectContext.mockReturnValue([{ path: "/repo/AGENTS.md", content: "A".repeat(4_000) }])
+    mocks.loadProjectContext.mockReturnValue([{ path: "/repo/AGENTS.md", content: "A".repeat(20_000) }])
     mocks.runAgent.mockImplementationOnce(async function* () {
       yield { type: "delta", text: "done" }
       yield { type: "complete", messages: [{ role: "user", content: "test" }] }
@@ -705,9 +705,14 @@ describe("CLI session turn handling", () => {
     await submit("test")
 
     const labels = mocks.ui.setContextLabel.mock.calls.map((call) => call[0] as string)
-    // The idle meter includes the real system prompt and 1,000 tokens of project context.
-    expect(labels.some((label) => label.includes("~2k"))).toBe(true)
-    expect(labels.some((label) => label.includes("~1k"))).toBe(false)
+    const estimates = labels.flatMap((label) => {
+      const match = label.match(/· ~([\d.]+)k$/)
+      return match ? [Number(match[1]) * 1_000] : []
+    })
+
+    // The project context alone contributes 5,000 estimated tokens. Assert on
+    // that contribution instead of coupling this test to the system prompt size.
+    expect(Math.max(...estimates)).toBeGreaterThan(5_000)
   })
 
   it("passes the startup skill catalog to interactive agent turns", async () => {

@@ -136,6 +136,11 @@ export type InferenceClient = {
   complete(messages: ChatMessage[], options?: CompleteOptions): Promise<string>
 }
 
+export type OutputCapabilities = {
+  /** Presentation formats the active adapter can render natively. */
+  mermaid?: boolean
+}
+
 export type StreamChatOptions = {
   messages: ChatMessage[]
   /** Replaces the working agent instructions for internal tasks such as compaction. */
@@ -145,6 +150,7 @@ export type StreamChatOptions = {
   signal?: AbortSignal
   now?: Date
   skills?: readonly import("../skills/types.js").Skill[]
+  outputCapabilities?: OutputCapabilities
 }
 
 export type CompleteOptions = {

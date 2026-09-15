@@ -16,7 +16,9 @@ export function openaiChatCompletionRequest(
     messages: [
       {
         role: "system",
-        content: options.systemPrompt ?? buildSystemPrompt(options.projectContext, options.now, options.skills, tools),
+        content:
+          options.systemPrompt ??
+          buildSystemPrompt(options.projectContext, options.now, options.skills, tools, options.outputCapabilities),
       },
       ...options.messages.map(openaiMessage),
     ],

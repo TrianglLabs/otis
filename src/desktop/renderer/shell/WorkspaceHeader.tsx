@@ -8,9 +8,11 @@ import { useDesktop, useDesktopSelector, useDesktopState } from "../runtime.js"
  * and settings on the right. Session navigation lives in the ⌘K palette.
  */
 export function WorkspaceHeader({
+  hasCanvas,
   onOpenPalette,
   onOpenSettings,
 }: {
+  hasCanvas: boolean
   onOpenPalette: () => void
   onOpenSettings: () => void
 }) {
@@ -74,10 +76,10 @@ export function WorkspaceHeader({
           <IconButton icon={Search} label="Search sessions (⌘K)" onClick={onOpenPalette} className="noDrag" />
           <IconButton icon={Settings} label="Settings" onClick={onOpenSettings} className="noDrag" />
           {/* Rightmost: it opens the rail that slides in from the right edge. */}
-          {state.subagents.length > 0 && !state.agentsPanelVisible ? (
+          {(state.subagents.length > 0 || hasCanvas) && !state.agentsPanelVisible ? (
             <IconButton
               icon={ChevronsLeft}
-              label="Show coworkers panel"
+              label="Show side panel"
               onClick={() => void api.setAgentsPanelVisible(true)}
               className="noDrag"
             />

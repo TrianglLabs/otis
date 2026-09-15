@@ -1,0 +1,211 @@
+const root = requiredElement("diagram")
+const errorView = requiredElement("error")
+const viewport = requiredElement("viewport")
+const controls = requiredElement("controls")
+const zoomOut = requiredElement("zoom-out")
+const zoomIn = requiredElement("zoom-in")
+const resetButton = requiredElement("reset-view")
+
+let renderId = 0
+let scale = 1
+let panX = 0
+let panY = 0
+let drag
+let latestRequest = 0
+
+zoomOut.addEventListener("click", () => setZoom(scale / 1.2))
+zoomIn.addEventListener("click", () => setZoom(scale * 1.2))
+resetButton.addEventListener("click", resetView)
+
+viewport.addEventListener("pointerdown", (event) => {
+  if (event.button !== 0) return
+  event.preventDefault()
+  viewport.focus()
+  viewport.setPointerCapture(event.pointerId)
+  viewport.classList.add("dragging")
+  drag = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, panX, panY }
+})
+viewport.addEventListener("pointermove", (event) => {
+  if (!drag || drag.pointerId !== event.pointerId) return
+  panX = drag.panX + event.clientX - drag.x
+  panY = drag.panY + event.clientY - drag.y
+  applyView()
+})
+viewport.addEventListener("pointerup", endDrag)
+viewport.addEventListener("pointercancel", endDrag)
+viewport.addEventListener(
+  "wheel",
+  (event) => {
+    event.preventDefault()
+    if (event.ctrlKey || event.metaKey) setZoom(scale * Math.exp(-event.deltaY * 0.002))
+    else {
+      panX -= event.deltaX
+      panY -= event.deltaY
+      applyView()
+    }
+  },
+  { passive: false },
+)
+viewport.addEventListener("keydown", (event) => {
+  const distance = event.shiftKey ? 60 : 24
+  if (event.key === "+" || event.key === "=") setZoom(scale * 1.2)
+  else if (event.key === "-") setZoom(scale / 1.2)
+  else if (event.key === "0") resetView()
+  else if (event.key === "ArrowLeft") panX += distance
+  else if (event.key === "ArrowRight") panX -= distance
+  else if (event.key === "ArrowUp") panY += distance
+  else if (event.key === "ArrowDown") panY -= distance
+  else return
+  event.preventDefault()
+  applyView()
+})
+
+window.addEventListener("message", (event) => {
+  if (event.source !== parent) return
+  const request = canvasRequest(event.data)
+  if (!request) return
+  const requestId = ++latestRequest
+  applyColors(request.colors)
+  root.hidden = true
+  root.innerHTML = ""
+  errorView.hidden = true
+  errorView.textContent = ""
+  if (request.error) showError(request.error, requestId)
+  else void render(request.source, request.colors, requestId)
+})
+
+async function render(source, colors, requestId) {
+  const mermaid = globalThis.mermaid
+  if (!mermaid) return showError("Mermaid failed to load.", requestId)
+
+  try {
+    mermaid.initialize({
+      startOnLoad: false,
+      securityLevel: "strict",
+      suppressErrorRendering: true,
+      maxTextSize: 50_000,
+      htmlLabels: false,
+      flowchart: { htmlLabels: false },
+      theme: "base",
+      look: "classic",
+      themeCSS: "* { filter: none; box-shadow: none; }",
+      themeVariables: {
+        background: colors.background,
+        primaryColor: colors.surface,
+        primaryTextColor: colors.text,
+        primaryBorderColor: colors.border,
+        lineColor: colors.muted,
+        secondaryColor: colors.surface,
+        tertiaryColor: colors.background,
+        actorBkg: colors.surface,
+        actorBorder: colors.border,
+        actorTextColor: colors.text,
+        signalColor: colors.text,
+        signalTextColor: colors.text,
+        labelBoxBkgColor: colors.surface,
+        labelBoxBorderColor: colors.border,
+        labelTextColor: colors.text,
+        noteBkgColor: colors.surface,
+        noteBorderColor: colors.accent,
+        noteTextColor: colors.text,
+      },
+    })
+    const result = await mermaid.render(`otis-canvas-${renderId++}`, source)
+    if (requestId !== latestRequest) return
+    root.innerHTML = result.svg
+    resetView()
+    const svg = root.querySelector("svg")
+    if (svg) {
+      const viewBoxWidth = Number(svg.getAttribute("viewBox")?.split(/\s+/)[2])
+      const naturalWidth = Number.isFinite(viewBoxWidth) && viewBoxWidth > 0 ? viewBoxWidth : 480
+      svg.style.width = `min(100%, ${Math.min(naturalWidth, 480)}px)`
+      svg.style.maxWidth = "100%"
+      svg.style.height = "auto"
+      svg.style.margin = "0 auto"
+    }
+    root.hidden = false
+    parent.postMessage(
+      {
+        type: "otis-canvas-render",
+        ok: true,
+        width: svg?.getBoundingClientRect().width,
+        diagramTop: svg?.getBoundingClientRect().top,
+        controlsBottom: controls.getBoundingClientRect().bottom,
+        controls: true,
+      },
+      "*",
+    )
+  } catch (reason) {
+    showError(reason instanceof Error ? reason.message : String(reason), requestId)
+  }
+}
+
+function setZoom(nextScale) {
+  scale = Math.min(3, Math.max(0.4, nextScale))
+  applyView()
+}
+
+function resetView() {
+  scale = 1
+  panX = 0
+  panY = 0
+  applyView()
+}
+
+function applyView() {
+  root.style.transform = `translate3d(${panX}px, ${panY}px, 0) scale(${scale})`
+  resetButton.textContent = `${Math.round(scale * 100)}%`
+}
+
+function endDrag(event) {
+  if (!drag || drag.pointerId !== event.pointerId) return
+  drag = undefined
+  viewport.classList.remove("dragging")
+  if (viewport.hasPointerCapture(event.pointerId)) viewport.releasePointerCapture(event.pointerId)
+}
+
+function applyColors(colors) {
+  document.body.style.color = colors.text
+  document.documentElement.style.setProperty("--canvas-surface", colors.surface)
+  document.documentElement.style.setProperty("--canvas-border", colors.border)
+  document.documentElement.style.setProperty("--canvas-text", colors.text)
+  document.documentElement.style.setProperty("--canvas-muted", colors.muted)
+  document.documentElement.style.setProperty("--canvas-hover", colors.background)
+  errorView.style.color = colors.muted
+}
+
+function showError(message, requestId) {
+  if (requestId !== latestRequest) return
+  root.hidden = true
+  root.innerHTML = ""
+  errorView.hidden = false
+  errorView.textContent = `Could not render this Mermaid diagram.\n\n${message}`
+  parent.postMessage({ type: "otis-canvas-render", ok: false, message }, "*")
+}
+
+function canvasRequest(value) {
+  if (!value || typeof value !== "object") return false
+  if (value.type !== "otis-canvas-source" || typeof value.source !== "string") return false
+  if (!value.colors || typeof value.colors !== "object") return false
+  const validColors = ["background", "surface", "text", "muted", "accent", "border"].every(
+    (name) => typeof value.colors[name] === "string" && value.colors[name].length <= 100,
+  )
+  if (!validColors) return false
+  if (value.source.length === 0) {
+    return { source: value.source, colors: value.colors, error: "The Mermaid block is empty." }
+  }
+  if (value.source.length > 50_000) {
+    return {
+      source: value.source,
+      colors: value.colors,
+      error: "This Mermaid diagram is too large to render. The limit is 50,000 characters.",
+    }
+  }
+  return { source: value.source, colors: value.colors }
+}
+
+function requiredElement(id) {
+  const element = document.getElementById(id)
+  if (!element) throw new Error(`Canvas is missing #${id}.`)
+  return element
+}

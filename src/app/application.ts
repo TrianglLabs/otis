@@ -5,7 +5,7 @@ import { providerTools } from "../core/subagent.js"
 import type { LocalLoadProgress } from "../inference/llama-runtime.js"
 import { catalogModelFromSpec, findLocalModel } from "../inference/local-catalog.js"
 import { type PairEndpoints, pairEndpointForEngine } from "../inference/pair.js"
-import type { ContextFile, UserChatMessage } from "../inference/types.js"
+import type { ContextFile, OutputCapabilities, UserChatMessage } from "../inference/types.js"
 import { type LocalSettings, loadLocalSettings } from "../local/settings.js"
 import {
   createPermissionPolicy,
@@ -27,10 +27,12 @@ export type ApplicationOptions = {
   env?: NodeJS.ProcessEnv
   isBusy?: () => boolean
   isExiting?: () => boolean
+  outputCapabilities?: OutputCapabilities
 }
 
 export class Application {
   readonly cwd: string
+  readonly outputCapabilities: OutputCapabilities
   readonly transcript = new TranscriptStore()
   readonly subagents = new SubagentTraces()
   readonly models: ModelHost
@@ -56,6 +58,7 @@ export class Application {
 
   private constructor(cwd: string, settings: LocalSettings, options: ApplicationOptions) {
     this.cwd = cwd
+    this.outputCapabilities = options.outputCapabilities ?? {}
     this.settings = settings
     this.fireworksApiKey = settings.fireworksApiKey
     this.pairEndpoints = { ...settings.pairEndpoints }
@@ -81,6 +84,7 @@ export class Application {
       skills: () => this.skills,
       permissionPolicy: () => this.createPermissionPolicy(),
       isExiting: options.isExiting ?? (() => false),
+      outputCapabilities: this.outputCapabilities,
     })
   }
 
@@ -109,6 +113,7 @@ export class Application {
       tools,
       projectContext: this.projectContext,
       skills: tools.some((tool) => tool.name === "skill") ? this.skills.skills : [],
+      outputCapabilities: this.outputCapabilities,
     })
   }
 

@@ -1230,6 +1230,29 @@ describe("DesktopRuntime cancellation and timing", () => {
 })
 
 describe("DesktopRuntime sessions", () => {
+  it("delivers Fresh start content and metadata together", async () => {
+    const { runtime, sent } = await setup()
+    try {
+      mocks.executeTurn.mockImplementation(turnEvents("first session reply"))
+      await runtime.sendPrompt("hello")
+      await vi.waitFor(async () => expect((await runtime.snapshot()).busy).toBe(false))
+      await flush()
+      sent.length = 0
+
+      expect(runtime.startNewSession()).toEqual({ ok: true })
+      await vi.waitFor(() => expect(sent.some((event) => event.type === "status" && event.ops)).toBe(true))
+      const reset = sent.find((event) => event.type === "status" && event.ops)
+      expect(reset).toMatchObject({
+        type: "status",
+        status: { session: null, subagents: [], diffs: { added: 0, removed: 0 } },
+        ops: [{ op: "reset", entries: [] }],
+      })
+      expect(sent.some((event) => event.type === "transcript" && event.ops.some((op) => op.op === "reset"))).toBe(false)
+    } finally {
+      await runtime.shutdown()
+    }
+  })
+
   it("resets the transcript view when switching sessions", async () => {
     const { runtime } = await setup()
     mocks.executeTurn.mockImplementation(turnEvents("first session reply"))

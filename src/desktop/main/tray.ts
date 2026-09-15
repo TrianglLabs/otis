@@ -5,7 +5,7 @@ import type { DesktopStatus } from "../contracts.js"
 /**
  * The macOS status bar item (menu bar extra). The icon is a glanceable activity signal — idle, working, or
  * "needs your approval" — and the menu carries the quick actions. State comes from the same status stream the
- * renderer sees, and the menu is rebuilt from a fresh snapshot at every open, so the tray never drifts from the
+ * renderer sees, and the menu is rebuilt from the latest status at every open, so the tray never drifts from the
  * window. Window-bound by design: under the v1 close-to-quit policy the tray lives and dies with the window.
  */
 
@@ -125,8 +125,8 @@ function shortModelId(id: string): string {
 }
 
 export type StatusTray = {
-  /** Applies a status event to the icon and tooltip; cheap enough for every status flush. */
-  onStatus(status: TrayState): void
+  /** Keeps menu state current and updates the native icon and tooltip only when they change. */
+  onStatus(status: DesktopStatus): void
   destroy(): void
 }
 
@@ -140,11 +140,11 @@ export type StatusTray = {
 export function trayStatusGate(tray: Pick<StatusTray, "onStatus">) {
   let live = false
   return {
-    applyLive(status: TrayState) {
+    applyLive(status: DesktopStatus) {
       live = true
       tray.onStatus(status)
     },
-    applySeed(status: TrayState) {
+    applySeed(status: DesktopStatus) {
       if (!live) tray.onStatus(status)
     },
   }
@@ -152,15 +152,13 @@ export function trayStatusGate(tray: Pick<StatusTray, "onStatus">) {
 
 export type StatusTrayOptions = {
   iconDir: string
-  /** Fresh state for each menu open; menus are rebuilt from it so they never go stale. */
-  snapshot: () => Promise<DesktopStatus>
   actions: TrayActions
 }
 
 /**
  * Creates the status bar item, or undefined when the template images are missing (the tray is a convenience,
  * never a launch dependency — the same posture as the app icon). The menu opens on click and right-click; the
- * click handler rebuilds it from a snapshot first, so an open menu always reflects the moment it was opened.
+ * click handler uses the latest delivered status synchronously, without a delayed popup or a session-history read.
  */
 export function createStatusTray(options: StatusTrayOptions): StatusTray | undefined {
   const icons = loadTrayIcons(options.iconDir)
@@ -169,20 +167,36 @@ export function createStatusTray(options: StatusTrayOptions): StatusTray | undef
     return undefined
   }
   const tray = new Tray(icons.idle)
-  tray.setToolTip("Otis — ready")
+  let iconKey: TrayIconKey = "idle"
+  let tooltip = "Otis — ready"
+  let latestStatus: DesktopStatus | undefined
+  tray.setToolTip(tooltip)
   tray.setIgnoreDoubleClickEvents(true)
   const openMenu = () => {
-    void options
-      .snapshot()
-      .then((status) => tray.popUpContextMenu(Menu.buildFromTemplate(buildTrayMenu(status, options.actions))))
-      .catch((error) => console.warn(`Unable to open the tray menu: ${String(error)}`))
+    const items: MenuItemConstructorOptions[] = latestStatus
+      ? buildTrayMenu(latestStatus, options.actions)
+      : [
+          { label: "Starting Otis…", enabled: false },
+          { label: "Show Otis", click: () => options.actions.focusWindow() },
+          { role: "quit", label: "Quit Otis" },
+        ]
+    tray.popUpContextMenu(Menu.buildFromTemplate(items))
   }
   tray.on("click", openMenu)
   tray.on("right-click", openMenu)
   return {
     onStatus(status) {
-      tray.setImage(icons[trayIconKey(status)])
-      tray.setToolTip(trayTooltip(status))
+      latestStatus = status
+      const nextIconKey = trayIconKey(status)
+      const nextTooltip = trayTooltip(status)
+      if (nextIconKey !== iconKey) {
+        tray.setImage(icons[nextIconKey])
+        iconKey = nextIconKey
+      }
+      if (nextTooltip !== tooltip) {
+        tray.setToolTip(nextTooltip)
+        tooltip = nextTooltip
+      }
     },
     destroy() {
       tray.destroy()

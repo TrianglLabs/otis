@@ -1,11 +1,13 @@
-import { Check, Copy } from "lucide-react"
-import { isValidElement, memo, useEffect, useRef, useState } from "react"
+import { Check, Copy, Waypoints } from "lucide-react"
+import { createContext, isValidElement, memo, useContext, useEffect, useRef, useState } from "react"
 import ReactMarkdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
+import { useOpenCanvas } from "../features/canvas/canvas-context.js"
 import { IconButton } from "./Button.js"
 
 /** Assistant-facing Markdown: GFM, external links in the system browser, copyable code blocks. */
 const remarkPlugins = [remarkGfm]
+const CanvasBlockEnabledContext = createContext(true)
 // Component types must survive text updates, otherwise React remounts code/table subtrees and loses selection,
 // horizontal scrolling, and copy-button state.
 const components: Components = {
@@ -22,13 +24,21 @@ const components: Components = {
   ),
 }
 
-export const Markdown = memo(function Markdown({ text }: { text: string }) {
+export const Markdown = memo(function Markdown({
+  text,
+  enableCanvas = true,
+}: {
+  text: string
+  enableCanvas?: boolean
+}) {
   return (
-    <div className="md">
-      <ReactMarkdown remarkPlugins={remarkPlugins} components={components}>
-        {text}
-      </ReactMarkdown>
-    </div>
+    <CanvasBlockEnabledContext.Provider value={enableCanvas}>
+      <div className="md">
+        <ReactMarkdown remarkPlugins={remarkPlugins} components={components}>
+          {text}
+        </ReactMarkdown>
+      </div>
+    </CanvasBlockEnabledContext.Provider>
   )
 })
 
@@ -40,6 +50,8 @@ function CodeBlock({ children }: { children?: React.ReactNode }) {
   const language = /language-(\w+)/.exec(codeProps?.className ?? "")?.[1]
   // react-markdown appends a trailing newline to fenced code; it renders as a blank last line.
   const text = extractText(codeProps?.children).replace(/\n+$/, "")
+  const openCanvas = useOpenCanvas()
+  const canvasEnabled = useContext(CanvasBlockEnabledContext)
   const [copied, setCopied] = useState(false)
   const copyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   useEffect(() => () => clearTimeout(copyTimer.current), [])
@@ -59,7 +71,12 @@ function CodeBlock({ children }: { children?: React.ReactNode }) {
     <figure className="codeBlock">
       <figcaption>
         <span className="codeBlock-lang">{language ?? "code"}</span>
-        <IconButton icon={copied ? Check : Copy} label={copied ? "Copied" : "Copy code"} onClick={copy} size={22} />
+        <span className="codeBlock-actions">
+          {language?.toLowerCase() === "mermaid" && openCanvas && canvasEnabled ? (
+            <IconButton icon={Waypoints} label="Open in Canvas" onClick={() => openCanvas(text)} size={22} />
+          ) : null}
+          <IconButton icon={copied ? Check : Copy} label={copied ? "Copied" : "Copy code"} onClick={copy} size={22} />
+        </span>
       </figcaption>
       <pre>
         <code>{text}</code>

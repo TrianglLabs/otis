@@ -104,6 +104,7 @@ describe("DesktopViewStore", () => {
       emit: (event) => listener?.(event),
       api: {
         getSnapshot: async () => snapshot(),
+        getWindowState: async () => ({ fullscreen: false }),
         sendPrompt: async () => ({ accepted: true, delivery: "started" }),
         stop: async () => {},
         respondToPermission: async () => {},
@@ -129,6 +130,7 @@ describe("DesktopViewStore", () => {
         setDebugMode: async () => {},
         installUpdate: async () => {},
         checkForUpdates: async () => {},
+        subscribeWindowState: () => () => {},
         deleteSession: async () => ({ ok: true }),
         listModels: async () => [],
         selectModel: async () => ({ ok: true }),
@@ -161,5 +163,20 @@ describe("DesktopViewStore", () => {
     emit({ type: "status", revision: 7, status: { ...status, busy: true } })
     expect(store.getState()?.busy).toBe(true)
     expect(store.getState()?.revision).toBe(7)
+  })
+
+  it("publishes a session reset and its metadata as one state change", async () => {
+    const { api, emit } = fakeApi()
+    const store = new DesktopViewStore(api)
+    await store.start()
+    emit({ type: "status", revision: 6, status: { ...status, session: { id: "old", title: "Old session" } } })
+    const observed: (DesktopSnapshot | undefined)[] = []
+    store.subscribe(() => observed.push(store.getState()))
+
+    emit({ type: "status", revision: 7, status, ops: [{ op: "reset", entries: [] }] })
+
+    expect(observed).toHaveLength(1)
+    expect(observed[0]).toMatchObject({ session: null, entries: [], subagents: [], revision: 7 })
+    store.dispose()
   })
 })

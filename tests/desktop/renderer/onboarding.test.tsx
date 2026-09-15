@@ -97,6 +97,7 @@ const PAIR_ITEM: ModelPickerItem = {
 function fakeApi(overrides: Partial<DesktopApi> = {}): DesktopApi {
   return {
     getSnapshot: vi.fn(async () => SNAPSHOT),
+    getWindowState: vi.fn(async () => ({ fullscreen: false })),
     sendPrompt: vi.fn(async () => ({ accepted: true as const, delivery: "started" as const })),
     stop: vi.fn(async () => {}),
     respondToPermission: vi.fn(async () => {}),
@@ -126,6 +127,7 @@ function fakeApi(overrides: Partial<DesktopApi> = {}): DesktopApi {
     setDebugMode: vi.fn(async () => {}),
     installUpdate: vi.fn(async () => {}),
     checkForUpdates: vi.fn(async () => {}),
+    subscribeWindowState: vi.fn(() => () => {}),
     subscribe: vi.fn(() => () => {}),
     ...overrides,
   }

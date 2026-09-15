@@ -1,8 +1,9 @@
 import { contextBridge, type IpcRendererEvent, ipcRenderer } from "electron"
-import { DESKTOP_CHANNELS, type DesktopApi, type DesktopEvent } from "../contracts.js"
+import { DESKTOP_CHANNELS, type DesktopApi, type DesktopEvent, type DesktopWindowState } from "../contracts.js"
 
 const api: DesktopApi = {
   getSnapshot: () => ipcRenderer.invoke(DESKTOP_CHANNELS.getSnapshot),
+  getWindowState: () => ipcRenderer.invoke(DESKTOP_CHANNELS.getWindowState),
   sendPrompt: (text, images) => ipcRenderer.invoke(DESKTOP_CHANNELS.sendPrompt, text, images),
   stop: () => ipcRenderer.invoke(DESKTOP_CHANNELS.stop),
   respondToPermission: (id, allow) => ipcRenderer.invoke(DESKTOP_CHANNELS.respondToPermission, id, allow),
@@ -34,6 +35,13 @@ const api: DesktopApi = {
   setDebugMode: (enabled: boolean) => ipcRenderer.invoke(DESKTOP_CHANNELS.setDebugMode, enabled),
   checkForUpdates: () => ipcRenderer.invoke(DESKTOP_CHANNELS.checkForUpdates),
   installUpdate: () => ipcRenderer.invoke(DESKTOP_CHANNELS.installUpdate),
+  subscribeWindowState: (listener) => {
+    const wrapped = (_event: IpcRendererEvent, state: DesktopWindowState) => listener(state)
+    ipcRenderer.on(DESKTOP_CHANNELS.windowState, wrapped)
+    return () => {
+      ipcRenderer.removeListener(DESKTOP_CHANNELS.windowState, wrapped)
+    }
+  },
   subscribe: (listener) => {
     const wrapped = (_event: IpcRendererEvent, payload: DesktopEvent) => listener(payload)
     ipcRenderer.on(DESKTOP_CHANNELS.event, wrapped)
