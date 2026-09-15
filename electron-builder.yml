@@ -5,6 +5,8 @@ directories:
   output: dist/desktop
 files:
   - out/**/*
+  - LICENSE
+  - THIRD_PARTY_NOTICES.md
   - "!node_modules/**/*"
 extraResources:
   - from: resources/icon.png

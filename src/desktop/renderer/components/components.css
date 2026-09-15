@@ -255,6 +255,12 @@
   letter-spacing: 0.06em;
 }
 
+.codeBlock-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
 .codeBlock pre {
   margin: 0;
   padding: 12px;

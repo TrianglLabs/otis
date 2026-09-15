@@ -3,11 +3,21 @@ import { buildSystemPrompt } from "../../src/inference/system-prompt.js"
 import { TOOL_DEFINITIONS } from "../../src/tools/index.js"
 
 describe("system prompt", () => {
-  it("keeps sequence diagram guidance while avoiding mermaid syntax", () => {
+  it("keeps diagram guidance capability-specific", () => {
     const prompt = buildSystemPrompt([], new Date("2026-07-16T12:00:00Z"))
 
-    expect(prompt).toContain("show sequence diagrams")
+    expect(prompt).not.toContain("show sequence diagrams")
     expect(prompt).toContain("Avoid mermaid diagrams")
+  })
+
+  it("advertises Mermaid only to interfaces with a Canvas", () => {
+    const prompt = buildSystemPrompt([], new Date("2026-07-16T12:00:00Z"), [], [], { mermaid: true })
+
+    expect(prompt).toContain("lets the user open fenced Mermaid diagrams in a visual Canvas")
+    expect(prompt).toContain("```mermaid")
+    expect(prompt).toContain("use sequenceDiagram only for time-ordered interactions")
+    expect(prompt).toContain("does not support Mermaid mindmap or architecture diagrams")
+    expect(prompt).not.toContain("Avoid mermaid diagrams")
   })
 
   it("names the web tools the runtime actually exposes", () => {

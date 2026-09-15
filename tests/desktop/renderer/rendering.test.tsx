@@ -6,6 +6,7 @@ import type { DesktopEvent } from "../../../src/desktop/contracts.js"
 import { Markdown } from "../../../src/desktop/renderer/components/Markdown.js"
 import { createDemoRuntime } from "../../../src/desktop/renderer/demo/demo-runtime.js"
 import { AgentTraceOverlay } from "../../../src/desktop/renderer/features/agents/AgentTraceOverlay.js"
+import { CanvasOpenContext } from "../../../src/desktop/renderer/features/canvas/canvas-context.js"
 import * as diff from "../../../src/desktop/renderer/features/conversation/diff.js"
 import { EntryView } from "../../../src/desktop/renderer/features/conversation/entries.js"
 import { ToolCard } from "../../../src/desktop/renderer/features/conversation/ToolCard.js"
@@ -18,6 +19,18 @@ const markdown =
   "| Column | Value |\n| --- | --- |\n| test | wide table |\n\n```ts\nconst answer = 42\n```\n\nStreaming"
 
 describe("stable message rendering", () => {
+  it("offers completed Mermaid source to Canvas without rendering other code blocks", () => {
+    const openCanvas = vi.fn()
+    render(
+      <CanvasOpenContext.Provider value={openCanvas}>
+        <Markdown text={"```mermaid\nflowchart LR\n  A --> B\n```\n\n```ts\nconst answer = 42\n```"} />
+      </CanvasOpenContext.Provider>,
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Open in Canvas" }))
+    expect(openCanvas).toHaveBeenCalledExactlyOnceWith("flowchart LR\n  A --> B")
+  })
+
   it("preserves code/table elements, selection, horizontal scroll, and copy state while text grows", async () => {
     vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined)
     const view = render(<Markdown text={markdown} />)

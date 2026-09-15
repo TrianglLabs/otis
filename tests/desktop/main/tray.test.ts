@@ -346,7 +346,6 @@ describe("createStatusTray", () => {
     try {
       const tray = createStatusTray({
         iconDir: "/missing",
-        snapshot: () => Promise.resolve(statusFixture()),
         actions: actionsFixture(),
       })
       expect(tray).toBeUndefined()
@@ -362,7 +361,6 @@ describe("createStatusTray", () => {
     expect(
       createStatusTray({
         iconDir: "/app/resources/tray",
-        snapshot: () => Promise.resolve(statusFixture()),
         actions: actionsFixture(),
       }),
     ).toBeDefined()
@@ -383,29 +381,96 @@ describe("createStatusTray", () => {
     }
   })
 
-  it("opens a menu rebuilt from a fresh snapshot on click, with right-click wired the same way", async () => {
+  it("opens menus synchronously from the latest status on click and right-click", () => {
     installMockIcons()
-    const snapshot = vi.fn(() =>
-      Promise.resolve(statusFixture({ session: { id: "s2", title: "Snapshot at open time" } })),
-    )
-    expect(createStatusTray({ iconDir: "/app/resources/tray", snapshot, actions: actionsFixture() })).toBeDefined()
+    const statusTray = createStatusTray({ iconDir: "/app/resources/tray", actions: actionsFixture() })
+    expect(statusTray).toBeDefined()
     const tray = latestTray()
     const onClick = tray.on.mock.calls.find(([event]) => event === "click")?.[1] as () => void
+    const onRightClick = tray.on.mock.calls.find(([event]) => event === "right-click")?.[1] as () => void
     expect(onClick).toBeTypeOf("function")
-    expect(tray.on).toHaveBeenCalledWith("right-click", expect.any(Function))
+    expect(onRightClick).toBeTypeOf("function")
+    statusTray?.onStatus(statusFixture())
     onClick()
-    await vi.waitFor(() => expect(tray.popUpContextMenu).toHaveBeenCalledOnce())
-    expect(snapshot).toHaveBeenCalledOnce()
+    expect(tray.popUpContextMenu).toHaveBeenCalledOnce()
     expect(Menu.buildFromTemplate).toHaveBeenCalledOnce()
+    const firstMenu = tray.popUpContextMenu.mock.lastCall?.[0] as { template: MenuItemConstructorOptions[] }
+    expect(firstMenu.template.map((item) => item.label)).toContain("Fix session lock behavior")
+
+    // Menu-only changes must be retained even when the icon and tooltip stay idle.
+    statusTray?.onStatus(statusFixture({ session: { id: "s2", title: "Latest session" } }))
+    expect(Menu.buildFromTemplate).toHaveBeenCalledOnce()
+    onRightClick()
+    expect(tray.popUpContextMenu).toHaveBeenCalledTimes(2)
+    const secondMenu = tray.popUpContextMenu.mock.lastCall?.[0] as { template: MenuItemConstructorOptions[] }
+    expect(secondMenu.template.map((item) => item.label)).toContain("Latest session")
+    expect(secondMenu.template.map((item) => item.label)).not.toContain("Fix session lock behavior")
+    expect(tray.setImage).not.toHaveBeenCalled()
+    expect(tray.setToolTip).toHaveBeenCalledOnce()
+  })
+
+  it("offers safe startup actions before the initial status arrives", () => {
+    installMockIcons()
+    const actions = actionsFixture()
+    createStatusTray({ iconDir: "/app/resources/tray", actions })
+    const tray = latestTray()
+    const onClick = tray.on.mock.calls.find(([event]) => event === "click")?.[1] as () => void
+    onClick()
+    expect(tray.popUpContextMenu).toHaveBeenCalledOnce()
     const menu = tray.popUpContextMenu.mock.lastCall?.[0] as { template: MenuItemConstructorOptions[] }
-    expect(menu.template.map((item) => item.label)).toContain("Snapshot at open time")
+    expect(byLabel(menu.template, "Starting Otis…")?.enabled).toBe(false)
+    expect(byLabel(menu.template, "Fresh start")).toBeUndefined()
+    expect(byLabel(menu.template, "Quit Otis")?.role).toBe("quit")
+    click(byLabel(menu.template, "Show Otis"))
+    expect(actions.focusWindow).toHaveBeenCalledOnce()
+  })
+
+  it("does not rewrite the native icon or tooltip for repeated status flushes", () => {
+    installMockIcons()
+    const statusTray = createStatusTray({ iconDir: "/app/resources/tray", actions: actionsFixture() })
+    const tray = latestTray()
+    for (let i = 0; i < 100; i++) statusTray?.onStatus(statusFixture({ contextTokens: i }))
+    expect(tray.setImage).not.toHaveBeenCalled()
+    expect(tray.setToolTip).toHaveBeenCalledExactlyOnceWith("Otis — ready")
+
+    for (let i = 0; i < 100; i++) statusTray?.onStatus(statusFixture({ busy: true, phase: "thinking" }))
+    expect(tray.setImage).toHaveBeenCalledOnce()
+    expect(tray.setToolTip).toHaveBeenCalledTimes(2)
+    expect(tray.setToolTip).toHaveBeenLastCalledWith("Otis — thinking")
+
+    // Thinking and working share an icon, but have different tooltips.
+    statusTray?.onStatus(statusFixture({ busy: true, phase: "working" }))
+    expect(tray.setImage).toHaveBeenCalledOnce()
+    expect(tray.setToolTip).toHaveBeenCalledTimes(3)
+    expect(tray.setToolTip).toHaveBeenLastCalledWith("Otis — working")
+
+    statusTray?.onStatus(statusFixture())
+    expect(tray.setImage).toHaveBeenCalledTimes(2)
+    expect(tray.setToolTip).toHaveBeenCalledTimes(4)
+    expect(tray.setToolTip).toHaveBeenLastCalledWith("Otis — ready")
+    expect(Menu.buildFromTemplate).not.toHaveBeenCalled()
+  })
+
+  it("keeps menu state from regressing when the seed arrives after a live status", () => {
+    installMockIcons()
+    const statusTray = createStatusTray({ iconDir: "/app/resources/tray", actions: actionsFixture() })
+    if (!statusTray) throw new Error("Expected a tray")
+    const gate = trayStatusGate(statusTray)
+    gate.applyLive(statusFixture({ busy: true, session: { id: "s2", title: "Current session" } }))
+    gate.applySeed(statusFixture())
+    const tray = latestTray()
+    const onClick = tray.on.mock.calls.find(([event]) => event === "click")?.[1] as () => void
+    onClick()
+    const menu = tray.popUpContextMenu.mock.lastCall?.[0] as { template: MenuItemConstructorOptions[] }
+    expect(menu.template.map((item) => item.label)).toContain("Current session")
+    expect(byLabel(menu.template, "Fresh start")?.enabled).toBe(false)
+    expect(byLabel(menu.template, "Stop working")).toBeDefined()
   })
 
   it("swaps icon and tooltip as the status stream changes", () => {
     const images = installMockIcons()
     const statusTray = createStatusTray({
       iconDir: "/app/resources/tray",
-      snapshot: () => Promise.resolve(statusFixture()),
       actions: actionsFixture(),
     })
     const tray = latestTray()
@@ -431,7 +496,6 @@ describe("createStatusTray", () => {
     installMockIcons()
     const statusTray = createStatusTray({
       iconDir: "/app/resources/tray",
-      snapshot: () => Promise.resolve(statusFixture()),
       actions: actionsFixture(),
     })
     statusTray?.destroy()

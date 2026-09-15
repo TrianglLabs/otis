@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
 
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react"
+import type { DetachedWindowAPI } from "happy-dom"
 import type { ReactNode } from "react"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { GlobalSessionPickerItem } from "../../../src/app/global-sessions.js"
 import type { TranscriptEntry } from "../../../src/app/transcript.js"
 import type { ModelPickerItem } from "../../../src/inference/picker-catalog.js"
@@ -112,6 +113,7 @@ const SNAPSHOT: DesktopSnapshot = {
 function fakeApi(overrides: Partial<DesktopApi> = {}): DesktopApi {
   return {
     getSnapshot: vi.fn(async () => SNAPSHOT),
+    getWindowState: vi.fn(async () => ({ fullscreen: false })),
     sendPrompt: vi.fn(async () => ({ accepted: true as const, delivery: "started" as const })),
     stop: vi.fn(async () => {}),
     respondToPermission: vi.fn(async () => {}),
@@ -141,6 +143,7 @@ function fakeApi(overrides: Partial<DesktopApi> = {}): DesktopApi {
     setDebugMode: vi.fn(async () => {}),
     installUpdate: vi.fn(async () => {}),
     checkForUpdates: vi.fn(async () => {}),
+    subscribeWindowState: vi.fn(() => () => {}),
     subscribe: vi.fn(() => () => {}),
     ...overrides,
   }
@@ -157,10 +160,24 @@ async function renderApp(api: DesktopApi) {
   return store
 }
 
+const happyDOM = (window as typeof window & { happyDOM: DetachedWindowAPI }).happyDOM
+beforeEach(() => {
+  happyDOM.settings.fetch.interceptor = {
+    beforeAsyncRequest: async ({ request, window: frameWindow }) =>
+      new URL(request.url).pathname === "/canvas.html"
+        ? new frameWindow.Response("<!doctype html><title>Canvas test frame</title>", {
+            headers: { "content-type": "text/html" },
+          })
+        : undefined,
+  }
+})
+
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
+  happyDOM.settings.fetch.interceptor = null
   document.documentElement.removeAttribute("data-theme")
+  document.documentElement.style.removeProperty("--text")
 })
 
 describe("Dashboard session navigation", () => {
@@ -202,17 +219,27 @@ describe("AppShell settings navigation", () => {
     await act(async () => {}) // flush SettingsPage's mount effects
     expect(screen.getByText("Providers")).toBeTruthy()
 
-    // …but the conversation column is hidden, not unmounted: the very same textarea node stays in the document.
+    // The hidden workspace retains the very same textarea node.
     expect(textarea.isConnected).toBe(true)
-    expect(textarea.closest(".mainColumn")?.classList.contains("mainColumn-hidden")).toBe(true)
+    const workspace = textarea.closest(".workspaceView") as HTMLElement
+    expect(workspace.classList.contains("workspaceView-hidden")).toBe(true)
+    expect(workspace.inert).toBe(true)
     expect(textarea.value).toBe("refactor the view store")
-
-    // Closing settings restores the conversation with the draft intact — same element, no remount.
+    const settings = screen.getByText("Providers").closest(".settingsLayer") as HTMLElement
+    // Closing unmounts Settings immediately and restores the same conversation node.
     fireEvent.click(screen.getByRole("button", { name: /close settings/i }))
     const restored = screen.getByLabelText("Prompt") as HTMLTextAreaElement
     expect(restored).toBe(textarea)
     expect(restored.value).toBe("refactor the view store")
-    expect(restored.closest(".mainColumn")?.classList.contains("mainColumn-hidden")).toBe(false)
+    expect(workspace.classList.contains("workspaceView-hidden")).toBe(false)
+    expect(workspace.inert).toBe(false)
+    expect(settings.isConnected).toBe(false)
+
+    // Its capture listener must be gone, so Escape reaches the conversation again.
+    const onEscape = vi.fn()
+    restored.addEventListener("keydown", onEscape)
+    fireEvent.keyDown(restored, { key: "Escape" })
+    expect(onEscape).toHaveBeenCalledOnce()
   })
 
   it("attaches an image from the upload control and sends an image-only message", async () => {
@@ -535,7 +562,7 @@ describe("AppShell settings navigation", () => {
       finish()
     })
     expect(screen.queryByRole("status")).toBeNull()
-    expect(screen.getByRole("button", { name: "Update" })).toBeTruthy()
+    expect(screen.getByRole("button", { name: "Update ready" })).toBeTruthy()
     expect(api.installUpdate).not.toHaveBeenCalled()
   })
 
@@ -648,6 +675,93 @@ describe("AppShell settings navigation", () => {
     }
     await renderApp(fakeApi({ getSnapshot: vi.fn(async () => withConversation) }))
     expect(screen.getByRole("button", { name: "Fresh start" })).toBeTruthy()
+  })
+
+  it.each(["button", "shortcut", "palette"])("starts a fresh session immediately from the %s", async (trigger) => {
+    let emit: ((event: DesktopEvent) => void) | undefined
+    const withConversation: DesktopSnapshot = {
+      ...SNAPSHOT,
+      entries: [{ id: 1, kind: "message", speaker: "You", text: "hello" }],
+    }
+    const { entries: _entries, revision: _revision, ...status } = withConversation
+    const startNewSession = vi.fn<DesktopApi["startNewSession"]>(async () => {
+      emit?.({
+        type: "status",
+        revision: 2,
+        status: { ...status, session: null, diffs: { added: 0, removed: 0 }, subagents: [] },
+        ops: [{ op: "reset", entries: [] }],
+      })
+      return { ok: true }
+    })
+    await renderApp(
+      fakeApi({
+        getSnapshot: vi.fn(async () => withConversation),
+        startNewSession,
+        subscribe: vi.fn((listener) => {
+          emit = listener
+          return () => {}
+        }),
+      }),
+    )
+
+    const workspace = document.querySelector(".workspaceView") as HTMLElement
+    if (trigger === "shortcut") {
+      fireEvent.keyDown(window, { key: "n", metaKey: true })
+    } else {
+      if (trigger === "palette") fireEvent.keyDown(window, { key: "k", metaKey: true })
+      const scope = trigger === "palette" ? within(screen.getByRole("dialog")) : screen
+      fireEvent.click(scope.getByRole("button", { name: /Fresh start/ }))
+    }
+    expect(startNewSession).toHaveBeenCalledOnce()
+    await act(async () => {})
+    expect(screen.getByLabelText("Otis")).toBeTruthy()
+    expect(workspace.className).toBe("workspaceView")
+    expect(workspace.inert).toBe(false)
+    expect(screen.queryByRole("button", { name: "Fresh start" })).toBeNull()
+  })
+
+  it("keeps the current session visible if Fresh start is rejected", async () => {
+    const withConversation: DesktopSnapshot = {
+      ...SNAPSHOT,
+      entries: [{ id: 1, kind: "message", speaker: "You", text: "keep me" }],
+    }
+    const startNewSession = vi.fn<DesktopApi["startNewSession"]>(async () => ({
+      ok: false,
+      reason: "Could not start a new session.",
+    }))
+    await renderApp(fakeApi({ getSnapshot: vi.fn(async () => withConversation), startNewSession }))
+
+    const workspace = document.querySelector(".workspaceView") as HTMLElement
+    fireEvent.click(screen.getByRole("button", { name: "Fresh start" }))
+    await act(async () => {})
+
+    expect(startNewSession).toHaveBeenCalledOnce()
+    expect(workspace.className).toBe("workspaceView")
+    expect(screen.getByText("keep me")).toBeTruthy()
+  })
+
+  it("releases the macOS traffic-light inset while the window is fullscreen", async () => {
+    let publishWindowState: ((state: { fullscreen: boolean }) => void) | undefined
+    const withConversation: DesktopSnapshot = {
+      ...SNAPSHOT,
+      entries: [{ id: 1, kind: "message", speaker: "You", text: "hello" }],
+    }
+    await renderApp(
+      fakeApi({
+        getSnapshot: vi.fn(async () => withConversation),
+        subscribeWindowState: vi.fn((listener) => {
+          publishWindowState = listener
+          return () => {}
+        }),
+      }),
+    )
+
+    const shell = document.querySelector(".appShell")
+    expect(shell?.classList.contains("windowFullscreen")).toBe(false)
+    act(() => publishWindowState?.({ fullscreen: true }))
+    expect(shell?.classList.contains("windowFullscreen")).toBe(true)
+    act(() => publishWindowState?.({ fullscreen: false }))
+    expect(shell?.classList.contains("windowFullscreen")).toBe(false)
   })
 
   it("never opens a result from a stale query", async () => {
@@ -777,17 +891,127 @@ describe("AppShell settings navigation", () => {
     act(() =>
       listener?.({
         type: "status",
-        revision: 3,
+        revision: 4,
         status: { ...hiddenStatus, subagents: [run], agentsPanelVisible: false },
       }),
     )
-    // …opens and closes Settings, remounting the panel: existing runs must not reopen it.
-    act(() => listener?.({ type: "status", revision: 4, status: { ...hiddenStatus, subagents: [run] } }))
+    expect(document.querySelector(".workspaceRail")?.classList.contains("workspaceRail-hidden")).toBe(true)
+    // …opens and closes Settings: the preserved panel must not interpret the existing run as newly arrived.
+    act(() => listener?.({ type: "status", revision: 5, status: { ...hiddenStatus, subagents: [run] } }))
     fireEvent.click(screen.getByRole("button", { name: "Settings" }))
     await act(async () => {})
     fireEvent.click(screen.getByRole("button", { name: /close settings/i }))
     await act(async () => {})
     expect(api.setAgentsPanelVisible).toHaveBeenCalledTimes(1)
+  })
+
+  it("opens only the requested completed Mermaid block in one sandboxed Canvas renderer", async () => {
+    let listener: ((event: DesktopEvent) => void) | undefined
+    const source = "sequenceDiagram\n  Alice->>Bob: Hello"
+    const withDiagram: DesktopSnapshot = {
+      ...SNAPSHOT,
+      entries: [
+        {
+          id: 1,
+          kind: "message",
+          speaker: "Otis",
+          text: `Here are the views.\n\n\`\`\`mermaid\n${source}\n\`\`\`\n\n\`\`\`mermaid\nflowchart LR\n  A --> B\n\`\`\``,
+          streaming: false,
+        },
+      ],
+    }
+    const api = fakeApi({
+      getSnapshot: vi.fn(async () => withDiagram),
+      subscribe: vi.fn((fn: (event: DesktopEvent) => void) => {
+        listener = fn
+        return () => {}
+      }),
+    })
+    await renderApp(api)
+
+    expect(screen.queryByLabelText("Workspace panel")).toBeNull()
+    const openButtons = screen.getAllByRole("button", { name: "Open in Canvas" })
+    expect(openButtons).toHaveLength(2)
+    fireEvent.click(openButtons[1])
+    const panel = screen.getByLabelText("Workspace panel")
+    expect(within(panel).getByRole("tab", { name: "Canvas" }).getAttribute("aria-selected")).toBe("true")
+    expect(within(panel).queryByRole("tablist", { name: "Canvas diagrams" })).toBeNull()
+    const frame = within(panel).getByTitle("Canvas diagram")
+    expect(frame.getAttribute("sandbox")).toBe("allow-scripts")
+    expect(frame.getAttribute("src")).toMatch(/canvas\.html$/)
+    expect(frame.getAttribute("srcdoc")).toBeNull()
+    expect(api.setAgentsPanelVisible).not.toHaveBeenCalled()
+
+    const frameWindow = (frame as HTMLIFrameElement).contentWindow
+    expect(frameWindow).toBeTruthy()
+    const postMessage = vi.spyOn(frameWindow as Window, "postMessage")
+    document.documentElement.style.setProperty("--text", "#123456")
+    fireEvent.load(frame)
+    expect(postMessage.mock.calls.at(-1)?.[0]).toMatchObject({ colors: { text: "#123456" } })
+
+    const { entries: _entries, revision: _revision, ...status } = withDiagram
+    document.documentElement.style.setProperty("--text", "#654321")
+    act(() =>
+      listener?.({
+        type: "status",
+        revision: 2,
+        status: {
+          ...status,
+          theme: "bright",
+          subagents: [{ toolCallId: "t1", title: "Check the runtime", status: "running", tools: 0 }],
+        },
+      }),
+    )
+    expect(within(panel).getByRole("tab", { name: "Canvas" }).getAttribute("aria-selected")).toBe("true")
+    expect(postMessage.mock.calls.at(-1)?.[0]).toMatchObject({ colors: { text: "#654321" } })
+
+    act(() => window.dispatchEvent(new Event("otis:canvas-reload")))
+    expect(within(panel).getByTitle("Canvas diagram")).not.toBe(frame)
+  })
+
+  it("does not offer an incomplete streaming Mermaid block to Canvas", async () => {
+    const streaming: DesktopSnapshot = {
+      ...SNAPSHOT,
+      entries: [
+        {
+          id: 1,
+          kind: "message",
+          speaker: "Otis",
+          text: "```mermaid\nsequenceDiagram\nAlice->>Bob: still writing\n```",
+          streaming: true,
+        },
+      ],
+    }
+    await renderApp(fakeApi({ getSnapshot: vi.fn(async () => streaming) }))
+    expect(screen.queryByLabelText("Workspace panel")).toBeNull()
+    expect(screen.queryByRole("button", { name: "Open in Canvas" })).toBeNull()
+  })
+
+  it("reopens a hidden panel on the Canvas tab when a Mermaid block is requested", async () => {
+    let listener: ((event: DesktopEvent) => void) | undefined
+    const entry: TranscriptEntry = {
+      id: 1,
+      kind: "message",
+      speaker: "Otis",
+      text: "```mermaid\nflowchart LR\nA --> B\n```",
+      streaming: false,
+    }
+    const hidden: DesktopSnapshot = { ...SNAPSHOT, entries: [entry], agentsPanelVisible: false }
+    const api = fakeApi({
+      getSnapshot: vi.fn(async () => hidden),
+      subscribe: vi.fn((fn: (event: DesktopEvent) => void) => {
+        listener = fn
+        return () => {}
+      }),
+    })
+    await renderApp(api)
+
+    fireEvent.click(screen.getByRole("button", { name: "Open in Canvas" }))
+    expect(api.setAgentsPanelVisible).toHaveBeenCalledExactlyOnceWith(true)
+
+    const { entries: _entries, revision: _revision, ...status } = hidden
+    act(() => listener?.({ type: "status", revision: 2, status: { ...status, agentsPanelVisible: true } }))
+    expect(screen.getByRole("tab", { name: "Canvas" }).getAttribute("aria-selected")).toBe("true")
   })
 
   it("rings the composer while the agent is working, and only then", async () => {

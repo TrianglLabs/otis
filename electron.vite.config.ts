@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url"
 import react from "@vitejs/plugin-react"
 import { defineConfig } from "electron-vite"
 import type { Plugin } from "vite"
+import { inlineCanvas } from "./scripts/vite-inline-canvas.js"
 
 const root = fileURLToPath(new URL(".", import.meta.url))
 
@@ -70,11 +71,14 @@ export default defineConfig({
   },
   renderer: {
     root: `${root}src/desktop/renderer`,
-    plugins: [react(), devCsp],
+    plugins: [react(), inlineCanvas(), devCsp],
     build: {
       outDir: `${root}out/renderer`,
       rollupOptions: {
-        input: `${root}src/desktop/renderer/index.html`,
+        input: {
+          index: `${root}src/desktop/renderer/index.html`,
+          canvas: `${root}src/desktop/renderer/canvas.html`,
+        },
       },
     },
   },

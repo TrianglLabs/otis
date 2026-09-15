@@ -51,7 +51,12 @@ export class DesktopViewStore {
     if (event.type === "transcript") {
       this.#state = { ...state, revision: event.revision, entries: applyTranscriptOps(state.entries, event.ops) }
     } else {
-      this.#state = { ...state, revision: event.revision, ...event.status }
+      this.#state = {
+        ...state,
+        revision: event.revision,
+        ...event.status,
+        entries: event.ops ? applyTranscriptOps(state.entries, event.ops) : state.entries,
+      }
     }
     this.#emit()
   }

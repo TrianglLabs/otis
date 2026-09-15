@@ -154,7 +154,6 @@ if (!gotLock) {
       const current = runtime
       statusTray = createStatusTray({
         iconDir: trayIconDir({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, mainDir: __dirname }),
-        snapshot: () => current.snapshot(),
         actions: {
           focusWindow: () => {
             const window = mainWindow

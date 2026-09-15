@@ -60,7 +60,7 @@ function AssistantMessage({ entry }: { entry: TranscriptEntry }) {
   const isError = entry.text.startsWith("Error:") || entry.text.startsWith("Could not")
   return (
     <div className={`assistantMessage${isError ? " assistantMessage-error" : ""}`}>
-      <Markdown text={entry.text} />
+      <Markdown text={entry.text} enableCanvas={!entry.streaming} />
     </div>
   )
 }

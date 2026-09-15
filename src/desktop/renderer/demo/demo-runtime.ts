@@ -18,8 +18,10 @@ import type {
  * before acceptance, queued follow-ups, permission round-trips, stop — so the interface is exercised honestly
  * before it is connected to a workspace. Never used when the preload bridge is present without `?demo`.
  */
-export function createDemoRuntime(): DesktopApi {
-  return new DemoRuntime()
+type DemoWindowStateApi = Pick<DesktopApi, "getWindowState" | "subscribeWindowState">
+
+export function createDemoRuntime(windowStateApi?: DemoWindowStateApi): DesktopApi {
+  return new DemoRuntime(windowStateApi)
 }
 
 type DemoState = DesktopStatus & { entries: TranscriptEntry[] }
@@ -137,6 +139,8 @@ const DEMO_MODELS: ModelPickerChoice[] = [
 ]
 
 class DemoRuntime implements DesktopApi {
+  constructor(private readonly windowStateApi?: DemoWindowStateApi) {}
+
   #listeners = new Set<(event: DesktopEvent) => void>()
   #revision = 0
   #nextId = 100
@@ -147,6 +151,14 @@ class DemoRuntime implements DesktopApi {
   #modelTimer: ReturnType<typeof setTimeout> | undefined
   #modelSeq = 0
   #deletedLocalIds = new Set<string>()
+
+  async getWindowState() {
+    return this.windowStateApi?.getWindowState() ?? { fullscreen: false }
+  }
+
+  subscribeWindowState(listener: Parameters<DesktopApi["subscribeWindowState"]>[0]) {
+    return this.windowStateApi?.subscribeWindowState(listener) ?? (() => {})
+  }
 
   #state: DemoState = {
     busy: false,
@@ -447,8 +459,7 @@ class DemoRuntime implements DesktopApi {
             ]
           : [],
     }
-    this.#emitOps([{ op: "reset", entries }])
-    this.#emitStatus()
+    this.#emitStatus([{ op: "reset", entries }])
     return { ok: true }
   }
 
@@ -456,8 +467,7 @@ class DemoRuntime implements DesktopApi {
     if (this.#state.busy) return { ok: false, reason: "Finish the current work before starting over." }
     this.#interrupt()
     this.#state = { ...this.#state, entries: [], session: null, diffs: { added: 0, removed: 0 }, subagents: [] }
-    this.#emitOps([{ op: "reset", entries: [] }])
-    this.#emitStatus()
+    this.#emitStatus([{ op: "reset", entries: [] }])
     return { ok: true }
   }
 
@@ -470,8 +480,7 @@ class DemoRuntime implements DesktopApi {
       sessions,
       ...(deletingActive ? { session: null, entries: [] } : {}),
     }
-    if (deletingActive) this.#emitOps([{ op: "reset", entries: [] }])
-    this.#emitStatus()
+    this.#emitStatus(deletingActive ? [{ op: "reset", entries: [] }] : undefined)
     return { ok: true }
   }
 
@@ -840,8 +849,8 @@ class DemoRuntime implements DesktopApi {
     this.#emit({ type: "transcript", revision: ++this.#revision, ops })
   }
 
-  #emitStatus() {
-    this.#emit({ type: "status", revision: ++this.#revision, status: this.#status() })
+  #emitStatus(ops?: TranscriptPatchOp[]) {
+    this.#emit({ type: "status", revision: ++this.#revision, status: this.#status(), ...(ops ? { ops } : {}) })
   }
 
   #emit(event: DesktopEvent) {
@@ -931,7 +940,39 @@ All 214 tests pass.`,
     fixture({
       kind: "message",
       speaker: "Otis",
-      text: "Good call for narrow windows. I'll add a `matchMedia` listener in `AppShell` that collapses the sidebar under 900px, but only collapses automatically — it never re-expands on its own, so the user's explicit choice stays sticky.",
+      text: `Good call for narrow windows. I'll add a \`matchMedia\` listener in \`AppShell\` that collapses the sidebar under 900px, but only collapses automatically — it never re-expands on its own, so the user's explicit choice stays sticky.
+
+\`\`\`mermaid
+sequenceDiagram
+  User->>AppShell: Resize below 900px
+  AppShell->>Sidebar: Collapse
+  Sidebar-->>User: Preserve the compact layout
+\`\`\``,
+    }),
+    fixture({ kind: "message", speaker: "You", text: "Can you show the agent loop and its runtime states too?" }),
+    fixture({
+      kind: "message",
+      speaker: "Otis",
+      text: `Here are two more views. Each Mermaid block can be opened in Canvas independently.
+
+\`\`\`mermaid
+flowchart TD
+  Prompt[User prompt] --> Agent{Needs tools?}
+  Agent -->|No| Answer[Reply directly]
+  Agent -->|Yes| Tool[Run local tool]
+  Tool --> Agent
+  Agent --> Answer
+\`\`\`
+
+\`\`\`mermaid
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> Working: Send
+  Working --> Waiting: Permission needed
+  Waiting --> Working: Approved
+  Working --> Idle: Complete
+  Idle --> [*]
+\`\`\``,
     }),
   ]
 }

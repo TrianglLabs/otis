@@ -1,8 +1,8 @@
 import { Download, FolderOpen } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { Button } from "../components/Button.js"
 import { Icon } from "../components/Icon.js"
-import { AgentsPanel } from "../features/agents/AgentsPanel.js"
+import { type CanvasArtifact, CanvasOpenContext } from "../features/canvas/canvas-context.js"
 import { ConversationView } from "../features/conversation/Transcript.js"
 import { OnboardingPage } from "../features/onboarding/OnboardingPage.js"
 import { CommandPalette } from "../features/palette/CommandPalette.js"
@@ -10,6 +10,7 @@ import { SettingsPage } from "../features/settings/SettingsPage.js"
 import { useDesktop, useDesktopState } from "../runtime.js"
 import { rememberTheme } from "../theme.js"
 import { WorkspaceHeader } from "./WorkspaceHeader.js"
+import { WorkspacePanel } from "./WorkspacePanel.js"
 
 /**
  * The application shell: the conversation column and the delegated-runs rail when the session has subagents.
@@ -18,17 +19,50 @@ import { WorkspaceHeader } from "./WorkspaceHeader.js"
  */
 export function AppShell() {
   const { api } = useDesktop()
-  const state = useDesktopState("theme", "platform", "model", "needsWorkspace", "update")
+  const state = useDesktopState("theme", "platform", "model", "needsWorkspace", "update", "session")
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [windowFullscreen, setWindowFullscreen] = useState(false)
   const [installing, setInstalling] = useState(false)
   const [locateError, setLocateError] = useState<string | undefined>(undefined)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [openedCanvas, setOpenedCanvas] = useState<{ sessionId: string | undefined; artifact: CanvasArtifact }>()
+  const nextCanvasId = useRef(0)
+  const sessionId = state?.session?.id
+  const sessionIdRef = useRef(sessionId)
+  sessionIdRef.current = sessionId
+  const openCanvas = useCallback((source: string) => {
+    setOpenedCanvas({ sessionId: sessionIdRef.current, artifact: { id: ++nextCanvasId.current, source } })
+  }, [])
+  const canvasArtifact = openedCanvas && openedCanvas.sessionId === sessionId ? openedCanvas.artifact : undefined
+  const openSettings = useCallback(() => setSettingsOpen(true), [])
+  const closeSettings = useCallback(() => setSettingsOpen(false), [])
 
   useEffect(() => {
-    const theme = state?.theme ?? "default"
+    let receivedLiveState = false
+    let mounted = true
+    const unsubscribe = api.subscribeWindowState((windowState) => {
+      receivedLiveState = true
+      setWindowFullscreen(windowState.fullscreen)
+    })
+    void api
+      .getWindowState()
+      .then((windowState) => {
+        if (mounted && !receivedLiveState) setWindowFullscreen(windowState.fullscreen)
+      })
+      .catch(() => {})
+    return () => {
+      mounted = false
+      unsubscribe()
+    }
+  }, [api])
+
+  const theme = state?.theme ?? "default"
+  useLayoutEffect(() => {
     document.documentElement.dataset.theme = theme
+  }, [theme])
+  useEffect(() => {
     rememberTheme(theme)
-  }, [state?.theme])
+  }, [theme])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -51,68 +85,85 @@ export function AppShell() {
   }, [api])
 
   const platformClass = state?.platform === "darwin" ? "platform-darwin" : "platform-linux"
+  const readyUpdate = state?.update.status === "ready" ? state.update : undefined
 
   return (
-    <div className={`appShell ${platformClass}${settingsOpen ? " settingsOpen" : ""}`}>
-      {settingsOpen ? (
-        <div className="mainColumn">
-          <SettingsPage onClose={() => setSettingsOpen(false)} />
-        </div>
-      ) : null}
-      {/* The conversation stays mounted while settings is open — hidden, not unmounted — so the composer's draft,
-          the transcript scroll position, and expanded cards survive the round trip. */}
-      <div className={`mainColumn${settingsOpen ? " mainColumn-hidden" : ""}`}>
-        {state && state.model === null ? (
-          <OnboardingPage onOpenSettings={() => setSettingsOpen(true)} />
-        ) : (
-          <>
-            <WorkspaceHeader onOpenPalette={() => setPaletteOpen(true)} onOpenSettings={() => setSettingsOpen(true)} />
-            {state?.needsWorkspace ? (
-              <div className="workspaceBanner">
-                <span>
-                  Otis couldn&apos;t find this session&apos;s working folder. You can read its history; choose the
-                  folder once to continue. Otis will remember it.
-                  {locateError ? <span className="workspaceBanner-error">{locateError}</span> : null}
-                </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() =>
-                    void api.pickWorkspaceFolder().then(async (path) => {
-                      if (!path) return
-                      const result = await api.locateWorkspace(path)
-                      setLocateError(result.ok ? undefined : (result.reason ?? "Could not open that folder."))
-                    })
-                  }
-                >
-                  <Icon icon={FolderOpen} size={12} />
-                  Locate working folder
-                </Button>
-              </div>
-            ) : null}
-            <ConversationView installing={installing} />
-          </>
-        )}
-      </div>
-      {settingsOpen || state?.model === null ? null : <AgentsPanel />}
-      {state?.update.status === "ready" ? (
-        <button
-          type="button"
-          className="updateFab noDrag"
-          disabled={installing}
-          title={
-            installing ? "Restarting into the update…" : `Otis ${state.update.version} is ready — restart to update`
-          }
-          onClick={() => {
-            setInstalling(true)
-            void api.installUpdate()
-          }}
+    <CanvasOpenContext.Provider value={openCanvas}>
+      <div
+        className={`appShell ${platformClass}${settingsOpen ? " settingsOpen" : ""}${windowFullscreen ? " windowFullscreen" : ""}`}
+      >
+        {/* The workspace stays mounted behind Settings so drafts, scroll positions, expanded cards, and the
+          workspace-panel selection survive the round trip. */}
+        <div
+          className={`workspaceView${settingsOpen ? " workspaceView-hidden" : ""}`}
+          aria-hidden={settingsOpen}
+          inert={settingsOpen ? true : undefined}
         >
-          <Icon icon={Download} size={12} />
-          {installing ? "Restarting…" : "Update"}
-        </button>
-      ) : null}
-      {paletteOpen ? <CommandPalette onClose={() => setPaletteOpen(false)} /> : null}
-    </div>
+          <div className="mainColumn">
+            {state && state.model === null ? (
+              <OnboardingPage onOpenSettings={openSettings} />
+            ) : (
+              <>
+                <WorkspaceHeader
+                  hasCanvas={Boolean(canvasArtifact)}
+                  onOpenPalette={() => setPaletteOpen(true)}
+                  onOpenSettings={openSettings}
+                />
+                {state?.needsWorkspace ? (
+                  <div className="workspaceBanner">
+                    <span>
+                      Otis couldn&apos;t find this session&apos;s working folder. You can read its history; choose the
+                      folder once to continue. Otis will remember it.
+                      {locateError ? <span className="workspaceBanner-error">{locateError}</span> : null}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() =>
+                        void api.pickWorkspaceFolder().then(async (path) => {
+                          if (!path) return
+                          const result = await api.locateWorkspace(path)
+                          setLocateError(result.ok ? undefined : (result.reason ?? "Could not open that folder."))
+                        })
+                      }
+                    >
+                      <Icon icon={FolderOpen} size={12} />
+                      Locate working folder
+                    </Button>
+                  </div>
+                ) : null}
+                <ConversationView installing={installing} />
+              </>
+            )}
+            {readyUpdate ? (
+              <button
+                type="button"
+                className="updateFab noDrag"
+                disabled={installing}
+                title={
+                  installing
+                    ? "Restarting into the update…"
+                    : `Otis ${readyUpdate.version} is ready — restart to update`
+                }
+                onClick={() => {
+                  setInstalling(true)
+                  void api.installUpdate()
+                }}
+              >
+                <Icon icon={Download} size={12} />
+                <span className="updateFab-label">{installing ? "Restarting…" : "Update"}</span>
+              </button>
+            ) : null}
+          </div>
+          {state?.model === null ? null : <WorkspacePanel artifact={canvasArtifact} />}
+        </div>
+        {settingsOpen ? (
+          <div className="settingsLayer">
+            <SettingsPage onClose={closeSettings} />
+          </div>
+        ) : null}
+        {paletteOpen ? <CommandPalette onClose={() => setPaletteOpen(false)} /> : null}
+      </div>
+    </CanvasOpenContext.Provider>
   )
 }

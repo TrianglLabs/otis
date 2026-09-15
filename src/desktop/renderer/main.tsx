@@ -14,6 +14,7 @@ import "./features/conversation/conversation.css"
 import "./features/models/models.css"
 import "./features/palette/palette.css"
 import "./features/agents/agents.css"
+import "./features/canvas/canvas.css"
 import "./features/settings/settings.css"
 import "./features/onboarding/onboarding.css"
 
@@ -36,7 +37,7 @@ async function bootstrap() {
   const demoRequested = new URLSearchParams(location.search).has("demo")
   if (demoRequested && (import.meta.env.DEV || import.meta.env.MODE === "demo")) {
     const { createDemoRuntime } = await import("./demo/demo-runtime.js")
-    mount(holdBootScreen(createDemoRuntime()))
+    mount(holdBootScreen(createDemoRuntime(window.otis)))
   } else if (window.otis) {
     mount(window.otis)
   } else {

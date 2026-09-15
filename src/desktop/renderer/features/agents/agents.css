@@ -1,7 +1,7 @@
-/* The delegated-runs rail and the trace overlay. Rows clone the session-row anatomy; the overlay reuses the
-   shared backdrop and enter animation from components.css. */
+/* The shared workspace rail and coworker trace overlay. Rows clone the session-row anatomy; the overlay reuses
+   the shared backdrop and enter animation from components.css. */
 
-.agentsRail {
+.workspaceRail {
   width: 240px;
   flex-shrink: 0;
   display: flex;
@@ -10,11 +10,42 @@
   border-left: 1px solid var(--hairline);
   user-select: none;
   min-height: 0;
+  overflow: hidden;
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(0);
+  will-change: width, opacity, transform;
+  transition:
+    width 220ms cubic-bezier(0.2, 0.7, 0.3, 1),
+    opacity 180ms ease,
+    transform 220ms cubic-bezier(0.2, 0.7, 0.3, 1),
+    border-color 180ms ease,
+    visibility 0s linear 0s;
+}
+
+.workspaceRail-canvas {
+  width: clamp(280px, 38vw, 560px);
+}
+
+.workspaceRail-hidden {
+  width: 0;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(12px);
+  border-left-color: transparent;
+  border-left-width: 0;
+  pointer-events: none;
+  transition:
+    width 220ms cubic-bezier(0.2, 0.7, 0.3, 1),
+    opacity 180ms ease,
+    transform 220ms cubic-bezier(0.2, 0.7, 0.3, 1),
+    border-color 180ms ease,
+    visibility 0s linear 220ms;
 }
 
 /* The rail reaches the top edge — its section header doubles as the window drag strip (the hide button opts
    out with noDrag). */
-.agentsRail-section {
+.workspaceRail-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -27,6 +58,84 @@
   color: var(--text-dim);
   -webkit-app-region: drag;
   flex-shrink: 0;
+}
+
+.workspaceRail-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.workspaceRail-tabs button {
+  border: 0;
+  padding: 5px 9px;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  transition:
+    background-color var(--motion) ease,
+    color var(--motion) ease;
+}
+
+.workspaceRail-tabs button:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.workspaceRail-tabs button[aria-selected="true"],
+.workspaceRail-tabs button[aria-selected="true"]:hover {
+  color: var(--text);
+  background: var(--bg-elev);
+}
+
+.workspaceRail-views {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  overflow: hidden;
+}
+
+.workspaceRail-view {
+  grid-area: 1 / 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  will-change: opacity, transform;
+  transition:
+    opacity 180ms ease,
+    transform 220ms cubic-bezier(0.2, 0.7, 0.3, 1),
+    visibility 0s linear 220ms;
+}
+
+.workspaceRail-view-coworkers {
+  transform: translateX(-12px);
+}
+
+.workspaceRail-view-canvas {
+  transform: translateX(12px);
+}
+
+.workspaceRail-view-active {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateX(0);
+  transition-delay: 45ms, 0s, 0s;
+}
+
+.workspaceRail-empty {
+  margin: auto;
+  padding: 24px;
+  color: var(--text-dim);
+  font-size: var(--text-ui);
+  text-align: center;
 }
 
 .agentsRail-list {

@@ -2,7 +2,7 @@ import { type CompactionResult, compactConversation } from "../core/compaction.j
 import { SteeringInbox, type SteeringSource } from "../core/steering.js"
 import { providerTools } from "../core/subagent.js"
 import type { InferenceClient } from "../inference/client.js"
-import type { ChatMessage, ContextFile, TokenUsage, UserChatMessage } from "../inference/types.js"
+import type { ChatMessage, ContextFile, OutputCapabilities, TokenUsage, UserChatMessage } from "../inference/types.js"
 import type { PermissionPolicy, PermissionRequest } from "../permissions/policy.js"
 import type { SkillCatalog } from "../skills/index.js"
 import type { JsonlSession, PromptAdmission, SessionTurnDetails } from "../storage/index.js"
@@ -56,6 +56,7 @@ export type ConversationTurnOptions = {
   onPermissionRequest: (request: PermissionRequest) => Promise<boolean>
   onCompletion: () => void
   steering?: SteeringSource
+  outputCapabilities?: OutputCapabilities
 }
 
 export async function runConversationTurn(options: ConversationTurnOptions): Promise<ConversationTurnResult> {
@@ -119,6 +120,7 @@ export async function runConversationTurn(options: ConversationTurnOptions): Pro
         permissionPolicy: options.permissionPolicy,
         onPermissionRequest: (request) => withAbort(options.onPermissionRequest(request), signal),
         steering: options.steering,
+        outputCapabilities: options.outputCapabilities,
       },
       onEvent: (event) => {
         if (event.type === "compaction") {
@@ -249,6 +251,7 @@ export type ConversationOptions = {
   skills: () => SkillCatalog
   permissionPolicy: () => PermissionPolicy
   isExiting: () => boolean
+  outputCapabilities?: OutputCapabilities
 }
 
 type ActiveWork = {
@@ -444,6 +447,7 @@ export class Conversation {
         onPermissionRequest: hooks.onPermissionRequest,
         onCompletion: hooks.onCompletion,
         steering,
+        outputCapabilities: this.options.outputCapabilities,
       })
 
       if (result.status === "interrupted" || result.status === "error") {

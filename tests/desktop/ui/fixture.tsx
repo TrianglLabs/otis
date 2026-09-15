@@ -14,6 +14,7 @@ import "../../../src/desktop/renderer/features/conversation/conversation.css"
 import "../../../src/desktop/renderer/features/models/models.css"
 import "../../../src/desktop/renderer/features/palette/palette.css"
 import "../../../src/desktop/renderer/features/agents/agents.css"
+import "../../../src/desktop/renderer/features/canvas/canvas.css"
 import "../../../src/desktop/renderer/features/settings/settings.css"
 
 const pause = (ms = 80) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -160,8 +161,10 @@ async function runDesktopUiChecks() {
   const beforeSettings = scroll.scrollTop
   element<HTMLButtonElement>('[aria-label="Settings"]').click()
   await pause()
+  assert(element(".workspaceView").inert, "Settings left the workspace interactive")
+  assert(getComputedStyle(element(".settingsLayer")).transitionDuration === "0s", "Settings still animates")
   element<HTMLButtonElement>('[aria-label="Close settings (Esc)"]').click()
-  await pause(150)
+  await until(() => !document.querySelector(".settingsLayer"), "Settings did not unmount on close")
   assert(element(".transcriptScroll") === scroll, "Settings replaced the conversation")
   assert(Math.abs(scroll.scrollTop - beforeSettings) < 2, "Settings lost the reading position")
   assert(!!document.querySelector('[data-entry-id="101501"] .reasoning-body'), "Settings collapsed reasoning")
@@ -242,6 +245,121 @@ async function runDesktopUiChecks() {
   await until(() => !document.querySelector(".agentTrace"), "Completed coworker trace did not close")
   revision = demoRevision
 
+  // Mermaid stays ordinary transcript content until its explicit Canvas action is used.
+  let canvasResult:
+    | {
+        ok: boolean
+        message?: string
+        width?: number
+        diagramTop?: number
+        controlsBottom?: number
+        controls?: boolean
+      }
+    | undefined
+  const onCanvasMessage = (event: MessageEvent) => {
+    if (event.data?.type === "otis-canvas-render") canvasResult = event.data
+  }
+  window.addEventListener("message", onCanvasMessage)
+  const diagramCount = 4
+  patch({
+    op: "upsert",
+    entry: row(
+      HISTORY_ID_BASE + 1600,
+      [
+        ...Array.from(
+          { length: diagramCount - 1 },
+          (_, index) => `\`\`\`mermaid\nflowchart LR\n  Prompt${index} --> Canvas${index}\n\`\`\``,
+        ),
+        "```mermaid\nflowchart LR\n  This diagram is malformed -->\n```",
+      ].join("\n\n"),
+    ),
+  })
+  await until(
+    () => document.querySelectorAll('[aria-label="Open in Canvas"]').length === diagramCount,
+    "Completed Mermaid blocks did not expose Canvas actions",
+  )
+  assert(
+    element<HTMLButtonElement>('[role="tab"][aria-selected="true"]').textContent?.trim() === "Coworkers",
+    "Mermaid output opened Canvas without a user request",
+  )
+  element<HTMLButtonElement>('[aria-label="Open in Canvas"]').click()
+  await untilSlow(() => canvasResult !== undefined, "Canvas iframe did not finish rendering Mermaid")
+  assert(canvasResult?.ok, `Canvas iframe rejected a valid diagram: ${canvasResult?.message ?? "unknown error"}`)
+  const canvasWidth = element(".workspaceRail-canvas").getBoundingClientRect().width
+  assert(canvasWidth >= 350 && canvasWidth <= 400, `Canvas rail width is not responsive: ${canvasWidth}`)
+  assert(!document.querySelector(".canvas-tabs"), "Canvas retained an artifact tab list")
+  assert(document.querySelectorAll(".canvas-frame").length === 1, "Canvas mounted more than the requested diagram")
+  assert((canvasResult?.width ?? Number.POSITIVE_INFINITY) <= 480, "Canvas enlarged the selected diagram")
+  assert(canvasResult?.controls, "Canvas did not initialize pan and zoom controls")
+  assert(
+    (canvasResult?.diagramTop ?? 0) >= (canvasResult?.controlsBottom ?? Number.POSITIVE_INFINITY),
+    "Canvas initially positioned the diagram underneath its controls",
+  )
+  assert(
+    element<HTMLIFrameElement>(".canvas-frame").sandbox.contains("allow-scripts"),
+    "Canvas iframe lost its sandbox",
+  )
+  assert(
+    getComputedStyle(element(".workspaceRail-view-canvas")).transitionDuration !== "0s",
+    "Coworkers and Canvas lost their content transition",
+  )
+  assert(getComputedStyle(element(".updateFab")).display === "none", "Narrow layout kept the update button visible")
+
+  const validCanvasResult = canvasResult
+  const canvasActions = document.querySelectorAll<HTMLButtonElement>('[aria-label="Open in Canvas"]')
+  canvasActions[canvasActions.length - 1]?.click()
+  await untilSlow(() => canvasResult !== validCanvasResult, "Canvas iframe did not report a malformed Mermaid diagram")
+  assert(
+    canvasResult && !canvasResult.ok && !!canvasResult.message,
+    "Canvas did not contain and report the Mermaid parse error",
+  )
+
+  const invalidCanvasResult = canvasResult
+  canvasActions[0]?.click()
+  await untilSlow(
+    () => canvasResult !== invalidCanvasResult,
+    "Canvas iframe did not recover after the Mermaid parse error",
+  )
+  assert(canvasResult?.ok, `Canvas did not recover with a valid diagram: ${canvasResult?.message ?? "unknown error"}`)
+
+  const recoveredCanvasResult = canvasResult
+  element<HTMLIFrameElement>(".canvas-frame").contentWindow?.postMessage(
+    {
+      type: "otis-canvas-source",
+      source: `flowchart LR\n${"A".repeat(50_001)}`,
+      colors: {
+        background: "#1a1a1a",
+        surface: "#262626",
+        text: "#d8dee9",
+        muted: "#808080",
+        accent: "#8b7cff",
+        border: "#444444",
+      },
+    },
+    "*",
+  )
+  await untilSlow(() => canvasResult !== recoveredCanvasResult, "Canvas iframe ignored an oversized Mermaid diagram")
+  assert(
+    !canvasResult?.ok && canvasResult?.message?.includes("too large to render"),
+    "Canvas did not explain its Mermaid source limit",
+  )
+  window.removeEventListener("message", onCanvasMessage)
+
+  element<HTMLButtonElement>('[aria-label="Hide side panel"]').click()
+  status({ agentsPanelVisible: false })
+  await until(() => element(".workspaceRail").classList.contains("workspaceRail-hidden"), "Side panel did not collapse")
+  await pause(260)
+  const collapsedWidth = element(".workspaceRail").getBoundingClientRect().width
+  assert(collapsedWidth < 1, `Collapsed side panel retained ${collapsedWidth}px of layout width`)
+  element<HTMLButtonElement>('[aria-label="Show side panel"]').click()
+  status({ agentsPanelVisible: true })
+  await until(() => !element(".workspaceRail").classList.contains("workspaceRail-hidden"), "Side panel did not reopen")
+  await pause(260)
+  assert(
+    element(".workspaceRail").getBoundingClientRect().width >= 350,
+    "Reopened side panel did not restore its width",
+  )
+
   // Streaming output must not disturb a reader mid-message. The scripted turns appended their own entries
   // to the transcript, so reset to the pristine fixture history for deterministic positioning first.
   status({ session: { id: "expanded-cards", title: "Expanded cards" }, subagents: [], busy: false, permission: null })
@@ -304,6 +422,9 @@ async function runDesktopUiChecks() {
   assert(element('[data-entry-id="101502"] .codeBlock') === code, "Output remounted completed code")
   assert(table.scrollLeft === 90, "Output reset table scroll")
   selection.removeAllRanges()
+  scroll.dispatchEvent(new WheelEvent("wheel", { deltaY: -120, bubbles: true }))
+  scroll.scrollTop -= 120
+  await until(() => !!document.querySelector(".jumpToLatest"), "Jump-to-latest control did not appear")
   element<HTMLButtonElement>(".jumpToLatest").click()
   await pause(180)
 
@@ -458,6 +579,30 @@ async function runDesktopUiChecks() {
     patch({ op: "upsert", entry: thinking })
     await pause(100)
   }
+
+  // Fresh start requests the reset immediately; content and session metadata arrive in one update.
+  status({ busy: false, phase: "idle" })
+  api.startNewSession = async () => {
+    const current = store.getState()
+    assert(current, "Snapshot is missing")
+    send({
+      type: "status",
+      revision: ++revision,
+      status: { ...current, session: null, diffs: { added: 0, removed: 0 }, subagents: [] },
+      ops: [{ op: "reset", entries: [] }],
+    })
+    return { ok: true }
+  }
+  await until(() => !!document.querySelector(".workspaceHeader-new"), "Fresh start did not become available")
+  const previousTranscript = element(".transcriptScroll")
+  element<HTMLButtonElement>(".workspaceHeader-new").click()
+  await until(
+    () => !!document.querySelector(".home") && element(".workspaceView").className === "workspaceView",
+    "Fresh start did not return to Home",
+  )
+  assert(getComputedStyle(element(".workspaceView")).transitionDuration === "0s", "Fresh start still animates")
+  assert(!document.querySelector(".workspaceHeader-title"), "Home retained the old session title")
+  assert(!previousTranscript.isConnected, "Home kept the previous transcript mounted")
 
   root.unmount()
   store.dispose()
