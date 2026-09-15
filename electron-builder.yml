@@ -9,6 +9,9 @@ files:
 extraResources:
   - from: resources/icon.png
     to: icon.png
+  # The macOS status bar item reads its template images from the bundled tray folder.
+  - from: resources/tray
+    to: tray
 # Auto-update feed. Artifacts are still attached by the workflow (--publish never); this only tells
 # electron-builder to emit the latest*.yml manifests electron-updater reads.
 publish:

@@ -16,6 +16,7 @@
     "build": "bun run scripts/build.ts",
     "build:desktop": "electron-vite build",
     "build:desktop:icons": "bun run scripts/build-desktop-icons.ts",
+    "build:desktop:tray": "bun run scripts/build-tray-icons.ts",
     "pack:desktop": "bun run build:desktop && electron-builder --dir",
     "format": "biome format --write .",
     "lint": "biome lint .",
