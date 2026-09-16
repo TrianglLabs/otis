@@ -45,6 +45,8 @@ import {
   saveSelectedTheme,
   saveSubagentPanelVisible,
   saveThinkingVisible,
+  saveUiLanguage,
+  UI_LANGUAGES,
 } from "../../local/settings.js"
 import { calculateLocalStats } from "../../local/stats.js"
 import type { PermissionRequest } from "../../permissions/policy.js"
@@ -716,6 +718,14 @@ export class DesktopRuntime {
     this.#markStateDirty()
   }
 
+  async setLanguage(language: string) {
+    if (!UI_LANGUAGES.includes(language as (typeof UI_LANGUAGES)[number])) return
+    const selected = language as (typeof UI_LANGUAGES)[number]
+    this.app.settings.language = selected
+    await saveUiLanguage(selected)
+    this.#markStateDirty()
+  }
+
   /** Switches reasoning between trace cards and plain muted text, mirroring the TUI's /thinking toggle. */
   async setThinkingVisible(visible: boolean) {
     if (typeof visible !== "boolean") return
@@ -1317,6 +1327,7 @@ export class DesktopRuntime {
       modelLoad: this.#modelLoad ?? null,
       agentsPanelVisible: this.app.settings.subagentPanelVisible ?? true,
       theme: this.app.settings.theme ?? "default",
+      language: this.app.settings.language ?? "system",
       thinkingVisible: this.app.settings.thinkingVisible ?? false,
       permissionMode: app.permissionMode,
       fastServing: this.#fastServingState(),

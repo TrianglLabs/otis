@@ -1,6 +1,8 @@
 import type { ModelPickerChoice, ModelPickerItem } from "../../../../inference/picker-catalog.js"
 import type { DesktopStatus } from "../../../contracts.js"
 import { formatContextWindow } from "../../format.js"
+import type { Translate } from "../../i18n/messages/en.js"
+import { englishT } from "../../i18n/translate.js"
 
 /** The identifier `selectModel` expects: the item id, or the selectionKey for PAIR entries. */
 export function pickerItemKey(item: ModelPickerChoice): string {
@@ -28,33 +30,30 @@ export function isPickerRowSelectable(
   return item?.kind === "model" && item.available === true
 }
 
-/** Mirrors FAST_MODE_LABEL in src/cli/ui/format.ts; the CLI module cannot be imported into the renderer bundle. */
-const FAST_MODE_LABEL = "Fast mode"
-
 export type PickerDetailPart = { label: string; modality?: "text" | "vision" }
 
 /** Structured row metadata lets the GUI decorate capabilities without parsing the TUI-compatible label. */
-export function pickerDetailParts(item: ModelPickerChoice): PickerDetailPart[] {
+export function pickerDetailParts(item: ModelPickerChoice, t: Translate = englishT): PickerDetailPart[] {
   const modality: PickerDetailPart = item.supportsImageInput
-    ? { label: "Vision", modality: "vision" }
-    : { label: "Text", modality: "text" }
+    ? { label: t("models.vision"), modality: "vision" }
+    : { label: t("models.text"), modality: "text" }
   if (item.provider === "local") return [{ label: item.availabilityLabel }, modality]
   if (item.provider === "pair") {
     return [
       { label: item.engine === "ollama" ? "Ollama" : "LM Studio" },
       {
         label: item.nativeContextLength
-          ? `${formatContextWindow(item.nativeContextLength)} model max`
-          : "Context unavailable",
+          ? t("models.modelMax", { count: formatContextWindow(item.nativeContextLength) })
+          : t("models.contextUnavailable"),
       },
-      { label: item.quantization ?? "Quant unavailable" },
+      { label: item.quantization ?? t("models.quantUnavailable") },
       modality,
     ]
   }
   const parts: PickerDetailPart[] = []
   if (item.contextLength) parts.push({ label: formatContextWindow(item.contextLength) })
   parts.push(modality)
-  if (item.fastId) parts.push({ label: FAST_MODE_LABEL })
+  if (item.fastId) parts.push({ label: t("models.fastMode") })
   return parts
 }
 
@@ -64,8 +63,8 @@ export function pickerDetailParts(item: ModelPickerChoice): PickerDetailPart[] {
  * context — except that PAIR rows also lead with the engine label the TUI renders as a name suffix, since this
  * picker has no suffix column.
  */
-export function pickerDetailLabel(item: ModelPickerChoice): string {
-  return pickerDetailParts(item)
+export function pickerDetailLabel(item: ModelPickerChoice, t: Translate = englishT): string {
+  return pickerDetailParts(item, t)
     .map((part) => part.label)
     .join(" · ")
 }

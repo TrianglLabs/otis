@@ -16,6 +16,7 @@ import { Virtuoso } from "react-virtuoso"
 import type { TranscriptEntry } from "../../../../app/transcript.js"
 import type { ToolActivityKind } from "../../../../tools/activity.js"
 import { Icon } from "../../components/Icon.js"
+import { useI18n } from "../../i18n/index.js"
 import { type DiffDisplayRow, parseDiffDisplay } from "./diff.js"
 import type { ToolRun } from "./tool-runs.js"
 
@@ -69,6 +70,7 @@ export function ToolRunCard({
   expanded: boolean
   onExpandedChange: (id: number, expanded: boolean) => void
 }) {
+  const { t } = useI18n()
   const latest = run.entries[run.entries.length - 1]
   if (!latest) return null
   const icon = KIND_ICONS[latest.activityKind ?? "shell"]
@@ -80,7 +82,7 @@ export function ToolRunCard({
         className="toolCard-header toolRun-header"
         onClick={() => onExpandedChange(run.id, !expanded)}
         aria-expanded={expanded}
-        aria-label={`${run.entries.length} tool actions, latest: ${latest.text}`}
+        aria-label={t("transcript.toolActions", { count: run.entries.length, latest: latest.text })}
       >
         <span className="toolCard-icon toolRun-icon" key={`icon-${latest.id}`}>
           <Icon icon={icon} size={13} />
@@ -98,6 +100,7 @@ export function ToolRunCard({
 
 /** Unified diff rendered as a proper view: line-number gutter, sign column, hunk separators. */
 export const DiffView = memo(function DiffView({ diff }: { diff: string }) {
+  const { t } = useI18n()
   const rows = useMemo(() => parseDiffDisplay(diff), [diff])
   const context = useMemo(
     () => ({
@@ -114,7 +117,7 @@ export const DiffView = memo(function DiffView({ diff }: { diff: string }) {
     return (
       <Virtuoso<DiffDisplayRow, { columns: number }>
         className="diffView diffView-windowed"
-        aria-label="Code changes"
+        aria-label={t("transcript.codeChanges")}
         tabIndex={0}
         style={{ height: 384 }}
         data={rows}

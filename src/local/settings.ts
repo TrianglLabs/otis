@@ -18,6 +18,7 @@ export type LocalSettings = {
   modelSupportsImageInput?: boolean
   modelProvider?: ModelProvider
   theme?: ThemeName
+  language?: UiLanguage
   lastWorkspace?: string
   thinkingVisible?: boolean
   /** When false, the chat side panel that lists delegated runs stays hidden. Omitted means shown. */
@@ -40,6 +41,9 @@ export const THEME_NAMES = [
 ] as const
 export type ThemeName = (typeof THEME_NAMES)[number]
 
+export const UI_LANGUAGES = ["system", "en", "zh-CN", "ja", "ko", "es", "fr", "de", "pl", "uk", "pt-BR"] as const
+export type UiLanguage = (typeof UI_LANGUAGES)[number]
+
 export type SettingsFileOptions = {
   file?: string
   env?: Record<string, string | undefined>
@@ -56,6 +60,7 @@ type SettingsFile = {
   modelSupportsImageInput?: boolean
   modelProvider?: ModelProvider
   theme?: ThemeName
+  language?: UiLanguage
   lastWorkspace?: string
   thinkingVisible?: boolean
   subagentPanelVisible?: boolean
@@ -84,6 +89,7 @@ export async function loadLocalSettings(options: SettingsFileOptions = {}): Prom
     ...(modelProvider ? { modelProvider } : {}),
     ...(saved?.modelSupportsImageInput !== undefined ? { modelSupportsImageInput: saved.modelSupportsImageInput } : {}),
     ...(saved?.theme ? { theme: saved.theme } : {}),
+    ...(saved?.language ? { language: saved.language } : {}),
     ...(saved?.lastWorkspace ? { lastWorkspace: saved.lastWorkspace } : {}),
     ...(saved?.thinkingVisible !== undefined ? { thinkingVisible: saved.thinkingVisible } : {}),
     ...(saved?.subagentPanelVisible !== undefined ? { subagentPanelVisible: saved.subagentPanelVisible } : {}),
@@ -158,6 +164,13 @@ export async function saveSelectedTheme(theme: ThemeName, options: SettingsFileO
   await serializeSettingsWrite(options, async (pinned) => {
     const saved = (await readSettingsFile(pinned)) ?? { version: 1 }
     await writeSettingsFile({ ...saved, theme }, pinned)
+  })
+}
+
+export async function saveUiLanguage(language: UiLanguage, options: SettingsFileOptions = {}) {
+  await serializeSettingsWrite(options, async (pinned) => {
+    const saved = (await readSettingsFile(pinned)) ?? { version: 1 }
+    await writeSettingsFile({ ...saved, language }, pinned)
   })
 }
 
@@ -255,6 +268,7 @@ function parseSettingsFile(value: unknown): SettingsFile {
   const modelContextLength = optionalPositiveInteger(value.modelContextLength, "modelContextLength")
   const modelSupportsImageInput = optionalBoolean(value.modelSupportsImageInput, "modelSupportsImageInput")
   const theme = optionalTheme(value.theme)
+  const language = optionalUiLanguage(value.language)
   const lastWorkspace = optionalString(value.lastWorkspace, "lastWorkspace")
   const thinkingVisible = optionalBoolean(value.thinkingVisible, "thinkingVisible")
   const subagentPanelVisible = optionalBoolean(value.subagentPanelVisible, "subagentPanelVisible")
@@ -277,6 +291,7 @@ function parseSettingsFile(value: unknown): SettingsFile {
     ...(modelSupportsImageInput !== undefined ? { modelSupportsImageInput } : {}),
     ...(modelProvider ? { modelProvider } : {}),
     ...(theme ? { theme } : {}),
+    ...(language ? { language } : {}),
     ...(lastWorkspace ? { lastWorkspace } : {}),
     ...(thinkingVisible !== undefined ? { thinkingVisible } : {}),
     ...(subagentPanelVisible !== undefined ? { subagentPanelVisible } : {}),
@@ -310,6 +325,7 @@ function withSelectedModel(settings: SettingsFile, model: CatalogModel): Setting
     modelSupportsImageInput: model.supportsImageInput,
     ...(model.provider === "fireworks" && model.fastId ? { modelFastId: model.fastId } : {}),
     ...(settings.theme ? { theme: settings.theme } : {}),
+    ...(settings.language ? { language: settings.language } : {}),
     ...(settings.lastWorkspace ? { lastWorkspace: settings.lastWorkspace } : {}),
     ...(settings.thinkingVisible !== undefined ? { thinkingVisible: settings.thinkingVisible } : {}),
     ...(settings.subagentPanelVisible !== undefined ? { subagentPanelVisible: settings.subagentPanelVisible } : {}),
@@ -326,6 +342,7 @@ function withoutSelectedModel(settings: SettingsFile): SettingsFile {
     ...(settings.fireworksApiKey ? { fireworksApiKey: settings.fireworksApiKey } : {}),
     ...(hasPairEndpoints(pairEndpoints) ? { pairEndpoints } : {}),
     ...(settings.theme ? { theme: settings.theme } : {}),
+    ...(settings.language ? { language: settings.language } : {}),
     ...(settings.lastWorkspace ? { lastWorkspace: settings.lastWorkspace } : {}),
     ...(settings.thinkingVisible !== undefined ? { thinkingVisible: settings.thinkingVisible } : {}),
     ...(settings.subagentPanelVisible !== undefined ? { subagentPanelVisible: settings.subagentPanelVisible } : {}),
@@ -357,6 +374,12 @@ function optionalModelProvider(value: unknown): ModelProvider | undefined {
   if (value === undefined) return undefined
   if (value === "fireworks" || value === "local" || value === "pair") return value
   throw new Error("Invalid Otis config: modelProvider must be fireworks, local, or pair.")
+}
+
+function optionalUiLanguage(value: unknown): UiLanguage | undefined {
+  if (value === undefined) return undefined
+  if (typeof value === "string" && UI_LANGUAGES.includes(value as UiLanguage)) return value as UiLanguage
+  throw new Error(`Invalid Otis config: language must be one of ${UI_LANGUAGES.join(", ")}.`)
 }
 
 function parsePairEndpoints(value: unknown) {

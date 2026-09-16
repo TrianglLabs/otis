@@ -3,6 +3,7 @@ import { Fragment, useCallback, useEffect, useRef, useState } from "react"
 import type { ModelPickerChoice, ModelPickerItem } from "../../../../inference/picker-catalog.js"
 import { Button, IconButton } from "../../components/Button.js"
 import { Icon } from "../../components/Icon.js"
+import { useI18n } from "../../i18n/index.js"
 import { useDesktop, useDesktopState } from "../../runtime.js"
 import { useScrollbarFlash } from "../../useScrollbarFlash.js"
 import { isPickerRowSelectable, mergeModelLoad, pickerDetailParts, pickerItemKey } from "./model-list.js"
@@ -16,6 +17,7 @@ import { isPickerRowSelectable, mergeModelLoad, pickerDetailParts, pickerItemKey
  */
 export function ModelPicker({ onClose }: { onClose: () => void }) {
   const { api } = useDesktop()
+  const { t } = useI18n()
   const state = useDesktopState("modelLoad")
   const [items, setItems] = useState<ModelPickerItem[]>()
   const [listError, setListError] = useState<string>()
@@ -99,23 +101,29 @@ export function ModelPicker({ onClose }: { onClose: () => void }) {
 
   return (
     <>
-      <button type="button" className="overlayBackdrop" aria-label="Close model picker" onClick={onClose} />
-      <div className="modelPicker noDrag" role="dialog" aria-modal="true" aria-label="Select a model">
+      <button type="button" className="overlayBackdrop" aria-label={t("models.close")} onClick={onClose} />
+      <div className="modelPicker noDrag" role="dialog" aria-modal="true" aria-label={t("models.select")}>
         {/* Borderless title bar like the coworker trace's header: label left, close button at the edge. */}
         <div className="modelPicker-title">
-          <span className="modelPicker-titleText">Select a model</span>
+          <span className="modelPicker-titleText">{t("models.select")}</span>
           <span className="modelPicker-titleSpace" />
-          <IconButton icon={X} label="Close model picker" size={22} onClick={onClose} />
+          <IconButton icon={X} label={t("models.close")} size={22} onClick={onClose} />
         </div>
         {listError ? <div className="modelPicker-message modelPicker-error">{listError}</div> : null}
         {actionError ? <div className="modelPicker-message modelPicker-error">{actionError}</div> : null}
-        {!items && !listError ? <div className="modelPicker-message">Loading models…</div> : null}
+        {!items && !listError ? <div className="modelPicker-message">{t("common.loadingModels")}</div> : null}
         {/* The thumb appears on hover and flashes while scrolling, like the transcript. */}
         <div className={`modelPicker-list${scrollbar.scrolling ? " scrolling" : ""}`} onScroll={scrollbar.onScroll}>
           {rows.map((item) =>
             item.kind === "header" ? (
               <div key={item.id} className="modelPicker-header">
-                {item.id === "header-pair" ? "Ollama, LM Studio & PAIR" : item.displayName}
+                {item.id === "header-pair"
+                  ? t("models.serverHeading")
+                  : item.id === "header-local"
+                    ? t("models.local")
+                    : item.id === "header-hosted"
+                      ? t("models.hosted")
+                      : item.displayName}
               </div>
             ) : (
               <ModelRow
@@ -165,6 +173,7 @@ function ModelRow({
   onDelete: () => void
   onKeep: () => void
 }) {
+  const { t } = useI18n()
   const selectable = isPickerRowSelectable(item)
   const status = "status" in item ? item.status : undefined
   const loading = status?.kind === "progress"
@@ -174,19 +183,19 @@ function ModelRow({
     <div className={`modelPicker-row${item.active ? " active" : ""}`}>
       {deleting ? (
         <div className="modelPicker-confirm">
-          <span className="modelPicker-confirmText">Deleting {item.displayName}…</span>
+          <span className="modelPicker-confirmText">{t("models.deletingName", { name: item.displayName })}</span>
           <span className="modelPicker-spinner">
             <Icon icon={Loader2} size={12} />
           </span>
         </div>
       ) : confirmingDelete ? (
         <div className="modelPicker-confirm">
-          <span className="modelPicker-confirmText">Delete {item.displayName}?</span>
+          <span className="modelPicker-confirmText">{t("models.deleteNameConfirm", { name: item.displayName })}</span>
           <Button variant="ghost" size="sm" onClick={onKeep}>
-            Keep
+            {t("palette.keep")}
           </Button>
           <Button variant="danger" size="sm" onClick={onDelete}>
-            Delete
+            {t("palette.delete")}
           </Button>
         </div>
       ) : (
@@ -201,7 +210,7 @@ function ModelRow({
               <span className="modelPicker-name">
                 {item.displayName}
                 {"recommended" in item && item.recommended ? (
-                  <span className="modelPicker-recommended" title="Recommended for this machine">
+                  <span className="modelPicker-recommended" title={t("common.recommended")}>
                     <Icon icon={Star} size={11} />
                   </span>
                 ) : null}
@@ -222,7 +231,7 @@ function ModelRow({
           {loading ? (
             <IconButton
               icon={X}
-              label="Cancel model load"
+              label={t("common.cancelModelLoad")}
               size={22}
               className="modelPicker-cancel"
               onClick={onCancel}
@@ -231,7 +240,7 @@ function ModelRow({
           {deletable ? (
             <IconButton
               icon={Trash2}
-              label={`Delete ${item.displayName}`}
+              label={t("models.deleteName", { name: item.displayName })}
               size={22}
               className="modelPicker-delete"
               disabled={deletionInFlight}
@@ -239,7 +248,7 @@ function ModelRow({
             />
           ) : null}
           {"downloaded" in item && !item.downloaded && selectable && !selectionInFlight ? (
-            <span className="modelPicker-mark modelPicker-downloadHint" title="Downloads when selected">
+            <span className="modelPicker-mark modelPicker-downloadHint" title={t("models.downloadingWhenSelected")}>
               <Icon icon={Download} size={12} />
             </span>
           ) : null}
@@ -250,7 +259,8 @@ function ModelRow({
 }
 
 function ModelDetail({ item }: { item: ModelPickerChoice }) {
-  return pickerDetailParts(item).map((part, index) => (
+  const { t } = useI18n()
+  return pickerDetailParts(item, t).map((part, index) => (
     <Fragment key={`${part.label}-${index}`}>
       {index > 0 ? <span aria-hidden>·</span> : null}
       <span className={part.modality ? `modelPicker-modality modelPicker-modality-${part.modality}` : undefined}>

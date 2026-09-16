@@ -104,6 +104,10 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
     if (typeof theme !== "string") throw new Error("Invalid theme.")
     return runtime.setTheme(theme)
   })
+  handle(DESKTOP_CHANNELS.setLanguage, (language) => {
+    if (typeof language !== "string") throw new Error("Invalid language.")
+    return runtime.setLanguage(language)
+  })
   handle(DESKTOP_CHANNELS.setThinkingVisible, (visible) => {
     if (typeof visible !== "boolean") throw new Error("Invalid visibility flag.")
     return runtime.setThinkingVisible(visible)

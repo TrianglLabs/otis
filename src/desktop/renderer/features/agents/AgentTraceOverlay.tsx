@@ -3,6 +3,7 @@ import { useEffect, useState } from "react"
 import type { TranscriptEntry } from "../../../../app/transcript.js"
 import { IconButton } from "../../components/Button.js"
 import { Icon } from "../../components/Icon.js"
+import { useI18n } from "../../i18n/index.js"
 import { useDesktop, useDesktopState } from "../../runtime.js"
 import { reconcileTraceEntries } from "../../state.js"
 import { TranscriptList } from "../conversation/TranscriptList.js"
@@ -16,6 +17,7 @@ import { createCoalescedLoader } from "./trace-loader.js"
  */
 export function AgentTraceOverlay({ toolCallId, onClose }: { toolCallId: string; onClose: () => void }) {
   const { api } = useDesktop()
+  const { t } = useI18n()
   const state = useDesktopState("subagents", "thinkingVisible")
   const run = state?.subagents.find((candidate) => candidate.toolCallId === toolCallId)
   const [entries, setEntries] = useState<TranscriptEntry[]>([])
@@ -58,18 +60,23 @@ export function AgentTraceOverlay({ toolCallId, onClose }: { toolCallId: string;
 
   return (
     <>
-      <button type="button" className="overlayBackdrop" aria-label="Close trace" onClick={onClose} />
-      <div className="agentTrace noDrag" role="dialog" aria-modal="true" aria-label={`Trace: ${run?.title ?? "run"}`}>
+      <button type="button" className="overlayBackdrop" aria-label={t("trace.close")} onClick={onClose} />
+      <div
+        className="agentTrace noDrag"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("trace.dialog", { title: run?.title ?? t("trace.run") })}
+      >
         <div className="agentTrace-title">
           {run ? (
             <span className={`agentsRow-status agentsRow-${run.status}`}>
               <Icon icon={AGENT_STATUS_ICONS[run.status]} size={12} />
             </span>
           ) : null}
-          <span className="agentTrace-name">{run?.title ?? "Coworker"}</span>
-          {run ? <span className="agentTrace-summary">{agentSummary(run)}</span> : null}
+          <span className="agentTrace-name">{run?.title ?? t("trace.coworker")}</span>
+          {run ? <span className="agentTrace-summary">{agentSummary(run, t)}</span> : null}
           <span className="agentTrace-titleSpace" />
-          <IconButton icon={X} label="Close trace" size={22} onClick={onClose} />
+          <IconButton icon={X} label={t("trace.close")} size={22} onClick={onClose} />
         </div>
         {entries.length > 0 ? (
           <TranscriptList key={toolCallId} entries={entries} thinkingVisible={state?.thinkingVisible ?? false} />

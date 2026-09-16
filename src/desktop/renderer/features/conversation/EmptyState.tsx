@@ -1,9 +1,12 @@
 import { OtisMark } from "../../components/OtisMark.js"
+import { formatSessionDetail } from "../../format.js"
+import { useI18n } from "../../i18n/index.js"
 import { useDesktop, useDesktopState } from "../../runtime.js"
 
 /** A quiet home screen centered on the brand mark, with guidance when inference is not usable. */
 export function EmptyState() {
   const { api } = useDesktop()
+  const { locale, t } = useI18n()
   const state = useDesktopState("sessions", "modelState", "modelError")
   if (!state) return null
 
@@ -13,19 +16,16 @@ export function EmptyState() {
     <div className="home">
       <OtisMark className="home-logo" />
       {state.modelState === "starting" ? (
-        <p className="home-setup">The selected model is starting…</p>
+        <p className="home-setup">{t("home.modelStarting")}</p>
       ) : state.modelState === "failed" ? (
         <div className="home-setup">
-          <p>The selected model could not start{state.modelError ? `: ${state.modelError}` : "."}</p>
-          <p className="home-setupHint">Pick a different model from the model menu in the composer.</p>
+          <p>{t("home.modelFailed", { detail: state.modelError ? `: ${state.modelError}` : "." })}</p>
+          <p className="home-setupHint">{t("home.pickDifferent")}</p>
         </div>
       ) : state.modelState === "unconfigured" ? (
         <div className="home-setup">
-          <p>No model is configured yet.</p>
-          <p className="home-setupHint">
-            Run <code>otis</code> in this workspace once to set up inference — the desktop app uses the same
-            configuration and sessions.
-          </p>
+          <p>{t("home.noModel")}</p>
+          <p className="home-setupHint">{t("home.setupHint")}</p>
         </div>
       ) : null}
       {recents.length > 0 ? (
@@ -38,10 +38,10 @@ export function EmptyState() {
               onClick={() => void api.selectSession(session.id, session.dirName)}
             >
               <span className="home-recentTitle">{session.title}</span>
-              <span className="home-recentDetail">{session.detail}</span>
+              <span className="home-recentDetail">{formatSessionDetail(session.detail, locale)}</span>
             </button>
           ))}
-          <span className="home-hint">⌘K to search all sessions</span>
+          <span className="home-hint">{t("home.searchSessions")}</span>
         </div>
       ) : null}
     </div>

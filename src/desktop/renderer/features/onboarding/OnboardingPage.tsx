@@ -18,6 +18,7 @@ import ollamaIcon from "../../assets/ollama.svg"
 import { Button, IconButton } from "../../components/Button.js"
 import { Icon } from "../../components/Icon.js"
 import { OtisMark } from "../../components/OtisMark.js"
+import { useI18n } from "../../i18n/index.js"
 import { useDesktop, useDesktopState } from "../../runtime.js"
 import { isPickerRowSelectable, mergeModelLoad, pickerDetailLabel, pickerItemKey } from "../models/model-list.js"
 
@@ -33,6 +34,7 @@ type OnboardingDirection = "forward" | "back"
  */
 export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void }) {
   const { api } = useDesktop()
+  const { t } = useI18n()
   const state = useDesktopState("hostedConfigured", "modelLoad", "pairConfigured", "pairEndpoints")
   const [path, setPath] = useState<OnboardingPath>("welcome")
   const [direction, setDirection] = useState<OnboardingDirection>("forward")
@@ -112,7 +114,7 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
       const catalog = await load()
       if (!catalog) return
       if (!catalog.some((item) => item.kind === "model" && item.provider === "pair")) {
-        setError("Connected, but the server reported no available models.")
+        setError(t("onboarding.connectedNoModels"))
         return
       }
       navigate("serverModels", "forward")
@@ -137,34 +139,36 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
       <main className="onboarding">
         <div className="onboarding-topbar">
           <span />
-          <IconButton icon={Settings} label="Settings" size={26} className="noDrag" onClick={onOpenSettings} />
+          <IconButton
+            icon={Settings}
+            label={t("common.settings")}
+            size={26}
+            className="noDrag"
+            onClick={onOpenSettings}
+          />
         </div>
         <div key={path} className={`onboarding-welcome onboarding-step onboarding-step-${direction}`}>
           <div className="onboarding-brand">
             <OtisMark className="onboarding-logo" />
             <h1 className="onboarding-title">Otis</h1>
-            <p className="onboarding-sub">Your personal AI agent, powered by open models.</p>
+            <p className="onboarding-sub">{t("onboarding.tagline")}</p>
           </div>
           <div className="onboarding-choices">
-            <p className="onboarding-choose">Choose a model setup</p>
+            <p className="onboarding-choose">{t("onboarding.chooseSetup")}</p>
             <div className="onboarding-cards">
               <button type="button" className="onboarding-card" onClick={() => navigate("cloud", "forward")}>
                 <Icon icon={Cloud} size={15} className="onboarding-cardIcon" />
                 <span className="onboarding-cardText">
-                  <span className="onboarding-cardTitle">Hosted</span>
-                  <span className="onboarding-cardBody">
-                    Top open models, ready instantly. Pay-as-you-go — you connect it with a Fireworks key.
-                  </span>
+                  <span className="onboarding-cardTitle">{t("common.hosted")}</span>
+                  <span className="onboarding-cardBody">{t("onboarding.hostedBody")}</span>
                 </span>
                 <Icon icon={ChevronRight} size={14} className="onboarding-cardChevron" />
               </button>
               <button type="button" className="onboarding-card" onClick={() => navigate("local", "forward")}>
                 <Icon icon={HardDrive} size={15} className="onboarding-cardIcon" />
                 <span className="onboarding-cardText">
-                  <span className="onboarding-cardTitle">Local</span>
-                  <span className="onboarding-cardBody">
-                    Run models on this Mac or your local AI network. Private and works offline.
-                  </span>
+                  <span className="onboarding-cardTitle">{t("common.local")}</span>
+                  <span className="onboarding-cardBody">{t("onboarding.localBody")}</span>
                 </span>
                 <Icon icon={ChevronRight} size={14} className="onboarding-cardChevron" />
               </button>
@@ -180,15 +184,21 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
       <div className="onboarding-topbar">
         <Button variant="ghost" size="sm" className="noDrag" onClick={goBack}>
           <Icon icon={ArrowLeft} size={13} />
-          Back
+          {t("onboarding.back")}
         </Button>
-        <IconButton icon={Settings} label="Settings" size={26} className="noDrag" onClick={onOpenSettings} />
+        <IconButton
+          icon={Settings}
+          label={t("common.settings")}
+          size={26}
+          className="noDrag"
+          onClick={onOpenSettings}
+        />
       </div>
       <div key={path} className={`onboarding-panel onboarding-step onboarding-step-${direction}`}>
         {path === "cloud" ? (
           <>
             <OtisMark className="onboarding-logo" />
-            <p className="onboarding-panelTitle">Set up hosted models</p>
+            <p className="onboarding-panelTitle">{t("onboarding.setupHosted")}</p>
           </>
         ) : null}
 
@@ -196,8 +206,8 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
           <>
             <div className="onboarding-stepHeader">
               <OtisMark className="onboarding-logo" />
-              <p className="onboarding-panelTitle">Choose local inference</p>
-              <p className="onboarding-hint">Use a model managed by Otis or connect one you already run.</p>
+              <p className="onboarding-panelTitle">{t("onboarding.chooseLocal")}</p>
+              <p className="onboarding-hint">{t("onboarding.localHint")}</p>
             </div>
             <div className="onboarding-cards">
               <button type="button" className="onboarding-card" onClick={() => navigate("managed", "forward")}>
@@ -205,8 +215,8 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                   <OtisMark className="onboarding-cardOtisMark" decorative />
                 </span>
                 <span className="onboarding-cardText">
-                  <span className="onboarding-cardTitle">Managed by Otis</span>
-                  <span className="onboarding-cardBody">Download a curated model and run it with llama.cpp.</span>
+                  <span className="onboarding-cardTitle">{t("onboarding.managed")}</span>
+                  <span className="onboarding-cardBody">{t("onboarding.managedBody")}</span>
                 </span>
                 <Icon icon={ChevronRight} size={14} className="onboarding-cardChevron" />
               </button>
@@ -216,8 +226,8 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                   <img className="onboarding-providerMark" src={lmStudioIcon} alt="" />
                 </span>
                 <span className="onboarding-cardText">
-                  <span className="onboarding-cardTitle">Ollama or LM Studio</span>
-                  <span className="onboarding-cardBody">Connect directly or through NVIDIA PAIR.</span>
+                  <span className="onboarding-cardTitle">{t("onboarding.server")}</span>
+                  <span className="onboarding-cardBody">{t("onboarding.serverBody")}</span>
                 </span>
                 <Icon icon={ChevronRight} size={14} className="onboarding-cardChevron" />
               </button>
@@ -228,32 +238,32 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
         {path === "cloud" && !hostedConfigured ? (
           <>
             <p className="onboarding-hint">
-              Hosted models run on Fireworks (pay-as-you-go).{" "}
+              {t("onboarding.hostedHintBefore")}{" "}
               <button type="button" className="onboarding-link" onClick={() => void api.openFireworksKeyPage()}>
-                Get a key
+                {t("onboarding.getKey")}
               </button>{" "}
-              and paste it here:
+              {t("onboarding.hostedHintAfter")}
             </p>
             <div className="onboarding-keyRow">
               <Icon icon={KeyRound} size={14} className="onboarding-keyIcon" />
               <input
                 className="onboarding-input"
                 type="password"
-                placeholder="Paste your key here"
-                aria-label="Fireworks API key"
+                placeholder={t("onboarding.pasteKey")}
+                aria-label={t("onboarding.fireworksKey")}
                 value={apiKey}
                 autoComplete="off"
                 onChange={(event) => setApiKey(event.target.value)}
               />
               <Button variant="primary" size="sm" disabled={!apiKey.trim()} onClick={() => void saveKey()}>
-                Continue
+                {t("common.continue")}
                 <Icon icon={ArrowRight} size={13} />
               </Button>
             </div>
           </>
         ) : null}
 
-        {path === "cloud" && hostedConfigured ? <p className="onboarding-hint">Key saved. Now pick a model:</p> : null}
+        {path === "cloud" && hostedConfigured ? <p className="onboarding-hint">{t("onboarding.keySaved")}</p> : null}
 
         {path === "managed" ? (
           <LocalPick items={rows} itemsLoaded={items !== undefined} error={error} onSelect={select} />
@@ -263,11 +273,8 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
           <>
             <div className="onboarding-stepHeader">
               <OtisMark className="onboarding-logo" />
-              <p className="onboarding-panelTitle">Connect a local model server</p>
-              <p className="onboarding-hint">
-                Connect to Ollama or LM Studio directly, or through NVIDIA PAIR — the default local addresses are
-                prefilled.
-              </p>
+              <p className="onboarding-panelTitle">{t("onboarding.connectServer")}</p>
+              <p className="onboarding-hint">{t("onboarding.connectServerHint")}</p>
             </div>
             <div className="onboarding-endpoints">
               <label className="onboarding-endpointLabel" htmlFor="onboarding-ollama">
@@ -309,7 +316,7 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                     size={13}
                     className={serverPending ? "spin" : undefined}
                   />
-                  {serverPending ? "Checking…" : "Connect"}
+                  {serverPending ? t("common.checking") : t("common.connect")}
                 </Button>
               </div>
             </div>
@@ -320,8 +327,8 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
           <>
             <div className="onboarding-stepHeader">
               <OtisMark className="onboarding-logo" />
-              <p className="onboarding-panelTitle">Choose a model</p>
-              <p className="onboarding-hint">Select a model reported by your connected server.</p>
+              <p className="onboarding-panelTitle">{t("onboarding.chooseModel")}</p>
+              <p className="onboarding-hint">{t("onboarding.chooseServerModel")}</p>
             </div>
             <div className="onboarding-list onboarding-serverModels">
               {rows.map((item) => (
@@ -333,11 +340,11 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                     onClick={() => void select(item)}
                   >
                     <span className="onboarding-rowName">{item.displayName}</span>
-                    <span className="onboarding-rowDetail">{pickerDetailLabel(item)}</span>
+                    <span className="onboarding-rowDetail">{pickerDetailLabel(item, t)}</span>
                   </button>
                 </div>
               ))}
-              {!items && !error ? <p className="onboarding-hint">Loading models…</p> : null}
+              {!items && !error ? <p className="onboarding-hint">{t("common.loadingModels")}</p> : null}
             </div>
           </>
         ) : null}
@@ -358,20 +365,20 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                     <span className="onboarding-rowName">
                       {item.displayName}
                       {"recommended" in item && item.recommended ? (
-                        <span className="onboarding-recommended" title="Recommended for this machine">
+                        <span className="onboarding-recommended" title={t("common.recommended")}>
                           <Icon icon={Star} size={11} />
                         </span>
                       ) : null}
                     </span>
                     <span className={`onboarding-rowDetail${status?.kind === "error" ? " error" : ""}`}>
                       {loading ? <Icon icon={Loader2} size={11} className="spin" /> : null}
-                      {status?.label ?? pickerDetailLabel(item)}
+                      {status?.label ?? pickerDetailLabel(item, t)}
                     </span>
                   </button>
                   {loading ? (
                     <IconButton
                       icon={X}
-                      label="Cancel model load"
+                      label={t("common.cancelModelLoad")}
                       size={22}
                       className="onboarding-cancel"
                       onClick={() => void api.cancelModelSelection()}
@@ -380,7 +387,7 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                 </div>
               )
             })}
-            {!items && !error ? <p className="onboarding-hint">Loading models…</p> : null}
+            {!items && !error ? <p className="onboarding-hint">{t("common.loadingModels")}</p> : null}
           </div>
         ) : null}
 
@@ -403,6 +410,7 @@ function LocalPick({
   onSelect: (item: ModelPickerChoice) => void
 }) {
   const { api } = useDesktop()
+  const { t } = useI18n()
   const pick =
     items.find((item) => "recommended" in item && item.recommended && isPickerRowSelectable(item)) ??
     items.find(isPickerRowSelectable)
@@ -413,9 +421,7 @@ function LocalPick({
         {error ? (
           <p className="onboarding-error">{error}</p>
         ) : (
-          <p className="onboarding-hint">
-            {itemsLoaded ? "No local model fits this Mac — go back and pick Hosted." : "Loading models…"}
-          </p>
+          <p className="onboarding-hint">{itemsLoaded ? t("onboarding.noLocalFit") : t("common.loadingModels")}</p>
         )}
       </div>
     )
@@ -426,17 +432,17 @@ function LocalPick({
   return (
     <div className="onboarding-local">
       <OtisMark className="onboarding-logo" />
-      <p className="onboarding-panelTitle">Best model for your Mac</p>
+      <p className="onboarding-panelTitle">{t("onboarding.bestModel")}</p>
       <div className="onboarding-localPick">
         <span className="onboarding-rowName">
           {pick.displayName}
           {"recommended" in pick && pick.recommended ? (
-            <span className="onboarding-recommended" title="Recommended for this machine">
+            <span className="onboarding-recommended" title={t("common.recommended")}>
               <Icon icon={Star} size={11} />
             </span>
           ) : null}
         </span>
-        <span className="onboarding-rowDetail">{loading ? status.label : pickerDetailLabel(pick)}</span>
+        <span className="onboarding-rowDetail">{loading ? status.label : pickerDetailLabel(pick, t)}</span>
       </div>
       <div className="onboarding-actions">
         <Button
@@ -445,11 +451,16 @@ function LocalPick({
           disabled={!isPickerRowSelectable(pick) || loading}
           onClick={() => onSelect(pick)}
         >
-          {"downloaded" in pick && pick.downloaded ? "Continue" : "Download and continue"}
+          {"downloaded" in pick && pick.downloaded ? t("common.continue") : t("onboarding.downloadContinue")}
           {loading ? <Icon icon={Loader2} size={13} className="spin" /> : <Icon icon={ArrowRight} size={13} />}
         </Button>
         {loading ? (
-          <IconButton icon={X} label="Cancel model load" size={22} onClick={() => void api.cancelModelSelection()} />
+          <IconButton
+            icon={X}
+            label={t("common.cancelModelLoad")}
+            size={22}
+            onClick={() => void api.cancelModelSelection()}
+          />
         ) : null}
       </div>
       {displayedError ? <p className="onboarding-error">{displayedError}</p> : null}

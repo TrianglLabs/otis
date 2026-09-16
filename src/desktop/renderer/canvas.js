@@ -1,3 +1,17 @@
+// This script is inlined into an opaque-origin iframe and cannot import modules.
+// The parent replaces these initial English labels with the selected catalog on load.
+let labels = {
+  viewport: "Diagram canvas. Drag to pan; use the controls to zoom.",
+  controls: "Diagram view controls",
+  zoomOut: "Zoom out",
+  resetView: "Reset view",
+  zoomIn: "Zoom in",
+  renderFailed: "Could not render this Mermaid diagram.",
+  loadFailed: "Mermaid failed to load.",
+  emptySource: "The Mermaid block is empty.",
+  tooLarge: "This Mermaid diagram is too large to render. The limit is 50,000 characters.",
+}
+let lastError
 const root = requiredElement("diagram")
 const errorView = requiredElement("error")
 const viewport = requiredElement("viewport")
@@ -62,6 +76,29 @@ viewport.addEventListener("keydown", (event) => {
 
 window.addEventListener("message", (event) => {
   if (event.source !== parent) return
+  if (event.data?.type === "otis-canvas-language") {
+    const next = event.data.labels
+    if (
+      typeof event.data.locale !== "string" ||
+      !next ||
+      !Object.keys(labels).every((key) => typeof next[key] === "string")
+    )
+      return
+    labels = next
+    document.documentElement.lang = event.data.locale
+    viewport.setAttribute("aria-label", labels.viewport)
+    controls.setAttribute("aria-label", labels.controls)
+    for (const [element, label] of [
+      [zoomOut, labels.zoomOut],
+      [resetButton, labels.resetView],
+      [zoomIn, labels.zoomIn],
+    ]) {
+      element.setAttribute("aria-label", label)
+      element.title = label
+    }
+    if (lastError !== undefined) renderError()
+    return
+  }
   const request = canvasRequest(event.data)
   if (!request) return
   const requestId = ++latestRequest
@@ -70,13 +107,14 @@ window.addEventListener("message", (event) => {
   root.innerHTML = ""
   errorView.hidden = true
   errorView.textContent = ""
+  lastError = undefined
   if (request.error) showError(request.error, requestId)
   else void render(request.source, request.colors, requestId)
 })
 
 async function render(source, colors, requestId) {
   const mermaid = globalThis.mermaid
-  if (!mermaid) return showError("Mermaid failed to load.", requestId)
+  if (!mermaid) return showError("loadFailed", requestId)
 
   try {
     mermaid.initialize({
@@ -179,8 +217,16 @@ function showError(message, requestId) {
   root.hidden = true
   root.innerHTML = ""
   errorView.hidden = false
-  errorView.textContent = `Could not render this Mermaid diagram.\n\n${message}`
-  parent.postMessage({ type: "otis-canvas-render", ok: false, message }, "*")
+  lastError = message
+  renderError()
+  parent.postMessage(
+    { type: "otis-canvas-render", ok: false, message: Object.hasOwn(labels, message) ? labels[message] : message },
+    "*",
+  )
+}
+
+function renderError() {
+  errorView.textContent = `${labels.renderFailed}\n\n${Object.hasOwn(labels, lastError) ? labels[lastError] : lastError}`
 }
 
 function canvasRequest(value) {
@@ -192,13 +238,13 @@ function canvasRequest(value) {
   )
   if (!validColors) return false
   if (value.source.length === 0) {
-    return { source: value.source, colors: value.colors, error: "The Mermaid block is empty." }
+    return { source: value.source, colors: value.colors, error: "emptySource" }
   }
   if (value.source.length > 50_000) {
     return {
       source: value.source,
       colors: value.colors,
-      error: "This Mermaid diagram is too large to render. The limit is 50,000 characters.",
+      error: "tooLarge",
     }
   }
   return { source: value.source, colors: value.colors }

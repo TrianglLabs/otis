@@ -120,6 +120,7 @@ function statusFixture(overrides: Partial<DesktopStatus> = {}): DesktopStatus {
     subagents: [],
     agentsPanelVisible: true,
     theme: "default",
+    language: "system",
     thinkingVisible: true,
     permissionMode: "ask",
     fastServing: { available: false, enabled: false },

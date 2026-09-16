@@ -3,6 +3,7 @@ import { useId } from "react"
 import type { PendingPermission } from "../../../contracts.js"
 import { Button } from "../../components/Button.js"
 import { Icon } from "../../components/Icon.js"
+import { useI18n } from "../../i18n/index.js"
 
 /**
  * Inline approval request pinned to the end of the transcript. Replies reference the request id, so a request that
@@ -15,6 +16,7 @@ export function PermissionCard({
   permission: PendingPermission
   onRespond: (id: number, allow: boolean) => void
 }) {
+  const { t } = useI18n()
   const titleId = useId()
   const descriptionId = useId()
   const showLabel = permission.kind !== "shell" || permission.resources.length === 0
@@ -26,14 +28,14 @@ export function PermissionCard({
           <Icon icon={Shield} size={14} />
         </span>
         <div className="permissionCard-title" id={titleId}>
-          Approval needed
+          {t("permission.title")}
         </div>
       </div>
       <div className="permissionCard-detail" id={descriptionId}>
         {showLabel ? <div className="permissionCard-label">{permission.label}</div> : null}
         {permission.resources.length > 0 ? (
           // biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable request details must be reachable by keyboard.
-          <ul className="permissionCard-resources" aria-label="Requested resources" tabIndex={0}>
+          <ul className="permissionCard-resources" aria-label={t("permission.resources")} tabIndex={0}>
             {permission.resources.map((resource, index) => (
               <li key={`${index}:${resource}`}>
                 <code>{resource}</code>
@@ -44,10 +46,10 @@ export function PermissionCard({
       </div>
       <div className="permissionCard-actions">
         <Button variant="outline" size="sm" onClick={() => onRespond(permission.id, false)}>
-          Deny
+          {t("permission.deny")}
         </Button>
         <Button variant="primary" size="sm" onClick={() => onRespond(permission.id, true)}>
-          Allow once
+          {t("permission.allowOnce")}
         </Button>
       </div>
     </div>

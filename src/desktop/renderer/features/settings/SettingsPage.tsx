@@ -1,11 +1,12 @@
 import { Check, ChevronDown, ChevronRight, Plug, X } from "lucide-react"
 import { useEffect, useState } from "react"
 import type { PairPickerChoice } from "../../../../inference/picker-catalog.js"
-import type { ThemeName } from "../../../contracts.js"
+import type { ThemeName, UiLanguage } from "../../../contracts.js"
 import lmStudioIcon from "../../assets/lm-studio.svg"
 import ollamaIcon from "../../assets/ollama.svg"
 import { Button, IconButton } from "../../components/Button.js"
 import { Icon } from "../../components/Icon.js"
+import { LANGUAGE_OPTIONS, useI18n } from "../../i18n/index.js"
 import { useDesktop, useDesktopState } from "../../runtime.js"
 import { pickerDetailLabel } from "../models/model-list.js"
 import { SoftwareUpdates } from "./SoftwareUpdates.js"
@@ -35,12 +36,14 @@ const PAIR_DEFAULT_ENDPOINTS = { ollama: "http://127.0.0.1:11434", lmStudio: "ht
  */
 export function SettingsPage({ onClose }: { onClose: () => void }) {
   const { api } = useDesktop()
+  const { systemLocale, t } = useI18n()
   const state = useDesktopState(
     "fastServing",
     "busy",
     "pairEndpoints",
     "pairConfigured",
     "theme",
+    "language",
     "thinkingVisible",
     "permissionMode",
     "model",
@@ -164,21 +167,21 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
   return (
     <div className="settingsPage">
       <div className="settingsPage-header">
-        <IconButton icon={X} label="Close settings (Esc)" className="noDrag" onClick={onClose} />
+        <IconButton icon={X} label={t("settings.close")} className="noDrag" onClick={onClose} />
       </div>
 
       <div className="settingsPage-scroll">
         <div className="settingsPage-column">
-          <div className="settings-section">Providers</div>
+          <div className="settings-section">{t("settings.providers")}</div>
 
           <button type="button" className="settingsRow settingsRow-expand" onClick={() => toggleForm("hosted")}>
-            <span className="settingsRow-label">Hosted inference</span>
+            <span className="settingsRow-label">{t("settings.hostedInference")}</span>
             <Icon icon={openForm === "hosted" ? ChevronDown : ChevronRight} size={12} />
           </button>
           {openForm === "hosted" ? (
             <div className="settingsForm">
               <label className="settingsForm-label" htmlFor="settings-api-key">
-                Fireworks API key
+                {t("settings.fireworksKey")}
               </label>
               <input
                 id="settings-api-key"
@@ -194,27 +197,24 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
               />
               <div className="settingsForm-actions">
                 <Button variant="ghost" size="sm" onClick={() => void api.openFireworksKeyPage()}>
-                  Get a key
+                  {t("settings.getKey")}
                 </Button>
                 <Button variant="primary" size="sm" disabled={hostedPending} onClick={() => void submitHosted()}>
-                  Continue
+                  {t("common.continue")}
                 </Button>
               </div>
-              {hostedPending ? <div className="settings-message">Checking hosted inference...</div> : null}
+              {hostedPending ? <div className="settings-message">{t("settings.checkingHosted")}</div> : null}
               {hostedError ? <div className="settings-message settings-error">{hostedError}</div> : null}
             </div>
           ) : null}
 
           <button type="button" className="settingsRow settingsRow-expand" onClick={() => toggleForm("pair")}>
-            <span className="settingsRow-label">Local model servers</span>
+            <span className="settingsRow-label">{t("settings.localServers")}</span>
             <Icon icon={openForm === "pair" ? ChevronDown : ChevronRight} size={12} />
           </button>
           {openForm === "pair" ? (
             <div className="settingsForm">
-              <p className="settingsForm-note">
-                Connect to Ollama or LM Studio directly. If you use NVIDIA PAIR, enter the loopback addresses shown in
-                PAIR → Endpoints. Only one working endpoint is required.
-              </p>
+              <p className="settingsForm-note">{t("settings.localServersNote")}</p>
               <div className="settingsEndpoints">
                 <label className="settingsEndpoint-label" htmlFor="settings-pair-ollama">
                   <img
@@ -252,17 +252,19 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
               <div className="settingsForm-actions">
                 <Button variant="primary" size="sm" disabled={pairPending} onClick={() => void submitPair()}>
                   <Icon icon={Plug} size={13} />
-                  Connect
+                  {t("common.connect")}
                 </Button>
               </div>
-              {pairPending ? <div className="settings-message">Checking local model servers…</div> : null}
+              {pairPending ? <div className="settings-message">{t("settings.checkingServers")}</div> : null}
               {pairError ? <div className="settings-message settings-error">{pairError}</div> : null}
               {state.pairConfigured ? (
                 <>
-                  <div className="settingsForm-label settingsModels-label">Available models</div>
-                  {pairModels === undefined ? <div className="settings-message">Loading models…</div> : null}
+                  <div className="settingsForm-label settingsModels-label">{t("settings.availableModels")}</div>
+                  {pairModels === undefined ? (
+                    <div className="settings-message">{t("common.loadingModels")}</div>
+                  ) : null}
                   {pairModels?.length === 0 ? (
-                    <div className="settings-message">The connected endpoints report no models.</div>
+                    <div className="settings-message">{t("settings.noServerModels")}</div>
                   ) : null}
                   {pairModels?.map((item) => (
                     <button
@@ -273,7 +275,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
                     >
                       <span className="settingsRow-label">
                         {item.displayName}
-                        <span className="settingsRow-meta">{pickerDetailLabel(item)}</span>
+                        <span className="settingsRow-meta">{pickerDetailLabel(item, t)}</span>
                       </span>
                       {item.active ? <Icon icon={Check} size={13} /> : null}
                     </button>
@@ -283,7 +285,29 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
             </div>
           ) : null}
 
-          <div className="settings-section">Theme</div>
+          <div className="settings-section">{t("settings.appearance")}</div>
+          <div className="settingsRow">
+            <span className="settingsRow-label">{t("settings.language")}</span>
+            <select
+              className="settingsSelect"
+              aria-label={t("settings.language")}
+              value={state.language}
+              onChange={(event) => void api.setLanguage(event.target.value as UiLanguage)}
+            >
+              {LANGUAGE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.value === "system"
+                    ? t("settings.systemLanguage", {
+                        language:
+                          LANGUAGE_OPTIONS.find((candidate) => candidate.value === systemLocale)?.label ?? "English",
+                      })
+                    : option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="settings-section">{t("settings.theme")}</div>
           <div className="themeGrid">
             {THEME_NAMES.map((theme) => (
               <ThemeTile
@@ -295,21 +319,21 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
             ))}
           </div>
 
-          <div className="settings-section">Security</div>
+          <div className="settings-section">{t("settings.security")}</div>
           <div className="settingsRow">
             <span className="settingsRow-label">
-              Permission mode
+              {t("settings.permissionMode")}
               <span className="settingsRow-meta">
                 {state.permissionMode === "auto"
-                  ? "Run shell commands and file changes automatically"
+                  ? t("settings.permissionAutoDetail")
                   : state.permissionMode === "ask"
-                    ? "Ask before shell commands and file changes"
-                    : "Deny shell commands and file changes without asking"}
+                    ? t("settings.permissionAskDetail")
+                    : t("settings.permissionDenyDetail")}
               </span>
             </span>
             <select
               className="settingsSelect"
-              aria-label="Permission mode"
+              aria-label={t("settings.permissionMode")}
               value={state.permissionMode}
               onChange={(event) => {
                 const mode = event.target.value
@@ -318,44 +342,45 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
             >
               {state.permissionMode === "dontAsk" ? (
                 <option value="dontAsk" disabled>
-                  Don’t ask
+                  {t("settings.dontAsk")}
                 </option>
               ) : null}
-              <option value="ask">Ask</option>
-              <option value="auto">Auto</option>
+              <option value="ask">{t("settings.ask")}</option>
+              <option value="auto">{t("settings.auto")}</option>
             </select>
           </div>
 
-          <div className="settings-section">Behavior</div>
+          <div className="settings-section">{t("settings.behavior")}</div>
           <div className="settingsRow">
-            <span className="settingsRow-label">Thinking traces</span>
+            <span className="settingsRow-label">{t("settings.thinkingTraces")}</span>
             <Toggle
-              label="Show or hide model thinking traces"
+              label={t("settings.toggleThinking")}
               checked={state.thinkingVisible}
               onChange={(visible) => void api.setThinkingVisible(visible)}
             />
           </div>
-          <div
-            className="settingsRow"
-            title={fastServing.available ? undefined : "Fast serving is not available for this model"}
-          >
+          <div className="settingsRow" title={fastServing.available ? undefined : t("settings.fastUnavailable")}>
             <span className="settingsRow-label">
-              Fast serving
+              {t("settings.fastServing")}
               {state.model && fastServing.available ? (
                 <span className="settingsRow-meta">{state.model.displayName ?? state.model.id.split("/").pop()}</span>
               ) : null}
             </span>
             <Toggle
-              label="Toggle Fast serving"
+              label={t("settings.toggleFast")}
               checked={fastServing.enabled}
               disabled={fastDisabled}
               onChange={(fast) => void toggleFast(fast)}
             />
           </div>
           {!import.meta.env.PROD ? (
-            <div className="settingsRow" title="Session only — applies from the next turn">
-              <span className="settingsRow-label">Debug mode</span>
-              <Toggle label="Toggle debug mode" checked={state.debug} onChange={(on) => void api.setDebugMode(on)} />
+            <div className="settingsRow" title={t("settings.debugHint")}>
+              <span className="settingsRow-label">{t("settings.debugMode")}</span>
+              <Toggle
+                label={t("settings.toggleDebug")}
+                checked={state.debug}
+                onChange={(on) => void api.setDebugMode(on)}
+              />
             </div>
           ) : null}
           {fastError ? <div className="settings-message settings-error">{fastError}</div> : null}

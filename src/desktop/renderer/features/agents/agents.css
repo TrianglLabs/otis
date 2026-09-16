@@ -2,7 +2,8 @@
    the shared backdrop and enter animation from components.css. */
 
 .workspaceRail {
-  width: 240px;
+  position: relative;
+  width: var(--workspace-rail-width, 240px);
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -23,8 +24,38 @@
     visibility 0s linear 0s;
 }
 
-.workspaceRail-canvas {
-  width: clamp(280px, 38vw, 560px);
+.workspaceRail-resizing {
+  transition: none;
+}
+
+.workspaceRail-resizeHandle {
+  position: absolute;
+  z-index: 4;
+  inset: 0 auto 0 0;
+  width: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+  -webkit-app-region: no-drag;
+}
+
+.workspaceRail-resizeHandle::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 1px;
+  background: transparent;
+  transition: background-color var(--motion) ease;
+}
+
+.workspaceRail-resizeHandle:hover::after,
+.workspaceRail-resizeHandle:focus-visible::after,
+.workspaceRail-resizing .workspaceRail-resizeHandle::after {
+  background: var(--accent);
 }
 
 .workspaceRail-hidden {
@@ -49,8 +80,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 4px;
   height: var(--header-height);
-  padding: 0 12px 0 20px;
+  padding: 0 12px;
   font-size: var(--text-micro);
   font-weight: 700;
   letter-spacing: 0.09em;
@@ -60,15 +92,23 @@
   flex-shrink: 0;
 }
 
+.workspaceRail-header > .iconBtn {
+  flex-shrink: 0;
+}
+
 .workspaceRail-tabs {
   display: flex;
+  flex-shrink: 0;
+  width: max-content;
   align-items: center;
   gap: 4px;
 }
 
 .workspaceRail-tabs button {
+  flex-shrink: 0;
+  white-space: nowrap;
   border: 0;
-  padding: 5px 9px;
+  padding: 5px 6px;
   border-radius: var(--radius);
   background: transparent;
   color: var(--text-dim);
@@ -88,6 +128,7 @@
 
 .workspaceRail-tabs button[aria-selected="true"],
 .workspaceRail-tabs button[aria-selected="true"]:hover {
+  padding-inline: 9px;
   color: var(--text);
   background: var(--bg-elev);
 }
