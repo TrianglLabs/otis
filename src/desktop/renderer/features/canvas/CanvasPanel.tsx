@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { ThemeName } from "../../../contracts.js"
+import { useI18n } from "../../i18n/index.js"
 import type { CanvasArtifact } from "./canvas-context.js"
 
 const canvasReloadEvent = "otis:canvas-reload"
@@ -11,16 +12,40 @@ if (hot) {
 }
 
 export function CanvasPanel({ artifact, theme }: { artifact: CanvasArtifact | undefined; theme: ThemeName }) {
-  if (!artifact) return <div className="canvas-empty">Open a Mermaid block to use Canvas.</div>
+  const { t } = useI18n()
+  if (!artifact) return <div className="canvas-empty">{t("canvas.empty")}</div>
   return <MermaidFrame source={artifact.source} theme={theme} />
 }
 
 function MermaidFrame({ source, theme }: { source: string; theme: ThemeName }) {
+  const { locale, t } = useI18n()
   const frame = useRef<HTMLIFrameElement>(null)
   const [frameRevision, setFrameRevision] = useState(0)
   const sendSource = useCallback(() => {
     frame.current?.contentWindow?.postMessage({ type: "otis-canvas-source", source, colors: canvasColors() }, "*")
   }, [source])
+  const sendLanguage = useCallback(() => {
+    frame.current?.contentWindow?.postMessage(
+      {
+        type: "otis-canvas-language",
+        locale,
+        labels: {
+          viewport: t("canvas.viewport"),
+          controls: t("canvas.controls"),
+          zoomOut: t("canvas.zoomOut"),
+          resetView: t("canvas.resetView"),
+          zoomIn: t("canvas.zoomIn"),
+          renderFailed: t("canvas.renderFailed"),
+          loadFailed: t("canvas.loadFailed"),
+          emptySource: t("canvas.emptySource"),
+          tooLarge: t("canvas.tooLarge"),
+        },
+      },
+      "*",
+    )
+  }, [locale, t])
+
+  useEffect(sendLanguage, [sendLanguage])
 
   useEffect(() => {
     sendSource()
@@ -37,11 +62,14 @@ function MermaidFrame({ source, theme }: { source: string; theme: ThemeName }) {
       key={frameRevision}
       ref={frame}
       className="canvas-frame"
-      title="Canvas diagram"
+      title={t("canvas.diagram")}
       sandbox="allow-scripts"
       referrerPolicy="no-referrer"
       src={new URL("canvas.html", location.href).href}
-      onLoad={sendSource}
+      onLoad={() => {
+        sendLanguage()
+        sendSource()
+      }}
     />
   )
 }

@@ -3,6 +3,7 @@ import { createContext, isValidElement, memo, useContext, useEffect, useRef, use
 import ReactMarkdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { useOpenCanvas } from "../features/canvas/canvas-context.js"
+import { useI18n } from "../i18n/index.js"
 import { IconButton } from "./Button.js"
 
 /** Assistant-facing Markdown: GFM, external links in the system browser, copyable code blocks. */
@@ -43,6 +44,7 @@ export const Markdown = memo(function Markdown({
 })
 
 function CodeBlock({ children }: { children?: React.ReactNode }) {
+  const { t } = useI18n()
   // react-markdown renders fenced code as <pre><code className="language-x">…</code></pre>.
   const codeProps = isValidElement<{ className?: string; children?: React.ReactNode }>(children)
     ? children.props
@@ -70,12 +72,17 @@ function CodeBlock({ children }: { children?: React.ReactNode }) {
   return (
     <figure className="codeBlock">
       <figcaption>
-        <span className="codeBlock-lang">{language ?? "code"}</span>
+        <span className="codeBlock-lang">{language ?? t("markdown.code")}</span>
         <span className="codeBlock-actions">
           {language?.toLowerCase() === "mermaid" && openCanvas && canvasEnabled ? (
-            <IconButton icon={Waypoints} label="Open in Canvas" onClick={() => openCanvas(text)} size={22} />
+            <IconButton icon={Waypoints} label={t("markdown.openCanvas")} onClick={() => openCanvas(text)} size={22} />
           ) : null}
-          <IconButton icon={copied ? Check : Copy} label={copied ? "Copied" : "Copy code"} onClick={copy} size={22} />
+          <IconButton
+            icon={copied ? Check : Copy}
+            label={copied ? t("markdown.copied") : t("markdown.copyCode")}
+            onClick={copy}
+            size={22}
+          />
         </span>
       </figcaption>
       <pre>

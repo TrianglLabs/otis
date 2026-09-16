@@ -1,7 +1,8 @@
 import { createRoot } from "react-dom/client"
 import type { DesktopApi } from "../contracts.js"
 import { App, BridgeMissing } from "./App.js"
-import { DesktopProvider } from "./runtime.js"
+import { I18nProvider } from "./i18n/index.js"
+import { DesktopProvider, useDesktopSelector } from "./runtime.js"
 import { DesktopViewStore } from "./state.js"
 import { applyStoredTheme } from "./theme.js"
 
@@ -41,7 +42,11 @@ async function bootstrap() {
   } else if (window.otis) {
     mount(window.otis)
   } else {
-    root.render(<BridgeMissing />)
+    root.render(
+      <I18nProvider>
+        <BridgeMissing />
+      </I18nProvider>,
+    )
   }
 }
 
@@ -67,7 +72,16 @@ function mount(api: DesktopApi) {
   void store.start()
   root.render(
     <DesktopProvider value={{ api, store }}>
-      <App />
+      <LocalizedApp />
     </DesktopProvider>,
+  )
+}
+
+function LocalizedApp() {
+  const language = useDesktopSelector((state) => state?.language ?? "system")
+  return (
+    <I18nProvider language={language}>
+      <App />
+    </I18nProvider>
   )
 }

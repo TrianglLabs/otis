@@ -2,10 +2,10 @@ import type { GlobalSessionPickerItem } from "../app/global-sessions.js"
 import type { TranscriptEntry } from "../app/transcript.js"
 import type { ModelPickerItem, ModelPickerStatus } from "../inference/picker-catalog.js"
 import type { ModelProvider } from "../inference/types.js"
-import type { ThemeName } from "../local/settings.js"
+import type { ThemeName, UiLanguage } from "../local/settings.js"
 import type { PermissionMode } from "../permissions/policy.js"
 
-export type { ThemeName } from "../local/settings.js"
+export type { ThemeName, UiLanguage } from "../local/settings.js"
 export type { PermissionMode } from "../permissions/policy.js"
 
 import type { LocalStats } from "../local/stats.js"
@@ -32,6 +32,7 @@ export const DESKTOP_CHANNELS = {
   getSubagentTrace: "desktop:subagent-trace",
   setAgentsPanelVisible: "desktop:set-agents-panel-visible",
   setTheme: "desktop:set-theme",
+  setLanguage: "desktop:set-language",
   setThinkingVisible: "desktop:set-thinking-visible",
   setPermissionMode: "desktop:set-permission-mode",
   setFastServing: "desktop:set-fast-serving",
@@ -105,6 +106,8 @@ export type DesktopStatus = {
   agentsPanelVisible: boolean
   /** The active color theme; persisted in local settings. */
   theme: ThemeName
+  /** Desktop interface language; system follows the operating system locale. */
+  language: UiLanguage
   /** Reasoning renders as trace cards when on; plain muted text when off. Persisted in local settings. */
   thinkingVisible: boolean
   /** Permission behavior for mutating tools. Interactive controls offer ask and auto. */
@@ -200,6 +203,8 @@ export type DesktopApi = {
   setAgentsPanelVisible(visible: boolean): Promise<void>
   /** Applies and persists a color theme. Unknown theme names are ignored. */
   setTheme(theme: ThemeName): Promise<void>
+  /** Applies and persists the desktop interface language. */
+  setLanguage(language: UiLanguage): Promise<void>
   /** Shows thinking as trace cards or as plain muted text; persisted in local settings. */
   setThinkingVisible(visible: boolean): Promise<void>
   /** Persists the permission behavior used by subsequent tool calls. */

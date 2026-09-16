@@ -14,6 +14,7 @@ import {
   saveSelectedTheme,
   saveSubagentPanelVisible,
   saveThinkingVisible,
+  saveUiLanguage,
 } from "../../src/local/settings.js"
 
 const tempDirectories: string[] = []
@@ -161,6 +162,19 @@ describe("local settings", () => {
     expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({
       fireworksApiKey: "fw_test_key",
       theme: "graphite",
+    })
+  })
+
+  it("stores the interface language without replacing provider or model settings", async () => {
+    const file = join(await tempDirectory(), "config.json")
+    await saveFireworksSetup("fw_test_key", model("tool-model", "Tool Model"), { file })
+    await saveUiLanguage("ja", { file })
+    await saveSelectedModel(model("new", "New"), { file })
+
+    await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({
+      language: "ja",
+      fireworksApiKey: "fw_test_key",
+      modelDisplayName: "New",
     })
   })
 

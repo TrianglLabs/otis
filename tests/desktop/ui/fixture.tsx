@@ -1,8 +1,10 @@
+import type { MouseInputEvent } from "electron"
 import { createRoot } from "react-dom/client"
 import type { TranscriptEntry } from "../../../src/app/transcript.js"
 import type { DesktopEvent, DesktopStatus, TranscriptPatchOp } from "../../../src/desktop/contracts.js"
 import { App } from "../../../src/desktop/renderer/App.js"
 import { createDemoRuntime } from "../../../src/desktop/renderer/demo/demo-runtime.js"
+import { catalogs, I18nProvider, type ResolvedLocale } from "../../../src/desktop/renderer/i18n/index.js"
 import { DesktopProvider } from "../../../src/desktop/renderer/runtime.js"
 import { DesktopViewStore } from "../../../src/desktop/renderer/state.js"
 import "../../../src/desktop/renderer/styles/tokens.css"
@@ -18,6 +20,21 @@ import "../../../src/desktop/renderer/features/canvas/canvas.css"
 import "../../../src/desktop/renderer/features/settings/settings.css"
 
 const pause = (ms = 80) => new Promise((resolve) => setTimeout(resolve, ms))
+let inputId = 0
+async function nativeInput(request: { size?: [number, number]; events?: MouseInputEvent[] }) {
+  const id = ++inputId
+  await new Promise<void>((resolve, reject) => {
+    const done = (event: Event) => {
+      const detail = (event as CustomEvent<{ id: number; error?: string }>).detail
+      if (detail.id !== id) return
+      window.removeEventListener("otis-ui-input-done", done)
+      if (detail.error) reject(new Error(detail.error))
+      else resolve()
+    }
+    window.addEventListener("otis-ui-input-done", done)
+    console.log(`OTIS_UI_INPUT:${JSON.stringify({ ...request, id })}`)
+  })
+}
 function assert(value: unknown, message: string): asserts value {
   if (!value) throw new Error(message)
 }
@@ -119,11 +136,15 @@ async function runDesktopUiChecks() {
   api.setThinkingVisible = async (thinkingVisible) => status({ thinkingVisible })
   await store.start()
   const root = createRoot(element("#root"))
-  root.render(
-    <DesktopProvider value={{ api, store }}>
-      <App />
-    </DesktopProvider>,
-  )
+  const renderLanguage = (language: ResolvedLocale) =>
+    root.render(
+      <DesktopProvider value={{ api, store }}>
+        <I18nProvider language={language}>
+          <App />
+        </I18nProvider>
+      </DesktopProvider>,
+    )
+  renderLanguage("en")
   await until(
     () => !!document.querySelector('[data-entry-id="101503"]'),
     "Long history did not open at the latest entry",
@@ -245,6 +266,77 @@ async function runDesktopUiChecks() {
   await until(() => !document.querySelector(".agentTrace"), "Completed coworker trace did not close")
   revision = demoRevision
 
+  // Measure the coworker header on first appearance with real translated labels: the collapse button must
+  // retain its full hit target, and long tab names must not push it beyond the clipped rail.
+  const completedRuns = store.getState()?.subagents ?? []
+  for (const locale of Object.keys(catalogs) as ResolvedLocale[]) {
+    status({ subagents: [] })
+    await until(() => !document.querySelector(".workspaceRail"), "Empty side panel did not unmount")
+    renderLanguage(locale)
+    await until(() => document.documentElement.lang === locale, `Language did not switch to ${locale}`)
+    status({ subagents: completedRuns })
+    await until(() => !!document.querySelector(".workspaceRail"), `${locale}: first coworker did not open the panel`)
+    await until(() => {
+      const rail = element(".workspaceRail").getBoundingClientRect()
+      const collapse = element<HTMLButtonElement>(".workspaceRail-header > .iconBtn").getBoundingClientRect()
+      const tabs = Array.from(document.querySelectorAll<HTMLElement>('.workspaceRail-tabs button[role="tab"]'))
+      const lastTab = tabs.at(-1)?.getBoundingClientRect()
+      return (
+        collapse.width >= 26 &&
+        collapse.right <= rail.right &&
+        tabs.every((tab) => tab.scrollWidth <= tab.clientWidth) &&
+        (lastTab?.right ?? Number.POSITIVE_INFINITY) <= collapse.left
+      )
+    }, `${locale}: translated tabs did not receive enough room`)
+    const rail = element(".workspaceRail").getBoundingClientRect()
+    const tabsElement = element(".workspaceRail-tabs")
+    const tabs = tabsElement.getBoundingClientRect()
+    const collapse = element<HTMLButtonElement>(".workspaceRail-header > .iconBtn")
+    const button = collapse.getBoundingClientRect()
+    assert(button.width >= 26 && button.right <= rail.right, `${locale}: collapse button is clipped or shrunk`)
+    const tabButtons = Array.from(tabsElement.querySelectorAll<HTMLElement>('button[role="tab"]'))
+    assert(
+      tabButtons.every((tab) => tab.scrollWidth <= tab.clientWidth),
+      `${locale}: a tab label is truncated`,
+    )
+    assert(
+      (tabButtons.at(-1)?.getBoundingClientRect().right ?? tabs.right) <= button.left,
+      `${locale}: tabs overlap the collapse button`,
+    )
+    const hit = document.elementFromPoint(button.x + button.width / 2, button.y + button.height / 2)
+    assert(hit === collapse || (hit !== null && collapse.contains(hit)), `${locale}: collapse button cannot be clicked`)
+  }
+  renderLanguage("en")
+  await until(() => document.documentElement.lang === "en", "Language did not return to English")
+  await pause(260)
+
+  const resizer = element<HTMLHRElement>(".workspaceRail-resizeHandle")
+  const widthBeforeResize = element(".workspaceRail").getBoundingClientRect().width
+  const divider = resizer.getBoundingClientRect()
+  const dragX = Math.round(divider.x + 4)
+  const dragY = Math.round(divider.y + divider.height / 2)
+  await nativeInput({
+    events: [
+      { type: "mouseMove", x: dragX, y: dragY },
+      { type: "mouseDown", button: "left", clickCount: 1, x: dragX, y: dragY },
+      { type: "mouseMove", x: dragX - 64, y: dragY },
+    ],
+  })
+  await until(
+    () => element(".workspaceRail").getBoundingClientRect().width >= widthBeforeResize + 63,
+    "Dragging the side-panel divider did not resize the panel",
+  )
+  await nativeInput({ events: [{ type: "mouseUp", button: "left", clickCount: 1, x: dragX - 64, y: dragY }] })
+  assert(
+    resizer.getAttribute("aria-valuenow") === String(Math.round(widthBeforeResize + 64)),
+    "Resize divider did not expose its new width",
+  )
+  resizer.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }))
+  await until(
+    () => Math.abs(element(".workspaceRail").getBoundingClientRect().width - 240) < 1,
+    "Double-clicking the side-panel divider did not restore its default width",
+  )
+
   // Mermaid stays ordinary transcript content until its explicit Canvas action is used.
   let canvasResult:
     | {
@@ -304,6 +396,60 @@ async function runDesktopUiChecks() {
     "Coworkers and Canvas lost their content transition",
   )
   assert(getComputedStyle(element(".updateFab")).display === "none", "Narrow layout kept the update button visible")
+
+  await nativeInput({ size: [1600, 850] })
+  await until(
+    () =>
+      Math.abs(element(".workspaceRail").getBoundingClientRect().width - 560) < 1 &&
+      resizer.getAttribute("aria-valuenow") === "560",
+    "Canvas width and ARIA did not follow the resized window",
+  )
+  resizer.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "ArrowRight" }))
+  await until(
+    () => Math.abs(element(".workspaceRail").getBoundingClientRect().width - 544) < 1,
+    "Keyboard resizing jumped from a stale Canvas width",
+  )
+  await nativeInput({ size: [960, 850] })
+  await until(
+    () => Math.abs(element(".workspaceRail").getBoundingClientRect().width - 480) < 1,
+    "User-sized panel did not respect the smaller window",
+  )
+  await nativeInput({ size: [1600, 850] })
+  await until(
+    () => Math.abs(element(".workspaceRail").getBoundingClientRect().width - 544) < 1,
+    "Growing the window lost the user's preferred width",
+  )
+
+  const canvasDivider = resizer.getBoundingClientRect()
+  const canvasX = Math.round(canvasDivider.x + 4)
+  const canvasY = Math.round(canvasDivider.y + canvasDivider.height / 2)
+  const iframeX = window.innerWidth - 50
+  await nativeInput({
+    events: [
+      { type: "mouseMove", x: canvasX, y: canvasY },
+      { type: "mouseDown", button: "left", clickCount: 1, x: canvasX, y: canvasY },
+      { type: "mouseMove", x: iframeX, y: canvasY },
+    ],
+  })
+  await until(
+    () => resizer.getAttribute("aria-valuenow") === resizer.getAttribute("aria-valuemin"),
+    "Dragging into the Canvas iframe lost pointer movement",
+  )
+  assert(document.elementFromPoint(iframeX, canvasY)?.matches(".canvas-frame"), "Drag did not cross the Canvas iframe")
+  await nativeInput({ events: [{ type: "mouseUp", button: "left", clickCount: 1, x: iframeX, y: canvasY }] })
+  await until(
+    () => !element(".workspaceRail").classList.contains("workspaceRail-resizing"),
+    "Releasing over Canvas left the panel stuck resizing",
+  )
+  const releasedWidth = resizer.getAttribute("aria-valuenow")
+  await nativeInput({ events: [{ type: "mouseMove", x: canvasX - 50, y: canvasY }] })
+  assert(resizer.getAttribute("aria-valuenow") === releasedWidth, "Panel continued resizing after release over Canvas")
+  await nativeInput({ size: [1000, 850] })
+  resizer.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }))
+  await until(
+    () => Math.abs(element(".workspaceRail").getBoundingClientRect().width - 380) < 1,
+    "Canvas default width did not restore",
+  )
 
   const validCanvasResult = canvasResult
   const canvasActions = document.querySelectorAll<HTMLButtonElement>('[aria-label="Open in Canvas"]')

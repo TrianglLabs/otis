@@ -22,6 +22,25 @@ app.whenReady().then(async () => {
     console.error("Renderer exited", details.reason)
     app.exit(1)
   })
+  // The isolated fixture requests native input so pointer capture is exercised with a real active pointer.
+  window.webContents.on("console-message", async (details) => {
+    const prefix = "OTIS_UI_INPUT:"
+    if (!details.message.startsWith(prefix)) return
+    const request = JSON.parse(details.message.slice(prefix.length))
+    let error
+    try {
+      if (request.size) window.setContentSize(...request.size)
+      for (const event of request.events ?? []) {
+        window.webContents.sendInputEvent(event)
+        await new Promise((resolve) => setTimeout(resolve, 30))
+      }
+    } catch (cause) {
+      error = String(cause)
+    }
+    await window.webContents.executeJavaScript(
+      `window.dispatchEvent(new CustomEvent("otis-ui-input-done", { detail: ${JSON.stringify({ id: request.id, error })} }))`,
+    )
+  })
   try {
     await window.loadFile(join(output, "index.html"))
     const result = await window.webContents.executeJavaScript("window.runDesktopUiChecks()")

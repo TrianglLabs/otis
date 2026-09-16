@@ -24,6 +24,7 @@ const api: DesktopApi = {
   getSubagentTrace: (toolCallId: string) => ipcRenderer.invoke(DESKTOP_CHANNELS.getSubagentTrace, toolCallId),
   setAgentsPanelVisible: (visible: boolean) => ipcRenderer.invoke(DESKTOP_CHANNELS.setAgentsPanelVisible, visible),
   setTheme: (theme: string) => ipcRenderer.invoke(DESKTOP_CHANNELS.setTheme, theme),
+  setLanguage: (language: string) => ipcRenderer.invoke(DESKTOP_CHANNELS.setLanguage, language),
   setThinkingVisible: (visible: boolean) => ipcRenderer.invoke(DESKTOP_CHANNELS.setThinkingVisible, visible),
   setPermissionMode: (mode: "ask" | "auto") => ipcRenderer.invoke(DESKTOP_CHANNELS.setPermissionMode, mode),
   setFastServing: (fast: boolean) => ipcRenderer.invoke(DESKTOP_CHANNELS.setFastServing, fast),

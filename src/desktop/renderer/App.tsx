@@ -1,13 +1,15 @@
 import { Diamond } from "lucide-react"
 import { OtisMark } from "./components/OtisMark.js"
+import { useI18n } from "./i18n/index.js"
 import { useDesktopSelector } from "./runtime.js"
 import { AppShell } from "./shell/AppShell.js"
 
 export function App() {
+  const { t } = useI18n()
   const ready = useDesktopSelector((state) => state !== undefined)
   if (!ready) {
     return (
-      <div className="bootScreen" role="status" aria-label="Loading workspace…">
+      <div className="bootScreen" role="status" aria-label={t("app.loadingWorkspace")}>
         <OtisMark className="home-logo" />
       </div>
     )
@@ -17,6 +19,7 @@ export function App() {
 
 /** Shown when the preload bridge is missing outside demo mode. A broken bridge is loud, never disguised. */
 export function BridgeMissing() {
+  const { t } = useI18n()
   return (
     <div className="bootScreen bootScreen-error">
       <Diamond
@@ -27,8 +30,8 @@ export function BridgeMissing() {
         strokeLinejoin="round"
         aria-hidden
       />
-      <span>The desktop bridge is unavailable.</span>
-      <span className="bootScreen-hint">Restart the app. If the problem persists, reinstall Otis Desktop.</span>
+      <span>{t("app.bridgeUnavailable")}</span>
+      <span className="bootScreen-hint">{t("app.bridgeUnavailableHint")}</span>
     </div>
   )
 }

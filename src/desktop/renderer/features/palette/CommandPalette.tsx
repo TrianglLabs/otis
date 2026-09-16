@@ -3,6 +3,8 @@ import { Fragment, useEffect, useRef, useState } from "react"
 import type { GlobalSessionPickerItem } from "../../../../app/global-sessions.js"
 import { Button } from "../../components/Button.js"
 import { Icon } from "../../components/Icon.js"
+import { formatSessionDetail } from "../../format.js"
+import { useI18n } from "../../i18n/index.js"
 import { useDesktop, useDesktopState } from "../../runtime.js"
 import { useScrollbarFlash } from "../../useScrollbarFlash.js"
 
@@ -29,6 +31,7 @@ const SEARCH_DEBOUNCE_MS = 150
  */
 export function CommandPalette({ onClose }: { onClose: () => void }) {
   const { api } = useDesktop()
+  const { locale, t } = useI18n()
   const state = useDesktopState("sessions", "workspace")
   const [query, setQuery] = useState("")
   const scrollbar = useScrollbarFlash()
@@ -135,7 +138,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
     {
       kind: "action",
       id: "new-session",
-      label: "Fresh start",
+      label: t("palette.freshStart"),
       hint: "⌘N",
       run: () => {
         void api.startNewSession()
@@ -145,7 +148,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
     {
       kind: "action",
       id: "open-folder",
-      label: "Open Folder",
+      label: t("palette.openFolder"),
       hint: "⌘O",
       icon: FolderOpen,
       run: async () => {
@@ -234,18 +237,18 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
 
   return (
     <>
-      <button type="button" className="overlayBackdrop" aria-label="Close palette" onClick={onClose} />
-      <div className="palette noDrag" role="dialog" aria-modal="true" aria-label="Command palette" ref={dialogRef}>
+      <button type="button" className="overlayBackdrop" aria-label={t("palette.close")} onClick={onClose} />
+      <div className="palette noDrag" role="dialog" aria-modal="true" aria-label={t("palette.dialog")} ref={dialogRef}>
         <input
           ref={inputRef}
           className="palette-input"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={onInputKeyDown}
-          placeholder="Search sessions, or pick an action…"
+          placeholder={t("palette.placeholder")}
           spellCheck={false}
           autoComplete="off"
-          aria-label="Search sessions and actions"
+          aria-label={t("palette.searchLabel")}
         />
         {actionError ? <div className="palette-message palette-error">{actionError}</div> : null}
         <div
@@ -262,9 +265,9 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
             return (
               <Fragment key={key}>
                 {!needle && index === 0 && row.kind === "action" ? (
-                  <div className="palette-section">Actions</div>
+                  <div className="palette-section">{t("palette.actions")}</div>
                 ) : null}
-                {!needle && firstSession ? <div className="palette-section">Recent sessions</div> : null}
+                {!needle && firstSession ? <div className="palette-section">{t("palette.recentSessions")}</div> : null}
                 {row.kind === "action" ? (
                   <button
                     type="button"
@@ -286,16 +289,16 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
                   >
                     {confirmingDeleteKey === key ? (
                       <div className="palette-confirm">
-                        <span className="palette-confirmText">Delete this session?</span>
+                        <span className="palette-confirmText">{t("palette.deleteConfirm")}</span>
                         <Button variant="ghost" size="sm" onClick={() => setConfirmingDeleteKey(undefined)}>
-                          Keep
+                          {t("palette.keep")}
                         </Button>
                         <Button
                           variant="danger"
                           size="sm"
                           onClick={() => void deleteSession(row.item.id, row.item.dirName)}
                         >
-                          Delete
+                          {t("palette.delete")}
                         </Button>
                       </div>
                     ) : (
@@ -316,7 +319,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
                             {row.item.active ? <Icon icon={Check} size={12} /> : null}
                           </span>
                           <span className="palette-rowWorkspace">{row.item.workspaceLabel}</span>
-                          <span className="palette-rowDetail">{row.item.detail}</span>
+                          <span className="palette-rowDetail">{formatSessionDetail(row.item.detail, locale)}</span>
                           {row.item.snippet ? <span className="palette-rowSnippet">{row.item.snippet}</span> : null}
                         </span>
                       </button>
@@ -326,11 +329,11 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
               </Fragment>
             )
           })}
-          {searching ? <div className="palette-empty">Searching…</div> : null}
-          {!searching && rows.length === 0 ? <div className="palette-empty">No matching sessions</div> : null}
+          {searching ? <div className="palette-empty">{t("palette.searching")}</div> : null}
+          {!searching && rows.length === 0 ? <div className="palette-empty">{t("palette.noMatches")}</div> : null}
         </div>
         <div className="palette-footer">
-          <Icon icon={CornerDownLeft} size={11} /> to open · ↑↓ to move · esc to close
+          <Icon icon={CornerDownLeft} size={11} /> {t("palette.footer")}
         </div>
       </div>
       {menu ? (
@@ -355,7 +358,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
             }}
           >
             <Icon icon={Trash2} size={12} />
-            Delete session
+            {t("palette.deleteSession")}
           </button>
         </div>
       ) : null}

@@ -5,6 +5,7 @@ import { Icon } from "../../components/Icon.js"
 import { Markdown } from "../../components/Markdown.js"
 import { OtisMark } from "../../components/OtisMark.js"
 import { formatDuration } from "../../format.js"
+import { useI18n } from "../../i18n/index.js"
 import { ToolCard } from "./ToolCard.js"
 
 /** Renders one transcript entry. The same components render live turns and replayed sessions. */
@@ -37,17 +38,28 @@ export const EntryView = memo(function EntryView({
 })
 
 function UserMessage({ entry }: { entry: TranscriptEntry }) {
+  const { t } = useI18n()
   const steering = entry.delivery === "steering"
   const queued = entry.delivery === "queued"
   return (
     <div className={`userRow${steering ? " userRow-steering" : ""}${queued ? " userRow-queued" : ""}`}>
       {steering ? (
-        <span className="steeringIndicator" role="img" aria-label="Steering" title="Steering the active turn">
+        <span
+          className="steeringIndicator"
+          role="img"
+          aria-label={t("transcript.steering")}
+          title={t("transcript.steeringTitle")}
+        >
           <Icon icon={ShipWheel} size={16} />
         </span>
       ) : null}
       {queued ? (
-        <span className="queuedIndicator" role="img" aria-label="Queued" title="Queued for the next turn">
+        <span
+          className="queuedIndicator"
+          role="img"
+          aria-label={t("transcript.queued")}
+          title={t("transcript.queuedTitle")}
+        >
           <Icon icon={ListEnd} size={16} />
         </span>
       ) : null}
@@ -66,10 +78,11 @@ function AssistantMessage({ entry }: { entry: TranscriptEntry }) {
 }
 
 function ThinkingStatus() {
+  const { t } = useI18n()
   return (
     <span className="thinkingStatus" role="status">
       <OtisMark className="reasoning-cube" decorative />
-      <span className="thinking-label">Thinking…</span>
+      <span className="thinking-label">{t("transcript.thinking")}</span>
     </span>
   )
 }
@@ -85,6 +98,7 @@ function ReasoningCard({
   expanded: boolean
   onExpandedChange: (id: number, expanded: boolean) => void
 }) {
+  const { t } = useI18n()
   if (!thinkingVisible) {
     // Traces off: only live thinking reaches here (finished traces are filtered upstream) — a quiet status
     // line, never the trace content itself.
@@ -109,7 +123,10 @@ function ReasoningCard({
   }
 
   // Finished thinking is collapsed behind a quiet summary row.
-  const label = entry.durationMs !== undefined ? `Thought for ${formatDuration(entry.durationMs)}` : "Thought"
+  const label =
+    entry.durationMs !== undefined
+      ? t("transcript.thoughtFor", { duration: formatDuration(entry.durationMs) })
+      : t("transcript.thought")
   return (
     <div className="reasoning">
       <button

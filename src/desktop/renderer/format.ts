@@ -32,6 +32,19 @@ export function formatDuration(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`
 }
 
+/** Localizes the compact relative ages supplied by session metadata while preserving English's established copy. */
+export function formatSessionDetail(detail: string, locale: string): string {
+  if (locale === "en") return detail
+  const relative = new Intl.RelativeTimeFormat(locale, { numeric: "auto", style: "short" })
+  if (detail === "now" || detail === "Just now") return relative.format(0, "second")
+  if (detail === "Yesterday") return relative.format(-1, "day")
+  const match = /^(\d+)(m|h|d|w) ago$/.exec(detail)
+  if (!match) return detail
+  const count = Number(match[1])
+  const unit = match[2] === "m" ? "minute" : match[2] === "h" ? "hour" : match[2] === "d" ? "day" : "week"
+  return relative.format(-count, unit)
+}
+
 export const PROVIDER_LABELS: Record<string, string> = {
   fireworks: "Fireworks",
   local: "Local",

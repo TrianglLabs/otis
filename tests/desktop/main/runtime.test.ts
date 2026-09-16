@@ -319,9 +319,10 @@ describe("DesktopRuntime subagents", () => {
     await runtime.shutdown()
   })
 
-  it("applies and persists the theme, thinking, and permission preferences", async () => {
+  it("applies and persists the theme, language, thinking, and permission preferences", async () => {
     const { app, runtime, sent } = await setup()
     expect((await runtime.snapshot()).theme).toBe("default")
+    expect((await runtime.snapshot()).language).toBe("system")
     expect((await runtime.snapshot()).thinkingVisible).toBe(false)
     expect((await runtime.snapshot()).permissionMode).toBe("auto")
 
@@ -333,6 +334,12 @@ describe("DesktopRuntime subagents", () => {
 
     await runtime.setTheme("not-a-theme")
     expect((await runtime.snapshot()).theme).toBe("nord")
+
+    await runtime.setLanguage("fr")
+    expect((await runtime.snapshot()).language).toBe("fr")
+    expect((await loadLocalSettings()).language).toBe("fr")
+    await runtime.setLanguage("made-up")
+    expect((await runtime.snapshot()).language).toBe("fr")
 
     await runtime.setThinkingVisible(true)
     expect((await runtime.snapshot()).thinkingVisible).toBe(true)
@@ -346,6 +353,7 @@ describe("DesktopRuntime subagents", () => {
     )
     await flush()
     expect(sent.some((event) => event.type === "status" && event.status.permissionMode === "ask")).toBe(true)
+    expect(sent.some((event) => event.type === "status" && event.status.language === "fr")).toBe(true)
     await runtime.shutdown()
   })
 

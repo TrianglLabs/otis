@@ -95,6 +95,7 @@ const SNAPSHOT: DesktopSnapshot = {
   subagents: [],
   agentsPanelVisible: true,
   theme: "default",
+  language: "system",
   thinkingVisible: false,
   permissionMode: "auto",
   fastServing: { available: false, enabled: false },
@@ -133,6 +134,7 @@ function fakeApi(overrides: Partial<DesktopApi> = {}): DesktopApi {
     getSubagentTrace: vi.fn(async () => []),
     setAgentsPanelVisible: vi.fn(async () => {}),
     setTheme: vi.fn(async () => {}),
+    setLanguage: vi.fn(async () => {}),
     setThinkingVisible: vi.fn(async () => {}),
     setPermissionMode: vi.fn(async () => {}),
     setFastServing: vi.fn(async () => ({ ok: true as const })),
@@ -323,6 +325,32 @@ describe("AppShell settings navigation", () => {
 
     fireEvent.change(select, { target: { value: "auto" } })
     expect(api.setPermissionMode).toHaveBeenCalledExactlyOnceWith("auto")
+  })
+
+  it("offers the supported interface languages and persists an explicit choice", async () => {
+    const api = fakeApi({ setLanguage: vi.fn(async () => {}) })
+    await renderApp(api)
+
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }))
+    await act(async () => {})
+    const select = screen.getByRole("combobox", { name: "Language" }) as HTMLSelectElement
+    expect(select.value).toBe("system")
+    expect(Array.from(select.options, (option) => option.value)).toEqual([
+      "system",
+      "en",
+      "zh-CN",
+      "ja",
+      "ko",
+      "es",
+      "fr",
+      "de",
+      "pl",
+      "uk",
+      "pt-BR",
+    ])
+
+    fireEvent.change(select, { target: { value: "fr" } })
+    expect(api.setLanguage).toHaveBeenCalledExactlyOnceWith("fr")
   })
 
   it("shows text and vision capability icons in the model catalog", async () => {
@@ -903,6 +931,115 @@ describe("AppShell settings navigation", () => {
     fireEvent.click(screen.getByRole("button", { name: /close settings/i }))
     await act(async () => {})
     expect(api.setAgentsPanelVisible).toHaveBeenCalledTimes(1)
+  })
+
+  it("resizes the workspace rail with pointer and keyboard controls", async () => {
+    const withRun: DesktopSnapshot = {
+      ...SNAPSHOT,
+      subagents: [{ toolCallId: "t1", title: "Check the runtime", status: "running", tools: 0 }],
+    }
+    await renderApp(fakeApi({ getSnapshot: vi.fn(async () => withRun) }))
+
+    const panel = screen.getByLabelText("Workspace panel") as HTMLElement
+    const resize = within(panel).getByRole("separator", { name: "Resize side panel" })
+    expect(resize.getAttribute("aria-valuenow")).toBe("240")
+
+    fireEvent.keyDown(resize, { key: "ArrowLeft" })
+    expect(panel.style.getPropertyValue("--workspace-rail-width")).toBe("256px")
+    fireEvent.keyDown(resize, { key: "Home" })
+    expect(panel.style.getPropertyValue("--workspace-rail-width")).toBe("240px")
+
+    fireEvent.doubleClick(resize)
+    expect(panel.style.getPropertyValue("--workspace-rail-width")).toBe("240px")
+    const capture = vi.fn()
+    const release = vi.fn()
+    Object.assign(resize, { setPointerCapture: capture, hasPointerCapture: () => true, releasePointerCapture: release })
+    fireEvent.pointerDown(resize, { button: 0, clientX: 500, pointerId: 1 })
+    expect(capture).toHaveBeenCalledWith(1)
+    expect(document.activeElement).toBe(resize)
+    fireEvent.pointerMove(window, { clientX: 460, pointerId: 2 })
+    expect(panel.style.getPropertyValue("--workspace-rail-width")).toBe("240px")
+    fireEvent.pointerMove(window, { clientX: 460, pointerId: 1 })
+    expect(panel.style.getPropertyValue("--workspace-rail-width")).toBe("280px")
+    fireEvent.pointerUp(window, { clientX: 460, pointerId: 1 })
+    expect(release).toHaveBeenCalledWith(1)
+    expect(panel.classList.contains("workspaceRail-resizing")).toBe(false)
+    fireEvent.pointerMove(window, { clientX: 400, pointerId: 1 })
+    expect(panel.style.getPropertyValue("--workspace-rail-width")).toBe("280px")
+
+    for (const reason of ["pointercancel", "lostpointercapture", "blur"]) {
+      fireEvent.pointerDown(resize, { button: 0, clientX: 500, pointerId: 1 })
+      fireEvent(
+        reason === "lostpointercapture" ? resize : window,
+        reason === "blur" ? new Event(reason) : new PointerEvent(reason, { pointerId: 1 }),
+      )
+      expect(panel.classList.contains("workspaceRail-resizing"), reason).toBe(false)
+    }
+  })
+
+  it("measures full tab labels when the first coworker arrives in an existing session", async () => {
+    vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains("workspaceRail-tabs") ? 320 : 0
+    })
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains("iconBtn") ? 26 : 0
+    })
+    let listener: ((event: DesktopEvent) => void) | undefined
+    await renderApp(
+      fakeApi({
+        subscribe: (fn) => {
+          listener = fn
+          return () => {}
+        },
+      }),
+    )
+    expect(screen.queryByLabelText("Workspace panel")).toBeNull()
+    act(() =>
+      listener?.({
+        type: "status",
+        revision: 2,
+        status: {
+          ...SNAPSHOT,
+          subagents: [{ toolCallId: "first", title: "First coworker", status: "running", tools: 0 }],
+        },
+      }),
+    )
+    const resize = screen.getByRole("separator", { name: "Resize side panel" })
+    expect(resize.getAttribute("aria-valuemin")).toBe("346")
+    fireEvent.keyDown(resize, { key: "Home" })
+    expect(resize.getAttribute("aria-valuenow")).toBe("346")
+  })
+
+  it("keeps responsive Canvas width, keyboard resizing, and ARIA bounds in sync with window size", async () => {
+    let viewport = 1000
+    vi.spyOn(window, "innerWidth", "get").mockImplementation(() => viewport)
+    await renderApp(
+      fakeApi({
+        getSnapshot: async () => ({
+          ...SNAPSHOT,
+          subagents: [{ toolCallId: "one", title: "Coworker", status: "complete", tools: 1 }],
+        }),
+      }),
+    )
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }))
+    const resize = screen.getByRole("separator", { name: "Resize side panel" })
+    const panel = screen.getByLabelText("Workspace panel") as HTMLElement
+    expect(resize.getAttribute("aria-valuenow")).toBe("380")
+    viewport = 1600
+    fireEvent(window, new Event("resize"))
+    expect(resize.getAttribute("aria-valuenow")).toBe("560")
+    expect(resize.getAttribute("aria-valuemax")).toBe("720")
+    fireEvent.keyDown(resize, { key: "ArrowRight" })
+    expect(panel.style.getPropertyValue("--workspace-rail-width")).toBe("544px")
+    viewport = 960
+    fireEvent(window, new Event("resize"))
+    expect(resize.getAttribute("aria-valuenow")).toBe("480")
+    expect(resize.getAttribute("aria-valuemax")).toBe("480")
+    viewport = 1600
+    fireEvent(window, new Event("resize"))
+    expect(resize.getAttribute("aria-valuenow")).toBe("544")
+    fireEvent.doubleClick(resize)
+    expect(resize.getAttribute("aria-valuenow")).toBe("560")
   })
 
   it("opens only the requested completed Mermaid block in one sandboxed Canvas renderer", async () => {

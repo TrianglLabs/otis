@@ -10,7 +10,8 @@ import {
 import type { DesktopImageInput } from "../../../contracts.js"
 import { Button } from "../../components/Button.js"
 import { Icon } from "../../components/Icon.js"
-import { PROVIDER_LABELS, shortModelId } from "../../format.js"
+import { shortModelId } from "../../format.js"
+import { useI18n } from "../../i18n/index.js"
 import { useDesktop, useDesktopState } from "../../runtime.js"
 import { ModelPicker } from "../models/ModelPicker.js"
 import { draftAfterSend } from "./draft.js"
@@ -51,6 +52,7 @@ function workspaceFolderName(workspace: { label: string; path: string }): string
 
 export const Composer = memo(function Composer({ installing = false }: { installing?: boolean }) {
   const { api } = useDesktop()
+  const { t } = useI18n()
   const state = useDesktopState(
     "busy",
     "modelState",
@@ -113,28 +115,26 @@ export const Composer = memo(function Composer({ installing = false }: { install
   const addImageFiles = async (files: File[]) => {
     if (files.length === 0 || addingImagesRef.current) return
     if (!supportsImages) {
-      setSendError("The selected model does not support image input. Choose a vision model.")
+      setSendError(t("composer.modelNoImageInput"))
       return
     }
 
     const current = pendingImagesRef.current
     if (current.length + files.length > MAX_IMAGES_PER_REQUEST) {
-      setSendError(`You can attach at most ${MAX_IMAGES_PER_REQUEST} images to one message.`)
+      setSendError(t("composer.atMostImages", { count: MAX_IMAGES_PER_REQUEST }))
       return
     }
     const unsupported = files.find((file) => !supportedImageFile(file))
     if (unsupported) {
-      setSendError(
-        `${unsupported.name || "That file"} is not a supported image. Use PNG, JPEG, GIF, BMP, TIFF, or PPM.`,
-      )
+      setSendError(t("composer.unsupportedImage", { name: unsupported.name || t("composer.thatFile") }))
       return
     }
     const invalidSize = files.find((file) => file.size === 0 || file.size > MAX_RAW_IMAGE_BYTES)
     if (invalidSize) {
       setSendError(
         invalidSize.size === 0
-          ? `${invalidSize.name} is empty.`
-          : `${invalidSize.name} is too large. Image data must stay under the 10 MB request limit.`,
+          ? t("composer.imageEmpty", { name: invalidSize.name })
+          : t("composer.imageRequestLimit", { name: invalidSize.name }),
       )
       return
     }
@@ -142,7 +142,7 @@ export const Composer = memo(function Composer({ installing = false }: { install
       current.reduce((total, image) => total + base64EncodedLength(image.bytes.byteLength), 0) +
       files.reduce((total, file) => total + base64EncodedLength(file.size), 0)
     if (encodedBytes >= MAX_BASE64_IMAGE_BYTES) {
-      setSendError("The attached images are too large together. Total image data must stay under 10 MB.")
+      setSendError(t("composer.imagesRequestLimit"))
       return
     }
 
@@ -162,7 +162,7 @@ export const Composer = memo(function Composer({ installing = false }: { install
       )
       replacePendingImages([...current, ...additions])
     } catch (error) {
-      setSendError(error instanceof Error ? error.message : "The image could not be read.")
+      setSendError(error instanceof Error ? error.message : t("composer.imageReadFailed"))
     } finally {
       addingImagesRef.current = false
       setAddingImages(false)
@@ -198,7 +198,7 @@ export const Composer = memo(function Composer({ installing = false }: { install
       return
     }
     if (images.length > 0 && !supportsImages) {
-      setSendError("The selected model does not support image input. Choose a vision model.")
+      setSendError(t("composer.modelNoImageInput"))
       return
     }
     setSending(true)
@@ -213,10 +213,10 @@ export const Composer = memo(function Composer({ installing = false }: { install
         for (const image of images) URL.revokeObjectURL(image.previewUrl)
         replacePendingImages([])
       } else {
-        setSendError(`${result.reason} Your message was kept.`)
+        setSendError(`${result.reason} ${t("composer.messageKept")}`)
       }
     } catch (error) {
-      setSendError(`${error instanceof Error ? error.message : String(error)} Your message was kept.`)
+      setSendError(`${error instanceof Error ? error.message : String(error)} ${t("composer.messageKept")}`)
     } finally {
       setSending(false)
       textareaRef.current?.focus()
@@ -224,26 +224,26 @@ export const Composer = memo(function Composer({ installing = false }: { install
   }
 
   const placeholder = installing
-    ? "Restarting into the update…"
+    ? t("composer.restarting")
     : needsWorkspace
-      ? "Locate the working folder to continue this session"
+      ? t("composer.locateFolder")
       : modelState === "starting"
-        ? "Starting the model…"
+        ? t("composer.startingModel")
         : modelState === "ready"
           ? busy
-            ? "Steer the active turn, or queue a follow-up…"
-            : "Ask Otis anything…"
-          : "Set up a model to start chatting"
+            ? t("composer.steer")
+            : t("composer.ask")
+          : t("composer.setupModel")
 
   return (
     <div className="composer">
       {modelState === "failed" && state?.modelError ? (
         <div className="composer-banner" role="alert">
-          The model could not start: {state.modelError}
+          {t("composer.modelFailed", { error: state.modelError })}
         </div>
       ) : null}
       <form
-        aria-label="Message composer"
+        aria-label={t("composer.label")}
         className={`composer-box${busy ? " composer-boxWorking" : ""}${modelState !== "ready" && !busy ? " composer-boxDisabled" : ""}${dragActive ? " composer-boxDrop" : ""}`}
         onSubmit={(event) => {
           event.preventDefault()
@@ -273,15 +273,15 @@ export const Composer = memo(function Composer({ installing = false }: { install
           void addImageFiles(Array.from(event.dataTransfer.files))
         }}
       >
-        {dragActive ? <div className="composer-dropOverlay">Drop images here</div> : null}
+        {dragActive ? <div className="composer-dropOverlay">{t("composer.dropImages")}</div> : null}
         {pendingImages.length > 0 ? (
-          <ul className="composer-attachments" aria-label="Attached images">
+          <ul className="composer-attachments" aria-label={t("composer.attachedImages")}>
             {pendingImages.map((image) => (
               <li className="composer-attachment" key={image.id} title={image.name}>
                 <img src={image.previewUrl} alt="" />
                 <button
                   type="button"
-                  aria-label={`Remove ${image.name}`}
+                  aria-label={t("composer.removeImage", { name: image.name })}
                   disabled={sending}
                   onClick={() => removeImage(image.id)}
                 >
@@ -297,7 +297,7 @@ export const Composer = memo(function Composer({ installing = false }: { install
           rows={1}
           placeholder={placeholder}
           disabled={modelState !== "ready"}
-          aria-label="Prompt"
+          aria-label={t("composer.prompt")}
           onChange={(event) => {
             setDraft(event.target.value)
             setSendError(null)
@@ -320,7 +320,14 @@ export const Composer = memo(function Composer({ installing = false }: { install
                   type="button"
                   className={`composer-model${state.modelState === "starting" || state.modelState === "failed" ? ` composer-model-${state.modelState}` : ""}`}
                   onClick={() => setPickerOpen((open) => !open)}
-                  title={`${state.model.id} · ${PROVIDER_LABELS[state.model.provider] ?? state.model.provider}${state.fastServing.enabled ? " · Fast serving" : ""} — select a model`}
+                  title={t("composer.modelTitle", {
+                    id: state.model.id,
+                    provider:
+                      state.model.provider === "fireworks"
+                        ? "Fireworks"
+                        : t(state.model.provider === "local" ? "models.local" : "models.localServers"),
+                    fast: state.fastServing.enabled ? ` · ${t("composer.fastServing")}` : "",
+                  })}
                   aria-haspopup="dialog"
                   aria-expanded={pickerOpen}
                 >
@@ -335,7 +342,7 @@ export const Composer = memo(function Composer({ installing = false }: { install
               <button
                 type="button"
                 className="composer-workspace noDrag"
-                title={workspaceError ?? `${state.workspace.path} — open a different folder`}
+                title={workspaceError ?? `${state.workspace.path} — ${t("composer.openDifferentFolder")}`}
                 onClick={() => void openFolder()}
               >
                 <Icon icon={FolderOpen} size={11} />
@@ -357,12 +364,12 @@ export const Composer = memo(function Composer({ installing = false }: { install
             />
             <span
               className="composer-uploadWrap"
-              title={supportsImages ? "Add images" : "The selected model does not support image input"}
+              title={supportsImages ? t("composer.addImages") : t("composer.modelNoImages")}
             >
               <button
                 type="button"
                 className="composer-upload iconBtn"
-                aria-label="Add images"
+                aria-label={t("composer.addImages")}
                 disabled={!canAttach}
                 onClick={() => imageInputRef.current?.click()}
               >
@@ -370,8 +377,14 @@ export const Composer = memo(function Composer({ installing = false }: { install
               </button>
             </span>
             {busy ? (
-              <Button variant="danger" size="sm" icon={Square} onClick={() => void api.stop()} title="Stop (Esc)">
-                Stop
+              <Button
+                variant="danger"
+                size="sm"
+                icon={Square}
+                onClick={() => void api.stop()}
+                title={t("composer.stopTitle")}
+              >
+                {t("composer.stop")}
               </Button>
             ) : null}
             <Button
@@ -380,9 +393,9 @@ export const Composer = memo(function Composer({ installing = false }: { install
               size="sm"
               iconAfter={ArrowUp}
               disabled={!canSend}
-              title={busy ? "Send as follow-up (Enter)" : "Send (Enter)"}
+              title={busy ? t("composer.sendFollowUpTitle") : t("composer.sendTitle")}
             >
-              {busy ? "Follow up" : "Send"}
+              {busy ? t("composer.followUp") : t("composer.send")}
             </Button>
           </span>
         </div>

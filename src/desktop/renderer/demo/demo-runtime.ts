@@ -231,6 +231,7 @@ class DemoRuntime implements DesktopApi {
     entries: demoTranscript(),
     agentsPanelVisible: true,
     theme: "default",
+    language: "system",
     thinkingVisible: true,
     permissionMode: "auto",
     fastServing: { available: true, enabled: false },
@@ -268,6 +269,11 @@ class DemoRuntime implements DesktopApi {
 
   async setTheme(theme: ThemeName): Promise<void> {
     this.#state = { ...this.#state, theme }
+    this.#emitStatus()
+  }
+
+  async setLanguage(language: DesktopStatus["language"]): Promise<void> {
+    this.#state = { ...this.#state, language }
     this.#emitStatus()
   }
 

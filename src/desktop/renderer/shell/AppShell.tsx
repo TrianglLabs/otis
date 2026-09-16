@@ -7,6 +7,7 @@ import { ConversationView } from "../features/conversation/Transcript.js"
 import { OnboardingPage } from "../features/onboarding/OnboardingPage.js"
 import { CommandPalette } from "../features/palette/CommandPalette.js"
 import { SettingsPage } from "../features/settings/SettingsPage.js"
+import { useI18n } from "../i18n/index.js"
 import { useDesktop, useDesktopState } from "../runtime.js"
 import { rememberTheme } from "../theme.js"
 import { WorkspaceHeader } from "./WorkspaceHeader.js"
@@ -19,6 +20,7 @@ import { WorkspacePanel } from "./WorkspacePanel.js"
  */
 export function AppShell() {
   const { api } = useDesktop()
+  const { t } = useI18n()
   const state = useDesktopState("theme", "platform", "model", "needsWorkspace", "update", "session")
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [windowFullscreen, setWindowFullscreen] = useState(false)
@@ -112,8 +114,7 @@ export function AppShell() {
                 {state?.needsWorkspace ? (
                   <div className="workspaceBanner">
                     <span>
-                      Otis couldn&apos;t find this session&apos;s working folder. You can read its history; choose the
-                      folder once to continue. Otis will remember it.
+                      {t("shell.workspaceMissing")}
                       {locateError ? <span className="workspaceBanner-error">{locateError}</span> : null}
                     </span>
                     <Button
@@ -123,12 +124,12 @@ export function AppShell() {
                         void api.pickWorkspaceFolder().then(async (path) => {
                           if (!path) return
                           const result = await api.locateWorkspace(path)
-                          setLocateError(result.ok ? undefined : (result.reason ?? "Could not open that folder."))
+                          setLocateError(result.ok ? undefined : (result.reason ?? t("shell.couldNotOpenFolder")))
                         })
                       }
                     >
                       <Icon icon={FolderOpen} size={12} />
-                      Locate working folder
+                      {t("shell.locateWorkingFolder")}
                     </Button>
                   </div>
                 ) : null}
@@ -142,8 +143,8 @@ export function AppShell() {
                 disabled={installing}
                 title={
                   installing
-                    ? "Restarting into the update…"
-                    : `Otis ${readyUpdate.version} is ready — restart to update`
+                    ? t("shell.restartingUpdate")
+                    : t("shell.updateReadyTitle", { version: readyUpdate.version })
                 }
                 onClick={() => {
                   setInstalling(true)
@@ -151,7 +152,7 @@ export function AppShell() {
                 }}
               >
                 <Icon icon={Download} size={12} />
-                <span className="updateFab-label">{installing ? "Restarting…" : "Update"}</span>
+                <span className="updateFab-label">{installing ? t("shell.restarting") : t("shell.update")}</span>
               </button>
             ) : null}
           </div>

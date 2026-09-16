@@ -1,6 +1,7 @@
 import { ChevronsLeft, Search, Settings, SquarePen } from "lucide-react"
 import { Button, IconButton } from "../components/Button.js"
 import { formatTokenCount } from "../format.js"
+import { useI18n } from "../i18n/index.js"
 import { useDesktop, useDesktopSelector, useDesktopState } from "../runtime.js"
 
 /**
@@ -17,6 +18,7 @@ export function WorkspaceHeader({
   onOpenSettings: () => void
 }) {
   const { api } = useDesktop()
+  const { locale, t } = useI18n()
   const state = useDesktopState(
     "diffs",
     "contextTokens",
@@ -41,10 +43,10 @@ export function WorkspaceHeader({
             icon={SquarePen}
             className="workspaceHeader-new noDrag"
             disabled={state.busy}
-            title={state.busy ? "Finish the current work before starting over" : "New session (⌘N)"}
+            title={state.busy ? t("header.finishBeforeStarting") : t("header.newSession")}
             onClick={() => void api.startNewSession()}
           >
-            Fresh start
+            {t("header.freshStart")}
           </Button>
         ) : null}
       </div>
@@ -53,7 +55,7 @@ export function WorkspaceHeader({
 
       <div className="workspaceHeader-right">
         {diffs.added + diffs.removed > 0 ? (
-          <span className="headerDiff noDrag" title="Lines changed this session">
+          <span className="headerDiff noDrag" title={t("header.linesChanged")}>
             <span className="headerDiff-add">+{diffs.added}</span>
             <span className="headerDiff-remove">−{diffs.removed}</span>
           </span>
@@ -61,7 +63,10 @@ export function WorkspaceHeader({
         {hasEntries && contextTokens !== undefined ? (
           <span
             className="contextMeter noDrag"
-            title={`${contextTokens.toLocaleString()} of ~${contextLimit.toLocaleString()} tokens`}
+            title={t("header.contextTokens", {
+              used: contextTokens.toLocaleString(locale),
+              limit: contextLimit.toLocaleString(locale),
+            })}
           >
             <span className="contextMeter-track">
               <span
@@ -73,13 +78,13 @@ export function WorkspaceHeader({
           </span>
         ) : null}
         <div className="workspaceHeader-actions">
-          <IconButton icon={Search} label="Search sessions (⌘K)" onClick={onOpenPalette} className="noDrag" />
-          <IconButton icon={Settings} label="Settings" onClick={onOpenSettings} className="noDrag" />
+          <IconButton icon={Search} label={t("header.searchSessions")} onClick={onOpenPalette} className="noDrag" />
+          <IconButton icon={Settings} label={t("common.settings")} onClick={onOpenSettings} className="noDrag" />
           {/* Rightmost: it opens the rail that slides in from the right edge. */}
           {(state.subagents.length > 0 || hasCanvas) && !state.agentsPanelVisible ? (
             <IconButton
               icon={ChevronsLeft}
-              label="Show side panel"
+              label={t("header.showSidePanel")}
               onClick={() => void api.setAgentsPanelVisible(true)}
               className="noDrag"
             />
