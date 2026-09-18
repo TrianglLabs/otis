@@ -54,6 +54,49 @@ describe("local model catalog", () => {
     })
   })
 
+  it("pins both Bonsai packings and the required Prism runtime", () => {
+    expect(findLocalModel("prism-ml/Ternary-Bonsai-2-27B-gguf")).toMatchObject({
+      displayName: "Bonsai 2 27B",
+      sourceModel: "prism-ml/Ternary-Bonsai-2-27B-gguf",
+      runtime: "prism",
+      ggufRepo: "prism-ml/Ternary-Bonsai-2-27B-gguf",
+      ggufRevision: "6ed5e12bf84b7a63069882c91dd9e9218647d17b",
+      ggufFiles: [
+        {
+          name: "Ternary-Bonsai-2-27B-PQ2_0.gguf",
+          sha256: "3907dc1658db1f78a9826bf8d5bcb8dc65db0d466388937af57f2294fae62ec1",
+          size: 7_206_168_928,
+        },
+      ],
+      quant: "PQ2_0",
+      packings: [
+        {
+          ggufFiles: [
+            {
+              name: "Ternary-Bonsai-2-27B-PTQ1_0.gguf",
+              sha256: "53107f530aa52eb00912263ab1ee29bd199261c87cd7b4ad4ca1318c1fe33ee3",
+              size: 5_946_648_928,
+            },
+          ],
+          quant: "PTQ1_0",
+        },
+        {
+          ggufFiles: [
+            {
+              name: "Ternary-Bonsai-2-27B-PQ2_0.gguf",
+              sha256: "3907dc1658db1f78a9826bf8d5bcb8dc65db0d466388937af57f2294fae62ec1",
+              size: 7_206_168_928,
+            },
+          ],
+          quant: "PQ2_0",
+        },
+      ],
+      nativeContextLength: 262_144,
+      supportsImageInput: false,
+      attention: { groups: [{ layers: 16, kvHeads: 4, headDim: 256 }] },
+    })
+  })
+
   it("pins a split Qwen3.8 Flash Next conversion of the official checkpoint", () => {
     const model = findLocalModel("Qwen/Qwen3.8-Flash-Next")
     expect(model).toMatchObject({

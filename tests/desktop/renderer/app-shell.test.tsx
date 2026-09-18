@@ -408,6 +408,7 @@ describe("AppShell settings navigation", () => {
       available: true,
       availabilityLabel: "32K · Q4_K_M · 18 GB",
       recommended: false,
+      hasDownloadedPacking: true,
       downloaded: true,
       active: false,
     }
@@ -421,6 +422,7 @@ describe("AppShell settings navigation", () => {
       available: true,
       availabilityLabel: "Est. 64K · MXFP4 · 63 GB",
       recommended: false,
+      hasDownloadedPacking: false,
       downloaded: false,
       active: false,
     }
@@ -435,6 +437,7 @@ describe("AppShell settings navigation", () => {
       available: false,
       availabilityLabel: "Needs 390 GB",
       recommended: false,
+      hasDownloadedPacking: true,
       downloaded: true,
       active: false,
     }
@@ -502,7 +505,9 @@ describe("AppShell settings navigation", () => {
 
     // The removal settles: the catalog refetches and the disabled controls come back.
     catalog = catalog.map((item) =>
-      "downloaded" in item && item.id === cached.id ? { ...item, downloaded: false } : item,
+      "downloaded" in item && item.id === cached.id
+        ? { ...item, downloaded: false, hasDownloadedPacking: false }
+        : item,
     )
     await act(async () => {
       resolveDelete?.({ ok: true })

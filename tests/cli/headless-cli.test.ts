@@ -40,6 +40,7 @@ const mocks = vi.hoisted(() => ({
     gpuMemoryBytes: 64 * 1024 ** 3,
     backend: "metal" as const,
     unifiedMemory: true,
+    gpuCount: 1,
   })),
   ensureLocalServing: vi.fn<
     (

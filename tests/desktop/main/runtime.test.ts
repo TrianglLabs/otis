@@ -228,6 +228,7 @@ describe("DesktopRuntime model startup", () => {
       available: true,
       recommended: true,
       availabilityLabel: "Est. 32K · Q4_K_M · 18 GB",
+      hasDownloadedPacking: true,
       downloaded: true,
       active: true,
     }
@@ -1359,6 +1360,7 @@ describe("DesktopRuntime model selection", () => {
     available: true,
     recommended: true,
     availabilityLabel: "Est. 32K · Q4_K_M · 18 GB",
+    hasDownloadedPacking: true,
     downloaded: true,
     active: false,
   }

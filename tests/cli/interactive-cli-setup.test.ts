@@ -1080,6 +1080,7 @@ describe("interactive CLI setup", () => {
       gpuMemoryBytes: 8 * 1024 ** 3,
       backend: "metal",
       unifiedMemory: true,
+      gpuCount: 1,
     })
     await loadCli()
     await submit("/model")

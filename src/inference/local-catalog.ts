@@ -1,4 +1,8 @@
+import type { HardwareBackend, HardwareProbe } from "./hardware.js"
+import type { LlamaRuntimeKind } from "./llama-binary.js"
 import type { LocalCatalogModel } from "./types.js"
+
+const GIBIBYTE = 1024 ** 3
 
 export const LOCAL_MIN_CONTEXT_LENGTH = 65_536
 export const LOCAL_CONTEXT_ALIGNMENT = 1_024
@@ -35,20 +39,59 @@ export type LocalGgufFile = {
   size: number
 }
 
+export type LocalModelPacking = {
+  ggufFiles: readonly [LocalGgufFile, ...LocalGgufFile[]]
+  quant: string
+  /** Backends with kernels for this packing in the pinned runtime. Omitted means all supported backends. */
+  supportedBackends?: readonly HardwareBackend[]
+  /** Select this packing only at or below the applicable memory limit. */
+  useWhen?: {
+    maximumDedicatedGpuMemoryBytes?: number
+    maximumSystemMemoryBytes?: number
+    maximumUnifiedMemoryBytes?: number
+  }
+}
+
 export type LocalModelSpec = {
   id: string
   displayName: string
-  /** Official Hugging Face checkpoint this GGUF was converted from. */
+  /** Official Hugging Face checkpoint or author-published GGUF identity. */
   sourceModel: string
+  /** Pinned llama.cpp distribution capable of loading this model's GGUF format. */
+  runtime: LlamaRuntimeKind
   ggufRepo: string
   /** Immutable Hugging Face repository commit containing every `ggufFiles` entry. */
   ggufRevision: string
   /** One file for a normal GGUF, or all files for a split GGUF in load order. */
   ggufFiles: readonly [LocalGgufFile, ...LocalGgufFile[]]
   quant: string
+  /** First compatible matching rule wins; otherwise use the last compatible packing. */
+  packings?: readonly [LocalModelPacking, ...LocalModelPacking[]]
   nativeContextLength: number
   supportsImageInput: boolean
   attention: LocalAttentionSpec
+}
+
+const BONSAI_PTQ1: LocalModelPacking = {
+  quant: "PTQ1_0",
+  ggufFiles: [
+    {
+      name: "Ternary-Bonsai-2-27B-PTQ1_0.gguf",
+      sha256: "53107f530aa52eb00912263ab1ee29bd199261c87cd7b4ad4ca1318c1fe33ee3",
+      size: 5_946_648_928,
+    },
+  ],
+}
+
+const BONSAI_PQ2: LocalModelPacking = {
+  quant: "PQ2_0",
+  ggufFiles: [
+    {
+      name: "Ternary-Bonsai-2-27B-PQ2_0.gguf",
+      sha256: "3907dc1658db1f78a9826bf8d5bcb8dc65db0d466388937af57f2294fae62ec1",
+      size: 7_206_168_928,
+    },
+  ],
 }
 
 /**
@@ -64,6 +107,7 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     id: "ornith-ai/Ornith-1.5-9B",
     displayName: "Ornith 1.5 9B",
     sourceModel: "ornith-ai/Ornith-1.5-9B",
+    runtime: "upstream",
     ggufRepo: "ornith-ai/Ornith-1.5-9B-GGUF",
     ggufRevision: "abdd624b12ebf020b767fff532ff44fe552b28c3",
     ggufFiles: [
@@ -83,6 +127,7 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     id: "google/gemma-4-12B-it",
     displayName: "Gemma 4 12B",
     sourceModel: "google/gemma-4-12B-it",
+    runtime: "upstream",
     ggufRepo: "google/gemma-4-12B-it-qat-q4_0-gguf",
     ggufRevision: "29d097773436b69ff9feafd636ab4cf873786537",
     ggufFiles: [
@@ -107,6 +152,7 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     id: "LiquidAI/LFM2.5-2.6B",
     displayName: "LFM2.5 2.6B",
     sourceModel: "LiquidAI/LFM2.5-2.6B",
+    runtime: "upstream",
     ggufRepo: "LiquidAI/LFM2.5-2.6B-GGUF",
     ggufRevision: "84022ce711b28455e8c4fc364ce68c00cf995875",
     ggufFiles: [
@@ -125,6 +171,7 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     id: "Qwen/Qwen3.8-27B",
     displayName: "Qwen3.8 27B",
     sourceModel: "Qwen/Qwen3.8-27B",
+    runtime: "upstream",
     ggufRepo: "ggml-org/Qwen3.8-27B-GGUF",
     ggufRevision: "0669b98607d47046c7c2b3f801011d54a08cfccf",
     ggufFiles: [
@@ -140,9 +187,39 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     attention: { groups: [{ layers: 16, kvHeads: 4, headDim: 256 }] },
   },
   {
+    id: "prism-ml/Ternary-Bonsai-2-27B-gguf",
+    displayName: "Bonsai 2 27B",
+    sourceModel: "prism-ml/Ternary-Bonsai-2-27B-gguf",
+    runtime: "prism",
+    ggufRepo: "prism-ml/Ternary-Bonsai-2-27B-gguf",
+    ggufRevision: "6ed5e12bf84b7a63069882c91dd9e9218647d17b",
+    ggufFiles: BONSAI_PQ2.ggufFiles,
+    quant: BONSAI_PQ2.quant,
+    packings: [
+      {
+        ...BONSAI_PTQ1,
+        useWhen: {
+          maximumDedicatedGpuMemoryBytes: 8 * GIBIBYTE,
+          maximumSystemMemoryBytes: 16 * GIBIBYTE,
+          maximumUnifiedMemoryBytes: 16 * GIBIBYTE,
+        },
+      },
+      {
+        ...BONSAI_PQ2,
+        // Prism's pinned Vulkan build has PTQ1 kernels, but no PQ2 kernels.
+        supportedBackends: ["metal", "cpu"],
+      },
+    ],
+    nativeContextLength: 262_144,
+    supportsImageInput: false,
+    // Bonsai retains the Qwen3.8 27B architecture and KV-cache geometry.
+    attention: { groups: [{ layers: 16, kvHeads: 4, headDim: 256 }] },
+  },
+  {
     id: "Qwen/Qwen3.8-Flash-Next",
     displayName: "Qwen3.8 Flash Next",
     sourceModel: "Qwen/Qwen3.8-Flash-Next",
+    runtime: "upstream",
     // Qwen's ggml-org conversion is Q8 only; this smaller conversion is from the official checkpoint.
     ggufRepo: "unsloth/Qwen3.8-Flash-Next-GGUF",
     ggufRevision: "c8b5954a88c2775c546b92593eda40ea041d3176",
@@ -173,6 +250,7 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     id: "Qwen/Qwen3-Coder-30B-A3B-Instruct",
     displayName: "Qwen3-Coder 30B-A3B",
     sourceModel: "Qwen/Qwen3-Coder-30B-A3B-Instruct",
+    runtime: "upstream",
     // Qwen's GGUF listing is not publicly readable; this is a Q4_K_M conversion of the official Instruct weights.
     ggufRepo: "lmstudio-community/Qwen3-Coder-30B-A3B-Instruct-GGUF",
     ggufRevision: "1f4ceb1041258b3fbfe59e1175d1321c6b41863b",
@@ -192,6 +270,7 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     id: "openai/gpt-oss-20b",
     displayName: "gpt-oss 20B",
     sourceModel: "openai/gpt-oss-20b",
+    runtime: "upstream",
     ggufRepo: "ggml-org/gpt-oss-20b-GGUF",
     ggufRevision: "ef9b12f2ff56c69cf32153a02784e7a3c88bf524",
     ggufFiles: [
@@ -215,6 +294,7 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     id: "google/gemma-4-26B-A4B-it",
     displayName: "Gemma 4 26B A4B",
     sourceModel: "google/gemma-4-26B-A4B-it",
+    runtime: "upstream",
     ggufRepo: "google/gemma-4-26B-A4B-it-qat-q4_0-gguf",
     ggufRevision: "d1c082be9cf3c8a514acf63b8761f4b41935842e",
     ggufFiles: [
@@ -238,6 +318,7 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     id: "google/gemma-4-31B-it",
     displayName: "Gemma 4 31B",
     sourceModel: "google/gemma-4-31B-it",
+    runtime: "upstream",
     ggufRepo: "google/gemma-4-31B-it-qat-q4_0-gguf",
     ggufRevision: "59dde24573e7e61570dba08b18a2e1fe246955ed",
     ggufFiles: [
@@ -261,6 +342,7 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     id: "zai-org/GLM-5.3",
     displayName: "GLM-5.3",
     sourceModel: "zai-org/GLM-5.3",
+    runtime: "upstream",
     ggufRepo: "unsloth/GLM-5.3-GGUF",
     ggufRevision: "8cf52b13b13065f576d01753f5f65f7263cc9062",
     ggufFiles: [
@@ -322,6 +404,21 @@ export function localModelWeightBytes(model: LocalModelSpec) {
   return model.ggufFiles.reduce((total, file) => total + file.size, 0)
 }
 
+export function localModelForHardware(model: LocalModelSpec, hardware: HardwareProbe): LocalModelSpec {
+  if (!model.packings) return model
+  const compatible = model.packings.filter(
+    ({ supportedBackends }) => !supportedBackends || supportedBackends.includes(hardware.backend),
+  )
+  const packing = compatible.find(({ useWhen }) => packingMatchesHardware(useWhen, hardware)) ?? compatible.at(-1)
+  if (!packing) throw new Error(`${model.displayName} has no packing for the ${hardware.backend} backend.`)
+  return { ...model, ggufFiles: packing.ggufFiles, quant: packing.quant }
+}
+
+export function localModelPackings(model: LocalModelSpec): readonly LocalModelSpec[] {
+  if (!model.packings) return [model]
+  return model.packings.map((packing) => ({ ...model, ggufFiles: packing.ggufFiles, quant: packing.quant }))
+}
+
 export function findLocalModel(modelId: string) {
   const id = modelId.trim()
   return LOCAL_MODELS.find((model) => model.id === id)
@@ -342,4 +439,18 @@ export function catalogModelFromSpec(
 
 export function isLocalModelId(modelId: string) {
   return findLocalModel(modelId) !== undefined
+}
+
+function packingMatchesHardware(rule: LocalModelPacking["useWhen"], hardware: HardwareProbe) {
+  if (!rule) return true
+  if (hardware.unifiedMemory) {
+    return rule.maximumUnifiedMemoryBytes !== undefined && hardware.totalMemoryBytes <= rule.maximumUnifiedMemoryBytes
+  }
+  if (hardware.backend !== "cpu" && hardware.gpuMemoryBytes !== undefined) {
+    return (
+      rule.maximumDedicatedGpuMemoryBytes !== undefined &&
+      hardware.gpuMemoryBytes <= rule.maximumDedicatedGpuMemoryBytes
+    )
+  }
+  return rule.maximumSystemMemoryBytes !== undefined && hardware.totalMemoryBytes <= rule.maximumSystemMemoryBytes
 }

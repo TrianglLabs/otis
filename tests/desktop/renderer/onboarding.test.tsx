@@ -64,6 +64,7 @@ const LOCAL_ITEM: ModelPickerItem = {
   available: true,
   availabilityLabel: "Est. 32K · Q4_K_M · 6 GB",
   recommended: true,
+  hasDownloadedPacking: false,
   downloaded: false,
   active: false,
 }
@@ -78,6 +79,7 @@ const OTHER_LOCAL_ITEM: ModelPickerItem = {
   available: true,
   recommended: false,
   availabilityLabel: "Est. 32K · Q4_K_M · 16 GB",
+  hasDownloadedPacking: false,
   downloaded: false,
   active: false,
 }

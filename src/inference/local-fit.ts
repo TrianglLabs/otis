@@ -5,6 +5,7 @@ import {
   type LocalAttentionSpec,
   type LocalKvGroup,
   type LocalModelSpec,
+  localModelForHardware,
   localModelWeightBytes,
 } from "./local-catalog.js"
 
@@ -23,8 +24,9 @@ export type LocalModelFit = {
 }
 
 export function fitLocalModel(model: LocalModelSpec, hardware: HardwareProbe): LocalModelFit {
+  const selectedModel = localModelForHardware(model, hardware)
   const memoryAvailableBytes = availableModelMemory(hardware)
-  return fitLocalModelWithinMemory(model, memoryAvailableBytes)
+  return fitLocalModelWithinMemory(selectedModel, memoryAvailableBytes)
 }
 
 export function fitLocalModelWithinMemory(model: LocalModelSpec, memoryAvailableBytes: number): LocalModelFit {

@@ -115,13 +115,37 @@ entries carry a fitted context and never a `fastId`; PAIR entries carry their en
 currently serving label that context `Est.`; the active managed-local row receives the context returned by llama.cpp
 and labels it `loaded`.
 
-Selecting a runnable local model downloads Otis' pinned llama.cpp `b10622` GitHub release (Metal on Apple Silicon,
-Vulkan on Linux with a render device, otherwise CPU) and the selected GGUF into the platform local-data directory.
-macOS and Linux on arm64 and x64 are supported; other targets are disabled before selection. Runtime asset sizes and
-SHA-256 digests are pinned with the release, and the archive is verified while streaming to disk. Updating the runtime
-requires an explicit Otis source change. Existing compatible manifest-v1 and pre-manifest bundles remain usable for
-released installations; newly installed bundles record the artifact digest, and obsolete `b*` directories are removed
-after the pinned runtime is available.
+Selecting a runnable local model downloads its Otis-pinned llama.cpp runtime (Metal on macOS, Vulkan on Linux with a
+render device, otherwise CPU) and the selected GGUF into the platform local-data directory. Normal models use upstream
+llama.cpp `b10666`. Bonsai 2 uses Prism's `prism-b10685-7dffb15` fork because its ternary formats require Prism's
+loader and kernels. Runtime choice is catalog metadata, so the fork is isolated to the model that needs it and both
+pinned bundles may coexist. macOS and Linux on arm64 and x64 are supported; other targets are disabled before
+selection. Runtime asset sizes and SHA-256 digests are pinned with each release, and the archive is verified while
+streaming to disk. Updating either runtime requires an explicit Otis source change. Existing compatible manifest-v1
+and pre-manifest bundles remain usable for released installations; newly installed bundles record the artifact digest,
+and obsolete known runtime directories are removed after a pinned runtime is available.
+
+Bonsai's packing is selected from the same hardware probe used for fit. Otis uses the compact 5.95 GB `PTQ1_0` file
+on systems with at most 8 GiB of dedicated GPU memory or 16 GiB of unified/system memory, and the faster-prompt 7.21 GB
+`PQ2_0` file above those limits when supported by the backend. The pinned Prism Vulkan runtime lacks PQ2 kernels,
+so Linux GPU inference keeps `PTQ1_0` regardless of VRAM capacity. Both files are pinned independently, with each
+artifact defined once. Runtime reuse includes the packing, repository revision, and file identities.
+The selected packing drives fit, picker labels,
+download, and server startup as one transaction; a saved model identity is resolved again for the current hardware.
+Cache discovery recognizes either packing, and deleting Bonsai removes both so a packing selected on another machine
+configuration cannot become orphaned.
+
+Recommendations use a curated preference order with fit-based fallback, not fixed RAM tiers. Each candidate resolves
+its backend-compatible packing and must pass the same host-memory fit used by the picker (including the minimum 64K
+KV cache and runtime overhead). For dedicated GPUs with known VRAM, its weights must also fit within VRAM after the
+runtime's device-headroom reservation on every detected GPU (1 GiB per GPU, not once for combined VRAM). GPU count is
+retained even when some devices cannot report capacity; combined VRAM is unknown unless every device reports it.
+Unknown VRAM still uses the fixed 1 GiB per-GPU runtime margin, never a percentage of host RAM.
+This prioritizes weight residency, not guaranteed full GPU residency of KV and
+compute buffers; hybrid offload can still occur. Unified-memory and CPU systems use host fit alone, as do GPU systems
+whose probe cannot report VRAM. Exact byte counts are used throughout, with no memory rounding or upper-capacity cutoff.
+Unavailable preference groups fall back to smaller fitting models, so a missing catalog model does not create an empty
+hardware tier. Both UI adapters receive the same shared recommendation flag.
 
 Each GGUF URL contains an immutable Hugging Face revision. Otis verifies the pinned byte count and Git LFS SHA-256,
 publishes the completed file atomically, and records a private sidecar manifest so a verified cache does not need to be

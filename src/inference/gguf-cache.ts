@@ -4,7 +4,13 @@ import { mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/prom
 import { dirname, join } from "node:path"
 import { llamaModelCacheDirectory } from "../local/paths.js"
 import { normalizedSha256, sha256File } from "./file-integrity.js"
-import { LOCAL_MODELS, type LocalGgufFile, type LocalModelSpec, localModelWeightBytes } from "./local-catalog.js"
+import {
+  LOCAL_MODELS,
+  type LocalGgufFile,
+  type LocalModelSpec,
+  localModelPackings,
+  localModelWeightBytes,
+} from "./local-catalog.js"
 
 const DOWNLOAD_LOCK_POLL_MS = 250
 const GGUF_MANIFEST_VERSION = 1
@@ -29,19 +35,32 @@ export async function isLocalGgufDownloaded(model: LocalModelSpec, dataDirectory
   return states.every(Boolean)
 }
 
+export async function isAnyLocalModelPackingDownloaded(model: LocalModelSpec, dataDirectory?: string) {
+  return (await downloadedLocalPacking(model, dataDirectory)) !== undefined
+}
+
 export async function listDownloadedLocalModels(dataDirectory?: string) {
   const downloaded = await Promise.all(
-    LOCAL_MODELS.map(async (model) => ((await isLocalGgufDownloaded(model, dataDirectory)) ? model : undefined)),
+    LOCAL_MODELS.map(async (model) => await downloadedLocalPacking(model, dataDirectory)),
   )
   return downloaded.filter((model): model is LocalModelSpec => model !== undefined)
 }
 
+async function downloadedLocalPacking(model: LocalModelSpec, dataDirectory?: string) {
+  for (const packing of localModelPackings(model)) {
+    if (await isLocalGgufDownloaded(packing, dataDirectory)) return packing
+  }
+  return undefined
+}
+
 export async function deleteLocalGguf(model: LocalModelSpec, dataDirectory?: string) {
-  const destinations = localGgufPaths(model, dataDirectory)
-  const primary = destinations[0]
-  await mkdir(dirname(primary), { recursive: true, mode: 0o700 })
-  const releaseLock = await acquireDownloadLock(lockPath(primary))
+  const packings = localModelPackings(model)
+  const destinations = [...new Set(packings.flatMap((packing) => localGgufPaths(packing, dataDirectory)))]
+  const primaries = [...new Set(packings.map((packing) => localGgufPath(packing, dataDirectory)))].sort()
+  await Promise.all(primaries.map((primary) => mkdir(dirname(primary), { recursive: true, mode: 0o700 })))
+  const releaseLocks: Array<() => Promise<void>> = []
   try {
+    for (const primary of primaries) releaseLocks.push(await acquireDownloadLock(lockPath(primary)))
     await Promise.all(
       destinations.flatMap((dest) => [
         rm(dest, { force: true }),
@@ -50,7 +69,7 @@ export async function deleteLocalGguf(model: LocalModelSpec, dataDirectory?: str
       ]),
     )
   } finally {
-    await releaseLock()
+    for (const release of releaseLocks.reverse()) await release()
   }
 }
 

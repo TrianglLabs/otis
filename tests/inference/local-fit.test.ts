@@ -10,6 +10,7 @@ const apple128: HardwareProbe = {
   gpuMemoryBytes: 128 * 1024 ** 3,
   backend: "metal",
   unifiedMemory: true,
+  gpuCount: 1,
 }
 
 const apple16: HardwareProbe = {
@@ -60,6 +61,35 @@ describe("local model fit", () => {
     const fit = fitLocalModel(gemma, apple16)
     expect(fit.available).toBe(true)
     expect(fit.contextLength).toBe(gemma.nativeContextLength)
+  })
+
+  it("fits Bonsai 2 with at least 64K context on a 16 GB Mac", () => {
+    const bonsai = findLocalModel("prism-ml/Ternary-Bonsai-2-27B-gguf")
+    if (!bonsai) throw new Error("missing catalog entry")
+    const fit = fitLocalModel(bonsai, apple16)
+    expect(fit.available).toBe(true)
+    expect(fit.model.quant).toBe("PTQ1_0")
+    expect(fit.contextLength).toBeGreaterThanOrEqual(65_536)
+    expect(fit.contextLength).toBeLessThan(bonsai.nativeContextLength)
+  })
+
+  it("prefers Bonsai PQ2_0 above the compact-memory tier", () => {
+    const bonsai = findLocalModel("prism-ml/Ternary-Bonsai-2-27B-gguf")
+    if (!bonsai) throw new Error("missing catalog entry")
+    const apple24 = { ...apple16, totalMemoryBytes: 24 * 1024 ** 3, gpuMemoryBytes: 24 * 1024 ** 3 }
+    expect(fitLocalModel(bonsai, apple24).model.quant).toBe("PQ2_0")
+
+    const linux = { ...apple128, platform: "linux" as const, backend: "vulkan" as const, unifiedMemory: false }
+    expect(fitLocalModel(bonsai, { ...linux, gpuMemoryBytes: 8 * 1024 ** 3 }).model.quant).toBe("PTQ1_0")
+    expect(fitLocalModel(bonsai, { ...linux, gpuMemoryBytes: 16 * 1024 ** 3 }).model.quant).toBe("PTQ1_0")
+    expect(fitLocalModel(bonsai, { ...linux, gpuMemoryBytes: 24 * 1024 ** 3 }).model.quant).toBe("PTQ1_0")
+    expect(fitLocalModel(bonsai, { ...linux, backend: "cpu" }).model.quant).toBe("PQ2_0")
+  })
+
+  it("uses Qwen3.8's KV geometry for Bonsai 2", () => {
+    const bonsai = findLocalModel("prism-ml/Ternary-Bonsai-2-27B-gguf")
+    if (!bonsai) throw new Error("missing catalog entry")
+    expect(kvCacheBytes(bonsai.attention, 32_768)).toBe(16 * 4 * 256 * 4 * 32_768)
   })
 
   it("uses the largest context that fits instead of a 32K cap", () => {

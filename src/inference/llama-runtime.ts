@@ -22,8 +22,11 @@ import { llamaBinaryDirectory, llamaModelCacheDirectory } from "../local/paths.j
 import { ensureLocalGguf } from "./gguf-cache.js"
 import { type HardwareProbe, inferenceMemoryBudget } from "./hardware.js"
 import {
-  LLAMA_CPP_RELEASE_TAG,
+  type LlamaBinaryTarget,
   type LlamaCppAsset,
+  type LlamaRuntimeKind,
+  llamaRuntimeReleaseTag,
+  PINNED_LLAMA_CPP_RELEASE_TAGS,
   pinnedLlamaCppAsset,
   supportsLlamaCppTarget,
   unsupportedLlamaCppTargetMessage,
@@ -73,7 +76,7 @@ export type LlamaCppRuntimeOptions = {
   spawn?: typeof spawn
   extractArchive?: (archivePath: string, destination: string) => Promise<void>
   allocatePort?: () => Promise<number>
-  runtimeAsset?: (target: Parameters<typeof pinnedLlamaCppAsset>[0]) => LlamaCppAsset
+  runtimeAsset?: (target: LlamaBinaryTarget, runtime: LlamaRuntimeKind) => LlamaCppAsset
   dataDirectory?: string
   readyTimeoutMs?: number
   runtimeDownloadAttempts?: number
@@ -105,6 +108,8 @@ export class LlamaCppRuntime {
     options: EnsureServingOptions = {},
   ): Promise<LocalServingEndpoint> {
     if (!supportsLlamaCppTarget(hardware)) throw new Error(unsupportedLlamaCppTargetMessage(hardware))
+    if (fit.model.id !== model.id) throw new Error("Local model fit does not match the selected model.")
+    model = fit.model
     if (!fit.available) {
       throw new Error(`${model.displayName} needs ${formatBytes(fit.memoryRequiredBytes)} to run on this machine.`)
     }
@@ -158,7 +163,7 @@ export class LlamaCppRuntime {
     signal: AbortSignal,
     onProgress: EnsureServingOptions["onProgress"],
   ) {
-    const binary = await this.#resolveBinary(hardware, signal, onProgress)
+    const binary = await this.#resolveBinary(model, hardware, signal, onProgress)
     signal.throwIfAborted()
     const modelPath = await ensureLocalGguf(model, {
       dataDirectory: this.#options.dataDirectory,
@@ -206,7 +211,12 @@ export class LlamaCppRuntime {
     }
   }
 
-  async #resolveBinary(hardware: HardwareProbe, signal?: AbortSignal, onProgress?: EnsureServingOptions["onProgress"]) {
+  async #resolveBinary(
+    model: LocalModelSpec,
+    hardware: HardwareProbe,
+    signal?: AbortSignal,
+    onProgress?: EnsureServingOptions["onProgress"],
+  ) {
     const configured = (this.#options.env ?? process.env).OTIS_LLAMA_SERVER?.trim()
     if (configured) {
       await assertExecutable(configured)
@@ -216,14 +226,18 @@ export class LlamaCppRuntime {
     const binaryRoot = this.#options.dataDirectory
       ? join(this.#options.dataDirectory, "bin")
       : dirname(llamaBinaryDirectory("release"))
-    const binaryDir = join(binaryRoot, LLAMA_CPP_RELEASE_TAG)
+    const releaseTag = llamaRuntimeReleaseTag(model.runtime)
+    const binaryDir = join(binaryRoot, releaseTag)
     const binaryPath = join(binaryDir, "llama-server")
-    const asset = (this.#options.runtimeAsset ?? pinnedLlamaCppAsset)({
-      platform: hardware.platform,
-      arch: hardware.arch,
-      backend: hardware.backend,
-    })
-    const cached = await findCachedLlamaServer(binaryDir, hardware, asset.sha256)
+    const asset = (this.#options.runtimeAsset ?? pinnedLlamaCppAsset)(
+      {
+        platform: hardware.platform,
+        arch: hardware.arch,
+        backend: hardware.backend,
+      },
+      model.runtime,
+    )
+    const cached = await findCachedLlamaServer(binaryDir, releaseTag, hardware, asset.sha256)
     if (cached) {
       await removeUnpinnedRuntimeBundles(binaryRoot)
       return cached
@@ -241,19 +255,19 @@ export class LlamaCppRuntime {
     let extractDir: string | undefined
     let candidateDir: string | undefined
     try {
-      extractDir = await mkdtemp(join(binaryRoot, `.${LLAMA_CPP_RELEASE_TAG}-extract-`))
+      extractDir = await mkdtemp(join(binaryRoot, `.${releaseTag}-extract-`))
       candidateDir = `${extractDir}.bundle`
       await (this.#options.extractArchive ?? extractTarGz)(download.archivePath, extractDir)
       signal?.throwIfAborted()
       const found = await findNamedFile(extractDir, "llama-server")
       if (!found) throw new Error("llama.cpp archive did not include llama-server.")
       await chmod(found, 0o755)
-      await writeRuntimeManifest(dirname(found), LLAMA_CPP_RELEASE_TAG, hardware, asset.sha256)
+      await writeRuntimeManifest(dirname(found), releaseTag, hardware, asset.sha256)
 
       // llama-server dynamically loads the libraries and backend assets shipped
       // beside it. Publish that directory atomically as one runtime bundle.
       await rename(dirname(found), candidateDir)
-      await publishRuntimeBundle(candidateDir, binaryDir, `${extractDir}.previous`, hardware, asset.sha256)
+      await publishRuntimeBundle(candidateDir, binaryDir, `${extractDir}.previous`, releaseTag, hardware, asset.sha256)
     } finally {
       if (extractDir) await rm(extractDir, { recursive: true, force: true })
       if (candidateDir) await rm(candidateDir, { recursive: true, force: true })
@@ -344,7 +358,18 @@ function serverArgs(model: LocalModelSpec, hardware: HardwareProbe, port: number
 
 function servingKey(model: LocalModelSpec, hardware: HardwareProbe) {
   const targetMiB = inferenceMemoryBudget(hardware).deviceHeadroomBytes / 1024 ** 2
-  return `${model.id}:${hardware.platform}:${hardware.arch}:${hardware.backend}:${targetMiB}`
+  return JSON.stringify([
+    model.id,
+    llamaRuntimeReleaseTag(model.runtime),
+    model.ggufRepo,
+    model.ggufRevision,
+    model.quant,
+    model.ggufFiles,
+    hardware.platform,
+    hardware.arch,
+    hardware.backend,
+    targetMiB,
+  ])
 }
 
 function llamaServerEnvironment(env: NodeJS.ProcessEnv, modelCache: string) {
@@ -551,8 +576,13 @@ async function findNamedFile(root: string, fileName: string): Promise<string | u
   return undefined
 }
 
-async function findCachedLlamaServer(binaryDir: string, hardware: HardwareProbe, artifactSha256: string) {
-  return (await isUsableRuntimeBundle(binaryDir, hardware, artifactSha256))
+async function findCachedLlamaServer(
+  binaryDir: string,
+  releaseTag: string,
+  hardware: HardwareProbe,
+  artifactSha256: string,
+) {
+  return (await isUsableRuntimeBundle(binaryDir, releaseTag, hardware, artifactSha256))
     ? join(binaryDir, "llama-server")
     : undefined
 }
@@ -565,9 +595,11 @@ async function removeUnpinnedRuntimeBundles(binaryRoot: string) {
     if (isNotFound(error)) return
     throw error
   }
-  const stale = entries.filter(
-    (entry) => entry.isDirectory() && /^b\d+$/.test(entry.name) && entry.name !== LLAMA_CPP_RELEASE_TAG,
-  )
+  const pinned = new Set<string>(PINNED_LLAMA_CPP_RELEASE_TAGS)
+  const stale = entries.filter((entry) => {
+    const knownRuntimeTag = /^b\d+$/.test(entry.name) || /^prism-b\d+-[a-f0-9]+$/.test(entry.name)
+    return entry.isDirectory() && knownRuntimeTag && !pinned.has(entry.name)
+  })
   await Promise.allSettled(stale.map((entry) => rm(join(binaryRoot, entry.name), { recursive: true, force: true })))
 }
 
@@ -575,6 +607,7 @@ async function publishRuntimeBundle(
   candidateDir: string,
   binaryDir: string,
   previousDir: string,
+  releaseTag: string,
   hardware: HardwareProbe,
   artifactSha256: string,
 ) {
@@ -583,7 +616,7 @@ async function publishRuntimeBundle(
     return
   } catch (error) {
     // Another process may have completed the same install first.
-    if (await isUsableRuntimeBundle(binaryDir, hardware, artifactSha256)) return
+    if (await isUsableRuntimeBundle(binaryDir, releaseTag, hardware, artifactSha256)) return
     if (!isDestinationExists(error)) throw error
   }
 
@@ -599,7 +632,7 @@ async function publishRuntimeBundle(
     try {
       await rename(candidateDir, binaryDir)
     } catch (error) {
-      if (!(await isUsableRuntimeBundle(binaryDir, hardware, artifactSha256))) throw error
+      if (!(await isUsableRuntimeBundle(binaryDir, releaseTag, hardware, artifactSha256))) throw error
     }
   } catch (error) {
     if (displaced && !(await pathExists(binaryDir))) {
@@ -611,7 +644,12 @@ async function publishRuntimeBundle(
   }
 }
 
-async function isUsableRuntimeBundle(bundleDir: string, hardware: HardwareProbe, artifactSha256: string) {
+async function isUsableRuntimeBundle(
+  bundleDir: string,
+  releaseTag: string,
+  hardware: HardwareProbe,
+  artifactSha256: string,
+) {
   if (!(await isExecutable(join(bundleDir, "llama-server")))) return false
 
   let names: string[]
@@ -624,7 +662,7 @@ async function isUsableRuntimeBundle(bundleDir: string, hardware: HardwareProbe,
 
   try {
     const manifest = JSON.parse(await readFile(join(bundleDir, RUNTIME_MANIFEST), "utf8")) as unknown
-    return isRuntimeManifestFor(manifest, hardware, artifactSha256)
+    return isRuntimeManifestFor(manifest, releaseTag, hardware, artifactSha256)
   } catch (error) {
     if (!isNotFound(error)) return false
   }
@@ -663,11 +701,11 @@ async function writeRuntimeManifest(
   )
 }
 
-function isRuntimeManifestFor(value: unknown, hardware: HardwareProbe, artifactSha256: string) {
+function isRuntimeManifestFor(value: unknown, releaseTag: string, hardware: HardwareProbe, artifactSha256: string) {
   if (typeof value !== "object" || value === null) return false
   const manifest = value as Record<string, unknown>
   const matchesTarget =
-    manifest.releaseTag === LLAMA_CPP_RELEASE_TAG &&
+    manifest.releaseTag === releaseTag &&
     manifest.platform === hardware.platform &&
     manifest.arch === hardware.arch &&
     manifest.backend === hardware.backend

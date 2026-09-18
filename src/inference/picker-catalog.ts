@@ -1,5 +1,5 @@
 import { listToolCapableModels } from "./catalog.js"
-import { isLocalGgufDownloaded } from "./gguf-cache.js"
+import { isAnyLocalModelPackingDownloaded, isLocalGgufDownloaded } from "./gguf-cache.js"
 import { detectHardware, type HardwareProbe } from "./hardware.js"
 import { supportsLlamaCppTarget, unsupportedLlamaCppTargetMessage } from "./llama-binary.js"
 import { isLocalModelId, LOCAL_MODELS } from "./local-catalog.js"
@@ -28,6 +28,8 @@ export type LocalPickerChoice = LocalCatalogModel & {
   recommended: boolean
   availabilityLabel: string
   loadedContextLength?: number
+  /** At least one packing for this model is cached, including one selected for different hardware. */
+  hasDownloadedPacking: boolean
   downloaded: boolean
   status?: ModelPickerStatus
   active: boolean
@@ -81,25 +83,29 @@ export async function listModelPickerItems(options: ListModelPickerOptions = {})
   const localUnavailableReason = supportsLlamaCppTarget(hardware)
     ? undefined
     : unsupportedLlamaCppTargetMessage(hardware)
-  const recommendedModelIds = new Set(recommendedLocalModelIds(hardware.totalMemoryBytes))
+  const recommendedModelIds = new Set(recommendedLocalModelIds(hardware))
   const localItems = (
     await Promise.all(
       LOCAL_MODELS.map(async (model) => {
         const fit = fitLocalModel(model, hardware)
-        const downloaded = await isLocalGgufDownloaded(model, options.dataDirectory)
-        if (!fit.available && !(options.includeDownloadedUnavailable === true && downloaded)) return undefined
+        const selectedModel = fit.model
+        const downloaded = await isLocalGgufDownloaded(selectedModel, options.dataDirectory)
+        const hasDownloadedPacking =
+          downloaded || (await isAnyLocalModelPackingDownloaded(model, options.dataDirectory))
+        if (!fit.available && !(options.includeDownloadedUnavailable === true && hasDownloadedPacking)) return undefined
         const loadedContextLength =
           currentLocalModel === model.id && options.loadedLocalModel?.model === model.id
             ? options.loadedLocalModel.contextLength
             : undefined
         return toLocalPickerChoice(
-          model,
+          selectedModel,
           fit,
           recommendedModelIds,
           localUnavailableReason,
           loadedContextLength,
           currentLocalModel,
           downloaded,
+          hasDownloadedPacking,
           options.loadStatus,
         )
       }),
@@ -195,6 +201,7 @@ function toLocalPickerChoice(
   loadedContextLength: number | undefined,
   currentModel: string | undefined,
   downloaded: boolean,
+  hasDownloadedPacking: boolean,
   loadStatus?: { modelId: string; status: ModelPickerStatus },
 ): LocalPickerChoice {
   return {
@@ -209,6 +216,7 @@ function toLocalPickerChoice(
     availabilityLabel: localAvailabilityLabel(model, fit, localUnavailableReason, loadedContextLength),
     ...(loadedContextLength === undefined ? {} : { loadedContextLength }),
     downloaded,
+    hasDownloadedPacking,
     status: loadStatus?.modelId === model.id ? loadStatus.status : undefined,
     active: currentModel === model.id,
   }
