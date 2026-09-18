@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { ArtifactStore } from "../../src/app/artifacts.js"
 import {
   Conversation,
   type ConversationHooks,
@@ -46,6 +47,7 @@ function turnOptions(transcript: TranscriptStore, observer = sink()): Conversati
     isExiting: () => false,
     onContext: () => {},
     onDiff: () => {},
+    artifacts: new ArtifactStore("/tmp"),
     onUsage: () => {},
     permissionPolicy: createPermissionPolicy({ cwd: "/tmp", mode: "auto" }),
     onPermissionRequest: async () => true,
@@ -111,6 +113,42 @@ describe("runConversationTurn", () => {
     expect(transcript.entries.some((entry) => entry.text.includes("Summary."))).toBe(false)
     expect(observer.startBusy).toHaveBeenCalled()
   })
+
+  it("opens a previewable file from the shared tool event path", async () => {
+    const transcript = new TranscriptStore()
+    const options = turnOptions(transcript)
+    mocks.executeTurn.mockImplementation(async (turn: TurnRunnerOptions): Promise<TurnResult> => {
+      await turn.onEvent?.({
+        type: "tool",
+        phase: "start",
+        toolCallId: "read_1",
+        name: "read",
+        activityKind: "file_read",
+        label: "Reading file: resume.md",
+      })
+      await turn.onEvent?.({
+        type: "tool",
+        phase: "end",
+        toolCallId: "read_1",
+        name: "read",
+        activityKind: "file_read",
+        label: "Reading file: resume.md",
+        artifact: { source: "workspace", path: "resume.md", kind: "markdown" },
+        outcome: "completed",
+      })
+      await turn.onEvent?.({ type: "complete", messages: [] })
+      return { status: "complete", messages: [], details: {} }
+    })
+
+    await runConversationTurn(options)
+
+    expect(options.artifacts.metadata).toMatchObject({ path: "resume.md", kind: "markdown", editable: true })
+    expect(transcript.entries.find((entry) => entry.toolCallId === "read_1")?.artifact).toEqual({
+      source: "workspace",
+      path: "resume.md",
+      kind: "markdown",
+    })
+  })
 })
 
 describe("Conversation", () => {
@@ -146,6 +184,7 @@ describe("Conversation", () => {
       skills: () => ({ skills: [], byName: new Map() }),
       permissionPolicy: () => createPermissionPolicy({ cwd, mode: "auto" }),
       isExiting: () => false,
+      artifacts: new ArtifactStore(cwd),
     })
     return { conversation, sessions, transcript, hooks: hooks() }
   }

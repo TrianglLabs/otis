@@ -32,7 +32,10 @@ try {
       outDir: output,
       emptyOutDir: false,
       rollupOptions: {
-        input: resolve("src/desktop/renderer/canvas.html"),
+        input: {
+          canvas: resolve("src/desktop/renderer/canvas.html"),
+          webpage: resolve("src/desktop/renderer/webpage.html"),
+        },
       },
     },
   })

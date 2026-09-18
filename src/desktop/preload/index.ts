@@ -3,6 +3,8 @@ import { DESKTOP_CHANNELS, type DesktopApi, type DesktopEvent, type DesktopWindo
 
 const api: DesktopApi = {
   getSnapshot: () => ipcRenderer.invoke(DESKTOP_CHANNELS.getSnapshot),
+  getArtifact: (revision) => ipcRenderer.invoke(DESKTOP_CHANNELS.getArtifact, revision),
+  openArtifact: (reference) => ipcRenderer.invoke(DESKTOP_CHANNELS.openArtifact, reference),
   getWindowState: () => ipcRenderer.invoke(DESKTOP_CHANNELS.getWindowState),
   sendPrompt: (text, attachments) => ipcRenderer.invoke(DESKTOP_CHANNELS.sendPrompt, text, attachments),
   stop: () => ipcRenderer.invoke(DESKTOP_CHANNELS.stop),

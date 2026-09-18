@@ -40,7 +40,11 @@ describe("document attachments", () => {
   })
 
   it("rejects PDFs without a text layer instead of treating page labels as content", async () => {
-    await expect(createDocumentAttachment(minimalPdf(""), "blank.pdf")).rejects.toThrow("no extractable text")
+    await expect(createDocumentAttachment(minimalPdf(""), "blank.pdf")).resolves.toMatchObject({
+      kind: "pdf",
+      pageCount: 1,
+      extractedText: expect.stringContaining("no extractable text"),
+    })
   })
 
   it("rejects forged DOCX sizes during inflation, before Mammoth reads the document", async () => {

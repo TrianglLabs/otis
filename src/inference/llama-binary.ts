@@ -1,33 +1,33 @@
-export const LLAMA_CPP_RELEASE_TAG = "b10666"
+export const LLAMA_CPP_RELEASE_TAG = "b10964"
 export const PRISM_LLAMA_CPP_RELEASE_TAG = "prism-b10685-7dffb15"
 export const PINNED_LLAMA_CPP_RELEASE_TAGS = [LLAMA_CPP_RELEASE_TAG, PRISM_LLAMA_CPP_RELEASE_TAG] as const
 
 export type LlamaRuntimeKind = "upstream" | "prism"
 
 const UPSTREAM_LLAMA_CPP_ASSETS: Record<string, LlamaCppAssetMetadata> = {
-  "llama-b10666-bin-macos-arm64.tar.gz": {
-    size: 11_022_594,
-    sha256: "f2b5d7b445cfcdab2abe53e0e6e697790094fb902ef2bdaafd23c813bb297cbb",
+  "llama-b10964-bin-macos-arm64.tar.gz": {
+    size: 11_149_739,
+    sha256: "033c845c1df9bf945ff37bb193238b40910b2244be3e1e637b2ceb5878f1a6f5",
   },
-  "llama-b10666-bin-macos-x64.tar.gz": {
-    size: 11_088_606,
-    sha256: "5af9cd7fbcc226dbdba8d24e66e07b732903fc58eff0e38d829f04264f8d4601",
+  "llama-b10964-bin-macos-x64.tar.gz": {
+    size: 11_199_948,
+    sha256: "03430a394d0a169a5e6d8f01c09f48cf58eb026af6fc95940a4a528e2e50cf38",
   },
-  "llama-b10666-bin-ubuntu-arm64.tar.gz": {
-    size: 13_124_929,
-    sha256: "80e7e23689b9a8d541b45270a202db4f72de99ea52eabc4910373d8cc96e98fe",
+  "llama-b10964-bin-ubuntu-arm64.tar.gz": {
+    size: 13_451_337,
+    sha256: "5f0e9c95d970892e43380f82ebcab960edfd20a1cd0f7abffa13b29fdb924949",
   },
-  "llama-b10666-bin-ubuntu-vulkan-arm64.tar.gz": {
-    size: 26_878_255,
-    sha256: "7293e6a49668e89b1d846b93151f3323bf29d99a73933a44264da0ac3cd5938f",
+  "llama-b10964-bin-ubuntu-vulkan-arm64.tar.gz": {
+    size: 24_215_545,
+    sha256: "f7864baa0edf5a059fb42c5efb5aceb96075aa1f41e6c3142b71ca69286cb0bb",
   },
-  "llama-b10666-bin-ubuntu-vulkan-x64.tar.gz": {
-    size: 33_018_827,
-    sha256: "50fe0c5ffe5d28a8b7c27b083e6f159592eb6d9554c234c434dac43f7bb42588",
+  "llama-b10964-bin-ubuntu-vulkan-x64.tar.gz": {
+    size: 30_166_472,
+    sha256: "55d1e58e14c11eedea090bf088fdeefbfe7b4b09ee03bf6dba9834651769afcf",
   },
-  "llama-b10666-bin-ubuntu-x64.tar.gz": {
-    size: 16_378_465,
-    sha256: "a3c75af6f70ca504dc2712263f51099d4610cc00d59331066fc2335711f1993e",
+  "llama-b10964-bin-ubuntu-x64.tar.gz": {
+    size: 16_825_086,
+    sha256: "9abf88aea48a55d0f80edb1ee20220b186848cca0b4e919d71518cfd7ca67443",
   },
 }
 

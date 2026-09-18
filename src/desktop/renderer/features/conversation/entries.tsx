@@ -1,11 +1,14 @@
 import { ChevronDown, ChevronRight, ListEnd, ShipWheel } from "lucide-react"
 import { memo } from "react"
 import type { TranscriptEntry } from "../../../../app/transcript.js"
+import type { ArtifactReference } from "../../../../artifacts/types.js"
+import { ArtifactCard } from "../../components/ArtifactCard.js"
 import { Icon } from "../../components/Icon.js"
 import { Markdown } from "../../components/Markdown.js"
 import { OtisMark } from "../../components/OtisMark.js"
 import { formatDuration } from "../../format.js"
 import { useI18n } from "../../i18n/index.js"
+import { useDesktop } from "../../runtime.js"
 import { ToolCard } from "./ToolCard.js"
 
 /** Renders one transcript entry. The same components render live turns and replayed sessions. */
@@ -63,7 +66,10 @@ function UserMessage({ entry }: { entry: TranscriptEntry }) {
           <Icon icon={ListEnd} size={16} />
         </span>
       ) : null}
-      <div className="userMessage">{entry.text}</div>
+      <div className={`userMessage${entry.artifacts?.length ? " userMessage-artifacts" : ""}`}>
+        {(entry.messageText ?? entry.text) ? <span>{entry.messageText ?? entry.text}</span> : null}
+        {entry.artifacts?.length ? <MessageArtifacts artifacts={entry.artifacts} /> : null}
+      </div>
     </div>
   )
 }
@@ -72,7 +78,31 @@ function AssistantMessage({ entry }: { entry: TranscriptEntry }) {
   const isError = entry.text.startsWith("Error:") || entry.text.startsWith("Could not")
   return (
     <div className={`assistantMessage${isError ? " assistantMessage-error" : ""}`}>
-      <Markdown text={entry.text} enableCanvas={!entry.streaming} />
+      {entry.text ? <Markdown text={entry.text} enableCanvas={!entry.streaming} /> : null}
+      {entry.artifacts?.length ? <MessageArtifacts artifacts={entry.artifacts} /> : null}
+    </div>
+  )
+}
+
+function MessageArtifacts({ artifacts }: { artifacts: ArtifactReference[] }) {
+  const { api } = useDesktop()
+  const { t } = useI18n()
+  return (
+    <div className="messageArtifacts">
+      {artifacts.map((artifact) => {
+        const title =
+          artifact.source === "workspace" ? (artifact.path.split("/").at(-1) ?? artifact.path) : artifact.name
+        const key = artifact.source === "workspace" ? `workspace:${artifact.path}` : `attachment:${artifact.sha256}`
+        return (
+          <ArtifactCard
+            key={key}
+            kind={artifact.kind}
+            title={title}
+            actionLabel={t("markdown.openCanvas")}
+            onOpen={() => api.openArtifact(artifact)}
+          />
+        )
+      })}
     </div>
   )
 }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import type { ThemeName } from "../../../contracts.js"
 import { useI18n } from "../../i18n/index.js"
 import type { CanvasArtifact } from "./canvas-context.js"
+import { FileArtifact } from "./FileArtifact.js"
 
 const canvasReloadEvent = "otis:canvas-reload"
 const hot = import.meta.hot
@@ -14,6 +15,7 @@ if (hot) {
 export function CanvasPanel({ artifact, theme }: { artifact: CanvasArtifact | undefined; theme: ThemeName }) {
   const { t } = useI18n()
   if (!artifact) return <div className="canvas-empty">{t("canvas.empty")}</div>
+  if (artifact.kind !== "mermaid") return <FileArtifact artifact={artifact} />
   return <MermaidFrame source={artifact.source} theme={theme} />
 }
 
@@ -46,11 +48,7 @@ function MermaidFrame({ source, theme }: { source: string; theme: ThemeName }) {
   }, [locale, t])
 
   useEffect(sendLanguage, [sendLanguage])
-
-  useEffect(() => {
-    sendSource()
-  }, [sendSource, theme])
-
+  useEffect(() => sendSource(), [sendSource, theme])
   useEffect(() => {
     const reload = () => setFrameRevision((revision) => revision + 1)
     window.addEventListener(canvasReloadEvent, reload)

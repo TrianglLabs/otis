@@ -1,5 +1,6 @@
 import type { GlobalSessionPickerItem } from "../app/global-sessions.js"
 import type { TranscriptEntry } from "../app/transcript.js"
+import type { ArtifactMetadata, ArtifactPayload, ArtifactReference } from "../artifacts/types.js"
 import type { ModelPickerItem, ModelPickerStatus } from "../inference/picker-catalog.js"
 import type { ModelProvider } from "../inference/types.js"
 import type { ThemeName, UiLanguage } from "../local/settings.js"
@@ -13,6 +14,8 @@ import type { ToolActivityKind } from "../tools/activity.js"
 
 export const DESKTOP_CHANNELS = {
   getSnapshot: "desktop:get-snapshot",
+  getArtifact: "desktop:get-artifact",
+  openArtifact: "desktop:open-artifact",
   sendPrompt: "desktop:send-prompt",
   stop: "desktop:stop",
   respondToPermission: "desktop:respond-to-permission",
@@ -83,6 +86,8 @@ export type DesktopStatus = {
   modelState: ModelState
   modelError: string | undefined
   session: { id: string; title: string } | null
+  /** The session's active document/web artifact. Contents are fetched once by revision. */
+  artifact: ArtifactMetadata | null
   /** The active session's working folder is unknown or gone; locate it before agent work continues. */
   needsWorkspace: boolean
   /** Global history: sessions from every registered workspace, recency-ordered. */
@@ -166,6 +171,8 @@ export type DesktopWindowState = { fullscreen: boolean }
 /** The API surface exposed to the renderer through the preload bridge. */
 export type DesktopApi = {
   getSnapshot(): Promise<DesktopSnapshot>
+  getArtifact(revision: number): Promise<ArtifactPayload | undefined>
+  openArtifact(reference: ArtifactReference): Promise<SessionOpResult>
   getWindowState(): Promise<DesktopWindowState>
   sendPrompt(text: string, attachments?: readonly DesktopAttachmentInput[]): Promise<SendPromptResult>
   stop(): Promise<void>

@@ -91,6 +91,7 @@ describe("executeTurn", () => {
         name: "edit",
         activityKind: "file_edit",
         diff: "--- b.ts\n+++ b.ts\n-old\n+new",
+        artifact: { source: "workspace", path: "notes.md", kind: "markdown" },
         outcome: "completed",
       }),
       { type: "complete", messages: [] },
@@ -119,6 +120,7 @@ describe("executeTurn", () => {
             activityKind: "file_edit",
             label: "Editing file: b.ts",
             diff: "--- b.ts\n+++ b.ts\n-old\n+new",
+            artifact: { source: "workspace", path: "notes.md", kind: "markdown" },
           },
         ],
         subagents: [

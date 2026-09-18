@@ -1,4 +1,5 @@
 import { BrowserWindow, dialog, type IpcMainInvokeEvent, ipcMain, shell } from "electron"
+import { isArtifactReference } from "../../artifacts/types.js"
 import { DESKTOP_CHANNELS, type DesktopAttachmentInput } from "../contracts.js"
 import type { DesktopRuntime } from "./runtime.js"
 
@@ -8,6 +9,14 @@ import type { DesktopRuntime } from "./runtime.js"
  */
 export function registerDesktopIpc(runtime: DesktopRuntime) {
   handle(DESKTOP_CHANNELS.getSnapshot, () => runtime.snapshot())
+  handle(DESKTOP_CHANNELS.getArtifact, (revision) => {
+    if (typeof revision !== "number") throw new Error("getArtifact expects a numeric revision")
+    return runtime.getArtifact(revision)
+  })
+  handle(DESKTOP_CHANNELS.openArtifact, (reference) => {
+    if (!isArtifactReference(reference)) throw new Error("openArtifact expects a valid artifact reference")
+    return runtime.openArtifact(reference)
+  })
 
   ipcMain.handle(DESKTOP_CHANNELS.getWindowState, (event: IpcMainInvokeEvent) => {
     assertTrustedSender(event)

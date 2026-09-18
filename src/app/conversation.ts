@@ -8,6 +8,7 @@ import type { SkillCatalog } from "../skills/index.js"
 import type { JsonlSession, PromptAdmission, SessionTurnDetails } from "../storage/index.js"
 import type { ToolDefinition } from "../tools/index.js"
 import type { ParallelClient } from "../web/client.js"
+import type { ArtifactStore } from "./artifacts.js"
 import { countDiffLines } from "./diff-stats.js"
 import type { ModelHost } from "./models.js"
 import type { SessionCoordinator } from "./sessions.js"
@@ -51,6 +52,7 @@ export type ConversationTurnOptions = {
   isExiting: () => boolean
   onContext: (tokens: number) => void
   onDiff: (added: number, removed: number) => void
+  artifacts: ArtifactStore
   onUsage: (usage: TokenUsage) => void | Promise<void>
   permissionPolicy: PermissionPolicy
   onPermissionRequest: (request: PermissionRequest) => Promise<boolean>
@@ -163,6 +165,9 @@ export async function runConversationTurn(options: ConversationTurnOptions): Pro
           const diff = countDiffLines(event.diff)
           options.onDiff(diff.added, diff.removed)
         }
+        if (event.type === "tool" && event.phase === "end" && event.artifact) {
+          options.artifacts.openWorkspace(event.artifact)
+        }
         if (projector.apply(event)) sink.renderTranscript()
       },
     })
@@ -252,6 +257,7 @@ export type ConversationOptions = {
   permissionPolicy: () => PermissionPolicy
   isExiting: () => boolean
   outputCapabilities?: OutputCapabilities
+  artifacts: ArtifactStore
 }
 
 type ActiveWork = {
@@ -294,6 +300,7 @@ export class Conversation {
       const entry = this.options.transcript.addQueuedUserMessage(message)
       const queued = { admission, session, transcriptEntryId: entry.id }
       this.#queued.push(queued)
+      this.options.artifacts.observeMessage(message)
       return queued
     } catch (error) {
       this.options.transcript.addDebugMessage(
@@ -325,6 +332,7 @@ export class Conversation {
     transcriptEntryId = entry.id
     try {
       await acceptance.persisted
+      this.options.artifacts.observeMessage(message)
       return "steered"
     } catch (error) {
       this.options.transcript.removeEntry(entry.id)
@@ -405,6 +413,7 @@ export class Conversation {
     if (!queued || !this.options.transcript.activatePendingUserMessage(queued.transcriptEntryId)) {
       this.options.transcript.addUserMessage(userMessage)
     }
+    if (!queued) this.options.artifacts.observeMessage(userMessage)
     hooks.onReady?.(userMessage)
 
     try {
@@ -440,6 +449,7 @@ export class Conversation {
         isExiting: this.options.isExiting,
         onContext: hooks.onContext,
         onDiff: hooks.onDiff,
+        artifacts: this.options.artifacts,
         onUsage: async (usage) => {
           await session.recordUsage(usage, "agent", admission.promptId)
         },

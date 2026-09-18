@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import {
   clearSelectedModel,
+  initializeLocalSettings,
   loadLocalSettings,
   saveFastServingSelection,
   saveFireworksApiKey,
@@ -24,6 +25,44 @@ afterEach(async () => {
 })
 
 describe("local settings", () => {
+  it("seeds a private independent profile without replacing its later settings", async () => {
+    const source = join(await tempDirectory(), "config.json")
+    const file = join(await tempDirectory(), "dev", "config.json")
+    await saveFireworksSetup("fw_fake_import_key", model("tool-model", "Tool Model", 131_072), { file: source })
+    await saveThinkingVisible(false, { file: source })
+    const original = await readFile(source, "utf8")
+
+    await initializeLocalSettings(source, { file })
+    expect(await loadLocalSettings({ file, env: {} })).toEqual(await loadLocalSettings({ file: source, env: {} }))
+    if (process.platform !== "win32") {
+      expect((await stat(file)).mode & 0o777).toBe(0o600)
+      expect((await stat(join(file, ".."))).mode & 0o777).toBe(0o700)
+    }
+
+    await saveFireworksApiKey("fw_fake_dev_key", { file })
+    await initializeLocalSettings(source, { file })
+    expect((await loadLocalSettings({ file, env: {} })).fireworksApiKey).toBe("fw_fake_dev_key")
+    expect(await readFile(source, "utf8")).toBe(original)
+  })
+
+  it("does not create settings without an installed configuration", async () => {
+    const directory = await tempDirectory()
+    const file = join(directory, "dev.json")
+    await initializeLocalSettings(join(directory, "missing.json"), { file })
+    await expect(stat(file)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("preserves an existing dev profile even when it has no API key", async () => {
+    const directory = await tempDirectory()
+    const source = join(directory, "source.json")
+    const file = join(directory, "dev.json")
+    await saveFireworksApiKey("fw_fake_import_key", { file: source })
+    await saveThinkingVisible(false, { file })
+    const original = await readFile(file, "utf8")
+    await initializeLocalSettings(source, { file })
+    expect(await readFile(file, "utf8")).toBe(original)
+  })
+
   it("keeps overlapping whole-file saves from clobbering one another", async () => {
     const file = join(await tempDirectory(), "config", "config.json")
     await saveSubagentPanelVisible(false, { file })

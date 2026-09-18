@@ -3,12 +3,15 @@ import { mkdir } from "node:fs/promises"
 import { homedir } from "node:os"
 import { app, type BrowserWindow, dialog } from "electron"
 import electronUpdater from "electron-updater"
+import { localConfigDirectory, localDataDirectory } from "../../local/paths.js"
 import { loadLocalSettings } from "../../local/settings.js"
 import { DESKTOP_CHANNELS } from "../contracts.js"
 import { configureAppIcon } from "./app-icon.js"
-import { resolveDevData } from "./dev-data.js"
+import { initializeDevProfile, resolveDevData, shouldInitializeDevProfile } from "./dev-data.js"
 import { registerDesktopIpc } from "./ipc.js"
+import { sendToRenderer } from "./renderer.js"
 import { DesktopRuntime } from "./runtime.js"
+import { handleClosedOutput } from "./stdio.js"
 import { createStatusTray, type StatusTray, trayIconDir, trayStatusGate } from "./tray.js"
 import { startAutoUpdates } from "./updater.js"
 import { createMainWindow } from "./window.js"
@@ -16,29 +19,43 @@ import { recoverWorkspaceCwd, resolveWorkspaceCwd } from "./workspace.js"
 
 const { autoUpdater } = electronUpdater
 
+handleClosedOutput(process.stdout)
+handleClosedOutput(process.stderr)
+
 let mainWindow: BrowserWindow | undefined
 let runtime: DesktopRuntime | undefined
 let updater: ReturnType<typeof startAutoUpdates> | undefined
 let statusTray: StatusTray | undefined
+let quitting = false
 // The sole route for both tray status writers (live stream and seed); see trayStatusGate for why the seed is gated.
 let statusTrayGate: ReturnType<typeof trayStatusGate> | undefined
 
-// In dev the binary is Electron's; keep the product name consistent with packaged builds.
-app.setName("Otis")
+app.setName(app.isPackaged ? "Otis" : "Otis Dev")
 
-// Dev affordance: point a development build at its own sandbox so it can run beside the installed app —
-// the single-instance lock and Electron state follow it as userData, and (unless OTIS_HOME is set) so do
-// settings, sessions, skills, and the llama runtime. Never active when packaged.
+// Isolate development before acquiring the lock or loading any settings, sessions or managed runtimes.
 const devData = resolveDevData({
   packaged: app.isPackaged,
+  appData: app.getPath("appData"),
   otisDevUserData: process.env.OTIS_DEV_USER_DATA,
   otisHome: process.env.OTIS_HOME,
 })
+// Capture the installed profile before redirecting OTIS_HOME to development.
+const installedProfile =
+  devData &&
+  shouldInitializeDevProfile({
+    otisDevUserData: process.env.OTIS_DEV_USER_DATA,
+    otisHome: process.env.OTIS_HOME,
+  })
+    ? {
+        sourceConfigDirectory: localConfigDirectory(),
+        sourceDataDirectory: localDataDirectory(),
+        otisHome: devData.otisHome,
+      }
+    : undefined
 if (devData) {
-  // Electron requires the userData directory to exist; it won't create a fresh path itself, so a new
-  // OTIS_DEV_USER_DATA would abort startup. Runs at module scope, so it must be synchronous.
-  mkdirSync(devData.userData, { recursive: true })
+  mkdirSync(devData.userData, { recursive: true, mode: 0o700 })
   app.setPath("userData", devData.userData)
+  app.setPath("sessionData", devData.userData)
   // Default the Otis data root to the same sandbox; an explicit OTIS_HOME was already honored above.
   process.env.OTIS_HOME = devData.otisHome
 }
@@ -88,6 +105,19 @@ if (!gotLock) {
   })
 
   void app.whenReady().then(async () => {
+    if (installedProfile) {
+      try {
+        await initializeDevProfile(installedProfile)
+      } catch {
+        dialog.showErrorBox(
+          "Couldn't prepare the Otis Dev profile",
+          "Your installed Otis profile has not been changed. Check available disk space and profile permissions, " +
+            "then restart to retry. Set OTIS_DEV_USER_DATA to a separate directory to start without importing.",
+        )
+        app.quit()
+        return
+      }
+    }
     const appIcon = configureAppIcon({
       packaged: app.isPackaged,
       resourcesPath: process.resourcesPath,
@@ -111,9 +141,7 @@ if (!gotLock) {
       version: app.getVersion(),
       platform: process.platform,
       send: (event) => {
-        if (mainWindow && !mainWindow.webContents.isDestroyed()) {
-          mainWindow.webContents.send(DESKTOP_CHANNELS.event, event)
-        }
+        if (mainWindow) sendToRenderer(mainWindow.webContents, DESKTOP_CHANNELS.event, event)
         // The status bar item rides the same ordered stream the renderer sees, so it can never drift.
         if (event.type === "status") statusTrayGate?.applyLive(event.status)
       },
@@ -139,12 +167,13 @@ if (!gotLock) {
       },
     })
 
-    mainWindow = createMainWindow(appIcon)
+    mainWindow = createMainWindow({
+      icon: appIcon,
+      onRendererGone: () => runtime?.handleRendererGone(),
+      isQuitting: () => quitting || Boolean(updater?.isInstalling()),
+    })
     mainWindow.on("closed", () => {
       mainWindow = undefined
-    })
-    mainWindow.webContents.on("render-process-gone", () => {
-      runtime?.handleRendererGone()
     })
 
     // The macOS status bar item: glanceable activity (idle / working / needs approval) plus quick actions,
@@ -153,6 +182,7 @@ if (!gotLock) {
     if (process.platform === "darwin" && runtime) {
       const current = runtime
       statusTray = createStatusTray({
+        appName: app.getName(),
         iconDir: trayIconDir({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, mainDir: __dirname }),
         actions: {
           focusWindow: () => {
@@ -187,7 +217,6 @@ if (!gotLock) {
     app.quit()
   })
 
-  let quitting = false
   app.on("before-quit", (event) => {
     if (quitting || !runtime || updater?.isInstalling()) return
     quitting = true

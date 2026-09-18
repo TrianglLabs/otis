@@ -55,6 +55,7 @@ export type AgentEvent =
       activityKind: ToolActivityKind
       label: string
       diff?: string
+      artifact?: ToolResult["artifact"]
       outcome?: "completed" | "denied" | "failed"
     }
   /** An event from a delegated child run, identified by the parent's `agent` tool call. */
@@ -427,6 +428,7 @@ async function* executeSingleToolCall(
       activityKind: activity.kind,
       label: activity.label,
       diff: result?.diff,
+      artifact: result?.artifact,
       outcome,
     }
   }

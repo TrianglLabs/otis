@@ -14,7 +14,7 @@ import { Icon } from "../components/Icon.js"
 import { AgentTraceOverlay } from "../features/agents/AgentTraceOverlay.js"
 import { AGENT_STATUS_ICONS, agentSummary } from "../features/agents/agent-list.js"
 import { CanvasPanel } from "../features/canvas/CanvasPanel.js"
-import type { CanvasArtifact } from "../features/canvas/canvas-context.js"
+import { type CanvasArtifact, canvasArtifactKey } from "../features/canvas/canvas-context.js"
 import { useI18n } from "../i18n/index.js"
 import { useDesktop, useDesktopSelector } from "../runtime.js"
 
@@ -119,14 +119,15 @@ function SessionWorkspacePanel({
     if (previous === false && hasRuns && !visible) void api.setAgentsPanelVisible(true)
   }, [runs.length, visible, api])
 
-  const previousArtifactId = useRef<number | null>(artifact?.id ?? null)
+  const artifactKey = canvasArtifactKey(artifact)
+  const previousArtifactId = useRef<string | undefined>(artifactKey)
   useEffect(() => {
     const previous = previousArtifactId.current
-    previousArtifactId.current = artifact?.id ?? null
-    if (!artifact || artifact.id === previous) return
+    previousArtifactId.current = artifactKey
+    if (!artifact || artifactKey === previous) return
     setActiveTab("canvas")
     if (!visible) void api.setAgentsPanelVisible(true)
-  }, [artifact, visible, api])
+  }, [artifact, artifactKey, visible, api])
 
   const maxWidth = Math.max(contentMinWidth, Math.min(PANEL_MAX_WIDTH, viewportWidth - MAIN_MIN_WIDTH))
   const defaultWidth = activeTab === "coworkers" ? 240 : Math.min(560, Math.max(280, Math.round(viewportWidth * 0.38)))

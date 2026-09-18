@@ -4,9 +4,11 @@ import type { TranscriptEntry } from "../../../src/app/transcript.js"
 import type { DesktopEvent, DesktopStatus, TranscriptPatchOp } from "../../../src/desktop/contracts.js"
 import { App } from "../../../src/desktop/renderer/App.js"
 import { createDemoRuntime } from "../../../src/desktop/renderer/demo/demo-runtime.js"
+import { PdfPreview } from "../../../src/desktop/renderer/features/canvas/PdfPreview.js"
 import { catalogs, I18nProvider, type ResolvedLocale } from "../../../src/desktop/renderer/i18n/index.js"
 import { DesktopProvider } from "../../../src/desktop/renderer/runtime.js"
 import { DesktopViewStore } from "../../../src/desktop/renderer/state.js"
+import { pdfFixture } from "./pdf-fixture.js"
 import "../../../src/desktop/renderer/styles/tokens.css"
 import "../../../src/desktop/renderer/styles/themes.css"
 import "../../../src/desktop/renderer/styles/global.css"
@@ -108,7 +110,14 @@ history.push(row(HISTORY_ID_BASE + 1503, "Live answer"))
 
 async function runDesktopUiChecks() {
   const api = createDemoRuntime()
-  const snapshot = { ...(await api.getSnapshot()), entries: history, subagents: [], busy: true, thinkingVisible: true }
+  const snapshot = {
+    ...(await api.getSnapshot()),
+    entries: history,
+    subagents: [],
+    artifact: null,
+    busy: true,
+    thinkingVisible: true,
+  }
   let revision = snapshot.revision
   const listeners = new Set<(event: DesktopEvent) => void>()
   api.getSnapshot = async () => snapshot
@@ -210,6 +219,52 @@ async function runDesktopUiChecks() {
     () => !!document.querySelector(".agentsRow"),
     `Coworkers rail did not list the scripted run; demo events: ${demoEventLog.slice(-12).join(" | ")}`,
   )
+  await untilSlow(
+    () => (document.querySelector<HTMLIFrameElement>('iframe[title="launch-plan.docx"]')?.clientHeight ?? 0) > 0,
+    "Demo Word document did not render a visible Canvas frame",
+  )
+  await api.openArtifact({ source: "workspace", path: "product-brief.pdf", kind: "pdf" })
+  await untilSlow(
+    () => (document.querySelector<HTMLCanvasElement>(".canvas-pdfPage")?.getBoundingClientRect().height ?? 0) > 0,
+    "Demo PDF did not render a visible page in Canvas",
+  )
+  await api.openArtifact({ source: "workspace", path: "canvas-overview.html", kind: "html" })
+  await untilSlow(
+    () => (document.querySelector<HTMLIFrameElement>('iframe[title="canvas-overview.html"]')?.clientHeight ?? 0) > 0,
+    "Demo webpage did not render a visible Canvas frame",
+  )
+  // Run under the shipped parent CSP: inline preview code works, while the inherited sandbox
+  // policy still blocks network access even when user markup contains a fake head or permissive meta.
+  const webpage = element<HTMLIFrameElement>('iframe[title="canvas-overview.html"]')
+  const previewChecks: { running?: boolean; isolated?: boolean; blocked?: string }[] = []
+  const onPreviewCheck = (event: MessageEvent) => {
+    if (event.data?.type === "otis-webpage-check") previewChecks.push(event.data)
+  }
+  window.addEventListener("message", onPreviewCheck)
+  const source = `<!-- <head> --><html><head>
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline'">
+    </head><body><script>
+      const report = data => top.postMessage({ type: 'otis-webpage-check', ...data }, '*');
+      let isolated = false;
+      try { parent.document.body; } catch { isolated = true; }
+      report({ running: true, isolated });
+      document.addEventListener('securitypolicyviolation', event => report({ blocked: event.effectiveDirective }));
+      fetch('https://preview.invalid/network-probe').catch(() => {});
+      const image = new Image(); image.src = 'https://preview.invalid/image-probe';
+    </script></body></html>`
+  const sendPreviewCheck = () =>
+    webpage.contentWindow?.postMessage({ type: "otis-webpage-source", source, title: "Policy regression" }, "*")
+  webpage.addEventListener("load", sendPreviewCheck, { once: true })
+  sendPreviewCheck()
+  await untilSlow(
+    () =>
+      previewChecks.some((check) => check.running && check.isolated) &&
+      previewChecks.some((check) => check.blocked === "connect-src") &&
+      previewChecks.some((check) => check.blocked === "img-src"),
+    "Webpage preview did not run scripts with isolated, network-blocked policy",
+  )
+  webpage.removeEventListener("load", sendPreviewCheck)
+  window.removeEventListener("message", onPreviewCheck)
   // A follow-up sent mid-turn parks as queued: the list-end icon replaces the old text badge.
   const queuedResult = await api.sendPrompt("also check the session locks")
   assert(
@@ -270,7 +325,7 @@ async function runDesktopUiChecks() {
   // retain its full hit target, and long tab names must not push it beyond the clipped rail.
   const completedRuns = store.getState()?.subagents ?? []
   for (const locale of Object.keys(catalogs) as ResolvedLocale[]) {
-    status({ subagents: [] })
+    status({ subagents: [], artifact: null })
     await until(() => !document.querySelector(".workspaceRail"), "Empty side panel did not unmount")
     renderLanguage(locale)
     await until(() => document.documentElement.lang === locale, `Language did not switch to ${locale}`)
@@ -308,6 +363,9 @@ async function runDesktopUiChecks() {
   }
   renderLanguage("en")
   await until(() => document.documentElement.lang === "en", "Language did not return to English")
+  const coworkerTab = element<HTMLButtonElement>('.workspaceRail-tabs button[role="tab"]')
+  coworkerTab.click()
+  await until(() => coworkerTab.getAttribute("aria-selected") === "true", "Coworker tab did not activate")
   await pause(260)
 
   const resizer = element<HTMLHRElement>(".workspaceRail-resizeHandle")
@@ -367,18 +425,60 @@ async function runDesktopUiChecks() {
     ),
   })
   await until(
-    () => document.querySelectorAll('[aria-label="Open in Canvas"]').length === diagramCount,
+    () => document.querySelectorAll('[aria-label^="Open in Canvas:"]').length === diagramCount,
     "Completed Mermaid blocks did not expose Canvas actions",
+  )
+  const diagramEntry = element(`[data-entry-id="${HISTORY_ID_BASE + 1600}"]`)
+  const diagramBody = diagramEntry.querySelector<HTMLElement>(".md")
+  assert(diagramBody, "Mermaid artifacts lost their message text column")
+  const diagramCards = Array.from(diagramEntry.querySelectorAll<HTMLElement>(".artifactCard-mermaid"))
+  assert(diagramCards.length === diagramCount, "Mermaid artifacts did not stay in their transcript entry")
+  const firstDiagramCard = diagramCards[0]
+  assert(firstDiagramCard, "Mermaid artifacts lost their first card")
+  const bodyWidth = diagramBody.getBoundingClientRect().width
+  assert(
+    diagramCards.every((card) => Math.abs(card.getBoundingClientRect().width - bodyWidth) < 1),
+    "Mermaid artifacts no longer match the message text width",
+  )
+  const diagramGaps = diagramCards.slice(1).map((card, index) => {
+    const previousCard = diagramCards[index]
+    assert(previousCard, "Mermaid artifact spacing lost its previous card")
+    return card.getBoundingClientRect().top - previousCard.getBoundingClientRect().bottom
+  })
+  const firstDiagramGap = diagramGaps[0]
+  assert(
+    firstDiagramGap !== undefined &&
+      firstDiagramGap >= 9 &&
+      diagramGaps.every((gap) => Math.abs(gap - firstDiagramGap) < 1),
+    "Consecutive Mermaid artifacts do not have consistent spacing",
+  )
+  const borderBeforeHover = getComputedStyle(firstDiagramCard).borderTopColor
+  const firstDiagramBounds = firstDiagramCard.getBoundingClientRect()
+  await nativeInput({
+    events: [
+      {
+        type: "mouseMove",
+        x: Math.round(firstDiagramBounds.left + firstDiagramBounds.width / 2),
+        y: Math.round(firstDiagramBounds.top + firstDiagramBounds.height / 2),
+      },
+    ],
+  })
+  assert(
+    getComputedStyle(firstDiagramCard).borderTopColor === borderBeforeHover,
+    "Artifact hover changed the neutral border color",
   )
   assert(
     element<HTMLButtonElement>('[role="tab"][aria-selected="true"]').textContent?.trim() === "Coworkers",
     "Mermaid output opened Canvas without a user request",
   )
-  element<HTMLButtonElement>('[aria-label="Open in Canvas"]').click()
+  element<HTMLButtonElement>('[aria-label^="Open in Canvas:"]').click()
   await untilSlow(() => canvasResult !== undefined, "Canvas iframe did not finish rendering Mermaid")
   assert(canvasResult?.ok, `Canvas iframe rejected a valid diagram: ${canvasResult?.message ?? "unknown error"}`)
-  const canvasWidth = element(".workspaceRail-canvas").getBoundingClientRect().width
-  assert(canvasWidth >= 350 && canvasWidth <= 400, `Canvas rail width is not responsive: ${canvasWidth}`)
+  const expectedCanvasWidth = Math.min(560, Math.max(280, Math.round(window.innerWidth * 0.38)))
+  await until(
+    () => Math.abs(element(".workspaceRail-canvas").getBoundingClientRect().width - expectedCanvasWidth) < 1,
+    `Canvas rail width did not settle at its responsive default of ${expectedCanvasWidth}`,
+  )
   assert(!document.querySelector(".canvas-tabs"), "Canvas retained an artifact tab list")
   assert(document.querySelectorAll(".canvas-frame").length === 1, "Canvas mounted more than the requested diagram")
   assert((canvasResult?.width ?? Number.POSITIVE_INFINITY) <= 480, "Canvas enlarged the selected diagram")
@@ -452,7 +552,7 @@ async function runDesktopUiChecks() {
   )
 
   const validCanvasResult = canvasResult
-  const canvasActions = document.querySelectorAll<HTMLButtonElement>('[aria-label="Open in Canvas"]')
+  const canvasActions = document.querySelectorAll<HTMLButtonElement>('[aria-label^="Open in Canvas:"]')
   canvasActions[canvasActions.length - 1]?.click()
   await untilSlow(() => canvasResult !== validCanvasResult, "Canvas iframe did not report a malformed Mermaid diagram")
   assert(
@@ -770,6 +870,36 @@ async function runDesktopUiChecks() {
 
   root.unmount()
   store.dispose()
+  const pdfHost = document.createElement("div")
+  pdfHost.style.cssText = "display:flex;width:560px;height:600px"
+  document.body.append(pdfHost)
+  const pdfRoot = createRoot(pdfHost)
+  pdfRoot.render(<PdfPreview source={pdfFixture(120)} />)
+  await untilSlow(
+    () => (pdfHost.querySelector<HTMLCanvasElement>(".canvas-pdfPage")?.width ?? 0) > 300,
+    "Long PDF did not render its first page",
+  )
+  const firstPage = pdfHost.querySelector<HTMLCanvasElement>(".canvas-pdfPage")
+  assert(firstPage, "PDF first page is missing")
+  assert(pdfHost.querySelectorAll(".canvas-pdfPage").length < 8, "PDF eagerly mounted all pages")
+  const pdfScroll = element(".canvas-pdfPages")
+  const hostBounds = pdfHost.getBoundingClientRect()
+  const scrollBounds = pdfScroll.getBoundingClientRect()
+  const pageBounds = firstPage.getBoundingClientRect()
+  assert(Math.abs(scrollBounds.right - hostBounds.right) < 1, "PDF scrollbar is inset from the panel edge")
+  assert(Math.abs(scrollBounds.left - hostBounds.left) < 1, "PDF scroller does not fill the panel")
+  assert(Math.abs(pageBounds.left - scrollBounds.left - 16) < 1, "PDF left page inset is incorrect")
+  assert(
+    Math.abs(scrollBounds.left + pdfScroll.clientWidth - pageBounds.right - 16) < 1,
+    "PDF page touches its scrollbar or has an uneven right inset",
+  )
+  assert(pdfScroll.scrollWidth === pdfScroll.clientWidth, "PDF preview scrolls horizontally")
+  pdfScroll.scrollTop = pdfScroll.scrollHeight
+  await untilSlow(() => !!pdfHost.querySelector('[aria-label="Page 120"]'), "PDF final page is unreachable")
+  assert(!firstPage.isConnected && firstPage.width === 0, "PDF retained an offscreen page bitmap")
+  assert(pdfHost.querySelectorAll(".canvas-pdfPage").length < 8, "PDF scrolling accumulated page canvases")
+  pdfRoot.unmount()
+  pdfHost.remove()
   return {
     passed: true,
     historyEntries: history.length,

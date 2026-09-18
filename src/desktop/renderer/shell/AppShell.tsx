@@ -21,21 +21,35 @@ import { WorkspacePanel } from "./WorkspacePanel.js"
 export function AppShell() {
   const { api } = useDesktop()
   const { t } = useI18n()
-  const state = useDesktopState("theme", "platform", "model", "needsWorkspace", "update", "session")
+  const state = useDesktopState("theme", "platform", "model", "needsWorkspace", "update", "session", "artifact")
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [windowFullscreen, setWindowFullscreen] = useState(false)
   const [installing, setInstalling] = useState(false)
   const [locateError, setLocateError] = useState<string | undefined>(undefined)
   const [paletteOpen, setPaletteOpen] = useState(false)
-  const [openedCanvas, setOpenedCanvas] = useState<{ sessionId: string | undefined; artifact: CanvasArtifact }>()
+  const [openedCanvas, setOpenedCanvas] = useState<{
+    sessionId: string | undefined
+    artifact: CanvasArtifact
+    sharedRevision: number | undefined
+  }>()
   const nextCanvasId = useRef(0)
   const sessionId = state?.session?.id
   const sessionIdRef = useRef(sessionId)
   sessionIdRef.current = sessionId
+  const sharedArtifactRevisionRef = useRef(state?.artifact?.revision)
+  sharedArtifactRevisionRef.current = state?.artifact?.revision
   const openCanvas = useCallback((source: string) => {
-    setOpenedCanvas({ sessionId: sessionIdRef.current, artifact: { id: ++nextCanvasId.current, source } })
+    setOpenedCanvas({
+      sessionId: sessionIdRef.current,
+      artifact: { kind: "mermaid", id: ++nextCanvasId.current, source },
+      sharedRevision: sharedArtifactRevisionRef.current,
+    })
   }, [])
-  const canvasArtifact = openedCanvas && openedCanvas.sessionId === sessionId ? openedCanvas.artifact : undefined
+  const openedDiagram =
+    openedCanvas && openedCanvas.sessionId === sessionId && openedCanvas.sharedRevision === state?.artifact?.revision
+      ? openedCanvas.artifact
+      : undefined
+  const canvasArtifact = openedDiagram ?? state?.artifact ?? undefined
   const openSettings = useCallback(() => setSettingsOpen(true), [])
   const closeSettings = useCallback(() => setSettingsOpen(false), [])
 

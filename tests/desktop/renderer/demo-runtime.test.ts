@@ -13,6 +13,32 @@ async function localRow(api: ReturnType<typeof createDemoRuntime>, id: string): 
 }
 
 describe("demo runtime model lifecycle", () => {
+  it("exposes PDF, Word, webpage, and Markdown Canvas fixtures without embedding their content in status", async () => {
+    const api = createDemoRuntime()
+    const snapshot = await api.getSnapshot()
+    expect(snapshot.artifact).toMatchObject({ kind: "docx", title: "launch-plan.docx", editable: false })
+    expect(JSON.stringify(snapshot.artifact)).not.toContain("Release checklist")
+    expect(await api.getArtifact(snapshot.artifact?.revision ?? 0)).toMatchObject({
+      kind: "docx",
+      encoding: "html",
+    })
+
+    await api.selectSession("session_pdf")
+    let selected = await api.getSnapshot()
+    expect(selected.artifact).toMatchObject({ kind: "pdf", title: "product-brief.pdf" })
+    expect(await api.getArtifact(selected.artifact?.revision ?? 0)).toMatchObject({ encoding: "base64" })
+
+    await api.selectSession("session_webpage")
+    selected = await api.getSnapshot()
+    expect(selected.artifact).toMatchObject({ kind: "html", title: "canvas-overview.html", editable: true })
+    expect((await api.getArtifact(selected.artifact?.revision ?? 0))?.content).toContain("Your work stays in view")
+
+    await api.selectSession("session_demo1")
+    selected = await api.getSnapshot()
+    expect(selected.artifact).toMatchObject({ kind: "markdown", title: "canvas-demo.md", editable: true })
+    expect((await api.getArtifact(selected.artifact?.revision ?? 0))?.content).toContain("Native workflow")
+  })
+
   it("restores the deletable state after a deleted model is downloaded again", async () => {
     const api = createDemoRuntime()
 

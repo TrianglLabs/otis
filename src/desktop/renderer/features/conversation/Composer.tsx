@@ -1,4 +1,4 @@
-import { ArrowUp, ChevronDown, FileText, FolderOpen, Paperclip, Square, X, Zap } from "lucide-react"
+import { ArrowUp, ChevronDown, FolderOpen, Paperclip, Square, X, Zap } from "lucide-react"
 import { memo, useEffect, useRef, useState } from "react"
 import {
   MAX_DOCUMENTS_PER_MESSAGE,
@@ -16,6 +16,7 @@ import {
 } from "../../../../inference/image-constraints.js"
 import type { DesktopAttachmentInput } from "../../../contracts.js"
 import { Button } from "../../components/Button.js"
+import { FileTypeIcon } from "../../components/FileTypeIcon.js"
 import { Icon } from "../../components/Icon.js"
 import { shortModelId } from "../../format.js"
 import { useI18n } from "../../i18n/index.js"
@@ -363,8 +364,7 @@ export const Composer = memo(function Composer({ installing = false }: { install
                   <img src={attachment.previewUrl} alt="" />
                 ) : (
                   <span className="composer-documentPreview">
-                    <Icon icon={FileText} size={22} />
-                    <span>{fileExtension(attachment.name).slice(1).toUpperCase() || "TEXT"}</span>
+                    <FileTypeIcon name={attachment.name} />
                   </span>
                 )}
                 <button

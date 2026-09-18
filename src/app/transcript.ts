@@ -1,5 +1,10 @@
+import {
+  type ArtifactReference,
+  attachmentArtifactReference,
+  type WorkspaceArtifactReference,
+} from "../artifacts/types.js"
 import { compactionSummaryMessage, isCompactionSummary } from "../core/compaction.js"
-import { displayUserMessage } from "../inference/messages.js"
+import { displayUserMessage, userMessageDocuments, userMessageImages, userMessageText } from "../inference/messages.js"
 import type { ChatMessage, ChatToolCall, InferenceClient, ReasoningContentPart } from "../inference/types.js"
 import type { SessionToolActivity } from "../storage/index.js"
 import { describeToolCall, type ToolActivityKind } from "../tools/activity.js"
@@ -27,6 +32,10 @@ export type TranscriptEntry = {
   endedAt?: string
   durationMs?: number
   diff?: string
+  artifact?: WorkspaceArtifactReference
+  artifacts?: ArtifactReference[]
+  /** User-authored text plus image labels, without document names that render as artifact cards in graphical UIs. */
+  messageText?: string
   streaming?: boolean
   delivery?: TranscriptDelivery
 }
@@ -123,7 +132,11 @@ export class TranscriptStore {
     return entry
   }
 
-  addToolMessage(text: string, activityKind: ToolActivityKind, details: { toolCallId?: string; diff?: string } = {}) {
+  addToolMessage(
+    text: string,
+    activityKind: ToolActivityKind,
+    details: { toolCallId?: string; diff?: string; artifact?: WorkspaceArtifactReference } = {},
+  ) {
     const entry = {
       id: this.nextMessageID++,
       kind: "tool" as const,
@@ -213,6 +226,7 @@ export class TranscriptStore {
           this.addToolMessage(activity.label, activity.activityKind, {
             toolCallId: activity.toolCallId,
             ...(activity.diff !== undefined ? { diff: activity.diff } : {}),
+            ...(activity.artifact !== undefined ? { artifact: activity.artifact } : {}),
           })
         }
       }
@@ -221,11 +235,20 @@ export class TranscriptStore {
 
   private addUserEntry(message: string | Extract<ChatMessage, { role: "user" }>, delivery?: TranscriptDelivery) {
     const text = typeof message === "string" ? message : displayUserMessage(message)
+    const documents = typeof message === "string" ? [] : userMessageDocuments(message)
+    const messageText =
+      typeof message === "string" || documents.length === 0
+        ? undefined
+        : [userMessageText(message), ...userMessageImages(message).map((image) => `📎 ${image.name}`)]
+            .filter(Boolean)
+            .join("\n")
     const entry = {
       id: this.nextMessageID++,
       kind: "message" as const,
       speaker: "You" as const,
       text,
+      ...(messageText !== undefined ? { messageText } : {}),
+      ...(documents.length > 0 ? { artifacts: documents.map(attachmentArtifactReference) } : {}),
       ...(delivery ? { delivery } : {}),
     }
     this.entries.push(entry)
@@ -276,6 +299,7 @@ function toolActivity(entry: ToolCardEntry): SessionToolActivity {
     activityKind: entry.activityKind,
     label: entry.text,
     ...(entry.diff !== undefined ? { diff: entry.diff } : {}),
+    ...(entry.artifact !== undefined ? { artifact: entry.artifact } : {}),
   }
 }
 

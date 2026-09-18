@@ -3,6 +3,8 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { DesktopEvent } from "../../../src/desktop/contracts.js"
+import { ArtifactCard } from "../../../src/desktop/renderer/components/ArtifactCard.js"
+import { FileTypeIcon } from "../../../src/desktop/renderer/components/FileTypeIcon.js"
 import { Markdown } from "../../../src/desktop/renderer/components/Markdown.js"
 import { createDemoRuntime } from "../../../src/desktop/renderer/demo/demo-runtime.js"
 import { AgentTraceOverlay } from "../../../src/desktop/renderer/features/agents/AgentTraceOverlay.js"
@@ -19,6 +21,29 @@ const markdown =
   "| Column | Value |\n| --- | --- |\n| test | wide table |\n\n```ts\nconst answer = 42\n```\n\nStreaming"
 
 describe("stable message rendering", () => {
+  it("shows artifact open failures and lets the user retry", async () => {
+    const onOpen = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, reason: "Document no longer exists." })
+      .mockRejectedValueOnce(new Error("Preview unavailable."))
+      .mockResolvedValueOnce({ ok: true })
+    render(<ArtifactCard kind="pdf" title="report.pdf" actionLabel="Open" onOpen={onOpen} />)
+    const button = screen.getByRole("button", { name: "Open: report.pdf" })
+    await act(async () => fireEvent.click(button))
+    expect(screen.getByRole("alert").textContent).toBe("Document no longer exists.")
+    await act(async () => fireEvent.click(button))
+    expect(screen.getByRole("alert").textContent).toBe("Preview unavailable.")
+    await act(async () => fireEvent.click(button))
+    expect(screen.queryByRole("alert")).toBeNull()
+  })
+
+  it("labels uploaded text formats by their real extension", () => {
+    const view = render(<FileTypeIcon name="data.csv" />)
+    expect(view.container.textContent).toBe("CSV")
+    view.rerender(<FileTypeIcon name="config.json" kind="text" />)
+    expect(view.container.textContent).toBe("JSON")
+  })
+
   it("offers completed Mermaid source to Canvas without rendering other code blocks", () => {
     const openCanvas = vi.fn()
     render(
@@ -27,7 +52,9 @@ describe("stable message rendering", () => {
       </CanvasOpenContext.Provider>,
     )
 
-    fireEvent.click(screen.getByRole("button", { name: "Open in Canvas" }))
+    expect(document.querySelectorAll(".codeBlock")).toHaveLength(1)
+    expect(screen.getByText("Mermaid diagram")).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Open in Canvas: Mermaid diagram" }))
     expect(openCanvas).toHaveBeenCalledExactlyOnceWith("flowchart LR\n  A --> B")
   })
 

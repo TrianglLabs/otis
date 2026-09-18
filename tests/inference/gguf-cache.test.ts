@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
+  cloneLocalGguf,
   deleteLocalGguf,
   ensureLocalGguf,
   huggingFaceGgufUrl,
@@ -21,6 +22,82 @@ afterEach(async () => {
 })
 
 describe("local GGUF cache", () => {
+  it("clones verified weights without network access or sharing writable files", async () => {
+    const body = new Uint8Array([1, 2, 3, 4])
+    const model = tinyModel(body)
+    const source = await tempDir()
+    const destination = await tempDir()
+    const original = await ensureLocalGguf(model, { dataDirectory: source, fetch: response(body) })
+    await cloneLocalGguf(model, source, destination)
+
+    const fetchImpl = vi.fn(() => {
+      throw new Error("unexpected network access")
+    })
+    const cloned = await ensureLocalGguf(model, { dataDirectory: destination, fetch: fetchImpl })
+    expect(fetchImpl).not.toHaveBeenCalled()
+    expect(await readFile(cloned)).toEqual(Buffer.from(body))
+    expect((await stat(cloned)).ino).not.toBe((await stat(original)).ino)
+    if (process.platform !== "win32") expect((await stat(cloned)).mode & 0o777).toBe(0o600)
+    await writeFile(cloned, new Uint8Array([9, 9, 9, 9]))
+    expect(await readFile(original)).toEqual(Buffer.from(body))
+    await deleteLocalGguf(model, destination)
+    expect(await isLocalGgufDownloaded(model, source)).toBe(true)
+    expect(await readFile(original)).toEqual(Buffer.from(body))
+  })
+
+  it("imports every completed shard but not partial downloads", async () => {
+    const bodies = [new Uint8Array([1, 2]), new Uint8Array([3, 4, 5])]
+    const model = splitModel(bodies)
+    const source = await tempDir()
+    const destination = await tempDir()
+    const paths = localGgufPaths(model, source)
+    await mkdir(join(source, "models", "split"), { recursive: true })
+    await writeFile(paths[0], bodies[0])
+    await writeFile(`${paths[1]}.partial`, bodies[1])
+    await cloneLocalGguf(model, source, destination)
+    await expect(stat(localGgufPath(model, destination))).rejects.toMatchObject({ code: "ENOENT" })
+
+    await writeFile(paths[1], bodies[1])
+    await cloneLocalGguf(model, source, destination)
+    for (const [index, path] of localGgufPaths(model, destination).entries()) {
+      expect(await readFile(path)).toEqual(Buffer.from(bodies[index]))
+      await expect(stat(`${path}.partial`)).rejects.toMatchObject({ code: "ENOENT" })
+    }
+    await deleteLocalGguf(model, source)
+    expect(await isLocalGgufDownloaded(model, destination)).toBe(true)
+  })
+
+  it("preserves existing dev weights and does not bless them with the source manifest", async () => {
+    const body = new Uint8Array([1, 2, 3, 4])
+    const model = tinyModel(body)
+    const source = await tempDir()
+    const destination = await tempDir()
+    await ensureLocalGguf(model, { dataDirectory: source, fetch: response(body) })
+    const dest = localGgufPath(model, destination)
+    await mkdir(join(destination, "models"))
+    await writeFile(dest, "keep")
+    await cloneLocalGguf(model, source, destination)
+    expect(await readFile(dest, "utf8")).toBe("keep")
+    await expect(stat(`${dest}.otis.json`)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("does not treat unverified cloned weights as verified", async () => {
+    const body = new Uint8Array([1, 2, 3, 4])
+    const model = tinyModel(body)
+    const source = await tempDir()
+    const destination = await tempDir()
+    const original = localGgufPath(model, source)
+    await mkdir(join(source, "models"))
+    await writeFile(original, "nope")
+    await cloneLocalGguf(model, source, destination)
+    const fetchImpl = vi.fn(response(body))
+    const cloned = await ensureLocalGguf(model, { dataDirectory: destination, fetch: fetchImpl })
+    expect(fetchImpl).toHaveBeenCalledOnce()
+    expect(await readFile(cloned)).toEqual(Buffer.from(body))
+    expect(await readFile(original, "utf8")).toBe("nope")
+    await expect(stat(`${original}.otis.json`)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
   it("downloads and verifies the pinned Hugging Face file with percent progress", async () => {
     const body = new Uint8Array([1, 2, 3, 4])
     const model = tinyModel(body)

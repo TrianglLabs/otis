@@ -66,6 +66,7 @@ describe("DesktopViewStore", () => {
     modelState: "unconfigured",
     modelError: undefined,
     session: null,
+    artifact: null,
     needsWorkspace: false,
     sessions: [],
     workspace: { label: "~/ws", path: "/ws" },
@@ -105,6 +106,8 @@ describe("DesktopViewStore", () => {
       emit: (event) => listener?.(event),
       api: {
         getSnapshot: async () => snapshot(),
+        getArtifact: async () => undefined,
+        openArtifact: async () => ({ ok: true }),
         getWindowState: async () => ({ fullscreen: false }),
         sendPrompt: async () => ({ accepted: true, delivery: "started" }),
         stop: async () => {},

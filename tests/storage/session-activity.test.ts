@@ -71,6 +71,7 @@ describe("session tool activity", () => {
         activityKind: "file_edit" as const,
         label: "Editing file: app.ts",
         diff: "--- app.ts\n+++ app.ts\n-a\n+b",
+        artifact: { source: "workspace" as const, path: "app.md", kind: "markdown" as const },
       },
     ]
 

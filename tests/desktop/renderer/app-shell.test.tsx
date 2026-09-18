@@ -74,6 +74,7 @@ const SNAPSHOT: DesktopSnapshot = {
   modelState: "ready",
   modelError: undefined,
   session: { id: "session-1", title: "Test session" },
+  artifact: null,
   needsWorkspace: false,
   sessions: [
     {
@@ -114,6 +115,8 @@ const SNAPSHOT: DesktopSnapshot = {
 function fakeApi(overrides: Partial<DesktopApi> = {}): DesktopApi {
   return {
     getSnapshot: vi.fn(async () => SNAPSHOT),
+    getArtifact: vi.fn(async () => undefined),
+    openArtifact: vi.fn(async () => ({ ok: true as const })),
     getWindowState: vi.fn(async () => ({ fullscreen: false })),
     sendPrompt: vi.fn(async () => ({ accepted: true as const, delivery: "started" as const })),
     stop: vi.fn(async () => {}),
@@ -166,7 +169,7 @@ const happyDOM = (window as typeof window & { happyDOM: DetachedWindowAPI }).hap
 beforeEach(() => {
   happyDOM.settings.fetch.interceptor = {
     beforeAsyncRequest: async ({ request, window: frameWindow }) =>
-      new URL(request.url).pathname === "/canvas.html"
+      ["/canvas.html", "/webpage.html"].includes(new URL(request.url).pathname)
         ? new frameWindow.Response("<!doctype html><title>Canvas test frame</title>", {
             headers: { "content-type": "text/html" },
           })
@@ -1083,13 +1086,13 @@ describe("AppShell settings navigation", () => {
     await renderApp(api)
 
     expect(screen.queryByLabelText("Workspace panel")).toBeNull()
-    const openButtons = screen.getAllByRole("button", { name: "Open in Canvas" })
+    const openButtons = screen.getAllByRole("button", { name: /^Open in Canvas:/ })
     expect(openButtons).toHaveLength(2)
     fireEvent.click(openButtons[1])
     const panel = screen.getByLabelText("Workspace panel")
     expect(within(panel).getByRole("tab", { name: "Canvas" }).getAttribute("aria-selected")).toBe("true")
-    expect(within(panel).queryByRole("tablist", { name: "Canvas diagrams" })).toBeNull()
-    const frame = within(panel).getByTitle("Canvas diagram")
+    expect(panel.querySelector(".canvas-tabs")).toBeNull()
+    const frame = within(panel).getByTitle("Mermaid diagram")
     expect(frame.getAttribute("sandbox")).toBe("allow-scripts")
     expect(frame.getAttribute("src")).toMatch(/canvas\.html$/)
     expect(frame.getAttribute("srcdoc")).toBeNull()
@@ -1119,7 +1122,176 @@ describe("AppShell settings navigation", () => {
     expect(postMessage.mock.calls.at(-1)?.[0]).toMatchObject({ colors: { text: "#654321" } })
 
     act(() => window.dispatchEvent(new Event("otis:canvas-reload")))
-    expect(within(panel).getByTitle("Canvas diagram")).not.toBe(frame)
+    expect(within(panel).getByTitle("Mermaid diagram")).not.toBe(frame)
+  })
+
+  it("opens workspace documents in Canvas and refreshes them on artifact revisions", async () => {
+    let listener: ((event: DesktopEvent) => void) | undefined
+    const artifact = {
+      id: "workspace:resume.md",
+      revision: 1,
+      source: "workspace" as const,
+      kind: "markdown" as const,
+      title: "resume.md",
+      mimeType: "text/markdown",
+      editable: true,
+      path: "resume.md",
+    }
+    const getArtifact = vi.fn(async (revision: number) => ({
+      ...artifact,
+      revision,
+      encoding: "utf8" as const,
+      content: revision === 1 ? "# First draft" : "# Updated draft",
+    }))
+    const withArtifact: DesktopSnapshot = { ...SNAPSHOT, artifact }
+    const api = fakeApi({
+      getSnapshot: vi.fn(async () => withArtifact),
+      getArtifact,
+      subscribe: vi.fn((fn: (event: DesktopEvent) => void) => {
+        listener = fn
+        return () => {}
+      }),
+    })
+    await renderApp(api)
+
+    const panel = screen.getByLabelText("Workspace panel")
+    expect(within(panel).getByRole("tab", { name: "Canvas" }).getAttribute("aria-selected")).toBe("true")
+    expect(await within(panel).findByRole("heading", { name: "First draft" })).toBeTruthy()
+    expect(getArtifact).toHaveBeenCalledWith(1)
+
+    const { entries: _entries, revision: _revision, ...status } = withArtifact
+    act(() =>
+      listener?.({
+        type: "status",
+        revision: 2,
+        status: { ...status, artifact: { ...artifact, revision: 2 } },
+      }),
+    )
+    expect(await within(panel).findByRole("heading", { name: "Updated draft" })).toBeTruthy()
+    expect(getArtifact).toHaveBeenCalledWith(2)
+  })
+
+  it("renders document outputs and attachments as artifact cards that reopen in Canvas", async () => {
+    const attachment = {
+      source: "attachment" as const,
+      sha256: "a".repeat(64),
+      name: "brief.pdf",
+      kind: "pdf" as const,
+      mimeType: "application/pdf",
+    }
+    const workspace = { source: "workspace" as const, path: "docs/plan.docx", kind: "docx" as const }
+    const openArtifact = vi.fn(async () => ({ ok: true as const }))
+    const entries: TranscriptEntry[] = [
+      {
+        id: 1,
+        kind: "message",
+        speaker: "You",
+        text: "Review this\n📄 brief.pdf",
+        messageText: "Review this",
+        artifacts: [attachment],
+      },
+      {
+        id: 2,
+        kind: "tool",
+        speaker: "Tool",
+        text: "Read: docs/plan.docx",
+        activityKind: "file_read",
+        artifact: workspace,
+      },
+    ]
+    await renderApp(
+      fakeApi({
+        openArtifact,
+        getSnapshot: vi.fn(async () => ({
+          ...SNAPSHOT,
+          entries,
+        })),
+      }),
+    )
+
+    expect(screen.getByText("Review this")).toBeTruthy()
+    expect(screen.queryByText("📄 brief.pdf")).toBeNull()
+    expect(screen.getByText("brief.pdf")).toBeTruthy()
+    expect(screen.getByText("plan.docx")).toBeTruthy()
+    const cards = screen.getAllByRole("button", { name: /^Open in Canvas:/ })
+    expect(cards).toHaveLength(2)
+    fireEvent.click(cards[0] as HTMLElement)
+    fireEvent.click(cards[1] as HTMLElement)
+    expect(openArtifact).toHaveBeenNthCalledWith(1, attachment)
+    expect(openArtifact).toHaveBeenNthCalledWith(2, workspace)
+  })
+
+  it("renders HTML artifacts in a script-capable but network-blocked sandbox", async () => {
+    const artifact = {
+      id: "workspace:page.html",
+      revision: 1,
+      source: "workspace" as const,
+      kind: "html" as const,
+      title: "page.html",
+      mimeType: "text/html",
+      editable: true,
+      path: "page.html",
+    }
+    await renderApp(
+      fakeApi({
+        getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, artifact })),
+        getArtifact: vi.fn(async () => ({
+          ...artifact,
+          encoding: "utf8" as const,
+          content: "<!doctype html><html><head><title>Page</title></head><body><h1>Hello</h1></body></html>",
+        })),
+      }),
+    )
+
+    await screen.findByTitle("page.html")
+    const frame = document.querySelector('iframe[title="page.html"]')
+    expect(frame).toBeTruthy()
+    if (!frame) throw new Error("HTML Canvas frame is missing")
+    expect(frame.getAttribute("sandbox")).toBe("allow-scripts")
+    expect(frame.getAttribute("srcdoc")).toBeNull()
+    expect(frame.getAttribute("src")).toMatch(/webpage\.html$/)
+    const frameWindow = (frame as HTMLIFrameElement).contentWindow
+    if (!frameWindow) throw new Error("Webpage preview window is missing")
+    const postMessage = vi.spyOn(frameWindow, "postMessage")
+    fireEvent.load(frame)
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "otis-webpage-source",
+        source: expect.stringContaining("<h1>Hello</h1>"),
+      }),
+      "*",
+    )
+  })
+
+  it("renders Word artifacts as styled semantic documents without script access", async () => {
+    const artifact = {
+      id: "workspace:plan.docx",
+      revision: 1,
+      source: "workspace" as const,
+      kind: "docx" as const,
+      title: "plan.docx",
+      mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      editable: false,
+      path: "plan.docx",
+    }
+    await renderApp(
+      fakeApi({
+        getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, artifact })),
+        getArtifact: vi.fn(async () => ({
+          ...artifact,
+          encoding: "html" as const,
+          content: "<h1>Launch plan</h1><table><tr><th>State</th></tr><tr><td>Ready</td></tr></table>",
+        })),
+      }),
+    )
+
+    await screen.findByTitle("plan.docx")
+    const frame = document.querySelector('iframe[title="plan.docx"]')
+    expect(frame).toBeTruthy()
+    if (!frame) throw new Error("Word Canvas frame is missing")
+    expect(frame.getAttribute("sandbox")).toBe("allow-same-origin")
+    expect(frame.getAttribute("srcdoc")).toContain("<h1>Launch plan</h1>")
+    expect(frame.getAttribute("srcdoc")).toContain("border-collapse: collapse")
   })
 
   it("does not offer an incomplete streaming Mermaid block to Canvas", async () => {
@@ -1137,7 +1309,7 @@ describe("AppShell settings navigation", () => {
     }
     await renderApp(fakeApi({ getSnapshot: vi.fn(async () => streaming) }))
     expect(screen.queryByLabelText("Workspace panel")).toBeNull()
-    expect(screen.queryByRole("button", { name: "Open in Canvas" })).toBeNull()
+    expect(screen.queryByRole("button", { name: /^Open in Canvas:/ })).toBeNull()
   })
 
   it("reopens a hidden panel on the Canvas tab when a Mermaid block is requested", async () => {
@@ -1159,7 +1331,7 @@ describe("AppShell settings navigation", () => {
     })
     await renderApp(api)
 
-    fireEvent.click(screen.getByRole("button", { name: "Open in Canvas" }))
+    fireEvent.click(screen.getByRole("button", { name: /^Open in Canvas:/ }))
     expect(api.setAgentsPanelVisible).toHaveBeenCalledExactlyOnceWith(true)
 
     const { entries: _entries, revision: _revision, ...status } = hidden
