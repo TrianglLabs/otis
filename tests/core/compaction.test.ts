@@ -110,6 +110,43 @@ describe("compactConversation", () => {
     expect(capturedPrompt).not.toContain("c2VjcmV0")
   })
 
+  it("summarizes extracted document text without copying original document bytes", async () => {
+    const messages: ChatMessage[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "document",
+            kind: "text",
+            data: "c2VjcmV0LWZpbGU=",
+            extractedText: "Important document contents",
+            mimeType: "text/plain",
+            name: "notes.txt",
+            sizeBytes: 11,
+            sha256: "0".repeat(64),
+            truncated: false,
+          },
+          { type: "text", text: "Review this" },
+        ],
+      },
+      { role: "assistant", content: [{ type: "text", text: "Reviewed." }] },
+      { role: "user", content: "Continue" },
+      { role: "assistant", content: [{ type: "text", text: "Continuing." }] },
+    ]
+    let capturedPrompt = ""
+    streamAgentMock.mockImplementationOnce(async function* (request: { messages: ChatMessage[] }) {
+      capturedPrompt = request.messages[0].content as string
+      yield { type: "text_delta", text: summaryFixture("Summary") }
+    })
+
+    await compactConversation(messages, { client, keepRecentTokens: 32 })
+
+    expect(capturedPrompt).toContain("Important document contents")
+    expect(capturedPrompt).toContain('"name":"notes.txt"')
+    expect(capturedPrompt).not.toContain("c2VjcmV0LWZpbGU=")
+    expect(capturedPrompt).not.toContain("sha256")
+  })
+
   it("cuts at a turn boundary, never splitting tool calls from results", async () => {
     const messages: ChatMessage[] = [
       { role: "user", content: "read a file" },

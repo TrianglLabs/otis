@@ -2,8 +2,8 @@ import type { TranscriptEntry } from "../../../app/transcript.js"
 import type { ModelPickerChoice, ModelPickerItem } from "../../../inference/picker-catalog.js"
 import type {
   DesktopApi,
+  DesktopAttachmentInput,
   DesktopEvent,
-  DesktopImageInput,
   DesktopSnapshot,
   DesktopStatus,
   ModelSelectResult,
@@ -378,9 +378,16 @@ class DemoRuntime implements DesktopApi {
     }
   }
 
-  async sendPrompt(text: string, images: readonly DesktopImageInput[] = []): Promise<SendPromptResult> {
-    if (!text.trim() && images.length === 0) return { accepted: false, reason: "The prompt is empty." }
-    const display = [text, ...images.map((image) => `📎 ${image.name}`)].filter(Boolean).join("\n")
+  async sendPrompt(text: string, attachments: readonly DesktopAttachmentInput[] = []): Promise<SendPromptResult> {
+    if (!text.trim() && attachments.length === 0) return { accepted: false, reason: "The prompt is empty." }
+    const display = [
+      text,
+      ...attachments.map(
+        (attachment) => `${attachment.mimeType.startsWith("image/") ? "📎" : "📄"} ${attachment.name}`,
+      ),
+    ]
+      .filter(Boolean)
+      .join("\n")
     if (this.#state.busy) {
       this.#queued.push(display)
       this.#push({ ...this.#entry("You", display), delivery: "queued" })

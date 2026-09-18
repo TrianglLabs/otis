@@ -63,14 +63,26 @@ OpenAI-compatible streaming endpoint and retain text, reasoning content, structu
 token usage. Verified display-name and context-window metadata are saved with the selection so the context meter and
 auto-compaction threshold remain safe for smaller tool-capable models.
 
-Image input is represented as provider-neutral ordered user-content parts. File loading validates the actual image
+Attachments are represented as provider-neutral ordered user-content parts. Image loading validates the actual
 signature, enforces Fireworks' per-request count and base64-size limits, and places images before text for portability
-across supported vision model families. The Fireworks adapter alone converts those parts to `image_url` data URLs.
-Catalog-provided image capability is saved with model metadata; both OpenTUI and headless execution reject images
-before inference when the selected model lacks that capability. Compaction and title prompts contain attachment
-metadata rather than copied base64 data. OpenTUI claims a text paste only when the entire payload parses as one or
-more supported shell-escaped image paths; ordinary text continues through the normal editor paste path. Paths are
-never evaluated by a shell. The local `read` tool rejects image and binary files instead of decoding them as text.
+across supported vision model families. The Fireworks adapter alone converts images to `image_url` data URLs.
+Catalog-provided image capability is saved with model metadata; every adapter rejects images before inference when the
+selected model lacks that capability.
+
+Documents are native Otis assets rather than flattened replacement files. A document part retains the validated
+original bytes, filename, MIME type, byte size, and SHA-256 identity, alongside locally derived model text. UTF-8 text
+is decoded without removing significant whitespace, PDF text is extracted page by page, and DOCX text is extracted
+from the OOXML package. PDF.js's worker is bundled explicitly for both CLI and desktop releases. DOCX archives are
+validated with bounded streaming decompression before Mammoth reads their XML. Providers
+receive only the derived text plus bounded metadata, so document input remains portable across Fireworks, managed
+local, and PAIR models without requiring provider-specific PDF support. Keeping the immutable source makes future
+editing and Canvas rendering operate on the actual file instead of trying to reconstruct it from extracted text.
+Legacy `.doc` and scanned PDFs without a text layer are rejected; OCR is outside the current boundary.
+
+Compaction and title prompts include extracted document text or image metadata, never copied base64 source data.
+OpenTUI claims a text paste only when the entire payload parses as one or more supported shell-escaped attachment
+paths; ordinary text continues through the normal editor paste path. Paths are never evaluated by a shell. The local
+`read` tool continues to reject image and binary files instead of decoding them as text.
 
 Reasoning effort is selected by one conservative compatibility policy because Fireworks does not expose a maximum
 reasoning tier in its model catalog. Otis requests `max` for documented model families that support it, `high` for
@@ -287,8 +299,11 @@ remain separate from the parent's context.
 
 Each session is an append-only JSONL event stream. A completed turn stores model-facing messages separately from local
 tool-card metadata, which preserves diffs and activity history without placing UI state into future model requests.
-Image bytes are stored inline as base64 in the same private local session stream so resumed turns preserve native
-multimodal history without a second mutable attachment store. Provider request limits bound each admitted image turn.
+Image and document source bytes are stored inline as base64 in the same private local session stream so resumed turns
+preserve native attachments without a second mutable asset store. Document records also retain extracted text and a
+SHA-256 source identity; session replay verifies the byte count, canonical base64, hash, MIME-kind relationship, and
+bounded extraction metadata. Provider request limits bound each admitted image turn, while document count, source
+bytes, extracted text, and PDF page count have independent local limits.
 Headless processes take an exclusive lock while resuming a session so concurrent workers cannot append turns with the
 same sequence numbers. Ephemeral headless turns bypass session persistence entirely.
 

@@ -23,7 +23,10 @@ Configuration is written atomically. On macOS and Linux, its directory uses mode
 ## Sessions and secrets
 
 Sessions are append-only JSONL event streams. They retain messages, tool cards, diffs, titles, provider-reported token
-usage, and attached image data so a resumed conversation preserves its history.
+usage, and attached image or document source data so a resumed conversation preserves its history. Document sources
+are stored locally with their extracted text and SHA-256 identity. The original PDF or DOCX bytes are not sent through
+the portable model request path; Otis sends the locally extracted text and bounded metadata instead. That extracted
+content is still part of the hosted prompt when a hosted model is selected.
 
 Provider keys are never written to sessions, transcripts, tool results, or usage records. A `FIREWORKS_API_KEY`
 environment value overrides a saved key without being copied into `config.json`.

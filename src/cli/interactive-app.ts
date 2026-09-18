@@ -33,9 +33,9 @@ import {
 import { calculateLocalStats } from "../local/stats.js"
 import type { PermissionRequest } from "../permissions/policy.js"
 import { describeToolCall } from "../tools/index.js"
+import { AttachmentFlow } from "./attachment-flow.js"
 import { createChatUI } from "./chat-ui.js"
 import { contextUsageColor, formatContextUsage } from "./context-meter.js"
-import { ImageFlow } from "./image-flow.js"
 import { SessionController } from "./session-controller.js"
 import { SetupFlow } from "./setup-flow.js"
 import { parseSlashCommand, type SlashCommand, slashCommandRunsImmediately, slashCommands } from "./slash-commands.js"
@@ -56,7 +56,7 @@ type PendingAction =
 
 export class InteractiveApp {
   #app!: Application
-  #images!: ImageFlow
+  #attachments!: AttachmentFlow
   #renderer!: Renderer
   #ui!: ChatUI
   #sessions!: SessionController
@@ -106,7 +106,7 @@ export class InteractiveApp {
       models.selectedProvider === "fireworks" &&
       (Boolean(settings.modelFastId) || isFastFireworksModel(settings.model ?? ""))
     this.#configured = this.#app.hasConfiguredSelection()
-    this.#images = new ImageFlow({
+    this.#attachments = new AttachmentFlow({
       cwd: this.#app.cwd,
       isBusy: () => this.#isBusy(),
       apiKey: () => this.#app.fireworksApiKey,
@@ -115,7 +115,7 @@ export class InteractiveApp {
       transcript: this.#app.transcript,
       onContextChange: () => this.#updateContextIndicator(),
     })
-    this.#images.setModelCapability(models.supportsImageInput)
+    this.#attachments.setModelCapability(models.supportsImageInput)
 
     this.#renderer = await createCliRenderer({
       exitOnCtrlC: false,
@@ -152,9 +152,9 @@ export class InteractiveApp {
       workspaceLabel: formatWorkspaceLabel(this.#app.cwd),
       treeSitterClient,
       onInputChange: (value) => this.#updateContextIndicator(value),
-      onImagePaste: (bytes, mimeType) => this.#images.attachPasted(bytes, mimeType),
-      onImagePathPaste: (value) => this.#images.handlePathPaste(value),
-      onRemoveLastImage: () => this.#images.removeLast(),
+      onImagePaste: (bytes, mimeType) => this.#attachments.attachPastedImage(bytes, mimeType),
+      onAttachmentPathPaste: (value) => this.#attachments.handlePathPaste(value),
+      onRemoveLastAttachment: () => this.#attachments.removeLast(),
       onInterrupt: () => {
         this.#app.conversation.cancel()
       },
@@ -301,7 +301,7 @@ export class InteractiveApp {
   }
 
   async #handleInput(value: string) {
-    if (!value && this.#images.pending.count === 0) return
+    if (!value && this.#attachments.pending.count === 0) return
 
     this.#ui.hideUpdateHint()
 
@@ -357,7 +357,7 @@ export class InteractiveApp {
       this.#ui.renderTranscript(this.#app.transcript.entries, { scrollToBottom: true })
       return
     }
-    this.#images.clear()
+    this.#attachments.clear()
     this.#ui.clearInput()
     this.#updateContextIndicator()
     this.#ui.renderTranscript(this.#app.transcript.entries, { scrollToBottom: true })
@@ -368,7 +368,7 @@ export class InteractiveApp {
 
     try {
       await this.#app.conversation.queue(message)
-      this.#images.clear()
+      this.#attachments.clear()
       this.#ui.clearInput()
       this.#updateContextIndicator()
       this.#ui.renderTranscript(this.#app.transcript.entries, { scrollToBottom: true })
@@ -388,7 +388,7 @@ export class InteractiveApp {
   }
 
   #startNewSession() {
-    this.#images.clear()
+    this.#attachments.clear()
     if (this.#isBusy()) {
       this.#ui.hideSessionPicker()
       this.#pendingActions.push({ type: "new-session" })
@@ -398,7 +398,7 @@ export class InteractiveApp {
   }
 
   async #selectSession(sessionId: string) {
-    this.#images.clear()
+    this.#attachments.clear()
     if (this.#isBusy()) {
       this.#ui.hideSessionPicker()
       this.#pendingActions.push({ type: "session-selection", sessionId })
@@ -499,7 +499,7 @@ export class InteractiveApp {
         return
       case "new":
         this.#ui.clearInput()
-        this.#images.clear()
+        this.#attachments.clear()
         this.#sessions.startNew()
         return
       case "home":
@@ -523,19 +523,21 @@ export class InteractiveApp {
   async #runPromptTurn(value: string, queued?: QueuedPrompt) {
     if (!this.#app.models.client || !this.#app.models.selectedProvider) return
 
-    const ready = queued ? undefined : this.#images.ensureReadyToSend(value)
+    const ready = queued ? undefined : this.#attachments.ensureReadyToSend(value)
     if (ready) {
       try {
         await ready
       } catch (error) {
-        this.#images.showMessage(`Could not send images: ${error instanceof Error ? error.message : String(error)}`)
+        this.#attachments.showMessage(
+          `Could not send attachments: ${error instanceof Error ? error.message : String(error)}`,
+        )
         return
       }
     }
 
     this.#ui.setBusy(true)
     this.#ui.showChatLayout()
-    const userMessage = queued?.admission.message ?? createUserMessage(value, this.#images.pending.items)
+    const userMessage = queued?.admission.message ?? createUserMessage(value, this.#attachments.pending.items)
 
     try {
       const result = await this.#app.conversation.start(queued ?? userMessage, {
@@ -544,7 +546,7 @@ export class InteractiveApp {
           if (this.#app.transcript.history.length === 1) {
             this.#sessions.setProvisionalLabel(value || summarizeUserMessage(message))
           }
-          this.#images.clear()
+          this.#attachments.clear()
           this.#updateContextIndicator()
           this.#ui.clearInput()
           this.#ui.renderTranscript(this.#app.transcript.entries, { scrollToBottom: true })
@@ -796,7 +798,7 @@ export class InteractiveApp {
       this.#app.models.selectedProvider = undefined
       this.#app.models.client = undefined
       this.#configured = false
-      this.#images.setModelCapability(false)
+      this.#attachments.setModelCapability(false)
       this.#app.models.autoCompactAtTokens = autoCompactThreshold()
       this.#setupFlow.forgetSelectedModel(spec.id)
       if (this.#exiting) return
@@ -823,7 +825,7 @@ export class InteractiveApp {
   }
 
   #syncActivatedModel(model: CatalogModel) {
-    this.#images.setModelCapability(this.#app.models.supportsImageInput)
+    this.#attachments.setModelCapability(this.#app.models.supportsImageInput)
     this.#configured = true
     if (this.#exiting) return
     this.#ui.setModelLabel(this.#formatModelLabel(model))
@@ -927,9 +929,9 @@ export class InteractiveApp {
   }
 
   #updateContextIndicator(pendingInput = "") {
-    const pendingMessage = createUserMessage(pendingInput, this.#images.pending.items)
+    const pendingMessage = createUserMessage(pendingInput, this.#attachments.pending.items)
     const usage = contextUsage(
-      this.#app.contextTokens(pendingInput || this.#images.pending.items.length > 0 ? pendingMessage : undefined),
+      this.#app.contextTokens(pendingInput || this.#attachments.pending.items.length > 0 ? pendingMessage : undefined),
       this.#app.models.autoCompactAtTokens,
     )
     this.#ui.setContextLabel(formatContextUsage(usage), contextUsageColor(usage.percent))

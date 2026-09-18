@@ -287,7 +287,37 @@ describe("runHeadlessCommand", () => {
     expect(output.stdout()).toBe("A black pixel.\n")
   })
 
-  it("rejects image input before inference when the selected model is not vision-capable", async () => {
+  it("accepts document input on a text-only model and preserves it as a native attachment", async () => {
+    const cwd = await temporaryDirectory()
+    await writeFile(join(cwd, "notes.md"), "# Native attachment\n\nKeep the source bytes.", "utf8")
+    mocks.streamChat.mockImplementationOnce(async function* (request) {
+      expect(request.messages[0]).toMatchObject({
+        role: "user",
+        content: [
+          expect.objectContaining({
+            type: "document",
+            kind: "text",
+            mimeType: "text/markdown",
+            name: "notes.md",
+            extractedText: "# Native attachment\n\nKeep the source bytes.",
+          }),
+          { type: "text", text: "summarize it" },
+        ],
+      })
+      yield { type: "text_delta", text: "A preserved Markdown document." }
+    })
+    const output = streams({ processCwd: cwd })
+
+    const exitCode = await runHeadlessCommand(["--ephemeral", "--file", "notes.md", "summarize it"], output.options)
+
+    expect(exitCode, output.stderr()).toBe(0)
+    expect(output.stdout()).toBe("A preserved Markdown document.\n")
+  })
+
+  it.each([
+    "--image",
+    "--file",
+  ])("rejects %s image input before inference when the selected model is not vision-capable", async (flag) => {
     const cwd = await temporaryDirectory()
     await writeFile(join(cwd, "pixel.ppm"), "P3\n1 1\n255\n0 0 0\n")
     mocks.loadLocalSettings.mockResolvedValue({
@@ -297,7 +327,7 @@ describe("runHeadlessCommand", () => {
     })
     const output = streams({ processCwd: cwd })
 
-    const exitCode = await runHeadlessCommand(["--ephemeral", "--image", "pixel.ppm"], output.options)
+    const exitCode = await runHeadlessCommand(["--ephemeral", flag, "pixel.ppm"], output.options)
 
     expect(exitCode).toBe(1)
     expect(output.stderr()).toContain("does not support image input")

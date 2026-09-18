@@ -50,8 +50,8 @@ export type ChatUIOptions = {
   treeSitterClient?: TreeSitterClient
   onInputChange?: (value: string) => void
   onImagePaste?: (bytes: Uint8Array, mimeType?: string) => void | Promise<void>
-  onImagePathPaste?: (value: string) => boolean
-  onRemoveLastImage?: () => boolean
+  onAttachmentPathPaste?: (value: string) => boolean
+  onRemoveLastAttachment?: () => boolean
   onInterrupt?: () => void
   onQuit?: () => void | Promise<void>
   onSetup?: () => void
@@ -84,7 +84,7 @@ export type ChatUI = {
   setContextLabel(label: string, color?: string): void
   setDiffStats(added: number, removed: number): void
   setModeLabel(label: string): void
-  setImageAttachmentCount(count: number): void
+  setAttachmentCounts(images: number, documents: number): void
   setModelLabel(label: string): void
   setModelPickerStatus(modelId: string, status: ModelPickerStatus | undefined): void
   setCommands(commands: CommandSuggestion[]): void

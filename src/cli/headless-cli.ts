@@ -6,6 +6,7 @@ import { resolveFireworksServing } from "../app/models.js"
 import { executeTurn } from "../app/turn-runner.js"
 import { autoCompactThreshold } from "../core/compaction.js"
 import { providerTools } from "../core/subagent.js"
+import { loadAttachmentFiles, validateAttachments } from "../inference/attachments.js"
 import { compactionContextLength } from "../inference/context-policy.js"
 import { loadImageFiles, validateImageAttachments } from "../inference/images.js"
 import { findLocalModel, isLocalModelId } from "../inference/local-catalog.js"
@@ -82,9 +83,16 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
     const cwd = resolve(options.processCwd ?? process.cwd(), parsed.cwd ?? ".")
     if (!(await stat(cwd)).isDirectory()) throw new Error(`Working directory is not a directory: ${cwd}`)
     const prompt = await readPrompt(parsed.promptParts, options.stdin ?? process.stdin)
-    const images = await loadImageFiles(parsed.images, cwd)
-    if (!prompt.trim() && images.length === 0) throw new Error("A prompt or image is required.")
-    const userMessage = createUserMessage(prompt, images)
+    const attachments = [
+      ...(await loadImageFiles(parsed.images, cwd)),
+      ...(await loadAttachmentFiles(parsed.files, cwd)),
+    ]
+    const images = attachments.filter((attachment) => attachment.type === "image")
+    if (!prompt.trim() && attachments.length === 0) {
+      throw new Error("A prompt or attachment is required.")
+    }
+    validateAttachments(attachments)
+    const userMessage = createUserMessage(prompt, attachments)
 
     app = await Application.create({
       cwd,
@@ -301,6 +309,7 @@ function parseHeadlessArgs(argv: string[]) {
       cwd: { type: "string", short: "C" },
       model: { type: "string", short: "m" },
       image: { type: "string", multiple: true },
+      file: { type: "string", multiple: true },
       session: { type: "string", short: "s" },
       continue: { type: "boolean", short: "c" },
       ephemeral: { type: "boolean" },
@@ -329,6 +338,7 @@ function parseHeadlessArgs(argv: string[]) {
     cwd: values.cwd,
     model: values.model,
     images: values.image ?? [],
+    files: values.file ?? [],
     session: values.session,
     continue: values.continue ?? false,
     ephemeral: values.ephemeral ?? false,
@@ -442,6 +452,7 @@ Options:
   -C, --cwd <path>             Working directory
   -m, --model <id>             Local catalog id or Fireworks serverless model
       --image <path>           Attach an image; repeatable
+      --file <path>            Attach a text, PDF, DOCX, or image file; repeatable
   -s, --session <id>           Resume a specific local session
   -c, --continue               Resume the most recently updated session
       --ephemeral              Do not create or update a session

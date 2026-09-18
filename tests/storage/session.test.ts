@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -99,6 +100,37 @@ describe("JsonlSession", () => {
 
     expect(reopened.replayMessages()).toEqual(turnMessages)
     expect(reopened.events.at(-1)).toMatchObject({ type: "turn_completed", messages: turnMessages.slice(1) })
+  })
+
+  it("persists original document assets and extracted text without duplication", async () => {
+    const cwd = await trackedTempDir()
+    const directory = join(cwd, "sessions")
+    const session = await openSession({ cwd, directory })
+    const source = Buffer.from("native source")
+    const message = {
+      role: "user" as const,
+      content: [
+        {
+          type: "document" as const,
+          kind: "text" as const,
+          data: source.toString("base64"),
+          extractedText: "native source",
+          mimeType: "text/plain",
+          name: "source.txt",
+          sizeBytes: source.byteLength,
+          sha256: createHash("sha256").update(source).digest("hex"),
+          truncated: false,
+        },
+        { type: "text" as const, text: "Edit this later" },
+      ],
+    }
+    const admission = await session.admitPrompt(message)
+    const turnMessages: ChatMessage[] = [message, { role: "assistant", content: [{ type: "text", text: "Ready." }] }]
+
+    await session.completeTurn(admission, turnMessages)
+    const reopened = await openSession({ cwd, directory })
+
+    expect(reopened.replayMessages()).toEqual(turnMessages)
   })
 
   it("continues sequence numbers when reopening a session", async () => {

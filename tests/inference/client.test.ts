@@ -134,6 +134,48 @@ describe("FireworksClient", () => {
     })
   })
 
+  it("sends extracted document text without exposing the preserved source bytes", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => sseResponse([]))
+    const client = new FireworksClient({
+      apiKey: "fw_test_key",
+      model: "accounts/fireworks/models/tool-model",
+      fetch: fetchMock as typeof fetch,
+      inferenceURL: "http://localhost/v1/chat/completions",
+    })
+
+    await collect(
+      client.streamChat({
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "document",
+                kind: "text",
+                data: "c2VjcmV0LWJ5dGVz",
+                extractedText: "Portable document text",
+                mimeType: "text/plain",
+                name: "notes.txt",
+                sizeBytes: 12,
+                sha256: "0".repeat(64),
+                truncated: false,
+              },
+              { type: "text", text: "Summarize it" },
+            ],
+          },
+        ],
+      }),
+    )
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body))
+    const serialized = JSON.stringify(body.messages[1])
+    expect(body.messages[1].content[0]).toMatchObject({ type: "text" })
+    expect(body.messages[1].content[0].text).toContain("Portable document text")
+    expect(body.messages[1].content[0].text).toContain('"name":"notes.txt"')
+    expect(serialized).not.toContain("c2VjcmV0LWJ5dGVz")
+    expect(serialized).not.toContain("sha256")
+  })
+
   it("omits service_tier for Fast serving-path model IDs", async () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => sseResponse([]))
     const client = new FireworksClient({

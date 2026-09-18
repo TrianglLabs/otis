@@ -17,7 +17,7 @@
   "include": [
     "src/desktop/renderer",
     "src/desktop/contracts.ts",
-    "src/text-modules.d.ts",
+    "src/*.d.ts",
     "tests/desktop/renderer/**/*.tsx",
     "tests/desktop/ui/**/*.tsx"
   ]

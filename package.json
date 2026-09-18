@@ -53,6 +53,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "@types/use-sync-external-store": "^1.7.0",
+    "@types/yauzl": "^3.4.0",
     "@vitejs/plugin-react": "^6.1.1",
     "@vitest/coverage-v8": "^4.1.9",
     "diff": "^9.0.0",
@@ -60,6 +61,7 @@
     "electron-builder": "^26.16.1",
     "electron-vite": "^5.0.0",
     "happy-dom": "^20.14.0",
+    "jszip": "^3.10.2",
     "typescript": "^5.8.0",
     "vitest": "^4.1.9"
   },
@@ -67,13 +69,16 @@
     "@mermaid-js/tiny": "12.0.0",
     "electron-updater": "^6.8.9",
     "lucide-react": "^1.42.0",
+    "mammoth": "^1.12.3",
+    "pdfjs-dist": "^6.3.289",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-markdown": "^10.1.0",
     "react-virtuoso": "^4.18.13",
     "remark-gfm": "^4.0.1",
     "use-sync-external-store": "^1.7.0",
-    "yaml": "^2.9.0"
+    "yaml": "^2.9.0",
+    "yauzl": "^3.4.0"
   },
   "author": {
     "name": "Triangl Labs",

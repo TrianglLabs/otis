@@ -4,7 +4,7 @@ import { DESKTOP_CHANNELS, type DesktopApi, type DesktopEvent, type DesktopWindo
 const api: DesktopApi = {
   getSnapshot: () => ipcRenderer.invoke(DESKTOP_CHANNELS.getSnapshot),
   getWindowState: () => ipcRenderer.invoke(DESKTOP_CHANNELS.getWindowState),
-  sendPrompt: (text, images) => ipcRenderer.invoke(DESKTOP_CHANNELS.sendPrompt, text, images),
+  sendPrompt: (text, attachments) => ipcRenderer.invoke(DESKTOP_CHANNELS.sendPrompt, text, attachments),
   stop: () => ipcRenderer.invoke(DESKTOP_CHANNELS.stop),
   respondToPermission: (id, allow) => ipcRenderer.invoke(DESKTOP_CHANNELS.respondToPermission, id, allow),
   selectSession: (id, dirName) => ipcRenderer.invoke(DESKTOP_CHANNELS.selectSession, id, dirName),

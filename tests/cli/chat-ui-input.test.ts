@@ -669,15 +669,15 @@ describe("chat UI input", () => {
 
   it("shows pending image names and routes binary and path paste", async () => {
     const onImagePaste = vi.fn()
-    const onImagePathPaste = vi.fn(() => true)
-    const onRemoveLastImage = vi.fn(() => true)
-    const harness = await setup({ onImagePaste, onImagePathPaste, onRemoveLastImage })
+    const onAttachmentPathPaste = vi.fn(() => true)
+    const onRemoveLastAttachment = vi.fn(() => true)
+    const harness = await setup({ onImagePaste, onAttachmentPathPaste, onRemoveLastAttachment })
     harness.ui.showChatLayout()
 
-    harness.ui.setImageAttachmentCount(2)
+    harness.ui.setAttachmentCounts(2, 1)
     expect(harness.childIds("input-area")).toEqual(["input-box"])
-    expect(harness.childIds("input-box")).toEqual(["mode-label", "image-attachments", "otis-input", "input-hint"])
-    expect(harness.text("image-attachments")).toBe("[Image 1] [Image 2]")
+    expect(harness.childIds("input-box")).toEqual(["mode-label", "attachments", "otis-input", "input-hint"])
+    expect(harness.text("attachments")).toBe("[Image 1] [Image 2] +1")
 
     const bytes = new Uint8Array([1, 2, 3])
     harness.renderer.keyInput.processPaste(bytes, { kind: "binary", mimeType: "image/png" })
@@ -685,13 +685,13 @@ describe("chat UI input", () => {
 
     const path = "/tmp/dragged\\ image.png"
     harness.renderer.keyInput.processPaste(new TextEncoder().encode(path), { kind: "text" })
-    expect(onImagePathPaste).toHaveBeenCalledWith(path)
+    expect(onAttachmentPathPaste).toHaveBeenCalledWith(path)
 
     harness.press("backspace")
-    expect(onRemoveLastImage).toHaveBeenCalledOnce()
+    expect(onRemoveLastAttachment).toHaveBeenCalledOnce()
 
-    harness.ui.setImageAttachmentCount(0)
-    expect(harness.find("image-attachments")).toBeUndefined()
+    harness.ui.setAttachmentCounts(0, 0)
+    expect(harness.find("attachments")).toBeUndefined()
   })
 
   it("keeps the mode label and model hint fixed on one line when the home input grows", async () => {
