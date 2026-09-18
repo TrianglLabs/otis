@@ -10,6 +10,7 @@ otis exec "Explain this repository"
 printf '%s\n' "Review the supplied context" | otis exec --ephemeral --output-format json
 otis exec --continue --auto "Run the tests and fix the failure"
 otis exec --image screenshot.png "Explain this error"
+otis exec --file report.pdf --file notes.docx "Compare these files"
 ```
 
 Run `otis exec --help` for the complete option list.
@@ -44,9 +45,14 @@ By default, a completed run is stored in the same local session format as an int
 Processes take an exclusive lock while resuming a session so concurrent workers cannot append duplicate sequence
 numbers.
 
-## Images
+## Attachments
 
 Use repeatable `--image <path>` options to attach PNG, JPEG, GIF, BMP, TIFF, or PPM files. The selected model must be
 identified as vision-capable by its catalog or inventory metadata.
+
+Use repeatable `--file <path>` options for images, UTF-8 text and source files, text-bearing PDFs, and modern Word `.docx`
+documents. Document attachments work with text-only models: Otis keeps the original local bytes in the session and
+sends locally extracted text to the selected model. Legacy `.doc` files and scanned PDFs without an embedded text
+layer are rejected; scanned PDF OCR is not yet supported.
 
 For the process contract and event model, see the [headless architecture](architecture.md#headless-execution).

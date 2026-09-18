@@ -198,8 +198,8 @@ describe("CLI session turn handling", () => {
     })
 
     await loadCli()
-    expect(mocks.uiOptions?.onImagePathPaste?.("tests/fixtures/dragged\\ image.ppm")).toBe(true)
-    await vi.waitFor(() => expect(mocks.ui.setImageAttachmentCount).toHaveBeenCalledWith(1))
+    expect(mocks.uiOptions?.onAttachmentPathPaste?.("tests/fixtures/dragged\\ image.ppm")).toBe(true)
+    await vi.waitFor(() => expect(mocks.ui.setAttachmentCounts).toHaveBeenCalledWith(1, 0))
 
     await submit("describe this")
 
@@ -214,7 +214,39 @@ describe("CLI session turn handling", () => {
         { type: "text", text: "describe this" },
       ],
     })
-    expect(mocks.ui.setImageAttachmentCount).toHaveBeenLastCalledWith(0)
+    expect(mocks.ui.setAttachmentCounts).toHaveBeenLastCalledWith(0, 0)
+  })
+
+  it("turns a dragged text path into a document prompt without requiring vision", async () => {
+    const session = testSession()
+    mocks.createSession.mockResolvedValue(session)
+    mocks.loadLocalSettings.mockResolvedValue(localSettings({ modelSupportsImageInput: false }))
+    mocks.runAgent.mockImplementationOnce(async function* (input) {
+      yield {
+        type: "complete",
+        messages: [input, { role: "assistant", content: [{ type: "text", text: "It is the readme." }] }],
+      }
+    })
+
+    await loadCli()
+    expect(mocks.uiOptions?.onAttachmentPathPaste?.("README.md")).toBe(true)
+    await vi.waitFor(() => expect(mocks.ui.setAttachmentCounts).toHaveBeenCalledWith(0, 1))
+
+    await submit("summarize this")
+
+    expect(session.admitPrompt).toHaveBeenCalledWith({
+      role: "user",
+      content: [
+        expect.objectContaining({
+          type: "document",
+          kind: "text",
+          mimeType: "text/markdown",
+          name: "README.md",
+        }),
+        { type: "text", text: "summarize this" },
+      ],
+    })
+    expect(mocks.ui.setAttachmentCounts).toHaveBeenLastCalledWith(0, 0)
   })
 
   it("keeps admitted failed prompts in live context", async () => {

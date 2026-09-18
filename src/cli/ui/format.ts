@@ -68,10 +68,12 @@ export function withFastModelMark(name: string, fast: boolean) {
   return `${name} ${FAST_MODEL_LABEL}`
 }
 
-export function imageAttachmentLabel(count: number) {
-  if (count <= 0) return ""
-  const visible = Math.min(count, 2)
-  const labels = Array.from({ length: visible }, (_, index) => `[Image ${index + 1}]`)
-  if (count > visible) labels.push(`+${count - visible}`)
+export function attachmentLabel(images: number, documents: number) {
+  const labels = [
+    ...Array.from({ length: Math.min(images, 2) }, (_, index) => `[Image ${index + 1}]`),
+    ...Array.from({ length: Math.min(documents, Math.max(0, 2 - images)) }, (_, index) => `[File ${index + 1}]`),
+  ]
+  const total = images + documents
+  if (total > labels.length) labels.push(`+${total - labels.length}`)
   return labels.join(" ")
 }

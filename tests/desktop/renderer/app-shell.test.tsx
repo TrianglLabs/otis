@@ -278,12 +278,23 @@ describe("AppShell settings navigation", () => {
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:screen")
   })
 
-  it("explains why image upload is unavailable for a text-only model", async () => {
-    await renderApp(fakeApi())
+  it("accepts text documents on a text-only model", async () => {
+    const sendPrompt = vi.fn<DesktopApi["sendPrompt"]>(async () => ({ accepted: true, delivery: "started" }))
+    await renderApp(fakeApi({ sendPrompt }))
 
-    const upload = screen.getByRole("button", { name: "Add images" }) as HTMLButtonElement
-    expect(upload.disabled).toBe(true)
-    expect(upload.parentElement?.title).toBe("The selected model does not support image input")
+    const upload = screen.getByRole("button", { name: "Add files" }) as HTMLButtonElement
+    expect(upload.disabled).toBe(false)
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]')
+    if (!input) throw new Error("expected file input")
+    const file = new File(["Document text"], "notes.txt", { type: "text/plain" })
+    fireEvent.change(input, { target: { files: [file] } })
+
+    expect(await screen.findByRole("button", { name: "Remove notes.txt" })).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Send" }))
+    await act(async () => {})
+    expect(sendPrompt).toHaveBeenCalledExactlyOnceWith("", [
+      expect.objectContaining({ name: "notes.txt", mimeType: "text/plain" }),
+    ])
   })
 
   it("accepts dropped images and keeps them when submission is rejected", async () => {
@@ -1159,7 +1170,7 @@ describe("AppShell settings navigation", () => {
     const working: DesktopSnapshot = { ...SNAPSHOT, busy: true }
     await renderApp(fakeApi({ getSnapshot: vi.fn(async () => working) }))
     expect(document.querySelector(".composer-box")?.classList.contains("composer-boxWorking")).toBe(true)
-    const upload = screen.getByRole("button", { name: "Add images" })
+    const upload = screen.getByRole("button", { name: "Add files" })
     const stop = screen.getByRole("button", { name: "Stop" })
     expect(upload.compareDocumentPosition(stop) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })

@@ -150,8 +150,8 @@ export type SendPromptResult =
   | { accepted: true; delivery: "started" | "steered" | "queued" }
   | { accepted: false; reason: string }
 
-/** Raw local image selected by the renderer. The main process validates and converts it before session admission. */
-export type DesktopImageInput = {
+/** Raw local file selected by the renderer. The main process validates and converts it before session admission. */
+export type DesktopAttachmentInput = {
   name: string
   mimeType: string
   bytes: Uint8Array
@@ -167,7 +167,7 @@ export type DesktopWindowState = { fullscreen: boolean }
 export type DesktopApi = {
   getSnapshot(): Promise<DesktopSnapshot>
   getWindowState(): Promise<DesktopWindowState>
-  sendPrompt(text: string, images?: readonly DesktopImageInput[]): Promise<SendPromptResult>
+  sendPrompt(text: string, attachments?: readonly DesktopAttachmentInput[]): Promise<SendPromptResult>
   stop(): Promise<void>
   respondToPermission(id: number, allow: boolean): Promise<void>
   selectSession(id: string, dirName?: string): Promise<SessionOpResult>

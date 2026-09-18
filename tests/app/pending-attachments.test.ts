@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest"
-import { PendingImages } from "../../src/app/pending-images.js"
+import { PendingAttachments } from "../../src/app/pending-attachments.js"
 
-describe("pending images", () => {
+describe("pending attachments", () => {
   it("names pasted attachments with an incrementing sequence", () => {
-    const pending = new PendingImages()
-    const first = pending.nextPasted(pngBytes())
-    const second = pending.nextPasted(pngBytes())
+    const pending = new PendingAttachments()
+    const first = pending.nextPastedImage(pngBytes())
+    const second = pending.nextPastedImage(pngBytes())
 
     expect(first.name).toBe("pasted-image-1.png")
     expect(second.name).toBe("pasted-image-2.png")
@@ -13,11 +13,11 @@ describe("pending images", () => {
   })
 
   it("tracks add, remove, and clear without mutating prior snapshots", () => {
-    const pending = new PendingImages()
-    const first = pending.nextPasted(pngBytes())
+    const pending = new PendingAttachments()
+    const first = pending.nextPastedImage(pngBytes())
     pending.add(first)
     const snapshot = pending.items
-    pending.add(pending.nextPasted(pngBytes()))
+    pending.add(pending.nextPastedImage(pngBytes()))
 
     expect(snapshot).toHaveLength(1)
     expect(pending.count).toBe(2)

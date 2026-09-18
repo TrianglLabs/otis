@@ -9,11 +9,11 @@ import { AgentStatus } from "./ui/agent-status.js"
 import { CommandMenu } from "./ui/command-menu.js"
 import {
   type AgentPhase,
+  attachmentLabel,
   CHAT_KEY_HINT,
   CHAT_KEY_HINT_DURATION_MS,
   formatContextLabel,
   formatRuntimeHint,
-  imageAttachmentLabel,
 } from "./ui/format.js"
 import { HomeStats } from "./ui/home-stats.js"
 import { InputController } from "./ui/input-controller.js"
@@ -49,7 +49,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     inputArea,
     inputBox,
     inputHint,
-    imageAttachments,
+    attachments,
     messages,
     modelPanel,
     modelRowsBox,
@@ -290,7 +290,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
       return
     }
 
-    if (key.name === "backspace" && input.plainText === "" && options.onRemoveLastImage?.()) {
+    if (key.name === "backspace" && input.plainText === "" && options.onRemoveLastAttachment?.()) {
       stopKey(key)
       return
     }
@@ -312,7 +312,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
       return
     }
     const text = new TextDecoder().decode(event.bytes)
-    if (!options.onImagePathPaste?.(text)) return
+    if (!options.onAttachmentPathPaste?.(text)) return
     event.preventDefault()
     event.stopPropagation()
   })
@@ -444,11 +444,11 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     inputController.focus()
   }
 
-  function setImageAttachmentCount(count: number) {
-    setText(imageAttachments, imageAttachmentLabel(count))
-    const mounted = inputBox.getChildren().some((child) => child.id === imageAttachments.id)
-    if (count > 0 && !mounted) inputBox.add(imageAttachments, 1)
-    if (count === 0 && mounted) inputBox.remove(imageAttachments.id)
+  function setAttachmentCounts(images: number, documents: number) {
+    setText(attachments, attachmentLabel(images, documents))
+    const mounted = inputBox.getChildren().some((child) => child.id === attachments.id)
+    if (images + documents > 0 && !mounted) inputBox.add(attachments, 1)
+    if (images + documents === 0 && mounted) inputBox.remove(attachments.id)
     renderer.requestRender()
   }
 
@@ -563,7 +563,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     setContextLabel,
     setDiffStats: (added, removed) => sessionStatus.setDiff(added, removed),
     setModeLabel,
-    setImageAttachmentCount,
+    setAttachmentCounts,
     setModelLabel,
     setModelPickerStatus: (modelId, status) => models.setItemStatus(modelId, status),
     setCommands: (value) => commands.setCommands(value),

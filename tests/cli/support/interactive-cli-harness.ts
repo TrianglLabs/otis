@@ -46,7 +46,7 @@ const mocks = vi.hoisted(() => {
     setContextLabel: vi.fn(),
     setDiffStats: vi.fn(),
     setModeLabel: vi.fn(),
-    setImageAttachmentCount: vi.fn(),
+    setAttachmentCounts: vi.fn(),
     setModelLabel: vi.fn(),
     setModelPickerStatus: vi.fn(),
     setSessionLabel: vi.fn(),
@@ -184,8 +184,8 @@ const mocks = vi.hoisted(() => {
           onInputChange?(value: string): void
           onQuit?(): void | Promise<void>
           onImagePaste?(bytes: Uint8Array, mimeType?: string): void | Promise<void>
-          onImagePathPaste?(value: string): boolean
-          onRemoveLastImage?(): boolean
+          onAttachmentPathPaste?(value: string): boolean
+          onRemoveLastAttachment?(): boolean
           onPreviewTheme?(theme: ThemeName): void
           onSelectModel?(model: import("../../../src/inference/picker-catalog.js").ModelPickerItem): void
           onSelectSession?(sessionId: string): void

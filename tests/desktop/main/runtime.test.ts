@@ -950,6 +950,56 @@ describe("DesktopRuntime conversation flow", () => {
     await runtime.shutdown()
   })
 
+  it("admits documents on text-only models and preserves source metadata", async () => {
+    const { runtime, app } = await setup()
+    const bytes = new TextEncoder().encode("Desktop document text")
+
+    const result = await runtime.sendPrompt("", [{ name: "notes.txt", mimeType: "text/plain", bytes }])
+
+    expect(result).toEqual({ accepted: true, delivery: "started" })
+    await vi.waitFor(() => expect(mocks.executeTurn).toHaveBeenCalled())
+    expect(mocks.executeTurn.mock.calls[0]?.[0].input).toMatchObject({
+      role: "user",
+      content: [
+        expect.objectContaining({
+          type: "document",
+          kind: "text",
+          name: "notes.txt",
+          extractedText: "Desktop document text",
+          sizeBytes: bytes.byteLength,
+        }),
+      ],
+    })
+    expect(app.transcript.entries.find((entry) => entry.speaker === "You")?.text).toBe("📄 notes.txt")
+    await runtime.shutdown()
+  })
+
+  it.each([
+    "new-session",
+    "model",
+    "shutdown",
+    "renderer-gone",
+  ] as const)("rejects a prepared attachment if %s changes before admission", async (change) => {
+    const { runtime, app } = await setup()
+    const send = runtime.sendPrompt("original conversation", [
+      {
+        name: "notes.txt",
+        mimeType: "text/plain",
+        bytes: new TextEncoder().encode("notes"),
+      },
+    ])
+    // Even text decoding yields at the async attachment boundary; no sleeps or timing assumptions.
+    if (change === "new-session") expect(runtime.startNewSession()).toEqual({ ok: true })
+    if (change === "model") app.models.client = { ...fakeClient, model: "replacement" }
+    if (change === "shutdown") await runtime.shutdown()
+    if (change === "renderer-gone") runtime.handleRendererGone()
+
+    expect(await send).toMatchObject({ accepted: false })
+    expect(app.sessions.current).toBeUndefined()
+    expect(mocks.executeTurn).not.toHaveBeenCalled()
+    if (change !== "shutdown") await runtime.shutdown()
+  })
+
   it("drains queued follow-ups through the conversation after the active turn settles", async () => {
     const { runtime, app } = await setup()
 

@@ -1,5 +1,5 @@
 import { BrowserWindow, dialog, type IpcMainInvokeEvent, ipcMain, shell } from "electron"
-import { DESKTOP_CHANNELS, type DesktopImageInput } from "../contracts.js"
+import { DESKTOP_CHANNELS, type DesktopAttachmentInput } from "../contracts.js"
 import type { DesktopRuntime } from "./runtime.js"
 
 /**
@@ -14,12 +14,12 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
     return { fullscreen: BrowserWindow.fromWebContents(event.sender)?.isFullScreen() ?? false }
   })
 
-  handle(DESKTOP_CHANNELS.sendPrompt, (text, images) => {
+  handle(DESKTOP_CHANNELS.sendPrompt, (text, attachments) => {
     if (typeof text !== "string") throw new Error("sendPrompt expects a string")
-    if (images !== undefined && !isDesktopImageInputs(images)) {
-      throw new Error("sendPrompt expects valid image attachments")
+    if (attachments !== undefined && !isDesktopAttachmentInputs(attachments)) {
+      throw new Error("sendPrompt expects valid attachments")
     }
-    return runtime.sendPrompt(text, images)
+    return runtime.sendPrompt(text, attachments)
   })
 
   handle(DESKTOP_CHANNELS.stop, () => runtime.stop())
@@ -147,16 +147,16 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
   })
 }
 
-function isDesktopImageInputs(value: unknown): value is DesktopImageInput[] {
+function isDesktopAttachmentInputs(value: unknown): value is DesktopAttachmentInput[] {
   return (
     Array.isArray(value) &&
     value.every(
-      (image) =>
-        typeof image === "object" &&
-        image !== null &&
-        typeof image.name === "string" &&
-        typeof image.mimeType === "string" &&
-        image.bytes instanceof Uint8Array,
+      (attachment) =>
+        typeof attachment === "object" &&
+        attachment !== null &&
+        typeof attachment.name === "string" &&
+        typeof attachment.mimeType === "string" &&
+        attachment.bytes instanceof Uint8Array,
     )
   )
 }

@@ -38,8 +38,8 @@ export function createUILayout(
   const { panel: modelPanel, rows: modelRowsBox } = createModelPanel(renderer)
   const { panel: subagentPanel, rows: subagentRowsBox, footer: subagentPanelFooter } = createSubagentPanel(renderer)
   const { input, inputBox, inputHint, modeLabel } = createChatInput(renderer, options.modeLabel)
-  const imageAttachments = new TextRenderable(renderer, {
-    id: "image-attachments",
+  const attachments = new TextRenderable(renderer, {
+    id: "attachments",
     content: "",
     maxWidth: 30,
     flexShrink: 1,
@@ -311,7 +311,7 @@ export function createUILayout(
     inputArea,
     inputBox,
     inputHint,
-    imageAttachments,
+    attachments,
     messages,
     modelPanel,
     modelRowsBox,

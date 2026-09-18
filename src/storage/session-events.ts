@@ -1,8 +1,21 @@
+import { createHash } from "node:crypto"
 import { readFile } from "node:fs/promises"
 import { compactionSummaryMessage } from "../core/compaction.js"
+import {
+  DOCX_MIME_TYPE,
+  isSupportedDocumentMimeType,
+  MAX_DOCUMENTS_PER_MESSAGE,
+  MAX_EXTRACTED_DOCUMENT_CHARS,
+  MAX_RAW_DOCUMENT_BYTES,
+  MAX_TOTAL_DOCUMENT_BYTES,
+  MAX_TOTAL_EXTRACTED_DOCUMENT_CHARS,
+  PDF_MIME_TYPE,
+} from "../inference/document-constraints.js"
+import { MAX_BASE64_IMAGE_BYTES, MAX_IMAGES_PER_REQUEST } from "../inference/image-constraints.js"
 import type {
   ChatMessage,
   ChatToolCall,
+  DocumentContentPart,
   ImageContentPart,
   ImageMimeType,
   TokenUsage,
@@ -521,12 +534,26 @@ function isUserMessage(value: unknown): value is UserChatMessage {
 }
 
 function isUserContent(value: unknown): value is UserChatMessage["content"] {
-  return typeof value === "string" || (Array.isArray(value) && value.length > 0 && value.every(isUserContentPart))
+  if (typeof value === "string") return true
+  if (!Array.isArray(value) || value.length === 0 || !value.every(isUserContentPart)) return false
+  const images = value.filter((part): part is ImageContentPart => part.type === "image")
+  const documents = value.filter((part): part is DocumentContentPart => part.type === "document")
+  return (
+    images.length <= MAX_IMAGES_PER_REQUEST &&
+    images.reduce((total, image) => total + image.data.length, 0) < MAX_BASE64_IMAGE_BYTES &&
+    documents.length <= MAX_DOCUMENTS_PER_MESSAGE &&
+    documents.reduce((total, document) => total + document.sizeBytes, 0) <= MAX_TOTAL_DOCUMENT_BYTES &&
+    documents.reduce((total, document) => total + document.extractedText.length, 0) <=
+      MAX_TOTAL_EXTRACTED_DOCUMENT_CHARS
+  )
 }
 
-function isUserContentPart(value: unknown): value is { type: "text"; text: string } | ImageContentPart {
+function isUserContentPart(
+  value: unknown,
+): value is { type: "text"; text: string } | ImageContentPart | DocumentContentPart {
   if (!isRecord(value)) return false
   if (value.type === "text") return typeof value.text === "string"
+  if (value.type === "document") return isDocumentContentPart(value)
   if (value.type !== "image") return false
   if (
     typeof value.data !== "string" ||
@@ -541,6 +568,37 @@ function isUserContentPart(value: unknown): value is { type: "text"; text: strin
     return false
   }
   return isCanonicalBase64(value.data) && Buffer.from(value.data, "base64").byteLength === value.sizeBytes
+}
+
+function isDocumentContentPart(value: Record<string, unknown>): value is DocumentContentPart {
+  if (
+    (value.kind !== "text" && value.kind !== "pdf" && value.kind !== "docx") ||
+    typeof value.data !== "string" ||
+    typeof value.extractedText !== "string" ||
+    !value.extractedText ||
+    value.extractedText.length > MAX_EXTRACTED_DOCUMENT_CHARS ||
+    !isSupportedDocumentMimeType(value.mimeType) ||
+    typeof value.name !== "string" ||
+    !value.name ||
+    [...value.name].some(isControlCharacter) ||
+    typeof value.sizeBytes !== "number" ||
+    !Number.isSafeInteger(value.sizeBytes) ||
+    value.sizeBytes <= 0 ||
+    value.sizeBytes > MAX_RAW_DOCUMENT_BYTES ||
+    typeof value.sha256 !== "string" ||
+    !/^[a-f0-9]{64}$/.test(value.sha256) ||
+    typeof value.truncated !== "boolean" ||
+    (value.pageCount !== undefined &&
+      (typeof value.pageCount !== "number" || !Number.isSafeInteger(value.pageCount) || value.pageCount <= 0))
+  ) {
+    return false
+  }
+  if (value.kind === "pdf" && (value.mimeType !== PDF_MIME_TYPE || value.pageCount === undefined)) return false
+  if (value.kind === "docx" && value.mimeType !== DOCX_MIME_TYPE) return false
+  if (value.kind === "text" && (value.mimeType === PDF_MIME_TYPE || value.mimeType === DOCX_MIME_TYPE)) return false
+  if (!isCanonicalBase64(value.data)) return false
+  const bytes = Buffer.from(value.data, "base64")
+  return bytes.byteLength === value.sizeBytes && createHash("sha256").update(bytes).digest("hex") === value.sha256
 }
 
 function isControlCharacter(character: string) {

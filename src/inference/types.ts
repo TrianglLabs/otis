@@ -37,7 +37,29 @@ export type ImageContentPart = {
   sizeBytes: number
 }
 
-export type UserContentPart = { type: "text"; text: string } | ImageContentPart
+export type DocumentKind = "text" | "pdf" | "docx"
+
+/**
+ * An immutable source document plus the text Otis derived from it for model context.
+ * Keeping the source bytes and content hash makes the attachment usable by future
+ * document editors and Canvas renderers without reconstructing it from flattened text.
+ */
+export type DocumentContentPart = {
+  type: "document"
+  kind: DocumentKind
+  /** Base64 source bytes for local persistence and future artifact rendering; provider adapters must not serialize it. */
+  data: string
+  extractedText: string
+  mimeType: string
+  name: string
+  sizeBytes: number
+  sha256: string
+  truncated: boolean
+  pageCount?: number
+}
+
+export type AttachmentContentPart = ImageContentPart | DocumentContentPart
+export type UserContentPart = { type: "text"; text: string } | AttachmentContentPart
 export type UserChatMessage = { role: "user"; content: string | UserContentPart[] }
 
 export type ChatMessage =

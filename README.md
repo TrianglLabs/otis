@@ -143,10 +143,11 @@ The OpenTUI interface supports these commands and controls:
 | `Esc` | Interrupt the active model turn |
 | `Ctrl+C` | Exit |
 
-Drag an image file into the terminal to attach it to the next message. Otis recognizes the shell-escaped paths emitted
-by common macOS and Linux terminals; terminals that expose binary clipboard data can attach copied images directly.
-Numbered tokens appear in the composer, Backspace removes the last attachment when the input is empty, and attachments
-clear after the prompt enters the session. The selected model must support vision.
+Drag text files, PDFs, DOCX documents, or images into the terminal to attach them to the next message. Otis recognizes
+the shell-escaped paths emitted by common macOS and Linux terminals; terminals that expose binary clipboard data can
+also attach copied images directly. Numbered tokens appear in the composer, Backspace removes the last attachment when
+the input is empty, and attachments clear after the prompt enters the session. Only image attachments require a vision
+model.
 
 ## Headless execution
 
@@ -157,12 +158,13 @@ OpenTUI.
 otis exec "Explain this repository"
 otis exec --continue --auto "Run the tests and fix the failure"
 otis exec --image screenshot.png "Explain this error"
+otis exec --file requirements.pdf --file notes.docx "Compare these documents"
 ```
 
 Plain output reserves stdout for the final response. JSON and streaming JSONL are available for programmatic use.
 Headless mode never prompts and denies unmatched write, edit, and shell calls unless policy or `--auto` permits them.
 Run `otis exec --help` or read [Headless execution](docs/headless.md) for formats, sessions, limits, permissions, and
-image input.
+file attachments.
 
 ## Local data and privacy
 
@@ -182,7 +184,7 @@ for complete runtime boundaries, and [SECURITY.md](SECURITY.md) for private vuln
 - [Desktop app and downloads](https://triangllabs.ai/otis) — native macOS and Linux builds
 - [Managed local inference](docs/local-inference.md) — hardware fit, downloads, context, and model deletion
 - [NVIDIA PAIR](docs/nvidia-pair.md) — endpoint setup, routing, inventory, and metadata
-- [Headless execution](docs/headless.md) — output formats, limits, sessions, and images
+- [Headless execution](docs/headless.md) — output formats, limits, sessions, and attachments
 - [Agent Skills](docs/agent-skills.md) — authoring, precedence, Git-backed collections, and trust
 - [Tool permissions](docs/tool-permissions.md) — modes, rule syntax, and policy precedence
 - [Local data and privacy](docs/data-and-privacy.md) — storage, secrets, sessions, and network boundaries

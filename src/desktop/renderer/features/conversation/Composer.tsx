@@ -1,5 +1,12 @@
-import { ArrowUp, ChevronDown, FolderOpen, ImagePlus, Square, X, Zap } from "lucide-react"
+import { ArrowUp, ChevronDown, FileText, FolderOpen, Paperclip, Square, X, Zap } from "lucide-react"
 import { memo, useEffect, useRef, useState } from "react"
+import {
+  MAX_DOCUMENTS_PER_MESSAGE,
+  MAX_RAW_DOCUMENT_BYTES,
+  MAX_TOTAL_DOCUMENT_BYTES,
+  normalizedDocumentMimeType,
+  SUPPORTED_DOCUMENT_EXTENSIONS,
+} from "../../../../inference/document-constraints.js"
 import {
   base64EncodedLength,
   MAX_BASE64_IMAGE_BYTES,
@@ -7,7 +14,7 @@ import {
   MAX_RAW_IMAGE_BYTES,
   SUPPORTED_IMAGE_EXTENSIONS,
 } from "../../../../inference/image-constraints.js"
-import type { DesktopImageInput } from "../../../contracts.js"
+import type { DesktopAttachmentInput } from "../../../contracts.js"
 import { Button } from "../../components/Button.js"
 import { Icon } from "../../components/Icon.js"
 import { shortModelId } from "../../format.js"
@@ -16,11 +23,27 @@ import { useDesktop, useDesktopState } from "../../runtime.js"
 import { ModelPicker } from "../models/ModelPicker.js"
 import { draftAfterSend } from "./draft.js"
 
-type PendingImage = DesktopImageInput & { id: number; previewUrl: string }
+type PendingAttachment = DesktopAttachmentInput & {
+  id: number
+  kind: "image" | "document"
+  previewUrl?: string
+}
 
-const IMAGE_ACCEPT = "image/png,image/jpeg,image/gif,image/bmp,image/tiff,.tif,.tiff,.ppm"
-const SUPPORTED_EXTENSIONS = new Set<string>(SUPPORTED_IMAGE_EXTENSIONS)
-const SUPPORTED_MIME_TYPES = new Set([
+const FILE_ACCEPT = [
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/bmp",
+  "image/tiff",
+  ...(SUPPORTED_IMAGE_EXTENSIONS as readonly string[]),
+  "text/*",
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ...(SUPPORTED_DOCUMENT_EXTENSIONS as readonly string[]),
+].join(",")
+const SUPPORTED_IMAGE_EXTENSION_SET = new Set<string>(SUPPORTED_IMAGE_EXTENSIONS)
+const SUPPORTED_DOCUMENT_EXTENSION_SET = new Set<string>(SUPPORTED_DOCUMENT_EXTENSIONS)
+const SUPPORTED_IMAGE_MIME_TYPES = new Set([
   "image/png",
   "image/x-png",
   "image/jpeg",
@@ -32,11 +55,19 @@ const SUPPORTED_MIME_TYPES = new Set([
 ])
 
 function supportedImageFile(file: File) {
-  const dot = file.name.lastIndexOf(".")
+  const extension = fileExtension(file.name)
+  return SUPPORTED_IMAGE_MIME_TYPES.has(file.type.toLowerCase()) || SUPPORTED_IMAGE_EXTENSION_SET.has(extension)
+}
+
+function supportedDocumentFile(file: File) {
   return (
-    SUPPORTED_MIME_TYPES.has(file.type.toLowerCase()) ||
-    (dot !== -1 && SUPPORTED_EXTENSIONS.has(file.name.slice(dot).toLowerCase()))
+    Boolean(normalizedDocumentMimeType(file.type)) || SUPPORTED_DOCUMENT_EXTENSION_SET.has(fileExtension(file.name))
   )
+}
+
+function fileExtension(name: string) {
+  const dot = name.lastIndexOf(".")
+  return dot === -1 ? "" : name.slice(dot).toLowerCase()
 }
 
 /**
@@ -67,35 +98,35 @@ export const Composer = memo(function Composer({ installing = false }: { install
   const [sending, setSending] = useState(false)
   const [workspaceError, setWorkspaceError] = useState<string>()
   const [pickerOpen, setPickerOpen] = useState(false)
-  const [pendingImages, setPendingImages] = useState<PendingImage[]>([])
-  const [addingImages, setAddingImages] = useState(false)
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([])
+  const [addingAttachments, setAddingAttachments] = useState(false)
   const [dragActive, setDragActive] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const imageInputRef = useRef<HTMLInputElement>(null)
-  const pendingImagesRef = useRef<PendingImage[]>([])
-  const addingImagesRef = useRef(false)
-  const nextImageId = useRef(1)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const pendingAttachmentsRef = useRef<PendingAttachment[]>([])
+  const addingAttachmentsRef = useRef(false)
+  const nextAttachmentId = useRef(1)
   const dragDepth = useRef(0)
 
   const busy = state?.busy ?? false
   const modelState = state?.modelState ?? "unconfigured"
   const needsWorkspace = state?.needsWorkspace ?? false
   const supportsImages = state?.model?.supportsImageInput === true
-  const hasMessage = draft.trim().length > 0 || pendingImages.length > 0
+  const hasPendingImage = pendingAttachments.some((attachment) => attachment.kind === "image")
+  const hasMessage = draft.trim().length > 0 || pendingAttachments.length > 0
   const canSend =
     modelState === "ready" &&
     hasMessage &&
     !sending &&
-    !addingImages &&
+    !addingAttachments &&
     !installing &&
     !needsWorkspace &&
-    (pendingImages.length === 0 || supportsImages)
-  const canAttach =
-    modelState === "ready" && supportsImages && !sending && !addingImages && !installing && !needsWorkspace
+    (!hasPendingImage || supportsImages)
+  const canAttach = modelState === "ready" && !sending && !addingAttachments && !installing && !needsWorkspace
 
-  const replacePendingImages = (images: PendingImage[]) => {
-    pendingImagesRef.current = images
-    setPendingImages(images)
+  const replacePendingAttachments = (attachments: PendingAttachment[]) => {
+    pendingAttachmentsRef.current = attachments
+    setPendingAttachments(attachments)
   }
 
   useEffect(() => {
@@ -107,72 +138,116 @@ export const Composer = memo(function Composer({ installing = false }: { install
 
   useEffect(
     () => () => {
-      for (const image of pendingImagesRef.current) URL.revokeObjectURL(image.previewUrl)
+      for (const attachment of pendingAttachmentsRef.current) {
+        if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl)
+      }
     },
     [],
   )
 
-  const addImageFiles = async (files: File[]) => {
-    if (files.length === 0 || addingImagesRef.current) return
-    if (!supportsImages) {
+  const addFiles = async (files: File[]) => {
+    if (files.length === 0 || addingAttachmentsRef.current) return
+
+    const legacyWord = files.find(
+      (file) => fileExtension(file.name) === ".doc" || file.type.toLowerCase() === "application/msword",
+    )
+    if (legacyWord) {
+      setSendError(`Legacy Word .doc files are not supported. Save ${legacyWord.name} as .docx first.`)
+      return
+    }
+    const classified = files.map((file) => ({
+      file,
+      kind: supportedImageFile(file)
+        ? ("image" as const)
+        : supportedDocumentFile(file)
+          ? ("document" as const)
+          : undefined,
+    }))
+    const unsupported = classified.find(({ kind }) => !kind)?.file
+    if (unsupported) {
+      setSendError(t("composer.unsupportedFile", { name: unsupported.name || t("composer.thatFile") }))
+      return
+    }
+    if (classified.some(({ kind }) => kind === "image") && !supportsImages) {
       setSendError(t("composer.modelNoImageInput"))
       return
     }
 
-    const current = pendingImagesRef.current
-    if (current.length + files.length > MAX_IMAGES_PER_REQUEST) {
+    const current = pendingAttachmentsRef.current
+    const currentImages = current.filter(({ kind }) => kind === "image")
+    const currentDocuments = current.filter(({ kind }) => kind === "document")
+    const newImages = classified.filter(({ kind }) => kind === "image")
+    const newDocuments = classified.filter(({ kind }) => kind === "document")
+    if (currentImages.length + newImages.length > MAX_IMAGES_PER_REQUEST) {
       setSendError(t("composer.atMostImages", { count: MAX_IMAGES_PER_REQUEST }))
       return
     }
-    const unsupported = files.find((file) => !supportedImageFile(file))
-    if (unsupported) {
-      setSendError(t("composer.unsupportedImage", { name: unsupported.name || t("composer.thatFile") }))
+    if (currentDocuments.length + newDocuments.length > MAX_DOCUMENTS_PER_MESSAGE) {
+      setSendError(`You can attach at most ${MAX_DOCUMENTS_PER_MESSAGE} documents to one message.`)
       return
     }
-    const invalidSize = files.find((file) => file.size === 0 || file.size > MAX_RAW_IMAGE_BYTES)
+    const invalidSize = classified.find(
+      ({ file, kind }) =>
+        file.size === 0 || (kind === "image" ? file.size > MAX_RAW_IMAGE_BYTES : file.size > MAX_RAW_DOCUMENT_BYTES),
+    )
     if (invalidSize) {
       setSendError(
-        invalidSize.size === 0
-          ? t("composer.imageEmpty", { name: invalidSize.name })
-          : t("composer.imageRequestLimit", { name: invalidSize.name }),
+        invalidSize.file.size === 0
+          ? t("composer.fileEmpty", { name: invalidSize.file.name })
+          : invalidSize.kind === "image"
+            ? t("composer.imageRequestLimit", { name: invalidSize.file.name })
+            : `${invalidSize.file.name} is too large. Documents must be 20 MB or smaller.`,
       )
       return
     }
     const encodedBytes =
-      current.reduce((total, image) => total + base64EncodedLength(image.bytes.byteLength), 0) +
-      files.reduce((total, file) => total + base64EncodedLength(file.size), 0)
+      currentImages.reduce((total, image) => total + base64EncodedLength(image.bytes.byteLength), 0) +
+      newImages.reduce((total, { file }) => total + base64EncodedLength(file.size), 0)
     if (encodedBytes >= MAX_BASE64_IMAGE_BYTES) {
       setSendError(t("composer.imagesRequestLimit"))
       return
     }
+    const documentBytes =
+      currentDocuments.reduce((total, document) => total + document.bytes.byteLength, 0) +
+      newDocuments.reduce((total, { file }) => total + file.size, 0)
+    if (documentBytes > MAX_TOTAL_DOCUMENT_BYTES) {
+      setSendError("Attached documents must total at most 30 MB.")
+      return
+    }
 
-    addingImagesRef.current = true
-    setAddingImages(true)
+    addingAttachmentsRef.current = true
+    setAddingAttachments(true)
     setSendError(null)
     try {
       const bytes = await Promise.all(files.map(async (file) => new Uint8Array(await file.arrayBuffer())))
-      const additions = files.map(
-        (file, index): PendingImage => ({
-          id: nextImageId.current++,
+      const additions = classified.map(
+        ({ file, kind }, index): PendingAttachment => ({
+          id: nextAttachmentId.current++,
+          kind: kind as "image" | "document",
           name: file.name,
-          mimeType: SUPPORTED_MIME_TYPES.has(file.type.toLowerCase()) ? file.type : "",
+          mimeType:
+            kind === "image"
+              ? SUPPORTED_IMAGE_MIME_TYPES.has(file.type.toLowerCase())
+                ? file.type
+                : ""
+              : (normalizedDocumentMimeType(file.type) ?? ""),
           bytes: bytes[index],
-          previewUrl: URL.createObjectURL(file),
+          ...(kind === "image" ? { previewUrl: URL.createObjectURL(file) } : {}),
         }),
       )
-      replacePendingImages([...current, ...additions])
+      replacePendingAttachments([...current, ...additions])
     } catch (error) {
-      setSendError(error instanceof Error ? error.message : t("composer.imageReadFailed"))
+      setSendError(error instanceof Error ? error.message : t("composer.fileReadFailed"))
     } finally {
-      addingImagesRef.current = false
-      setAddingImages(false)
+      addingAttachmentsRef.current = false
+      setAddingAttachments(false)
     }
   }
 
-  const removeImage = (id: number) => {
-    const image = pendingImagesRef.current.find((candidate) => candidate.id === id)
-    if (image) URL.revokeObjectURL(image.previewUrl)
-    replacePendingImages(pendingImagesRef.current.filter((candidate) => candidate.id !== id))
+  const removeAttachment = (id: number) => {
+    const attachment = pendingAttachmentsRef.current.find((candidate) => candidate.id === id)
+    if (attachment?.previewUrl) URL.revokeObjectURL(attachment.previewUrl)
+    replacePendingAttachments(pendingAttachmentsRef.current.filter((candidate) => candidate.id !== id))
     setSendError(null)
   }
 
@@ -186,18 +261,18 @@ export const Composer = memo(function Composer({ installing = false }: { install
 
   const submit = async () => {
     const text = draft
-    const images = pendingImagesRef.current
+    const attachments = pendingAttachmentsRef.current
     if (
-      (!text.trim() && images.length === 0) ||
+      (!text.trim() && attachments.length === 0) ||
       sending ||
-      addingImages ||
+      addingAttachments ||
       modelState !== "ready" ||
       installing ||
       needsWorkspace
     ) {
       return
     }
-    if (images.length > 0 && !supportsImages) {
+    if (attachments.some(({ kind }) => kind === "image") && !supportsImages) {
       setSendError(t("composer.modelNoImageInput"))
       return
     }
@@ -206,12 +281,14 @@ export const Composer = memo(function Composer({ installing = false }: { install
     try {
       const result = await api.sendPrompt(
         text,
-        images.map(({ name, mimeType, bytes }) => ({ name, mimeType, bytes })),
+        attachments.map(({ name, mimeType, bytes }) => ({ name, mimeType, bytes })),
       )
       if (result.accepted) {
         setDraft((current) => draftAfterSend(current, text, true))
-        for (const image of images) URL.revokeObjectURL(image.previewUrl)
-        replacePendingImages([])
+        for (const attachment of attachments) {
+          if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl)
+        }
+        replacePendingAttachments([])
       } else {
         setSendError(`${result.reason} ${t("composer.messageKept")}`)
       }
@@ -270,20 +347,31 @@ export const Composer = memo(function Composer({ installing = false }: { install
           event.preventDefault()
           dragDepth.current = 0
           setDragActive(false)
-          void addImageFiles(Array.from(event.dataTransfer.files))
+          void addFiles(Array.from(event.dataTransfer.files))
         }}
       >
-        {dragActive ? <div className="composer-dropOverlay">{t("composer.dropImages")}</div> : null}
-        {pendingImages.length > 0 ? (
-          <ul className="composer-attachments" aria-label={t("composer.attachedImages")}>
-            {pendingImages.map((image) => (
-              <li className="composer-attachment" key={image.id} title={image.name}>
-                <img src={image.previewUrl} alt="" />
+        {dragActive ? <div className="composer-dropOverlay">{t("composer.dropFiles")}</div> : null}
+        {pendingAttachments.length > 0 ? (
+          <ul className="composer-attachments" aria-label={t("composer.attachedFiles")}>
+            {pendingAttachments.map((attachment) => (
+              <li
+                className={`composer-attachment${attachment.kind === "document" ? " composer-attachmentDocument" : ""}`}
+                key={attachment.id}
+                title={attachment.name}
+              >
+                {attachment.previewUrl ? (
+                  <img src={attachment.previewUrl} alt="" />
+                ) : (
+                  <span className="composer-documentPreview">
+                    <Icon icon={FileText} size={22} />
+                    <span>{fileExtension(attachment.name).slice(1).toUpperCase() || "TEXT"}</span>
+                  </span>
+                )}
                 <button
                   type="button"
-                  aria-label={t("composer.removeImage", { name: image.name })}
+                  aria-label={t("composer.removeAttachment", { name: attachment.name })}
                   disabled={sending}
-                  onClick={() => removeImage(image.id)}
+                  onClick={() => removeAttachment(attachment.id)}
                 >
                   <Icon icon={X} size={11} />
                 </button>
@@ -352,28 +440,25 @@ export const Composer = memo(function Composer({ installing = false }: { install
           </span>
           <span className="composer-actions">
             <input
-              ref={imageInputRef}
+              ref={fileInputRef}
               type="file"
-              accept={IMAGE_ACCEPT}
+              accept={FILE_ACCEPT}
               multiple
               hidden
               onChange={(event) => {
-                void addImageFiles(Array.from(event.target.files ?? []))
+                void addFiles(Array.from(event.target.files ?? []))
                 event.target.value = ""
               }}
             />
-            <span
-              className="composer-uploadWrap"
-              title={supportsImages ? t("composer.addImages") : t("composer.modelNoImages")}
-            >
+            <span className="composer-uploadWrap" title={t("composer.addFiles")}>
               <button
                 type="button"
                 className="composer-upload iconBtn"
-                aria-label={t("composer.addImages")}
+                aria-label={t("composer.addFiles")}
                 disabled={!canAttach}
-                onClick={() => imageInputRef.current?.click()}
+                onClick={() => fileInputRef.current?.click()}
               >
-                <Icon icon={ImagePlus} size={14} />
+                <Icon icon={Paperclip} size={14} />
               </button>
             </span>
             {busy ? (

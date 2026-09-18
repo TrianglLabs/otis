@@ -1,5 +1,5 @@
 import { stat } from "node:fs/promises"
-import { basename, join, resolve } from "node:path"
+import { basename, extname, join, resolve } from "node:path"
 import { Application } from "../../app/application.js"
 import type { ConversationHooks, ConversationTurnResult, QueuedPrompt } from "../../app/conversation.js"
 import type { GlobalSessionPickerItem } from "../../app/global-sessions.js"
@@ -7,10 +7,12 @@ import { listGlobalSessionPickerItems, searchGlobalSessionPickerItems } from "..
 import type { TranscriptChange, TranscriptEntry } from "../../app/transcript.js"
 import { formatWorkspaceLabel } from "../../app/workspace-label.js"
 import { autoCompactThreshold } from "../../core/compaction.js"
+import { createAttachment, validateAttachments } from "../../inference/attachments.js"
 import { listToolCapableModels } from "../../inference/catalog.js"
 import { FireworksClient } from "../../inference/client.js"
 import { deleteLocalGguf, listDownloadedLocalModels } from "../../inference/gguf-cache.js"
-import { createImageAttachment, validateImageAttachments } from "../../inference/images.js"
+import { SUPPORTED_IMAGE_EXTENSIONS } from "../../inference/image-constraints.js"
+import { validateImageAttachments } from "../../inference/images.js"
 import { formatLocalLoadStatus } from "../../inference/llama-runtime.js"
 import { catalogModelFromSpec, findLocalModel } from "../../inference/local-catalog.js"
 import { createUserMessage, imageAttachmentsFromMessages } from "../../inference/messages.js"
@@ -32,7 +34,13 @@ import {
   toPairCatalogModel,
 } from "../../inference/picker-catalog.js"
 import { baseFireworksModelId, fireworksServingModel, isFastFireworksModel } from "../../inference/serving-path.js"
-import type { CatalogModel, ImageContentPart, PairCatalogModel, UserChatMessage } from "../../inference/types.js"
+import type {
+  AttachmentContentPart,
+  CatalogModel,
+  ImageContentPart,
+  PairCatalogModel,
+  UserChatMessage,
+} from "../../inference/types.js"
 import {
   clearSelectedModel,
   isThemeName,
@@ -59,8 +67,8 @@ import {
 } from "../../storage/index.js"
 import { describeToolCall } from "../../tools/activity.js"
 import type {
+  DesktopAttachmentInput,
   DesktopEvent,
-  DesktopImageInput,
   DesktopSnapshot,
   DesktopStatus,
   ModelSelectResult,
@@ -102,6 +110,8 @@ export class DesktopRuntime {
   #app: Application
   #unsubscribeTranscript: () => void
   #revision = 0
+  /** Invalidates prompt preparation when the conversation is replaced, including empty-to-empty resets. */
+  #conversationVersion = 0
   #permissionSeq = 0
   #pending: { request: PendingPermission; resolve: (allow: boolean) => void } | undefined
   #phase: TurnPhase = "idle"
@@ -173,53 +183,85 @@ export class DesktopRuntime {
     }
   }
 
-  async sendPrompt(text: string, images: readonly DesktopImageInput[] = []): Promise<SendPromptResult> {
-    // Once shutdown starts (update install), the session lock is released and no renderer receives updates.
-    if (this.#disposed) return { accepted: false, reason: "Otis is restarting to finish an update." }
-    if (this.#switching) return { accepted: false, reason: "Switching workspaces — try again in a moment." }
-    if (this.#pendingWorkspace) {
-      return { accepted: false, reason: "Locate the working folder to continue this session." }
-    }
-    // A foreign session's read-only restriction is set after its async open; prompts must not slip through first.
-    if (this.#sessionSelecting > 0) return { accepted: false, reason: "Opening the session — try again in a moment." }
-    // A live renderer sending a prompt un-gates the queue after a renderer crash; queued work never resumes on its own.
+  async sendPrompt(text: string, inputs: readonly DesktopAttachmentInput[] = []): Promise<SendPromptResult> {
+    const rejection = this.#promptRejection()
+    if (rejection) return { accepted: false, reason: rejection }
+    const app = this.app
+    const client = app.models.client
+    const conversationVersion = this.#conversationVersion
+    // A live renderer sending a prompt un-gates the queue after a renderer crash.
     this.#rendererGone = false
-    if (typeof text !== "string" || (!text.trim() && images.length === 0)) {
+    if (typeof text !== "string" || (!text.trim() && inputs.length === 0)) {
       return { accepted: false, reason: "The prompt is empty." }
     }
     if (text.length > MAX_PROMPT_CHARS) return { accepted: false, reason: "The prompt is too long." }
-    // Model switching and prompt admission are mutually exclusive: preparation may stop the server this prompt
-    // would run on, and the busy window alone does not cover the asynchronous selection span.
-    if (this.#selecting > 0) {
-      return { accepted: false, reason: "A model switch is in progress. Try again in a moment." }
-    }
-    if (!this.app.models.client) {
-      return {
-        accepted: false,
-        reason:
-          this.#modelState === "starting"
-            ? "The model is still starting. Try again in a moment."
-            : (this.#modelError ?? "No model is configured. Set up inference with the Otis CLI first."),
-      }
-    }
 
-    if (images.length > 0 && this.app.models.supportsImageInput !== true) {
+    const hasClaimedImage = inputs.some(
+      (input) =>
+        input.mimeType.toLowerCase().startsWith("image/") ||
+        (SUPPORTED_IMAGE_EXTENSIONS as readonly string[]).includes(extname(input.name).toLowerCase()),
+    )
+    if (hasClaimedImage && this.app.models.supportsImageInput !== true) {
       const modelName = this.app.settings.modelDisplayName ?? this.app.models.selectedId ?? "The selected model"
       return { accepted: false, reason: `${modelName} does not support image input. Choose a vision model.` }
     }
 
-    const attachments: ImageContentPart[] = []
-    const priorAttachments = imageAttachmentsFromMessages(this.app.transcript.history)
+    const attachments: AttachmentContentPart[] = []
     try {
-      for (const image of images) {
-        attachments.push(createImageAttachment(image.bytes, image.name, image.mimeType || undefined))
+      for (const input of inputs) {
+        attachments.push(await createAttachment(input.bytes, input.name, input.mimeType || undefined))
+        validateAttachments(attachments)
       }
-      validateImageAttachments([...priorAttachments, ...attachments])
+      // Parsing can yield while a session, workspace, model, or renderer changes. Admission must
+      // still target the conversation and model for which the user submitted these attachments.
+      const currentRejection = this.#promptRejection()
+      if (currentRejection) return { accepted: false, reason: currentRejection }
+      if (
+        this.#rendererGone ||
+        this.app !== app ||
+        this.#conversationVersion !== conversationVersion ||
+        app.models.client !== client
+      ) {
+        return {
+          accepted: false,
+          reason: "The conversation or model changed while reading attachments. Please send again.",
+        }
+      }
+      const newImages = attachments.filter((attachment): attachment is ImageContentPart => attachment.type === "image")
+      if (newImages.length > 0 && app.models.supportsImageInput !== true) {
+        const modelName = app.settings.modelDisplayName ?? app.models.selectedId ?? "The selected model"
+        return { accepted: false, reason: `${modelName} does not support image input. Choose a vision model.` }
+      }
+      validateImageAttachments([...imageAttachmentsFromMessages(app.transcript.history), ...newImages])
     } catch (error) {
       return { accepted: false, reason: error instanceof Error ? error.message : String(error) }
     }
 
-    const message = createUserMessage(text, attachments)
+    return this.#admitPrompt(createUserMessage(text, attachments))
+  }
+
+  #promptRejection(): string | undefined {
+    // Once shutdown starts (update install), the session lock is released and no renderer receives updates.
+    if (this.#disposed) return "Otis is restarting to finish an update."
+    if (this.#switching) return "Switching workspaces — try again in a moment."
+    if (this.#pendingWorkspace) {
+      return "Locate the working folder to continue this session."
+    }
+    // A foreign session's read-only restriction is set after its async open; prompts must not slip through first.
+    if (this.#sessionSelecting > 0) return "Opening the session — try again in a moment."
+    // Model switching and prompt admission are mutually exclusive: preparation may stop the server this prompt
+    // would run on, and the busy window alone does not cover the asynchronous selection span.
+    if (this.#selecting > 0) {
+      return "A model switch is in progress. Try again in a moment."
+    }
+    if (!this.app.models.client) {
+      return this.#modelState === "starting"
+        ? "The model is still starting. Try again in a moment."
+        : (this.#modelError ?? "No model is configured. Set up inference with the Otis CLI first.")
+    }
+  }
+
+  async #admitPrompt(message: UserChatMessage): Promise<SendPromptResult> {
     const { conversation } = this.app
     if (conversation.busy || this.#draining) {
       // steer() and queue() admit the prompt to the session before returning, so an accepted result here means the
@@ -1195,6 +1237,7 @@ export class DesktopRuntime {
   }
 
   #onTranscriptChange(change: TranscriptChange) {
+    if (change.op === "reset") this.#conversationVersion += 1
     this.#queuedChanges.push(change)
     this.#scheduleFlush()
   }

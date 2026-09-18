@@ -1,13 +1,19 @@
-import type { ChatMessage, ImageContentPart, UserChatMessage } from "./types.js"
+import type {
+  AttachmentContentPart,
+  ChatMessage,
+  DocumentContentPart,
+  ImageContentPart,
+  UserChatMessage,
+} from "./types.js"
 
 export const ESTIMATED_IMAGE_TOKENS = 1_024
 const CHARS_PER_TOKEN = 4
 
-export function createUserMessage(text: string, images: readonly ImageContentPart[] = []): UserChatMessage {
-  if (images.length === 0) return { role: "user", content: text }
+export function createUserMessage(text: string, attachments: readonly AttachmentContentPart[] = []): UserChatMessage {
+  if (attachments.length === 0) return { role: "user", content: text }
   return {
     role: "user",
-    content: [...images, ...(text ? [{ type: "text" as const, text }] : [])],
+    content: [...attachments, ...(text ? [{ type: "text" as const, text }] : [])],
   }
 }
 
@@ -37,6 +43,14 @@ export function userMessageImages(message: UserChatMessage): ImageContentPart[] 
   return typeof message.content === "string" ? [] : message.content.filter((part) => part.type === "image")
 }
 
+export function userMessageDocuments(message: UserChatMessage): DocumentContentPart[] {
+  return typeof message.content === "string" ? [] : message.content.filter((part) => part.type === "document")
+}
+
+export function userMessageAttachments(message: UserChatMessage): AttachmentContentPart[] {
+  return typeof message.content === "string" ? [] : message.content.filter((part) => part.type !== "text")
+}
+
 export function messagesContainImages(messages: readonly ChatMessage[]): boolean {
   return messages.some((message) => message.role === "user" && userMessageImages(message).length > 0)
 }
@@ -47,19 +61,39 @@ export function imageAttachmentsFromMessages(messages: readonly ChatMessage[]): 
 
 export function displayUserMessage(message: UserChatMessage): string {
   const text = userMessageText(message)
-  const attachments = userMessageImages(message).map((image) => `📎 ${image.name}`)
+  const attachments = userMessageAttachments(message).map((attachment) =>
+    attachment.type === "image" ? `📎 ${attachment.name}` : `📄 ${attachment.name}`,
+  )
   return [text, ...attachments].filter(Boolean).join("\n")
 }
 
 export function userMessageContentChars(message: UserChatMessage): number {
-  return userMessageText(message).length + userMessageImages(message).length * ESTIMATED_IMAGE_TOKENS * CHARS_PER_TOKEN
+  return (
+    userMessageText(message).length +
+    userMessageImages(message).length * ESTIMATED_IMAGE_TOKENS * CHARS_PER_TOKEN +
+    userMessageDocuments(message).reduce((total, document) => total + formatDocumentForModel(document).length, 0)
+  )
 }
 
-/** Produces model-readable metadata without copying base64 image data into generated prompts. */
+/** Produces model-readable content without copying base64 attachment data into generated prompts. */
 export function summarizeUserMessage(message: UserChatMessage): string {
   const text = userMessageText(message)
-  const images = userMessageImages(message).map(
-    (image) => `[Image: ${image.name} (${image.mimeType}, ${image.sizeBytes} bytes)]`,
+  const attachments = userMessageAttachments(message).map((attachment) =>
+    attachment.type === "image"
+      ? `[Image: ${attachment.name} (${attachment.mimeType}, ${attachment.sizeBytes} bytes)]`
+      : formatDocumentForModel(attachment),
   )
-  return [text, ...images].filter(Boolean).join("\n")
+  return [text, ...attachments].filter(Boolean).join("\n")
+}
+
+export function formatDocumentForModel(document: DocumentContentPart) {
+  const metadata = JSON.stringify({
+    name: document.name,
+    mimeType: document.mimeType,
+    sizeBytes: document.sizeBytes,
+    ...(document.pageCount === undefined ? {} : { pages: document.pageCount }),
+    truncated: document.truncated,
+  })
+  const truncation = document.truncated ? "\n[Extraction was truncated at Otis's document text limit.]" : ""
+  return `[Attached document ${metadata}]\n--- BEGIN EXTRACTED DOCUMENT TEXT ---\n${document.extractedText}${truncation}\n--- END EXTRACTED DOCUMENT TEXT ---`
 }

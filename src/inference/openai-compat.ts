@@ -1,5 +1,6 @@
+import { validateDocumentAttachments } from "./documents.js"
 import { validateImageAttachments } from "./images.js"
-import { imageAttachmentsFromMessages } from "./messages.js"
+import { formatDocumentForModel, imageAttachmentsFromMessages, userMessageDocuments } from "./messages.js"
 import { buildSystemPrompt } from "./system-prompt.js"
 import type { ChatMessage, StreamChatOptions, ToolDefinition } from "./types.js"
 
@@ -10,6 +11,9 @@ export function openaiChatCompletionRequest(
 ) {
   const tools = options.tools ?? []
   validateImageAttachments(imageAttachmentsFromMessages(options.messages))
+  for (const message of options.messages) {
+    if (message.role === "user") validateDocumentAttachments(userMessageDocuments(message))
+  }
   return {
     model,
     ...(extras.serviceTier ? { service_tier: extras.serviceTier } : {}),
@@ -37,12 +41,14 @@ export function openaiMessage(message: ChatMessage) {
         typeof message.content === "string"
           ? message.content
           : message.content.map((part) =>
-              part.type === "text"
-                ? part
-                : {
+              part.type === "image"
+                ? {
                     type: "image_url",
                     image_url: { url: `data:${part.mimeType};base64,${part.data}` },
-                  },
+                  }
+                : part.type === "document"
+                  ? { type: "text", text: formatDocumentForModel(part) }
+                  : part,
             ),
     }
   }

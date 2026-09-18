@@ -1,12 +1,12 @@
 import { readFile, stat } from "node:fs/promises"
-import { basename, extname, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
+import { basename, resolve } from "node:path"
 import {
   MAX_BASE64_IMAGE_BYTES,
   MAX_IMAGES_PER_REQUEST,
   MAX_RAW_IMAGE_BYTES,
   SUPPORTED_IMAGE_EXTENSIONS,
 } from "./image-constraints.js"
+import { parsePastedFilePaths } from "./pasted-paths.js"
 import type { ImageContentPart, ImageMimeType } from "./types.js"
 
 export { MAX_BASE64_IMAGE_BYTES, MAX_IMAGES_PER_REQUEST, MAX_RAW_IMAGE_BYTES } from "./image-constraints.js"
@@ -95,63 +95,7 @@ export function detectImageMimeType(bytes: Uint8Array): ImageMimeType | undefine
 
 /** Parses the shell-escaped path text emitted when files are dropped into common macOS and Linux terminals. */
 export function parsePastedImagePaths(value: string): string[] | undefined {
-  const tokens = tokenizePastedPaths(value.trim())
-  if (!tokens || tokens.length === 0) return undefined
-
-  const paths = tokens.map(normalizePastedPath)
-  if (paths.some((path) => !path || !IMAGE_FILE_EXTENSIONS.has(extname(path).toLowerCase()))) return undefined
-  return paths
-}
-
-function tokenizePastedPaths(value: string): string[] | undefined {
-  if (!value) return []
-  const tokens: string[] = []
-  let token = ""
-  let quote: "single" | "double" | undefined
-  let escaped = false
-
-  for (const character of value) {
-    if (escaped) {
-      token += character
-      escaped = false
-      continue
-    }
-    if (character === "\\" && quote !== "single") {
-      escaped = true
-      continue
-    }
-    if (character === "'" && quote !== "double") {
-      quote = quote === "single" ? undefined : "single"
-      continue
-    }
-    if (character === '"' && quote !== "single") {
-      quote = quote === "double" ? undefined : "double"
-      continue
-    }
-    if (!quote && isShellWhitespace(character)) {
-      if (token) tokens.push(token)
-      token = ""
-      continue
-    }
-    token += character
-  }
-
-  if (escaped || quote) return undefined
-  if (token) tokens.push(token)
-  return tokens
-}
-
-function isShellWhitespace(character: string) {
-  return character === " " || character === "\t" || character === "\r" || character === "\n"
-}
-
-function normalizePastedPath(value: string) {
-  if (!value.startsWith("file://")) return value
-  try {
-    return fileURLToPath(value)
-  } catch {
-    return ""
-  }
+  return parsePastedFilePaths(value, IMAGE_FILE_EXTENSIONS)
 }
 
 function normalizeMimeType(value: string): ImageMimeType | undefined {
