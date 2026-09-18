@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import { localGgufPath } from "../../src/inference/gguf-cache.js"
 import type { HardwareProbe } from "../../src/inference/hardware.js"
-import { LOCAL_MODELS } from "../../src/inference/local-catalog.js"
+import { findLocalModel, LOCAL_MODELS, localModelPackings } from "../../src/inference/local-catalog.js"
 import {
   formatContextWindow,
   isSelectablePickerItem,
@@ -21,6 +21,7 @@ const ample: HardwareProbe = {
   gpuMemoryBytes: 128 * 1024 ** 3,
   backend: "metal",
   unifiedMemory: true,
+  gpuCount: 1,
 }
 
 const tight: HardwareProbe = {
@@ -38,11 +39,14 @@ afterEach(async () => {
 describe("model picker catalog", () => {
   it.each([
     [8, ["LiquidAI/LFM2.5-2.6B"]],
-    [16, ["ornith-ai/Ornith-1.5-9B", "google/gemma-4-12B-it"]],
-    [24, ["ornith-ai/Ornith-1.5-9B", "google/gemma-4-12B-it"]],
+    [16, ["prism-ml/Ternary-Bonsai-2-27B-gguf"]],
+    [24, ["prism-ml/Ternary-Bonsai-2-27B-gguf"]],
     [32, ["Qwen/Qwen3.8-27B"]],
     [96, ["Qwen/Qwen3.8-Flash-Next"]],
+    [196, ["Qwen/Qwen3.8-Flash-Next"]],
+    [256, ["Qwen/Qwen3.8-Flash-Next"]],
     [384, ["zai-org/GLM-5.3"]],
+    [1024, ["zai-org/GLM-5.3"]],
   ])("marks the recommended fitting models at %d GB", async (memoryGB, modelIds) => {
     const items = await listModelPickerItems({
       hardware: { ...ample, totalMemoryBytes: memoryGB * 1024 ** 3, gpuMemoryBytes: memoryGB * 1024 ** 3 },
@@ -54,6 +58,89 @@ describe("model picker catalog", () => {
 
     expect(recommended.map((model) => model.id)).toEqual(modelIds)
     expect(recommended.every((model) => model.available)).toBe(true)
+  })
+
+  it.each([
+    [16, "PTQ1_0"],
+    [24, "PQ2_0"],
+  ])("shows the selected Bonsai packing at %d GB", async (memoryGB, quant) => {
+    const items = await listModelPickerItems({
+      hardware: { ...ample, totalMemoryBytes: memoryGB * 1024 ** 3, gpuMemoryBytes: memoryGB * 1024 ** 3 },
+      dataDirectory: await tempDir(),
+    })
+    const bonsai = items.find(
+      (item): item is LocalPickerChoice =>
+        item.kind === "model" && item.provider === "local" && item.id === "prism-ml/Ternary-Bonsai-2-27B-gguf",
+    )
+    expect(bonsai?.availabilityLabel).toContain(`· ${quant} ·`)
+  })
+
+  it.each([8188, 12288, 16380])("stars the compatible Bonsai packing with %d MiB of Vulkan VRAM", async (gpuMiB) => {
+    const items = await listModelPickerItems({
+      hardware: {
+        platform: "linux",
+        arch: "x64",
+        backend: "vulkan",
+        unifiedMemory: false,
+        gpuCount: 1,
+        totalMemoryBytes: 15.8 * 1024 ** 3,
+        gpuMemoryBytes: gpuMiB * 1024 ** 2,
+      },
+      dataDirectory: await tempDir(),
+    })
+    const starred = items.filter(
+      (item): item is LocalPickerChoice => item.kind === "model" && item.provider === "local" && item.recommended,
+    )
+    expect(starred).toHaveLength(1)
+    expect(starred[0]?.id).toBe("prism-ml/Ternary-Bonsai-2-27B-gguf")
+    expect(starred[0]?.availabilityLabel).toContain("· PTQ1_0 ·")
+  })
+
+  it.each([
+    [8, 256, "prism-ml/Ternary-Bonsai-2-27B-gguf"],
+    [24, 256, "Qwen/Qwen3.8-27B"],
+    [48, 256, "Qwen/Qwen3.8-27B"],
+    [80, 128, "Qwen/Qwen3.8-Flash-Next"],
+    [96, 16, "prism-ml/Ternary-Bonsai-2-27B-gguf"],
+  ])("stars the shared GPU-aware choice with %d GiB VRAM and %d GiB RAM", async (gpuGiB, ramGiB, id) => {
+    const items = await listModelPickerItems({
+      hardware: {
+        platform: "linux",
+        arch: "x64",
+        backend: "vulkan",
+        unifiedMemory: false,
+        gpuCount: 1,
+        totalMemoryBytes: ramGiB * 1024 ** 3,
+        gpuMemoryBytes: gpuGiB * 1024 ** 3,
+      },
+      dataDirectory: await tempDir(),
+    })
+    const starred = items.filter(
+      (item): item is LocalPickerChoice => item.kind === "model" && item.provider === "local" && item.recommended,
+    )
+    expect(starred.map((item) => item.id)).toEqual([id])
+    expect(starred.every(isSelectablePickerItem)).toBe(true)
+  })
+
+  it("distinguishes the selected Bonsai packing from another cached packing", async () => {
+    const model = findLocalModel("prism-ml/Ternary-Bonsai-2-27B-gguf")
+    const compact = model && localModelPackings(model).find(({ quant }) => quant === "PTQ1_0")
+    if (!model || !compact) throw new Error("missing Bonsai packing")
+    const directory = await tempDir()
+    const path = localGgufPath(compact, directory)
+    await mkdir(join(directory, "models"), { recursive: true })
+    await writeFile(path, "")
+    await truncate(path, compact.ggufFiles[0].size)
+
+    const items = await listModelPickerItems({
+      hardware: { ...ample, totalMemoryBytes: 24 * 1024 ** 3, gpuMemoryBytes: 24 * 1024 ** 3 },
+      dataDirectory: directory,
+    })
+    const bonsai = items.find(
+      (item): item is LocalPickerChoice => item.kind === "model" && item.provider === "local" && item.id === model.id,
+    )
+    expect(bonsai).toMatchObject({ downloaded: false, hasDownloadedPacking: true })
+    expect(bonsai?.availabilityLabel).toContain("· PQ2_0 ·")
   })
 
   it("lists official local models above hosted entries", async () => {
@@ -145,6 +232,7 @@ describe("model picker catalog", () => {
       gpuMemoryBytes: 8 * 1024 ** 3,
       backend: "vulkan",
       unifiedMemory: false,
+      gpuCount: 1,
     }
     const directory = await tempDir()
     const items = await listModelPickerItems({ hardware: smallGpu, dataDirectory: directory })
@@ -351,6 +439,7 @@ describe("model picker catalog", () => {
       "Est. 256K",
       "Est. 256K",
       "Est. 128K",
+      "Est. 256K",
       "Est. 256K",
       "Est. 256K",
       "Est. 256K",

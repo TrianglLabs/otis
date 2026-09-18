@@ -191,9 +191,10 @@ export class ModelHost {
       const hardware = await detectHardware()
       options.signal.throwIfAborted()
       const fit = fitLocalModel(spec, hardware)
+      const selectedSpec = fit.model
       let serving: LocalServingEndpoint
       try {
-        serving = await this.llama.ensureServing(spec, fit, hardware, {
+        serving = await this.llama.ensureServing(selectedSpec, fit, hardware, {
           signal: options.signal,
           onProgress: (progress) => {
             if (prepareId !== this.#prepareId || options.signal.aborted || exiting()) return
@@ -208,8 +209,8 @@ export class ModelHost {
       const activeModel = { ...model, contextLength: serving.contextLength }
       return transactionalSelection(activeModel, {
         commit: () => {
-          this.activeLocal = { spec, fit, hardware, contextLength: serving.contextLength }
-          this.activate(activeModel, new LlamaCppClient({ model: spec.id, inferenceURL: serving.inferenceURL }))
+          this.activeLocal = { spec: selectedSpec, fit, hardware, contextLength: serving.contextLength }
+          this.activate(activeModel, new LlamaCppClient({ model: selectedSpec.id, inferenceURL: serving.inferenceURL }))
         },
         rollback: async ({ restorePrevious }) => {
           if (restorePrevious) await this.restorePrevious(previousLocal, undefined, options.signal)
@@ -287,17 +288,18 @@ export class ModelHost {
       if (!spec) throw new Error(`Unknown local model: ${options.modelId}`)
       const hardware = await detectHardware()
       const fit = fitLocalModel(spec, hardware)
-      const serving = await this.llama.ensureServing(spec, fit, hardware, { signal: options.signal })
-      const client = new LlamaCppClient({ model: spec.id, inferenceURL: serving.inferenceURL })
-      const model = catalogModelFromSpec(spec, serving.contextLength)
-      this.activeLocal = { spec, fit, hardware, contextLength: serving.contextLength }
+      const selectedSpec = fit.model
+      const serving = await this.llama.ensureServing(selectedSpec, fit, hardware, { signal: options.signal })
+      const client = new LlamaCppClient({ model: selectedSpec.id, inferenceURL: serving.inferenceURL })
+      const model = catalogModelFromSpec(selectedSpec, serving.contextLength)
+      this.activeLocal = { spec: selectedSpec, fit, hardware, contextLength: serving.contextLength }
       this.activate(model, client)
       return {
         client,
-        modelId: spec.id,
+        modelId: selectedSpec.id,
         provider: "local",
         contextLength: serving.contextLength,
-        supportsImageInput: spec.supportsImageInput,
+        supportsImageInput: selectedSpec.supportsImageInput,
       }
     }
 

@@ -12,7 +12,7 @@ import {
   localGgufPath,
   localGgufPaths,
 } from "../../src/inference/gguf-cache.js"
-import { findLocalModel, type LocalModelSpec } from "../../src/inference/local-catalog.js"
+import { findLocalModel, type LocalModelSpec, localModelPackings } from "../../src/inference/local-catalog.js"
 
 const tempDirectories: string[] = []
 
@@ -204,6 +204,32 @@ describe("local GGUF cache", () => {
     await expect(listDownloadedLocalModels(directory)).resolves.toEqual([])
     await expect(stat(`${dest}.partial`)).rejects.toMatchObject({ code: "ENOENT" })
     await expect(stat(`${dest}.otis.json`)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("discovers and deletes every cached packing of one model", async () => {
+    const model = findLocalModel("prism-ml/Ternary-Bonsai-2-27B-gguf")
+    if (!model) throw new Error("missing Bonsai catalog entry")
+    const directory = await tempDir()
+    await mkdir(join(directory, "models"), { recursive: true })
+    const paths = localModelPackings(model).map((packing) => localGgufPath(packing, directory))
+    for (const [index, path] of paths.entries()) {
+      await writeFile(path, "")
+      await truncate(path, model.packings?.[index]?.ggufFiles[0].size ?? 0)
+      await writeFile(`${path}.partial`, "unfinished")
+      await writeFile(`${path}.otis.json`, "manifest")
+    }
+
+    await expect(listDownloadedLocalModels(directory)).resolves.toEqual([
+      expect.objectContaining({ id: model.id, quant: "PTQ1_0" }),
+    ])
+    await deleteLocalGguf(model, directory)
+
+    await expect(listDownloadedLocalModels(directory)).resolves.toEqual([])
+    for (const path of paths) {
+      await expect(stat(path)).rejects.toMatchObject({ code: "ENOENT" })
+      await expect(stat(`${path}.partial`)).rejects.toMatchObject({ code: "ENOENT" })
+      await expect(stat(`${path}.otis.json`)).rejects.toMatchObject({ code: "ENOENT" })
+    }
   })
 
   it("builds an immutable Hugging Face resolve URL", () => {

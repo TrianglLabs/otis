@@ -5,7 +5,7 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { localGgufPath } from "../../src/inference/gguf-cache.js"
-import { type HardwareProbe, inferenceMemoryBudget } from "../../src/inference/hardware.js"
+import type { HardwareProbe } from "../../src/inference/hardware.js"
 import {
   formatLocalLoadStatus,
   LlamaCppRuntime,
@@ -21,6 +21,7 @@ const hardware: HardwareProbe = {
   gpuMemoryBytes: 64 * 1024 ** 3,
   backend: "metal",
   unifiedMemory: true,
+  gpuCount: 1,
 }
 
 const pinnedArchiveURL =
@@ -82,7 +83,7 @@ describe("llama.cpp runtime", () => {
     expect(binary).toBe(join(directory, "bin", "b10666", "llama-server"))
     expect(await readFile(join(dirname(binary as string), "libllama.dylib"), "utf8")).toBe("llama library")
     await expect(readFile(join(dirname(binary as string), ".otis-runtime.json"), "utf8")).resolves.toContain(
-      `"artifactSha256":"${fakeRuntimeAsset(hardware).sha256}"`,
+      `"artifactSha256":"${fakeRuntimeAsset(hardware, "upstream").sha256}"`,
     )
     expect(await readFile(join(dirname(binary as string), "ggml-metal.metal"), "utf8")).toBe("metal backend")
     await runtime.stop()
@@ -121,6 +122,112 @@ describe("llama.cpp runtime", () => {
     expect(urls).not.toContain(pinnedArchiveURL)
     await expect(stat(join(directory, "bin", "b10667"))).rejects.toMatchObject({ code: "ENOENT" })
     await runtime.stop()
+  })
+
+  it("uses the pinned Prism runtime only for Bonsai and preserves the upstream bundle", async () => {
+    const model = findLocalModel("prism-ml/Ternary-Bonsai-2-27B-gguf")
+    if (!model) throw new Error("missing Bonsai catalog entry")
+    const fit = fitLocalModel(model, hardware)
+    const directory = await tempDir()
+    await cacheWeights(fit.model, directory)
+    const upstream = await installFakeBinary(directory, "b10666")
+    const prismArchiveURL =
+      "https://github.com/PrismML-Eng/llama.cpp/releases/download/prism-b10685-7dffb15/test-prism.tar.gz"
+    const selectedRuntimes: string[] = []
+    let command = ""
+    const runtime = new LlamaCppRuntime({
+      env: {},
+      runtimeAsset: (_target, selectedRuntime) => {
+        selectedRuntimes.push(selectedRuntime)
+        return {
+          name: "test-prism.tar.gz",
+          url: prismArchiveURL,
+          size: archiveBody.byteLength,
+          sha256: createHash("sha256").update(archiveBody).digest("hex"),
+        }
+      },
+      dataDirectory: directory,
+      allocatePort: async () => 18774,
+      spawn: ((nextCommand) => {
+        command = String(nextCommand)
+        return fakeChild()
+      }) as LlamaCppRuntimeOptions["spawn"],
+      fetch: (async (input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url === prismArchiveURL) return new Response(archiveBody)
+        if (url.includes("/health")) return new Response("ok")
+        if (url.includes("/props")) return runtimeProperties(fit.contextLength)
+        return new Response("missing", { status: 404 })
+      }) as typeof fetch,
+      extractArchive: async (_archive, destination) => {
+        const bundle = join(destination, "bin")
+        await mkdir(bundle, { recursive: true })
+        await writeFile(join(bundle, "llama-server"), "prism server")
+        await writeFile(join(bundle, "libllama.dylib"), "llama library")
+        await writeFile(join(bundle, "libggml.dylib"), "ggml library")
+      },
+    })
+
+    await runtime.ensureServing(model, fit, hardware)
+
+    expect(selectedRuntimes).toEqual(["prism"])
+    expect(command).toBe(join(directory, "bin", "prism-b10685-7dffb15", "llama-server"))
+    await expect(stat(upstream)).resolves.toBeDefined()
+    await runtime.stop()
+  })
+
+  it.each([
+    "packing",
+    "revision",
+    "checksum",
+  ] as const)("restarts the same model when its %s changes", async (change) => {
+    const first = tinyModel(catalogModel(), new Uint8Array([1, 2, 3, 4]))
+    const second: LocalModelSpec = {
+      ...first,
+      ...(change === "packing"
+        ? {
+            quant: "different-packing",
+            ggufFiles: [{ ...first.ggufFiles[0], name: "other.gguf" }],
+          }
+        : {}),
+      ...(change === "revision" ? { ggufRevision: "a".repeat(40) } : {}),
+      ...(change === "checksum" ? { ggufFiles: [{ ...first.ggufFiles[0], sha256: "a".repeat(64) }] } : {}),
+    }
+    const directory = await tempDir()
+    await cacheWeights(first, directory)
+    const children: ReturnType<typeof fakeChild>[] = []
+    const spawnedPaths: string[] = []
+    const runtime = new LlamaCppRuntime({
+      env: { OTIS_LLAMA_SERVER: process.execPath },
+      dataDirectory: directory,
+      allocatePort: async () => 18775,
+      spawn: ((_command, args) => {
+        const child = fakeChild()
+        children.push(child)
+        if (!Array.isArray(args)) throw new Error("Expected llama-server arguments")
+        const modelIndex = args.indexOf("--model")
+        spawnedPaths.push(String(args[modelIndex + 1]))
+        return child
+      }) as LlamaCppRuntimeOptions["spawn"],
+      fetch: (async (input) => {
+        if (String(input).endsWith("/props")) return runtimeProperties(65_536)
+        if (String(input).endsWith("/health")) return new Response("ok")
+        throw new Error("Unexpected download")
+      }) as typeof fetch,
+    })
+    try {
+      await runtime.ensureServing(first, fitLocalModel(first, hardware), hardware)
+      await runtime.ensureServing(first, fitLocalModel(first, hardware), hardware)
+      expect(children).toHaveLength(1)
+
+      await cacheWeights(second, directory)
+      await runtime.ensureServing(second, fitLocalModel(second, hardware), hardware)
+      expect(children).toHaveLength(2)
+      expect(children[0]?.exitCode).toBe(0)
+      expect(spawnedPaths).toEqual([localGgufPath(first, directory), localGgufPath(second, directory)])
+    } finally {
+      await runtime.stop()
+    }
   })
 
   it("reports the runtime phase and retries a transient gateway failure", async () => {
@@ -492,7 +599,49 @@ describe("llama.cpp runtime", () => {
     await runtime.stop()
   })
 
-  it("downloads the GGUF then starts llama-server with a local model path", async () => {
+  it.each([
+    ["unified memory", hardware, 9831],
+    [
+      "two GPUs",
+      {
+        ...hardware,
+        platform: "linux",
+        arch: "x64",
+        backend: "vulkan",
+        unifiedMemory: false,
+        gpuCount: 2,
+        gpuMemoryBytes: 32 * 1024 ** 3,
+      },
+      1024,
+    ],
+    [
+      "unknown VRAM",
+      {
+        ...hardware,
+        platform: "linux",
+        arch: "x64",
+        backend: "vulkan",
+        unifiedMemory: false,
+        totalMemoryBytes: 128 * 1024 ** 3,
+        gpuCount: 1,
+        gpuMemoryBytes: undefined,
+      },
+      1024,
+    ],
+    [
+      "CPU",
+      {
+        ...hardware,
+        platform: "linux",
+        arch: "x64",
+        backend: "cpu",
+        unifiedMemory: false,
+        gpuCount: 0,
+        gpuMemoryBytes: undefined,
+      },
+      6554,
+    ],
+  ] as const)("downloads the GGUF and passes the per-device margin for %s", async (_label, hardware, targetMiB) => {
     const catalog = findLocalModel("openai/gpt-oss-20b")
     if (!catalog) throw new Error("missing catalog entry")
     const spawned: string[][] = []
@@ -534,7 +683,7 @@ describe("llama.cpp runtime", () => {
         "--fit",
         "on",
         "--fit-target",
-        String(inferenceMemoryBudget(hardware).deviceHeadroomBytes / 1024 ** 2),
+        String(targetMiB),
         "--fit-ctx",
         "65536",
       ]),
@@ -709,6 +858,7 @@ describe("llama.cpp runtime", () => {
       arch: "x64",
       backend: "cpu",
       unifiedMemory: false,
+      gpuCount: 1,
     }
     const spawnRuntime = vi.fn()
     const runtime = new LlamaCppRuntime({
@@ -802,7 +952,7 @@ describe("llama.cpp runtime", () => {
     const runtime = new LlamaCppRuntime({
       env: {},
       dataDirectory: directory,
-      runtimeAsset: () => ({ ...fakeRuntimeAsset(hardware), sha256: "0".repeat(64) }),
+      runtimeAsset: () => ({ ...fakeRuntimeAsset(hardware, "upstream"), sha256: "0".repeat(64) }),
       spawn: spawnRuntime as LlamaCppRuntimeOptions["spawn"],
       extractArchive,
       fetch: (async () => new Response(archiveBody)) as typeof fetch,

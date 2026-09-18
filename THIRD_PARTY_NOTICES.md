@@ -1044,8 +1044,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ## llama.cpp
 
-Otis downloads official [llama.cpp](https://github.com/ggml-org/llama.cpp) `llama-server` binaries from the pinned
-`b10622` GitHub Release for local inference. llama.cpp is distributed under the MIT License:
+Otis downloads [llama.cpp](https://github.com/ggml-org/llama.cpp) `llama-server` binaries from the pinned upstream
+`b10666` GitHub Release for local inference. Bonsai 2 uses binaries from Prism's pinned
+[llama.cpp fork](https://github.com/PrismML-Eng/llama.cpp) release `prism-b10685-7dffb15`. Both are distributed under
+the MIT License:
 
 MIT License
 

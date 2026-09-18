@@ -61,6 +61,7 @@ const DEMO_MODELS: ModelPickerChoice[] = [
     available: true,
     recommended: true,
     availabilityLabel: "Est. 32K · Q4_K_M · 18.5 GB",
+    hasDownloadedPacking: true,
     downloaded: true,
     active: false,
   },
@@ -74,6 +75,7 @@ const DEMO_MODELS: ModelPickerChoice[] = [
     available: true,
     recommended: false,
     availabilityLabel: "Est. 64K · MXFP4 · 63 GB",
+    hasDownloadedPacking: false,
     downloaded: false,
     active: false,
   },
@@ -88,6 +90,7 @@ const DEMO_MODELS: ModelPickerChoice[] = [
     available: false,
     recommended: false,
     availabilityLabel: "Needs 390 GB",
+    hasDownloadedPacking: true,
     downloaded: true,
     active: false,
   },
@@ -101,6 +104,7 @@ const DEMO_MODELS: ModelPickerChoice[] = [
     available: false,
     recommended: false,
     availabilityLabel: "Needs 48 GB",
+    hasDownloadedPacking: false,
     downloaded: false,
     active: false,
   },
@@ -150,7 +154,9 @@ class DemoRuntime implements DesktopApi {
   #permissionResolve: ((allow: boolean) => void) | undefined
   #modelTimer: ReturnType<typeof setTimeout> | undefined
   #modelSeq = 0
-  #deletedLocalIds = new Set<string>()
+  #downloadedLocalIds = new Set(
+    DEMO_MODELS.filter((item) => item.provider === "local" && item.downloaded).map((item) => item.id),
+  )
 
   async getWindowState() {
     return this.windowStateApi?.getWindowState() ?? { fullscreen: false }
@@ -505,12 +511,12 @@ class DemoRuntime implements DesktopApi {
       const active = current?.provider === item.provider && current.id === item.id
       const status = load?.modelId === key ? load.status : undefined
       // Deleted weights are gone from disk: the row returns to its downloadable state.
-      const downloaded = "downloaded" in item && item.downloaded && !this.#deletedLocalIds.has(item.id)
+      const downloaded = this.#downloadedLocalIds.has(item.id)
       return {
         ...item,
         active,
         ...(status ? { status } : {}),
-        ...("downloaded" in item ? { downloaded } : {}),
+        ...(item.provider === "local" ? { downloaded, hasDownloadedPacking: downloaded } : {}),
       }
     })
     return [
@@ -565,7 +571,7 @@ class DemoRuntime implements DesktopApi {
     if (!known) return { ok: false, reason: "That model is not in the local catalog." }
     // Slow enough to review the pending state, like deleting hundreds of GBs for real.
     await new Promise((resolve) => setTimeout(resolve, 1200))
-    this.#deletedLocalIds.add(id)
+    this.#downloadedLocalIds.delete(id)
     // Deleting the active managed model clears the selection, like the real runtime.
     const deletingActive = this.#state.model?.provider === "local" && this.#state.model.id === id
     if (deletingActive) {
@@ -601,7 +607,7 @@ class DemoRuntime implements DesktopApi {
           return
         }
         // The simulated download put the weights back on disk: the row is deletable again.
-        this.#deletedLocalIds.delete(item.id)
+        this.#downloadedLocalIds.add(item.id)
         this.#activateModel(item)
         resolve({ ok: true })
       }

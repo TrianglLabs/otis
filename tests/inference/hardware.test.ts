@@ -10,6 +10,7 @@ describe("hardware detection", () => {
     expect(hardware).toMatchObject({
       backend: "metal",
       unifiedMemory: true,
+      gpuCount: 1,
       gpuMemoryBytes: 64 * 1024 ** 3,
     })
     const budget = inferenceMemoryBudget(hardware)
@@ -23,8 +24,13 @@ describe("hardware detection", () => {
       nvidiaSmi: async () => "24576\n8192\n",
     })
     expect(hardware.backend).toBe("vulkan")
+    expect(hardware.gpuCount).toBe(2)
     expect(hardware.gpuMemoryBytes).toBe((24576 + 8192) * 1024 * 1024)
     expect(hardware.unifiedMemory).toBe(false)
+    expect(inferenceMemoryBudget(hardware)).toEqual({
+      deviceHeadroomBytes: 1024 ** 3,
+      gpuWeightBudgetBytes: 30 * 1024 ** 3,
+    })
     expect(availableModelMemory(hardware)).toBe(32 * 1024 ** 3 - 3_277 * 1024 ** 2)
   })
 
@@ -36,6 +42,7 @@ describe("hardware detection", () => {
       gpuMemoryBytes: 8 * 1024 ** 3,
       backend: "vulkan" as const,
       unifiedMemory: false,
+      gpuCount: 1,
     }
     expect(inferenceMemoryBudget(hardware).deviceHeadroomBytes).toBe(1024 ** 3)
     expect(availableModelMemory(hardware)).toBe(32 * 1024 ** 3 - 3_277 * 1024 ** 2)
@@ -49,9 +56,13 @@ describe("hardware detection", () => {
       gpuMemoryBytes: 32 * 1024 ** 3,
       backend: "vulkan" as const,
       unifiedMemory: false,
+      gpuCount: 1,
     }
 
-    expect(inferenceMemoryBudget(hardware)).toEqual({ deviceHeadroomBytes: 1024 ** 3 })
+    expect(inferenceMemoryBudget(hardware)).toEqual({
+      deviceHeadroomBytes: 1024 ** 3,
+      gpuWeightBudgetBytes: 31 * 1024 ** 3,
+    })
   })
 
   it("uses Vulkan for a vendor-neutral Linux render device", async () => {
@@ -64,16 +75,40 @@ describe("hardware detection", () => {
     expect(hardware).toMatchObject({ backend: "vulkan", gpuMemoryBytes: 16 * 1024 ** 3 })
   })
 
-  it("uses Vulkan when a Linux render device does not report dedicated memory", async () => {
+  it.each([16, 128, 512])("keeps GPU headroom independent of %d GiB host RAM when VRAM is unknown", async (ramGiB) => {
     const hardware = await detectHardware({
-      env: { platform: "linux", arch: "arm64", totalMemoryBytes: 32 * 1024 ** 3 },
+      env: { platform: "linux", arch: "arm64", totalMemoryBytes: ramGiB * 1024 ** 3 },
       nvidiaSmi: async () => undefined,
       linuxGraphics: async () => [{}],
     })
 
-    expect(hardware).toMatchObject({ backend: "vulkan" })
+    expect(hardware).toMatchObject({ backend: "vulkan", gpuCount: 1 })
     expect(hardware.gpuMemoryBytes).toBeUndefined()
-    expect(inferenceMemoryBudget(hardware).deviceHeadroomBytes).toBe(3_277 * 1024 ** 2)
+    expect(inferenceMemoryBudget(hardware)).toEqual({ deviceHeadroomBytes: 1024 ** 3 })
+  })
+
+  it("reserves headroom for every vendor-neutral GPU", async () => {
+    const hardware = await detectHardware({
+      env: { platform: "linux", arch: "x64", totalMemoryBytes: 64 * 1024 ** 3 },
+      nvidiaSmi: async () => undefined,
+      linuxGraphics: async () => [{ memoryTotalBytes: 16 * 1024 ** 3 }, { memoryTotalBytes: 8 * 1024 ** 3 }],
+    })
+    expect(hardware).toMatchObject({ gpuCount: 2, gpuMemoryBytes: 24 * 1024 ** 3 })
+    expect(inferenceMemoryBudget(hardware)).toEqual({
+      deviceHeadroomBytes: 1024 ** 3,
+      gpuWeightBudgetBytes: 22 * 1024 ** 3,
+    })
+  })
+
+  it.each(["nvidia", "drm"])("retains the GPU count when %s reports incomplete VRAM", async (probe) => {
+    const hardware = await detectHardware({
+      env: { platform: "linux", arch: "x64", totalMemoryBytes: 128 * 1024 ** 3 },
+      nvidiaSmi: async () => (probe === "nvidia" ? "24576\n[N/A]\n" : undefined),
+      linuxGraphics: async () => [{ memoryTotalBytes: 24 * 1024 ** 3 }, {}],
+    })
+    expect(hardware).toMatchObject({ backend: "vulkan", gpuCount: 2 })
+    expect(hardware.gpuMemoryBytes).toBeUndefined()
+    expect(inferenceMemoryBudget(hardware)).toEqual({ deviceHeadroomBytes: 1024 ** 3 })
   })
 
   it("falls back to CPU when no GPU is reported", async () => {
@@ -84,7 +119,8 @@ describe("hardware detection", () => {
       },
       linuxGraphics: async () => [],
     })
-    expect(hardware).toMatchObject({ backend: "cpu", unifiedMemory: false })
+    expect(hardware).toMatchObject({ backend: "cpu", unifiedMemory: false, gpuCount: 0 })
     expect(hardware.gpuMemoryBytes).toBeUndefined()
+    expect(inferenceMemoryBudget(hardware)).toEqual({ deviceHeadroomBytes: 2 * 1024 ** 3 })
   })
 })

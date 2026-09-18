@@ -178,7 +178,7 @@ function ModelRow({
   const status = "status" in item ? item.status : undefined
   const loading = status?.kind === "progress"
   // Only a downloaded managed-local model has files on this machine to remove.
-  const deletable = item.provider === "local" && "downloaded" in item && item.downloaded && !loading
+  const deletable = item.provider === "local" && "hasDownloadedPacking" in item && item.hasDownloadedPacking && !loading
   return (
     <div className={`modelPicker-row${item.active ? " active" : ""}`}>
       {deleting ? (

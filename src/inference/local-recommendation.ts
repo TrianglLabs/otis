@@ -1,28 +1,44 @@
-const GIBIBYTE = 1024 ** 3
+import { type HardwareProbe, inferenceMemoryBudget } from "./hardware.js"
+import { supportsLlamaCppTarget } from "./llama-binary.js"
+import { findLocalModel, localModelWeightBytes } from "./local-catalog.js"
+import { fitLocalModel } from "./local-fit.js"
 
-const MINIMUM_LOCAL_MEMORY_BYTES = 8 * GIBIBYTE
-const ORNITH_MEMORY_BYTES = 16 * GIBIBYTE
-const QWEN_MEMORY_BYTES = 32 * GIBIBYTE
-const QWEN_FLASH_NEXT_MEMORY_BYTES = 96 * GIBIBYTE
-const GLM_FLASH_MEMORY_BYTES = 196 * GIBIBYTE
-const GLM_MEMORY_BYTES = 384 * GIBIBYTE
-const MAXIMUM_RECOMMENDED_MEMORY_BYTES = 512 * GIBIBYTE
+// Curated preference order, not a ranking inferred from parameter count or file size.
+// Peers in a group are offered together; an unavailable group falls back to the next.
+const RECOMMENDATION_GROUPS: readonly (readonly string[])[] = [
+  ["zai-org/GLM-5.3"],
+  ["Qwen/Qwen3.8-Flash-Next"],
+  ["Qwen/Qwen3.8-27B"],
+  ["prism-ml/Ternary-Bonsai-2-27B-gguf"],
+  ["ornith-ai/Ornith-1.5-9B", "google/gemma-4-12B-it"],
+  ["LiquidAI/LFM2.5-2.6B"],
+]
 
-export function recommendedLocalModelIds(totalMemoryBytes: number): readonly string[] {
+export function recommendedLocalModelIds(hardware: HardwareProbe): readonly string[] {
   if (
-    !Number.isFinite(totalMemoryBytes) ||
-    totalMemoryBytes < MINIMUM_LOCAL_MEMORY_BYTES ||
-    totalMemoryBytes > MAXIMUM_RECOMMENDED_MEMORY_BYTES
+    !supportsLlamaCppTarget(hardware) ||
+    !Number.isFinite(hardware.totalMemoryBytes) ||
+    hardware.totalMemoryBytes <= 0
   ) {
     return []
   }
-  if (totalMemoryBytes < ORNITH_MEMORY_BYTES) return ["LiquidAI/LFM2.5-2.6B"]
-  if (totalMemoryBytes < QWEN_MEMORY_BYTES) {
-    return ["ornith-ai/Ornith-1.5-9B", "google/gemma-4-12B-it"]
+
+  // Unknown VRAM cannot establish weight residency. Use host fit in that case,
+  // just as for CPU inference; this is not a promise of GPU acceleration.
+  const gpuWeightBudget = inferenceMemoryBudget(hardware).gpuWeightBudgetBytes
+  if (gpuWeightBudget !== undefined && (!Number.isFinite(gpuWeightBudget) || gpuWeightBudget <= 0)) return []
+
+  for (const group of RECOMMENDATION_GROUPS) {
+    const fitting = group.filter((id) => {
+      const model = findLocalModel(id)
+      if (!model) return false
+      const fit = fitLocalModel(model, hardware)
+      // Host fit includes KV cache at the minimum context and runtime overhead.
+      // Dedicated VRAM must hold the selected weights after device headroom;
+      // KV/compute buffers may still require hybrid offload, especially at 64K+.
+      return fit.available && (gpuWeightBudget === undefined || localModelWeightBytes(fit.model) <= gpuWeightBudget)
+    })
+    if (fitting.length > 0) return fitting
   }
-  if (totalMemoryBytes < QWEN_FLASH_NEXT_MEMORY_BYTES) return ["Qwen/Qwen3.8-27B"]
-  if (totalMemoryBytes < GLM_FLASH_MEMORY_BYTES) return ["Qwen/Qwen3.8-Flash-Next"]
-  // GLM-5.3-Flash remains unlisted until its upstream llama.cpp support lands.
-  if (totalMemoryBytes < GLM_MEMORY_BYTES) return []
-  return ["zai-org/GLM-5.3"]
+  return []
 }

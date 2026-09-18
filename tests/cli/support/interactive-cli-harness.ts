@@ -146,6 +146,7 @@ const mocks = vi.hoisted(() => {
       gpuMemoryBytes: 128 * 1024 ** 3,
       backend: "metal" as const,
       unifiedMemory: true,
+      gpuCount: 1,
     })),
     ensureLocalServing: vi.fn(
       async (
@@ -320,6 +321,7 @@ beforeEach(() => {
     gpuMemoryBytes: 128 * 1024 ** 3,
     backend: "metal",
     unifiedMemory: true,
+    gpuCount: 1,
   })
   mocks.ensureLocalServing.mockImplementation(
     async (

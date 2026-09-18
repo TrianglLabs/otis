@@ -15,13 +15,19 @@ export type HardwareProbe = {
   platform: NodeJS.Platform
   arch: string
   totalMemoryBytes: number
+  /** Number of detected GPUs, including devices whose VRAM is unknown. */
+  gpuCount: number
+  /** Combined GPU capacity; omitted unless every detected device reports memory. */
   gpuMemoryBytes?: number
   backend: HardwareBackend
   unifiedMemory: boolean
 }
 
 export type InferenceMemoryBudget = {
+  /** Per-device margin passed to llama.cpp, which broadcasts it to every device. */
   deviceHeadroomBytes: number
+  /** Aggregate dedicated VRAM after reserving headroom on every GPU. */
+  gpuWeightBudgetBytes?: number
 }
 
 export type HardwareDetectOptions = {
@@ -48,6 +54,7 @@ export async function detectHardware(options: HardwareDetectOptions = {}): Promi
       platform,
       arch,
       totalMemoryBytes,
+      gpuCount: 1,
       gpuMemoryBytes: totalMemoryBytes,
       backend: "metal",
       unifiedMemory: true,
@@ -61,6 +68,7 @@ export async function detectHardware(options: HardwareDetectOptions = {}): Promi
         platform,
         arch,
         totalMemoryBytes,
+        gpuCount: nvidia.count,
         gpuMemoryBytes: nvidia.totalBytes,
         backend: "vulkan",
         unifiedMemory: false,
@@ -73,6 +81,7 @@ export async function detectHardware(options: HardwareDetectOptions = {}): Promi
         platform,
         arch,
         totalMemoryBytes,
+        gpuCount: graphics.count,
         ...(graphics.totalBytes !== undefined ? { gpuMemoryBytes: graphics.totalBytes } : {}),
         backend: "vulkan",
         unifiedMemory: false,
@@ -84,6 +93,7 @@ export async function detectHardware(options: HardwareDetectOptions = {}): Promi
     platform,
     arch,
     totalMemoryBytes,
+    gpuCount: 0,
     backend: "cpu",
     unifiedMemory: false,
   }
@@ -95,13 +105,15 @@ export function availableModelMemory(hardware: HardwareProbe) {
 }
 
 export function inferenceMemoryBudget(hardware: HardwareProbe): InferenceMemoryBudget {
-  const hasDedicatedMemory =
-    !hardware.unifiedMemory &&
-    hardware.backend !== "cpu" &&
-    hardware.gpuMemoryBytes !== undefined &&
-    hardware.gpuMemoryBytes > 0
-  const deviceHeadroomBytes = roundedHeadroom(hasDedicatedMemory ? GIBIBYTE : reservedSystemMemory(hardware))
-  return { deviceHeadroomBytes }
+  const dedicatedGpu = !hardware.unifiedMemory && hardware.backend !== "cpu"
+  // A GPU's margin does not depend on whether its driver reports VRAM capacity.
+  const deviceHeadroomBytes = roundedHeadroom(dedicatedGpu ? GIBIBYTE : reservedSystemMemory(hardware))
+  return {
+    deviceHeadroomBytes,
+    ...(dedicatedGpu && hardware.gpuMemoryBytes !== undefined
+      ? { gpuWeightBudgetBytes: Math.max(0, hardware.gpuMemoryBytes - hardware.gpuCount * deviceHeadroomBytes) }
+      : {}),
+  }
 }
 
 function reservedSystemMemory(hardware: HardwareProbe) {
@@ -123,12 +135,12 @@ async function readNvidiaMemory(nvidiaSmi: () => Promise<string | undefined>) {
       .split(/\r?\n/)
       .map((line) => line.trim())
       .filter(Boolean)
-      .map((line) => Number.parseFloat(line))
-      .filter((value) => Number.isFinite(value) && value > 0)
+      .map((line) => Number(line))
     if (devices.length === 0) return undefined
 
+    const knownMemory = devices.every((value) => Number.isFinite(value) && value > 0)
     const totalMiB = devices.reduce((sum, value) => sum + value, 0)
-    return { totalBytes: Math.round(totalMiB * 1024 * 1024) }
+    return { count: devices.length, totalBytes: knownMemory ? Math.round(totalMiB * MEBIBYTE) : undefined }
   } catch {
     return undefined
   }
@@ -154,7 +166,7 @@ async function readLinuxGraphics(probe: () => Promise<readonly LinuxGraphicsDevi
     }))
     const hasMemoryForEveryDevice = memory.every(({ total }) => total !== undefined)
     const totalBytes = hasMemoryForEveryDevice ? memory.reduce((sum, { total }) => sum + (total ?? 0), 0) : undefined
-    return totalBytes === undefined ? {} : { totalBytes }
+    return { count: devices.length, totalBytes }
   } catch {
     return undefined
   }

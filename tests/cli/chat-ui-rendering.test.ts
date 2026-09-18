@@ -615,6 +615,7 @@ describe("chat UI rendering", () => {
       available: false,
       recommended: false,
       availabilityLabel: "Needs 19 GB",
+      hasDownloadedPacking: true,
       downloaded: true,
       active: false,
     }
@@ -663,6 +664,7 @@ describe("chat UI rendering", () => {
       recommended: true,
       availabilityLabel: "128K · MXFP4 · 16 GB",
       loadedContextLength: 131_072,
+      hasDownloadedPacking: true,
       downloaded: true,
       active: true,
     }
@@ -698,6 +700,7 @@ describe("chat UI rendering", () => {
       recommended: false,
       availabilityLabel: "128K · MXFP4 · 16 GB",
       loadedContextLength: 131_072,
+      hasDownloadedPacking: true,
       downloaded: true,
       active: true,
     }
@@ -726,6 +729,7 @@ describe("chat UI rendering", () => {
       available: true,
       recommended: true,
       availabilityLabel: "Est. 128K · MXFP4 · 16 GB",
+      hasDownloadedPacking: false,
       downloaded: false,
       active: true,
     }
