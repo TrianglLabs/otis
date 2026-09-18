@@ -11,7 +11,7 @@ import {
   Search,
   SquareTerminal,
 } from "lucide-react"
-import { type ComponentProps, forwardRef, memo, useMemo } from "react"
+import { memo, useMemo } from "react"
 import { Virtuoso } from "react-virtuoso"
 import type { TranscriptEntry } from "../../../../app/transcript.js"
 import type { ToolActivityKind } from "../../../../tools/activity.js"
@@ -102,27 +102,14 @@ export function ToolRunCard({
 export const DiffView = memo(function DiffView({ diff }: { diff: string }) {
   const { t } = useI18n()
   const rows = useMemo(() => parseDiffDisplay(diff), [diff])
-  const context = useMemo(
-    () => ({
-      // Reserve horizontal space even when the longest line is outside the vertical viewport. max-content still
-      // accommodates wider glyphs; this is a minimum, never a clipping width.
-      columns: rows.reduce(
-        (max, row) => (row.kind === "gap" ? max : Math.max(max, row.text.replace(/\t/g, "    ").length)),
-        0,
-      ),
-    }),
-    [rows],
-  )
   if (rows.length > 200) {
     return (
-      <Virtuoso<DiffDisplayRow, { columns: number }>
+      <Virtuoso<DiffDisplayRow>
         className="diffView diffView-windowed"
         aria-label={t("transcript.codeChanges")}
         tabIndex={0}
         style={{ height: 384 }}
         data={rows}
-        context={context}
-        components={diffComponents}
         defaultItemHeight={19.2}
         increaseViewportBy={100}
         itemContent={renderDiffRow}
@@ -131,7 +118,6 @@ export const DiffView = memo(function DiffView({ diff }: { diff: string }) {
   }
   return (
     <div className="diffView">
-      {/* Shrink-fits the widest line so every row's background spans the full scroll width. */}
       <div className="diffView-inner">
         {rows.map((row, index) => (
           <DiffRow key={index} row={row} />
@@ -140,20 +126,6 @@ export const DiffView = memo(function DiffView({ diff }: { diff: string }) {
     </div>
   )
 })
-
-const DiffList = forwardRef<HTMLDivElement, ComponentProps<"div"> & { context?: { columns: number } }>(
-  function DiffList({ context, style, ...props }, ref) {
-    return (
-      <div
-        {...props}
-        ref={ref}
-        className="diffView-inner"
-        style={{ ...style, minWidth: `max(100%, calc(${context?.columns ?? 0}ch + 96px))` }}
-      />
-    )
-  },
-)
-const diffComponents = { List: DiffList }
 const renderDiffRow = (_index: number, row: DiffDisplayRow) => <DiffRow row={row} />
 
 function DiffRow({ row }: { row: DiffDisplayRow }) {
