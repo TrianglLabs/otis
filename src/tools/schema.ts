@@ -50,7 +50,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "read",
-    description: "Read a file or list a directory.",
+    description:
+      "Read a UTF-8 text, PDF, or DOCX file, or list a directory. Document extraction limits are reported in the result.",
     parameters: objectSchema(
       {
         path: stringSchema("Relative or absolute file or directory path."),
@@ -89,7 +90,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "write",
-    description: "Create or replace a file with complete content.",
+    description:
+      "Create or replace a UTF-8 text file with complete content. Cannot write PDF, Word, or other binary files.",
     parameters: objectSchema(
       {
         path: stringSchema("Relative or absolute file path."),
@@ -100,7 +102,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "edit",
-    description: "Replace one exact string in an existing file.",
+    description:
+      "Replace one exact string in an existing UTF-8 text file. For DOCX or interactive PDF files, use edit_document.",
     parameters: objectSchema(
       {
         path: stringSchema("Relative or absolute file path."),
@@ -108,6 +111,43 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         new: stringSchema("Replacement text."),
       },
       ["path", "old", "new"],
+    ),
+  },
+  {
+    name: "edit_document",
+    description:
+      "Edit a workspace DOCX with exact text replacements or fill an interactive PDF form. Creates a validated sibling copy by default. Set replace_original only when the user explicitly asks to overwrite the source; Otis keeps a private backup.",
+    parameters: objectSchema(
+      {
+        path: stringSchema("Source .docx or .pdf path."),
+        output_path: stringSchema(
+          "Optional destination path for the edited copy. Defaults to '<source>-edited.<ext>' and must not already exist.",
+        ),
+        replace_original: booleanSchema(
+          "Overwrite the source after validation and keep a private backup. Use only when the user explicitly requests replacement.",
+        ),
+        replacements: {
+          type: "array",
+          minItems: 1,
+          maxItems: 50,
+          description: "DOCX only: exact, unique, single-paragraph text replacements applied in order.",
+          items: objectSchema(
+            {
+              old: stringSchema("Exact existing text. Must occur once in the document."),
+              new: stringSchema("Replacement text. Paragraph breaks and tabs are not supported."),
+            },
+            ["old", "new"],
+          ),
+        },
+        form_fields: {
+          type: "object",
+          minProperties: 1,
+          additionalProperties: { type: "string" },
+          description:
+            'PDF only: field names mapped to values. Use "true" or "false" for checkboxes and an exact listed option for choice fields.',
+        },
+      },
+      ["path"],
     ),
   },
   {
@@ -227,6 +267,36 @@ export function parseStructuredToolCall(name: string, input: unknown): ToolCall 
     throw new Error('edit requires string "path", "old", and "new"')
   }
 
+  if (name === "edit_document") {
+    if (!isRecord(input) || typeof input.path !== "string" || !input.path.trim()) {
+      throw new Error('edit_document requires a non-empty string "path"')
+    }
+    const replacements = parseDocumentReplacements(input.replacements)
+    const fields = parseDocumentFormFields(input.form_fields)
+    if ((replacements === undefined) === (fields === undefined)) {
+      throw new Error('edit_document requires exactly one of "replacements" or "form_fields"')
+    }
+    if (input.replace_original !== undefined && typeof input.replace_original !== "boolean") {
+      throw new Error('edit_document "replace_original" must be a boolean')
+    }
+    const outputPath = parseOptionalString(input.output_path)
+    const replaceOriginal = input.replace_original === true
+    if (replaceOriginal && outputPath) {
+      throw new Error('edit_document cannot use "output_path" with "replace_original"')
+    }
+    return {
+      name,
+      input: {
+        path: input.path.trim(),
+        outputPath,
+        replaceOriginal,
+        operation: replacements
+          ? { kind: "replace_text", replacements }
+          : { kind: "fill_pdf_form", fields: fields as Record<string, string> },
+      },
+    }
+  }
+
   if (name === "agent") {
     if (
       isRecord(input) &&
@@ -258,6 +328,10 @@ function integerSchema(description: string) {
   return { type: "integer", minimum: 1, description }
 }
 
+function booleanSchema(description: string) {
+  return { type: "boolean", description }
+}
+
 function isToolName(name: string): name is ToolName {
   return (TOOL_NAMES as readonly string[]).includes(name)
 }
@@ -277,6 +351,42 @@ function parseRequiredStringArray(value: unknown, maxItems: number) {
     throw new Error(`search_queries must contain between 1 and ${maxItems} non-empty strings`)
   }
   return items
+}
+
+function parseDocumentReplacements(value: unknown) {
+  if (value === undefined) return undefined
+  if (!Array.isArray(value) || value.length === 0 || value.length > 50) {
+    throw new Error("edit_document replacements must contain between 1 and 50 entries")
+  }
+  return value.map((replacement, index) => {
+    if (
+      !isRecord(replacement) ||
+      typeof replacement.old !== "string" ||
+      !replacement.old ||
+      typeof replacement.new !== "string"
+    ) {
+      throw new Error(`edit_document replacements[${index}] requires non-empty "old" and string "new"`)
+    }
+    if (replacement.old === replacement.new) {
+      throw new Error(`edit_document replacements[${index}] does not change the text`)
+    }
+    return { old: replacement.old, new: replacement.new }
+  })
+}
+
+function parseDocumentFormFields(value: unknown) {
+  if (value === undefined) return undefined
+  if (!isRecord(value) || Object.keys(value).length === 0) {
+    throw new Error("edit_document form_fields must be a non-empty object")
+  }
+  const fields: Record<string, string> = {}
+  for (const [name, fieldValue] of Object.entries(value)) {
+    if (!name.trim() || typeof fieldValue !== "string") {
+      throw new Error("edit_document form_fields must map non-empty field names to strings")
+    }
+    fields[name] = fieldValue
+  }
+  return fields
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

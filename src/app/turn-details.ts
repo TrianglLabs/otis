@@ -23,9 +23,15 @@ export class ToolActivityRecorder {
       this.#indexes.set(event.toolCallId, this.activities.length)
       this.activities.push({ toolCallId: event.toolCallId, activityKind: event.activityKind, label: event.label })
     }
-    if (event.phase === "end" && event.diff) {
+    if (event.phase === "end" && (event.diff || event.artifact)) {
       const index = this.#indexes.get(event.toolCallId)
-      if (index !== undefined) this.activities[index] = { ...this.activities[index], diff: event.diff }
+      if (index !== undefined) {
+        this.activities[index] = {
+          ...this.activities[index],
+          ...(event.diff ? { diff: event.diff } : {}),
+          ...(event.artifact ? { artifact: event.artifact } : {}),
+        }
+      }
     }
   }
 }

@@ -165,11 +165,17 @@ async function extractPdf(bytes: Uint8Array): Promise<ExtractedDocument> {
       length += chunk.length
     }
     const text = normalizedExtractedText(chunks.join(""))
-    if (!text)
-      throw new Error("PDF contains no extractable text. Scanned PDFs require OCR, which is not supported yet.")
-    return { kind: "pdf", mimeType: PDF_MIME_TYPE, text, truncated, pageCount: pdf.numPages }
+    return {
+      kind: "pdf",
+      mimeType: PDF_MIME_TYPE,
+      text:
+        text ||
+        `[PDF has ${pdf.numPages} page${pdf.numPages === 1 ? "" : "s"} but no extractable text. It may be scanned or contain only graphics or form fields. OCR is not available.]`,
+      truncated,
+      pageCount: pdf.numPages,
+    }
   } catch (error) {
-    if (error instanceof Error && (error.message.includes("PDF has ") || error.message.startsWith("PDF contains "))) {
+    if (error instanceof Error && error.message.includes("PDF has ")) {
       throw error
     }
     throw new Error(`Could not read PDF: ${errorMessage(error)}`)

@@ -8,6 +8,141 @@
   background: transparent;
 }
 
+.canvas-artifact {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: color-mix(in srgb, var(--bg-elev) 30%, var(--bg));
+  user-select: text;
+}
+
+.canvas-artifactHeader {
+  min-width: 0;
+  min-height: 48px;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--hairline);
+  background: transparent;
+  flex-shrink: 0;
+}
+
+.canvas-artifactIdentity {
+  min-width: 0;
+  display: flex;
+  flex: 1;
+  align-items: center;
+}
+
+.canvas-artifactIdentity strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: var(--text-ui);
+  font-weight: 600;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvas-artifactBody {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.canvas-document {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: clamp(24px, 5vw, 52px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  color: var(--text);
+  background: transparent;
+  overflow-wrap: anywhere;
+}
+
+.canvas-document-markdown > .md {
+  width: min(720px, 100%);
+  margin: 0 auto;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.canvas-document .codeBlock pre {
+  overflow-x: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.canvas-document .md-tableWrap {
+  overflow-x: hidden;
+}
+
+.canvas-document table {
+  table-layout: fixed;
+}
+
+.canvas-document th,
+.canvas-document td {
+  overflow-wrap: anywhere;
+}
+
+.canvas-document-text {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.canvas-pdf {
+  width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: hidden;
+  background: #4a4a4a;
+}
+
+.canvas-pdfPages {
+  height: 100%;
+  scrollbar-gutter: stable;
+}
+
+.canvas-pdfInset {
+  height: 16px;
+}
+
+.canvas-pdfItem {
+  position: relative;
+  padding: 0 16px 16px;
+}
+
+.canvas-pdfError {
+  padding: 24px;
+  background: var(--bg);
+  color: var(--danger);
+  overflow-wrap: anywhere;
+}
+
+.canvas-pdfPage {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  background: white;
+  box-shadow: 0 4px 18px #0006;
+}
+
+.canvas-pdfPage[hidden] {
+  display: none;
+}
+
 .canvas-empty {
   margin: auto;
   padding: 24px;

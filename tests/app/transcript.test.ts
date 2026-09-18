@@ -48,6 +48,41 @@ describe("TranscriptStore", () => {
     ])
   })
 
+  it("projects attached documents as reopenable artifacts while preserving terminal display text", () => {
+    const transcript = new TranscriptStore()
+    transcript.addUserMessage({
+      role: "user",
+      content: [
+        {
+          type: "document",
+          kind: "pdf",
+          data: "JVBERg==",
+          extractedText: "Product brief",
+          mimeType: "application/pdf",
+          name: "brief.pdf",
+          sizeBytes: 5,
+          sha256: "a".repeat(64),
+          truncated: false,
+        },
+        { type: "text", text: "Review this" },
+      ],
+    })
+
+    expect(transcript.entries[0]).toMatchObject({
+      text: "Review this\n📄 brief.pdf",
+      messageText: "Review this",
+      artifacts: [
+        {
+          source: "attachment",
+          sha256: "a".repeat(64),
+          name: "brief.pdf",
+          kind: "pdf",
+          mimeType: "application/pdf",
+        },
+      ],
+    })
+  })
+
   it("reconstructs tool cards from older sessions without activity metadata", () => {
     const transcript = new TranscriptStore()
     const messages = [

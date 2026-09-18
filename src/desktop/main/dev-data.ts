@@ -1,10 +1,10 @@
-/**
- * Dev affordance: `OTIS_DEV_USER_DATA` points a development build at its own sandbox so it can run beside the
- * installed app. Electron state (the single-instance lock, caches, window state) follows the sandbox as userData,
- * and — unless an explicit `OTIS_HOME` shapes it differently — everything Otis persists does too, via the same
- * directory: settings, sessions, skills, and the llama runtime all key off `OTIS_HOME` (see src/local/paths.ts).
- * Without that default a dev build would still read and write the installed app's data.
- */
+import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { join, resolve } from "node:path"
+import { cloneLocalGguf } from "../../inference/gguf-cache.js"
+import { LOCAL_MODELS, localModelPackings } from "../../inference/local-catalog.js"
+import { initializeLocalSettings } from "../../local/settings.js"
+
+/** Development has its own persistent profile so it can run beside the installed app. */
 export type DevDataSandbox = {
   /** Electron's userData: the single-instance lock, caches, window state. */
   userData: string
@@ -13,22 +13,52 @@ export type DevDataSandbox = {
 }
 
 /**
- * Resolves the dev sandbox from the environment, or undefined when the build is packaged or no sandbox is
- * configured. Pure: the caller owns the side effects (creating the directory, applying the Electron path and
- * the `OTIS_HOME` default). `src/local/paths.ts` reads `OTIS_HOME` lazily at each call, so applying the default
- * in the main entry's module scope is visible to every later consumer.
+ * Defaults to the platform's app-data directory, independent of the checkout or working directory.
+ * Explicit overrides remain available for isolated test runs. Packaged builds keep their existing profile.
+ * The caller applies these paths before the single-instance lock and application initialization.
  */
 export function resolveDevData(env: {
   packaged: boolean
+  appData: string
   otisDevUserData: string | undefined
   otisHome: string | undefined
 }): DevDataSandbox | undefined {
   if (env.packaged) return undefined
-  const userData = cleanPath(env.otisDevUserData)
-  if (!userData) return undefined
-  return { userData, otisHome: cleanPath(env.otisHome) ?? userData }
+  const userData = resolve(cleanPath(env.otisDevUserData) ?? join(env.appData, "otis-dev"))
+  return { userData, otisHome: resolve(cleanPath(env.otisHome) ?? userData) }
 }
 
 function cleanPath(value: string | undefined) {
   return value?.trim() || undefined
+}
+
+/** Explicit test profiles opt out so they never inherit the developer's credentials or large files. */
+export function shouldInitializeDevProfile(env: { otisDevUserData?: string; otisHome?: string }) {
+  return !cleanPath(env.otisDevUserData) && !cleanPath(env.otisHome)
+}
+
+/** Called after the development single-instance lock, before any settings or models are loaded. */
+export async function initializeDevProfile(options: {
+  sourceConfigDirectory: string
+  sourceDataDirectory: string
+  otisHome: string
+}) {
+  const marker = join(options.otisHome, ".installed-profile-imported")
+  try {
+    await readFile(marker)
+    return
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error
+  }
+  await mkdir(options.otisHome, { recursive: true, mode: 0o700 })
+  await initializeLocalSettings(join(options.sourceConfigDirectory, "config.json"), {
+    file: join(options.otisHome, "config.json"),
+  })
+  for (const model of LOCAL_MODELS) {
+    for (const packing of localModelPackings(model)) {
+      await cloneLocalGguf(packing, join(options.sourceDataDirectory, "llama"), join(options.otisHome, "llama"))
+    }
+  }
+  // Do not re-import settings or resurrect models deliberately deleted from the dev profile on later launches.
+  await writeFile(marker, "1\n", { mode: 0o600, flag: "wx" })
 }

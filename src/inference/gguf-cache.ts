@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto"
-import { createReadStream } from "node:fs"
-import { mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
+import { constants, createReadStream } from "node:fs"
+import { chmod, copyFile, link, mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { llamaModelCacheDirectory } from "../local/paths.js"
 import { normalizedSha256, sha256File } from "./file-integrity.js"
@@ -70,6 +70,47 @@ export async function deleteLocalGguf(model: LocalModelSpec, dataDirectory?: str
     )
   } finally {
     for (const release of releaseLocks.reverse()) await release()
+  }
+}
+
+/** Reuse a complete download in another profile, with independently writable and deletable files. */
+export async function cloneLocalGguf(model: LocalModelSpec, sourceDirectory: string, dataDirectory: string) {
+  if (!(await isLocalGgufDownloaded(model, sourceDirectory))) return
+  const sources = localGgufPaths(model, sourceDirectory)
+  const destinations = localGgufPaths(model, dataDirectory)
+  await mkdir(dirname(destinations[0]), { recursive: true, mode: 0o700 })
+  const releaseLock = await acquireDownloadLock(lockPath(destinations[0]))
+  try {
+    for (const [index, file] of model.ggufFiles.entries()) {
+      const dest = destinations[index]
+      await mkdir(dirname(dest), { recursive: true, mode: 0o700 })
+      try {
+        await stat(dest)
+        continue
+      } catch (error) {
+        if (!isNotFound(error)) throw error
+      }
+      const temporary = `${dest}.${process.pid}.${randomUUID()}.tmp`
+      try {
+        // Reflink where supported; otherwise a local copy. Never share writable inodes or cache directories.
+        await copyFile(sources[index], temporary, constants.COPYFILE_FICLONE | constants.COPYFILE_EXCL)
+        await chmod(temporary, 0o600)
+        if (!(await hasPinnedFileSize(temporary, file.size))) continue
+        await link(temporary, dest)
+        const sha256 = normalizedSha256(file.sha256)
+        if (await hasMatchingManifest(sources[index], model, file, sha256)) {
+          await writeGgufManifest(dest, model, file, sha256)
+        }
+        // Without a matching manifest, the usual load path verifies the clone's hash before using it.
+      } catch (error) {
+        // The installed app may remove a source while it is being copied; never recreate it there.
+        if (!isNotFound(error) && !isAlreadyExists(error)) throw error
+      } finally {
+        await rm(temporary, { force: true })
+      }
+    }
+  } finally {
+    await releaseLock()
   }
 }
 

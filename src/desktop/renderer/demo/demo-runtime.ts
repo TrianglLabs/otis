@@ -1,4 +1,5 @@
 import type { TranscriptEntry } from "../../../app/transcript.js"
+import type { ArtifactMetadata, ArtifactPayload, ArtifactReference } from "../../../artifacts/types.js"
 import type { ModelPickerChoice, ModelPickerItem } from "../../../inference/picker-catalog.js"
 import type {
   DesktopApi,
@@ -49,6 +50,197 @@ const FINAL_ANSWER = `The shortcut is wired up. Summary of the change:
 | State | \`Sidebar.tsx\` | Collapse is local UI state; sessions come from the app |
 
 The test suite passes: **214 tests, 0 failures**.`
+
+const DEMO_DOCUMENT = `# Canvas documents
+
+Otis now keeps editable documents beside the conversation while it works.
+
+## Native workflow
+
+- **Markdown and text** render as readable, responsive documents.
+- **HTML webpages** run in an isolated, network-blocked preview.
+- **PDF and Word** open from their original local bytes without sending source files to a provider.
+
+When Otis writes or edits this file, Canvas refreshes from the workspace automatically—no copy-and-paste loop and no horizontally scrolling document.
+
+> The workspace file remains the source of truth, so the same tool behavior works in the CLI and headless modes.`
+
+type DemoArtifactFixture = { metadata: ArtifactMetadata; payload: ArtifactPayload }
+
+function demoArtifact(
+  metadata: Omit<ArtifactMetadata, "revision" | "source">,
+  encoding: ArtifactPayload["encoding"],
+  content: string,
+): DemoArtifactFixture {
+  const complete: ArtifactMetadata = { ...metadata, revision: 1, source: "workspace" }
+  return { metadata: complete, payload: { ...complete, encoding, content } }
+}
+
+const DEMO_MARKDOWN = demoArtifact(
+  {
+    id: "workspace:canvas-demo.md",
+    kind: "markdown",
+    title: "canvas-demo.md",
+    mimeType: "text/markdown",
+    editable: true,
+    path: "canvas-demo.md",
+  },
+  "utf8",
+  DEMO_DOCUMENT,
+)
+
+const DEMO_PDF = demoArtifact(
+  {
+    id: "workspace:product-brief.pdf",
+    kind: "pdf",
+    title: "product-brief.pdf",
+    mimeType: "application/pdf",
+    editable: false,
+    path: "product-brief.pdf",
+  },
+  "base64",
+  demoPdf(),
+)
+
+const DEMO_DOCX = demoArtifact(
+  {
+    id: "workspace:launch-plan.docx",
+    kind: "docx",
+    title: "launch-plan.docx",
+    mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    editable: false,
+    path: "launch-plan.docx",
+  },
+  "html",
+  `<h1>Otis Canvas launch plan</h1>
+<p><strong>Owner:</strong> Product &amp; Engineering &nbsp; <strong>Status:</strong> Ready for review</p>
+<p>Canvas keeps the working document beside the conversation, so changes remain visible while Otis reads and edits the source file.</p>
+<h2>What ships</h2>
+<ul><li>Responsive previews for documents and webpages</li><li>Live refresh for Markdown, text, and HTML</li><li>Private, local rendering for PDF and Word files</li></ul>
+<h2>Release checklist</h2>
+<table><thead><tr><th>Area</th><th>Acceptance criterion</th><th>State</th></tr></thead><tbody><tr><td>Documents</td><td>Long content wraps without horizontal scrolling</td><td>Complete</td></tr><tr><td>Security</td><td>Web previews cannot access the network</td><td>Complete</td></tr><tr><td>Sessions</td><td>The active artifact restores with its conversation</td><td>Complete</td></tr></tbody></table>
+<h2>Next step</h2><p>Review the format-aware editing path before enabling Word or PDF mutation. The original file remains the source of truth.</p>`,
+)
+
+const DEMO_WEBPAGE = demoArtifact(
+  {
+    id: "workspace:canvas-overview.html",
+    kind: "html",
+    title: "canvas-overview.html",
+    mimeType: "text/html",
+    editable: true,
+    path: "canvas-overview.html",
+  },
+  "utf8",
+  `<!doctype html><html><head><meta charset="utf-8"><title>Canvas overview</title><style>
+  :root { color-scheme: dark; font: 15px/1.5 Inter, ui-sans-serif, system-ui, sans-serif; color: #edf1f7; background: #0d1119; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; background: radial-gradient(circle at 82% 5%, #7157ff33, transparent 32rem), #0d1119; }
+  main { width: min(920px, 100%); margin: auto; padding: clamp(28px, 6vw, 72px); }
+  .eyebrow { color: #9d8cff; font: 700 12px/1 ui-monospace, monospace; letter-spacing: .14em; text-transform: uppercase; }
+  h1 { max-width: 680px; margin: 18px 0; font-size: clamp(38px, 7vw, 72px); line-height: .98; letter-spacing: -.055em; }
+  .lede { max-width: 610px; color: #aeb8c8; font-size: 18px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 48px; }
+  article { min-height: 180px; padding: 22px; border: 1px solid #ffffff17; border-radius: 16px; background: #ffffff09; box-shadow: 0 16px 50px #0004; }
+  article span { color: #8e7cff; font: 600 12px/1 ui-monospace, monospace; }
+  article h2 { margin: 42px 0 8px; font-size: 18px; }
+  article p { margin: 0; color: #919cad; font-size: 13px; }
+  </style></head><body><main><div class="eyebrow">Otis / Canvas</div><h1>Your work stays in view.</h1><p class="lede">Read, edit, and review workspace documents without breaking the conversation flow.</p><section class="grid"><article><span>01</span><h2>Work locally</h2><p>Source files stay in the workspace and previews render on-device.</p></article><article><span>02</span><h2>See every change</h2><p>Editable documents refresh as soon as Otis writes them.</p></article><article><span>03</span><h2>Keep context</h2><p>The active artifact follows its session and restores on return.</p></article></section></main></body></html>`,
+)
+
+const DEMO_ARTIFACTS_BY_SESSION = new Map<string, DemoArtifactFixture>([
+  ["session_pdf", DEMO_PDF],
+  ["session_docx", DEMO_DOCX],
+  ["session_webpage", DEMO_WEBPAGE],
+  ["session_demo1", DEMO_MARKDOWN],
+])
+
+function demoPdf() {
+  const firstPage = `q
+0.12 0.14 0.22 rg
+0 650 612 142 re f
+Q
+BT
+/F2 12 Tf
+1 1 1 rg
+72 738 Td
+(OTIS / CANVAS) Tj
+/F2 30 Tf
+0 -47 Td
+(Documents stay in view.) Tj
+/F1 14 Tf
+0 -30 Td
+(A native PDF preview rendered locally from the original bytes.) Tj
+0 0 0 rg
+/F2 18 Tf
+0 -105 Td
+(Product brief) Tj
+/F1 12 Tf
+0 -28 Td
+(Canvas gives every session a focused workspace for documents and webpages.) Tj
+0 -20 Td
+(Pages fit the available width and remain crisp on high-density displays.) Tj
+/F2 14 Tf
+0 -48 Td
+(What matters) Tj
+/F1 12 Tf
+0 -25 Td
+(1. Source files remain local and private.) Tj
+0 -20 Td
+(2. Long content wraps instead of forcing horizontal scrolling.) Tj
+0 -20 Td
+(3. The active document restores with its conversation.) Tj
+ET`
+  const secondPage = `BT
+/F2 12 Tf
+0.45 0.35 0.95 rg
+72 730 Td
+(IMPLEMENTATION NOTES) Tj
+0 0 0 rg
+/F2 28 Tf
+0 -48 Td
+(Designed for careful iteration) Tj
+/F1 13 Tf
+0 -38 Td
+(PDF files are previewed without lossy conversion or external uploads.) Tj
+0 -23 Td
+(Editing remains disabled until a format-aware writer can preserve the file.) Tj
+/F2 15 Tf
+0 -58 Td
+(Review checklist) Tj
+/F1 12 Tf
+0 -27 Td
+(Responsive page sizing) Tj
+0 -22 Td
+(Multi-page vertical scrolling) Tj
+0 -22 Td
+(Session-scoped artifact restoration) Tj
+0 -22 Td
+(Original bytes remain the source of truth) Tj
+ET`
+  const stream = (content: string) => `<< /Length ${content.length} >>\nstream\n${content}\nendstream`
+  const objects = [
+    `<< /Type /Catalog /Pages 2 0 R >>`,
+    `<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>`,
+    `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 7 0 R /F2 8 0 R >> >> /Contents 5 0 R >>`,
+    `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 7 0 R /F2 8 0 R >> >> /Contents 6 0 R >>`,
+    stream(firstPage),
+    stream(secondPage),
+    `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>`,
+    `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>`,
+  ]
+  let document = "%PDF-1.4\n"
+  const offsets: number[] = []
+  for (const [index, object] of objects.entries()) {
+    offsets.push(document.length)
+    document += `${index + 1} 0 obj\n${object}\nendobj\n`
+  }
+  const xref = document.length
+  document += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`
+  document += offsets.map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`).join("")
+  document += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`
+  return btoa(document)
+}
 
 const DEMO_MODELS: ModelPickerChoice[] = [
   {
@@ -147,6 +339,7 @@ class DemoRuntime implements DesktopApi {
 
   #listeners = new Set<(event: DesktopEvent) => void>()
   #revision = 0
+  #artifactRevision = 1
   #nextId = 100
   #timer: ReturnType<typeof setTimeout> | undefined
   #generation = 0
@@ -177,15 +370,40 @@ class DemoRuntime implements DesktopApi {
     },
     modelState: "ready",
     modelError: undefined,
-    session: { id: "session_demo1", title: "Sidebar keyboard shortcut" },
+    session: { id: "session_docx", title: "Canvas preview · Word" },
+    artifact: DEMO_DOCX.metadata,
     needsWorkspace: false,
     workspace: { label: "~/Projects/otis", path: "/Users/dev/Projects/otis" },
     sessions: [
       {
-        id: "session_demo1",
-        title: "Sidebar keyboard shortcut",
-        detail: "Just now",
+        id: "session_pdf",
+        title: "Canvas preview · PDF",
+        detail: "Demo",
+        dirName: "otis-demo",
+        workspaceLabel: "otis",
+        workspacePath: "/Users/dev/Projects/otis",
+      },
+      {
+        id: "session_docx",
+        title: "Canvas preview · Word",
+        detail: "Open now",
         active: true,
+        dirName: "otis-demo",
+        workspaceLabel: "otis",
+        workspacePath: "/Users/dev/Projects/otis",
+      },
+      {
+        id: "session_webpage",
+        title: "Canvas preview · Webpage",
+        detail: "Demo",
+        dirName: "otis-demo",
+        workspaceLabel: "otis",
+        workspacePath: "/Users/dev/Projects/otis",
+      },
+      {
+        id: "session_demo1",
+        title: "Canvas preview · Markdown",
+        detail: "Demo",
         dirName: "otis-demo",
         workspaceLabel: "otis",
         workspacePath: "/Users/dev/Projects/otis",
@@ -377,6 +595,28 @@ class DemoRuntime implements DesktopApi {
     }
   }
 
+  async getArtifact(revision: number): Promise<ArtifactPayload | undefined> {
+    const artifact = this.#state.artifact
+    if (!artifact || artifact.revision !== revision) return undefined
+    const fixture = [...DEMO_ARTIFACTS_BY_SESSION.values()].find((candidate) => candidate.metadata.id === artifact.id)
+    return fixture ? { ...fixture.payload, revision } : undefined
+  }
+
+  async openArtifact(reference: ArtifactReference): Promise<SessionOpResult> {
+    if (reference.source !== "workspace") return { ok: false, reason: "That demo attachment is unavailable." }
+    const fixture = [...DEMO_ARTIFACTS_BY_SESSION.values()].find(
+      (candidate) => candidate.metadata.path === reference.path && candidate.metadata.kind === reference.kind,
+    )
+    if (!fixture) return { ok: false, reason: "That demo artifact is unavailable." }
+    this.#state = {
+      ...this.#state,
+      artifact: { ...fixture.metadata, revision: ++this.#artifactRevision },
+      agentsPanelVisible: true,
+    }
+    this.#emitStatus()
+    return { ok: true }
+  }
+
   subscribe(listener: (event: DesktopEvent) => void) {
     this.#listeners.add(listener)
     return () => {
@@ -459,24 +699,27 @@ class DemoRuntime implements DesktopApi {
     const target = this.#state.sessions.find((session) => session.id === id)
     if (!target) return { ok: false, reason: "Unknown session." }
     this.#interrupt()
-    const entries = id === "session_demo2" ? errorTranscript() : id === "session_demo1" ? demoTranscript() : []
+    const entries =
+      id === "session_demo2" ? errorTranscript() : DEMO_ARTIFACTS_BY_SESSION.has(id) ? demoTranscript() : []
+    const fixture = DEMO_ARTIFACTS_BY_SESSION.get(id)
+    const artifact = fixture ? { ...fixture.metadata, revision: ++this.#artifactRevision } : null
     this.#state = {
       ...this.#state,
       entries,
       session: { id: target.id, title: target.title },
       sessions: this.#state.sessions.map((session) => ({ ...session, active: session.id === id })),
-      subagents:
-        id === "session_demo1"
-          ? [
-              {
-                toolCallId: "demo_agent_1",
-                title: "Survey sidebar focus handling",
-                status: "complete",
-                tools: 2,
-                durationMs: 1_900,
-              },
-            ]
-          : [],
+      artifact,
+      subagents: DEMO_ARTIFACTS_BY_SESSION.has(id)
+        ? [
+            {
+              toolCallId: "demo_agent_1",
+              title: "Survey sidebar focus handling",
+              status: "complete",
+              tools: 2,
+              durationMs: 1_900,
+            },
+          ]
+        : [],
     }
     this.#emitStatus([{ op: "reset", entries }])
     return { ok: true }
@@ -485,7 +728,14 @@ class DemoRuntime implements DesktopApi {
   async startNewSession(): Promise<SessionOpResult> {
     if (this.#state.busy) return { ok: false, reason: "Finish the current work before starting over." }
     this.#interrupt()
-    this.#state = { ...this.#state, entries: [], session: null, diffs: { added: 0, removed: 0 }, subagents: [] }
+    this.#state = {
+      ...this.#state,
+      entries: [],
+      session: null,
+      artifact: null,
+      diffs: { added: 0, removed: 0 },
+      subagents: [],
+    }
     this.#emitStatus([{ op: "reset", entries: [] }])
     return { ok: true }
   }
@@ -497,7 +747,7 @@ class DemoRuntime implements DesktopApi {
     this.#state = {
       ...this.#state,
       sessions,
-      ...(deletingActive ? { session: null, entries: [] } : {}),
+      ...(deletingActive ? { session: null, artifact: null, entries: [] } : {}),
     }
     this.#emitStatus(deletingActive ? [{ op: "reset", entries: [] }] : undefined)
     return { ok: true }
@@ -989,9 +1239,20 @@ stateDiagram-v2
   Idle --> Working: Send
   Working --> Waiting: Permission needed
   Waiting --> Working: Approved
-  Working --> Idle: Complete
+Working --> Idle: Complete
   Idle --> [*]
 \`\`\``,
+    }),
+    fixture({
+      kind: "message",
+      speaker: "Otis",
+      text: "Document and webpage outputs stay compact in the conversation. Open any artifact in Canvas:",
+      artifacts: [
+        { source: "workspace", path: "product-brief.pdf", kind: "pdf" },
+        { source: "workspace", path: "launch-plan.docx", kind: "docx" },
+        { source: "workspace", path: "canvas-overview.html", kind: "html" },
+        { source: "workspace", path: "canvas-demo.md", kind: "markdown" },
+      ],
     }),
   ]
 }

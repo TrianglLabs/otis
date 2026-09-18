@@ -1,4 +1,5 @@
 import { resolve } from "node:path"
+import type { ArtifactReference } from "../artifacts/types.js"
 import { loadProjectContext } from "../core/context.js"
 import { requestContextEstimator } from "../core/context-tokens.js"
 import { providerTools } from "../core/subagent.js"
@@ -16,6 +17,7 @@ import {
 import { loadProjectPermissionRules } from "../permissions/project-policy.js"
 import { loadSkillCatalog, type SkillCatalog } from "../skills/index.js"
 import { ParallelClient } from "../web/client.js"
+import { ArtifactStore } from "./artifacts.js"
 import { Conversation } from "./conversation.js"
 import { ModelHost } from "./models.js"
 import { SessionCoordinator } from "./sessions.js"
@@ -34,6 +36,7 @@ export class Application {
   readonly cwd: string
   readonly outputCapabilities: OutputCapabilities
   readonly transcript = new TranscriptStore()
+  readonly artifacts: ArtifactStore
   readonly subagents = new SubagentTraces()
   readonly models: ModelHost
   readonly sessions: SessionCoordinator
@@ -58,6 +61,7 @@ export class Application {
 
   private constructor(cwd: string, settings: LocalSettings, options: ApplicationOptions) {
     this.cwd = cwd
+    this.artifacts = new ArtifactStore(cwd)
     this.outputCapabilities = options.outputCapabilities ?? {}
     this.settings = settings
     this.fireworksApiKey = settings.fireworksApiKey
@@ -72,6 +76,8 @@ export class Application {
       client: () => this.models.client,
       isBusy: () => (options.isBusy?.() ?? false) || this.conversation.busy,
       isExiting: options.isExiting ?? (() => false),
+      onReset: () => this.artifacts.clear(),
+      onReplay: (messages, activities) => this.artifacts.restore(messages, activities),
     })
     this.conversation = new Conversation({
       sessions: this.sessions,
@@ -85,6 +91,7 @@ export class Application {
       permissionPolicy: () => this.createPermissionPolicy(),
       isExiting: options.isExiting ?? (() => false),
       outputCapabilities: this.outputCapabilities,
+      artifacts: this.artifacts,
     })
   }
 
@@ -121,6 +128,10 @@ export class Application {
     const estimate = this.contextEstimator()
     const tokens = this.transcript.contextTokens(this.models.client) ?? estimate(this.transcript.history)
     return pendingInput ? tokens + estimate([pendingInput]) - estimate([]) : tokens
+  }
+
+  openArtifact(reference: ArtifactReference) {
+    return this.artifacts.open(reference)
   }
 
   hasConfiguredSelection() {

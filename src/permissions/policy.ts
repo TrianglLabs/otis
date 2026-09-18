@@ -1,5 +1,6 @@
 import { realpath } from "node:fs/promises"
 import { relative, resolve, sep } from "node:path"
+import { editedDocumentPath } from "../tools/document-path.js"
 import { TOOL_NAMES, type ToolCall, type ToolName } from "../tools/index.js"
 import { resolveWorkspacePath } from "../tools/workspace.js"
 
@@ -42,7 +43,7 @@ type PermissionPolicyOptions = {
   rules?: PermissionRule[]
 }
 
-const RESTRICTED_BY_DEFAULT = new Set<ToolName>(["bash", "write", "edit"])
+const RESTRICTED_BY_DEFAULT = new Set<ToolName>(["bash", "write", "edit", "edit_document"])
 
 export function createPermissionPolicy(options: PermissionPolicyOptions): PermissionPolicy {
   const rules = (options.rules ?? []).map((rule) => ({
@@ -121,7 +122,16 @@ async function permissionResources(call: ToolCall, cwd: string): Promise<string[
   if (call.name === "web_read") return [call.input.url]
   if (call.name === "web_search") return call.input.searchQueries
   if (call.name === "agent") return [call.input.description]
+  if (call.name === "edit_document") {
+    const paths = [call.input.path]
+    if (!call.input.replaceOriginal) paths.push(call.input.outputPath ?? editedDocumentPath(call.input.path))
+    return unique((await Promise.all(paths.map((path) => workspaceResources(path, cwd)))).flat())
+  }
   return workspaceResources(call.input.path, cwd)
+}
+
+function unique(values: string[]) {
+  return [...new Set(values)]
 }
 
 async function workspaceResources(path: string, cwd: string) {

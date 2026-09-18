@@ -108,6 +108,7 @@ function statusFixture(overrides: Partial<DesktopStatus> = {}): DesktopStatus {
     modelState: "ready",
     modelError: undefined,
     session: { id: "s1", title: "Fix session lock behavior" },
+    artifact: null,
     needsWorkspace: false,
     sessions: [],
     workspace: { label: "otis", path: "/Users/n/dev/otis" },
@@ -342,6 +343,36 @@ describe("buildTrayMenu", () => {
 })
 
 describe("createStatusTray", () => {
+  it("keeps development tray actions and status distinguishable from the installed app", () => {
+    installMockIcons()
+    const statusTray = createStatusTray({
+      iconDir: "/app/resources/tray",
+      actions: actionsFixture(),
+      appName: "Otis Dev",
+    })
+    const tray = latestTray()
+    expect(tray.setToolTip).toHaveBeenCalledWith("Otis Dev — ready")
+    const openMenu = tray.on.mock.calls.find(([event]) => event === "click")?.[1]
+    openMenu()
+    expect(vi.mocked(Menu.buildFromTemplate).mock.lastCall?.[0]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: "Starting Otis Dev…" }),
+        expect.objectContaining({ label: "Show Otis Dev" }),
+        expect.objectContaining({ label: "Quit Otis Dev" }),
+      ]),
+    )
+    statusTray?.onStatus(statusFixture({ busy: true, phase: "working" }))
+    expect(tray.setToolTip).toHaveBeenLastCalledWith("Otis Dev — working")
+    openMenu()
+    expect(vi.mocked(Menu.buildFromTemplate).mock.lastCall?.[0]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: "Show Otis Dev" }),
+        expect.objectContaining({ label: "Quit Otis Dev" }),
+      ]),
+    )
+    statusTray?.destroy()
+  })
+
   it("is a loud no-op when the template icons are missing", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     try {

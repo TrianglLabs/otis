@@ -1,15 +1,20 @@
 import { join } from "node:path"
-import { BrowserWindow, type NativeImage, shell } from "electron"
+import { app, BrowserWindow, type NativeImage, shell } from "electron"
 import { DESKTOP_CHANNELS } from "../contracts.js"
+import { handleRendererFailure, sendToRenderer } from "./renderer.js"
 
-export function createMainWindow(icon?: NativeImage) {
+export function createMainWindow(options: {
+  icon?: NativeImage
+  onRendererGone: () => void
+  isQuitting: () => boolean
+}) {
   const window = new BrowserWindow({
     width: 1280,
     height: 832,
     minWidth: 960,
     minHeight: 600,
-    title: "Otis",
-    icon,
+    title: app.getName(),
+    icon: options.icon,
     backgroundColor: "#1A1A1A",
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : undefined,
     trafficLightPosition: process.platform === "darwin" ? { x: 16, y: 16 } : undefined,
@@ -22,12 +27,13 @@ export function createMainWindow(icon?: NativeImage) {
     },
   })
 
+  handleRendererFailure(window, options)
   window.once("ready-to-show", () => window.show())
+  // Keep the native app identity when the shared HTML document announces its "Otis" title.
+  window.on("page-title-updated", (event) => event.preventDefault())
 
   const sendWindowState = () => {
-    if (!window.webContents.isDestroyed()) {
-      window.webContents.send(DESKTOP_CHANNELS.windowState, { fullscreen: window.isFullScreen() })
-    }
+    sendToRenderer(window.webContents, DESKTOP_CHANNELS.windowState, { fullscreen: window.isFullScreen() })
   }
   window.webContents.on("did-finish-load", sendWindowState)
   window.on("enter-full-screen", sendWindowState)
@@ -44,8 +50,11 @@ export function createMainWindow(icon?: NativeImage) {
 
   const devServerUrl = process.env.ELECTRON_RENDERER_URL
   const demo = process.env.OTIS_DEMO === "1"
-  if (devServerUrl) window.loadURL(demo ? `${devServerUrl}?demo` : devServerUrl)
-  else window.loadFile(join(__dirname, "../renderer/index.html"), demo ? { search: "demo" } : undefined)
+  const loaded = devServerUrl
+    ? window.loadURL(demo ? `${devServerUrl}?demo` : devServerUrl)
+    : window.loadFile(join(__dirname, "../renderer/index.html"), demo ? { search: "demo" } : undefined)
+  // did-fail-load owns the native recovery UI, including when the dev server has disappeared.
+  void loaded.catch(() => {})
 
   return window
 }

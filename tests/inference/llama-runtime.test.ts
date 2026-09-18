@@ -6,6 +6,7 @@ import { dirname, join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { localGgufPath } from "../../src/inference/gguf-cache.js"
 import type { HardwareProbe } from "../../src/inference/hardware.js"
+import { LLAMA_CPP_RELEASE_TAG, pinnedLlamaCppAsset } from "../../src/inference/llama-binary.js"
 import {
   formatLocalLoadStatus,
   LlamaCppRuntime,
@@ -24,11 +25,11 @@ const hardware: HardwareProbe = {
   gpuCount: 1,
 }
 
-const pinnedArchiveURL =
-  "https://github.com/ggml-org/llama.cpp/releases/download/b10666/llama-b10666-bin-macos-arm64.tar.gz"
+const pinnedAsset = pinnedLlamaCppAsset(hardware)
+const pinnedArchiveURL = pinnedAsset.url
 const archiveBody = Buffer.from("archive")
 const fakeRuntimeAsset: NonNullable<LlamaCppRuntimeOptions["runtimeAsset"]> = () => ({
-  name: "llama-b10666-bin-macos-arm64.tar.gz",
+  name: pinnedAsset.name,
   url: pinnedArchiveURL,
   size: archiveBody.byteLength,
   sha256: createHash("sha256").update(archiveBody).digest("hex"),
@@ -80,7 +81,7 @@ describe("llama.cpp runtime", () => {
     await runtime.ensureServing(model, fit, hardware)
 
     const binary = commands[0]
-    expect(binary).toBe(join(directory, "bin", "b10666", "llama-server"))
+    expect(binary).toBe(join(directory, "bin", LLAMA_CPP_RELEASE_TAG, "llama-server"))
     expect(await readFile(join(dirname(binary as string), "libllama.dylib"), "utf8")).toBe("llama library")
     await expect(readFile(join(dirname(binary as string), ".otis-runtime.json"), "utf8")).resolves.toContain(
       `"artifactSha256":"${fakeRuntimeAsset(hardware, "upstream").sha256}"`,
@@ -95,7 +96,7 @@ describe("llama.cpp runtime", () => {
     const directory = await tempDir()
     await cacheWeights(model, directory)
     await installFakeBinary(directory, "b10667")
-    const pinned = await installFakeBinary(directory, "b10666")
+    const pinned = await installFakeBinary(directory, LLAMA_CPP_RELEASE_TAG)
     const urls: string[] = []
     let command = ""
     const runtime = new LlamaCppRuntime({
@@ -130,7 +131,7 @@ describe("llama.cpp runtime", () => {
     const fit = fitLocalModel(model, hardware)
     const directory = await tempDir()
     await cacheWeights(fit.model, directory)
-    const upstream = await installFakeBinary(directory, "b10666")
+    const upstream = await installFakeBinary(directory, LLAMA_CPP_RELEASE_TAG)
     const prismArchiveURL =
       "https://github.com/PrismML-Eng/llama.cpp/releases/download/prism-b10685-7dffb15/test-prism.tar.gz"
     const selectedRuntimes: string[] = []
@@ -519,7 +520,7 @@ describe("llama.cpp runtime", () => {
     const fit = fitLocalModel(model, hardware)
     const directory = await tempDir()
     await cacheWeights(model, directory)
-    const binary = await installFakeBinary(directory, "b10666")
+    const binary = await installFakeBinary(directory, LLAMA_CPP_RELEASE_TAG)
     await writeFile(
       join(dirname(binary), ".otis-runtime.json"),
       JSON.stringify({
@@ -566,7 +567,7 @@ describe("llama.cpp runtime", () => {
     const fit = fitLocalModel(model, hardware)
     const directory = await tempDir()
     await cacheWeights(model, directory)
-    const binary = await installLoneBinary(directory, "b10666")
+    const binary = await installLoneBinary(directory, LLAMA_CPP_RELEASE_TAG)
     const urls: string[] = []
     const runtime = new LlamaCppRuntime({
       env: {},

@@ -1,5 +1,6 @@
 import { basename, resolve } from "node:path"
 import type { InferenceClient } from "../inference/client.js"
+import type { ChatMessage } from "../inference/types.js"
 import {
   acquireSessionLock,
   createSession,
@@ -9,6 +10,7 @@ import {
   listSessions,
   openSession,
   type SessionLock,
+  type SessionToolActivity,
   searchSessions,
 } from "../storage/index.js"
 import { countTranscriptDiffLines, type DiffStats } from "./diff-stats.js"
@@ -29,6 +31,8 @@ export type SessionCoordinatorOptions = {
   subagents: SubagentTraces
   isBusy: () => boolean
   isExiting: () => boolean
+  onReset?: () => void
+  onReplay?: (messages: readonly ChatMessage[], activities: readonly SessionToolActivity[]) => void
 }
 
 export class SessionCoordinator {
@@ -236,6 +240,7 @@ export class SessionCoordinator {
     this.removedLines = 0
     this.options.transcript.replaceMessages([])
     this.options.subagents.load([])
+    this.options.onReset?.()
   }
 
   #loadCurrent() {
@@ -245,6 +250,7 @@ export class SessionCoordinator {
     const transcript = this.#session.replayTranscript()
     this.options.transcript.replaceMessages(replay.messages, transcript.toolActivities, transcript.messages)
     this.options.subagents.load(transcript.subagents)
+    this.options.onReplay?.(transcript.messages, transcript.toolActivities)
     const diff = countTranscriptDiffLines(this.options.transcript.entries)
     this.addedLines = diff.added
     this.removedLines = diff.removed

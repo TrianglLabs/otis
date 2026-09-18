@@ -29,6 +29,7 @@ export function describeToolCall(call: ToolCall) {
   if (call.name === "glob") return activity("file_search", `Finding files: ${shortToolText(call.input.pattern)}`)
   if (call.name === "write") return activity("file_write", `Writing file: ${shortToolText(call.input.path)}`)
   if (call.name === "edit") return activity("file_edit", `Editing file: ${shortToolText(call.input.path)}`)
+  if (call.name === "edit_document") return activity("file_edit", `Editing document: ${shortToolText(call.input.path)}`)
   if (call.name === "agent") return activity("agent", `Delegating: ${shortToolText(call.input.description)}`)
 
   const command = call.input.command

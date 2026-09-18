@@ -36,6 +36,12 @@ describe("groupToolRuns", () => {
     ])
   })
 
+  it("keeps document artifacts standalone instead of hiding them in an activity run", () => {
+    const [before, after] = [tool(), tool()]
+    const artifact = tool({ artifact: { source: "workspace", path: "brief.pdf", kind: "pdf" } })
+    expect(groupToolRuns([before, artifact, after])).toEqual([before, artifact, after])
+  })
+
   it("messages and reasoning break runs", () => {
     const [a, b] = [tool(), tool()]
     const text = message()

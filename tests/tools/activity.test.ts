@@ -33,6 +33,16 @@ describe("describeToolCall", () => {
       kind: "file_edit",
       label: "Editing file: README.md",
     })
+    expect(
+      describeToolCall({
+        name: "edit_document",
+        input: {
+          path: "resume.docx",
+          replaceOriginal: false,
+          operation: { kind: "replace_text", replacements: [{ old: "a", new: "b" }] },
+        },
+      }),
+    ).toEqual({ kind: "file_edit", label: "Editing document: resume.docx" })
     expect(describeToolCall({ name: "agent", input: { description: "Map the notes", prompt: "List." } })).toEqual({
       kind: "agent",
       label: "Delegating: Map the notes",

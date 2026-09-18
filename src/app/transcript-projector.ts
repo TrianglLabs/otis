@@ -80,9 +80,14 @@ export class TranscriptProjector {
       this.#tools.set(event.toolCallId, entry.id)
       return true
     }
-    if (!event.diff) return false
+    if (!event.diff && !event.artifact) return false
     const entryId = this.#tools.get(event.toolCallId)
-    if (entryId !== undefined) this.transcript.updateEntry(entryId, { diff: event.diff })
+    if (entryId !== undefined) {
+      this.transcript.updateEntry(entryId, {
+        ...(event.diff ? { diff: event.diff } : {}),
+        ...(event.artifact ? { artifact: event.artifact } : {}),
+      })
+    }
     return true
   }
 }

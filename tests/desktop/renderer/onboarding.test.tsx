@@ -17,6 +17,7 @@ const SNAPSHOT: DesktopSnapshot = {
   modelState: "unconfigured",
   modelError: undefined,
   session: { id: "session-1", title: "New session" },
+  artifact: null,
   needsWorkspace: false,
   sessions: [],
   contextTokens: undefined,
@@ -100,6 +101,8 @@ const PAIR_ITEM: ModelPickerItem = {
 function fakeApi(overrides: Partial<DesktopApi> = {}): DesktopApi {
   return {
     getSnapshot: vi.fn(async () => SNAPSHOT),
+    getArtifact: vi.fn(async () => undefined),
+    openArtifact: vi.fn(async () => ({ ok: true as const })),
     getWindowState: vi.fn(async () => ({ fullscreen: false })),
     sendPrompt: vi.fn(async () => ({ accepted: true as const, delivery: "started" as const })),
     stop: vi.fn(async () => {}),

@@ -103,6 +103,29 @@
   overflow-wrap: break-word;
 }
 
+.userMessage-artifacts {
+  display: flex;
+  width: 80%;
+  max-width: 80%;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.messageArtifacts {
+  display: flex;
+  width: 100%;
+  max-width: 100%;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 8px;
+  white-space: normal;
+}
+
+.userMessage-artifacts .messageArtifacts {
+  margin-top: 0;
+}
+
 /* Assistant message */
 
 .assistantMessage {
@@ -325,6 +348,10 @@ button.reasoning-header:hover {
   font-size: 12px;
   line-height: 1.6;
   border-radius: var(--radius-lg);
+}
+
+.toolCard-artifact .diffView {
+  margin-left: 0;
 }
 
 .diffView-inner {
@@ -626,28 +653,13 @@ button.reasoning-header:hover {
 }
 
 .composer-documentPreview {
-  display: flex;
+  display: grid;
   width: 100%;
   height: 100%;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  color: var(--text-muted);
+  place-items: center;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-code);
-}
-
-.composer-documentPreview span {
-  max-width: 44px;
-  overflow: hidden;
-  font-family: var(--font-mono);
-  font-size: 8px;
-  font-weight: 700;
-  line-height: 1;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .composer-attachment button {

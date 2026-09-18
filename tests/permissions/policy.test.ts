@@ -22,9 +22,37 @@ describe("permission policy", () => {
     expect((await dontAsk.evaluate({ name: "edit", input: { path: "out.txt", old: "a", new: "b" } })).effect).toBe(
       "deny",
     )
+    expect(
+      (
+        await dontAsk.evaluate({
+          name: "edit_document",
+          input: {
+            path: "package.json",
+            replaceOriginal: false,
+            operation: { kind: "replace_text", replacements: [{ old: "a", new: "b" }] },
+          },
+        })
+      ).effect,
+    ).toBe("deny")
     expect((await dontAsk.evaluate({ name: "agent", input: { description: "Map", prompt: "List." } })).effect).toBe(
       "allow",
     )
+  })
+
+  it("checks both source and destination for document copy edits", async () => {
+    const policy = createPermissionPolicy({ cwd: process.cwd(), mode: "ask" })
+
+    expect(
+      await policy.evaluate({
+        name: "edit_document",
+        input: {
+          path: "package.json",
+          outputPath: "reviewed.json",
+          replaceOriginal: false,
+          operation: { kind: "replace_text", replacements: [{ old: "a", new: "b" }] },
+        },
+      }),
+    ).toMatchObject({ effect: "ask", resources: ["package.json", "reviewed.json"] })
   })
 
   it("lets rules deny delegation by description", async () => {

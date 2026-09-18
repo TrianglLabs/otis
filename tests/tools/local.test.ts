@@ -1,9 +1,11 @@
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { PDFDocument, rgb, StandardFonts } from "pdf-lib"
 import { afterEach, describe, expect, it } from "vitest"
 import { executeLocalTool } from "../../src/tools/local.js"
 import type { ToolContext } from "../../src/tools/types.js"
+import { minimalDocx, minimalPdf } from "../inference/support/document-fixtures.js"
 
 const tempDirs: string[] = []
 
@@ -12,6 +14,53 @@ afterEach(async () => {
 })
 
 describe("executeLocalTool", () => {
+  it("rejects binary and invalid UTF-8 writes and edits without changing source bytes", async () => {
+    const context = await testContext()
+    const fixtures: [string, Uint8Array][] = [
+      ["brief.docx", await minimalDocx("Keep original")],
+      ["report.pdf", minimalPdf("Keep original")],
+      ["renamed.txt", minimalPdf("Keep original")],
+      ["binary.bin", new Uint8Array([65, 0, 66])],
+      ["invalid.txt", new Uint8Array([65, 255, 66])],
+    ]
+    for (const [name, bytes] of fixtures) {
+      const path = join(context.cwd, name)
+      await writeFile(path, bytes)
+      await expect(
+        executeLocalTool({ name: "write", input: { path: name, content: "replacement" } }, context),
+      ).rejects.toThrow()
+      await expect(
+        executeLocalTool({ name: "edit", input: { path: name, old: "A", new: "B" } }, context),
+      ).rejects.toThrow()
+      expect(new Uint8Array(await readFile(path))).toEqual(bytes)
+    }
+    await expect(
+      executeLocalTool({ name: "write", input: { path: "new.docx", content: "fake Word" } }, context),
+    ).rejects.toThrow("format-aware editor")
+    await expect(readFile(join(context.cwd, "new.docx"))).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("preserves UTF-8 BOMs when editing text", async () => {
+    const context = await testContext()
+    await writeFile(join(context.cwd, "bom.txt"), "\uFEFFFirst draft")
+    await executeLocalTool({ name: "edit", input: { path: "bom.txt", old: "First", new: "Final" } }, context)
+    expect(await readFile(join(context.cwd, "bom.txt"), "utf8")).toBe("\uFEFFFinal draft")
+    await writeFile(join(context.cwd, "format.txt"), "A PDF starts with %PDF-1.7.")
+    await executeLocalTool({ name: "edit", input: { path: "format.txt", old: "1.7", new: "2.0" } }, context)
+    expect(await readFile(join(context.cwd, "format.txt"), "utf8")).toBe("A PDF starts with %PDF-2.0.")
+  })
+
+  it("reports document extraction limits even when offsets exceed the extracted range", async () => {
+    const context = await testContext()
+    await writeFile(join(context.cwd, "long.docx"), await minimalDocx("A".repeat(160_001)))
+    for (const offset of [1, 5000]) {
+      const result = await executeLocalTool({ name: "read", input: { path: "long.docx", offset } }, context)
+      expect(result.output).toContain("Document extraction stopped at 160000 characters")
+      expect(result.output).toContain("later offsets cannot retrieve it")
+      expect(result.output).not.toContain("File is empty")
+    }
+  })
+
   it("writes files and reads a requested line range", async () => {
     const context = await testContext()
 
@@ -44,8 +93,36 @@ describe("executeLocalTool", () => {
       "Attach the image to an Otis prompt instead",
     )
     await expect(executeLocalTool({ name: "read", input: { path: "data.bin" } }, context)).rejects.toThrow(
-      "read supports text files only",
+      "read supports UTF-8 text, PDF, and DOCX files only",
     )
+  })
+
+  it("reads PDF and DOCX text while returning their native Canvas artifacts", async () => {
+    const context = await testContext()
+    await writeFile(join(context.cwd, "report.pdf"), minimalPdf("PDF tool text"))
+    await writeFile(join(context.cwd, "brief.docx"), await minimalDocx("Word tool text"))
+
+    const pdf = await executeLocalTool({ name: "read", input: { path: "report.pdf" } }, context)
+    const docx = await executeLocalTool({ name: "read", input: { path: "brief.docx" } }, context)
+
+    expect(pdf.output).toContain("PDF tool text")
+    expect(pdf.artifact).toEqual({ source: "workspace", path: "report.pdf", kind: "pdf" })
+    expect(docx.output).toContain("Word tool text")
+    expect(docx.artifact).toEqual({ source: "workspace", path: "brief.docx", kind: "docx" })
+  })
+
+  it("marks only document and webpage writes as Canvas artifacts", async () => {
+    const context = await testContext()
+    const markdown = await executeLocalTool({ name: "write", input: { path: "draft.md", content: "# Draft" } }, context)
+    const webpage = await executeLocalTool(
+      { name: "write", input: { path: "page.html", content: "<h1>Page</h1>" } },
+      context,
+    )
+    const code = await executeLocalTool({ name: "write", input: { path: "app.ts", content: "export {}" } }, context)
+
+    expect(markdown.artifact).toEqual({ source: "workspace", path: "draft.md", kind: "markdown" })
+    expect(webpage.artifact).toEqual({ source: "workspace", path: "page.html", kind: "html" })
+    expect(code.artifact).toBeUndefined()
   })
 
   it("edits exactly one occurrence and rejects ambiguous replacements", async () => {
@@ -58,6 +135,155 @@ describe("executeLocalTool", () => {
 
     await executeLocalTool({ name: "edit", input: { path: "message.txt", old: "alpha", new: "omega" } }, context)
     await expect(readFile(join(context.cwd, "message.txt"), "utf8")).resolves.toBe("omega beta beta")
+  })
+
+  it("edits DOCX text across formatting runs into a validated sibling copy", async () => {
+    const context = await testContext()
+    const source = await splitRunDocx("Senior ", "Engineer")
+    await writeFile(join(context.cwd, "resume.docx"), source)
+
+    const result = await executeLocalTool(
+      {
+        name: "edit_document",
+        input: {
+          path: "resume.docx",
+          replaceOriginal: false,
+          operation: {
+            kind: "replace_text",
+            replacements: [{ old: "Senior Engineer", new: "Staff Engineer" }],
+          },
+        },
+      },
+      context,
+    )
+
+    expect(new Uint8Array(await readFile(join(context.cwd, "resume.docx")))).toEqual(source)
+    const edited = await executeLocalTool({ name: "read", input: { path: "resume-edited.docx" } }, context)
+    const editedArchive = await (await import("jszip")).default.loadAsync(
+      await readFile(join(context.cwd, "resume-edited.docx")),
+    )
+    const documentXml = await editedArchive.file("word/document.xml")?.async("string")
+    expect(edited.output).toContain("Staff Engineer")
+    expect(documentXml).toContain("<w:b/>")
+    expect(documentXml).toContain("<w:i/>")
+    expect(documentXml).toContain("<w:t>Engineer</w:t>")
+    expect(result.output).toContain("The original file was not changed")
+    expect(result.diff).toContain("-Senior Engineer")
+    expect(result.diff).toContain("+Staff Engineer")
+    expect(result.artifact).toEqual({ source: "workspace", path: "resume-edited.docx", kind: "docx" })
+  })
+
+  it("does not publish partial DOCX edits when a replacement is missing or ambiguous", async () => {
+    const context = await testContext()
+    await writeFile(join(context.cwd, "resume.docx"), await minimalDocx("Engineer Engineer"))
+
+    await expect(
+      executeLocalTool(
+        {
+          name: "edit_document",
+          input: {
+            path: "resume.docx",
+            replaceOriginal: false,
+            operation: { kind: "replace_text", replacements: [{ old: "Engineer", new: "Developer" }] },
+          },
+        },
+        context,
+      ),
+    ).rejects.toThrow("appears 2 times")
+    await expect(readFile(join(context.cwd, "resume-edited.docx"))).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("backs up a DOCX before explicitly replacing the original", async () => {
+    const context = await testContext()
+    const source = await minimalDocx("First draft")
+    await writeFile(join(context.cwd, "resume.docx"), source)
+
+    const result = await executeLocalTool(
+      {
+        name: "edit_document",
+        input: {
+          path: "resume.docx",
+          replaceOriginal: true,
+          operation: { kind: "replace_text", replacements: [{ old: "First", new: "Final" }] },
+        },
+      },
+      context,
+    )
+
+    expect((await executeLocalTool({ name: "read", input: { path: "resume.docx" } }, context)).output).toContain(
+      "Final draft",
+    )
+    const backup = result.output.match(/backed up at (.+)\.\n/)?.[1]
+    expect(backup).toBeDefined()
+    expect(new Uint8Array(await readFile(backup as string))).toEqual(source)
+  })
+
+  it("fills an interactive PDF into a validated copy and keeps it editable", async () => {
+    const context = await testContext()
+    const source = await fillablePdf()
+    await writeFile(join(context.cwd, "application.pdf"), source)
+
+    const before = await executeLocalTool({ name: "read", input: { path: "application.pdf" } }, context)
+    expect(before.output).toContain("Name (TextField)")
+    expect(before.output).toContain('Confirmed (CheckBox): value="false"')
+
+    const result = await executeLocalTool(
+      {
+        name: "edit_document",
+        input: {
+          path: "application.pdf",
+          replaceOriginal: false,
+          operation: {
+            kind: "fill_pdf_form",
+            fields: { Name: "Ada Lovelace", Confirmed: "true", Role: "Engineer" },
+          },
+        },
+      },
+      context,
+    )
+
+    const original = await PDFDocument.load(await readFile(join(context.cwd, "application.pdf")))
+    expect(original.getForm().getTextField("Name").getText()).toBeUndefined()
+    const edited = await PDFDocument.load(await readFile(join(context.cwd, "application-edited.pdf")))
+    expect(edited.getForm().getTextField("Name").getText()).toBe("Ada Lovelace")
+    expect(edited.getForm().getCheckBox("Confirmed").isChecked()).toBe(true)
+    expect(edited.getForm().getDropdown("Role").getSelected()).toEqual(["Engineer"])
+    expect(result.output).toContain("result remains fillable")
+    expect(result.artifact).toEqual({ source: "workspace", path: "application-edited.pdf", kind: "pdf" })
+  })
+
+  it("refuses fake text replacement for PDFs and refuses to overwrite a copy", async () => {
+    const context = await testContext()
+    await writeFile(join(context.cwd, "report.pdf"), minimalPdf("Original report"))
+    await writeFile(join(context.cwd, "report-edited.pdf"), minimalPdf("Existing copy"))
+
+    await expect(
+      executeLocalTool(
+        {
+          name: "edit_document",
+          input: {
+            path: "report.pdf",
+            outputPath: "rewrite.pdf",
+            replaceOriginal: false,
+            operation: { kind: "replace_text", replacements: [{ old: "Original", new: "Final" }] },
+          },
+        },
+        context,
+      ),
+    ).rejects.toThrow("cannot be safely rewritten")
+    await expect(
+      executeLocalTool(
+        {
+          name: "edit_document",
+          input: {
+            path: "report.pdf",
+            replaceOriginal: false,
+            operation: { kind: "fill_pdf_form", fields: { Name: "Ada" } },
+          },
+        },
+        context,
+      ),
+    ).rejects.toThrow("output file already exists")
   })
 
   it("generates a unified diff for edits", async () => {
@@ -323,12 +549,41 @@ describe("glob", () => {
   })
 })
 
-async function testContext(): Promise<Required<Pick<ToolContext, "cwd">>> {
-  return { cwd: await trackedTempDir() }
+async function testContext(): Promise<Required<Pick<ToolContext, "cwd" | "dataDirectory">>> {
+  return { cwd: await trackedTempDir(), dataDirectory: await trackedTempDir() }
 }
 
 async function trackedTempDir() {
   const path = await mkdtemp(join(tmpdir(), "otis-tools-"))
   tempDirs.push(path)
   return path
+}
+
+async function splitRunDocx(first: string, second: string) {
+  const JSZip = (await import("jszip")).default
+  const zip = await JSZip.loadAsync(await minimalDocx("placeholder"))
+  zip.file(
+    "word/document.xml",
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
+      `<w:body><w:p><w:r><w:rPr><w:b/></w:rPr><w:t xml:space="preserve">${first}</w:t></w:r>` +
+      `<w:r><w:rPr><w:i/></w:rPr><w:t>${second}</w:t></w:r></w:p></w:body></w:document>`,
+  )
+  return new Uint8Array(await zip.generateAsync({ type: "uint8array", compression: "DEFLATE" }))
+}
+
+async function fillablePdf() {
+  const document = await PDFDocument.create()
+  const page = document.addPage([612, 792])
+  const font = await document.embedFont(StandardFonts.Helvetica)
+  page.drawText("Application form", { x: 50, y: 740, size: 18, font, color: rgb(0, 0, 0) })
+  const form = document.getForm()
+  form.createTextField("Name").addToPage(page, { x: 50, y: 680, width: 220, height: 24 })
+  form.createCheckBox("Confirmed").addToPage(page, { x: 50, y: 630, width: 18, height: 18 })
+  const role = form.createDropdown("Role")
+  role.addOptions(["Designer", "Engineer"])
+  role.select("Designer")
+  role.addToPage(page, { x: 50, y: 580, width: 160, height: 24 })
+  form.updateFieldAppearances(font)
+  return new Uint8Array(await document.save())
 }

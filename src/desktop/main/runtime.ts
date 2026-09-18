@@ -6,6 +6,7 @@ import type { GlobalSessionPickerItem } from "../../app/global-sessions.js"
 import { listGlobalSessionPickerItems, searchGlobalSessionPickerItems } from "../../app/global-sessions.js"
 import type { TranscriptChange, TranscriptEntry } from "../../app/transcript.js"
 import { formatWorkspaceLabel } from "../../app/workspace-label.js"
+import type { ArtifactReference } from "../../artifacts/types.js"
 import { autoCompactThreshold } from "../../core/compaction.js"
 import { createAttachment, validateAttachments } from "../../inference/attachments.js"
 import { listToolCapableModels } from "../../inference/catalog.js"
@@ -181,6 +182,17 @@ export class DesktopRuntime {
       revision: this.#revision,
       ...(await this.#status()),
     }
+  }
+
+  getArtifact(revision: number) {
+    if (!Number.isInteger(revision) || revision < 0) return Promise.resolve(undefined)
+    return this.app.artifacts.load(revision)
+  }
+
+  async openArtifact(reference: ArtifactReference): Promise<SessionOpResult> {
+    if (!this.app.openArtifact(reference)) return { ok: false, reason: "This artifact is no longer available." }
+    this.#markStateDirty()
+    return { ok: true }
   }
 
   async sendPrompt(text: string, inputs: readonly DesktopAttachmentInput[] = []): Promise<SendPromptResult> {
@@ -1360,6 +1372,7 @@ export class DesktopRuntime {
       modelState: this.#modelState,
       modelError: this.#modelError,
       session: app.sessions.current ? { id: app.sessions.current.id, title: app.sessions.activeLabel() } : null,
+      artifact: app.artifacts.metadata ?? null,
       needsWorkspace: this.#pendingWorkspace !== undefined,
       workspace: { label: formatWorkspaceLabel(app.cwd), path: app.cwd },
       contextTokens: app.contextTokens(),

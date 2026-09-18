@@ -8,18 +8,18 @@ import {
 
 describe("llama.cpp binary selection", () => {
   it("builds deterministic asset URLs for the pinned release", () => {
-    expect(LLAMA_CPP_RELEASE_TAG).toBe("b10666")
+    expect(LLAMA_CPP_RELEASE_TAG).toBe("b10964")
     expect(pinnedLlamaCppAsset({ platform: "darwin", arch: "arm64", backend: "metal" })).toEqual({
-      name: "llama-b10666-bin-macos-arm64.tar.gz",
-      url: "https://github.com/ggml-org/llama.cpp/releases/download/b10666/llama-b10666-bin-macos-arm64.tar.gz",
-      size: 11_022_594,
-      sha256: "f2b5d7b445cfcdab2abe53e0e6e697790094fb902ef2bdaafd23c813bb297cbb",
+      name: "llama-b10964-bin-macos-arm64.tar.gz",
+      url: "https://github.com/ggml-org/llama.cpp/releases/download/b10964/llama-b10964-bin-macos-arm64.tar.gz",
+      size: 11_149_739,
+      sha256: "033c845c1df9bf945ff37bb193238b40910b2244be3e1e637b2ceb5878f1a6f5",
     })
     expect(pinnedLlamaCppAsset({ platform: "linux", arch: "x64", backend: "vulkan" }).name).toBe(
-      "llama-b10666-bin-ubuntu-vulkan-x64.tar.gz",
+      "llama-b10964-bin-ubuntu-vulkan-x64.tar.gz",
     )
     expect(pinnedLlamaCppAsset({ platform: "linux", arch: "x64", backend: "cpu" }).name).toBe(
-      "llama-b10666-bin-ubuntu-x64.tar.gz",
+      "llama-b10964-bin-ubuntu-x64.tar.gz",
     )
   })
 

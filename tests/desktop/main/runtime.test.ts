@@ -971,7 +971,24 @@ describe("DesktopRuntime conversation flow", () => {
         }),
       ],
     })
-    expect(app.transcript.entries.find((entry) => entry.speaker === "You")?.text).toBe("📄 notes.txt")
+    const userEntry = app.transcript.entries.find((entry) => entry.speaker === "You")
+    expect(userEntry).toMatchObject({
+      text: "📄 notes.txt",
+      messageText: "",
+      artifacts: [expect.objectContaining({ source: "attachment", kind: "text", name: "notes.txt" })],
+    })
+    const artifact = (await runtime.snapshot()).artifact
+    expect(artifact).toMatchObject({ source: "attachment", kind: "text", title: "notes.txt", editable: false })
+    expect(JSON.stringify(artifact)).not.toContain("Desktop document text")
+    await expect(runtime.getArtifact(artifact?.revision ?? 0)).resolves.toMatchObject({
+      encoding: "utf8",
+      content: "Desktop document text",
+    })
+    app.transcript.loadCompacted("Attachment summary", [])
+    const reference = userEntry?.artifacts?.[0]
+    if (!reference) throw new Error("Document artifact reference is missing")
+    expect(await runtime.openArtifact(reference)).toEqual({ ok: true })
+    expect((await runtime.snapshot()).artifact).toMatchObject({ title: "notes.txt", kind: "text" })
     await runtime.shutdown()
   })
 
@@ -1129,6 +1146,27 @@ const completed = (): TurnResult => ({
 describe("DesktopRuntime cancellation and timing", () => {
   beforeEach(() => {
     mocks.executeTurn.mockReset()
+  })
+
+  it("denies unanswered approvals when the renderer dies", async () => {
+    const { runtime } = await setup()
+    let allowed: boolean | undefined
+    mocks.executeTurn.mockImplementation(async (options: TurnRunnerOptions): Promise<TurnResult> => {
+      allowed = await options.agent.onPermissionRequest?.({
+        call: { name: "bash", input: { command: "echo test" } },
+        decision: { effect: "ask", resources: ["echo test"] },
+      })
+      return { status: "interrupted", messages: [], details: {} }
+    })
+    try {
+      await runtime.sendPrompt("run a command")
+      await vi.waitFor(async () => expect((await runtime.snapshot()).permission).not.toBeNull())
+      runtime.handleRendererGone()
+      await vi.waitFor(() => expect(allowed).toBe(false))
+      expect((await runtime.snapshot()).permission).toBeNull()
+    } finally {
+      await runtime.shutdown()
+    }
   })
 
   it("does not start queued work after the renderer crashes", async () => {

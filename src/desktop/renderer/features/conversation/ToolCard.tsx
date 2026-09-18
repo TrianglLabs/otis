@@ -15,8 +15,10 @@ import { memo, useMemo } from "react"
 import { Virtuoso } from "react-virtuoso"
 import type { TranscriptEntry } from "../../../../app/transcript.js"
 import type { ToolActivityKind } from "../../../../tools/activity.js"
+import { ArtifactCard } from "../../components/ArtifactCard.js"
 import { Icon } from "../../components/Icon.js"
 import { useI18n } from "../../i18n/index.js"
+import { useDesktop } from "../../runtime.js"
 import { type DiffDisplayRow, parseDiffDisplay } from "./diff.js"
 import type { ToolRun } from "./tool-runs.js"
 
@@ -39,6 +41,7 @@ const KIND_ICONS: Record<ToolActivityKind, LucideIcon> = {
  */
 export function ToolCard({ entry, active }: { entry: TranscriptEntry; active: boolean }) {
   const icon = KIND_ICONS[entry.activityKind ?? "shell"]
+  if (entry.artifact) return <ArtifactToolCard entry={entry} active={active} />
 
   return (
     <div className={`toolCard${active ? " toolCard-active" : ""}`}>
@@ -48,6 +51,25 @@ export function ToolCard({ entry, active }: { entry: TranscriptEntry; active: bo
         </span>
         <span className="toolCard-label">{entry.text}</span>
       </div>
+      {entry.diff ? <DiffView diff={entry.diff} /> : null}
+    </div>
+  )
+}
+
+function ArtifactToolCard({ entry, active }: { entry: TranscriptEntry; active: boolean }) {
+  const { api } = useDesktop()
+  const { t } = useI18n()
+  const artifact = entry.artifact
+  if (!artifact) return null
+  const title = artifact.path.split("/").at(-1) ?? artifact.path
+  return (
+    <div className={`toolCard toolCard-artifact${active ? " toolCard-active" : ""}`}>
+      <ArtifactCard
+        kind={artifact.kind}
+        title={title}
+        actionLabel={t("markdown.openCanvas")}
+        onOpen={() => api.openArtifact(artifact)}
+      />
       {entry.diff ? <DiffView diff={entry.diff} /> : null}
     </div>
   )

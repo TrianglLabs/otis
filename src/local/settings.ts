@@ -120,6 +120,15 @@ function serializeSettingsWrite<T>(
   return run
 }
 
+/** Seed a new profile once, using the normal validation and private atomic writer. */
+export async function initializeLocalSettings(sourceFile: string, options: SettingsFileOptions = {}) {
+  await serializeSettingsWrite(options, async (pinned) => {
+    if (await readSettingsFile(pinned)) return
+    const source = await readSettingsFile({ file: sourceFile })
+    if (source) await writeSettingsFile(source, pinned)
+  })
+}
+
 export async function saveFireworksSetup(apiKey: string, model: FireworksModel, options: SettingsFileOptions = {}) {
   await serializeSettingsWrite(options, async (pinned) => {
     const saved = (await readSettingsFile(pinned)) ?? { version: 1 }

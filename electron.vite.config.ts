@@ -78,6 +78,7 @@ export default defineConfig({
         input: {
           index: `${root}src/desktop/renderer/index.html`,
           canvas: `${root}src/desktop/renderer/canvas.html`,
+          webpage: `${root}src/desktop/renderer/webpage.html`,
         },
       },
     },

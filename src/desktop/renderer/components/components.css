@@ -273,3 +273,90 @@
   line-height: 1.55;
   color: var(--text);
 }
+.fileTypeIcon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 42px;
+  gap: 2px;
+  color: var(--text-muted);
+}
+
+.fileTypeIcon > span {
+  max-width: 44px;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileTypeIcon-sm {
+  width: 30px;
+  height: 32px;
+}
+
+.fileTypeIcon-sm > span {
+  max-width: 28px;
+  font-size: 6px;
+}
+
+.artifactCard {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 11px;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--bg-elev) 70%, var(--bg));
+  text-align: left;
+  transition: background-color var(--motion) ease;
+}
+
+.artifactCard:hover {
+  background: var(--bg-hover);
+}
+
+.md .artifactCard {
+  margin: 10px 0;
+}
+
+.artifactCard-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.artifactCard-copy strong {
+  overflow: hidden;
+  font-size: var(--text-ui);
+  font-weight: 600;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artifactCard-copy span {
+  color: var(--text-dim);
+  font-size: var(--text-meta);
+}
+
+.artifactCard > svg {
+  flex: 0 0 auto;
+  color: var(--text-dim);
+}
+
+.artifactCard-error {
+  color: var(--danger);
+  font-size: var(--text-meta);
+}

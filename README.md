@@ -149,6 +149,14 @@ also attach copied images directly. Numbered tokens appear in the composer, Back
 the input is empty, and attachments clear after the prompt enters the session. Only image attachments require a vision
 model.
 
+In Otis Desktop, previewable files open in the session's Canvas. Markdown, plain-text, and self-contained HTML files
+refresh automatically when the agent reads, writes, or edits them; the workspace file remains the source of truth, so
+the editing behavior is identical in terminal and headless modes. PDF and DOCX files render from their preserved
+source bytes. The format-aware `edit_document` tool can replace exact text in workspace DOCX files without flattening
+their OOXML structure and fill interactive PDF forms. It creates a validated sibling copy by default. Replacing an
+original requires an explicit request and stores the previous version in Otis's private local backup directory. The
+plain-text editing tools continue to reject PDF, Word, and other binary files.
+
 ## Headless execution
 
 Use `otis exec` in scripts, CI jobs, containers, or server workers. It runs the same agent turn engine without starting
@@ -162,7 +170,8 @@ otis exec --file requirements.pdf --file notes.docx "Compare these documents"
 ```
 
 Plain output reserves stdout for the final response. JSON and streaming JSONL are available for programmatic use.
-Headless mode never prompts and denies unmatched write, edit, and shell calls unless policy or `--auto` permits them.
+Headless mode never prompts and denies unmatched `write`, `edit`, `edit_document`, and `bash` calls unless policy or
+`--auto` permits them.
 Run `otis exec --help` or read [Headless execution](docs/headless.md) for formats, sessions, limits, permissions, and
 file attachments.
 
@@ -199,8 +208,23 @@ git clone https://github.com/TrianglLabs/otis.git
 cd otis
 bun install --frozen-lockfile
 bun run dev          # OpenTUI terminal interface
-bun run dev:desktop  # Desktop app
+bun run dev:desktop  # Otis Dev, alongside the installed app
 ```
+
+Desktop development uses a persistent, separate `otis-dev` profile in the platform's application-data directory
+(`~/Library/Application Support/otis-dev` on macOS). On first launch it imports your installed Otis configuration,
+including saved API keys, and reuses complete model downloads through copy-on-write filesystem clones where supported
+(otherwise local copies). Existing dev configuration and model files are never overwritten. Later settings changes,
+sessions, runtime processes, and model deletions are independent; deleting a dev model does not delete the installed
+app's copy or re-import it on the next launch. Workspace files are still the actual files you open.
+No commit or release is needed to test changes. `bun run dev:demo` uses simulated responses for UI work instead.
+
+`OTIS_DEV_USER_DATA` overrides the development profile location. An explicit `OTIS_HOME` overrides Otis's settings,
+sessions, and runtime location independently. Either override disables automatic import for isolated tests.
+
+If the desktop renderer crashes, Otis stops the active task and offers to reload the window from the current session;
+reloading does not restart interrupted work or queued prompts. `bun run test:desktop:lifecycle` checks this recovery
+in an isolated Electron process, including loss of the development launcher's output pipes.
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) for source boundaries, testing guidance, and the verification checklist.
 

@@ -75,14 +75,33 @@ is decoded without removing significant whitespace, PDF text is extracted page b
 from the OOXML package. PDF.js's worker is bundled explicitly for both CLI and desktop releases. DOCX archives are
 validated with bounded streaming decompression before Mammoth reads their XML. Providers
 receive only the derived text plus bounded metadata, so document input remains portable across Fireworks, managed
-local, and PAIR models without requiring provider-specific PDF support. Keeping the immutable source makes future
-editing and Canvas rendering operate on the actual file instead of trying to reconstruct it from extracted text.
-Legacy `.doc` and scanned PDFs without a text layer are rejected; OCR is outside the current boundary.
+local, and PAIR models without requiring provider-specific PDF support. Keeping the immutable source lets Canvas
+render the actual PDF or Word asset instead of trying to reconstruct it from extracted text. The shared application
+also tracks previewable workspace files opened by `read`, `write`, `edit`, and `edit_document`; Markdown, plain text, and self-contained
+HTML remain ordinary workspace files, so model edits update Canvas without a desktop-only editing path. Canvas fetches
+an artifact body only when its small session-scoped reference changes, rather than copying document bytes into every
+status event. The format-aware `edit_document` tool changes workspace documents without round-tripping them through
+the extracted model text: DOCX replacements operate on OOXML text runs and PDF edits target interactive AcroForm
+fields. Output is parsed and validated before publication, then returned as a native Canvas artifact. The default is a
+new sibling file; explicitly replacing the original first writes a private revision under Otis's local data directory.
+The revision contains the exact source snapshot used by the edit. An optimistic content check before publication
+rejects changes made during preparation or staging; external editors do not participate in an Otis file lock.
+DOCX matching respects inline boundaries such as tabs and breaks, and insertions keep existing text in its original
+formatting runs. PDF signature detection inspects parsed dictionaries, including compressed objects and escaped names.
+Arbitrary PDF text rewriting is intentionally unsupported because covering rendered text would not be a structural
+edit; users should edit the source document and export a new PDF instead.
+The session artifact store retains attachment references independently of model context, so compaction does not
+break artifact cards. Webpage previews run in a separate opaque-origin document with a fixed CSP; source HTML
+inherits its network restrictions while inline interactions remain available. PDF previews use a dedicated worker
+and virtualized pages with bounded bitmap sizes, disposing rendering tasks and worker resources when closed.
+Legacy `.doc` files are rejected. Scanned PDFs still render in Canvas, but the model receives only a clear no-text
+notice because OCR is outside the current boundary.
 
 Compaction and title prompts include extracted document text or image metadata, never copied base64 source data.
 OpenTUI claims a text paste only when the entire payload parses as one or more supported shell-escaped attachment
 paths; ordinary text continues through the normal editor paste path. Paths are never evaluated by a shell. The local
-`read` tool continues to reject image and binary files instead of decoding them as text.
+`read` tool extracts supported PDF and DOCX text through the same bounded document pipeline used by attachments, and
+continues to reject images and unsupported binary files.
 
 Reasoning effort is selected by one conservative compatibility policy because Fireworks does not expose a maximum
 reasoning tier in its model catalog. Otis requests `max` for documented model families that support it, `high` for
@@ -117,7 +136,8 @@ and labels it `loaded`.
 
 Selecting a runnable local model downloads its Otis-pinned llama.cpp runtime (Metal on macOS, Vulkan on Linux with a
 render device, otherwise CPU) and the selected GGUF into the platform local-data directory. Normal models use upstream
-llama.cpp `b10666`. Bonsai 2 uses Prism's `prism-b10685-7dffb15` fork because its ternary formats require Prism's
+llama.cpp `b10964` (upstream v0.4.1, including the Metal 4 tensor API fix). Bonsai 2 uses Prism's
+`prism-b10685-7dffb15` fork because its ternary formats require Prism's
 loader and kernels. Runtime choice is catalog metadata, so the fork is isolated to the model that needs it and both
 pinned bundles may coexist. macOS and Linux on arm64 and x64 are supported; other targets are disabled before
 selection. Runtime asset sizes and SHA-256 digests are pinned with each release, and the archive is verified while
@@ -232,14 +252,14 @@ policy, executes approved tools in the local workspace, and appends bounded resu
 normalizes each call to a tool and resource, merges private user policy with restrictive project policy and temporary
 CLI rules, and resolves matching rules deny-first. An `ask` result is sent to the OpenTUI approval surface or denied in
 non-interactive execution. Current tools cover skill loading, web search, web reading, file reading, file search, file
-creation, exact edits, shell commands, and subagent delegation. Web tools call
+creation, exact text edits, native document edits, shell commands, and subagent delegation. Web tools call
 Parallel directly; local file and shell tools never pass through a remote Otis service.
 
 The `agent` tool runs a nested, read-only agent loop inside the same process. The child shares the parent's inference
 client, workspace, permission policy, approval handler, usage sink, and abort signal, but starts from a fresh history
 that contains only the delegated brief. Its tool set is the read-only subset of the parent's tools: file reading and
-search, web search and reading, and skill loading. It never receives `write`, `edit`, `bash`, or `agent`, so a
-subagent cannot mutate the workspace or delegate again. Agent runs have no fixed step cap. Only the child's final
+search, web search and reading, and skill loading. It never receives `write`, `edit`, `edit_document`, `bash`, or
+`agent`, so a subagent cannot mutate the workspace or delegate again. Agent runs have no fixed step cap. Only the child's final
 assistant text returns to the parent as the tool result; its own text, reasoning, and context accounting stay private.
 
 The `agent` tool and its system-prompt guidance are offered only for hosted Fireworks models and NVIDIA PAIR

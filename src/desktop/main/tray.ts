@@ -41,16 +41,16 @@ export function trayIconKey(status: TrayState): TrayIconKey {
   return "idle"
 }
 
-export function trayTooltip(status: TrayState): string {
+export function trayTooltip(status: TrayState, appName = "Otis"): string {
   const key = trayIconKey(status)
-  if (key === "alert") return "Otis — needs your approval"
+  if (key === "alert") return `${appName} — needs your approval`
   if (key === "working") {
     if (status.modelLoad?.status.kind === "progress" || status.modelState === "starting") {
-      return "Otis — preparing a model"
+      return `${appName} — preparing a model`
     }
-    return status.phase === "thinking" ? "Otis — thinking" : "Otis — working"
+    return status.phase === "thinking" ? `${appName} — thinking` : `${appName} — working`
   }
-  return "Otis — ready"
+  return `${appName} — ready`
 }
 
 export type TrayActions = {
@@ -65,7 +65,11 @@ export type TrayActions = {
  * worth doing without switching apps. Quiet by default: model-load progress and update rows only appear while
  * they are actually in flight.
  */
-export function buildTrayMenu(status: DesktopStatus, actions: TrayActions): MenuItemConstructorOptions[] {
+export function buildTrayMenu(
+  status: DesktopStatus,
+  actions: TrayActions,
+  appName = "Otis",
+): MenuItemConstructorOptions[] {
   const items: MenuItemConstructorOptions[] = []
   if (status.session) items.push({ label: status.session.title, enabled: false })
   items.push({ label: modelLabel(status), enabled: false })
@@ -89,7 +93,7 @@ export function buildTrayMenu(status: DesktopStatus, actions: TrayActions): Menu
   // Mirrors the header button: a fresh start is refused mid-turn, so it is disabled while busy.
   items.push({ label: "Fresh start", enabled: !status.busy, click: () => actions.startNewSession() })
   if (status.busy) items.push({ label: "Stop working", click: () => actions.stop() })
-  items.push({ label: "Show Otis", click: () => actions.focusWindow() })
+  items.push({ label: `Show ${appName}`, click: () => actions.focusWindow() })
 
   if (status.update.status === "ready" || status.update.status === "downloading") {
     items.push({ type: "separator" })
@@ -100,7 +104,7 @@ export function buildTrayMenu(status: DesktopStatus, actions: TrayActions): Menu
     )
   }
   // role: quit routes through app.quit(), so the graceful before-quit shutdown still runs.
-  items.push({ type: "separator" }, { role: "quit", label: "Quit Otis" })
+  items.push({ type: "separator" }, { role: "quit", label: `Quit ${appName}` })
   return items
 }
 
@@ -153,6 +157,7 @@ export function trayStatusGate(tray: Pick<StatusTray, "onStatus">) {
 export type StatusTrayOptions = {
   iconDir: string
   actions: TrayActions
+  appName?: string
 }
 
 /**
@@ -161,6 +166,7 @@ export type StatusTrayOptions = {
  * click handler uses the latest delivered status synchronously, without a delayed popup or a session-history read.
  */
 export function createStatusTray(options: StatusTrayOptions): StatusTray | undefined {
+  const appName = options.appName ?? "Otis"
   const icons = loadTrayIcons(options.iconDir)
   if (!icons) {
     console.warn(`Unable to load the tray icons from ${options.iconDir}; the status bar item is disabled.`)
@@ -168,17 +174,17 @@ export function createStatusTray(options: StatusTrayOptions): StatusTray | undef
   }
   const tray = new Tray(icons.idle)
   let iconKey: TrayIconKey = "idle"
-  let tooltip = "Otis — ready"
+  let tooltip = `${appName} — ready`
   let latestStatus: DesktopStatus | undefined
   tray.setToolTip(tooltip)
   tray.setIgnoreDoubleClickEvents(true)
   const openMenu = () => {
     const items: MenuItemConstructorOptions[] = latestStatus
-      ? buildTrayMenu(latestStatus, options.actions)
+      ? buildTrayMenu(latestStatus, options.actions, appName)
       : [
-          { label: "Starting Otis…", enabled: false },
-          { label: "Show Otis", click: () => options.actions.focusWindow() },
-          { role: "quit", label: "Quit Otis" },
+          { label: `Starting ${appName}…`, enabled: false },
+          { label: `Show ${appName}`, click: () => options.actions.focusWindow() },
+          { role: "quit", label: `Quit ${appName}` },
         ]
     tray.popUpContextMenu(Menu.buildFromTemplate(items))
   }
@@ -188,7 +194,7 @@ export function createStatusTray(options: StatusTrayOptions): StatusTray | undef
     onStatus(status) {
       latestStatus = status
       const nextIconKey = trayIconKey(status)
-      const nextTooltip = trayTooltip(status)
+      const nextTooltip = trayTooltip(status, appName)
       if (nextIconKey !== iconKey) {
         tray.setImage(icons[nextIconKey])
         iconKey = nextIconKey

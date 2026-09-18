@@ -12,6 +12,7 @@ describe("parseStructuredToolCall", () => {
       "glob",
       "write",
       "edit",
+      "edit_document",
       "bash",
       "agent",
     ])
@@ -91,6 +92,55 @@ describe("parseStructuredToolCall", () => {
       name: "edit",
       input: { path: "note.txt", old: "  old  ", new: "  new  " },
     })
+  })
+
+  it("parses native document edits and requires exactly one operation", () => {
+    expect(
+      parseStructuredToolCall("edit_document", {
+        path: " resume.docx ",
+        output_path: " resume-reviewed.docx ",
+        replacements: [{ old: "old title", new: "new title" }],
+      }),
+    ).toEqual({
+      name: "edit_document",
+      input: {
+        path: "resume.docx",
+        outputPath: "resume-reviewed.docx",
+        replaceOriginal: false,
+        operation: { kind: "replace_text", replacements: [{ old: "old title", new: "new title" }] },
+      },
+    })
+    expect(
+      parseStructuredToolCall("edit_document", {
+        path: "application.pdf",
+        replace_original: true,
+        form_fields: { Name: "Ada Lovelace", Confirmed: "true" },
+      }),
+    ).toEqual({
+      name: "edit_document",
+      input: {
+        path: "application.pdf",
+        outputPath: undefined,
+        replaceOriginal: true,
+        operation: { kind: "fill_pdf_form", fields: { Name: "Ada Lovelace", Confirmed: "true" } },
+      },
+    })
+    expect(() => parseStructuredToolCall("edit_document", { path: "resume.docx" })).toThrow("exactly one")
+    expect(() =>
+      parseStructuredToolCall("edit_document", {
+        path: "resume.docx",
+        replacements: [{ old: "x", new: "y" }],
+        form_fields: { Name: "Ada" },
+      }),
+    ).toThrow("exactly one")
+    expect(() =>
+      parseStructuredToolCall("edit_document", {
+        path: "resume.docx",
+        output_path: "copy.docx",
+        replace_original: true,
+        replacements: [{ old: "x", new: "y" }],
+      }),
+    ).toThrow("cannot use")
   })
 
   it("parses grep input with defaults for optional fields", () => {
