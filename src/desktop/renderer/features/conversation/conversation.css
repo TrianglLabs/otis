@@ -319,7 +319,7 @@ button.reasoning-header:hover {
 .diffView {
   margin: 4px 0 8px 22px;
   background: var(--bg-code);
-  overflow-x: auto;
+  overflow-x: hidden;
   padding: 8px 0;
   font-family: var(--font-mono);
   font-size: 12px;
@@ -328,10 +328,8 @@ button.reasoning-header:hover {
 }
 
 .diffView-inner {
-  /* Widest-line shrink-to-fit, floored at the viewport width; rows fill it, so add/remove backgrounds
-     cover the whole scroll width instead of ending at each line's own content edge. */
-  width: max-content;
-  min-width: 100%;
+  width: 100%;
+  min-width: 0;
 }
 
 .diffView-windowed {
@@ -341,13 +339,17 @@ button.reasoning-header:hover {
 }
 
 .diffLine {
-  display: flex;
+  display: grid;
+  grid-template-columns: 32px 32px 16px minmax(0, 1fr);
+  align-items: start;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   padding: 0 14px 0 0;
 }
 
 .diffLine-no {
   width: 32px;
-  flex-shrink: 0;
   text-align: right;
   padding-right: 8px;
   color: var(--text-faint);
@@ -369,12 +371,13 @@ button.reasoning-header:hover {
 }
 
 .diffLine-text {
-  white-space: pre;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .diffLine-sign {
   width: 16px;
-  flex-shrink: 0;
   user-select: none;
   color: var(--text-dim);
 }

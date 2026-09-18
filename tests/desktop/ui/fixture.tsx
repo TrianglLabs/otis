@@ -616,6 +616,24 @@ async function runDesktopUiChecks() {
   await pause(250)
   assert(bottomGap() <= 33, "Latest button did not reach the bottom")
 
+  // Long prose and code lines wrap inside the diff instead of requiring horizontal scrolling.
+  const longDiffLine = "A resume paragraph with descriptive experience and measurable outcomes. ".repeat(30)
+  status({ session: { id: "wrapped-diff", title: "Wrapped diff" }, busy: false })
+  patch({
+    op: "reset",
+    entries: [
+      { id: 1, kind: "tool", speaker: "Tool", text: "Edit resume.md", diff: `@@ -1 +1 @@\n-old\n+${longDiffLine}` },
+    ],
+  })
+  await until(() => !!document.querySelector(".diffLine-add"), "Wrapped diff did not render")
+  const wrappedDiff = element(".diffView")
+  const wrappedText = element(".diffLine-add .diffLine-text")
+  await until(
+    () => wrappedText.getBoundingClientRect().height > Number.parseFloat(getComputedStyle(wrappedText).lineHeight) * 2,
+    "Long diff line did not wrap",
+  )
+  assert(wrappedDiff.scrollWidth <= wrappedDiff.clientWidth + 1, "Wrapped diff still scrolls horizontally")
+
   // One huge diff must also stay bounded, and its final line must remain reachable.
   const diff = `@@ -0,0 +1,12000 @@\n${Array.from({ length: 12000 }, (_, index) => `+added_${index + 1}`).join("\n")}`
   status({ session: { id: "large-diff", title: "Large diff" }, busy: false })
