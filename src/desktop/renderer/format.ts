@@ -1,6 +1,7 @@
 /** Display formatting helpers shared across renderer features. */
 
 export function formatTokenCount(tokens: number): string {
+  if (tokens >= 1_000_000_000) return `${(tokens / 1_000_000_000).toFixed(1)}B`
   if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`
   if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(1)}k`
   return String(tokens)

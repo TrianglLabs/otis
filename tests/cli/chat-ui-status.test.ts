@@ -106,6 +106,16 @@ describe("chat UI status and prompts", () => {
     expect(harness.text("welcome-stat-label-3")).toBe("time/session")
   })
 
+  it("formats billion-scale all-time usage in billions", async () => {
+    vi.useFakeTimers()
+    const harness = await setup()
+
+    harness.ui.setStats({ ...sampleStats, totalTokens: 1_211_800_000 })
+    settleStats()
+
+    expect(harness.text("welcome-stat-value-1")).toBe("1.2B")
+  })
+
   it("counts stats up from zero", async () => {
     vi.useFakeTimers()
     const harness = await setup()
