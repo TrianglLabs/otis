@@ -56,6 +56,22 @@ function turnOptions(transcript: TranscriptStore, observer = sink()): Conversati
 }
 
 describe("runConversationTurn", () => {
+  it("keeps recovery in the normal working phase without adding a retry label or error to chat", async () => {
+    const transcript = new TranscriptStore()
+    const observer = sink()
+    mocks.executeTurn.mockImplementation(async (options: TurnRunnerOptions): Promise<TurnResult> => {
+      await options.onEvent?.({ type: "model", phase: "retry" })
+      expect(observer.setPhase).toHaveBeenLastCalledWith("working")
+      await options.onEvent?.({ type: "delta", text: "Recovered" })
+      await options.onEvent?.({ type: "complete", messages: [] })
+      return { status: "complete", messages: [], details: {} }
+    })
+    await runConversationTurn(turnOptions(transcript, observer))
+    expect(observer.startBusy).toHaveBeenCalled()
+    expect(observer.setPhase).toHaveBeenLastCalledWith("working")
+    expect(transcript.entries.map((entry) => entry.text)).toEqual(["Recovered"])
+  })
+
   it("projects streamed text onto the transcript and notifies the sink", async () => {
     const transcript = new TranscriptStore()
     const observer = sink()

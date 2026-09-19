@@ -144,8 +144,10 @@ export async function runConversationTurn(options: ConversationTurnOptions): Pro
           return
         }
         if (event.type === "model") {
-          sink.setPhase("working")
+          projector.apply(event)
           sink.startBusy()
+          sink.setPhase("working")
+          sink.renderTranscript()
           return
         }
         if (event.type === "subagent") {

@@ -1,3 +1,4 @@
+import { hasObjectArguments } from "../inference/tool-call-history.js"
 import type {
   ChatMessage,
   ChatToolCall,
@@ -44,7 +45,7 @@ export type AgentEvent =
   | { type: "compaction"; phase: "start" }
   | ({ type: "compaction"; phase: "complete"; messages: ChatMessage[] } & CompactionResult)
   | { type: "debug"; message: string }
-  | { type: "model"; phase: "start" }
+  | { type: "model"; phase: "start" | "retry" }
   | ReasoningTraceEvent
   | { type: "delta"; text: string }
   | {
@@ -92,6 +93,8 @@ export async function* runAgent(
   let messages: ChatMessage[] = [...history, userMessage]
   let turnStart = history.length
   let steeringCount = 0
+  let recoveryAttempts = 0
+  let retrying = false
   let contextEvent: (() => AgentEvent) | undefined
   try {
     const projectContext = options.projectContext ?? loadProjectContext(options.cwd ?? process.cwd())
@@ -158,7 +161,9 @@ export async function* runAgent(
         // Steering received during summarization must be drained before the next request.
         continue
       }
-      yield { type: "model", phase: "start" }
+      yield { type: "model", phase: retrying ? "retry" : "start" }
+      options.signal?.throwIfAborted()
+      retrying = false
       const response = yield* streamAssistantResponse(messages, tools, {
         ...options,
         projectContext,
@@ -184,6 +189,36 @@ export async function* runAgent(
       }
 
       yield contextEvent()
+
+      if (
+        response.finishReason === "length" ||
+        response.toolCalls.some((call) => !hasObjectArguments(call.arguments))
+      ) {
+        // No call in this response has run yet. Earlier successful tool batches remain intact.
+        const notice =
+          "This response was incomplete or contained invalid tool arguments. None of its tool calls were executed. " +
+          "Continue using smaller tool calls and shorter output; do not repeat earlier successful actions."
+        if (response.toolCalls.length) {
+          messages.push(
+            ...response.toolCalls.map((call): ChatMessage => ({ role: "tool", toolCallId: call.id, content: notice })),
+          )
+        } else {
+          messages.push({ role: "assistant", content: [{ type: "text", text: notice }] })
+        }
+        if (recoveryAttempts >= 1) {
+          messages.push(...(await closeSteering(options.steering)))
+          yield {
+            type: "error",
+            message:
+              "The model couldn’t produce a complete, usable response. Otis stopped without running the incomplete actions. Earlier completed work is preserved.",
+            messages: turnMessages(messages, turnStart),
+          }
+          return
+        }
+        recoveryAttempts += 1
+        retrying = true
+        continue
+      }
 
       if (response.toolCalls.length === 0) {
         const steeringMessages = await options.steering?.drainOrClose()
@@ -245,6 +280,7 @@ type AssistantResponse = {
   hasText: boolean
   interrupted: boolean
   usage?: TokenUsage
+  finishReason?: string
 }
 
 async function* streamAssistantResponse(
@@ -255,6 +291,7 @@ async function* streamAssistantResponse(
   const response = new AssistantResponseBuilder()
   const projectContext = options.projectContext ?? []
   let usage: TokenUsage | undefined
+  let finishReason: string | undefined
 
   try {
     for await (const event of options.client.streamChat({
@@ -277,6 +314,7 @@ async function* streamAssistantResponse(
         usage = event.usage
         await options.onUsage?.(event.usage)
       }
+      if (event.type === "finish") finishReason = event.reason
     }
   } catch (error) {
     if (!options.signal?.aborted) throw error
@@ -290,6 +328,7 @@ async function* streamAssistantResponse(
     hasText: response.hasText(),
     interrupted: options.signal?.aborted ?? false,
     usage,
+    finishReason,
   }
 }
 

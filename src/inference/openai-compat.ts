@@ -2,6 +2,7 @@ import { validateDocumentAttachments } from "./documents.js"
 import { validateImageAttachments } from "./images.js"
 import { formatDocumentForModel, imageAttachmentsFromMessages, userMessageDocuments } from "./messages.js"
 import { buildSystemPrompt } from "./system-prompt.js"
+import { toolCallHistoryForRequest } from "./tool-call-history.js"
 import type { ChatMessage, StreamChatOptions, ToolDefinition } from "./types.js"
 
 export function openaiChatCompletionRequest(
@@ -24,7 +25,7 @@ export function openaiChatCompletionRequest(
           options.systemPrompt ??
           buildSystemPrompt(options.projectContext, options.now, options.skills, tools, options.outputCapabilities),
       },
-      ...options.messages.map(openaiMessage),
+      ...toolCallHistoryForRequest(options.messages).map(openaiMessage),
     ],
     ...(tools.length > 0 ? { tools: tools.map(openaiTool) } : {}),
     ...(extras.reasoningEffort ? { reasoning_effort: extras.reasoningEffort } : {}),
