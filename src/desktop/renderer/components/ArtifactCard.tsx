@@ -9,11 +9,13 @@ export function ArtifactCard({
   kind,
   title,
   actionLabel,
+  description,
   onOpen,
 }: {
   kind: FileVisualKind
   title: string
   actionLabel: string
+  description?: string
   onOpen: (() => void) | (() => Promise<SessionOpResult>)
 }) {
   const { t } = useI18n()
@@ -44,7 +46,7 @@ export function ArtifactCard({
         <FileTypeIcon kind={kind} name={kind === "mermaid" ? undefined : title} />
         <span className="artifactCard-copy">
           <strong>{title}</strong>
-          <span>{actionLabel}</span>
+          <span>{description ?? actionLabel}</span>
         </span>
         <Icon icon={ChevronRight} size={15} />
       </button>

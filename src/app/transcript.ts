@@ -1,8 +1,4 @@
-import {
-  type ArtifactReference,
-  attachmentArtifactReference,
-  type WorkspaceArtifactReference,
-} from "../artifacts/types.js"
+import { type ArtifactReference, attachmentArtifactReference, type FileArtifactReference } from "../artifacts/types.js"
 import { compactionSummaryMessage, isCompactionSummary } from "../core/compaction.js"
 import { displayUserMessage, userMessageDocuments, userMessageImages, userMessageText } from "../inference/messages.js"
 import type { ChatMessage, ChatToolCall, InferenceClient, ReasoningContentPart } from "../inference/types.js"
@@ -32,7 +28,7 @@ export type TranscriptEntry = {
   endedAt?: string
   durationMs?: number
   diff?: string
-  artifact?: WorkspaceArtifactReference
+  artifact?: FileArtifactReference
   artifacts?: ArtifactReference[]
   /** User-authored text plus image labels, without document names that render as artifact cards in graphical UIs. */
   messageText?: string
@@ -135,7 +131,7 @@ export class TranscriptStore {
   addToolMessage(
     text: string,
     activityKind: ToolActivityKind,
-    details: { toolCallId?: string; diff?: string; artifact?: WorkspaceArtifactReference } = {},
+    details: { toolCallId?: string; diff?: string; artifact?: FileArtifactReference } = {},
   ) {
     const entry = {
       id: this.nextMessageID++,

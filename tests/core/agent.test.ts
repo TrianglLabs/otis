@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { ArtifactPublisher } from "../../src/artifacts/publisher.js"
 import { type AgentEvent, runAgent } from "../../src/core/agent.js"
 import { SteeringInbox } from "../../src/core/steering.js"
 import type { FireworksClient } from "../../src/inference/client.js"
@@ -19,6 +20,44 @@ afterEach(async () => {
 })
 
 describe("runAgent", () => {
+  it.each([
+    "approve",
+    "deny",
+    "headless",
+  ] as const)("%s: gates external publication and emits a card only on success", async (mode) => {
+    const cwd = await trackedTempDir()
+    const outside = await trackedTempDir()
+    const path = join(outside, "result.html")
+    await writeFile(path, "<h1>Private preview content</h1>")
+    streamAgentMock
+      .mockImplementationOnce(async function* () {
+        yield {
+          type: "tool_call",
+          toolCall: { id: "publish_1", name: "publish_artifact", arguments: JSON.stringify({ path }) },
+        }
+      })
+      .mockImplementationOnce(async function* (request) {
+        expect(JSON.stringify(request.messages)).not.toContain("Private preview content")
+        yield { type: "text_delta", text: "Done." }
+      })
+    const onPermissionRequest = mode === "headless" ? undefined : vi.fn(async () => mode === "approve")
+    const events = await collect(
+      runAgent("Present the page", [], {
+        client,
+        cwd,
+        dataDirectory: join(cwd, "private"),
+        artifactPublisher: new ArtifactPublisher(join(cwd, "session.jsonl.artifacts")),
+        permissionPolicy: createPermissionPolicy({ cwd, mode: "auto" }),
+        onPermissionRequest,
+      }),
+    )
+    const end = events.find((event) => event.type === "tool" && event.phase === "end")
+    expect(end).toMatchObject({ outcome: mode === "approve" ? "completed" : "denied" })
+    if (mode === "approve") expect(end).toMatchObject({ artifact: { source: "published", name: "result.html" } })
+    else expect(end).toMatchObject({ artifact: undefined })
+    if (onPermissionRequest) expect(onPermissionRequest).toHaveBeenCalledOnce()
+  })
+
   it("does not execute a tool omitted from the enabled tool definitions", async () => {
     streamAgentMock
       .mockImplementationOnce(async function* () {

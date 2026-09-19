@@ -13,9 +13,29 @@ describe("parseStructuredToolCall", () => {
       "write",
       "edit",
       "edit_document",
+      "publish_artifact",
       "bash",
       "agent",
     ])
+  })
+
+  it("parses publication paths and rejects missing paths", () => {
+    expect(parseStructuredToolCall("publish_artifact", { path: " result.html " })).toEqual({
+      name: "publish_artifact",
+      input: { path: "result.html" },
+    })
+    for (const path of [undefined, "", "  ", 42]) {
+      expect(() => parseStructuredToolCall("publish_artifact", { path })).toThrow("non-empty string")
+    }
+    expect(parseStructuredToolCall("publish_artifact", { path: "moved.md", artifact_id: " original-id " })).toEqual({
+      name: "publish_artifact",
+      input: { path: "moved.md", artifactId: "original-id" },
+    })
+    for (const artifact_id of ["", " ", 42]) {
+      expect(() => parseStructuredToolCall("publish_artifact", { path: "moved.md", artifact_id })).toThrow(
+        "artifact_id",
+      )
+    }
   })
 
   it("parses subagent delegation and rejects empty briefs", () => {

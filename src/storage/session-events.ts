@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto"
 import { readFile } from "node:fs/promises"
-import { isWorkspaceArtifactReference, type WorkspaceArtifactReference } from "../artifacts/types.js"
+import { type FileArtifactReference, isFileArtifactReference } from "../artifacts/types.js"
 import { compactionSummaryMessage } from "../core/compaction.js"
 import {
   DOCX_MIME_TYPE,
@@ -37,7 +37,7 @@ export type SessionToolActivity = {
   activityKind: ToolActivityKind
   label: string
   diff?: string
-  artifact?: WorkspaceArtifactReference
+  artifact?: FileArtifactReference
 }
 
 export type SessionSubagentStatus = "complete" | "failed" | "interrupted"
@@ -443,7 +443,7 @@ function parseToolActivities(value: unknown, messages: ChatMessage[], line: numb
     if (activity.diff !== undefined && typeof activity.diff !== "string") {
       throw invalidEvent(line, "tool activity diff must be a string")
     }
-    if (activity.artifact !== undefined && !isWorkspaceArtifactReference(activity.artifact)) {
+    if (activity.artifact !== undefined && !isFileArtifactReference(activity.artifact)) {
       throw invalidEvent(line, "tool activity artifact was invalid")
     }
     const remaining = remainingCalls.get(activity.toolCallId) ?? 0

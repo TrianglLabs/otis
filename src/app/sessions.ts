@@ -32,7 +32,11 @@ export type SessionCoordinatorOptions = {
   isBusy: () => boolean
   isExiting: () => boolean
   onReset?: () => void
-  onReplay?: (messages: readonly ChatMessage[], activities: readonly SessionToolActivity[]) => void
+  onReplay?: (
+    messages: readonly ChatMessage[],
+    activities: readonly SessionToolActivity[],
+    session: JsonlSession,
+  ) => void
 }
 
 export class SessionCoordinator {
@@ -250,7 +254,7 @@ export class SessionCoordinator {
     const transcript = this.#session.replayTranscript()
     this.options.transcript.replaceMessages(replay.messages, transcript.toolActivities, transcript.messages)
     this.options.subagents.load(transcript.subagents)
-    this.options.onReplay?.(transcript.messages, transcript.toolActivities)
+    this.options.onReplay?.(transcript.messages, transcript.toolActivities, this.#session)
     const diff = countTranscriptDiffLines(this.options.transcript.entries)
     this.addedLines = diff.added
     this.removedLines = diff.removed

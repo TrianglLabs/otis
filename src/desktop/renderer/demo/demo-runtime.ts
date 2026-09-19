@@ -1,5 +1,10 @@
 import type { TranscriptEntry } from "../../../app/transcript.js"
-import type { ArtifactMetadata, ArtifactPayload, ArtifactReference } from "../../../artifacts/types.js"
+import type {
+  ArtifactMetadata,
+  ArtifactPayload,
+  ArtifactReference,
+  PublishedArtifactReference,
+} from "../../../artifacts/types.js"
 import type { ModelPickerChoice, ModelPickerItem } from "../../../inference/picker-catalog.js"
 import type {
   DesktopApi,
@@ -66,6 +71,9 @@ When Otis writes or edits this file, Canvas refreshes from the workspace automat
 > The workspace file remains the source of truth, so the same tool behavior works in the CLI and headless modes.`
 
 type DemoArtifactFixture = { metadata: ArtifactMetadata; payload: ArtifactPayload }
+type DemoSavedArtifactFixture = DemoArtifactFixture & {
+  metadata: ArtifactMetadata & { publication: NonNullable<ArtifactMetadata["publication"]> }
+}
 
 function demoArtifact(
   metadata: Omit<ArtifactMetadata, "revision" | "source">,
@@ -148,7 +156,58 @@ const DEMO_WEBPAGE = demoArtifact(
   </style></head><body><main><div class="eyebrow">Otis / Canvas</div><h1>Your work stays in view.</h1><p class="lede">Read, edit, and review workspace documents without breaking the conversation flow.</p><section class="grid"><article><span>01</span><h2>Work locally</h2><p>Source files stay in the workspace and previews render on-device.</p></article><article><span>02</span><h2>See every change</h2><p>Editable documents refresh as soon as Otis writes them.</p></article><article><span>03</span><h2>Keep context</h2><p>The active artifact follows its session and restores on return.</p></article></section></main></body></html>`,
 )
 
+// Preview HTML stands in for converted DOCX bytes, just like the working Word fixture above.
+// These references and hashes are fixture identities only; the demo never writes published files.
+const DEMO_SAVED_WORD = [
+  { status: "Initial draft", date: "October 5", audience: "Internal team", next: "Gather feedback from the team." },
+  {
+    status: "Review",
+    date: "October 12",
+    audience: "Invited testers",
+    next: "Review accessibility and document previews.",
+  },
+  { status: "Approved", date: "October 19", audience: "All users", next: "Publish the release notes and launch." },
+].map((draft, index): DemoSavedArtifactFixture => {
+  const version = index + 1
+  const reference: PublishedArtifactReference = {
+    source: "published",
+    artifactId: "e786fe9e-e8bc-46c8-9d28-5f148538ab15",
+    version,
+    sha256: String(version).repeat(64),
+    name: "launch-plan.docx",
+    kind: "docx",
+    sourcePath: "/Users/dev/Projects/otis/launch-plan.docx",
+  }
+  const metadata: DemoSavedArtifactFixture["metadata"] = {
+    id: `published:${reference.artifactId}`,
+    revision: 1,
+    source: "published",
+    kind: "docx",
+    title: reference.name,
+    mimeType: DEMO_DOCX.metadata.mimeType,
+    editable: false,
+    publication: { reference, versions: [1, 2, 3], followingLatest: true },
+  }
+  return {
+    metadata,
+    payload: {
+      ...metadata,
+      encoding: "html",
+      content: `<h1>Otis Canvas launch plan</h1>
+<p><strong>Version ${version} · ${draft.status}</strong></p>
+<p>A sample Word document with three saved revisions. Use the version selector above to compare the launch date, audience, and next step.</p>
+<h2>Launch details</h2>
+<table><thead><tr><th>Milestone</th><th>Plan</th></tr></thead><tbody><tr><td>Launch date</td><td>${draft.date}</td></tr><tr><td>Audience</td><td>${draft.audience}</td></tr><tr><td>Status</td><td>${draft.status}</td></tr></tbody></table>
+<h2>Next step</h2><p>${draft.next}</p>
+<h2>Revision history</h2><p>This is the saved content for version ${version}. Selecting an older version leaves the latest version unchanged.</p>`,
+    },
+  }
+})
+const DEMO_LATEST_WORD = DEMO_SAVED_WORD[2]
+if (!DEMO_LATEST_WORD) throw new Error("The saved Word demo needs a latest revision.")
+
 const DEMO_ARTIFACTS_BY_SESSION = new Map<string, DemoArtifactFixture>([
+  ["session_versions", DEMO_LATEST_WORD],
   ["session_pdf", DEMO_PDF],
   ["session_docx", DEMO_DOCX],
   ["session_webpage", DEMO_WEBPAGE],
@@ -370,11 +429,20 @@ class DemoRuntime implements DesktopApi {
     },
     modelState: "ready",
     modelError: undefined,
-    session: { id: "session_docx", title: "Canvas preview · Word" },
-    artifact: DEMO_DOCX.metadata,
+    session: { id: "session_versions", title: "Canvas preview · Saved versions" },
+    artifact: DEMO_LATEST_WORD.metadata,
     needsWorkspace: false,
     workspace: { label: "~/Projects/otis", path: "/Users/dev/Projects/otis" },
     sessions: [
+      {
+        id: "session_versions",
+        title: "Canvas preview · Saved versions",
+        detail: "Open now",
+        active: true,
+        dirName: "otis-demo",
+        workspaceLabel: "otis",
+        workspacePath: "/Users/dev/Projects/otis",
+      },
       {
         id: "session_pdf",
         title: "Canvas preview · PDF",
@@ -386,8 +454,7 @@ class DemoRuntime implements DesktopApi {
       {
         id: "session_docx",
         title: "Canvas preview · Word",
-        detail: "Open now",
-        active: true,
+        detail: "Demo",
         dirName: "otis-demo",
         workspaceLabel: "otis",
         workspacePath: "/Users/dev/Projects/otis",
@@ -452,7 +519,7 @@ class DemoRuntime implements DesktopApi {
       avgTokensPerSession: 116_400,
       avgSessionSeconds: 252,
     },
-    entries: demoTranscript(),
+    entries: savedVersionsTranscript(),
     agentsPanelVisible: true,
     theme: "default",
     language: "system",
@@ -598,11 +665,40 @@ class DemoRuntime implements DesktopApi {
   async getArtifact(revision: number): Promise<ArtifactPayload | undefined> {
     const artifact = this.#state.artifact
     if (!artifact || artifact.revision !== revision) return undefined
-    const fixture = [...DEMO_ARTIFACTS_BY_SESSION.values()].find((candidate) => candidate.metadata.id === artifact.id)
-    return fixture ? { ...fixture.payload, revision } : undefined
+    const fixture = artifact.publication
+      ? DEMO_SAVED_WORD.find(
+          (candidate) => candidate.metadata.publication?.reference.version === artifact.publication?.reference.version,
+        )
+      : [...DEMO_ARTIFACTS_BY_SESSION.values()].find((candidate) => candidate.metadata.id === artifact.id)
+    return fixture ? { ...fixture.payload, ...artifact } : undefined
   }
 
-  async openArtifact(reference: ArtifactReference): Promise<SessionOpResult> {
+  async openArtifact(reference: ArtifactReference, version?: number): Promise<SessionOpResult> {
+    if (reference.source === "published") {
+      const known = DEMO_SAVED_WORD.some((candidate) => {
+        const saved = candidate.metadata.publication.reference
+        return (
+          saved.artifactId === reference.artifactId &&
+          saved.version === reference.version &&
+          saved.sha256 === reference.sha256
+        )
+      })
+      const fixture = DEMO_SAVED_WORD.find(
+        (candidate) => candidate.metadata.publication.reference.version === (version ?? DEMO_SAVED_WORD.length),
+      )
+      if (!known || !fixture) return { ok: false, reason: "That saved demo version is unavailable." }
+      this.#state = {
+        ...this.#state,
+        artifact: {
+          ...fixture.metadata,
+          revision: ++this.#artifactRevision,
+          publication: { ...fixture.metadata.publication, followingLatest: version === undefined },
+        },
+        agentsPanelVisible: true,
+      }
+      this.#emitStatus()
+      return { ok: true }
+    }
     if (reference.source !== "workspace") return { ok: false, reason: "That demo attachment is unavailable." }
     const fixture = [...DEMO_ARTIFACTS_BY_SESSION.values()].find(
       (candidate) => candidate.metadata.path === reference.path && candidate.metadata.kind === reference.kind,
@@ -700,7 +796,13 @@ class DemoRuntime implements DesktopApi {
     if (!target) return { ok: false, reason: "Unknown session." }
     this.#interrupt()
     const entries =
-      id === "session_demo2" ? errorTranscript() : DEMO_ARTIFACTS_BY_SESSION.has(id) ? demoTranscript() : []
+      id === "session_versions"
+        ? savedVersionsTranscript()
+        : id === "session_demo2"
+          ? errorTranscript()
+          : DEMO_ARTIFACTS_BY_SESSION.has(id)
+            ? demoTranscript()
+            : []
     const fixture = DEMO_ARTIFACTS_BY_SESSION.get(id)
     const artifact = fixture ? { ...fixture.metadata, revision: ++this.#artifactRevision } : null
     this.#state = {
@@ -1140,6 +1242,25 @@ function cannedReply(prompt: string): CannedReply {
 
 let fixtureId = 1
 const fixture = (entry: Omit<TranscriptEntry, "id">): TranscriptEntry => ({ id: fixtureId++, ...entry })
+
+function savedVersionsTranscript(): TranscriptEntry[] {
+  fixtureId = 1
+  return [
+    fixture({ kind: "message", speaker: "You", text: "Show me the three saved versions of the launch plan." }),
+    fixture({
+      kind: "message",
+      speaker: "Otis",
+      text: "The launch plan has three saved versions: initial draft, review, and approved. Canvas opens on the latest. Use the selector in its header to compare them; this card always reopens the latest version.",
+      artifacts: [DEMO_LATEST_WORD.metadata.publication.reference],
+    }),
+    fixture({
+      kind: "message",
+      speaker: "Otis",
+      text: "For comparison, this is a working-file preview, separate from the saved copies:",
+      artifacts: [{ source: "workspace", path: "launch-plan.docx", kind: "docx" }],
+    }),
+  ]
+}
 
 function demoTranscript(): TranscriptEntry[] {
   fixtureId = 1

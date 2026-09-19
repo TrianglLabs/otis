@@ -13,9 +13,11 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
     if (typeof revision !== "number") throw new Error("getArtifact expects a numeric revision")
     return runtime.getArtifact(revision)
   })
-  handle(DESKTOP_CHANNELS.openArtifact, (reference) => {
+  handle(DESKTOP_CHANNELS.openArtifact, (reference, version) => {
     if (!isArtifactReference(reference)) throw new Error("openArtifact expects a valid artifact reference")
-    return runtime.openArtifact(reference)
+    if (version !== undefined && (typeof version !== "number" || !Number.isSafeInteger(version) || version < 1))
+      throw new Error("openArtifact expects a positive integer version")
+    return runtime.openArtifact(reference, version)
   })
 
   ipcMain.handle(DESKTOP_CHANNELS.getWindowState, (event: IpcMainInvokeEvent) => {

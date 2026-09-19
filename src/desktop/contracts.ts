@@ -172,7 +172,7 @@ export type DesktopWindowState = { fullscreen: boolean }
 export type DesktopApi = {
   getSnapshot(): Promise<DesktopSnapshot>
   getArtifact(revision: number): Promise<ArtifactPayload | undefined>
-  openArtifact(reference: ArtifactReference): Promise<SessionOpResult>
+  openArtifact(reference: ArtifactReference, version?: number): Promise<SessionOpResult>
   getWindowState(): Promise<DesktopWindowState>
   sendPrompt(text: string, attachments?: readonly DesktopAttachmentInput[]): Promise<SendPromptResult>
   stop(): Promise<void>

@@ -1,6 +1,11 @@
 import type { Messages } from "./en.js"
 
 export const ptBR: Messages = {
+  "canvas.workingFile": "Arquivo de trabalho",
+  "canvas.savedArtifact": "Artefato salvo · Abre a versão mais recente",
+  "canvas.savedVersion": "Versão salva {{version}}",
+  "canvas.latestVersion": "Mais recente (v{{version}})",
+  "canvas.versionHistory": "Versões do artefato",
   "common.continue": "Continuar",
   "common.connect": "Conectar",
   "common.checking": "Verificando…",

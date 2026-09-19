@@ -1,3 +1,4 @@
+import type { ArtifactPublisher } from "../artifacts/publisher.js"
 import { type CompactionResult, compactConversation } from "../core/compaction.js"
 import { SteeringInbox, type SteeringSource } from "../core/steering.js"
 import { providerTools } from "../core/subagent.js"
@@ -11,6 +12,7 @@ import type { ParallelClient } from "../web/client.js"
 import type { ArtifactStore } from "./artifacts.js"
 import { countDiffLines } from "./diff-stats.js"
 import type { ModelHost } from "./models.js"
+import { sessionArtifactPublisher } from "./session-artifacts.js"
 import type { SessionCoordinator } from "./sessions.js"
 import type { SubagentTraces } from "./subagents.js"
 import type { TranscriptStore } from "./transcript.js"
@@ -53,6 +55,7 @@ export type ConversationTurnOptions = {
   onContext: (tokens: number) => void
   onDiff: (added: number, removed: number) => void
   artifacts: ArtifactStore
+  artifactPublisher?: ArtifactPublisher
   onUsage: (usage: TokenUsage) => void | Promise<void>
   permissionPolicy: PermissionPolicy
   onPermissionRequest: (request: PermissionRequest) => Promise<boolean>
@@ -110,6 +113,7 @@ export async function runConversationTurn(options: ConversationTurnOptions): Pro
         webClientModel: options.webClientModel,
         webSession: options.webSessionId ? { id: options.webSessionId } : undefined,
         cwd: options.cwd,
+        artifactPublisher: options.artifactPublisher,
         debug: options.debug,
         onUsage: options.onUsage,
         autoCompactAtTokens: options.autoCompactAtTokens,
@@ -166,7 +170,7 @@ export async function runConversationTurn(options: ConversationTurnOptions): Pro
           options.onDiff(diff.added, diff.removed)
         }
         if (event.type === "tool" && event.phase === "end" && event.artifact) {
-          options.artifacts.openWorkspace(event.artifact)
+          options.artifacts.observeFile(event.artifact)
         }
         if (projector.apply(event)) sink.renderTranscript()
       },
@@ -417,6 +421,7 @@ export class Conversation {
     hooks.onReady?.(userMessage)
 
     try {
+      this.options.artifacts.setDirectory(session.artifactDirectory)
       const result = await runConversationTurn({
         admission,
         client,
@@ -450,6 +455,7 @@ export class Conversation {
         onContext: hooks.onContext,
         onDiff: hooks.onDiff,
         artifacts: this.options.artifacts,
+        artifactPublisher: sessionArtifactPublisher(session),
         onUsage: async (usage) => {
           await session.recordUsage(usage, "agent", admission.promptId)
         },

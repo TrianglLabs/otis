@@ -1,6 +1,11 @@
 import type { Messages } from "./en.js"
 
 export const de: Messages = {
+  "canvas.workingFile": "Arbeitsdatei",
+  "canvas.savedArtifact": "Gespeichertes Artefakt · Öffnet die neueste Version",
+  "canvas.savedVersion": "Gespeicherte Version {{version}}",
+  "canvas.latestVersion": "Neueste (v{{version}})",
+  "canvas.versionHistory": "Artefaktversionen",
   "common.continue": "Weiter",
   "common.connect": "Verbinden",
   "common.checking": "Wird geprüft…",

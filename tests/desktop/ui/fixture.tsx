@@ -1,9 +1,11 @@
 import type { MouseInputEvent } from "electron"
 import { createRoot } from "react-dom/client"
 import type { TranscriptEntry } from "../../../src/app/transcript.js"
+import type { ArtifactMetadata, PublishedArtifactReference } from "../../../src/artifacts/types.js"
 import type { DesktopEvent, DesktopStatus, TranscriptPatchOp } from "../../../src/desktop/contracts.js"
 import { App } from "../../../src/desktop/renderer/App.js"
 import { createDemoRuntime } from "../../../src/desktop/renderer/demo/demo-runtime.js"
+import { FileArtifact } from "../../../src/desktop/renderer/features/canvas/FileArtifact.js"
 import { PdfPreview } from "../../../src/desktop/renderer/features/canvas/PdfPreview.js"
 import { catalogs, I18nProvider, type ResolvedLocale } from "../../../src/desktop/renderer/i18n/index.js"
 import { DesktopProvider } from "../../../src/desktop/renderer/runtime.js"
@@ -900,6 +902,44 @@ async function runDesktopUiChecks() {
   assert(pdfHost.querySelectorAll(".canvas-pdfPage").length < 8, "PDF scrolling accumulated page canvases")
   pdfRoot.unmount()
   pdfHost.remove()
+
+  const artifactHost = document.createElement("div")
+  artifactHost.style.cssText = "display:flex;width:280px;height:400px"
+  document.body.append(artifactHost)
+  const artifactRoot = createRoot(artifactHost)
+  const publication: PublishedArtifactReference = {
+    source: "published",
+    artifactId: "12345678-1234-1234-1234-123456789abc",
+    version: 2,
+    sourcePath: "/workspace/report.md",
+    name: "A very long document title with multiple words.md",
+    kind: "markdown",
+    sha256: "a".repeat(64),
+  }
+  const artifact: ArtifactMetadata = {
+    id: `published:${publication.artifactId}`,
+    source: "published",
+    title: publication.name,
+    kind: "markdown",
+    revision: 1,
+    mimeType: "text/markdown",
+    editable: false,
+    publication: { reference: publication, versions: [1, 2], followingLatest: true },
+  }
+  const artifactApi = createDemoRuntime()
+  artifactApi.getArtifact = async () => ({ ...artifact, encoding: "utf8", content: "# Saved document" })
+  artifactRoot.render(
+    <DesktopProvider value={{ api: artifactApi, store: new DesktopViewStore(artifactApi) }}>
+      <FileArtifact artifact={artifact} />
+    </DesktopProvider>,
+  )
+  await until(() => !!artifactHost.querySelector("select"), "Artifact version selector did not render")
+  const header = artifactHost.querySelector<HTMLElement>(".canvas-artifactHeader")
+  assert(header && header.scrollWidth <= header.clientWidth, "Artifact header overflows at narrow widths")
+  assert(artifactHost.querySelector("select")?.value === "latest", "Artifact did not default to the latest revision")
+  assert(artifactHost.querySelectorAll("option").length === 3, "Artifact history omitted saved revisions")
+  artifactRoot.unmount()
+  artifactHost.remove()
   return {
     passed: true,
     historyEntries: history.length,

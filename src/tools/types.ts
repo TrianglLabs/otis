@@ -1,4 +1,5 @@
-import type { WorkspaceArtifactReference } from "../artifacts/types.js"
+import type { ArtifactPublisher } from "../artifacts/publisher.js"
+import type { FileArtifactReference } from "../artifacts/types.js"
 import type { SkillCatalog } from "../skills/index.js"
 import type { ParallelClient } from "../web/client.js"
 
@@ -12,6 +13,7 @@ export const TOOL_NAMES = [
   "write",
   "edit",
   "edit_document",
+  "publish_artifact",
   "bash",
   "agent",
 ] as const
@@ -70,6 +72,10 @@ export type ToolCall =
       }
     }
   | {
+      name: "publish_artifact"
+      input: { path: string; artifactId?: string }
+    }
+  | {
       name: "bash"
       input: { command: string; timeoutMs?: number }
     }
@@ -82,16 +88,19 @@ export type ToolResult = {
   title: string
   output: string
   diff?: string
-  /** Previewable workspace file opened or changed by this tool. */
-  artifact?: WorkspaceArtifactReference
+  /** Live workspace file or explicitly published preview copy. */
+  artifact?: FileArtifactReference
 }
 
 export type WebToolSession = { id?: string }
 
 export type ToolContext = {
   cwd?: string
-  /** Optional local-data root override used for recoverable document backups. */
+  /** Optional local-data root override used for document backups. */
   dataDirectory?: string
+  artifactPublisher?: ArtifactPublisher
+  /** Canonical file authorized by the permission policy for this publication only. Never model-supplied. */
+  authorizedArtifactPath?: string
   signal?: AbortSignal
   webClient?: ParallelClient
   webClientModel?: string

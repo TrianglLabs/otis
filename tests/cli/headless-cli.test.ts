@@ -62,6 +62,7 @@ const mocks = vi.hoisted(() => ({
 
 const session = {
   id: "session_test",
+  artifactDirectory: "/unused-session.jsonl.artifacts",
   admitPrompt: vi.fn(async (message: { role: "user"; content: string }) => ({
     promptId: "prompt_test",
     message,
@@ -71,6 +72,7 @@ const session = {
   interruptTurn: vi.fn(async () => undefined),
   recordUsage: vi.fn(async () => undefined),
   replay: vi.fn(() => ({ messages: [], toolActivities: [], subagents: [] })),
+  replayTranscript: vi.fn(() => ({ messages: [], toolActivities: [], subagents: [] })),
   replayMessages: vi.fn(() => []),
 }
 
@@ -143,6 +145,14 @@ beforeEach(() => {
 })
 
 describe("runHeadlessCommand", () => {
+  it("does not offer publication in an ephemeral run", async () => {
+    mocks.streamChat.mockImplementationOnce(async function* (request) {
+      expect(request.tools.some((tool: { name: string }) => tool.name === "publish_artifact")).toBe(false)
+      yield { type: "text_delta", text: "Done." }
+    })
+    const output = streams()
+    expect(await runHeadlessCommand(["--ephemeral", "hello"], output.options)).toBe(0)
+  })
   it.each([false, true])("finishes beyond 50 model steps with delegation=%s", async (delegate) => {
     const cwd = await temporaryDirectory()
     await writeFile(join(cwd, "note.txt"), "note", "utf8")

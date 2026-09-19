@@ -13,6 +13,56 @@ async function localRow(api: ReturnType<typeof createDemoRuntime>, id: string): 
 }
 
 describe("demo runtime model lifecycle", () => {
+  it("switches saved Word versions and reopens the latest independently of the working file", async () => {
+    const api = createDemoRuntime()
+    const initial = await api.getSnapshot()
+    const initialArtifact = initial.artifact
+    if (!initialArtifact?.publication) throw new Error("Expected a saved artifact in the initial demo")
+    const reference = initialArtifact.publication.reference
+    expect(initial.artifact?.publication).toMatchObject({
+      versions: [1, 2, 3],
+      followingLatest: true,
+      reference: { version: 3 },
+    })
+    expect((await api.getArtifact(initialArtifact.revision))?.content).toContain("October 19")
+
+    for (const [version, date] of [
+      [1, "October 5"],
+      [2, "October 12"],
+      [3, "October 19"],
+    ] as const) {
+      expect(await api.openArtifact(reference, version)).toEqual({ ok: true })
+      const selected = (await api.getSnapshot()).artifact
+      if (!selected) throw new Error("Expected the selected saved artifact")
+      expect(selected.publication).toMatchObject({ followingLatest: false, reference: { version } })
+      expect((await api.getArtifact(selected.revision))?.content).toContain(date)
+      expect(await api.getArtifact(initialArtifact.revision)).toBeUndefined()
+    }
+
+    const beforeInvalid = (await api.getSnapshot()).artifact
+    expect(await api.openArtifact(reference, 99)).toMatchObject({ ok: false })
+    expect(await api.openArtifact({ ...reference, artifactId: "unknown" })).toMatchObject({ ok: false })
+    expect((await api.getSnapshot()).artifact).toEqual(beforeInvalid)
+
+    expect(await api.openArtifact({ source: "workspace", path: "launch-plan.docx", kind: "docx" })).toEqual({
+      ok: true,
+    })
+    const working = (await api.getSnapshot()).artifact
+    expect(working?.source).toBe("workspace")
+    expect(working?.publication).toBeUndefined()
+    expect(await api.openArtifact(reference)).toEqual({ ok: true })
+    expect((await api.getSnapshot()).artifact?.publication).toMatchObject({
+      followingLatest: true,
+      reference: { version: 3 },
+    })
+
+    await api.selectSession("session_pdf")
+    await api.selectSession("session_versions")
+    const restored = await api.getSnapshot()
+    expect(restored.artifact?.publication).toMatchObject({ followingLatest: true, reference: { version: 3 } })
+    expect(restored.entries.flatMap((entry) => entry.artifacts ?? [])).toContainEqual(reference)
+  })
+
   it("exposes PDF, Word, webpage, and Markdown Canvas fixtures without embedding their content in status", async () => {
     const api = createDemoRuntime()
     const snapshot = await api.getSnapshot()

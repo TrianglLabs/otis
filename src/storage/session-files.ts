@@ -20,6 +20,11 @@ export function sessionFile(options: SessionOptions, sessionId: string) {
   return join(sessionDirectory(options), `${sessionId}.jsonl`)
 }
 
+/** A session owns its copies even when opened from a relocated history directory. */
+export function sessionArtifactDirectory(sessionPath: string) {
+  return `${sessionPath}.artifacts`
+}
+
 export function assertSessionId(sessionId: string) {
   if (sessionId.length > 128 || !/^[A-Za-z0-9._-]+$/.test(sessionId)) {
     throw new Error(`Invalid session ID: ${sessionId}`)

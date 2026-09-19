@@ -157,6 +157,23 @@ their OOXML structure and fill interactive PDF forms. It creates a validated sib
 original requires an explicit request and stores the previous version in Otis's private local backup directory. The
 plain-text editing tools continue to reject PDF, Word, and other binary files.
 
+For finished deliverables, `publish_artifact` saves a private, immutable preview copy and adds it to the conversation.
+This works for files generated or moved by shell commands too; shell output and Markdown links alone do not create
+artifact cards. Published copies survive later source edits, moves, or deletion and are restored with the session.
+Each new artifact receives an ID. Publish again with that `artifact_id` after editing or moving the same deliverable
+to add a revision; titles and file names are not used to guess identity. Cards open the latest revision. Canvas's
+version selector can pin an older revision or follow the latest one. Saved revisions and live working files are
+visibly distinguished. The selected working file refreshes after external or shell edits, including atomic replacement
+and deletion/recreation; a missing source is reported rather than silently showing an older copy.
+
+Publishing an external file asks for permission for that exact file (or follows an explicit permission rule), even in
+auto mode. It does not grant general filesystem access or edit permission. Terminal and headless runs use the same
+publication and permission logic; graphical previews are Desktop-only. Copies are stored in a private
+`<session>.jsonl.artifacts/` directory beside the owning session, deduplicated within that session. Deleting the session
+also removes its saved copies, without deleting source files or another session's copies. Ephemeral headless runs do
+not offer publication, since they have no owning session.
+Publication preserves one file, not its linked assets or JavaScript dependencies; webpage rendering policy is unchanged.
+
 ## Headless execution
 
 Use `otis exec` in scripts, CI jobs, containers, or server workers. It runs the same agent turn engine without starting
@@ -172,6 +189,8 @@ otis exec --file requirements.pdf --file notes.docx "Compare these documents"
 Plain output reserves stdout for the final response. JSON and streaming JSONL are available for programmatic use.
 Headless mode never prompts and denies unmatched `write`, `edit`, `edit_document`, and `bash` calls unless policy or
 `--auto` permits them.
+External artifact publication without an explicit allow rule requires interactive approval and is denied in headless
+mode, including with `--auto`.
 Run `otis exec --help` or read [Headless execution](docs/headless.md) for formats, sessions, limits, permissions, and
 file attachments.
 

@@ -1,6 +1,11 @@
 import type { Messages } from "./en.js"
 
 export const ja: Messages = {
+  "canvas.workingFile": "作業ファイル",
+  "canvas.savedArtifact": "保存済みアーティファクト · 最新版を開く",
+  "canvas.savedVersion": "保存済みバージョン {{version}}",
+  "canvas.latestVersion": "最新 (v{{version}})",
+  "canvas.versionHistory": "アーティファクトのバージョン",
   "common.continue": "続ける",
   "common.connect": "接続",
   "common.checking": "確認中…",

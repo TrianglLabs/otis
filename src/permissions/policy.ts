@@ -1,5 +1,6 @@
 import { realpath } from "node:fs/promises"
 import { relative, resolve, sep } from "node:path"
+import { resolveArtifactSource } from "../artifacts/source.js"
 import { editedDocumentPath } from "../tools/document-path.js"
 import { TOOL_NAMES, type ToolCall, type ToolName } from "../tools/index.js"
 import { resolveWorkspacePath } from "../tools/workspace.js"
@@ -26,6 +27,8 @@ export type PermissionDecision = {
   effect: PermissionEffect
   resources: string[]
   rule?: PermissionRule
+  /** Bind publication to the canonical file checked before an asynchronous approval. */
+  artifactPath?: string
 }
 
 export type PermissionRequest = {
@@ -54,7 +57,14 @@ export function createPermissionPolicy(options: PermissionPolicyOptions): Permis
   }))
   return {
     async evaluate(call) {
-      const resources = await permissionResources(call, options.cwd)
+      const source =
+        call.name === "publish_artifact" ? await resolveArtifactSource(call.input.path, options.cwd) : undefined
+      const resources = source?.resources ?? (await permissionResources(call, options.cwd))
+      const fallback = source?.external
+        ? options.mode === "dontAsk"
+          ? "deny"
+          : "ask"
+        : defaultEffect(call.name, options.mode)
       const decisions = resources.map((resource) => {
         for (const effect of ["deny", "ask", "allow"] as const) {
           const candidate = rules.find(
@@ -68,13 +78,19 @@ export function createPermissionPolicy(options: PermissionPolicyOptions): Permis
           )
           if (candidate) return { effect, rule: candidate.rule }
         }
-        return { effect: defaultEffect(call.name, options.mode) }
+        return { effect: fallback }
       })
       for (const effect of ["deny", "ask", "allow"] as const) {
         const decision = decisions.find((candidate) => candidate.effect === effect)
-        if (decision) return { effect, resources, ...(decision.rule ? { rule: decision.rule } : {}) }
+        if (decision)
+          return {
+            effect,
+            resources,
+            ...(decision.rule ? { rule: decision.rule } : {}),
+            ...(source ? { artifactPath: source.path } : {}),
+          }
       }
-      return { effect: defaultEffect(call.name, options.mode), resources }
+      return { effect: fallback, resources, ...(source ? { artifactPath: source.path } : {}) }
     },
   }
 }

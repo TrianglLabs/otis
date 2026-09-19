@@ -3,6 +3,7 @@ import { resolve } from "node:path"
 import { parseArgs } from "node:util"
 import { Application } from "../app/application.js"
 import { resolveFireworksServing } from "../app/models.js"
+import { sessionArtifactPublisher } from "../app/session-artifacts.js"
 import { executeTurn } from "../app/turn-runner.js"
 import { autoCompactThreshold } from "../core/compaction.js"
 import { providerTools } from "../core/subagent.js"
@@ -202,7 +203,9 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
     const history = replay?.messages ?? []
     validateImageAttachments(imageAttachmentsFromMessages([...history, userMessage]))
     const admission = session ? await session.admitPrompt(userMessage) : undefined
-    const tools = selectedTools(parsed.tools, modelProvider)
+    const tools = selectedTools(parsed.tools, modelProvider).filter(
+      (tool) => session || tool.name !== "publish_artifact",
+    )
     const permissionPolicy = createPermissionPolicy({
       cwd,
       mode: headlessPermissionMode(parsed.permissionMode, settings.permissions?.defaultMode),
@@ -224,6 +227,7 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
         webSession: session ? { id: session.id } : undefined,
         cwd,
         signal: controller.signal,
+        artifactPublisher: session ? sessionArtifactPublisher(session) : undefined,
         projectContext: app.projectContext,
         skills: app.skills,
         tools,

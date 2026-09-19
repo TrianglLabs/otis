@@ -61,13 +61,14 @@ function ArtifactToolCard({ entry, active }: { entry: TranscriptEntry; active: b
   const { t } = useI18n()
   const artifact = entry.artifact
   if (!artifact) return null
-  const title = artifact.path.split("/").at(-1) ?? artifact.path
+  const title = artifact.source === "published" ? artifact.name : (artifact.path.split("/").at(-1) ?? artifact.path)
   return (
     <div className={`toolCard toolCard-artifact${active ? " toolCard-active" : ""}`}>
       <ArtifactCard
         kind={artifact.kind}
         title={title}
         actionLabel={t("markdown.openCanvas")}
+        description={t(artifact.source === "published" ? "canvas.savedArtifact" : "canvas.workingFile")}
         onOpen={() => api.openArtifact(artifact)}
       />
       {entry.diff ? <DiffView diff={entry.diff} /> : null}

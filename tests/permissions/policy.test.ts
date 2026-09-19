@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
@@ -9,6 +9,45 @@ import {
 } from "../../src/permissions/policy.js"
 
 describe("permission policy", () => {
+  it("requires external publication approval even in auto mode, with canonical path rules", async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), "otis-publication-policy-")))
+    try {
+      const cwd = join(root, "workspace")
+      await mkdir(cwd)
+      await writeFile(join(cwd, "inside.md"), "Inside")
+      await writeFile(join(root, "outside.md"), "Outside")
+      await symlink(join(root, "outside.md"), join(cwd, "alias.md"))
+      const call = (path: string) => ({ name: "publish_artifact" as const, input: { path } })
+      const auto = createPermissionPolicy({ cwd, mode: "auto" })
+      expect((await auto.evaluate(call("inside.md"))).effect).toBe("allow")
+      const external = await auto.evaluate(call("../outside.md"))
+      expect(external.effect).toBe("ask")
+      expect(external.resources).toEqual([external.artifactPath])
+      expect((await auto.evaluate(call("alias.md"))).effect).toBe("ask")
+      expect((await createPermissionPolicy({ cwd, mode: "dontAsk" }).evaluate(call("../outside.md"))).effect).toBe(
+        "deny",
+      )
+      const allowed = createPermissionPolicy({
+        cwd,
+        mode: "dontAsk",
+        rules: [{ tool: "publish_artifact", resource: external.artifactPath, effect: "allow" }],
+      })
+      expect((await allowed.evaluate(call("../outside.md"))).effect).toBe("allow")
+      const denied = createPermissionPolicy({
+        cwd,
+        mode: "auto",
+        rules: [
+          { tool: "publish_artifact", resource: "*", effect: "allow" },
+          { tool: "publish_artifact", resource: external.artifactPath, effect: "deny" },
+        ],
+      })
+      expect((await denied.evaluate(call("alias.md"))).effect).toBe("deny")
+      expect((await denied.evaluate(call("inside.md"))).effect).toBe("allow")
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it("uses safe defaults for reads and mode defaults for restricted tools", async () => {
     const cwd = process.cwd()
     const ask = createPermissionPolicy({ cwd, mode: "ask" })
