@@ -41,6 +41,7 @@ export function formatStats(stats: LocalStats) {
 }
 
 function formatTokenCount(tokens: number) {
+  if (tokens >= 1_000_000_000) return `${(tokens / 1_000_000_000).toFixed(1)}B`
   if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`
   if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}K`
   return String(tokens)
