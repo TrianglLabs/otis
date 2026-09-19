@@ -15,6 +15,11 @@ export class TranscriptProjector {
 
   /** Applies the event to the transcript and reports whether any entry changed. */
   apply(event: AgentEvent): boolean {
+    if (event.type === "model") {
+      const changed = this.#assistantEntry !== undefined
+      this.closeAssistantEntry()
+      return changed
+    }
     if (event.type === "reasoning") return this.applyReasoning(event)
     if (event.type === "delta") {
       this.#assistantText += event.text

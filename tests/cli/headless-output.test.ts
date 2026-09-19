@@ -2,6 +2,18 @@ import { describe, expect, it, vi } from "vitest"
 import { HeadlessReporter } from "../../src/cli/headless-output.js"
 
 describe("HeadlessReporter", () => {
+  it("keeps recovery quiet in plain output while preserving the structured JSONL event", async () => {
+    let stdout = ""
+    let stderr = ""
+    const out = { write: (chunk: string) => (stdout += chunk) }
+    const err = { write: (chunk: string) => (stderr += chunk) }
+    await new HeadlessReporter("plain", out, err).event({ type: "model", phase: "retry" })
+    expect(stdout).toBe("")
+    expect(stderr).toBe("")
+    await new HeadlessReporter("jsonl", out, err).event({ type: "model", phase: "retry" })
+    expect(JSON.parse(stdout)).toMatchObject({ type: "model_retry", version: 1 })
+  })
+
   it("waits for stdout backpressure before completing an event write", async () => {
     let drain: (() => void) | undefined
     const stdout = {

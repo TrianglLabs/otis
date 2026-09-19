@@ -131,7 +131,7 @@ async function writeOutput(stream: OutputStream, chunk: string) {
 
 function publicEvent(event: AgentEvent, includeReasoning: boolean): Record<string, unknown> | undefined {
   if (event.type === "compaction") return { type: "compaction", phase: event.phase }
-  if (event.type === "model") return { type: "model_start" }
+  if (event.type === "model") return { type: event.phase === "retry" ? "model_retry" : "model_start" }
   if (event.type === "reasoning") {
     if (!includeReasoning) return event.phase === "delta" ? { type: "reasoning" } : undefined
     if (event.phase === "start") {

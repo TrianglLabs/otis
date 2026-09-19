@@ -40,6 +40,32 @@ describe("compaction summary messages", () => {
 describe("compactConversation", () => {
   afterEach(() => streamAgentMock.mockReset())
 
+  it("omits malformed arguments and parser snippets from summaries without changing saved messages", async () => {
+    const messages: ChatMessage[] = [
+      { role: "user", content: "Write the document" },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_call",
+            toolCall: { id: "bad", name: "write", arguments: `{"content":"${"private partial content".repeat(500)}` },
+          },
+        ],
+      },
+      { role: "tool", toolCallId: "bad", content: "Parser error: private partial content" },
+      { role: "user", content: "Continue" },
+    ]
+    const original = structuredClone(messages)
+    streamAgentMock.mockImplementationOnce(async function* (request: StreamChatOptions) {
+      expect(JSON.stringify(request.messages)).not.toContain("private partial content")
+      expect(JSON.stringify(request.messages)).toContain("arguments were not a complete JSON object")
+      yield { type: "text_delta", text: summaryFixture("Retry the failed write using smaller steps.") }
+    })
+    await compactConversation(messages, { client, keepRecentTokens: 10 })
+    expect(streamAgentMock).toHaveBeenCalledOnce()
+    expect(messages).toEqual(original)
+  })
+
   it("refuses to summarize an unanswered prompt", async () => {
     await expect(compactConversation([{ role: "user", content: "hi" }], { client })).rejects.toThrow(
       "Not enough conversation history to compact.",

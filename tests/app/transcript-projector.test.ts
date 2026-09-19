@@ -4,6 +4,18 @@ import { TranscriptProjector } from "../../src/app/transcript-projector.js"
 import type { AgentEvent } from "../../src/core/agent.js"
 
 describe("TranscriptProjector", () => {
+  it("separates partial output from the next model attempt without adding an error message", () => {
+    const transcript = new TranscriptStore()
+    const projector = new TranscriptProjector(transcript)
+    projector.apply({ type: "delta", text: "Partial response" })
+    expect(projector.apply({ type: "model", phase: "retry" })).toBe(true)
+    projector.apply({ type: "delta", text: "Recovered response" })
+    expect(transcript.entries).toMatchObject([
+      { text: "Partial response", streaming: false },
+      { text: "Recovered response", streaming: true },
+    ])
+  })
+
   it("streams text into one assistant card and starts a new card after reasoning or tool activity", () => {
     const transcript = new TranscriptStore()
     const projector = new TranscriptProjector(transcript)

@@ -1,4 +1,5 @@
 import { summarizeUserMessage, userMessageText } from "../inference/messages.js"
+import { toolCallHistoryForRequest } from "../inference/tool-call-history.js"
 import type { ChatMessage, InferenceClient, TokenUsage } from "../inference/types.js"
 
 import { estimateMessageTokens, requestContextEstimator } from "./context-tokens.js"
@@ -220,7 +221,7 @@ ${focus}`
 function serializeConversation(messages: ChatMessage[]): string {
   const lines: string[] = []
 
-  for (const message of messages) {
+  for (const message of toolCallHistoryForRequest(messages)) {
     if (message.role === "user") {
       lines.push(`User: ${summarizeUserMessage(message)}`)
     } else if (message.role === "assistant") {

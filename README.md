@@ -196,6 +196,14 @@ file attachments.
 
 ## Local data and privacy
 
+If a model response is cut off or contains malformed tool arguments, Otis skips that response's tool calls and
+automatically retries once with instructions to use smaller steps. Earlier completed actions are not replayed.
+The GUI and terminal keep the normal working indicator during recovery, without retry labels or raw parsing errors.
+Machine-readable JSONL output retains a retry event for diagnostics. Existing sessions with malformed
+tool arguments remain usable: outgoing requests omit the invalid argument text and include an explicit failure
+result, while the original local session record stays intact. Normal conversation context is still sent; retries
+do not append a duplicate copy of the conversation. If recovery fails again, Otis stops with a readable error.
+
 Otis writes private configuration and append-only sessions to standard platform user directories. Set `OTIS_HOME` to
 keep all state under one location. Provider keys are never written to sessions, transcripts, tool results, or usage
 records.
