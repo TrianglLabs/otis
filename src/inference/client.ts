@@ -1,4 +1,5 @@
-import { inferenceEndpointURL, openaiChatCompletionRequest, requiredText, responsePreview } from "./openai-compat.js"
+import { inferenceResponseError } from "./errors.js"
+import { inferenceEndpointURL, openaiChatCompletionRequest, requiredText } from "./openai-compat.js"
 import { highestReasoningEffort } from "./reasoning.js"
 import { fireworksServiceTier } from "./serving-path.js"
 import { parseChatCompletionStream } from "./stream-parser.js"
@@ -46,7 +47,7 @@ export class FireworksClient implements InferenceClient {
     })
 
     if (!response.ok) {
-      throw new Error(`Fireworks request failed with HTTP ${response.status}: ${await responsePreview(response)}`)
+      throw await inferenceResponseError(response, "Fireworks")
     }
     if (!response.body) throw new Error("Fireworks response did not include a stream body")
     yield* parseChatCompletionStream(response.body)

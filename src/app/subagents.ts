@@ -58,7 +58,7 @@ export class SubagentTraces {
     }
     live.projector.apply(event)
     if (event.type === "complete" || event.type === "interrupted" || event.type === "error") {
-      live.projector.finishStreaming()
+      live.projector.finishTurn()
       live.trace.transcript.addMessages(event.messages ?? [])
       live.messages.push(...(event.messages ?? []))
       live.trace = {

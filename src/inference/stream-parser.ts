@@ -1,3 +1,4 @@
+import { inferenceError } from "./errors.js"
 import type { ChatStreamEvent, OpenAICompatibleReasoningField, TokenUsage } from "./types.js"
 
 export async function* parseChatCompletionStream(stream: ReadableStream<Uint8Array>): AsyncGenerator<ChatStreamEvent> {
@@ -41,7 +42,7 @@ function* processSSEEvent(rawEvent: string, state: StreamParserState): Generator
   if (!data || data === "[DONE]") return
 
   for (const chunk of parseSSEChunks(data)) {
-    if (chunk.error) throw new Error(`Inference stream failed: ${providerError(chunk.error)}`)
+    if (chunk.error) throw inferenceError(`Inference stream failed: ${providerError(chunk.error)}`, chunk.error)
 
     const usage = parseUsage(chunk.usage)
     if (usage) yield { type: "usage", usage }

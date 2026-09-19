@@ -84,6 +84,11 @@ export class JsonlSession {
     return message
   }
 
+  /** Admission may queue work; this event marks when that work actually begins. */
+  startTurn(admission: PromptAdmission) {
+    return this.append({ type: "turn_started", promptId: admission.promptId })
+  }
+
   completeTurn(admission: PromptAdmission, turnMessages: ChatMessage[], details: SessionTurnDetails = {}) {
     return this.append({
       type: "turn_completed",

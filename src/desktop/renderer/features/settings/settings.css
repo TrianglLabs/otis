@@ -1,8 +1,9 @@
 /* Settings page — takes over the whole window; the header row doubles as a window drag region. */
 
 .settingsPage {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 212px minmax(0, 1fr);
+  grid-template-rows: var(--header-height) minmax(0, 1fr);
   min-height: 0;
   flex: 1;
   background: var(--bg);
@@ -10,6 +11,8 @@
 
 /* Same metrics as the workspace header, so the close button lands exactly where the settings gear was. */
 .settingsPage-header {
+  grid-column: 2;
+  grid-row: 1;
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -19,34 +22,355 @@
   flex-shrink: 0;
 }
 
-.settingsPage-scroll {
+.settingsPage-title {
+  margin: 0;
+  padding: 2px 10px 18px;
+  font-size: 18px;
+  font-weight: 650;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  text-align: left;
+  color: var(--text);
+  user-select: none;
+}
+
+.settingsPage-body {
+  display: contents;
+}
+
+.settingsSidebar {
+  grid-column: 1;
+  grid-row: 1 / -1;
+  min-width: 0;
+  min-height: 0;
+  padding: 40px 12px 20px;
+  overflow-y: auto;
+  border-right: 1px solid var(--hairline);
+  background: color-mix(in srgb, var(--bg-elev) 38%, var(--bg));
+}
+
+.settingsSidebar-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--row-gap);
+}
+
+.settingsSidebar-tab {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 34px;
+  padding: 7px 10px;
+  overflow: hidden;
+  color: var(--text-dim);
+  font-size: var(--text-ui);
+  font-weight: 520;
+  text-align: left;
+  white-space: nowrap;
+  transition:
+    color var(--motion),
+    background var(--motion);
+}
+
+.settingsSidebar-tab:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.settingsSidebar-tabActive,
+.settingsSidebar-tabActive:hover {
+  color: var(--text);
+  background: var(--bg-elev);
+}
+
+.settingsSidebar-tab .icon {
+  flex-shrink: 0;
+  color: currentColor;
+}
+
+.settingsPage-content {
+  grid-column: 2;
+  grid-row: 2;
+  min-width: 0;
+  min-height: 0;
   flex: 1;
   overflow-y: auto;
-  min-height: 0;
-  /* both-edges keeps the 720px column centered on the window; a right-only gutter would shift it left. */
-  scrollbar-gutter: stable both-edges;
+  scrollbar-gutter: stable;
 }
 
 .settingsPage-column {
-  max-width: 720px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  width: 100%;
+  max-width: 680px;
   margin: 0 auto;
-  padding: 10px 24px 40px;
+  padding: 28px 40px 48px;
 }
 
-/* Section label treatment shared across overlays and pages. The section owns the inter-section gap via its top
-   margin, so the distance is the same no matter what block (rows, grid, form) ends the previous section. */
+.settingsGroup {
+  display: flex;
+  flex-direction: column;
+}
+
+.settingsCard {
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--bg-elev) 70%, var(--bg));
+}
+
+.settingsCard-provider {
+  padding: 0;
+}
+
+.settingsProviderCards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settingsCard-themes {
+  padding: 10px;
+}
+
+/* --- Local usage --- */
+
+.settingsUsage {
+  padding: 0;
+  overflow: hidden;
+}
+
+.settingsUsage-loading {
+  padding: 18px;
+  color: var(--text-dim);
+  font-size: var(--text-meta);
+}
+
+.settingsUsage-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.9fr);
+  align-items: center;
+  gap: 32px;
+  padding: 20px 18px 18px;
+}
+
+.settingsUsage-total {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.settingsUsage-eyebrow,
+.settingsUsage-note,
+.settingsUsage-metric span,
+.settingsUsage-mixTitle,
+.settingsUsage-mixValues,
+.settingsUsage-activityHeader,
+.settingsUsage-average {
+  color: var(--text-dim);
+  font-size: var(--text-meta);
+}
+
+.settingsUsage-total > strong {
+  margin: 5px 0 4px;
+  font-size: 36px;
+  font-weight: 520;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.settingsUsage-mix {
+  min-width: 0;
+}
+
+.settingsUsage-mixTitle {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--text);
+  font-weight: 560;
+}
+
+.settingsUsage-mixTrack {
+  display: flex;
+  width: 100%;
+  height: 5px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--border);
+}
+
+.settingsUsage-mixInput {
+  width: var(--usage-input-share);
+  background: color-mix(in srgb, var(--text) 72%, transparent);
+}
+
+.settingsUsage-mixOutput {
+  flex: 1;
+  background: color-mix(in srgb, var(--text-dim) 50%, transparent);
+}
+
+.settingsUsage-mixTrack[data-empty="true"] > span {
+  background: transparent;
+}
+
+.settingsUsage-mixValues {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.settingsUsage-mixValues > span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.settingsUsage-mixValues strong {
+  margin-left: 2px;
+  color: var(--text);
+  font-weight: 560;
+  font-variant-numeric: tabular-nums;
+}
+
+.settingsUsage-mixDot {
+  display: block;
+  width: 5px;
+  height: 5px;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+
+.settingsUsage-mixDotInput {
+  background: color-mix(in srgb, var(--text) 72%, transparent);
+}
+
+.settingsUsage-mixDotOutput {
+  background: color-mix(in srgb, var(--text-dim) 50%, transparent);
+}
+
+.settingsUsage-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 0 14px;
+}
+
+.settingsUsage-metric + .settingsUsage-metric {
+  border-left: 1px solid var(--hairline);
+}
+
+.settingsUsage-metric strong {
+  overflow: hidden;
+  font-size: var(--text-ui);
+  font-weight: 580;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.settingsUsage-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 12px 4px;
+  border-top: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--hairline);
+  background: color-mix(in srgb, var(--bg-elev) 42%, transparent);
+}
+
+.settingsUsage-metrics .settingsUsage-metric {
+  padding-inline: 14px;
+}
+
+.settingsUsage-activity {
+  padding: 14px 18px 16px;
+}
+
+.settingsUsage-activityHeader,
+.settingsUsage-average {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settingsUsage-activityHeader > :first-child {
+  font-weight: 560;
+  color: var(--text);
+}
+
+.settingsUsage-chart {
+  display: flex;
+  gap: 4px;
+  height: 62px;
+  margin: 12px 0 9px;
+  padding-top: 4px;
+}
+
+.settingsUsage-barSlot {
+  display: flex;
+  align-items: flex-end;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: default;
+}
+
+.settingsUsage-bar {
+  display: block;
+  width: 100%;
+  min-height: 3px;
+  height: max(3px, var(--usage-level));
+  border-radius: 2px 2px 1px 1px;
+  background: color-mix(in srgb, var(--accent) 68%, var(--bg-elev));
+  transition:
+    background var(--motion),
+    opacity var(--motion);
+}
+
+.settingsUsage-barSlot[data-empty="true"] .settingsUsage-bar {
+  background: var(--border);
+}
+
+.settingsUsage-barSlot:hover .settingsUsage-bar,
+.settingsUsage-barSlot:focus-visible .settingsUsage-bar {
+  background: var(--accent);
+  opacity: 1;
+}
+
+.settingsUsage-barSlot:focus-visible {
+  outline: none;
+}
+
+.settingsUsage-activeDay {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.settingsUsage-average {
+  padding-top: 9px;
+  border-top: 1px solid var(--hairline);
+}
+
+/* Section titles align with the outside edge of their cards. */
 .settings-section {
-  margin-top: 20px;
-  padding: 0 10px 6px;
+  margin: 0;
+  padding: 0 0 7px;
   font-size: var(--text-micro);
   font-weight: 700;
   letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--text-dim);
-}
-
-.settingsPage-column > .settings-section:first-child {
-  margin-top: 6px;
 }
 
 /* --- Theme grid --- */
@@ -55,7 +379,7 @@
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
-  padding: 0 10px;
+  padding: 0;
 }
 
 .themeTile {
@@ -140,23 +464,30 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 7px 10px;
+  min-height: 38px;
+  padding: 8px 10px;
   font-size: var(--text-ui);
 }
 
+.settingsCard-provider > .settingsRow {
+  padding: 11px 12px;
+}
+
 .settingsRow + .settingsRow {
-  border-top: var(--hairline);
+  border-top: 1px solid var(--hairline);
 }
 
 .settingsRow-label {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
   min-width: 0;
 }
 
 .settingsRow-meta {
   font-size: var(--text-meta);
+  line-height: 1.4;
   color: var(--text-dim);
 }
 
@@ -179,13 +510,17 @@
   font-size: var(--text-meta);
 }
 
+.settingsCard > .settings-message {
+  padding-inline: 10px;
+}
+
 .settings-error {
   color: var(--pink);
 }
 
 .settingsSelect {
   flex-shrink: 0;
-  min-width: 92px;
+  min-width: 116px;
   padding: 5px 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -263,7 +598,7 @@
   text-align: left;
 }
 
-.settingsRow-expand:hover {
+.settingsForm .settingsRow-expand:hover {
   background: var(--bg-hover);
 }
 
@@ -279,6 +614,10 @@
 
 .settingsForm {
   padding: 4px 10px;
+}
+
+.settingsCard-provider .settingsForm {
+  padding: 0 13px 12px;
 }
 
 .settingsForm-note {
@@ -339,4 +678,27 @@
   justify-content: flex-end;
   gap: 8px;
   margin-top: 10px;
+}
+
+@media (max-width: 720px) {
+  .settingsPage {
+    grid-template-columns: 168px minmax(0, 1fr);
+  }
+
+  .settingsSidebar {
+    padding-inline: 8px;
+  }
+
+  .settingsPage-column {
+    padding: 24px 22px 40px;
+  }
+
+  .themeGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .settingsUsage-hero {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
 }

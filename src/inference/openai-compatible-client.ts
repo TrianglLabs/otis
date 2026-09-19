@@ -1,4 +1,5 @@
-import { inferenceEndpointURL, openaiChatCompletionRequest, requiredText, responsePreview } from "./openai-compat.js"
+import { inferenceResponseError } from "./errors.js"
+import { inferenceEndpointURL, openaiChatCompletionRequest, requiredText } from "./openai-compat.js"
 import { parseChatCompletionStream } from "./stream-parser.js"
 import type { ChatMessage, CompleteOptions, InferenceClient, StreamChatOptions } from "./types.js"
 
@@ -29,26 +30,29 @@ export class OpenAICompatibleClient implements InferenceClient {
   }
 
   async *streamChat(options: StreamChatOptions) {
+    const response = await this.request(options)
+    if (!response.body) throw new Error(`${this.#requestLabel} response did not include a stream body`)
+    yield* parseChatCompletionStream(response.body)
+  }
+
+  protected async request(options: StreamChatOptions, suffix = "") {
     const headers: Record<string, string> = {
-      accept: "text/event-stream",
+      accept: suffix ? "application/json" : "text/event-stream",
       "content-type": "application/json",
     }
     if (this.#apiKey) headers.authorization = `Bearer ${this.#apiKey}`
 
-    const response = await this.#fetch(this.#inferenceURL, {
+    const url = new URL(this.#inferenceURL)
+    url.pathname = `${url.pathname.replace(/\/$/, "")}${suffix}`
+    const response = await this.#fetch(url.toString(), {
       method: "POST",
       headers,
       body: JSON.stringify(openaiChatCompletionRequest(this.model, options)),
       signal: options.signal,
     })
 
-    if (!response.ok) {
-      throw new Error(
-        `${this.#requestLabel} request failed with HTTP ${response.status}: ${await responsePreview(response)}`,
-      )
-    }
-    if (!response.body) throw new Error(`${this.#requestLabel} response did not include a stream body`)
-    yield* parseChatCompletionStream(response.body)
+    if (!response.ok) throw await inferenceResponseError(response, this.#requestLabel)
+    return response
   }
 
   async complete(messages: ChatMessage[], options: CompleteOptions = {}) {

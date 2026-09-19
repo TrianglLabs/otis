@@ -410,7 +410,12 @@ describe("CLI session turn handling", () => {
     const session = testSession({
       id: "session_saved",
       replay: vi.fn(() => ({ messages, toolActivities, subagents: [] })),
-      replayTranscript: vi.fn(() => ({ messages, toolActivities, subagents: [] })),
+      replayTranscript: vi.fn(() => ({
+        messages,
+        toolActivities,
+        subagents: [],
+        turns: [{ messages, toolActivities }],
+      })),
     })
     mocks.openSession.mockResolvedValue(session)
 

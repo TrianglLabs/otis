@@ -43,7 +43,8 @@ describe("desktop compaction through the shared runtime", () => {
         } else {
           expect(session.events.some((event) => event.type === "compacted")).toBe(true)
           expect(request.messages[0]).toEqual(compactionSummaryMessage(summary))
-          expect(request.systemPrompt).toBeUndefined()
+          expect(request.systemPrompt).toContain("You are Otis")
+          expect(request.systemPrompt).not.toContain("PRIVATE_COMPACTION_CONTEXT")
           if (requests === 2) {
             yield { type: "text_delta", text: "Continuing the task." }
             yield { type: "tool_call", toolCall: { id: "read_1", name: "read", arguments: '{"path":"note.txt"}' } }

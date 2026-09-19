@@ -31,6 +31,41 @@ describe("TranscriptStore", () => {
     ])
   })
 
+  it("keeps artifact revisions in history but reveals only the last revision when the turn settles", () => {
+    const transcript = new TranscriptStore()
+    const first = transcript.addToolMessage("Writing brief.md", "file_write", { toolCallId: "write_1" })
+    const second = transcript.addToolMessage("Editing brief.md", "file_edit", { toolCallId: "edit_1" })
+    const artifact = { source: "workspace" as const, path: "brief.md", kind: "markdown" as const }
+
+    transcript.stageArtifact(first.id, artifact)
+    expect(first.artifact).toBeUndefined()
+    expect(transcript.entries[0]).toMatchObject({ artifact, artifactDisplay: "pending" })
+
+    transcript.stageArtifact(second.id, artifact)
+    expect(transcript.entries).toMatchObject([
+      { artifact, artifactDisplay: "superseded" },
+      { artifact, artifactDisplay: "pending" },
+    ])
+
+    expect(transcript.finalizeArtifacts()).toBe(true)
+    expect(transcript.entries).toMatchObject([
+      { artifact, artifactDisplay: "superseded" },
+      { artifact, artifactDisplay: "ready" },
+    ])
+  })
+
+  it("reveals the final revision of each distinct artifact", () => {
+    const transcript = new TranscriptStore()
+    const brief = transcript.addToolMessage("Writing brief.md", "file_write")
+    const notes = transcript.addToolMessage("Writing notes.md", "file_write")
+
+    transcript.stageArtifact(brief.id, { source: "workspace", path: "brief.md", kind: "markdown" })
+    transcript.stageArtifact(notes.id, { source: "workspace", path: "notes.md", kind: "markdown" })
+    transcript.finalizeArtifacts()
+
+    expect(transcript.entries.map((entry) => entry.artifactDisplay)).toEqual(["ready", "ready"])
+  })
+
   it("moves a queued user message to the active transcript position", () => {
     const transcript = new TranscriptStore()
     transcript.addUserMessage("active")
@@ -200,6 +235,55 @@ describe("TranscriptStore", () => {
     expect(transcript.entries[2].diff).toContain("--- one.ts")
     expect(transcript.entries[3].diff).toContain("--- two.ts")
     expect(transcript.toolActivitiesFor(messages)).toEqual([toolActivities[1], toolActivities[0]])
+  })
+
+  it("replays one final artifact card per artifact and user turn", () => {
+    const transcript = new TranscriptStore()
+    const messages = [
+      { role: "user" as const, content: "Draft the brief" },
+      {
+        role: "assistant" as const,
+        content: [
+          {
+            type: "tool_call" as const,
+            toolCall: { id: "write_1", name: "write", arguments: '{"path":"brief.md","content":"one"}' },
+          },
+          {
+            type: "tool_call" as const,
+            toolCall: { id: "write_2", name: "write", arguments: '{"path":"brief.md","content":"two"}' },
+          },
+        ],
+      },
+      { role: "tool" as const, toolCallId: "write_1", content: "written" },
+      { role: "tool" as const, toolCallId: "write_2", content: "written" },
+      { role: "user" as const, content: "Revise it" },
+      {
+        role: "assistant" as const,
+        content: [
+          {
+            type: "tool_call" as const,
+            toolCall: { id: "write_3", name: "write", arguments: '{"path":"brief.md","content":"three"}' },
+          },
+        ],
+      },
+      { role: "tool" as const, toolCallId: "write_3", content: "written" },
+    ]
+    const artifact = { source: "workspace" as const, path: "brief.md", kind: "markdown" as const }
+    const activities = ["write_1", "write_2", "write_3"].map((toolCallId) => ({
+      toolCallId,
+      activityKind: "file_write" as const,
+      label: "Writing brief.md",
+      artifact,
+    }))
+
+    transcript.replaceMessages(messages, [
+      { messages: messages.slice(0, 4), toolActivities: activities.slice(0, 2) },
+      { messages: messages.slice(4), toolActivities: activities.slice(2) },
+    ])
+
+    const artifactEntries = transcript.entries.filter((entry) => entry.artifact)
+    expect(artifactEntries.map((entry) => entry.artifactDisplay)).toEqual(["superseded", "ready", "ready"])
+    expect(transcript.toolActivitiesFor(messages).filter((activity) => activity.artifact)).toHaveLength(3)
   })
 
   it("retains the latest matching activity when tool-call IDs repeat across compacted turns", () => {

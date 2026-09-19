@@ -1,3 +1,4 @@
+import { ContextOverflowError } from "../inference/errors.js"
 import { summarizeUserMessage, userMessageText } from "../inference/messages.js"
 import { toolCallHistoryForRequest } from "../inference/tool-call-history.js"
 import type { ChatMessage, InferenceClient, TokenUsage } from "../inference/types.js"
@@ -31,9 +32,9 @@ export type CompactionOptions = {
   onUsage?: (usage: TokenUsage) => void | Promise<void>
   signal?: AbortSignal
   keepRecentTokens?: number
-  /** Maximum estimated context after compaction, including the summary and static prompt. */
+  /** Maximum context after compaction, including the summary and static prompt. */
   targetTokens?: number
-  estimateContextTokens?: (messages: ChatMessage[]) => number
+  countContextTokens?: (messages: ChatMessage[]) => number | Promise<number>
   /** Bounds each summarization request when resuming an oversized conversation. */
   maxInputTokens?: number
 }
@@ -53,16 +54,22 @@ export async function compactConversation(
 ): Promise<CompactionResult> {
   options.signal?.throwIfAborted()
   const targetTokens = options.targetTokens ?? Math.floor(AUTO_COMPACT_THRESHOLD_TOKENS / 2)
-  const keepRecentTokens = Math.min(
-    options.keepRecentTokens ?? DEFAULT_KEEP_RECENT_TOKENS,
-    Math.floor(targetTokens / 2),
-  )
-  const cutIndex = findCutPoint(messages, keepRecentTokens)
+  let keepRecentTokens = Math.min(options.keepRecentTokens ?? DEFAULT_KEEP_RECENT_TOKENS, Math.floor(targetTokens / 2))
+  let cutIndex = findCutPoint(messages, keepRecentTokens)
   if (cutIndex <= 0) throw new Error("Not enough conversation history to compact.")
 
-  const keptMessages = messages.slice(cutIndex)
-  const estimate = options.estimateContextTokens ?? estimateMessageTokens
-  if (estimate(keptMessages) >= targetTokens) {
+  let keptMessages = messages.slice(cutIndex)
+  const count = options.countContextTokens ?? estimateMessageTokens
+  let keptTokens = await count(keptMessages)
+  while (keptTokens >= targetTokens && keepRecentTokens > 0) {
+    keepRecentTokens = Math.floor(keepRecentTokens / 2)
+    const nextCut = findCutPoint(messages, keepRecentTokens)
+    if (nextCut <= cutIndex) continue
+    cutIndex = nextCut
+    keptMessages = messages.slice(cutIndex)
+    keptTokens = await count(keptMessages)
+  }
+  if (keptTokens >= targetTokens) {
     throw new Error(
       "The latest input and fixed context leave no room for a compaction summary. Reduce the input or project context.",
     )
@@ -70,9 +77,11 @@ export async function compactConversation(
   const summary = await generateSummary(messages.slice(0, cutIndex), options)
   options.signal?.throwIfAborted()
   const compacted = [compactionSummaryMessage(summary), ...keptMessages]
-  if (estimate(compacted) > targetTokens || estimate(compacted) >= estimate(messages)) {
+  const compactedTokens = await count(compacted)
+  if (compactedTokens > targetTokens || compactedTokens >= (await count(messages))) {
     throw new Error("Compaction did not free enough context. The conversation was left unchanged.")
   }
+  options.signal?.throwIfAborted()
   return { summary, keptMessages }
 }
 
@@ -121,42 +130,69 @@ async function generateSummary(messages: ChatMessage[], options: CompactionOptio
   while (offset < conversation.length) {
     options.signal?.throwIfAborted()
     const previous = summary ? `Previous summary:\n${summary}\n\nMore conversation:\n` : ""
-    const overhead = estimate([{ role: "user", content: buildSummarizationInput(previous) }])
-    const availableChars = Math.floor((maxInputTokens - overhead) * 4)
-    if (availableChars <= 0) throw new Error("The summary is too large to compact within the context budget.")
-    let end = Math.min(conversation.length, offset + availableChars)
-    // A chunk boundary must not turn a Unicode surrogate pair into two invalid strings.
-    const lastCodeUnit = conversation.charCodeAt(end - 1)
-    const nextCodeUnit = conversation.charCodeAt(end)
-    if (lastCodeUnit >= 0xd800 && lastCodeUnit <= 0xdbff && nextCodeUnit >= 0xdc00 && nextCodeUnit <= 0xdfff) end -= 1
-    if (end <= offset) throw new Error("The context budget is too small for a summary request.")
-    const chunk = conversation.slice(offset, end)
-    const prompt = buildSummarizationInput(previous + chunk)
-    let text = ""
-    for await (const event of options.client.streamChat({
-      messages: [{ role: "user", content: prompt }],
+    const overheadRequest = {
+      messages: [{ role: "user" as const, content: buildSummarizationInput(previous) }],
       systemPrompt,
       tools: [],
       signal: options.signal,
-    })) {
-      if (event.type === "text_delta") text += event.text
-      if (event.type === "usage") await options.onUsage?.(event.usage)
-      if (event.type === "tool_call") {
-        throw new Error(
-          "Compaction failed: the model requested a tool instead of summarizing. The conversation was left unchanged.",
-        )
-      }
-      if (event.type === "finish" && event.reason !== "stop") {
-        throw new Error(
-          `Compaction failed: the model did not finish its summary (${event.reason}). The conversation was left unchanged.`,
-        )
-      }
     }
-    options.signal?.throwIfAborted()
-    summary = text.trim()
-    if (!summary) throw new Error("Compaction failed: the model returned an empty summary.")
-    validateSummary(summary)
-    offset += chunk.length
+    const overhead = await (options.client.countTokens?.(overheadRequest) ?? estimate(overheadRequest.messages))
+    const availableChars = Math.floor((maxInputTokens - overhead) * 4)
+    if (availableChars <= 0) throw new Error("The summary is too large to compact within the context budget.")
+    let chunkLength = Math.min(conversation.length - offset, availableChars)
+    let overflowAttempts = 0
+    while (true) {
+      // A chunk boundary must not split a Unicode surrogate pair.
+      let end = offset + chunkLength
+      const last = conversation.charCodeAt(end - 1)
+      const next = conversation.charCodeAt(end)
+      if (last >= 0xd800 && last <= 0xdbff && next >= 0xdc00 && next <= 0xdfff) end -= 1
+      if (end <= offset) throw new Error("The context budget is too small for a summary request.")
+      const chunk = conversation.slice(offset, end)
+      const request = {
+        messages: [{ role: "user" as const, content: buildSummarizationInput(previous + chunk) }],
+        systemPrompt,
+        tools: [],
+        signal: options.signal,
+      }
+      const tokens = await (options.client.countTokens?.(request) ?? estimate(request.messages))
+      options.signal?.throwIfAborted()
+      if (tokens > maxInputTokens) {
+        chunkLength = Math.floor(chunk.length / 2)
+        continue
+      }
+      let text = ""
+      let started = false
+      try {
+        for await (const event of options.client.streamChat(request)) {
+          started = true
+          if (event.type === "text_delta") text += event.text
+          if (event.type === "usage") await options.onUsage?.(event.usage)
+          if (event.type === "tool_call") {
+            throw new Error(
+              "Compaction failed: the model requested a tool instead of summarizing. The conversation was left unchanged.",
+            )
+          }
+          if (event.type === "finish" && event.reason !== "stop") {
+            throw new Error(
+              `Compaction failed: the model did not finish its summary (${event.reason}). The conversation was left unchanged.`,
+            )
+          }
+        }
+      } catch (error) {
+        if (!(error instanceof ContextOverflowError) || started || options.signal?.aborted || overflowAttempts >= 3)
+          throw error
+        overflowAttempts += 1
+        chunkLength = Math.floor(chunk.length / 2)
+        continue
+      }
+      options.signal?.throwIfAborted()
+      summary = text.trim()
+      if (!summary) throw new Error("Compaction failed: the model returned an empty summary.")
+      validateSummary(summary)
+      offset += chunk.length
+      break
+    }
   }
   return summary
 }

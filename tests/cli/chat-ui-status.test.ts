@@ -6,10 +6,11 @@ import { createChatUI } from "../../src/cli/chat-ui.js"
 import { formatContextUsage } from "../../src/cli/context-meter.js"
 import { colors } from "../../src/cli/theme.js"
 import { CHAT_KEY_HINT, CHAT_KEY_HINT_DURATION_MS } from "../../src/cli/ui/format.js"
-import { STAT_COUNT_SETTLE_MS } from "../../src/cli/ui/home-stats.js"
+import { STAT_COUNT_SETTLE_MS, ZERO_STATS } from "../../src/cli/ui/home-stats.js"
 import { useChatHarness } from "./support/chat-ui-harness.js"
 
 const sampleStats = {
+  ...ZERO_STATS,
   streak: 7,
   totalTokens: 1_250_000,
   sessionCount: 12,
@@ -88,6 +89,7 @@ describe("chat UI status and prompts", () => {
     expect(harness.text("welcome-stat-value-3")).toBe("7M")
 
     harness.ui.setStats({
+      ...ZERO_STATS,
       streak: 0,
       totalTokens: 0,
       sessionCount: 0,
@@ -168,6 +170,7 @@ describe("chat UI status and prompts", () => {
     vi.useFakeTimers()
     const harness = await setup()
     harness.ui.setStats({
+      ...ZERO_STATS,
       streak: 12,
       totalTokens: 1_234_567,
       sessionCount: 40,
@@ -221,6 +224,7 @@ describe("chat UI status and prompts", () => {
     try {
       vi.useFakeTimers()
       ui.setStats({
+        ...ZERO_STATS,
         streak: 12,
         totalTokens: 1_234_567,
         sessionCount: 40,
@@ -264,6 +268,7 @@ describe("chat UI status and prompts", () => {
     try {
       vi.useFakeTimers()
       ui.setStats({
+        ...ZERO_STATS,
         streak: 12,
         totalTokens: 1_234_567,
         sessionCount: 40,

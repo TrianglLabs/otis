@@ -86,6 +86,37 @@ describe("TranscriptProjector", () => {
     ])
   })
 
+  it("holds artifact cards until the turn ends and reveals only the latest revision", () => {
+    const transcript = new TranscriptStore()
+    const projector = new TranscriptProjector(transcript)
+    const artifact = { source: "workspace" as const, path: "brief.md", kind: "markdown" as const }
+
+    for (const toolCallId of ["write_1", "write_2"]) {
+      projector.apply({
+        type: "tool",
+        phase: "start",
+        toolCallId,
+        name: "write",
+        activityKind: "file_write",
+        label: "Writing brief.md",
+      })
+      projector.apply({
+        type: "tool",
+        phase: "end",
+        toolCallId,
+        name: "write",
+        activityKind: "file_write",
+        label: "Writing brief.md",
+        artifact,
+        outcome: "completed",
+      })
+    }
+
+    expect(transcript.entries.map((entry) => entry.artifactDisplay)).toEqual(["superseded", "pending"])
+    projector.finishTurn()
+    expect(transcript.entries.map((entry) => entry.artifactDisplay)).toEqual(["superseded", "ready"])
+  })
+
   it("ignores events that do not belong to the transcript", () => {
     const transcript = new TranscriptStore()
     const projector = new TranscriptProjector(transcript)
@@ -96,5 +127,47 @@ describe("TranscriptProjector", () => {
     expect(projector.apply({ type: "complete", messages: [] })).toBe(false)
     expect(transcript.entries).toEqual([])
     expect(projector.ensureAssistantEntry()).toMatchObject({ kind: "message", speaker: "Otis", text: "" })
+  })
+
+  it("keeps revisions pending through steering and compaction in the same turn", () => {
+    const transcript = new TranscriptStore()
+    let projector = new TranscriptProjector(transcript)
+    const artifact = {
+      source: "published" as const,
+      artifactId: "12345678-1234-1234-1234-123456789abc",
+      version: 1,
+      sha256: "a".repeat(64),
+      sourcePath: "/workspace/brief.md",
+      name: "brief.md",
+      kind: "markdown" as const,
+    }
+    const publish = (version: number) => {
+      const tool = {
+        type: "tool" as const,
+        toolCallId: `publish_${version}`,
+        name: "publish_artifact" as const,
+        activityKind: "file_read" as const,
+        label: "Publishing brief.md",
+      }
+      projector.apply({ ...tool, phase: "start" })
+      projector.apply({ ...tool, phase: "end", outcome: "completed", artifact: { ...artifact, version } })
+    }
+    transcript.addUserMessage("Draft the brief")
+    publish(1)
+    const steering = transcript.addSteeringUserMessage("Make it shorter")
+    transcript.activatePendingUserMessage(steering.id)
+    transcript.addQueuedUserMessage("Next task")
+    expect(transcript.entries.find((entry) => entry.artifact)?.artifactDisplay).toBe("pending")
+    transcript.loadCompacted("Drafted the brief", [])
+    projector = new TranscriptProjector(transcript)
+    publish(2)
+    expect(transcript.entries.filter((entry) => entry.artifact).map((entry) => entry.artifactDisplay)).toEqual([
+      "superseded",
+      "pending",
+    ])
+    projector.finishTurn()
+    expect(
+      transcript.entries.filter((entry) => entry.artifactDisplay === "ready").map((entry) => entry.artifact),
+    ).toEqual([{ ...artifact, version: 2 }])
   })
 })

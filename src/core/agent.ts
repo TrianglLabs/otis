@@ -1,3 +1,5 @@
+import { ContextOverflowError } from "../inference/errors.js"
+import { buildSystemPrompt } from "../inference/system-prompt.js"
 import { hasObjectArguments } from "../inference/tool-call-history.js"
 import type {
   ChatMessage,
@@ -95,23 +97,32 @@ export async function* runAgent(
   let steeringCount = 0
   let recoveryAttempts = 0
   let retrying = false
+  let overflowAttempts = 0
+  let recoveryBudget: number | undefined
   let contextEvent: (() => AgentEvent) | undefined
   try {
     const projectContext = options.projectContext ?? loadProjectContext(options.cwd ?? process.cwd())
     const skills = options.skills ?? (await loadSkillCatalog(options.cwd ?? process.cwd()))
     const tools = availableTools(options.tools ?? TOOL_DEFINITIONS, skills)
     const modelSkills = tools.some((tool) => tool.name === "skill") ? skills : emptySkills()
-    const estimate = requestContextEstimator({
-      tools,
+    const systemPrompt = buildSystemPrompt(
       projectContext,
-      skills: modelSkills.skills,
-      outputCapabilities: options.outputCapabilities,
-    })
-    let observed =
+      undefined,
+      modelSkills.skills,
+      tools,
+      options.outputCapabilities,
+    )
+    const requestOptions = { tools, systemPrompt, signal: options.signal }
+    const estimate = requestContextEstimator(requestOptions)
+    const count = (value: ChatMessage[]) =>
+      options.client.countTokens?.({ ...requestOptions, messages: value }) ?? estimate(value)
+    let observed: { tokens: number; estimate: number; exact?: boolean } | undefined =
       options.historyTokens === undefined ? undefined : { tokens: options.historyTokens, estimate: estimate(history) }
     const contextTokens = (value: ChatMessage[]) => {
       const estimated = estimate(value)
-      return observed ? Math.max(estimated, observed.tokens + estimated - observed.estimate) : estimated
+      return observed
+        ? Math.max(observed.exact ? 0 : estimated, observed.tokens + estimated - observed.estimate)
+        : estimated
     }
     const threshold = options.autoCompactAtTokens ?? autoCompactThreshold()
     contextEvent = (): AgentEvent => ({
@@ -140,15 +151,22 @@ export async function* runAgent(
         yield contextEvent()
       }
       options.signal?.throwIfAborted()
-      if (contextTokens(messages) >= threshold) {
+      if (options.client.countTokens && recoveryBudget === undefined) {
+        observed = { tokens: await count(messages), estimate: estimate(messages), exact: true }
+        yield contextEvent()
+      }
+      if (recoveryBudget !== undefined || contextTokens(messages) >= threshold) {
+        const budget = recoveryBudget ?? threshold
+        const summaryBudget = recoveryBudget === undefined ? budget : Math.floor(budget / 2)
+        recoveryBudget = undefined
         yield { type: "compaction", phase: "start" }
         const result = await compactConversation(messages, {
           client: options.client,
           signal: options.signal,
           onUsage: options.onCompactionUsage ?? options.onUsage,
-          targetTokens: Math.floor(threshold / 2),
-          maxInputTokens: threshold,
-          estimateContextTokens: estimate,
+          targetTokens: Math.floor(budget / 2),
+          maxInputTokens: summaryBudget,
+          countContextTokens: count,
         })
         // Persist the checkpoint before committing it to live context or sending another request.
         const segment = turnMessages(messages, turnStart)
@@ -164,17 +182,29 @@ export async function* runAgent(
       yield { type: "model", phase: retrying ? "retry" : "start" }
       options.signal?.throwIfAborted()
       retrying = false
-      const response = yield* streamAssistantResponse(messages, tools, {
-        ...options,
-        projectContext,
-        skills: modelSkills,
-      })
+      let response: AssistantResponse
+      try {
+        response = yield* streamAssistantResponse(messages, tools, {
+          ...options,
+          projectContext,
+          skills: modelSkills,
+          systemPrompt,
+        })
+      } catch (error) {
+        if (!(error instanceof ContextOverflowError) || options.signal?.aborted || overflowAttempts >= 2) throw error
+        overflowAttempts += 1
+        // Reduce the rejected request, without treating one PAIR node's limit as cluster metadata.
+        recoveryBudget = Math.max(1, Math.floor(Math.min(threshold, contextTokens(messages))))
+        retrying = true
+        continue
+      }
       const assistantMessage = assistantMessageFromResponse(response)
       if (assistantMessage.content.length > 0) messages.push(assistantMessage)
       if (response.usage) {
         observed = {
           tokens: response.usage.promptTokens + response.usage.completionTokens,
           estimate: estimate(messages),
+          exact: options.client.countTokens !== undefined,
         }
       }
 
@@ -286,7 +316,10 @@ type AssistantResponse = {
 async function* streamAssistantResponse(
   messages: ChatMessage[],
   tools = TOOL_DEFINITIONS,
-  options: Pick<RunAgentOptions, "client" | "signal" | "projectContext" | "skills" | "onUsage" | "outputCapabilities">,
+  options: Pick<
+    RunAgentOptions,
+    "client" | "signal" | "projectContext" | "skills" | "onUsage" | "outputCapabilities"
+  > & { systemPrompt?: string },
 ): AsyncGenerator<AgentEvent, AssistantResponse> {
   const response = new AssistantResponseBuilder()
   const projectContext = options.projectContext ?? []
@@ -297,6 +330,7 @@ async function* streamAssistantResponse(
     for await (const event of options.client.streamChat({
       messages,
       tools,
+      systemPrompt: options.systemPrompt,
       projectContext: projectContext.length > 0 ? projectContext : undefined,
       skills: options.skills?.skills,
       outputCapabilities: options.outputCapabilities,
@@ -317,6 +351,10 @@ async function* streamAssistantResponse(
       if (event.type === "finish") finishReason = event.reason
     }
   } catch (error) {
+    // Once output has been published, replaying this request could duplicate visible work.
+    if (!options.signal?.aborted && error instanceof ContextOverflowError && (response.content.length > 0 || usage)) {
+      throw new Error(error.message, { cause: error })
+    }
     if (!options.signal?.aborted) throw error
   }
 

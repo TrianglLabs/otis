@@ -154,6 +154,8 @@ export function isPairCatalogModel(model: CatalogModel): model is PairCatalogMod
 
 export type InferenceClient = {
   readonly model: string
+  /** Counts the fully formatted request without running inference, when supported by the serving endpoint. */
+  countTokens?(options: StreamChatOptions): Promise<number>
   streamChat(options: StreamChatOptions): AsyncGenerator<ChatStreamEvent>
   complete(messages: ChatMessage[], options?: CompleteOptions): Promise<string>
 }

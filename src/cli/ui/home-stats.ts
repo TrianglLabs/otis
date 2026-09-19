@@ -14,6 +14,10 @@ export const ZERO_STATS: LocalStats = {
   sessionCount: 0,
   avgTokensPerSession: 0,
   avgSessionSeconds: 0,
+  activeDays: 0,
+  promptTokens: 0,
+  completionTokens: 0,
+  recentActivity: [],
 }
 
 export type StatBox = {
@@ -102,6 +106,7 @@ export class HomeStats {
 
 export function interpolateStats(from: LocalStats, to: LocalStats, amount: number) {
   return {
+    ...to,
     streak: Math.round(lerp(from.streak, to.streak, amount)),
     totalTokens: Math.round(lerp(from.totalTokens, to.totalTokens, amount)),
     sessionCount: Math.round(lerp(from.sessionCount, to.sessionCount, amount)),

@@ -68,11 +68,12 @@ const session = {
     message,
   })),
   completeTurn: vi.fn(async () => undefined),
+  startTurn: vi.fn(async () => undefined),
   compactTurn: vi.fn(async () => undefined),
   interruptTurn: vi.fn(async () => undefined),
   recordUsage: vi.fn(async () => undefined),
   replay: vi.fn(() => ({ messages: [], toolActivities: [], subagents: [] })),
-  replayTranscript: vi.fn(() => ({ messages: [], toolActivities: [], subagents: [] })),
+  replayTranscript: vi.fn(() => ({ messages: [], toolActivities: [], subagents: [], turns: [] })),
   replayMessages: vi.fn(() => []),
 }
 
@@ -355,6 +356,8 @@ describe("runHeadlessCommand", () => {
 
     expect(exitCode).toBe(0)
     expect(session.admitPrompt).toHaveBeenCalledWith({ role: "user", content: "save this" })
+    expect(session.startTurn).toHaveBeenCalledWith(expect.objectContaining({ promptId: "prompt_test" }))
+    expect(session.startTurn.mock.invocationCallOrder[0]).toBeLessThan(mocks.streamChat.mock.invocationCallOrder[0])
     expect(session.completeTurn).toHaveBeenCalledWith(
       expect.objectContaining({ promptId: "prompt_test" }),
       expect.arrayContaining([{ role: "user", content: "save this" }]),

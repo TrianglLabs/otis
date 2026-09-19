@@ -3,7 +3,7 @@ import type { LocalModelSpec } from "../../../src/inference/local-catalog.js"
 import type { FireworksModel, PairCatalogModel, UserChatMessage } from "../../../src/inference/types.js"
 import type { ThemeName } from "../../../src/local/settings.js"
 import type { SkillCatalog } from "../../../src/skills/index.js"
-import type { SessionReplay } from "../../../src/storage/session-events.js"
+import type { SessionReplay, SessionTranscriptReplay } from "../../../src/storage/session-events.js"
 
 const mocks = vi.hoisted(() => {
   const rendererHandlers = new Map<string, Array<() => void>>()
@@ -85,6 +85,10 @@ const mocks = vi.hoisted(() => {
       sessionCount: 0,
       avgTokensPerSession: 0,
       avgSessionSeconds: 0,
+      activeDays: 0,
+      promptTokens: 0,
+      completionTokens: 0,
+      recentActivity: [],
     })),
     clearSelectedModel: vi.fn(async () => undefined),
     createChatUI: vi.fn((_renderer, options) => {
@@ -372,6 +376,7 @@ function baseSession() {
       return { promptId: `prompt_${text}`, message }
     }),
     completeTurn: vi.fn(async () => undefined),
+    startTurn: vi.fn(async () => undefined),
     compactTurn: vi.fn(async () => undefined),
     interruptTurn: vi.fn(async () => undefined),
     steerPrompt: vi.fn(async (_admission: unknown, message: UserChatMessage) => message),
@@ -380,7 +385,12 @@ function baseSession() {
     recordUsage: vi.fn(async () => undefined),
     renameTitle: vi.fn(async () => undefined),
     replay: vi.fn<() => SessionReplay>(() => ({ messages: [], toolActivities: [], subagents: [] })),
-    replayTranscript: vi.fn<() => SessionReplay>(() => ({ messages: [], toolActivities: [], subagents: [] })),
+    replayTranscript: vi.fn<() => SessionTranscriptReplay>(() => ({
+      messages: [],
+      toolActivities: [],
+      subagents: [],
+      turns: [],
+    })),
     replayMessages: vi.fn(() => []),
     title: vi.fn(() => "Current session"),
   }

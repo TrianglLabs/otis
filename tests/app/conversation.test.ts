@@ -165,6 +165,39 @@ describe("runConversationTurn", () => {
       kind: "markdown",
     })
   })
+
+  it.each([
+    "complete",
+    "interrupted",
+    "error",
+  ] as const)("updates Canvas live and reveals only the final artifact when a turn ends with %s", async (status) => {
+    const transcript = new TranscriptStore()
+    const options = turnOptions(transcript)
+    const artifact = { source: "workspace" as const, path: "brief.md", kind: "markdown" as const }
+    mocks.executeTurn.mockImplementation(async (turn: TurnRunnerOptions): Promise<TurnResult> => {
+      for (const toolCallId of ["write_1", "write_2"]) {
+        const tool = {
+          type: "tool" as const,
+          toolCallId,
+          name: "write" as const,
+          activityKind: "file_write" as const,
+          label: "Writing brief.md",
+        }
+        await turn.onEvent?.({ ...tool, phase: "start" })
+        await turn.onEvent?.({ ...tool, phase: "end", outcome: "completed", artifact })
+        expect(options.artifacts.metadata?.path).toBe("brief.md")
+        expect(transcript.entries.some((entry) => entry.artifactDisplay === "ready")).toBe(false)
+      }
+      return status === "error"
+        ? { status, message: "Provider failed", messages: [], details: {} }
+        : { status, messages: [], details: {} }
+    })
+    await runConversationTurn(options)
+    expect(
+      transcript.entries.filter((entry) => entry.artifactDisplay === "ready").map((entry) => entry.toolCallId),
+    ).toEqual(["write_2"])
+    expect(transcript.entries.filter((entry) => entry.artifact)).toHaveLength(2)
+  })
 })
 
 describe("Conversation", () => {
@@ -235,7 +268,7 @@ describe("Conversation", () => {
   })
 
   it("queues a prompt while a turn is running", async () => {
-    const { conversation, transcript } = await setup()
+    const { conversation, transcript, sessions } = await setup()
     mocks.executeTurn.mockImplementation(async (options: TurnRunnerOptions): Promise<TurnResult> => {
       const signal = options.agent.signal
       if (!signal) throw new Error("expected abort signal")
@@ -249,8 +282,24 @@ describe("Conversation", () => {
     const queued = conversation.takeQueued()
     expect(queued?.admission.message).toEqual({ role: "user", content: "next" })
     expect(transcript.entries.some((entry) => entry.delivery === "queued")).toBe(true)
+    expect(
+      sessions.current?.events.some(
+        (event) => event.type === "turn_started" && event.promptId === queued?.admission.promptId,
+      ),
+    ).toBe(false)
     conversation.cancel()
     await started
+
+    if (!queued) throw new Error("Expected a queued prompt")
+    mocks.executeTurn.mockImplementationOnce(async () => {
+      expect(sessions.current?.events.at(-1)).toMatchObject({
+        type: "turn_started",
+        promptId: queued.admission.promptId,
+      })
+      return { status: "complete", messages: [], details: {} }
+    })
+    await conversation.start(queued, hooks())
+    expect(sessions.current?.events.filter((event) => event.type === "turn_started")).toHaveLength(2)
   })
 
   it("accepts steering on a queued turn that has already been admitted", async () => {
@@ -280,6 +329,19 @@ describe("Conversation", () => {
     await expect(conversation.steer({ role: "user", content: "steer this" }, () => {})).resolves.toBe("steered")
     conversation.cancel()
     await second
+  })
+
+  it("does not execute or announce a turn when its start cannot be recorded", async () => {
+    const { conversation, sessions, transcript } = await setup()
+    const session = await sessions.ensure()
+    vi.spyOn(session, "startTurn").mockRejectedValueOnce(new Error("disk full"))
+    const onReady = vi.fn()
+    const result = await conversation.start({ role: "user", content: "work" }, { ...hooks(), onReady })
+    expect(result.status).toBe("error")
+    expect(onReady).not.toHaveBeenCalled()
+    expect(mocks.executeTurn).not.toHaveBeenCalled()
+    expect(conversation.busy).toBe(false)
+    expect(transcript.entries.at(-1)?.text).toBe("Error: disk full")
   })
 })
 
