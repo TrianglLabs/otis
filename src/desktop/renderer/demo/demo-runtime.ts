@@ -393,6 +393,22 @@ const DEMO_MODELS: ModelPickerChoice[] = [
   },
 ]
 
+const DEMO_ACTIVITY_TOKENS = [
+  0, 32_400, 0, 58_900, 76_300, 0, 91_200, 44_800, 0, 0, 112_600, 84_100, 63_500, 0, 128_900, 147_200, 0, 98_400,
+  176_800, 132_500, 0, 154_300, 201_600, 188_400, 0, 224_900, 196_700, 251_300,
+]
+
+function demoRecentActivity() {
+  const cursor = new Date()
+  cursor.setHours(12, 0, 0, 0)
+  cursor.setDate(cursor.getDate() - (DEMO_ACTIVITY_TOKENS.length - 1))
+  return DEMO_ACTIVITY_TOKENS.map((tokens) => {
+    const date = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(cursor.getDate()).padStart(2, "0")}`
+    cursor.setDate(cursor.getDate() + 1)
+    return { date, tokens }
+  })
+}
+
 class DemoRuntime implements DesktopApi {
   constructor(private readonly windowStateApi?: DemoWindowStateApi) {}
 
@@ -513,11 +529,15 @@ class DemoRuntime implements DesktopApi {
     permission: null,
     modelLoad: null,
     stats: {
-      streak: 12,
-      totalTokens: 1_482_300,
+      streak: 3,
+      totalTokens: 24_909_600,
       sessionCount: 214,
       avgTokensPerSession: 116_400,
       avgSessionSeconds: 252,
+      activeDays: 124,
+      promptTokens: 19_909_600,
+      completionTokens: 5_000_000,
+      recentActivity: demoRecentActivity(),
     },
     entries: savedVersionsTranscript(),
     agentsPanelVisible: true,

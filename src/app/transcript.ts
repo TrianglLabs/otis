@@ -2,7 +2,7 @@ import { type ArtifactReference, attachmentArtifactReference, type FileArtifactR
 import { compactionSummaryMessage, isCompactionSummary } from "../core/compaction.js"
 import { displayUserMessage, userMessageDocuments, userMessageImages, userMessageText } from "../inference/messages.js"
 import type { ChatMessage, ChatToolCall, InferenceClient, ReasoningContentPart } from "../inference/types.js"
-import type { SessionToolActivity } from "../storage/index.js"
+import type { SessionToolActivity, SessionTurnSegment } from "../storage/session-events.js"
 import { describeToolCall, type ToolActivityKind } from "../tools/activity.js"
 import { parseSerializedToolCall } from "../tools/schema.js"
 
@@ -29,6 +29,8 @@ export type TranscriptEntry = {
   durationMs?: number
   diff?: string
   artifact?: FileArtifactReference
+  /** Artifact cards stay folded into tool activity until the turn chooses the last revision to present. */
+  artifactDisplay?: "pending" | "superseded" | "ready"
   artifacts?: ArtifactReference[]
   /** User-authored text plus image labels, without document names that render as artifact cards in graphical UIs. */
   messageText?: string
@@ -43,6 +45,7 @@ export class TranscriptStore {
   private nextLocalReasoningID = 1
   private observedContext?: { client: InferenceClient; tokens: number }
   private listeners = new Set<(change: TranscriptChange) => void>()
+  private pendingArtifacts = new Map<string, number>()
 
   /** Notifies about every mutation. Returns an unsubscribe function. */
   subscribe(listener: (change: TranscriptChange) => void) {
@@ -64,18 +67,21 @@ export class TranscriptStore {
     this.observedContext = { client, tokens }
   }
 
-  loadMessages(messages: ChatMessage[], toolActivities: SessionToolActivity[] = [], displayMessages = messages) {
+  /** Loads one finished run, including any steering messages within it. */
+  loadMessages(messages: ChatMessage[], toolActivities: SessionToolActivity[] = []) {
     this.history.push(...messages)
-    this.loadEntries(displayMessages, toolActivities)
+    this.loadEntries(messages, toolActivities)
   }
 
-  replaceMessages(messages: ChatMessage[], toolActivities: SessionToolActivity[] = [], displayMessages = messages) {
+  replaceMessages(messages: ChatMessage[], turns: readonly SessionTurnSegment[] = [{ messages }]) {
     this.entries.length = 0
     this.history.length = 0
     this.nextMessageID = 1
     this.observedContext = undefined
+    this.pendingArtifacts.clear()
     this.emit({ op: "reset" })
-    this.loadMessages(messages, toolActivities, displayMessages)
+    this.history.push(...messages)
+    for (const turn of turns) this.loadEntries(turn.messages, turn.toolActivities ?? [])
   }
 
   /**
@@ -117,6 +123,9 @@ export class TranscriptStore {
     const index = this.entries.findIndex((entry) => entry.id === id)
     if (index === -1) return false
     this.entries.splice(index, 1)
+    for (const [key, entryId] of this.pendingArtifacts) {
+      if (entryId === id) this.pendingArtifacts.delete(key)
+    }
     this.emit({ op: "remove", id })
     return true
   }
@@ -185,6 +194,32 @@ export class TranscriptStore {
     this.emit({ op: "upsert", id })
   }
 
+  /**
+   * Keeps every artifact reference on its tool entry for persistence, while marking only the latest revision of
+   * a logical artifact as the card to reveal when the turn settles.
+   */
+  stageArtifact(entryId: number, artifact: FileArtifactReference) {
+    if (!this.entries.some((entry) => entry.id === entryId)) return false
+    const key = artifactIdentity(artifact)
+    const previous = this.pendingArtifacts.get(key)
+    if (previous !== undefined && previous !== entryId) {
+      this.updateEntry(previous, { artifactDisplay: "superseded" })
+    }
+    this.pendingArtifacts.set(key, entryId)
+    this.updateEntry(entryId, { artifact, artifactDisplay: "pending" })
+    return true
+  }
+
+  /** Reveals the last revision of each artifact produced since the preceding turn boundary. */
+  finalizeArtifacts() {
+    if (this.pendingArtifacts.size === 0) return false
+    for (const entryId of this.pendingArtifacts.values()) {
+      this.updateEntry(entryId, { artifactDisplay: "ready" })
+    }
+    this.pendingArtifacts.clear()
+    return true
+  }
+
   addMessages(messages: ChatMessage[]) {
     this.history.push(...messages)
   }
@@ -219,14 +254,15 @@ export class TranscriptStore {
         if (part.type === "tool_call") {
           const activity = takeToolActivity(activities, part.toolCall.id) ?? activityFromToolCall(part.toolCall)
           if (!activity) continue
-          this.addToolMessage(activity.label, activity.activityKind, {
+          const entry = this.addToolMessage(activity.label, activity.activityKind, {
             toolCallId: activity.toolCallId,
             ...(activity.diff !== undefined ? { diff: activity.diff } : {}),
-            ...(activity.artifact !== undefined ? { artifact: activity.artifact } : {}),
           })
+          if (activity.artifact !== undefined) this.stageArtifact(entry.id, activity.artifact)
         }
       }
     }
+    this.finalizeArtifacts()
   }
 
   private addUserEntry(message: string | Extract<ChatMessage, { role: "user" }>, delivery?: TranscriptDelivery) {
@@ -261,6 +297,12 @@ export class TranscriptStore {
       ...(durationMs === undefined ? {} : { durationMs }),
     })
   }
+}
+
+function artifactIdentity(artifact: FileArtifactReference) {
+  return artifact.source === "published"
+    ? `published:${artifact.artifactId}`
+    : `workspace:${artifact.path.replaceAll("\\", "/")}`
 }
 
 function reasoningDuration(part: ReasoningContentPart) {

@@ -41,7 +41,9 @@ const KIND_ICONS: Record<ToolActivityKind, LucideIcon> = {
  */
 export function ToolCard({ entry, active }: { entry: TranscriptEntry; active: boolean }) {
   const icon = KIND_ICONS[entry.activityKind ?? "shell"]
-  if (entry.artifact) return <ArtifactToolCard entry={entry} active={active} />
+  if (entry.artifact && entry.artifactDisplay !== "pending" && entry.artifactDisplay !== "superseded") {
+    return <ArtifactToolCard entry={entry} active={active} />
+  }
 
   return (
     <div className={`toolCard${active ? " toolCard-active" : ""}`}>

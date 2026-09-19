@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
+import { TranscriptStore } from "../../src/app/transcript.js"
 import { compactionSummaryMessage } from "../../src/core/compaction.js"
 import type { ChatMessage } from "../../src/inference/types.js"
 import { openSession, readSessionEvents } from "../../src/storage/session.js"
@@ -13,6 +14,32 @@ afterEach(async () => {
 })
 
 describe("session tool activity", () => {
+  it("replays artifact revisions by admitted turn across steering, compaction, and later turns", async () => {
+    const cwd = await trackedTempDir()
+    const options = { cwd, directory: join(cwd, "sessions") }
+    const session = await openSession(options)
+    const artifact = { source: "workspace" as const, path: "brief.md", kind: "markdown" as const }
+    const activity = (toolCallId: string) => ({ ...toolActivity(toolCallId, "brief.md", "diff"), artifact })
+    const first = await session.admitPrompt("Draft the brief")
+    const steering = { role: "user" as const, content: "Make it shorter" }
+    await session.steerPrompt(first, steering)
+    await session.compactTurn(first, "Drafted", [], {}, 1, {
+      messages: [first.message, ...toolMessages("edit_1", "brief.md"), steering],
+      toolActivities: [activity("edit_1")],
+    })
+    await session.completeTurn(first, toolMessages("edit_2", "brief.md"), { toolActivities: [activity("edit_2")] })
+    const next = await session.admitPrompt("Revise it again")
+    await session.completeTurn(next, toolMessages("edit_3", "brief.md"), { toolActivities: [activity("edit_3")] })
+
+    const reopened = await openSession(options)
+    const replay = reopened.replayTranscript()
+    const transcript = new TranscriptStore()
+    transcript.replaceMessages(reopened.replay().messages, replay.turns)
+    expect(
+      transcript.entries.filter((entry) => entry.artifactDisplay === "ready").map((entry) => entry.toolCallId),
+    ).toEqual(["edit_2", "edit_3"])
+    expect(transcript.toolActivitiesFor(replay.messages).filter((entry) => entry.artifact)).toHaveLength(3)
+  })
   it("archives active-turn tool cards and subagent traces independently of retained model context", async () => {
     const cwd = await trackedTempDir()
     const options = { cwd, directory: join(cwd, "sessions") }
@@ -38,7 +65,7 @@ describe("session tool activity", () => {
       toolActivities: [],
       subagents: [],
     })
-    expect(reopened.replayTranscript()).toEqual({
+    expect(reopened.replayTranscript()).toMatchObject({
       messages: [...messages, compactionSummaryMessage("Progress."), compactionSummaryMessage("Final summary.")],
       toolActivities,
       subagents,

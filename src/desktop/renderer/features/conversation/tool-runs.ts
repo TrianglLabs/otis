@@ -21,7 +21,9 @@ export function groupToolRuns(entries: TranscriptEntry[]): TranscriptItem[] {
     run = []
   }
   for (const entry of entries) {
-    if (entry.kind === "tool" && !entry.diff && !entry.artifact) {
+    const displaysArtifact =
+      entry.artifact && entry.artifactDisplay !== "pending" && entry.artifactDisplay !== "superseded"
+    if (entry.kind === "tool" && !entry.diff && !displaysArtifact) {
       run.push(entry)
     } else {
       flush()

@@ -252,7 +252,7 @@ export class SessionCoordinator {
     this.#title = this.#session.hasTitle() ? this.#session.title() : undefined
     const replay = this.#session.replay()
     const transcript = this.#session.replayTranscript()
-    this.options.transcript.replaceMessages(replay.messages, transcript.toolActivities, transcript.messages)
+    this.options.transcript.replaceMessages(replay.messages, transcript.turns)
     this.options.subagents.load(transcript.subagents)
     this.options.onReplay?.(transcript.messages, transcript.toolActivities, this.#session)
     const diff = countTranscriptDiffLines(this.options.transcript.entries)

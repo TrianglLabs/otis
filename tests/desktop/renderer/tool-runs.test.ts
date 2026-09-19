@@ -42,6 +42,18 @@ describe("groupToolRuns", () => {
     expect(groupToolRuns([before, artifact, after])).toEqual([before, artifact, after])
   })
 
+  it("folds pending and superseded artifact revisions into activity until the final card is ready", () => {
+    const artifact = { source: "workspace" as const, path: "brief.pdf", kind: "pdf" as const }
+    const pending = tool({ artifact, artifactDisplay: "pending" })
+    const superseded = tool({ artifact, artifactDisplay: "superseded" })
+    const ready = tool({ artifact, artifactDisplay: "ready" })
+
+    expect(groupToolRuns([pending, superseded])).toEqual([
+      { kind: "toolRun", id: pending.id, entries: [pending, superseded] },
+    ])
+    expect(groupToolRuns([pending, ready])).toEqual([pending, ready])
+  })
+
   it("messages and reasoning break runs", () => {
     const [a, b] = [tool(), tool()]
     const text = message()

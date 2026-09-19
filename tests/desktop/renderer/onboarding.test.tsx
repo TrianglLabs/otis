@@ -169,6 +169,7 @@ describe("OnboardingPage", () => {
     expect(screen.queryByRole("button", { name: /search/i })).toBeNull()
     // …but Settings is reachable — PAIR setup lives there and may be the user's first provider.
     fireEvent.click(screen.getByRole("button", { name: "Settings" }))
+    fireEvent.click(await screen.findByRole("tab", { name: "Appearance" }))
     expect(await screen.findByText("Theme")).toBeTruthy()
     fireEvent.click(screen.getByRole("button", { name: /close settings/i }))
     expect(await screen.findByText(/Your personal AI agent/)).toBeTruthy()

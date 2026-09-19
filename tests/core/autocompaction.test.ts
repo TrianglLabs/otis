@@ -3,7 +3,9 @@ import { type AgentEvent, runAgent } from "../../src/core/agent.js"
 import { compactConversation, compactionSummaryMessage } from "../../src/core/compaction.js"
 import { estimateMessageTokens, requestContextEstimator } from "../../src/core/context-tokens.js"
 import { SteeringInbox } from "../../src/core/steering.js"
+import { ContextOverflowError } from "../../src/inference/errors.js"
 import type { ChatMessage, InferenceClient, StreamChatOptions } from "../../src/inference/types.js"
+import { TOOL_DEFINITIONS } from "../../src/tools/index.js"
 import { summaryFixture } from "../support/compaction.js"
 
 const user = (content: string): ChatMessage => ({ role: "user", content })
@@ -394,3 +396,253 @@ async function collect(events: AsyncGenerator<AgentEvent>) {
   for await (const event of events) result.push(event)
   return result
 }
+
+describe("authoritative request counts and overflow recovery", () => {
+  const options = { tools: [], skills: emptySkills, projectContext: [] }
+
+  it("compacts before inference when the serving tokenizer reports more tokens than the character estimate", async () => {
+    const client = summaryClient()
+    const history = [user("task"), answer("HISTORY ".repeat(200))]
+    client.countTokens = vi.fn(async (request: StreamChatOptions) =>
+      request.messages.some(
+        (message) =>
+          message.role === "assistant" &&
+          message.content.some((part) => part.type === "text" && part.text.includes("HISTORY")),
+      )
+        ? 25_000
+        : 1_000,
+    )
+    const events = await collect(runAgent("continue", history, { ...options, client, autoCompactAtTokens: 8_000 }))
+    expect(events.some((event) => event.type === "context" && event.tokens === 25_000)).toBe(true)
+    expect(events.filter((event) => event.type === "compaction" && event.phase === "complete")).toHaveLength(1)
+    expect(events.at(-1)?.type).toBe("complete")
+    expect(client.streamChat).toHaveBeenCalledTimes(2)
+  })
+
+  it("trusts the serving count when a character estimate would compact unnecessarily", async () => {
+    const client = summaryClient()
+    client.countTokens = vi.fn(async () => 100)
+    const events = await collect(
+      runAgent("task", [user("x".repeat(40_000)), answer("done")], {
+        ...options,
+        client,
+        autoCompactAtTokens: 8_000,
+      }),
+    )
+    expect(events.some((event) => event.type === "compaction")).toBe(false)
+    expect(events.some((event) => event.type === "context" && event.tokens === 100)).toBe(true)
+    expect(client.streamChat).toHaveBeenCalledOnce()
+  })
+
+  it("does not silently fall back to estimates when a managed tokenizer fails", async () => {
+    const client = summaryClient()
+    client.countTokens = async () => {
+      throw new Error("Tokenizer unavailable")
+    }
+    const events = await collect(runAgent("task", [], { ...options, client }))
+    expect(events.at(-1)).toMatchObject({ type: "error", message: "Tokenizer unavailable" })
+    expect(client.streamChat).not.toHaveBeenCalled()
+  })
+
+  it("checkpoints compaction before retrying a rejected input and retains the current prompt", async () => {
+    const client = summaryClient()
+    let requests = 0
+    let checkpointed = false
+    client.streamChat = vi.fn<InferenceClient["streamChat"]>(async function* (request) {
+      if (request.systemPrompt?.startsWith("You are a conversation summarizer")) {
+        yield { type: "text_delta", text: summaryFixture("Earlier work preserved.") }
+        return
+      }
+      requests += 1
+      if (requests === 1) throw new ContextOverflowError("Too many input tokens")
+      expect(checkpointed).toBe(true)
+      expect(request.messages).toContainEqual(user("continue"))
+      expect(request.messages[0].content).toContain("Earlier work preserved")
+      yield { type: "text_delta", text: "Finished." }
+    })
+    const history = [user("task"), answer("old work ".repeat(12_000))]
+    const events = await collect(
+      runAgent("continue", history, {
+        ...options,
+        client,
+        onCompaction: () => {
+          checkpointed = true
+        },
+      }),
+    )
+    expect(requests).toBe(2)
+    expect(events.at(-1)).toEqual({ type: "complete", messages: [answer("Finished.")] })
+    expect(events).toContainEqual({ type: "model", phase: "retry" })
+    expect(history).toHaveLength(2)
+  })
+
+  it.each(["output", "cancel", "checkpoint"])("does not retry after %s", async (failure) => {
+    const controller = new AbortController()
+    const client = summaryClient()
+    let requests = 0
+    client.streamChat = vi.fn<InferenceClient["streamChat"]>(async function* (request) {
+      if (request.systemPrompt?.startsWith("You are a conversation summarizer")) {
+        yield { type: "text_delta", text: summaryFixture("Summary.") }
+        return
+      }
+      requests += 1
+      if (failure === "output") yield { type: "text_delta", text: "Already visible" }
+      if (failure === "cancel") controller.abort()
+      throw new ContextOverflowError("Too many input tokens")
+    })
+    const checkpoint = vi.fn(() => {
+      throw new Error("Disk full")
+    })
+    const events = await collect(
+      runAgent("continue", [user("task"), answer("x".repeat(100_000))], {
+        ...options,
+        client,
+        signal: controller.signal,
+        onCompaction: checkpoint,
+      }),
+    )
+    expect(requests).toBe(1)
+    expect(events.at(-1)?.type).toBe(failure === "cancel" ? "interrupted" : "error")
+    if (failure === "checkpoint") expect(events.at(-1)).toMatchObject({ message: "Disk full" })
+    else expect(checkpoint).not.toHaveBeenCalled()
+  })
+
+  it("stops clearly when a new prompt alone cannot be compacted", async () => {
+    const client = summaryClient()
+    client.streamChat = vi.fn<InferenceClient["streamChat"]>(() => {
+      throw new ContextOverflowError("Too large")
+    })
+    const events = await collect(runAgent("x".repeat(10_000), [], { ...options, client }))
+    expect(client.streamChat).toHaveBeenCalledOnce()
+    expect(events.at(-1)).toMatchObject({ type: "error", message: "Not enough conversation history to compact." })
+  })
+
+  it("counts summary chunks with the serving tokenizer and preserves their complete Unicode content", async () => {
+    const client = summaryClient()
+    const chunks: string[] = []
+    client.countTokens = vi.fn(async (request: StreamChatOptions) => String(request.messages[0].content).length + 500)
+    client.streamChat = vi.fn<InferenceClient["streamChat"]>(async function* (request) {
+      expect(await client.countTokens?.(request)).toBeLessThanOrEqual(4_000)
+      const input = String(request.messages[0].content)
+      expect(Buffer.from(input, "utf8").toString("utf8")).toBe(input)
+      chunks.push(input)
+      yield { type: "text_delta", text: summaryFixture("Summary.") }
+    })
+    await compactConversation([user(`${"漢🌍".repeat(4_000)}TAIL_MARKER`), answer("done"), user("next")], {
+      client,
+      maxInputTokens: 4_000,
+      targetTokens: 2_000,
+    })
+    expect(chunks.length).toBeGreaterThan(1)
+    expect(chunks.at(-1)).toContain("TAIL_MARKER")
+  })
+
+  it("reduces rejected summary chunks before retrying and stops repeated rejections", async () => {
+    const client = summaryClient()
+    const lengths: number[] = []
+    client.streamChat = vi.fn<InferenceClient["streamChat"]>((request) => {
+      lengths.push(String(request.messages[0].content).length)
+      throw new ContextOverflowError("Summary input too large")
+    })
+    const history = [user("x".repeat(100_000)), answer("done"), user("next")]
+    const original = structuredClone(history)
+    await expect(compactConversation(history, { client, maxInputTokens: 8_000 })).rejects.toThrow(
+      "Summary input too large",
+    )
+    expect(lengths).toHaveLength(4)
+    expect(lengths.slice(1).every((length, index) => length < lengths[index])).toBe(true)
+    expect(history).toEqual(original)
+  })
+})
+
+it("recovers inside a tool loop without executing earlier tools again", async () => {
+  const client = summaryClient()
+  let requests = 0
+  client.streamChat = vi.fn<InferenceClient["streamChat"]>(async function* (request) {
+    if (request.systemPrompt?.startsWith("You are a conversation summarizer")) {
+      yield { type: "text_delta", text: summaryFixture("Read already completed.") }
+      return
+    }
+    requests += 1
+    if (requests === 1) {
+      yield { type: "text_delta", text: "notes ".repeat(16_000) }
+      yield { type: "tool_call", toolCall: { id: "read-once", name: "read", arguments: '{"path":"package.json"}' } }
+    } else if (requests === 2) throw new ContextOverflowError("Too large after tool result")
+    else yield { type: "text_delta", text: "Done." }
+  })
+  const checkpoint = vi.fn()
+  const events = await collect(
+    runAgent("task", [], {
+      client,
+      tools: TOOL_DEFINITIONS.filter((tool) => tool.name === "read"),
+      skills: emptySkills,
+      projectContext: [],
+      onCompaction: checkpoint,
+    }),
+  )
+  expect(requests).toBe(3)
+  expect(events.filter((event) => event.type === "tool" && event.phase === "start")).toHaveLength(1)
+  expect(checkpoint).toHaveBeenCalledOnce()
+  expect(checkpoint.mock.calls[0][2]).toContainEqual(expect.objectContaining({ role: "tool", toolCallId: "read-once" }))
+  expect(events.at(-1)).toEqual({ type: "complete", messages: [answer("Done.")] })
+})
+
+it("recovers a rejected summary chunk and still summarizes the tail", async () => {
+  const client = summaryClient()
+  let rejected = false
+  const accepted: string[] = []
+  client.streamChat = vi.fn<InferenceClient["streamChat"]>(async function* (request) {
+    if (!rejected) {
+      rejected = true
+      throw new ContextOverflowError("Too large")
+    }
+    accepted.push(String(request.messages[0].content))
+    yield { type: "text_delta", text: summaryFixture("Summary.") }
+  })
+  const result = await compactConversation(
+    [user(`${"x".repeat(50_000)}TAIL_MARKER`), answer("done"), user("continue")],
+    {
+      client,
+      maxInputTokens: 8_000,
+      targetTokens: 4_000,
+    },
+  )
+  expect(rejected).toBe(true)
+  expect(accepted.length).toBeGreaterThan(1)
+  expect(accepted.at(-1)).toContain("TAIL_MARKER")
+  expect(result.keptMessages).toEqual([user("continue")])
+})
+
+it("bounds repeated context rejections even when there is still history to compact", async () => {
+  const client = summaryClient()
+  let requests = 0
+  client.streamChat = vi.fn<InferenceClient["streamChat"]>(async function* (request) {
+    if (request.systemPrompt?.startsWith("You are a conversation summarizer")) {
+      yield { type: "text_delta", text: summaryFixture("Earlier work.") }
+      return
+    }
+    requests += 1
+    throw new ContextOverflowError("Still too large")
+  })
+  const history = Array.from({ length: 16 }, (_, index) => [user(`Task ${index}`), answer("x".repeat(8_000))]).flat()
+  const events = await collect(
+    runAgent("next", history, { client, tools: [], skills: emptySkills, projectContext: [] }),
+  )
+  expect(requests).toBe(3)
+  expect(events.at(-1)).toMatchObject({ type: "error", message: "Still too large" })
+})
+
+it("does not accept a summary whose serving token count exceeds the target", async () => {
+  const client = summaryClient()
+  const history = [user("task"), answer("x".repeat(40_000)), user("next")]
+  const original = structuredClone(history)
+  await expect(
+    compactConversation(history, {
+      client,
+      targetTokens: 4_000,
+      countContextTokens: async (messages) =>
+        String(messages[0].content).includes("[Compacted conversation summary]") ? 5_000 : 1_000,
+    }),
+  ).rejects.toThrow("did not free enough context")
+  expect(history).toEqual(original)
+})

@@ -52,6 +52,26 @@ describe("stable message rendering", () => {
     expect(openArtifact).toHaveBeenCalledExactlyOnceWith(artifact)
   })
 
+  it("keeps a pending artifact revision in the ordinary tool activity", () => {
+    const view = render(
+      <ToolCard
+        entry={{
+          id: 1,
+          kind: "tool",
+          speaker: "Tool",
+          text: "Editing final.html",
+          activityKind: "file_edit",
+          artifact: { source: "workspace", path: "final.html", kind: "html" },
+          artifactDisplay: "pending",
+        }}
+        active={true}
+      />,
+    )
+
+    expect(view.container.querySelector(".artifactCard")).toBeNull()
+    expect(view.container.textContent).toContain("Editing final.html")
+  })
+
   it("shows artifact open failures and lets the user retry", async () => {
     const onOpen = vi
       .fn()

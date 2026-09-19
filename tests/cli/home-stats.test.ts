@@ -3,6 +3,7 @@ import { easeOutCubic, interpolateStats, ZERO_STATS } from "../../src/cli/ui/hom
 
 describe("home stats motion", () => {
   const target = {
+    ...ZERO_STATS,
     streak: 7,
     totalTokens: 1_250_000,
     sessionCount: 12,

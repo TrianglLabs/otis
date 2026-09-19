@@ -212,6 +212,66 @@ describe("Dashboard session navigation", () => {
 })
 
 describe("AppShell settings navigation", () => {
+  it("switches settings sections from an accessible vertical tab list", async () => {
+    await renderApp(fakeApi())
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }))
+    await act(async () => {})
+
+    const tabs = screen.getAllByRole("tab")
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["Inference", "Appearance", "General"])
+    expect(tabs[0].getAttribute("aria-selected")).toBe("true")
+    expect(screen.getByRole("tabpanel", { name: "Inference" })).toBeTruthy()
+    expect(screen.getByText("Providers")).toBeTruthy()
+
+    fireEvent.keyDown(tabs[0], { key: "ArrowDown" })
+    expect(screen.getByRole("tab", { name: "Appearance" }).getAttribute("aria-selected")).toBe("true")
+    expect(screen.getByRole("tabpanel", { name: "Appearance" })).toBeTruthy()
+    expect(screen.getByText("Theme")).toBeTruthy()
+
+    fireEvent.keyDown(screen.getByRole("tab", { name: "Appearance" }), { key: "ArrowDown" })
+    expect(screen.getByRole("tabpanel", { name: "General" })).toBeTruthy()
+    expect(screen.getByText("Security")).toBeTruthy()
+    expect(screen.getByText("Behavior")).toBeTruthy()
+    expect(screen.getByText("Updates")).toBeTruthy()
+  })
+
+  it("shows locally recorded usage in provider settings", async () => {
+    await renderApp(
+      fakeApi({
+        getSnapshot: vi.fn(async () => ({
+          ...SNAPSHOT,
+          stats: {
+            streak: 4,
+            totalTokens: 1_482_300,
+            sessionCount: 24,
+            avgTokensPerSession: 61_763,
+            avgSessionSeconds: 252,
+            activeDays: 11,
+            promptTokens: 1_119_400,
+            completionTokens: 362_900,
+            recentActivity: [
+              { date: "2026-09-18", tokens: 12_000 },
+              { date: "2026-09-19", tokens: 44_000 },
+            ],
+          },
+        })),
+      }),
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }))
+    await act(async () => {})
+
+    const usage = screen.getByRole("region", { name: "Usage" })
+    expect(within(usage).getByText("1.5M")).toBeTruthy()
+    expect(within(usage).getByText("24")).toBeTruthy()
+    expect(within(usage).getByText("11")).toBeTruthy()
+    expect(usage.querySelectorAll(".settingsUsage-bar")).toHaveLength(2)
+    const activityBars = within(usage).getAllByRole("button")
+    fireEvent.pointerEnter(activityBars[0])
+    expect(within(usage).getByText("September 18, 2026: 12,000 tokens")).toBeTruthy()
+    fireEvent.pointerLeave(activityBars[0])
+    expect(within(usage).queryByText("September 18, 2026: 12,000 tokens")).toBeNull()
+  })
+
   it("keeps the composer's unsent draft when settings is opened and closed", async () => {
     await renderApp(fakeApi())
 
@@ -222,7 +282,7 @@ describe("AppShell settings navigation", () => {
     // Open Settings from the header gear: the page takes over the window…
     fireEvent.click(screen.getByRole("button", { name: "Settings" }))
     await act(async () => {}) // flush SettingsPage's mount effects
-    expect(screen.getByText("Providers")).toBeTruthy()
+    expect(screen.getByText("Inference")).toBeTruthy()
 
     // The hidden workspace retains the very same textarea node.
     expect(textarea.isConnected).toBe(true)
@@ -230,7 +290,7 @@ describe("AppShell settings navigation", () => {
     expect(workspace.classList.contains("workspaceView-hidden")).toBe(true)
     expect(workspace.inert).toBe(true)
     expect(textarea.value).toBe("refactor the view store")
-    const settings = screen.getByText("Providers").closest(".settingsLayer") as HTMLElement
+    const settings = screen.getByText("Inference").closest(".settingsLayer") as HTMLElement
     // Closing unmounts Settings immediately and restores the same conversation node.
     fireEvent.click(screen.getByRole("button", { name: /close settings/i }))
     const restored = screen.getByLabelText("Prompt") as HTMLTextAreaElement
@@ -332,6 +392,7 @@ describe("AppShell settings navigation", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Settings" }))
     await act(async () => {})
+    fireEvent.click(screen.getByRole("tab", { name: "General" }))
     expect(screen.getByText("Security")).toBeTruthy()
     const select = screen.getByRole("combobox", { name: "Permission mode" }) as HTMLSelectElement
     expect(select.value).toBe("ask")
@@ -347,6 +408,7 @@ describe("AppShell settings navigation", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Settings" }))
     await act(async () => {})
+    fireEvent.click(screen.getByRole("tab", { name: "Appearance" }))
     const select = screen.getByRole("combobox", { name: "Language" }) as HTMLSelectElement
     expect(select.value).toBe("system")
     expect(Array.from(select.options, (option) => option.value)).toEqual([
@@ -537,6 +599,7 @@ describe("AppShell settings navigation", () => {
     await renderApp(fakeApi())
     fireEvent.click(screen.getByRole("button", { name: "Settings" }))
     await act(async () => {})
+    fireEvent.click(screen.getByRole("tab", { name: "General" }))
     expect(screen.getByRole("switch", { name: "Toggle debug mode" })).toBeTruthy()
 
     cleanup()
@@ -545,6 +608,7 @@ describe("AppShell settings navigation", () => {
       await renderApp(fakeApi())
       fireEvent.click(screen.getByRole("button", { name: "Settings" }))
       await act(async () => {})
+      fireEvent.click(screen.getByRole("tab", { name: "General" }))
       expect(screen.queryByRole("switch", { name: "Toggle debug mode" })).toBeNull()
       // Only the debug row is gated; the rest of the Behavior section stays.
       expect(screen.getByRole("switch", { name: "Show or hide model thinking traces" })).toBeTruthy()
@@ -586,6 +650,7 @@ describe("AppShell settings navigation", () => {
     expect(screen.queryByRole("button", { name: "Check for updates" })).toBeNull()
     fireEvent.click(screen.getByRole("button", { name: "Settings" }))
     await act(async () => {})
+    fireEvent.click(screen.getByRole("tab", { name: "General" }))
     expect(screen.getByText("0.0.0-test")).toBeTruthy()
     expect(api.checkForUpdates).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole("button", { name: "Check for updates" }))
@@ -603,6 +668,7 @@ describe("AppShell settings navigation", () => {
     fireEvent.click(screen.getByRole("button", { name: /close settings/i }))
     fireEvent.click(screen.getByRole("button", { name: "Settings" }))
     await act(async () => {})
+    fireEvent.click(screen.getByRole("tab", { name: "General" }))
     expect((screen.getByRole("button", { name: "Downloading…" }) as HTMLButtonElement).disabled).toBe(true)
     await act(async () => {
       emit({ type: "status", revision: 3, status: { ...SNAPSHOT, update: { status: "ready", version: "9.9.9" } } })
@@ -628,6 +694,7 @@ describe("AppShell settings navigation", () => {
     await renderApp(fakeApi({ getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, update })) }))
     fireEvent.click(screen.getByRole("button", { name: "Settings" }))
     await act(async () => {})
+    fireEvent.click(screen.getByRole("tab", { name: "General" }))
     expect(screen.getByRole("status").textContent).toBe(message)
     expect((screen.getByRole("button", { name: "Check for updates" }) as HTMLButtonElement).disabled).toBe(disabled)
     expect(screen.queryByRole("button", { name: "Update" })).toBeNull()
@@ -646,6 +713,7 @@ describe("AppShell settings navigation", () => {
     await renderApp(api)
     fireEvent.click(screen.getByRole("button", { name: "Settings" }))
     await act(async () => {})
+    fireEvent.click(screen.getByRole("tab", { name: "General" }))
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Check for updates" })))
     expect(screen.getByRole("status").textContent).toBe("Couldn’t check for updates. Please try again.")
     check.mockImplementationOnce(async () => {
@@ -663,6 +731,7 @@ describe("AppShell settings navigation", () => {
     await renderApp(api)
     fireEvent.click(screen.getByRole("button", { name: "Settings" }))
     await act(async () => {})
+    fireEvent.click(screen.getByRole("tab", { name: "General" }))
     expect(screen.queryByRole("status")).toBeNull()
   })
 

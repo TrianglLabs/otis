@@ -53,7 +53,6 @@ export function SoftwareUpdates() {
 
   return (
     <>
-      <div className="settings-section">{t("updates.title")}</div>
       <div className="settingsRow">
         <span className="settingsRow-label">
           Otis <span className="settingsRow-meta">{state.version}</span>

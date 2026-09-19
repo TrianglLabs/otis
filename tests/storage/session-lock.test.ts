@@ -30,7 +30,7 @@ describe("same-process contention", () => {
     const home = await mkdtemp(join(tmpdir(), "otis-lock-"))
     tempDirectories.push(home)
     const results = await Promise.allSettled(
-      Array.from({ length: 100 }, () => acquireSessionLock({ cwd: home, sessionId: "contended" })),
+      Array.from({ length: 100 }, () => acquireSessionLock({ cwd: home, directory: home, sessionId: "contended" })),
     )
     const granted = results.filter((r) => r.status === "fulfilled")
     expect(granted).toHaveLength(1)

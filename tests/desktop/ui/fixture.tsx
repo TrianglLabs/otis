@@ -195,6 +195,40 @@ async function runDesktopUiChecks() {
   await pause()
   assert(element(".workspaceView").inert, "Settings left the workspace interactive")
   assert(getComputedStyle(element(".settingsLayer")).transitionDuration === "0s", "Settings still animates")
+  const settingsSidebar = element(".settingsSidebar").getBoundingClientRect()
+  const settingsContent = element(".settingsPage-content").getBoundingClientRect()
+  const settingsPage = element(".settingsPage").getBoundingClientRect()
+  const settingsTitle = element(".settingsPage-title").getBoundingClientRect()
+  const settingsTabs = Array.from(document.querySelectorAll<HTMLButtonElement>('.settingsSidebar [role="tab"]'))
+  assert(settingsTabs.length === 3, "Settings sidebar does not list every section")
+  assert(element(".settingsPage-title").closest(".settingsSidebar"), "Settings title is not in the sidebar")
+  assert(settingsSidebar.width >= 160, "Settings sidebar is too narrow")
+  assert(Math.abs(settingsSidebar.top - settingsPage.top) < 1, "Settings sidebar does not reach the window top")
+  assert(
+    settingsTitle.top - settingsPage.top >= 40 && settingsTitle.top - settingsPage.top < 48,
+    "Settings title is not directly below the window controls",
+  )
+  assert(settingsSidebar.right <= settingsContent.left + 1, "Settings sidebar overlaps the active panel")
+  assert(settingsTabs[0].getAttribute("aria-selected") === "true", "Inference is not the initial settings section")
+  assert(
+    element(".settingsProviderCards").previousElementSibling?.textContent === "Providers",
+    "Provider cards have no title",
+  )
+  const providerCards = Array.from(document.querySelectorAll<HTMLElement>(".settingsCard-provider"))
+  assert(providerCards.length === 2, "Provider settings are not grouped into separate cards")
+  assert(getComputedStyle(providerCards[0]).backgroundColor !== "rgba(0, 0, 0, 0)", "Settings card has no background")
+  assert(document.querySelectorAll(".settingsUsage-bar").length === 28, "Provider usage activity is incomplete")
+  settingsTabs[1].click()
+  await until(() => !!document.querySelector(".themeGrid"), "Appearance tab did not open")
+  assert(document.querySelectorAll(".settingsCard").length === 2, "Appearance settings are not grouped into cards")
+  assert(
+    document.querySelectorAll(".settingsGroup > .settings-section").length === 2,
+    "Appearance section titles are not outside their cards",
+  )
+  assert(
+    element('[role="tabpanel"]').getAttribute("aria-labelledby") === settingsTabs[1].id,
+    "Settings panel is not labelled by its active tab",
+  )
   element<HTMLButtonElement>('[aria-label="Close settings (Esc)"]').click()
   await until(() => !document.querySelector(".settingsLayer"), "Settings did not unmount on close")
   assert(element(".transcriptScroll") === scroll, "Settings replaced the conversation")

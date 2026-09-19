@@ -83,19 +83,23 @@ export async function runConversationTurn(options: ConversationTurnOptions): Pro
   const showError = (message: string) => {
     sink.stopBusy()
     transcript.updateEntry(projector.ensureAssistantEntry().id, { text: `Error: ${message}`, streaming: false })
+    projector.finishTurn()
     recordAdmittedPrompt()
     sink.renderTranscript()
     options.onCompletion()
   }
   const interrupt = (messages: ChatMessage[], details: SessionTurnDetails): ConversationTurnResult => {
-    projector.finishStreaming()
+    projector.finishTurn()
     transcript.addAssistantMessage("_Interrupted._")
     recordCompletedTurn(messages)
     sink.renderTranscript({ scrollToBottom: true })
     return { status: "interrupted", messages, details }
   }
-  const interruptionResult = (messages: ChatMessage[], details: SessionTurnDetails): ConversationTurnResult =>
-    options.isExiting() ? { status: "interrupted", messages, details } : interrupt(messages, details)
+  const interruptionResult = (messages: ChatMessage[], details: SessionTurnDetails): ConversationTurnResult => {
+    if (!options.isExiting()) return interrupt(messages, details)
+    projector.finishTurn()
+    return { status: "interrupted", messages, details }
+  }
   const interrupted = () => options.isExiting() || signal.aborted
 
   try {
@@ -186,9 +190,12 @@ export async function runConversationTurn(options: ConversationTurnOptions): Pro
       showError(result.message)
       return { ...result, messages }
     }
-    if (result.status === "incomplete") return { status: "incomplete" }
+    if (result.status === "incomplete") {
+      projector.finishTurn()
+      return { status: "incomplete" }
+    }
 
-    projector.finishStreaming()
+    projector.finishTurn()
     recordCompletedTurn(result.messages)
     options.onCompletion()
     return result
@@ -206,7 +213,7 @@ export type CompactConversationOptions = {
   client: InferenceClient
   instructions?: string
   autoCompactAtTokens: number
-  estimateContextTokens: (messages: ChatMessage[]) => number
+  countContextTokens: (messages: ChatMessage[]) => number | Promise<number>
   signal?: AbortSignal
 }
 
@@ -217,7 +224,7 @@ export async function compactConversationTranscript(options: CompactConversation
     instructions: options.instructions,
     targetTokens: Math.floor(options.autoCompactAtTokens / 2),
     maxInputTokens: options.autoCompactAtTokens,
-    estimateContextTokens: options.estimateContextTokens,
+    countContextTokens: options.countContextTokens,
     onUsage: async (usage) => {
       await options.session.recordUsage(usage, "compaction")
     },
@@ -366,7 +373,7 @@ export class Conversation {
 
   async compact(
     instructions: string | undefined,
-    estimateContextTokens: (messages: ChatMessage[]) => number,
+    countContextTokens: (messages: ChatMessage[]) => number,
     onBegin?: () => void,
   ) {
     if (this.#active) return
@@ -376,7 +383,7 @@ export class Conversation {
     const controller = new AbortController()
     const active: ActiveWork = { controller, task: Promise.resolve() }
     this.#active = active
-    active.task = this.#runCompaction(client, instructions, estimateContextTokens, controller.signal, onBegin)
+    active.task = this.#runCompaction(client, instructions, countContextTokens, controller.signal, onBegin)
     try {
       await active.task
     } finally {
@@ -420,9 +427,9 @@ export class Conversation {
       this.options.transcript.addUserMessage(userMessage)
     }
     if (!queued) this.options.artifacts.observeMessage(userMessage)
-    hooks.onReady?.(userMessage)
-
     try {
+      await session.startTurn(admission)
+      hooks.onReady?.(userMessage)
       this.options.artifacts.setDirectory(session.artifactDirectory)
       const result = await runConversationTurn({
         admission,
@@ -489,6 +496,9 @@ export class Conversation {
         )
       }
       return result
+    } catch (error) {
+      this.options.transcript.addAssistantMessage(`Error: ${error instanceof Error ? error.message : String(error)}`)
+      return { status: "error", messages: [], details: {} }
     } finally {
       try {
         await steering.close()
@@ -503,7 +513,7 @@ export class Conversation {
   async #runCompaction(
     client: InferenceClient,
     instructions: string | undefined,
-    estimateContextTokens: (messages: ChatMessage[]) => number,
+    countContextTokens: (messages: ChatMessage[]) => number,
     signal: AbortSignal,
     onBegin?: () => void,
   ) {
@@ -511,6 +521,10 @@ export class Conversation {
     onBegin?.()
     try {
       const session = await this.options.sessions.ensure()
+      const skills = this.options.skills()
+      const tools = providerTools(this.options.models.selectedProvider ?? "fireworks").filter(
+        (tool) => tool.name !== "skill" || skills.skills.length > 0,
+      )
       await compactConversationTranscript({
         transcript: this.options.transcript,
         subagents: this.options.subagents,
@@ -518,7 +532,15 @@ export class Conversation {
         client,
         instructions,
         autoCompactAtTokens: this.options.models.autoCompactAtTokens,
-        estimateContextTokens,
+        countContextTokens: (messages) =>
+          client.countTokens?.({
+            messages,
+            tools,
+            skills: tools.some((tool) => tool.name === "skill") ? skills.skills : [],
+            projectContext: this.options.projectContext(),
+            outputCapabilities: this.options.outputCapabilities,
+            signal,
+          }) ?? countContextTokens(messages),
         signal,
       })
     } catch (error) {

@@ -24,6 +24,23 @@ afterEach(async () => {
 })
 
 describe("JsonlSession", () => {
+  it("persists execution starts separately from admission without changing replayed messages", async () => {
+    const cwd = await trackedTempDir()
+    const options = { cwd, directory: join(cwd, "sessions") }
+    const session = await openSession(options)
+    const admission = await session.admitPrompt("queued work")
+    await session.startTurn(admission)
+    await session.interruptTurn(admission, [admission.message])
+    const reopened = await openSession(options)
+    expect(reopened.events.map((event) => event.type)).toEqual([
+      "session_started",
+      "prompt_admitted",
+      "turn_started",
+      "turn_interrupted",
+    ])
+    expect(reopened.events[2]).toMatchObject({ promptId: admission.promptId })
+    expect(reopened.replayMessages()).toEqual([admission.message])
+  })
   it("admits prompts before completion and replays messages without duplicate users", async () => {
     const cwd = await trackedTempDir()
     const session = await openSession({ cwd, directory: join(cwd, "sessions") })

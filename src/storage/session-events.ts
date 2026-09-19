@@ -67,11 +67,15 @@ export type SessionReplay = {
   subagents: SessionSubagentRun[]
 }
 
+/** Human scrollback retains admitted turn boundaries even through steering and compaction. */
+export type SessionTranscriptReplay = SessionReplay & { turns: SessionTurnSegment[] }
+
 export type UsagePurpose = "agent" | "compaction" | "title"
 
 export type NewSessionEvent =
   | { type: "session_started"; version: 1; cwd?: string }
   | { type: "prompt_admitted"; promptId: string; message: UserChatMessage }
+  | { type: "turn_started"; promptId: string }
   | { type: "prompt_steered"; promptId: string; message: UserChatMessage }
   | ({ type: "turn_completed"; promptId: string; messages: ChatMessage[] } & SessionTurnDetails)
   | ({ type: "turn_interrupted"; promptId: string; messages: ChatMessage[] } & SessionTurnDetails)
@@ -188,7 +192,7 @@ function replayTurn(messages: ChatMessage[], details: SessionTurnDetails = {}): 
 }
 
 /** Replays human scrollback. Compaction changes model context, never earlier transcript entries. */
-export function replaySessionTranscript(events: readonly SessionEvent[]): SessionReplay {
+export function replaySessionTranscript(events: readonly SessionEvent[]): SessionTranscriptReplay {
   const turns: (ReplayTurn & { archived?: SessionReplay })[] = []
   for (const event of events) {
     if (event.type === "prompt_admitted") {
@@ -235,6 +239,7 @@ export function replaySessionTranscript(events: readonly SessionEvent[]): Sessio
     }
   }
   return {
+    turns: turns.map(({ messages, toolActivities, subagents }) => ({ messages, toolActivities, subagents })),
     messages: turns.flatMap((turn) => turn.messages),
     toolActivities: turns.flatMap((turn) => turn.toolActivities),
     subagents: turns.flatMap((turn) => turn.subagents),
@@ -310,6 +315,10 @@ function parseSessionEvent(value: unknown, line: number): SessionEvent {
     if (typeof value.promptId !== "string" || !value.promptId) throw invalidEvent(line, "promptId must be a string")
     if (!isUserMessage(value.message)) throw invalidEvent(line, "message must be a user chat message")
     return { seq, sessionId, at, type, promptId: value.promptId, message: value.message }
+  }
+  if (type === "turn_started") {
+    if (typeof value.promptId !== "string" || !value.promptId) throw invalidEvent(line, "promptId must be a string")
+    return { seq, sessionId, at, type, promptId: value.promptId }
   }
   if (type === "turn_completed" || type === "turn_interrupted") {
     if (typeof value.promptId !== "string" || !value.promptId) throw invalidEvent(line, "promptId must be a string")

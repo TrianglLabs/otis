@@ -212,6 +212,7 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
       rules: [...app.permissionRules, ...parsed.permissionRules],
     })
 
+    if (session && admission) await session.startTurn(admission)
     const result = await executeTurn({
       input: userMessage,
       history,

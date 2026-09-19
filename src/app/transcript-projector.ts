@@ -45,6 +45,12 @@ export class TranscriptProjector {
     if (this.#assistantEntry) this.transcript.updateEntry(this.#assistantEntry.id, { streaming: false })
   }
 
+  /** Finishes streamed text and reveals the last artifact revision produced by this turn. */
+  finishTurn() {
+    this.finishStreaming()
+    return this.transcript.finalizeArtifacts()
+  }
+
   /** Reasoning and tool activity end the current assistant message; later text starts a fresh one. */
   private closeAssistantEntry() {
     this.finishStreaming()
@@ -88,10 +94,8 @@ export class TranscriptProjector {
     if (!event.diff && !event.artifact) return false
     const entryId = this.#tools.get(event.toolCallId)
     if (entryId !== undefined) {
-      this.transcript.updateEntry(entryId, {
-        ...(event.diff ? { diff: event.diff } : {}),
-        ...(event.artifact ? { artifact: event.artifact } : {}),
-      })
+      if (event.diff) this.transcript.updateEntry(entryId, { diff: event.diff })
+      if (event.artifact) this.transcript.stageArtifact(entryId, event.artifact)
     }
     return true
   }
