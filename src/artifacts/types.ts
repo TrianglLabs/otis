@@ -20,18 +20,36 @@ export type AttachmentArtifactReference = {
   mimeType: string
 }
 
-export type ArtifactReference = WorkspaceArtifactReference | AttachmentArtifactReference
+/** Immutable, private preview copy explicitly published by a tool. */
+export type PublishedArtifactReference = {
+  source: "published"
+  artifactId: string
+  version: number
+  sha256: string
+  name: string
+  kind: ArtifactKind
+  /** Provenance only. Preview reads always use the session-owned copy, never this path. */
+  sourcePath: string
+}
+
+export type FileArtifactReference = WorkspaceArtifactReference | PublishedArtifactReference
+export type ArtifactReference = FileArtifactReference | AttachmentArtifactReference
 
 /** Small identity sent with application state. File contents travel only when the renderer asks for this revision. */
 export type ArtifactMetadata = {
   id: string
   revision: number
-  source: "workspace" | "attachment"
+  source: ArtifactReference["source"]
   kind: ArtifactKind
   title: string
   mimeType: string
   editable: boolean
   path?: string
+  publication?: {
+    reference: PublishedArtifactReference
+    versions: number[]
+    followingLatest: boolean
+  }
 }
 
 export type ArtifactPayload = ArtifactMetadata & {
@@ -114,7 +132,32 @@ export function isAttachmentArtifactReference(value: unknown): value is Attachme
 }
 
 export function isArtifactReference(value: unknown): value is ArtifactReference {
-  return isWorkspaceArtifactReference(value) || isAttachmentArtifactReference(value)
+  return isFileArtifactReference(value) || isAttachmentArtifactReference(value)
+}
+
+export function isPublishedArtifactReference(value: unknown): value is PublishedArtifactReference {
+  return (
+    isRecord(value) &&
+    value.source === "published" &&
+    typeof value.artifactId === "string" &&
+    /^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/.test(value.artifactId) &&
+    typeof value.version === "number" &&
+    Number.isSafeInteger(value.version) &&
+    value.version > 0 &&
+    typeof value.sourcePath === "string" &&
+    value.sourcePath.length > 0 &&
+    !value.sourcePath.includes("\0") &&
+    typeof value.sha256 === "string" &&
+    /^[a-f\d]{64}$/.test(value.sha256) &&
+    typeof value.name === "string" &&
+    !/[/\\\0]/.test(value.name) &&
+    artifactKindForPath(value.name) !== undefined &&
+    artifactKindForPath(value.name) === value.kind
+  )
+}
+
+export function isFileArtifactReference(value: unknown): value is FileArtifactReference {
+  return isWorkspaceArtifactReference(value) || isPublishedArtifactReference(value)
 }
 
 export function artifactTitle(path: string) {

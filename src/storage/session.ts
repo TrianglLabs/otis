@@ -28,6 +28,7 @@ import {
   appendJsonLine,
   assertSessionId,
   defaultSessionDirectory,
+  sessionArtifactDirectory,
   sessionDirectory,
   sessionFile,
 } from "./session-files.js"
@@ -53,6 +54,10 @@ export class JsonlSession {
 
   replayMessages() {
     return replaySessionMessages(this.events)
+  }
+
+  get artifactDirectory() {
+    return sessionArtifactDirectory(this.filePath)
   }
 
   replay() {
@@ -205,7 +210,10 @@ export function createSession(options: Omit<SessionOptions, "sessionId">) {
 export async function deleteSession(options: SessionOptions) {
   const sessionId = options.sessionId ?? DEFAULT_SESSION_ID
   assertSessionId(sessionId)
-  await rm(sessionFile(options, sessionId), { force: true })
+  const file = sessionFile(options, sessionId)
+  // Remove owned copies first: a cleanup failure must not silently orphan them by deleting their session.
+  await rm(sessionArtifactDirectory(file), { recursive: true, force: true })
+  await rm(file, { force: true })
 }
 
 export async function listSessions(options: Omit<SessionOptions, "sessionId">): Promise<SessionSummary[]> {

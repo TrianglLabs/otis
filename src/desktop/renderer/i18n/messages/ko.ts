@@ -1,6 +1,11 @@
 import type { Messages } from "./en.js"
 
 export const ko: Messages = {
+  "canvas.workingFile": "작업 파일",
+  "canvas.savedArtifact": "저장된 아티팩트 · 최신 버전 열기",
+  "canvas.savedVersion": "저장된 버전 {{version}}",
+  "canvas.latestVersion": "최신 (v{{version}})",
+  "canvas.versionHistory": "아티팩트 버전",
   "common.continue": "계속",
   "common.connect": "연결",
   "common.checking": "확인 중…",

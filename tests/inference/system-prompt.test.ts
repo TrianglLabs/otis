@@ -3,6 +3,21 @@ import { buildSystemPrompt } from "../../src/inference/system-prompt.js"
 import { TOOL_DEFINITIONS } from "../../src/tools/index.js"
 
 describe("system prompt", () => {
+  it("instructs final-path publication only when the tool is offered", () => {
+    const withPublication = buildSystemPrompt([], new Date(), [], TOOL_DEFINITIONS)
+    expect(withPublication).toContain("call publish_artifact on its final path")
+    expect(withPublication).toContain("do not publish artifacts")
+    expect(withPublication).toContain("Do not use bash to bypass")
+    expect(
+      buildSystemPrompt(
+        [],
+        new Date(),
+        [],
+        TOOL_DEFINITIONS.filter((tool) => tool.name !== "publish_artifact"),
+      ),
+    ).not.toContain("File deliverables:")
+  })
+
   it("keeps diagram guidance capability-specific", () => {
     const prompt = buildSystemPrompt([], new Date("2026-07-16T12:00:00Z"))
 

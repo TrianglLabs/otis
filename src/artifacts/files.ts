@@ -61,14 +61,28 @@ export async function loadWorkspaceArtifact(
   revision: number,
 ): Promise<ArtifactPayload> {
   const root = await realpath(resolve(cwd))
-  const path = await realpath(resolve(root, reference.path))
-  const nestedPath = relative(root, path)
-  if (!isNestedPath(nestedPath)) throw new Error(`Artifact is outside the workspace: ${reference.path}`)
-  const file = await stat(path)
-  if (!file.isFile()) throw new Error(`${reference.path} is not a file.`)
-  if (file.size > MAX_RAW_DOCUMENT_BYTES) throw new Error("This file is too large to preview in Canvas.")
-  const bytes = await readFile(path)
-  return payloadFromBytes(bytes, workspaceArtifactMetadata(reference, revision), reference.path)
+  try {
+    const path = await realpath(resolve(root, reference.path))
+    const nestedPath = relative(root, path)
+    if (!isNestedPath(nestedPath)) throw new Error(`Artifact is outside the workspace: ${reference.path}`)
+    const file = await stat(path)
+    if (!file.isFile()) throw new Error(`${reference.path} is not a file.`)
+    if (file.size > MAX_RAW_DOCUMENT_BYTES) throw new Error("This file is too large to preview in Canvas.")
+    const bytes = await readFile(path)
+    return await payloadFromBytes(bytes, workspaceArtifactMetadata(reference, revision), reference.path)
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      (error.code === "ENOENT" || error.code === "ENOTDIR")
+    ) {
+      throw new Error(
+        `This working file is no longer at ${reference.path}. It may have been moved or deleted. Ask Otis to publish the file from its current location.`,
+      )
+    }
+    throw error
+  }
 }
 
 function isNestedPath(path: string) {
@@ -86,14 +100,19 @@ export async function loadAttachmentArtifact(
   )
 }
 
-async function payloadFromBytes(bytes: Buffer, metadata: ArtifactMetadata, name: string): Promise<ArtifactPayload> {
+export async function payloadFromBytes(
+  bytes: Buffer,
+  metadata: ArtifactMetadata,
+  name: string,
+): Promise<ArtifactPayload> {
+  if (bytes.byteLength > MAX_RAW_DOCUMENT_BYTES) throw new Error("This file is too large to preview in Canvas.")
   if (metadata.kind === "pdf") {
     // Revalidate a workspace file at preview time; an attached document was validated before it entered the session.
-    if (metadata.source === "workspace") await createDocumentAttachment(bytes, name, metadata.mimeType)
+    if (metadata.source !== "attachment") await createDocumentAttachment(bytes, name, metadata.mimeType)
     return { ...metadata, encoding: "base64", content: bytes.toString("base64") }
   }
   if (metadata.kind === "docx") {
-    if (metadata.source === "workspace") await createDocumentAttachment(bytes, name, metadata.mimeType)
+    if (metadata.source !== "attachment") await createDocumentAttachment(bytes, name, metadata.mimeType)
     const result = await mammoth.convertToHtml({ buffer: bytes })
     if (result.value.length > MAX_RENDERED_DOCX_CHARS) throw new Error("This Word document is too large to preview.")
     return { ...metadata, encoding: "html", content: result.value }

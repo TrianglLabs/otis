@@ -110,6 +110,7 @@ const FLUSH_INTERVAL_MS = 32
 export class DesktopRuntime {
   #app: Application
   #unsubscribeTranscript: () => void
+  #unsubscribeArtifacts: () => void
   #revision = 0
   /** Invalidates prompt preparation when the conversation is replaced, including empty-to-empty resets. */
   #conversationVersion = 0
@@ -154,6 +155,7 @@ export class DesktopRuntime {
   ) {
     this.#app = app
     this.#unsubscribeTranscript = app.transcript.subscribe((change) => this.#onTranscriptChange(change))
+    this.#unsubscribeArtifacts = app.artifacts.subscribe(() => this.#markStateDirty())
     this.#modelState = app.models.client ? "ready" : app.hasConfiguredSelection() ? "starting" : "unconfigured"
   }
 
@@ -189,9 +191,9 @@ export class DesktopRuntime {
     return this.app.artifacts.load(revision)
   }
 
-  async openArtifact(reference: ArtifactReference): Promise<SessionOpResult> {
-    if (!this.app.openArtifact(reference)) return { ok: false, reason: "This artifact is no longer available." }
-    this.#markStateDirty()
+  async openArtifact(reference: ArtifactReference, version?: number): Promise<SessionOpResult> {
+    if (!this.app.openArtifact(reference, version))
+      return { ok: false, reason: "This artifact is no longer available." }
     return { ok: true }
   }
 
@@ -466,9 +468,11 @@ export class DesktopRuntime {
       }
 
       this.#unsubscribeTranscript()
+      this.#unsubscribeArtifacts()
       await this.app.shutdown()
       this.#app = next
       this.#unsubscribeTranscript = next.transcript.subscribe((change) => this.#onTranscriptChange(change))
+      this.#unsubscribeArtifacts = next.artifacts.subscribe(() => this.#markStateDirty())
       this.#queuedChanges = []
       this.#pendingWorkspace = undefined // the destination workspace is real and present
       this.#sessionsCache = undefined
@@ -1078,6 +1082,7 @@ export class DesktopRuntime {
     this.app.models.cancelSelection()
     this.#settlePending(false)
     this.#unsubscribeTranscript()
+    this.#unsubscribeArtifacts()
     await this.#flushing
     await this.app.shutdown()
   }

@@ -151,6 +151,20 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     ),
   },
   {
+    name: "publish_artifact",
+    description:
+      "Publish a finished Markdown, text, HTML, PDF, or DOCX file as a durable artifact in the conversation. Saves a private preview copy without changing the original. Use after generating or moving a deliverable with bash, and again after final edits. External files require permission. Does not bundle linked assets or JavaScript dependencies.",
+    parameters: objectSchema(
+      {
+        path: stringSchema("Current relative or absolute path to the finished file."),
+        artifact_id: stringSchema(
+          "For a revision, the artifact_id returned by the original publication. Keep it when moving or renaming the same deliverable. Omit for a new artifact.",
+        ),
+      },
+      ["path"],
+    ),
+  },
+  {
     name: "bash",
     description: "Run a shell command in the working directory.",
     parameters: objectSchema(
@@ -308,6 +322,21 @@ export function parseStructuredToolCall(name: string, input: unknown): ToolCall 
       return { name, input: { description: input.description.trim(), prompt: input.prompt.trim() } }
     }
     throw new Error('agent requires non-empty strings "description" and "prompt"')
+  }
+
+  if (name === "publish_artifact") {
+    if (isRecord(input) && typeof input.path === "string" && input.path.trim()) {
+      if (input.artifact_id !== undefined && (typeof input.artifact_id !== "string" || !input.artifact_id.trim()))
+        throw new Error('publish_artifact "artifact_id" must be a non-empty string')
+      return {
+        name,
+        input: {
+          path: input.path.trim(),
+          ...(input.artifact_id ? { artifactId: (input.artifact_id as string).trim() } : {}),
+        },
+      }
+    }
+    throw new Error('publish_artifact requires a non-empty string "path"')
   }
 
   if (isRecord(input) && typeof input.command === "string" && input.command.trim()) {

@@ -1,7 +1,7 @@
-import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdtemp, rename, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { ArtifactStore } from "../../src/app/artifacts.js"
 import { TranscriptStore } from "../../src/app/transcript.js"
 import { attachmentArtifactReference } from "../../src/artifacts/types.js"
@@ -16,6 +16,53 @@ afterEach(async () => {
 })
 
 describe("ArtifactStore", () => {
+  it("refreshes the selected working file after external replacement, deletion, and recreation", async () => {
+    const cwd = await trackedTempDir()
+    const path = join(cwd, "notes.md")
+    await writeFile(path, "First")
+    const store = new ArtifactStore(cwd)
+    const changed = vi.fn()
+    const unsubscribe = store.subscribe(changed)
+    try {
+      store.openWorkspace({ source: "workspace", path: "notes.md", kind: "markdown" })
+      const initial = store.metadata?.revision ?? 0
+      await writeFile(join(cwd, "replacement.md"), "Replaced externally")
+      await rename(join(cwd, "replacement.md"), path)
+      await vi.waitFor(() => expect(store.metadata?.revision).toBeGreaterThan(initial), { timeout: 2000 })
+      await expect(store.load(store.metadata?.revision ?? 0)).resolves.toMatchObject({ content: "Replaced externally" })
+      const replaced = store.metadata?.revision ?? 0
+      await rm(path)
+      await vi.waitFor(() => expect(store.metadata?.revision).toBeGreaterThan(replaced), { timeout: 2000 })
+      await expect(store.load(store.metadata?.revision ?? 0)).rejects.toThrow("moved or deleted")
+      const deleted = store.metadata?.revision ?? 0
+      await writeFile(path, "Recreated")
+      await vi.waitFor(() => expect(store.metadata?.revision).toBeGreaterThan(deleted), { timeout: 2000 })
+      await expect(store.load(store.metadata?.revision ?? 0)).resolves.toMatchObject({ content: "Recreated" })
+      store.clear()
+      const cleared = changed.mock.calls.length
+      await writeFile(path, "After clearing")
+      expect(store.metadata).toBeUndefined()
+      unsubscribe()
+      store.dispose()
+      await writeFile(path, "After disposal")
+      await new Promise((resolve) => setTimeout(resolve, 650))
+      expect(changed.mock.calls.length).toBe(cleared)
+    } finally {
+      unsubscribe()
+      store.dispose()
+    }
+  })
+
+  it("drops an in-flight preview when the session is cleared", async () => {
+    const cwd = await trackedTempDir()
+    await writeFile(join(cwd, "notes.md"), "Old session")
+    const store = new ArtifactStore(cwd)
+    store.openWorkspace({ source: "workspace", path: "notes.md", kind: "markdown" })
+    const pending = store.load(store.metadata?.revision ?? 0)
+    store.clear()
+    await expect(pending).resolves.toBeUndefined()
+  })
+
   it("keeps every attachment available after compaction and restores them from full scrollback", async () => {
     const cwd = await trackedTempDir()
     const first = await createDocumentAttachment(new TextEncoder().encode("First source"), "first.txt")

@@ -485,6 +485,7 @@ describe("subagent helpers", () => {
     expect(names).not.toContain("write")
     expect(names).not.toContain("edit")
     expect(names).not.toContain("edit_document")
+    expect(names).not.toContain("publish_artifact")
     expect(names).not.toContain("bash")
   })
 

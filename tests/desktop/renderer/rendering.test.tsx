@@ -21,6 +21,37 @@ const markdown =
   "| Column | Value |\n| --- | --- |\n| test | wide table |\n\n```ts\nconst answer = 42\n```\n\nStreaming"
 
 describe("stable message rendering", () => {
+  it("renders a published artifact as its own card and opens its saved reference", async () => {
+    const runtime = await testRuntime()
+    const openArtifact = vi.spyOn(runtime.api, "openArtifact").mockResolvedValue({ ok: true })
+    const artifact = {
+      source: "published" as const,
+      artifactId: "12345678-1234-1234-1234-123456789abc",
+      version: 1,
+      sourcePath: "/workspace/final.html",
+      name: "final.html",
+      kind: "html" as const,
+      sha256: "a".repeat(64),
+    }
+    render(
+      <DesktopProvider value={runtime}>
+        <ToolCard
+          entry={{
+            id: 1,
+            kind: "tool",
+            speaker: "Tool",
+            text: "Publishing artifact",
+            activityKind: "file_read",
+            artifact,
+          }}
+          active={false}
+        />
+      </DesktopProvider>,
+    )
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Open in Canvas: final.html" })))
+    expect(openArtifact).toHaveBeenCalledExactlyOnceWith(artifact)
+  })
+
   it("shows artifact open failures and lets the user retry", async () => {
     const onOpen = vi
       .fn()

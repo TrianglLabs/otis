@@ -77,7 +77,8 @@ export class Application {
       isBusy: () => (options.isBusy?.() ?? false) || this.conversation.busy,
       isExiting: options.isExiting ?? (() => false),
       onReset: () => this.artifacts.clear(),
-      onReplay: (messages, activities) => this.artifacts.restore(messages, activities),
+      onReplay: (messages, activities, session) =>
+        this.artifacts.restore(messages, activities, session.artifactDirectory),
     })
     this.conversation = new Conversation({
       sessions: this.sessions,
@@ -130,8 +131,8 @@ export class Application {
     return pendingInput ? tokens + estimate([pendingInput]) - estimate([]) : tokens
   }
 
-  openArtifact(reference: ArtifactReference) {
-    return this.artifacts.open(reference)
+  openArtifact(reference: ArtifactReference, version?: number) {
+    return this.artifacts.open(reference, version)
   }
 
   hasConfiguredSelection() {
@@ -181,6 +182,7 @@ export class Application {
   }
 
   async shutdown() {
+    this.artifacts.dispose()
     this.conversation.cancel()
     this.models.cancelPrepare()
     this.models.cancelSelection()

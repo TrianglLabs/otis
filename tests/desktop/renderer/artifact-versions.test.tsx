@@ -1,0 +1,107 @@
+// @vitest-environment happy-dom
+
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { afterEach, expect, it, vi } from "vitest"
+import type { ArtifactMetadata, PublishedArtifactReference } from "../../../src/artifacts/types.js"
+import { createDemoRuntime } from "../../../src/desktop/renderer/demo/demo-runtime.js"
+import { FileArtifact } from "../../../src/desktop/renderer/features/canvas/FileArtifact.js"
+import { DesktopProvider } from "../../../src/desktop/renderer/runtime.js"
+import { DesktopViewStore } from "../../../src/desktop/renderer/state.js"
+
+afterEach(cleanup)
+
+it("hides the selector for a single saved version and shows it when another version arrives", async () => {
+  const api = createDemoRuntime()
+  const runtime = { api, store: new DesktopViewStore(api) }
+  const snapshot = await api.getSnapshot()
+  const saved = snapshot.artifact
+  if (!saved?.publication) throw new Error("Expected a published demo artifact")
+  const artifact: ArtifactMetadata = {
+    ...saved,
+    publication: {
+      ...saved.publication,
+      reference: { ...saved.publication.reference, version: 1 },
+      versions: [1],
+    },
+  }
+  const view = render(
+    <DesktopProvider value={runtime}>
+      <FileArtifact artifact={artifact} />
+    </DesktopProvider>,
+  )
+  await act(async () => {})
+  expect(screen.queryByRole("combobox", { name: "Artifact versions" })).toBeNull()
+  expect(screen.getByText("Saved version 1")).toBeTruthy()
+
+  view.rerender(
+    <DesktopProvider value={runtime}>
+      <FileArtifact artifact={saved} />
+    </DesktopProvider>,
+  )
+  await act(async () => {})
+  const versions = screen.getByRole("combobox", { name: "Artifact versions" }) as HTMLSelectElement
+  expect(versions.value).toBe("latest")
+  expect(versions.options.length).toBe(4)
+})
+
+it("shows saved revisions separately from working files and lets users pin a version or follow latest", async () => {
+  const api = createDemoRuntime()
+  const runtime = { api, store: new DesktopViewStore(api) }
+  const reference: PublishedArtifactReference = {
+    source: "published",
+    artifactId: "12345678-1234-1234-1234-123456789abc",
+    version: 2,
+    name: "notes.md",
+    sourcePath: "/workspace/notes.md",
+    kind: "markdown",
+    sha256: "a".repeat(64),
+  }
+  const artifact: ArtifactMetadata = {
+    id: `published:${reference.artifactId}`,
+    source: "published",
+    kind: "markdown",
+    title: "notes.md",
+    revision: 1,
+    mimeType: "text/markdown",
+    editable: false,
+    publication: { reference, versions: [1, 2], followingLatest: true },
+  }
+  vi.spyOn(api, "getArtifact").mockResolvedValue({ ...artifact, encoding: "utf8", content: "# Saved document" })
+  const open = vi.spyOn(api, "openArtifact").mockResolvedValue({ ok: true })
+  const view = render(
+    <DesktopProvider value={runtime}>
+      <FileArtifact artifact={artifact} />
+    </DesktopProvider>,
+  )
+  await act(async () => {})
+  expect(screen.getByRole("heading", { name: "Saved document" })).toBeTruthy()
+  const versions = screen.getByRole("combobox", { name: "Artifact versions" }) as HTMLSelectElement
+  expect(versions.value).toBe("latest")
+  await act(async () => fireEvent.change(versions, { target: { value: "1" } }))
+  expect(open).toHaveBeenLastCalledWith(reference, 1)
+  const pinned = {
+    ...artifact,
+    revision: 2,
+    publication: { reference: { ...reference, version: 1 }, versions: [1, 2], followingLatest: false },
+  }
+  view.rerender(
+    <DesktopProvider value={runtime}>
+      <FileArtifact artifact={pinned} />
+    </DesktopProvider>,
+  )
+  await act(async () => {})
+  expect(versions.value).toBe("1")
+  await act(async () => fireEvent.change(versions, { target: { value: "latest" } }))
+  expect(open).toHaveBeenLastCalledWith(pinned.publication.reference, undefined)
+  open.mockResolvedValueOnce({ ok: false, reason: "Session changed" })
+  await act(async () => fireEvent.change(versions, { target: { value: "2" } }))
+  expect(screen.getByRole("alert").textContent).toBe("Session changed")
+  view.rerender(
+    <DesktopProvider value={runtime}>
+      <FileArtifact artifact={{ ...artifact, source: "workspace", publication: undefined, revision: 3 }} />
+    </DesktopProvider>,
+  )
+  await act(async () => {})
+  expect(screen.queryByRole("combobox")).toBeNull()
+  expect(screen.getByText("Working file")).toBeTruthy()
+})

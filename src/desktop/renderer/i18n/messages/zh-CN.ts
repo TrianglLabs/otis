@@ -1,6 +1,11 @@
 import type { Messages } from "./en.js"
 
 export const zhCN: Messages = {
+  "canvas.workingFile": "工作文件",
+  "canvas.savedArtifact": "已保存的产物 · 打开最新版本",
+  "canvas.savedVersion": "已保存版本 {{version}}",
+  "canvas.latestVersion": "最新 (v{{version}})",
+  "canvas.versionHistory": "产物版本",
   "common.continue": "继续",
   "common.connect": "连接",
   "common.checking": "正在检查…",

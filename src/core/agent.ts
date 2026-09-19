@@ -411,7 +411,7 @@ async function* executeSingleToolCall(
     result =
       call.value.name === "agent"
         ? yield* executeSubagent(call.value, rawCall.id, context)
-        : await executeToolCall(call.value, context)
+        : await executeToolCall(call.value, { ...context, authorizedArtifactPath: permission?.artifactPath })
     return toolMessage(formatToolResult(call.value.name, result))
   } catch (error) {
     outcome = "failed"
