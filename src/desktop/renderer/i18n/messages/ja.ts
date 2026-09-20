@@ -1,6 +1,16 @@
 import type { Messages } from "./en.js"
 
 export const ja: Messages = {
+  "thinking.label": "思考",
+  "thinking.title": "思考の強度",
+  "thinking.off": "オフ",
+  "thinking.on": "オン",
+  "thinking.low": "低",
+  "thinking.medium": "中",
+  "thinking.high": "高",
+  "thinking.xhigh": "非常に高い",
+  "thinking.max": "最大",
+  "thinking.reset": "モデルの既定値を使う",
   "canvas.workingFile": "作業ファイル",
   "canvas.savedArtifact": "保存済みアーティファクト · 最新版を開く",
   "canvas.savedVersion": "保存済みバージョン {{version}}",

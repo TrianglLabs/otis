@@ -28,6 +28,7 @@ const api: DesktopApi = {
   setTheme: (theme: string) => ipcRenderer.invoke(DESKTOP_CHANNELS.setTheme, theme),
   setLanguage: (language: string) => ipcRenderer.invoke(DESKTOP_CHANNELS.setLanguage, language),
   setThinkingVisible: (visible: boolean) => ipcRenderer.invoke(DESKTOP_CHANNELS.setThinkingVisible, visible),
+  setLocalThinking: (model, level) => ipcRenderer.invoke(DESKTOP_CHANNELS.setLocalThinking, model, level),
   setPermissionMode: (mode: "ask" | "auto") => ipcRenderer.invoke(DESKTOP_CHANNELS.setPermissionMode, mode),
   setFastServing: (fast: boolean) => ipcRenderer.invoke(DESKTOP_CHANNELS.setFastServing, fast),
   openFireworksKeyPage: () => ipcRenderer.invoke(DESKTOP_CHANNELS.openFireworksKeyPage),

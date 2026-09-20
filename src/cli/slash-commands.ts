@@ -14,6 +14,7 @@ export type SlashCommand =
   | { type: "new" }
   | { type: "home" }
   | { type: "thinking" }
+  | { type: "effort"; level?: string }
   | { type: "queue"; prompt?: string }
   | { type: "compact"; instructions?: string }
 
@@ -35,6 +36,7 @@ const CATALOG: readonly CatalogCommand[] = [
   { type: "queue", name: "/queue", description: "Queue a separate follow-up" },
   { type: "compact", name: "/compact", description: "Summarize old conversation to free context" },
   { type: "thinking", name: "/thinking", description: "Show or hide model thinking traces" },
+  { type: "effort", name: "/effort", description: "Set local thinking effort" },
   { type: "exit", name: "/exit", description: "Exit Otis" },
 ]
 
@@ -61,6 +63,7 @@ export function parseSlashCommand(value: string): SlashCommand | undefined {
   if (value.startsWith("/compact ")) {
     return { type: "compact", instructions: value.slice("/compact".length).trim() }
   }
+  if (value.startsWith("/effort ")) return { type: "effort", level: value.slice("/effort".length).trim() }
   if (value.startsWith("/queue ")) {
     const prompt = value.slice("/queue".length).trim()
     return { type: "queue", ...(prompt ? { prompt } : {}) }

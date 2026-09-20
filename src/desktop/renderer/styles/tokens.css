@@ -1,9 +1,12 @@
+@import "./fonts.css";
+
 /*
  * Design tokens for the Otis desktop UI. The default values mirror the TUI's default theme
  * (src/cli/theme.ts); themes.css remaps them per theme. Everything visual derives from these
  * tokens so themes stay consistent across the whole interface.
  */
-:root {
+:root,
+[data-theme="default"] {
   /* Overlay stacking: every dialog layer above the backdrop. */
   --z-backdrop: 40;
   --z-overlay: 41;
@@ -50,8 +53,8 @@
   --diff-ln: #565656;
 
   /* Typography */
-  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  --font-ui: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
   --text-micro: 10.5px;
   --text-meta: 11.5px;
   --text-ui: 12.5px;

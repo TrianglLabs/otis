@@ -11,6 +11,11 @@ import {
 } from "../inference/local-catalog.js"
 import { LlamaCppClient } from "../inference/local-client.js"
 import { fitLocalModel, type LocalModelFit } from "../inference/local-fit.js"
+import {
+  type LocalThinkingPreferences,
+  type LocalThinkingState,
+  localThinkingCapability,
+} from "../inference/local-thinking.js"
 import { PairClient, pairEndpointForEngine } from "../inference/pair.js"
 import { findFireworksModel, fireworksServingModel, useFastServingPath } from "../inference/serving-path.js"
 import type { CatalogModel, InferenceClient, ModelProvider, PairEngine } from "../inference/types.js"
@@ -78,6 +83,7 @@ export class ModelHost {
   supportsImageInput: boolean | undefined
   autoCompactAtTokens = autoCompactThreshold()
   activeLocal: ActiveLocalModel | undefined
+  localThinking: LocalThinkingPreferences = {}
   #prepareId = 0
   #selectionId = 0
   #selectionController: AbortController | undefined
@@ -88,6 +94,7 @@ export class ModelHost {
   }
 
   applySavedSelection(settings: LocalSettings) {
+    this.localThinking = { ...settings.localThinking }
     this.selectedId = settings.model
     this.selectedProvider =
       settings.modelProvider ?? (settings.model ? (isLocalModelId(settings.model) ? "local" : "fireworks") : undefined)
@@ -111,6 +118,17 @@ export class ModelHost {
 
   cancelPrepare() {
     this.#prepareId += 1
+  }
+
+  thinkingState(): LocalThinkingState | null {
+    if (this.selectedProvider !== "local" || !this.selectedId) return null
+    const capability = localThinkingCapability(this.selectedId)
+    if (!capability) return null
+    return { ...capability, modelId: this.selectedId, selected: this.localThinking[this.selectedId] ?? "default" }
+  }
+
+  #localClient(model: string, inferenceURL: string) {
+    return new LlamaCppClient({ model, inferenceURL, thinkingLevel: () => this.localThinking[model] })
   }
 
   cancelSelection() {
@@ -210,7 +228,7 @@ export class ModelHost {
       return transactionalSelection(activeModel, {
         commit: () => {
           this.activeLocal = { spec: selectedSpec, fit, hardware, contextLength: serving.contextLength }
-          this.activate(activeModel, new LlamaCppClient({ model: selectedSpec.id, inferenceURL: serving.inferenceURL }))
+          this.activate(activeModel, this.#localClient(selectedSpec.id, serving.inferenceURL))
         },
         rollback: async ({ restorePrevious }) => {
           if (restorePrevious) await this.restorePrevious(previousLocal, undefined, options.signal)
@@ -268,7 +286,7 @@ export class ModelHost {
       signal?.throwIfAborted()
       previous.contextLength = serving.contextLength
       this.activeLocal = previous
-      this.client = new LlamaCppClient({ model: previous.spec.id, inferenceURL: serving.inferenceURL })
+      this.client = this.#localClient(previous.spec.id, serving.inferenceURL)
       this.selectedProvider = "local"
       if (this.selectedId === previous.spec.id) {
         this.autoCompactAtTokens = autoCompactThreshold(serving.contextLength)
@@ -290,7 +308,7 @@ export class ModelHost {
       const fit = fitLocalModel(spec, hardware)
       const selectedSpec = fit.model
       const serving = await this.llama.ensureServing(selectedSpec, fit, hardware, { signal: options.signal })
-      const client = new LlamaCppClient({ model: selectedSpec.id, inferenceURL: serving.inferenceURL })
+      const client = this.#localClient(selectedSpec.id, serving.inferenceURL)
       const model = catalogModelFromSpec(selectedSpec, serving.contextLength)
       this.activeLocal = { spec: selectedSpec, fit, hardware, contextLength: serving.contextLength }
       this.activate(model, client)

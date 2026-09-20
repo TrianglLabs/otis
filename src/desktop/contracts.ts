@@ -1,6 +1,7 @@
 import type { GlobalSessionPickerItem } from "../app/global-sessions.js"
 import type { TranscriptEntry } from "../app/transcript.js"
 import type { ArtifactMetadata, ArtifactPayload, ArtifactReference } from "../artifacts/types.js"
+import type { LocalThinkingSelection, LocalThinkingState } from "../inference/local-thinking.js"
 import type { ModelPickerItem, ModelPickerStatus } from "../inference/picker-catalog.js"
 import type { ModelProvider } from "../inference/types.js"
 import type { ThemeName, UiLanguage } from "../local/settings.js"
@@ -37,6 +38,7 @@ export const DESKTOP_CHANNELS = {
   setTheme: "desktop:set-theme",
   setLanguage: "desktop:set-language",
   setThinkingVisible: "desktop:set-thinking-visible",
+  setLocalThinking: "desktop:set-local-thinking",
   setPermissionMode: "desktop:set-permission-mode",
   setFastServing: "desktop:set-fast-serving",
   openFireworksKeyPage: "desktop:open-fireworks-key-page",
@@ -115,6 +117,7 @@ export type DesktopStatus = {
   language: UiLanguage
   /** Reasoning renders as trace cards when on; plain muted text when off. Persisted in local settings. */
   thinkingVisible: boolean
+  localThinking: LocalThinkingState | null
   /** Permission behavior for mutating tools. Interactive controls offer ask and auto. */
   permissionMode: PermissionMode
   /** Fast serving for the selected hosted model: whether it has a fast path, and whether that path is active. */
@@ -214,6 +217,7 @@ export type DesktopApi = {
   setLanguage(language: UiLanguage): Promise<void>
   /** Shows thinking as trace cards or as plain muted text; persisted in local settings. */
   setThinkingVisible(visible: boolean): Promise<void>
+  setLocalThinking(model: string, level: LocalThinkingSelection): Promise<void>
   /** Persists the permission behavior used by subsequent tool calls. */
   setPermissionMode(mode: "ask" | "auto"): Promise<void>
   /** Shows or hides reasoning traces in the transcript and subagent traces; persisted across launches. */

@@ -47,12 +47,16 @@ export class OpenAICompatibleClient implements InferenceClient {
     const response = await this.#fetch(url.toString(), {
       method: "POST",
       headers,
-      body: JSON.stringify(openaiChatCompletionRequest(this.model, options)),
+      body: JSON.stringify(this.requestBody(options)),
       signal: options.signal,
     })
 
     if (!response.ok) throw await inferenceResponseError(response, this.#requestLabel)
     return response
+  }
+
+  protected requestBody(options: StreamChatOptions) {
+    return openaiChatCompletionRequest(this.model, options)
   }
 
   async complete(messages: ChatMessage[], options: CompleteOptions = {}) {

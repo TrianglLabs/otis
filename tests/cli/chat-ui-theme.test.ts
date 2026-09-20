@@ -358,7 +358,7 @@ describe("chat UI theme switching", () => {
         expect(messages.viewport.backgroundColor.equals(RGBA.fromHex(colors.background))).toBe(true)
         expect(messages.content.backgroundColor.equals(RGBA.fromHex(colors.background))).toBe(true)
         expect(input.textColor.equals(RGBA.fromHex(colors.text))).toBe(true)
-        expect(input.cursorColor.equals(RGBA.fromHex(colors.accent))).toBe(true)
+        expect(input.cursorColor.equals(RGBA.fromHex(colors.accent)), `${from} → ${to} cursor`).toBe(true)
       }
     }
   })

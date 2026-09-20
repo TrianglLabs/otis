@@ -5,6 +5,12 @@ import type {
   ArtifactReference,
   PublishedArtifactReference,
 } from "../../../artifacts/types.js"
+import {
+  type LocalThinkingPreferences,
+  type LocalThinkingSelection,
+  localThinkingCapability,
+  validateLocalThinkingSelection,
+} from "../../../inference/local-thinking.js"
 import type { ModelPickerChoice, ModelPickerItem } from "../../../inference/picker-catalog.js"
 import type {
   DesktopApi,
@@ -544,6 +550,7 @@ class DemoRuntime implements DesktopApi {
     theme: "default",
     language: "system",
     thinkingVisible: true,
+    localThinking: null,
     permissionMode: "auto",
     fastServing: { available: true, enabled: false },
     hostedConfigured: true,
@@ -570,6 +577,15 @@ class DemoRuntime implements DesktopApi {
 
   async setThinkingVisible(visible: boolean): Promise<void> {
     this.#state = { ...this.#state, thinkingVisible: visible }
+    this.#emitStatus()
+  }
+
+  #localThinking: LocalThinkingPreferences = {}
+
+  async setLocalThinking(model: string, level: LocalThinkingSelection): Promise<void> {
+    validateLocalThinkingSelection(model, level)
+    if (level === "default") delete this.#localThinking[model]
+    else this.#localThinking[model] = level
     this.#emitStatus()
   }
 
@@ -1233,7 +1249,19 @@ class DemoRuntime implements DesktopApi {
 
   #status(): DesktopStatus {
     const { entries: _entries, ...status } = this.#state
-    return status
+    const model = status.model
+    const capability = model?.provider === "local" ? localThinkingCapability(model.id) : undefined
+    return {
+      ...status,
+      localThinking:
+        model && capability
+          ? {
+              ...capability,
+              modelId: model.id,
+              selected: this.#localThinking[model.id] ?? "default",
+            }
+          : null,
+    }
   }
 
   #emitOps(ops: TranscriptPatchOp[]) {

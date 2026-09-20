@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { dirname, join, resolve } from "node:path"
 import { isLocalModelId } from "../inference/local-catalog.js"
+import { type LocalThinkingPreferences, validateLocalThinkingSelection } from "../inference/local-thinking.js"
 import { normalizePairEndpoints, type PairEndpoints } from "../inference/pair.js"
 import { baseFireworksModelId, isFastFireworksModel } from "../inference/serving-path.js"
 import type { CatalogModel, FireworksModel, ModelProvider, PairEngine } from "../inference/types.js"
@@ -21,6 +22,7 @@ export type LocalSettings = {
   language?: UiLanguage
   lastWorkspace?: string
   thinkingVisible?: boolean
+  localThinking?: LocalThinkingPreferences
   /** When false, the chat side panel that lists delegated runs stays hidden. Omitted means shown. */
   subagentPanelVisible?: boolean
   fastServingModels?: string[]
@@ -38,6 +40,9 @@ export const THEME_NAMES = [
   "beige",
   "vice",
   "eagan",
+  "pearl",
+  "sage",
+  "titanium",
 ] as const
 export type ThemeName = (typeof THEME_NAMES)[number]
 
@@ -63,6 +68,7 @@ type SettingsFile = {
   language?: UiLanguage
   lastWorkspace?: string
   thinkingVisible?: boolean
+  localThinking?: LocalThinkingPreferences
   subagentPanelVisible?: boolean
   /** Read only to migrate the released global preference to the selected model. */
   fastMode?: boolean
@@ -91,6 +97,7 @@ export async function loadLocalSettings(options: SettingsFileOptions = {}): Prom
     ...(saved?.theme ? { theme: saved.theme } : {}),
     ...(saved?.language ? { language: saved.language } : {}),
     ...(saved?.lastWorkspace ? { lastWorkspace: saved.lastWorkspace } : {}),
+    ...(saved?.localThinking ? { localThinking: saved.localThinking } : {}),
     ...(saved?.thinkingVisible !== undefined ? { thinkingVisible: saved.thinkingVisible } : {}),
     ...(saved?.subagentPanelVisible !== undefined ? { subagentPanelVisible: saved.subagentPanelVisible } : {}),
     ...(fastServingModels.length > 0 ? { fastServingModels } : {}),
@@ -197,6 +204,30 @@ export async function saveThinkingVisible(visible: boolean, options: SettingsFil
   })
 }
 
+export async function saveLocalThinking(model: string, level: string, options: SettingsFileOptions = {}) {
+  validateLocalThinkingSelection(model, level)
+  return await serializeSettingsWrite(options, async (pinned) => {
+    const saved = (await readSettingsFile(pinned)) ?? { version: 1 }
+    const localThinking = { ...saved.localThinking }
+    if (level === "default") delete localThinking[model]
+    else localThinking[model] = level
+    await writeSettingsFile({ ...saved, localThinking }, pinned)
+    return localThinking
+  })
+}
+
+function parseLocalThinking(value: unknown): LocalThinkingPreferences | undefined {
+  if (value === undefined) return undefined
+  if (!isRecord(value)) throw new Error("Invalid Otis config: localThinking must be an object.")
+  const preferences: LocalThinkingPreferences = {}
+  for (const [model, level] of Object.entries(value)) {
+    if (typeof level !== "string") throw new Error("Invalid Otis config: invalid local thinking effort.")
+    validateLocalThinkingSelection(model, level)
+    if (level !== "default") preferences[model] = level
+  }
+  return preferences
+}
+
 export async function savePermissionMode(mode: PermissionMode, options: SettingsFileOptions = {}) {
   await serializeSettingsWrite(options, async (pinned) => {
     const saved = (await readSettingsFile(pinned)) ?? { version: 1 }
@@ -279,6 +310,7 @@ function parseSettingsFile(value: unknown): SettingsFile {
   const theme = optionalTheme(value.theme)
   const language = optionalUiLanguage(value.language)
   const lastWorkspace = optionalString(value.lastWorkspace, "lastWorkspace")
+  const localThinking = parseLocalThinking(value.localThinking)
   const thinkingVisible = optionalBoolean(value.thinkingVisible, "thinkingVisible")
   const subagentPanelVisible = optionalBoolean(value.subagentPanelVisible, "subagentPanelVisible")
   const fastMode = optionalBoolean(value.fastMode, "fastMode")
@@ -302,6 +334,7 @@ function parseSettingsFile(value: unknown): SettingsFile {
     ...(theme ? { theme } : {}),
     ...(language ? { language } : {}),
     ...(lastWorkspace ? { lastWorkspace } : {}),
+    ...(localThinking ? { localThinking } : {}),
     ...(thinkingVisible !== undefined ? { thinkingVisible } : {}),
     ...(subagentPanelVisible !== undefined ? { subagentPanelVisible } : {}),
     ...(fastMode !== undefined ? { fastMode } : {}),
@@ -336,6 +369,7 @@ function withSelectedModel(settings: SettingsFile, model: CatalogModel): Setting
     ...(settings.theme ? { theme: settings.theme } : {}),
     ...(settings.language ? { language: settings.language } : {}),
     ...(settings.lastWorkspace ? { lastWorkspace: settings.lastWorkspace } : {}),
+    ...(settings.localThinking ? { localThinking: settings.localThinking } : {}),
     ...(settings.thinkingVisible !== undefined ? { thinkingVisible: settings.thinkingVisible } : {}),
     ...(settings.subagentPanelVisible !== undefined ? { subagentPanelVisible: settings.subagentPanelVisible } : {}),
     ...(shouldPersistFastServingModels(settings, fastServingModels) ? { fastServingModels } : {}),
@@ -353,6 +387,7 @@ function withoutSelectedModel(settings: SettingsFile): SettingsFile {
     ...(settings.theme ? { theme: settings.theme } : {}),
     ...(settings.language ? { language: settings.language } : {}),
     ...(settings.lastWorkspace ? { lastWorkspace: settings.lastWorkspace } : {}),
+    ...(settings.localThinking ? { localThinking: settings.localThinking } : {}),
     ...(settings.thinkingVisible !== undefined ? { thinkingVisible: settings.thinkingVisible } : {}),
     ...(settings.subagentPanelVisible !== undefined ? { subagentPanelVisible: settings.subagentPanelVisible } : {}),
     ...(shouldPersistFastServingModels(settings, fastServingModels) ? { fastServingModels } : {}),

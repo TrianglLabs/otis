@@ -1,0 +1,110 @@
+.thinkingControl {
+  position: relative;
+  display: inline-flex;
+}
+.thinkingControl-value {
+  color: var(--text-dim);
+}
+.thinkingControl-panel {
+  --thinking-thumb-size: 12px;
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 232px;
+  max-width: calc(100vw - 48px);
+  padding: 10px 14px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  color: var(--text);
+  box-shadow: var(--shadow-float);
+  font-family: var(--font-ui);
+  font-size: var(--text-ui);
+  white-space: normal;
+}
+.thinkingControl-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 0 28px;
+}
+.thinkingControl-panel input[type="range"] {
+  width: 100%;
+  margin: 0 auto;
+  padding: 0;
+  height: 20px;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+.thinkingControl-panel input[type="range"]::-webkit-slider-runnable-track {
+  height: 2px;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(to right, var(--accent) var(--thinking-fill), var(--border) var(--thinking-fill));
+}
+.thinkingControl-panel input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  box-sizing: border-box;
+  width: var(--thinking-thumb-size);
+  height: var(--thinking-thumb-size);
+  margin-top: -5px;
+  border: 2px solid var(--bg-elev);
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-line);
+  transition: box-shadow var(--motion);
+}
+.thinkingControl-panel input[type="range"]:hover::-webkit-slider-thumb,
+.thinkingControl-panel input[type="range"]:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.thinkingControl-panel input[type="range"]:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.thinkingControl-selected {
+  text-align: center;
+  line-height: 1.4;
+  font-weight: 500;
+}
+.thinkingControl-reset {
+  position: absolute;
+  right: -4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: var(--text-meta);
+  cursor: pointer;
+  transition:
+    color var(--motion),
+    background var(--motion);
+}
+.thinkingControl-reset:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+.thinkingControl-reset:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.thinkingControl-panel :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.thinkingControl-panel input[type="range"]:focus-visible {
+  outline: none;
+}

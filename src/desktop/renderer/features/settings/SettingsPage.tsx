@@ -23,6 +23,9 @@ const THEME_NAMES: ThemeName[] = [
   "beige",
   "vice",
   "eagan",
+  "pearl",
+  "sage",
+  "titanium",
 ]
 
 /** Mirrors PAIR_DEFAULT_ENDPOINTS in src/inference/pair.ts; that module's discovery code is not bundled here. */
@@ -191,13 +194,16 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="settingsPage">
-      <div className="settingsPage-header">
-        <IconButton icon={X} label={t("settings.close")} className="noDrag" onClick={onClose} />
-      </div>
+      <header className="workspaceHeader settingsPage-header">
+        <div className="workspaceHeader-left" aria-hidden="true" />
+        <h1 className="workspaceHeader-title settingsPage-title">{t("common.settings")}</h1>
+        <div className="workspaceHeader-right">
+          <IconButton icon={X} label={t("settings.close")} className="noDrag" onClick={onClose} />
+        </div>
+      </header>
 
       <div className="settingsPage-body">
         <nav className="settingsSidebar" aria-label={t("common.settings")}>
-          <h1 className="settingsPage-title">{t("common.settings")}</h1>
           <div className="settingsSidebar-tabs" role="tablist" aria-orientation="vertical">
             {tabs.map((tab, index) => (
               <button

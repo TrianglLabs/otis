@@ -10,6 +10,8 @@ describe("slash commands", () => {
   it("parses known commands and leaves unknown input for the agent", () => {
     expect(parseSlashCommand("/exit")).toEqual({ type: "exit" })
     expect(parseSlashCommand("/fast")).toEqual({ type: "fast" })
+    expect(parseSlashCommand("/effort")).toEqual({ type: "effort" })
+    expect(parseSlashCommand("/effort medium")).toEqual({ type: "effort", level: "medium" })
     expect(parseSlashCommand("/delete-model")).toEqual({ type: "settings", setting: "delete-model" })
     expect(parseSlashCommand("/delete-model openai/gpt-oss-20b")).toEqual({
       type: "settings",
@@ -80,6 +82,7 @@ describe("slash commands", () => {
       "/queue",
       "/compact",
       "/thinking",
+      "/effort",
       "/exit",
     ])
   })

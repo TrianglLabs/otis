@@ -123,6 +123,10 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
     if (typeof visible !== "boolean") throw new Error("Invalid visibility flag.")
     return runtime.setThinkingVisible(visible)
   })
+  handle(DESKTOP_CHANNELS.setLocalThinking, (model, level) => {
+    if (typeof model !== "string" || typeof level !== "string") throw new Error("Invalid thinking effort.")
+    return runtime.setLocalThinking(model, level)
+  })
   handle(DESKTOP_CHANNELS.setPermissionMode, (mode) => {
     if (mode !== "ask" && mode !== "auto") throw new Error("Invalid permission mode.")
     return runtime.setPermissionMode(mode)

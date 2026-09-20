@@ -1,6 +1,16 @@
 import type { Messages } from "./en.js"
 
 export const ptBR: Messages = {
+  "thinking.label": "Raciocínio",
+  "thinking.title": "Esforço de raciocínio",
+  "thinking.off": "Desativado",
+  "thinking.on": "Ativado",
+  "thinking.low": "Baixo",
+  "thinking.medium": "Médio",
+  "thinking.high": "Alto",
+  "thinking.xhigh": "Muito alto",
+  "thinking.max": "Máximo",
+  "thinking.reset": "Usar padrão do modelo",
   "canvas.workingFile": "Arquivo de trabalho",
   "canvas.savedArtifact": "Artefato salvo · Abre a versão mais recente",
   "canvas.savedVersion": "Versão salva {{version}}",

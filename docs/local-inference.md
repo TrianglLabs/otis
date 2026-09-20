@@ -67,6 +67,18 @@ lacks PQ2 kernels. If CUDA falls back to Vulkan, Otis reselects PTQ1 and downloa
 cached PQ2 file. A failure during the fallback download is reported without starting incompatible weights.
 The picker displays the packing preferred for the detected hardware; runtime fallback may use the compact packing.
 
+Managed local models with documented thinking controls show a **Thinking** slider beside the desktop model picker.
+The terminal uses `/effort` to list supported values and `/effort medium` (for example) to select one.
+Preferences are saved per model in the private local config; `/effort default` or **Use model default** removes the
+override. Changes apply to subsequent requests without restarting the model. Controls are unavailable during a turn.
+This changes model behavior independently of the thinking-trace visibility setting.
+
+Qwen3.8 offers off/low/medium/xhigh, Bonsai 2 off/medium/xhigh, gpt-oss low/medium/high, and GLM-5.3 low/high/max.
+Ornith and Gemma expose on/off only. LFM2.5 has no documented thinking control and does not show the slider.
+The capability policy lives in `src/inference/local-thinking.ts`; it uses native template controls, not invented token
+budgets. Hosted and user-managed servers keep their existing behavior. Token counting uses the same thinking
+parameters as inference, and changing effort invalidates the previous observed context count.
+
 Recommendations choose the first fitting group in this curated preference order: GLM-5.3, Qwen3.8 Flash Next,
 Qwen3.8 27B, Bonsai 2 27B, Ornith 1.5 9B / Gemma 4 12B, then LFM2.5 2.6B. This is an Otis default, not a benchmark
 ranking. All candidates must fit host memory with at least a 64K context and runtime overhead. On dedicated GPUs with

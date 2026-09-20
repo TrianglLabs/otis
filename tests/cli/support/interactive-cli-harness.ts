@@ -141,6 +141,7 @@ const mocks = vi.hoisted(() => {
     saveSelectedModel: vi.fn(async () => undefined),
     saveSelectedTheme: vi.fn(async () => undefined),
     saveThinkingVisible: vi.fn(async () => undefined),
+    saveLocalThinking: vi.fn(async (model: string, level: string) => (level === "default" ? {} : { [model]: level })),
     saveSubagentPanelVisible: vi.fn(async () => undefined),
     saveFastServingSelection: vi.fn(async () => undefined),
     detectHardware: vi.fn(async () => ({
@@ -241,10 +242,8 @@ vi.mock("../../../src/inference/gguf-cache.js", async (importOriginal) => {
   }
 })
 vi.mock("../../../src/web/client.js", () => ({ ParallelClient: mocks.ParallelClient }))
-vi.mock("../../../src/local/settings.js", () => ({
-  THEME_NAMES: ["default", "nord", "bright", "matrix", "midnight", "graphite", "beige", "vice", "eagan"],
-  isThemeName: (value: unknown) =>
-    ["default", "nord", "bright", "matrix", "midnight", "graphite", "beige", "vice", "eagan"].includes(String(value)),
+vi.mock("../../../src/local/settings.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../src/local/settings.js")>()),
   clearSelectedModel: mocks.clearSelectedModel,
   loadLocalSettings: mocks.loadLocalSettings,
   saveFireworksApiKey: mocks.saveFireworksApiKey,
@@ -253,6 +252,7 @@ vi.mock("../../../src/local/settings.js", () => ({
   saveSelectedModel: mocks.saveSelectedModel,
   saveSelectedTheme: mocks.saveSelectedTheme,
   saveThinkingVisible: mocks.saveThinkingVisible,
+  saveLocalThinking: mocks.saveLocalThinking,
   saveSubagentPanelVisible: mocks.saveSubagentPanelVisible,
   saveFastServingSelection: mocks.saveFastServingSelection,
 }))

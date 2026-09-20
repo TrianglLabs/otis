@@ -13,6 +13,7 @@ body,
 body {
   margin: 0;
   font-family: var(--font-ui);
+  font-optical-sizing: auto;
   font-size: var(--text-ui);
   line-height: 1.45;
   color: var(--text);
