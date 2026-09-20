@@ -171,12 +171,16 @@ has no Linux arm64 CUDA binary, so that target stays on Vulkan.
 
 Bonsai's packing is selected from the same hardware probe used for fit. Otis uses the compact 5.95 GB `PTQ1_0` file
 on systems with at most 8 GiB of dedicated GPU memory or 16 GiB of unified/system memory, and the faster-prompt 7.21 GB
-`PQ2_0` file above those limits when supported by the backend. The pinned Prism Vulkan runtime lacks PQ2 kernels,
-so Linux GPU inference keeps `PTQ1_0` regardless of VRAM capacity, including CUDA so a Vulkan fallback uses the same
-weights. Both files are pinned independently, with each
-artifact defined once. Runtime reuse includes the packing, repository revision, and file identities.
-The selected packing drives fit, picker labels,
-download, and server startup as one transaction; a saved model identity is resolved again for the current hardware.
+`PQ2_0` file above those limits when supported by the backend. CUDA machines with all detected GPUs at compute
+capability 8.9 prefer PTQ1 for Ada decode performance; other CUDA machines prefer PQ2 above the compact-memory tier.
+The hardware probe retains per-device compute capabilities only when every device reports one. Mixed or unknown
+architectures use the PQ2 default. The pinned Prism Vulkan runtime lacks PQ2 kernels, so Vulkan always selects PTQ1,
+including ARM Linux where no Prism CUDA binary is available.
+Both files are pinned independently, with each artifact defined once. Runtime reuse includes the requested packing,
+repository revision, and file identities. After device validation, and again after a CUDA startup failure, the managed
+runtime resolves packing and fit against the actual backend before ensuring its verified weights. Vulkan fallback may
+download PTQ1 while retaining PQ2. The original selection key keeps the live fallback reusable on subsequent turns.
+The picker shows the hardware-preferred packing; a saved model identity is resolved again for the current hardware.
 Cache discovery recognizes either packing, and deleting Bonsai removes both so a packing selected on another machine
 configuration cannot become orphaned.
 

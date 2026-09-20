@@ -22,6 +22,8 @@ export type HardwareProbe = {
   gpuMemoryBytes?: number
   backend: HardwareBackend
   cudaVersion?: CudaVersion
+  /** Per-GPU compute capabilities; omitted unless all NVIDIA devices report them. */
+  cudaComputeCapabilities?: readonly number[]
   unifiedMemory: boolean
 }
 
@@ -77,6 +79,9 @@ export async function detectHardware(options: HardwareDetectOptions = {}): Promi
         gpuMemoryBytes: nvidia.totalBytes,
         backend: cudaVersion ? "cuda" : "vulkan",
         ...(cudaVersion ? { cudaVersion } : {}),
+        ...(nvidia.devices.every(({ compute }) => Number.isFinite(compute) && compute > 0)
+          ? { cudaComputeCapabilities: nvidia.devices.map(({ compute }) => compute) }
+          : {}),
         unifiedMemory: false,
       }
     }

@@ -35,7 +35,7 @@ import {
   unsupportedLlamaCppTargetMessage,
 } from "./llama-binary.js"
 import { LOCAL_MIN_CONTEXT_LENGTH, type LocalModelSpec } from "./local-catalog.js"
-import type { LocalModelFit } from "./local-fit.js"
+import { fitLocalModel, type LocalModelFit } from "./local-fit.js"
 
 const DEFAULT_READY_TIMEOUT_MS = 30 * 60 * 1000
 const DEFAULT_RUNTIME_DOWNLOAD_ATTEMPTS = 3
@@ -187,18 +187,8 @@ export class LlamaCppRuntime {
   ) {
     const runtime = await this.#resolveBinary(model, hardware, signal, onProgress)
     signal.throwIfAborted()
-    const modelPath = await ensureLocalGguf(model, {
-      dataDirectory: this.#options.dataDirectory,
-      env: this.#options.env,
-      fetch: this.#options.fetch,
-      signal,
-      onProgress: (percent) => onProgress?.({ phase: "download", percent }),
-    })
-    signal.throwIfAborted()
-    onProgress?.({ phase: "loading" })
-
     try {
-      return await this.#startServer(key, model, modelPath, runtime, signal)
+      return await this.#loadAndStartServer(key, model, runtime, signal, onProgress)
     } catch (error) {
       signal.throwIfAborted()
       if (
@@ -215,9 +205,36 @@ export class LlamaCppRuntime {
         onProgress,
       )
       signal.throwIfAborted()
-      onProgress?.({ phase: "loading" })
-      return await this.#startServer(key, model, modelPath, fallback, signal)
+      return await this.#loadAndStartServer(key, model, fallback, signal, onProgress)
     }
+  }
+
+  async #loadAndStartServer(
+    key: string,
+    model: LocalModelSpec,
+    runtime: ResolvedRuntime,
+    signal: AbortSignal,
+    onProgress: EnsureServingOptions["onProgress"],
+  ) {
+    // Resolve packing after device validation, and again on startup fallback.
+    // Keep the original serving key so subsequent turns reuse the fallback process.
+    if (runtime.managed) {
+      const fit = fitLocalModel(model, runtime.hardware)
+      if (!fit.available) {
+        throw new Error(`${model.displayName} needs ${formatBytes(fit.memoryRequiredBytes)} to run on this machine.`)
+      }
+      model = fit.model
+    }
+    const modelPath = await ensureLocalGguf(model, {
+      dataDirectory: this.#options.dataDirectory,
+      env: this.#options.env,
+      fetch: this.#options.fetch,
+      signal,
+      onProgress: (percent) => onProgress?.({ phase: "download", percent }),
+    })
+    signal.throwIfAborted()
+    onProgress?.({ phase: "loading" })
+    return await this.#startServer(key, model, modelPath, runtime, signal)
   }
 
   async #startServer(

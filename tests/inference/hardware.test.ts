@@ -28,6 +28,8 @@ describe("hardware detection", () => {
     expect(hardware.backend).toBe(cudaVersion ? "cuda" : "vulkan")
     expect(hardware.cudaVersion).toBe(cudaVersion)
     expect(hardware.gpuCount).toBe(output.split("\n").length)
+    const capabilities = output.split("\n").map((line) => Number(line.split(",")[2]))
+    expect(hardware.cudaComputeCapabilities).toEqual(capabilities.every(Number.isFinite) ? capabilities : undefined)
     expect(inferenceMemoryBudget(hardware).deviceHeadroomBytes).toBe(1024 ** 3)
   })
 
@@ -56,6 +58,7 @@ describe("hardware detection", () => {
     expect(hardware.gpuCount).toBe(2)
     expect(hardware.gpuMemoryBytes).toBe((24576 + 8192) * 1024 * 1024)
     expect(hardware.unifiedMemory).toBe(false)
+    expect(hardware.cudaComputeCapabilities).toBeUndefined()
     expect(inferenceMemoryBudget(hardware)).toEqual({
       deviceHeadroomBytes: 1024 ** 3,
       gpuWeightBudgetBytes: 30 * 1024 ** 3,

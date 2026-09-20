@@ -59,9 +59,13 @@ runtime is available. Both the terminal and desktop use this same selection and 
 
 For Bonsai 2, Otis also selects the packing automatically. It uses the 5.95 GB `PTQ1_0` packing with up to 8 GiB of
 dedicated VRAM or 16 GiB of unified/system memory, then uses the 7.21 GB `PQ2_0` packing on larger hardware when the
-backend supports it. Linux GPU inference keeps `PTQ1_0` at every VRAM size so CUDA can fall back to Vulkan without
-changing model files; the pinned Vulkan runtime lacks PQ2 kernels. Macs above 16 GiB use `PQ2_0`. The picker displays
-the packing selected for the current machine.
+backend supports it. CUDA systems whose detected GPUs are all Ada (compute capability 8.9, including RTX 40-series,
+L4, and L40) keep `PTQ1_0` for its faster generation in [Prism's measurements](https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-gguf#cross-platform-throughput).
+Other CUDA systems above the compact-memory tier use `PQ2_0` for faster prompt processing; this includes mixed or
+unknown GPU architectures. Macs above 16 GiB also use `PQ2_0`. Vulkan requires `PTQ1_0` because the pinned runtime
+lacks PQ2 kernels. If CUDA falls back to Vulkan, Otis reselects PTQ1 and downloads it only if needed, retaining any
+cached PQ2 file. A failure during the fallback download is reported without starting incompatible weights.
+The picker displays the packing preferred for the detected hardware; runtime fallback may use the compact packing.
 
 Recommendations choose the first fitting group in this curated preference order: GLM-5.3, Qwen3.8 Flash Next,
 Qwen3.8 27B, Bonsai 2 27B, Ornith 1.5 9B / Gemma 4 12B, then LFM2.5 2.6B. This is an Otis default, not a benchmark

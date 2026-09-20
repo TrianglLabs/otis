@@ -1238,12 +1238,12 @@ describe("CUDA runtime bundles", () => {
   it.each([
     "12.8",
     "13.3",
-  ] as const)("starts Bonsai with Prism CUDA %s and its cached PTQ1 weights", async (cudaVersion) => {
+  ] as const)("starts Bonsai with Prism CUDA %s and its cached PQ2 weights", async (cudaVersion) => {
     const setup = await cudaRuntimeSetup(cudaVersion, "prism")
     const selectAsset = vi.fn(setup.options.runtimeAsset)
     const runtime = new LlamaCppRuntime({ ...setup.options, runtimeAsset: selectAsset })
     await runtime.ensureServing(setup.model, setup.fit, setup.hardware)
-    expect(setup.fit.model.quant).toBe("PTQ1_0")
+    expect(setup.fit.model.quant).toBe("PQ2_0")
     expect(selectAsset).toHaveBeenCalledWith(expect.objectContaining({ backend: "cuda", cudaVersion }), "prism")
     expect(setup.commands).toEqual([
       join(setup.directory, "bin", `${PRISM_LLAMA_CPP_RELEASE_TAG}-cuda-${cudaVersion}`, "llama-server"),
@@ -1252,17 +1252,22 @@ describe("CUDA runtime bundles", () => {
     await runtime.stop()
   })
 
-  it("keeps Bonsai on Prism and the same packing when CUDA falls back to Vulkan", async () => {
+  it("keeps Bonsai on Prism and reuses cached PTQ1 when CUDA falls back to Vulkan", async () => {
     const setup = await cudaRuntimeSetup("13.3", "prism")
+    const fallback = fitLocalModel(setup.model, { ...setup.hardware, backend: "vulkan" }).model
+    await cacheWeights(fallback, setup.directory)
+    const spawn = vi.fn(setup.options.spawn)
     const selectAsset = vi.fn(setup.options.runtimeAsset)
     const runtime = new LlamaCppRuntime({
       ...setup.options,
       runtimeAsset: selectAsset,
+      spawn: spawn as unknown as LlamaCppRuntimeOptions["spawn"],
       listDevices: async (path) =>
         path.includes("-cuda-") ? "Available devices:\n  (none)" : "Available devices:\n  Vulkan0: NVIDIA RTX",
     })
     await runtime.ensureServing(setup.model, setup.fit, setup.hardware)
-    expect(setup.fit.model.quant).toBe("PTQ1_0")
+    expect(setup.fit.model.quant).toBe("PQ2_0")
+    expect(spawn.mock.calls[0]?.[1]).toContain(localGgufPath(fallback, setup.directory))
     expect(selectAsset).toHaveBeenLastCalledWith(expect.objectContaining({ backend: "vulkan" }), "prism")
     expect(setup.commands).toEqual([join(setup.directory, "bin", PRISM_LLAMA_CPP_RELEASE_TAG, "llama-server")])
     expect(setup.downloads).toEqual([
@@ -1270,6 +1275,102 @@ describe("CUDA runtime bundles", () => {
       "https://runtime.test/cudart",
       "https://runtime.test/vulkan",
     ])
+    await runtime.stop()
+  })
+
+  it.each([
+    "probe",
+    "startup",
+  ] as const)("downloads verified PTQ1 after Bonsai CUDA %s failure and reuses the live fallback", async (failure) => {
+    const setup = await cudaRuntimeSetup("13.3", "prism")
+    const body = Buffer.from("fallback PTQ1 weights")
+    const model = {
+      ...setup.model,
+      packings: setup.model.packings?.map((packing) =>
+        packing.quant !== "PTQ1_0"
+          ? packing
+          : {
+              ...packing,
+              ggufFiles: [
+                { ...packing.ggufFiles[0], size: body.length, sha256: createHash("sha256").update(body).digest("hex") },
+              ],
+            },
+      ) as LocalModelSpec["packings"],
+    }
+    const fit = fitLocalModel(model, setup.hardware)
+    const fallback = fitLocalModel(model, { ...setup.hardware, backend: "vulkan" }).model
+    const fallbackPath = localGgufPath(fallback, setup.directory)
+    const originalFetch = setup.options.fetch
+    if (!originalFetch) throw new Error("missing fake fetch")
+    const children: ReturnType<typeof fakeChild>[] = []
+    const paths: string[] = []
+    const progress: string[] = []
+    const runtime = new LlamaCppRuntime({
+      ...setup.options,
+      listDevices: async (path) =>
+        path.includes("-cuda-")
+          ? failure === "probe"
+            ? "Available devices: (none)"
+            : "CUDA0: NVIDIA"
+          : "Vulkan0: NVIDIA",
+      fetch: (async (input, init) => {
+        if (String(input).endsWith(fallback.ggufFiles[0].name)) {
+          setup.downloads.push(String(input))
+          return new Response(body)
+        }
+        return await originalFetch(input, init)
+      }) as typeof fetch,
+      spawn: ((_command: string, args?: readonly string[]) => {
+        const child = fakeChild()
+        children.push(child)
+        paths.push(String(args?.[1]))
+        if (failure === "startup" && children.length === 1) {
+          queueMicrotask(() => {
+            child.stderr.emit("data", "CUDA error: initialization error")
+            child.exitCode = 1
+            child.emit("exit", 1)
+          })
+        }
+        return child
+      }) as LlamaCppRuntimeOptions["spawn"],
+    })
+    try {
+      const endpoint = await runtime.ensureServing(model, fit, setup.hardware, {
+        onProgress: ({ phase }) => progress.push(phase),
+      })
+      expect(paths).toEqual(
+        failure === "probe" ? [fallbackPath] : [localGgufPath(model, setup.directory), fallbackPath],
+      )
+      expect(await readFile(fallbackPath)).toEqual(body)
+      expect((await stat(localGgufPath(model, setup.directory))).size).toBe(model.ggufFiles[0].size)
+      expect(progress).toContain("download")
+      expect(progress.at(-1)).toBe("loading")
+      expect(setup.downloads.filter((url) => url.includes("huggingface.co"))).toHaveLength(1)
+      const launches = children.length
+      expect(await runtime.ensureServing(model, fit, setup.hardware)).toBe(endpoint)
+      expect(children).toHaveLength(launches)
+      if (failure === "startup") expect(children[0]?.exitCode).not.toBeNull()
+    } finally {
+      await runtime.stop()
+    }
+  })
+
+  it("does not start Vulkan with PQ2 when the required PTQ1 download fails", async () => {
+    const setup = await cudaRuntimeSetup("13.3", "prism")
+    const originalFetch = setup.options.fetch
+    if (!originalFetch) throw new Error("missing fake fetch")
+    const runtime = new LlamaCppRuntime({
+      ...setup.options,
+      listDevices: async (path) => (path.includes("-cuda-") ? "(none)" : "Vulkan0: NVIDIA"),
+      fetch: (async (input, init) =>
+        String(input).includes("huggingface.co")
+          ? new Response("unavailable", { status: 503 })
+          : await originalFetch(input, init)) as typeof fetch,
+    })
+    await expect(runtime.ensureServing(setup.model, setup.fit, setup.hardware)).rejects.toThrow("HTTP 503")
+    expect(setup.commands).toEqual([])
+    expect(runtime.serving).toBeUndefined()
+    expect((await stat(localGgufPath(setup.model, setup.directory))).size).toBe(setup.model.ggufFiles[0].size)
     await runtime.stop()
   })
 
