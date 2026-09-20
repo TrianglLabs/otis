@@ -1,3 +1,4 @@
+import { buildSystemPrompt } from "../../../src/inference/system-prompt.js"
 import { loadSkillCatalog, readSkillResource } from "../../../src/skills/index.js"
 
 async function main() {
@@ -7,7 +8,7 @@ async function main() {
   if (!instructions.output.includes("Document deliverables in Otis") || !script.output.includes("def create_pdf")) {
     throw new Error("Document skill resources were not bundled")
   }
-  console.log(JSON.stringify({ root: catalog.byName.get("documents")?.root }))
+  console.log(JSON.stringify({ root: catalog.byName.get("documents")?.root, systemPrompt: buildSystemPrompt() }))
 }
 
 void main().catch((error) => {

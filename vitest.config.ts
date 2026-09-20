@@ -1,20 +1,13 @@
-import { readFile } from "node:fs/promises"
 import react from "@vitejs/plugin-react"
 import { defineConfig } from "vitest/config"
+import { inlineText } from "./scripts/vite-inline-text.js"
 
 export default defineConfig({
   // Mirror Bun's text imports for prompts and embedded skill resources.
   plugins: [
     // Automatic JSX runtime for renderer component tests (tests/desktop/renderer/*.tsx).
     react(),
-    {
-      name: "inline-text",
-      enforce: "pre",
-      async load(id) {
-        if (!/\.(txt|md|py)$/.test(id)) return null
-        return `export default ${JSON.stringify(await readFile(id, "utf8"))}`
-      },
-    },
+    inlineText(),
   ],
   test: {
     environment: "node",

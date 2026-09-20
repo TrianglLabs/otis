@@ -35,6 +35,7 @@ export type CommandSuggestion = {
 export type { ModelPickerItem }
 
 export type ChatUIOptions = {
+  platform?: NodeJS.Platform
   configured?: boolean
   localInferenceUnavailableReason?: string
   commands?: CommandSuggestion[]

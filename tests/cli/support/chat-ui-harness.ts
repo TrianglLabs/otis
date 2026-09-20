@@ -46,6 +46,7 @@ async function createChatHarness(overrides: Partial<ChatUIOptions>): Promise<Cha
     exitSignals: [],
   })
   const options: ChatUIOptions = {
+    platform: "darwin",
     contextLabel: formatContextUsage(contextUsage(0, 1)),
     modelLabel: "Model: test",
     modeLabel: "› auto",

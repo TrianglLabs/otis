@@ -1,5 +1,6 @@
 import { Check, ChevronDown, ChevronRight, Cpu, Palette, Plug, SlidersHorizontal, X } from "lucide-react"
 import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useRef, useState } from "react"
+import { localServerNames, supportsOmlx } from "../../../../inference/local-server-platform.js"
 import type { OmlxPickerChoice, PairPickerChoice } from "../../../../inference/picker-catalog.js"
 import type { ThemeName, UiLanguage } from "../../../contracts.js"
 import lmStudioIcon from "../../assets/lm-studio.svg"
@@ -43,12 +44,13 @@ type SettingsTab = "providers" | "appearance" | "general"
  */
 export function SettingsPage({ onClose }: { onClose: () => void }) {
   const { api } = useDesktop()
-  const { systemLocale, t } = useI18n()
+  const { locale, systemLocale, t } = useI18n()
   const state = useDesktopState(
     "fastServing",
     "busy",
     "pairEndpoints",
     "omlx",
+    "platform",
     "pairConfigured",
     "theme",
     "language",
@@ -58,6 +60,8 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
     "debug",
     "stats",
   )
+  const showOmlx = supportsOmlx(state?.platform)
+  const servers = new Intl.ListFormat(locale, { type: "disjunction" }).format(localServerNames(state?.platform))
   const [activeTab, setActiveTab] = useState<SettingsTab>("providers")
   const [openForm, setOpenForm] = useState<"hosted" | "pair">()
   const tabRefs = useRef(new Map<SettingsTab, HTMLButtonElement>())
@@ -122,7 +126,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
     if (form === "pair" && openForm !== "pair") {
       setOllama(state.pairEndpoints.ollama ?? PAIR_DEFAULT_ENDPOINTS.ollama)
       setLmStudio(state.pairEndpoints.lmStudio ?? PAIR_DEFAULT_ENDPOINTS.lmStudio)
-      setOmlx(state.omlx?.baseURL ?? "http://127.0.0.1:8000")
+      setOmlx(showOmlx ? (state.omlx?.baseURL ?? "http://127.0.0.1:8000") : "")
       setOmlxApiKey("")
     }
     setOpenForm(openForm === form ? undefined : form)
@@ -157,7 +161,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
     setPairError(undefined)
     setPairPending(true)
     try {
-      const result = await api.connectLocalServers({ ollama, lmStudio, omlx, omlxApiKey })
+      const result = await api.connectLocalServers({ ollama, lmStudio, ...(showOmlx ? { omlx, omlxApiKey } : {}) })
       // The form stays open on success: model selection happens here now. Every successful connect —
       // including reconnects to a changed endpoint — refetches the catalog.
       if (result.ok) {
@@ -313,7 +317,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
                       </button>
                       {openForm === "pair" ? (
                         <div className="settingsForm">
-                          <p className="settingsForm-note">{t("settings.localServersNote")}</p>
+                          <p className="settingsForm-note">{t("settings.localServersNote", { servers })}</p>
                           <div className="settingsEndpoints">
                             <label className="settingsEndpoint-label" htmlFor="settings-pair-ollama">
                               <img
@@ -347,31 +351,37 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
                               spellCheck={false}
                               autoComplete="off"
                             />
-                            <label className="settingsEndpoint-label" htmlFor="settings-omlx">
-                              <img className="settingsProviderMark" src={omlxIcon} alt="" aria-hidden />
-                              oMLX
-                            </label>
-                            <input
-                              id="settings-omlx"
-                              className="settingsForm-input"
-                              value={omlx}
-                              onChange={(event) => setOmlx(event.target.value)}
-                              spellCheck={false}
-                              autoComplete="off"
-                            />
-                            <input
-                              id="settings-omlx-key"
-                              type="password"
-                              className="settingsForm-input settingsEndpoint-key"
-                              aria-label={t("settings.omlxKey")}
-                              value={omlxApiKey}
-                              onChange={(event) => setOmlxApiKey(event.target.value)}
-                              placeholder={state.omlx?.hasApiKey ? t("settings.omlxKeyHint") : t("settings.omlxKey")}
-                              autoComplete="off"
-                              onKeyDown={(event) => {
-                                if (event.key === "Enter") void submitPair()
-                              }}
-                            />
+                            {showOmlx ? (
+                              <>
+                                <label className="settingsEndpoint-label" htmlFor="settings-omlx">
+                                  <img className="settingsProviderMark" src={omlxIcon} alt="" aria-hidden />
+                                  oMLX
+                                </label>
+                                <input
+                                  id="settings-omlx"
+                                  className="settingsForm-input"
+                                  value={omlx}
+                                  onChange={(event) => setOmlx(event.target.value)}
+                                  spellCheck={false}
+                                  autoComplete="off"
+                                />
+                                <input
+                                  id="settings-omlx-key"
+                                  type="password"
+                                  className="settingsForm-input settingsEndpoint-key"
+                                  aria-label={t("settings.omlxKey")}
+                                  value={omlxApiKey}
+                                  onChange={(event) => setOmlxApiKey(event.target.value)}
+                                  placeholder={
+                                    state.omlx?.hasApiKey ? t("settings.omlxKeyHint") : t("settings.omlxKey")
+                                  }
+                                  autoComplete="off"
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter") void submitPair()
+                                  }}
+                                />
+                              </>
+                            ) : null}
                           </div>
                           <div className="settingsForm-actions">
                             <Button

@@ -4,6 +4,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { DesktopApi, DesktopEvent, DesktopSnapshot } from "../../../src/desktop/contracts.js"
 import { App } from "../../../src/desktop/renderer/App.js"
+import { catalogs, I18nProvider, type ResolvedLocale } from "../../../src/desktop/renderer/i18n/index.js"
+import { createTranslator } from "../../../src/desktop/renderer/i18n/translate.js"
 import { DesktopProvider } from "../../../src/desktop/renderer/runtime.js"
 import { DesktopViewStore } from "../../../src/desktop/renderer/state.js"
 import type { ModelPickerItem } from "../../../src/inference/picker-catalog.js"
@@ -143,12 +145,14 @@ function fakeApi(overrides: Partial<DesktopApi> = {}): DesktopApi {
   }
 }
 
-async function renderApp(api: DesktopApi) {
+async function renderApp(api: DesktopApi, language: ResolvedLocale | "system" = "system") {
   const store = new DesktopViewStore(api)
   await store.start()
   render(
     <DesktopProvider value={{ api, store }}>
-      <App />
+      <I18nProvider language={language}>
+        <App />
+      </I18nProvider>
     </DesktopProvider>,
   )
 }
@@ -162,6 +166,35 @@ function rowButton(name: HTMLElement): HTMLButtonElement {
 }
 
 describe("OnboardingPage", () => {
+  it.each(
+    Object.keys(catalogs) as ResolvedLocale[],
+  )("omits oMLX from Linux onboarding and settings in %s", async (language) => {
+    const t = createTranslator(catalogs[language], language)
+    const api = fakeApi({ getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, platform: "linux" as const, language })) })
+    await renderApp(api, language)
+    expect(document.body.textContent).not.toContain("Mac")
+    fireEvent.click(rowButton(await screen.findByText(t("common.local"))))
+    const servers = rowButton(await screen.findByText(t("onboarding.server")))
+    expect(servers.querySelectorAll("img")).toHaveLength(2)
+    expect(document.body.textContent).not.toContain("oMLX")
+    fireEvent.click(servers)
+    expect(screen.queryByLabelText("oMLX")).toBeNull()
+    expect(document.querySelector('input[type="password"]')).toBeNull()
+    expect(document.body.textContent).not.toContain("oMLX")
+    const endpoints = { ollama: "http://127.0.0.1:11434", lmStudio: "http://127.0.0.1:1234" }
+    fireEvent.click(screen.getByRole("button", { name: t("common.connect") }))
+    expect(api.connectLocalServers).toHaveBeenLastCalledWith(endpoints)
+    await screen.findByText(t("onboarding.chooseModel"))
+
+    fireEvent.click(screen.getByRole("button", { name: t("common.settings") }))
+    fireEvent.click(await screen.findByRole("button", { name: t("settings.localServers") }))
+    expect(screen.queryByLabelText("oMLX")).toBeNull()
+    expect(document.querySelector("#settings-omlx-key")).toBeNull()
+    expect(document.body.textContent).not.toContain("oMLX")
+    fireEvent.click(screen.getByRole("button", { name: t("common.connect") }))
+    expect(api.connectLocalServers).toHaveBeenLastCalledWith(endpoints)
+  })
+
   it("owns the window until a model is configured — no composer, no transcript", async () => {
     await renderApp(fakeApi())
     expect(await screen.findByRole("heading", { name: "Otis" })).toBeTruthy()

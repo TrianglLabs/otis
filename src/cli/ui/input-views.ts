@@ -1,4 +1,5 @@
 import { BoxRenderable, InputRenderable, MouseButton, TextareaRenderable, TextRenderable } from "@opentui/core"
+import { localServerNames, supportsOmlx } from "../../inference/local-server-platform.js"
 import { colors } from "../theme.js"
 import type { Renderer } from "./types.js"
 
@@ -74,7 +75,10 @@ export function createChatInput(renderer: Renderer, label: string) {
   return { input, inputBox, inputHint, modeLabel }
 }
 
-export function createSetupViews(renderer: Renderer) {
+export function createSetupViews(renderer: Renderer, platform = process.platform) {
+  const showOmlx = supportsOmlx(platform)
+  const servers = localServerNames(platform)
+  const serverList = new Intl.ListFormat("en", { type: "disjunction" })
   const setupButtonBox = new BoxRenderable(renderer, {
     id: "setup-box",
     flexDirection: "column",
@@ -169,7 +173,7 @@ export function createSetupViews(renderer: Renderer) {
     label: "Managed by you",
     description: "Connect to a model server already running on this computer.",
     details: [
-      "Ollama, LM Studio, or oMLX.",
+      `${serverList.format(servers)}.`,
       "NVIDIA PAIR for cluster routing.",
       "Only one working endpoint is required.",
     ],
@@ -207,7 +211,7 @@ export function createSetupViews(renderer: Renderer) {
     title: "Local inference",
     label: "Private, on your devices",
     description: "Run on this machine or connect to a local model server.",
-    details: ["Managed llama.cpp built in.", "Ollama, LM Studio, oMLX, and NVIDIA PAIR."],
+    details: ["Managed llama.cpp built in.", `${new Intl.ListFormat("en").format([...servers, "NVIDIA PAIR"])}.`],
   })
   const setupHostedCard = createInferenceChoiceCard(renderer, {
     id: "setup-choice-hosted",
@@ -316,8 +320,7 @@ export function createSetupViews(renderer: Renderer) {
   setupPairForm.add(
     new TextRenderable(renderer, {
       id: "setup-pair-description",
-      content:
-        "Connect to Ollama, LM Studio, or oMLX. For NVIDIA PAIR, use the addresses from PAIR → Endpoints. Only one working endpoint is required. The oMLX key is optional; leave blank to keep a saved key.",
+      content: `Connect to ${serverList.format(servers)}. For NVIDIA PAIR, use the addresses from PAIR → Endpoints. Only one working endpoint is required.${showOmlx ? " The oMLX key is optional; leave blank to keep a saved key." : ""}`,
       fg: colors.muted,
       selectable: false,
       wrapMode: "word",
@@ -327,10 +330,10 @@ export function createSetupViews(renderer: Renderer) {
   const lmStudioEndpoint = createSetupInputRow(renderer, "setup-pair-lmstudio", "LM Studio")
   setupPairForm.add(ollamaEndpoint.box)
   setupPairForm.add(lmStudioEndpoint.box)
-  const omlxEndpoint = createSetupInputRow(renderer, "setup-omlx", "oMLX")
-  const omlxKey = createSetupInputRow(renderer, "setup-omlx-key", "API key")
-  setupPairForm.add(omlxEndpoint.box)
-  setupPairForm.add(omlxKey.box)
+  const omlxEndpoint = showOmlx ? createSetupInputRow(renderer, "setup-omlx", "oMLX") : undefined
+  const omlxKey = showOmlx ? createSetupInputRow(renderer, "setup-omlx-key", "API key") : undefined
+  if (omlxEndpoint) setupPairForm.add(omlxEndpoint.box)
+  if (omlxKey) setupPairForm.add(omlxKey.box)
   const setupPairMessage = new TextRenderable(renderer, {
     id: "setup-pair-message",
     content: "",
@@ -377,8 +380,8 @@ export function createSetupViews(renderer: Renderer) {
     setupPairCard,
     setupPairForm,
     setupPairLMStudioInput: lmStudioEndpoint.input,
-    setupOmlxInput: omlxEndpoint.input,
-    setupOmlxKeyInput: omlxKey.input,
+    setupOmlxInput: omlxEndpoint?.input,
+    setupOmlxKeyInput: omlxKey?.input,
     setupPairMessage,
     setupPairOllamaInput: ollamaEndpoint.input,
     setupContinueButton,
