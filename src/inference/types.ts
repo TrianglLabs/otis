@@ -102,7 +102,7 @@ export type ContextFile = {
   content: string
 }
 
-export type ModelProvider = "fireworks" | "local" | "pair"
+export type ModelProvider = "fireworks" | "local" | "pair" | "omlx"
 export type PairEngine = "ollama" | "lmstudio"
 
 type SharedModelFields = {
@@ -138,7 +138,12 @@ export type PairCatalogModel = {
   supportsImageInput: boolean
 }
 
-export type CatalogModel = FireworksModel | LocalCatalogModel | PairCatalogModel
+export type OmlxCatalogModel = SharedModelFields & {
+  provider: "omlx"
+  baseURL: string
+}
+
+export type CatalogModel = FireworksModel | LocalCatalogModel | PairCatalogModel | OmlxCatalogModel
 
 export function fireworksModel(fields: Omit<FireworksModel, "provider">): FireworksModel {
   return { provider: "fireworks", ...fields }

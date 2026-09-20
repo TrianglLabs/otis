@@ -16,6 +16,7 @@ import {
   imageAttachmentsFromMessages,
   lastAssistantText,
   messagesContainImages,
+  userMessageAttachments,
 } from "../inference/messages.js"
 import { pairEndpointForEngine } from "../inference/pair.js"
 import { baseFireworksModelId } from "../inference/serving-path.js"
@@ -128,6 +129,13 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
       client = connected.client
       model = connected.modelId
       modelContextLength = connected.contextLength
+    } else if (modelProvider === "omlx") {
+      const connected = await app.models.connect({ provider: "omlx", modelId: model, signal: controller.signal })
+      modelSupportsImageInput = connected.supportsImageInput
+      if (images.length > 0 && !modelSupportsImageInput)
+        throw new Error(`Selected oMLX model does not support image input: ${model}`)
+      client = connected.client
+      modelContextLength = connected.contextLength
     } else if (modelProvider === "pair") {
       const pairEndpoint = pairEndpointForEngine(settings.pairEndpoints ?? {}, settings.pairEngine)
       if (!pairEndpoint) throw new Error("Local model server endpoint is not configured for the selected engine.")
@@ -229,6 +237,10 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
         cwd,
         signal: controller.signal,
         artifactPublisher: session ? sessionArtifactPublisher(session) : undefined,
+        attachments: () =>
+          session
+            ?.replayTranscript()
+            .messages.flatMap((message) => (message.role === "user" ? userMessageAttachments(message) : [])) ?? [],
         projectContext: app.projectContext,
         skills: app.skills,
         tools,

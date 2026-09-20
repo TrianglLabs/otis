@@ -32,6 +32,10 @@ bun-debug.log*
 .parcel-cache/
 .vite/
 coverage/
+__pycache__/
+.document-test-venv/
+.otis-documents-venv/
+.ruff_cache/
 
 # Native/OpenTUI build artifacts
 *.node

@@ -1,5 +1,6 @@
 import { Download, FolderOpen } from "lucide-react"
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
+import { isCanvasArtifact } from "../../../artifacts/canvas.js"
 import { Button } from "../components/Button.js"
 import { Icon } from "../components/Icon.js"
 import { type CanvasArtifact, CanvasOpenContext } from "../features/canvas/canvas-context.js"
@@ -49,7 +50,8 @@ export function AppShell() {
     openedCanvas && openedCanvas.sessionId === sessionId && openedCanvas.sharedRevision === state?.artifact?.revision
       ? openedCanvas.artifact
       : undefined
-  const canvasArtifact = openedDiagram ?? state?.artifact ?? undefined
+  const canvasArtifact =
+    openedDiagram ?? (state?.artifact && isCanvasArtifact(state.artifact.kind) ? state.artifact : undefined)
   const openSettings = useCallback(() => setSettingsOpen(true), [])
   const closeSettings = useCallback(() => setSettingsOpen(false), [])
 

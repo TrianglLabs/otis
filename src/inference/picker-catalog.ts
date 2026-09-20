@@ -7,7 +7,14 @@ import { fitLocalModel, formatMemoryLabel, type LocalModelFit, memoryRequiredFor
 import { recommendedLocalModelIds } from "./local-recommendation.js"
 import { pairModelKey } from "./pair.js"
 import { matchesFireworksModel } from "./serving-path.js"
-import type { FireworksModel, LocalCatalogModel, ModelProvider, PairCatalogModel, PairEngine } from "./types.js"
+import type {
+  FireworksModel,
+  LocalCatalogModel,
+  ModelProvider,
+  OmlxCatalogModel,
+  PairCatalogModel,
+  PairEngine,
+} from "./types.js"
 
 export type ModelPickerItem = ModelPickerHeader | ModelPickerChoice
 
@@ -50,7 +57,15 @@ export type PairPickerChoice = PairCatalogModel & {
   status?: ModelPickerStatus
 }
 
-export type ModelPickerChoice = LocalPickerChoice | FireworksPickerChoice | PairPickerChoice
+export type OmlxPickerChoice = OmlxCatalogModel & {
+  kind: "model"
+  available: true
+  active: boolean
+  selectionKey: string
+  status?: ModelPickerStatus
+}
+
+export type ModelPickerChoice = LocalPickerChoice | FireworksPickerChoice | PairPickerChoice | OmlxPickerChoice
 
 export type ListModelPickerOptions = {
   fireworksApiKey?: string
@@ -58,6 +73,7 @@ export type ListModelPickerOptions = {
   currentProvider?: ModelProvider
   currentPairEngine?: PairEngine
   pairModels?: readonly PairCatalogModel[]
+  omlxModels?: readonly OmlxCatalogModel[]
   hardware?: HardwareProbe
   dataDirectory?: string
   loadStatus?: { modelId: string; status: ModelPickerStatus }
@@ -117,6 +133,7 @@ export async function listModelPickerItems(options: ListModelPickerOptions = {})
   return [
     ...localSection(localItems),
     ...pairSection(options.pairModels ?? [], options),
+    ...omlxSection(options.omlxModels ?? [], options),
     ...fireworksSection(fireworks, currentFireworksModel),
   ]
 }
@@ -156,6 +173,35 @@ export function toPairCatalogModel(item: PairPickerChoice): PairCatalogModel {
     ...model
   } = item
   return model
+}
+
+export function toOmlxCatalogModel(item: OmlxPickerChoice): OmlxCatalogModel {
+  return {
+    provider: "omlx",
+    id: item.id,
+    displayName: item.displayName,
+    baseURL: item.baseURL,
+    contextLength: item.contextLength,
+    supportsImageInput: item.supportsImageInput,
+  }
+}
+
+function omlxSection(models: readonly OmlxCatalogModel[], options: ListModelPickerOptions): ModelPickerItem[] {
+  if (!models.length) return []
+  return [
+    { kind: "header", id: "header-omlx", displayName: "oMLX" },
+    ...models.map((model): OmlxPickerChoice => {
+      const selectionKey = `omlx:${model.id}`
+      return {
+        ...model,
+        kind: "model",
+        available: true,
+        selectionKey,
+        active: options.currentProvider === "omlx" && options.currentModel === model.id,
+        ...(options.loadStatus?.modelId === selectionKey ? { status: options.loadStatus.status } : {}),
+      }
+    }),
+  ]
 }
 
 function fireworksSection(models: readonly FireworksModel[], currentModel?: string): ModelPickerItem[] {

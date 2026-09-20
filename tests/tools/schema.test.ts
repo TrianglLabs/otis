@@ -13,6 +13,8 @@ describe("parseStructuredToolCall", () => {
       "write",
       "edit",
       "edit_document",
+      "document",
+      "save_attachment",
       "publish_artifact",
       "bash",
       "agent",
@@ -35,6 +37,21 @@ describe("parseStructuredToolCall", () => {
       expect(() => parseStructuredToolCall("publish_artifact", { path: "moved.md", artifact_id })).toThrow(
         "artifact_id",
       )
+    }
+  })
+
+  it("requires a source attachment identity and a destination", () => {
+    expect(parseStructuredToolCall("save_attachment", { attachment: " resume.pdf ", path: " source.pdf " })).toEqual({
+      name: "save_attachment",
+      input: { attachment: "resume.pdf", path: "source.pdf" },
+    })
+    for (const input of [
+      {},
+      { attachment: "resume.pdf" },
+      { attachment: 12, path: "x.pdf" },
+      { attachment: "x", path: " " },
+    ]) {
+      expect(() => parseStructuredToolCall("save_attachment", input)).toThrow("non-empty strings")
     }
   })
 

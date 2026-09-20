@@ -31,3 +31,24 @@ jobs:
 
       - name: Test
         run: bun run test
+
+  documents:
+    name: Document Workflows
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Install Local Document Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libreoffice-writer
+          python3 -m venv .document-test-venv
+          .document-test-venv/bin/python -m pip install -r tests/documents/requirements.txt
+      - name: Check Document Helper Formatting And Lint
+        run: |
+          .document-test-venv/bin/ruff check src/skills/bundled/documents tests/documents
+          .document-test-venv/bin/ruff format --check src/skills/bundled/documents tests/documents
+      - name: Test Creation, Conversion, And Rendering
+        env:
+          OTIS_TEST_DOCUMENT_RENDERING: "1"
+        run: .document-test-venv/bin/python -m unittest discover -s tests/documents -p 'test_*.py'

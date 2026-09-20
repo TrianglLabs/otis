@@ -21,6 +21,31 @@ const markdown =
   "| Column | Value |\n| --- | --- |\n| test | wide table |\n\n```ts\nconst answer = 42\n```\n\nStreaming"
 
 describe("stable message rendering", () => {
+  it("keeps uploaded code in the conversation without a Canvas action", async () => {
+    const runtime = await testRuntime()
+    render(
+      <DesktopProvider value={runtime}>
+        <EntryView
+          entry={{
+            id: 1,
+            kind: "message",
+            speaker: "You",
+            text: "Review this file",
+            messageText: "Review this file",
+            artifacts: [
+              { source: "attachment", name: "main.py", kind: "text", mimeType: "text/plain", sha256: "a".repeat(64) },
+            ],
+          }}
+          active={false}
+          thinkingVisible={false}
+          expanded={false}
+          onExpandedChange={() => {}}
+        />
+      </DesktopProvider>,
+    )
+    expect(screen.getByText("📄 main.py")).toBeTruthy()
+    expect(screen.queryByRole("button", { name: /Open in Canvas/ })).toBeNull()
+  })
   it("renders a published artifact as its own card and opens its saved reference", async () => {
     const runtime = await testRuntime()
     const openArtifact = vi.spyOn(runtime.api, "openArtifact").mockResolvedValue({ ok: true })

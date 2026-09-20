@@ -46,7 +46,14 @@ type PermissionPolicyOptions = {
   rules?: PermissionRule[]
 }
 
-const RESTRICTED_BY_DEFAULT = new Set<ToolName>(["bash", "write", "edit", "edit_document"])
+const RESTRICTED_BY_DEFAULT = new Set<ToolName>([
+  "bash",
+  "write",
+  "edit",
+  "edit_document",
+  "document",
+  "save_attachment",
+])
 
 export function createPermissionPolicy(options: PermissionPolicyOptions): PermissionPolicy {
   const rules = (options.rules ?? []).map((rule) => ({
@@ -64,7 +71,9 @@ export function createPermissionPolicy(options: PermissionPolicyOptions): Permis
         ? options.mode === "dontAsk"
           ? "deny"
           : "ask"
-        : defaultEffect(call.name, options.mode)
+        : call.name === "document" && call.input.operation === "check"
+          ? "allow"
+          : defaultEffect(call.name, options.mode)
       const decisions = resources.map((resource) => {
         for (const effect of ["deny", "ask", "allow"] as const) {
           const candidate = rules.find(
@@ -142,6 +151,14 @@ async function permissionResources(call: ToolCall, cwd: string): Promise<string[
     const paths = [call.input.path]
     if (!call.input.replaceOriginal) paths.push(call.input.outputPath ?? editedDocumentPath(call.input.path))
     return unique((await Promise.all(paths.map((path) => workspaceResources(path, cwd)))).flat())
+  }
+  if (call.name === "document") {
+    const paths = [call.input.path, call.input.specPath, call.input.outputPath].filter((path): path is string =>
+      Boolean(path),
+    )
+    return paths.length
+      ? unique((await Promise.all(paths.map((path) => workspaceResources(path, cwd)))).flat())
+      : ["check"]
   }
   return workspaceResources(call.input.path, cwd)
 }

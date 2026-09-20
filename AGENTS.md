@@ -5,9 +5,13 @@
 Otis is a general interactive terminal agent, with coding as an important capability. Keep the product centered on the
 OpenTUI CLI.
 
+Desktop Canvas is for rendered documents, webpages, diagrams, and visual outputs. Plain code, configuration, and
+raw text files stay in the main conversation; reading or editing them must not open Canvas. Canvas exports preserve
+the original file bytes and selected revision, independently of the preview renderer.
+
 Otis is locally controlled. It has no user accounts, invite codes, hosted control plane, remote profile, cloud usage
 database, or cloud synchronization dependency. Hosted inference goes directly to Fireworks with a user-owned API key.
-Local inference either runs Otis-managed `llama-server` on localhost or connects to an NVIDIA PAIR proxy on loopback;
+Local inference runs Otis-managed `llama-server` or connects to a user-managed oMLX server or NVIDIA PAIR proxy on loopback;
 PAIR owns its cluster and routes requests across the user's local network. Web search and extraction go directly to
 Parallel's Search MCP.
 
@@ -17,9 +21,9 @@ Parallel's Search MCP.
   `src/app` owns conversation lifecycle and model-selection transactions; adapters own screens and rendering.
 - Runtime and package manager: TypeScript on Bun.
 - Inference: Fireworks' OpenAI-compatible API, called directly from the local runtime; local models via either
-  Otis-managed llama.cpp `llama-server` or a user-managed NVIDIA PAIR endpoint on `127.0.0.1`.
+  Otis-managed llama.cpp `llama-server`, user-managed oMLX, or an NVIDIA PAIR endpoint on loopback.
 - Web access: Parallel Search MCP, called directly from the local runtime.
-- Models: curated official Hugging Face checkpoints for managed local GGUF, live user-managed PAIR endpoint inventory,
+- Models: curated official Hugging Face checkpoints for managed local GGUF, live user-managed oMLX and PAIR endpoint inventory,
   plus user-selectable public serverless Fireworks models that explicitly support tool calling.
 - Configuration: private local file, with `FIREWORKS_API_KEY` as an environment override.
 - Sessions and usage: append-only local JSONL events.
@@ -43,11 +47,15 @@ policy centralized, and use the provider default when Fireworks has not document
 model-specific reasoning, sampling, or token settings without an explicit capability model. Do not enable llama.cpp
 built-in `--tools`; Otis tools stay in the local runtime.
 
+oMLX is an external server, not part of the curated GGUF catalog. Discover its visible models from `/v1/models`, with
+optional `/v1/models/status` metadata for model type and vision. Use its reported request context limit, not native
+architecture metadata, for compaction. Otis must not install, start, stop, or manage oMLX models.
+
 Preserve provider-native reasoning and tool-call history when sending later turns.
 
 ## Privacy and secrets
 
-- Never log, persist in sessions, or place Fireworks API keys in model content. Hugging Face tokens, if present in the
+- Never log, persist in sessions, or place Fireworks or oMLX API keys in model content. Hugging Face tokens, if present in the
   process environment for Hub downloads, are not written to sessions.
 - Keep saved configuration and session files private on supported platforms.
 - Do not add telemetry or remote usage reporting.

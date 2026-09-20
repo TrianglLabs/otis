@@ -10,7 +10,7 @@ const SUBAGENT_TOOLS: ReadonlySet<ToolName> = new Set(["read", "grep", "glob", "
 
 /**
  * Delegation issues several long model runs at once. Otis' managed llama-server serves a single slot, so only hosted
- * Fireworks models and NVIDIA PAIR clusters offer the agent tool.
+ * Fireworks models, NVIDIA PAIR clusters, and oMLX's batched server offer the agent tool.
  */
 export function supportsDelegation(provider: ModelProvider) {
   return provider !== "local"

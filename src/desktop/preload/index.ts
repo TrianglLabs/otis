@@ -5,6 +5,7 @@ const api: DesktopApi = {
   getSnapshot: () => ipcRenderer.invoke(DESKTOP_CHANNELS.getSnapshot),
   getArtifact: (revision) => ipcRenderer.invoke(DESKTOP_CHANNELS.getArtifact, revision),
   openArtifact: (reference, version) => ipcRenderer.invoke(DESKTOP_CHANNELS.openArtifact, reference, version),
+  saveArtifact: (id, revision) => ipcRenderer.invoke(DESKTOP_CHANNELS.saveArtifact, id, revision),
   getWindowState: () => ipcRenderer.invoke(DESKTOP_CHANNELS.getWindowState),
   sendPrompt: (text, attachments) => ipcRenderer.invoke(DESKTOP_CHANNELS.sendPrompt, text, attachments),
   stop: () => ipcRenderer.invoke(DESKTOP_CHANNELS.stop),
@@ -33,8 +34,8 @@ const api: DesktopApi = {
   setFastServing: (fast: boolean) => ipcRenderer.invoke(DESKTOP_CHANNELS.setFastServing, fast),
   openFireworksKeyPage: () => ipcRenderer.invoke(DESKTOP_CHANNELS.openFireworksKeyPage),
   setFireworksApiKey: (apiKey: string) => ipcRenderer.invoke(DESKTOP_CHANNELS.setFireworksApiKey, apiKey),
-  connectPairEndpoints: (endpoints: { ollama?: string; lmStudio?: string }) =>
-    ipcRenderer.invoke(DESKTOP_CHANNELS.connectPairEndpoints, endpoints),
+  connectLocalServers: (endpoints: import("../../app/local-servers.js").LocalServerInputs) =>
+    ipcRenderer.invoke(DESKTOP_CHANNELS.connectLocalServers, endpoints),
   deleteLocalModel: (id: string) => ipcRenderer.invoke(DESKTOP_CHANNELS.deleteLocalModel, id),
   setDebugMode: (enabled: boolean) => ipcRenderer.invoke(DESKTOP_CHANNELS.setDebugMode, enabled),
   checkForUpdates: () => ipcRenderer.invoke(DESKTOP_CHANNELS.checkForUpdates),

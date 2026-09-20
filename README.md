@@ -78,6 +78,7 @@ Desktop app / OpenTUI terminal / headless CLI
       ├─ Private local configuration, sessions, diffs, and stats
       ├─ llama.cpp ── Otis-managed local GGUF inference
       ├─ NVIDIA PAIR ── routing across your local AI cluster
+      ├─ oMLX ── user-managed MLX inference on Apple Silicon
       ├─ Fireworks API ── hosted inference and model discovery
       └─ Parallel Search MCP ── web search and page reading
 ```
@@ -88,14 +89,16 @@ Open the desktop app or run `otis`, complete first-time setup, and choose where 
 
 ### Local inference
 
-Local inference offers two independent paths:
+Local inference offers managed models and connections to existing local servers:
 
 - **This machine** opens a hardware-aware catalog, downloads a curated and checksum-verified GGUF, and runs it through
   an Otis-managed `llama-server` on `127.0.0.1`.
 - **NVIDIA PAIR** connects to PAIR's Ollama or LM Studio proxy on this computer. PAIR then routes each complete request
   to an eligible computer in your cluster.
+- **oMLX** connects directly to an independently managed MLX server on loopback. Configure its endpoint and optional
+  API key in **Local servers**, then select one of its models. See [oMLX setup](docs/omlx.md).
 
-Neither path requires a hosted inference API key. For a good managed-local experience, use Apple silicon with at least
+None of these paths requires a hosted inference API key. For a good managed-local experience, use Apple silicon with at least
 24 GB of unified memory, or Linux with at least 24 GB of RAM. Compatible NVIDIA GPUs use CUDA; other Linux GPUs use
 Vulkan. See [managed local inference](docs/local-inference.md) for compatibility and runtime requirements.
 
@@ -119,7 +122,7 @@ export FIREWORKS_API_KEY=fw_your_key
 otis
 ```
 
-Open `/model` at any time to switch between managed-local, configured PAIR, and hosted models in one picker. The active
+Open `/model` at any time to switch between managed-local, configured local-server, and hosted models in one picker. The active
 model label identifies local models with `Local` and routed models with `NVIDIA PAIR`.
 
 ## Terminal commands
@@ -131,8 +134,8 @@ The OpenTUI interface supports these commands and controls:
 | `/home` | Return to the home screen |
 | `/new` | Start a new session |
 | `/history` | Browse, open, or delete local sessions |
-| `/model` | Choose a managed-local, PAIR, or hosted model |
-| `/settings` | Configure Fireworks or PAIR, delete local models, or toggle debug mode |
+| `/model` | Choose a managed-local, local-server, or hosted model |
+| `/settings` | Configure Fireworks or local servers, delete local models, or toggle debug mode |
 | `/fast` | Toggle Fast serving when the current model supports it |
 | `/compact [instructions]` | Summarize older conversation and free context |
 | `/thinking` | Toggle model-provided thinking traces |
@@ -150,13 +153,27 @@ also attach copied images directly. Numbered tokens appear in the composer, Back
 the input is empty, and attachments clear after the prompt enters the session. Only image attachments require a vision
 model.
 
-In Otis Desktop, previewable files open in the session's Canvas. Markdown, plain-text, and self-contained HTML files
+In Otis Desktop, visual documents open in the session's Canvas. Markdown and self-contained HTML files
 refresh automatically when the agent reads, writes, or edits them; the workspace file remains the source of truth, so
 the editing behavior is identical in terminal and headless modes. PDF and DOCX files render from their preserved
 source bytes. The format-aware `edit_document` tool can replace exact text in workspace DOCX files without flattening
 their OOXML structure and fill interactive PDF forms. It creates a validated sibling copy by default. Replacing an
 original requires an explicit request and stores the previous version in Otis's private local backup directory. The
 plain-text editing tools continue to reject PDF, Word, and other binary files.
+
+Code, configuration, and raw text attachments remain in the conversation and available to tools without opening
+Canvas. Canvas's **Save a copy** action exports the original document or selected saved revision through the native
+Save dialog. It never exports the HTML used to preview a Word document or converts a file by changing its extension.
+
+The bundled `documents` skill edits supported PDF text in its original font and paragraph space, verifies the saved
+text, and compares rendered pages to ensure surrounding artwork stays unchanged. It also provides local PDF/DOCX
+generation, Word-to-PDF conversion, and PDF page rendering. `save_attachment` gives tools a private workspace copy
+of the original upload, including after conversation compaction. No manual skill download is needed. The workflow
+defaults to preserving existing design and the requested format; generating a new layout needs the user's agreement.
+The structured `document` tool prepares and verifies pinned dependencies once in a private environment shared across
+workspaces, then validates outputs before delivery. Python 3.10+ must be installed; Word-to-PDF conversion also needs
+LibreOffice. See [Document workflows](docs/document-workflows.md)
+for capabilities and limits.
 
 For finished deliverables, `publish_artifact` saves a private, immutable preview copy and adds it to the conversation.
 This works for files generated or moved by shell commands too; shell output and Markdown links alone do not create
@@ -188,7 +205,7 @@ otis exec --file requirements.pdf --file notes.docx "Compare these documents"
 ```
 
 Plain output reserves stdout for the final response. JSON and streaming JSONL are available for programmatic use.
-Headless mode never prompts and denies unmatched `write`, `edit`, `edit_document`, and `bash` calls unless policy or
+Headless mode never prompts and denies unmatched mutating calls, including document operations other than `check`, unless policy or
 `--auto` permits them.
 External artifact publication without an explicit allow rule requires interactive approval and is denied in headless
 mode, including with `--auto`.
@@ -220,6 +237,7 @@ for complete runtime boundaries, and [SECURITY.md](SECURITY.md) for private vuln
 
 - [Desktop app and downloads](https://triangllabs.ai/otis) — native macOS and Linux builds
 - [Managed local inference](docs/local-inference.md) — hardware fit, downloads, context, and model deletion
+- [oMLX](docs/omlx.md) — connect an MLX server, authentication, and model metadata
 - [NVIDIA PAIR](docs/nvidia-pair.md) — endpoint setup, routing, inventory, and metadata
 - [Headless execution](docs/headless.md) — output formats, limits, sessions, and attachments
 - [Agent Skills](docs/agent-skills.md) — authoring, precedence, Git-backed collections, and trust

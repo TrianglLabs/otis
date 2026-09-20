@@ -414,7 +414,9 @@ export const Composer = memo(function Composer({ installing = false }: { install
                     provider:
                       state.model.provider === "fireworks"
                         ? "Fireworks"
-                        : t(state.model.provider === "local" ? "models.local" : "models.localServers"),
+                        : state.model.provider === "omlx"
+                          ? "oMLX"
+                          : t(state.model.provider === "local" ? "models.local" : "models.localServers"),
                     fast: state.fastServing.enabled ? ` · ${t("composer.fastServing")}` : "",
                   })}
                   aria-haspopup="dialog"

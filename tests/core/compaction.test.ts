@@ -170,7 +170,7 @@ describe("compactConversation", () => {
     expect(capturedPrompt).toContain("Important document contents")
     expect(capturedPrompt).toContain('"name":"notes.txt"')
     expect(capturedPrompt).not.toContain("c2VjcmV0LWZpbGU=")
-    expect(capturedPrompt).not.toContain("sha256")
+    expect(capturedPrompt).toContain(`"sha256":"${"0".repeat(64)}"`)
   })
 
   it("cuts at a turn boundary, never splitting tool calls from results", async () => {

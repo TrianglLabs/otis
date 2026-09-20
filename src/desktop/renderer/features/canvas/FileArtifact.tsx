@@ -1,5 +1,7 @@
+import { Download } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { ArtifactMetadata, ArtifactPayload } from "../../../../artifacts/types.js"
+import { IconButton } from "../../components/Button.js"
 import { FileTypeIcon } from "../../components/FileTypeIcon.js"
 import { Markdown } from "../../components/Markdown.js"
 import { useI18n } from "../../i18n/index.js"
@@ -47,6 +49,12 @@ export function FileArtifact({ artifact }: { artifact: ArtifactMetadata }) {
         {artifact.publication && artifact.publication.versions.length > 1 ? (
           <ArtifactVersions key={artifact.id} publication={artifact.publication} />
         ) : null}
+        <ArtifactSave
+          key={`${artifact.id}:${artifact.revision}`}
+          id={artifact.id}
+          revision={artifact.revision}
+          disabled={!payload || Boolean(error)}
+        />
       </header>
       <div className="canvas-artifactBody">
         {error ? <CanvasNotice>{error}</CanvasNotice> : null}
@@ -54,6 +62,36 @@ export function FileArtifact({ artifact }: { artifact: ArtifactMetadata }) {
         {payload ? <ArtifactPreview payload={payload} /> : null}
       </div>
     </section>
+  )
+}
+
+function ArtifactSave({ id, revision, disabled }: { id: string; revision: number; disabled: boolean }) {
+  const { api } = useDesktop()
+  const { t } = useI18n()
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string>()
+  const save = async () => {
+    setSaving(true)
+    setError(undefined)
+    try {
+      const result = await api.saveArtifact(id, revision)
+      if (!result.ok) setError(result.reason)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : t("canvas.saveFailed"))
+    } finally {
+      setSaving(false)
+    }
+  }
+  return (
+    <div className="canvas-artifactSave">
+      <IconButton
+        icon={Download}
+        label={t("canvas.saveCopy")}
+        disabled={disabled || saving}
+        onClick={() => void save()}
+      />
+      {error ? <span role="alert">{error}</span> : null}
+    </div>
   )
 }
 
@@ -102,7 +140,7 @@ function ArtifactPreview({ payload }: { payload: ArtifactPayload }) {
       </article>
     )
   }
-  if (payload.kind === "text") return <pre className="canvas-document canvas-document-text">{payload.content}</pre>
+  if (payload.kind === "text") return null
   if (payload.kind === "pdf") return <PdfPreview source={payload.content} />
   if (payload.kind === "docx") {
     return (

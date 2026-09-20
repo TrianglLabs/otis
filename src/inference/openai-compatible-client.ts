@@ -30,9 +30,14 @@ export class OpenAICompatibleClient implements InferenceClient {
   }
 
   async *streamChat(options: StreamChatOptions) {
-    const response = await this.request(options)
-    if (!response.body) throw new Error(`${this.#requestLabel} response did not include a stream body`)
-    yield* parseChatCompletionStream(response.body)
+    try {
+      const response = await this.request(options)
+      if (!response.body) throw new Error(`${this.#requestLabel} response did not include a stream body`)
+      yield* parseChatCompletionStream(response.body)
+    } catch (error) {
+      if (this.#apiKey && error instanceof Error) error.message = error.message.replaceAll(this.#apiKey, "[redacted]")
+      throw error
+    }
   }
 
   protected async request(options: StreamChatOptions, suffix = "") {
@@ -49,6 +54,7 @@ export class OpenAICompatibleClient implements InferenceClient {
       headers,
       body: JSON.stringify(this.requestBody(options)),
       signal: options.signal,
+      redirect: "error",
     })
 
     if (!response.ok) throw await inferenceResponseError(response, this.#requestLabel)

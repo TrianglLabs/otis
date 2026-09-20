@@ -505,22 +505,23 @@ describe("DesktopRuntime subagents", () => {
       discoverPair: discoverPair as never,
     })
 
-    expect(await runtime.connectPairEndpoints({})).toEqual({
+    expect(await runtime.connectLocalServers({})).toEqual({
       ok: false,
-      reason: "Enter at least one Ollama, LM Studio, or NVIDIA PAIR endpoint.",
+      reason: "Enter at least one Ollama, LM Studio, oMLX, or NVIDIA PAIR endpoint.",
     })
-    expect(await runtime.connectPairEndpoints({ ollama: "https://example.com" })).toEqual({
+    expect(await runtime.connectLocalServers({ ollama: "https://example.com" })).toEqual({
       ok: false,
       reason: "Local model server endpoint must use HTTP on 127.0.0.1, localhost, or ::1.",
     })
 
     discoverPair.mockResolvedValueOnce({ errors: [{ engine: "ollama", message: "down" }] } as never)
-    expect(await runtime.connectPairEndpoints({ ollama: "http://127.0.0.1:11434" })).toEqual({
+    expect(await runtime.connectLocalServers({ ollama: "http://127.0.0.1:11434" })).toEqual({
       ok: false,
-      reason: "No compatible model server was found. Start Ollama, LM Studio, or NVIDIA PAIR and check its address.",
+      reason:
+        "No compatible model server was found. Start Ollama, LM Studio, oMLX, or NVIDIA PAIR and check its address.",
     })
 
-    const result = await runtime.connectPairEndpoints({ ollama: "http://127.0.0.1:11434/" })
+    const result = await runtime.connectLocalServers({ ollama: "http://127.0.0.1:11434/" })
     expect(result).toEqual({ ok: true })
     expect(app.pairEndpoints).toEqual({ ollama: "http://127.0.0.1:11434" })
     const snapshot = await runtime.snapshot()
@@ -783,13 +784,13 @@ describe("DesktopRuntime subagents", () => {
     })
 
     // Reconnect on a new port: the active client is rebuilt onto it.
-    expect(await runtime.connectPairEndpoints({ ollama: "http://127.0.0.1:11435" })).toEqual({ ok: true })
+    expect(await runtime.connectLocalServers({ ollama: "http://127.0.0.1:11435" })).toEqual({ ok: true })
     expect(app.models.client).not.toBe(oldClient)
     expect((await runtime.snapshot()).modelState).toBe("ready")
 
     // Reconnect with only the other engine responding: the orphaned selection is invalidated.
     discoverPair.mockResolvedValueOnce({ lmStudio: [lmModel], errors: [] } as never)
-    expect(await runtime.connectPairEndpoints({ lmStudio: "http://127.0.0.1:1234" })).toEqual({ ok: true })
+    expect(await runtime.connectLocalServers({ lmStudio: "http://127.0.0.1:1234" })).toEqual({ ok: true })
     expect(app.models.client).toBeUndefined()
     const snapshot = await runtime.snapshot()
     expect(snapshot.modelState).toBe("failed")
@@ -973,7 +974,7 @@ describe("DesktopRuntime conversation flow", () => {
     const { runtime, app } = await setup()
     const bytes = new TextEncoder().encode("Desktop document text")
 
-    const result = await runtime.sendPrompt("", [{ name: "notes.txt", mimeType: "text/plain", bytes }])
+    const result = await runtime.sendPrompt("", [{ name: "notes.md", mimeType: "text/markdown", bytes }])
 
     expect(result).toEqual({ accepted: true, delivery: "started" })
     await vi.waitFor(() => expect(mocks.executeTurn).toHaveBeenCalled())
@@ -983,7 +984,7 @@ describe("DesktopRuntime conversation flow", () => {
         expect.objectContaining({
           type: "document",
           kind: "text",
-          name: "notes.txt",
+          name: "notes.md",
           extractedText: "Desktop document text",
           sizeBytes: bytes.byteLength,
         }),
@@ -991,12 +992,12 @@ describe("DesktopRuntime conversation flow", () => {
     })
     const userEntry = app.transcript.entries.find((entry) => entry.speaker === "You")
     expect(userEntry).toMatchObject({
-      text: "📄 notes.txt",
+      text: "📄 notes.md",
       messageText: "",
-      artifacts: [expect.objectContaining({ source: "attachment", kind: "text", name: "notes.txt" })],
+      artifacts: [expect.objectContaining({ source: "attachment", kind: "markdown", name: "notes.md" })],
     })
     const artifact = (await runtime.snapshot()).artifact
-    expect(artifact).toMatchObject({ source: "attachment", kind: "text", title: "notes.txt", editable: false })
+    expect(artifact).toMatchObject({ source: "attachment", kind: "markdown", title: "notes.md", editable: false })
     expect(JSON.stringify(artifact)).not.toContain("Desktop document text")
     await expect(runtime.getArtifact(artifact?.revision ?? 0)).resolves.toMatchObject({
       encoding: "utf8",
@@ -1006,7 +1007,25 @@ describe("DesktopRuntime conversation flow", () => {
     const reference = userEntry?.artifacts?.[0]
     if (!reference) throw new Error("Document artifact reference is missing")
     expect(await runtime.openArtifact(reference)).toEqual({ ok: true })
-    expect((await runtime.snapshot()).artifact).toMatchObject({ title: "notes.txt", kind: "text" })
+    expect((await runtime.snapshot()).artifact).toMatchObject({ title: "notes.md", kind: "markdown" })
+    await runtime.shutdown()
+  })
+
+  it("rejects an export prepared for a previous conversation", async () => {
+    const { runtime, app } = await setup()
+    const file = { name: "report.docx", bytes: Buffer.from("source") }
+    app.artifacts.openWorkspace({ source: "workspace", kind: "docx", path: file.name })
+    let finish: (value: typeof file) => void = () => {}
+    vi.spyOn(app.artifacts, "exportFile").mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve
+      }),
+    )
+    await expect(runtime.getArtifactFile("workspace:other.docx", 1)).resolves.toBeUndefined()
+    const pending = runtime.getArtifactFile("workspace:report.docx", app.artifacts.metadata?.revision ?? 0)
+    expect(runtime.startNewSession()).toEqual({ ok: true })
+    finish(file)
+    await expect(pending).resolves.toBeUndefined()
     await runtime.shutdown()
   })
 

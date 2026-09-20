@@ -1,6 +1,8 @@
+import { extname } from "node:path"
 import { BrowserWindow, dialog, type IpcMainInvokeEvent, ipcMain, shell } from "electron"
 import { isArtifactReference } from "../../artifacts/types.js"
 import { DESKTOP_CHANNELS, type DesktopAttachmentInput } from "../contracts.js"
+import { saveArtifactCopy } from "./artifact-export.js"
 import type { DesktopRuntime } from "./runtime.js"
 
 /**
@@ -18,6 +20,26 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
     if (version !== undefined && (typeof version !== "number" || !Number.isSafeInteger(version) || version < 1))
       throw new Error("openArtifact expects a positive integer version")
     return runtime.openArtifact(reference, version)
+  })
+
+  ipcMain.handle(DESKTOP_CHANNELS.saveArtifact, async (event: IpcMainInvokeEvent, id: unknown, revision: unknown) => {
+    assertTrustedSender(event)
+    if (typeof id !== "string" || !id) throw new Error("saveArtifact expects an artifact id")
+    if (typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 0)
+      throw new Error("saveArtifact expects a numeric revision")
+    const file = await runtime.getArtifactFile(id, revision)
+    if (!file) return { ok: false, reason: "This preview changed. Try saving the current version again." }
+    return saveArtifactCopy(file, async (name) => {
+      const result = await dialog.showSaveDialog(
+        BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getAllWindows()[0],
+        {
+          defaultPath: name,
+          filters: [{ name: extname(name).slice(1).toUpperCase(), extensions: [extname(name).slice(1)] }],
+          properties: ["showOverwriteConfirmation", "createDirectory"],
+        },
+      )
+      return result.canceled ? undefined : result.filePath
+    })
   })
 
   ipcMain.handle(DESKTOP_CHANNELS.getWindowState, (event: IpcMainInvokeEvent) => {
@@ -142,9 +164,19 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
     if (typeof apiKey !== "string") throw new Error("Invalid API key.")
     return runtime.setFireworksApiKey(apiKey)
   })
-  handle(DESKTOP_CHANNELS.connectPairEndpoints, (endpoints) => {
-    if (!endpoints || typeof endpoints !== "object") throw new Error("Invalid PAIR endpoints.")
-    return runtime.connectPairEndpoints(endpoints)
+  handle(DESKTOP_CHANNELS.connectLocalServers, (endpoints) => {
+    if (
+      !endpoints ||
+      typeof endpoints !== "object" ||
+      Array.isArray(endpoints) ||
+      Object.entries(endpoints).some(
+        ([key, value]) =>
+          !["ollama", "lmStudio", "omlx", "omlxApiKey"].includes(key) ||
+          (value !== undefined && typeof value !== "string"),
+      )
+    )
+      throw new Error("Invalid local server settings.")
+    return runtime.connectLocalServers(endpoints)
   })
   handle(DESKTOP_CHANNELS.deleteLocalModel, (id) => {
     if (typeof id !== "string") throw new Error("Invalid model id.")

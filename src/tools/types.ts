@@ -1,5 +1,6 @@
 import type { ArtifactPublisher } from "../artifacts/publisher.js"
 import type { FileArtifactReference } from "../artifacts/types.js"
+import type { AttachmentContentPart } from "../inference/types.js"
 import type { SkillCatalog } from "../skills/index.js"
 import type { ParallelClient } from "../web/client.js"
 
@@ -13,6 +14,8 @@ export const TOOL_NAMES = [
   "write",
   "edit",
   "edit_document",
+  "document",
+  "save_attachment",
   "publish_artifact",
   "bash",
   "agent",
@@ -28,6 +31,9 @@ export type DocumentTextReplacement = {
 export type EditDocumentOperation =
   | { kind: "replace_text"; replacements: DocumentTextReplacement[] }
   | { kind: "fill_pdf_form"; fields: Record<string, string> }
+
+export const DOCUMENT_OPERATIONS = ["check", "create", "inspect-pdf", "edit-pdf", "convert", "render"] as const
+export type DocumentOperation = (typeof DOCUMENT_OPERATIONS)[number]
 
 export type ToolCall =
   | {
@@ -72,6 +78,14 @@ export type ToolCall =
       }
     }
   | {
+      name: "document"
+      input: { operation: DocumentOperation; path?: string; specPath?: string; outputPath?: string; pages?: number[] }
+    }
+  | {
+      name: "save_attachment"
+      input: { attachment: string; path: string }
+    }
+  | {
       name: "publish_artifact"
       input: { path: string; artifactId?: string }
     }
@@ -96,9 +110,11 @@ export type WebToolSession = { id?: string }
 
 export type ToolContext = {
   cwd?: string
-  /** Optional local-data root override used for document backups. */
+  /** Optional local-data root override for document backups, runtime and bundled skill resources. */
   dataDirectory?: string
   artifactPublisher?: ArtifactPublisher
+  /** Original session attachments, retained independently of compacted model context. */
+  attachments?: () => readonly AttachmentContentPart[]
   /** Canonical file authorized by the permission policy for this publication only. Never model-supplied. */
   authorizedArtifactPath?: string
   signal?: AbortSignal

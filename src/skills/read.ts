@@ -1,6 +1,7 @@
 import { readdir, readFile, realpath, stat } from "node:fs/promises"
 import { isAbsolute, relative, resolve } from "node:path"
 import type { ToolResult } from "../tools/types.js"
+import { materializeBundledSkill } from "./bundled.js"
 import type { SkillCatalog } from "./types.js"
 
 const DEFAULT_RESOURCE = "SKILL.md"
@@ -16,8 +17,10 @@ export async function readSkillResource(
 
   const requested = resolve(skill.root, path)
   assertInside(skill.root, requested)
+  if (skill.bundled) await materializeBundledSkill(skill)
+  const root = skill.bundled ? await realpath(skill.root) : skill.root
   const canonical = await realpath(requested)
-  assertInside(skill.root, canonical)
+  assertInside(root, canonical)
   const resourceStat = await stat(canonical)
 
   if (resourceStat.isDirectory()) {
@@ -42,7 +45,7 @@ export async function readSkillResource(
   }
   return {
     title: `Read skill resource: ${canonical}`,
-    output: path === DEFAULT_RESOURCE ? `Skill root: ${skill.root}\n\n${text}` : text,
+    output: path === DEFAULT_RESOURCE ? `Skill root: ${root}\n\n${text}` : text,
   }
 }
 

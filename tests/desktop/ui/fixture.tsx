@@ -18,6 +18,7 @@ import "../../../src/desktop/renderer/components/components.css"
 import "../../../src/desktop/renderer/shell/shell.css"
 import "../../../src/desktop/renderer/features/conversation/conversation.css"
 import "../../../src/desktop/renderer/features/models/models.css"
+import "../../../src/desktop/renderer/features/onboarding/onboarding.css"
 import "../../../src/desktop/renderer/features/palette/palette.css"
 import "../../../src/desktop/renderer/features/agents/agents.css"
 import "../../../src/desktop/renderer/features/canvas/canvas.css"
@@ -58,6 +59,28 @@ async function until(check: () => boolean, message: string) {
     await pause(30)
   }
   throw new Error(message)
+}
+
+async function checkLocalServerFields(prefix: "settings" | "onboarding") {
+  const address = element<HTMLInputElement>(`#${prefix}-omlx`)
+  const key = element<HTMLInputElement>(`#${prefix}-omlx-key`)
+  const fields = address.parentElement
+  assert(fields, "Server fields are missing")
+  const marks = Array.from(fields.querySelectorAll("label img")) as HTMLImageElement[]
+  await until(() => marks.length === 3 && marks.every((mark) => mark.naturalWidth > 0), "Server logos did not load")
+  for (const label of fields.querySelectorAll("label")) {
+    const input = element<HTMLInputElement>(`#${label.htmlFor}`).getBoundingClientRect()
+    const bounds = label.getBoundingClientRect()
+    assert(bounds.right < input.left, `${prefix}: ${label.textContent} overlaps its input`)
+    assert(Math.abs(bounds.top + bounds.height / 2 - input.top - input.height / 2) < 1, "Server label is misaligned")
+  }
+  const urlBounds = address.getBoundingClientRect()
+  const keyBounds = key.getBoundingClientRect()
+  assert(Math.abs(keyBounds.left - urlBounds.left) < 1, `${prefix}: API key is not aligned with the address`)
+  assert(Math.abs(keyBounds.width - urlBounds.width) < 1, `${prefix}: API key width differs from the address`)
+  assert(keyBounds.top >= urlBounds.bottom + 7, `${prefix}: API key overlaps the address`)
+  assert(key.type === "password" && key.getAttribute("aria-label") && key.placeholder, "API key lacks a secure label")
+  assert(fields.scrollWidth === fields.clientWidth, `${prefix}: Server fields overflow horizontally`)
 }
 /** The demo's scripted turn runs on real timers; its milestones need a wider polling budget. */
 async function untilSlow(check: () => boolean, message: string) {
@@ -210,22 +233,42 @@ async function runDesktopUiChecks() {
   const settingsSidebar = element(".settingsSidebar").getBoundingClientRect()
   const settingsContent = element(".settingsPage-content").getBoundingClientRect()
   const settingsPage = element(".settingsPage").getBoundingClientRect()
-  const settingsTitle = element(".settingsPage-title").getBoundingClientRect()
-  const settingsHeader = element(".settingsPage-header").getBoundingClientRect()
   const settingsTabs = Array.from(document.querySelectorAll<HTMLButtonElement>('.settingsSidebar [role="tab"]'))
   assert(settingsTabs.length === 3, "Settings sidebar does not list every section")
-  assert(element(".settingsPage-title").closest(".settingsPage-header"), "Settings title is not in the header")
+  assert(!document.querySelector(".settingsPage-header h1"), "Settings still has a title wordmark")
   assert(settingsSidebar.width >= 160, "Settings sidebar is too narrow")
   assert(Math.abs(settingsSidebar.top - settingsPage.top) < 1, "Settings sidebar does not reach the window top")
-  assert(
-    Math.abs(settingsTitle.left + settingsTitle.width / 2 - (settingsPage.left + settingsPage.width / 2)) < 1,
-    "Settings title is not centered across the window",
-  )
-  assert(
-    Math.abs(settingsTitle.top + settingsTitle.height / 2 - (settingsHeader.top + settingsHeader.height / 2)) < 1,
-    "Settings title is not vertically centered in the title bar",
-  )
   assert(settingsSidebar.right <= settingsContent.left + 1, "Settings sidebar overlaps the active panel")
+  // Exercise the platform/window classes emitted by AppShell in Chromium's actual layout and hit testing.
+  const settingsShell = element(".appShell")
+  const originalShellClasses = settingsShell.className
+  for (const platform of ["darwin", "linux", "win32"]) {
+    for (const fullscreen of [false, true]) {
+      settingsShell.classList.remove("platform-darwin", "platform-linux", "platform-win32")
+      settingsShell.classList.add(`platform-${platform}`)
+      settingsShell.classList.toggle("windowFullscreen", fullscreen)
+      const tab = settingsTabs[0].getBoundingClientRect()
+      const header = element(".settingsPage-header").getBoundingClientRect()
+      const close = element(".settingsPage-header button").getBoundingClientRect()
+      const nativeControls = platform === "darwin" && !fullscreen
+      const expectedTop = nativeControls ? header.bottom + 16 : settingsPage.top + 16
+      assert(Math.abs(tab.top - expectedTop) < 1, `${platform} fullscreen=${fullscreen}: excess space above tabs`)
+      assert(
+        Math.abs(close.top + close.height / 2 - (header.top + header.height / 2)) < 1,
+        `${platform} fullscreen=${fullscreen}: close button is not centered in the header`,
+      )
+      assert(
+        settingsTabs[0].contains(document.elementFromPoint(tab.left + tab.width / 2, tab.top + tab.height / 2)),
+        `${platform} fullscreen=${fullscreen}: title bar intercepts the first tab`,
+      )
+      await pause() // Let the compositor paint the new platform layout before taking a screenshot.
+      await nativeInput({
+        screenshot: true,
+        screenshotName: `settings-${platform}-${fullscreen ? "fullscreen" : "windowed"}`,
+      })
+    }
+  }
+  settingsShell.className = originalShellClasses
   assert(settingsTabs[0].getAttribute("aria-selected") === "true", "Inference is not the initial settings section")
   assert(
     element(".settingsProviderCards").previousElementSibling?.textContent === "Providers",
@@ -234,6 +277,11 @@ async function runDesktopUiChecks() {
   const providerCards = Array.from(document.querySelectorAll<HTMLElement>(".settingsCard-provider"))
   assert(providerCards.length === 2, "Provider settings are not grouped into separate cards")
   assert(getComputedStyle(providerCards[0]).backgroundColor !== "rgba(0, 0, 0, 0)", "Settings card has no background")
+  providerCards[1].querySelector("button")?.click()
+  await until(() => !!document.querySelector("#settings-omlx-key"), "Local server settings did not open")
+  await checkLocalServerFields("settings")
+  await pause()
+  await nativeInput({ screenshot: true, screenshotName: "settings-local-servers" })
   assert(document.querySelectorAll(".settingsUsage-bar").length === 28, "Provider usage activity is incomplete")
   settingsTabs[1].click()
   await until(() => !!document.querySelector(".themeGrid"), "Appearance tab did not open")
@@ -276,11 +324,13 @@ async function runDesktopUiChecks() {
     () => (document.querySelector<HTMLIFrameElement>('iframe[title="launch-plan.docx"]')?.clientHeight ?? 0) > 0,
     "Demo Word document did not render a visible Canvas frame",
   )
+  await nativeInput({ screenshot: true, screenshotName: "canvas-word" })
   await api.openArtifact({ source: "workspace", path: "product-brief.pdf", kind: "pdf" })
   await untilSlow(
     () => (document.querySelector<HTMLCanvasElement>(".canvas-pdfPage")?.getBoundingClientRect().height ?? 0) > 0,
     "Demo PDF did not render a visible page in Canvas",
   )
+  await nativeInput({ screenshot: true, screenshotName: "canvas-pdf" })
   await api.openArtifact({ source: "workspace", path: "canvas-overview.html", kind: "html" })
   await untilSlow(
     () => (document.querySelector<HTMLIFrameElement>('iframe[title="canvas-overview.html"]')?.clientHeight ?? 0) > 0,
@@ -990,6 +1040,32 @@ async function runDesktopUiChecks() {
     await nativeInput({ screenshot: true, screenshotName: theme })
   }
   await api.setTheme("default")
+
+  element<HTMLButtonElement>('[aria-label="Close settings (Esc)"]').click()
+  status({ model: null, modelState: "unconfigured" })
+  await until(() => !!document.querySelector(".onboarding"), "Onboarding did not open")
+  element<HTMLButtonElement>(".onboarding-cards button:last-child").click()
+  await until(() => !!document.querySelector(".onboarding-providerMarks"), "Local setup did not open")
+  const marks = Array.from(document.querySelectorAll<HTMLImageElement>(".onboarding-providerMarks img"))
+  await until(
+    () => marks.length === 3 && marks.every((mark) => mark.naturalWidth > 0),
+    "Local setup lacks provider logos",
+  )
+  await pause(250)
+  await nativeInput({ screenshot: true, screenshotName: "onboarding-local" })
+  element<HTMLButtonElement>(".onboarding-cards button:last-child").click()
+  await until(() => !!document.querySelector("#onboarding-omlx-key"), "Local server setup did not open")
+  await nativeInput({ size: [960, 600] })
+  await pause(250)
+  for (const language of Object.keys(catalogs) as ResolvedLocale[]) {
+    renderLanguage(language)
+    await pause()
+    await checkLocalServerFields("onboarding")
+  }
+  renderLanguage("en")
+  await pause()
+  await nativeInput({ screenshot: true, screenshotName: "onboarding-local-servers" })
+  await nativeInput({ size: [1000, 850] })
 
   root.unmount()
   store.dispose()

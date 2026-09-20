@@ -136,14 +136,16 @@ export class InteractiveApp {
         contextUsage(this.#app.contextEstimator()(this.#app.transcript.history), models.autoCompactAtTokens),
       ),
       modelLabel:
-        models.selectedProvider === "pair"
-          ? `${formatModelName(settings.modelDisplayName ?? models.selectedId)} · NVIDIA PAIR`
-          : models.selectedProvider === "local"
-            ? `${formatModelName(settings.modelDisplayName ?? models.selectedId)} · Local`
-            : withFastModelMark(
-                formatModelName(settings.modelDisplayName ?? models.selectedId),
-                Boolean(models.selectedId && isFastFireworksModel(models.selectedId)),
-              ),
+        models.selectedProvider === "omlx"
+          ? `${formatModelName(settings.modelDisplayName ?? models.selectedId)} · oMLX`
+          : models.selectedProvider === "pair"
+            ? `${formatModelName(settings.modelDisplayName ?? models.selectedId)} · NVIDIA PAIR`
+            : models.selectedProvider === "local"
+              ? `${formatModelName(settings.modelDisplayName ?? models.selectedId)} · Local`
+              : withFastModelMark(
+                  formatModelName(settings.modelDisplayName ?? models.selectedId),
+                  Boolean(models.selectedId && isFastFireworksModel(models.selectedId)),
+                ),
       modeLabel: formatModeLabel(this.#app.permissionMode),
       sessionLabel: "Current session",
       theme: this.#selectedTheme,
@@ -210,8 +212,11 @@ export class InteractiveApp {
         this.#ui.showStats()
         void this.#refreshLocalStats()
       },
-      onPairEndpointsChanged: (endpoints) => {
-        this.#app.pairEndpoints = { ...endpoints }
+      connectLocalServers: async (inputs, signal) => {
+        const connection = await this.#app.connectLocalServers(inputs, { signal })
+        this.#attachments.setModelCapability(this.#app.models.supportsImageInput)
+        this.#updateContextIndicator()
+        return connection
       },
       persistSelection: (model, options) => this.#persistSelection(model, options),
       localLoadStatus: () => this.#localLoadStatus,
@@ -242,6 +247,28 @@ export class InteractiveApp {
     this.#startUpdateCheck()
 
     if (this.#configured) void this.#refreshLocalStats()
+    if (models.selectedId && models.selectedProvider === "omlx") {
+      const controller = new AbortController()
+      this.#startupModelController = controller
+      this.#busy = true
+      this.#ui.setBusy(true)
+      try {
+        await this.#app.startSavedSelection({ signal: controller.signal })
+        this.#attachments.setModelCapability(models.supportsImageInput)
+        this.#updateContextIndicator()
+      } catch (error) {
+        if (controller.signal.aborted || this.#exiting) return
+        this.#configured = false
+        this.#app.transcript.addAssistantMessage(
+          `Could not connect to oMLX: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      } finally {
+        this.#busy = false
+        this.#ui.setBusy(false)
+        if (this.#startupModelController === controller) this.#startupModelController = undefined
+      }
+      if (!this.#configured) this.#setupFlow.begin()
+    }
     if (models.selectedId && models.selectedProvider === "local") {
       const spec = findLocalModel(models.selectedId)
       if (spec) {
@@ -272,7 +299,12 @@ export class InteractiveApp {
         }
       }
     }
-    if (!this.#configured && this.#app.fireworksApiKey && models.selectedProvider !== "local") {
+    if (
+      !this.#configured &&
+      this.#app.fireworksApiKey &&
+      models.selectedProvider !== "local" &&
+      models.selectedProvider !== "omlx"
+    ) {
       this.#setupFlow.begin()
     }
 
@@ -474,7 +506,7 @@ export class InteractiveApp {
         this.#ui.clearInput()
         if (command.setting === "hosted") {
           this.#setupFlow.configureHostedInference()
-        } else if (command.setting === "pair") {
+        } else if (command.setting === "pair" || command.setting === "servers") {
           this.#setupFlow.configurePairInference()
         } else if (command.setting === "debug") {
           this.#toggleDebugMode()
@@ -679,12 +711,12 @@ export class InteractiveApp {
         submission: "/settings hosted",
       },
       {
-        name: "NVIDIA PAIR",
+        name: "Local servers",
         description:
-          this.#app.pairEndpoints.ollama || this.#app.pairEndpoints.lmStudio
+          this.#app.pairEndpoints.ollama || this.#app.pairEndpoints.lmStudio || this.#app.models.omlx
             ? "Reconnect or choose model"
-            : "Connect local AI cluster",
-        submission: "/settings pair",
+            : "Connect a local model server",
+        submission: "/settings servers",
       },
       ...(this.#downloadedModelsAvailable
         ? [
@@ -856,6 +888,7 @@ export class InteractiveApp {
   }
 
   #formatModelLabel(model: CatalogModel) {
+    if (model.provider === "omlx") return `${formatModelName(model.displayName)} · oMLX`
     if (model.provider === "pair") return `${formatModelName(model.displayName)} · NVIDIA PAIR`
     if (model.provider === "local") return `${formatModelName(model.displayName)} · Local`
     return withFastModelMark(formatModelName(model.displayName), isFastFireworksModel(model.id))

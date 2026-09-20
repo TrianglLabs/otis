@@ -4,6 +4,9 @@ export const ARTIFACT_KINDS = ["markdown", "text", "html", "pdf", "docx"] as con
 
 export type ArtifactKind = (typeof ARTIFACT_KINDS)[number]
 
+/** Original bytes for a user-requested copy, never a converted preview. */
+export type ArtifactFile = { name: string; bytes: Uint8Array }
+
 /** A previewable file produced or opened by a workspace tool. Paths stay workspace-relative across session moves. */
 export type WorkspaceArtifactReference = {
   source: "workspace"

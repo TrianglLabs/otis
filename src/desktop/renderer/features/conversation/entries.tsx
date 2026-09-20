@@ -1,6 +1,7 @@
 import { ChevronDown, ChevronRight, ListEnd, ShipWheel } from "lucide-react"
 import { memo } from "react"
 import type { TranscriptEntry } from "../../../../app/transcript.js"
+import { isCanvasArtifact } from "../../../../artifacts/canvas.js"
 import type { ArtifactReference } from "../../../../artifacts/types.js"
 import { ArtifactCard } from "../../components/ArtifactCard.js"
 import { Icon } from "../../components/Icon.js"
@@ -93,6 +94,7 @@ function MessageArtifacts({ artifacts }: { artifacts: ArtifactReference[] }) {
         const title =
           artifact.source === "workspace" ? (artifact.path.split("/").at(-1) ?? artifact.path) : artifact.name
         const key = artifact.source === "workspace" ? `workspace:${artifact.path}` : `attachment:${artifact.sha256}`
+        if (!isCanvasArtifact(artifact.kind)) return <span key={key}>📄 {title}</span>
         return (
           <ArtifactCard
             key={key}

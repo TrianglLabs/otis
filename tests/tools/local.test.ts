@@ -252,7 +252,7 @@ describe("executeLocalTool", () => {
     expect(result.artifact).toEqual({ source: "workspace", path: "application-edited.pdf", kind: "pdf" })
   })
 
-  it("refuses fake text replacement for PDFs and refuses to overwrite a copy", async () => {
+  it("directs PDF text edits to the bundled workflow and refuses to overwrite a copy", async () => {
     const context = await testContext()
     await writeFile(join(context.cwd, "report.pdf"), minimalPdf("Original report"))
     await writeFile(join(context.cwd, "report-edited.pdf"), minimalPdf("Existing copy"))
@@ -270,7 +270,7 @@ describe("executeLocalTool", () => {
         },
         context,
       ),
-    ).rejects.toThrow("cannot be safely rewritten")
+    ).rejects.toThrow("inspect-pdf/edit-pdf")
     await expect(
       executeLocalTool(
         {

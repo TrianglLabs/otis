@@ -27,7 +27,7 @@ traces and JSONL emits structured reasoning lifecycle events.
 ## Permissions and execution limits
 
 Headless mode never displays an approval prompt. It defaults to `dontAsk`, so unmatched `write`, `edit`,
-`edit_document`, and `bash` calls are denied. Pass `--auto`, configure auto mode, or add a matching `--allow` rule to
+`edit_document`, `document` (except `check`), `save_attachment`, and `bash` calls are denied. Pass `--auto`, configure auto mode, or add a matching `--allow` rule to
 permit them. Explicit deny rules
 remain effective in auto mode.
 

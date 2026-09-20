@@ -129,6 +129,7 @@ describe("interactive CLI setup", () => {
     mocks.uiOptions?.onSetupInferenceChoice?.("local")
     mocks.uiOptions?.onSetupLocalInferenceChoice?.("pair")
     expect(mocks.ui.showPairSetup).toHaveBeenLastCalledWith("", "local", {
+      omlx: "http://127.0.0.1:8000",
       ollama: "http://127.0.0.1:11434",
       lmStudio: "http://127.0.0.1:1234",
     })
@@ -146,10 +147,14 @@ describe("interactive CLI setup", () => {
       },
       { signal: expect.any(AbortSignal) },
     )
-    expect(mocks.savePairEndpoints).toHaveBeenCalledWith({
-      ollama: "http://127.0.0.1:11434",
-      lmStudio: "http://127.0.0.1:1234",
-    })
+    expect(mocks.saveLocalServers).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pairEndpoints: {
+          ollama: "http://127.0.0.1:11434",
+          lmStudio: "http://127.0.0.1:1234",
+        },
+      }),
+    )
     const picker = (mocks.ui.showModelPicker.mock.calls[0]?.[0] ?? []) as ModelPickerItem[]
     expect(picker).toEqual(
       expect.arrayContaining([expect.objectContaining({ kind: "header", displayName: "NVIDIA PAIR" })]),
@@ -223,7 +228,9 @@ describe("interactive CLI setup", () => {
     })
 
     await vi.waitFor(() => expect(mocks.ui.showModelPicker).toHaveBeenCalledOnce())
-    expect(mocks.savePairEndpoints).toHaveBeenCalledWith({ ollama: "http://127.0.0.1:11434" })
+    expect(mocks.saveLocalServers).toHaveBeenCalledWith(
+      expect.objectContaining({ pairEndpoints: { ollama: "http://127.0.0.1:11434" } }),
+    )
     expect(mocks.ui.showPairSetupError).not.toHaveBeenCalled()
   })
 
@@ -247,7 +254,9 @@ describe("interactive CLI setup", () => {
       { ollama: "http://127.0.0.1:11434" },
       { signal: expect.any(AbortSignal) },
     )
-    expect(mocks.savePairEndpoints).toHaveBeenCalledWith({ ollama: "http://127.0.0.1:11434" })
+    expect(mocks.saveLocalServers).toHaveBeenCalledWith(
+      expect.objectContaining({ pairEndpoints: { ollama: "http://127.0.0.1:11434" } }),
+    )
     expect(mocks.ui.showPairSetupError).not.toHaveBeenCalled()
   })
 
@@ -269,7 +278,7 @@ describe("interactive CLI setup", () => {
       ),
     )
     expect(mocks.discoverPairModels).not.toHaveBeenCalled()
-    expect(mocks.savePairEndpoints).not.toHaveBeenCalled()
+    expect(mocks.saveLocalServers).not.toHaveBeenCalled()
   })
 
   it("offers PAIR in Settings and prefills a saved endpoint", async () => {
@@ -283,12 +292,13 @@ describe("interactive CLI setup", () => {
     await submit("/settings")
     expect(mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[0]).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ name: "NVIDIA PAIR", description: "Reconnect or choose model" }),
+        expect.objectContaining({ name: "Local servers", description: "Reconnect or choose model" }),
       ]),
     )
 
     await submit("/settings pair")
     expect(mocks.ui.showPairSetup).toHaveBeenLastCalledWith("", "configured", {
+      omlx: "http://127.0.0.1:8000",
       ollama: "http://127.0.0.1:11434",
       lmStudio: "http://127.0.0.1:1234",
     })
@@ -308,10 +318,15 @@ describe("interactive CLI setup", () => {
     await loadCli()
 
     expect(mocks.uiOptions?.configured).toBe(false)
-    expect(mocks.ui.showPairSetup).toHaveBeenCalledWith("Reconnect to NVIDIA PAIR, then choose a model.", "local", {
-      ollama: "http://127.0.0.1:11434",
-      lmStudio: "http://127.0.0.1:1234",
-    })
+    expect(mocks.ui.showPairSetup).toHaveBeenCalledWith(
+      "Reconnect to your local server, then choose a model.",
+      "local",
+      {
+        omlx: "http://127.0.0.1:8000",
+        ollama: "http://127.0.0.1:11434",
+        lmStudio: "http://127.0.0.1:1234",
+      },
+    )
   })
 
   it("adds a validated hosted key from settings without replacing the active local model", async () => {

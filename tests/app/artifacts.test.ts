@@ -59,14 +59,37 @@ describe("ArtifactStore", () => {
     const store = new ArtifactStore(cwd)
     store.openWorkspace({ source: "workspace", path: "notes.md", kind: "markdown" })
     const pending = store.load(store.metadata?.revision ?? 0)
+    const exportPending = store.exportFile(store.metadata?.revision ?? 0)
     store.clear()
     await expect(pending).resolves.toBeUndefined()
+    await expect(exportPending).resolves.toBeUndefined()
+  })
+
+  it("retains code and data sources without opening Canvas or displacing a visual document", async () => {
+    const cwd = await trackedTempDir()
+    const store = new ArtifactStore(cwd)
+    const visual = await createDocumentAttachment(Buffer.from("# Brief"), "brief.md")
+    const code = await createDocumentAttachment(Buffer.from("print('hello')"), "main.py")
+    const config = await createDocumentAttachment(Buffer.from('{"enabled":true}'), "config.json")
+    const raw = await createDocumentAttachment(Buffer.from("plain text"), "notes.txt")
+    const source = { role: "user" as const, content: [visual, code, config, raw] }
+    store.observeMessage({ role: "user", content: [code, config, raw] })
+    expect(store.metadata).toBeUndefined()
+    store.observeMessage(source)
+    expect(store.metadata?.title).toBe("brief.md")
+    const revision = store.metadata?.revision
+    for (const document of [code, config, raw]) expect(store.open(attachmentArtifactReference(document))).toBe(false)
+    store.observeFile({ source: "workspace", kind: "text", path: "notes.txt" })
+    expect(store.metadata?.revision).toBe(revision)
+    store.restore([source], [])
+    expect(store.metadata?.title).toBe("brief.md")
+    expect(store.attachments).toEqual(expect.arrayContaining([visual, code, config, raw]))
   })
 
   it("keeps every attachment available after compaction and restores them from full scrollback", async () => {
     const cwd = await trackedTempDir()
-    const first = await createDocumentAttachment(new TextEncoder().encode("First source"), "first.txt")
-    const second = await createDocumentAttachment(new TextEncoder().encode("Second source"), "second.txt")
+    const first = await createDocumentAttachment(new TextEncoder().encode("First source"), "first.md")
+    const second = await createDocumentAttachment(new TextEncoder().encode("Second source"), "second.md")
     const message = { role: "user" as const, content: [first, second] }
     const transcript = new TranscriptStore()
     const artifacts = new ArtifactStore(cwd)
@@ -76,7 +99,7 @@ describe("ArtifactStore", () => {
     expect(transcript.history).not.toContain(message)
     expect(artifacts.open(attachmentArtifactReference(first))).toBe(true)
     await expect(artifacts.load(artifacts.metadata?.revision ?? 0)).resolves.toMatchObject({ content: "First source" })
-    expect(artifacts.open({ ...attachmentArtifactReference(first), name: "wrong.txt" })).toBe(false)
+    expect(artifacts.open({ ...attachmentArtifactReference(first), name: "wrong.md" })).toBe(false)
 
     artifacts.clear()
     expect(artifacts.open(attachmentArtifactReference(first))).toBe(false)
@@ -105,6 +128,11 @@ describe("ArtifactStore", () => {
     expect(updated?.revision).toBe(2)
     await expect(artifacts.load(first?.revision ?? 0)).resolves.toBeUndefined()
     await expect(artifacts.load(updated?.revision ?? 0)).resolves.toMatchObject({ content: "# Updated\n" })
+    await expect(artifacts.exportFile(first?.revision ?? 0)).resolves.toBeUndefined()
+    await expect(artifacts.exportFile(updated?.revision ?? 0)).resolves.toEqual({
+      name: "notes.md",
+      bytes: Buffer.from("# Updated\n"),
+    })
   })
 
   it("renders original PDF and DOCX bytes without flattening the stored source", async () => {
@@ -127,12 +155,16 @@ describe("ArtifactStore", () => {
       encoding: "html",
       content: "<p>Native Word preview</p>",
     })
+    await expect(artifacts.exportFile(artifacts.metadata?.revision ?? 0)).resolves.toEqual({
+      name: "brief.docx",
+      bytes: Buffer.from(docx.data, "base64"),
+    })
   })
 
   it("restores the last artifact in transcript order and rejects unsafe references", async () => {
     const cwd = await trackedTempDir()
     await writeFile(join(cwd, "result.html"), "<h1>Result</h1>", "utf8")
-    const attachment = await createDocumentAttachment(new TextEncoder().encode("Draft"), "draft.txt")
+    const attachment = await createDocumentAttachment(new TextEncoder().encode("Draft"), "draft.md")
     const messages: ChatMessage[] = [
       { role: "user", content: [attachment] },
       {
@@ -170,6 +202,7 @@ describe("ArtifactStore", () => {
     artifacts.openWorkspace({ source: "workspace", path: "preview.md", kind: "markdown" })
 
     await expect(artifacts.load(artifacts.metadata?.revision ?? 0)).rejects.toThrow("outside the workspace")
+    await expect(artifacts.exportFile(artifacts.metadata?.revision ?? 0)).rejects.toThrow("outside the workspace")
   })
 })
 

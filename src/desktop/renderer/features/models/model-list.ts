@@ -6,7 +6,7 @@ import { englishT } from "../../i18n/translate.js"
 
 /** The identifier `selectModel` expects: the item id, or the selectionKey for PAIR entries. */
 export function pickerItemKey(item: ModelPickerChoice): string {
-  return item.provider === "pair" ? item.selectionKey : item.id
+  return "selectionKey" in item ? item.selectionKey : item.id
 }
 
 /**
@@ -50,10 +50,10 @@ export function pickerDetailParts(item: ModelPickerChoice, t: Translate = englis
       modality,
     ]
   }
-  const parts: PickerDetailPart[] = []
+  const parts: PickerDetailPart[] = item.provider === "omlx" ? [{ label: "oMLX" }] : []
   if (item.contextLength) parts.push({ label: formatContextWindow(item.contextLength) })
   parts.push(modality)
-  if (item.fastId) parts.push({ label: t("models.fastMode") })
+  if (item.provider === "fireworks" && item.fastId) parts.push({ label: t("models.fastMode") })
   return parts
 }
 

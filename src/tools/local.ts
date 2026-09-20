@@ -1,4 +1,6 @@
 import { publishArtifact } from "./artifacts.js"
+import { saveAttachment } from "./attachments.js"
+import { runDocumentWorkflow } from "./document-workflow.js"
 import { editLocalDocument } from "./documents.js"
 import { editLocalFile, readLocalFile, writeLocalFile } from "./files.js"
 import { globLocalFiles, grepLocalFiles } from "./search.js"
@@ -7,7 +9,19 @@ import type { ToolCall, ToolContext, ToolResult } from "./types.js"
 
 type LocalToolCall = Extract<
   ToolCall,
-  { name: "read" | "grep" | "glob" | "write" | "edit" | "edit_document" | "publish_artifact" | "bash" }
+  {
+    name:
+      | "read"
+      | "grep"
+      | "glob"
+      | "write"
+      | "edit"
+      | "edit_document"
+      | "document"
+      | "save_attachment"
+      | "publish_artifact"
+      | "bash"
+  }
 >
 
 export function executeLocalTool(call: LocalToolCall, context: ToolContext): Promise<ToolResult> {
@@ -24,6 +38,10 @@ export function executeLocalTool(call: LocalToolCall, context: ToolContext): Pro
       return editLocalFile(call.input.path, call.input.old, call.input.new, context)
     case "edit_document":
       return editLocalDocument(call.input, context)
+    case "document":
+      return runDocumentWorkflow(call.input, context)
+    case "save_attachment":
+      return saveAttachment(call.input, context)
     case "bash":
       return runBash(call.input.command, call.input.timeoutMs, context)
     case "publish_artifact":

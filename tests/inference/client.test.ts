@@ -173,7 +173,7 @@ describe("FireworksClient", () => {
     expect(body.messages[1].content[0].text).toContain("Portable document text")
     expect(body.messages[1].content[0].text).toContain('"name":"notes.txt"')
     expect(serialized).not.toContain("c2VjcmV0LWJ5dGVz")
-    expect(serialized).not.toContain("sha256")
+    expect(body.messages[1].content[0].text).toContain(`"sha256":"${"0".repeat(64)}"`)
   })
 
   it("omits service_tier for Fast serving-path model IDs", async () => {

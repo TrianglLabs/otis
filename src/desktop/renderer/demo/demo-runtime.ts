@@ -616,7 +616,7 @@ class DemoRuntime implements DesktopApi {
     return { ok: true }
   }
 
-  async connectPairEndpoints(endpoints: { ollama?: string; lmStudio?: string }): Promise<ModelSelectResult> {
+  async connectLocalServers(endpoints: { ollama?: string; lmStudio?: string }): Promise<ModelSelectResult> {
     if (!endpoints.ollama?.trim() && !endpoints.lmStudio?.trim()) {
       return { ok: false, reason: "Enter at least one Ollama, LM Studio, or NVIDIA PAIR endpoint." }
     }
@@ -707,6 +707,10 @@ class DemoRuntime implements DesktopApi {
         )
       : [...DEMO_ARTIFACTS_BY_SESSION.values()].find((candidate) => candidate.metadata.id === artifact.id)
     return fixture ? { ...fixture.payload, ...artifact } : undefined
+  }
+
+  async saveArtifact(_id: string, _revision: number): Promise<SessionOpResult> {
+    return { ok: false, reason: "Demo previews do not contain original files to save." }
   }
 
   async openArtifact(reference: ArtifactReference, version?: number): Promise<SessionOpResult> {
@@ -895,7 +899,7 @@ class DemoRuntime implements DesktopApi {
     const current = this.#state.model
     const load = this.#state.modelLoad
     const rows = DEMO_MODELS.map((item): ModelPickerChoice => {
-      const key = item.provider === "pair" ? item.selectionKey : item.id
+      const key = "selectionKey" in item ? item.selectionKey : item.id
       const active = current?.provider === item.provider && current.id === item.id
       const status = load?.modelId === key ? load.status : undefined
       // Deleted weights are gone from disk: the row returns to its downloadable state.
@@ -925,7 +929,7 @@ class DemoRuntime implements DesktopApi {
     if (this.#state.busy) return { ok: false, reason: "Finish the current work before switching models." }
     const item = (await this.listModels()).find(
       (entry): entry is ModelPickerChoice =>
-        entry.kind === "model" && (entry.provider === "pair" ? entry.selectionKey === id : entry.id === id),
+        entry.kind === "model" && ("selectionKey" in entry ? entry.selectionKey === id : entry.id === id),
     )
     if (!item) return { ok: false, reason: "That model is no longer in the catalog." }
     if (item.active) return { ok: true }

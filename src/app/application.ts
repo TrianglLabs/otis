@@ -5,9 +5,9 @@ import { requestContextEstimator } from "../core/context-tokens.js"
 import { providerTools } from "../core/subagent.js"
 import type { LocalLoadProgress } from "../inference/llama-runtime.js"
 import { catalogModelFromSpec, findLocalModel } from "../inference/local-catalog.js"
-import { type PairEndpoints, pairEndpointForEngine } from "../inference/pair.js"
+import { PairClient, type PairEndpoints, pairEndpointForEngine } from "../inference/pair.js"
 import type { ContextFile, OutputCapabilities, UserChatMessage } from "../inference/types.js"
-import { type LocalSettings, loadLocalSettings, saveLocalThinking } from "../local/settings.js"
+import { type LocalSettings, loadLocalSettings, saveLocalServers, saveLocalThinking } from "../local/settings.js"
 import {
   createPermissionPolicy,
   DEFAULT_PERMISSION_MODE,
@@ -19,6 +19,7 @@ import { loadSkillCatalog, type SkillCatalog } from "../skills/index.js"
 import { ParallelClient } from "../web/client.js"
 import { ArtifactStore } from "./artifacts.js"
 import { Conversation } from "./conversation.js"
+import { type LocalServerDiscoveryOptions, type LocalServerInputs, prepareLocalServers } from "./local-servers.js"
 import { ModelHost } from "./models.js"
 import { SessionCoordinator } from "./sessions.js"
 import { SubagentTraces } from "./subagents.js"
@@ -153,8 +154,34 @@ export class Application {
       model.selectedId &&
         ((model.selectedProvider === "fireworks" && this.fireworksApiKey) ||
           model.selectedProvider === "local" ||
+          (model.selectedProvider === "omlx" && model.omlx) ||
           (model.selectedProvider === "pair" && pairEndpoint)),
     )
+  }
+
+  async connectLocalServers(input: LocalServerInputs, options: LocalServerDiscoveryOptions = {}) {
+    if (this.conversation.busy) throw new Error("Wait for the current turn before changing local servers.")
+    const connection = await this.models.enqueueSelection(async (signal) => {
+      const combined = options.signal ? AbortSignal.any([signal, options.signal]) : signal
+      const servers = await prepareLocalServers(input, this.models.omlx, { ...options, signal: combined })
+      combined.throwIfAborted()
+      await saveLocalServers(servers)
+      this.pairEndpoints = servers.pairEndpoints
+      this.models.omlx = servers.omlx
+      const id = this.models.selectedId
+      if (id && this.models.selectedProvider === "pair") {
+        const endpoint = pairEndpointForEngine(servers.pairEndpoints, this.models.pairEngine)
+        this.models.client = endpoint ? new PairClient({ baseURL: endpoint, model: id }) : undefined
+      }
+      if (id && this.models.selectedProvider === "omlx") {
+        const model = servers.omlxModels.find((entry) => entry.id === id)
+        if (model) this.models.activate(model, this.models.omlxClient(id, model.baseURL))
+        else this.models.client = undefined
+      }
+      return servers
+    })
+    if (!connection) throw new Error("The connection was cancelled.")
+    return connection
   }
 
   /**
@@ -172,6 +199,10 @@ export class Application {
     const models = this.models
     if (models.client) return "ready"
     if (!models.selectedId || !models.selectedProvider) return "unconfigured"
+    if (models.selectedProvider === "omlx") {
+      await models.connect({ provider: "omlx", modelId: models.selectedId, signal: options.signal })
+      return "ready"
+    }
     if (models.selectedProvider !== "local") return "unconfigured"
 
     const spec = findLocalModel(models.selectedId)

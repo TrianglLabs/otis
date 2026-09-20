@@ -137,8 +137,8 @@
 }
 
 .onboarding-cards {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-auto-rows: 1fr;
   gap: 8px;
   width: 100%;
 }
@@ -184,7 +184,7 @@
 }
 
 .onboarding-cardMark {
-  width: 48px;
+  width: 74px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -200,7 +200,7 @@
 }
 
 .onboarding-providerMarks {
-  width: 48px;
+  width: 74px;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -368,6 +368,10 @@
 
 .onboarding-endpointInput:focus {
   border-color: var(--accent);
+}
+
+.onboarding-endpointKey {
+  grid-column: 2;
 }
 
 .onboarding-listLabel {

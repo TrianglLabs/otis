@@ -22,7 +22,7 @@ describe("skill catalog", () => {
 
     const catalog = await loadSkillCatalog(nested, { home })
 
-    expect(catalog.skills.map((skill) => skill.name)).toEqual(["project-only", "shared"])
+    expect(catalog.skills.map((skill) => skill.name)).toEqual(["documents", "project-only", "shared"])
     expect(catalog.byName.get("shared")).toMatchObject({ description: "Project description" })
     expect(catalog.byName.get("shared")?.root).toBe(await realpath(join(project, ".agents", "skills", "shared")))
   })
@@ -39,8 +39,8 @@ describe("skill catalog", () => {
 
     const catalog = await loadSkillCatalog(project, { home })
 
-    expect(catalog.skills).toHaveLength(1)
-    expect(catalog.skills[0]).toMatchObject({
+    expect(catalog.skills).toHaveLength(2)
+    expect(catalog.byName.get("release-notes")).toMatchObject({
       name: "release-notes",
       description: "Prepare consistent release notes for shipped changes.",
     })

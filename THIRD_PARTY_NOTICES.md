@@ -1,5 +1,12 @@
 # Third-Party Notices
 
+## oMLX icon
+
+The `src/desktop/renderer/assets/omlx.svg` asset is the light app icon from
+[oMLX](https://github.com/jundot/omlx/blob/main/docs/images/icon-rounded-light.svg), distributed under the Apache
+License 2.0, with an accessible title added and the outer margin and shadow removed to match the other provider icons.
+The complete license text is reproduced in the Mermaid component notices below.
+
 ## OpenTUI
 
 Otis uses `@opentui/core`, and the reference material under `.agents/skills/opentui` is sourced from

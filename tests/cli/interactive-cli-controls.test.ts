@@ -138,9 +138,9 @@ describe("CLI settings", () => {
           submission: "/settings hosted",
         },
         {
-          name: "NVIDIA PAIR",
-          description: "Connect local AI cluster",
-          submission: "/settings pair",
+          name: "Local servers",
+          description: "Connect a local model server",
+          submission: "/settings servers",
         },
         {
           name: "Theme",
