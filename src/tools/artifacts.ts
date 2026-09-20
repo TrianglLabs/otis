@@ -1,5 +1,5 @@
 import { basename } from "node:path"
-import { readArtifactBytes } from "../artifacts/published.js"
+import { readArtifactBytes } from "../artifacts/bytes.js"
 import { resolveArtifactSource } from "../artifacts/source.js"
 import { artifactKindForPath } from "../artifacts/types.js"
 import type { ToolContext, ToolResult } from "./types.js"

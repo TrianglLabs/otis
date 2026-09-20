@@ -84,6 +84,10 @@ describe("artifact publication", () => {
       publication: { versions: [1, 2, 3], followingLatest: false, reference: { version: 1 } },
     })
     await expect(store.load(store.metadata?.revision ?? 0)).resolves.toMatchObject({ content: "First" })
+    await expect(store.exportFile(store.metadata?.revision ?? 0)).resolves.toEqual({
+      name: "first.md",
+      bytes: Buffer.from("First"),
+    })
     expect(store.open(first, 99)).toBe(false)
     expect(store.open(first)).toBe(true)
     await expect(store.load(store.metadata?.revision ?? 0)).resolves.toMatchObject({ content: "Third" })

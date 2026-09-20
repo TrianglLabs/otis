@@ -1,4 +1,5 @@
 import { ContextOverflowError } from "../inference/errors.js"
+import { userMessageAttachments } from "../inference/messages.js"
 import { buildSystemPrompt } from "../inference/system-prompt.js"
 import { hasObjectArguments } from "../inference/tool-call-history.js"
 import type {
@@ -93,6 +94,7 @@ export async function* runAgent(
 ): AsyncGenerator<AgentEvent> {
   const userMessage: UserChatMessage = typeof input === "string" ? { role: "user", content: input } : input
   let messages: ChatMessage[] = [...history, userMessage]
+  const attachments = messages.flatMap((message) => (message.role === "user" ? userMessageAttachments(message) : []))
   let turnStart = history.length
   let steeringCount = 0
   let recoveryAttempts = 0
@@ -102,7 +104,8 @@ export async function* runAgent(
   let contextEvent: (() => AgentEvent) | undefined
   try {
     const projectContext = options.projectContext ?? loadProjectContext(options.cwd ?? process.cwd())
-    const skills = options.skills ?? (await loadSkillCatalog(options.cwd ?? process.cwd()))
+    const skills =
+      options.skills ?? (await loadSkillCatalog(options.cwd ?? process.cwd(), { dataDirectory: options.dataDirectory }))
     const tools = availableTools(options.tools ?? TOOL_DEFINITIONS, skills)
     const modelSkills = tools.some((tool) => tool.name === "skill") ? skills : emptySkills()
     const systemPrompt = buildSystemPrompt(
@@ -136,6 +139,7 @@ export async function* runAgent(
       projectContext,
       skills,
       tools,
+      attachments: () => [...(options.attachments?.() ?? []), ...attachments],
       permissionPolicy:
         options.permissionPolicy ??
         createPermissionPolicy({ cwd: options.cwd ?? process.cwd(), mode: DEFAULT_PERMISSION_MODE }),
@@ -148,6 +152,7 @@ export async function* runAgent(
       if (steeringMessages?.length) {
         steeringCount += steeringMessages.length
         messages.push(...steeringMessages)
+        attachments.push(...steeringMessages.flatMap(userMessageAttachments))
         yield contextEvent()
       }
       options.signal?.throwIfAborted()
@@ -255,6 +260,7 @@ export async function* runAgent(
         if (steeringMessages?.length) {
           steeringCount += steeringMessages.length
           messages.push(...steeringMessages)
+          attachments.push(...steeringMessages.flatMap(userMessageAttachments))
           yield contextEvent()
           continue
         }

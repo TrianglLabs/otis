@@ -16,6 +16,7 @@ import {
   type LocalThinkingState,
   localThinkingCapability,
 } from "../inference/local-thinking.js"
+import { discoverOmlxModels, OmlxClient, type OmlxSettings } from "../inference/omlx.js"
 import { PairClient, pairEndpointForEngine } from "../inference/pair.js"
 import { findFireworksModel, fireworksServingModel, useFastServingPath } from "../inference/serving-path.js"
 import type { CatalogModel, InferenceClient, ModelProvider, PairEngine } from "../inference/types.js"
@@ -76,6 +77,7 @@ export type ModelHostOptions = {
 
 export class ModelHost {
   readonly llama: LlamaCppRuntime
+  omlx: OmlxSettings | undefined
   client: InferenceClient | undefined
   selectedId: string | undefined
   selectedProvider: ModelProvider | undefined
@@ -94,6 +96,7 @@ export class ModelHost {
   }
 
   applySavedSelection(settings: LocalSettings) {
+    this.omlx = settings.omlx
     this.localThinking = { ...settings.localThinking }
     this.selectedId = settings.model
     this.selectedProvider =
@@ -236,8 +239,11 @@ export class ModelHost {
       })
     }
 
-    if (isPairCatalogModel(model)) {
-      const client = new PairClient({ baseURL: model.baseURL, model: model.id })
+    if (isPairCatalogModel(model) || model.provider === "omlx") {
+      const client =
+        model.provider === "omlx"
+          ? this.omlxClient(model.id, model.baseURL)
+          : new PairClient({ baseURL: model.baseURL, model: model.id })
       try {
         await this.llama.stop()
         options.signal.throwIfAborted()
@@ -301,6 +307,23 @@ export class ModelHost {
   }
 
   async connect(options: ConnectModelOptions): Promise<ConnectedModel> {
+    if (options.provider === "omlx") {
+      if (!this.omlx) throw new Error("oMLX is not configured. Connect it in Local servers.")
+      const models = await discoverOmlxModels(this.omlx, { signal: options.signal })
+      const model = models.find((entry) => entry.id === options.modelId)
+      if (!model) throw new Error(`oMLX model is no longer available: ${options.modelId}`)
+      const client = this.omlxClient(model.id, model.baseURL)
+      await this.llama.stop()
+      options.signal?.throwIfAborted()
+      this.activate(model, client)
+      return {
+        client,
+        modelId: model.id,
+        provider: "omlx",
+        contextLength: compactionContextLength(model),
+        supportsImageInput: model.supportsImageInput,
+      }
+    }
     if (options.provider === "local") {
       const spec = findLocalModel(options.modelId)
       if (!spec) throw new Error(`Unknown local model: ${options.modelId}`)
@@ -370,6 +393,11 @@ export class ModelHost {
 
   async stop() {
     await this.llama.stop()
+  }
+
+  omlxClient(model: string, baseURL: string) {
+    if (!this.omlx || this.omlx.baseURL !== baseURL) throw new Error("oMLX endpoint changed. Refresh the model list.")
+    return new OmlxClient({ ...this.omlx, model })
   }
 }
 

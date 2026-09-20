@@ -3,6 +3,8 @@ export type Skill = {
   description: string
   root: string
   instructionsPath: string
+  /** Embedded first-party resources, materialized only when this skill is loaded. */
+  bundled?: boolean
 }
 
 export type SkillCatalog = {

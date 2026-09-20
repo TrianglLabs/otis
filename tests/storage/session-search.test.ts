@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { COMPACTION_SUMMARY_PREFIX } from "../../src/core/compaction.js"
 import type { ChatMessage } from "../../src/inference/types.js"
 import { createSession, openSession, searchSessions } from "../../src/storage/session.js"
@@ -9,6 +9,7 @@ import { createSession, openSession, searchSessions } from "../../src/storage/se
 const tempDirs: string[] = []
 
 afterEach(async () => {
+  vi.useRealTimers()
   await Promise.all(tempDirs.splice(0).map((path) => rm(path, { recursive: true, force: true })))
 })
 
@@ -72,8 +73,12 @@ describe("searchSessions", () => {
   it("ranks title matches above content matches and keeps recency order inside each group", async () => {
     const cwd = await trackedTempDir()
     // Oldest first: content-only hit, then two title hits written later.
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"))
     await writeSession(cwd, "unrelated chat", "The migration plan mentions the palette redesign.")
+    vi.setSystemTime(new Date("2026-01-02T00:00:00Z"))
     await writeSession(cwd, "palette tokens", "done")
+    vi.setSystemTime(new Date("2026-01-03T00:00:00Z"))
     await writeSession(cwd, "palette search", "done")
 
     const results = await searchSessions({ cwd, directory: sessionDir(cwd) }, "palette")

@@ -3,6 +3,7 @@ import { readdir, readFile, realpath, stat } from "node:fs/promises"
 import { homedir } from "node:os"
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { parseDocument } from "yaml"
+import { bundledSkills } from "./bundled.js"
 import type { Skill, SkillCatalog } from "./types.js"
 
 const SKILLS_DIRECTORY = join(".agents", "skills")
@@ -11,8 +12,11 @@ const MAX_SKILL_FILE_BYTES = 1024 * 1024
 const MAX_DESCRIPTION_LENGTH = 1024
 const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u
 
-export async function loadSkillCatalog(cwd: string, options: { home?: string } = {}): Promise<SkillCatalog> {
-  const skills = new Map<string, Skill>()
+export async function loadSkillCatalog(
+  cwd: string,
+  options: { home?: string; dataDirectory?: string } = {},
+): Promise<SkillCatalog> {
+  const skills = new Map<string, Skill>(bundledSkills(options.dataDirectory).map((skill) => [skill.name, skill]))
   for (const source of skillSources(cwd, options.home)) {
     for (const skill of await loadSkillsFromDirectory(source)) skills.set(skill.name, skill)
   }

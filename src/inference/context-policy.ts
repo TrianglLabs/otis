@@ -4,5 +4,6 @@ import type { ModelProvider } from "./types.js"
 const PAIR_UNKNOWN_CONTEXT_LENGTH = 65_536
 
 export function compactionContextLength(model: { provider?: ModelProvider; contextLength?: number }) {
+  if (model.provider === "omlx") return model.contextLength ?? 8_192
   return model.provider === "pair" ? PAIR_UNKNOWN_CONTEXT_LENGTH : model.contextLength
 }

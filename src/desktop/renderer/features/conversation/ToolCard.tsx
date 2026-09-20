@@ -14,6 +14,7 @@ import {
 import { memo, useMemo } from "react"
 import { Virtuoso } from "react-virtuoso"
 import type { TranscriptEntry } from "../../../../app/transcript.js"
+import { isCanvasArtifact } from "../../../../artifacts/canvas.js"
 import type { ToolActivityKind } from "../../../../tools/activity.js"
 import { ArtifactCard } from "../../components/ArtifactCard.js"
 import { Icon } from "../../components/Icon.js"
@@ -41,7 +42,12 @@ const KIND_ICONS: Record<ToolActivityKind, LucideIcon> = {
  */
 export function ToolCard({ entry, active }: { entry: TranscriptEntry; active: boolean }) {
   const icon = KIND_ICONS[entry.activityKind ?? "shell"]
-  if (entry.artifact && entry.artifactDisplay !== "pending" && entry.artifactDisplay !== "superseded") {
+  if (
+    entry.artifact &&
+    isCanvasArtifact(entry.artifact.kind) &&
+    entry.artifactDisplay !== "pending" &&
+    entry.artifactDisplay !== "superseded"
+  ) {
     return <ArtifactToolCard entry={entry} active={active} />
   }
 

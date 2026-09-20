@@ -8,12 +8,12 @@ import { inlineCanvas } from "./scripts/vite-inline-canvas.js"
 
 const root = fileURLToPath(new URL(".", import.meta.url))
 
-/** Mirrors Bun's built-in text loader (`import … with { type: "text" }`) for the system-prompt asset. */
+/** Mirrors Bun's text imports for prompts and embedded skill resources. */
 const inlineText: Plugin = {
   name: "otis-inline-text",
   enforce: "pre",
   async load(id) {
-    if (!id.endsWith(".txt")) return null
+    if (!/\.(txt|md|py)$/.test(id)) return null
     return `export default ${JSON.stringify(await readFile(id, "utf8"))}`
   },
 }

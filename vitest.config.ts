@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react"
 import { defineConfig } from "vitest/config"
 
 export default defineConfig({
-  // Mirror Bun's built-in .txt loader in Vitest's Vite pipeline.
+  // Mirror Bun's text imports for prompts and embedded skill resources.
   plugins: [
     // Automatic JSX runtime for renderer component tests (tests/desktop/renderer/*.tsx).
     react(),
@@ -11,7 +11,7 @@ export default defineConfig({
       name: "inline-text",
       enforce: "pre",
       async load(id) {
-        if (!id.endsWith(".txt")) return null
+        if (!/\.(txt|md|py)$/.test(id)) return null
         return `export default ${JSON.stringify(await readFile(id, "utf8"))}`
       },
     },

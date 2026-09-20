@@ -1,10 +1,11 @@
+import type { LocalServerConnection, LocalServerInputs } from "../app/local-servers.js"
 import type { ModelHost, PersistSelectionOptions } from "../app/models.js"
 import { listToolCapableModels } from "../inference/client.js"
 import { isLocalModelId } from "../inference/local-catalog.js"
 import { selectDefaultFireworksModel } from "../inference/model-policy.js"
+import { discoverOmlxModels, OMLX_DEFAULT_ENDPOINT } from "../inference/omlx.js"
 import {
   discoverPairModels,
-  normalizePairEndpoints,
   PAIR_DEFAULT_ENDPOINTS,
   type PairEndpoints,
   pairEngineLabel,
@@ -16,6 +17,7 @@ import {
   type ModelPickerItem,
   type ModelPickerStatus,
   toLocalCatalogModel,
+  toOmlxCatalogModel,
   toPairCatalogModel,
 } from "../inference/picker-catalog.js"
 import { findFireworksModel, fireworksServingModel, isFastFireworksModel } from "../inference/serving-path.js"
@@ -24,6 +26,7 @@ import type {
   FireworksModel,
   LocalCatalogModel,
   ModelProvider,
+  OmlxCatalogModel,
   PairCatalogModel,
   PairEngine,
 } from "../inference/types.js"
@@ -32,7 +35,6 @@ import {
   saveFastServingSelection,
   saveFireworksApiKey,
   saveFireworksSetup,
-  savePairEndpoints,
   saveSelectedModel,
 } from "../local/settings.js"
 import { openFireworksKeyPage } from "./provider-links.js"
@@ -46,7 +48,7 @@ type SetupFlowOptions = {
   isBusy: () => boolean
   setBusy: (busy: boolean) => void
   onCredentialsChanged: (credentials: { fireworksApiKey?: string }) => void
-  onPairEndpointsChanged: (endpoints: PairEndpoints) => void
+  connectLocalServers: (inputs: LocalServerInputs, signal: AbortSignal) => Promise<LocalServerConnection>
   persistSelection: (model: CatalogModel, options: PersistSelectionOptions) => Promise<CatalogModel>
   localLoadStatus?: () => { modelId: string; status: ModelPickerStatus } | undefined
   loadedLocalModel?: () => { model: string; contextLength: number } | undefined
@@ -68,6 +70,7 @@ export class SetupFlow {
   #pairEngine: PairEngine | undefined
   #pairEndpoints: PairEndpoints
   #pairModels: PairCatalogModel[] = []
+  #omlxModels: OmlxCatalogModel[] = []
   #models: FireworksModel[] = []
   #persistFireworksApiKey = false
   #credentialPurpose: "onboarding" | "settings" = "onboarding"
@@ -92,8 +95,8 @@ export class SetupFlow {
   begin() {
     if (this.#closed || this.options.isBusy()) return
     this.#credentialPurpose = "onboarding"
-    if (this.#selectedModelProvider === "pair") {
-      this.requestPairEndpoints("Reconnect to NVIDIA PAIR, then choose a model.")
+    if (this.#selectedModelProvider === "pair" || this.#selectedModelProvider === "omlx") {
+      this.requestPairEndpoints("Reconnect to your local server, then choose a model.")
       return
     }
     if (!this.#fireworksApiKey) {
@@ -205,8 +208,11 @@ export class SetupFlow {
         await this.selectLocalModel(toLocalCatalogModel(item), signal)
         return
       }
-      if (item.provider === "pair") {
-        await this.selectPairModel(toPairCatalogModel(item), signal)
+      if (item.provider === "pair" || item.provider === "omlx") {
+        await this.selectPairModel(
+          item.provider === "omlx" ? toOmlxCatalogModel(item) : toPairCatalogModel(item),
+          signal,
+        )
         return
       }
       await this.selectFireworksModel(item.id, signal)
@@ -292,6 +298,7 @@ export class SetupFlow {
     this.options.ui.showPairSetup(message, cancelTarget, {
       ollama: this.#pairEndpoints.ollama ?? PAIR_DEFAULT_ENDPOINTS.ollama,
       lmStudio: this.#pairEndpoints.lmStudio ?? PAIR_DEFAULT_ENDPOINTS.lmStudio,
+      omlx: this.options.models.omlx?.baseURL ?? OMLX_DEFAULT_ENDPOINT,
     })
   }
 
@@ -305,28 +312,11 @@ export class SetupFlow {
     this.options.ui.showSetupStatus("Checking local model server endpoints…")
     const cancelTarget = this.#credentialPurpose === "settings" ? "configured" : "local"
     try {
-      const requested = pairEndpointsFromInputs(inputs)
-      if (!requested.ollama && !requested.lmStudio) {
-        throw new Error("Enter at least one Ollama, LM Studio, or NVIDIA PAIR endpoint.")
-      }
-      const discovery = await discoverPairModels(requested, { signal })
-      signal.throwIfAborted()
-      if (discovery.ollama === undefined && discovery.lmStudio === undefined) {
-        throw new Error(
-          "No compatible model server was found. Start Ollama, LM Studio, or NVIDIA PAIR and check its address.",
-        )
-      }
-      const models = [...(discovery.ollama ?? []), ...(discovery.lmStudio ?? [])]
-      if (models.length === 0) {
-        throw new Error("The connected model servers report no available models. Add or load a model and try again.")
-      }
-      this.#pairEndpoints = {
-        ...(discovery.ollama !== undefined && requested.ollama ? { ollama: requested.ollama } : {}),
-        ...(discovery.lmStudio !== undefined && requested.lmStudio ? { lmStudio: requested.lmStudio } : {}),
-      }
-      await savePairEndpoints(this.#pairEndpoints)
-      this.options.onPairEndpointsChanged({ ...this.#pairEndpoints })
+      const connection = await this.options.connectLocalServers(inputs, signal)
+      this.#pairEndpoints = connection.pairEndpoints
+      const models = connection.pairModels
       this.#pairModels = models
+      this.#omlxModels = connection.omlxModels
       this.#modelPickerBackTarget = this.#credentialPurpose === "settings" ? "choice" : "local"
       this.#wasConfigured = this.#credentialPurpose === "settings"
       if (!this.#closed) {
@@ -336,6 +326,7 @@ export class SetupFlow {
           currentProvider: this.#selectedModelProvider,
           currentPairEngine: this.#pairEngine,
           pairModels: models,
+          omlxModels: this.#omlxModels,
           listFireworks: (key, options) => this.loadVerifiedModels(key, options?.signal),
           loadStatus: this.options.localLoadStatus?.(),
           loadedLocalModel: this.options.loadedLocalModel?.(),
@@ -406,12 +397,17 @@ export class SetupFlow {
         const discovery = await discoverPairModels(this.#pairEndpoints, { signal })
         this.#pairModels = [...(discovery.ollama ?? []), ...(discovery.lmStudio ?? [])]
       }
+      this.#omlxModels =
+        sources !== "managed" && this.options.models.omlx
+          ? await discoverOmlxModels(this.options.models.omlx, { signal }).catch(() => [])
+          : []
       const items = await listModelPickerItems({
         fireworksApiKey: apiKey,
         currentModel,
         currentProvider: this.#selectedModelProvider,
         currentPairEngine: this.#pairEngine,
         pairModels: optionsPairModels(this.#pairModels, sources),
+        omlxModels: this.#omlxModels,
         listFireworks: (key, options) => this.loadVerifiedModels(key, options?.signal),
         loadStatus: this.options.localLoadStatus?.(),
         loadedLocalModel: this.options.loadedLocalModel?.(),
@@ -482,15 +478,19 @@ export class SetupFlow {
     }
   }
 
-  private async selectPairModel(selected: PairCatalogModel, signal: AbortSignal) {
-    const key = pairModelKey(selected)
+  private async selectPairModel(selected: PairCatalogModel | OmlxCatalogModel, signal: AbortSignal) {
+    const key = selected.provider === "omlx" ? `omlx:${selected.id}` : pairModelKey(selected)
     try {
       await this.persistSelection(selected, signal, (serving) => saveSelectedModel(serving))
       if (signal.aborted || this.#closed) return
       this.options.onConfigured()
       this.options.ui.setConfigured()
       this.options.ui.hideModelPicker()
-      this.options.ui.showTransientHint(` Connected through NVIDIA PAIR · ${pairEngineLabel(selected.engine)} `)
+      this.options.ui.showTransientHint(
+        selected.provider === "omlx"
+          ? " Connected to oMLX "
+          : ` Connected through NVIDIA PAIR · ${pairEngineLabel(selected.engine)} `,
+      )
       this.options.ui.focusInput()
     } catch (error) {
       if (signal.aborted || this.#closed || isAbortError(error)) return
@@ -591,13 +591,6 @@ export class SetupFlow {
 
 function optionsPairModels(cached: readonly PairCatalogModel[], sources: ModelPickerOpenOptions["sources"]) {
   return sources === "managed" ? [] : cached
-}
-
-function pairEndpointsFromInputs(inputs: PairEndpointInputs): PairEndpoints {
-  return normalizePairEndpoints({
-    ...(inputs.ollama.trim() ? { ollama: inputs.ollama } : {}),
-    ...(inputs.lmStudio.trim() ? { lmStudio: inputs.lmStudio } : {}),
-  })
 }
 
 function modelFromId(id: string, supportsImageInput = false): FireworksModel {

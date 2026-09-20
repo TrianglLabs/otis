@@ -3,6 +3,28 @@ import { buildSystemPrompt } from "../../src/inference/system-prompt.js"
 import { TOOL_DEFINITIONS } from "../../src/tools/index.js"
 
 describe("system prompt", () => {
+  it("requires format and design preservation and only offers enabled document operations", () => {
+    const prompt = buildSystemPrompt([], new Date(), [], TOOL_DEFINITIONS)
+    expect(prompt).toContain("Do not silently substitute Markdown")
+    expect(prompt).toContain("Preserve existing formatting and design by default")
+    expect(prompt).toContain("agreement to a new layout before recreating the document")
+    expect(prompt).toContain("do not ask again")
+    expect(prompt).toContain("changed text can reflow lines and pages")
+    expect(prompt).toContain("Use save_attachment")
+    expect(prompt).toContain("Use edit_document")
+    expect(prompt).toContain("inspect-pdf/edit-pdf")
+    expect(prompt).toContain("Distinguish structural/text checks from visual layout inspection")
+    const narrowed = buildSystemPrompt(
+      [],
+      new Date(),
+      [],
+      TOOL_DEFINITIONS.filter((tool) => tool.name !== "save_attachment"),
+    )
+    expect(narrowed).not.toContain("Use save_attachment")
+    expect(narrowed).toContain("Attachment export is unavailable")
+    expect(buildSystemPrompt([], new Date(), [], [])).not.toContain("Document work:")
+  })
+
   it("instructs final-path publication only when the tool is offered", () => {
     const withPublication = buildSystemPrompt([], new Date(), [], TOOL_DEFINITIONS)
     expect(withPublication).toContain("call publish_artifact on its final path")

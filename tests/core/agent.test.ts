@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -6,8 +6,10 @@ import { ArtifactPublisher } from "../../src/artifacts/publisher.js"
 import { type AgentEvent, runAgent } from "../../src/core/agent.js"
 import { SteeringInbox } from "../../src/core/steering.js"
 import type { FireworksClient } from "../../src/inference/client.js"
+import { createDocumentAttachment } from "../../src/inference/documents.js"
 import { createPermissionPolicy, type PermissionRequest } from "../../src/permissions/policy.js"
 import { emptySkillCatalog } from "../../src/skills/index.js"
+import { minimalDocx } from "../inference/support/document-fixtures.js"
 
 const streamAgentMock = vi.hoisted(() => vi.fn())
 const client = { model: "accounts/fireworks/models/test", streamChat: streamAgentMock } as unknown as FireworksClient
@@ -20,6 +22,46 @@ afterEach(async () => {
 })
 
 describe("runAgent", () => {
+  it("adapts an uploaded Word document through original bytes and publishes the edited Word file", async () => {
+    const cwd = await trackedTempDir()
+    const source = await minimalDocx("Experienced engineer")
+    const attachment = await createDocumentAttachment(source, "resume.docx")
+    streamAgentMock
+      .mockImplementationOnce(async function* (request) {
+        expect(request.systemPrompt).toContain("preserve its file type")
+        for (const [name, args] of [
+          ["save_attachment", { attachment: attachment.sha256, path: "source.docx" }],
+          [
+            "edit_document",
+            {
+              path: "source.docx",
+              output_path: "adapted.docx",
+              replacements: [{ old: "Experienced engineer", new: "Experienced software engineer" }],
+            },
+          ],
+          ["publish_artifact", { path: "adapted.docx" }],
+        ] as const)
+          yield { type: "tool_call", toolCall: { id: name, name, arguments: JSON.stringify(args) } }
+      })
+      .mockImplementationOnce(async function* () {
+        yield { type: "text_delta", text: "Created the adapted Word document." }
+      })
+    const events = await collect(
+      runAgent({ role: "user", content: [attachment, { type: "text", text: "Adapt my resume" }] }, [], {
+        client,
+        cwd,
+        artifactPublisher: new ArtifactPublisher(join(cwd, "private-artifacts")),
+      }),
+    )
+    expect(await readFile(join(cwd, "source.docx"))).toEqual(Buffer.from(source))
+    const edited = await createDocumentAttachment(await readFile(join(cwd, "adapted.docx")), "adapted.docx")
+    expect(edited.extractedText).toBe("Experienced software engineer")
+    const tools = events.filter((event) => event.type === "tool" && event.phase === "end")
+    expect(tools).toHaveLength(3)
+    expect(tools.every((event) => event.type === "tool" && event.outcome === "completed")).toBe(true)
+    expect(tools.at(-1)).toMatchObject({ artifact: { source: "published", kind: "docx", name: "adapted.docx" } })
+  })
+
   it.each([
     "approve",
     "deny",

@@ -104,7 +104,7 @@ async function prepareDocument(
   }
   if (operation.kind !== "fill_pdf_form") {
     throw new Error(
-      "PDF text cannot be safely rewritten in place. Use form_fields for an interactive PDF, or edit its source document and export a new PDF.",
+      "PDF text replacements use the document tool's inspect-pdf/edit-pdf operations; load the documents skill for the edit plan. Use form_fields here for an interactive PDF.",
     )
   }
   return fillPdfForm(source, operation.fields, outputName)

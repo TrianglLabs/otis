@@ -10,6 +10,35 @@ import { DesktopViewStore } from "../../../src/desktop/renderer/state.js"
 
 afterEach(cleanup)
 
+it("saves the displayed revision, reports errors, and resets the action when the revision changes", async () => {
+  const api = createDemoRuntime()
+  const runtime = { api, store: new DesktopViewStore(api) }
+  const artifact = (await api.getSnapshot()).artifact
+  if (!artifact) throw new Error("Expected demo artifact")
+  const save = vi.spyOn(api, "saveArtifact").mockResolvedValue({ ok: false, reason: "The destination is read-only." })
+  const view = render(
+    <DesktopProvider value={runtime}>
+      <FileArtifact artifact={artifact} />
+    </DesktopProvider>,
+  )
+  await act(async () => {})
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Save a copy" })))
+  expect(save).toHaveBeenCalledExactlyOnceWith(artifact.id, artifact.revision)
+  expect(screen.getByRole("alert").textContent).toBe("The destination is read-only.")
+  const next = { ...artifact, revision: artifact.revision + 1 }
+  vi.spyOn(api, "getArtifact").mockResolvedValue({ ...next, encoding: "html", content: "<p>Another revision</p>" })
+  view.rerender(
+    <DesktopProvider value={runtime}>
+      <FileArtifact artifact={next} />
+    </DesktopProvider>,
+  )
+  await act(async () => {})
+  expect(screen.queryByRole("alert")).toBeNull()
+  save.mockResolvedValue({ ok: true })
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Save a copy" })))
+  expect(save).toHaveBeenLastCalledWith(next.id, next.revision)
+})
+
 it("hides the selector for a single saved version and shows it when another version arrives", async () => {
   const api = createDemoRuntime()
   const runtime = { api, store: new DesktopViewStore(api) }

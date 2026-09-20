@@ -13,7 +13,7 @@ export type Renderer = Awaited<ReturnType<typeof import("@opentui/core").createC
 export type SetupInferenceChoice = "local" | "hosted"
 export type SetupLocalInferenceChoice = "managed" | "pair"
 export type SetupInputCancelTarget = "choice" | "local" | "configured"
-export type PairEndpointInputs = { ollama: string; lmStudio: string }
+export type PairEndpointInputs = { ollama: string; lmStudio: string; omlx?: string; omlxApiKey?: string }
 
 export type InputMode =
   | "chat"

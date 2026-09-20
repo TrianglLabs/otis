@@ -35,6 +35,8 @@ type InputControllerOptions = {
   setupPairCard: BoxRenderable
   setupPairForm: BoxRenderable
   setupPairLMStudioInput: InputRenderable
+  setupOmlxInput: InputRenderable
+  setupOmlxKeyInput: InputRenderable
   setupPairMessage: TextRenderable
   setupPairOllamaInput: InputRenderable
   setupContinueButton: BoxRenderable
@@ -57,6 +59,7 @@ type InputControllerOptions = {
 
 type SetupKey = {
   name: string
+  shift?: boolean
   sequence?: string
   preventDefault(): void
   stopPropagation(): void
@@ -79,6 +82,8 @@ export class InputController {
     options.setupInput.on(InputRenderableEvents.ENTER, () => this.#submitSetup())
     options.setupPairOllamaInput.on(InputRenderableEvents.ENTER, () => this.#submitPairSetup())
     options.setupPairLMStudioInput.on(InputRenderableEvents.ENTER, () => this.#submitPairSetup())
+    options.setupOmlxInput.on(InputRenderableEvents.ENTER, () => this.#submitPairSetup())
+    options.setupOmlxKeyInput.on(InputRenderableEvents.ENTER, () => this.#submitPairSetup())
     bindAccentButton(options.setupStartButton, options.renderer, () => options.onSetup?.())
     bindAccentButton(options.setupContinueButton, options.renderer, () => this.#submitSetup())
     bindAccentButton(options.setupLocalCard, options.renderer, () => this.#selectInferenceChoice("local"))
@@ -103,8 +108,9 @@ export class InputController {
     }
     if (this.mode === "setupPairInput" && (key.name === "tab" || key.sequence === "\t")) {
       stopKey(key)
-      if (this.options.setupPairOllamaInput.focused) this.#focusPairInput("lmStudio")
-      else this.#focusPairInput("ollama")
+      const fields = this.#serverInputs()
+      const current = fields.findIndex((field) => field.focused)
+      this.#focusPairInput((current + (key.shift ? fields.length - 1 : 1)) % fields.length)
       return true
     }
     if (this.mode === "setupButton") {
@@ -160,7 +166,7 @@ export class InputController {
   focus() {
     if (this.mode === "chat") this.options.input.focus()
     if (this.mode === "setupInput") this.options.setupInput.focus()
-    if (this.mode === "setupPairInput") this.#focusPairInput("ollama")
+    if (this.mode === "setupPairInput") this.#focusPairInput(0)
   }
 
   setConfigured() {
@@ -218,6 +224,8 @@ export class InputController {
     this.mode = "setupPairInput"
     this.options.setupPairOllamaInput.value = endpoints.ollama
     this.options.setupPairLMStudioInput.value = endpoints.lmStudio
+    this.options.setupOmlxInput.value = endpoints.omlx ?? ""
+    this.options.setupOmlxKeyInput.value = endpoints.omlxApiKey ?? ""
     this.options.welcomeQuit.content = " "
     this.#setPairSetupMessage(message, false)
     this.setPrimary(this.options.setupPairForm)
@@ -252,6 +260,8 @@ export class InputController {
     this.options.setupInput.blur()
     this.options.setupPairOllamaInput.blur()
     this.options.setupPairLMStudioInput.blur()
+    this.options.setupOmlxInput.blur()
+    this.options.setupOmlxKeyInput.blur()
     this.options.inputArea.remove(this.options.inputBox.id)
     this.options.inputArea.remove(this.options.setupButtonBox.id)
     this.options.inputArea.remove(this.options.setupChoiceBox.id)
@@ -267,6 +277,8 @@ export class InputController {
     this.options.setupInput.value = ""
     this.options.setupPairOllamaInput.value = ""
     this.options.setupPairLMStudioInput.value = ""
+    this.options.setupOmlxInput.value = ""
+    this.options.setupOmlxKeyInput.value = ""
   }
 
   #submitSetup() {
@@ -279,14 +291,24 @@ export class InputController {
     this.options.onPairSetupSubmit?.({
       ollama: this.options.setupPairOllamaInput.value,
       lmStudio: this.options.setupPairLMStudioInput.value,
+      omlx: this.options.setupOmlxInput.value,
+      omlxApiKey: this.options.setupOmlxKeyInput.value,
     })
   }
 
-  #focusPairInput(input: keyof PairEndpointInputs) {
-    this.options.setupPairOllamaInput.blur()
-    this.options.setupPairLMStudioInput.blur()
-    if (input === "ollama") this.options.setupPairOllamaInput.focus()
-    else this.options.setupPairLMStudioInput.focus()
+  #serverInputs() {
+    return [
+      this.options.setupPairOllamaInput,
+      this.options.setupPairLMStudioInput,
+      this.options.setupOmlxInput,
+      this.options.setupOmlxKeyInput,
+    ]
+  }
+
+  #focusPairInput(index: number) {
+    const fields = this.#serverInputs()
+    for (const field of fields) field.blur()
+    fields[index]?.focus()
     this.options.renderer.requestRender()
   }
 
@@ -375,7 +397,7 @@ export class InputController {
     setupPairMessage.fg = error ? colors.pink : colors.muted
     const mounted = setupPairForm.getChildren().some((child) => child.id === setupPairMessage.id)
     if (message) {
-      if (!mounted) setupPairForm.add(setupPairMessage, 4)
+      if (!mounted) setupPairForm.add(setupPairMessage, 6)
     } else if (mounted) {
       setupPairForm.remove(setupPairMessage.id)
     }

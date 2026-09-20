@@ -18,6 +18,7 @@ const DELEGATION_GUIDANCE = [
 
 const MERMAID_GUIDANCE = [
   "Canvas:",
+  "- Canvas is for rendered documents and visual outputs. Plain code, configuration, and raw text stay in the conversation. Do not rename or wrap code as Markdown or HTML just to open it in Canvas.",
   "- This interface lets the user open fenced Mermaid diagrams in a visual Canvas.",
   "- When brainstorming or completing new, complex functionality, use a ```mermaid fenced block when it materially clarifies architecture, state, or information flow.",
   "- Choose the diagram type that best matches the information; use sequenceDiagram only for time-ordered interactions.",
@@ -35,6 +36,34 @@ export function buildSystemPrompt(
   outputCapabilities: OutputCapabilities = {},
 ) {
   const sections = [BASE_PROMPT]
+  if (
+    tools.some((tool) => tool.name === "edit_document" || tool.name === "document" || tool.name === "save_attachment")
+  ) {
+    sections.push(
+      [
+        "Document work:",
+        "- When asked to edit or adapt an uploaded file, preserve its file type unless the user requests a different deliverable. Do not silently substitute Markdown or plain text for PDF, Word, or images.",
+        "- Preserve existing formatting and design by default. A request to update content is not permission to redesign or rebuild the document. Work from the original file using supported edits.",
+        "- Attachments contain extracted text for reasoning; their names are not workspace paths and their page layout is not shown to you.",
+        tools.some((tool) => tool.name === "save_attachment")
+          ? "- Use save_attachment to obtain original bytes in a new workspace file when local processing is needed."
+          : "- Attachment export is unavailable in this tool selection; do not invent source paths or extract private session files.",
+        tools.some((tool) => tool.name === "document")
+          ? "- For PDF or Word creation, conversion, or substantial rewriting, load the documents skill when available. Use the document tool; it prepares and reuses its private dependencies automatically. Its check operation reports readiness without installing. If required software is missing or the task is unsupported, explain the specific limitation and ask about an alternative; do not claim completion."
+          : "- The document creation, conversion and PDF text-editing tool is unavailable in this tool selection; explain that limitation if the task requires it.",
+        tools.some((tool) => tool.name === "edit_document")
+          ? "- Use edit_document for supported DOCX text replacements and interactive PDF forms. Ordinary PDF text cannot be rewritten by that tool."
+          : "- The native document editor is unavailable in this tool selection.",
+        tools.some((tool) => tool.name === "document")
+          ? "- For existing PDF page text, load the documents skill and use the document tool's inspect-pdf/edit-pdf operations. It edits original text objects, retains their fonts and positions, rejects overflow, and compares rendered pages outside the edited text. Try this supported path before proposing recreation; follow its explicit limitations."
+          : "- Do not bypass a disabled document tool by running its helpers through the shell.",
+        "- If the requested edit cannot preserve the existing design with available tools, explain the limitation and request an editable source or agreement to a new layout before recreating the document. An explicit request or prior agreement to redesign already authorizes that change; do not ask again. Recreating PDF or DOCX from extracted text does not preserve its original design.",
+        "- DOCX edits retain document structure and existing formatting, but changed text can reflow lines and pages. Do not promise identical pagination or visual fidelity without checking the rendered result.",
+        "- For text and code use read/edit/write. Image input supports analysis; modification requires an available image tool or local image workflow. Never claim an image was edited just because it was described.",
+        "- Verify the actual saved deliverable, its content, and requested format before publication. Distinguish structural/text checks from visual layout inspection; Canvas preview alone is not evidence that you inspected the pages.",
+      ].join("\n"),
+    )
+  }
   if (tools.some((tool) => tool.name === "agent")) sections.push(DELEGATION_GUIDANCE)
   if (tools.some((tool) => tool.name === "publish_artifact")) {
     sections.push(

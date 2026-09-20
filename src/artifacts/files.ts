@@ -1,8 +1,10 @@
-import { readFile, realpath, stat } from "node:fs/promises"
+import { realpath } from "node:fs/promises"
 import { isAbsolute, relative, resolve } from "node:path"
 import mammoth from "mammoth"
 import { createDocumentAttachment, MAX_RAW_DOCUMENT_BYTES } from "../inference/documents.js"
 import type { DocumentContentPart } from "../inference/types.js"
+import { readArtifactBytes } from "./bytes.js"
+import { isCanvasArtifact } from "./canvas.js"
 import {
   type ArtifactMetadata,
   type ArtifactPayload,
@@ -22,7 +24,7 @@ export async function workspaceArtifactReference(
   cwd: string,
 ): Promise<WorkspaceArtifactReference | undefined> {
   const kind = artifactKindForPath(filePath)
-  if (!kind) return undefined
+  if (!kind || !isCanvasArtifact(kind)) return undefined
   const root = await realpath(resolve(cwd))
   const path = relative(root, filePath).replaceAll("\\", "/")
   if (!isNestedPath(path)) throw new Error(`Artifact is outside the workspace: ${filePath}`)
@@ -60,16 +62,17 @@ export async function loadWorkspaceArtifact(
   reference: WorkspaceArtifactReference,
   revision: number,
 ): Promise<ArtifactPayload> {
+  const bytes = await readWorkspaceArtifactBytes(cwd, reference)
+  return payloadFromBytes(bytes, workspaceArtifactMetadata(reference, revision), reference.path)
+}
+
+export async function readWorkspaceArtifactBytes(cwd: string, reference: WorkspaceArtifactReference) {
   const root = await realpath(resolve(cwd))
   try {
     const path = await realpath(resolve(root, reference.path))
     const nestedPath = relative(root, path)
     if (!isNestedPath(nestedPath)) throw new Error(`Artifact is outside the workspace: ${reference.path}`)
-    const file = await stat(path)
-    if (!file.isFile()) throw new Error(`${reference.path} is not a file.`)
-    if (file.size > MAX_RAW_DOCUMENT_BYTES) throw new Error("This file is too large to preview in Canvas.")
-    const bytes = await readFile(path)
-    return await payloadFromBytes(bytes, workspaceArtifactMetadata(reference, revision), reference.path)
+    return await readArtifactBytes(path)
   } catch (error) {
     if (
       typeof error === "object" &&

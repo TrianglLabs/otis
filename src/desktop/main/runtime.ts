@@ -4,6 +4,7 @@ import { Application } from "../../app/application.js"
 import type { ConversationHooks, ConversationTurnResult, QueuedPrompt } from "../../app/conversation.js"
 import type { GlobalSessionPickerItem } from "../../app/global-sessions.js"
 import { listGlobalSessionPickerItems, searchGlobalSessionPickerItems } from "../../app/global-sessions.js"
+import type { LocalServerInputs } from "../../app/local-servers.js"
 import type { TranscriptChange, TranscriptEntry } from "../../app/transcript.js"
 import { formatWorkspaceLabel } from "../../app/workspace-label.js"
 import type { ArtifactReference } from "../../artifacts/types.js"
@@ -17,13 +18,8 @@ import { validateImageAttachments } from "../../inference/images.js"
 import { formatLocalLoadStatus } from "../../inference/llama-runtime.js"
 import { catalogModelFromSpec, findLocalModel } from "../../inference/local-catalog.js"
 import { createUserMessage, imageAttachmentsFromMessages } from "../../inference/messages.js"
-import {
-  discoverPairModels,
-  normalizePairEndpoints,
-  PairClient,
-  type PairEndpoints,
-  pairEndpointForEngine,
-} from "../../inference/pair.js"
+import { discoverOmlxModels } from "../../inference/omlx.js"
+import { discoverPairModels } from "../../inference/pair.js"
 import {
   type FireworksPickerChoice,
   isSelectablePickerItem,
@@ -32,6 +28,7 @@ import {
   type ModelPickerItem,
   type ModelPickerStatus,
   toLocalCatalogModel,
+  toOmlxCatalogModel,
   toPairCatalogModel,
 } from "../../inference/picker-catalog.js"
 import { baseFireworksModelId, fireworksServingModel, isFastFireworksModel } from "../../inference/serving-path.js"
@@ -48,7 +45,6 @@ import {
   saveFastServingSelection,
   saveFireworksApiKey,
   saveLastWorkspace,
-  savePairEndpoints,
   savePermissionMode,
   saveSelectedModel,
   saveSelectedTheme,
@@ -90,6 +86,7 @@ export type DesktopRuntimeOptions = {
   /** Test seam for the picker catalog; production uses the real implementations. */
   listPickerItems?: typeof listModelPickerItems
   discoverPair?: typeof discoverPairModels
+  discoverOmlx?: typeof discoverOmlxModels
   /** Test seam for verifying a Fireworks key against the hosted catalog. */
   listToolCapableModels?: typeof listToolCapableModels
   /** Quits and installs the downloaded update; provided by the main process once a release is ready. */
@@ -189,6 +186,15 @@ export class DesktopRuntime {
   getArtifact(revision: number) {
     if (!Number.isInteger(revision) || revision < 0) return Promise.resolve(undefined)
     return this.app.artifacts.load(revision)
+  }
+
+  async getArtifactFile(id: string, revision: number) {
+    if (!Number.isSafeInteger(revision) || revision < 0) return undefined
+    const app = this.app
+    if (app.artifacts.metadata?.id !== id) return undefined
+    const conversationVersion = this.#conversationVersion
+    const file = await app.artifacts.exportFile(revision)
+    return this.app === app && this.#conversationVersion === conversationVersion ? file : undefined
   }
 
   async openArtifact(reference: ArtifactReference, version?: number): Promise<SessionOpResult> {
@@ -634,6 +640,9 @@ export class DesktopRuntime {
         pairModels = []
       }
     }
+    const omlxModels = this.app.models.omlx
+      ? await (this.options.discoverOmlx ?? discoverOmlxModels)(this.app.models.omlx).catch(() => [])
+      : []
     const activeLocal = this.app.models.activeLocal
     const list = this.options.listPickerItems ?? listModelPickerItems
     const items = await list({
@@ -642,6 +651,7 @@ export class DesktopRuntime {
       currentProvider: this.app.models.selectedProvider,
       currentPairEngine: this.app.models.pairEngine,
       pairModels,
+      omlxModels,
       loadStatus: this.#modelLoad,
       loadedLocalModel: activeLocal
         ? { model: activeLocal.spec.id, contextLength: activeLocal.contextLength }
@@ -681,12 +691,12 @@ export class DesktopRuntime {
         if (signal.aborted || this.#disposed) return { ok: false as const, reason: "The selection was superseded." }
         const item = items.find(
           (entry): entry is ModelPickerChoice =>
-            entry.kind === "model" && (entry.provider === "pair" ? entry.selectionKey === id : entry.id === id),
+            entry.kind === "model" && ("selectionKey" in entry ? entry.selectionKey === id : entry.id === id),
         )
         if (!item) return { ok: false as const, reason: "That model is no longer in the catalog." }
         // "Active" only shortcuts when the selection has a live client; without one the row is a failed start and
         // selecting it must run preparation again.
-        if (item.active && this.app.models.client) return { ok: true as const }
+        if (item.active && this.app.models.client && item.provider !== "omlx") return { ok: true as const }
         if (!isSelectablePickerItem(item)) {
           const label = "availabilityLabel" in item ? item.availabilityLabel : undefined
           return { ok: false as const, reason: label ?? "This model is not available on this machine." }
@@ -702,9 +712,11 @@ export class DesktopRuntime {
             ? toLocalCatalogModel(item)
             : item.provider === "pair"
               ? toPairCatalogModel(item)
-              : fireworksServingModel(item, this.app.settings.fastServingModels?.includes(item.id) === true)
+              : item.provider === "omlx"
+                ? toOmlxCatalogModel(item)
+                : fireworksServingModel(item, this.app.settings.fastServingModels?.includes(item.id) === true)
         // Status rows are keyed the way the renderer keys them: PAIR entries by engine-qualified selectionKey.
-        const pickerId = item.provider === "pair" ? item.selectionKey : item.id
+        const pickerId = "selectionKey" in item ? item.selectionKey : item.id
         return this.#prepareModelSelection(selected, pickerId, signal, (serving) => saveSelectedModel(serving))
       })
       return selection ?? { ok: false, reason: "The selection was superseded." }
@@ -902,72 +914,32 @@ export class DesktopRuntime {
     return { ok: true as const }
   }
 
-  /**
-   * Validates, probes, and persists NVIDIA PAIR endpoints, mirroring the TUI's /settings pair flow: only
-   * endpoints whose engine actually responds are kept, and choosing a model happens from the picker afterwards.
-   */
-  async connectPairEndpoints(input: { ollama?: string; lmStudio?: string }): Promise<ModelSelectResult> {
-    if (!input || typeof input !== "object") {
-      return { ok: false as const, reason: "Enter at least one Ollama, LM Studio, or NVIDIA PAIR endpoint." }
+  /** Shares discovery, persistence, and active-client refresh with terminal setup. */
+  async connectLocalServers(input: LocalServerInputs): Promise<ModelSelectResult> {
+    if (this.#deleting || this.app.conversation.busy || this.#draining) {
+      return { ok: false, reason: "Finish the current work before changing local servers." }
     }
-    const requested: PairEndpoints = {}
-    const ollama = typeof input.ollama === "string" ? input.ollama.trim() : ""
-    const lmStudio = typeof input.lmStudio === "string" ? input.lmStudio.trim() : ""
-    if (ollama) requested.ollama = ollama
-    if (lmStudio) requested.lmStudio = lmStudio
-    if (!requested.ollama && !requested.lmStudio) {
-      return { ok: false as const, reason: "Enter at least one Ollama, LM Studio, or NVIDIA PAIR endpoint." }
-    }
-    let normalized: PairEndpoints
+    this.#selecting += 1
     try {
-      normalized = normalizePairEndpoints(requested)
+      await this.app.connectLocalServers(input, {
+        discoverPair: this.options.discoverPair,
+        discoverOmlx: this.options.discoverOmlx,
+      })
+      if (this.app.models.selectedProvider === "pair" || this.app.models.selectedProvider === "omlx") {
+        this.#modelState = this.app.models.client ? "ready" : "failed"
+        this.#modelError = this.app.models.client
+          ? undefined
+          : "The local model server for the selected model is no longer available. Reconnect or choose another model."
+      }
+      this.#lastPickerItems = undefined
+      this.#markStateDirty()
+      return { ok: true }
     } catch (error) {
-      return { ok: false as const, reason: errorMessage(error) }
+      return { ok: false, reason: errorMessage(error) }
+    } finally {
+      this.#selecting -= 1
+      if (this.#selecting === 0) this.#ensureDrain()
     }
-    const discover = this.options.discoverPair ?? discoverPairModels
-    let discovery: Awaited<ReturnType<typeof discoverPairModels>>
-    try {
-      discovery = await discover(normalized)
-    } catch (error) {
-      return { ok: false as const, reason: errorMessage(error) }
-    }
-    if (!discovery.ollama && !discovery.lmStudio) {
-      return {
-        ok: false as const,
-        reason: "No compatible model server was found. Start Ollama, LM Studio, or NVIDIA PAIR and check its address.",
-      }
-    }
-    if ((discovery.ollama?.length ?? 0) + (discovery.lmStudio?.length ?? 0) === 0) {
-      return {
-        ok: false as const,
-        reason: "The connected model servers report no available models. Add or load a model and try again.",
-      }
-    }
-    const endpoints: PairEndpoints = {}
-    if (discovery.ollama && normalized.ollama) endpoints.ollama = normalized.ollama
-    if (discovery.lmStudio && normalized.lmStudio) endpoints.lmStudio = normalized.lmStudio
-    await savePairEndpoints(endpoints)
-    const previous = this.app.pairEndpoints
-    this.app.pairEndpoints = { ...endpoints }
-    // An active PAIR selection must follow its endpoint: rebuild on change, invalidate when its engine is gone.
-    if (this.app.models.selectedProvider === "pair" && this.app.models.selectedId) {
-      const engine = this.app.models.pairEngine
-      const before = pairEndpointForEngine(previous, engine)
-      const after = pairEndpointForEngine(endpoints, engine)
-      if (after && after !== before) {
-        this.app.models.client = new PairClient({ baseURL: after, model: this.app.models.selectedId })
-        this.#modelState = "ready"
-        this.#modelError = undefined
-      } else if (!after && before) {
-        this.app.models.client = undefined
-        this.#modelState = "failed"
-        this.#modelError =
-          "The local model server for the selected model is no longer available. Reconnect or choose another model."
-      }
-    }
-    this.#lastPickerItems = undefined
-    this.#markStateDirty()
-    return { ok: true as const }
   }
 
   /**
@@ -1402,6 +1374,7 @@ export class DesktopRuntime {
       hostedConfigured: Boolean(app.fireworksApiKey),
       pairConfigured: Boolean(app.pairEndpoints.ollama || app.pairEndpoints.lmStudio),
       pairEndpoints: { ...app.pairEndpoints },
+      omlx: app.models.omlx ? { baseURL: app.models.omlx.baseURL, hasApiKey: Boolean(app.models.omlx.apiKey) } : null,
       debug: this.#debug,
       update: this.#update,
       subagents: this.app.subagents.all.map((trace) => ({

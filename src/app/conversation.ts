@@ -118,6 +118,7 @@ export async function runConversationTurn(options: ConversationTurnOptions): Pro
         webSession: options.webSessionId ? { id: options.webSessionId } : undefined,
         cwd: options.cwd,
         artifactPublisher: options.artifactPublisher,
+        attachments: () => options.artifacts.attachments,
         debug: options.debug,
         onUsage: options.onUsage,
         autoCompactAtTokens: options.autoCompactAtTokens,

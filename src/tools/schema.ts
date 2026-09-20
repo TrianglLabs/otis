@@ -1,4 +1,4 @@
-import { TOOL_NAMES, type ToolCall, type ToolName } from "./types.js"
+import { DOCUMENT_OPERATIONS, type DocumentOperation, TOOL_NAMES, type ToolCall, type ToolName } from "./types.js"
 
 export type ToolDefinition = {
   name: ToolName
@@ -148,6 +148,43 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         },
       },
       ["path"],
+    ),
+  },
+  {
+    name: "document",
+    description:
+      "Create PDF/DOCX, inspect or edit existing PDF text, convert DOCX to PDF, or render PDF pages. Load the documents skill for specifications. Otis prepares and reuses private Python dependencies automatically; check only reports readiness. Output must be a new workspace path. Use edit_document for DOCX text replacements and PDF forms, and publish_artifact for final delivery.",
+    parameters: objectSchema(
+      {
+        operation: { type: "string", enum: DOCUMENT_OPERATIONS },
+        path: stringSchema("Source workspace PDF for inspect-pdf, edit-pdf or render; source DOCX for convert."),
+        spec_path: stringSchema(
+          "Workspace JSON specification for create or edit-pdf. Read the documents skill's spec.md.",
+        ),
+        output_path: stringSchema(
+          "New PDF/DOCX file for create, PDF file for edit-pdf/convert, or new image directory for render.",
+        ),
+        pages: {
+          type: "array",
+          minItems: 1,
+          maxItems: 20,
+          items: integerSchema("1-based page number."),
+          description: "Optional unique pages for inspect-pdf or render.",
+        },
+      },
+      ["operation"],
+    ),
+  },
+  {
+    name: "save_attachment",
+    description:
+      "Save the original bytes of a session attachment to a new workspace file for editing or local processing. Select by SHA-256 or exact unique attachment name. Does not convert formats or overwrite files.",
+    parameters: objectSchema(
+      {
+        attachment: stringSchema("Attachment SHA-256 from its metadata, or its exact unique filename."),
+        path: stringSchema("New workspace file path with the same extension as the attachment."),
+      },
+      ["attachment", "path"],
     ),
   },
   {
@@ -311,6 +348,46 @@ export function parseStructuredToolCall(name: string, input: unknown): ToolCall 
     }
   }
 
+  if (name === "document") {
+    if (!isRecord(input) || !DOCUMENT_OPERATIONS.includes(input.operation as DocumentOperation))
+      throw new Error("document requires a supported operation")
+    const operation = input.operation as DocumentOperation
+    const required =
+      operation === "check"
+        ? []
+        : operation === "create"
+          ? ["spec_path", "output_path"]
+          : operation === "inspect-pdf"
+            ? ["path"]
+            : operation === "edit-pdf"
+              ? ["path", "spec_path", "output_path"]
+              : ["path", "output_path"]
+    const allowed = ["operation", ...required, ...(["inspect-pdf", "render"].includes(operation) ? ["pages"] : [])]
+    if (Object.keys(input).some((key) => !allowed.includes(key)))
+      throw new Error(`document has arguments that do not apply to ${operation}`)
+    for (const key of required)
+      if (typeof input[key] !== "string" || !input[key].trim()) throw new Error(`document ${operation} requires ${key}`)
+    if (
+      input.pages !== undefined &&
+      (!Array.isArray(input.pages) ||
+        input.pages.length < 1 ||
+        input.pages.length > 20 ||
+        input.pages.some((page) => typeof page !== "number" || !Number.isSafeInteger(page) || page < 1) ||
+        new Set(input.pages).size !== input.pages.length)
+    )
+      throw new Error("document pages must contain 1–20 unique positive integers")
+    return {
+      name,
+      input: {
+        operation,
+        ...(input.path ? { path: (input.path as string).trim() } : {}),
+        ...(input.spec_path ? { specPath: (input.spec_path as string).trim() } : {}),
+        ...(input.output_path ? { outputPath: (input.output_path as string).trim() } : {}),
+        ...(input.pages ? { pages: input.pages as number[] } : {}),
+      },
+    }
+  }
+
   if (name === "agent") {
     if (
       isRecord(input) &&
@@ -324,6 +401,17 @@ export function parseStructuredToolCall(name: string, input: unknown): ToolCall 
     throw new Error('agent requires non-empty strings "description" and "prompt"')
   }
 
+  if (name === "save_attachment") {
+    if (
+      !isRecord(input) ||
+      typeof input.attachment !== "string" ||
+      !input.attachment.trim() ||
+      typeof input.path !== "string" ||
+      !input.path.trim()
+    )
+      throw new Error('save_attachment requires non-empty strings "attachment" and "path"')
+    return { name, input: { attachment: input.attachment.trim(), path: input.path.trim() } }
+  }
   if (name === "publish_artifact") {
     if (isRecord(input) && typeof input.path === "string" && input.path.trim()) {
       if (input.artifact_id !== undefined && (typeof input.artifact_id !== "string" || !input.artifact_id.trim()))

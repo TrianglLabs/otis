@@ -118,6 +118,7 @@ function fakeApi(overrides: Partial<DesktopApi> = {}): DesktopApi {
     getSnapshot: vi.fn(async () => SNAPSHOT),
     getArtifact: vi.fn(async () => undefined),
     openArtifact: vi.fn(async () => ({ ok: true as const })),
+    saveArtifact: vi.fn(async () => ({ ok: true as const })),
     getWindowState: vi.fn(async () => ({ fullscreen: false })),
     sendPrompt: vi.fn(async () => ({ accepted: true as const, delivery: "started" as const })),
     stop: vi.fn(async () => {}),
@@ -145,7 +146,7 @@ function fakeApi(overrides: Partial<DesktopApi> = {}): DesktopApi {
     setFastServing: vi.fn(async () => ({ ok: true as const })),
     openFireworksKeyPage: vi.fn(async () => {}),
     setFireworksApiKey: vi.fn(async () => ({ ok: true as const })),
-    connectPairEndpoints: vi.fn(async () => ({ ok: true as const })),
+    connectLocalServers: vi.fn(async () => ({ ok: true as const })),
     deleteLocalModel: vi.fn(async () => ({ ok: true as const })),
     setDebugMode: vi.fn(async () => {}),
     installUpdate: vi.fn(async () => {}),
@@ -506,16 +507,22 @@ describe("AppShell settings navigation", () => {
         active: false,
       },
     ]
-    await renderApp(fakeApi({ listModels: vi.fn(async () => models) }))
+    let resolveModels!: (models: ModelPickerItem[]) => void
+    const catalog = new Promise<ModelPickerItem[]>((resolve) => {
+      resolveModels = resolve
+    })
+    await renderApp(fakeApi({ listModels: vi.fn(() => catalog) }))
 
     fireEvent.click(screen.getByRole("button", { name: /gpt-oss 20B/i }))
-    await screen.findByRole("dialog", { name: "Select a model" })
-    const text = document.querySelector(".modelPicker-modality-text")
-    const vision = document.querySelector(".modelPicker-modality-vision")
-    expect(text?.textContent).toBe("Text")
-    expect(vision?.textContent).toBe("Vision")
-    expect(text?.querySelector("svg")).toBeTruthy()
-    expect(vision?.querySelector("svg")).toBeTruthy()
+    const dialog = await screen.findByRole("dialog", { name: "Select a model" })
+    expect(within(dialog).queryByText("Text")).toBeNull()
+    expect(within(dialog).queryByText("Vision")).toBeNull()
+
+    await act(async () => resolveModels(models))
+    const text = await within(dialog).findByText("Text")
+    const vision = await within(dialog).findByText("Vision")
+    expect(text.querySelector("svg")).toBeTruthy()
+    expect(vision.querySelector("svg")).toBeTruthy()
   })
 
   it("deletes a downloaded local model from the model catalog with confirmation", async () => {

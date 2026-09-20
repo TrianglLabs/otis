@@ -12,7 +12,7 @@ available to the corresponding engine on that computer.
 
 1. Install and configure PAIR using [NVIDIA's setup guide](https://github.com/NVIDIA/Personal-AI-Router/blob/main/docs/getting-started.mdx).
 2. In PAIR, open **Endpoints**.
-3. In Otis, choose **Local inference → NVIDIA PAIR** during setup, or open **Settings → NVIDIA PAIR**.
+3. In Otis, choose **Local inference → Local servers** during setup, or open **Settings → Local servers**.
 4. Enter at least one endpoint and continue to the normal model picker.
 
 Otis provides separate fields for the two PAIR proxies and pre-fills their standard addresses:

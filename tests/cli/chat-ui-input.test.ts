@@ -370,9 +370,11 @@ describe("chat UI input", () => {
     ).toBe(true)
     expect(harness.text("setup-choice-local-title")).toBe("Local inference")
     expect(harness.text("setup-choice-local-label")).toBe("Private, on your devices")
-    expect(harness.text("setup-choice-local-description")).toBe("Run on this machine or use an NVIDIA PAIR cluster.")
+    expect(harness.text("setup-choice-local-description")).toBe(
+      "Run on this machine or connect to a local model server.",
+    )
     expect(harness.text("setup-choice-local-detail-0")).toBe("Managed llama.cpp built in.")
-    expect(harness.text("setup-choice-local-detail-1")).toBe("PAIR supports Ollama and LM Studio.")
+    expect(harness.text("setup-choice-local-detail-1")).toBe("Ollama, LM Studio, oMLX, and NVIDIA PAIR.")
     expect(harness.find("setup-choice-local-detail-2")).toBeUndefined()
     expect(harness.text("setup-choice-hosted-label")).toBe("Powered by Fireworks")
     expect(harness.text("setup-choice-hosted-description")).toBe(
@@ -414,9 +416,11 @@ describe("chat UI input", () => {
     expect(harness.text("setup-local-choice-managed-detail-2")).toBe("Linux · 24 GB+ RAM")
     expect(harness.text("setup-local-choice-managed-detail-3")).toBe("Vulkan GPU · 16 GB+ VRAM")
     expect(harness.find("setup-local-choice-managed-detail-4")).toBeUndefined()
-    expect(harness.text("setup-local-choice-pair-title")).toBe("NVIDIA PAIR")
-    expect(harness.text("setup-local-choice-pair-label")).toBe("Your home AI cluster")
-    expect(harness.text("setup-local-choice-pair-description")).toBe("Let PAIR choose a computer for each request.")
+    expect(harness.text("setup-local-choice-pair-title")).toBe("Local servers")
+    expect(harness.text("setup-local-choice-pair-label")).toBe("Managed by you")
+    expect(harness.text("setup-local-choice-pair-description")).toBe(
+      "Connect to a model server already running on this computer.",
+    )
     expect(harness.text("setup-local-choice-hint")).toContain("[esc] back")
     harness.press("right")
     harness.press("return")
@@ -508,9 +512,9 @@ describe("chat UI input", () => {
 
     expect(harness.childIds("input-area")).toEqual(["setup-pair-form"])
     expect(harness.get<BoxRenderable>("welcome-panel").width).toBe(91)
-    expect(harness.text("setup-pair-heading")).toBe("NVIDIA PAIR endpoints")
+    expect(harness.text("setup-pair-heading")).toBe("Local server endpoints")
     expect(harness.text("setup-pair-description")).toBe(
-      "These are PAIR's standard proxy addresses, or your last saved addresses. Only one working endpoint is required. Change an address only if PAIR → Endpoints shows a different proxy port.",
+      "Connect to Ollama, LM Studio, or oMLX. For NVIDIA PAIR, use the addresses from PAIR → Endpoints. Only one working endpoint is required. The oMLX key is optional; leave blank to keep a saved key.",
     )
     expect(harness.text("setup-pair-ollama-label")).toBe("Ollama")
     expect(harness.text("setup-pair-lmstudio-label")).toBe("LM Studio")
@@ -528,7 +532,23 @@ describe("chat UI input", () => {
     expect(harness.get<InputRenderable>("setup-pair-ollama-input").focused).toBe(false)
     expect(harness.get<InputRenderable>("setup-pair-lmstudio-input").focused).toBe(true)
     harness.get<InputRenderable>("setup-pair-lmstudio-input").submit()
-    expect(onPairSetupSubmit).toHaveBeenCalledWith(endpoints)
+    expect(onPairSetupSubmit).toHaveBeenCalledWith({ ...endpoints, omlx: "", omlxApiKey: "" })
+
+    harness.press("tab")
+    expect(harness.get<InputRenderable>("setup-omlx-input").focused).toBe(true)
+    harness.get<InputRenderable>("setup-omlx-input").value = "http://127.0.0.1:8000"
+    harness.press("tab")
+    expect(harness.get<InputRenderable>("setup-omlx-key-input").focused).toBe(true)
+    harness.get<InputRenderable>("setup-omlx-key-input").value = "test-key"
+    harness.get<InputRenderable>("setup-omlx-key-input").submit()
+    expect(onPairSetupSubmit).toHaveBeenLastCalledWith({
+      ...endpoints,
+      omlx: "http://127.0.0.1:8000",
+      omlxApiKey: "test-key",
+    })
+    harness.ui.showSetupStatus()
+    harness.ui.showPairSetup("", "local", endpoints)
+    expect(harness.get<InputRenderable>("setup-omlx-key-input").value).toBe("")
 
     harness.ui.showPairSetupError("LM Studio is unavailable.", "local", endpoints)
     expect(harness.text("setup-pair-message")).toBe("LM Studio is unavailable.")
@@ -578,7 +598,7 @@ describe("chat UI input", () => {
     expect(localFrame).toContain("This machine")
     expect(localFrame).toContain("NVIDIA PAIR")
     expect(localFrame).toContain("Managed by Otis")
-    expect(localFrame).toContain("Your home AI cluster")
+    expect(localFrame).toContain("Managed by you")
 
     harness.ui.showPairSetup("Confirm either or both endpoints.", "local", {
       ollama: "http://127.0.0.1:11434",
@@ -586,12 +606,12 @@ describe("chat UI input", () => {
     })
     await harness.renderOnce()
     const pairFrame = harness.captureCharFrame()
-    expect(pairFrame).toContain("NVIDIA PAIR endpoints")
+    expect(pairFrame).toContain("Local server endpoints")
     expect(pairFrame).toContain("Ollama")
     expect(pairFrame).toContain("http://127.0.0.1:11434")
     expect(pairFrame).toContain("LM Studio")
     expect(pairFrame).toContain("http://127.0.0.1:1234")
-    expect(pairFrame).toContain("[tab] switch endpoint · [enter] continue · [esc] back")
+    expect(pairFrame).toContain("[tab] switch field · [enter] continue · [esc] back")
   })
 
   it("uses the model picker pulse for the selected inference card", async () => {

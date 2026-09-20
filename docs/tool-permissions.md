@@ -17,11 +17,19 @@ or redirections, so authorize compound commands explicitly.
 The available modes are:
 
 - `ask`: request approval for unmatched mutating calls in OpenTUI; fail closed in headless execution.
-- `auto`: allow unmatched `write`, `edit`, `edit_document`, and `bash` calls. Explicit deny rules still apply.
+- `auto`: allow unmatched `write`, `edit`, `edit_document`, `document`, `save_attachment`, and `bash` calls. Explicit deny rules still apply.
 - `dontAsk`: deny unmatched mutating calls without prompting.
 
 `edit_document` evaluates both the source and output path when it creates a copy. An explicit original replacement is
 evaluated against the source path and creates a private recovery copy in Otis's local data directory.
+
+`save_attachment` evaluates its destination path as a write. It can only read attachments already present in the
+session, cannot escape the workspace or change the source format, and refuses existing output files.
+
+`document` checks its source, specification and output paths. All operations except `check` are restricted by default,
+including PDF inspection because first use can install the fixed document dependencies. `check` only reports readiness.
+An allowed document operation authorizes its private runtime setup; it does not authorize arbitrary shell commands,
+packages, or helper scripts. Skill loading grants no additional permission.
 
 Interactive Otis defaults to `auto`; press Tab to switch between automatic execution and approval prompts. `otis exec`
 defaults to `dontAsk` and never prompts. Read-only tools are allowed by default in both interfaces.

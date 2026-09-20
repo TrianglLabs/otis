@@ -6,7 +6,7 @@ export type SlashCommand =
   | { type: "model" }
   | {
       type: "settings"
-      setting?: "hosted" | "pair" | "debug" | "subagents" | "delete-model" | "theme"
+      setting?: "hosted" | "servers" | "pair" | "debug" | "subagents" | "delete-model" | "theme"
       modelId?: string
     }
   | { type: "fast" }
@@ -77,6 +77,7 @@ export function parseSlashCommand(value: string): SlashCommand | undefined {
     if (
       setting === "hosted" ||
       setting === "pair" ||
+      setting === "servers" ||
       setting === "debug" ||
       setting === "subagents" ||
       setting === "theme"

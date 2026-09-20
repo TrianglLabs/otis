@@ -1,6 +1,9 @@
-import { isLoopbackHostname, responsePreview } from "./openai-compat.js"
+import { normalizeLocalBaseURL as normalizePairBaseURL } from "./local-endpoint.js"
+import { responsePreview } from "./openai-compat.js"
 import { OpenAICompatibleClient } from "./openai-compatible-client.js"
 import type { PairCatalogModel, PairEngine } from "./types.js"
+
+export { normalizePairBaseURL }
 
 export type PairEndpoints = {
   ollama?: string
@@ -108,29 +111,6 @@ export function normalizePairEndpoints(endpoints: PairEndpoints): PairEndpoints 
     throw new Error("Ollama and LM Studio endpoints must be different.")
   }
   return normalized
-}
-
-export function normalizePairBaseURL(value: string) {
-  const input = value.trim()
-  if (!input) throw new Error("Local model server endpoint is required.")
-  let parsed: URL
-  try {
-    parsed = new URL(input)
-  } catch {
-    throw new Error("Local model server endpoint is invalid.")
-  }
-  if (parsed.protocol !== "http:" || !isLoopbackHostname(parsed.hostname)) {
-    throw new Error("Local model server endpoint must use HTTP on 127.0.0.1, localhost, or ::1.")
-  }
-  if (parsed.username || parsed.password || parsed.search || parsed.hash) {
-    throw new Error("Local model server endpoint must not include credentials, query parameters, or a fragment.")
-  }
-  const path = parsed.pathname.replace(/\/+$/, "")
-  if (path && path !== "/v1") {
-    throw new Error("Local model server endpoint must be a base URL without an API path.")
-  }
-  parsed.pathname = "/"
-  return parsed.toString().replace(/\/$/, "")
 }
 
 export function pairEndpointForEngine(endpoints: PairEndpoints, engine: PairEngine | undefined) {

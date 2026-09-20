@@ -1,9 +1,10 @@
 import { Check, ChevronDown, ChevronRight, Cpu, Palette, Plug, SlidersHorizontal, X } from "lucide-react"
 import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useRef, useState } from "react"
-import type { PairPickerChoice } from "../../../../inference/picker-catalog.js"
+import type { OmlxPickerChoice, PairPickerChoice } from "../../../../inference/picker-catalog.js"
 import type { ThemeName, UiLanguage } from "../../../contracts.js"
 import lmStudioIcon from "../../assets/lm-studio.svg"
 import ollamaIcon from "../../assets/ollama.svg"
+import omlxIcon from "../../assets/omlx.svg"
 import { Button, IconButton } from "../../components/Button.js"
 import { Icon } from "../../components/Icon.js"
 import { LANGUAGE_OPTIONS, useI18n } from "../../i18n/index.js"
@@ -47,6 +48,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
     "fastServing",
     "busy",
     "pairEndpoints",
+    "omlx",
     "pairConfigured",
     "theme",
     "language",
@@ -66,9 +68,11 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
 
   const [ollama, setOllama] = useState("")
   const [lmStudio, setLmStudio] = useState("")
+  const [omlx, setOmlx] = useState("")
+  const [omlxApiKey, setOmlxApiKey] = useState("")
   const [pairPending, setPairPending] = useState(false)
   const [pairError, setPairError] = useState<string>()
-  const [pairModels, setPairModels] = useState<PairPickerChoice[]>()
+  const [pairModels, setPairModels] = useState<(PairPickerChoice | OmlxPickerChoice)[]>()
   const [pairCatalogReload, setPairCatalogReload] = useState(0)
 
   const [fastError, setFastError] = useState<string>()
@@ -86,14 +90,17 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
 
   // Keep hooks unconditional while the initial snapshot is loading.
   useEffect(() => {
-    if (activeTab !== "providers" || openForm !== "pair" || !state?.pairConfigured) return
+    if (activeTab !== "providers" || openForm !== "pair" || !(state?.pairConfigured || state?.omlx)) return
     let cancelled = false
     void api
       .listModels()
       .then((items) => {
         if (!cancelled) {
           setPairModels(
-            items.filter((item): item is PairPickerChoice => item.kind === "model" && item.provider === "pair"),
+            items.filter(
+              (item): item is PairPickerChoice | OmlxPickerChoice =>
+                item.kind === "model" && (item.provider === "pair" || item.provider === "omlx"),
+            ),
           )
         }
       })
@@ -103,7 +110,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
     return () => {
       cancelled = true
     }
-  }, [activeTab, openForm, state?.pairConfigured, pairCatalogReload, api])
+  }, [activeTab, openForm, state?.pairConfigured, state?.omlx, pairCatalogReload, api])
 
   if (!state) return null
   const { fastServing } = state
@@ -115,6 +122,8 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
     if (form === "pair" && openForm !== "pair") {
       setOllama(state.pairEndpoints.ollama ?? PAIR_DEFAULT_ENDPOINTS.ollama)
       setLmStudio(state.pairEndpoints.lmStudio ?? PAIR_DEFAULT_ENDPOINTS.lmStudio)
+      setOmlx(state.omlx?.baseURL ?? "http://127.0.0.1:8000")
+      setOmlxApiKey("")
     }
     setOpenForm(openForm === form ? undefined : form)
   }
@@ -135,22 +144,26 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
     }
   }
 
-  const selectPairModel = async (item: PairPickerChoice) => {
+  const selectPairModel = async (item: PairPickerChoice | OmlxPickerChoice) => {
     setPairError(undefined)
     const result = await api.selectModel(item.selectionKey)
-    if (result.ok) setPairCatalogReload((n) => n + 1)
-    else setPairError(result.reason)
+    if (result.ok) {
+      setPairCatalogReload((n) => n + 1)
+      setOmlxApiKey("")
+    } else setPairError(result.reason)
   }
 
   const submitPair = async () => {
     setPairError(undefined)
     setPairPending(true)
     try {
-      const result = await api.connectPairEndpoints({ ollama, lmStudio })
+      const result = await api.connectLocalServers({ ollama, lmStudio, omlx, omlxApiKey })
       // The form stays open on success: model selection happens here now. Every successful connect —
       // including reconnects to a changed endpoint — refetches the catalog.
-      if (result.ok) setPairCatalogReload((n) => n + 1)
-      else setPairError(result.reason)
+      if (result.ok) {
+        setPairCatalogReload((n) => n + 1)
+        setOmlxApiKey("")
+      } else setPairError(result.reason)
     } finally {
       setPairPending(false)
     }
@@ -195,8 +208,6 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
   return (
     <div className="settingsPage">
       <header className="workspaceHeader settingsPage-header">
-        <div className="workspaceHeader-left" aria-hidden="true" />
-        <h1 className="workspaceHeader-title settingsPage-title">{t("common.settings")}</h1>
         <div className="workspaceHeader-right">
           <IconButton icon={X} label={t("settings.close")} className="noDrag" onClick={onClose} />
         </div>
@@ -336,6 +347,31 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
                               spellCheck={false}
                               autoComplete="off"
                             />
+                            <label className="settingsEndpoint-label" htmlFor="settings-omlx">
+                              <img className="settingsProviderMark" src={omlxIcon} alt="" aria-hidden />
+                              oMLX
+                            </label>
+                            <input
+                              id="settings-omlx"
+                              className="settingsForm-input"
+                              value={omlx}
+                              onChange={(event) => setOmlx(event.target.value)}
+                              spellCheck={false}
+                              autoComplete="off"
+                            />
+                            <input
+                              id="settings-omlx-key"
+                              type="password"
+                              className="settingsForm-input settingsEndpoint-key"
+                              aria-label={t("settings.omlxKey")}
+                              value={omlxApiKey}
+                              onChange={(event) => setOmlxApiKey(event.target.value)}
+                              placeholder={state.omlx?.hasApiKey ? t("settings.omlxKeyHint") : t("settings.omlxKey")}
+                              autoComplete="off"
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter") void submitPair()
+                              }}
+                            />
                           </div>
                           <div className="settingsForm-actions">
                             <Button
@@ -350,7 +386,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
                           </div>
                           {pairPending ? <div className="settings-message">{t("settings.checkingServers")}</div> : null}
                           {pairError ? <div className="settings-message settings-error">{pairError}</div> : null}
-                          {state.pairConfigured ? (
+                          {state.pairConfigured || state.omlx ? (
                             <>
                               <div className="settingsForm-label settingsModels-label">
                                 {t("settings.availableModels")}

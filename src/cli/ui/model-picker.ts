@@ -187,6 +187,10 @@ function modelTitle(item: ModelPickerChoice, hasSuffix: boolean) {
 
 function modelNameSuffixes(item: ModelPickerChoice) {
   const suffixes: Array<{ text: string; fg?: string; shimmer?: boolean }> = []
+  if (item.provider === "omlx") {
+    if (item.status) suffixes.push({ text: item.status.label, shimmer: item.status.kind === "progress" })
+    return suffixes
+  }
   if (item.provider === "pair") {
     suffixes.push({ text: pairEngineLabel(item.engine), fg: colors.muted })
     if (item.status) suffixes.push({ text: item.status.label, shimmer: item.status.kind === "progress" })
@@ -212,12 +216,12 @@ function modelMeta(item: ModelPickerChoice) {
   const parts: string[] = []
   if (item.contextLength) parts.push(formatContextWindow(item.contextLength))
   parts.push(item.supportsImageInput ? "Vision" : "Text")
-  if (item.fastId) parts.push(FAST_MODE_LABEL)
+  if (item.provider === "fireworks" && item.fastId) parts.push(FAST_MODE_LABEL)
   return parts.join(" · ")
 }
 
 function modelPickerKey(item: ModelPickerChoice) {
-  return item.provider === "pair" ? item.selectionKey : item.id
+  return "selectionKey" in item ? item.selectionKey : item.id
 }
 
 function firstSelectableIndex(items: readonly ModelPickerItem[]) {

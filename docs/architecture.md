@@ -3,7 +3,7 @@
 ## Overview
 
 Otis is a local terminal application with direct hosted inference, optional Otis-managed llama.cpp inference, and an
-optional connection to NVIDIA PAIR on loopback.
+optional connection to NVIDIA PAIR or oMLX on loopback.
 
 ```txt
 User terminal or server process
@@ -77,7 +77,7 @@ validated with bounded streaming decompression before Mammoth reads their XML. P
 receive only the derived text plus bounded metadata, so document input remains portable across Fireworks, managed
 local, and PAIR models without requiring provider-specific PDF support. Keeping the immutable source lets Canvas
 render the actual PDF or Word asset instead of trying to reconstruct it from extracted text. The shared application
-also tracks previewable workspace files opened by `read`, `write`, `edit`, and `edit_document`; Markdown, plain text, and self-contained
+also tracks visual workspace files opened by `read`, `write`, `edit`, and `edit_document`; Markdown and self-contained
 HTML remain ordinary workspace files, so model edits update Canvas without a desktop-only editing path. Canvas fetches
 an artifact body only when its small session-scoped reference changes, rather than copying document bytes into every
 status event. The format-aware `edit_document` tool changes workspace documents without round-tripping them through
@@ -88,12 +88,42 @@ The revision contains the exact source snapshot used by the edit. An optimistic 
 rejects changes made during preparation or staging; external editors do not participate in an Otis file lock.
 DOCX matching respects inline boundaries such as tabs and breaks, and insertions keep existing text in its original
 formatting runs. PDF signature detection inspects parsed dictionaries, including compressed objects and escaped names.
-Arbitrary PDF text rewriting is intentionally unsupported because covering rendered text would not be a structural
-edit; users should edit the source document and export a new PDF instead.
+PDF page text uses the bundled PDFium editing helper described below; native `edit_document` continues to handle
+DOCX text and PDF forms without requiring Python.
+
+`save_attachment` resolves original session sources by content identity or unique filename and atomically creates a
+private, non-overwriting workspace copy. Its destination is governed by the same path and permission policy as other
+writes. The application retains original sources independently of compacted model context; headless replay resolves
+them from the full session transcript. Source bytes are never returned as model text. This bridge makes uploaded
+documents available to native document editing and local skill helpers without inventing filesystem paths.
+
+The bundled `documents` skill describes PDF text edits and document generation. The structured `document` tool runs
+fixed helpers through `src/documents`: a bounded argument-array subprocess runner and a private environment manager.
+The environment is keyed by its pinned dependency manifest, shared across workspaces, and verified before reuse.
+Setup is serialized across processes, interrupted installations are rebuilt, and normal tool permissions apply.
+Python is discovered locally; LibreOffice remains an optional installed renderer. The helper
+creates PDF/DOCX from a bounded declarative specification, checks output text by reopening the result, and publishes
+only validated new files. PDF creation checks font coverage and optional page limits. PDFium renders bounded page
+images; a local LibreOffice process with an isolated profile converts Word to PDF when available. Dependency discovery
+does not install software, and skill loading does not execute scripts. The same skill, document permission policy, and artifact
+publication path serve terminal, headless, and desktop. Structural checks are explicitly separate from visual review.
+For existing PDFs, inspection exposes top-level text object IDs, source identity, and original styling. The edit plan
+is tied to the source hash and exact old text. `pdf_edit.py` modifies the original objects with PDFium, retains fonts,
+colors, and baselines, and wraps only within the selected paragraph's original width and line count. It does not paint
+over old text or rebuild pages. Overflow, missing glyphs, overlapping text, unsupported transforms, and stale plans
+fail before output publication. Reopened text is checked with PDFium and pypdf; every page is rendered at 144 DPI and
+must match outside the edited glyph bounds plus a one-point antialiasing margin. This automated comparison is separate
+from model or human visual inspection. The helper uses the pinned PDFium dependency and the document tool’s permission policy.
 The session artifact store retains attachment references independently of model context, so compaction does not
 break artifact cards. Webpage previews run in a separate opaque-origin document with a fixed CSP; source HTML
 inherits its network restrictions while inline interactions remain available. PDF previews use a dedicated worker
 and virtualized pages with bounded bitmap sizes, disposing rendering tasks and worker resources when closed.
+Canvas eligibility is a shared, browser-safe policy in `src/artifacts/canvas.ts`. Code and raw text remain available
+to tools and the transcript without selecting Canvas, including after session restoration. Export reads original
+bytes from the selected source or immutable published version through the application artifact store; it never uses
+converted preview HTML. Desktop validates the artifact identity and revision before capturing those bytes, then owns
+the native Save dialog and atomic destination write. File bytes and destination paths stay outside the renderer.
+
 Legacy `.doc` files are rejected. Scanned PDFs still render in Canvas, but the model receives only a clear no-text
 notice because OCR is outside the current boundary.
 
@@ -222,6 +252,15 @@ tool-capable default model. Headless `otis exec --model <local-id>` also does no
 `/settings` can validate and save that key later without replacing the selected local model, connect or reconnect
 PAIR, open cached-model deletion when a GGUF is present, choose a color theme, and own the ephemeral debug-mode toggle.
 
+## oMLX boundary
+
+oMLX is external, user-managed inference. `src/inference/omlx.ts` discovers visible models and optional status
+metadata and reuses `OpenAICompatibleClient` for streaming, tools, and reasoning replay. Its provider identity and
+picker keys are separate from PAIR and managed GGUF models. Setup, private persistence, and client refresh are
+coordinated in `src/app`, shared by terminal and desktop. Credentials never enter catalog or status objects.
+Startup refreshes the server request limit and vision metadata; unknown context uses an internal 8K guard. Otis
+never loads or unloads oMLX models explicitly or controls its process. See [oMLX](omlx.md) for API details and setup.
+
 ## NVIDIA PAIR boundary
 
 PAIR is external, user-managed infrastructure. Otis does not install PAIR, pair nodes together, control engines,
@@ -287,12 +326,12 @@ Parallel directly; local file and shell tools never pass through a remote Otis s
 The `agent` tool runs a nested, read-only agent loop inside the same process. The child shares the parent's inference
 client, workspace, permission policy, approval handler, usage sink, and abort signal, but starts from a fresh history
 that contains only the delegated brief. Its tool set is the read-only subset of the parent's tools: file reading and
-search, web search and reading, and skill loading. It never receives `write`, `edit`, `edit_document`, `bash`, or
+search, web search and reading, and skill loading. It never receives `write`, `edit`, `edit_document`, `document`, `save_attachment`, `bash`, or
 `agent`, so a subagent cannot mutate the workspace or delegate again. Agent runs have no fixed step cap. Only the child's final
 assistant text returns to the parent as the tool result; its own text, reasoning, and context accounting stay private.
 
 The `agent` tool and its system-prompt guidance are offered only for hosted Fireworks models and NVIDIA PAIR
-clusters, which can serve several requests at once. Otis' managed `llama-server` runs a single slot, so local models
+clusters, and oMLX, which can serve several requests at once. Otis' managed `llama-server` runs a single slot, so local models
 receive the catalog without `agent`; headless `--tools` can narrow a provider's catalog but never widen it.
 
 Adjacent `agent` calls in one model response run concurrently, and their results are appended in the model's order.
@@ -325,9 +364,15 @@ covered. Per-command-segment policy evaluation is a future hardening boundary.
 
 Interactive and headless execution share one Agent Skills catalog. Otis discovers global skills under
 `~/.agents/skills` and project skills under `.agents/skills` at each ancestor of the working directory. Sources are
-applied global-first and root-first, with the nearest project definition winning on duplicate names. Every discovered
+applied after embedded first-party skills, then global-first and root-first, with the nearest project definition winning on duplicate names. Every discovered
 `SKILL.md` is parsed as YAML plus Markdown and validated against the portable name and description constraints before
 inference begins.
+
+The first-party document skill embeds its instructions and helper resources as text in both release formats. Discovery
+advertises metadata only. The first resource read materializes the bundle in a private directory keyed by its content
+digest, using atomic no-clobber files and checking existing resources against the embedded content. Resource access
+rejects traversal, symlinked cache directories, and modified scripts. No provider key or document content is placed in
+this helper cache. Dependencies are separate from Otis's Bun runtime and installed only through normal shell actions.
 
 The provider-independent `otis skills` command manages optional Git-backed sources without initializing OpenTUI or
 inference. Each source has a private checkout under the platform local-data directory and an atomic manifest recording
@@ -340,7 +385,7 @@ credentials are removed from the environment of Git subprocesses.
 Prompt assembly advertises only validated names and descriptions. The `skill` structured tool loads the full
 instructions or a requested text resource on demand, preserving progressive disclosure and allowing global skills to
 work without expanding the workspace file tool's sandbox. Canonical-path checks keep resource reads inside the chosen
-skill even through symlinks. Script execution remains a normal `bash` call and therefore passes through the same
+skill even through symlinks. Arbitrary skill script execution remains a normal `bash` call and therefore passes through the same
 permission policy as any other command; skill metadata cannot pre-approve tools. If tool selection disables `skill`,
 skill metadata is not advertised to the model.
 

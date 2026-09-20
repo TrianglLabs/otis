@@ -64,6 +64,20 @@
   font: inherit;
 }
 
+.canvas-artifactSave {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  max-width: 180px;
+  font-size: var(--text-meta);
+}
+
+.canvas-artifactSave [role="alert"] {
+  color: var(--danger);
+  overflow-wrap: anywhere;
+}
+
 .canvas-artifactIdentity strong {
   overflow: hidden;
   color: var(--text);
@@ -119,13 +133,6 @@
 .canvas-document th,
 .canvas-document td {
   overflow-wrap: anywhere;
-}
-
-.canvas-document-text {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.65;
-  white-space: pre-wrap;
 }
 
 .canvas-pdf {

@@ -19,7 +19,8 @@ const mocks = vi.hoisted(() => ({
       pairEndpoints?: { ollama?: string; lmStudio?: string }
       pairEngine?: "ollama" | "lmstudio"
       model: string
-      modelProvider?: "fireworks" | "local" | "pair"
+      modelProvider?: "fireworks" | "local" | "pair" | "omlx"
+      omlx?: { baseURL: string; apiKey?: string }
       modelContextLength?: number
       modelSupportsImageInput?: boolean
       fastServingModels?: string[]
@@ -56,6 +57,9 @@ const mocks = vi.hoisted(() => ({
   })),
   stopLocalRuntime: vi.fn(async () => undefined),
   PairClient: vi.fn(function PairClient(config: { model: string }) {
+    return { model: config.model, streamChat: mocks.streamChat }
+  }),
+  OmlxClient: vi.fn(function OmlxClient(config: { model: string }) {
     return { model: config.model, streamChat: mocks.streamChat }
   }),
 }))
@@ -101,6 +105,20 @@ vi.mock("../../src/inference/local-client.js", () => ({
 vi.mock("../../src/inference/pair.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/inference/pair.js")>()),
   PairClient: mocks.PairClient,
+}))
+vi.mock("../../src/inference/omlx.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/inference/omlx.js")>()),
+  OmlxClient: mocks.OmlxClient,
+  discoverOmlxModels: vi.fn(async () => [
+    {
+      provider: "omlx",
+      id: "mlx-chat",
+      displayName: "MLX chat",
+      baseURL: "http://127.0.0.1:8000",
+      contextLength: 16384,
+      supportsImageInput: false,
+    },
+  ]),
 }))
 vi.mock("../../src/local/settings.js", () => ({
   loadLocalSettings: mocks.loadLocalSettings,
@@ -731,6 +749,27 @@ describe("runHeadlessCommand", () => {
     expect(mocks.ensureLocalServing).not.toHaveBeenCalled()
     expect(FireworksClient).not.toHaveBeenCalled()
     expect(output.stdout()).toBe("PAIR answer\n")
+  })
+
+  it("uses a saved oMLX model in headless mode without hosted credentials", async () => {
+    mocks.loadLocalSettings.mockResolvedValue({
+      model: "mlx-chat",
+      modelProvider: "omlx",
+      omlx: { baseURL: "http://127.0.0.1:8000", apiKey: "test-key" },
+    })
+    mocks.streamChat.mockImplementationOnce(async function* () {
+      yield { type: "text_delta", text: "MLX answer" }
+    })
+    const output = streams()
+    expect(await runHeadlessCommand(["--ephemeral", "hello"], output.options)).toBe(0)
+    expect(mocks.OmlxClient).toHaveBeenCalledWith({
+      model: "mlx-chat",
+      baseURL: "http://127.0.0.1:8000",
+      apiKey: "test-key",
+    })
+    expect(mocks.ensureLocalServing).not.toHaveBeenCalled()
+    expect(FireworksClient).not.toHaveBeenCalled()
+    expect(output.stdout()).toBe("MLX answer\n")
   })
 
   it("fails clearly when a saved PAIR model has no endpoint", async () => {

@@ -89,6 +89,7 @@ export function summarizeUserMessage(message: UserChatMessage): string {
 export function formatDocumentForModel(document: DocumentContentPart) {
   const metadata = JSON.stringify({
     name: document.name,
+    sha256: document.sha256, // Lets save_attachment distinguish sources with the same filename without exposing bytes.
     mimeType: document.mimeType,
     sizeBytes: document.sizeBytes,
     ...(document.pageCount === undefined ? {} : { pages: document.pageCount }),

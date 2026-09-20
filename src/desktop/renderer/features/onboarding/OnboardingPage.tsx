@@ -15,6 +15,7 @@ import { useCallback, useEffect, useState } from "react"
 import type { ModelPickerChoice, ModelPickerItem } from "../../../../inference/picker-catalog.js"
 import lmStudioIcon from "../../assets/lm-studio.svg"
 import ollamaIcon from "../../assets/ollama.svg"
+import omlxIcon from "../../assets/omlx.svg"
 import { Button, IconButton } from "../../components/Button.js"
 import { Icon } from "../../components/Icon.js"
 import { OtisMark } from "../../components/OtisMark.js"
@@ -29,18 +30,20 @@ type OnboardingDirection = "forward" | "back"
 
 /**
  * First-run onboarding, rendered in place of the conversation until a model is configured. Hosted inference uses
- * Fireworks; local inference can either be managed by Otis or connect to an existing Ollama, LM Studio, or NVIDIA
+ * Fireworks; local inference can either be managed by Otis or connect to an existing Ollama, oMLX, LM Studio, or NVIDIA
  * PAIR endpoint. A successful selection sets `model` and the shell swaps this page for the workspace.
  */
 export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void }) {
   const { api } = useDesktop()
   const { t } = useI18n()
-  const state = useDesktopState("hostedConfigured", "modelLoad", "pairConfigured", "pairEndpoints")
+  const state = useDesktopState("hostedConfigured", "modelLoad", "pairConfigured", "pairEndpoints", "omlx")
   const [path, setPath] = useState<OnboardingPath>("welcome")
   const [direction, setDirection] = useState<OnboardingDirection>("forward")
   const [apiKey, setApiKey] = useState("")
   const [ollama, setOllama] = useState("")
   const [lmStudio, setLmStudio] = useState("")
+  const [omlx, setOmlx] = useState("")
+  const [omlxApiKey, setOmlxApiKey] = useState("")
   const [serverPending, setServerPending] = useState(false)
   const [items, setItems] = useState<ModelPickerItem[]>()
   const [error, setError] = useState<string>()
@@ -58,7 +61,7 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
 
   const hostedConfigured = state?.hostedConfigured === true
 
-  const pairConfigured = state?.pairConfigured === true
+  const pairConfigured = state?.pairConfigured === true || Boolean(state?.omlx)
 
   useEffect(() => {
     if (path === "managed" || (path === "cloud" && hostedConfigured) || (path === "serverModels" && pairConfigured)) {
@@ -70,7 +73,10 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
   const rowProvider =
     path === "cloud" ? "fireworks" : path === "managed" ? "local" : path === "serverModels" ? "pair" : null
   const rows = mergeModelLoad(items ?? [], modelLoad).filter(
-    (item): item is ModelPickerChoice => item.kind === "model" && rowProvider !== null && item.provider === rowProvider,
+    (item): item is ModelPickerChoice =>
+      item.kind === "model" &&
+      rowProvider !== null &&
+      (item.provider === rowProvider || (rowProvider === "pair" && item.provider === "omlx")),
   )
   async function saveKey() {
     setError(undefined)
@@ -98,6 +104,8 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
   function openServerSetup() {
     setOllama(state?.pairEndpoints.ollama ?? LOCAL_SERVER_DEFAULTS.ollama)
     setLmStudio(state?.pairEndpoints.lmStudio ?? LOCAL_SERVER_DEFAULTS.lmStudio)
+    setOmlx(state?.omlx?.baseURL ?? "http://127.0.0.1:8000")
+    setOmlxApiKey("")
     setError(undefined)
     navigate("server", "forward")
   }
@@ -106,14 +114,15 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
     setError(undefined)
     setServerPending(true)
     try {
-      const result = await api.connectPairEndpoints({ ollama, lmStudio })
+      const result = await api.connectLocalServers({ ollama, lmStudio, omlx, omlxApiKey })
       if (!result.ok) {
         setError(result.reason)
         return
       }
+      setOmlxApiKey("")
       const catalog = await load()
       if (!catalog) return
-      if (!catalog.some((item) => item.kind === "model" && item.provider === "pair")) {
+      if (!catalog.some((item) => item.kind === "model" && (item.provider === "pair" || item.provider === "omlx"))) {
         setError(t("onboarding.connectedNoModels"))
         return
       }
@@ -224,6 +233,7 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                 <span className="onboarding-providerMarks" aria-hidden>
                   <img className="onboarding-providerMark onboarding-providerMarkOllama" src={ollamaIcon} alt="" />
                   <img className="onboarding-providerMark" src={lmStudioIcon} alt="" />
+                  <img className="onboarding-providerMark" src={omlxIcon} alt="" />
                 </span>
                 <span className="onboarding-cardText">
                   <span className="onboarding-cardTitle">{t("onboarding.server")}</span>
@@ -308,6 +318,31 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                 }}
                 spellCheck={false}
                 autoComplete="off"
+              />
+              <label className="onboarding-endpointLabel" htmlFor="onboarding-omlx">
+                <img className="onboarding-endpointMark" src={omlxIcon} alt="" aria-hidden />
+                oMLX
+              </label>
+              <input
+                id="onboarding-omlx"
+                className="onboarding-endpointInput"
+                value={omlx}
+                onChange={(event) => setOmlx(event.target.value)}
+                spellCheck={false}
+                autoComplete="off"
+              />
+              <input
+                id="onboarding-omlx-key"
+                type="password"
+                className="onboarding-endpointInput onboarding-endpointKey"
+                aria-label={t("settings.omlxKey")}
+                value={omlxApiKey}
+                onChange={(event) => setOmlxApiKey(event.target.value)}
+                placeholder={state?.omlx?.hasApiKey ? t("settings.omlxKeyHint") : t("settings.omlxKey")}
+                autoComplete="off"
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") void connectServer()
+                }}
               />
               <div className="onboarding-actions onboarding-actionsEnd">
                 <Button variant="primary" size="sm" disabled={serverPending} onClick={() => void connectServer()}>

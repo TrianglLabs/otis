@@ -165,10 +165,14 @@ export function createSetupViews(renderer: Renderer) {
   })
   const setupPairCard = createInferenceChoiceCard(renderer, {
     id: "setup-local-choice-pair",
-    title: "NVIDIA PAIR",
-    label: "Your home AI cluster",
-    description: "Let PAIR choose a computer for each request.",
-    details: ["Uses Ollama or LM Studio.", "Runs across your local network.", "PAIR must be running."],
+    title: "Local servers",
+    label: "Managed by you",
+    description: "Connect to a model server already running on this computer.",
+    details: [
+      "Ollama, LM Studio, or oMLX.",
+      "NVIDIA PAIR for cluster routing.",
+      "Only one working endpoint is required.",
+    ],
   })
   setupLocalChoiceCards.add(setupManagedLocalCard)
   setupLocalChoiceCards.add(setupPairCard)
@@ -202,8 +206,8 @@ export function createSetupViews(renderer: Renderer) {
     id: "setup-choice-local",
     title: "Local inference",
     label: "Private, on your devices",
-    description: "Run on this machine or use an NVIDIA PAIR cluster.",
-    details: ["Managed llama.cpp built in.", "PAIR supports Ollama and LM Studio."],
+    description: "Run on this machine or connect to a local model server.",
+    details: ["Managed llama.cpp built in.", "Ollama, LM Studio, oMLX, and NVIDIA PAIR."],
   })
   const setupHostedCard = createInferenceChoiceCard(renderer, {
     id: "setup-choice-hosted",
@@ -304,7 +308,7 @@ export function createSetupViews(renderer: Renderer) {
   setupPairForm.add(
     new TextRenderable(renderer, {
       id: "setup-pair-heading",
-      content: "NVIDIA PAIR endpoints",
+      content: "Local server endpoints",
       fg: colors.text,
       selectable: false,
     }),
@@ -313,7 +317,7 @@ export function createSetupViews(renderer: Renderer) {
     new TextRenderable(renderer, {
       id: "setup-pair-description",
       content:
-        "These are PAIR's standard proxy addresses, or your last saved addresses. Only one working endpoint is required. Change an address only if PAIR → Endpoints shows a different proxy port.",
+        "Connect to Ollama, LM Studio, or oMLX. For NVIDIA PAIR, use the addresses from PAIR → Endpoints. Only one working endpoint is required. The oMLX key is optional; leave blank to keep a saved key.",
       fg: colors.muted,
       selectable: false,
       wrapMode: "word",
@@ -323,6 +327,10 @@ export function createSetupViews(renderer: Renderer) {
   const lmStudioEndpoint = createSetupInputRow(renderer, "setup-pair-lmstudio", "LM Studio")
   setupPairForm.add(ollamaEndpoint.box)
   setupPairForm.add(lmStudioEndpoint.box)
+  const omlxEndpoint = createSetupInputRow(renderer, "setup-omlx", "oMLX")
+  const omlxKey = createSetupInputRow(renderer, "setup-omlx-key", "API key")
+  setupPairForm.add(omlxEndpoint.box)
+  setupPairForm.add(omlxKey.box)
   const setupPairMessage = new TextRenderable(renderer, {
     id: "setup-pair-message",
     content: "",
@@ -333,7 +341,7 @@ export function createSetupViews(renderer: Renderer) {
   setupPairForm.add(
     new TextRenderable(renderer, {
       id: "setup-pair-hint",
-      content: "[tab] switch endpoint · [enter] continue · [esc] back",
+      content: "[tab] switch field · [enter] continue · [esc] back",
       fg: colors.muted,
       selectable: false,
     }),
@@ -369,6 +377,8 @@ export function createSetupViews(renderer: Renderer) {
     setupPairCard,
     setupPairForm,
     setupPairLMStudioInput: lmStudioEndpoint.input,
+    setupOmlxInput: omlxEndpoint.input,
+    setupOmlxKeyInput: omlxKey.input,
     setupPairMessage,
     setupPairOllamaInput: ollamaEndpoint.input,
     setupContinueButton,

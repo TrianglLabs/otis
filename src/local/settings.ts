@@ -3,6 +3,7 @@ import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { dirname, join, resolve } from "node:path"
 import { isLocalModelId } from "../inference/local-catalog.js"
 import { type LocalThinkingPreferences, validateLocalThinkingSelection } from "../inference/local-thinking.js"
+import { normalizeOmlxSettings, type OmlxSettings } from "../inference/omlx.js"
 import { normalizePairEndpoints, type PairEndpoints } from "../inference/pair.js"
 import { baseFireworksModelId, isFastFireworksModel } from "../inference/serving-path.js"
 import type { CatalogModel, FireworksModel, ModelProvider, PairEngine } from "../inference/types.js"
@@ -10,6 +11,7 @@ import { type PermissionConfig, type PermissionMode, parsePermissionConfig } fro
 import { localConfigDirectory } from "./paths.js"
 
 export type LocalSettings = {
+  omlx?: OmlxSettings
   fireworksApiKey?: string
   pairEndpoints?: PairEndpoints
   pairEngine?: PairEngine
@@ -55,6 +57,7 @@ export type SettingsFileOptions = {
 }
 
 type SettingsFile = {
+  omlx?: OmlxSettings
   version: 1
   fireworksApiKey?: string
   pairEndpoints?: PairEndpoints
@@ -87,6 +90,7 @@ export async function loadLocalSettings(options: SettingsFileOptions = {}): Prom
 
   return {
     fireworksApiKey: envFireworksApiKey ?? saved?.fireworksApiKey,
+    ...(saved?.omlx ? { omlx: saved.omlx } : {}),
     ...(pairEndpoints && hasPairEndpoints(pairEndpoints) ? { pairEndpoints } : {}),
     ...(saved?.pairEngine ? { pairEngine: saved.pairEngine } : {}),
     model: saved?.model,
@@ -166,6 +170,25 @@ export async function saveSelectedModel(model: CatalogModel, options: SettingsFi
   await serializeSettingsWrite(options, async (pinned) => {
     const saved = (await readSettingsFile(pinned)) ?? { version: 1 }
     await writeSettingsFile(withSelectedModel(saved, model), pinned)
+  })
+}
+
+export async function saveLocalServers(
+  servers: { pairEndpoints: PairEndpoints; omlx?: OmlxSettings },
+  options: SettingsFileOptions = {},
+) {
+  await serializeSettingsWrite(options, async (pinned) => {
+    const saved = (await readSettingsFile(pinned)) ?? { version: 1 }
+    const { omlx: _oldOmlx, pairEndpoints: _oldPair, ...rest } = saved
+    const pairEndpoints = persistedPairEndpoints(servers.pairEndpoints)
+    await writeSettingsFile(
+      {
+        ...rest,
+        ...(hasPairEndpoints(pairEndpoints) ? { pairEndpoints } : {}),
+        ...(servers.omlx ? { omlx: normalizeOmlxSettings(servers.omlx) } : {}),
+      },
+      pinned,
+    )
   })
 }
 
@@ -302,6 +325,7 @@ function parseSettingsFile(value: unknown): SettingsFile {
 
   const fireworksApiKey = optionalString(value.fireworksApiKey, "fireworksApiKey")
   const pairEndpoints = parsePairEndpoints(value.pairEndpoints)
+  const omlx = parseOmlxSettings(value.omlx)
   const pairEngine = optionalPairEngine(value.pairEngine)
   const model = optionalString(value.model, "model")
   const modelDisplayName = optionalString(value.modelDisplayName, "modelDisplayName")
@@ -325,6 +349,7 @@ function parseSettingsFile(value: unknown): SettingsFile {
     version: 1,
     ...(fireworksApiKey ? { fireworksApiKey } : {}),
     ...(hasPairEndpoints(pairEndpoints) ? { pairEndpoints } : {}),
+    ...(omlx ? { omlx } : {}),
     ...(pairEngine ? { pairEngine } : {}),
     ...(model ? { model } : {}),
     ...(modelDisplayName ? { modelDisplayName } : {}),
@@ -357,6 +382,7 @@ function withSelectedModel(settings: SettingsFile, model: CatalogModel): Setting
   )
   return {
     version: 1,
+    ...(settings.omlx ? { omlx: settings.omlx } : {}),
     ...(settings.fireworksApiKey ? { fireworksApiKey: settings.fireworksApiKey } : {}),
     ...(hasPairEndpoints(pairEndpoints) ? { pairEndpoints } : {}),
     ...(model.provider === "pair" ? { pairEngine: model.engine } : {}),
@@ -382,6 +408,7 @@ function withoutSelectedModel(settings: SettingsFile): SettingsFile {
   const pairEndpoints = persistedPairEndpoints(settings.pairEndpoints)
   return {
     version: 1,
+    ...(settings.omlx ? { omlx: settings.omlx } : {}),
     ...(settings.fireworksApiKey ? { fireworksApiKey: settings.fireworksApiKey } : {}),
     ...(hasPairEndpoints(pairEndpoints) ? { pairEndpoints } : {}),
     ...(settings.theme ? { theme: settings.theme } : {}),
@@ -416,8 +443,15 @@ function inferModelProvider(modelId: string | undefined): ModelProvider | undefi
 
 function optionalModelProvider(value: unknown): ModelProvider | undefined {
   if (value === undefined) return undefined
-  if (value === "fireworks" || value === "local" || value === "pair") return value
-  throw new Error("Invalid Otis config: modelProvider must be fireworks, local, or pair.")
+  if (value === "fireworks" || value === "local" || value === "pair" || value === "omlx") return value
+  throw new Error("Invalid Otis config: modelProvider must be fireworks, local, pair, or omlx.")
+}
+
+function parseOmlxSettings(value: unknown): OmlxSettings | undefined {
+  if (value === undefined) return undefined
+  if (!isRecord(value) || typeof value.baseURL !== "string")
+    throw new Error("Invalid Otis config: omlx must contain a baseURL.")
+  return normalizeOmlxSettings({ baseURL: value.baseURL, apiKey: optionalString(value.apiKey, "omlx.apiKey") })
 }
 
 function optionalUiLanguage(value: unknown): UiLanguage | undefined {

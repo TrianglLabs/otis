@@ -1,4 +1,5 @@
 import type { GlobalSessionPickerItem } from "../app/global-sessions.js"
+import type { LocalServerInputs } from "../app/local-servers.js"
 import type { TranscriptEntry } from "../app/transcript.js"
 import type { ArtifactMetadata, ArtifactPayload, ArtifactReference } from "../artifacts/types.js"
 import type { LocalThinkingSelection, LocalThinkingState } from "../inference/local-thinking.js"
@@ -17,6 +18,7 @@ export const DESKTOP_CHANNELS = {
   getSnapshot: "desktop:get-snapshot",
   getArtifact: "desktop:get-artifact",
   openArtifact: "desktop:open-artifact",
+  saveArtifact: "desktop:save-artifact",
   sendPrompt: "desktop:send-prompt",
   stop: "desktop:stop",
   respondToPermission: "desktop:respond-to-permission",
@@ -43,7 +45,7 @@ export const DESKTOP_CHANNELS = {
   setFastServing: "desktop:set-fast-serving",
   openFireworksKeyPage: "desktop:open-fireworks-key-page",
   setFireworksApiKey: "desktop:set-fireworks-api-key",
-  connectPairEndpoints: "desktop:connect-pair-endpoints",
+  connectLocalServers: "desktop:connect-local-servers",
   deleteLocalModel: "desktop:delete-local-model",
   setDebugMode: "desktop:set-debug-mode",
   checkForUpdates: "desktop:check-for-updates",
@@ -128,6 +130,7 @@ export type DesktopStatus = {
   pairConfigured: boolean
   /** The saved PAIR endpoint addresses (loopback URLs), for prefilling the connect form. */
   pairEndpoints: { ollama?: string; lmStudio?: string }
+  omlx?: { baseURL: string; hasApiKey: boolean } | null
   /** Session-only debug mode, mirroring the TUI's /debug toggle; applies from the next turn. */
   debug: boolean
   update: DesktopUpdateState
@@ -176,6 +179,7 @@ export type DesktopApi = {
   getSnapshot(): Promise<DesktopSnapshot>
   getArtifact(revision: number): Promise<ArtifactPayload | undefined>
   openArtifact(reference: ArtifactReference, version?: number): Promise<SessionOpResult>
+  saveArtifact(id: string, revision: number): Promise<SessionOpResult>
   getWindowState(): Promise<DesktopWindowState>
   sendPrompt(text: string, attachments?: readonly DesktopAttachmentInput[]): Promise<SendPromptResult>
   stop(): Promise<void>
@@ -228,7 +232,7 @@ export type DesktopApi = {
   /** Validates a Fireworks API key against the hosted catalog, then persists and activates it. */
   setFireworksApiKey(apiKey: string): Promise<ModelSelectResult>
   /** Validates, probes, and persists NVIDIA PAIR endpoints, keeping only the ones that respond. */
-  connectPairEndpoints(endpoints: { ollama?: string; lmStudio?: string }): Promise<ModelSelectResult>
+  connectLocalServers(endpoints: LocalServerInputs): Promise<ModelSelectResult>
   /** Deletes a downloaded local model from the model catalog, clearing the selection first when it is active. */
   deleteLocalModel(id: string): Promise<ModelSelectResult>
   /** Session-only debug mode; applies from the next turn. */

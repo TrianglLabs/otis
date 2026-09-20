@@ -104,6 +104,7 @@ function fakeApi(overrides: Partial<DesktopApi> = {}): DesktopApi {
     getSnapshot: vi.fn(async () => SNAPSHOT),
     getArtifact: vi.fn(async () => undefined),
     openArtifact: vi.fn(async () => ({ ok: true as const })),
+    saveArtifact: vi.fn(async () => ({ ok: true as const })),
     getWindowState: vi.fn(async () => ({ fullscreen: false })),
     sendPrompt: vi.fn(async () => ({ accepted: true as const, delivery: "started" as const })),
     stop: vi.fn(async () => {}),
@@ -131,7 +132,7 @@ function fakeApi(overrides: Partial<DesktopApi> = {}): DesktopApi {
     setFastServing: vi.fn(async () => ({ ok: true as const })),
     openFireworksKeyPage: vi.fn(async () => {}),
     setFireworksApiKey: vi.fn(async () => ({ ok: true as const })),
-    connectPairEndpoints: vi.fn(async () => ({ ok: true as const })),
+    connectLocalServers: vi.fn(async () => ({ ok: true as const })),
     deleteLocalModel: vi.fn(async () => ({ ok: true as const })),
     setDebugMode: vi.fn(async () => {}),
     installUpdate: vi.fn(async () => {}),
@@ -327,8 +328,8 @@ describe("OnboardingPage", () => {
     const api = fakeApi()
     await renderApp(api)
     fireEvent.click(await screen.findByRole("button", { name: /^Local/ }))
-    const servers = await screen.findByRole("button", { name: /Ollama or LM Studio/ })
-    expect(servers.querySelectorAll("img")).toHaveLength(2)
+    const servers = await screen.findByRole("button", { name: /Local servers/ })
+    expect(servers.querySelectorAll("img")).toHaveLength(3)
     fireEvent.click(servers)
 
     expect(screen.getByText(/default local addresses are prefilled/)).toBeTruthy()
@@ -336,7 +337,9 @@ describe("OnboardingPage", () => {
     expect((screen.getByLabelText("LM Studio") as HTMLInputElement).value).toBe("http://127.0.0.1:1234")
     fireEvent.click(screen.getByRole("button", { name: "Connect" }))
 
-    expect(api.connectPairEndpoints).toHaveBeenCalledWith({
+    expect(api.connectLocalServers).toHaveBeenCalledWith({
+      omlx: "http://127.0.0.1:8000",
+      omlxApiKey: "",
       ollama: "http://127.0.0.1:11434",
       lmStudio: "http://127.0.0.1:1234",
     })
@@ -362,7 +365,7 @@ describe("OnboardingPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Settings" }))
     fireEvent.click(await screen.findByRole("button", { name: /Local model servers/ }))
     fireEvent.click(screen.getByRole("button", { name: "Connect" }))
-    expect(api.connectPairEndpoints).toHaveBeenCalled()
+    expect(api.connectLocalServers).toHaveBeenCalled()
 
     // Endpoints answer → models list inside Settings, no onboarding card involved.
     await act(async () => listener?.({ type: "status", revision: 2, status: { ...status, pairConfigured: true } }))
@@ -421,6 +424,33 @@ describe("OnboardingPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Connect" }))
     expect(await screen.findByText("New cluster model")).toBeTruthy()
     expect(screen.queryByText("PAIR cluster model")).toBeNull()
+  })
+
+  it("lists and selects oMLX models from Settings with a private key input", async () => {
+    const item: ModelPickerItem = {
+      kind: "model",
+      provider: "omlx",
+      id: "mlx-chat",
+      displayName: "MLX chat",
+      selectionKey: "omlx:mlx-chat",
+      baseURL: "http://127.0.0.1:8000",
+      contextLength: 16384,
+      supportsImageInput: true,
+      available: true,
+      active: false,
+    }
+    const api = fakeApi({
+      getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, omlx: { baseURL: item.baseURL, hasApiKey: true } })),
+      listModels: vi.fn(async () => [item]),
+    })
+    await renderApp(api)
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }))
+    fireEvent.click(await screen.findByRole("button", { name: /Local model servers/ }))
+    const key = screen.getByLabelText("oMLX API key (optional)") as HTMLInputElement
+    expect(key.type).toBe("password")
+    expect(key.value).toBe("")
+    fireEvent.click(rowButton(await screen.findByText("MLX chat")))
+    expect(api.selectModel).toHaveBeenCalledWith("omlx:mlx-chat")
   })
 
   it("moves the PAIR checkmark to the selected model without reopening Settings", async () => {
