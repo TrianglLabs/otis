@@ -1,22 +1,12 @@
-import { readFile } from "node:fs/promises"
 import { builtinModules } from "node:module"
 import { fileURLToPath } from "node:url"
 import react from "@vitejs/plugin-react"
 import { defineConfig } from "electron-vite"
 import type { Plugin } from "vite"
 import { inlineCanvas } from "./scripts/vite-inline-canvas.js"
+import { inlineText } from "./scripts/vite-inline-text.js"
 
 const root = fileURLToPath(new URL(".", import.meta.url))
-
-/** Mirrors Bun's text imports for prompts and embedded skill resources. */
-const inlineText: Plugin = {
-  name: "otis-inline-text",
-  enforce: "pre",
-  async load(id) {
-    if (!/\.(txt|md|py)$/.test(id)) return null
-    return `export default ${JSON.stringify(await readFile(id, "utf8"))}`
-  },
-}
 
 /**
  * The shipped CSP in index.html is strict (`script-src 'self'`). The dev server needs an inline script for the
@@ -49,7 +39,7 @@ const cjsOutput = {
 
 export default defineConfig({
   main: {
-    plugins: [inlineText],
+    plugins: [inlineText()],
     build: {
       outDir: `${root}out/main`,
       rollupOptions: {

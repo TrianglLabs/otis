@@ -31,7 +31,7 @@ export function setWelcomePanelExpanded(panel: BoxRenderable, expanded: boolean)
 
 export function createUILayout(
   renderer: Renderer,
-  options: Pick<ChatUIOptions, "configured" | "contextLabel" | "modeLabel" | "sessionLabel">,
+  options: Pick<ChatUIOptions, "configured" | "contextLabel" | "modeLabel" | "sessionLabel" | "platform">,
 ) {
   const { statsRow, statBoxes } = createStatsRow(renderer)
   const { panel: sessionPanel, rows: sessionRowsBox } = createSessionPanel(renderer)
@@ -72,7 +72,7 @@ export function createUILayout(
     setupStartButton,
     setupStatus,
     setupStatusBox,
-  } = createSetupViews(renderer)
+  } = createSetupViews(renderer, options.platform)
 
   const welcomePanel = new BoxRenderable(renderer, {
     id: "welcome-panel",

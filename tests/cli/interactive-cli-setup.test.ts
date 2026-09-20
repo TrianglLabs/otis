@@ -129,7 +129,7 @@ describe("interactive CLI setup", () => {
     mocks.uiOptions?.onSetupInferenceChoice?.("local")
     mocks.uiOptions?.onSetupLocalInferenceChoice?.("pair")
     expect(mocks.ui.showPairSetup).toHaveBeenLastCalledWith("", "local", {
-      omlx: "http://127.0.0.1:8000",
+      ...(process.platform === "darwin" ? { omlx: "http://127.0.0.1:8000" } : {}),
       ollama: "http://127.0.0.1:11434",
       lmStudio: "http://127.0.0.1:1234",
     })
@@ -298,7 +298,7 @@ describe("interactive CLI setup", () => {
 
     await submit("/settings pair")
     expect(mocks.ui.showPairSetup).toHaveBeenLastCalledWith("", "configured", {
-      omlx: "http://127.0.0.1:8000",
+      ...(process.platform === "darwin" ? { omlx: "http://127.0.0.1:8000" } : {}),
       ollama: "http://127.0.0.1:11434",
       lmStudio: "http://127.0.0.1:1234",
     })
@@ -322,7 +322,7 @@ describe("interactive CLI setup", () => {
       "Reconnect to your local server, then choose a model.",
       "local",
       {
-        omlx: "http://127.0.0.1:8000",
+        ...(process.platform === "darwin" ? { omlx: "http://127.0.0.1:8000" } : {}),
         ollama: "http://127.0.0.1:11434",
         lmStudio: "http://127.0.0.1:1234",
       },

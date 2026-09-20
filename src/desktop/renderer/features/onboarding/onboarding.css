@@ -138,14 +138,17 @@
 
 .onboarding-cards {
   display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) auto;
   grid-auto-rows: 1fr;
-  gap: 8px;
+  gap: 8px 11px;
   width: 100%;
 }
 
 /* Choices are real buttons: bordered panels with a chevron, like settings rows. */
 .onboarding-card {
-  display: flex;
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
   align-items: center;
   gap: 11px;
   padding: 12px 13px;
@@ -169,7 +172,6 @@
 .onboarding-cardChevron {
   margin-left: auto;
   color: var(--text-faint);
-  flex-shrink: 0;
   transition: color var(--motion) ease;
 }
 
@@ -180,15 +182,12 @@
 .onboarding-cardIcon {
   margin-top: 1px;
   color: var(--text-dim);
-  flex-shrink: 0;
 }
 
 .onboarding-cardMark {
-  width: 74px;
   display: flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
 }
 
 .onboarding-cardOtisMark {
@@ -200,11 +199,9 @@
 }
 
 .onboarding-providerMarks {
-  width: 74px;
   display: flex;
   align-items: center;
   gap: 4px;
-  flex-shrink: 0;
 }
 
 .onboarding-providerMark {

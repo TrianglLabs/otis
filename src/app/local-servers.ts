@@ -40,7 +40,7 @@ export async function prepareLocalServers(
     if (apiKey) omlx.apiKey = apiKey
   }
   if (!requested.ollama && !requested.lmStudio && !omlx) {
-    throw new Error("Enter at least one Ollama, LM Studio, oMLX, or NVIDIA PAIR endpoint.")
+    throw new Error("Enter at least one local model server endpoint.")
   }
   const [pairResult, omlxResult] = await Promise.allSettled([
     (options.discoverPair ?? discoverPairModels)(requested, { signal: options.signal }),
@@ -51,9 +51,7 @@ export async function prepareLocalServers(
   const omlxModels = omlxResult.status === "fulfilled" ? omlxResult.value : undefined
   if (!pair?.ollama && !pair?.lmStudio && !omlxModels) {
     if (omlxResult.status === "rejected") throw omlxResult.reason
-    throw new Error(
-      "No compatible model server was found. Start Ollama, LM Studio, oMLX, or NVIDIA PAIR and check its address.",
-    )
+    throw new Error("No compatible model server was found. Start your local model server and check its address.")
   }
   const pairModels = [...(pair?.ollama ?? []), ...(pair?.lmStudio ?? [])]
   if (!pairModels.length && !omlxModels?.length) {

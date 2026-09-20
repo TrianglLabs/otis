@@ -499,6 +499,26 @@ describe("chat UI input", () => {
     expect(onSetupLocalInferenceChoice).toHaveBeenCalledWith("pair")
   })
 
+  it.each(["linux", "win32"] as const)("omits oMLX setup and skips its fields on %s", async (platform) => {
+    const onPairSetupSubmit = vi.fn()
+    const harness = await setup({ platform, configured: false, onPairSetupSubmit })
+    harness.ui.showSetupInferenceChoice()
+    expect(harness.text("setup-choice-local-detail-1")).not.toContain("oMLX")
+    harness.ui.showSetupLocalInferenceChoice()
+    expect(harness.text("setup-local-choice-pair-detail-0")).toBe("Ollama or LM Studio.")
+    const endpoints = { ollama: "http://127.0.0.1:11434", lmStudio: "http://127.0.0.1:1234" }
+    harness.ui.showPairSetup("", "local", { ...endpoints, omlx: "http://127.0.0.1:8000", omlxApiKey: "unused" })
+    expect(harness.text("setup-pair-description")).not.toContain("oMLX")
+    expect(harness.find("setup-omlx-input")).toBeUndefined()
+    expect(harness.find("setup-omlx-key-input")).toBeUndefined()
+    harness.press("tab")
+    expect(harness.get<InputRenderable>("setup-pair-lmstudio-input").focused).toBe(true)
+    harness.press("tab")
+    expect(harness.get<InputRenderable>("setup-pair-ollama-input").focused).toBe(true)
+    harness.get<InputRenderable>("setup-pair-ollama-input").submit()
+    expect(onPairSetupSubmit).toHaveBeenCalledExactlyOnceWith(endpoints)
+  })
+
   it("edits and submits both NVIDIA PAIR proxy endpoints in one form", async () => {
     const onPairSetupSubmit = vi.fn()
     const harness = await setup({ configured: false, onPairSetupSubmit })

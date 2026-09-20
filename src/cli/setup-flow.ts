@@ -2,6 +2,7 @@ import type { LocalServerConnection, LocalServerInputs } from "../app/local-serv
 import type { ModelHost, PersistSelectionOptions } from "../app/models.js"
 import { listToolCapableModels } from "../inference/client.js"
 import { isLocalModelId } from "../inference/local-catalog.js"
+import { supportsOmlx } from "../inference/local-server-platform.js"
 import { selectDefaultFireworksModel } from "../inference/model-policy.js"
 import { discoverOmlxModels, OMLX_DEFAULT_ENDPOINT } from "../inference/omlx.js"
 import {
@@ -298,7 +299,7 @@ export class SetupFlow {
     this.options.ui.showPairSetup(message, cancelTarget, {
       ollama: this.#pairEndpoints.ollama ?? PAIR_DEFAULT_ENDPOINTS.ollama,
       lmStudio: this.#pairEndpoints.lmStudio ?? PAIR_DEFAULT_ENDPOINTS.lmStudio,
-      omlx: this.options.models.omlx?.baseURL ?? OMLX_DEFAULT_ENDPOINT,
+      ...(supportsOmlx(process.platform) ? { omlx: this.options.models.omlx?.baseURL ?? OMLX_DEFAULT_ENDPOINT } : {}),
     })
   }
 

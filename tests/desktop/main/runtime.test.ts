@@ -507,7 +507,7 @@ describe("DesktopRuntime subagents", () => {
 
     expect(await runtime.connectLocalServers({})).toEqual({
       ok: false,
-      reason: "Enter at least one Ollama, LM Studio, oMLX, or NVIDIA PAIR endpoint.",
+      reason: "Enter at least one local model server endpoint.",
     })
     expect(await runtime.connectLocalServers({ ollama: "https://example.com" })).toEqual({
       ok: false,
@@ -517,8 +517,7 @@ describe("DesktopRuntime subagents", () => {
     discoverPair.mockResolvedValueOnce({ errors: [{ engine: "ollama", message: "down" }] } as never)
     expect(await runtime.connectLocalServers({ ollama: "http://127.0.0.1:11434" })).toEqual({
       ok: false,
-      reason:
-        "No compatible model server was found. Start Ollama, LM Studio, oMLX, or NVIDIA PAIR and check its address.",
+      reason: "No compatible model server was found. Start your local model server and check its address.",
     })
 
     const result = await runtime.connectLocalServers({ ollama: "http://127.0.0.1:11434/" })

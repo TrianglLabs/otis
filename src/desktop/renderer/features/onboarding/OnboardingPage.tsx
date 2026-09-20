@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
+import { localServerNames, supportsOmlx } from "../../../../inference/local-server-platform.js"
 import type { ModelPickerChoice, ModelPickerItem } from "../../../../inference/picker-catalog.js"
 import lmStudioIcon from "../../assets/lm-studio.svg"
 import ollamaIcon from "../../assets/ollama.svg"
@@ -35,8 +36,11 @@ type OnboardingDirection = "forward" | "back"
  */
 export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void }) {
   const { api } = useDesktop()
-  const { t } = useI18n()
-  const state = useDesktopState("hostedConfigured", "modelLoad", "pairConfigured", "pairEndpoints", "omlx")
+  const { locale, t } = useI18n()
+  const state = useDesktopState("hostedConfigured", "modelLoad", "pairConfigured", "pairEndpoints", "omlx", "platform")
+  const showOmlx = supportsOmlx(state?.platform)
+  const servers = localServerNames(state?.platform)
+  const serverList = new Intl.ListFormat(locale, { type: "disjunction" })
   const [path, setPath] = useState<OnboardingPath>("welcome")
   const [direction, setDirection] = useState<OnboardingDirection>("forward")
   const [apiKey, setApiKey] = useState("")
@@ -104,7 +108,7 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
   function openServerSetup() {
     setOllama(state?.pairEndpoints.ollama ?? LOCAL_SERVER_DEFAULTS.ollama)
     setLmStudio(state?.pairEndpoints.lmStudio ?? LOCAL_SERVER_DEFAULTS.lmStudio)
-    setOmlx(state?.omlx?.baseURL ?? "http://127.0.0.1:8000")
+    setOmlx(showOmlx ? (state?.omlx?.baseURL ?? "http://127.0.0.1:8000") : "")
     setOmlxApiKey("")
     setError(undefined)
     navigate("server", "forward")
@@ -114,7 +118,7 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
     setError(undefined)
     setServerPending(true)
     try {
-      const result = await api.connectLocalServers({ ollama, lmStudio, omlx, omlxApiKey })
+      const result = await api.connectLocalServers({ ollama, lmStudio, ...(showOmlx ? { omlx, omlxApiKey } : {}) })
       if (!result.ok) {
         setError(result.reason)
         return
@@ -233,11 +237,13 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                 <span className="onboarding-providerMarks" aria-hidden>
                   <img className="onboarding-providerMark onboarding-providerMarkOllama" src={ollamaIcon} alt="" />
                   <img className="onboarding-providerMark" src={lmStudioIcon} alt="" />
-                  <img className="onboarding-providerMark" src={omlxIcon} alt="" />
+                  {showOmlx ? <img className="onboarding-providerMark" src={omlxIcon} alt="" /> : null}
                 </span>
                 <span className="onboarding-cardText">
                   <span className="onboarding-cardTitle">{t("onboarding.server")}</span>
-                  <span className="onboarding-cardBody">{t("onboarding.serverBody")}</span>
+                  <span className="onboarding-cardBody">
+                    {t("onboarding.serverBody", { servers: serverList.format([...servers, "NVIDIA PAIR"]) })}
+                  </span>
                 </span>
                 <Icon icon={ChevronRight} size={14} className="onboarding-cardChevron" />
               </button>
@@ -284,7 +290,9 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
             <div className="onboarding-stepHeader">
               <OtisMark className="onboarding-logo" />
               <p className="onboarding-panelTitle">{t("onboarding.connectServer")}</p>
-              <p className="onboarding-hint">{t("onboarding.connectServerHint")}</p>
+              <p className="onboarding-hint">
+                {t("onboarding.connectServerHint", { servers: serverList.format(servers) })}
+              </p>
             </div>
             <div className="onboarding-endpoints">
               <label className="onboarding-endpointLabel" htmlFor="onboarding-ollama">
@@ -319,31 +327,35 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                 spellCheck={false}
                 autoComplete="off"
               />
-              <label className="onboarding-endpointLabel" htmlFor="onboarding-omlx">
-                <img className="onboarding-endpointMark" src={omlxIcon} alt="" aria-hidden />
-                oMLX
-              </label>
-              <input
-                id="onboarding-omlx"
-                className="onboarding-endpointInput"
-                value={omlx}
-                onChange={(event) => setOmlx(event.target.value)}
-                spellCheck={false}
-                autoComplete="off"
-              />
-              <input
-                id="onboarding-omlx-key"
-                type="password"
-                className="onboarding-endpointInput onboarding-endpointKey"
-                aria-label={t("settings.omlxKey")}
-                value={omlxApiKey}
-                onChange={(event) => setOmlxApiKey(event.target.value)}
-                placeholder={state?.omlx?.hasApiKey ? t("settings.omlxKeyHint") : t("settings.omlxKey")}
-                autoComplete="off"
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") void connectServer()
-                }}
-              />
+              {showOmlx ? (
+                <>
+                  <label className="onboarding-endpointLabel" htmlFor="onboarding-omlx">
+                    <img className="onboarding-endpointMark" src={omlxIcon} alt="" aria-hidden />
+                    oMLX
+                  </label>
+                  <input
+                    id="onboarding-omlx"
+                    className="onboarding-endpointInput"
+                    value={omlx}
+                    onChange={(event) => setOmlx(event.target.value)}
+                    spellCheck={false}
+                    autoComplete="off"
+                  />
+                  <input
+                    id="onboarding-omlx-key"
+                    type="password"
+                    className="onboarding-endpointInput onboarding-endpointKey"
+                    aria-label={t("settings.omlxKey")}
+                    value={omlxApiKey}
+                    onChange={(event) => setOmlxApiKey(event.target.value)}
+                    placeholder={state?.omlx?.hasApiKey ? t("settings.omlxKeyHint") : t("settings.omlxKey")}
+                    autoComplete="off"
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") void connectServer()
+                    }}
+                  />
+                </>
+              ) : null}
               <div className="onboarding-actions onboarding-actionsEnd">
                 <Button variant="primary" size="sm" disabled={serverPending} onClick={() => void connectServer()}>
                   <Icon
@@ -432,7 +444,7 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
   )
 }
 
-/** The local step: the brand mark and the single best model for this Mac — no list to dig through. */
+/** The local step: the brand mark and the single best model for this computer — no list to dig through. */
 function LocalPick({
   items,
   itemsLoaded,

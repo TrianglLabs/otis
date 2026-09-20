@@ -30,10 +30,10 @@ import type {
  * before acceptance, queued follow-ups, permission round-trips, stop — so the interface is exercised honestly
  * before it is connected to a workspace. Never used when the preload bridge is present without `?demo`.
  */
-type DemoWindowStateApi = Pick<DesktopApi, "getWindowState" | "subscribeWindowState">
+type DemoHostApi = Pick<DesktopApi, "getWindowState" | "subscribeWindowState" | "getSnapshot">
 
-export function createDemoRuntime(windowStateApi?: DemoWindowStateApi): DesktopApi {
-  return new DemoRuntime(windowStateApi)
+export function createDemoRuntime(hostApi?: DemoHostApi): DesktopApi {
+  return new DemoRuntime(hostApi)
 }
 
 type DemoState = DesktopStatus & { entries: TranscriptEntry[] }
@@ -416,7 +416,7 @@ function demoRecentActivity() {
 }
 
 class DemoRuntime implements DesktopApi {
-  constructor(private readonly windowStateApi?: DemoWindowStateApi) {}
+  constructor(private readonly hostApi?: DemoHostApi) {}
 
   #listeners = new Set<(event: DesktopEvent) => void>()
   #revision = 0
@@ -433,11 +433,11 @@ class DemoRuntime implements DesktopApi {
   )
 
   async getWindowState() {
-    return this.windowStateApi?.getWindowState() ?? { fullscreen: false }
+    return this.hostApi?.getWindowState() ?? { fullscreen: false }
   }
 
   subscribeWindowState(listener: Parameters<DesktopApi["subscribeWindowState"]>[0]) {
-    return this.windowStateApi?.subscribeWindowState(listener) ?? (() => {})
+    return this.hostApi?.subscribeWindowState(listener) ?? (() => {})
   }
 
   #state: DemoState = {
@@ -690,7 +690,8 @@ class DemoRuntime implements DesktopApi {
 
   async getSnapshot(): Promise<DesktopSnapshot> {
     return {
-      platform: "darwin",
+      // Native previews use the actual host; standalone fixtures retain their deterministic platform.
+      platform: this.hostApi ? (await this.hostApi.getSnapshot()).platform : "darwin",
       version: "0.1.35",
       revision: this.#revision,
       entries: [...this.#state.entries],
