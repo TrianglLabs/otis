@@ -23,6 +23,7 @@ import { useI18n } from "../../i18n/index.js"
 import { useDesktop, useDesktopState } from "../../runtime.js"
 import { ModelPicker } from "../models/ModelPicker.js"
 import { draftAfterSend } from "./draft.js"
+import { ThinkingControl } from "./ThinkingControl.js"
 
 type PendingAttachment = DesktopAttachmentInput & {
   id: number
@@ -424,6 +425,7 @@ export const Composer = memo(function Composer({ installing = false }: { install
                   <Icon icon={ChevronDown} size={11} />
                 </button>
                 {pickerOpen ? <ModelPicker onClose={() => setPickerOpen(false)} /> : null}
+                <ThinkingControl />
               </>
             ) : null}
             {state ? (

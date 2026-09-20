@@ -511,6 +511,28 @@ export class InteractiveApp {
       case "thinking":
         await this.#setThinkingVisible(!this.#thinkingVisible)
         return
+      case "effort": {
+        const state = this.#app.models.thinkingState()
+        this.#ui.clearInput()
+        if (!state) {
+          this.#ui.showTransientHint(" Thinking effort is unavailable for this model ")
+          return
+        }
+        if (!command.level) {
+          this.#ui.showTransientHint(
+            ` Thinking: ${state.selected}. Use /effort ${[...state.levels, "default"].join(" | ")} `,
+          )
+          return
+        }
+        try {
+          await this.#app.setLocalThinking(state.modelId, command.level)
+          this.#ui.showTransientHint(` Thinking effort: ${command.level} `)
+        } catch (error) {
+          this.#ui.showTransientHint(` ${error instanceof Error ? error.message : String(error)} `)
+        }
+        this.#ui.focusInput()
+        return
+      }
       case "queue":
         return
       case "compact":

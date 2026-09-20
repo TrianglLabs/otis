@@ -1,9 +1,52 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { LlamaCppClient } from "../../src/inference/local-client.js"
+import type { LocalThinkingLevel } from "../../src/inference/local-thinking.js"
 
 afterEach(() => vi.restoreAllMocks())
 
 describe("LlamaCppClient", () => {
+  it("applies the saved effort to inference and token counting while preserving reasoning history", async () => {
+    let level: LocalThinkingLevel | undefined = "medium"
+    const requests: Array<Record<string, unknown>> = []
+    const client = new LlamaCppClient({
+      model: "Qwen/Qwen3.8-27B",
+      inferenceURL: "http://127.0.0.1:18765/v1/chat/completions",
+      thinkingLevel: () => level,
+      fetch: async (url, init) => {
+        requests.push(JSON.parse(String(init?.body)))
+        return String(url).endsWith("/input_tokens")
+          ? Response.json({ input_tokens: 123 })
+          : new Response("data: [DONE]\n\n")
+      },
+    })
+    const options = {
+      messages: [
+        {
+          role: "assistant" as const,
+          content: [
+            { type: "reasoning" as const, text: "Prior reasoning", field: "reasoning_content" as const },
+            { type: "text" as const, text: "Prior answer" },
+          ],
+        },
+      ],
+      tools: [{ name: "read", description: "Read", parameters: { type: "object" } }],
+    }
+    await client.countTokens(options)
+    await client.streamChat(options).next()
+    expect(requests[0]).toEqual(requests[1])
+    expect(requests[0]).toMatchObject({
+      reasoning_effort: "medium",
+      messages: expect.arrayContaining([expect.objectContaining({ reasoning_content: "Prior reasoning" })]),
+    })
+    level = "off"
+    await client.streamChat(options).next()
+    expect(requests[2]).toMatchObject({ chat_template_kwargs: { enable_thinking: false } })
+    expect(requests[2]).not.toHaveProperty("reasoning_effort")
+    level = undefined
+    await client.streamChat(options).next()
+    expect(requests[3]).not.toHaveProperty("reasoning_effort")
+    expect(requests[3]).not.toHaveProperty("chat_template_kwargs")
+  })
   it("streams OpenAI-compatible tool calls without Fireworks-only fields", async () => {
     const fetchMock = vi.fn(
       async (_input: RequestInfo | URL, _init?: RequestInit) =>

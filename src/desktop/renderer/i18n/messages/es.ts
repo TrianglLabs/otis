@@ -1,6 +1,16 @@
 import type { Messages } from "./en.js"
 
 export const es: Messages = {
+  "thinking.label": "Razonamiento",
+  "thinking.title": "Esfuerzo de razonamiento",
+  "thinking.off": "Desactivado",
+  "thinking.on": "Activado",
+  "thinking.low": "Bajo",
+  "thinking.medium": "Medio",
+  "thinking.high": "Alto",
+  "thinking.xhigh": "Muy alto",
+  "thinking.max": "Máximo",
+  "thinking.reset": "Usar valor predeterminado",
   "canvas.workingFile": "Archivo de trabajo",
   "canvas.savedArtifact": "Artefacto guardado · Abre la última versión",
   "canvas.savedVersion": "Versión guardada {{version}}",

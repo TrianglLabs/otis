@@ -358,6 +358,24 @@ describe("DesktopRuntime subagents", () => {
     await runtime.shutdown()
   })
 
+  it("persists local effort, rejects stale or unsupported selections, and invalidates counted context", async () => {
+    const { app, runtime } = await setup()
+    const model = "Qwen/Qwen3.8-27B"
+    app.models.selectedId = model
+    app.models.selectedProvider = "local"
+    app.transcript.observeContext(fakeClient, 900)
+    await runtime.setLocalThinking(model, "medium")
+    expect((await runtime.snapshot()).localThinking?.selected).toBe("medium")
+    expect((await loadLocalSettings()).localThinking?.[model]).toBe("medium")
+    expect(app.transcript.contextTokens(fakeClient)).toBeUndefined()
+    await expect(runtime.setLocalThinking(model, "high")).rejects.toThrow("does not support")
+    await expect(runtime.setLocalThinking("openai/gpt-oss-20b", "low")).rejects.toThrow("changed")
+    app.models.selectedProvider = "pair"
+    expect((await runtime.snapshot()).localThinking).toBeNull()
+    await expect(runtime.setLocalThinking(model, "low")).rejects.toThrow("changed")
+    await runtime.shutdown()
+  })
+
   it("rejects Fast serving for a local model", async () => {
     const home = await isolate("otis-desktop-")
     const cwd = join(home, "workspace")

@@ -1,5 +1,6 @@
 const { app, BrowserWindow, session } = require("electron")
-const { join } = require("node:path")
+const { join, parse } = require("node:path")
+const { writeFile } = require("node:fs/promises")
 
 const output = process.argv[2]
 app.setPath("userData", join(output, "user-data"))
@@ -33,6 +34,13 @@ app.whenReady().then(async () => {
       for (const event of request.events ?? []) {
         window.webContents.sendInputEvent(event)
         await new Promise((resolve) => setTimeout(resolve, 30))
+      }
+      if (request.screenshot && process.env.OTIS_UI_SCREENSHOT) {
+        const destination = parse(process.env.OTIS_UI_SCREENSHOT)
+        const file = request.screenshotName
+          ? join(destination.dir, `${destination.name}-${request.screenshotName}${destination.ext}`)
+          : process.env.OTIS_UI_SCREENSHOT
+        await writeFile(file, (await window.webContents.capturePage()).toPNG())
       }
     } catch (cause) {
       error = String(cause)

@@ -1,6 +1,16 @@
 import type { Messages } from "./en.js"
 
 export const zhCN: Messages = {
+  "thinking.label": "思考",
+  "thinking.title": "思考强度",
+  "thinking.off": "关闭",
+  "thinking.on": "开启",
+  "thinking.low": "低",
+  "thinking.medium": "中",
+  "thinking.high": "高",
+  "thinking.xhigh": "超高",
+  "thinking.max": "最高",
+  "thinking.reset": "使用模型默认值",
   "canvas.workingFile": "工作文件",
   "canvas.savedArtifact": "已保存的产物 · 打开最新版本",
   "canvas.savedVersion": "已保存版本 {{version}}",

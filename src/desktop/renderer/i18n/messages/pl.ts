@@ -1,6 +1,16 @@
 import type { Messages } from "./en.js"
 
 export const pl: Messages = {
+  "thinking.label": "Rozumowanie",
+  "thinking.title": "Poziom rozumowania",
+  "thinking.off": "Wył.",
+  "thinking.on": "Wł.",
+  "thinking.low": "Niski",
+  "thinking.medium": "Średni",
+  "thinking.high": "Wysoki",
+  "thinking.xhigh": "Bardzo wysoki",
+  "thinking.max": "Maksymalny",
+  "thinking.reset": "Użyj ustawienia domyślnego",
   "canvas.workingFile": "Plik roboczy",
   "canvas.savedArtifact": "Zapisany artefakt · Otwiera najnowszą wersję",
   "canvas.savedVersion": "Zapisana wersja {{version}}",

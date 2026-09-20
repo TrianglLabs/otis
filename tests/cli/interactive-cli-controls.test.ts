@@ -284,6 +284,22 @@ describe("CLI subagent panel visibility", () => {
 })
 
 describe("CLI thinking visibility", () => {
+  it("sets native local effort independently of trace visibility", async () => {
+    const model = "Qwen/Qwen3.8-27B"
+    mocks.loadLocalSettings.mockResolvedValue(
+      localSettings({ model, modelProvider: "local", fireworksApiKey: undefined }),
+    )
+    await loadCli()
+    await settle()
+    await submit("/effort medium")
+    expect(mocks.saveLocalThinking).toHaveBeenCalledWith(model, "medium")
+    expect(mocks.ui.showTransientHint).toHaveBeenLastCalledWith(" Thinking effort: medium ")
+    expect(mocks.saveThinkingVisible).not.toHaveBeenCalled()
+    await submit("/effort")
+    expect(mocks.ui.showTransientHint).toHaveBeenLastCalledWith(expect.stringContaining("Thinking: medium"))
+    await submit("/effort default")
+    expect(mocks.saveLocalThinking).toHaveBeenLastCalledWith(model, "default")
+  })
   it("persists each thinking visibility toggle", async () => {
     await loadCli()
 

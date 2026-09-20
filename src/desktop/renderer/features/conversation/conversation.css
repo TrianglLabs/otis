@@ -723,7 +723,7 @@ button.reasoning-header:hover {
   margin-left: -6px;
   border: none;
   background: transparent;
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: var(--text-meta);
   color: var(--text-dim);
   white-space: nowrap;

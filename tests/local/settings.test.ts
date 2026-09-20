@@ -9,6 +9,7 @@ import {
   saveFastServingSelection,
   saveFireworksApiKey,
   saveFireworksSetup,
+  saveLocalThinking,
   savePairEndpoints,
   savePermissionMode,
   saveSelectedModel,
@@ -25,6 +26,26 @@ afterEach(async () => {
 })
 
 describe("local settings", () => {
+  it("remembers thinking per model through model changes, reset, and unrelated saves", async () => {
+    const file = join(await tempDirectory(), "config.json")
+    await Promise.all([
+      saveLocalThinking("Qwen/Qwen3.8-27B", "low", { file }),
+      saveLocalThinking("prism-ml/Ternary-Bonsai-2-27B-gguf", "medium", { file }),
+      saveThinkingVisible(true, { file }),
+    ])
+    await saveSelectedModel(model("hosted", "Hosted", 65536), { file })
+    await clearSelectedModel({ file })
+    expect((await loadLocalSettings({ file, env: {} })).localThinking).toEqual({
+      "Qwen/Qwen3.8-27B": "low",
+      "prism-ml/Ternary-Bonsai-2-27B-gguf": "medium",
+    })
+    await saveLocalThinking("Qwen/Qwen3.8-27B", "default", { file })
+    await expect(saveLocalThinking("prism-ml/Ternary-Bonsai-2-27B-gguf", "low", { file })).rejects.toThrow()
+    expect((await loadLocalSettings({ file, env: {} })).localThinking).toEqual({
+      "prism-ml/Ternary-Bonsai-2-27B-gguf": "medium",
+    })
+    expect((await loadLocalSettings({ file, env: {} })).thinkingVisible).toBe(true)
+  })
   it("seeds a private independent profile without replacing its later settings", async () => {
     const source = join(await tempDirectory(), "config.json")
     const file = join(await tempDirectory(), "dev", "config.json")
@@ -192,15 +213,20 @@ describe("local settings", () => {
     })
   })
 
-  it("stores the selected theme without replacing provider settings", async () => {
+  it.each([
+    "graphite",
+    "pearl",
+    "sage",
+    "titanium",
+  ] as const)("stores %s without replacing provider settings", async (theme) => {
     const file = join(await tempDirectory(), "config.json")
     await saveFireworksSetup("fw_test_key", model("tool-model", "Tool Model"), { file })
-    await saveSelectedTheme("graphite", { file })
+    await saveSelectedTheme(theme, { file })
 
-    await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({ theme: "graphite" })
+    await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({ theme })
     expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({
       fireworksApiKey: "fw_test_key",
-      theme: "graphite",
+      theme,
     })
   })
 

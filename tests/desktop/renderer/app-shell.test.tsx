@@ -99,6 +99,7 @@ const SNAPSHOT: DesktopSnapshot = {
   language: "system",
   thinkingVisible: false,
   permissionMode: "auto",
+  localThinking: null,
   fastServing: { available: false, enabled: false },
   hostedConfigured: true,
   pairConfigured: false,
@@ -139,6 +140,7 @@ function fakeApi(overrides: Partial<DesktopApi> = {}): DesktopApi {
     setTheme: vi.fn(async () => {}),
     setLanguage: vi.fn(async () => {}),
     setThinkingVisible: vi.fn(async () => {}),
+    setLocalThinking: vi.fn(async () => {}),
     setPermissionMode: vi.fn(async () => {}),
     setFastServing: vi.fn(async () => ({ ok: true as const })),
     openFireworksKeyPage: vi.fn(async () => {}),
@@ -183,6 +185,60 @@ afterEach(() => {
   happyDOM.settings.fetch.interceptor = null
   document.documentElement.removeAttribute("data-theme")
   document.documentElement.style.removeProperty("--text")
+})
+
+describe("local thinking control", () => {
+  const localThinking = {
+    modelId: "Qwen/Qwen3.8-27B",
+    levels: ["off", "low", "medium", "xhigh"] as const,
+    defaultLevel: "xhigh" as const,
+    selected: "default" as const,
+  }
+  const snapshot = {
+    ...SNAPSHOT,
+    model: { id: localThinking.modelId, provider: "local" as const, supportsImageInput: false },
+    localThinking,
+  }
+
+  it("saves supported slider steps, resets to default, and closes with Escape", async () => {
+    const api = fakeApi({ getSnapshot: vi.fn(async () => snapshot) })
+    await renderApp(api)
+    fireEvent.click(screen.getByRole("button", { name: /Thinking Extra High/ }))
+    const slider = screen.getByRole("slider", { name: "Thinking effort" })
+    expect(document.activeElement).toBe(slider)
+    fireEvent.change(slider, { target: { value: "2" } })
+    await act(async () => fireEvent.keyUp(slider, { key: "ArrowLeft" }))
+    expect(api.setLocalThinking).toHaveBeenLastCalledWith(localThinking.modelId, "medium")
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Use model default" })))
+    expect(api.setLocalThinking).toHaveBeenLastCalledWith(localThinking.modelId, "default")
+    fireEvent.keyDown(slider, { key: "Escape" })
+    expect(screen.queryByRole("dialog", { name: "Thinking effort" })).toBeNull()
+  })
+
+  it("restores the saved value and displays a persistence failure", async () => {
+    const api = fakeApi({
+      getSnapshot: vi.fn(async () => snapshot),
+      setLocalThinking: vi.fn(async () => {
+        throw new Error("Could not save preference")
+      }),
+    })
+    await renderApp(api)
+    fireEvent.click(screen.getByRole("button", { name: /Thinking Extra High/ }))
+    const slider = screen.getByRole("slider")
+    fireEvent.change(slider, { target: { value: "1" } })
+    await act(async () => fireEvent.pointerUp(slider))
+    expect(screen.getByRole("alert").textContent).toContain("Could not save preference")
+    expect((slider as HTMLInputElement).value).toBe("3")
+  })
+
+  it("hides unsupported controls and prevents changes while busy", async () => {
+    const store = await renderApp(fakeApi())
+    expect(screen.queryByRole("button", { name: /Thinking Extra High/ })).toBeNull()
+    store.dispose()
+    cleanup()
+    await renderApp(fakeApi({ getSnapshot: vi.fn(async () => ({ ...snapshot, busy: true })) }))
+    expect((screen.getByRole("button", { name: /Thinking Extra High/ }) as HTMLButtonElement).disabled).toBe(true)
+  })
 })
 
 describe("Dashboard session navigation", () => {

@@ -7,7 +7,7 @@ import type { LocalLoadProgress } from "../inference/llama-runtime.js"
 import { catalogModelFromSpec, findLocalModel } from "../inference/local-catalog.js"
 import { type PairEndpoints, pairEndpointForEngine } from "../inference/pair.js"
 import type { ContextFile, OutputCapabilities, UserChatMessage } from "../inference/types.js"
-import { type LocalSettings, loadLocalSettings } from "../local/settings.js"
+import { type LocalSettings, loadLocalSettings, saveLocalThinking } from "../local/settings.js"
 import {
   createPermissionPolicy,
   DEFAULT_PERMISSION_MODE,
@@ -103,6 +103,17 @@ export class Application {
       ...(this.settings.permissions?.rules ?? []),
       ...(await loadProjectPermissionRules(this.cwd)),
     ]
+  }
+
+  async setLocalThinking(model: string, level: string) {
+    if (this.conversation.busy) throw new Error("Finish the current work before changing thinking effort.")
+    if (this.models.selectedProvider !== "local" || this.models.selectedId !== model) {
+      throw new Error("The selected local model has changed.")
+    }
+    const preferences = await saveLocalThinking(model, level)
+    this.settings.localThinking = preferences
+    this.models.localThinking = preferences
+    this.transcript.invalidateContext()
   }
 
   createPermissionPolicy() {

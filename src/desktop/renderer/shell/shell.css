@@ -102,11 +102,6 @@
   padding-left: 0;
 }
 
-/* Settings takes over the window, so its header owns the traffic-light inset while it's open. */
-.platform-darwin.settingsOpen .settingsPage-header {
-  padding-left: 80px;
-}
-
 .workspaceHeader-right {
   grid-column: 3;
   justify-self: end;

@@ -792,6 +792,12 @@ export class DesktopRuntime {
     this.#markStateDirty()
   }
 
+  async setLocalThinking(model: string, level: string) {
+    if (this.#draining || this.#modelState !== "ready") throw new Error("Wait until the local model is ready.")
+    await this.app.setLocalThinking(model, level)
+    this.#markStateDirty()
+  }
+
   /** Applies and persists the interactive permission mode for subsequent tool calls. */
   async setPermissionMode(mode: "ask" | "auto") {
     await savePermissionMode(mode)
@@ -1390,6 +1396,7 @@ export class DesktopRuntime {
       theme: this.app.settings.theme ?? "default",
       language: this.app.settings.language ?? "system",
       thinkingVisible: this.app.settings.thinkingVisible ?? false,
+      localThinking: app.models.thinkingState(),
       permissionMode: app.permissionMode,
       fastServing: this.#fastServingState(),
       hostedConfigured: Boolean(app.fireworksApiKey),

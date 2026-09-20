@@ -25,7 +25,12 @@ import "../../../src/desktop/renderer/features/settings/settings.css"
 
 const pause = (ms = 80) => new Promise((resolve) => setTimeout(resolve, ms))
 let inputId = 0
-async function nativeInput(request: { size?: [number, number]; events?: MouseInputEvent[] }) {
+async function nativeInput(request: {
+  size?: [number, number]
+  events?: MouseInputEvent[]
+  screenshot?: boolean
+  screenshotName?: string
+}) {
   const id = ++inputId
   await new Promise<void>((resolve, reject) => {
     const done = (event: Event) => {
@@ -111,6 +116,13 @@ history.push(row(HISTORY_ID_BASE + 1502, markdown))
 history.push(row(HISTORY_ID_BASE + 1503, "Live answer"))
 
 async function runDesktopUiChecks() {
+  // Verify the shipped assets load, rather than silently testing a system-font fallback.
+  for (const family of ["Inter", "JetBrains Mono"]) {
+    for (const style of ["normal", "italic"]) {
+      const faces = await document.fonts.load(`${style} 400 14px "${family}"`)
+      assert(faces.length > 0 && faces.every((face) => face.status === "loaded"), `${family} ${style} failed to load`)
+    }
+  }
   const api = createDemoRuntime()
   const snapshot = {
     ...(await api.getSnapshot()),
@@ -199,14 +211,19 @@ async function runDesktopUiChecks() {
   const settingsContent = element(".settingsPage-content").getBoundingClientRect()
   const settingsPage = element(".settingsPage").getBoundingClientRect()
   const settingsTitle = element(".settingsPage-title").getBoundingClientRect()
+  const settingsHeader = element(".settingsPage-header").getBoundingClientRect()
   const settingsTabs = Array.from(document.querySelectorAll<HTMLButtonElement>('.settingsSidebar [role="tab"]'))
   assert(settingsTabs.length === 3, "Settings sidebar does not list every section")
-  assert(element(".settingsPage-title").closest(".settingsSidebar"), "Settings title is not in the sidebar")
+  assert(element(".settingsPage-title").closest(".settingsPage-header"), "Settings title is not in the header")
   assert(settingsSidebar.width >= 160, "Settings sidebar is too narrow")
   assert(Math.abs(settingsSidebar.top - settingsPage.top) < 1, "Settings sidebar does not reach the window top")
   assert(
-    settingsTitle.top - settingsPage.top >= 40 && settingsTitle.top - settingsPage.top < 48,
-    "Settings title is not directly below the window controls",
+    Math.abs(settingsTitle.left + settingsTitle.width / 2 - (settingsPage.left + settingsPage.width / 2)) < 1,
+    "Settings title is not centered across the window",
+  )
+  assert(
+    Math.abs(settingsTitle.top + settingsTitle.height / 2 - (settingsHeader.top + settingsHeader.height / 2)) < 1,
+    "Settings title is not vertically centered in the title bar",
   )
   assert(settingsSidebar.right <= settingsContent.left + 1, "Settings sidebar overlaps the active panel")
   assert(settingsTabs[0].getAttribute("aria-selected") === "true", "Inference is not the initial settings section")
@@ -903,6 +920,76 @@ async function runDesktopUiChecks() {
   assert(getComputedStyle(element(".workspaceView")).transitionDuration === "0s", "Fresh start still animates")
   assert(!document.querySelector(".workspaceHeader-title"), "Home retained the old session title")
   assert(!previousTranscript.isConnected, "Home kept the previous transcript mounted")
+
+  // Thinking effort uses discrete native model levels and remains inside the viewport.
+  const thinkingModel = "Qwen/Qwen3.8-27B"
+  status({
+    model: { id: thinkingModel, provider: "local", supportsImageInput: false },
+    modelState: "ready",
+    localThinking: {
+      modelId: thinkingModel,
+      levels: ["off", "low", "medium", "xhigh"],
+      defaultLevel: "xhigh",
+      selected: "default",
+    },
+  })
+  api.setLocalThinking = async (_model, selected) => {
+    const current = store.getState()?.localThinking
+    assert(current, "Missing thinking state")
+    status({ localThinking: { ...current, selected } })
+  }
+  await pause()
+  element<HTMLButtonElement>(".thinkingControl-trigger").click()
+  await pause()
+  const panel = element(".thinkingControl-panel").getBoundingClientRect()
+  assert(panel.left >= 0 && panel.right <= innerWidth && panel.top >= 0, "Thinking slider exceeds the viewport")
+  const thinkingRange = element<HTMLInputElement>('.thinkingControl input[type="range"]')
+  assert(document.activeElement === thinkingRange, "Thinking slider does not receive keyboard focus")
+  const track = thinkingRange.getBoundingClientRect()
+  await nativeInput({
+    events: [
+      {
+        type: "mouseDown",
+        button: "left",
+        clickCount: 1,
+        x: Math.round(track.left + (track.width * 2) / 3),
+        y: Math.round(track.top + track.height / 2),
+      },
+      {
+        type: "mouseUp",
+        button: "left",
+        clickCount: 1,
+        x: Math.round(track.left + (track.width * 2) / 3),
+        y: Math.round(track.top + track.height / 2),
+      },
+    ],
+  })
+  await until(() => store.getState()?.localThinking?.selected === "medium", "Thinking slider did not persist Medium")
+  await nativeInput({ screenshot: true })
+  thinkingRange.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+  await pause()
+  assert(!document.querySelector(".thinkingControl-panel"), "Escape did not dismiss thinking control")
+
+  // Select each new palette through the same controls users use, with the conversation still mounted.
+  api.setTheme = async (theme) => status({ theme })
+  element<HTMLButtonElement>('[aria-label="Settings"]').click()
+  await pause()
+  element<HTMLButtonElement>('[role="tab"][id="settings-tab-appearance"]').click()
+  await pause()
+  for (const theme of ["pearl", "sage", "titanium"] as const) {
+    const tile = element<HTMLSpanElement>(`.themeTile-preview[data-theme="${theme}"]`).closest("button")
+    assert(tile, `${theme} is missing from Appearance`)
+    tile.click()
+    await until(() => document.documentElement.dataset.theme === theme, `${theme} did not apply`)
+    assert(tile.getAttribute("aria-pressed") === "true", `${theme} selection is not reflected in Appearance`)
+    assert(
+      getComputedStyle(element('.themeTile-preview[data-theme="default"]')).backgroundColor === "rgb(26, 26, 26)",
+      "Default theme preview inherited the active palette",
+    )
+    await pause()
+    await nativeInput({ screenshot: true, screenshotName: theme })
+  }
+  await api.setTheme("default")
 
   root.unmount()
   store.dispose()

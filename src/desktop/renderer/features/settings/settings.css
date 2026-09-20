@@ -11,27 +11,14 @@
 
 /* Same metrics as the workspace header, so the close button lands exactly where the settings gear was. */
 .settingsPage-header {
-  grid-column: 2;
+  position: relative;
+  z-index: 1;
+  grid-column: 1 / -1;
   grid-row: 1;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  height: var(--header-height);
-  padding: 0 12px;
-  -webkit-app-region: drag;
-  flex-shrink: 0;
 }
 
 .settingsPage-title {
   margin: 0;
-  padding: 2px 10px 18px;
-  font-size: 18px;
-  font-weight: 650;
-  line-height: 1.1;
-  letter-spacing: -0.02em;
-  text-align: left;
-  color: var(--text);
-  user-select: none;
 }
 
 .settingsPage-body {
@@ -43,7 +30,7 @@
   grid-row: 1 / -1;
   min-width: 0;
   min-height: 0;
-  padding: 40px 12px 20px;
+  padding: calc(var(--header-height) + 16px) 12px 20px;
   overflow-y: auto;
   border-right: 1px solid var(--hairline);
   background: color-mix(in srgb, var(--bg-elev) 38%, var(--bg));

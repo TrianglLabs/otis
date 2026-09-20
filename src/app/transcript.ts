@@ -67,6 +67,10 @@ export class TranscriptStore {
     this.observedContext = { client, tokens }
   }
 
+  invalidateContext() {
+    this.observedContext = undefined
+  }
+
   /** Loads one finished run, including any steering messages within it. */
   loadMessages(messages: ChatMessage[], toolActivities: SessionToolActivity[] = []) {
     this.history.push(...messages)

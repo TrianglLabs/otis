@@ -1,6 +1,16 @@
 import type { Messages } from "./en.js"
 
 export const uk: Messages = {
+  "thinking.label": "Міркування",
+  "thinking.title": "Рівень міркування",
+  "thinking.off": "Вимк.",
+  "thinking.on": "Увімк.",
+  "thinking.low": "Низький",
+  "thinking.medium": "Середній",
+  "thinking.high": "Високий",
+  "thinking.xhigh": "Дуже високий",
+  "thinking.max": "Максимальний",
+  "thinking.reset": "Використати типове значення",
   "common.continue": "Продовжити",
   "common.connect": "Підключити",
   "common.checking": "Перевірка…",

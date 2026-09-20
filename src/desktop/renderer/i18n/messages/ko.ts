@@ -1,6 +1,16 @@
 import type { Messages } from "./en.js"
 
 export const ko: Messages = {
+  "thinking.label": "사고",
+  "thinking.title": "사고 수준",
+  "thinking.off": "끄기",
+  "thinking.on": "켜기",
+  "thinking.low": "낮음",
+  "thinking.medium": "중간",
+  "thinking.high": "높음",
+  "thinking.xhigh": "매우 높음",
+  "thinking.max": "최대",
+  "thinking.reset": "모델 기본값 사용",
   "canvas.workingFile": "작업 파일",
   "canvas.savedArtifact": "저장된 아티팩트 · 최신 버전 열기",
   "canvas.savedVersion": "저장된 버전 {{version}}",
