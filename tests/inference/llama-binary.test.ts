@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   LLAMA_CPP_RELEASE_TAG,
+  llamaRuntimeTarget,
   PRISM_LLAMA_CPP_RELEASE_TAG,
   pinnedLlamaCppAsset,
   supportsLlamaCppTarget,
@@ -8,19 +9,60 @@ import {
 
 describe("llama.cpp binary selection", () => {
   it("builds deterministic asset URLs for the pinned release", () => {
-    expect(LLAMA_CPP_RELEASE_TAG).toBe("b10964")
+    expect(LLAMA_CPP_RELEASE_TAG).toBe("b11057")
     expect(pinnedLlamaCppAsset({ platform: "darwin", arch: "arm64", backend: "metal" })).toEqual({
-      name: "llama-b10964-bin-macos-arm64.tar.gz",
-      url: "https://github.com/ggml-org/llama.cpp/releases/download/b10964/llama-b10964-bin-macos-arm64.tar.gz",
-      size: 11_149_739,
-      sha256: "033c845c1df9bf945ff37bb193238b40910b2244be3e1e637b2ceb5878f1a6f5",
+      name: "llama-b11057-bin-macos-arm64.tar.gz",
+      url: "https://github.com/ggml-org/llama.cpp/releases/download/b11057/llama-b11057-bin-macos-arm64.tar.gz",
+      size: 11_178_107,
+      sha256: "443eadead90d44c3925b7163012430b2df4934df881cf72a4d94fc71d1380da1",
     })
     expect(pinnedLlamaCppAsset({ platform: "linux", arch: "x64", backend: "vulkan" }).name).toBe(
-      "llama-b10964-bin-ubuntu-vulkan-x64.tar.gz",
+      "llama-b11057-bin-ubuntu-vulkan-x64.tar.gz",
     )
     expect(pinnedLlamaCppAsset({ platform: "linux", arch: "x64", backend: "cpu" }).name).toBe(
-      "llama-b10964-bin-ubuntu-x64.tar.gz",
+      "llama-b11057-bin-ubuntu-x64.tar.gz",
     )
+  })
+
+  it.each([
+    ["x64", "12.8"],
+    ["x64", "13.3"],
+    ["arm64", "13.3"],
+  ] as const)("pairs Linux %s CUDA %s with the matching official runtime libraries", (arch, cudaVersion) => {
+    const asset = pinnedLlamaCppAsset({ platform: "linux", arch, backend: "cuda", cudaVersion })
+    expect(asset.name).toBe(`llama-${LLAMA_CPP_RELEASE_TAG}-bin-ubuntu-cuda-${cudaVersion}-${arch}.tar.gz`)
+    expect(asset.companion?.name).toBe(`cudart-${asset.name}`)
+    expect(asset.companion?.url).toBe(
+      `https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_CPP_RELEASE_TAG}/cudart-${asset.name}`,
+    )
+    expect(asset.companion?.sha256).toMatch(/^[a-f0-9]{64}$/)
+  })
+
+  it("rejects incomplete CUDA targets instead of silently selecting Vulkan", () => {
+    expect(() => pinnedLlamaCppAsset({ platform: "linux", arch: "x64", backend: "cuda" })).toThrow(
+      "compatible Linux target",
+    )
+    expect(() =>
+      pinnedLlamaCppAsset({ platform: "linux", arch: "arm64", backend: "cuda", cudaVersion: "12.8" }),
+    ).toThrow("No upstream llama.cpp asset")
+  })
+
+  it.each(["12.8", "13.3"] as const)("pairs Prism CUDA %s with the same-version NVIDIA libraries", (cudaVersion) => {
+    const hardware = { platform: "linux", arch: "x64", backend: "cuda", cudaVersion } as const
+    const asset = pinnedLlamaCppAsset(hardware, "prism")
+    expect(llamaRuntimeTarget(hardware, "prism")).toEqual(hardware)
+    expect(asset.name).toBe(`llama-${PRISM_LLAMA_CPP_RELEASE_TAG}-bin-linux-cuda-${cudaVersion}-x64.tar.gz`)
+    expect(asset.url).toBe(
+      `https://github.com/PrismML-Eng/llama.cpp/releases/download/${PRISM_LLAMA_CPP_RELEASE_TAG}/${asset.name}`,
+    )
+    expect(asset.companion).toEqual(pinnedLlamaCppAsset(hardware, "upstream").companion)
+  })
+
+  it("keeps Prism on Vulkan on arm64, where its release has no Linux CUDA binary", () => {
+    const hardware = { platform: "linux", arch: "arm64", backend: "cuda", cudaVersion: "13.3" } as const
+    expect(llamaRuntimeTarget(hardware, "prism")).toEqual({ ...hardware, backend: "vulkan", cudaVersion: undefined })
+    expect(pinnedLlamaCppAsset(hardware, "prism").name).toContain("ubuntu-vulkan-arm64")
+    expect(pinnedLlamaCppAsset(hardware, "prism").companion).toBeUndefined()
   })
 
   it("pins Prism's llama.cpp fork for ternary models", () => {

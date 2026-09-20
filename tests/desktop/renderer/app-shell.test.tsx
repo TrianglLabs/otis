@@ -466,8 +466,8 @@ describe("AppShell settings navigation", () => {
     const cached: ModelPickerItem = {
       kind: "model",
       provider: "local",
-      id: "Qwen/Qwen3-Coder-30B-A3B-Instruct",
-      displayName: "Qwen3 Coder 30B",
+      id: "Qwen/Qwen3.8-27B",
+      displayName: "Qwen3.8 27B",
       contextLength: 32_768,
       supportsImageInput: false,
       available: true,
@@ -529,7 +529,7 @@ describe("AppShell settings navigation", () => {
 
     // Downloaded managed-local rows carry the delete affordance — including the over-budget cache,
     // which cannot run on this machine but can still be freed.
-    expect(screen.getByRole("button", { name: "Delete Qwen3 Coder 30B" })).toBeTruthy()
+    expect(screen.getByRole("button", { name: "Delete Qwen3.8 27B" })).toBeTruthy()
     expect(screen.getByRole("button", { name: "Delete GLM-5.3" })).toBeTruthy()
     expect(screen.queryByRole("button", { name: "Delete gpt-oss 120B" })).toBeNull()
     // The over-budget row is listed with selection disabled.
@@ -540,26 +540,26 @@ describe("AppShell settings navigation", () => {
     expect((overBudgetSelect as HTMLButtonElement).disabled).toBe(true)
 
     // Requesting deletion replaces the row with a confirmation.
-    fireEvent.click(screen.getByRole("button", { name: "Delete Qwen3 Coder 30B" }))
-    expect(screen.getByText("Delete Qwen3 Coder 30B?")).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Delete Qwen3.8 27B" }))
+    expect(screen.getByText("Delete Qwen3.8 27B?")).toBeTruthy()
 
     // The first Escape cancels the confirmation, not the catalog.
     fireEvent.keyDown(window, { key: "Escape" })
-    expect(screen.queryByText("Delete Qwen3 Coder 30B?")).toBeNull()
+    expect(screen.queryByText("Delete Qwen3.8 27B?")).toBeNull()
     expect(screen.getByRole("dialog", { name: "Select a model" })).toBeTruthy()
 
     // Keep backs out without touching the disk.
-    fireEvent.click(screen.getByRole("button", { name: "Delete Qwen3 Coder 30B" }))
+    fireEvent.click(screen.getByRole("button", { name: "Delete Qwen3.8 27B" }))
     fireEvent.click(screen.getByRole("button", { name: "Keep" }))
     expect(deleteLocalModel).not.toHaveBeenCalled()
 
     // Confirming hands the removal to the main process; until it settles, the row shows progress and
     // every conflicting control is disabled.
-    fireEvent.click(screen.getByRole("button", { name: "Delete Qwen3 Coder 30B" }))
+    fireEvent.click(screen.getByRole("button", { name: "Delete Qwen3.8 27B" }))
     fireEvent.click(screen.getByRole("button", { name: "Delete" }))
     await act(async () => {})
-    expect(deleteLocalModel).toHaveBeenCalledWith("Qwen/Qwen3-Coder-30B-A3B-Instruct")
-    expect(screen.getByText("Deleting Qwen3 Coder 30B…")).toBeTruthy()
+    expect(deleteLocalModel).toHaveBeenCalledWith("Qwen/Qwen3.8-27B")
+    expect(screen.getByText("Deleting Qwen3.8 27B…")).toBeTruthy()
     expect((screen.getByRole("button", { name: "Delete GLM-5.3" }) as HTMLButtonElement).disabled).toBe(true)
     const uncachedSelect = screen
       .getByText(/Est\. 64K · MXFP4 · 63 GB/)
@@ -579,10 +579,10 @@ describe("AppShell settings navigation", () => {
     })
     await act(async () => {})
     expect(api.listModels).toHaveBeenCalledTimes(2)
-    expect(screen.queryByText("Deleting Qwen3 Coder 30B…")).toBeNull()
+    expect(screen.queryByText("Deleting Qwen3.8 27B…")).toBeNull()
     // The row is back to its downloadable state: no delete affordance, name still listed, selection live.
-    expect(screen.queryByRole("button", { name: "Delete Qwen3 Coder 30B" })).toBeNull()
-    expect(screen.getByText("Qwen3 Coder 30B")).toBeTruthy()
+    expect(screen.queryByRole("button", { name: "Delete Qwen3.8 27B" })).toBeNull()
+    expect(screen.getByText("Qwen3.8 27B")).toBeTruthy()
     expect((uncachedSelect as HTMLButtonElement).disabled).toBe(false)
 
     // The title bar's close button dismisses the catalog, like the trace overlay's header.
@@ -1647,6 +1647,24 @@ describe("global session history", () => {
 })
 
 describe("header context meter", () => {
+  it("labels the external-server guard as the auto-compaction threshold", async () => {
+    await renderApp(
+      fakeApi({
+        getSnapshot: vi.fn(async () => ({
+          ...SNAPSHOT,
+          model: { id: "external", provider: "pair" as const, supportsImageInput: false },
+          contextTokens: 26_214,
+          contextLimit: 52_428,
+          entries: [{ id: 1, kind: "message" as const, speaker: "You" as const, text: "hello" }],
+        })),
+      }),
+    )
+    expect(document.querySelector(".contextMeter")?.getAttribute("title")).toBe(
+      "~26,214 tokens used · Auto-compact at 52,428",
+    )
+    expect((document.querySelector(".contextMeter-fill") as HTMLElement).style.width).toBe("50%")
+  })
+
   it("stays hidden on the home screen and appears once a conversation exists", async () => {
     const withTokens: DesktopSnapshot = { ...SNAPSHOT, contextTokens: 12_400 }
     await renderApp(fakeApi({ getSnapshot: vi.fn(async () => withTokens) }))

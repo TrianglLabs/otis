@@ -442,7 +442,6 @@ describe("model picker catalog", () => {
       "Est. 256K",
       "Est. 256K",
       "Est. 256K",
-      "Est. 256K",
       "Est. 128K",
       "Est. 256K",
       "Est. 256K",

@@ -226,7 +226,7 @@ describe("buildTrayMenu", () => {
     expect(labels).toContain("Fix session lock behavior")
     expect(labels).toContain("Model: Kimi K2")
     expect(labels).toContain("otis")
-    expect(labels).toContain("Context 41.2k of 200.0k")
+    expect(labels).toContain("Context ~41.2k · Auto-compact at 200.0k")
     const firstSeparator = items.findIndex((item) => item.type === "separator")
     expect(firstSeparator).toBeGreaterThan(0)
     for (const item of items.slice(0, firstSeparator)) expect(item.enabled).toBe(false)

@@ -106,8 +106,8 @@ describe("DesktopRuntime model startup", () => {
     await mkdir(cwd, { recursive: true })
     await saveSelectedModel({
       provider: "local",
-      id: "Qwen/Qwen3-Coder-30B-A3B-Instruct",
-      displayName: "Qwen Coder",
+      id: "Qwen/Qwen3.8-27B",
+      displayName: "Qwen3.8 27B",
       contextLength: 32_768,
       supportsImageInput: false,
     })
@@ -149,8 +149,8 @@ describe("DesktopRuntime model startup", () => {
     await mkdir(cwd, { recursive: true })
     await saveSelectedModel({
       provider: "local",
-      id: "Qwen/Qwen3-Coder-30B-A3B-Instruct",
-      displayName: "Qwen Coder",
+      id: "Qwen/Qwen3.8-27B",
+      displayName: "Qwen3.8 27B",
       contextLength: 32_768,
       supportsImageInput: false,
     })
@@ -211,8 +211,8 @@ describe("DesktopRuntime model startup", () => {
     await mkdir(cwd, { recursive: true })
     await saveSelectedModel({
       provider: "local",
-      id: "Qwen/Qwen3-Coder-30B-A3B-Instruct",
-      displayName: "Qwen Coder",
+      id: "Qwen/Qwen3.8-27B",
+      displayName: "Qwen3.8 27B",
       contextLength: 32_768,
       supportsImageInput: false,
     })
@@ -221,8 +221,8 @@ describe("DesktopRuntime model startup", () => {
     const activeRow: LocalPickerChoice = {
       kind: "model",
       provider: "local",
-      id: "Qwen/Qwen3-Coder-30B-A3B-Instruct",
-      displayName: "Qwen Coder",
+      id: "Qwen/Qwen3.8-27B",
+      displayName: "Qwen3.8 27B",
       contextLength: 32_768,
       supportsImageInput: false,
       available: true,
@@ -1391,8 +1391,8 @@ describe("DesktopRuntime model selection", () => {
   const localChoice: LocalPickerChoice = {
     kind: "model",
     provider: "local",
-    id: "Qwen/Qwen3-Coder-30B-A3B-Instruct",
-    displayName: "Qwen Coder",
+    id: "Qwen/Qwen3.8-27B",
+    displayName: "Qwen3.8 27B",
     contextLength: 32_768,
     supportsImageInput: false,
     available: true,
@@ -1539,7 +1539,7 @@ describe("DesktopRuntime model selection", () => {
     expect((await runtime.snapshot()).model).toEqual({
       id: localChoice.id,
       provider: "local",
-      displayName: "Qwen Coder",
+      displayName: "Qwen3.8 27B",
       supportsImageInput: false,
     })
     await runtime.shutdown()

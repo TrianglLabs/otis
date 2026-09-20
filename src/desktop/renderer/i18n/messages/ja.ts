@@ -31,7 +31,7 @@ export const ja: Messages = {
   "header.newSession": "新しいセッション (⌘N)",
   "header.freshStart": "新しく始める",
   "header.linesChanged": "このセッションで変更した行",
-  "header.contextTokens": "~{{limit}} トークン中 {{used}}",
+  "header.contextTokens": "約 {{used}} トークン使用 · {{limit}} で自動圧縮",
   "header.searchSessions": "セッションを検索 (⌘K)",
   "header.showSidePanel": "サイドパネルを表示",
   "panel.workspacePanel": "ワークスペースパネル",

@@ -2,6 +2,35 @@ import { describe, expect, it } from "vitest"
 import { availableModelMemory, detectHardware, inferenceMemoryBudget } from "../../src/inference/hardware.js"
 
 describe("hardware detection", () => {
+  it.each([
+    ["x64", "2.39", "24576, 570.211.01, 8.9", "12.8"],
+    ["x64", "2.39", "24576, 610.43.02, 8.9", "13.3"],
+    ["arm64", "2.40", "[N/A], 610.43.02, 12.1", "13.3"],
+    ["x64", "2.39", "8192, 610.43.02, 6.1", "12.8"],
+    ["x64", "2.39", "8192, 610.43.02, 8.9\n8192, 610.43.02, 6.1", "12.8"],
+    ["x64", "2.39", "8192, 570.211.00, 8.6", undefined],
+    ["x64", "2.38", "8192, 610.43.02, 8.6", undefined],
+    ["x64", undefined, "8192, 610.43.02, 8.6", undefined],
+    ["x64", "2.39", "8192, [N/A], 8.6", undefined],
+    ["x64", "2.39", "8192, 610.43.02, [N/A]", undefined],
+    ["x64", "2.39", "8192, 610.43.02, 3.5", undefined],
+    ["x64", "2.39", "8192, 610.43.02, 13.0", undefined],
+    ["x64", "2.39", "8192, 580.100.00, 12.1", undefined],
+    ["arm64", "2.39", "8192, 580.100.00, 8.7", undefined],
+    ["arm64", "2.39", "8192, 610.43.01, 12.1", undefined],
+    ["riscv64", "2.39", "8192, 610.43.02, 8.9", undefined],
+  ] as const)("selects a compatible CUDA build for %s, glibc %s, NVIDIA %s", async (arch, glibc, output, cudaVersion) => {
+    const hardware = await detectHardware({
+      env: { platform: "linux", arch, totalMemoryBytes: 64 * 1024 ** 3 },
+      nvidiaSmi: async () => output,
+      glibcVersion: async () => glibc,
+    })
+    expect(hardware.backend).toBe(cudaVersion ? "cuda" : "vulkan")
+    expect(hardware.cudaVersion).toBe(cudaVersion)
+    expect(hardware.gpuCount).toBe(output.split("\n").length)
+    expect(inferenceMemoryBudget(hardware).deviceHeadroomBytes).toBe(1024 ** 3)
+  })
+
   it("treats Apple Silicon as Metal with unified memory", async () => {
     const hardware = await detectHardware({
       env: { platform: "darwin", arch: "arm64", totalMemoryBytes: 64 * 1024 ** 3 },

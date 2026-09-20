@@ -206,7 +206,8 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
       },
       {
         ...BONSAI_PQ2,
-        // Prism's pinned Vulkan build has PTQ1 kernels, but no PQ2 kernels.
+        // Linux GPU loads retain PTQ1 so CUDA can fall back to Vulkan without
+        // changing weights: the pinned Vulkan build has no PQ2 kernels.
         supportedBackends: ["metal", "cpu"],
       },
     ],
@@ -245,26 +246,6 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     // The checkpoint is multimodal, but local image input also requires the separate mmproj artifact.
     supportsImageInput: false,
     attention: { groups: [{ layers: 12, kvHeads: 2, headDim: 256 }] },
-  },
-  {
-    id: "Qwen/Qwen3-Coder-30B-A3B-Instruct",
-    displayName: "Qwen3-Coder 30B-A3B",
-    sourceModel: "Qwen/Qwen3-Coder-30B-A3B-Instruct",
-    runtime: "upstream",
-    // Qwen's GGUF listing is not publicly readable; this is a Q4_K_M conversion of the official Instruct weights.
-    ggufRepo: "lmstudio-community/Qwen3-Coder-30B-A3B-Instruct-GGUF",
-    ggufRevision: "1f4ceb1041258b3fbfe59e1175d1321c6b41863b",
-    ggufFiles: [
-      {
-        name: "Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf",
-        sha256: "79ad15a5ee3caddc3f4ff0db33a14454a5a3eb503d7fa1c1e35feafc579de486",
-        size: 18_632_186_176,
-      },
-    ],
-    quant: "Q4_K_M",
-    nativeContextLength: 262_144,
-    supportsImageInput: false,
-    attention: { groups: [{ layers: 48, kvHeads: 4, headDim: 128 }] },
   },
   {
     id: "openai/gpt-oss-20b",

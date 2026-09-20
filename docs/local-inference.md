@@ -8,7 +8,7 @@ entirely by Otis and does not require a Fireworks API key, Ollama, LM Studio, or
 Managed local inference supports macOS and Linux on arm64 and x64. For a good experience, use:
 
 - Apple silicon with at least 24 GB of unified memory; or
-- Linux with at least 24 GB of RAM. A Vulkan-capable GPU improves speed, and 16 GB or more of VRAM is recommended.
+- Linux with at least 24 GB of RAM. A CUDA- or Vulkan-capable GPU improves speed, and 16 GB or more of VRAM is recommended.
 
 CPU-only inference remains available on supported systems, but it is slower. On Linux, llama.cpp can split a model
 between GPU memory and system RAM, so the complete model does not need to fit in VRAM.
@@ -30,10 +30,38 @@ Most models use Otis' pinned upstream llama.cpp build. Bonsai 2 uses a separatel
 its ternary GGUFs need Prism's loader and compute kernels. Otis selects that runtime from the model catalog; it
 does not replace the upstream runtime used by other models.
 
+On Linux, compatible NVIDIA GPUs use the official upstream CUDA builds and their matching CUDA runtime/cuBLAS
+libraries. Otis downloads both; installing the CUDA toolkit is not required. The system still needs an NVIDIA driver
+and the normal Linux runtime libraries, including OpenMP (`libgomp1` on Ubuntu).
+
+CUDA selection requires glibc 2.39 or newer. CUDA 12.8 is available on x64 with NVIDIA driver 570.211.01 or newer and
+GPU compute capability 5.0–12.0. CUDA 13.3 is preferred on x64 and arm64 with driver 610.43.02 or newer and compute
+capability 7.5–12.1. All detected NVIDIA GPUs must be compatible with the selected build. Unknown or incompatible
+configurations keep Vulkan, as do AMD and Intel GPUs. Otis also checks that the downloaded CUDA server can see a CUDA
+device before loading a model; if it cannot, it uses Vulkan. Bonsai uses Prism's official CUDA binaries on Linux x64,
+paired with the same-version NVIDIA runtime/cuBLAS libraries from the pinned upstream companion archives. Prism does
+not publish a Linux arm64 CUDA binary, so Bonsai keeps Vulkan there.
+
+Otis also retries once with Vulkan if the CUDA server exits during model loading with a recognizable CUDA backend
+error. Vulkan must report an available device before it is used; if it cannot, Otis reports a load error. Download or
+checksum failures, cancellation, and unrelated model errors do not trigger a backend switch. CPU-only machines still
+use the CPU runtime directly.
+
+Existing CUDA toolkit and driver installations are left untouched. Libraries stay in Otis's own data directory. For
+managed Linux servers and their device checks, Otis puts the bundle first in the child process's library search path,
+preserving the remaining paths for system, container, and WSL drivers. It removes inherited library preloads, loader
+auditing, and external ggml backend overrides from that child only. GPU visibility settings and the parent environment
+are preserved. A custom `OTIS_LLAMA_SERVER` retains its loader settings and bypasses automatic backend selection.
+
+After updating Otis, the next managed model load downloads the new runtime when needed. Existing GGUF downloads and
+sessions are retained. CUDA and Vulkan bundles can coexist, and obsolete runtime releases are cleaned up after the new
+runtime is available. Both the terminal and desktop use this same selection and upgrade path.
+
 For Bonsai 2, Otis also selects the packing automatically. It uses the 5.95 GB `PTQ1_0` packing with up to 8 GiB of
 dedicated VRAM or 16 GiB of unified/system memory, then uses the 7.21 GB `PQ2_0` packing on larger hardware when the
-backend supports it. Linux GPU inference currently keeps `PTQ1_0` at every VRAM size because Otis' pinned Vulkan
-runtime lacks PQ2 kernels. Macs above 16 GiB use `PQ2_0`. The picker displays the packing selected for the current machine.
+backend supports it. Linux GPU inference keeps `PTQ1_0` at every VRAM size so CUDA can fall back to Vulkan without
+changing model files; the pinned Vulkan runtime lacks PQ2 kernels. Macs above 16 GiB use `PQ2_0`. The picker displays
+the packing selected for the current machine.
 
 Recommendations choose the first fitting group in this curated preference order: GLM-5.3, Qwen3.8 Flash Next,
 Qwen3.8 27B, Bonsai 2 27B, Ornith 1.5 9B / Gemma 4 12B, then LFM2.5 2.6B. This is an Otis default, not a benchmark

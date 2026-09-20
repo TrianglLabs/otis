@@ -25,7 +25,7 @@ export const uk: Messages = {
   "header.newSession": "Новий сеанс (⌘N)",
   "header.freshStart": "Почати спочатку",
   "header.linesChanged": "Рядки, змінені в цьому сеансі",
-  "header.contextTokens": "{{used}} із приблизно {{limit}} токенів",
+  "header.contextTokens": "Використано ~{{used}} токенів · Автоматичне стиснення при {{limit}}",
   "header.searchSessions": "Пошук сеансів (⌘K)",
   "header.showSidePanel": "Показати бічну панель",
   "panel.workspacePanel": "Панель робочого простору",

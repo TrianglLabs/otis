@@ -14,8 +14,8 @@ import type {
 const localItem: ModelPickerItem = {
   kind: "model",
   provider: "local",
-  id: "Qwen/Qwen3-Coder-30B-A3B-Instruct",
-  displayName: "Qwen Coder",
+  id: "Qwen/Qwen3.8-27B",
+  displayName: "Qwen3.8 27B",
   contextLength: 32_768,
   supportsImageInput: false,
   available: true,
@@ -52,7 +52,7 @@ const fireworksItem: ModelPickerItem = {
 describe("pickerItemKey", () => {
   it("uses the selectionKey for PAIR entries and the plain id otherwise", () => {
     expect(pickerItemKey(pairItem as never)).toBe("ollama:qwen3:32b")
-    expect(pickerItemKey(localItem as never)).toBe("Qwen/Qwen3-Coder-30B-A3B-Instruct")
+    expect(pickerItemKey(localItem as never)).toBe("Qwen/Qwen3.8-27B")
     expect(pickerItemKey(fireworksItem as never)).toBe("accounts/fireworks/models/kimi-k2p5-turbo")
   })
 })

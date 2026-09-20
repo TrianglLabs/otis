@@ -30,7 +30,7 @@ export const de: Messages = {
   "header.newSession": "Neue Sitzung (⌘N)",
   "header.freshStart": "Neu beginnen",
   "header.linesChanged": "In dieser Sitzung geänderte Zeilen",
-  "header.contextTokens": "{{used}} von ~{{limit}} Token",
+  "header.contextTokens": "~{{used}} Token verwendet · Automatische Komprimierung bei {{limit}}",
   "header.searchSessions": "Sitzungen suchen (⌘K)",
   "header.showSidePanel": "Seitenleiste anzeigen",
   "panel.workspacePanel": "Arbeitsbereichsleiste",

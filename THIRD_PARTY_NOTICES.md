@@ -1160,7 +1160,10 @@ SOFTWARE.
 ## llama.cpp
 
 Otis downloads [llama.cpp](https://github.com/ggml-org/llama.cpp) `llama-server` binaries from the pinned upstream
-`b10964` GitHub Release for local inference. Bonsai 2 uses binaries from Prism's pinned
+`b11057` GitHub Release for local inference. On compatible Linux NVIDIA systems, Otis also downloads that release's
+matching CUDA runtime and cuBLAS companion archive. Those NVIDIA libraries are covered by the
+[NVIDIA CUDA Toolkit license](https://docs.nvidia.com/cuda/eula/index.html).
+Bonsai 2 uses binaries from Prism's pinned
 [llama.cpp fork](https://github.com/PrismML-Eng/llama.cpp) release `prism-b10685-7dffb15`. Both are distributed under
 the MIT License:
 

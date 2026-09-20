@@ -853,7 +853,7 @@ describe("interactive CLI setup", () => {
 
   it("deletes an inactive model without interrupting a different active local model", async () => {
     const active = findLocalModel("openai/gpt-oss-20b")
-    const inactive = findLocalModel("Qwen/Qwen3-Coder-30B-A3B-Instruct")
+    const inactive = findLocalModel("Qwen/Qwen3.8-27B")
     if (!active || !inactive) throw new Error("missing local models")
     mocks.listDownloadedLocalModels.mockResolvedValue([active, inactive])
     mocks.loadLocalSettings.mockResolvedValue(
@@ -1017,7 +1017,7 @@ describe("interactive CLI setup", () => {
     await submit("/model")
     const picker = (mocks.ui.showModelPicker.mock.calls[0]?.[0] ?? []) as ModelPickerItem[]
     const first = picker.find((item) => "id" in item && item.id === "openai/gpt-oss-20b")
-    const second = picker.find((item) => "id" in item && item.id === "Qwen/Qwen3-Coder-30B-A3B-Instruct")
+    const second = picker.find((item) => "id" in item && item.id === "Qwen/Qwen3.8-27B")
     if (!first || !second) throw new Error("missing local picker items")
 
     mocks.uiOptions?.onSelectModel?.(first)
@@ -1029,15 +1029,13 @@ describe("interactive CLI setup", () => {
     expect(mocks.ui.hideModelPicker).not.toHaveBeenCalled()
 
     finishSecond?.({
-      model: "Qwen/Qwen3-Coder-30B-A3B-Instruct",
+      model: "Qwen/Qwen3.8-27B",
       inferenceURL: "http://127.0.0.1:18766/v1/chat/completions",
       contextLength: 32_768,
     })
     await vi.waitFor(() => expect(mocks.ui.hideModelPicker).toHaveBeenCalledOnce())
     expect(mocks.saveSelectedModel).toHaveBeenCalledOnce()
-    expect(mocks.saveSelectedModel).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "Qwen/Qwen3-Coder-30B-A3B-Instruct" }),
-    )
+    expect(mocks.saveSelectedModel).toHaveBeenCalledWith(expect.objectContaining({ id: "Qwen/Qwen3.8-27B" }))
   })
 
   it("keeps /model available while a local model is downloading", async () => {

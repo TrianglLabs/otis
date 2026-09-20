@@ -30,7 +30,7 @@ export const es: Messages = {
   "header.newSession": "Nueva sesión (⌘N)",
   "header.freshStart": "Empezar de nuevo",
   "header.linesChanged": "Líneas modificadas en esta sesión",
-  "header.contextTokens": "{{used}} de ~{{limit}} tokens",
+  "header.contextTokens": "~{{used}} tokens usados · Compactación automática a los {{limit}}",
   "header.searchSessions": "Buscar sesiones (⌘K)",
   "header.showSidePanel": "Mostrar panel lateral",
   "panel.workspacePanel": "Panel del espacio de trabajo",
