@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest"
 import { findLocalModel, localModelWeightBytes } from "../../src/inference/local-catalog.js"
 
 describe("local model catalog", () => {
+  it("does not offer Qwen Coder as a managed local model", () => {
+    expect(findLocalModel("Qwen/Qwen3-Coder-30B-A3B-Instruct")).toBeUndefined()
+  })
+
   it("pins the model-author GGUF for Ornith 1.5 9B", () => {
     expect(findLocalModel("ornith-ai/Ornith-1.5-9B")).toMatchObject({
       sourceModel: "ornith-ai/Ornith-1.5-9B",

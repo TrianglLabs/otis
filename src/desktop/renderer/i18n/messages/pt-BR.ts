@@ -30,7 +30,7 @@ export const ptBR: Messages = {
   "header.newSession": "Nova sessão (⌘N)",
   "header.freshStart": "Começar de novo",
   "header.linesChanged": "Linhas alteradas nesta sessão",
-  "header.contextTokens": "{{used}} de ~{{limit}} tokens",
+  "header.contextTokens": "~{{used}} tokens usados · Compactação automática em {{limit}}",
   "header.searchSessions": "Pesquisar sessões (⌘K)",
   "header.showSidePanel": "Mostrar painel lateral",
   "panel.workspacePanel": "Painel do espaço de trabalho",

@@ -9,7 +9,8 @@ const execFileAsync = promisify(execFile)
 const MEBIBYTE = 1024 ** 2
 const GIBIBYTE = 1024 ** 3
 
-export type HardwareBackend = "metal" | "vulkan" | "cpu"
+export type HardwareBackend = "metal" | "cuda" | "vulkan" | "cpu"
+export type CudaVersion = "12.8" | "13.3"
 
 export type HardwareProbe = {
   platform: NodeJS.Platform
@@ -20,6 +21,7 @@ export type HardwareProbe = {
   /** Combined GPU capacity; omitted unless every detected device reports memory. */
   gpuMemoryBytes?: number
   backend: HardwareBackend
+  cudaVersion?: CudaVersion
   unifiedMemory: boolean
 }
 
@@ -37,6 +39,7 @@ export type HardwareDetectOptions = {
     totalMemoryBytes?: number
   }
   nvidiaSmi?: () => Promise<string | undefined>
+  glibcVersion?: () => Promise<string | undefined>
   linuxGraphics?: () => Promise<readonly LinuxGraphicsDevice[]>
 }
 
@@ -64,13 +67,16 @@ export async function detectHardware(options: HardwareDetectOptions = {}): Promi
   if (platform === "linux") {
     const nvidia = await readNvidiaMemory(options.nvidiaSmi ?? defaultNvidiaSmi)
     if (nvidia) {
+      const glibc = await (options.glibcVersion ?? defaultGlibcVersion)().catch(() => undefined)
+      const cudaVersion = compatibleCudaVersion(arch, glibc, nvidia.devices)
       return {
         platform,
         arch,
         totalMemoryBytes,
         gpuCount: nvidia.count,
         gpuMemoryBytes: nvidia.totalBytes,
-        backend: "vulkan",
+        backend: cudaVersion ? "cuda" : "vulkan",
+        ...(cudaVersion ? { cudaVersion } : {}),
         unifiedMemory: false,
       }
     }
@@ -135,12 +141,15 @@ async function readNvidiaMemory(nvidiaSmi: () => Promise<string | undefined>) {
       .split(/\r?\n/)
       .map((line) => line.trim())
       .filter(Boolean)
-      .map((line) => Number(line))
+      .map((line) => {
+        const [memory, driver = "", compute = ""] = line.split(",").map((field) => field.trim())
+        return { memory: Number(memory), driver, compute: Number(compute) }
+      })
     if (devices.length === 0) return undefined
 
-    const knownMemory = devices.every((value) => Number.isFinite(value) && value > 0)
-    const totalMiB = devices.reduce((sum, value) => sum + value, 0)
-    return { count: devices.length, totalBytes: knownMemory ? Math.round(totalMiB * MEBIBYTE) : undefined }
+    const knownMemory = devices.every(({ memory }) => Number.isFinite(memory) && memory > 0)
+    const totalMiB = devices.reduce((sum, { memory }) => sum + memory, 0)
+    return { count: devices.length, totalBytes: knownMemory ? Math.round(totalMiB * MEBIBYTE) : undefined, devices }
   } catch {
     return undefined
   }
@@ -148,10 +157,67 @@ async function readNvidiaMemory(nvidiaSmi: () => Promise<string | undefined>) {
 
 async function defaultNvidiaSmi() {
   try {
-    const result = await execFileAsync("nvidia-smi", ["--query-gpu=memory.total", "--format=csv,noheader,nounits"], {
-      timeout: 2_000,
-    })
+    const result = await execFileAsync(
+      "nvidia-smi",
+      ["--query-gpu=memory.total,driver_version,compute_cap", "--format=csv,noheader,nounits"],
+      {
+        timeout: 2_000,
+      },
+    )
     return result.stdout
+  } catch {
+    // Older drivers may not expose compute_cap. Preserve their VRAM detection
+    // and Vulkan selection even when CUDA compatibility cannot be established.
+    try {
+      const result = await execFileAsync("nvidia-smi", ["--query-gpu=memory.total", "--format=csv,noheader,nounits"], {
+        timeout: 2_000,
+      })
+      return result.stdout
+    } catch {
+      return undefined
+    }
+  }
+}
+
+function compatibleCudaVersion(
+  arch: string,
+  glibc: string | undefined,
+  devices: readonly { driver: string; compute: number }[],
+): CudaVersion | undefined {
+  // Official CUDA archives target Ubuntu 24.04. Their PTX kernels need the
+  // toolkit's full driver version, not just CUDA minor-version compatibility.
+  if (!glibc || !versionAtLeast(glibc, "2.39")) return undefined
+  if (arch !== "x64" && arch !== "arm64") return undefined
+  if (
+    devices.every(({ driver, compute }) => versionAtLeast(driver, "610.43.02") && compute >= 7.5 && compute <= 12.1)
+  ) {
+    return "13.3"
+  }
+  // CUDA 12.8 includes kernels through SM 120, but not GB10's SM 121.
+  if (
+    arch === "x64" &&
+    devices.every(({ driver, compute }) => versionAtLeast(driver, "570.211.01") && compute >= 5 && compute <= 12)
+  ) {
+    return "12.8"
+  }
+  return undefined
+}
+
+function versionAtLeast(value: string, minimum: string) {
+  if (!/^\d+(?:\.\d+)*$/.test(value)) return false
+  const parts = value.split(".").map(Number)
+  const required = minimum.split(".").map(Number)
+  for (let index = 0; index < required.length; index += 1) {
+    const difference = (parts[index] ?? 0) - (required[index] ?? 0)
+    if (difference !== 0) return difference > 0
+  }
+  return true
+}
+
+async function defaultGlibcVersion() {
+  try {
+    const result = await execFileAsync("getconf", ["GNU_LIBC_VERSION"], { timeout: 2_000 })
+    return /^glibc (\d+(?:\.\d+)+)$/.exec(result.stdout.trim())?.[1]
   } catch {
     return undefined
   }

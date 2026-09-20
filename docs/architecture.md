@@ -134,9 +134,9 @@ entries carry a fitted context and never a `fastId`; PAIR entries carry their en
 currently serving label that context `Est.`; the active managed-local row receives the context returned by llama.cpp
 and labels it `loaded`.
 
-Selecting a runnable local model downloads its Otis-pinned llama.cpp runtime (Metal on macOS, Vulkan on Linux with a
-render device, otherwise CPU) and the selected GGUF into the platform local-data directory. Normal models use upstream
-llama.cpp `b10964` (upstream v0.4.1, including the Metal 4 tensor API fix). Bonsai 2 uses Prism's
+Selecting a runnable local model downloads its Otis-pinned llama.cpp runtime (Metal on macOS, CUDA on compatible Linux
+NVIDIA systems, Vulkan on other Linux GPU systems, otherwise CPU) and the selected GGUF into the platform local-data
+directory. Normal models use upstream llama.cpp `b11057`. Bonsai 2 uses Prism's
 `prism-b10685-7dffb15` fork because its ternary formats require Prism's
 loader and kernels. Runtime choice is catalog metadata, so the fork is isolated to the model that needs it and both
 pinned bundles may coexist. macOS and Linux on arm64 and x64 are supported; other targets are disabled before
@@ -145,10 +145,35 @@ streaming to disk. Updating either runtime requires an explicit Otis source chan
 and pre-manifest bundles remain usable for released installations; newly installed bundles record the artifact digest,
 and obsolete known runtime directories are removed after a pinned runtime is available.
 
+Linux CUDA compatibility checks use glibc, NVIDIA driver version, and every detected GPU's compute capability. The
+official Ubuntu 24.04 CUDA archives require glibc 2.39; CUDA 12.8 (x64) requires driver 570.211.01 and SM 50–120, while
+CUDA 13.3 (x64/arm64) requires driver 610.43.02 and SM 75–121. These deliberately require the toolkit's full driver
+version because upstream ships PTX kernels; CUDA minor-version compatibility alone does not guarantee PTX support.
+Each CUDA server archive is paired with its official `cudart` archive. Both are size/checksum verified before their
+libraries are installed together atomically. The cache manifest fingerprints both archives and requires the CUDA
+backend and all three companion libraries. CUDA variants have separate cache directories, preserving a cached Vulkan
+fallback. A bounded `--list-devices` probe checks actual GPU availability before model loading; a failed CUDA check
+selects Vulkan without discarding the CUDA cache. Vulkan must pass its own device check. The managed server receives
+the verified device names through `--device` so a disappearing backend cannot silently select another backend. If a
+CUDA server exits during model loading with a recognized CUDA diagnostic, Otis cleans up that attempt and retries
+once with verified Vulkan using the same GGUF. Other startup/model/context errors, download or verification failures,
+and cancellation are propagated. CPU-only machines continue to use the CPU runtime directly.
+
+Both device checks and managed Linux servers receive a private child environment with the bundle directory first in
+`LD_LIBRARY_PATH`. Existing entries remain behind it for system/container/WSL driver discovery. `LD_PRELOAD`, `LD_AUDIT`,
+and `GGML_BACKEND_PATH` are removed for these children so inherited overrides cannot supersede the bundle. Device
+visibility variables are preserved. Otis does not mutate the parent environment, driver installation, or system CUDA
+toolkit. `OTIS_LLAMA_SERVER` preserves the custom executable's loader settings and bypasses device checks and fallback.
+
+On Linux x64, Bonsai uses Prism's official CUDA 12.8/13.3 binaries with the matching NVIDIA libraries
+from upstream's pinned companion archive. Its llama/ggml libraries come exclusively from Prism. The pinned Prism release
+has no Linux arm64 CUDA binary, so that target stays on Vulkan.
+
 Bonsai's packing is selected from the same hardware probe used for fit. Otis uses the compact 5.95 GB `PTQ1_0` file
 on systems with at most 8 GiB of dedicated GPU memory or 16 GiB of unified/system memory, and the faster-prompt 7.21 GB
 `PQ2_0` file above those limits when supported by the backend. The pinned Prism Vulkan runtime lacks PQ2 kernels,
-so Linux GPU inference keeps `PTQ1_0` regardless of VRAM capacity. Both files are pinned independently, with each
+so Linux GPU inference keeps `PTQ1_0` regardless of VRAM capacity, including CUDA so a Vulkan fallback uses the same
+weights. Both files are pinned independently, with each
 artifact defined once. Runtime reuse includes the packing, repository revision, and file identities.
 The selected packing drives fit, picker labels,
 download, and server startup as one transaction; a saved model identity is resolved again for the current hardware.

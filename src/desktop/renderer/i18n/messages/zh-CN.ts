@@ -30,7 +30,7 @@ export const zhCN: Messages = {
   "header.newSession": "新建会话 (⌘N)",
   "header.freshStart": "重新开始",
   "header.linesChanged": "此会话中更改的行数",
-  "header.contextTokens": "已用 {{used}} / 约 {{limit}} 词元",
+  "header.contextTokens": "已用约 {{used}} 词元 · 达到 {{limit}} 时自动压缩",
   "header.searchSessions": "搜索会话 (⌘K)",
   "header.showSidePanel": "显示侧边面板",
   "panel.workspacePanel": "工作区面板",

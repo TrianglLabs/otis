@@ -30,7 +30,7 @@ export const ko: Messages = {
   "header.newSession": "새 세션 (⌘N)",
   "header.freshStart": "새로 시작",
   "header.linesChanged": "이 세션에서 변경된 줄",
-  "header.contextTokens": "약 {{limit}} 토큰 중 {{used}}",
+  "header.contextTokens": "약 {{used}} 토큰 사용 · {{limit}}에서 자동 압축",
   "header.searchSessions": "세션 검색 (⌘K)",
   "header.showSidePanel": "사이드 패널 표시",
   "panel.workspacePanel": "작업 공간 패널",

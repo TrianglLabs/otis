@@ -1,4 +1,4 @@
-import { type ChildProcess, spawn } from "node:child_process"
+import { type ChildProcess, execFile, spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import type { Dirent } from "node:fs"
 import {
@@ -17,15 +17,18 @@ import {
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+import { promisify } from "node:util"
 import { childProcessEnvironment } from "../local/child-environment.js"
 import { llamaBinaryDirectory, llamaModelCacheDirectory } from "../local/paths.js"
 import { ensureLocalGguf } from "./gguf-cache.js"
 import { type HardwareProbe, inferenceMemoryBudget } from "./hardware.js"
 import {
   type LlamaBinaryTarget,
+  type LlamaCppArchive,
   type LlamaCppAsset,
   type LlamaRuntimeKind,
   llamaRuntimeReleaseTag,
+  llamaRuntimeTarget,
   PINNED_LLAMA_CPP_RELEASE_TAGS,
   pinnedLlamaCppAsset,
   supportsLlamaCppTarget,
@@ -42,11 +45,28 @@ const MAX_RETRY_AFTER_MS = 30_000
 const STOP_TIMEOUT_MS = 5_000
 const KILL_WAIT_MS = 1_000
 const RUNTIME_MANIFEST = ".otis-runtime.json"
+const execFileAsync = promisify(execFile)
 
 export type LocalServingEndpoint = {
   model: string
   inferenceURL: string
   contextLength: number
+}
+
+type ResolvedRuntime = {
+  binaryPath: string
+  hardware: HardwareProbe
+  managed: boolean
+  devices?: string[]
+}
+
+class LlamaServerExitError extends Error {
+  constructor(
+    readonly output: string,
+    termination: string,
+  ) {
+    super(`llama-server exited before becoming ready: ${output.trim() || termination}`)
+  }
 }
 
 export type LocalLoadProgress =
@@ -77,6 +97,7 @@ export type LlamaCppRuntimeOptions = {
   extractArchive?: (archivePath: string, destination: string) => Promise<void>
   allocatePort?: () => Promise<number>
   runtimeAsset?: (target: LlamaBinaryTarget, runtime: LlamaRuntimeKind) => LlamaCppAsset
+  listDevices?: (binaryPath: string, env: NodeJS.ProcessEnv, signal?: AbortSignal) => Promise<string>
   dataDirectory?: string
   readyTimeoutMs?: number
   runtimeDownloadAttempts?: number
@@ -110,6 +131,7 @@ export class LlamaCppRuntime {
     if (!supportsLlamaCppTarget(hardware)) throw new Error(unsupportedLlamaCppTargetMessage(hardware))
     if (fit.model.id !== model.id) throw new Error("Local model fit does not match the selected model.")
     model = fit.model
+    hardware = llamaRuntimeTarget(hardware, model.runtime)
     if (!fit.available) {
       throw new Error(`${model.displayName} needs ${formatBytes(fit.memoryRequiredBytes)} to run on this machine.`)
     }
@@ -163,7 +185,7 @@ export class LlamaCppRuntime {
     signal: AbortSignal,
     onProgress: EnsureServingOptions["onProgress"],
   ) {
-    const binary = await this.#resolveBinary(model, hardware, signal, onProgress)
+    const runtime = await this.#resolveBinary(model, hardware, signal, onProgress)
     signal.throwIfAborted()
     const modelPath = await ensureLocalGguf(model, {
       dataDirectory: this.#options.dataDirectory,
@@ -175,6 +197,36 @@ export class LlamaCppRuntime {
     signal.throwIfAborted()
     onProgress?.({ phase: "loading" })
 
+    try {
+      return await this.#startServer(key, model, modelPath, runtime, signal)
+    } catch (error) {
+      signal.throwIfAborted()
+      if (
+        !runtime.managed ||
+        runtime.hardware.backend !== "cuda" ||
+        !(error instanceof LlamaServerExitError) ||
+        !isCudaStartupFailure(error.output)
+      )
+        throw error
+      const fallback = await this.#resolveBinary(
+        model,
+        { ...runtime.hardware, backend: "vulkan", cudaVersion: undefined },
+        signal,
+        onProgress,
+      )
+      signal.throwIfAborted()
+      onProgress?.({ phase: "loading" })
+      return await this.#startServer(key, model, modelPath, fallback, signal)
+    }
+  }
+
+  async #startServer(
+    key: string,
+    model: LocalModelSpec,
+    modelPath: string,
+    runtime: ResolvedRuntime,
+    signal: AbortSignal,
+  ) {
     const port = await (this.#options.allocatePort ?? allocatePort)()
     signal.throwIfAborted()
     const inferenceURL = `http://127.0.0.1:${port}/v1/chat/completions`
@@ -182,14 +234,20 @@ export class LlamaCppRuntime {
     const childEnv = llamaServerEnvironment(
       env,
       this.#options.dataDirectory ? join(this.#options.dataDirectory, "models") : llamaModelCacheDirectory(),
+      runtime,
     )
 
-    const child = (this.#options.spawn ?? spawn)(binary, serverArgs(model, hardware, port, modelPath), {
+    const args = serverArgs(model, runtime.hardware, port, modelPath)
+    if (runtime.devices?.length) args.push("--device", runtime.devices.join(","))
+    const child = (this.#options.spawn ?? spawn)(runtime.binaryPath, args, {
       env: childEnv,
       stdio: ["ignore", "pipe", "pipe"],
     })
     this.#process = child
-    const logs = { value: "" }
+    const logs: { value: string; spawnError?: Error } = { value: "" }
+    child.on("error", (error) => {
+      logs.spawnError = error
+    })
     const append = (chunk: Buffer | string) => {
       logs.value = `${logs.value}${String(chunk)}`.slice(-20_000)
     }
@@ -199,6 +257,8 @@ export class LlamaCppRuntime {
     try {
       const contextLength = await this.#waitUntilReady(port, child, logs, signal)
       signal.throwIfAborted()
+      if (logs.spawnError) throw logs.spawnError
+      if (processHasTerminated(child)) throw new LlamaServerExitError(logs.value, processTermination(child))
       if (this.#process !== child) throw new DOMException("Local model startup was superseded.", "AbortError")
       this.#serving = { model: model.id, inferenceURL, contextLength }
       this.#servingKey = key
@@ -220,27 +280,35 @@ export class LlamaCppRuntime {
     const configured = (this.#options.env ?? process.env).OTIS_LLAMA_SERVER?.trim()
     if (configured) {
       await assertExecutable(configured)
-      return configured
+      return { binaryPath: configured, hardware, managed: false }
     }
 
     const binaryRoot = this.#options.dataDirectory
       ? join(this.#options.dataDirectory, "bin")
       : dirname(llamaBinaryDirectory("release"))
     const releaseTag = llamaRuntimeReleaseTag(model.runtime)
-    const binaryDir = join(binaryRoot, releaseTag)
+    // Keep CUDA and Vulkan side by side so a failed CUDA device probe can reuse
+    // Vulkan without redownloading either runtime on every model load.
+    const bundleName = hardware.backend === "cuda" ? `${releaseTag}-cuda-${hardware.cudaVersion}` : releaseTag
+    const binaryDir = join(binaryRoot, bundleName)
     const binaryPath = join(binaryDir, "llama-server")
     const asset = (this.#options.runtimeAsset ?? pinnedLlamaCppAsset)(
       {
         platform: hardware.platform,
         arch: hardware.arch,
         backend: hardware.backend,
+        cudaVersion: hardware.cudaVersion,
       },
       model.runtime,
     )
-    const cached = await findCachedLlamaServer(binaryDir, releaseTag, hardware, asset.sha256)
+    const artifactSha256 = asset.companion
+      ? createHash("sha256").update(`${asset.sha256}:${asset.companion.sha256}`).digest("hex")
+      : asset.sha256
+    const cached = await findCachedLlamaServer(binaryDir, releaseTag, hardware, artifactSha256)
     if (cached) {
+      const usable = await this.#validateGpuRuntime(cached, model, hardware, signal, onProgress)
       await removeUnpinnedRuntimeBundles(binaryRoot)
-      return cached
+      return usable
     }
 
     const fetchImpl = this.#options.fetch ?? fetch
@@ -261,32 +329,106 @@ export class LlamaCppRuntime {
       signal?.throwIfAborted()
       const found = await findNamedFile(extractDir, "llama-server")
       if (!found) throw new Error("llama.cpp archive did not include llama-server.")
+      if (asset.companion) {
+        const companion = await downloadToTemp(asset.companion, fetchImpl, {
+          signal,
+          attempts: this.#options.runtimeDownloadAttempts,
+          timeoutMs: this.#options.runtimeDownloadTimeoutMs,
+          sleep: this.#options.sleep,
+        })
+        try {
+          const companionDir = join(extractDir, "cuda-runtime")
+          await mkdir(companionDir)
+          await (this.#options.extractArchive ?? extractTarGz)(companion.archivePath, companionDir)
+          for (const library of cudaRuntimeLibraries(hardware)) {
+            const source = await findNamedFile(companionDir, library)
+            if (!source) throw new Error(`CUDA runtime archive did not include ${library}.`)
+            await rename(source, join(dirname(found), library))
+          }
+        } finally {
+          await rm(companion.directory, { recursive: true, force: true })
+        }
+      }
+      signal?.throwIfAborted()
       await chmod(found, 0o755)
-      await writeRuntimeManifest(dirname(found), releaseTag, hardware, asset.sha256)
+      await writeRuntimeManifest(dirname(found), releaseTag, hardware, artifactSha256)
+      if (!(await isUsableRuntimeBundle(dirname(found), releaseTag, hardware, artifactSha256))) {
+        throw new Error("llama.cpp archive did not include the required runtime libraries.")
+      }
 
       // llama-server dynamically loads the libraries and backend assets shipped
       // beside it. Publish that directory atomically as one runtime bundle.
       await rename(dirname(found), candidateDir)
-      await publishRuntimeBundle(candidateDir, binaryDir, `${extractDir}.previous`, releaseTag, hardware, asset.sha256)
+      await publishRuntimeBundle(
+        candidateDir,
+        binaryDir,
+        `${extractDir}.previous`,
+        releaseTag,
+        hardware,
+        artifactSha256,
+      )
     } finally {
       if (extractDir) await rm(extractDir, { recursive: true, force: true })
       if (candidateDir) await rm(candidateDir, { recursive: true, force: true })
       await rm(download.directory, { recursive: true, force: true })
     }
     await assertExecutable(binaryPath)
+    const usable = await this.#validateGpuRuntime(binaryPath, model, hardware, signal, onProgress)
     await removeUnpinnedRuntimeBundles(binaryRoot)
-    return binaryPath
+    return usable
   }
 
-  async #waitUntilReady(port: number, child: ChildProcess, logs: { value: string }, signal: AbortSignal) {
+  async #validateGpuRuntime(
+    binaryPath: string,
+    model: LocalModelSpec,
+    hardware: HardwareProbe,
+    signal?: AbortSignal,
+    onProgress?: EnsureServingOptions["onProgress"],
+  ): Promise<ResolvedRuntime> {
+    const runtime = { binaryPath, hardware, managed: true }
+    if (hardware.backend !== "cuda" && hardware.backend !== "vulkan") return runtime
+    const modelCache = this.#options.dataDirectory
+      ? join(this.#options.dataDirectory, "models")
+      : llamaModelCacheDirectory()
+    const env = llamaServerEnvironment(this.#options.env ?? process.env, modelCache, runtime)
+    let failure = "no Vulkan device was reported"
+    try {
+      const devices = await (this.#options.listDevices ?? listRuntimeDevices)(binaryPath, env, signal)
+      signal?.throwIfAborted()
+      const expectedDevice = hardware.backend === "cuda" ? /^\s*CUDA\d+:/gm : /^\s*Vulkan\d+:/gm
+      const names = Array.from(devices.matchAll(expectedDevice), ([name]) => name.trim().slice(0, -1))
+      if (names.length) return { ...runtime, devices: names }
+    } catch (error) {
+      // A driver can be installed while unavailable inside this process/container.
+      failure = errorMessage(error)
+    }
+    signal?.throwIfAborted()
+    if (hardware.backend === "vulkan") {
+      throw new Error(`Vulkan GPU acceleration is unavailable: ${failure}. Check the GPU driver and device access.`)
+    }
+    return await this.#resolveBinary(
+      model,
+      { ...hardware, backend: "vulkan", cudaVersion: undefined },
+      signal,
+      onProgress,
+    )
+  }
+
+  async #waitUntilReady(
+    port: number,
+    child: ChildProcess,
+    logs: { value: string; spawnError?: Error },
+    signal: AbortSignal,
+  ) {
     const timeoutMs = this.#options.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS
     const sleep = this.#options.sleep ?? delay
     const fetchImpl = this.#options.fetch ?? fetch
     const deadline = Date.now() + timeoutMs
     while (Date.now() < deadline) {
       signal.throwIfAborted()
+      if (logs.spawnError) throw logs.spawnError
       if (processHasTerminated(child)) {
-        throw new Error(`llama-server exited before becoming ready: ${logs.value.trim() || processTermination(child)}`)
+        throw new LlamaServerExitError(logs.value, processTermination(child))
       }
       let response: Response | undefined
       try {
@@ -296,8 +438,10 @@ export class LlamaCppRuntime {
       } catch {
         // Keep polling until the server binds and loads the GGUF.
       }
-      if (response?.ok) return await this.#readContextLength(port, signal)
       signal.throwIfAborted()
+      if (logs.spawnError) throw logs.spawnError
+      if (processHasTerminated(child)) throw new LlamaServerExitError(logs.value, processTermination(child))
+      if (response?.ok) return await this.#readContextLength(port, signal)
       await sleep(200)
     }
     throw new Error("Timed out waiting for the local model server to start.")
@@ -368,17 +512,42 @@ function servingKey(model: LocalModelSpec, hardware: HardwareProbe) {
     hardware.platform,
     hardware.arch,
     hardware.backend,
+    hardware.cudaVersion,
     targetMiB,
   ])
 }
 
-function llamaServerEnvironment(env: NodeJS.ProcessEnv, modelCache: string) {
+function llamaServerEnvironment(env: NodeJS.ProcessEnv, modelCache: string, runtime: ResolvedRuntime) {
   const childEnv = childProcessEnvironment(env)
   for (const name of Object.keys(childEnv)) {
     if (name.startsWith("LLAMA_ARG_")) delete childEnv[name]
   }
   childEnv.LLAMA_CACHE = modelCache
+  if (runtime.managed && runtime.hardware.platform === "linux") {
+    // Prefer the verified bundle without discarding container/WSL driver paths.
+    // Only this child receives the changes; custom server overrides retain their
+    // own loader configuration. Preloaded libraries could defeat this ordering.
+    childEnv.LD_LIBRARY_PATH = [
+      dirname(runtime.binaryPath),
+      ...(env.LD_LIBRARY_PATH?.split(/[:;]/).filter(Boolean) ?? []),
+    ].join(":")
+    delete childEnv.LD_PRELOAD
+    delete childEnv.LD_AUDIT
+    delete childEnv.GGML_BACKEND_PATH
+  }
   return childEnv
+}
+
+function isCudaStartupFailure(output: string) {
+  // Retry only diagnostics identifying the CUDA backend. A generic model,
+  // context, host-memory, or HTTP failure must retain its original error.
+  return [
+    /\bCUDA error:/i,
+    /\binvalid device:\s*CUDA\d+\b/i,
+    /\bCUBLAS_STATUS_(?:NOT_INITIALIZED|ALLOC_FAILED|ARCH_MISMATCH|EXECUTION_FAILED|INTERNAL_ERROR|NOT_SUPPORTED)\b/,
+    /\bggml_(?:backend_)?cuda\w*:[^\n]*(?:failed|error|out of memory)/i,
+    /\blib(?:cuda|cudart|cublas(?:Lt)?)\.so[^\n]*(?:cannot open|undefined symbol|not found)/i,
+  ].some((pattern) => pattern.test(output))
 }
 
 type RuntimeDownloadOptions = {
@@ -397,7 +566,7 @@ class RetryableRuntimeDownloadError extends Error {
   }
 }
 
-async function downloadToTemp(asset: LlamaCppAsset, fetchImpl: typeof fetch, options: RuntimeDownloadOptions = {}) {
+async function downloadToTemp(asset: LlamaCppArchive, fetchImpl: typeof fetch, options: RuntimeDownloadOptions = {}) {
   const attempts = Math.max(1, options.attempts ?? DEFAULT_RUNTIME_DOWNLOAD_ATTEMPTS)
   for (let attempt = 1; ; attempt += 1) {
     try {
@@ -412,7 +581,7 @@ async function downloadToTemp(asset: LlamaCppAsset, fetchImpl: typeof fetch, opt
 }
 
 async function downloadToTempOnce(
-  asset: LlamaCppAsset,
+  asset: LlamaCppArchive,
   fetchImpl: typeof fetch,
   signal?: AbortSignal,
   timeoutMs = DEFAULT_RUNTIME_DOWNLOAD_TIMEOUT_MS,
@@ -597,8 +766,8 @@ async function removeUnpinnedRuntimeBundles(binaryRoot: string) {
   }
   const pinned = new Set<string>(PINNED_LLAMA_CPP_RELEASE_TAGS)
   const stale = entries.filter((entry) => {
-    const knownRuntimeTag = /^b\d+$/.test(entry.name) || /^prism-b\d+-[a-f0-9]+$/.test(entry.name)
-    return entry.isDirectory() && knownRuntimeTag && !pinned.has(entry.name)
+    const tag = /^(b\d+|prism-b\d+-[a-f0-9]+)(?:-cuda-\d+\.\d+)?$/.exec(entry.name)?.[1]
+    return entry.isDirectory() && tag !== undefined && !pinned.has(tag)
   })
   await Promise.allSettled(stale.map((entry) => rm(join(binaryRoot, entry.name), { recursive: true, force: true })))
 }
@@ -659,6 +828,13 @@ async function isUsableRuntimeBundle(
     return false
   }
   if (!hasRuntimeLibraries(names, hardware.platform)) return false
+  if (hardware.backend === "cuda") {
+    if (!hardware.cudaVersion || !names.includes("libggml-cuda.so")) return false
+    for (const library of cudaRuntimeLibraries(hardware)) {
+      if (!names.includes(library) || !(await stat(join(bundleDir, library)).catch(() => undefined))?.isFile())
+        return false
+    }
+  }
 
   try {
     const manifest = JSON.parse(await readFile(join(bundleDir, RUNTIME_MANIFEST), "utf8")) as unknown
@@ -670,7 +846,23 @@ async function isUsableRuntimeBundle(
   // Bundles installed before manifests were introduced remain reusable if
   // they contain the platform's shared-library companions. A lone executable
   // is the incomplete legacy layout and must be repaired.
-  return true
+  return hardware.backend !== "cuda"
+}
+
+function cudaRuntimeLibraries(hardware: HardwareProbe) {
+  if (hardware.backend !== "cuda" || !hardware.cudaVersion) return []
+  const major = hardware.cudaVersion.split(".")[0]
+  return [`libcudart.so.${major}`, `libcublas.so.${major}`, `libcublasLt.so.${major}`]
+}
+
+async function listRuntimeDevices(binaryPath: string, env: NodeJS.ProcessEnv, signal?: AbortSignal) {
+  const result = await execFileAsync(binaryPath, ["--list-devices"], {
+    env,
+    signal,
+    timeout: 15_000,
+    maxBuffer: 1024 ** 2,
+  })
+  return result.stdout
 }
 
 function hasRuntimeLibraries(names: readonly string[], platform: NodeJS.Platform) {
@@ -695,6 +887,7 @@ async function writeRuntimeManifest(
       platform: hardware.platform,
       arch: hardware.arch,
       backend: hardware.backend,
+      cudaVersion: hardware.cudaVersion,
       artifactSha256,
     })}\n`,
     { encoding: "utf8", mode: 0o600 },
@@ -710,7 +903,8 @@ function isRuntimeManifestFor(value: unknown, releaseTag: string, hardware: Hard
     manifest.arch === hardware.arch &&
     manifest.backend === hardware.backend
   if (!matchesTarget) return false
-  if (manifest.version === 1) return true
+  if (hardware.backend === "cuda" && manifest.cudaVersion !== hardware.cudaVersion) return false
+  if (manifest.version === 1) return hardware.backend !== "cuda"
   return manifest.version === 2 && manifest.artifactSha256 === artifactSha256
 }
 

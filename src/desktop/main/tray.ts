@@ -76,7 +76,7 @@ export function buildTrayMenu(
   items.push({ label: status.workspace.label, enabled: false })
   if (status.contextTokens !== undefined) {
     items.push({
-      label: `Context ${formatTokenCount(status.contextTokens)} of ${formatTokenCount(status.contextLimit)}`,
+      label: `Context ~${formatTokenCount(status.contextTokens)} · Auto-compact at ${formatTokenCount(status.contextLimit)}`,
       enabled: false,
     })
   }

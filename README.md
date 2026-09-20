@@ -96,7 +96,8 @@ Local inference offers two independent paths:
   to an eligible computer in your cluster.
 
 Neither path requires a hosted inference API key. For a good managed-local experience, use Apple silicon with at least
-24 GB of unified memory, or Linux with at least 24 GB of RAM. A Vulkan-capable GPU improves Linux performance.
+24 GB of unified memory, or Linux with at least 24 GB of RAM. Compatible NVIDIA GPUs use CUDA; other Linux GPUs use
+Vulkan. See [managed local inference](docs/local-inference.md) for compatibility and runtime requirements.
 
 PAIR is installed and managed separately. Otis pre-fills PAIR's standard loopback addresses; replace either one if the
 PAIR Endpoints window shows a custom port. At least one working endpoint is enough. See [NVIDIA PAIR](docs/nvidia-pair.md)

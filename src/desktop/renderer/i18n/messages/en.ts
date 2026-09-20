@@ -23,7 +23,7 @@ export const en = {
   "header.newSession": "New session (⌘N)",
   "header.freshStart": "Fresh start",
   "header.linesChanged": "Lines changed this session",
-  "header.contextTokens": "{{used}} of ~{{limit}} tokens",
+  "header.contextTokens": "~{{used}} tokens used · Auto-compact at {{limit}}",
   "header.searchSessions": "Search sessions (⌘K)",
   "header.showSidePanel": "Show side panel",
   "panel.workspacePanel": "Workspace panel",
