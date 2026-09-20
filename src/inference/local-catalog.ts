@@ -1,5 +1,5 @@
 import type { HardwareBackend, HardwareProbe } from "./hardware.js"
-import type { LlamaRuntimeKind } from "./llama-binary.js"
+import { type LlamaRuntimeKind, llamaRuntimeTarget } from "./llama-binary.js"
 import type { LocalCatalogModel } from "./types.js"
 
 const GIBIBYTE = 1024 ** 3
@@ -44,11 +44,13 @@ export type LocalModelPacking = {
   quant: string
   /** Backends with kernels for this packing in the pinned runtime. Omitted means all supported backends. */
   supportedBackends?: readonly HardwareBackend[]
-  /** Select this packing only at or below the applicable memory limit. */
+  /** Prefer this packing when the applicable memory limit or CUDA architecture rule matches. */
   useWhen?: {
     maximumDedicatedGpuMemoryBytes?: number
     maximumSystemMemoryBytes?: number
     maximumUnifiedMemoryBytes?: number
+    /** Matches only when every detected CUDA GPU belongs to one of these architectures. */
+    cudaComputeCapabilities?: readonly number[]
   }
 }
 
@@ -202,13 +204,15 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
           maximumDedicatedGpuMemoryBytes: 8 * GIBIBYTE,
           maximumSystemMemoryBytes: 16 * GIBIBYTE,
           maximumUnifiedMemoryBytes: 16 * GIBIBYTE,
+          // Prism measures faster PTQ1 decode on Ada (RTX 40-series, L4/L40).
+          // Other CUDA architectures prefer PQ2's faster prompt processing.
+          cudaComputeCapabilities: [8.9],
         },
       },
       {
         ...BONSAI_PQ2,
-        // Linux GPU loads retain PTQ1 so CUDA can fall back to Vulkan without
-        // changing weights: the pinned Vulkan build has no PQ2 kernels.
-        supportedBackends: ["metal", "cpu"],
+        // Vulkan fallback must reselect PTQ1: this build has no PQ2 kernels.
+        supportedBackends: ["metal", "cuda", "cpu"],
       },
     ],
     nativeContextLength: 262_144,
@@ -387,6 +391,7 @@ export function localModelWeightBytes(model: LocalModelSpec) {
 
 export function localModelForHardware(model: LocalModelSpec, hardware: HardwareProbe): LocalModelSpec {
   if (!model.packings) return model
+  hardware = llamaRuntimeTarget(hardware, model.runtime)
   const compatible = model.packings.filter(
     ({ supportedBackends }) => !supportedBackends || supportedBackends.includes(hardware.backend),
   )
@@ -424,6 +429,13 @@ export function isLocalModelId(modelId: string) {
 
 function packingMatchesHardware(rule: LocalModelPacking["useWhen"], hardware: HardwareProbe) {
   if (!rule) return true
+  if (
+    hardware.backend === "cuda" &&
+    hardware.gpuCount > 0 &&
+    hardware.cudaComputeCapabilities?.length === hardware.gpuCount &&
+    hardware.cudaComputeCapabilities.every((compute) => rule.cudaComputeCapabilities?.includes(compute))
+  )
+    return true
   if (hardware.unifiedMemory) {
     return rule.maximumUnifiedMemoryBytes !== undefined && hardware.totalMemoryBytes <= rule.maximumUnifiedMemoryBytes
   }

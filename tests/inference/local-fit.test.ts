@@ -92,6 +92,40 @@ describe("local model fit", () => {
     expect(kvCacheBytes(bonsai.attention, 32_768)).toBe(16 * 4 * 256 * 4 * 32_768)
   })
 
+  it.each([
+    ["A100", [8.0], 80, "PQ2_0"],
+    ["H100", [9.0], 80, "PQ2_0"],
+    ["RTX 5090", [12.0], 32, "PQ2_0"],
+    ["RTX 4090", [8.9], 24, "PTQ1_0"],
+    ["L4", [8.9], 24, "PTQ1_0"],
+    ["multiple Ada GPUs", [8.9, 8.9], 48, "PTQ1_0"],
+    ["mixed architectures", [8.9, 12.0], 56, "PQ2_0"],
+    ["unknown architecture", undefined, 24, "PQ2_0"],
+    ["empty architecture list", [], 24, "PQ2_0"],
+    ["compact Blackwell", [12.0], 8, "PTQ1_0"],
+  ] as const)("selects Bonsai packing for %s", (_name, capabilities, vram, quant) => {
+    const bonsai = findLocalModel("prism-ml/Ternary-Bonsai-2-27B-gguf")
+    if (!bonsai) throw new Error("missing catalog entry")
+    const cuda: HardwareProbe = {
+      ...apple128,
+      platform: "linux",
+      arch: "x64",
+      backend: "cuda",
+      cudaVersion: "13.3",
+      unifiedMemory: false,
+      gpuMemoryBytes: vram * 1024 ** 3,
+      gpuCount: capabilities?.length || 1,
+      cudaComputeCapabilities: capabilities,
+    }
+    const fit = fitLocalModel(bonsai, cuda)
+    expect(fit.available).toBe(true)
+    expect(fit.model.quant).toBe(quant)
+    expect(fit.memoryRequiredBytes).toBe(memoryRequiredFor(fit.model, fit.contextLength))
+    // The actual Prism backend on ARM Linux is Vulkan, which requires PTQ1.
+    expect(fitLocalModel(bonsai, { ...cuda, arch: "arm64" }).model.quant).toBe("PTQ1_0")
+    expect(fitLocalModel(fit.model, { ...cuda, backend: "vulkan" }).model.quant).toBe("PTQ1_0")
+  })
+
   it("uses the largest context that fits instead of a 32K cap", () => {
     const apple36: HardwareProbe = {
       ...apple128,
