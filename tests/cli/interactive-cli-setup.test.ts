@@ -165,7 +165,8 @@ describe("interactive CLI setup", () => {
     mocks.uiOptions?.onSelectModel?.(pairModel)
     await vi.waitFor(() => expect(mocks.saveSelectedModel).toHaveBeenCalled())
 
-    expect(mocks.PairClient).toHaveBeenCalledWith({
+    expect(mocks.createPairClient).toHaveBeenCalledWith({
+      engine: "ollama",
       baseURL: "http://127.0.0.1:11434",
       model: "qwen3.5:35b",
     })
@@ -191,7 +192,8 @@ describe("interactive CLI setup", () => {
 
     expect(mocks.uiOptions?.configured).toBe(true)
     expect(mocks.uiOptions?.modelLabel).toBe("Qwen 3.5 35B · NVIDIA PAIR")
-    expect(mocks.PairClient).toHaveBeenCalledWith({
+    expect(mocks.createPairClient).toHaveBeenCalledWith({
+      engine: "ollama",
       baseURL: "http://127.0.0.1:11434",
       model: "qwen3.5:35b",
     })

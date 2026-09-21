@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from "vitest"
 import { type AgentEvent, runAgent } from "../../src/core/agent.js"
-import { compactConversation, compactionSummaryMessage } from "../../src/core/compaction.js"
+import { autoCompactThreshold, compactConversation, compactionSummaryMessage } from "../../src/core/compaction.js"
 import { estimateMessageTokens, requestContextEstimator } from "../../src/core/context-tokens.js"
 import { SteeringInbox } from "../../src/core/steering.js"
 import { ContextOverflowError } from "../../src/inference/errors.js"
+import { OmlxClient } from "../../src/inference/omlx.js"
 import type { ChatMessage, InferenceClient, StreamChatOptions } from "../../src/inference/types.js"
 import { TOOL_DEFINITIONS } from "../../src/tools/index.js"
 import { summaryFixture } from "../support/compaction.js"
@@ -28,6 +29,137 @@ const summaryClient = (summary = "Task and progress summarized."): InferenceClie
 })
 
 describe("bounded compaction", () => {
+  it("stops on a reported sub-minimum allocation without summarizing or replacing history", async () => {
+    const fetch = vi.fn(async () =>
+      Response.json(
+        { error: { message: "Prompt too long: 40000 tokens exceeds max context window of 32768 tokens" } },
+        { status: 400 },
+      ),
+    )
+    const client = new OmlxClient({
+      model: "chat",
+      baseURL: "http://127.0.0.1:8000",
+      fetch: fetch as typeof globalThis.fetch,
+    })
+    const history = [user("task"), answer("Earlier work.")]
+    const original = structuredClone(history)
+    const onCompaction = vi.fn()
+    const events = await collect(
+      runAgent("continue", history, {
+        client,
+        tools: [],
+        skills: emptySkills,
+        projectContext: [],
+        autoCompactAtTokens: autoCompactThreshold(65536),
+        onCompaction,
+      }),
+    )
+    expect(events.at(-1)).toMatchObject({
+      type: "error",
+      message: expect.stringContaining("at least 65,536 tokens (64K)"),
+    })
+    expect(events.some((event) => event.type === "compaction")).toBe(false)
+    expect(onCompaction).not.toHaveBeenCalled()
+    expect(fetch).toHaveBeenCalledOnce()
+    expect(history).toEqual(original)
+  })
+
+  it("compacts an 8K context with the default tools and retains the unanswered prompt", async () => {
+    const client = summaryClient()
+    const threshold = autoCompactThreshold(8192)
+    let checkpointed = false
+    client.streamChat = vi.fn<InferenceClient["streamChat"]>(async function* (request) {
+      if (request.systemPrompt?.startsWith("You are a conversation summarizer")) {
+        expect(request.systemPrompt).not.toContain("at most 2000 tokens")
+        yield { type: "text_delta", text: summaryFixture("Previous work is complete; continue the current task.") }
+      } else {
+        expect(checkpointed).toBe(true)
+        const tokens = requestContextEstimator(request)(request.messages)
+        expect(tokens).toBeGreaterThan(threshold / 2)
+        expect(tokens).toBeLessThan(threshold)
+        expect(request.messages).toContainEqual(user("continue"))
+        yield { type: "text_delta", text: "Finished." }
+      }
+    })
+    const events = await collect(
+      runAgent("continue", [user("task"), answer("progress ".repeat(2500))], {
+        client,
+        tools: TOOL_DEFINITIONS,
+        skills: emptySkills,
+        projectContext: [],
+        autoCompactAtTokens: threshold,
+        onCompaction: () => {
+          checkpointed = true
+        },
+      }),
+    )
+    expect(events.filter((event) => event.type === "compaction" && event.phase === "complete")).toHaveLength(1)
+    expect(events.at(-1)?.type).toBe("complete")
+  })
+
+  it("recovers from an actual oMLX HTTP overflow response before resuming inference", async () => {
+    let rejected = false
+    let checkpointed = false
+    const fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body))
+      if (!rejected) {
+        rejected = true
+        return Response.json(
+          {
+            error: {
+              message: "Prompt too long: 90000 tokens exceeds max context window of 65536 tokens",
+              type: "invalid_request_error",
+              code: null,
+            },
+          },
+          { status: 400 },
+        )
+      }
+      const summarizing = request.messages[0].content.startsWith("You are a conversation summarizer")
+      if (!summarizing) expect(checkpointed).toBe(true)
+      const content = summarizing ? summaryFixture("Earlier work preserved.") : "Finished."
+      return new Response(
+        `data: ${JSON.stringify({ choices: [{ delta: { content }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`,
+      )
+    })
+    const client = new OmlxClient({
+      model: "chat",
+      baseURL: "http://127.0.0.1:8000",
+      fetch: fetch as typeof globalThis.fetch,
+    })
+    const events = await collect(
+      runAgent("continue", [user("task"), answer("progress ".repeat(2000))], {
+        client,
+        tools: [],
+        skills: emptySkills,
+        projectContext: [],
+        autoCompactAtTokens: 20000,
+        onCompaction: () => {
+          checkpointed = true
+        },
+      }),
+    )
+    expect(events).toContainEqual({ type: "model", phase: "retry" })
+    expect(events.at(-1)?.type).toBe("complete")
+  })
+
+  it("stops without inference when fixed instructions cannot fit the configured context", async () => {
+    const client = summaryClient()
+    const events = await collect(
+      runAgent("hello", [], {
+        client,
+        tools: TOOL_DEFINITIONS,
+        skills: emptySkills,
+        projectContext: [],
+        autoCompactAtTokens: autoCompactThreshold(4096),
+      }),
+    )
+    expect(events.at(-1)).toMatchObject({
+      type: "error",
+      message: expect.stringContaining("Increase the server context"),
+    })
+    expect(client.streamChat).not.toHaveBeenCalled()
+  })
   it("rejects a truncated summary without changing the conversation", async () => {
     const client = summaryClient()
     client.streamChat = vi.fn<InferenceClient["streamChat"]>(async function* () {
@@ -514,7 +646,10 @@ describe("authoritative request counts and overflow recovery", () => {
     })
     const events = await collect(runAgent("x".repeat(10_000), [], { ...options, client }))
     expect(client.streamChat).toHaveBeenCalledOnce()
-    expect(events.at(-1)).toMatchObject({ type: "error", message: "Not enough conversation history to compact." })
+    expect(events.at(-1)).toMatchObject({
+      type: "error",
+      message: expect.stringContaining("Increase the server context"),
+    })
   })
 
   it("counts summary chunks with the serving tokenizer and preserves their complete Unicode content", async () => {

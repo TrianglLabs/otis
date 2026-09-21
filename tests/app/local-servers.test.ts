@@ -23,7 +23,7 @@ const model: OmlxCatalogModel = {
   id: "chat",
   displayName: "Chat",
   baseURL: "http://127.0.0.1:8000",
-  contextLength: 32768,
+  contextLength: 131072,
   supportsImageInput: true,
 }
 const discoverPair = vi.fn(async () => ({ errors: [] }))
@@ -55,7 +55,7 @@ describe("local server coordination", () => {
     expect(await runtime.selectModel("omlx:chat")).toEqual({ ok: true })
     expect(stop).toHaveBeenCalled()
     expect(network).not.toHaveBeenCalled()
-    expect(app.models.autoCompactAtTokens).toBe(autoCompactThreshold(32768))
+    expect(app.models.autoCompactAtTokens).toBe(autoCompactThreshold(131072))
     expect(providerTools("omlx").some((tool) => tool.name === "agent")).toBe(true)
     const snapshot = await runtime.snapshot()
     expect(snapshot.omlx).toEqual({ baseURL: model.baseURL, hasApiKey: true })
@@ -94,10 +94,10 @@ describe("local server coordination", () => {
       ),
     ).rejects.toThrow("401")
     expect(await readFile(join(localConfigDirectory(), "config.json"), "utf8")).toBe(beforeFailure)
-    const changed = { ...model, baseURL: "http://127.0.0.1:8001", contextLength: 8192 }
+    const changed = { ...model, baseURL: "http://127.0.0.1:8001", contextLength: 65536 }
     await app.connectLocalServers({ omlx: changed.baseURL }, { discoverPair, discoverOmlx: async () => [changed] })
     expect(app.models.omlx).toEqual({ baseURL: changed.baseURL })
-    expect(app.models.autoCompactAtTokens).toBe(autoCompactThreshold(8192))
+    expect(app.models.autoCompactAtTokens).toBe(autoCompactThreshold(65536))
     await app.connectLocalServers(
       { ollama: "http://127.0.0.1:11434" },
       {
@@ -122,7 +122,9 @@ describe("local server coordination", () => {
     await app.shutdown()
   })
 
-  it("refreshes context and vision on restart without loading models or invoking inference", async () => {
+  it.each([
+    65536, 8192,
+  ])("validates the refreshed serving limit %i on restart without loading models or invoking inference", async (contextLength) => {
     const cwd = await isolate("otis-omlx-restore-")
     const app = await Application.create({ cwd, env: {} })
     await app.connectLocalServers({ omlx: model.baseURL }, { discoverPair, discoverOmlx })
@@ -131,15 +133,57 @@ describe("local server coordination", () => {
     const fetch = vi.fn(async (url: RequestInfo | URL) =>
       String(url).endsWith("/status")
         ? Response.json({ models: [{ id: "chat", model_type: "llm" }] })
-        : Response.json({ data: [{ id: "chat", max_model_len: 4096 }] }),
+        : Response.json({ data: [{ id: "chat", max_model_len: contextLength }] }),
     )
     vi.stubGlobal("fetch", fetch)
     const restored = await Application.create({ cwd, env: {} })
-    expect(await restored.startSavedSelection()).toBe("ready")
-    expect(restored.models.autoCompactAtTokens).toBe(autoCompactThreshold(4096))
-    expect(restored.models.supportsImageInput).toBe(false)
+    if (contextLength < 65536) {
+      await expect(restored.startSavedSelection()).rejects.toThrow("at least 65,536 tokens (64K)")
+      expect(restored.models.client).toBeUndefined()
+    } else {
+      expect(await restored.startSavedSelection()).toBe("ready")
+      expect(restored.models.autoCompactAtTokens).toBe(autoCompactThreshold(contextLength))
+      expect(restored.models.supportsImageInput).toBe(false)
+    }
     expect(fetch).toHaveBeenCalledTimes(2)
     await restored.shutdown()
+  })
+
+  it.each([
+    "same",
+    "different",
+  ])("rejects an undersized reconnect to the %s server and preserves valid selection state", async (destination) => {
+    const cwd = await isolate("otis-omlx-minimum-")
+    const app = await Application.create({ cwd, env: {} })
+    await app.connectLocalServers({ omlx: model.baseURL }, { discoverPair, discoverOmlx })
+    app.models.activate(model, app.models.omlxClient(model.id, model.baseURL))
+    const previous = app.models.client
+    const before = await readFile(join(localConfigDirectory(), "config.json"), "utf8")
+    const undersized = {
+      ...model,
+      baseURL: destination === "same" ? model.baseURL : "http://127.0.0.1:8001",
+      contextLength: 8192,
+    }
+    const runtime = DesktopRuntime.forApplication(app, {
+      cwd,
+      version: "test",
+      platform: "darwin",
+      send: () => {},
+      discoverPair,
+      discoverOmlx: async () => [undersized],
+    })
+    expect(await runtime.connectLocalServers({ omlx: undersized.baseURL })).toMatchObject({
+      ok: false,
+      reason: expect.stringContaining("at least 65,536 tokens (64K)"),
+    })
+    expect(await readFile(join(localConfigDirectory(), "config.json"), "utf8")).toBe(before)
+    expect(app.models.client).toBe(destination === "same" ? undefined : previous)
+    if (destination === "same") {
+      const snapshot = await runtime.snapshot()
+      expect(snapshot.modelState).toBe("failed")
+      expect(snapshot.modelError).toContain("64K")
+    }
+    await runtime.shutdown()
   })
 
   it("propagates cancellation and rejects empty or malformed setup", async () => {

@@ -192,7 +192,7 @@ export const pl: Messages = {
   "onboarding.keySaved": "Klucz zapisany. Teraz wybierz model:",
   "onboarding.connectServer": "Połącz lokalny serwer modeli",
   "onboarding.connectServerHint":
-    "Połącz się bezpośrednio z {{servers}} albo przez NVIDIA PAIR — domyślne adresy lokalne są już wpisane.",
+    "Połącz się bezpośrednio z {{servers}} albo przez NVIDIA PAIR — domyślne adresy lokalne są już wpisane. Modele wymagają co najmniej 64K kontekstu.",
   "onboarding.chooseModel": "Wybierz model",
   "onboarding.chooseServerModel": "Wybierz model zgłoszony przez połączony serwer.",
   "onboarding.connectedNoModels": "Połączono, ale serwer nie zgłosił żadnych dostępnych modeli.",
@@ -211,7 +211,7 @@ export const pl: Messages = {
   "settings.omlxKey": "Klucz API oMLX (opcjonalny)",
   "settings.omlxKeyHint": "Pozostaw puste, aby zachować zapisany klucz",
   "settings.localServersNote":
-    "Połącz się bezpośrednio z {{servers}}. Jeśli używasz NVIDIA PAIR, wpisz adresy pętli zwrotnej pokazane w PAIR → Endpoints. Wystarczy jeden działający punkt końcowy.",
+    "Połącz się bezpośrednio z {{servers}}. Jeśli używasz NVIDIA PAIR, wpisz adresy pętli zwrotnej pokazane w PAIR → Endpoints. Wystarczy jeden działający punkt końcowy. Modele wymagają co najmniej 64K kontekstu.",
   "settings.checkingServers": "Sprawdzanie lokalnych serwerów modeli…",
   "settings.availableModels": "Dostępne modele",
   "settings.noServerModels": "Połączone punkty końcowe nie zgłaszają żadnych modeli.",

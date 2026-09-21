@@ -1,6 +1,6 @@
 import { autoCompactThreshold } from "../core/compaction.js"
 import { FireworksClient, listToolCapableModels } from "../inference/client.js"
-import { compactionContextLength } from "../inference/context-policy.js"
+import { compactionContextLength, requireLocalContextLength } from "../inference/context-policy.js"
 import { detectHardware, type HardwareProbe } from "../inference/hardware.js"
 import { LlamaCppRuntime, type LocalLoadProgress, type LocalServingEndpoint } from "../inference/llama-runtime.js"
 import {
@@ -17,7 +17,7 @@ import {
   localThinkingCapability,
 } from "../inference/local-thinking.js"
 import { discoverOmlxModels, OmlxClient, type OmlxSettings } from "../inference/omlx.js"
-import { PairClient, pairEndpointForEngine } from "../inference/pair.js"
+import { createPairClient, pairEndpointForEngine } from "../inference/pair.js"
 import { findFireworksModel, fireworksServingModel, useFastServingPath } from "../inference/serving-path.js"
 import type { CatalogModel, InferenceClient, ModelProvider, PairEngine } from "../inference/types.js"
 import { isLocalCatalogModel, isPairCatalogModel } from "../inference/types.js"
@@ -114,8 +114,8 @@ export class ModelHost {
       this.client = new FireworksClient({ apiKey: settings.fireworksApiKey, model: this.selectedId })
     }
     const pairEndpoint = pairEndpointForEngine(settings.pairEndpoints ?? {}, this.pairEngine)
-    if (pairEndpoint && this.selectedId && this.selectedProvider === "pair") {
-      this.client = new PairClient({ baseURL: pairEndpoint, model: this.selectedId })
+    if (pairEndpoint && this.pairEngine && this.selectedId && this.selectedProvider === "pair") {
+      this.client = createPairClient({ baseURL: pairEndpoint, model: this.selectedId, engine: this.pairEngine })
     }
   }
 
@@ -240,10 +240,11 @@ export class ModelHost {
     }
 
     if (isPairCatalogModel(model) || model.provider === "omlx") {
+      if (model.provider === "omlx") requireLocalContextLength(model.contextLength, "oMLX")
       const client =
         model.provider === "omlx"
           ? this.omlxClient(model.id, model.baseURL)
-          : new PairClient({ baseURL: model.baseURL, model: model.id })
+          : createPairClient({ baseURL: model.baseURL, model: model.id, engine: model.engine })
       try {
         await this.llama.stop()
         options.signal.throwIfAborted()
@@ -312,6 +313,7 @@ export class ModelHost {
       const models = await discoverOmlxModels(this.omlx, { signal: options.signal })
       const model = models.find((entry) => entry.id === options.modelId)
       if (!model) throw new Error(`oMLX model is no longer available: ${options.modelId}`)
+      requireLocalContextLength(model.contextLength, "oMLX")
       const client = this.omlxClient(model.id, model.baseURL)
       await this.llama.stop()
       options.signal?.throwIfAborted()
@@ -347,7 +349,8 @@ export class ModelHost {
     if (options.provider === "pair") {
       if (!options.pairEndpoint)
         throw new Error("Local model server endpoint is not configured for the selected engine.")
-      const client = new PairClient({ baseURL: options.pairEndpoint, model: options.modelId })
+      const engine = options.pairEngine ?? "ollama"
+      const client = createPairClient({ baseURL: options.pairEndpoint, model: options.modelId, engine })
       await this.llama.stop()
       this.activate(
         {
@@ -355,7 +358,7 @@ export class ModelHost {
           id: options.modelId,
           displayName: options.modelId,
           baseURL: options.pairEndpoint,
-          engine: options.pairEngine ?? "ollama",
+          engine,
           supportsImageInput: options.supportsImageInput ?? false,
         },
         client,

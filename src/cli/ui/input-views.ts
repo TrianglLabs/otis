@@ -320,7 +320,7 @@ export function createSetupViews(renderer: Renderer, platform = process.platform
   setupPairForm.add(
     new TextRenderable(renderer, {
       id: "setup-pair-description",
-      content: `Connect to ${serverList.format(servers)}. For NVIDIA PAIR, use the addresses from PAIR → Endpoints. Only one working endpoint is required.${showOmlx ? " The oMLX key is optional; leave blank to keep a saved key." : ""}`,
+      content: `Connect to ${serverList.format(servers)}. PAIR addresses: PAIR → Endpoints. Only one server is required. Models need at least 64K context.${showOmlx ? " oMLX key: optional; blank keeps the saved key." : ""}`,
       fg: colors.muted,
       selectable: false,
       wrapMode: "word",

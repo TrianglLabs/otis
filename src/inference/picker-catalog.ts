@@ -1,4 +1,5 @@
 import { listToolCapableModels } from "./catalog.js"
+import { LOCAL_MIN_CONTEXT_LENGTH } from "./context-policy.js"
 import { isAnyLocalModelPackingDownloaded, isLocalGgufDownloaded } from "./gguf-cache.js"
 import { detectHardware, type HardwareProbe } from "./hardware.js"
 import { supportsLlamaCppTarget, unsupportedLlamaCppTargetMessage } from "./llama-binary.js"
@@ -59,7 +60,8 @@ export type PairPickerChoice = PairCatalogModel & {
 
 export type OmlxPickerChoice = OmlxCatalogModel & {
   kind: "model"
-  available: true
+  available: boolean
+  availabilityLabel?: string
   active: boolean
   selectionKey: string
   status?: ModelPickerStatus
@@ -192,10 +194,12 @@ function omlxSection(models: readonly OmlxCatalogModel[], options: ListModelPick
     { kind: "header", id: "header-omlx", displayName: "oMLX" },
     ...models.map((model): OmlxPickerChoice => {
       const selectionKey = `omlx:${model.id}`
+      const available = model.contextLength === undefined || model.contextLength >= LOCAL_MIN_CONTEXT_LENGTH
       return {
         ...model,
         kind: "model",
-        available: true,
+        available,
+        ...(available ? {} : { availabilityLabel: "Requires 64K context. Increase the model's context in oMLX." }),
         selectionKey,
         active: options.currentProvider === "omlx" && options.currentModel === model.id,
         ...(options.loadStatus?.modelId === selectionKey ? { status: options.loadStatus.status } : {}),

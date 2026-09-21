@@ -185,7 +185,7 @@ export const ko: Messages = {
   "onboarding.keySaved": "키가 저장되었습니다. 이제 모델을 선택하세요:",
   "onboarding.connectServer": "로컬 모델 서버 연결",
   "onboarding.connectServerHint":
-    "{{servers}}에 직접 연결하거나 NVIDIA PAIR를 사용하세요. 기본 로컬 주소가 미리 입력되어 있습니다.",
+    "{{servers}}에 직접 연결하거나 NVIDIA PAIR를 사용하세요. 기본 로컬 주소가 미리 입력되어 있습니다. 모델에는 최소 64K 컨텍스트가 필요합니다.",
   "onboarding.chooseModel": "모델 선택",
   "onboarding.chooseServerModel": "연결된 서버에서 보고한 모델을 선택하세요.",
   "onboarding.connectedNoModels": "연결되었지만 서버에서 사용 가능한 모델을 보고하지 않았습니다.",
@@ -204,7 +204,7 @@ export const ko: Messages = {
   "settings.omlxKey": "oMLX API 키(선택 사항)",
   "settings.omlxKeyHint": "저장된 키를 유지하려면 비워 두세요",
   "settings.localServersNote":
-    "{{servers}}에 직접 연결하세요. NVIDIA PAIR를 사용한다면 PAIR → Endpoints에 표시된 루프백 주소를 입력하세요. 작동하는 엔드포인트 하나면 충분합니다.",
+    "{{servers}}에 직접 연결하세요. NVIDIA PAIR를 사용한다면 PAIR → Endpoints에 표시된 루프백 주소를 입력하세요. 작동하는 엔드포인트 하나면 충분합니다. 모델에는 최소 64K 컨텍스트가 필요합니다.",
   "settings.checkingServers": "로컬 모델 서버 확인 중…",
   "settings.availableModels": "사용 가능한 모델",
   "settings.noServerModels": "연결된 엔드포인트에서 모델을 보고하지 않았습니다.",

@@ -837,6 +837,75 @@ async function runDesktopUiChecks() {
   )
   assert(wrappedDiff.scrollWidth <= wrappedDiff.clientWidth + 1, "Wrapped diff still scrolls horizontally")
 
+  // Whitespace-only deltas must not create blank rows or split tool runs. Measure actual content edges so
+  // stray child margins cannot silently add to the virtualized rows' spacing.
+  status({ session: { id: "activity-spacing", title: "Activity spacing" }, busy: true, thinkingVisible: true })
+  patch({
+    op: "reset",
+    entries: [
+      { id: 1, kind: "message", speaker: "You", text: "Create a sample resume." },
+      row(2, ""),
+      { id: 3, kind: "tool", speaker: "Tool", text: "Loading skill: documents", activityKind: "file_read" },
+      row(4, " \n\t"),
+      { id: 5, kind: "tool", speaker: "Tool", text: "Loading skill: documents", activityKind: "file_read" },
+      { id: 6, kind: "reasoning", speaker: "Thinking", text: "", streaming: true },
+      row(7, "\n"),
+      {
+        id: 8,
+        kind: "tool",
+        speaker: "Tool",
+        text: "Saved resume",
+        artifact: { source: "workspace", path: "alex-morgan-resume.docx", kind: "docx" },
+        artifactDisplay: "ready",
+      },
+      { id: 9, kind: "reasoning", speaker: "Thinking", text: "Check the saved resume.", durationMs: 4700 },
+      row(10, "Done — here is your sample resume."),
+      { id: 11, kind: "tool", speaker: "Tool", text: "Edit resume.md", diff: "@@ -1 +1 @@\n-old\n+new" },
+      { id: 12, kind: "tool", speaker: "Tool", text: "Read resume.md", activityKind: "file_read" },
+    ],
+  })
+  await until(() => !!document.querySelector('[data-entry-id="12"]'), "Activity spacing fixture did not mount")
+  await pause(250)
+  const assertEntryGap = (before: string, after: string, expected: number) => {
+    const gap = element(after).getBoundingClientRect().top - element(before).getBoundingClientRect().bottom
+    assert(Math.abs(gap - expected) < 1, `${before} → ${after}: expected ${expected}px gap, got ${gap}px`)
+  }
+  for (const id of [2, 4, 7]) {
+    assert(!document.querySelector(`[data-entry-id="${id}"]`), "Empty assistant output occupies a transcript row")
+  }
+  assert(!!document.querySelector('[data-run-id="3"]'), "Empty assistant deltas split consecutive tool activity")
+  assertEntryGap('[data-entry-id="1"] .userRow', '[data-run-id="3"] .toolCard-header', 14)
+  assertEntryGap('[data-run-id="3"] .toolCard-header', '[data-entry-id="6"] .reasoning-header', 6)
+  assertEntryGap('[data-entry-id="6"] .reasoning-header', '[data-entry-id="8"] .artifactCard', 14)
+  assertEntryGap('[data-entry-id="8"] .artifactCard', '[data-entry-id="9"] .reasoning-header', 14)
+  assertEntryGap('[data-entry-id="9"] .reasoning-header', '[data-entry-id="10"] .md', 14)
+  assertEntryGap('[data-entry-id="11"] .diffView', '[data-entry-id="12"] .toolCard-header', 14)
+  element<HTMLButtonElement>('[data-run-id="3"] .toolRun-header').click()
+  await until(() => !!document.querySelector('[data-entry-id="5"]'), "Short tool run did not expand")
+  await pause(250)
+  assertEntryGap('[data-run-id="3"] .toolCard-header', '[data-entry-id="3"] .toolCard-header', 6)
+  assertEntryGap('[data-entry-id="3"] .toolCard-header', '[data-entry-id="5"] .toolCard-header', 6)
+  assertEntryGap('[data-entry-id="5"] .toolCard-header', '[data-entry-id="6"] .reasoning-header', 6)
+  for (const selector of [".toolCard-header", ".reasoning-header"]) {
+    for (const header of document.querySelectorAll(selector)) {
+      assert(Math.abs(header.getBoundingClientRect().height - 24) < 1, "Tool and thinking row heights differ")
+    }
+  }
+  await nativeInput({ screenshot: true, screenshotName: "activity-spacing" })
+  element<HTMLButtonElement>('[data-entry-id="9"] .reasoning-header').click()
+  await until(() => !!document.querySelector('[data-entry-id="9"] .reasoning-body'), "Thinking did not expand")
+  assertEntryGap('[data-entry-id="9"] .reasoning-body', '[data-entry-id="10"] .md', 14)
+  status({ thinkingVisible: false })
+  await until(() => !!document.querySelector(".reasoning-text"), "Live thinking status did not appear")
+  await pause(250)
+  assert(
+    Math.abs(element(".reasoning-text").getBoundingClientRect().height - 24) < 1,
+    "Hidden trace changes row height",
+  )
+  assertEntryGap('[data-entry-id="5"] .toolCard-header', '[data-entry-id="6"] .reasoning-text', 6)
+  assertEntryGap('[data-entry-id="6"] .reasoning-text', '[data-entry-id="8"] .artifactCard', 14)
+  assertEntryGap('[data-entry-id="8"] .artifactCard', '[data-entry-id="10"] .md', 14)
+
   // One huge diff must also stay bounded, and its final line must remain reachable.
   const diff = `@@ -0,0 +1,12000 @@\n${Array.from({ length: 12000 }, (_, index) => `+added_${index + 1}`).join("\n")}`
   status({ session: { id: "large-diff", title: "Large diff" }, busy: false })

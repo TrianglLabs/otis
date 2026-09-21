@@ -1,4 +1,5 @@
-import { inferenceResponseError } from "./errors.js"
+import { requireLocalContextLength } from "./context-policy.js"
+import { ContextOverflowError, inferenceResponseError } from "./errors.js"
 import { inferenceEndpointURL, openaiChatCompletionRequest, requiredText } from "./openai-compat.js"
 import { parseChatCompletionStream } from "./stream-parser.js"
 import type { ChatMessage, CompleteOptions, InferenceClient, StreamChatOptions } from "./types.js"
@@ -35,6 +36,7 @@ export class OpenAICompatibleClient implements InferenceClient {
       if (!response.body) throw new Error(`${this.#requestLabel} response did not include a stream body`)
       yield* parseChatCompletionStream(response.body)
     } catch (error) {
+      if (error instanceof ContextOverflowError) requireLocalContextLength(error.contextLength, this.#requestLabel)
       if (this.#apiKey && error instanceof Error) error.message = error.message.replaceAll(this.#apiKey, "[redacted]")
       throw error
     }

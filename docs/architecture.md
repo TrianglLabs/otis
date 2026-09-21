@@ -258,8 +258,9 @@ oMLX is external, user-managed inference. `src/inference/omlx.ts` discovers visi
 metadata and reuses `OpenAICompatibleClient` for streaming, tools, and reasoning replay. Its provider identity and
 picker keys are separate from PAIR and managed GGUF models. Setup, private persistence, and client refresh are
 coordinated in `src/app`, shared by terminal and desktop. Credentials never enter catalog or status objects.
-Startup refreshes the server request limit and vision metadata; unknown context uses an internal 8K guard. Otis
-never loads or unloads oMLX models explicitly or controls its process. See [oMLX](omlx.md) for API details and setup.
+Startup refreshes the server request limit and vision metadata; reported limits below 64K are rejected, and unknown
+context uses the 64K minimum as an unverified policy budget. Otis never loads or unloads oMLX models explicitly or
+controls its process. See [oMLX](omlx.md) for API details and setup.
 
 ## NVIDIA PAIR boundary
 
@@ -278,16 +279,23 @@ one scheduled node rather than aggregating it; LM Studio metadata therefore rema
 contains only model IDs. The picker labels reported architecture limits as `model max`; they are neither persisted nor
 used for compaction. Missing metadata remains `Context unavailable` and `Quant unavailable`. Engine plus model ID is
 the stable selection identity, but every PAIR model appears under one NVIDIA PAIR section in the shared model picker.
-Internally, PAIR uses the same 64K minimum as managed-local admission solely as a conservative compaction guard while
-the routed-node runtime context is unknown; that guard is not represented as model metadata. Duplicate model IDs on
-its Ollama and LM Studio routes remain independently selectable.
+Local agent use requires at least 65,536 tokens (64K), with no token-entry fields in setup. Otis uses that minimum
+as its policy budget while the serving limit is unknown; selection does not verify the routed allocation. An
+input-overflow error reporting a smaller serving limit stops with a configuration error, while other explicit
+overflows allow bounded compaction retries. The fallback and error limits never become persisted cluster metadata.
+Duplicate model IDs on the Ollama and LM Studio routes remain independently selectable.
 
-Selection is transactional but does not send a preflight inference request. Otis creates the normal OpenAI-compatible
-client, stops an active Otis-managed local runtime, saves the endpoint and model metadata to private settings, and
+Selection is transactional but does not send a preflight inference request. Otis creates the engine's client,
+stops an active Otis-managed local runtime, saves the endpoint and model selection to private settings, and
 activates the prepared selection. A preparation or persistence failure leaves the previous selection and runtime
 intact. Actual turns use Otis' local tool definitions, validation, permission policy, and execution; llama.cpp's
 built-in `--tools` is still not used. A model that cannot produce compatible tool calls reports that limitation during
 the conversation instead of being probed during selection.
+
+Ollama inference uses its native `/api/chat` route with history truncation and context shifting disabled. The native
+adapter preserves thinking, tool IDs and arguments, tool results, images, and usage. LM Studio inference retains the
+OpenAI-compatible route. Both direct servers and PAIR proxies use the same automatic compaction policy; Otis
+does not probe node-local metadata to infer routing or context allocations.
 
 PAIR receives one complete inference request and routes it to one eligible engine. It does not split a request across
 machines, and it is not a subagent or orchestration layer. The OpenAI-compatible endpoint is deliberately transparent,
@@ -392,21 +400,26 @@ skill metadata is not advertised to the model.
 ## Sessions and local statistics
 
 The agent checks context before every model request, including requests within a tool loop and after steering input.
-The trigger is 80% of the serving context, capped at 250,000 tokens; unknown context uses the 250,000-token fallback.
-Hosted and managed-local models use their configured serving context, while PAIR uses its separate conservative
-65,536-token policy budget. A completed task waits until the next request before compacting.
+The trigger is 80% of the serving context, capped at 250,000 tokens. Hosted and managed-local models use their serving
+context, oMLX uses its reported request limit (64K policy budget if unavailable), and Ollama/LM Studio/PAIR use
+the 64K local-agent minimum as their working budget. Unknown hosted context retains the 250,000-token fallback.
+A completed task waits until the next request before compacting.
 
 The runtime and context meter share one estimator, including the assembled system prompt, tool definitions, native
 reasoning, and tool history. During an active run, the last request's reported prompt and completion usage informs
 context checks, with estimates for newly added content. New turns, reopened sessions, and freshly compacted history
 use character estimates until the next response reports usage. Token accounting adds no metadata to chat messages.
 
-Compaction targets half the trigger budget, retains a bounded suffix of complete tool exchanges, and preserves
-unanswered user messages. Summarization uses its own system instructions with no tools; historical conversation is
+Compaction reserves the fixed prompt, tools, and unanswered input first, then targets half of the remaining trigger
+budget. It retains a bounded suffix of complete tool exchanges and preserves unanswered user messages. Summary
+instructions reflect the available space, up to 2,000 tokens. Summarization uses its own system instructions with no tools; historical conversation is
 input data rather than an instruction to continue working. A summary must include non-empty Goal, Progress, and Next
 Steps sections, reduce context, fit the target, and finish without requesting tools or reporting an incomplete finish.
-Oversized histories are summarized in bounded chunks using those same instructions. Provider errors surface without
-automatic compaction retries. A failed summary leaves the original history unchanged.
+Oversized histories are summarized in bounded chunks using those same instructions. Explicit input-overflow errors
+can trigger bounded compaction retries before any response output; summary chunks also shrink on overflow. Memory,
+authentication, and unrelated request errors do not trigger compaction. Local serving limits reported below the 64K
+minimum stop with a configuration error instead of shrinking history to fit an unsupported window. A failed summary
+leaves history unchanged.
 
 An active-turn compaction saves a `compacted` checkpoint before inference continues. Its prompt ID associates later
 completion or interruption with the continuation; its admission sequence and consumed steering count preserve queued

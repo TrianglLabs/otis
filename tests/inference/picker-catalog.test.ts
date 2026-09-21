@@ -37,6 +37,27 @@ afterEach(async () => {
 })
 
 describe("model picker catalog", () => {
+  it("keeps undersized oMLX models visible with a configuration reason and disables selection", async () => {
+    const items = await listModelPickerItems({
+      hardware: ample,
+      dataDirectory: await tempDir(),
+      omlxModels: [8192, 65536, undefined].map((contextLength) => ({
+        provider: "omlx",
+        id: `chat-${contextLength}`,
+        displayName: "Chat",
+        baseURL: "http://127.0.0.1:8000",
+        supportsImageInput: false,
+        contextLength,
+      })),
+    })
+    const models = items.filter((item) => item.kind === "model" && item.provider === "omlx")
+    expect(models).toHaveLength(3)
+    expect(models[0]).toMatchObject({ available: false, availabilityLabel: expect.stringContaining("Requires 64K") })
+    expect(isSelectablePickerItem(models[0])).toBe(false)
+    expect(isSelectablePickerItem(models[1])).toBe(true)
+    expect(isSelectablePickerItem(models[2])).toBe(true)
+  })
+
   it.each([
     [8, ["LiquidAI/LFM2.5-2.6B"]],
     [16, ["prism-ml/Ternary-Bonsai-2-27B-gguf"]],

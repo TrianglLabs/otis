@@ -223,7 +223,7 @@ export async function compactConversationTranscript(options: CompactConversation
   const result = await compactConversation(options.transcript.history, {
     client: options.client,
     instructions: options.instructions,
-    targetTokens: Math.floor(options.autoCompactAtTokens / 2),
+    contextBudget: options.autoCompactAtTokens,
     maxInputTokens: options.autoCompactAtTokens,
     countContextTokens: options.countContextTokens,
     onUsage: async (usage) => {

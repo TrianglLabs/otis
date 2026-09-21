@@ -203,6 +203,7 @@ function modelNameSuffixes(item: ModelPickerChoice) {
 }
 
 function modelMeta(item: ModelPickerChoice) {
+  if (item.provider === "omlx" && item.availabilityLabel) return item.availabilityLabel
   if (item.provider === "local") {
     return `${item.availabilityLabel} · ${item.supportsImageInput ? "Vision" : "Text"}`
   }

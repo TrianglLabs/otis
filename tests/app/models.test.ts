@@ -3,7 +3,7 @@ import { ModelHost } from "../../src/app/models.js"
 import { autoCompactThreshold } from "../../src/core/compaction.js"
 import { compactionContextLength } from "../../src/inference/context-policy.js"
 import type { LlamaCppRuntime } from "../../src/inference/llama-runtime.js"
-import type { FireworksModel } from "../../src/inference/types.js"
+import type { FireworksModel, OmlxCatalogModel } from "../../src/inference/types.js"
 import type { LocalSettings } from "../../src/local/settings.js"
 
 const hosted: FireworksModel = {
@@ -14,6 +14,82 @@ const hosted: FireworksModel = {
 }
 
 describe("ModelHost", () => {
+  it.each([
+    8192, 32768, 65535,
+  ])("rejects an oMLX serving limit of %i before stopping or persisting the previous model", async (contextLength) => {
+    const llama = fakeLlama()
+    const host = new ModelHost({ llama })
+    host.applySavedSelection({ model: hosted.id, modelProvider: "fireworks", fireworksApiKey: "test-key" })
+    const previous = host.client
+    host.omlx = { baseURL: "http://127.0.0.1:8000" }
+    const model: OmlxCatalogModel = {
+      provider: "omlx",
+      id: "chat",
+      displayName: "Chat",
+      baseURL: host.omlx.baseURL,
+      supportsImageInput: false,
+      contextLength,
+    }
+    const persist = vi.fn()
+    await expect(host.persistSelection(model, { signal: new AbortController().signal, persist })).rejects.toThrow(
+      "at least 65,536 tokens (64K)",
+    )
+    expect(llama.stop).not.toHaveBeenCalled()
+    expect(persist).not.toHaveBeenCalled()
+    expect(host.client).toBe(previous)
+    expect(host.selectedId).toBe(hosted.id)
+  })
+
+  it.each([
+    undefined,
+    65536,
+    131072,
+  ])("uses the minimum policy or reported oMLX serving context: %s", async (contextLength) => {
+    const host = new ModelHost({ llama: fakeLlama() })
+    host.omlx = { baseURL: "http://127.0.0.1:8000" }
+    const model: OmlxCatalogModel = {
+      provider: "omlx",
+      id: "chat",
+      displayName: "Chat",
+      baseURL: host.omlx.baseURL,
+      supportsImageInput: false,
+      ...(contextLength ? { contextLength } : {}),
+    }
+    const persist = vi.fn()
+    await host.persistSelection(model, { signal: new AbortController().signal, persist })
+    expect(host.autoCompactAtTokens).toBe(autoCompactThreshold(contextLength ?? 65536))
+    expect(persist).toHaveBeenCalledWith(model)
+    // The fallback remains policy only; it is not invented server metadata.
+    if (contextLength === undefined) expect(persist.mock.calls[0][0]).not.toHaveProperty("contextLength")
+  })
+
+  it.each([
+    "ollama",
+    "lmstudio",
+  ] as const)("restores %s without token configuration or trusting legacy architecture context", async (engine) => {
+    const llama = fakeLlama()
+    const host = new ModelHost({ llama })
+    const endpoint = engine === "ollama" ? "http://127.0.0.1:11434" : "http://127.0.0.1:1234"
+    host.applySavedSelection({
+      model: "chat",
+      modelProvider: "pair",
+      pairEngine: engine,
+      modelContextLength: 262144,
+      pairEndpoints: engine === "ollama" ? { ollama: endpoint } : { lmStudio: endpoint },
+    })
+    expect(host.autoCompactAtTokens).toBe(autoCompactThreshold(65_536))
+    expect(host.client?.model).toBe("chat")
+    const connected = await host.connect({
+      provider: "pair",
+      modelId: "chat",
+      pairEngine: engine,
+      pairEndpoint: endpoint,
+      contextLength: 262144,
+    })
+    expect(connected.contextLength).toBe(65_536)
+    expect(host.autoCompactAtTokens).toBe(autoCompactThreshold(65_536))
+    expect(llama.stop).toHaveBeenCalledOnce()
+  })
   it("restores a hosted Fireworks selection without starting llama.cpp", () => {
     const host = new ModelHost()
     const settings: LocalSettings = {

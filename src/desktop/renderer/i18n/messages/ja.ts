@@ -185,7 +185,7 @@ export const ja: Messages = {
   "onboarding.keySaved": "キーを保存しました。モデルを選択してください：",
   "onboarding.connectServer": "ローカルモデルサーバーに接続",
   "onboarding.connectServerHint":
-    "{{servers}} に直接、もしくは NVIDIA PAIR 経由で接続します。既定のローカルアドレスは入力済みです。",
+    "{{servers}} に直接、もしくは NVIDIA PAIR 経由で接続します。既定のローカルアドレスは入力済みです。 モデルには64K以上のコンテキストが必要です。",
   "onboarding.chooseModel": "モデルを選択",
   "onboarding.chooseServerModel": "接続したサーバーが報告したモデルを選択します。",
   "onboarding.connectedNoModels": "接続しましたが、サーバーから利用可能なモデルが報告されませんでした。",
@@ -204,7 +204,7 @@ export const ja: Messages = {
   "settings.omlxKey": "oMLX APIキー（任意）",
   "settings.omlxKeyHint": "保存済みのキーを使う場合は空欄にしてください",
   "settings.localServersNote":
-    "{{servers}} に直接接続します。NVIDIA PAIR を使う場合は、PAIR → Endpoints に表示されるループバックアドレスを入力してください。動作するエンドポイントは1つで十分です。",
+    "{{servers}} に直接接続します。NVIDIA PAIR を使う場合は、PAIR → Endpoints に表示されるループバックアドレスを入力してください。動作するエンドポイントは1つで十分です。 モデルには64K以上のコンテキストが必要です。",
   "settings.checkingServers": "ローカルモデルサーバーを確認中…",
   "settings.availableModels": "利用可能なモデル",
   "settings.noServerModels": "接続したエンドポイントからモデルが報告されませんでした。",

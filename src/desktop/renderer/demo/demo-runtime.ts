@@ -935,7 +935,7 @@ class DemoRuntime implements DesktopApi {
     if (!item) return { ok: false, reason: "That model is no longer in the catalog." }
     if (item.active) return { ok: true }
     if (!item.available) {
-      return { ok: false, reason: "availabilityLabel" in item ? item.availabilityLabel : "Not available." }
+      return { ok: false, reason: item.availabilityLabel ?? "Not available." }
     }
     const seq = ++this.#modelSeq
     // Only a managed local model that still needs its weights shows a visible load, like the real runtime.

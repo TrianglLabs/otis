@@ -56,7 +56,7 @@ const mocks = vi.hoisted(() => ({
     contextLength: 32_768,
   })),
   stopLocalRuntime: vi.fn(async () => undefined),
-  PairClient: vi.fn(function PairClient(config: { model: string }) {
+  createPairClient: vi.fn(function createPairClient(config: { model: string }) {
     return { model: config.model, streamChat: mocks.streamChat }
   }),
   OmlxClient: vi.fn(function OmlxClient(config: { model: string }) {
@@ -104,7 +104,7 @@ vi.mock("../../src/inference/local-client.js", () => ({
 }))
 vi.mock("../../src/inference/pair.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/inference/pair.js")>()),
-  PairClient: mocks.PairClient,
+  createPairClient: mocks.createPairClient,
 }))
 vi.mock("../../src/inference/omlx.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/inference/omlx.js")>()),
@@ -115,7 +115,7 @@ vi.mock("../../src/inference/omlx.js", async (importOriginal) => ({
       id: "mlx-chat",
       displayName: "MLX chat",
       baseURL: "http://127.0.0.1:8000",
-      contextLength: 16384,
+      contextLength: 131072,
       supportsImageInput: false,
     },
   ]),
@@ -138,7 +138,7 @@ vi.mock("../../src/storage/index.js", async (importOriginal) => ({
 
 import { runHeadlessCommand } from "../../src/cli/headless-cli.js"
 import { FireworksClient } from "../../src/inference/client.js"
-import { PairClient } from "../../src/inference/pair.js"
+import { createPairClient } from "../../src/inference/pair.js"
 
 const temporaryDirectories: string[] = []
 
@@ -742,7 +742,8 @@ describe("runHeadlessCommand", () => {
     const exitCode = await runHeadlessCommand(["--ephemeral", "hello cluster"], output.options)
 
     expect(exitCode).toBe(0)
-    expect(PairClient).toHaveBeenCalledWith({
+    expect(createPairClient).toHaveBeenCalledWith({
+      engine: "ollama",
       baseURL: "http://127.0.0.1:11434",
       model: "qwen3.5:35b",
     })

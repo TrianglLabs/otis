@@ -3,9 +3,10 @@ import type { ArtifactReference } from "../artifacts/types.js"
 import { loadProjectContext } from "../core/context.js"
 import { requestContextEstimator } from "../core/context-tokens.js"
 import { providerTools } from "../core/subagent.js"
+import { requireLocalContextLength } from "../inference/context-policy.js"
 import type { LocalLoadProgress } from "../inference/llama-runtime.js"
 import { catalogModelFromSpec, findLocalModel } from "../inference/local-catalog.js"
-import { PairClient, type PairEndpoints, pairEndpointForEngine } from "../inference/pair.js"
+import { createPairClient, type PairEndpoints, pairEndpointForEngine } from "../inference/pair.js"
 import type { ContextFile, OutputCapabilities, UserChatMessage } from "../inference/types.js"
 import { type LocalSettings, loadLocalSettings, saveLocalServers, saveLocalThinking } from "../local/settings.js"
 import {
@@ -165,19 +166,37 @@ export class Application {
       const combined = options.signal ? AbortSignal.any([signal, options.signal]) : signal
       const servers = await prepareLocalServers(input, this.models.omlx, { ...options, signal: combined })
       combined.throwIfAborted()
+      if (this.models.selectedProvider === "omlx") {
+        const model = servers.omlxModels.find((entry) => entry.id === this.models.selectedId)
+        if (model) {
+          try {
+            requireLocalContextLength(model.contextLength, "oMLX")
+          } catch (error) {
+            // A refreshed limit invalidates the existing client only when it describes the same server.
+            if (model.baseURL === this.models.omlx?.baseURL) {
+              this.models.client = undefined
+              this.transcript.invalidateContext()
+            }
+            throw error
+          }
+        }
+      }
       await saveLocalServers(servers)
       this.pairEndpoints = servers.pairEndpoints
       this.models.omlx = servers.omlx
       const id = this.models.selectedId
       if (id && this.models.selectedProvider === "pair") {
-        const endpoint = pairEndpointForEngine(servers.pairEndpoints, this.models.pairEngine)
-        this.models.client = endpoint ? new PairClient({ baseURL: endpoint, model: id }) : undefined
+        const model = servers.pairModels.find((entry) => entry.id === id && entry.engine === this.models.pairEngine)
+        if (model)
+          this.models.activate(model, createPairClient({ baseURL: model.baseURL, model: id, engine: model.engine }))
+        else this.models.client = undefined
       }
       if (id && this.models.selectedProvider === "omlx") {
         const model = servers.omlxModels.find((entry) => entry.id === id)
         if (model) this.models.activate(model, this.models.omlxClient(id, model.baseURL))
         else this.models.client = undefined
       }
+      this.transcript.invalidateContext()
       return servers
     })
     if (!connection) throw new Error("The connection was cancelled.")

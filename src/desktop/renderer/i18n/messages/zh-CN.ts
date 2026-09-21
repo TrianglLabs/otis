@@ -181,7 +181,8 @@ export const zhCN: Messages = {
   "onboarding.hostedHintAfter": "并粘贴到这里：",
   "onboarding.keySaved": "密钥已保存。现在选择一个模型：",
   "onboarding.connectServer": "连接本地模型服务器",
-  "onboarding.connectServerHint": "直接连接 {{servers}}，或通过 NVIDIA PAIR 连接 — 已预填默认本地地址。",
+  "onboarding.connectServerHint":
+    "直接连接 {{servers}}，或通过 NVIDIA PAIR 连接 — 已预填默认本地地址。 模型需要至少 64K 的上下文。",
   "onboarding.chooseModel": "选择模型",
   "onboarding.chooseServerModel": "选择已连接服务器报告的模型。",
   "onboarding.connectedNoModels": "已连接，但服务器未报告可用模型。",
@@ -200,7 +201,7 @@ export const zhCN: Messages = {
   "settings.omlxKey": "oMLX API 密钥（可选）",
   "settings.omlxKeyHint": "留空以保留已保存的密钥",
   "settings.localServersNote":
-    "直接连接 {{servers}}。如果使用 NVIDIA PAIR，请输入 PAIR → Endpoints 中显示的回环地址。只需一个可用端点。",
+    "直接连接 {{servers}}。如果使用 NVIDIA PAIR，请输入 PAIR → Endpoints 中显示的回环地址。只需一个可用端点。 模型需要至少 64K 的上下文。",
   "settings.checkingServers": "正在检查本地模型服务器…",
   "settings.availableModels": "可用模型",
   "settings.noServerModels": "已连接的端点未报告模型。",

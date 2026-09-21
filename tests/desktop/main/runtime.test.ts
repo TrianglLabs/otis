@@ -785,6 +785,7 @@ describe("DesktopRuntime subagents", () => {
     // Reconnect on a new port: the active client is rebuilt onto it.
     expect(await runtime.connectLocalServers({ ollama: "http://127.0.0.1:11435" })).toEqual({ ok: true })
     expect(app.models.client).not.toBe(oldClient)
+    expect(app.models.autoCompactAtTokens).toBe(Math.floor(65_536 * 0.8))
     expect((await runtime.snapshot()).modelState).toBe("ready")
 
     // Reconnect with only the other engine responding: the orphaned selection is invalidated.

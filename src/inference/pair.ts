@@ -1,4 +1,5 @@
 import { normalizeLocalBaseURL as normalizePairBaseURL } from "./local-endpoint.js"
+import { OllamaClient } from "./ollama-client.js"
 import { responsePreview } from "./openai-compat.js"
 import { OpenAICompatibleClient } from "./openai-compatible-client.js"
 import type { PairCatalogModel, PairEngine } from "./types.js"
@@ -53,6 +54,10 @@ export class PairClient extends OpenAICompatibleClient {
       requestLabel: "Local model server",
     })
   }
+}
+
+export function createPairClient(config: PairClientConfig & { engine: PairEngine }) {
+  return config.engine === "ollama" ? new OllamaClient(config) : new PairClient(config)
 }
 
 export async function discoverPairModels(

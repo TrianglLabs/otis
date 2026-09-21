@@ -30,6 +30,13 @@ const components = { List, Header, Footer }
 const itemKey = (_index: number, item: TranscriptItem) => (item.kind === "toolRun" ? `run-${item.id}` : item.id)
 const initialPosition = { index: "LAST", align: "end" } as const
 
+function isActivityRow(item: TranscriptItem | undefined): boolean {
+  if (!item || item.kind === "message") return false
+  if (item.kind !== "tool") return true
+  const displaysArtifact = item.artifact && item.artifactDisplay !== "pending" && item.artifactDisplay !== "superseded"
+  return !item.diff && !displaysArtifact
+}
+
 /** Only the visible slice mounts. Virtuoso measures rows; the scroll hook owns following the live tail. */
 export const TranscriptList = memo(function TranscriptList({
   entries,
@@ -61,9 +68,11 @@ export const TranscriptList = memo(function TranscriptList({
   )
   const context = useMemo(() => ({ footer }), [footer])
   const renderEntry = useCallback(
-    (index: number, item: TranscriptItem) =>
-      item.kind === "toolRun" ? (
-        <div className="transcriptEntry" data-run-id={item.id}>
+    (index: number, item: TranscriptItem) => {
+      // Neighbor-aware spacing belongs inside each measured row, including flattened run entries.
+      const className = `transcriptEntry${isActivityRow(item) && isActivityRow(items[index + 1]) ? " transcriptEntry-activity" : ""}`
+      return item.kind === "toolRun" ? (
+        <div className={className} data-run-id={item.id}>
           <ToolRunCard
             run={item}
             active={busy && index === items.length - 1}
@@ -73,7 +82,7 @@ export const TranscriptList = memo(function TranscriptList({
         </div>
       ) : (
         <div
-          className={`transcriptEntry${expandedEntries.has(item.id) ? " transcriptEntry-inRun" : ""}`}
+          className={`${className}${expandedEntries.has(item.id) ? " transcriptEntry-inRun" : ""}`}
           data-entry-id={item.id}
         >
           <EntryView
@@ -84,8 +93,9 @@ export const TranscriptList = memo(function TranscriptList({
             onExpandedChange={setEntryExpanded}
           />
         </div>
-      ),
-    [busy, items.length, thinkingVisible, expanded, expandedEntries, setEntryExpanded],
+      )
+    },
+    [busy, items, thinkingVisible, expanded, expandedEntries, setEntryExpanded],
   )
 
   return (

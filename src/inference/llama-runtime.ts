@@ -20,6 +20,7 @@ import { dirname, join } from "node:path"
 import { promisify } from "node:util"
 import { childProcessEnvironment } from "../local/child-environment.js"
 import { llamaBinaryDirectory, llamaModelCacheDirectory } from "../local/paths.js"
+import { LOCAL_MIN_CONTEXT_LENGTH } from "./context-policy.js"
 import { ensureLocalGguf } from "./gguf-cache.js"
 import { type HardwareProbe, inferenceMemoryBudget } from "./hardware.js"
 import {
@@ -34,7 +35,7 @@ import {
   supportsLlamaCppTarget,
   unsupportedLlamaCppTargetMessage,
 } from "./llama-binary.js"
-import { LOCAL_MIN_CONTEXT_LENGTH, type LocalModelSpec } from "./local-catalog.js"
+import type { LocalModelSpec } from "./local-catalog.js"
 import { fitLocalModel, type LocalModelFit } from "./local-fit.js"
 
 const DEFAULT_READY_TIMEOUT_MS = 30 * 60 * 1000

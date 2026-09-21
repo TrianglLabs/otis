@@ -47,6 +47,11 @@
   display: flow-root;
 }
 
+/* Activity reads as a compact sequence; messages, artifacts and diffs retain the wider content gap. */
+.transcriptEntry-activity {
+  padding-bottom: 6px;
+}
+
 .transcriptFooter {
   padding-bottom: 16px;
 }
@@ -140,14 +145,16 @@
 
 /* Reasoning */
 
-.reasoning-header {
+.reasoning-header,
+.reasoning-text {
   display: flex;
   align-items: center;
   gap: 7px;
   width: 100%;
-  padding: 2px 0;
+  min-height: 24px;
   color: var(--text-dim);
   font-size: var(--text-meta);
+  line-height: 1.45;
 }
 
 button.reasoning-header:hover {
@@ -160,10 +167,7 @@ button.reasoning-header:hover {
 
 /* Traces off: the same live status, without the reasoning preview. */
 .reasoning-text {
-  color: var(--text-dim);
-  font-size: var(--text-ui);
   font-style: italic;
-  line-height: 1.55;
   white-space: pre-wrap;
   overflow-wrap: break-word;
 }
@@ -227,8 +231,8 @@ button.reasoning-header:hover {
 }
 
 .reasoning-body {
-  margin: 2px 0 4px 10px;
-  padding: 2px 0 4px 10px;
+  margin: 2px 0 0 10px;
+  padding: 2px 0 0 10px;
   border-left: 1px solid var(--hairline);
   color: var(--text-dim);
   font-size: var(--text-ui);
@@ -340,7 +344,7 @@ button.reasoning-header:hover {
 /* Diffs */
 
 .diffView {
-  margin: 4px 0 8px 22px;
+  margin: 4px 0 0 22px;
   background: var(--bg-code);
   overflow-x: hidden;
   padding: 8px 0;
