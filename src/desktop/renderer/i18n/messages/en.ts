@@ -182,7 +182,7 @@ export const en = {
   "onboarding.keySaved": "Key saved. Now pick a model:",
   "onboarding.connectServer": "Connect a local model server",
   "onboarding.connectServerHint":
-    "Connect to {{servers}}. For NVIDIA PAIR, use its Ollama or LM Studio proxy. The default local addresses are prefilled.",
+    "Connect to {{servers}}. For NVIDIA PAIR, use its Ollama or LM Studio proxy. The default local addresses are prefilled. Models need at least 64K context.",
   "onboarding.chooseModel": "Choose a model",
   "onboarding.chooseServerModel": "Select a model reported by your connected server.",
   "onboarding.connectedNoModels": "Connected, but the server reported no available models.",
@@ -201,7 +201,7 @@ export const en = {
   "settings.omlxKey": "oMLX API key (optional)",
   "settings.omlxKeyHint": "Leave blank to keep the saved key",
   "settings.localServersNote":
-    "Connect to {{servers}} directly. If you use NVIDIA PAIR, enter the loopback addresses shown in PAIR → Endpoints. Only one working endpoint is required.",
+    "Connect to {{servers}} directly. If you use NVIDIA PAIR, enter the loopback addresses shown in PAIR → Endpoints. Only one working endpoint is required. Models need at least 64K context.",
   "settings.checkingServers": "Checking local model servers…",
   "settings.availableModels": "Available models",
   "settings.noServerModels": "The connected endpoints report no models.",

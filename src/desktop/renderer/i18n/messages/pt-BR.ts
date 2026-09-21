@@ -186,7 +186,7 @@ export const ptBR: Messages = {
   "onboarding.keySaved": "Chave salva. Agora escolha um modelo:",
   "onboarding.connectServer": "Conectar um servidor de modelos local",
   "onboarding.connectServerHint":
-    "Conecte diretamente ao {{servers}}, ou pelo NVIDIA PAIR; os endereços locais padrão já estão preenchidos.",
+    "Conecte diretamente ao {{servers}}, ou pelo NVIDIA PAIR; os endereços locais padrão já estão preenchidos. Os modelos precisam de pelo menos 64K de contexto.",
   "onboarding.chooseModel": "Escolher um modelo",
   "onboarding.chooseServerModel": "Selecione um modelo informado pelo servidor conectado.",
   "onboarding.connectedNoModels": "Conectado, mas o servidor não informou modelos disponíveis.",
@@ -205,7 +205,7 @@ export const ptBR: Messages = {
   "settings.omlxKey": "Chave de API do oMLX (opcional)",
   "settings.omlxKeyHint": "Deixe em branco para manter a chave salva",
   "settings.localServersNote":
-    "Conecte diretamente ao {{servers}}. Se usar o NVIDIA PAIR, informe os endereços de loopback mostrados em PAIR → Endpoints. Basta um endpoint funcionar.",
+    "Conecte diretamente ao {{servers}}. Se usar o NVIDIA PAIR, informe os endereços de loopback mostrados em PAIR → Endpoints. Basta um endpoint funcionar. Os modelos precisam de pelo menos 64K de contexto.",
   "settings.checkingServers": "Verificando servidores de modelos locais…",
   "settings.availableModels": "Modelos disponíveis",
   "settings.noServerModels": "Os endpoints conectados não informaram modelos.",

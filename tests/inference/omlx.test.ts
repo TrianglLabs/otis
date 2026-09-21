@@ -68,9 +68,9 @@ describe("oMLX", () => {
     expect(model).toMatchObject({ supportsImageInput: false })
     expect(model).not.toHaveProperty("contextLength")
     if (!model) throw new Error("missing model")
-    expect(compactionContextLength(model)).toBe(8192)
+    expect(compactionContextLength(model)).toBe(65_536)
     expect(compactionContextLength({ provider: "omlx", contextLength: 4096 })).toBe(4096)
-    expect(compactionContextLength({ provider: "pair", contextLength: 4096 })).toBe(65536)
+    expect(compactionContextLength({ provider: "pair", contextLength: 4096 })).toBe(65_536)
   })
 
   it("reports auth and malformed inventory without echoing credentials", async () => {

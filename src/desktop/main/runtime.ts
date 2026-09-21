@@ -935,6 +935,11 @@ export class DesktopRuntime {
       this.#markStateDirty()
       return { ok: true }
     } catch (error) {
+      if (this.app.models.selectedId && !this.app.models.client) {
+        this.#modelState = "failed"
+        this.#modelError = errorMessage(error)
+        this.#markStateDirty()
+      }
       return { ok: false, reason: errorMessage(error) }
     } finally {
       this.#selecting -= 1

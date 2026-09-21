@@ -196,8 +196,9 @@ describe("NVIDIA PAIR inference", () => {
     expect(pairModelKey({ engine: "ollama", id: "model" })).not.toBe(pairModelKey({ engine: "lmstudio", id: "model" }))
   })
 
-  it("uses the PAIR context fallback only as a compaction policy", () => {
+  it("uses an automatic conservative budget without treating PAIR metadata as a serving limit", () => {
     expect(compactionContextLength({ provider: "pair", contextLength: 262_144 })).toBe(65_536)
+    expect(compactionContextLength({ provider: "pair" })).toBe(65_536)
     expect(compactionContextLength({ provider: "local", contextLength: 131_072 })).toBe(131_072)
   })
 })

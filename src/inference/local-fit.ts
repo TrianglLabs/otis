@@ -1,7 +1,7 @@
+import { LOCAL_MIN_CONTEXT_LENGTH } from "./context-policy.js"
 import { availableModelMemory, type HardwareProbe } from "./hardware.js"
 import {
   LOCAL_CONTEXT_ALIGNMENT,
-  LOCAL_MIN_CONTEXT_LENGTH,
   type LocalAttentionSpec,
   type LocalKvGroup,
   type LocalModelSpec,

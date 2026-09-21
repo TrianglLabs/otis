@@ -534,7 +534,7 @@ describe("chat UI input", () => {
     expect(harness.get<BoxRenderable>("welcome-panel").width).toBe(91)
     expect(harness.text("setup-pair-heading")).toBe("Local server endpoints")
     expect(harness.text("setup-pair-description")).toBe(
-      "Connect to Ollama, LM Studio, or oMLX. For NVIDIA PAIR, use the addresses from PAIR → Endpoints. Only one working endpoint is required. The oMLX key is optional; leave blank to keep a saved key.",
+      "Connect to Ollama, LM Studio, or oMLX. PAIR addresses: PAIR → Endpoints. Only one server is required. Models need at least 64K context. oMLX key: optional; blank keeps the saved key.",
     )
     expect(harness.text("setup-pair-ollama-label")).toBe("Ollama")
     expect(harness.text("setup-pair-lmstudio-label")).toBe("LM Studio")

@@ -193,7 +193,7 @@ export const uk: Messages = {
   "onboarding.keySaved": "Ключ збережено. Тепер виберіть модель:",
   "onboarding.connectServer": "Підключити локальний сервер моделей",
   "onboarding.connectServerHint":
-    "Підключіться до {{servers}} безпосередньо або через NVIDIA PAIR — типові локальні адреси вже заповнено.",
+    "Підключіться до {{servers}} безпосередньо або через NVIDIA PAIR — типові локальні адреси вже заповнено. Моделям потрібно щонайменше 64K контексту.",
   "onboarding.chooseModel": "Виберіть модель",
   "onboarding.chooseServerModel": "Виберіть модель, про яку повідомив підключений сервер.",
   "onboarding.connectedNoModels": "Підключено, але сервер не повідомив про доступні моделі.",
@@ -212,7 +212,7 @@ export const uk: Messages = {
   "settings.omlxKey": "Ключ API oMLX (необов’язково)",
   "settings.omlxKeyHint": "Залиште порожнім, щоб зберегти наявний ключ",
   "settings.localServersNote":
-    "Підключіться до {{servers}} безпосередньо. Якщо ви використовуєте NVIDIA PAIR, введіть адреси зворотного зв’язку, показані в PAIR → Endpoints. Достатньо однієї робочої кінцевої точки.",
+    "Підключіться до {{servers}} безпосередньо. Якщо ви використовуєте NVIDIA PAIR, введіть адреси зворотного зв’язку, показані в PAIR → Endpoints. Достатньо однієї робочої кінцевої точки. Моделям потрібно щонайменше 64K контексту.",
   "settings.checkingServers": "Перевірка локальних серверів моделей…",
   "settings.availableModels": "Доступні моделі",
   "settings.noServerModels": "Підключені кінцеві точки не повідомляють про жодні моделі.",

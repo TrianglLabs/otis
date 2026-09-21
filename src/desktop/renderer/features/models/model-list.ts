@@ -38,6 +38,7 @@ export function pickerDetailParts(item: ModelPickerChoice, t: Translate = englis
     ? { label: t("models.vision"), modality: "vision" }
     : { label: t("models.text"), modality: "text" }
   if (item.provider === "local") return [{ label: item.availabilityLabel }, modality]
+  if (item.provider === "omlx" && item.availabilityLabel) return [{ label: item.availabilityLabel }, modality]
   if (item.provider === "pair") {
     return [
       { label: item.engine === "ollama" ? "Ollama" : "LM Studio" },

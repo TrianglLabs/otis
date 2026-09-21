@@ -1,11 +1,14 @@
 import type { TranscriptEntry } from "../../../../app/transcript.js"
 
 /**
- * Mirrors the reasoning filter in src/cli/ui/transcript-view.ts (the CLI module cannot be imported into the
- * renderer bundle): thinking traces leave the transcript entirely when the preference hides them — except a
- * live trace, which stays so the user can watch Otis think. It folds away the moment the turn completes.
+ * Empty assistant deltas have no visible content: keeping their wrappers would add blank space and split
+ * consecutive tool runs. Thinking traces also leave the transcript when hidden, except for the live status.
  */
 export function visibleEntries(entries: TranscriptEntry[], thinkingVisible: boolean): TranscriptEntry[] {
-  if (thinkingVisible) return entries
-  return entries.filter((entry) => entry.kind !== "reasoning" || entry.streaming === true)
+  const visible = entries.filter((entry) => {
+    if (entry.kind === "reasoning") return thinkingVisible || entry.streaming === true
+    if (entry.kind === "message" && entry.speaker === "Otis") return !!entry.text.trim() || !!entry.artifacts?.length
+    return true
+  })
+  return visible.length === entries.length ? entries : visible
 }

@@ -169,7 +169,7 @@ export async function* runAgent(
           client: options.client,
           signal: options.signal,
           onUsage: options.onCompactionUsage ?? options.onUsage,
-          targetTokens: Math.floor(budget / 2),
+          contextBudget: budget,
           maxInputTokens: summaryBudget,
           countContextTokens: count,
         })

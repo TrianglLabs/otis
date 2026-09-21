@@ -107,7 +107,7 @@ const mocks = vi.hoisted(() => {
     ParallelClient: vi.fn(function ParallelClient() {
       return { search: vi.fn(), read: vi.fn() }
     }),
-    PairClient: vi.fn(function PairClient(config: { model: string }) {
+    createPairClient: vi.fn(function createPairClient(config: { model: string }) {
       return { model: config.model, streamChat, complete: generateCompletion }
     }),
     discoverPairModels: vi.fn<
@@ -229,7 +229,7 @@ vi.mock("../../../src/inference/pair.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../../src/inference/pair.js")>()
   return {
     ...actual,
-    PairClient: mocks.PairClient,
+    createPairClient: mocks.createPairClient,
     discoverPairModels: mocks.discoverPairModels,
   }
 })

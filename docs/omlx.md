@@ -33,8 +33,17 @@ discovery nor selection sends a preflight inference request or calls model load/
 
 The reported `max_model_len` (or status `max_context_window`) controls compaction. This is the server's configured
 request limit, not a guarantee that the model and its entire context fit in memory. Otis refreshes it at startup
-and reconnect. If no valid limit is reported, Otis uses an internal 8K compaction guard without displaying that
-fallback as server metadata. PAIR's architecture-maximum metadata rules remain separate.
+and reconnect. Local agent use requires at least **65,536 tokens (64K)**. Models reporting a smaller limit remain
+visible but cannot be selected; increase their configured context in oMLX and reconnect. Startup and reconnect
+also validate the refreshed limit before inference. If no valid limit is reported, Otis uses the 64K minimum as a
+policy budget without displaying or persisting it as server metadata. PAIR's architecture-maximum metadata rules
+remain separate.
+
+Compaction reserves the fixed instructions and tools before choosing its target, so large fixed prompts are not
+required to fit into half of the trigger budget. If fixed instructions or the latest prompt alone are too large,
+Otis stops with an instruction to increase server context or reduce the input. Explicit oMLX prompt-overflow errors
+trigger bounded compaction and retry unless they report a serving limit below 64K, which requires a server
+configuration change. Memory-allocation failures do not trigger compaction. Pre-request token counts remain estimates.
 
 Requests reuse Otis's OpenAI-compatible streaming transport and preserve reasoning and tool-call history.
 oMLX controls its own sampling and thinking defaults; Otis does not send llama.cpp template parameters or Fireworks

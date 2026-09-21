@@ -13,7 +13,10 @@ available to the corresponding engine on that computer.
 1. Install and configure PAIR using [NVIDIA's setup guide](https://github.com/NVIDIA/Personal-AI-Router/blob/main/docs/getting-started.mdx).
 2. In PAIR, open **Endpoints**.
 3. In Otis, choose **Local inference → Local servers** during setup, or open **Settings → Local servers**.
-4. Enter at least one endpoint and continue to the normal model picker.
+4. Enter at least one endpoint, then continue to the normal model picker. No token entry is required in Otis.
+
+Local agent use requires at least **65,536 tokens (64K)** of configured context in the server. For PAIR, configure
+every eligible node to meet that minimum. Otis does not resize or manage the servers.
 
 Otis provides separate fields for the two PAIR proxies and pre-fills their standard addresses:
 
@@ -43,11 +46,21 @@ unavailable` and `Quant unavailable`; embedding models may appear because the in
 
 A PAIR context value is labeled `model max`. It describes the model architecture, not the context allocated on the
 node that will receive a future request. Otis therefore does not persist that value or use it as cluster-wide
-compaction state. While the routed-node context is unknown, Otis uses a conservative internal compaction guard.
+compaction state. Otis uses its 65,536-token minimum as the working budget, starting compaction at 80% of that
+budget. This is a product requirement and fallback policy, not a verified server allocation. Selection does not
+certify that every PAIR node meets it. If a runtime context-overflow error reports a smaller serving limit, Otis
+stops with an instruction to increase server context. Other explicit input overflows trigger bounded compaction
+and retry for the current turn. Otis never learns a cluster-wide limit from one routed response or metadata route.
 
 Selecting a model records its engine and model ID, then resolves the corresponding endpoint when inference begins. It
 does not send a preflight chat request. If the model cannot produce compatible tool calls, that limitation appears
 during the conversation rather than during selection.
+
+Ollama requests use `/api/chat` with `truncate: false` and `shift: false` so compatible servers reject an oversized
+request instead of silently removing history. Use an Ollama version that supports these controls on every routed
+node. LM Studio uses `/v1/chat/completions`; configure its context overflow policy to stop at the limit. Otis can
+compact and retry explicit input-overflow errors, but cannot recover information a server silently discards.
+For these external servers, token counts before inference remain estimates corrected by returned usage.
 
 ## PAIR versus This machine
 

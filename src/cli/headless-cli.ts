@@ -151,6 +151,7 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
         signal: controller.signal,
       })
       client = connected.client
+      modelContextLength = connected.contextLength
     } else {
       if (!settings.fireworksApiKey) throw new Error("Fireworks API key is not configured.")
       if (parsed.model || (images.length > 0 && modelSupportsImageInput === undefined)) {

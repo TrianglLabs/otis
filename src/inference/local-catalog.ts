@@ -4,7 +4,6 @@ import type { LocalCatalogModel } from "./types.js"
 
 const GIBIBYTE = 1024 ** 3
 
-export const LOCAL_MIN_CONTEXT_LENGTH = 65_536
 export const LOCAL_CONTEXT_ALIGNMENT = 1_024
 
 type StandardKvGeometry = {
