@@ -283,7 +283,8 @@ function localAvailabilityLabel(
     return `${formatContextWindow(loadedContextLength)} · ${model.quant} · ${formatMemoryLabel(memoryRequiredFor(model, loadedContextLength))}`
   }
   if (!fit.available) return `Needs ${formatMemoryLabel(fit.memoryRequiredBytes)}`
-  return `Est. ${formatContextWindow(fit.contextLength)} · ${model.quant} · ${formatMemoryLabel(fit.memoryRequiredBytes)}`
+  const offload = fit.requiresCpuOffload ? " · Uses system RAM" : ""
+  return `Est. ${formatContextWindow(fit.contextLength)} · ${model.quant} · ${formatMemoryLabel(fit.memoryRequiredBytes)}${offload}`
 }
 
 export function toFireworksPickerChoice(model: FireworksModel, currentModel?: string): FireworksPickerChoice {

@@ -1,6 +1,6 @@
 import { type HardwareProbe, inferenceMemoryBudget } from "./hardware.js"
 import { supportsLlamaCppTarget } from "./llama-binary.js"
-import { findLocalModel, localModelWeightBytes } from "./local-catalog.js"
+import { findLocalModel } from "./local-catalog.js"
 import { fitLocalModel } from "./local-fit.js"
 
 // Curated preference order, not a ranking inferred from parameter count or file size.
@@ -23,20 +23,17 @@ export function recommendedLocalModelIds(hardware: HardwareProbe): readonly stri
     return []
   }
 
-  // Unknown VRAM cannot establish weight residency. Use host fit in that case,
+  // Unknown VRAM cannot establish GPU residency. Use host fit in that case,
   // just as for CPU inference; this is not a promise of GPU acceleration.
-  const gpuWeightBudget = inferenceMemoryBudget(hardware).gpuWeightBudgetBytes
-  if (gpuWeightBudget !== undefined && (!Number.isFinite(gpuWeightBudget) || gpuWeightBudget <= 0)) return []
+  const gpuMemoryBudget = inferenceMemoryBudget(hardware).gpuMemoryBudgetBytes
+  if (gpuMemoryBudget !== undefined && (!Number.isFinite(gpuMemoryBudget) || gpuMemoryBudget <= 0)) return []
 
   for (const group of RECOMMENDATION_GROUPS) {
     const fitting = group.filter((id) => {
       const model = findLocalModel(id)
       if (!model) return false
       const fit = fitLocalModel(model, hardware)
-      // Host fit includes KV cache at the minimum context and runtime overhead.
-      // Dedicated VRAM must hold the selected weights after device headroom;
-      // KV/compute buffers may still require hybrid offload, especially at 64K+.
-      return fit.available && (gpuWeightBudget === undefined || localModelWeightBytes(fit.model) <= gpuWeightBudget)
+      return fit.available && !fit.requiresCpuOffload
     })
     if (fitting.length > 0) return fitting
   }

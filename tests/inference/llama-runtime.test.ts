@@ -72,6 +72,7 @@ describe("llama.cpp runtime", () => {
         if (url === pinnedArchiveURL) return new Response(archiveBody)
         if (url.includes("/health")) return new Response("ok")
         if (url.includes("/props")) return runtimeProperties(fit.contextLength)
+        if (String(input).endsWith("/v1/chat/completions")) return generationResponse()
         return new Response("missing", { status: 404 })
       }) as typeof fetch,
       extractArchive: async (_archive, destination) => {
@@ -119,6 +120,7 @@ describe("llama.cpp runtime", () => {
         urls.push(url)
         if (url.includes("/health")) return new Response("ok")
         if (url.includes("/props")) return runtimeProperties(fit.contextLength)
+        if (String(input).endsWith("/v1/chat/completions")) return generationResponse()
         throw new Error("network unavailable")
       }) as typeof fetch,
     })
@@ -164,6 +166,7 @@ describe("llama.cpp runtime", () => {
         if (url === prismArchiveURL) return new Response(archiveBody)
         if (url.includes("/health")) return new Response("ok")
         if (url.includes("/props")) return runtimeProperties(fit.contextLength)
+        if (String(input).endsWith("/v1/chat/completions")) return generationResponse()
         return new Response("missing", { status: 404 })
       }) as typeof fetch,
       extractArchive: async (_archive, destination) => {
@@ -218,6 +221,7 @@ describe("llama.cpp runtime", () => {
       }) as LlamaCppRuntimeOptions["spawn"],
       fetch: (async (input) => {
         if (String(input).endsWith("/props")) return runtimeProperties(65_536)
+        if (String(input).endsWith("/v1/chat/completions")) return generationResponse()
         if (String(input).endsWith("/health")) return new Response("ok")
         throw new Error("Unexpected download")
       }) as typeof fetch,
@@ -259,6 +263,7 @@ describe("llama.cpp runtime", () => {
           }
           if (url.includes("/health")) return new Response("ok")
           if (url.includes("/props")) return runtimeProperties(65_536)
+          if (String(input).endsWith("/v1/chat/completions")) return generationResponse()
           return new Response("missing", { status: 404 })
         },
         { sleep: async (ms) => void delays.push(ms) },
@@ -301,6 +306,7 @@ describe("llama.cpp runtime", () => {
         async (input, init) => {
           if (String(input).includes("/health")) return new Response("ok")
           if (String(input).includes("/props")) return runtimeProperties(65_536)
+          if (String(input).endsWith("/v1/chat/completions")) return generationResponse()
           downloads += 1
           const signal = init?.signal
           if (!signal) throw new Error("missing request signal")
@@ -550,6 +556,7 @@ describe("llama.cpp runtime", () => {
         if (url === pinnedArchiveURL) return new Response(archiveBody)
         if (url.includes("/health")) return new Response("ok")
         if (url.includes("/props")) return runtimeProperties(fit.contextLength)
+        if (String(input).endsWith("/v1/chat/completions")) return generationResponse()
         return new Response("missing", { status: 404 })
       }) as typeof fetch,
       extractArchive: async (_archive, destination) => {
@@ -587,6 +594,7 @@ describe("llama.cpp runtime", () => {
         if (url === pinnedArchiveURL) return new Response(archiveBody)
         if (url.includes("/health")) return new Response("ok")
         if (url.includes("/props")) return runtimeProperties(fit.contextLength)
+        if (String(input).endsWith("/v1/chat/completions")) return generationResponse()
         return new Response("missing", { status: 404 })
       }) as typeof fetch,
       extractArchive: async (_archive, destination) => {
@@ -727,6 +735,7 @@ describe("llama.cpp runtime", () => {
       }) as LlamaCppRuntimeOptions["spawn"],
       fetch: (async (input: RequestInfo | URL) => {
         if (String(input).includes("/props")) return runtimeProperties(fit.contextLength)
+        if (String(input).endsWith("/v1/chat/completions")) return generationResponse()
         return new Response("ok")
       }) as typeof fetch,
     })
@@ -735,6 +744,117 @@ describe("llama.cpp runtime", () => {
 
     expect(childEnv).toMatchObject({ PATH: "/usr/bin", LLAMA_CACHE: join(directory, "models") })
     expect(Object.keys(childEnv ?? {}).some((name) => name.startsWith("LLAMA_ARG_"))).toBe(false)
+    await runtime.stop()
+  })
+
+  it("marks a model ready only after generation finishes and probes each process once", async () => {
+    let finish: ((response: Response) => void) | undefined
+    const request = vi.fn(
+      async () =>
+        await new Promise<Response>((resolve) => {
+          finish = resolve
+        }),
+    )
+    const { runtime, model, fit, children } = await generationRuntimeSetup(request as unknown as typeof fetch)
+    const pending = runtime.ensureServing(model, fit, hardware)
+    await vi.waitFor(() => expect(finish).toBeDefined())
+    const concurrent = runtime.ensureServing(model, fit, hardware)
+    expect(runtime.serving).toBeUndefined()
+    finish?.(generationResponse())
+    const serving = await pending
+    expect(await concurrent).toBe(serving)
+    expect(await runtime.ensureServing(model, fit, hardware)).toBe(serving)
+    expect(request).toHaveBeenCalledOnce()
+    expect(children).toHaveLength(1)
+    expect(serving.contextLength).toBe(65_536)
+    expect(children[0]?.listenerCount("exit")).toBe(0)
+    await runtime.stop()
+  })
+
+  it("stops a process whose generation fails and allows a fresh start", async () => {
+    const request = vi
+      .fn(async () => generationResponse())
+      .mockResolvedValueOnce(Response.json({ error: { message: "compute allocation failed" } }, { status: 500 }))
+    const { runtime, model, fit, children } = await generationRuntimeSetup(request as unknown as typeof fetch)
+    await expect(runtime.ensureServing(model, fit, hardware)).rejects.toThrow("generation check failed")
+    expect(runtime.serving).toBeUndefined()
+    expect(children[0]?.exitCode).toBe(0)
+    expect(request).toHaveBeenCalledOnce()
+    await runtime.ensureServing(model, fit, hardware)
+    expect(runtime.serving?.model).toBe(model.id)
+    expect(children).toHaveLength(2)
+    expect(request).toHaveBeenCalledTimes(2)
+    await runtime.stop()
+  })
+
+  it.each(["cancel", "stop"])("aborts a pending generation check on %s", async (action) => {
+    let requestSignal: AbortSignal | undefined
+    const request = (async (_input, init) => {
+      requestSignal = init?.signal ?? undefined
+      return await pendingGeneration(requestSignal)
+    }) as typeof fetch
+    const { runtime, model, fit, children } = await generationRuntimeSetup(request)
+    const abort = new AbortController()
+    const rejected = expect(
+      runtime.ensureServing(model, fit, hardware, { signal: abort.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" })
+    await vi.waitFor(() => expect(requestSignal).toBeDefined())
+    if (action === "cancel") abort.abort()
+    else await runtime.stop()
+    await rejected
+    expect(requestSignal?.aborted).toBe(true)
+    expect(runtime.serving).toBeUndefined()
+    expect(children[0]?.exitCode).toBe(0)
+  })
+
+  it("aborts generation immediately when the child exits, preserving its diagnostic", async () => {
+    let requestSignal: AbortSignal | undefined
+    const request = (async (_input, init) => {
+      requestSignal = init?.signal ?? undefined
+      return await pendingGeneration(requestSignal)
+    }) as typeof fetch
+    const { runtime, model, fit, children } = await generationRuntimeSetup(request)
+    const rejected = expect(runtime.ensureServing(model, fit, hardware)).rejects.toThrow(
+      "failed to allocate decode buffer",
+    )
+    await vi.waitFor(() => expect(requestSignal).toBeDefined())
+    const child = children[0]
+    if (!child) throw new Error("Missing server process")
+    child.stderr.emit("data", "failed to allocate decode buffer")
+    child.exitCode = 1
+    child.emit("exit", 1)
+    await rejected
+    expect(requestSignal?.aborted).toBe(true)
+    expect(runtime.serving).toBeUndefined()
+  })
+
+  it("stops the process when generation times out", async () => {
+    const request = (async (_input, init) => await pendingGeneration(init?.signal ?? undefined)) as typeof fetch
+    const { runtime, model, fit, children } = await generationRuntimeSetup(request, { generationCheckTimeoutMs: 20 })
+    await expect(runtime.ensureServing(model, fit, hardware)).rejects.toThrow("generation check timed out")
+    expect(runtime.serving).toBeUndefined()
+    expect(children[0]?.exitCode).toBe(0)
+  })
+
+  it("does not let a superseded generation check stop the replacement model", async () => {
+    let requestSignal: AbortSignal | undefined
+    const request = (async (_input, init) => {
+      if (requestSignal) return generationResponse()
+      requestSignal = init?.signal ?? undefined
+      return await pendingGeneration(requestSignal)
+    }) as typeof fetch
+    const { runtime, model, fit, children, directory } = await generationRuntimeSetup(request)
+    const other = findLocalModel("Qwen/Qwen3.8-27B")
+    if (!other) throw new Error("Missing replacement model")
+    await cacheWeights(other, directory)
+    const rejected = expect(runtime.ensureServing(model, fit, hardware)).rejects.toMatchObject({ name: "AbortError" })
+    await vi.waitFor(() => expect(requestSignal).toBeDefined())
+    const serving = await runtime.ensureServing(other, fitLocalModel(other, hardware), hardware)
+    await rejected
+    expect(runtime.serving).toBe(serving)
+    expect(serving.model).toBe(other.id)
+    expect(children[0]?.exitCode).toBe(0)
+    expect(children[1]?.exitCode).toBeNull()
     await runtime.stop()
   })
 
@@ -756,6 +876,7 @@ describe("llama.cpp runtime", () => {
         urls.push(String(input))
         if (String(input).includes("/health")) return new Response("ok", { status: 200 })
         if (String(input).includes("/props")) return runtimeProperties(fit.contextLength)
+        if (String(input).endsWith("/v1/chat/completions")) return generationResponse()
         return new Response("missing", { status: 404 })
       }) as typeof fetch,
     })
@@ -791,6 +912,7 @@ describe("llama.cpp runtime", () => {
       fetch: (async (input: RequestInfo | URL) => {
         if (String(input).includes("/health")) return new Response("ok", { status: 200 })
         if (String(input).includes("/props")) return runtimeProperties(fit.contextLength)
+        if (String(input).endsWith("/v1/chat/completions")) return generationResponse()
         return new Response("missing", { status: 404 })
       }) as typeof fetch,
     })
@@ -837,6 +959,7 @@ describe("llama.cpp runtime", () => {
       spawn: ((_command, _args) => child) as LlamaCppRuntimeOptions["spawn"],
       fetch: (async (input: RequestInfo | URL) => {
         if (String(input).includes("/props")) return runtimeProperties(fit.contextLength)
+        if (String(input).endsWith("/v1/chat/completions")) return generationResponse()
         return new Response("ok")
       }) as typeof fetch,
     })
@@ -907,6 +1030,7 @@ describe("llama.cpp runtime", () => {
       spawn: spawnRuntime as unknown as LlamaCppRuntimeOptions["spawn"],
       fetch: (async (input: RequestInfo | URL) => {
         if (String(input).includes("/props")) return runtimeProperties(65_536)
+        if (String(input).endsWith("/v1/chat/completions")) return generationResponse()
         return new Response("ok")
       }) as typeof fetch,
     })
@@ -1546,6 +1670,7 @@ async function cudaRuntimeSetup(cudaVersion: "12.8" | "13.3" = "13.3", runtime: 
       const url = String(input)
       if (url.includes("/health")) return new Response("ok")
       if (url.includes("/props")) return runtimeProperties(fit.contextLength)
+      if (String(input).endsWith("/v1/chat/completions")) return generationResponse()
       downloads.push(url)
       if (url.startsWith("https://runtime.test/")) return new Response(url.split("/").at(-1))
       throw new Error(`Unexpected download: ${url}`)
@@ -1577,6 +1702,41 @@ async function tempDir() {
   const path = await mkdtemp(join(tmpdir(), "otis-llama-"))
   tempDirectories.push(path)
   return path
+}
+
+async function generationRuntimeSetup(generationFetch: typeof fetch, overrides: Partial<LlamaCppRuntimeOptions> = {}) {
+  const model = catalogModel()
+  const fit = fitLocalModel(model, hardware)
+  const directory = await tempDir()
+  await cacheWeights(model, directory)
+  const children: ReturnType<typeof fakeChild>[] = []
+  const runtime = new LlamaCppRuntime({
+    env: { OTIS_LLAMA_SERVER: process.execPath },
+    dataDirectory: directory,
+    allocatePort: async () => 18765,
+    spawn: (() => {
+      const child = fakeChild()
+      children.push(child)
+      return child
+    }) as unknown as LlamaCppRuntimeOptions["spawn"],
+    fetch: (async (input, init) => {
+      const url = String(input)
+      if (url.endsWith("/health")) return new Response("ok")
+      if (url.endsWith("/props")) return runtimeProperties(65_536)
+      if (url.endsWith("/v1/chat/completions")) return await generationFetch(input, init)
+      throw new Error(`Unexpected request: ${url}`)
+    }) as typeof fetch,
+    ...overrides,
+  })
+  return { runtime, model, fit, children, directory }
+}
+
+function pendingGeneration(signal: AbortSignal | undefined): Promise<Response> {
+  if (!signal) throw new Error("Missing generation abort signal")
+  signal.throwIfAborted()
+  return new Promise((_resolve, reject) => {
+    signal.addEventListener("abort", () => reject(signal.reason), { once: true })
+  })
 }
 
 function fakeChild() {
@@ -1655,11 +1815,19 @@ function huggingfaceFetch(body: Uint8Array, contextLength: number): typeof fetch
     const url = String(input)
     if (url.includes("/health")) return new Response("ok", { status: 200 })
     if (url.includes("/props")) return runtimeProperties(contextLength)
+    if (String(input).endsWith("/v1/chat/completions")) return generationResponse()
     if (url.includes("huggingface.co")) {
       return new Response(Buffer.from(body), { status: 200, headers: { "content-length": String(body.byteLength) } })
     }
     return new Response("missing", { status: 404 })
   }) as typeof fetch
+}
+
+function generationResponse() {
+  return new Response(
+    `data: ${JSON.stringify({ choices: [{ delta: { content: "Hello." }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`,
+    { headers: { "content-type": "text/event-stream" } },
+  )
 }
 
 function runtimeProperties(contextLength: number) {

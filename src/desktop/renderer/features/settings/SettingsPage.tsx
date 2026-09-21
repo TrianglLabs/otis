@@ -42,7 +42,15 @@ type SettingsTab = "providers" | "appearance" | "general"
  * local-model deletion live in the composer's model picker.
  * Every control writes through the main process; status events update the UI.
  */
-export function SettingsPage({ onClose }: { onClose: () => void }) {
+export function SettingsPage({
+  onClose,
+  installing,
+  onInstallUpdate,
+}: {
+  onClose: () => void
+  installing: boolean
+  onInstallUpdate: () => void
+}) {
   const { api } = useDesktop()
   const { locale, systemLocale, t } = useI18n()
   const state = useDesktopState(
@@ -564,7 +572,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
                 <div className="settingsGroup">
                   <div className="settings-section">{t("updates.title")}</div>
                   <section className="settingsCard">
-                    <SoftwareUpdates />
+                    <SoftwareUpdates installing={installing} onInstall={onInstallUpdate} />
                   </section>
                 </div>
               </>

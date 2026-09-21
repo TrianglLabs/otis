@@ -5,7 +5,7 @@ import { Icon } from "../../components/Icon.js"
 import { useI18n } from "../../i18n/index.js"
 import { useDesktop, useDesktopState } from "../../runtime.js"
 
-export function SoftwareUpdates() {
+export function SoftwareUpdates({ installing, onInstall }: { installing: boolean; onInstall: () => void }) {
   const { api } = useDesktop()
   const { t } = useI18n()
   const state = useDesktopState("update", "version")
@@ -35,48 +35,54 @@ export function SoftwareUpdates() {
     }
   }
 
-  const message = requestFailed
-    ? t("updates.checkFailed")
-    : checking
-      ? t("updates.checkingNewer")
-      : update.status === "error"
-        ? update.message
-        : downloading
-          ? t("updates.downloadingVersion", { version: update.version })
+  const message =
+    checking || downloading || ready || installing
+      ? undefined
+      : requestFailed
+        ? t("updates.checkFailed")
+        : update.status === "error"
+          ? update.message
           : unavailable
             ? t("updates.unavailableBuild")
             : hasChecked && update.status === "current"
               ? t("updates.upToDate")
-              : update.status === "current" || ready
-                ? undefined
-                : t("updates.backgroundHint")
+              : undefined
 
   return (
-    <>
-      <div className="settingsRow">
-        <span className="settingsRow-label">
-          Otis <span className="settingsRow-meta">{state.version}</span>
+    <div className="settingsRow settingsUpdate">
+      <span className="settingsRow-label">
+        Otis <span className="settingsRow-meta">{state.version}</span>
+      </span>
+      {message ? (
+        <span className={`settingsUpdate-status${failed ? " settings-error" : ""}`} role="status">
+          {message}
         </span>
-        <Button
-          size="sm"
-          disabled={requesting || checking || downloading || ready || unavailable}
-          onClick={() => void check()}
-        >
-          {checking || downloading ? <Icon icon={LoaderCircle} size={12} className="spin" /> : null}
-          {checking
+      ) : null}
+      <Button
+        size="sm"
+        disabled={installing || checking || downloading || unavailable}
+        onClick={ready ? onInstall : () => void check()}
+        aria-live="polite"
+        aria-busy={installing || checking || downloading}
+        title={
+          ready
+            ? t("updates.versionReady", { version: update.version })
+            : downloading
+              ? t("updates.downloadingVersion", { version: update.version })
+              : undefined
+        }
+      >
+        {installing || checking || downloading ? <Icon icon={LoaderCircle} size={12} className="spin" /> : null}
+        {installing
+          ? t("shell.restarting")
+          : checking
             ? t("updates.checking")
             : downloading
               ? t("updates.downloading")
               : ready
-                ? t("updates.ready")
+                ? t("updates.restartInstall")
                 : t("updates.check")}
-        </Button>
-      </div>
-      {message ? (
-        <div className={`settings-message${failed ? " settings-error" : ""}`} role="status">
-          {message}
-        </div>
-      ) : null}
-    </>
+      </Button>
+    </div>
   )
 }

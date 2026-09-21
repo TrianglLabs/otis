@@ -426,7 +426,6 @@ export const Composer = memo(function Composer({ installing = false }: { install
                   {state.model.displayName ?? shortModelId(state.model.id)}
                   <Icon icon={ChevronDown} size={11} />
                 </button>
-                {pickerOpen ? <ModelPicker onClose={() => setPickerOpen(false)} /> : null}
                 <ThinkingControl />
               </>
             ) : null}
@@ -489,6 +488,8 @@ export const Composer = memo(function Composer({ installing = false }: { install
           </span>
         </div>
       </form>
+      {/* The disabled form is translucent while loading; its model picker must remain opaque. */}
+      {state?.model && pickerOpen ? <ModelPicker onClose={() => setPickerOpen(false)} /> : null}
       {sendError ? (
         <div className="composer-hint">
           <span className="composer-error">{sendError}</span>

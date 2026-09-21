@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { detectHardware, type HardwareProbe, inferenceMemoryBudget } from "../../src/inference/hardware.js"
-import { findLocalModel, localModelWeightBytes } from "../../src/inference/local-catalog.js"
+import { findLocalModel } from "../../src/inference/local-catalog.js"
 import { fitLocalModel, memoryRequiredFor } from "../../src/inference/local-fit.js"
 import { recommendedLocalModelIds } from "../../src/inference/local-recommendation.js"
 
@@ -32,28 +32,28 @@ describe("local model recommendation", () => {
   })
 
   it.each([
-    [4, LFM],
-    [6, LFM],
-    [8, BONSAI],
-    [12, BONSAI],
-    [16, BONSAI],
-    [20, QWEN],
-    [24, QWEN],
-    [32, QWEN],
-    [48, QWEN],
-    [64, QWEN],
-    [80, FLASH],
-    [96, FLASH],
-    [192, FLASH],
-    [256, FLASH],
-    [384, GLM],
-    [1024, GLM],
-  ])("uses %d GiB dedicated VRAM rather than large host RAM to choose %s", (gpuGiB, id) => {
-    expect(recommendedLocalModelIds(linuxHardware(1024, gpuGiB))).toEqual([id])
+    [4, []],
+    [6, [LFM]],
+    [8, [LFM]],
+    [12, [ORNITH, GEMMA]],
+    [16, [BONSAI]],
+    [20, [BONSAI]],
+    [24, [BONSAI]],
+    [32, [QWEN]],
+    [48, [QWEN]],
+    [64, [QWEN]],
+    [80, [QWEN]],
+    [96, [FLASH]],
+    [192, [FLASH]],
+    [256, [FLASH]],
+    [384, [GLM]],
+    [1024, [GLM]],
+  ])("budgets the full footprint in %d GiB dedicated VRAM", (gpuGiB, ids) => {
+    expect(recommendedLocalModelIds(linuxHardware(1024, gpuGiB))).toEqual(ids)
   })
 
   it.each([32, 64, 128, 256, 1024])("keeps the 24 GiB GPU recommendation stable with %d GiB host RAM", (ramGiB) => {
-    expect(recommendedLocalModelIds(linuxHardware(ramGiB, 24))).toEqual([QWEN])
+    expect(recommendedLocalModelIds(linuxHardware(ramGiB, 24))).toEqual([BONSAI])
   })
 
   it.each([
@@ -64,17 +64,21 @@ describe("local model recommendation", () => {
     expect(recommendedLocalModelIds(linuxHardware(ramGiB, 96))).toEqual([id])
   })
 
-  it.each([8188, 8191, 8192, 12288, 16380])("handles %d MiB reported VRAM without rounded tiers", (gpuMiB) => {
-    expect(recommendedLocalModelIds({ ...linuxHardware(15.8, 8), gpuMemoryBytes: gpuMiB * 1024 ** 2 })).toEqual([
-      BONSAI,
-    ])
+  it.each([
+    [8188, [LFM]],
+    [8191, [LFM]],
+    [8192, [LFM]],
+    [12288, [ORNITH, GEMMA]],
+    [16380, [BONSAI]],
+  ])("handles %d MiB reported VRAM without rounded tiers", (gpuMiB, ids) => {
+    expect(recommendedLocalModelIds({ ...linuxHardware(15.8, 8), gpuMemoryBytes: gpuMiB * 1024 ** 2 })).toEqual(ids)
   })
 
-  it("uses exact artifact size and device headroom at the VRAM boundary", () => {
+  it("includes weights, 64K cache, runtime buffers, and headroom at the exact VRAM boundary", () => {
     const hardware = linuxHardware(64, 24)
     const model = findLocalModel(QWEN)
     if (!model) throw new Error("missing Qwen catalog entry")
-    const boundary = localModelWeightBytes(model) + inferenceMemoryBudget(hardware).deviceHeadroomBytes
+    const boundary = memoryRequiredFor(model, 65_536) + inferenceMemoryBudget(hardware).deviceHeadroomBytes
     expect(recommendedLocalModelIds({ ...hardware, gpuMemoryBytes: boundary })).toEqual([QWEN])
     expect(recommendedLocalModelIds({ ...hardware, gpuMemoryBytes: boundary - 1 })).toEqual([BONSAI])
   })
@@ -86,8 +90,8 @@ describe("local model recommendation", () => {
         nvidiaSmi: async () => nvidiaOutput,
       })
     // Equal combined VRAM, but two devices need 2 GiB rather than 1 GiB of headroom.
-    const single = await probe("19456\n")
-    const dual = await probe("9728\n9728\n")
+    const single = await probe("25600\n")
+    const dual = await probe("12800\n12800\n")
     expect(single.gpuMemoryBytes).toBe(dual.gpuMemoryBytes)
     expect(recommendedLocalModelIds(single)).toEqual([QWEN])
     expect(recommendedLocalModelIds(dual)).toEqual([BONSAI])
@@ -148,18 +152,21 @@ describe("local model recommendation", () => {
     expect(recommendedLocalModelIds({ ...linuxHardware(64), arch: "ia32" })).toEqual([])
   })
 
-  it("never recommends a model outside host fit or the known dedicated weight budget", () => {
+  it("never recommends a model whose displayed context exceeds the full host or GPU budget", () => {
     for (const ramGiB of [8, 12, 16, 24, 32, 64, 96, 196, 256, 384, 1024]) {
       for (const gpuGiB of [4, 8, 16, 24, 48, 80, 96, 384]) {
         const hardware = linuxHardware(ramGiB, gpuGiB)
         const ids = recommendedLocalModelIds(hardware)
-        expect(ids.length).toBeGreaterThan(0)
+        if (gpuGiB >= 8) expect(ids.length).toBeGreaterThan(0)
         for (const id of ids) {
           const model = findLocalModel(id)
           if (!model) throw new Error(`missing catalog entry: ${id}`)
           const fit = fitLocalModel(model, hardware)
           expect(fit.available).toBe(true)
-          expect(localModelWeightBytes(fit.model)).toBeLessThanOrEqual(
+          expect(fit.requiresCpuOffload).toBe(false)
+          expect(fit.contextLength).toBeGreaterThanOrEqual(65_536)
+          expect(memoryRequiredFor(fit.model, fit.contextLength)).toBeLessThanOrEqual(fit.memoryAvailableBytes)
+          expect(memoryRequiredFor(fit.model, fit.contextLength)).toBeLessThanOrEqual(
             gpuGiB * GIBIBYTE - inferenceMemoryBudget(hardware).deviceHeadroomBytes,
           )
           if (id === BONSAI) expect(fit.model.quant).toBe("PTQ1_0")

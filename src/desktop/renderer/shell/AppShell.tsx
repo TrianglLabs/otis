@@ -104,6 +104,11 @@ export function AppShell() {
 
   const platformClass = state?.platform === "darwin" ? "platform-darwin" : "platform-linux"
   const readyUpdate = state?.update.status === "ready" ? state.update : undefined
+  const installUpdate = () => {
+    if (installing || !readyUpdate) return
+    setInstalling(true)
+    void api.installUpdate()
+  }
 
   return (
     <CanvasOpenContext.Provider value={openCanvas}>
@@ -162,10 +167,7 @@ export function AppShell() {
                     ? t("shell.restartingUpdate")
                     : t("shell.updateReadyTitle", { version: readyUpdate.version })
                 }
-                onClick={() => {
-                  setInstalling(true)
-                  void api.installUpdate()
-                }}
+                onClick={installUpdate}
               >
                 <Icon icon={Download} size={12} />
                 <span className="updateFab-label">{installing ? t("shell.restarting") : t("shell.update")}</span>
@@ -176,7 +178,7 @@ export function AppShell() {
         </div>
         {settingsOpen ? (
           <div className="settingsLayer">
-            <SettingsPage onClose={closeSettings} />
+            <SettingsPage onClose={closeSettings} installing={installing} onInstallUpdate={installUpdate} />
           </div>
         ) : null}
         {paletteOpen ? <CommandPalette onClose={() => setPaletteOpen(false)} /> : null}

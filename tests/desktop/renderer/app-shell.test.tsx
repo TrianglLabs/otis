@@ -726,7 +726,8 @@ describe("AppShell settings navigation", () => {
         status: { ...SNAPSHOT, update: { status: "downloading", version: "9.9.9" } },
       }),
     )
-    expect(screen.getByRole("status").textContent).toContain("Downloading Otis 9.9.9")
+    expect(screen.queryByRole("status")).toBeNull()
+    expect(screen.getByRole("button", { name: "Downloading…" }).title).toContain("Downloading Otis 9.9.9")
     expect(screen.queryByRole("button", { name: "Update" })).toBeNull()
     fireEvent.click(screen.getByRole("button", { name: /close settings/i }))
     fireEvent.click(screen.getByRole("button", { name: "Settings" }))
@@ -738,8 +739,21 @@ describe("AppShell settings navigation", () => {
       finish()
     })
     expect(screen.queryByRole("status")).toBeNull()
-    expect(screen.getByRole("button", { name: "Update ready" })).toBeTruthy()
+    const install = screen.getByRole("button", { name: "Restart and install" }) as HTMLButtonElement
+    expect(install.disabled).toBe(false)
+    expect(install.title).toContain("9.9.9")
     expect(api.installUpdate).not.toHaveBeenCalled()
+    fireEvent.click(install)
+    expect(api.installUpdate).toHaveBeenCalledOnce()
+    expect((screen.getByRole("button", { name: "Restarting…" }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(screen.getByRole("button", { name: /close settings/i }))
+    expect((screen.getByRole("button", { name: "Restarting…" }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByPlaceholderText("Restarting into the update…")).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }))
+    await act(async () => {})
+    fireEvent.click(screen.getByRole("tab", { name: "General" }))
+    fireEvent.click(screen.getByRole("button", { name: "Restarting…" }))
+    expect(api.installUpdate).toHaveBeenCalledOnce()
   })
 
   it.each<{ update: DesktopUpdateState; message: string; disabled: boolean }>([

@@ -1,5 +1,5 @@
 import { LOCAL_MIN_CONTEXT_LENGTH } from "./context-policy.js"
-import { availableModelMemory, type HardwareProbe } from "./hardware.js"
+import { availableModelMemory, type HardwareProbe, inferenceMemoryBudget } from "./hardware.js"
 import {
   LOCAL_CONTEXT_ALIGNMENT,
   type LocalAttentionSpec,
@@ -21,12 +21,30 @@ export type LocalModelFit = {
   contextLength: number
   memoryRequiredBytes: number
   memoryAvailableBytes: number
+  /** The minimum context fits host RAM but exceeds the known dedicated GPU budget. */
+  requiresCpuOffload: boolean
 }
 
 export function fitLocalModel(model: LocalModelSpec, hardware: HardwareProbe): LocalModelFit {
   const selectedModel = localModelForHardware(model, hardware)
   const memoryAvailableBytes = availableModelMemory(hardware)
-  return fitLocalModelWithinMemory(selectedModel, memoryAvailableBytes)
+  const hostFit = fitLocalModelWithinMemory(selectedModel, memoryAvailableBytes)
+  const gpuMemoryBudgetBytes = inferenceMemoryBudget(hardware).gpuMemoryBudgetBytes
+  if (!hostFit.available || gpuMemoryBudgetBytes === undefined) return hostFit
+
+  // Keep host fit as the availability gate, but budget the entire inference footprint
+  // in VRAM before recommending a GPU model or estimating its usable context.
+  const gpuFit = fitLocalModelWithinMemory(selectedModel, Math.min(memoryAvailableBytes, gpuMemoryBudgetBytes))
+  if (gpuFit.available) return gpuFit
+
+  // Like llama.cpp's fitter, reduce context to the minimum before spilling layers to RAM.
+  // Manual selection remains available, but this is not a GPU recommendation.
+  return {
+    ...hostFit,
+    contextLength: LOCAL_MIN_CONTEXT_LENGTH,
+    memoryRequiredBytes: memoryRequiredFor(selectedModel, LOCAL_MIN_CONTEXT_LENGTH),
+    requiresCpuOffload: true,
+  }
 }
 
 export function fitLocalModelWithinMemory(model: LocalModelSpec, memoryAvailableBytes: number): LocalModelFit {
@@ -41,6 +59,7 @@ export function fitLocalModelWithinMemory(model: LocalModelSpec, memoryAvailable
       contextLength: LOCAL_MIN_CONTEXT_LENGTH,
       memoryRequiredBytes: minRequired,
       memoryAvailableBytes,
+      requiresCpuOffload: false,
     }
   }
 
@@ -52,6 +71,7 @@ export function fitLocalModelWithinMemory(model: LocalModelSpec, memoryAvailable
       contextLength: model.nativeContextLength,
       memoryRequiredBytes: nativeRequired,
       memoryAvailableBytes,
+      requiresCpuOffload: false,
     }
   }
 
@@ -63,6 +83,7 @@ export function fitLocalModelWithinMemory(model: LocalModelSpec, memoryAvailable
       contextLength: LOCAL_MIN_CONTEXT_LENGTH,
       memoryRequiredBytes: minRequired,
       memoryAvailableBytes,
+      requiresCpuOffload: false,
     }
   }
 
@@ -72,6 +93,7 @@ export function fitLocalModelWithinMemory(model: LocalModelSpec, memoryAvailable
     contextLength,
     memoryRequiredBytes: memoryRequiredFor(model, contextLength),
     memoryAvailableBytes,
+    requiresCpuOffload: false,
   }
 }
 
