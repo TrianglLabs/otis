@@ -30,8 +30,8 @@ export type HardwareProbe = {
 export type InferenceMemoryBudget = {
   /** Per-device margin passed to llama.cpp, which broadcasts it to every device. */
   deviceHeadroomBytes: number
-  /** Aggregate dedicated VRAM after reserving headroom on every GPU. */
-  gpuWeightBudgetBytes?: number
+  /** Aggregate dedicated VRAM for weights, context cache, and runtime buffers, after per-GPU headroom. */
+  gpuMemoryBudgetBytes?: number
 }
 
 export type HardwareDetectOptions = {
@@ -122,7 +122,7 @@ export function inferenceMemoryBudget(hardware: HardwareProbe): InferenceMemoryB
   return {
     deviceHeadroomBytes,
     ...(dedicatedGpu && hardware.gpuMemoryBytes !== undefined
-      ? { gpuWeightBudgetBytes: Math.max(0, hardware.gpuMemoryBytes - hardware.gpuCount * deviceHeadroomBytes) }
+      ? { gpuMemoryBudgetBytes: Math.max(0, hardware.gpuMemoryBytes - hardware.gpuCount * deviceHeadroomBytes) }
       : {}),
   }
 }

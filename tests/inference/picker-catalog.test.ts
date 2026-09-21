@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { localGgufPath } from "../../src/inference/gguf-cache.js"
 import type { HardwareProbe } from "../../src/inference/hardware.js"
 import { findLocalModel, LOCAL_MODELS, localModelPackings } from "../../src/inference/local-catalog.js"
+import { formatMemoryLabel, memoryRequiredFor } from "../../src/inference/local-fit.js"
 import {
   formatContextWindow,
   isSelectablePickerItem,
@@ -96,7 +97,11 @@ describe("model picker catalog", () => {
     expect(bonsai?.availabilityLabel).toContain(`· ${quant} ·`)
   })
 
-  it.each([8188, 12288, 16380])("stars the compatible Bonsai packing with %d MiB of Vulkan VRAM", async (gpuMiB) => {
+  it.each([
+    [8188, ["LiquidAI/LFM2.5-2.6B"]],
+    [12288, ["ornith-ai/Ornith-1.5-9B", "google/gemma-4-12B-it"]],
+    [16380, ["prism-ml/Ternary-Bonsai-2-27B-gguf"]],
+  ])("stars models whose full footprint fits %d MiB of Vulkan VRAM", async (gpuMiB, ids) => {
     const items = await listModelPickerItems({
       hardware: {
         platform: "linux",
@@ -112,16 +117,14 @@ describe("model picker catalog", () => {
     const starred = items.filter(
       (item): item is LocalPickerChoice => item.kind === "model" && item.provider === "local" && item.recommended,
     )
-    expect(starred).toHaveLength(1)
-    expect(starred[0]?.id).toBe("prism-ml/Ternary-Bonsai-2-27B-gguf")
-    expect(starred[0]?.availabilityLabel).toContain("· PTQ1_0 ·")
+    expect(starred.map((item) => item.id)).toEqual(ids)
   })
 
   it.each([
-    [8, 256, "prism-ml/Ternary-Bonsai-2-27B-gguf"],
-    [24, 256, "Qwen/Qwen3.8-27B"],
+    [8, 256, "LiquidAI/LFM2.5-2.6B"],
+    [24, 256, "prism-ml/Ternary-Bonsai-2-27B-gguf"],
     [48, 256, "Qwen/Qwen3.8-27B"],
-    [80, 128, "Qwen/Qwen3.8-Flash-Next"],
+    [80, 128, "Qwen/Qwen3.8-27B"],
     [96, 16, "prism-ml/Ternary-Bonsai-2-27B-gguf"],
   ])("stars the shared GPU-aware choice with %d GiB VRAM and %d GiB RAM", async (gpuGiB, ramGiB, id) => {
     const items = await listModelPickerItems({
@@ -141,6 +144,34 @@ describe("model picker catalog", () => {
     )
     expect(starred.map((item) => item.id)).toEqual([id])
     expect(starred.every(isSelectablePickerItem)).toBe(true)
+  })
+
+  it("shows the GPU-budgeted context and memory cost, and labels manual CPU offload", async () => {
+    const model = findLocalModel("Qwen/Qwen3.8-27B")
+    if (!model) throw new Error("missing catalog entry")
+    for (const gpuGiB of [24, 32]) {
+      const items = await listModelPickerItems({
+        hardware: {
+          platform: "linux",
+          arch: "x64",
+          backend: "vulkan",
+          unifiedMemory: false,
+          gpuCount: 1,
+          totalMemoryBytes: 64 * 1024 ** 3,
+          gpuMemoryBytes: gpuGiB * 1024 ** 3,
+        },
+        dataDirectory: await tempDir(),
+      })
+      const row = items.find(
+        (item): item is LocalPickerChoice => item.kind === "model" && item.provider === "local" && item.id === model.id,
+      )
+      if (!row) throw new Error("missing picker row")
+      expect(isSelectablePickerItem(row)).toBe(true)
+      expect(row.recommended).toBe(gpuGiB === 32)
+      expect(row.contextLength).toBe(gpuGiB === 32 ? 193_536 : 65_536)
+      expect(row.availabilityLabel).toContain(formatMemoryLabel(memoryRequiredFor(model, row.contextLength)))
+      expect(row.availabilityLabel.includes("Uses system RAM")).toBe(gpuGiB === 24)
+    }
   })
 
   it("distinguishes the selected Bonsai packing from another cached packing", async () => {

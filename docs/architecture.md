@@ -150,8 +150,9 @@ and keep per-block expansion as ephemeral UI state, while headless output includ
 
 `/model` lists a curated local catalog above Fireworks. Identities are official Hugging Face checkpoints. GGUF files
 come from the model author when they publish GGUF, otherwise from ggml-org or a conversion of those official Instruct
-weights. Each row reports a fitted context and memory estimate; models that cannot fit even 64K context stay visible and
-unselectable. Context is the largest window that still fits, up to the checkpoint's native length. Memory math uses
+weights. Each row reports a fitted context and memory estimate; models that cannot fit even 64K context are hidden
+unless a cached copy needs to remain visible for deletion. Context is the largest window that fits the full inference
+footprint, up to the checkpoint's native length. Memory math uses
 each checkpoint's real KV groups (full-attention layers vs sliding-window layers), not a uniform transformer cache.
 Hard availability is based on host memory because llama.cpp can split a model between a discrete GPU and system RAM.
 The preflight estimate reserves 15% of Apple unified memory (at least 3 GiB), 10% of other system memory (at least
@@ -215,13 +216,16 @@ Cache discovery recognizes either packing, and deleting Bonsai removes both so a
 configuration cannot become orphaned.
 
 Recommendations use a curated preference order with fit-based fallback, not fixed RAM tiers. Each candidate resolves
-its backend-compatible packing and must pass the same host-memory fit used by the picker (including the minimum 64K
-KV cache and runtime overhead). For dedicated GPUs with known VRAM, its weights must also fit within VRAM after the
-runtime's device-headroom reservation on every detected GPU (1 GiB per GPU, not once for combined VRAM). GPU count is
+its backend-compatible packing and must pass the same host-memory fit used by the picker. The full footprint is the
+selected GGUF weights plus the model-specific KV cache at the estimated context and 1.5 GiB of runtime buffers.
+For dedicated GPUs with known VRAM, that entire footprint must also fit within VRAM after the runtime's headroom
+reservation on every detected GPU (1 GiB per GPU, not once for combined VRAM). The estimated context uses the smaller
+host or GPU budget and must remain at least 64K. If only host RAM can fit the minimum footprint, the model remains
+manually selectable at an estimated 64K with a `Uses system RAM` label, but is not recommended. GPU count is
 retained even when some devices cannot report capacity; combined VRAM is unknown unless every device reports it.
 Unknown VRAM still uses the fixed 1 GiB per-GPU runtime margin, never a percentage of host RAM.
-This prioritizes weight residency, not guaranteed full GPU residency of KV and
-compute buffers; hybrid offload can still occur. Unified-memory and CPU systems use host fit alone, as do GPU systems
+These are capacity estimates; live memory use, runtime buffers, and per-device layer placement can change the actual
+fit at startup. Unified-memory and CPU systems use host fit alone, as do GPU systems
 whose probe cannot report VRAM. Exact byte counts are used throughout, with no memory rounding or upper-capacity cutoff.
 Unavailable preference groups fall back to smaller fitting models, so a missing catalog model does not create an empty
 hardware tier. Both UI adapters receive the same shared recommendation flag.
@@ -239,6 +243,11 @@ llama.cpp's native fitter is authoritative at startup. Otis passes 1 GiB of fit 
 system-memory headroom for unified-memory and CPU backends, then reads `/props` and persists the context actually
 loaded. Layers that do not fit in discrete GPU memory remain in system RAM. Otis also removes inherited `LLAMA_ARG_*`
 variables from the child environment so a separate llama.cpp configuration cannot silently alter its managed server.
+Before marking a newly started model ready, Otis sends a private, tool-free streaming generation check with a
+32-token output limit and a two-minute timeout. The check requires text or reasoning and a completed response;
+reaching the probe's token limit is valid. Failure stops that process and leaves selection uncommitted. Cancellation
+and process exit abort the check. Reusing an already-ready process does not repeat it. This checks basic generation,
+not full-context memory capacity, and never runs against user-managed oMLX or PAIR endpoints.
 When cached GGUFs exist, Settings exposes a second-level local-model deletion list. It only targets files in Otis'
 model cache, stops Otis' server before deleting the active or final model, and clears an active selection before
 offering the model picker again. Inactive model deletion does not interrupt a different active local model.

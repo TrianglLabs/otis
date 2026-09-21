@@ -65,6 +65,7 @@ describe("DesktopRuntime workspace switching", () => {
       const foreign = await createSession({ cwd: otherCwd })
       await foreign.admitPrompt("beta history")
 
+      runtime.refreshSessions()
       const recent = (await runtime.snapshot()).sessions.find((session) => session.id === foreign.id)
       if (!recent) throw new Error("The foreign session is missing from recent history.")
       expect((await runtime.selectSession(recent.id, recent.dirName)).ok).toBe(true)
@@ -127,21 +128,29 @@ describe("DesktopRuntime workspace switching", () => {
     }
   })
 
-  it("lists sessions from every workspace in the status", async () => {
+  it("lists sessions from every workspace after refreshing external history", async () => {
     const { runtime, cwd, otherCwd } = await setup()
-    const local = await runtime.app.sessions.ensure()
-    await local.admitPrompt("alpha session")
-    const foreign = await createSession({ cwd: otherCwd })
-    await foreign.admitPrompt("beta session")
+    try {
+      const local = await runtime.app.sessions.ensure()
+      await local.admitPrompt("alpha session")
+      // Startup status can cache history before another instance creates its session.
+      await runtime.snapshot()
+      const foreign = await createSession({ cwd: otherCwd })
+      await foreign.admitPrompt("beta session")
 
-    const snapshot = await runtime.snapshot()
-    expect(snapshot.workspace.path).toBe(resolve(cwd))
-    const paths = Object.fromEntries(snapshot.sessions.map((s) => [s.id, s.workspacePath]))
-    expect(paths[local.id]).toBe(resolve(cwd))
-    expect(paths[foreign.id]).toBe(resolve(otherCwd))
-    const foreignRow = snapshot.sessions.find((s) => s.id === foreign.id)
-    expect(foreignRow?.workspaceLabel).toBe("beta")
-    await runtime.shutdown()
+      expect((await runtime.snapshot()).sessions.some((session) => session.id === foreign.id)).toBe(false)
+      // Opening the history palette refreshes sessions written outside this runtime.
+      runtime.refreshSessions()
+      const snapshot = await runtime.snapshot()
+      expect(snapshot.workspace.path).toBe(resolve(cwd))
+      const paths = Object.fromEntries(snapshot.sessions.map((s) => [s.id, s.workspacePath]))
+      expect(paths[local.id]).toBe(resolve(cwd))
+      expect(paths[foreign.id]).toBe(resolve(otherCwd))
+      const foreignRow = snapshot.sessions.find((s) => s.id === foreign.id)
+      expect(foreignRow?.workspaceLabel).toBe("beta")
+    } finally {
+      await runtime.shutdown()
+    }
   })
 
   it("switches workspace content and status together and persists the last workspace", async () => {
@@ -225,7 +234,9 @@ describe("DesktopRuntime workspace switching", () => {
     const dirName = basename(defaultSessionDirectory(otherCwd))
     await rm(join(sessionRootDirectory(), dirName, "workspace.json"))
 
+    runtime.refreshSessions()
     let snapshot = await runtime.snapshot()
+    expect(snapshot.sessions.some((session) => session.id === foreign.id)).toBe(true)
     expect(snapshot.sessions.find((s) => s.id === foreign.id)?.workspacePath).toBeUndefined()
 
     await runtime.registerWorkspace(dirName as string, otherCwd)

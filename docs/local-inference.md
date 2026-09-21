@@ -82,18 +82,21 @@ parameters as inference, and changing effort invalidates the previous observed c
 Recommendations choose the first fitting group in this curated preference order: GLM-5.3, Qwen3.8 Flash Next,
 Qwen3.8 27B, Bonsai 2 27B, Ornith 1.5 9B / Gemma 4 12B, then LFM2.5 2.6B. This is an Otis default, not a benchmark
 ranking. All candidates must fit host memory with at least a 64K context and runtime overhead. On dedicated GPUs with
-known VRAM, the selected weights must also fit after reserving 1 GiB per detected GPU; extra system RAM alone does not promote
-a larger model. KV cache and compute buffers may still require CPU offloading, so a star does not guarantee fully
-GPU-resident inference. Unknown VRAM falls back to host-memory fit without promising GPU acceleration; the runtime
+known VRAM, the full footprint—selected weights, context cache, and runtime buffers—must also fit after reserving
+1 GiB per detected GPU. Extra system RAM alone does not promote a larger model. The context estimate uses that same
+budget. Models that fit only with CPU offload remain selectable, show an estimated 64K context and `Uses system RAM`,
+and do not receive a recommendation star. Unknown VRAM falls back to host-memory fit without promising GPU acceleration; the runtime
 still reserves 1 GiB per GPU rather than deriving a GPU margin from host RAM.
 
 Examples with enough host RAM:
 
 | Dedicated VRAM | Recommended model |
 | --- | --- |
-| 8–16 GiB | Bonsai 2 27B |
-| 24–64 GiB | Qwen3.8 27B |
-| 80–256 GiB | Qwen3.8 Flash Next |
+| 6–8 GiB | LFM2.5 2.6B |
+| 12 GiB | Ornith 1.5 9B / Gemma 4 12B |
+| 16–24 GiB | Bonsai 2 27B |
+| 32–80 GiB | Qwen3.8 27B |
+| 96–256 GiB | Qwen3.8 Flash Next |
 | 384 GiB and above | GLM-5.3 |
 
 Macs with 16–24 GiB unified memory recommend Bonsai, 32–64 GiB recommend Qwen3.8 27B, 96–256 GiB recommend
@@ -110,8 +113,11 @@ tool execution in the Otis runtime instead of enabling llama.cpp's built-in tool
 
 ## Context and memory estimates
 
-For a model that is not running, the picker labels its calculated context as `Est.`. The estimate includes a
-conservative memory reserve for the operating system and runtime buffers.
+For a model that is not running, the picker labels its calculated context as `Est.`. Memory cost includes the
+selected GGUF files, the model's KV cache at that context, and 1.5 GiB for runtime buffers. Otis separately reserves
+15% of Apple unified memory (at least 3 GiB), 10% of other system RAM (at least 2 GiB), and 1 GiB per dedicated GPU.
+Unified memory is one pool; Otis does not add it twice as RAM and VRAM. Dedicated GPU recommendations must fit both
+the host and GPU budgets. These are capacity estimates, not a guarantee against other applications consuming memory.
 
 At startup, llama.cpp performs the authoritative fit and chooses the actual context and GPU offload. Otis reads the
 loaded context from the server and labels it `loaded` for the active model. On Linux with a discrete GPU, layers that

@@ -35,6 +35,7 @@ import {
   supportsLlamaCppTarget,
   unsupportedLlamaCppTargetMessage,
 } from "./llama-binary.js"
+import { checkLlamaGeneration } from "./llama-readiness.js"
 import type { LocalModelSpec } from "./local-catalog.js"
 import { fitLocalModel, type LocalModelFit } from "./local-fit.js"
 
@@ -101,6 +102,7 @@ export type LlamaCppRuntimeOptions = {
   listDevices?: (binaryPath: string, env: NodeJS.ProcessEnv, signal?: AbortSignal) => Promise<string>
   dataDirectory?: string
   readyTimeoutMs?: number
+  generationCheckTimeoutMs?: number
   runtimeDownloadAttempts?: number
   /** Maximum wait for response headers or further archive bytes, not a total transfer deadline. */
   runtimeDownloadTimeoutMs?: number
@@ -272,9 +274,20 @@ export class LlamaCppRuntime {
     child.stdout?.on("data", append)
     child.stderr?.on("data", append)
 
+    const exited = new AbortController()
+    const onExit = () => exited.abort(new LlamaServerExitError(logs.value, processTermination(child)))
+    child.once("exit", onExit)
+    const startupSignal = AbortSignal.any([signal, exited.signal])
     try {
-      const contextLength = await this.#waitUntilReady(port, child, logs, signal)
-      signal.throwIfAborted()
+      const contextLength = await this.#waitUntilReady(port, child, logs, startupSignal)
+      await checkLlamaGeneration({
+        model: model.id,
+        inferenceURL,
+        signal: startupSignal,
+        fetch: this.#options.fetch,
+        timeoutMs: this.#options.generationCheckTimeoutMs,
+      })
+      startupSignal.throwIfAborted()
       if (logs.spawnError) throw logs.spawnError
       if (processHasTerminated(child)) throw new LlamaServerExitError(logs.value, processTermination(child))
       if (this.#process !== child) throw new DOMException("Local model startup was superseded.", "AbortError")
@@ -286,6 +299,8 @@ export class LlamaCppRuntime {
       // may already have installed its own child in #process.
       await this.#killProcess(child)
       throw error
+    } finally {
+      child.off("exit", onExit)
     }
   }
 

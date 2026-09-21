@@ -61,7 +61,7 @@ describe("hardware detection", () => {
     expect(hardware.cudaComputeCapabilities).toBeUndefined()
     expect(inferenceMemoryBudget(hardware)).toEqual({
       deviceHeadroomBytes: 1024 ** 3,
-      gpuWeightBudgetBytes: 30 * 1024 ** 3,
+      gpuMemoryBudgetBytes: 30 * 1024 ** 3,
     })
     expect(availableModelMemory(hardware)).toBe(32 * 1024 ** 3 - 3_277 * 1024 ** 2)
   })
@@ -93,7 +93,7 @@ describe("hardware detection", () => {
 
     expect(inferenceMemoryBudget(hardware)).toEqual({
       deviceHeadroomBytes: 1024 ** 3,
-      gpuWeightBudgetBytes: 31 * 1024 ** 3,
+      gpuMemoryBudgetBytes: 31 * 1024 ** 3,
     })
   })
 
@@ -128,7 +128,7 @@ describe("hardware detection", () => {
     expect(hardware).toMatchObject({ gpuCount: 2, gpuMemoryBytes: 24 * 1024 ** 3 })
     expect(inferenceMemoryBudget(hardware)).toEqual({
       deviceHeadroomBytes: 1024 ** 3,
-      gpuWeightBudgetBytes: 22 * 1024 ** 3,
+      gpuMemoryBudgetBytes: 22 * 1024 ** 3,
     })
   })
 

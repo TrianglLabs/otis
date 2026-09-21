@@ -8,6 +8,7 @@ import { createDemoRuntime } from "../../../src/desktop/renderer/demo/demo-runti
 import { FileArtifact } from "../../../src/desktop/renderer/features/canvas/FileArtifact.js"
 import { PdfPreview } from "../../../src/desktop/renderer/features/canvas/PdfPreview.js"
 import { catalogs, I18nProvider, type ResolvedLocale } from "../../../src/desktop/renderer/i18n/index.js"
+import { createTranslator } from "../../../src/desktop/renderer/i18n/translate.js"
 import { DesktopProvider } from "../../../src/desktop/renderer/runtime.js"
 import { DesktopViewStore } from "../../../src/desktop/renderer/state.js"
 import { pdfFixture } from "./pdf-fixture.js"
@@ -598,6 +599,8 @@ async function runDesktopUiChecks() {
     getComputedStyle(element(".workspaceRail-view-canvas")).transitionDuration !== "0s",
     "Coworkers and Canvas lost their content transition",
   )
+  status({ update: { status: "ready", version: "0.2.0" } })
+  await until(() => !!document.querySelector(".updateFab"), "Downloaded update did not show its install button")
   assert(getComputedStyle(element(".updateFab")).display === "none", "Narrow layout kept the update button visible")
 
   await nativeInput({ size: [1600, 850] })
@@ -1089,6 +1092,31 @@ async function runDesktopUiChecks() {
   await pause()
   assert(!document.querySelector(".thinkingControl-panel"), "Escape did not dismiss thinking control")
 
+  // Loading dims the input form, but must not make a reopened model picker translucent.
+  status({
+    modelState: "starting",
+    modelLoad: { modelId: thinkingModel, status: { kind: "progress", label: "Loading" } },
+  })
+  await pause()
+  assert(Number(getComputedStyle(element(".composer-box")).opacity) < 1, "Loading fixture did not dim the composer")
+  for (let attempt = 0; attempt < 2; attempt++) {
+    element<HTMLButtonElement>(".composer-model").click()
+    await until(() => !!document.querySelector(".modelPicker-spinner"), "Loading model picker did not open")
+    await pause(200)
+    if (attempt === 0) await nativeInput({ screenshot: true, screenshotName: "model-picker-loading" })
+    const picker = element(".modelPicker")
+    assert(
+      getComputedStyle(picker).backgroundColor === getComputedStyle(document.body).backgroundColor,
+      "Picker lost its opaque background",
+    )
+    for (let ancestor: HTMLElement | null = picker; ancestor; ancestor = ancestor.parentElement) {
+      assert(Number(getComputedStyle(ancestor).opacity) === 1, `Loading picker is dimmed by ${ancestor.className}`)
+    }
+    element<HTMLButtonElement>(".modelPicker-title button").click()
+    await until(() => !document.querySelector(".modelPicker"), "Model picker did not close")
+  }
+  status({ modelState: "ready", modelLoad: null })
+
   // Select each new palette through the same controls users use, with the conversation still mounted.
   api.setTheme = async (theme) => status({ theme })
   element<HTMLButtonElement>('[aria-label="Settings"]').click()
@@ -1109,6 +1137,66 @@ async function runDesktopUiChecks() {
     await nativeInput({ screenshot: true, screenshotName: theme })
   }
   await api.setTheme("default")
+
+  // Update feedback stays in its row, and the ready state offers the same install action as the chat chip.
+  element<HTMLButtonElement>("#settings-tab-general").click()
+  await until(() => !!document.querySelector(".settingsUpdate"), "Update settings did not open")
+  let finishUpdateCheck!: () => void
+  api.checkForUpdates = () => {
+    status({ update: { status: "checking" } })
+    return new Promise<void>((resolve) => {
+      finishUpdateCheck = () => {
+        status({ update: { status: "current" } })
+        resolve()
+      }
+    })
+  }
+  status({ update: { status: "idle" } })
+  await pause()
+  element<HTMLButtonElement>(".settingsUpdate button").click()
+  await until(() => element(".settingsUpdate button").textContent === "Checking…", "Update check did not start")
+  assert(!document.querySelector(".settingsUpdate [role=status]"), "Checking progress is duplicated below the button")
+  await nativeInput({ screenshot: true, screenshotName: "settings-updates-checking" })
+  finishUpdateCheck()
+  await until(() => !!document.querySelector(".settingsUpdate [role=status]"), "Update check result did not appear")
+  await nativeInput({ screenshot: true, screenshotName: "settings-updates-current" })
+  await nativeInput({ size: [960, 600] })
+  for (const language of Object.keys(catalogs) as ResolvedLocale[]) {
+    renderLanguage(language)
+    for (const update of [
+      { status: "current" },
+      { status: "checking" },
+      { status: "downloading", version: "9.9.9" },
+      { status: "ready", version: "9.9.9" },
+      { status: "unavailable" },
+      { status: "error", message: createTranslator(catalogs[language], language)("updates.checkFailed") },
+    ] satisfies DesktopStatus["update"][]) {
+      status({ update })
+      await pause()
+      const row = element(".settingsUpdate")
+      const label = element(".settingsUpdate .settingsRow-label").getBoundingClientRect()
+      const button = element<HTMLButtonElement>(".settingsUpdate button")
+      const bounds = button.getBoundingClientRect()
+      assert(row.scrollWidth <= row.clientWidth, `${language}: update row overflows`)
+      assert(label.right + 10 <= bounds.left, `${language}: update button overlaps the version`)
+      const feedback = row.querySelector<HTMLElement>("[role=status]")?.getBoundingClientRect()
+      if (feedback) {
+        assert(feedback.left >= label.right + 10, `${language}: update feedback overlaps the version`)
+        assert(feedback.right + 10 <= bounds.left, `${language}: update feedback overlaps the button`)
+        assert(
+          Math.abs(feedback.top + feedback.height / 2 - bounds.top - bounds.height / 2) < 1,
+          `${language}: update feedback is not vertically aligned with its button`,
+        )
+      }
+      if (update.status === "ready") assert(!button.disabled, "The ready update cannot be installed from Settings")
+    }
+  }
+  renderLanguage("en")
+  status({ update: { status: "ready", version: "9.9.9" } })
+  await pause()
+  await nativeInput({ screenshot: true, screenshotName: "settings-updates-ready" })
+  status({ update: { status: "current" } })
+  await nativeInput({ size: [1000, 850] })
 
   element<HTMLButtonElement>('[aria-label="Close settings (Esc)"]').click()
   status({ model: null, modelState: "unconfigured" })

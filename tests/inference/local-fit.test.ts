@@ -19,7 +19,64 @@ const apple16: HardwareProbe = {
   gpuMemoryBytes: 16 * 1024 ** 3,
 }
 
+const linux32: HardwareProbe = {
+  platform: "linux",
+  arch: "x64",
+  backend: "vulkan",
+  unifiedMemory: false,
+  totalMemoryBytes: 64 * 1024 ** 3,
+  gpuMemoryBytes: 32 * 1024 ** 3,
+  gpuCount: 1,
+}
+
 describe("local model fit", () => {
+  it("sizes dedicated-GPU context after weights, cache, buffers, and device headroom", () => {
+    const qwen = findLocalModel("Qwen/Qwen3.8-27B")
+    if (!qwen) throw new Error("missing catalog entry")
+    const fit = fitLocalModel(qwen, linux32)
+    expect(fit.available).toBe(true)
+    expect(fit.requiresCpuOffload).toBe(false)
+    expect(fit.memoryAvailableBytes).toBe(31 * 1024 ** 3)
+    expect(fit.contextLength).toBe(193_536)
+    // Qwen: 16 full-attention layers, 4 KV heads, 256 dimensions, f16 K+V.
+    const footprint = localModelWeightBytes(qwen) + 16 * 4 * 256 * 4 * fit.contextLength + 1.5 * 1024 ** 3
+    expect(fit.memoryRequiredBytes).toBe(footprint)
+    expect(footprint).toBeLessThanOrEqual(fit.memoryAvailableBytes)
+    expect(footprint + 16 * 4 * 256 * 4 * 1_024).toBeGreaterThan(fit.memoryAvailableBytes)
+  })
+
+  it("keeps a weights-only fit selectable with CPU offload at 64K", () => {
+    const qwen = findLocalModel("Qwen/Qwen3.8-27B")
+    if (!qwen) throw new Error("missing catalog entry")
+    const hardware = { ...linux32, gpuMemoryBytes: 24 * 1024 ** 3 }
+    expect(localModelWeightBytes(qwen)).toBeLessThan(23 * 1024 ** 3)
+    const fit = fitLocalModel(qwen, hardware)
+    expect(fit.available).toBe(true)
+    expect(fit.requiresCpuOffload).toBe(true)
+    expect(fit.contextLength).toBe(65_536)
+    expect(fit.memoryRequiredBytes).toBeGreaterThan(23 * 1024 ** 3)
+    expect(fit.memoryRequiredBytes).toBeLessThan(fit.memoryAvailableBytes)
+  })
+
+  it("does not add dedicated VRAM to host capacity or bypass the host fit", () => {
+    const qwen = findLocalModel("Qwen/Qwen3.8-27B")
+    if (!qwen) throw new Error("missing catalog entry")
+    const fit = fitLocalModel(qwen, { ...linux32, totalMemoryBytes: 16 * 1024 ** 3 })
+    expect(fit.available).toBe(false)
+    expect(fit.memoryAvailableBytes).toBe(14 * 1024 ** 3)
+  })
+
+  it.each(["cpu", "unknown GPU"])("uses the full host budget with %s inference", (mode) => {
+    const qwen = findLocalModel("Qwen/Qwen3.8-27B")
+    if (!qwen) throw new Error("missing catalog entry")
+    const hardware: HardwareProbe =
+      mode === "cpu" ? { ...linux32, backend: "cpu" } : { ...linux32, gpuMemoryBytes: undefined }
+    const fit = fitLocalModel(qwen, hardware)
+    expect(fit.available).toBe(true)
+    expect(fit.requiresCpuOffload).toBe(false)
+    expect(fit.contextLength).toBe(qwen.nativeContextLength)
+  })
+
   it("gives each model its native context when memory allows", () => {
     const apple512: HardwareProbe = {
       ...apple128,
