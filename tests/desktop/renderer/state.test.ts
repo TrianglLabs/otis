@@ -8,96 +8,38 @@ import type {
   TranscriptPatchOp,
 } from "../../../src/desktop/contracts.js"
 import { DesktopViewStore, reconcileTraceEntries } from "../../../src/desktop/renderer/state.js"
+import {
+  fakeApi as fakeDesktopApi,
+  snapshotFixture,
+  statusFixture,
+} from "../support/desktop-api.js"
 
 function entry(id: number, text: string): TranscriptEntry {
   return { id, kind: "message", speaker: "Otis", text }
 }
 
-const status: DesktopStatus = {
-  busy: false,
-  phase: "idle",
-  model: null,
-  modelState: "unconfigured",
-  modelError: undefined,
-  session: null,
-  artifact: null,
-  needsWorkspace: false,
-  sessions: [],
+const status: DesktopStatus = statusFixture({
   workspace: { label: "~/ws", path: "/ws" },
-  contextTokens: undefined,
   contextLimit: 128_000,
-  diffs: { added: 0, removed: 0 },
-  permission: null,
-  stats: undefined,
-  modelLoad: null,
-  subagents: [],
-  agentsPanelVisible: true,
-  theme: "default",
-  language: "system",
   thinkingVisible: true,
-  permissionMode: "auto",
-  localThinking: null,
-  fastServing: { available: false, enabled: false },
-  hostedConfigured: false,
-  pairConfigured: false,
-  pairEndpoints: {},
-  debug: false,
-  update: { status: "idle" },
-}
+})
 
 function snapshot(entries: TranscriptEntry[]): DesktopSnapshot {
-  return { platform: "darwin", version: "test", ...status, entries, revision: 5 }
+  return snapshotFixture({ ...status, version: "test", entries, revision: 5 })
 }
 
 function fakeApi(entries: TranscriptEntry[]): { api: DesktopApi; emit(event: DesktopEvent): void } {
   let listener: ((event: DesktopEvent) => void) | undefined
   return {
     emit: (event) => listener?.(event),
-    api: {
-      getSnapshot: async () => snapshot(entries),
-      getArtifact: async () => undefined,
-      openArtifact: async () => ({ ok: true }),
-      saveArtifact: async () => ({ ok: true as const }),
-      getWindowState: async () => ({ fullscreen: false }),
-      sendPrompt: async () => ({ accepted: true, delivery: "started" }),
-      stop: async () => {},
-      respondToPermission: async () => {},
-      selectSession: async () => ({ ok: true }),
-      searchSessions: async () => [],
-      startNewSession: async () => ({ ok: true }),
-      openSessionAt: async () => ({ ok: true }),
-      openWorkspace: async () => ({ ok: true }),
-      locateWorkspace: async () => ({ ok: true }),
-      pickWorkspaceFolder: async () => undefined,
-      registerWorkspace: async () => ({ ok: true }),
-      refreshSessions: async () => {},
-      getSubagentTrace: async () => [],
-      setAgentsPanelVisible: async () => {},
-      setTheme: async () => {},
-      setLanguage: async () => {},
-      setThinkingVisible: async () => {},
-      setLocalThinking: async () => {},
-      setPermissionMode: async () => {},
-      setFastServing: async () => ({ ok: true }),
-      openFireworksKeyPage: async () => {},
-      setFireworksApiKey: async () => ({ ok: true }),
-      connectLocalServers: async () => ({ ok: true }),
-      deleteLocalModel: async () => ({ ok: true }),
-      setDebugMode: async () => {},
-      installUpdate: async () => {},
-      checkForUpdates: async () => {},
-      subscribeWindowState: () => () => {},
-      deleteSession: async () => ({ ok: true }),
-      listModels: async () => [],
-      selectModel: async () => ({ ok: true }),
-      cancelModelSelection: async () => {},
+    api: fakeDesktopApi(snapshot(entries), {
       subscribe: (next) => {
         listener = next
         return () => {
           listener = undefined
         }
       },
-    },
+    }),
   }
 }
 

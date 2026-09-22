@@ -71,13 +71,6 @@ describe("loadProjectContext", () => {
   it("skips empty AGENTS.md files", async () => {
     const cwd = await trackedTempDir()
     await writeFile(join(cwd, "AGENTS.md"), "   \n\n  ", "utf8")
-
-    expect(loadProjectContext(cwd)).toEqual([])
-  })
-
-  it("ignores unrelated markdown files when AGENTS.md is empty", async () => {
-    const cwd = await trackedTempDir()
-    await writeFile(join(cwd, "AGENTS.md"), "   \n\n  ", "utf8")
     await writeFile(join(cwd, "PROJECT.md"), "# Project rules", "utf8")
 
     expect(loadProjectContext(cwd)).toEqual([])

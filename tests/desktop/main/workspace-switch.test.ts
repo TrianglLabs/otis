@@ -391,7 +391,7 @@ describe("workspace switch failure safety", () => {
   })
 
   it("opens located history by storage identity, never by the picked folder's duplicate ids", async () => {
-    const { runtime, cwd, otherCwd } = await setup()
+    const { runtime, otherCwd } = await setup()
     // Legacy history from a forgotten folder, still using the default id…
     const { appendFile } = await import("node:fs/promises")
     const { sessionRootDirectory } = await import("../../../src/storage/index.js")
@@ -430,7 +430,6 @@ describe("workspace switch failure safety", () => {
     const snapshot = await runtime.snapshot()
     expect(snapshot.entries.some((e) => e.text === "the original legacy conversation")).toBe(true)
     expect(snapshot.entries.some((e) => e.text === "beta's own default conversation")).toBe(false)
-    expect(cwd).toBeTruthy()
     await runtime.shutdown()
   })
 })

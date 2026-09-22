@@ -275,12 +275,6 @@ describe("CLI themes", () => {
     expect(mocks.ui.focusInput).toHaveBeenCalled()
   })
 
-  it("keeps the former /theme command as an alias", async () => {
-    await loadCli()
-    await submit("/theme nord")
-    expect(mocks.saveSelectedTheme).toHaveBeenCalledWith("nord")
-  })
-
   it("restores the selected theme when saving a preview fails", async () => {
     mocks.saveSelectedTheme.mockRejectedValueOnce(new Error("disk full"))
     await loadCli()

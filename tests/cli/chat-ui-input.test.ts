@@ -776,8 +776,15 @@ describe("chat UI input", () => {
     expect(harness.find("attachments")).toBeUndefined()
   })
 
-  it("keeps the mode label and model hint fixed on one line when the home input grows", async () => {
-    const harness = await setup()
+  it.each([
+    { layout: "home", hintText: " Model: test " },
+    { layout: "chat", hintText: " Tool Model · ~/work/otis " },
+  ])("keeps the mode label and hint fixed on one line when the $layout input grows", async ({
+    layout,
+    hintText,
+  }) => {
+    const harness = await setup(layout === "chat" ? { modelLabel: "Tool Model" } : {})
+    if (layout === "chat") harness.ui.showChatLayout()
     const longInput = Array.from(
       { length: 12 },
       (_, index) => `line ${index + 1} ${"x".repeat(70)}`,
@@ -794,30 +801,7 @@ describe("chat UI input", () => {
     expect(hint.height).toBe(1)
     expect(mode.y).toBe(input.y)
     expect(hint.y).toBe(input.y)
-    expect(hint.width).toBe(" Model: test ".length)
-    expect(harness.captureCharFrame()).toContain("Model: test")
-  })
-
-  it("keeps the chat hints fixed on one line when the input grows", async () => {
-    const harness = await setup({ modelLabel: "Tool Model" })
-    harness.ui.showChatLayout()
-    const longInput = Array.from(
-      { length: 12 },
-      (_, index) => `line ${index + 1} ${"x".repeat(70)}`,
-    ).join("\n")
-    harness.setChatInput(longInput)
-    await harness.renderOnce()
-
-    const input = harness.get<TextareaRenderable>("otis-input")
-    const mode = harness.get<TextRenderable>("mode-label")
-    const hint = harness.get<TextRenderable>("input-hint")
-
-    expect(input.height).toBeGreaterThan(1)
-    expect(mode.height).toBe(1)
-    expect(hint.height).toBe(1)
-    expect(mode.y).toBe(input.y)
-    expect(hint.y).toBe(input.y)
-    expect(hint.width).toBe(" Tool Model · ~/work/otis ".length)
-    expect(harness.captureCharFrame()).toContain("Tool Model · ~/work/otis")
+    expect(hint.width).toBe(hintText.length)
+    expect(harness.captureCharFrame()).toContain(hintText.trim())
   })
 })

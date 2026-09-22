@@ -35,7 +35,7 @@ describe("workspace registry", () => {
   })
 
   it("lists session directories with and without registered paths", async () => {
-    const home = await isolate()
+    await isolate()
     const root = sessionRootDirectory()
     await mkdir(join(root, "known-aaaaaaaaaaaa"), { recursive: true })
     await mkdir(join(root, "legacy-bbbbbbbbbbbb"), { recursive: true })
@@ -47,7 +47,6 @@ describe("workspace registry", () => {
     const legacy = dirs.find((entry) => entry.dirName === "legacy-bbbbbbbbbbbb")
     expect(known?.workspacePath).toBe("/work/known")
     expect(legacy?.workspacePath).toBeUndefined()
-    expect(home).toBeTruthy()
   })
 
   it("registers the workspace marker when a session is opened from a known cwd", async () => {

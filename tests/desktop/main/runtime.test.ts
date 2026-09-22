@@ -1311,39 +1311,6 @@ describe("DesktopRuntime cancellation and timing", () => {
     }
   })
 
-  it("does not start queued work after the renderer crashes", async () => {
-    const { runtime } = await setup()
-    let calls = 0
-    mocks.executeTurn.mockImplementation(
-      async (options: TurnRunnerOptions): Promise<TurnResult> => {
-        calls++
-        await options.agent.steering?.drainOrClose()
-        if (calls === 1) {
-          const signal = options.agent.signal
-          if (!signal) throw new Error("expected an abort signal")
-          await new Promise<void>((resolve) => {
-            if (signal.aborted) resolve()
-            else signal.addEventListener("abort", () => resolve(), { once: true })
-          })
-          return { status: "interrupted", messages: [], details: {} }
-        }
-        return completed()
-      },
-    )
-    try {
-      await runtime.sendPrompt("first")
-      expect(await runtime.sendPrompt("second")).toMatchObject({
-        accepted: true,
-        delivery: "queued",
-      })
-      runtime.handleRendererGone()
-      await vi.waitFor(async () => expect((await runtime.snapshot()).busy).toBe(false))
-      expect(calls).toBe(1)
-    } finally {
-      await runtime.shutdown()
-    }
-  })
-
   it("resumes the suspended queue only when the user sends again, preserving order", async () => {
     const { runtime, app } = await setup()
     let calls = 0

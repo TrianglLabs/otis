@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
 import { findLocalModel } from "../../src/inference/local-catalog.js"
 import type { LocalPickerChoice, ModelPickerItem } from "../../src/inference/picker-catalog.js"
+import { fireworksChoice } from "./support/chat-ui-harness.js"
 import {
-  fireworksChoice,
   getMocks,
   loadCli,
   localSettings,
@@ -789,46 +789,39 @@ describe("interactive CLI setup", () => {
     )
   })
 
-  it("saves the Fast serving path when Fast mode is on and a labeled catalog model is selected", async () => {
-    const kimi = testModel({
-      id: "accounts/fireworks/models/kimi-k3",
-      displayName: "Kimi K3",
-      fastId: "accounts/fireworks/routers/kimi-k3-fast",
-    })
-    mocks.listToolCapableModels.mockResolvedValue([kimi])
-    mocks.loadLocalSettings.mockResolvedValue(localSettings({ fastServingModels: [kimi.id] }))
-    await loadCli()
-    await submit("/model")
-
-    mocks.uiOptions?.onSelectModel?.(fireworksChoice(kimi))
-    await settle()
-
-    expect(mocks.saveSelectedModel).toHaveBeenCalledWith({
-      ...kimi,
+  it.each([
+    {
+      fast: "on",
+      fastServingModels: ["accounts/fireworks/models/kimi-k3"],
       id: "accounts/fireworks/routers/kimi-k3-fast",
-    })
-    expect(mocks.ui.setModelLabel).toHaveBeenLastCalledWith("Kimi K3 Fast")
-    expect(mocks.ui.setCommands).toHaveBeenCalledWith(
-      expect.arrayContaining([expect.objectContaining({ name: "/fast" })]),
-    )
-  })
-
-  it("saves the catalog model when Fast mode is off", async () => {
+      label: "Kimi K3 Fast",
+    },
+    {
+      fast: "off",
+      fastServingModels: [],
+      id: "accounts/fireworks/models/kimi-k3",
+      label: "Kimi K3",
+    },
+  ])("saves the serving path for Fast mode $fast when a labeled catalog model is selected", async ({
+    fastServingModels,
+    id,
+    label,
+  }) => {
     const kimi = testModel({
       id: "accounts/fireworks/models/kimi-k3",
       displayName: "Kimi K3",
       fastId: "accounts/fireworks/routers/kimi-k3-fast",
     })
     mocks.listToolCapableModels.mockResolvedValue([kimi])
-    mocks.loadLocalSettings.mockResolvedValue(localSettings({ fastServingModels: [] }))
+    mocks.loadLocalSettings.mockResolvedValue(localSettings({ fastServingModels }))
     await loadCli()
     await submit("/model")
 
     mocks.uiOptions?.onSelectModel?.(fireworksChoice(kimi))
     await settle()
 
-    expect(mocks.saveSelectedModel).toHaveBeenCalledWith(kimi)
-    expect(mocks.ui.setModelLabel).toHaveBeenLastCalledWith("Kimi K3")
+    expect(mocks.saveSelectedModel).toHaveBeenCalledWith({ ...kimi, id })
+    expect(mocks.ui.setModelLabel).toHaveBeenLastCalledWith(label)
     expect(mocks.ui.setCommands).toHaveBeenCalledWith(
       expect.arrayContaining([expect.objectContaining({ name: "/fast" })]),
     )

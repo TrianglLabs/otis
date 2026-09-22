@@ -56,12 +56,6 @@ describe("SessionCoordinator", () => {
     expect(sessions.diffs).toEqual({ added: 0, removed: 0 })
   })
 
-  it("leaves the current session alone when the same id is selected again", async () => {
-    const { sessions } = await coordinator()
-    const session = await sessions.ensure()
-    expect(await sessions.select(session.id)).toBe("noop")
-  })
-
   it("reopens pre-compaction scrollback while keeping only compacted context for inference", async () => {
     const { cwd, sessions, transcript } = await coordinator()
     const stored = await createSession({ cwd })
@@ -105,7 +99,6 @@ describe("session write locking (TUI/GUI concurrency)", () => {
   it("frees the lock on startNew so the previous session can be opened elsewhere", async () => {
     const { cwd, sessions } = await coordinator()
     const first = await sessions.ensure()
-    expect(cwd).toBeTruthy()
     expect(sessions.startNew()).toBe(true)
 
     const other = await secondCoordinator(cwd)

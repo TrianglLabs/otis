@@ -1,7 +1,5 @@
 import { afterEach, beforeEach, vi } from "vitest"
 import type { LocalModelSpec } from "../../../src/inference/local-catalog.js"
-import type { FireworksPickerChoice } from "../../../src/inference/picker-catalog.js"
-import { matchesFireworksModel } from "../../../src/inference/serving-path.js"
 import type {
   FireworksModel,
   PairCatalogModel,
@@ -457,18 +455,4 @@ export function testPairModel(overrides: Partial<PairCatalogModel> = {}): PairCa
 
 export function clone(value: unknown) {
   return JSON.parse(JSON.stringify(value)) as unknown
-}
-
-/** A Fireworks picker row as the catalog lists it; `currentModel` marks it active. */
-export function fireworksChoice(
-  model: FireworksModel,
-  currentModel?: string,
-): FireworksPickerChoice {
-  return {
-    kind: "model",
-    ...model,
-    provider: "fireworks",
-    available: true,
-    active: currentModel ? matchesFireworksModel(model, currentModel) : false,
-  }
 }

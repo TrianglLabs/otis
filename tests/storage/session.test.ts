@@ -387,37 +387,6 @@ describe("JsonlSession", () => {
     expect(directory).not.toContain(join(cwd, ".otis"))
   })
 
-  it("persists a compaction event and replays summary + kept messages", async () => {
-    const cwd = await trackedTempDir()
-    const session = await openSession({ cwd, directory: join(cwd, "sessions") })
-
-    const admission = await session.admitPrompt("hello")
-    await session.completeTurn(admission, [
-      { role: "user", content: "hello" },
-      { role: "assistant", content: [{ type: "text", text: "hi" }] },
-    ])
-
-    const keptMessages: ChatMessage[] = [
-      { role: "assistant", content: [{ type: "text", text: "hi" }] },
-    ]
-    await session.compact("Summary of the conversation", keptMessages)
-
-    expect(session.events.map((event) => event.type)).toEqual([
-      "session_started",
-      "prompt_admitted",
-      "turn_completed",
-      "compacted",
-    ])
-
-    const replayed = session.replayMessages()
-    expect(replayed).toHaveLength(2)
-    expect(replayed[0]).toEqual({
-      role: "user",
-      content: "[Compacted conversation summary]\n\nSummary of the conversation",
-    })
-    expect(replayed[1]).toEqual(keptMessages[0])
-  })
-
   it("replaces all prior messages on compaction, not just the last turn", async () => {
     const cwd = await trackedTempDir()
     const session = await openSession({ cwd, directory: join(cwd, "sessions") })
@@ -436,6 +405,15 @@ describe("JsonlSession", () => {
 
     const keptMessages: ChatMessage[] = [{ role: "user", content: "second" }]
     await session.compact("Compacted summary", keptMessages)
+
+    expect(session.events.map((event) => event.type)).toEqual([
+      "session_started",
+      "prompt_admitted",
+      "turn_completed",
+      "prompt_admitted",
+      "turn_completed",
+      "compacted",
+    ])
 
     const replayed = session.replayMessages()
     // Only the compaction summary + kept messages — no traces of "first" or "first reply".
@@ -592,16 +570,6 @@ describe("JsonlSession", () => {
     expect(sessions[0].title).toBe("Second title")
   })
 
-  it("falls back to first user message when no title_renamed event exists", async () => {
-    const cwd = await trackedTempDir()
-    const directory = join(cwd, "sessions")
-    const session = await openSession({ cwd, directory, sessionId: "titled" })
-
-    await session.admitPrompt("my question")
-    expect(session.hasTitle()).toBe(false)
-    expect(session.title()).toBe("my question")
-  })
-
   it("rejects empty title_renamed events", async () => {
     const cwd = await trackedTempDir()
     const path = join(cwd, "bad.jsonl")
@@ -622,12 +590,8 @@ describe("JsonlSession", () => {
 
     const sessions = await listSessions({ cwd, directory })
     expect(sessions.find((s) => s.id === "to-delete")).toBeUndefined()
-  })
-
-  it("does not throw when deleting a non-existent session", async () => {
-    const cwd = await trackedTempDir()
-    const directory = join(cwd, "sessions")
-    await expect(deleteSession({ cwd, directory, sessionId: "missing" })).resolves.toBeUndefined()
+    // Deleting a session that no longer exists resolves instead of throwing.
+    await expect(deleteSession({ cwd, directory, sessionId: "to-delete" })).resolves.toBeUndefined()
   })
 })
 

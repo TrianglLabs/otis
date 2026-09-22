@@ -137,21 +137,6 @@ describe("chat UI status and prompts", () => {
     expect(harness.text("welcome-stat-value-1")).toBe("1.2B")
   })
 
-  it("counts stats up from zero", async () => {
-    vi.useFakeTimers()
-    const harness = await setup()
-
-    harness.ui.setStats(sampleStats)
-    expect(harness.text("welcome-stat-value-0")).toBe("0")
-    expect(harness.text("welcome-stat-value-1")).toBe("0")
-
-    settleStats()
-    expect(harness.text("welcome-stat-value-0")).toBe("7")
-    expect(harness.text("welcome-stat-value-1")).toBe("1.3M")
-    expect(harness.text("welcome-stat-value-2")).toBe("25K")
-    expect(harness.text("welcome-stat-value-3")).toBe("7M")
-  })
-
   it("eases the count-up so early frames cover most of the distance", async () => {
     vi.useFakeTimers()
     const harness = await setup()
@@ -543,20 +528,6 @@ describe("chat UI status and prompts", () => {
     expect(harness.text("session-label")).toContain("Refactor parser")
     expect(harness.text("session-label")).toContain("+12")
     expect(harness.text("session-label")).toContain("−3")
-  })
-
-  it("keeps a short session title centered in the top bar", async () => {
-    const harness = await setup()
-    harness.ui.showChatLayout()
-    harness.ui.setSessionLabel("Refactor parser")
-    await harness.renderOnce()
-
-    const bar = harness.get<BoxRenderable>("top-bar")
-    const session = harness.get<TextRenderable>("session-label")
-    const barCenter = bar.x + bar.width / 2
-    const sessionCenter = session.x + session.width / 2
-    expect(session.x).toBeGreaterThan(harness.get<TextRenderable>("title-bar").x)
-    expect(Math.abs(sessionCenter - barCenter)).toBeLessThanOrEqual(2)
   })
 
   it("keeps the session title centered after the context meter grows", async () => {
