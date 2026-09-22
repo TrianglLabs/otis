@@ -3,8 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { ArtifactPublisher } from "../../src/artifacts/publisher.js"
-import { type AgentEvent, runAgent } from "../../src/core/agent.js"
-import { SteeringInbox } from "../../src/core/steering.js"
+import { type AgentEvent, runAgent, SteeringInbox } from "../../src/core/agent.js"
 import type { FireworksClient } from "../../src/inference/client.js"
 import { createDocumentAttachment } from "../../src/inference/documents.js"
 import { createPermissionPolicy, type PermissionRequest } from "../../src/permissions/policy.js"
@@ -12,11 +11,15 @@ import { emptySkillCatalog } from "../../src/skills/index.js"
 import { minimalDocx } from "../inference/support/document-fixtures.js"
 
 const streamAgentMock = vi.hoisted(() => vi.fn())
-const client = { model: "accounts/fireworks/models/test", streamChat: streamAgentMock } as unknown as FireworksClient
+const client = {
+  model: "accounts/fireworks/models/test",
+  streamChat: streamAgentMock,
+} as unknown as FireworksClient
 
 const tempDirs: string[] = []
 
 afterEach(async () => {
+  vi.useRealTimers()
   streamAgentMock.mockReset()
   await Promise.all(tempDirs.splice(0).map((path) => rm(path, { recursive: true, force: true })))
 })
@@ -47,19 +50,30 @@ describe("runAgent", () => {
         yield { type: "text_delta", text: "Created the adapted Word document." }
       })
     const events = await collect(
-      runAgent({ role: "user", content: [attachment, { type: "text", text: "Adapt my resume" }] }, [], {
-        client,
-        cwd,
-        artifactPublisher: new ArtifactPublisher(join(cwd, "private-artifacts")),
-      }),
+      runAgent(
+        { role: "user", content: [attachment, { type: "text", text: "Adapt my resume" }] },
+        [],
+        {
+          client,
+          cwd,
+          artifactPublisher: new ArtifactPublisher(join(cwd, "private-artifacts")),
+        },
+      ),
     )
     expect(await readFile(join(cwd, "source.docx"))).toEqual(Buffer.from(source))
-    const edited = await createDocumentAttachment(await readFile(join(cwd, "adapted.docx")), "adapted.docx")
+    const edited = await createDocumentAttachment(
+      await readFile(join(cwd, "adapted.docx")),
+      "adapted.docx",
+    )
     expect(edited.extractedText).toBe("Experienced software engineer")
     const tools = events.filter((event) => event.type === "tool" && event.phase === "end")
     expect(tools).toHaveLength(3)
-    expect(tools.every((event) => event.type === "tool" && event.outcome === "completed")).toBe(true)
-    expect(tools.at(-1)).toMatchObject({ artifact: { source: "published", kind: "docx", name: "adapted.docx" } })
+    expect(tools.every((event) => event.type === "tool" && event.outcome === "completed")).toBe(
+      true,
+    )
+    expect(tools.at(-1)).toMatchObject({
+      artifact: { source: "published", kind: "docx", name: "adapted.docx" },
+    })
   })
 
   it.each([
@@ -75,14 +89,19 @@ describe("runAgent", () => {
       .mockImplementationOnce(async function* () {
         yield {
           type: "tool_call",
-          toolCall: { id: "publish_1", name: "publish_artifact", arguments: JSON.stringify({ path }) },
+          toolCall: {
+            id: "publish_1",
+            name: "publish_artifact",
+            arguments: JSON.stringify({ path }),
+          },
         }
       })
       .mockImplementationOnce(async function* (request) {
         expect(JSON.stringify(request.messages)).not.toContain("Private preview content")
         yield { type: "text_delta", text: "Done." }
       })
-    const onPermissionRequest = mode === "headless" ? undefined : vi.fn(async () => mode === "approve")
+    const onPermissionRequest =
+      mode === "headless" ? undefined : vi.fn(async () => mode === "approve")
     const events = await collect(
       runAgent("Present the page", [], {
         client,
@@ -95,7 +114,8 @@ describe("runAgent", () => {
     )
     const end = events.find((event) => event.type === "tool" && event.phase === "end")
     expect(end).toMatchObject({ outcome: mode === "approve" ? "completed" : "denied" })
-    if (mode === "approve") expect(end).toMatchObject({ artifact: { source: "published", name: "result.html" } })
+    if (mode === "approve")
+      expect(end).toMatchObject({ artifact: { source: "published", name: "result.html" } })
     else expect(end).toMatchObject({ artifact: undefined })
     if (onPermissionRequest) expect(onPermissionRequest).toHaveBeenCalledOnce()
   })
@@ -103,7 +123,10 @@ describe("runAgent", () => {
   it("does not execute a tool omitted from the enabled tool definitions", async () => {
     streamAgentMock
       .mockImplementationOnce(async function* () {
-        yield { type: "tool_call", toolCall: { id: "call_1", name: "bash", arguments: '{"command":"exit 9"}' } }
+        yield {
+          type: "tool_call",
+          toolCall: { id: "call_1", name: "bash", arguments: '{"command":"exit 9"}' },
+        }
       })
       .mockImplementationOnce(async function* (request) {
         expect(request.messages).toContainEqual({
@@ -128,7 +151,10 @@ describe("runAgent", () => {
       .mockImplementationOnce(async function* (request) {
         requests.push(clone(request))
         yield { type: "text_delta", text: "I'll inspect that first." }
-        yield { type: "tool_call", toolCall: { id: "call_1", name: "read", arguments: '{"path":"note.txt"}' } }
+        yield {
+          type: "tool_call",
+          toolCall: { id: "call_1", name: "read", arguments: '{"path":"note.txt"}' },
+        }
       })
       .mockImplementationOnce(async function* (request) {
         requests.push(clone(request))
@@ -138,14 +164,18 @@ describe("runAgent", () => {
     const events = await collect(runAgent("read the note", [], { client, cwd }))
     const complete = events.find((event) => event.type === "complete")
     const toolCallMessage = complete?.messages.find(
-      (message) => message.role === "assistant" && message.content.some((part) => part.type === "tool_call"),
+      (message) =>
+        message.role === "assistant" && message.content.some((part) => part.type === "tool_call"),
     )
 
     expect(toolCallMessage).toMatchObject({
       role: "assistant",
       content: [
         { type: "text", text: "I'll inspect that first." },
-        { type: "tool_call", toolCall: { id: "call_1", name: "read", arguments: '{"path":"note.txt"}' } },
+        {
+          type: "tool_call",
+          toolCall: { id: "call_1", name: "read", arguments: '{"path":"note.txt"}' },
+        },
       ],
     })
     expect(requests[0]).toMatchObject({
@@ -160,8 +190,15 @@ describe("runAgent", () => {
     streamAgentMock
       .mockImplementationOnce(async function* (request) {
         requests.push(clone(request) as StreamAgentRequest)
-        yield { type: "reasoning_delta", text: "I need the file contents.", field: "reasoning_content" }
-        yield { type: "tool_call", toolCall: { id: "call_1", name: "read", arguments: '{"path":"note.txt"}' } }
+        yield {
+          type: "reasoning_delta",
+          text: "I need the file contents.",
+          field: "reasoning_content",
+        }
+        yield {
+          type: "tool_call",
+          toolCall: { id: "call_1", name: "read", arguments: '{"path":"note.txt"}' },
+        }
       })
       .mockImplementationOnce(async function* (request) {
         requests.push(clone(request) as StreamAgentRequest)
@@ -171,12 +208,17 @@ describe("runAgent", () => {
     const events = await collect(runAgent("read the note", [], { client, cwd }))
     const assistant = requests[1]?.messages.find((message) => message.role === "assistant")
 
-    expect(events.some((event) => event.type === "delta" && event.text.includes("I need"))).toBe(false)
+    expect(events.some((event) => event.type === "delta" && event.text.includes("I need"))).toBe(
+      false,
+    )
     expect(assistant).toMatchObject({
       role: "assistant",
       content: [
         { type: "reasoning", text: "I need the file contents.", field: "reasoning_content" },
-        { type: "tool_call", toolCall: { id: "call_1", name: "read", arguments: '{"path":"note.txt"}' } },
+        {
+          type: "tool_call",
+          toolCall: { id: "call_1", name: "read", arguments: '{"path":"note.txt"}' },
+        },
       ],
     })
   })
@@ -248,7 +290,10 @@ describe("runAgent", () => {
     streamAgentMock
       .mockImplementationOnce(async function* (request) {
         requests.push(clone(request) as StreamAgentRequest)
-        yield { type: "tool_call", toolCall: { id: "call_1", name: "read", arguments: '{"path":"note.txt"}' } }
+        yield {
+          type: "tool_call",
+          toolCall: { id: "call_1", name: "read", arguments: '{"path":"note.txt"}' },
+        }
         steering.accept({ role: "user", content: "Also check the tests." })
       })
       .mockImplementationOnce(async function* (request) {
@@ -287,12 +332,91 @@ describe("runAgent", () => {
     expect(assistant).toMatchObject({
       role: "assistant",
       content: [
-        { type: "reasoning", text: "First thought.", field: "reasoning_content", id: expect.any(String) },
+        {
+          type: "reasoning",
+          text: "First thought.",
+          field: "reasoning_content",
+          id: expect.any(String),
+        },
         { type: "text", text: "Interim. " },
-        { type: "reasoning", text: "Second thought.", field: "reasoning_content", id: expect.any(String) },
+        {
+          type: "reasoning",
+          text: "Second thought.",
+          field: "reasoning_content",
+          id: expect.any(String),
+        },
         { type: "text", text: "Final answer." },
       ],
     })
+  })
+
+  it("coalesces adjacent deltas and times each reasoning block", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-08-06T12:00:00.000Z"))
+    streamAgentMock.mockImplementationOnce(async function* () {
+      yield { type: "reasoning_delta", text: "First ", field: "reasoning_content" }
+      yield { type: "reasoning_delta", text: "thought.", field: "reasoning_content" }
+      vi.setSystemTime(new Date("2026-08-06T12:00:00.500Z"))
+      yield { type: "text_delta", text: "Interim. " }
+      yield { type: "text_delta", text: "More." }
+      vi.setSystemTime(new Date("2026-08-06T12:00:01.000Z"))
+      yield { type: "reasoning_delta", text: "Second thought.", field: "reasoning_text" }
+      vi.setSystemTime(new Date("2026-08-06T12:00:02.000Z"))
+    })
+
+    const events = await collect(runAgent("think", [], { client }))
+    const reasoning = events.filter((event) => event.type === "reasoning")
+    const [first, second] = [...new Set(reasoning.map((event) => event.reasoningId))]
+
+    expect(first).not.toBe(second)
+    expect(reasoning).toMatchObject([
+      {
+        phase: "start",
+        reasoningId: first,
+        field: "reasoning_content",
+        startedAt: "2026-08-06T12:00:00.000Z",
+      },
+      { phase: "delta", reasoningId: first, text: "First " },
+      { phase: "delta", reasoningId: first, text: "thought." },
+      { phase: "end", reasoningId: first, endedAt: "2026-08-06T12:00:00.500Z", durationMs: 500 },
+      {
+        phase: "start",
+        reasoningId: second,
+        field: "reasoning_text",
+        startedAt: "2026-08-06T12:00:01.000Z",
+      },
+      { phase: "delta", reasoningId: second, text: "Second thought." },
+      { phase: "end", reasoningId: second, endedAt: "2026-08-06T12:00:02.000Z", durationMs: 1_000 },
+    ])
+    expect(events.filter((event) => event.type === "delta").map((event) => event.text)).toEqual([
+      "Interim. ",
+      "More.",
+    ])
+    expect(events.find((event) => event.type === "complete")?.messages).toEqual([
+      { role: "user", content: "think" },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "reasoning",
+            id: first,
+            field: "reasoning_content",
+            text: "First thought.",
+            startedAt: "2026-08-06T12:00:00.000Z",
+            endedAt: "2026-08-06T12:00:00.500Z",
+          },
+          { type: "text", text: "Interim. More." },
+          {
+            type: "reasoning",
+            id: second,
+            field: "reasoning_text",
+            text: "Second thought.",
+            startedAt: "2026-08-06T12:00:01.000Z",
+            endedAt: "2026-08-06T12:00:02.000Z",
+          },
+        ],
+      },
+    ])
   })
 
   it("returns provider-valid progress when interrupted after completed tool work", async () => {
@@ -303,7 +427,10 @@ describe("runAgent", () => {
     streamAgentMock
       .mockImplementationOnce(async function* () {
         yield { type: "text_delta", text: "I'll inspect that first." }
-        yield { type: "tool_call", toolCall: { id: "call_1", name: "read", arguments: '{"path":"note.txt"}' } }
+        yield {
+          type: "tool_call",
+          toolCall: { id: "call_1", name: "read", arguments: '{"path":"note.txt"}' },
+        }
       })
       .mockImplementationOnce(async function* () {
         yield { type: "reasoning_delta", text: "The file confirms it.", field: "reasoning_content" }
@@ -312,7 +439,9 @@ describe("runAgent", () => {
         throw new Error("request aborted")
       })
 
-    const events = await collect(runAgent("read the note", [], { client, cwd, signal: controller.signal }))
+    const events = await collect(
+      runAgent("read the note", [], { client, cwd, signal: controller.signal }),
+    )
     const interrupted = events.find((event) => event.type === "interrupted")
 
     expect(interrupted?.messages).toMatchObject([
@@ -321,7 +450,10 @@ describe("runAgent", () => {
         role: "assistant",
         content: [
           { type: "text", text: "I'll inspect that first." },
-          { type: "tool_call", toolCall: { id: "call_1", name: "read", arguments: '{"path":"note.txt"}' } },
+          {
+            type: "tool_call",
+            toolCall: { id: "call_1", name: "read", arguments: '{"path":"note.txt"}' },
+          },
         ],
       },
       { role: "tool", toolCallId: "call_1", content: expect.stringContaining("tool result") },
@@ -339,19 +471,29 @@ describe("runAgent", () => {
   it("closes tool calls that were streamed just before interruption", async () => {
     const controller = new AbortController()
     streamAgentMock.mockImplementationOnce(async function* () {
-      yield { type: "tool_call", toolCall: { id: "call_1", name: "read", arguments: '{"path":"note.txt"}' } }
+      yield {
+        type: "tool_call",
+        toolCall: { id: "call_1", name: "read", arguments: '{"path":"note.txt"}' },
+      }
       controller.abort()
       throw new Error("request aborted")
     })
 
-    const events = await collect(runAgent("read the note", [], { client, signal: controller.signal }))
+    const events = await collect(
+      runAgent("read the note", [], { client, signal: controller.signal }),
+    )
     const interrupted = events.find((event) => event.type === "interrupted")
 
     expect(interrupted?.messages).toEqual([
       { role: "user", content: "read the note" },
       {
         role: "assistant",
-        content: [{ type: "tool_call", toolCall: { id: "call_1", name: "read", arguments: '{"path":"note.txt"}' } }],
+        content: [
+          {
+            type: "tool_call",
+            toolCall: { id: "call_1", name: "read", arguments: '{"path":"note.txt"}' },
+          },
+        ],
       },
       { role: "tool", toolCallId: "call_1", content: "Tool call interrupted by user." },
     ])
@@ -371,11 +513,16 @@ describe("runAgent", () => {
 
   it("asks permission before destructive tools and skips execution when denied", async () => {
     const cwd = await trackedTempDir()
-    const onPermissionRequest = vi.fn<(request: PermissionRequest) => Promise<boolean>>(async () => false)
+    const onPermissionRequest = vi.fn<(request: PermissionRequest) => Promise<boolean>>(
+      async () => false,
+    )
 
     streamAgentMock
       .mockImplementationOnce(async function* () {
-        yield { type: "tool_call", toolCall: { id: "call_1", name: "bash", arguments: '{"command":"rm -rf /"}' } }
+        yield {
+          type: "tool_call",
+          toolCall: { id: "call_1", name: "bash", arguments: '{"command":"rm -rf /"}' },
+        }
       })
       .mockImplementationOnce(async function* () {
         yield { type: "text_delta", text: "Okay, I won't." }
@@ -397,13 +544,19 @@ describe("runAgent", () => {
   it("executes destructive tools when permission is granted", async () => {
     const cwd = await trackedTempDir()
     await writeFile(join(cwd, "target.txt"), "old", "utf8")
-    const onPermissionRequest = vi.fn<(request: PermissionRequest) => Promise<boolean>>(async () => true)
+    const onPermissionRequest = vi.fn<(request: PermissionRequest) => Promise<boolean>>(
+      async () => true,
+    )
 
     streamAgentMock
       .mockImplementationOnce(async function* () {
         yield {
           type: "tool_call",
-          toolCall: { id: "call_1", name: "write", arguments: '{"path":"target.txt","content":"new"}' },
+          toolCall: {
+            id: "call_1",
+            name: "write",
+            arguments: '{"path":"target.txt","content":"new"}',
+          },
         }
       })
       .mockImplementationOnce(async function* () {
@@ -411,7 +564,9 @@ describe("runAgent", () => {
       })
 
     const permissionPolicy = createPermissionPolicy({ cwd, mode: "ask" })
-    const events = await collect(runAgent("write the file", [], { client, cwd, permissionPolicy, onPermissionRequest }))
+    const events = await collect(
+      runAgent("write the file", [], { client, cwd, permissionPolicy, onPermissionRequest }),
+    )
 
     expect(onPermissionRequest).toHaveBeenCalledOnce()
     expect(onPermissionRequest.mock.calls[0][0]).toMatchObject({ call: { name: "write" } })
@@ -420,8 +575,18 @@ describe("runAgent", () => {
       ?.messages.find((message) => message.role === "tool")
     expect(toolMessage?.content).toContain("Wrote 3 characters")
     expect(events.filter((event) => event.type === "tool")).toMatchObject([
-      { phase: "start", toolCallId: "call_1", activityKind: "file_write", label: "Writing file: target.txt" },
-      { phase: "end", toolCallId: "call_1", activityKind: "file_write", diff: expect.stringContaining("+new") },
+      {
+        phase: "start",
+        toolCallId: "call_1",
+        activityKind: "file_write",
+        label: "Writing file: target.txt",
+      },
+      {
+        phase: "end",
+        toolCallId: "call_1",
+        activityKind: "file_write",
+        diff: expect.stringContaining("+new"),
+      },
     ])
   })
 
@@ -431,7 +596,10 @@ describe("runAgent", () => {
     streamAgentMock
       .mockImplementationOnce(async function* () {
         yield { type: "text_delta", text: "I'll inspect that." }
-        yield { type: "tool_call", toolCall: { id: "call_1", name: "read", arguments: '{"path":"note.txt"}' } }
+        yield {
+          type: "tool_call",
+          toolCall: { id: "call_1", name: "read", arguments: '{"path":"note.txt"}' },
+        }
       })
       .mockImplementationOnce(async function* () {
         yield { type: "text_delta", text: "Done." }
@@ -451,7 +619,9 @@ describe("runAgent", () => {
   it("does not ask permission for read-only tools", async () => {
     const cwd = await trackedTempDir()
     await writeFile(join(cwd, "note.txt"), "hello world", "utf8")
-    const onPermissionRequest = vi.fn<(request: PermissionRequest) => Promise<boolean>>(async () => true)
+    const onPermissionRequest = vi.fn<(request: PermissionRequest) => Promise<boolean>>(
+      async () => true,
+    )
 
     const calls = [
       { id: "call_read", name: "read", arguments: '{"path":"note.txt"}' },
@@ -475,18 +645,25 @@ describe("runAgent", () => {
 
   it("asks permission for every bash command, including read-only ones", async () => {
     const cwd = await trackedTempDir()
-    const onPermissionRequest = vi.fn<(request: PermissionRequest) => Promise<boolean>>(async () => false)
+    const onPermissionRequest = vi.fn<(request: PermissionRequest) => Promise<boolean>>(
+      async () => false,
+    )
 
     streamAgentMock
       .mockImplementationOnce(async function* () {
-        yield { type: "tool_call", toolCall: { id: "call_1", name: "bash", arguments: '{"command":"ls -la"}' } }
+        yield {
+          type: "tool_call",
+          toolCall: { id: "call_1", name: "bash", arguments: '{"command":"ls -la"}' },
+        }
       })
       .mockImplementationOnce(async function* () {
         yield { type: "text_delta", text: "Okay." }
       })
 
     const permissionPolicy = createPermissionPolicy({ cwd, mode: "ask" })
-    await collect(runAgent("list files", [], { client, cwd, permissionPolicy, onPermissionRequest }))
+    await collect(
+      runAgent("list files", [], { client, cwd, permissionPolicy, onPermissionRequest }),
+    )
 
     expect(onPermissionRequest).toHaveBeenCalledOnce()
     expect(onPermissionRequest.mock.calls[0][0]).toMatchObject({ call: { name: "bash" } })
@@ -550,7 +727,10 @@ describe("runAgent", () => {
     streamAgentMock
       .mockImplementationOnce(async function* (request) {
         requests.push(clone(request) as StreamAgentRequest)
-        yield { type: "tool_call", toolCall: { id: "call_skill", name: "skill", arguments: '{"skill":"review"}' } }
+        yield {
+          type: "tool_call",
+          toolCall: { id: "call_skill", name: "skill", arguments: '{"skill":"review"}' },
+        }
       })
       .mockImplementationOnce(async function* (request) {
         requests.push(clone(request) as StreamAgentRequest)
@@ -560,9 +740,13 @@ describe("runAgent", () => {
     const events = await collect(runAgent("review this", [], { client, cwd }))
 
     expect(requests[0].skills).toEqual(
-      expect.arrayContaining([expect.objectContaining({ name: "review", description: "Review code changes." })]),
+      expect.arrayContaining([
+        expect.objectContaining({ name: "review", description: "Review code changes." }),
+      ]),
     )
-    expect(requests[0].tools).toEqual(expect.arrayContaining([expect.objectContaining({ name: "skill" })]))
+    expect(requests[0].tools).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "skill" })]),
+    )
     expect(requests[1].messages).toContainEqual(
       expect.objectContaining({
         role: "tool",
@@ -575,7 +759,9 @@ describe("runAgent", () => {
 
   it("does not expose the skill tool when no skills are available", async () => {
     streamAgentMock.mockImplementationOnce(async function* (request) {
-      expect(request.tools).not.toEqual(expect.arrayContaining([expect.objectContaining({ name: "skill" })]))
+      expect(request.tools).not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ name: "skill" })]),
+      )
       yield { type: "text_delta", text: "Done." }
     })
 

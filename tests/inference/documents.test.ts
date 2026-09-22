@@ -15,7 +15,11 @@ describe("document attachments", () => {
   it("preserves original text bytes and derives portable model text", async () => {
     const bytes = new TextEncoder().encode("# Notes\r\n\r\nHello from Otis.\r\n")
 
-    const document = await createDocumentAttachment(bytes, "notes.md", "text/markdown; charset=utf-8")
+    const document = await createDocumentAttachment(
+      bytes,
+      "notes.md",
+      "text/markdown; charset=utf-8",
+    )
 
     expect(document).toMatchObject({
       type: "document",
@@ -101,18 +105,21 @@ describe("document attachments", () => {
     await expect(
       createDocumentAttachment(new TextEncoder().encode("not a pdf"), "fake.pdf", PDF_MIME_TYPE),
     ).rejects.toThrow("not a valid PDF")
-    await expect(createDocumentAttachment(new Uint8Array([0, 1, 2, 3]), "blob.txt")).rejects.toThrow(
-      "not a UTF-8 text file",
-    )
+    await expect(
+      createDocumentAttachment(new Uint8Array([0, 1, 2, 3]), "blob.txt"),
+    ).rejects.toThrow("not a UTF-8 text file")
     await expect(createDocumentAttachment(new Uint8Array(), "empty.txt")).rejects.toThrow("empty")
-    await expect(createDocumentAttachment(new Uint8Array([1]), "old.doc", "application/msword")).rejects.toThrow(
-      "Legacy Word .doc",
-    )
+    await expect(
+      createDocumentAttachment(new Uint8Array([1]), "old.doc", "application/msword"),
+    ).rejects.toThrow("Legacy Word .doc")
   })
 
   it("validates aggregate limits and parses shell-escaped document paths", async () => {
     const document = await createDocumentAttachment(new TextEncoder().encode("small"), "small.txt")
-    const tooMany = Array.from({ length: 11 }, (_, index) => ({ ...document, name: `${index}.txt` }))
+    const tooMany = Array.from({ length: 11 }, (_, index) => ({
+      ...document,
+      name: `${index}.txt`,
+    }))
 
     expect(() => validateDocumentAttachments(tooMany)).toThrow("at most 10 documents")
     expect(parsePastedAttachmentPaths("'notes one.md' report.pdf photo.png")).toEqual([

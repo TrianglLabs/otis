@@ -24,7 +24,11 @@ describe("LlamaCppClient", () => {
         {
           role: "assistant" as const,
           content: [
-            { type: "reasoning" as const, text: "Prior reasoning", field: "reasoning_content" as const },
+            {
+              type: "reasoning" as const,
+              text: "Prior reasoning",
+              field: "reasoning_content" as const,
+            },
             { type: "text" as const, text: "Prior answer" },
           ],
         },
@@ -36,7 +40,9 @@ describe("LlamaCppClient", () => {
     expect(requests[0]).toEqual(requests[1])
     expect(requests[0]).toMatchObject({
       reasoning_effort: "medium",
-      messages: expect.arrayContaining([expect.objectContaining({ reasoning_content: "Prior reasoning" })]),
+      messages: expect.arrayContaining([
+        expect.objectContaining({ reasoning_content: "Prior reasoning" }),
+      ]),
     })
     level = "off"
     await client.streamChat(options).next()
@@ -74,7 +80,10 @@ describe("LlamaCppClient", () => {
     expect(body).not.toHaveProperty("service_tier")
     expect(body).not.toHaveProperty("reasoning_effort")
     expect(body.tools).toEqual([
-      { type: "function", function: { name: "read", description: "Read a file", parameters: { type: "object" } } },
+      {
+        type: "function",
+        function: { name: "read", description: "Read a file", parameters: { type: "object" } },
+      },
     ])
   })
 
@@ -91,13 +100,18 @@ describe("LlamaCppClient", () => {
 
 describe("local request token counting", () => {
   it("counts the identical serialized request using the serving model without generating output", async () => {
-    const requests: Array<{ url: string; body: unknown; signal: AbortSignal | null | undefined }> = []
+    const requests: Array<{ url: string; body: unknown; signal: AbortSignal | null | undefined }> =
+      []
     const client = new LlamaCppClient({
       model: "local",
       inferenceURL: "http://127.0.0.1:1234/v1/chat/completions",
       apiKey: "test-only",
       fetch: async (url, init) => {
-        requests.push({ url: String(url), body: JSON.parse(String(init?.body)), signal: init?.signal })
+        requests.push({
+          url: String(url),
+          body: JSON.parse(String(init?.body)),
+          signal: init?.signal,
+        })
         expect(init?.headers).toMatchObject({ authorization: "Bearer test-only" })
         return String(url).endsWith("/input_tokens")
           ? Response.json({ input_tokens: 321 })

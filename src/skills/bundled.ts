@@ -7,7 +7,7 @@ import pdfEditScript from "./bundled/documents/pdf_edit.py" with { type: "text" 
 import requirements from "./bundled/documents/requirements.txt" with { type: "text" }
 import instructions from "./bundled/documents/SKILL.md" with { type: "text" }
 import specification from "./bundled/documents/spec.md" with { type: "text" }
-import type { Skill } from "./types.js"
+import type { Skill } from "./catalog.js"
 
 const resources: Readonly<Record<string, string>> = {
   "SKILL.md": instructions,
@@ -32,21 +32,22 @@ export function bundledSkills(dataDirectory = localDataDirectory()): Skill[] {
   ]
 }
 
-/** No installs or execution: loading a skill only exposes the exact helpers embedded in this release. */
+/**
+ * No installs or execution: loading a skill only exposes the exact helpers embedded in this
+ * release.
+ */
 export async function materializeBundledSkill(skill: Skill) {
-  if (skill.name !== "documents") throw new Error(`Unknown bundled skill: ${skill.name}`)
   const base = dirname(dirname(dirname(skill.root)))
   await mkdir(base, { recursive: true, mode: 0o700 })
   let root = await realpath(base)
+  // Create each segment without following links so a swapped-in symlink cannot redirect the cache.
   for (const segment of ["bundled-skills", revision, "documents"]) {
     root = join(root, segment)
     await mkdir(root, { mode: 0o700 }).catch((error) => {
       if (!isExists(error)) throw error
     })
-    const directory = await lstat(root)
-    if (!directory.isDirectory() || directory.isSymbolicLink()) {
+    if (!(await lstat(root)).isDirectory())
       throw new Error("Bundled skill directory resolves through a symlink.")
-    }
   }
   for (const [name, contents] of Object.entries(resources)) {
     const path = join(root, name)

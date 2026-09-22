@@ -17,7 +17,10 @@ export function App() {
   return <AppShell />
 }
 
-/** Shown when the preload bridge is missing outside demo mode. A broken bridge is loud, never disguised. */
+/**
+ * Shown when the preload bridge is missing outside demo mode. A broken bridge is loud, never
+ * disguised.
+ */
 export function BridgeMissing() {
   const { t } = useI18n()
   return (

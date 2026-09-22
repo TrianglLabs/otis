@@ -1,5 +1,5 @@
 import { realpath } from "node:fs/promises"
-import { basename, dirname, isAbsolute, relative, resolve } from "node:path"
+import { basename, dirname, extname, isAbsolute, relative, resolve } from "node:path"
 import type { ToolContext } from "./types.js"
 
 export async function resolveWorkspacePath(
@@ -10,23 +10,22 @@ export async function resolveWorkspacePath(
   const root = await realpath(resolve(context.cwd ?? process.cwd()))
   const requested = resolve(root, path)
   assertInsideWorkspace(root, requested)
-
-  if (!options.allowMissingLeaf) {
-    const target = await realpath(requested)
-    assertInsideWorkspace(root, target)
-    return target
-  }
-
   try {
     const target = await realpath(requested)
     assertInsideWorkspace(root, target)
     return target
   } catch (error) {
-    if (!isNotFoundError(error)) throw error
+    if (!options.allowMissingLeaf || !isNotFoundError(error)) throw error
     const parent = await realpath(dirname(requested))
     assertInsideWorkspace(root, parent)
     return resolve(parent, basename(requested))
   }
+}
+
+/** Deterministic default lets permission checks describe the file before the tool executes. */
+export function editedDocumentPath(path: string) {
+  const extension = extname(path)
+  return `${path.slice(0, path.length - extension.length)}-edited${extension}`
 }
 
 export function isNotFoundError(error: unknown) {

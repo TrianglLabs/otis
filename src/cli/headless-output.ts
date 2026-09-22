@@ -1,10 +1,10 @@
 import type { AgentEvent } from "../core/agent.js"
 import type { OpenAICompatibleReasoningField, TokenUsage } from "../inference/types.js"
 
-export const HEADLESS_EVENT_VERSION = 1
+const HEADLESS_EVENT_VERSION = 1
 export type HeadlessOutputFormat = "plain" | "json" | "jsonl"
 
-export type HeadlessResult = {
+type HeadlessResult = {
   status: "complete" | "interrupted" | "error"
   output: string
   sessionId?: string
@@ -14,7 +14,7 @@ export type HeadlessResult = {
   error?: string
 }
 
-export type HeadlessReasoningTrace = {
+type HeadlessReasoningTrace = {
   id: string
   field: OpenAICompatibleReasoningField
   text: string
@@ -39,7 +39,31 @@ export class HeadlessReporter {
   ) {}
 
   async event(event: AgentEvent) {
-    if (event.type === "reasoning" && this.options.includeReasoning) await this.reasoningEvent(event)
+    if (event.type === "reasoning" && this.options.includeReasoning) {
+      if (event.phase === "start") {
+        this.#reasoning.set(event.reasoningId, {
+          id: event.reasoningId,
+          field: event.field,
+          text: "",
+          startedAt: event.startedAt,
+        })
+      } else if (event.phase === "delta") {
+        const trace = this.#reasoning.get(event.reasoningId)
+        if (trace) trace.text += event.text
+      } else {
+        const trace = this.#reasoning.get(event.reasoningId)
+        if (trace) {
+          trace.endedAt = event.endedAt
+          trace.durationMs = event.durationMs
+          if (this.format === "plain" && trace.text) {
+            await writeOutput(
+              this.stderr,
+              `Thinking:\n${trace.text}${trace.text.endsWith("\n") ? "" : "\n"}`,
+            )
+          }
+        }
+      }
+    }
     if (this.format === "jsonl") {
       const payload = publicEvent(event, this.options.includeReasoning === true)
       if (payload) await this.writeJsonLine(payload)
@@ -48,7 +72,10 @@ export class HeadlessReporter {
     if (this.format === "plain") await this.plainToolEvent(event)
   }
 
-  /** Plain output shows tool progress only; a subagent's tools appear indented beneath its delegating call. */
+  /**
+   * Plain output shows tool progress only; a subagent's tools appear indented beneath its
+   * delegating call.
+   */
   private async plainToolEvent(event: AgentEvent, indent = "") {
     if (event.type === "compaction") {
       await writeOutput(
@@ -62,8 +89,14 @@ export class HeadlessReporter {
       return
     }
     if (event.type !== "tool") return
-    const suffix = event.phase === "end" && event.outcome && event.outcome !== "completed" ? ` (${event.outcome})` : ""
-    await writeOutput(this.stderr, `${indent}${event.phase === "start" ? "→" : "✓"} ${event.label}${suffix}\n`)
+    const suffix =
+      event.phase === "end" && event.outcome && event.outcome !== "completed"
+        ? ` (${event.outcome})`
+        : ""
+    await writeOutput(
+      this.stderr,
+      `${indent}${event.phase === "start" ? "→" : "✓"} ${event.label}${suffix}\n`,
+    )
   }
 
   async usage(usage: TokenUsage) {
@@ -73,54 +106,31 @@ export class HeadlessReporter {
   async finish(result: HeadlessResult) {
     if (this.format === "plain") {
       if (result.output) {
-        await writeOutput(this.stdout, `${result.output}${result.output.endsWith("\n") ? "" : "\n"}`)
+        await writeOutput(
+          this.stdout,
+          `${result.output}${result.output.endsWith("\n") ? "" : "\n"}`,
+        )
       }
       if (result.error) await writeOutput(this.stderr, `Error: ${result.error}\n`)
       return
     }
+    const reasoning = [...this.#reasoning.values()]
+    const payload =
+      this.options.includeReasoning && reasoning.length > 0 ? { ...result, reasoning } : result
     if (this.format === "json") {
       await writeOutput(
         this.stdout,
-        `${JSON.stringify({ version: HEADLESS_EVENT_VERSION, ...this.withReasoning(result) })}\n`,
+        `${JSON.stringify({ version: HEADLESS_EVENT_VERSION, ...payload })}\n`,
       )
       return
     }
-    await this.writeJsonLine({ type: "result", ...this.withReasoning(result) })
-  }
-
-  private async reasoningEvent(event: Extract<AgentEvent, { type: "reasoning" }>) {
-    if (event.phase === "start") {
-      this.#reasoning.set(event.reasoningId, {
-        id: event.reasoningId,
-        field: event.field,
-        text: "",
-        startedAt: event.startedAt,
-      })
-      return
-    }
-    const trace = this.#reasoning.get(event.reasoningId)
-    if (!trace) return
-    if (event.phase === "delta") {
-      trace.text += event.text
-      return
-    }
-    trace.endedAt = event.endedAt
-    trace.durationMs = event.durationMs
-    if (this.format === "plain" && trace.text) {
-      await writeOutput(this.stderr, `Thinking:\n${trace.text}${trace.text.endsWith("\n") ? "" : "\n"}`)
-    }
-  }
-
-  private withReasoning(result: HeadlessResult) {
-    const reasoning = [...this.#reasoning.values()]
-    return this.options.includeReasoning && reasoning.length > 0 ? { ...result, reasoning } : result
+    await this.writeJsonLine({ type: "result", ...payload })
   }
 
   private async writeJsonLine(value: Record<string, unknown>) {
-    await writeOutput(
-      this.stdout,
-      `${JSON.stringify({ version: HEADLESS_EVENT_VERSION, timestamp: new Date().toISOString(), ...value })}\n`,
-    )
+    const timestamp = new Date().toISOString()
+    const line = JSON.stringify({ version: HEADLESS_EVENT_VERSION, timestamp, ...value })
+    await writeOutput(this.stdout, `${line}\n`)
   }
 }
 
@@ -129,9 +139,13 @@ async function writeOutput(stream: OutputStream, chunk: string) {
   await new Promise<void>((resolve) => stream.once?.("drain", resolve))
 }
 
-function publicEvent(event: AgentEvent, includeReasoning: boolean): Record<string, unknown> | undefined {
+function publicEvent(
+  event: AgentEvent,
+  includeReasoning: boolean,
+): Record<string, unknown> | undefined {
   if (event.type === "compaction") return { type: "compaction", phase: event.phase }
-  if (event.type === "model") return { type: event.phase === "retry" ? "model_retry" : "model_start" }
+  if (event.type === "model")
+    return { type: event.phase === "retry" ? "model_retry" : "model_start" }
   if (event.type === "reasoning") {
     if (!includeReasoning) return event.phase === "delta" ? { type: "reasoning" } : undefined
     if (event.phase === "start") {
@@ -154,7 +168,12 @@ function publicEvent(event: AgentEvent, includeReasoning: boolean): Record<strin
   }
   if (event.type === "delta") return { type: "assistant_delta", text: event.text }
   if (event.type === "context") {
-    return { type: "context", messageCount: event.messageCount, contentChars: event.contentChars, tokens: event.tokens }
+    return {
+      type: "context",
+      messageCount: event.messageCount,
+      contentChars: event.contentChars,
+      tokens: event.tokens,
+    }
   }
   if (event.type === "debug") return { type: "debug", message: event.message }
   if (event.type === "error") return { type: "error", message: event.message }
@@ -162,7 +181,9 @@ function publicEvent(event: AgentEvent, includeReasoning: boolean): Record<strin
   if (event.type === "complete") return { type: "turn_complete" }
   if (event.type === "subagent") {
     const inner = publicEvent(event.event, includeReasoning)
-    return inner ? { type: "subagent", toolCallId: event.toolCallId, title: event.title, event: inner } : undefined
+    return inner
+      ? { type: "subagent", toolCallId: event.toolCallId, title: event.title, event: inner }
+      : undefined
   }
   return {
     type: event.phase === "start" ? "tool_start" : "tool_end",

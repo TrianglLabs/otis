@@ -1,12 +1,9 @@
 import { describe, expect, it } from "vitest"
 import { colors } from "../../src/cli/theme.js"
-import {
-  COLOR_PULSE_PERIOD_MS,
-  colorPulseAmount,
-  selectionOutline,
-  shimmerAmounts,
-  TEXT_SHIMMER_PERIOD_MS,
-} from "../../src/cli/ui/color-pulse.js"
+import { colorPulseAmount, selectionOutline, shimmerText } from "../../src/cli/ui/color-pulse.js"
+
+const COLOR_PULSE_PERIOD_MS = 2400
+const TEXT_SHIMMER_PERIOD_MS = 1300
 
 describe("color pulse", () => {
   it("eases from rest to peak and back over one period", () => {
@@ -22,14 +19,21 @@ describe("color pulse", () => {
   })
 
   it("sweeps a highlight through loading text", () => {
-    const start = shimmerAmounts(7, 0)
-    const mid = shimmerAmounts(7, TEXT_SHIMMER_PERIOD_MS / 2)
+    const start = shimmerLevels("loading", 0)
+    const mid = shimmerLevels("loading", TEXT_SHIMMER_PERIOD_MS / 2)
     expect(peakIndex(start)).toBeLessThan(peakIndex(mid))
     expect(start).not.toEqual(mid)
-    expect(shimmerAmounts(7, TEXT_SHIMMER_PERIOD_MS)).toEqual(start)
+    expect(shimmerLevels("loading", TEXT_SHIMMER_PERIOD_MS)).toEqual(start)
   })
 })
 
-function peakIndex(amounts: number[]) {
-  return amounts.indexOf(Math.max(...amounts))
+/** Shimmers from black to white so each letter's brightness reads back as its highlight amount. */
+function shimmerLevels(text: string, elapsedMs: number) {
+  return shimmerText(text, elapsedMs, "#000000", "#ffffff").chunks.map(
+    (chunk) => chunk.fg?.toInts()[0] ?? 0,
+  )
+}
+
+function peakIndex(levels: number[]) {
+  return levels.indexOf(Math.max(...levels))
 }

@@ -14,10 +14,12 @@ import {
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { ArtifactStore } from "../../src/app/artifacts.js"
-import { sessionArtifactPublisher } from "../../src/app/session-artifacts.js"
-import { loadPublishedArtifact } from "../../src/artifacts/published.js"
-import { isPublishedArtifactReference, type PublishedArtifactReference } from "../../src/artifacts/types.js"
+import { ArtifactStore, sessionArtifactPublisher } from "../../src/app/artifacts.js"
+import { loadPublishedArtifact } from "../../src/artifacts/publisher.js"
+import {
+  isPublishedArtifactReference,
+  type PublishedArtifactReference,
+} from "../../src/artifacts/types.js"
 import { MAX_RAW_DOCUMENT_BYTES } from "../../src/inference/documents.js"
 import { createPermissionPolicy } from "../../src/permissions/policy.js"
 import { deleteSession, openSession } from "../../src/storage/session.js"
@@ -46,7 +48,10 @@ async function setup() {
 }
 
 async function publish(path: string, context: ToolContext, artifactId?: string) {
-  const result = await executeToolCall({ name: "publish_artifact", input: { path, artifactId } }, context)
+  const result = await executeToolCall(
+    { name: "publish_artifact", input: { path, artifactId } },
+    context,
+  )
   expect(result.artifact?.source).toBe("published")
   return result.artifact as PublishedArtifactReference
 }
@@ -68,9 +73,15 @@ describe("artifact publication", () => {
     expect(store.metadata).toMatchObject({
       id,
       title: "renamed.md",
-      publication: { versions: [1, 2], followingLatest: true, reference: { artifactId: first.artifactId, version: 2 } },
+      publication: {
+        versions: [1, 2],
+        followingLatest: true,
+        reference: { artifactId: first.artifactId, version: 2 },
+      },
     })
-    await expect(store.load(store.metadata?.revision ?? 0)).resolves.toMatchObject({ content: "Second" })
+    await expect(store.load(store.metadata?.revision ?? 0)).resolves.toMatchObject({
+      content: "Second",
+    })
     expect(store.open(first, 1)).toBe(true)
     const third = await context.artifactPublisher.publish(
       Buffer.from("Third"),
@@ -83,14 +94,18 @@ describe("artifact publication", () => {
       title: "first.md",
       publication: { versions: [1, 2, 3], followingLatest: false, reference: { version: 1 } },
     })
-    await expect(store.load(store.metadata?.revision ?? 0)).resolves.toMatchObject({ content: "First" })
+    await expect(store.load(store.metadata?.revision ?? 0)).resolves.toMatchObject({
+      content: "First",
+    })
     await expect(store.exportFile(store.metadata?.revision ?? 0)).resolves.toEqual({
       name: "first.md",
       bytes: Buffer.from("First"),
     })
     expect(store.open(first, 99)).toBe(false)
     expect(store.open(first)).toBe(true)
-    await expect(store.load(store.metadata?.revision ?? 0)).resolves.toMatchObject({ content: "Third" })
+    await expect(store.load(store.metadata?.revision ?? 0)).resolves.toMatchObject({
+      content: "Third",
+    })
     const unrelated = await publish(moved, context)
     expect(unrelated.artifactId).not.toBe(first.artifactId)
     store.observeFile(unrelated)
@@ -110,11 +125,22 @@ describe("artifact publication", () => {
     const source = join(context.cwd, "notes.md")
     await writeFile(source, "Shared content")
     const first = await publish(source, context)
-    const other = await openSession({ cwd: context.cwd, directory: join(context.root, "sessions"), sessionId: "other" })
-    const second = await publish(source, { cwd: context.cwd, artifactPublisher: sessionArtifactPublisher(other) })
+    const other = await openSession({
+      cwd: context.cwd,
+      directory: join(context.root, "sessions"),
+      sessionId: "other",
+    })
+    const second = await publish(source, {
+      cwd: context.cwd,
+      artifactPublisher: sessionArtifactPublisher(other),
+    })
     expect(first.sha256).toBe(second.sha256)
     await writeFile(join(context.artifactDirectory, "interrupted.tmp"), "incomplete")
-    await deleteSession({ cwd: context.cwd, directory: join(context.root, "sessions"), sessionId: context.session.id })
+    await deleteSession({
+      cwd: context.cwd,
+      directory: join(context.root, "sessions"),
+      sessionId: context.session.id,
+    })
     await expect(stat(context.session.filePath)).rejects.toMatchObject({ code: "ENOENT" })
     await expect(stat(context.artifactDirectory)).rejects.toMatchObject({ code: "ENOENT" })
     await expect(loadPublishedArtifact(second, 1, other.artifactDirectory)).resolves.toMatchObject({
@@ -136,15 +162,25 @@ describe("artifact publication", () => {
         {
           role: "assistant",
           content: [
-            { type: "tool_call", toolCall: { id: "pub1", name: "publish_artifact", arguments: '{"path":"notes.md"}' } },
+            {
+              type: "tool_call",
+              toolCall: { id: "pub1", name: "publish_artifact", arguments: '{"path":"notes.md"}' },
+            },
           ],
         },
         { role: "tool", toolCallId: "pub1", content: "Published" },
       ],
-      { toolActivities: [{ toolCallId: "pub1", activityKind: "file_read", label: "Published", artifact: first }] },
+      {
+        toolActivities: [
+          { toolCallId: "pub1", activityKind: "file_read", label: "Published", artifact: first },
+        ],
+      },
     )
     await context.session.compact("Published notes", [])
-    const reopened = await openSession({ cwd: context.cwd, directory: join(context.root, "sessions") })
+    const reopened = await openSession({
+      cwd: context.cwd,
+      directory: join(context.root, "sessions"),
+    })
     await writeFile(source, "Next turn")
     const second = await publish(
       source,
@@ -152,9 +188,17 @@ describe("artifact publication", () => {
       first.artifactId,
     )
     expect(second).toMatchObject({ artifactId: first.artifactId, version: 2 })
-    const other = await openSession({ cwd: context.cwd, directory: join(context.root, "sessions"), sessionId: "other" })
+    const other = await openSession({
+      cwd: context.cwd,
+      directory: join(context.root, "sessions"),
+      sessionId: "other",
+    })
     await expect(
-      publish(source, { cwd: context.cwd, artifactPublisher: sessionArtifactPublisher(other) }, first.artifactId),
+      publish(
+        source,
+        { cwd: context.cwd, artifactPublisher: sessionArtifactPublisher(other) },
+        first.artifactId,
+      ),
     ).rejects.toThrow("Unknown artifact_id")
     await expect(
       executeToolCall({ name: "publish_artifact", input: { path: source } }, { cwd: context.cwd }),
@@ -172,18 +216,30 @@ describe("artifact publication", () => {
     const artifacts = new ArtifactStore(context.cwd, context.artifactDirectory)
     if (!original.artifact) throw new Error("Expected a working-file artifact")
     artifacts.observeFile(original.artifact)
-    await executeToolCall({ name: "bash", input: { command: "mv staging.html ../final.html" } }, context)
-    await expect(artifacts.load(artifacts.metadata?.revision ?? 0)).rejects.toThrow("may have been moved or deleted")
+    await executeToolCall(
+      { name: "bash", input: { command: "mv staging.html ../final.html" } },
+      context,
+    )
+    await expect(artifacts.load(artifacts.metadata?.revision ?? 0)).rejects.toThrow(
+      "may have been moved or deleted",
+    )
 
     const decision = await createPermissionPolicy({ cwd: context.cwd, mode: "auto" }).evaluate({
       name: "publish_artifact",
       input: { path: final },
     })
     expect(decision.effect).toBe("ask")
-    const first = await publish(final, { ...context, authorizedArtifactPath: decision.artifactPath })
+    const first = await publish(final, {
+      ...context,
+      authorizedArtifactPath: decision.artifactPath,
+    })
     expect(await readFile(final, "utf8")).toBe("<h1>First</h1>")
     await writeFile(final, "<h1>Final</h1>")
-    const second = await publish(final, { ...context, authorizedArtifactPath: decision.artifactPath }, first.artifactId)
+    const second = await publish(
+      final,
+      { ...context, authorizedArtifactPath: decision.artifactPath },
+      first.artifactId,
+    )
     expect(second.artifactId).toBe(first.artifactId)
     expect(second.version).toBe(2)
     expect(second.sha256).not.toBe(first.sha256)
@@ -200,7 +256,11 @@ describe("artifact publication", () => {
         content: [
           {
             type: "tool_call" as const,
-            toolCall: { id: `publish_${index}`, name: "publish_artifact", arguments: JSON.stringify({ path: final }) },
+            toolCall: {
+              id: `publish_${index}`,
+              name: "publish_artifact",
+              arguments: JSON.stringify({ path: final }),
+            },
           },
         ],
       },
@@ -219,12 +279,22 @@ describe("artifact publication", () => {
     const replay = reopened.replayTranscript()
     const restored = new ArtifactStore(context.cwd, context.artifactDirectory)
     restored.restore(replay.messages, replay.toolActivities)
-    expect(restored.metadata).toMatchObject({ source: "published", title: "final.html", editable: false })
-    await expect(restored.load(restored.metadata?.revision ?? 0)).resolves.toMatchObject({ content: "<h1>Final</h1>" })
+    expect(restored.metadata).toMatchObject({
+      source: "published",
+      title: "final.html",
+      editable: false,
+    })
+    await expect(restored.load(restored.metadata?.revision ?? 0)).resolves.toMatchObject({
+      content: "<h1>Final</h1>",
+    })
     expect(restored.open(first)).toBe(true)
-    await expect(restored.load(restored.metadata?.revision ?? 0)).resolves.toMatchObject({ content: "<h1>Final</h1>" })
+    await expect(restored.load(restored.metadata?.revision ?? 0)).resolves.toMatchObject({
+      content: "<h1>Final</h1>",
+    })
     expect(restored.open(first, 1)).toBe(true)
-    await expect(restored.load(restored.metadata?.revision ?? 0)).resolves.toMatchObject({ content: "<h1>First</h1>" })
+    await expect(restored.load(restored.metadata?.revision ?? 0)).resolves.toMatchObject({
+      content: "<h1>First</h1>",
+    })
     expect(restored.open({ ...first, name: "unregistered.html" })).toBe(false)
     restored.clear()
     expect(restored.open(first)).toBe(false)
@@ -257,8 +327,12 @@ describe("artifact publication", () => {
       const path = join(context.cwd, fixture.name)
       await writeFile(path, fixture.bytes)
       const reference = await publish(path, context)
-      expect(await readFile(join(context.artifactDirectory, reference.sha256))).toEqual(fixture.bytes)
-      await expect(loadPublishedArtifact(reference, 1, context.artifactDirectory)).resolves.toMatchObject({
+      expect(await readFile(join(context.artifactDirectory, reference.sha256))).toEqual(
+        fixture.bytes,
+      )
+      await expect(
+        loadPublishedArtifact(reference, 1, context.artifactDirectory),
+      ).resolves.toMatchObject({
         encoding: fixture.encoding,
         title: fixture.name,
       })
@@ -276,12 +350,14 @@ describe("artifact publication", () => {
     ] as const
     for (const [name, bytes] of fixtures) {
       await writeFile(join(context.cwd, name), bytes)
-      await expect(executeToolCall({ name: "publish_artifact", input: { path: name } }, context)).rejects.toThrow()
+      await expect(
+        executeToolCall({ name: "publish_artifact", input: { path: name } }, context),
+      ).rejects.toThrow()
     }
     await truncate(join(context.cwd, "large.md"), MAX_RAW_DOCUMENT_BYTES + 1)
-    await expect(executeToolCall({ name: "publish_artifact", input: { path: "large.md" } }, context)).rejects.toThrow(
-      "too large",
-    )
+    await expect(
+      executeToolCall({ name: "publish_artifact", input: { path: "large.md" } }, context),
+    ).rejects.toThrow("too large")
     await mkdir(join(context.cwd, "folder.html"))
     await expect(
       executeToolCall({ name: "publish_artifact", input: { path: "folder.html" } }, context),
@@ -298,9 +374,9 @@ describe("artifact publication", () => {
     const other = join(context.root, "other.md")
     await writeFile(external, "Approved content")
     await writeFile(other, "Unapproved content")
-    await expect(executeToolCall({ name: "publish_artifact", input: { path: external } }, context)).rejects.toThrow(
-      "requires approval",
-    )
+    await expect(
+      executeToolCall({ name: "publish_artifact", input: { path: external } }, context),
+    ).rejects.toThrow("requires approval")
     const alias = join(context.cwd, "alias.md")
     await symlink(external, alias)
     const decision = await createPermissionPolicy({ cwd: context.cwd, mode: "auto" }).evaluate({
@@ -324,20 +400,30 @@ describe("artifact publication", () => {
     const context = await setup()
     await writeFile(join(context.cwd, "notes.md"), "Original")
     const reference = await publish("notes.md", context)
-    for (const name of ["../notes.md", "nested/notes.md", "nested\\notes.md", "bad\0.md", "notes.js"]) {
+    for (const name of [
+      "../notes.md",
+      "nested/notes.md",
+      "nested\\notes.md",
+      "bad\0.md",
+      "notes.js",
+    ]) {
       expect(isPublishedArtifactReference({ ...reference, name })).toBe(false)
     }
     expect(isPublishedArtifactReference({ ...reference, sha256: "../../other" })).toBe(false)
     expect(isPublishedArtifactReference({ ...reference, kind: "pdf" })).toBe(false)
     const saved = join(context.artifactDirectory, reference.sha256)
     await writeFile(saved, "Corrupted")
-    await expect(loadPublishedArtifact(reference, 1, context.artifactDirectory)).rejects.toThrow("damaged")
+    await expect(loadPublishedArtifact(reference, 1, context.artifactDirectory)).rejects.toThrow(
+      "damaged",
+    )
     await rm(saved)
     await expect(loadPublishedArtifact(reference, 1, context.artifactDirectory)).rejects.toThrow(
       "published copy is no longer available",
     )
     expect(await publish("notes.md", context, reference.artifactId)).toEqual(reference)
-    await expect(loadPublishedArtifact(reference, 2, context.artifactDirectory)).resolves.toMatchObject({
+    await expect(
+      loadPublishedArtifact(reference, 2, context.artifactDirectory),
+    ).resolves.toMatchObject({
       content: "Original",
     })
   })

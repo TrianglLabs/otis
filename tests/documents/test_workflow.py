@@ -133,7 +133,9 @@ class DocumentWorkflowTest(unittest.TestCase):
         self.assertEqual(source.read_bytes(), b"original")
         with tempfile.TemporaryDirectory() as outside:
             escaped = Path(outside) / "result.pdf"
-            self.run_helper("create", "--spec", "spec.json", "--output", str(escaped), success=False)
+            self.run_helper(
+                "create", "--spec", "spec.json", "--output", str(escaped), success=False
+            )
             self.assertFalse(escaped.exists())
             if os.name != "nt":
                 (self.root / "linked").symlink_to(outside, target_is_directory=True)
@@ -148,7 +150,7 @@ class DocumentWorkflowTest(unittest.TestCase):
             patch.object(helper, "office_command", return_value=None),
             patch.object(helper.shutil, "which", return_value=None),
         ):
-            result = helper.check()
+            result = helper.check(None)
         self.assertEqual(
             result["missing_packages"], ["python-docx", "reportlab", "pypdf", "pypdfium2", "pillow"]
         )
@@ -191,14 +193,18 @@ class DocumentWorkflowTest(unittest.TestCase):
         def convert_snapshot(command, **kwargs):
             snapshot = Path(command[-1])
             self.assertEqual(snapshot.read_bytes(), original)
-            snapshot.with_suffix(".pdf").write_bytes(helper.create_pdf(self.spec, read_text(original)))
+            snapshot.with_suffix(".pdf").write_bytes(
+                helper.create_pdf(self.spec, read_text(original))
+            )
 
         with (
             patch.object(helper, "office_command", return_value="soffice"),
             patch.object(helper, "docx_text", side_effect=validate_and_save),
             patch.object(helper.subprocess, "run", side_effect=convert_snapshot),
         ):
-            result = helper.convert(helper.argparse.Namespace(source="resume.docx", output="resume.pdf"))
+            result = helper.convert(
+                helper.argparse.Namespace(source="resume.docx", output="resume.pdf")
+            )
         self.assertIn("body_and_table_text", result["verified"])
         self.assertTrue((self.root / "resume.pdf").is_file())
         self.assertEqual(source.read_bytes(), concurrent)
@@ -225,7 +231,9 @@ class DocumentWorkflowTest(unittest.TestCase):
         self.assertEqual(result["images"], ["page-1.png"])
         self.assertTrue((self.root / "preview/page-1.png").read_bytes().startswith(b"\x89PNG"))
         self.assertEqual(result["visual_review"], "not_performed")
-        self.run_helper("render", "--source", "resume.pdf", "--output-dir", "preview", success=False)
+        self.run_helper(
+            "render", "--source", "resume.pdf", "--output-dir", "preview", success=False
+        )
 
 
 if __name__ == "__main__":

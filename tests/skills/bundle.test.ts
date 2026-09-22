@@ -7,7 +7,11 @@ import { describe, expect, it } from "vitest"
 
 const exec = promisify(execFile)
 describe("document skill release assets", () => {
-  it.each(["compiled", "cjs", "desktop"])("loads helpers from a %s bundle outside the source tree", async (format) => {
+  it.each([
+    "compiled",
+    "cjs",
+    "desktop",
+  ])("loads helpers from a %s bundle outside the source tree", async (format) => {
     const directory = await mkdtemp(join(tmpdir(), "otis-skill-bundle-"))
     try {
       const entry = resolve("tests/skills/support/load-bundled.ts")
@@ -29,8 +33,17 @@ describe("document skill release assets", () => {
         format === "compiled" ? args : [bundle, ...args],
         { cwd: directory },
       )
-      const { root, systemPrompt } = JSON.parse(result.stdout) as { root: string; systemPrompt: string }
-      for (const name of ["SKILL.md", "spec.md", "document.py", "pdf_edit.py", "requirements.txt"]) {
+      const { root, systemPrompt } = JSON.parse(result.stdout) as {
+        root: string
+        systemPrompt: string
+      }
+      for (const name of [
+        "SKILL.md",
+        "spec.md",
+        "document.py",
+        "pdf_edit.py",
+        "requirements.txt",
+      ]) {
         expect(await readFile(join(root, name), "utf8"), name).toBe(
           await readFile(resolve("src/skills/bundled/documents", name), "utf8"),
         )

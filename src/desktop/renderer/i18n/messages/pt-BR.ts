@@ -27,7 +27,8 @@ export const ptBR: Messages = {
   "common.hosted": "Hospedado",
   "app.loadingWorkspace": "Carregando espaço de trabalho…",
   "app.bridgeUnavailable": "A ponte do aplicativo não está disponível.",
-  "app.bridgeUnavailableHint": "Reinicie o aplicativo. Se o problema continuar, reinstale o Otis Desktop.",
+  "app.bridgeUnavailableHint":
+    "Reinicie o aplicativo. Se o problema continuar, reinstale o Otis Desktop.",
   "shell.workspaceMissing":
     "O Otis não encontrou a pasta de trabalho desta sessão. Você ainda pode ler o histórico; escolha a pasta uma vez para continuar. O Otis vai lembrá-la.",
   "shell.locateWorkingFolder": "Localizar pasta de trabalho",
@@ -123,13 +124,15 @@ export const ptBR: Messages = {
   "composer.imageTooLarge": "{{name}} é grande demais. As imagens devem ter no máximo {{size}} MB.",
   "composer.tooManyImages": "Você pode anexar até {{count}} imagens.",
   "composer.modelNoImages": "O modelo selecionado não aceita imagens.",
-  "composer.modelNoImageInput": "O modelo selecionado não aceita imagens. Escolha um modelo com visão.",
+  "composer.modelNoImageInput":
+    "O modelo selecionado não aceita imagens. Escolha um modelo com visão.",
   "composer.atMostImages": "Você pode anexar no máximo {{count}} imagens por mensagem.",
   "composer.unsupportedFile":
     "{{name}} não é compatível. Use um arquivo de texto, PDF, DOCX, PNG, JPEG, GIF, BMP, TIFF ou PPM.",
   "composer.thatFile": "Esse arquivo",
   "composer.fileEmpty": "{{name}} está vazio.",
-  "composer.imageRequestLimit": "{{name}} é grande demais. Os dados devem ficar abaixo do limite de 10 MB.",
+  "composer.imageRequestLimit":
+    "{{name}} é grande demais. Os dados devem ficar abaixo do limite de 10 MB.",
   "composer.imagesRequestLimit":
     "As imagens anexadas são grandes demais em conjunto. O total deve ficar abaixo de 10 MB.",
   "composer.fileReadFailed": "Não foi possível ler o arquivo.",
@@ -169,11 +172,13 @@ export const ptBR: Messages = {
   "onboarding.chooseSetup": "Escolha uma configuração de modelo",
   "onboarding.hostedBody":
     "Os melhores modelos abertos, disponíveis na hora. Pague pelo uso com sua chave da Fireworks.",
-  "onboarding.localBody": "Execute modelos neste computador ou na sua rede local de IA. Privado e funciona offline.",
+  "onboarding.localBody":
+    "Execute modelos neste computador ou na sua rede local de IA. Privado e funciona offline.",
   "onboarding.back": "Voltar",
   "onboarding.setupHosted": "Configurar modelos hospedados",
   "onboarding.chooseLocal": "Escolher inferência local",
-  "onboarding.localHint": "Use um modelo gerenciado pelo Otis ou conecte um que já esteja em execução.",
+  "onboarding.localHint":
+    "Use um modelo gerenciado pelo Otis ou conecte um que já esteja em execução.",
   "onboarding.managed": "Gerenciado pelo Otis",
   "onboarding.managedBody": "Baixe um modelo selecionado e execute com llama.cpp.",
   "onboarding.server": "Servidores de modelos locais",
@@ -229,7 +234,8 @@ export const ptBR: Messages = {
   "settings.systemLanguage": "Sistema ({{language}})",
   "settings.security": "Segurança",
   "settings.permissionMode": "Modo de permissão",
-  "settings.permissionAutoDetail": "Executar comandos de shell e alterações de arquivos automaticamente",
+  "settings.permissionAutoDetail":
+    "Executar comandos de shell e alterações de arquivos automaticamente",
   "settings.permissionAskDetail": "Perguntar antes de comandos de shell e alterações de arquivos",
   "settings.permissionDenyDetail": "Negar comandos de shell e alterações de arquivos sem perguntar",
   "settings.dontAsk": "Não perguntar",
@@ -258,8 +264,10 @@ export const ptBR: Messages = {
   "updates.downloadingVersion": "Baixando o Otis {{version}} em segundo plano…",
   "updates.unavailableBuild": "Esta compilação do Otis não permite verificar atualizações.",
   "updates.upToDate": "Você está em dia.",
-  "updates.backgroundHint": "As atualizações são baixadas em segundo plano. Você escolhe quando reiniciar.",
-  "canvas.viewport": "Tela do diagrama. Arraste para mover; use os controles para ampliar ou reduzir.",
+  "updates.backgroundHint":
+    "As atualizações são baixadas em segundo plano. Você escolhe quando reiniciar.",
+  "canvas.viewport":
+    "Tela do diagrama. Arraste para mover; use os controles para ampliar ou reduzir.",
   "canvas.controls": "Controles de visualização do diagrama",
   "canvas.zoomOut": "Reduzir",
   "canvas.resetView": "Redefinir visualização",

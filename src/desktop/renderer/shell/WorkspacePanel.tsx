@@ -11,8 +11,11 @@ import {
 import type { SubagentSummary, ThemeName } from "../../contracts.js"
 import { IconButton } from "../components/Button.js"
 import { Icon } from "../components/Icon.js"
-import { AgentTraceOverlay } from "../features/agents/AgentTraceOverlay.js"
-import { AGENT_STATUS_ICONS, agentSummary } from "../features/agents/agent-list.js"
+import {
+  AGENT_STATUS_ICONS,
+  AgentTraceOverlay,
+  agentSummary,
+} from "../features/agents/AgentTraceOverlay.js"
 import { CanvasPanel } from "../features/canvas/CanvasPanel.js"
 import { type CanvasArtifact, canvasArtifactKey } from "../features/canvas/canvas-context.js"
 import { useI18n } from "../i18n/index.js"
@@ -25,7 +28,10 @@ const PANEL_MAX_WIDTH = 720
 const MAIN_MIN_WIDTH = 480
 const PANEL_KEYBOARD_STEP = 16
 
-/** The session's secondary workspace: delegated runs and the Mermaid block explicitly opened in Canvas. */
+/**
+ * The session's secondary workspace: delegated runs and the Mermaid block explicitly opened in
+ * Canvas.
+ */
 export function WorkspacePanel({ artifact }: { artifact: CanvasArtifact | undefined }) {
   const [railWidth, setRailWidth] = useState<number>()
   const state = useDesktopSelector((snapshot) => ({
@@ -94,11 +100,16 @@ function SessionWorkspacePanel({
       const horizontalPadding =
         (Number.parseFloat(styles.paddingLeft) || 0) + (Number.parseFloat(styles.paddingRight) || 0)
       const gap = Number.parseFloat(styles.columnGap || styles.gap) || 0
-      const border = panelRef.current ? Number.parseFloat(getComputedStyle(panelRef.current).borderLeftWidth) || 0 : 0
+      const border = panelRef.current
+        ? Number.parseFloat(getComputedStyle(panelRef.current).borderLeftWidth) || 0
+        : 0
       const tabsWidth = tabs.getBoundingClientRect().width || tabs.scrollWidth
       const collapseWidth = collapse.getBoundingClientRect().width || collapse.offsetWidth
       setContentMinWidth(
-        Math.max(PANEL_MIN_WIDTH, Math.ceil(horizontalPadding + gap + border + tabsWidth + collapseWidth)),
+        Math.max(
+          PANEL_MIN_WIDTH,
+          Math.ceil(horizontalPadding + gap + border + tabsWidth + collapseWidth),
+        ),
       )
     }
     measure()
@@ -109,8 +120,8 @@ function SessionWorkspacePanel({
     return () => observer.disconnect()
   }, [hasContent, activeTab, t, theme, visible])
 
-  // The first coworker reopens a hidden rail. Additional coworkers do not interrupt the active tab, and
-  // remounting Settings with existing work does not override the user's visibility choice.
+  // The first coworker reopens a hidden rail. Additional coworkers do not interrupt the active tab,
+  // and remounting Settings with existing work does not override the user's visibility choice.
   const hadRuns = useRef<boolean | undefined>(undefined)
   useEffect(() => {
     const hasRuns = runs.length > 0
@@ -129,9 +140,14 @@ function SessionWorkspacePanel({
     if (!visible) void api.setAgentsPanelVisible(true)
   }, [artifact, artifactKey, visible, api])
 
-  const maxWidth = Math.max(contentMinWidth, Math.min(PANEL_MAX_WIDTH, viewportWidth - MAIN_MIN_WIDTH))
-  const defaultWidth = activeTab === "coworkers" ? 240 : Math.min(560, Math.max(280, Math.round(viewportWidth * 0.38)))
-  const clampWidth = (width: number) => Math.min(maxWidth, Math.max(contentMinWidth, Math.round(width)))
+  const maxWidth = Math.max(
+    contentMinWidth,
+    Math.min(PANEL_MAX_WIDTH, viewportWidth - MAIN_MIN_WIDTH),
+  )
+  const defaultWidth =
+    activeTab === "coworkers" ? 240 : Math.min(560, Math.max(280, Math.round(viewportWidth * 0.38)))
+  const clampWidth = (width: number) =>
+    Math.min(maxWidth, Math.max(contentMinWidth, Math.round(width)))
   const effectiveWidth = clampWidth(railWidth ?? defaultWidth)
   const clampWidthRef = useRef(clampWidth)
   useLayoutEffect(() => {
@@ -186,11 +202,18 @@ function SessionWorkspacePanel({
   }
 
   if (!hasContent) return null
+  const canvasClass = activeTab === "canvas" ? " workspaceRail-canvas" : ""
+  const hiddenClass = visible ? "" : " workspaceRail-hidden"
+  const resizingClass = resizing ? " workspaceRail-resizing" : ""
+  const viewClass = (tab: PanelTab) => {
+    const active = activeTab === tab ? " workspaceRail-view-active" : ""
+    return `workspaceRail-view workspaceRail-view-${tab}${active}`
+  }
   return (
     <>
       <aside
         ref={panelRef}
-        className={`workspaceRail${activeTab === "canvas" ? " workspaceRail-canvas" : ""}${visible ? "" : " workspaceRail-hidden"}${resizing ? " workspaceRail-resizing" : ""}`}
+        className={`workspaceRail${canvasClass}${hiddenClass}${resizingClass}`}
         aria-label={t("panel.workspacePanel")}
         aria-hidden={!visible}
         inert={visible ? undefined : true}
@@ -245,17 +268,16 @@ function SessionWorkspacePanel({
           />
         </div>
         <div className="workspaceRail-views">
-          <div
-            className={`workspaceRail-view workspaceRail-view-coworkers${activeTab === "coworkers" ? " workspaceRail-view-active" : ""}`}
-            aria-hidden={activeTab !== "coworkers"}
-          >
+          <div className={viewClass("coworkers")} aria-hidden={activeTab !== "coworkers"}>
             {runs.length > 0 ? (
               <ul className="agentsRail-list">
                 {runs.map((run) => (
                   <li key={run.toolCallId} className="agentsRail-item">
                     <button
                       type="button"
-                      className={`agentsRow noDrag${run.toolCallId === openTraceId ? " agentsRow-open" : ""}`}
+                      className={`agentsRow noDrag${
+                        run.toolCallId === openTraceId ? " agentsRow-open" : ""
+                      }`}
                       onClick={() => setOpenTraceId(run.toolCallId)}
                       title={t("panel.viewTrace", { title: run.title })}
                     >
@@ -275,16 +297,17 @@ function SessionWorkspacePanel({
               <div className="workspaceRail-empty">{t("panel.noCoworkers")}</div>
             )}
           </div>
-          <div
-            className={`workspaceRail-view workspaceRail-view-canvas${activeTab === "canvas" ? " workspaceRail-view-active" : ""}`}
-            aria-hidden={activeTab !== "canvas"}
-          >
+          <div className={viewClass("canvas")} aria-hidden={activeTab !== "canvas"}>
             <CanvasPanel artifact={artifact} theme={theme} />
           </div>
         </div>
       </aside>
       {openTraceId ? (
-        <AgentTraceOverlay key={openTraceId} toolCallId={openTraceId} onClose={() => setOpenTraceId(undefined)} />
+        <AgentTraceOverlay
+          key={openTraceId}
+          toolCallId={openTraceId}
+          onClose={() => setOpenTraceId(undefined)}
+        />
       ) : null}
     </>
   )

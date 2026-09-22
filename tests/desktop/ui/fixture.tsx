@@ -2,13 +2,22 @@ import type { MouseInputEvent } from "electron"
 import { createRoot } from "react-dom/client"
 import type { TranscriptEntry } from "../../../src/app/transcript.js"
 import type { ArtifactMetadata, PublishedArtifactReference } from "../../../src/artifacts/types.js"
-import type { DesktopEvent, DesktopStatus, TranscriptPatchOp } from "../../../src/desktop/contracts.js"
+import type {
+  DesktopEvent,
+  DesktopStatus,
+  TranscriptPatchOp,
+  UiLanguage,
+} from "../../../src/desktop/contracts.js"
 import { App } from "../../../src/desktop/renderer/App.js"
 import { createDemoRuntime } from "../../../src/desktop/renderer/demo/demo-runtime.js"
 import { FileArtifact } from "../../../src/desktop/renderer/features/canvas/FileArtifact.js"
 import { PdfPreview } from "../../../src/desktop/renderer/features/canvas/PdfPreview.js"
-import { catalogs, I18nProvider, type ResolvedLocale } from "../../../src/desktop/renderer/i18n/index.js"
-import { createTranslator } from "../../../src/desktop/renderer/i18n/translate.js"
+import {
+  I18nProvider,
+  LANGUAGE_OPTIONS,
+  type Translate,
+  useI18n,
+} from "../../../src/desktop/renderer/i18n/index.js"
 import { DesktopProvider } from "../../../src/desktop/renderer/runtime.js"
 import { DesktopViewStore } from "../../../src/desktop/renderer/state.js"
 import { pdfFixture } from "./pdf-fixture.js"
@@ -26,6 +35,9 @@ import "../../../src/desktop/renderer/features/canvas/canvas.css"
 import "../../../src/desktop/renderer/features/settings/settings.css"
 
 const pause = (ms = 80) => new Promise((resolve) => setTimeout(resolve, ms))
+const LOCALES = LANGUAGE_OPTIONS.flatMap((option) =>
+  option.value === "system" ? [] : [option.value],
+)
 let inputId = 0
 async function nativeInput(request: {
   size?: [number, number]
@@ -68,20 +80,38 @@ async function checkLocalServerFields(prefix: "settings" | "onboarding") {
   const fields = address.parentElement
   assert(fields, "Server fields are missing")
   const marks = Array.from(fields.querySelectorAll("label img")) as HTMLImageElement[]
-  await until(() => marks.length === 3 && marks.every((mark) => mark.naturalWidth > 0), "Server logos did not load")
+  await until(
+    () => marks.length === 3 && marks.every((mark) => mark.naturalWidth > 0),
+    "Server logos did not load",
+  )
   for (const label of fields.querySelectorAll("label")) {
     const input = element<HTMLInputElement>(`#${label.htmlFor}`).getBoundingClientRect()
     const bounds = label.getBoundingClientRect()
     assert(bounds.right < input.left, `${prefix}: ${label.textContent} overlaps its input`)
-    assert(Math.abs(bounds.top + bounds.height / 2 - input.top - input.height / 2) < 1, "Server label is misaligned")
+    assert(
+      Math.abs(bounds.top + bounds.height / 2 - input.top - input.height / 2) < 1,
+      "Server label is misaligned",
+    )
   }
   const urlBounds = address.getBoundingClientRect()
   const keyBounds = key.getBoundingClientRect()
-  assert(Math.abs(keyBounds.left - urlBounds.left) < 1, `${prefix}: API key is not aligned with the address`)
-  assert(Math.abs(keyBounds.width - urlBounds.width) < 1, `${prefix}: API key width differs from the address`)
+  assert(
+    Math.abs(keyBounds.left - urlBounds.left) < 1,
+    `${prefix}: API key is not aligned with the address`,
+  )
+  assert(
+    Math.abs(keyBounds.width - urlBounds.width) < 1,
+    `${prefix}: API key width differs from the address`,
+  )
   assert(keyBounds.top >= urlBounds.bottom + 7, `${prefix}: API key overlaps the address`)
-  assert(key.type === "password" && key.getAttribute("aria-label") && key.placeholder, "API key lacks a secure label")
-  assert(fields.scrollWidth === fields.clientWidth, `${prefix}: Server fields overflow horizontally`)
+  assert(
+    key.type === "password" && key.getAttribute("aria-label") && key.placeholder,
+    "API key lacks a secure label",
+  )
+  assert(
+    fields.scrollWidth === fields.clientWidth,
+    `${prefix}: Server fields overflow horizontally`,
+  )
 }
 /** The demo's scripted turn runs on real timers; its milestones need a wider polling budget. */
 async function untilSlow(check: () => boolean, message: string) {
@@ -100,8 +130,12 @@ function assertTraceVisible() {
     `Coworker transcript has no visible height: popup=${popup.height}, viewport=${viewport.height}`,
   )
   assert(viewport.bottom <= popup.bottom, "Coworker transcript extends below its popup")
-  const contentTop = element(".agentTrace .transcript").getBoundingClientRect().top + scroller.scrollTop
-  assert(Math.abs(contentTop - viewport.top) < 1, "Coworker content adds an extra gap below the title bar")
+  const contentTop =
+    element(".agentTrace .transcript").getBoundingClientRect().top + scroller.scrollTop
+  assert(
+    Math.abs(contentTop - viewport.top) < 1,
+    "Coworker content adds an extra gap below the title bar",
+  )
   assert(
     Array.from(scroller.querySelectorAll(".transcriptEntry")).some((entry) => {
       const bounds = entry.getBoundingClientRect()
@@ -110,9 +144,14 @@ function assertTraceVisible() {
     "Coworker transcript entries exist but none are visible in the popup",
   )
 }
-const row = (id: number, text: string): TranscriptEntry => ({ id, kind: "message", speaker: "Otis", text })
-// Fixture history lives in a private id range: the demo's scripted turn generates its own low entry ids,
-// and a shared space would upsert demo entries into history rows instead of appending them.
+const row = (id: number, text: string): TranscriptEntry => ({
+  id,
+  kind: "message",
+  speaker: "Otis",
+  text,
+})
+// Fixture history lives in a private id range: the demo's scripted turn generates its own low entry
+// ids, and a shared space would upsert demo entries into history rows instead of appending them.
 const HISTORY_ID_BASE = 100_000
 const markdown =
   "| Field | Value |\n| --- | --- |\n| test | " +
@@ -144,7 +183,10 @@ async function runDesktopUiChecks() {
   for (const family of ["Inter", "JetBrains Mono"]) {
     for (const style of ["normal", "italic"]) {
       const faces = await document.fonts.load(`${style} 400 14px "${family}"`)
-      assert(faces.length > 0 && faces.every((face) => face.status === "loaded"), `${family} ${style} failed to load`)
+      assert(
+        faces.length > 0 && faces.every((face) => face.status === "loaded"),
+        `${family} ${style} failed to load`,
+      )
     }
   }
   const api = createDemoRuntime()
@@ -159,8 +201,9 @@ async function runDesktopUiChecks() {
   let revision = snapshot.revision
   const listeners = new Set<(event: DesktopEvent) => void>()
   api.getSnapshot = async () => snapshot
-  // Bridge both channels: the fixture injects events through `send`, while the demo's scripted turn emits
-  // through its own registry. The store's listener must sit in both; each event still arrives exactly once.
+  // Bridge both channels: the fixture injects events through `send`, while the demo's scripted turn
+  // emits through its own registry. The store's listener must sit in both; each event still arrives
+  // exactly once.
   const originalSubscribe = api.subscribe.bind(api)
   api.subscribe = (listener) => {
     listeners.add(listener)
@@ -174,7 +217,8 @@ async function runDesktopUiChecks() {
   const send = (event: DesktopEvent) => {
     for (const listener of listeners) listener(event)
   }
-  const patch = (...ops: TranscriptPatchOp[]) => send({ type: "transcript", revision: ++revision, ops })
+  const patch = (...ops: TranscriptPatchOp[]) =>
+    send({ type: "transcript", revision: ++revision, ops })
   const status = (values: Partial<DesktopStatus>) => {
     const state = store.getState()
     assert(state, "Snapshot is missing")
@@ -183,11 +227,22 @@ async function runDesktopUiChecks() {
   api.setThinkingVisible = async (thinkingVisible) => status({ thinkingVisible })
   await store.start()
   const root = createRoot(element("#root"))
-  const renderLanguage = (language: ResolvedLocale) =>
+  // The translator the rendered UI is using, for expected strings in the language under test.
+  let t: Translate | undefined
+  function Probe() {
+    t = useI18n().t
+    return null
+  }
+  const translate = (): Translate => {
+    if (!t) throw new Error("app did not render")
+    return t
+  }
+  const renderLanguage = (language: UiLanguage) =>
     root.render(
       <DesktopProvider value={{ api, store }}>
         <I18nProvider language={language}>
           <App />
+          <Probe />
         </I18nProvider>
       </DesktopProvider>,
     )
@@ -203,12 +258,15 @@ async function runDesktopUiChecks() {
   const bottomGap = () => scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop
   assert(bottomGap() <= 33, `Initial bottom gap: ${bottomGap()}`)
 
-  // Expanded cards survive virtualization and the Settings round trip. Deliberately injection-free: the
-  // scripted coworker turn below must be the first thing to advance the store's revision, or the demo's
-  // own events would arrive stale and be dropped.
+  // Expanded cards survive virtualization and the Settings round trip. Deliberately injection-free:
+  // the scripted coworker turn below must be the first thing to advance the store's revision, or
+  // the demo's own events would arrive stale and be dropped.
   element<HTMLButtonElement>('[data-entry-id="101501"] .reasoning-header').click()
   await pause()
-  assert(!!document.querySelector('[data-entry-id="101501"] .reasoning-body'), "Reasoning did not expand")
+  assert(
+    !!document.querySelector('[data-entry-id="101501"] .reasoning-body'),
+    "Reasoning did not expand",
+  )
   scroll.dispatchEvent(new WheelEvent("wheel", { deltaY: -1000, bubbles: true }))
   scroll.scrollTop = 0
   await pause(300)
@@ -230,17 +288,29 @@ async function runDesktopUiChecks() {
   element<HTMLButtonElement>('[aria-label="Settings"]').click()
   await pause()
   assert(element(".workspaceView").inert, "Settings left the workspace interactive")
-  assert(getComputedStyle(element(".settingsLayer")).transitionDuration === "0s", "Settings still animates")
+  assert(
+    getComputedStyle(element(".settingsLayer")).transitionDuration === "0s",
+    "Settings still animates",
+  )
   const settingsSidebar = element(".settingsSidebar").getBoundingClientRect()
   const settingsContent = element(".settingsPage-content").getBoundingClientRect()
   const settingsPage = element(".settingsPage").getBoundingClientRect()
-  const settingsTabs = Array.from(document.querySelectorAll<HTMLButtonElement>('.settingsSidebar [role="tab"]'))
+  const settingsTabs = Array.from(
+    document.querySelectorAll<HTMLButtonElement>('.settingsSidebar [role="tab"]'),
+  )
   assert(settingsTabs.length === 3, "Settings sidebar does not list every section")
   assert(!document.querySelector(".settingsPage-header h1"), "Settings still has a title wordmark")
   assert(settingsSidebar.width >= 160, "Settings sidebar is too narrow")
-  assert(Math.abs(settingsSidebar.top - settingsPage.top) < 1, "Settings sidebar does not reach the window top")
-  assert(settingsSidebar.right <= settingsContent.left + 1, "Settings sidebar overlaps the active panel")
-  // Exercise the platform/window classes emitted by AppShell in Chromium's actual layout and hit testing.
+  assert(
+    Math.abs(settingsSidebar.top - settingsPage.top) < 1,
+    "Settings sidebar does not reach the window top",
+  )
+  assert(
+    settingsSidebar.right <= settingsContent.left + 1,
+    "Settings sidebar overlaps the active panel",
+  )
+  // Exercise the platform/window classes emitted by AppShell in Chromium's actual layout and hit
+  // testing.
   const settingsShell = element(".appShell")
   const originalShellClasses = settingsShell.className
   for (const platform of ["darwin", "linux", "win32"]) {
@@ -253,13 +323,18 @@ async function runDesktopUiChecks() {
       const close = element(".settingsPage-header button").getBoundingClientRect()
       const nativeControls = platform === "darwin" && !fullscreen
       const expectedTop = nativeControls ? header.bottom + 16 : settingsPage.top + 16
-      assert(Math.abs(tab.top - expectedTop) < 1, `${platform} fullscreen=${fullscreen}: excess space above tabs`)
+      assert(
+        Math.abs(tab.top - expectedTop) < 1,
+        `${platform} fullscreen=${fullscreen}: excess space above tabs`,
+      )
       assert(
         Math.abs(close.top + close.height / 2 - (header.top + header.height / 2)) < 1,
         `${platform} fullscreen=${fullscreen}: close button is not centered in the header`,
       )
       assert(
-        settingsTabs[0].contains(document.elementFromPoint(tab.left + tab.width / 2, tab.top + tab.height / 2)),
+        settingsTabs[0].contains(
+          document.elementFromPoint(tab.left + tab.width / 2, tab.top + tab.height / 2),
+        ),
         `${platform} fullscreen=${fullscreen}: title bar intercepts the first tab`,
       )
       await pause() // Let the compositor paint the new platform layout before taking a screenshot.
@@ -270,23 +345,38 @@ async function runDesktopUiChecks() {
     }
   }
   settingsShell.className = originalShellClasses
-  assert(settingsTabs[0].getAttribute("aria-selected") === "true", "Inference is not the initial settings section")
+  assert(
+    settingsTabs[0].getAttribute("aria-selected") === "true",
+    "Inference is not the initial settings section",
+  )
   assert(
     element(".settingsProviderCards").previousElementSibling?.textContent === "Providers",
     "Provider cards have no title",
   )
   const providerCards = Array.from(document.querySelectorAll<HTMLElement>(".settingsCard-provider"))
   assert(providerCards.length === 2, "Provider settings are not grouped into separate cards")
-  assert(getComputedStyle(providerCards[0]).backgroundColor !== "rgba(0, 0, 0, 0)", "Settings card has no background")
+  assert(
+    getComputedStyle(providerCards[0]).backgroundColor !== "rgba(0, 0, 0, 0)",
+    "Settings card has no background",
+  )
   providerCards[1].querySelector("button")?.click()
-  await until(() => !!document.querySelector("#settings-omlx-key"), "Local server settings did not open")
+  await until(
+    () => !!document.querySelector("#settings-omlx-key"),
+    "Local server settings did not open",
+  )
   await checkLocalServerFields("settings")
   await pause()
   await nativeInput({ screenshot: true, screenshotName: "settings-local-servers" })
-  assert(document.querySelectorAll(".settingsUsage-bar").length === 28, "Provider usage activity is incomplete")
+  assert(
+    document.querySelectorAll(".settingsUsage-bar").length === 28,
+    "Provider usage activity is incomplete",
+  )
   settingsTabs[1].click()
   await until(() => !!document.querySelector(".themeGrid"), "Appearance tab did not open")
-  assert(document.querySelectorAll(".settingsCard").length === 2, "Appearance settings are not grouped into cards")
+  assert(
+    document.querySelectorAll(".settingsCard").length === 2,
+    "Appearance settings are not grouped into cards",
+  )
   assert(
     document.querySelectorAll(".settingsGroup > .settings-section").length === 2,
     "Appearance section titles are not outside their cards",
@@ -299,12 +389,15 @@ async function runDesktopUiChecks() {
   await until(() => !document.querySelector(".settingsLayer"), "Settings did not unmount on close")
   assert(element(".transcriptScroll") === scroll, "Settings replaced the conversation")
   assert(Math.abs(scroll.scrollTop - beforeSettings) < 2, "Settings lost the reading position")
-  assert(!!document.querySelector('[data-entry-id="101501"] .reasoning-body'), "Settings collapsed reasoning")
+  assert(
+    !!document.querySelector('[data-entry-id="101501"] .reasoning-body'),
+    "Settings collapsed reasoning",
+  )
 
-  // A coworker run driven by the demo's own script — the real fetch path, not an injected trace. It runs
-  // before any fixture-injected events, so the demo's revisions stay fresh for the store; afterwards the
-  // fixture's counter continues from the demo's last revision. The rail row must open a trace with entries,
-  // both while the run is live and after it settles.
+  // A coworker run driven by the demo's own script — the real fetch path, not an injected trace. It
+  // runs before any fixture-injected events, so the demo's revisions stay fresh for the store;
+  // afterwards the fixture's counter continues from the demo's last revision. The rail row must
+  // open a trace with entries, both while the run is live and after it settles.
   let demoRevision = snapshot.revision
   const demoEventLog: string[] = []
   originalSubscribe((event) => {
@@ -322,23 +415,29 @@ async function runDesktopUiChecks() {
     `Coworkers rail did not list the scripted run; demo events: ${demoEventLog.slice(-12).join(" | ")}`,
   )
   await untilSlow(
-    () => (document.querySelector<HTMLIFrameElement>('iframe[title="launch-plan.docx"]')?.clientHeight ?? 0) > 0,
+    () =>
+      (document.querySelector<HTMLIFrameElement>('iframe[title="launch-plan.docx"]')
+        ?.clientHeight ?? 0) > 0,
     "Demo Word document did not render a visible Canvas frame",
   )
   await nativeInput({ screenshot: true, screenshotName: "canvas-word" })
   await api.openArtifact({ source: "workspace", path: "product-brief.pdf", kind: "pdf" })
   await untilSlow(
-    () => (document.querySelector<HTMLCanvasElement>(".canvas-pdfPage")?.getBoundingClientRect().height ?? 0) > 0,
+    () =>
+      (document.querySelector<HTMLCanvasElement>(".canvas-pdfPage")?.getBoundingClientRect()
+        .height ?? 0) > 0,
     "Demo PDF did not render a visible page in Canvas",
   )
   await nativeInput({ screenshot: true, screenshotName: "canvas-pdf" })
   await api.openArtifact({ source: "workspace", path: "canvas-overview.html", kind: "html" })
   await untilSlow(
-    () => (document.querySelector<HTMLIFrameElement>('iframe[title="canvas-overview.html"]')?.clientHeight ?? 0) > 0,
+    () =>
+      (document.querySelector<HTMLIFrameElement>('iframe[title="canvas-overview.html"]')
+        ?.clientHeight ?? 0) > 0,
     "Demo webpage did not render a visible Canvas frame",
   )
-  // Run under the shipped parent CSP: inline preview code works, while the inherited sandbox
-  // policy still blocks network access even when user markup contains a fake head or permissive meta.
+  // Run under the shipped parent CSP: inline preview code works, while the inherited sandbox policy
+  // still blocks network access even when user markup contains a fake head or permissive meta.
   const webpage = element<HTMLIFrameElement>('iframe[title="canvas-overview.html"]')
   const previewChecks: { running?: boolean; isolated?: boolean; blocked?: string }[] = []
   const onPreviewCheck = (event: MessageEvent) => {
@@ -357,7 +456,10 @@ async function runDesktopUiChecks() {
       const image = new Image(); image.src = 'https://preview.invalid/image-probe';
     </script></body></html>`
   const sendPreviewCheck = () =>
-    webpage.contentWindow?.postMessage({ type: "otis-webpage-source", source, title: "Policy regression" }, "*")
+    webpage.contentWindow?.postMessage(
+      { type: "otis-webpage-source", source, title: "Policy regression" },
+      "*",
+    )
   webpage.addEventListener("load", sendPreviewCheck, { once: true })
   sendPreviewCheck()
   await untilSlow(
@@ -390,8 +492,9 @@ async function runDesktopUiChecks() {
     }; demo events: ${demoEventLog.slice(-12).join(" | ")}`,
   )
   assertTraceVisible()
-  // The queued follow-up flushes into a second scripted turn once the first finishes; each turn parks at
-  // its own permission ask. Answer them all and hold past the flush gap before declaring the run settled.
+  // The queued follow-up flushes into a second scripted turn once the first finishes; each turn
+  // parks at its own permission ask. Answer them all and hold past the flush gap before declaring
+  // the run settled.
   for (let ask = 0; ask < 5; ask++) {
     await untilSlow(
       () => !!document.querySelector(".permissionCard") || store.getState()?.busy === false,
@@ -402,11 +505,16 @@ async function runDesktopUiChecks() {
       if (!document.querySelector(".permissionCard") && store.getState()?.busy === false) break
       continue
     }
-    const deny = Array.from(document.querySelectorAll("button")).find((button) => button.textContent === "Deny")
+    const deny = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent === "Deny",
+    )
     assert(deny, "Permission card's Deny button is missing")
     deny.click()
   }
-  await untilSlow(() => store.getState()?.busy === false, "Scripted turns never settled after their permission answers")
+  await untilSlow(
+    () => store.getState()?.busy === false,
+    "Scripted turns never settled after their permission answers",
+  )
   assert(
     document.querySelectorAll(".agentTrace .transcriptEntry").length > 0,
     "Trace overlay lost its entries after the run settled",
@@ -422,23 +530,37 @@ async function runDesktopUiChecks() {
   )
   assertTraceVisible()
   element<HTMLButtonElement>('[aria-label="Close trace"]').click()
-  await until(() => !document.querySelector(".agentTrace"), "Completed coworker trace did not close")
+  await until(
+    () => !document.querySelector(".agentTrace"),
+    "Completed coworker trace did not close",
+  )
   revision = demoRevision
 
-  // Measure the coworker header on first appearance with real translated labels: the collapse button must
-  // retain its full hit target, and long tab names must not push it beyond the clipped rail.
+  // Measure the coworker header on first appearance with real translated labels: the collapse
+  // button must retain its full hit target, and long tab names must not push it beyond the clipped
+  // rail.
   const completedRuns = store.getState()?.subagents ?? []
-  for (const locale of Object.keys(catalogs) as ResolvedLocale[]) {
+  for (const locale of LOCALES) {
     status({ subagents: [], artifact: null })
     await until(() => !document.querySelector(".workspaceRail"), "Empty side panel did not unmount")
     renderLanguage(locale)
-    await until(() => document.documentElement.lang === locale, `Language did not switch to ${locale}`)
+    await until(
+      () => document.documentElement.lang === locale,
+      `Language did not switch to ${locale}`,
+    )
     status({ subagents: completedRuns })
-    await until(() => !!document.querySelector(".workspaceRail"), `${locale}: first coworker did not open the panel`)
+    await until(
+      () => !!document.querySelector(".workspaceRail"),
+      `${locale}: first coworker did not open the panel`,
+    )
     await until(() => {
       const rail = element(".workspaceRail").getBoundingClientRect()
-      const collapse = element<HTMLButtonElement>(".workspaceRail-header > .iconBtn").getBoundingClientRect()
-      const tabs = Array.from(document.querySelectorAll<HTMLElement>('.workspaceRail-tabs button[role="tab"]'))
+      const collapse = element<HTMLButtonElement>(
+        ".workspaceRail-header > .iconBtn",
+      ).getBoundingClientRect()
+      const tabs = Array.from(
+        document.querySelectorAll<HTMLElement>('.workspaceRail-tabs button[role="tab"]'),
+      )
       const lastTab = tabs.at(-1)?.getBoundingClientRect()
       return (
         collapse.width >= 26 &&
@@ -452,7 +574,10 @@ async function runDesktopUiChecks() {
     const tabs = tabsElement.getBoundingClientRect()
     const collapse = element<HTMLButtonElement>(".workspaceRail-header > .iconBtn")
     const button = collapse.getBoundingClientRect()
-    assert(button.width >= 26 && button.right <= rail.right, `${locale}: collapse button is clipped or shrunk`)
+    assert(
+      button.width >= 26 && button.right <= rail.right,
+      `${locale}: collapse button is clipped or shrunk`,
+    )
     const tabButtons = Array.from(tabsElement.querySelectorAll<HTMLElement>('button[role="tab"]'))
     assert(
       tabButtons.every((tab) => tab.scrollWidth <= tab.clientWidth),
@@ -463,13 +588,19 @@ async function runDesktopUiChecks() {
       `${locale}: tabs overlap the collapse button`,
     )
     const hit = document.elementFromPoint(button.x + button.width / 2, button.y + button.height / 2)
-    assert(hit === collapse || (hit !== null && collapse.contains(hit)), `${locale}: collapse button cannot be clicked`)
+    assert(
+      hit === collapse || (hit !== null && collapse.contains(hit)),
+      `${locale}: collapse button cannot be clicked`,
+    )
   }
   renderLanguage("en")
   await until(() => document.documentElement.lang === "en", "Language did not return to English")
   const coworkerTab = element<HTMLButtonElement>('.workspaceRail-tabs button[role="tab"]')
   coworkerTab.click()
-  await until(() => coworkerTab.getAttribute("aria-selected") === "true", "Coworker tab did not activate")
+  await until(
+    () => coworkerTab.getAttribute("aria-selected") === "true",
+    "Coworker tab did not activate",
+  )
   await pause(260)
 
   const resizer = element<HTMLHRElement>(".workspaceRail-resizeHandle")
@@ -488,7 +619,9 @@ async function runDesktopUiChecks() {
     () => element(".workspaceRail").getBoundingClientRect().width >= widthBeforeResize + 63,
     "Dragging the side-panel divider did not resize the panel",
   )
-  await nativeInput({ events: [{ type: "mouseUp", button: "left", clickCount: 1, x: dragX - 64, y: dragY }] })
+  await nativeInput({
+    events: [{ type: "mouseUp", button: "left", clickCount: 1, x: dragX - 64, y: dragY }],
+  })
   assert(
     resizer.getAttribute("aria-valuenow") === String(Math.round(widthBeforeResize + 64)),
     "Resize divider did not expose its new width",
@@ -535,8 +668,13 @@ async function runDesktopUiChecks() {
   const diagramEntry = element(`[data-entry-id="${HISTORY_ID_BASE + 1600}"]`)
   const diagramBody = diagramEntry.querySelector<HTMLElement>(".md")
   assert(diagramBody, "Mermaid artifacts lost their message text column")
-  const diagramCards = Array.from(diagramEntry.querySelectorAll<HTMLElement>(".artifactCard-mermaid"))
-  assert(diagramCards.length === diagramCount, "Mermaid artifacts did not stay in their transcript entry")
+  const diagramCards = Array.from(
+    diagramEntry.querySelectorAll<HTMLElement>(".artifactCard-mermaid"),
+  )
+  assert(
+    diagramCards.length === diagramCount,
+    "Mermaid artifacts did not stay in their transcript entry",
+  )
   const firstDiagramCard = diagramCards[0]
   assert(firstDiagramCard, "Mermaid artifacts lost their first card")
   const bodyWidth = diagramBody.getBoundingClientRect().width
@@ -572,20 +710,36 @@ async function runDesktopUiChecks() {
     "Artifact hover changed the neutral border color",
   )
   assert(
-    element<HTMLButtonElement>('[role="tab"][aria-selected="true"]').textContent?.trim() === "Coworkers",
+    element<HTMLButtonElement>('[role="tab"][aria-selected="true"]').textContent?.trim() ===
+      "Coworkers",
     "Mermaid output opened Canvas without a user request",
   )
   element<HTMLButtonElement>('[aria-label^="Open in Canvas:"]').click()
-  await untilSlow(() => canvasResult !== undefined, "Canvas iframe did not finish rendering Mermaid")
-  assert(canvasResult?.ok, `Canvas iframe rejected a valid diagram: ${canvasResult?.message ?? "unknown error"}`)
+  await untilSlow(
+    () => canvasResult !== undefined,
+    "Canvas iframe did not finish rendering Mermaid",
+  )
+  assert(
+    canvasResult?.ok,
+    `Canvas iframe rejected a valid diagram: ${canvasResult?.message ?? "unknown error"}`,
+  )
   const expectedCanvasWidth = Math.min(560, Math.max(280, Math.round(window.innerWidth * 0.38)))
   await until(
-    () => Math.abs(element(".workspaceRail-canvas").getBoundingClientRect().width - expectedCanvasWidth) < 1,
+    () =>
+      Math.abs(
+        element(".workspaceRail-canvas").getBoundingClientRect().width - expectedCanvasWidth,
+      ) < 1,
     `Canvas rail width did not settle at its responsive default of ${expectedCanvasWidth}`,
   )
   assert(!document.querySelector(".canvas-tabs"), "Canvas retained an artifact tab list")
-  assert(document.querySelectorAll(".canvas-frame").length === 1, "Canvas mounted more than the requested diagram")
-  assert((canvasResult?.width ?? Number.POSITIVE_INFINITY) <= 480, "Canvas enlarged the selected diagram")
+  assert(
+    document.querySelectorAll(".canvas-frame").length === 1,
+    "Canvas mounted more than the requested diagram",
+  )
+  assert(
+    (canvasResult?.width ?? Number.POSITIVE_INFINITY) <= 480,
+    "Canvas enlarged the selected diagram",
+  )
   assert(canvasResult?.controls, "Canvas did not initialize pan and zoom controls")
   assert(
     (canvasResult?.diagramTop ?? 0) >= (canvasResult?.controlsBottom ?? Number.POSITIVE_INFINITY),
@@ -600,8 +754,14 @@ async function runDesktopUiChecks() {
     "Coworkers and Canvas lost their content transition",
   )
   status({ update: { status: "ready", version: "0.2.0" } })
-  await until(() => !!document.querySelector(".updateFab"), "Downloaded update did not show its install button")
-  assert(getComputedStyle(element(".updateFab")).display === "none", "Narrow layout kept the update button visible")
+  await until(
+    () => !!document.querySelector(".updateFab"),
+    "Downloaded update did not show its install button",
+  )
+  assert(
+    getComputedStyle(element(".updateFab")).display === "none",
+    "Narrow layout kept the update button visible",
+  )
 
   await nativeInput({ size: [1600, 850] })
   await until(
@@ -641,15 +801,23 @@ async function runDesktopUiChecks() {
     () => resizer.getAttribute("aria-valuenow") === resizer.getAttribute("aria-valuemin"),
     "Dragging into the Canvas iframe lost pointer movement",
   )
-  assert(document.elementFromPoint(iframeX, canvasY)?.matches(".canvas-frame"), "Drag did not cross the Canvas iframe")
-  await nativeInput({ events: [{ type: "mouseUp", button: "left", clickCount: 1, x: iframeX, y: canvasY }] })
+  assert(
+    document.elementFromPoint(iframeX, canvasY)?.matches(".canvas-frame"),
+    "Drag did not cross the Canvas iframe",
+  )
+  await nativeInput({
+    events: [{ type: "mouseUp", button: "left", clickCount: 1, x: iframeX, y: canvasY }],
+  })
   await until(
     () => !element(".workspaceRail").classList.contains("workspaceRail-resizing"),
     "Releasing over Canvas left the panel stuck resizing",
   )
   const releasedWidth = resizer.getAttribute("aria-valuenow")
   await nativeInput({ events: [{ type: "mouseMove", x: canvasX - 50, y: canvasY }] })
-  assert(resizer.getAttribute("aria-valuenow") === releasedWidth, "Panel continued resizing after release over Canvas")
+  assert(
+    resizer.getAttribute("aria-valuenow") === releasedWidth,
+    "Panel continued resizing after release over Canvas",
+  )
   await nativeInput({ size: [1000, 850] })
   resizer.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }))
   await until(
@@ -658,9 +826,14 @@ async function runDesktopUiChecks() {
   )
 
   const validCanvasResult = canvasResult
-  const canvasActions = document.querySelectorAll<HTMLButtonElement>('[aria-label^="Open in Canvas:"]')
+  const canvasActions = document.querySelectorAll<HTMLButtonElement>(
+    '[aria-label^="Open in Canvas:"]',
+  )
   canvasActions[canvasActions.length - 1]?.click()
-  await untilSlow(() => canvasResult !== validCanvasResult, "Canvas iframe did not report a malformed Mermaid diagram")
+  await untilSlow(
+    () => canvasResult !== validCanvasResult,
+    "Canvas iframe did not report a malformed Mermaid diagram",
+  )
   assert(
     canvasResult && !canvasResult.ok && !!canvasResult.message,
     "Canvas did not contain and report the Mermaid parse error",
@@ -672,7 +845,10 @@ async function runDesktopUiChecks() {
     () => canvasResult !== invalidCanvasResult,
     "Canvas iframe did not recover after the Mermaid parse error",
   )
-  assert(canvasResult?.ok, `Canvas did not recover with a valid diagram: ${canvasResult?.message ?? "unknown error"}`)
+  assert(
+    canvasResult?.ok,
+    `Canvas did not recover with a valid diagram: ${canvasResult?.message ?? "unknown error"}`,
+  )
 
   const recoveredCanvasResult = canvasResult
   element<HTMLIFrameElement>(".canvas-frame").contentWindow?.postMessage(
@@ -690,7 +866,10 @@ async function runDesktopUiChecks() {
     },
     "*",
   )
-  await untilSlow(() => canvasResult !== recoveredCanvasResult, "Canvas iframe ignored an oversized Mermaid diagram")
+  await untilSlow(
+    () => canvasResult !== recoveredCanvasResult,
+    "Canvas iframe ignored an oversized Mermaid diagram",
+  )
   assert(
     !canvasResult?.ok && canvasResult?.message?.includes("too large to render"),
     "Canvas did not explain its Mermaid source limit",
@@ -699,29 +878,42 @@ async function runDesktopUiChecks() {
 
   element<HTMLButtonElement>('[aria-label="Hide side panel"]').click()
   status({ agentsPanelVisible: false })
-  await until(() => element(".workspaceRail").classList.contains("workspaceRail-hidden"), "Side panel did not collapse")
+  await until(
+    () => element(".workspaceRail").classList.contains("workspaceRail-hidden"),
+    "Side panel did not collapse",
+  )
   await pause(260)
   const collapsedWidth = element(".workspaceRail").getBoundingClientRect().width
   assert(collapsedWidth < 1, `Collapsed side panel retained ${collapsedWidth}px of layout width`)
   element<HTMLButtonElement>('[aria-label="Show side panel"]').click()
   status({ agentsPanelVisible: true })
-  await until(() => !element(".workspaceRail").classList.contains("workspaceRail-hidden"), "Side panel did not reopen")
+  await until(
+    () => !element(".workspaceRail").classList.contains("workspaceRail-hidden"),
+    "Side panel did not reopen",
+  )
   await pause(260)
   assert(
     element(".workspaceRail").getBoundingClientRect().width >= 350,
     "Reopened side panel did not restore its width",
   )
 
-  // Streaming output must not disturb a reader mid-message. The scripted turns appended their own entries
-  // to the transcript, so reset to the pristine fixture history for deterministic positioning first.
-  status({ session: { id: "expanded-cards", title: "Expanded cards" }, subagents: [], busy: false, permission: null })
+  // Streaming output must not disturb a reader mid-message. The scripted turns appended their own
+  // entries to the transcript, so reset to the pristine fixture history for deterministic
+  // positioning first.
+  status({
+    session: { id: "expanded-cards", title: "Expanded cards" },
+    subagents: [],
+    busy: false,
+    permission: null,
+  })
   patch({ op: "reset", entries: history })
   await until(
     () => !!document.querySelector('[data-entry-id="101503"]'),
     "Reset did not reopen the fixture history at the latest entry",
   )
-  // The session switch remounts the conversation, and the reset op swaps the data — Virtuoso collapses
-  // to an empty list before re-laying it out, so wait for a real pinned view, not a vacuous bottom gap.
+  // The session switch remounts the conversation, and the reset op swaps the data — Virtuoso
+  // collapses to an empty list before re-laying it out, so wait for a real pinned view, not a
+  // vacuous bottom gap.
   scroll = element(".transcriptScroll")
   await until(
     () =>
@@ -730,17 +922,23 @@ async function runDesktopUiChecks() {
       !!document.querySelector('[data-entry-id="101503"]'),
     "Reset did not pin the reopened history at the latest entry",
   )
-  // Row heights are still being re-measured after the swap; a correction pass can re-window the list and
-  // destroy a selection set too early. Wait for the scroll position to stop drifting before selecting.
+  // Row heights are still being re-measured after the swap; a correction pass can re-window the
+  // list and destroy a selection set too early. Wait for the scroll position to stop drifting
+  // before selecting.
   let settled = false
   for (let attempt = 0; attempt < 20 && !settled; attempt++) {
     const first = scroll.scrollTop
     await pause(250)
     settled = Math.abs(scroll.scrollTop - first) < 1 && bottomGap() <= 33
   }
-  assert(settled, `Transcript did not settle after the reset: scrollTop=${scroll.scrollTop}, gap=${bottomGap()}`)
+  assert(
+    settled,
+    `Transcript did not settle after the reset: scrollTop=${scroll.scrollTop}, gap=${bottomGap()}`,
+  )
   const mountedIds = Array.from(document.querySelectorAll(".transcriptEntry"))
-    .map((entry) => entry.getAttribute("data-entry-id") ?? `run:${entry.getAttribute("data-run-id")}`)
+    .map(
+      (entry) => entry.getAttribute("data-entry-id") ?? `run:${entry.getAttribute("data-run-id")}`,
+    )
     .join(",")
   assert(
     !!document.querySelector('[data-entry-id="101502"]'),
@@ -770,13 +968,19 @@ async function runDesktopUiChecks() {
     }", jumpVisible=${!!document.querySelector(".jumpToLatest")}`,
   )
   assert(selection.toString() === selected, "Output discarded selected text")
-  assert(element('[data-entry-id="101502"] .md-tableWrap') === table, "Output replaced the selected message")
+  assert(
+    element('[data-entry-id="101502"] .md-tableWrap') === table,
+    "Output replaced the selected message",
+  )
   assert(element('[data-entry-id="101502"] .codeBlock') === code, "Output remounted completed code")
   assert(table.scrollLeft === 90, "Output reset table scroll")
   selection.removeAllRanges()
   scroll.dispatchEvent(new WheelEvent("wheel", { deltaY: -120, bubbles: true }))
   scroll.scrollTop -= 120
-  await until(() => !!document.querySelector(".jumpToLatest"), "Jump-to-latest control did not appear")
+  await until(
+    () => !!document.querySelector(".jumpToLatest"),
+    "Jump-to-latest control did not appear",
+  )
   element<HTMLButtonElement>(".jumpToLatest").click()
   await pause(180)
 
@@ -797,13 +1001,23 @@ async function runDesktopUiChecks() {
   }
   await pause(200)
   assert(bottomGap() <= 33, `Streaming stopped following the bottom: ${bottomGap()}`)
-  assert(input.value === "Draft 39" && document.activeElement === input, "Streaming disrupted typing")
+  assert(
+    input.value === "Draft 39" && document.activeElement === input,
+    "Streaming disrupted typing",
+  )
   const maxUpdateDelay = Math.max(...delays)
   assert(maxUpdateDelay < 250, `Streaming stalled the UI for ${Math.round(maxUpdateDelay)}ms`)
 
-  // A permission card mounts in the list footer below the fold; follow mode must keep it in view, and
-  // answering it must re-pin the newest content.
-  status({ permission: { id: 2, label: "Running command: bun test", kind: "shell", resources: ["bun test"] } })
+  // A permission card mounts in the list footer below the fold; follow mode must keep it in view,
+  // and answering it must re-pin the newest content.
+  status({
+    permission: {
+      id: 2,
+      label: "Running command: bun test",
+      kind: "shell",
+      resources: ["bun test"],
+    },
+  })
   await until(() => !!document.querySelector(".permissionCard"), "Permission card did not render")
   await until(() => bottomGap() <= 33, `Permission card was not followed into view: ${bottomGap()}`)
   status({ permission: null })
@@ -823,34 +1037,62 @@ async function runDesktopUiChecks() {
   assert(bottomGap() <= 33, "Latest button did not reach the bottom")
 
   // Long prose and code lines wrap inside the diff instead of requiring horizontal scrolling.
-  const longDiffLine = "A resume paragraph with descriptive experience and measurable outcomes. ".repeat(30)
+  const longDiffLine =
+    "A resume paragraph with descriptive experience and measurable outcomes. ".repeat(30)
   status({ session: { id: "wrapped-diff", title: "Wrapped diff" }, busy: false })
   patch({
     op: "reset",
     entries: [
-      { id: 1, kind: "tool", speaker: "Tool", text: "Edit resume.md", diff: `@@ -1 +1 @@\n-old\n+${longDiffLine}` },
+      {
+        id: 1,
+        kind: "tool",
+        speaker: "Tool",
+        text: "Edit resume.md",
+        diff: `@@ -1 +1 @@\n-old\n+${longDiffLine}`,
+      },
     ],
   })
   await until(() => !!document.querySelector(".diffLine-add"), "Wrapped diff did not render")
   const wrappedDiff = element(".diffView")
   const wrappedText = element(".diffLine-add .diffLine-text")
   await until(
-    () => wrappedText.getBoundingClientRect().height > Number.parseFloat(getComputedStyle(wrappedText).lineHeight) * 2,
+    () =>
+      wrappedText.getBoundingClientRect().height >
+      Number.parseFloat(getComputedStyle(wrappedText).lineHeight) * 2,
     "Long diff line did not wrap",
   )
-  assert(wrappedDiff.scrollWidth <= wrappedDiff.clientWidth + 1, "Wrapped diff still scrolls horizontally")
+  assert(
+    wrappedDiff.scrollWidth <= wrappedDiff.clientWidth + 1,
+    "Wrapped diff still scrolls horizontally",
+  )
 
-  // Whitespace-only deltas must not create blank rows or split tool runs. Measure actual content edges so
-  // stray child margins cannot silently add to the virtualized rows' spacing.
-  status({ session: { id: "activity-spacing", title: "Activity spacing" }, busy: true, thinkingVisible: true })
+  // Whitespace-only deltas must not create blank rows or split tool runs. Measure actual content
+  // edges so stray child margins cannot silently add to the virtualized rows' spacing.
+  status({
+    session: { id: "activity-spacing", title: "Activity spacing" },
+    busy: true,
+    thinkingVisible: true,
+  })
   patch({
     op: "reset",
     entries: [
       { id: 1, kind: "message", speaker: "You", text: "Create a sample resume." },
       row(2, ""),
-      { id: 3, kind: "tool", speaker: "Tool", text: "Loading skill: documents", activityKind: "file_read" },
+      {
+        id: 3,
+        kind: "tool",
+        speaker: "Tool",
+        text: "Loading skill: documents",
+        activityKind: "file_read",
+      },
       row(4, " \n\t"),
-      { id: 5, kind: "tool", speaker: "Tool", text: "Loading skill: documents", activityKind: "file_read" },
+      {
+        id: 5,
+        kind: "tool",
+        speaker: "Tool",
+        text: "Loading skill: documents",
+        activityKind: "file_read",
+      },
       { id: 6, kind: "reasoning", speaker: "Thinking", text: "", streaming: true },
       row(7, "\n"),
       {
@@ -861,22 +1103,47 @@ async function runDesktopUiChecks() {
         artifact: { source: "workspace", path: "alex-morgan-resume.docx", kind: "docx" },
         artifactDisplay: "ready",
       },
-      { id: 9, kind: "reasoning", speaker: "Thinking", text: "Check the saved resume.", durationMs: 4700 },
+      {
+        id: 9,
+        kind: "reasoning",
+        speaker: "Thinking",
+        text: "Check the saved resume.",
+        durationMs: 4700,
+      },
       row(10, "Done — here is your sample resume."),
-      { id: 11, kind: "tool", speaker: "Tool", text: "Edit resume.md", diff: "@@ -1 +1 @@\n-old\n+new" },
+      {
+        id: 11,
+        kind: "tool",
+        speaker: "Tool",
+        text: "Edit resume.md",
+        diff: "@@ -1 +1 @@\n-old\n+new",
+      },
       { id: 12, kind: "tool", speaker: "Tool", text: "Read resume.md", activityKind: "file_read" },
     ],
   })
-  await until(() => !!document.querySelector('[data-entry-id="12"]'), "Activity spacing fixture did not mount")
+  await until(
+    () => !!document.querySelector('[data-entry-id="12"]'),
+    "Activity spacing fixture did not mount",
+  )
   await pause(250)
   const assertEntryGap = (before: string, after: string, expected: number) => {
-    const gap = element(after).getBoundingClientRect().top - element(before).getBoundingClientRect().bottom
-    assert(Math.abs(gap - expected) < 1, `${before} → ${after}: expected ${expected}px gap, got ${gap}px`)
+    const gap =
+      element(after).getBoundingClientRect().top - element(before).getBoundingClientRect().bottom
+    assert(
+      Math.abs(gap - expected) < 1,
+      `${before} → ${after}: expected ${expected}px gap, got ${gap}px`,
+    )
   }
   for (const id of [2, 4, 7]) {
-    assert(!document.querySelector(`[data-entry-id="${id}"]`), "Empty assistant output occupies a transcript row")
+    assert(
+      !document.querySelector(`[data-entry-id="${id}"]`),
+      "Empty assistant output occupies a transcript row",
+    )
   }
-  assert(!!document.querySelector('[data-run-id="3"]'), "Empty assistant deltas split consecutive tool activity")
+  assert(
+    !!document.querySelector('[data-run-id="3"]'),
+    "Empty assistant deltas split consecutive tool activity",
+  )
   assertEntryGap('[data-entry-id="1"] .userRow', '[data-run-id="3"] .toolCard-header', 14)
   assertEntryGap('[data-run-id="3"] .toolCard-header', '[data-entry-id="6"] .reasoning-header', 6)
   assertEntryGap('[data-entry-id="6"] .reasoning-header', '[data-entry-id="8"] .artifactCard', 14)
@@ -884,22 +1151,34 @@ async function runDesktopUiChecks() {
   assertEntryGap('[data-entry-id="9"] .reasoning-header', '[data-entry-id="10"] .md', 14)
   assertEntryGap('[data-entry-id="11"] .diffView', '[data-entry-id="12"] .toolCard-header', 14)
   element<HTMLButtonElement>('[data-run-id="3"] .toolRun-header').click()
-  await until(() => !!document.querySelector('[data-entry-id="5"]'), "Short tool run did not expand")
+  await until(
+    () => !!document.querySelector('[data-entry-id="5"]'),
+    "Short tool run did not expand",
+  )
   await pause(250)
   assertEntryGap('[data-run-id="3"] .toolCard-header', '[data-entry-id="3"] .toolCard-header', 6)
   assertEntryGap('[data-entry-id="3"] .toolCard-header', '[data-entry-id="5"] .toolCard-header', 6)
   assertEntryGap('[data-entry-id="5"] .toolCard-header', '[data-entry-id="6"] .reasoning-header', 6)
   for (const selector of [".toolCard-header", ".reasoning-header"]) {
     for (const header of document.querySelectorAll(selector)) {
-      assert(Math.abs(header.getBoundingClientRect().height - 24) < 1, "Tool and thinking row heights differ")
+      assert(
+        Math.abs(header.getBoundingClientRect().height - 24) < 1,
+        "Tool and thinking row heights differ",
+      )
     }
   }
   await nativeInput({ screenshot: true, screenshotName: "activity-spacing" })
   element<HTMLButtonElement>('[data-entry-id="9"] .reasoning-header').click()
-  await until(() => !!document.querySelector('[data-entry-id="9"] .reasoning-body'), "Thinking did not expand")
+  await until(
+    () => !!document.querySelector('[data-entry-id="9"] .reasoning-body'),
+    "Thinking did not expand",
+  )
   assertEntryGap('[data-entry-id="9"] .reasoning-body', '[data-entry-id="10"] .md', 14)
   status({ thinkingVisible: false })
-  await until(() => !!document.querySelector(".reasoning-text"), "Live thinking status did not appear")
+  await until(
+    () => !!document.querySelector(".reasoning-text"),
+    "Live thinking status did not appear",
+  )
   await pause(250)
   assert(
     Math.abs(element(".reasoning-text").getBoundingClientRect().height - 24) < 1,
@@ -912,12 +1191,21 @@ async function runDesktopUiChecks() {
   // One huge diff must also stay bounded, and its final line must remain reachable.
   const diff = `@@ -0,0 +1,12000 @@\n${Array.from({ length: 12000 }, (_, index) => `+added_${index + 1}`).join("\n")}`
   status({ session: { id: "large-diff", title: "Large diff" }, busy: false })
-  patch({ op: "reset", entries: [{ id: 1, kind: "tool", speaker: "Tool", text: "Large edit", diff }] })
-  await until(() => !!document.querySelector(".diffView-windowed .diffLine"), "Large diff did not render")
+  patch({
+    op: "reset",
+    entries: [{ id: 1, kind: "tool", speaker: "Tool", text: "Large edit", diff }],
+  })
+  await until(
+    () => !!document.querySelector(".diffView-windowed .diffLine"),
+    "Large diff did not render",
+  )
   const diffScroll = element(".diffView-windowed")
   assert(document.querySelectorAll(".diffLine").length < 100, "Large diff mounted all of its lines")
   diffScroll.scrollTop = diffScroll.scrollHeight
-  await until(() => diffScroll.textContent?.includes("added_12000") === true, "Final diff line is not reachable")
+  await until(
+    () => diffScroll.textContent?.includes("added_12000") === true,
+    "Final diff line is not reachable",
+  )
   const diffRowsMounted = document.querySelectorAll(".diffLine").length
 
   // Session-local row IDs repeat. New sessions must not inherit the old viewport/disclosure state.
@@ -930,15 +1218,33 @@ async function runDesktopUiChecks() {
       { id: 3, kind: "reasoning", speaker: "Thinking", text: "hidden live trace", streaming: true },
     ],
   })
-  await until(() => !!document.querySelector(".reasoning-text"), "Hidden thinking did not show its live status")
+  await until(
+    () => !!document.querySelector(".reasoning-text"),
+    "Hidden thinking did not show its live status",
+  )
   assert(!document.querySelector('[data-entry-id="2"]'), "Finished thinking was not filtered")
-  assert(!document.body.textContent?.includes("hidden live trace"), "Hidden thinking leaked its content")
+  assert(
+    !document.body.textContent?.includes("hidden live trace"),
+    "Hidden thinking leaked its content",
+  )
   patch({
     op: "upsert",
-    entry: { id: 3, kind: "reasoning", speaker: "Thinking", text: "hidden live trace", streaming: false },
+    entry: {
+      id: 3,
+      kind: "reasoning",
+      speaker: "Thinking",
+      text: "hidden live trace",
+      streaming: false,
+    },
   })
-  await until(() => !document.querySelector(".reasoning-text"), "Settled hidden thinking remained mounted")
-  status({ thinkingVisible: true, permission: { id: 1, label: "Test approval", kind: "shell", resources: [] } })
+  await until(
+    () => !document.querySelector(".reasoning-text"),
+    "Settled hidden thinking remained mounted",
+  )
+  status({
+    thinkingVisible: true,
+    permission: { id: 1, label: "Test approval", kind: "shell", resources: [] },
+  })
   await until(
     () => !!document.querySelector('[data-entry-id="2"] .reasoning-header'),
     "Thinking toggle did not reveal finished traces",
@@ -946,8 +1252,8 @@ async function runDesktopUiChecks() {
   assert(!document.querySelector(".reasoning-body"), "New session inherited expanded reasoning")
   assert(document.body.textContent?.includes("Test approval"), "Permission footer was not rendered")
 
-  // An expanded tool run must stay virtualized: its actions become ordinary windowed rows instead of mounting
-  // at once inside the run's row.
+  // An expanded tool run must stay virtualized: its actions become ordinary windowed rows instead
+  // of mounting at once inside the run's row.
   status({
     session: { id: "long-run", title: "Long run" },
     thinkingVisible: true,
@@ -969,19 +1275,36 @@ async function runDesktopUiChecks() {
   await pause(300)
   const mountedExpanded = document.querySelectorAll(".transcriptEntry").length
   assert(mountedExpanded < 100, `Expanded run mounted ${mountedExpanded} of 800 actions`)
-  assert(!document.querySelector('[data-entry-id="400"]'), "Expanded run mounted an offscreen action")
-  // Session switching creates a new scroller; exercise that live element, not the old session's detached one.
+  assert(
+    !document.querySelector('[data-entry-id="400"]'),
+    "Expanded run mounted an offscreen action",
+  )
+  // Session switching creates a new scroller; exercise that live element, not the old session's
+  // detached one.
   const runScroll = element(".transcriptScroll")
   runScroll.dispatchEvent(new WheelEvent("wheel", { deltaY: -1000, bubbles: true }))
   runScroll.scrollTop = 0
-  await until(() => !!document.querySelector('[data-entry-id="1"]'), "Expanded run's first action is unreachable")
-  assert(!document.querySelector('[data-entry-id="800"]'), "Scrolling up kept the end of the run mounted")
+  await until(
+    () => !!document.querySelector('[data-entry-id="1"]'),
+    "Expanded run's first action is unreachable",
+  )
+  assert(
+    !document.querySelector('[data-entry-id="800"]'),
+    "Scrolling up kept the end of the run mounted",
+  )
   runScroll.scrollTop = (runScroll.scrollHeight - runScroll.clientHeight) / 2
-  await until(() => !!document.querySelector('[data-entry-id="400"]'), "Expanded run's middle action is unreachable")
+  await until(
+    () => !!document.querySelector('[data-entry-id="400"]'),
+    "Expanded run's middle action is unreachable",
+  )
   runScroll.scrollTop = runScroll.scrollHeight
-  await until(() => !!document.querySelector('[data-entry-id="800"]'), "Expanded run's final action is unreachable")
+  await until(
+    () => !!document.querySelector('[data-entry-id="800"]'),
+    "Expanded run's final action is unreachable",
+  )
 
-  // Follow a new response through line wraps and the transition from live thinking to the final answer.
+  // Follow a new response through line wraps and the transition from live thinking to the final
+  // answer.
   status({
     session: { id: "streaming-transitions", title: "Streaming transitions" },
     busy: true,
@@ -995,7 +1318,10 @@ async function runDesktopUiChecks() {
     streaming: true,
   }
   patch({ op: "reset", entries: [...history, thinking] })
-  await until(() => !!document.querySelector('[data-entry-id="101504"]'), "Live thinking did not mount")
+  await until(
+    () => !!document.querySelector('[data-entry-id="101504"]'),
+    "Live thinking did not mount",
+  )
   scroll = element(".transcriptScroll")
   await pause(300)
   assert(bottomGap() <= 33, `Thinking did not open at the bottom: ${bottomGap()}`)
@@ -1006,7 +1332,10 @@ async function runDesktopUiChecks() {
     for (let chunk = 1; chunk <= 12; chunk++) {
       patch({
         op: "upsert",
-        entry: row(101505, `Answer ${turn}\n\n${"A streamed sentence that wraps across the line. ".repeat(chunk * 4)}`),
+        entry: row(
+          101505,
+          `Answer ${turn}\n\n${"A streamed sentence that wraps across the line. ".repeat(chunk * 4)}`,
+        ),
       })
       await pause(16)
     }
@@ -1032,14 +1361,21 @@ async function runDesktopUiChecks() {
     })
     return { ok: true }
   }
-  await until(() => !!document.querySelector(".workspaceHeader-new"), "Fresh start did not become available")
+  await until(
+    () => !!document.querySelector(".workspaceHeader-new"),
+    "Fresh start did not become available",
+  )
   const previousTranscript = element(".transcriptScroll")
   element<HTMLButtonElement>(".workspaceHeader-new").click()
   await until(
-    () => !!document.querySelector(".home") && element(".workspaceView").className === "workspaceView",
+    () =>
+      !!document.querySelector(".home") && element(".workspaceView").className === "workspaceView",
     "Fresh start did not return to Home",
   )
-  assert(getComputedStyle(element(".workspaceView")).transitionDuration === "0s", "Fresh start still animates")
+  assert(
+    getComputedStyle(element(".workspaceView")).transitionDuration === "0s",
+    "Fresh start still animates",
+  )
   assert(!document.querySelector(".workspaceHeader-title"), "Home retained the old session title")
   assert(!previousTranscript.isConnected, "Home kept the previous transcript mounted")
 
@@ -1064,9 +1400,15 @@ async function runDesktopUiChecks() {
   element<HTMLButtonElement>(".thinkingControl-trigger").click()
   await pause()
   const panel = element(".thinkingControl-panel").getBoundingClientRect()
-  assert(panel.left >= 0 && panel.right <= innerWidth && panel.top >= 0, "Thinking slider exceeds the viewport")
+  assert(
+    panel.left >= 0 && panel.right <= innerWidth && panel.top >= 0,
+    "Thinking slider exceeds the viewport",
+  )
   const thinkingRange = element<HTMLInputElement>('.thinkingControl input[type="range"]')
-  assert(document.activeElement === thinkingRange, "Thinking slider does not receive keyboard focus")
+  assert(
+    document.activeElement === thinkingRange,
+    "Thinking slider does not receive keyboard focus",
+  )
   const track = thinkingRange.getBoundingClientRect()
   await nativeInput({
     events: [
@@ -1086,11 +1428,17 @@ async function runDesktopUiChecks() {
       },
     ],
   })
-  await until(() => store.getState()?.localThinking?.selected === "medium", "Thinking slider did not persist Medium")
+  await until(
+    () => store.getState()?.localThinking?.selected === "medium",
+    "Thinking slider did not persist Medium",
+  )
   await nativeInput({ screenshot: true })
   thinkingRange.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
   await pause()
-  assert(!document.querySelector(".thinkingControl-panel"), "Escape did not dismiss thinking control")
+  assert(
+    !document.querySelector(".thinkingControl-panel"),
+    "Escape did not dismiss thinking control",
+  )
 
   // Loading dims the input form, but must not make a reopened model picker translucent.
   status({
@@ -1098,39 +1446,56 @@ async function runDesktopUiChecks() {
     modelLoad: { modelId: thinkingModel, status: { kind: "progress", label: "Loading" } },
   })
   await pause()
-  assert(Number(getComputedStyle(element(".composer-box")).opacity) < 1, "Loading fixture did not dim the composer")
+  assert(
+    Number(getComputedStyle(element(".composer-box")).opacity) < 1,
+    "Loading fixture did not dim the composer",
+  )
   for (let attempt = 0; attempt < 2; attempt++) {
     element<HTMLButtonElement>(".composer-model").click()
-    await until(() => !!document.querySelector(".modelPicker-spinner"), "Loading model picker did not open")
+    await until(
+      () => !!document.querySelector(".modelPicker-spinner"),
+      "Loading model picker did not open",
+    )
     await pause(200)
-    if (attempt === 0) await nativeInput({ screenshot: true, screenshotName: "model-picker-loading" })
+    if (attempt === 0)
+      await nativeInput({ screenshot: true, screenshotName: "model-picker-loading" })
     const picker = element(".modelPicker")
     assert(
       getComputedStyle(picker).backgroundColor === getComputedStyle(document.body).backgroundColor,
       "Picker lost its opaque background",
     )
     for (let ancestor: HTMLElement | null = picker; ancestor; ancestor = ancestor.parentElement) {
-      assert(Number(getComputedStyle(ancestor).opacity) === 1, `Loading picker is dimmed by ${ancestor.className}`)
+      assert(
+        Number(getComputedStyle(ancestor).opacity) === 1,
+        `Loading picker is dimmed by ${ancestor.className}`,
+      )
     }
     element<HTMLButtonElement>(".modelPicker-title button").click()
     await until(() => !document.querySelector(".modelPicker"), "Model picker did not close")
   }
   status({ modelState: "ready", modelLoad: null })
 
-  // Select each new palette through the same controls users use, with the conversation still mounted.
+  // Select each new palette through the same controls users use, with the conversation still
+  // mounted.
   api.setTheme = async (theme) => status({ theme })
   element<HTMLButtonElement>('[aria-label="Settings"]').click()
   await pause()
   element<HTMLButtonElement>('[role="tab"][id="settings-tab-appearance"]').click()
   await pause()
   for (const theme of ["pearl", "sage", "titanium"] as const) {
-    const tile = element<HTMLSpanElement>(`.themeTile-preview[data-theme="${theme}"]`).closest("button")
+    const tile = element<HTMLSpanElement>(`.themeTile-preview[data-theme="${theme}"]`).closest(
+      "button",
+    )
     assert(tile, `${theme} is missing from Appearance`)
     tile.click()
     await until(() => document.documentElement.dataset.theme === theme, `${theme} did not apply`)
-    assert(tile.getAttribute("aria-pressed") === "true", `${theme} selection is not reflected in Appearance`)
     assert(
-      getComputedStyle(element('.themeTile-preview[data-theme="default"]')).backgroundColor === "rgb(26, 26, 26)",
+      tile.getAttribute("aria-pressed") === "true",
+      `${theme} selection is not reflected in Appearance`,
+    )
+    assert(
+      getComputedStyle(element('.themeTile-preview[data-theme="default"]')).backgroundColor ===
+        "rgb(26, 26, 26)",
       "Default theme preview inherited the active palette",
     )
     await pause()
@@ -1138,7 +1503,8 @@ async function runDesktopUiChecks() {
   }
   await api.setTheme("default")
 
-  // Update feedback stays in its row, and the ready state offers the same install action as the chat chip.
+  // Update feedback stays in its row, and the ready state offers the same install action as the
+  // chat chip.
   element<HTMLButtonElement>("#settings-tab-general").click()
   await until(() => !!document.querySelector(".settingsUpdate"), "Update settings did not open")
   let finishUpdateCheck!: () => void
@@ -1154,22 +1520,38 @@ async function runDesktopUiChecks() {
   status({ update: { status: "idle" } })
   await pause()
   element<HTMLButtonElement>(".settingsUpdate button").click()
-  await until(() => element(".settingsUpdate button").textContent === "Checking…", "Update check did not start")
-  assert(!document.querySelector(".settingsUpdate [role=status]"), "Checking progress is duplicated below the button")
+  await until(
+    () => element(".settingsUpdate button").textContent === "Checking…",
+    "Update check did not start",
+  )
+  assert(
+    !document.querySelector(".settingsUpdate [role=status]"),
+    "Checking progress is duplicated below the button",
+  )
   await nativeInput({ screenshot: true, screenshotName: "settings-updates-checking" })
   finishUpdateCheck()
-  await until(() => !!document.querySelector(".settingsUpdate [role=status]"), "Update check result did not appear")
+  await until(
+    () => !!document.querySelector(".settingsUpdate [role=status]"),
+    "Update check result did not appear",
+  )
   await nativeInput({ screenshot: true, screenshotName: "settings-updates-current" })
   await nativeInput({ size: [960, 600] })
-  for (const language of Object.keys(catalogs) as ResolvedLocale[]) {
+  for (const language of LOCALES) {
     renderLanguage(language)
+    await until(
+      () => document.documentElement.lang === language,
+      `Language did not switch to ${language}`,
+    )
     for (const update of [
       { status: "current" },
       { status: "checking" },
       { status: "downloading", version: "9.9.9" },
       { status: "ready", version: "9.9.9" },
       { status: "unavailable" },
-      { status: "error", message: createTranslator(catalogs[language], language)("updates.checkFailed") },
+      {
+        status: "error",
+        message: translate()("updates.checkFailed"),
+      },
     ] satisfies DesktopStatus["update"][]) {
       status({ update })
       await pause()
@@ -1181,14 +1563,21 @@ async function runDesktopUiChecks() {
       assert(label.right + 10 <= bounds.left, `${language}: update button overlaps the version`)
       const feedback = row.querySelector<HTMLElement>("[role=status]")?.getBoundingClientRect()
       if (feedback) {
-        assert(feedback.left >= label.right + 10, `${language}: update feedback overlaps the version`)
-        assert(feedback.right + 10 <= bounds.left, `${language}: update feedback overlaps the button`)
+        assert(
+          feedback.left >= label.right + 10,
+          `${language}: update feedback overlaps the version`,
+        )
+        assert(
+          feedback.right + 10 <= bounds.left,
+          `${language}: update feedback overlaps the button`,
+        )
         assert(
           Math.abs(feedback.top + feedback.height / 2 - bounds.top - bounds.height / 2) < 1,
           `${language}: update feedback is not vertically aligned with its button`,
         )
       }
-      if (update.status === "ready") assert(!button.disabled, "The ready update cannot be installed from Settings")
+      if (update.status === "ready")
+        assert(!button.disabled, "The ready update cannot be installed from Settings")
     }
   }
   renderLanguage("en")
@@ -1202,8 +1591,13 @@ async function runDesktopUiChecks() {
   status({ model: null, modelState: "unconfigured" })
   await until(() => !!document.querySelector(".onboarding"), "Onboarding did not open")
   element<HTMLButtonElement>(".onboarding-cards button:last-child").click()
-  await until(() => !!document.querySelector(".onboarding-providerMarks"), "Local setup did not open")
-  const marks = Array.from(document.querySelectorAll<HTMLImageElement>(".onboarding-providerMarks img"))
+  await until(
+    () => !!document.querySelector(".onboarding-providerMarks"),
+    "Local setup did not open",
+  )
+  const marks = Array.from(
+    document.querySelectorAll<HTMLImageElement>(".onboarding-providerMarks img"),
+  )
   await until(
     () => marks.length === 3 && marks.every((mark) => mark.naturalWidth > 0),
     "Local setup lacks provider logos",
@@ -1211,10 +1605,13 @@ async function runDesktopUiChecks() {
   await pause(250)
   await nativeInput({ screenshot: true, screenshotName: "onboarding-local" })
   element<HTMLButtonElement>(".onboarding-cards button:last-child").click()
-  await until(() => !!document.querySelector("#onboarding-omlx-key"), "Local server setup did not open")
+  await until(
+    () => !!document.querySelector("#onboarding-omlx-key"),
+    "Local server setup did not open",
+  )
   await nativeInput({ size: [960, 600] })
   await pause(250)
-  for (const language of Object.keys(catalogs) as ResolvedLocale[]) {
+  for (const language of LOCALES) {
     renderLanguage(language)
     await pause()
     await checkLocalServerFields("onboarding")
@@ -1242,7 +1639,10 @@ async function runDesktopUiChecks() {
   const hostBounds = pdfHost.getBoundingClientRect()
   const scrollBounds = pdfScroll.getBoundingClientRect()
   const pageBounds = firstPage.getBoundingClientRect()
-  assert(Math.abs(scrollBounds.right - hostBounds.right) < 1, "PDF scrollbar is inset from the panel edge")
+  assert(
+    Math.abs(scrollBounds.right - hostBounds.right) < 1,
+    "PDF scrollbar is inset from the panel edge",
+  )
   assert(Math.abs(scrollBounds.left - hostBounds.left) < 1, "PDF scroller does not fill the panel")
   assert(Math.abs(pageBounds.left - scrollBounds.left - 16) < 1, "PDF left page inset is incorrect")
   assert(
@@ -1251,9 +1651,15 @@ async function runDesktopUiChecks() {
   )
   assert(pdfScroll.scrollWidth === pdfScroll.clientWidth, "PDF preview scrolls horizontally")
   pdfScroll.scrollTop = pdfScroll.scrollHeight
-  await untilSlow(() => !!pdfHost.querySelector('[aria-label="Page 120"]'), "PDF final page is unreachable")
+  await untilSlow(
+    () => !!pdfHost.querySelector('[aria-label="Page 120"]'),
+    "PDF final page is unreachable",
+  )
   assert(!firstPage.isConnected && firstPage.width === 0, "PDF retained an offscreen page bitmap")
-  assert(pdfHost.querySelectorAll(".canvas-pdfPage").length < 8, "PDF scrolling accumulated page canvases")
+  assert(
+    pdfHost.querySelectorAll(".canvas-pdfPage").length < 8,
+    "PDF scrolling accumulated page canvases",
+  )
   pdfRoot.unmount()
   pdfHost.remove()
 
@@ -1281,17 +1687,33 @@ async function runDesktopUiChecks() {
     publication: { reference: publication, versions: [1, 2], followingLatest: true },
   }
   const artifactApi = createDemoRuntime()
-  artifactApi.getArtifact = async () => ({ ...artifact, encoding: "utf8", content: "# Saved document" })
+  artifactApi.getArtifact = async () => ({
+    ...artifact,
+    encoding: "utf8",
+    content: "# Saved document",
+  })
   artifactRoot.render(
     <DesktopProvider value={{ api: artifactApi, store: new DesktopViewStore(artifactApi) }}>
       <FileArtifact artifact={artifact} />
     </DesktopProvider>,
   )
-  await until(() => !!artifactHost.querySelector("select"), "Artifact version selector did not render")
+  await until(
+    () => !!artifactHost.querySelector("select"),
+    "Artifact version selector did not render",
+  )
   const header = artifactHost.querySelector<HTMLElement>(".canvas-artifactHeader")
-  assert(header && header.scrollWidth <= header.clientWidth, "Artifact header overflows at narrow widths")
-  assert(artifactHost.querySelector("select")?.value === "latest", "Artifact did not default to the latest revision")
-  assert(artifactHost.querySelectorAll("option").length === 3, "Artifact history omitted saved revisions")
+  assert(
+    header && header.scrollWidth <= header.clientWidth,
+    "Artifact header overflows at narrow widths",
+  )
+  assert(
+    artifactHost.querySelector("select")?.value === "latest",
+    "Artifact did not default to the latest revision",
+  )
+  assert(
+    artifactHost.querySelectorAll("option").length === 3,
+    "Artifact history omitted saved revisions",
+  )
   artifactRoot.unmount()
   artifactHost.remove()
   return {

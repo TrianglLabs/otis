@@ -124,14 +124,17 @@ export const ja: Messages = {
   "composer.imageTooLarge": "{{name}} は大きすぎます。画像は {{size}} MB 以下にしてください。",
   "composer.tooManyImages": "最大 {{count}} 枚の画像を添付できます。",
   "composer.modelNoImages": "選択したモデルは画像に対応していません。",
-  "composer.modelNoImageInput": "選択したモデルは画像入力に対応していません。画像対応モデルを選択してください。",
+  "composer.modelNoImageInput":
+    "選択したモデルは画像入力に対応していません。画像対応モデルを選択してください。",
   "composer.atMostImages": "1件のメッセージに最大 {{count}} 枚の画像を添付できます。",
   "composer.unsupportedFile":
     "{{name}} は対応していません。テキスト、PDF、DOCX、PNG、JPEG、GIF、BMP、TIFF、PPM を使用してください。",
   "composer.thatFile": "そのファイル",
   "composer.fileEmpty": "{{name}} は空です。",
-  "composer.imageRequestLimit": "{{name}} は大きすぎます。画像データは 10 MB の上限未満にしてください。",
-  "composer.imagesRequestLimit": "添付画像の合計サイズが大きすぎます。画像データの合計は 10 MB 未満にしてください。",
+  "composer.imageRequestLimit":
+    "{{name}} は大きすぎます。画像データは 10 MB の上限未満にしてください。",
+  "composer.imagesRequestLimit":
+    "添付画像の合計サイズが大きすぎます。画像データの合計は 10 MB 未満にしてください。",
   "composer.fileReadFailed": "ファイルを読み込めませんでした。",
   "composer.fastServing": "高速推論",
   "composer.modelTitle": "{{id}} · {{provider}}{{fast}} — モデルを選択",
@@ -167,8 +170,10 @@ export const ja: Messages = {
   "markdown.copied": "コピー済み",
   "onboarding.tagline": "オープンモデルを活用する、あなた専用の AI エージェント。",
   "onboarding.chooseSetup": "モデルの設定方法を選択",
-  "onboarding.hostedBody": "高性能なオープンモデルをすぐに利用できます。Fireworks キーで従量課金接続。",
-  "onboarding.localBody": "このコンピューターまたはローカル AI ネットワークで実行。プライベートでオフライン対応。",
+  "onboarding.hostedBody":
+    "高性能なオープンモデルをすぐに利用できます。Fireworks キーで従量課金接続。",
+  "onboarding.localBody":
+    "このコンピューターまたはローカル AI ネットワークで実行。プライベートでオフライン対応。",
   "onboarding.back": "戻る",
   "onboarding.setupHosted": "ホスト型モデルを設定",
   "onboarding.chooseLocal": "ローカル推論を選択",
@@ -188,8 +193,10 @@ export const ja: Messages = {
     "{{servers}} に直接、もしくは NVIDIA PAIR 経由で接続します。既定のローカルアドレスは入力済みです。 モデルには64K以上のコンテキストが必要です。",
   "onboarding.chooseModel": "モデルを選択",
   "onboarding.chooseServerModel": "接続したサーバーが報告したモデルを選択します。",
-  "onboarding.connectedNoModels": "接続しましたが、サーバーから利用可能なモデルが報告されませんでした。",
-  "onboarding.noLocalFit": "このコンピューターに適合するローカルモデルがありません。戻ってホスト型を選択してください。",
+  "onboarding.connectedNoModels":
+    "接続しましたが、サーバーから利用可能なモデルが報告されませんでした。",
+  "onboarding.noLocalFit":
+    "このコンピューターに適合するローカルモデルがありません。戻ってホスト型を選択してください。",
   "onboarding.bestModel": "このコンピューターに最適なモデル",
   "onboarding.downloadContinue": "ダウンロードして続ける",
   "settings.close": "設定を閉じる (Esc)",
@@ -257,7 +264,8 @@ export const ja: Messages = {
   "updates.downloadingVersion": "Otis {{version}} をバックグラウンドでダウンロード中…",
   "updates.unavailableBuild": "この Otis ビルドでは更新を確認できません。",
   "updates.upToDate": "最新の状態です。",
-  "updates.backgroundHint": "更新はバックグラウンドでダウンロードされます。再起動のタイミングは選べます。",
+  "updates.backgroundHint":
+    "更新はバックグラウンドでダウンロードされます。再起動のタイミングは選べます。",
   "canvas.viewport": "図のキャンバス。ドラッグで移動し、操作ボタンで拡大・縮小できます。",
   "canvas.controls": "図の表示操作",
   "canvas.zoomOut": "縮小",

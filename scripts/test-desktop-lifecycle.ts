@@ -4,7 +4,8 @@ import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import electron from "electron"
 
-// This app has its own profile, no model, and no credentials. It intentionally loses its renderer and stdio.
+// This app has its own profile, no model, and no credentials. It intentionally loses its renderer
+// and stdio.
 const output = await mkdtemp(join(tmpdir(), "otis-desktop-lifecycle-"))
 try {
   const built = await Bun.build({
@@ -48,7 +49,9 @@ try {
       resolveExit(code ?? 1)
     })
   })
-  const result = await readFile(join(output, "result.json"), "utf8").catch(() => "No lifecycle test result")
+  const result = await readFile(join(output, "result.json"), "utf8").catch(
+    () => "No lifecycle test result",
+  )
   console.log(result)
   if (code !== 0) throw new Error(`Desktop lifecycle checks exited with ${code}`)
 } finally {

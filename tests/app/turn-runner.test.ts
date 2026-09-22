@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
+import { SubagentTraces } from "../../src/app/subagents.js"
 import { executeTurn } from "../../src/app/turn-runner.js"
 import type { AgentEvent } from "../../src/core/agent.js"
+import { compactionSummaryMessage } from "../../src/core/compaction.js"
 import type { ChatMessage } from "../../src/inference/types.js"
 
 const mocks = vi.hoisted(() => ({ runAgent: vi.fn() }))
@@ -20,7 +22,15 @@ function toolEvent(
   label: string,
   extra: Partial<Extract<AgentEvent, { type: "tool" }>> = {},
 ): AgentEvent {
-  return { type: "tool", phase, toolCallId, name: "read", activityKind: "file_read", label, ...extra }
+  return {
+    type: "tool",
+    phase,
+    toolCallId,
+    name: "read",
+    activityKind: "file_read",
+    label,
+    ...extra,
+  }
 }
 
 function child(toolCallId: string, event: AgentEvent): AgentEvent {
@@ -40,7 +50,13 @@ describe("executeTurn", () => {
       yield toolEvent("start", "current_dropped", "Dropped")
       yield toolEvent("start", "current_kept", "Kept")
       await options.onCompaction({ summary: "Summary.", keptMessages: kept }, 2, segment)
-      yield { type: "compaction", phase: "complete", summary: "Summary.", keptMessages: kept, messages: segment }
+      yield {
+        type: "compaction",
+        phase: "complete",
+        summary: "Summary.",
+        keptMessages: kept,
+        messages: segment,
+      }
       yield toolEvent("start", "new_call", "New")
       yield { type: "complete", messages: [call("new_call")] }
     })
@@ -74,7 +90,9 @@ describe("executeTurn", () => {
         subagents: [],
       },
     )
-    expect(result.details.toolActivities).toEqual([{ toolCallId: "new_call", activityKind: "file_read", label: "New" }])
+    expect(result.details.toolActivities).toEqual([
+      { toolCallId: "new_call", activityKind: "file_read", label: "New" },
+    ])
   })
 
   it("records the turn's tool cards and each delegated run's trace for persistence", async () => {
@@ -82,11 +100,17 @@ describe("executeTurn", () => {
       toolEvent("start", "call_agent", "Delegating: Map", { name: "agent", activityKind: "agent" }),
       child("call_agent", { type: "model", phase: "start" }),
       child("call_agent", toolEvent("start", "read_1", "Reading files: a.ts")),
-      child("call_agent", toolEvent("end", "read_1", "Reading files: a.ts", { outcome: "completed" })),
+      child(
+        "call_agent",
+        toolEvent("end", "read_1", "Reading files: a.ts", { outcome: "completed" }),
+      ),
       child("call_agent", { type: "delta", text: "Report." }),
       child("call_agent", { type: "complete", messages: childMessages }),
       toolEvent("end", "call_agent", "Delegating: Map", { name: "agent", activityKind: "agent" }),
-      toolEvent("start", "call_edit", "Editing file: b.ts", { name: "edit", activityKind: "file_edit" }),
+      toolEvent("start", "call_edit", "Editing file: b.ts", {
+        name: "edit",
+        activityKind: "file_edit",
+      }),
       toolEvent("end", "call_edit", "Editing file: b.ts", {
         name: "edit",
         activityKind: "file_edit",
@@ -129,13 +153,101 @@ describe("executeTurn", () => {
             title: "Map",
             status: "complete",
             messages: childMessages,
-            toolActivities: [{ toolCallId: "read_1", activityKind: "file_read", label: "Reading files: a.ts" }],
+            toolActivities: [
+              { toolCallId: "read_1", activityKind: "file_read", label: "Reading files: a.ts" },
+            ],
             durationMs: expect.any(Number),
           },
         ],
       },
     })
     expect(observed).toEqual(script)
+  })
+
+  it("keeps child checkpoints and continuation messages consistent between the live trace and saved run", async () => {
+    const traces = new SubagentTraces()
+    const parent: ChatMessage[] = [
+      { role: "user", content: "map" },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_call",
+            toolCall: {
+              id: "call_a",
+              name: "agent",
+              arguments: '{"description":"A","prompt":"a"}',
+            },
+          },
+        ],
+      },
+    ]
+    const prefix: ChatMessage[] = [
+      { role: "user", content: "Explore first." },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_call", toolCall: { id: "old_read", name: "read", arguments: "{}" } },
+        ],
+      },
+      { role: "tool", toolCallId: "old_read", content: "old file" },
+    ]
+    const continuation: ChatMessage[] = [
+      { role: "user", content: "Map the repo." },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_call",
+            toolCall: { id: "read_1", name: "read", arguments: '{"path":"a.ts"}' },
+          },
+        ],
+      },
+      { role: "tool", toolCallId: "read_1", content: "a" },
+      { role: "assistant", content: [{ type: "text", text: "Report." }] },
+    ]
+    const events: AgentEvent[] = [
+      toolEvent("start", "old_read", "Reading old file"),
+      {
+        type: "compaction",
+        phase: "complete",
+        summary: "Earlier exploration.",
+        keptMessages: [],
+        messages: prefix,
+      },
+      toolEvent("start", "read_1", "Reading a.ts"),
+      { type: "delta", text: "Report." },
+      { type: "complete", messages: continuation },
+    ]
+    mocks.runAgent.mockImplementation(async function* () {
+      for (const event of events) yield child("call_a", event)
+      yield { type: "complete", messages: parent.slice(1) }
+    })
+
+    const result = await executeTurn({
+      input: { role: "user", content: "map" },
+      agent: { client: { model: "test", streamChat: vi.fn(), complete: vi.fn() } },
+      onEvent: (event) => {
+        if (event.type === "subagent") traces.apply(event)
+      },
+    })
+
+    const saved = result.details.subagents?.[0]
+    expect(saved?.messages).toEqual([
+      ...prefix,
+      compactionSummaryMessage("Earlier exploration."),
+      ...continuation,
+    ])
+    expect(traces.runsFor(parent)[0].messages).toEqual(saved?.messages)
+    expect(traces.get("call_a")?.transcript.history).toEqual([
+      compactionSummaryMessage("Earlier exploration."),
+      ...continuation,
+    ])
+    expect(saved?.toolActivities?.map((activity) => activity.toolCallId)).toEqual([
+      "old_read",
+      "read_1",
+    ])
+    expect(traces.runsFor(parent)[0].toolActivities).toEqual(saved?.toolActivities)
   })
 
   it("persists runs that were interrupted, failed, or never reported with a terminal status", async () => {

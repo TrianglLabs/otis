@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { contextUsage } from "../../src/app/context-usage.js"
-import { formatContextUsage } from "../../src/cli/context-meter.js"
+import { contextUsage, formatContextUsage } from "../../src/cli/ui/format.js"
 
 describe("formatContextUsage", () => {
   it("renders an empty thin track at 0%", () => {

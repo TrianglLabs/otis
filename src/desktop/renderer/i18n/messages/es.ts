@@ -27,7 +27,8 @@ export const es: Messages = {
   "common.hosted": "En la nube",
   "app.loadingWorkspace": "Cargando espacio de trabajo…",
   "app.bridgeUnavailable": "El puente de escritorio no está disponible.",
-  "app.bridgeUnavailableHint": "Reinicia la aplicación. Si el problema continúa, reinstala Otis Desktop.",
+  "app.bridgeUnavailableHint":
+    "Reinicia la aplicación. Si el problema continúa, reinstala Otis Desktop.",
   "shell.workspaceMissing":
     "Otis no encuentra la carpeta de trabajo de esta sesión. Puedes leer el historial; elige la carpeta una vez para continuar. Otis la recordará.",
   "shell.locateWorkingFolder": "Localizar carpeta de trabajo",
@@ -120,16 +121,19 @@ export const es: Messages = {
   "composer.fast": "Rápido",
   "composer.messageKept": "Tu mensaje se ha conservado.",
   "composer.imageUnsupported": "{{name}} no es un tipo de imagen compatible.",
-  "composer.imageTooLarge": "{{name}} es demasiado grande. Las imágenes deben tener {{size}} MB o menos.",
+  "composer.imageTooLarge":
+    "{{name}} es demasiado grande. Las imágenes deben tener {{size}} MB o menos.",
   "composer.tooManyImages": "Puedes adjuntar hasta {{count}} imágenes.",
   "composer.modelNoImages": "El modelo seleccionado no admite imágenes.",
-  "composer.modelNoImageInput": "El modelo seleccionado no admite imágenes. Elige un modelo con visión.",
+  "composer.modelNoImageInput":
+    "El modelo seleccionado no admite imágenes. Elige un modelo con visión.",
   "composer.atMostImages": "Puedes adjuntar como máximo {{count}} imágenes por mensaje.",
   "composer.unsupportedFile":
     "{{name}} no es compatible. Usa un archivo de texto, PDF, DOCX, PNG, JPEG, GIF, BMP, TIFF o PPM.",
   "composer.thatFile": "Ese archivo",
   "composer.fileEmpty": "{{name}} está vacío.",
-  "composer.imageRequestLimit": "{{name}} es demasiado grande. Los datos deben quedar por debajo del límite de 10 MB.",
+  "composer.imageRequestLimit":
+    "{{name}} es demasiado grande. Los datos deben quedar por debajo del límite de 10 MB.",
   "composer.imagesRequestLimit":
     "Las imágenes adjuntas son demasiado grandes en conjunto. El total debe ser inferior a 10 MB.",
   "composer.fileReadFailed": "No se pudo leer el archivo.",
@@ -169,11 +173,13 @@ export const es: Messages = {
   "onboarding.chooseSetup": "Elige una configuración de modelo",
   "onboarding.hostedBody":
     "Los mejores modelos abiertos, disponibles al instante. Pago por uso con tu clave de Fireworks.",
-  "onboarding.localBody": "Ejecuta modelos en este equipo o en tu red de IA local. Privado y sin conexión.",
+  "onboarding.localBody":
+    "Ejecuta modelos en este equipo o en tu red de IA local. Privado y sin conexión.",
   "onboarding.back": "Atrás",
   "onboarding.setupHosted": "Configurar modelos en la nube",
   "onboarding.chooseLocal": "Elegir inferencia local",
-  "onboarding.localHint": "Usa un modelo gestionado por Otis o conecta uno que ya tengas en ejecución.",
+  "onboarding.localHint":
+    "Usa un modelo gestionado por Otis o conecta uno que ya tengas en ejecución.",
   "onboarding.managed": "Gestionado por Otis",
   "onboarding.managedBody": "Descarga un modelo seleccionado y ejecútalo con llama.cpp.",
   "onboarding.server": "Servidores de modelos locales",
@@ -190,7 +196,8 @@ export const es: Messages = {
   "onboarding.chooseModel": "Elegir un modelo",
   "onboarding.chooseServerModel": "Selecciona un modelo informado por el servidor conectado.",
   "onboarding.connectedNoModels": "Conectado, pero el servidor no informó de modelos disponibles.",
-  "onboarding.noLocalFit": "Ningún modelo local cabe en este equipo; vuelve y elige uno en la nube.",
+  "onboarding.noLocalFit":
+    "Ningún modelo local cabe en este equipo; vuelve y elige uno en la nube.",
   "onboarding.bestModel": "Mejor modelo para tu equipo",
   "onboarding.downloadContinue": "Descargar y continuar",
   "settings.close": "Cerrar ajustes (Esc)",
@@ -229,8 +236,10 @@ export const es: Messages = {
   "settings.systemLanguage": "Sistema ({{language}})",
   "settings.security": "Seguridad",
   "settings.permissionMode": "Modo de permisos",
-  "settings.permissionAutoDetail": "Ejecutar automáticamente comandos de shell y cambios de archivos",
-  "settings.permissionAskDetail": "Preguntar antes de ejecutar comandos de shell y cambiar archivos",
+  "settings.permissionAutoDetail":
+    "Ejecutar automáticamente comandos de shell y cambios de archivos",
+  "settings.permissionAskDetail":
+    "Preguntar antes de ejecutar comandos de shell y cambiar archivos",
   "settings.permissionDenyDetail": "Denegar comandos de shell y cambios de archivos sin preguntar",
   "settings.dontAsk": "No preguntar",
   "settings.ask": "Preguntar",
@@ -258,8 +267,10 @@ export const es: Messages = {
   "updates.downloadingVersion": "Descargando Otis {{version}} en segundo plano…",
   "updates.unavailableBuild": "Esta compilación de Otis no permite buscar actualizaciones.",
   "updates.upToDate": "Todo está actualizado.",
-  "updates.backgroundHint": "Las actualizaciones se descargan en segundo plano. Tú eliges cuándo reiniciar.",
-  "canvas.viewport": "Lienzo del diagrama. Arrastra para desplazarlo; usa los controles para ampliar o reducir.",
+  "updates.backgroundHint":
+    "Las actualizaciones se descargan en segundo plano. Tú eliges cuándo reiniciar.",
+  "canvas.viewport":
+    "Lienzo del diagrama. Arrastra para desplazarlo; usa los controles para ampliar o reducir.",
   "canvas.controls": "Controles de vista del diagrama",
   "canvas.zoomOut": "Reducir",
   "canvas.resetView": "Restablecer vista",
@@ -267,5 +278,6 @@ export const es: Messages = {
   "canvas.renderFailed": "No se pudo mostrar este diagrama Mermaid.",
   "canvas.loadFailed": "No se pudo cargar Mermaid.",
   "canvas.emptySource": "El bloque Mermaid está vacío.",
-  "canvas.tooLarge": "Este diagrama Mermaid es demasiado grande. El límite es de 50.000 caracteres.",
+  "canvas.tooLarge":
+    "Este diagrama Mermaid es demasiado grande. El límite es de 50.000 caracteres.",
 }

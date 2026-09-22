@@ -1,9 +1,16 @@
-import { BoxRenderable, fg, StyledText, TextRenderable, t } from "@opentui/core"
+import {
+  BoxRenderable,
+  fg,
+  type ScrollBoxRenderable,
+  StyledText,
+  TextRenderable,
+  t,
+} from "@opentui/core"
 import { colors } from "../theme.js"
 import { colorPulseAmount, selectionOutline, shimmerText } from "./color-pulse.js"
 import type { Renderer } from "./types.js"
 
-export type PickerRowBg = "background" | "surface"
+type PickerRowBg = "background" | "surface"
 
 export type PickerRow = {
   box: BoxRenderable
@@ -23,7 +30,7 @@ export type PickerRowSpec = {
   disabled?: boolean
 }
 
-export type PickerRowOptions = {
+type PickerRowOptions = {
   bg?: PickerRowBg
   outline?: boolean
 }
@@ -36,7 +43,11 @@ export function truncatePickerLabel(value: string, maximum: number) {
   return value.length <= maximum ? value : `${value.slice(0, Math.max(0, maximum - 1))}…`
 }
 
-export function createPickerRow(renderer: Renderer, id: string, options: PickerRowOptions = {}): PickerRow {
+export function createPickerRow(
+  renderer: Renderer,
+  id: string,
+  options: PickerRowOptions = {},
+): PickerRow {
   const bg = options.bg ?? "surface"
   const fill = colors[bg]
   const outline = options.outline === true
@@ -48,13 +59,7 @@ export function createPickerRow(renderer: Renderer, id: string, options: PickerR
     backgroundColor: fill,
     paddingX: 0,
     paddingY: 0,
-    ...(outline
-      ? {
-          border: true,
-          borderStyle: "rounded" as const,
-          borderColor: fill,
-        }
-      : {}),
+    ...(outline ? { border: true, borderStyle: "rounded" as const, borderColor: fill } : {}),
   })
   const title = new TextRenderable(renderer, {
     id,
@@ -78,11 +83,40 @@ export function createPickerRow(renderer: Renderer, id: string, options: PickerR
   return { box, title, meta, bg, outline }
 }
 
+/**
+ * Grows or shrinks `rows` to match `specs`, creating rows as `${idPrefix}-${index}` and restyling
+ * all of them.
+ */
+export function syncPickerRows(
+  renderer: Renderer,
+  container: BoxRenderable | ScrollBoxRenderable,
+  rows: PickerRow[],
+  specs: readonly PickerRowSpec[],
+  idPrefix: string,
+  options: (spec: PickerRowSpec) => PickerRowOptions,
+  elapsedMs = 0,
+) {
+  while (rows.length > specs.length) container.remove((rows.pop() as PickerRow).box.id)
+  specs.forEach((spec, index) => {
+    const existing = rows[index]
+    if (existing) {
+      stylePickerRow(existing, spec, elapsedMs)
+      return
+    }
+    const row = createPickerRow(renderer, `${idPrefix}-${index}`, options(spec))
+    stylePickerRow(row, spec, elapsedMs)
+    rows.push(row)
+    container.add(row.box)
+  })
+}
+
 export function stylePickerRow(row: PickerRow, spec: PickerRowSpec, elapsedMs = 0) {
-  const fill = rowFill(row)
+  const fill = colors[row.bg]
   const prefix = spec.header ? "" : spec.selected ? "›" : " "
   const title = spec.header ? spec.title : `${prefix} ${spec.title}`
-  row.title.content = titleWithSuffixes(title, spec, elapsedMs)
+  row.title.content = spec.suffixes?.length
+    ? titleWithSuffixes(title, spec.suffixes, elapsedMs)
+    : title
   row.title.fg = spec.selected && !spec.disabled && !spec.header ? colors.accent : spec.fg
   row.title.bg = fill
   row.meta.content = spec.meta ? `  ${spec.meta}` : ""
@@ -96,25 +130,20 @@ export function stylePickerRow(row: PickerRow, spec: PickerRowSpec, elapsedMs = 
 export function paintPickerOutline(row: PickerRow, selected: boolean, elapsedMs: number) {
   // Color only — toggling `border` after init makes OpenTUI re-enable it and
   // jumps the row size. Outlined rows keep a reserved rounded frame.
-  row.box.borderColor = selected ? selectionOutline(colorPulseAmount(elapsedMs)) : rowFill(row)
+  row.box.borderColor = selected ? selectionOutline(colorPulseAmount(elapsedMs)) : colors[row.bg]
 }
 
-function rowFill(row: PickerRow) {
-  return colors[row.bg]
-}
-
-function titleWithSuffixes(title: string, spec: PickerRowSpec, elapsedMs: number) {
-  if (!spec.suffixes?.length) return title
+function titleWithSuffixes(
+  title: string,
+  suffixes: NonNullable<PickerRowSpec["suffixes"]>,
+  elapsedMs: number,
+) {
   const chunks = [...t`${title}`.chunks]
-  for (const suffix of spec.suffixes) {
+  for (const suffix of suffixes) {
     chunks.push(...t`  `.chunks)
-    if (suffix.shimmer) {
-      chunks.push(...shimmerText(suffix.text, elapsedMs).chunks)
-    } else if (suffix.fg) {
-      chunks.push(...t`${fg(suffix.fg)(suffix.text)}`.chunks)
-    } else {
-      chunks.push(...t`${suffix.text}`.chunks)
-    }
+    if (suffix.shimmer) chunks.push(...shimmerText(suffix.text, elapsedMs).chunks)
+    else if (suffix.fg) chunks.push(...t`${fg(suffix.fg)(suffix.text)}`.chunks)
+    else chunks.push(...t`${suffix.text}`.chunks)
   }
   return new StyledText(chunks)
 }

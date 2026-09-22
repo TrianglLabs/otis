@@ -14,7 +14,11 @@ import type {
   ModelPickerItem,
   PairPickerChoice,
 } from "../../../src/inference/picker-catalog.js"
-import type { ChatMessage, InferenceClient, PairCatalogModel } from "../../../src/inference/types.js"
+import type {
+  ChatMessage,
+  InferenceClient,
+  PairCatalogModel,
+} from "../../../src/inference/types.js"
 import { loadLocalSettings, saveSelectedModel } from "../../../src/local/settings.js"
 import type { PermissionRequest } from "../../../src/permissions/policy.js"
 import {
@@ -167,8 +171,8 @@ describe("DesktopRuntime model startup", () => {
     }
     const prepare = vi.spyOn(app.models, "prepare").mockImplementation(async (model, options) => {
       if (model.provider === "local") {
-        // The saved model's startup is slow like a long download; a real prepare rejects when aborted. If nothing
-        // aborts it, it commits late — over any selection made in the meantime.
+        // The saved model's startup is slow like a long download; a real prepare rejects when
+        // aborted. If nothing aborts it, it commits late — over any selection made in the meantime.
         await new Promise<void>((resolve, reject) => {
           const timer = setTimeout(resolve, 100)
           options.signal.addEventListener("abort", () => {
@@ -177,7 +181,11 @@ describe("DesktopRuntime model startup", () => {
           })
         })
       }
-      return { model, commit: () => app.models.activate(model, fakeClient), rollback: async () => {} }
+      return {
+        model,
+        commit: () => app.models.activate(model, fakeClient),
+        rollback: async () => {},
+      }
     })
     const runtime = DesktopRuntime.forApplication(app, {
       cwd,
@@ -192,8 +200,8 @@ describe("DesktopRuntime model startup", () => {
     const result = await runtime.selectModel(fireworksChoice.id)
     expect(result).toEqual({ ok: true })
 
-    // The aborted startup must not reactivate the saved local model over the user's newer pick; wait past the
-    // point its slow prepare would commit if nothing had superseded it.
+    // The aborted startup must not reactivate the saved local model over the user's newer pick;
+    // wait past the point its slow prepare would commit if nothing had superseded it.
     await app.models.waitForSelection()
     await new Promise((resolve) => setTimeout(resolve, 150))
     expect(app.models.selectedId).toBe(fireworksChoice.id)
@@ -244,11 +252,13 @@ describe("DesktopRuntime model startup", () => {
     await vi.waitFor(async () => expect((await runtime.snapshot()).modelState).toBe("failed"))
     expect(app.models.client).toBeUndefined()
 
-    const persist = vi.spyOn(app.models, "persistSelection").mockImplementation(async (model, options) => {
-      await options.persist(model)
-      app.models.activate(model, fakeClient)
-      return model
-    })
+    const persist = vi
+      .spyOn(app.models, "persistSelection")
+      .mockImplementation(async (model, options) => {
+        await options.persist(model)
+        app.models.activate(model, fakeClient)
+        return model
+      })
     const result = await runtime.selectModel(activeRow.id)
     expect(result).toEqual({ ok: true })
     expect(persist).toHaveBeenCalledOnce()
@@ -269,35 +279,40 @@ describe("DesktopRuntime subagents", () => {
     const gate = new Promise<void>((resolve) => {
       release = resolve
     })
-    mocks.executeTurn.mockImplementation(async (options: TurnRunnerOptions): Promise<TurnResult> => {
-      const envelope = (event: Parameters<NonNullable<TurnRunnerOptions["onEvent"]>>[0]) =>
-        ({ type: "subagent", toolCallId: "call_scout", title: "Scout the repo", event }) as const
-      await options.onEvent?.(
-        envelope({
-          type: "tool",
-          phase: "start",
-          toolCallId: "read_1",
-          name: "read",
-          activityKind: "file_read",
-          label: "Reading files: a.ts",
-        }),
-      )
-      await options.onEvent?.(envelope({ type: "delta", text: "Found it." }))
-      await gate
-      await options.onEvent?.(
-        envelope({
-          type: "complete",
-          messages: [{ role: "assistant", content: [{ type: "text", text: "Found it." }] }],
-        }),
-      )
-      return {
-        status: "complete",
-        messages: [{ role: "assistant", content: [{ type: "text", text: "Done" }] }],
-        details: {},
-      }
-    })
+    mocks.executeTurn.mockImplementation(
+      async (options: TurnRunnerOptions): Promise<TurnResult> => {
+        const envelope = (event: Parameters<NonNullable<TurnRunnerOptions["onEvent"]>>[0]) =>
+          ({ type: "subagent", toolCallId: "call_scout", title: "Scout the repo", event }) as const
+        await options.onEvent?.(
+          envelope({
+            type: "tool",
+            phase: "start",
+            toolCallId: "read_1",
+            name: "read",
+            activityKind: "file_read",
+            label: "Reading files: a.ts",
+          }),
+        )
+        await options.onEvent?.(envelope({ type: "delta", text: "Found it." }))
+        await gate
+        await options.onEvent?.(
+          envelope({
+            type: "complete",
+            messages: [{ role: "assistant", content: [{ type: "text", text: "Found it." }] }],
+          }),
+        )
+        return {
+          status: "complete",
+          messages: [{ role: "assistant", content: [{ type: "text", text: "Done" }] }],
+          details: {},
+        }
+      },
+    )
 
-    expect(await runtime.sendPrompt("delegate something")).toEqual({ accepted: true, delivery: "started" })
+    expect(await runtime.sendPrompt("delegate something")).toEqual({
+      accepted: true,
+      delivery: "started",
+    })
     // While the run is mid-flight the panel sees it running with its tool count.
     await vi.waitFor(async () => {
       expect((await runtime.snapshot()).subagents).toEqual([
@@ -310,11 +325,18 @@ describe("DesktopRuntime subagents", () => {
       expect((await runtime.snapshot()).subagents[0]?.status).toBe("complete")
     })
     const finished = (await runtime.snapshot()).subagents[0]
-    expect(finished).toMatchObject({ toolCallId: "call_scout", title: "Scout the repo", status: "complete", tools: 1 })
+    expect(finished).toMatchObject({
+      toolCallId: "call_scout",
+      title: "Scout the repo",
+      status: "complete",
+      tools: 1,
+    })
     expect(finished?.durationMs).toBeGreaterThanOrEqual(0)
 
     const trace = await runtime.getSubagentTrace("call_scout")
-    expect(trace.some((entry) => entry.kind === "tool" && entry.text.includes("Reading files"))).toBe(true)
+    expect(
+      trace.some((entry) => entry.kind === "tool" && entry.text.includes("Reading files")),
+    ).toBe(true)
     expect(trace.some((entry) => entry.text === "Found it.")).toBe(true)
     expect(await runtime.getSubagentTrace("missing")).toEqual([])
     await runtime.shutdown()
@@ -331,7 +353,9 @@ describe("DesktopRuntime subagents", () => {
     expect((await runtime.snapshot()).theme).toBe("nord")
     expect((await loadLocalSettings()).theme).toBe("nord")
     await flush()
-    expect(sent.some((event) => event.type === "status" && event.status.theme === "nord")).toBe(true)
+    expect(sent.some((event) => event.type === "status" && event.status.theme === "nord")).toBe(
+      true,
+    )
 
     await runtime.setTheme("not-a-theme")
     expect((await runtime.snapshot()).theme).toBe("nord")
@@ -349,12 +373,16 @@ describe("DesktopRuntime subagents", () => {
     await runtime.setPermissionMode("ask")
     expect((await runtime.snapshot()).permissionMode).toBe("ask")
     expect((await loadLocalSettings()).permissions?.defaultMode).toBe("ask")
-    expect(await app.createPermissionPolicy().evaluate({ name: "bash", input: { command: "bun test" } })).toMatchObject(
-      { effect: "ask" },
-    )
+    expect(
+      await app.createPermissionPolicy().evaluate({ name: "bash", input: { command: "bun test" } }),
+    ).toMatchObject({ effect: "ask" })
     await flush()
-    expect(sent.some((event) => event.type === "status" && event.status.permissionMode === "ask")).toBe(true)
-    expect(sent.some((event) => event.type === "status" && event.status.language === "fr")).toBe(true)
+    expect(
+      sent.some((event) => event.type === "status" && event.status.permissionMode === "ask"),
+    ).toBe(true)
+    expect(sent.some((event) => event.type === "status" && event.status.language === "fr")).toBe(
+      true,
+    )
     await runtime.shutdown()
   })
 
@@ -384,7 +412,12 @@ describe("DesktopRuntime subagents", () => {
     app.models.client = fakeClient
     app.models.selectedId = "openai/gpt-oss-20b"
     app.models.selectedProvider = "local"
-    const runtime = DesktopRuntime.forApplication(app, { cwd, version: "test", platform: "darwin", send: () => {} })
+    const runtime = DesktopRuntime.forApplication(app, {
+      cwd,
+      version: "test",
+      platform: "darwin",
+      send: () => {},
+    })
 
     const result = await runtime.setFastServing(true)
     expect(result).toEqual({ ok: false, reason: "Fast serving is not available for this model." })
@@ -460,11 +493,16 @@ describe("DesktopRuntime subagents", () => {
       listToolCapableModels: listToolCapableModels as never,
     })
 
-    expect(await runtime.setFireworksApiKey("  ")).toEqual({ ok: false, reason: "Fireworks API key is required." })
+    expect(await runtime.setFireworksApiKey("  ")).toEqual({
+      ok: false,
+      reason: "Fireworks API key is required.",
+    })
     expect(listToolCapableModels).not.toHaveBeenCalled()
     expect((await runtime.snapshot()).hostedConfigured).toBe(false)
 
-    listToolCapableModels.mockRejectedValueOnce(new Error("Could not load Fireworks models (HTTP 401): bad key"))
+    listToolCapableModels.mockRejectedValueOnce(
+      new Error("Could not load Fireworks models (HTTP 401): bad key"),
+    )
     expect(await runtime.setFireworksApiKey("bad-key")).toEqual({
       ok: false,
       reason: "Could not load Fireworks models (HTTP 401): bad key",
@@ -517,7 +555,8 @@ describe("DesktopRuntime subagents", () => {
     discoverPair.mockResolvedValueOnce({ errors: [{ engine: "ollama", message: "down" }] } as never)
     expect(await runtime.connectLocalServers({ ollama: "http://127.0.0.1:11434" })).toEqual({
       ok: false,
-      reason: "No compatible model server was found. Start your local model server and check its address.",
+      reason:
+        "No compatible model server was found. Start your local model server and check its address.",
     })
 
     const result = await runtime.connectLocalServers({ ollama: "http://127.0.0.1:11434/" })
@@ -548,7 +587,12 @@ describe("DesktopRuntime subagents", () => {
     app.models.activeLocal = { spec: { id: "openai/gpt-oss-20b" }, contextLength: 32_768 } as never
     const stop = vi.spyOn(app.models.llama, "stop").mockResolvedValue(undefined)
     mocks.listDownloaded.mockResolvedValue([findLocalModel("openai/gpt-oss-20b")])
-    const runtime = DesktopRuntime.forApplication(app, { cwd, version: "test", platform: "darwin", send: () => {} })
+    const runtime = DesktopRuntime.forApplication(app, {
+      cwd,
+      version: "test",
+      platform: "darwin",
+      send: () => {},
+    })
 
     const result = await runtime.deleteLocalModel("openai/gpt-oss-20b")
     expect(result).toEqual({ ok: true })
@@ -583,7 +627,12 @@ describe("DesktopRuntime subagents", () => {
     const restore = vi.spyOn(app.models, "restorePrevious").mockResolvedValue(undefined)
     mocks.listDownloaded.mockResolvedValue([findLocalModel("openai/gpt-oss-20b")])
     mocks.deleteGguf.mockRejectedValueOnce(new Error("disk busy"))
-    const runtime = DesktopRuntime.forApplication(app, { cwd, version: "test", platform: "darwin", send: () => {} })
+    const runtime = DesktopRuntime.forApplication(app, {
+      cwd,
+      version: "test",
+      platform: "darwin",
+      send: () => {},
+    })
 
     const result = await runtime.deleteLocalModel("openai/gpt-oss-20b")
     expect(result.ok).toBe(false)
@@ -652,7 +701,8 @@ describe("DesktopRuntime subagents", () => {
     // While deletion is pending, prompts are not admitted and other selections are refused.
     const prompt = await runtime.sendPrompt("hello")
     expect(prompt.accepted).toBe(false)
-    if (!prompt.accepted) expect(prompt.reason).toBe("A model switch is in progress. Try again in a moment.")
+    if (!prompt.accepted)
+      expect(prompt.reason).toBe("A model switch is in progress. Try again in a moment.")
     expect(await runtime.selectModel(fireworksChoice.id)).toEqual({
       ok: false,
       reason: "Finish the current work before switching models.",
@@ -681,7 +731,8 @@ describe("DesktopRuntime subagents", () => {
       available: true,
       active: false,
     }
-    // The prepare only settles when the selection is aborted, so the switch stays in flight until cancelled.
+    // The prepare only settles when the selection is aborted, so the switch stays in flight until
+    // cancelled.
     vi.spyOn(app.models, "prepare").mockImplementation(
       async (_model, options) =>
         new Promise((_resolve, reject) => {
@@ -783,14 +834,18 @@ describe("DesktopRuntime subagents", () => {
     })
 
     // Reconnect on a new port: the active client is rebuilt onto it.
-    expect(await runtime.connectLocalServers({ ollama: "http://127.0.0.1:11435" })).toEqual({ ok: true })
+    expect(await runtime.connectLocalServers({ ollama: "http://127.0.0.1:11435" })).toEqual({
+      ok: true,
+    })
     expect(app.models.client).not.toBe(oldClient)
     expect(app.models.autoCompactAtTokens).toBe(Math.floor(65_536 * 0.8))
     expect((await runtime.snapshot()).modelState).toBe("ready")
 
     // Reconnect with only the other engine responding: the orphaned selection is invalidated.
     discoverPair.mockResolvedValueOnce({ lmStudio: [lmModel], errors: [] } as never)
-    expect(await runtime.connectLocalServers({ lmStudio: "http://127.0.0.1:1234" })).toEqual({ ok: true })
+    expect(await runtime.connectLocalServers({ lmStudio: "http://127.0.0.1:1234" })).toEqual({
+      ok: true,
+    })
     expect(app.models.client).toBeUndefined()
     const snapshot = await runtime.snapshot()
     expect(snapshot.modelState).toBe("failed")
@@ -811,7 +866,12 @@ describe("DesktopRuntime subagents", () => {
       fastId: "accounts/fireworks/routers/kimi-fast",
     } as never)
     const app = await Application.create({ cwd })
-    const runtime = DesktopRuntime.forApplication(app, { cwd, version: "test", platform: "darwin", send: () => {} })
+    const runtime = DesktopRuntime.forApplication(app, {
+      cwd,
+      version: "test",
+      platform: "darwin",
+      send: () => {},
+    })
 
     // No picker fetch has happened; the persisted fast id alone makes the toggle available.
     const snapshot = await runtime.snapshot()
@@ -870,7 +930,9 @@ describe("DesktopRuntime subagents", () => {
     expect(await runtime.selectModel(kimi.id)).toEqual({ ok: true })
     await vi.waitFor(() => expect(mocks.executeTurn).toHaveBeenCalled())
     expect(app.conversation.peekQueued()).toBeUndefined()
-    const ran = mocks.executeTurn.mock.calls.map((call) => JSON.stringify(call[0]).includes("hold this"))
+    const ran = mocks.executeTurn.mock.calls.map((call) =>
+      JSON.stringify(call[0]).includes("hold this"),
+    )
     expect(ran.some(Boolean)).toBe(true)
     await runtime.shutdown()
   })
@@ -894,7 +956,9 @@ describe("DesktopRuntime subagents", () => {
     mocks.executeTurn.mockImplementation(turnEvents("plain answer"))
     expect(await runtime.sendPrompt("hi")).toEqual({ accepted: true, delivery: "started" })
     await vi.waitFor(async () => {
-      expect((await runtime.snapshot()).entries.some((entry) => entry.text === "plain answer")).toBe(true)
+      expect(
+        (await runtime.snapshot()).entries.some((entry) => entry.text === "plain answer"),
+      ).toBe(true)
     })
     expect((await runtime.snapshot()).subagents).toEqual([])
     await runtime.shutdown()
@@ -931,7 +995,9 @@ describe("DesktopRuntime conversation flow", () => {
     mocks.executeTurn.mockImplementation(turnEvents("I can see the image"))
     const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 
-    expect(await runtime.sendPrompt("", [{ name: "screen.png", mimeType: "image/png", bytes }])).toEqual({
+    expect(
+      await runtime.sendPrompt("", [{ name: "screen.png", mimeType: "image/png", bytes }]),
+    ).toEqual({
       accepted: true,
       delivery: "started",
     })
@@ -949,22 +1015,34 @@ describe("DesktopRuntime conversation flow", () => {
         },
       ],
     })
-    expect(app.transcript.entries.find((entry) => entry.speaker === "You")?.text).toBe("📎 screen.png")
+    expect(app.transcript.entries.find((entry) => entry.speaker === "You")?.text).toBe(
+      "📎 screen.png",
+    )
     await runtime.shutdown()
   })
 
   it("rejects image data before session admission when the model or file is incompatible", async () => {
     const { runtime, app } = await setup()
-    const png = { name: "screen.png", mimeType: "image/png", bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]) }
+    const png = {
+      name: "screen.png",
+      mimeType: "image/png",
+      bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+    }
 
     const unsupportedModel = await runtime.sendPrompt("describe this", [png])
-    expect(unsupportedModel).toMatchObject({ accepted: false, reason: expect.stringContaining("does not support") })
+    expect(unsupportedModel).toMatchObject({
+      accepted: false,
+      reason: expect.stringContaining("does not support"),
+    })
 
     app.models.supportsImageInput = true
     const invalidFile = await runtime.sendPrompt("describe this", [
       { name: "fake.png", mimeType: "image/png", bytes: new Uint8Array([1, 2, 3]) },
     ])
-    expect(invalidFile).toMatchObject({ accepted: false, reason: expect.stringContaining("Unsupported image format") })
+    expect(invalidFile).toMatchObject({
+      accepted: false,
+      reason: expect.stringContaining("Unsupported image format"),
+    })
     expect(app.transcript.entries).toHaveLength(0)
     expect(mocks.executeTurn).not.toHaveBeenCalled()
     await runtime.shutdown()
@@ -974,7 +1052,9 @@ describe("DesktopRuntime conversation flow", () => {
     const { runtime, app } = await setup()
     const bytes = new TextEncoder().encode("Desktop document text")
 
-    const result = await runtime.sendPrompt("", [{ name: "notes.md", mimeType: "text/markdown", bytes }])
+    const result = await runtime.sendPrompt("", [
+      { name: "notes.md", mimeType: "text/markdown", bytes },
+    ])
 
     expect(result).toEqual({ accepted: true, delivery: "started" })
     await vi.waitFor(() => expect(mocks.executeTurn).toHaveBeenCalled())
@@ -994,10 +1074,17 @@ describe("DesktopRuntime conversation flow", () => {
     expect(userEntry).toMatchObject({
       text: "📄 notes.md",
       messageText: "",
-      artifacts: [expect.objectContaining({ source: "attachment", kind: "markdown", name: "notes.md" })],
+      artifacts: [
+        expect.objectContaining({ source: "attachment", kind: "markdown", name: "notes.md" }),
+      ],
     })
     const artifact = (await runtime.snapshot()).artifact
-    expect(artifact).toMatchObject({ source: "attachment", kind: "markdown", title: "notes.md", editable: false })
+    expect(artifact).toMatchObject({
+      source: "attachment",
+      kind: "markdown",
+      title: "notes.md",
+      editable: false,
+    })
     expect(JSON.stringify(artifact)).not.toContain("Desktop document text")
     await expect(runtime.getArtifact(artifact?.revision ?? 0)).resolves.toMatchObject({
       encoding: "utf8",
@@ -1007,7 +1094,10 @@ describe("DesktopRuntime conversation flow", () => {
     const reference = userEntry?.artifacts?.[0]
     if (!reference) throw new Error("Document artifact reference is missing")
     expect(await runtime.openArtifact(reference)).toEqual({ ok: true })
-    expect((await runtime.snapshot()).artifact).toMatchObject({ title: "notes.md", kind: "markdown" })
+    expect((await runtime.snapshot()).artifact).toMatchObject({
+      title: "notes.md",
+      kind: "markdown",
+    })
     await runtime.shutdown()
   })
 
@@ -1022,7 +1112,10 @@ describe("DesktopRuntime conversation flow", () => {
       }),
     )
     await expect(runtime.getArtifactFile("workspace:other.docx", 1)).resolves.toBeUndefined()
-    const pending = runtime.getArtifactFile("workspace:report.docx", app.artifacts.metadata?.revision ?? 0)
+    const pending = runtime.getArtifactFile(
+      "workspace:report.docx",
+      app.artifacts.metadata?.revision ?? 0,
+    )
     expect(runtime.startNewSession()).toEqual({ ok: true })
     finish(file)
     await expect(pending).resolves.toBeUndefined()
@@ -1063,17 +1156,21 @@ describe("DesktopRuntime conversation flow", () => {
       releaseFirst = resolve
     })
     let calls = 0
-    mocks.executeTurn.mockImplementation(async (options: TurnRunnerOptions): Promise<TurnResult> => {
-      calls += 1
-      const turn = calls
-      // Close the steering inbox so the follow-up is queued instead of steered.
-      await options.agent.steering?.drainOrClose()
-      if (turn === 1) await gate
-      await options.onEvent?.({ type: "delta", text: `reply ${turn}` })
-      const messages: ChatMessage[] = [{ role: "assistant", content: [{ type: "text", text: `reply ${turn}` }] }]
-      await options.onEvent?.({ type: "complete", messages })
-      return { status: "complete", messages, details: {} }
-    })
+    mocks.executeTurn.mockImplementation(
+      async (options: TurnRunnerOptions): Promise<TurnResult> => {
+        calls += 1
+        const turn = calls
+        // Close the steering inbox so the follow-up is queued instead of steered.
+        await options.agent.steering?.drainOrClose()
+        if (turn === 1) await gate
+        await options.onEvent?.({ type: "delta", text: `reply ${turn}` })
+        const messages: ChatMessage[] = [
+          { role: "assistant", content: [{ type: "text", text: `reply ${turn}` }] },
+        ]
+        await options.onEvent?.({ type: "complete", messages })
+        return { status: "complete", messages, details: {} }
+      },
+    )
 
     const first = await runtime.sendPrompt("first")
     expect(first).toEqual({ accepted: true, delivery: "started" })
@@ -1113,22 +1210,26 @@ describe("DesktopRuntime conversation flow", () => {
   it("routes permission requests to the GUI and ignores stale replies", async () => {
     const { runtime } = await setup()
 
-    mocks.executeTurn.mockImplementation(async (options: TurnRunnerOptions): Promise<TurnResult> => {
-      const request: PermissionRequest = {
-        call: { name: "bash", input: { command: "bun test" } },
-        decision: { effect: "ask", resources: ["bun test"] },
-      }
-      const allowed = await options.agent.onPermissionRequest?.(request)
-      const text = allowed ? "allowed" : "denied"
-      const messages: ChatMessage[] = [{ role: "assistant", content: [{ type: "text", text }] }]
-      await options.onEvent?.({ type: "delta", text })
-      await options.onEvent?.({ type: "complete", messages })
-      return { status: "complete", messages, details: {} }
-    })
+    mocks.executeTurn.mockImplementation(
+      async (options: TurnRunnerOptions): Promise<TurnResult> => {
+        const request: PermissionRequest = {
+          call: { name: "bash", input: { command: "bun test" } },
+          decision: { effect: "ask", resources: ["bun test"] },
+        }
+        const allowed = await options.agent.onPermissionRequest?.(request)
+        const text = allowed ? "allowed" : "denied"
+        const messages: ChatMessage[] = [{ role: "assistant", content: [{ type: "text", text }] }]
+        await options.onEvent?.({ type: "delta", text })
+        await options.onEvent?.({ type: "complete", messages })
+        return { status: "complete", messages, details: {} }
+      },
+    )
 
     const sendTask = runtime.sendPrompt("run the tests")
     await vi.waitFor(async () => {
-      expect((await runtime.snapshot()).permission).toMatchObject({ label: "Running command: bun test" })
+      expect((await runtime.snapshot()).permission).toMatchObject({
+        label: "Running command: bun test",
+      })
     })
 
     // A stale id is ignored and must not resolve the pending request.
@@ -1149,14 +1250,16 @@ describe("DesktopRuntime conversation flow", () => {
   it("denies an unanswered permission request on shutdown", async () => {
     const { runtime } = await setup()
     let observed: boolean | undefined
-    mocks.executeTurn.mockImplementation(async (options: TurnRunnerOptions): Promise<TurnResult> => {
-      const request: PermissionRequest = {
-        call: { name: "bash", input: { command: "rm -rf build" } },
-        decision: { effect: "ask", resources: ["rm -rf build"] },
-      }
-      observed = await options.agent.onPermissionRequest?.(request)
-      return { status: "interrupted", messages: [], details: {} }
-    })
+    mocks.executeTurn.mockImplementation(
+      async (options: TurnRunnerOptions): Promise<TurnResult> => {
+        const request: PermissionRequest = {
+          call: { name: "bash", input: { command: "rm -rf build" } },
+          decision: { effect: "ask", resources: ["rm -rf build"] },
+        }
+        observed = await options.agent.onPermissionRequest?.(request)
+        return { status: "interrupted", messages: [], details: {} }
+      },
+    )
 
     const sendTask = runtime.sendPrompt("clean the build")
     await vi.waitFor(async () => expect((await runtime.snapshot()).permission).not.toBeNull())
@@ -1188,13 +1291,15 @@ describe("DesktopRuntime cancellation and timing", () => {
   it("denies unanswered approvals when the renderer dies", async () => {
     const { runtime } = await setup()
     let allowed: boolean | undefined
-    mocks.executeTurn.mockImplementation(async (options: TurnRunnerOptions): Promise<TurnResult> => {
-      allowed = await options.agent.onPermissionRequest?.({
-        call: { name: "bash", input: { command: "echo test" } },
-        decision: { effect: "ask", resources: ["echo test"] },
-      })
-      return { status: "interrupted", messages: [], details: {} }
-    })
+    mocks.executeTurn.mockImplementation(
+      async (options: TurnRunnerOptions): Promise<TurnResult> => {
+        allowed = await options.agent.onPermissionRequest?.({
+          call: { name: "bash", input: { command: "echo test" } },
+          decision: { effect: "ask", resources: ["echo test"] },
+        })
+        return { status: "interrupted", messages: [], details: {} }
+      },
+    )
     try {
       await runtime.sendPrompt("run a command")
       await vi.waitFor(async () => expect((await runtime.snapshot()).permission).not.toBeNull())
@@ -1209,23 +1314,28 @@ describe("DesktopRuntime cancellation and timing", () => {
   it("does not start queued work after the renderer crashes", async () => {
     const { runtime } = await setup()
     let calls = 0
-    mocks.executeTurn.mockImplementation(async (options: TurnRunnerOptions): Promise<TurnResult> => {
-      calls++
-      await options.agent.steering?.drainOrClose()
-      if (calls === 1) {
-        const signal = options.agent.signal
-        if (!signal) throw new Error("expected an abort signal")
-        await new Promise<void>((resolve) => {
-          if (signal.aborted) resolve()
-          else signal.addEventListener("abort", () => resolve(), { once: true })
-        })
-        return { status: "interrupted", messages: [], details: {} }
-      }
-      return completed()
-    })
+    mocks.executeTurn.mockImplementation(
+      async (options: TurnRunnerOptions): Promise<TurnResult> => {
+        calls++
+        await options.agent.steering?.drainOrClose()
+        if (calls === 1) {
+          const signal = options.agent.signal
+          if (!signal) throw new Error("expected an abort signal")
+          await new Promise<void>((resolve) => {
+            if (signal.aborted) resolve()
+            else signal.addEventListener("abort", () => resolve(), { once: true })
+          })
+          return { status: "interrupted", messages: [], details: {} }
+        }
+        return completed()
+      },
+    )
     try {
       await runtime.sendPrompt("first")
-      expect(await runtime.sendPrompt("second")).toMatchObject({ accepted: true, delivery: "queued" })
+      expect(await runtime.sendPrompt("second")).toMatchObject({
+        accepted: true,
+        delivery: "queued",
+      })
       runtime.handleRendererGone()
       await vi.waitFor(async () => expect((await runtime.snapshot()).busy).toBe(false))
       expect(calls).toBe(1)
@@ -1237,20 +1347,22 @@ describe("DesktopRuntime cancellation and timing", () => {
   it("resumes the suspended queue only when the user sends again, preserving order", async () => {
     const { runtime, app } = await setup()
     let calls = 0
-    mocks.executeTurn.mockImplementation(async (options: TurnRunnerOptions): Promise<TurnResult> => {
-      calls++
-      await options.agent.steering?.drainOrClose()
-      if (calls === 1) {
-        const signal = options.agent.signal
-        if (!signal) throw new Error("expected an abort signal")
-        await new Promise<void>((resolve) => {
-          if (signal.aborted) resolve()
-          else signal.addEventListener("abort", () => resolve(), { once: true })
-        })
-        return { status: "interrupted", messages: [], details: {} }
-      }
-      return completed()
-    })
+    mocks.executeTurn.mockImplementation(
+      async (options: TurnRunnerOptions): Promise<TurnResult> => {
+        calls++
+        await options.agent.steering?.drainOrClose()
+        if (calls === 1) {
+          const signal = options.agent.signal
+          if (!signal) throw new Error("expected an abort signal")
+          await new Promise<void>((resolve) => {
+            if (signal.aborted) resolve()
+            else signal.addEventListener("abort", () => resolve(), { once: true })
+          })
+          return { status: "interrupted", messages: [], details: {} }
+        }
+        return completed()
+      },
+    )
     try {
       await runtime.sendPrompt("first")
       await runtime.sendPrompt("second")
@@ -1258,7 +1370,10 @@ describe("DesktopRuntime cancellation and timing", () => {
       await vi.waitFor(async () => expect((await runtime.snapshot()).busy).toBe(false))
       expect(calls).toBe(1)
 
-      expect(await runtime.sendPrompt("third")).toMatchObject({ accepted: true, delivery: "queued" })
+      expect(await runtime.sendPrompt("third")).toMatchObject({
+        accepted: true,
+        delivery: "queued",
+      })
       await vi.waitFor(() => expect(calls).toBe(3))
       await vi.waitFor(async () => expect((await runtime.snapshot()).busy).toBe(false))
       const userEntries = app.transcript.entries.filter((entry) => entry.speaker === "You")
@@ -1271,20 +1386,22 @@ describe("DesktopRuntime cancellation and timing", () => {
   it("keeps the stranded queue head when the resuming prompt fails admission", async () => {
     const { app, runtime } = await setup()
     let calls = 0
-    mocks.executeTurn.mockImplementation(async (options: TurnRunnerOptions): Promise<TurnResult> => {
-      calls++
-      await options.agent.steering?.drainOrClose()
-      if (calls === 1) {
-        const signal = options.agent.signal
-        if (!signal) throw new Error("expected an abort signal")
-        await new Promise<void>((resolve) => {
-          if (signal.aborted) resolve()
-          else signal.addEventListener("abort", () => resolve(), { once: true })
-        })
-        return { status: "interrupted", messages: [], details: {} }
-      }
-      return completed()
-    })
+    mocks.executeTurn.mockImplementation(
+      async (options: TurnRunnerOptions): Promise<TurnResult> => {
+        calls++
+        await options.agent.steering?.drainOrClose()
+        if (calls === 1) {
+          const signal = options.agent.signal
+          if (!signal) throw new Error("expected an abort signal")
+          await new Promise<void>((resolve) => {
+            if (signal.aborted) resolve()
+            else signal.addEventListener("abort", () => resolve(), { once: true })
+          })
+          return { status: "interrupted", messages: [], details: {} }
+        }
+        return completed()
+      },
+    )
     try {
       await runtime.sendPrompt("first")
       await runtime.sendPrompt("second")
@@ -1292,13 +1409,17 @@ describe("DesktopRuntime cancellation and timing", () => {
       await vi.waitFor(async () => expect((await runtime.snapshot()).busy).toBe(false))
       expect(calls).toBe(1)
 
-      // The resuming prompt cannot be admitted (disk failure): it is rejected and "second" stays queued.
+      // The resuming prompt cannot be admitted (disk failure): it is rejected and "second" stays
+      // queued.
       vi.spyOn(app.sessions, "ensure").mockRejectedValueOnce(new Error("disk full"))
       expect((await runtime.sendPrompt("third")).accepted).toBe(false)
       expect(calls).toBe(1)
 
       // A later send drains the backlog ahead of itself, in order.
-      expect(await runtime.sendPrompt("fourth")).toMatchObject({ accepted: true, delivery: "queued" })
+      expect(await runtime.sendPrompt("fourth")).toMatchObject({
+        accepted: true,
+        delivery: "queued",
+      })
       await vi.waitFor(() => expect(calls).toBe(3))
       await vi.waitFor(async () => expect((await runtime.snapshot()).busy).toBe(false))
       const userEntries = app.transcript.entries.filter((entry) => entry.speaker === "You")
@@ -1314,12 +1435,14 @@ describe("DesktopRuntime cancellation and timing", () => {
     const permitAdmission = gate()
     const admissionStarted = gate()
     let calls = 0
-    mocks.executeTurn.mockImplementation(async (options: TurnRunnerOptions): Promise<TurnResult> => {
-      calls++
-      await options.agent.steering?.drainOrClose()
-      if (calls === 1) await finishFirst.promise
-      return completed()
-    })
+    mocks.executeTurn.mockImplementation(
+      async (options: TurnRunnerOptions): Promise<TurnResult> => {
+        calls++
+        await options.agent.steering?.drainOrClose()
+        if (calls === 1) await finishFirst.promise
+        return completed()
+      },
+    )
     try {
       await runtime.sendPrompt("first")
       const ensure = app.sessions.ensure.bind(app.sessions)
@@ -1344,13 +1467,15 @@ describe("DesktopRuntime cancellation and timing", () => {
 
   it("clears the approval card when Stop cancels its turn", async () => {
     const { runtime } = await setup()
-    mocks.executeTurn.mockImplementation(async (options: TurnRunnerOptions): Promise<TurnResult> => {
-      await options.agent.onPermissionRequest?.({
-        call: { name: "bash", input: { command: "echo test" } },
-        decision: { effect: "ask", resources: ["echo test"] },
-      })
-      return { status: "interrupted", messages: [], details: {} }
-    })
+    mocks.executeTurn.mockImplementation(
+      async (options: TurnRunnerOptions): Promise<TurnResult> => {
+        await options.agent.onPermissionRequest?.({
+          call: { name: "bash", input: { command: "echo test" } },
+          decision: { effect: "ask", resources: ["echo test"] },
+        })
+        return { status: "interrupted", messages: [], details: {} }
+      },
+    )
     try {
       await runtime.sendPrompt("request approval")
       await vi.waitFor(async () => expect((await runtime.snapshot()).permission).not.toBeNull())
@@ -1374,14 +1499,20 @@ describe("DesktopRuntime sessions", () => {
       sent.length = 0
 
       expect(runtime.startNewSession()).toEqual({ ok: true })
-      await vi.waitFor(() => expect(sent.some((event) => event.type === "status" && event.ops)).toBe(true))
+      await vi.waitFor(() =>
+        expect(sent.some((event) => event.type === "status" && event.ops)).toBe(true),
+      )
       const reset = sent.find((event) => event.type === "status" && event.ops)
       expect(reset).toMatchObject({
         type: "status",
         status: { session: null, subagents: [], diffs: { added: 0, removed: 0 } },
         ops: [{ op: "reset", entries: [] }],
       })
-      expect(sent.some((event) => event.type === "transcript" && event.ops.some((op) => op.op === "reset"))).toBe(false)
+      expect(
+        sent.some(
+          (event) => event.type === "transcript" && event.ops.some((op) => op.op === "reset"),
+        ),
+      ).toBe(false)
     } finally {
       await runtime.shutdown()
     }
@@ -1449,10 +1580,13 @@ describe("DesktopRuntime model selection", () => {
 
   async function setupWithCatalog(
     items: ModelPickerItem[],
-    { configureClient = true, pairEndpoints }: { configureClient?: boolean; pairEndpoints?: PairEndpoints } = {},
+    {
+      configureClient = true,
+      pairEndpoints,
+    }: { configureClient?: boolean; pairEndpoints?: PairEndpoints } = {},
   ) {
-    // Unlike setup() this builds the runtime itself so the catalog seams reach it; sharing one Application between
-    // two runtimes would interleave their status events.
+    // Unlike setup() this builds the runtime itself so the catalog seams reach it; sharing one
+    // Application between two runtimes would interleave their status events.
     const home = await isolate("otis-desktop-")
     const cwd = join(home, "workspace")
     await mkdir(cwd, { recursive: true })
@@ -1527,13 +1661,20 @@ describe("DesktopRuntime model selection", () => {
     await vi.waitFor(() => expect(app.conversation.busy).toBe(true))
 
     const result = await runtime.selectModel(localChoice.id)
-    expect(result).toEqual({ ok: false, reason: "Finish the current work before switching models." })
+    expect(result).toEqual({
+      ok: false,
+      reason: "Finish the current work before switching models.",
+    })
     release()
     await runtime.shutdown()
   })
 
   it("rejects unknown and unavailable models without touching the model host", async () => {
-    const unavailable = { ...localChoice, available: false as const, availabilityLabel: "Needs 48 GB" }
+    const unavailable = {
+      ...localChoice,
+      available: false as const,
+      availabilityLabel: "Needs 48 GB",
+    }
     const { runtime, app } = await setupWithCatalog([unavailable])
     const persist = vi.spyOn(app.models, "persistSelection")
 
@@ -1548,15 +1689,17 @@ describe("DesktopRuntime model selection", () => {
 
   it("switches models with progress events and persists the choice", async () => {
     const { runtime, app, sent } = await setupWithCatalog([localChoice])
-    const persist = vi.spyOn(app.models, "persistSelection").mockImplementation(async (model, options) => {
-      options.onLocalProgress?.({ phase: "download", percent: 42 })
-      // A real load spans many flush windows; holding here lets the batched status pump deliver the progress row
-      // before completion clears it.
-      await new Promise((resolve) => setTimeout(resolve, 60))
-      await options.persist(model)
-      app.models.activate(model, fakeClient)
-      return model
-    })
+    const persist = vi
+      .spyOn(app.models, "persistSelection")
+      .mockImplementation(async (model, options) => {
+        options.onLocalProgress?.({ phase: "download", percent: 42 })
+        // A real load spans many flush windows; holding here lets the batched status pump deliver
+        // the progress row before completion clears it.
+        await new Promise((resolve) => setTimeout(resolve, 60))
+        await options.persist(model)
+        app.models.activate(model, fakeClient)
+        return model
+      })
 
     const result = await runtime.selectModel(localChoice.id)
     expect(result).toEqual({ ok: true })
@@ -1640,7 +1783,10 @@ describe("DesktopRuntime model selection", () => {
     const pending = runtime.selectModel(localChoice.id)
     await started
     const rejected = await runtime.sendPrompt("during the switch")
-    expect(rejected).toEqual({ accepted: false, reason: "A model switch is in progress. Try again in a moment." })
+    expect(rejected).toEqual({
+      accepted: false,
+      reason: "A model switch is in progress. Try again in a moment.",
+    })
     expect(app.transcript.entries).toHaveLength(0)
 
     releasePersist()
@@ -1683,17 +1829,19 @@ describe("DesktopRuntime model selection", () => {
     const turnModels: (string | undefined)[] = []
     let releaseFirst!: () => void
     let calls = 0
-    mocks.executeTurn.mockImplementation(async (options: TurnRunnerOptions): Promise<TurnResult> => {
-      calls += 1
-      turnModels.push(app.models.selectedId)
-      if (calls === 1) {
-        await new Promise<void>((resolve) => {
-          releaseFirst = resolve
-        })
-        return { status: "interrupted", messages: [], details: {} }
-      }
-      return turnEvents("follow-up ran")(options)
-    })
+    mocks.executeTurn.mockImplementation(
+      async (options: TurnRunnerOptions): Promise<TurnResult> => {
+        calls += 1
+        turnModels.push(app.models.selectedId)
+        if (calls === 1) {
+          await new Promise<void>((resolve) => {
+            releaseFirst = resolve
+          })
+          return { status: "interrupted", messages: [], details: {} }
+        }
+        return turnEvents("follow-up ran")(options)
+      },
+    )
 
     // Hold the switch inside preparation so the admission can land mid-switch.
     let persistStarted!: () => void
@@ -1714,23 +1862,27 @@ describe("DesktopRuntime model selection", () => {
     // Delay the follow-up's session admission behind a gate, like a slow session write.
     const originalSteer = app.conversation.steer.bind(app.conversation)
     let releaseAdmission!: () => void
-    const steer = vi.spyOn(app.conversation, "steer").mockImplementation(async (message, onActivated) => {
-      await new Promise<void>((resolve) => {
-        releaseAdmission = resolve
+    const steer = vi
+      .spyOn(app.conversation, "steer")
+      .mockImplementation(async (message, onActivated) => {
+        await new Promise<void>((resolve) => {
+          releaseAdmission = resolve
+        })
+        return originalSteer(message, onActivated)
       })
-      return originalSteer(message, onActivated)
-    })
 
     expect(await runtime.sendPrompt("first")).toEqual({ accepted: true, delivery: "started" })
     await vi.waitFor(() => expect(app.conversation.busy).toBe(true))
     const followUp = runtime.sendPrompt("follow-up")
     await vi.waitFor(() => expect(steer).toHaveBeenCalledOnce())
 
-    // The first turn finishes with the admission still pending; the driver exits with an empty queue.
+    // The first turn finishes with the admission still pending; the driver exits with an empty
+    // queue.
     releaseFirst()
     await vi.waitFor(async () => expect((await runtime.snapshot()).busy).toBe(false))
 
-    // Start the switch, then let the admission land: it must park, not start a turn on the model being replaced.
+    // Start the switch, then let the admission land: it must park, not start a turn on the model
+    // being replaced.
     const selection = runtime.selectModel(localChoice.id)
     await preparationStarted
     releaseAdmission()
@@ -1756,9 +1908,14 @@ describe("DesktopRuntime model selection", () => {
       available: true,
       active: false,
     }
-    const newer: FireworksPickerChoice = { ...older, id: "accounts/fireworks/models/newer", displayName: "Newer" }
+    const newer: FireworksPickerChoice = {
+      ...older,
+      id: "accounts/fireworks/models/newer",
+      displayName: "Newer",
+    }
     const { runtime, app, listPickerItems } = await setupWithCatalog([older, newer])
-    // The older click's catalog lookup is the slow one; without queue-ordered lookups it would win the queue.
+    // The older click's catalog lookup is the slow one; without queue-ordered lookups it would win
+    // the queue.
     listPickerItems.mockImplementationOnce(async () => {
       await new Promise((resolve) => setTimeout(resolve, 80))
       return [older, newer]
@@ -1858,7 +2015,9 @@ describe("DesktopRuntime updates", () => {
     expect((await runtime.snapshot()).update).toEqual({ status: "ready", version: "9.9.9" })
 
     await flush()
-    const updateEvents = sent.filter((event) => event.type === "status" && event.status.update.status === "ready")
+    const updateEvents = sent.filter(
+      (event) => event.type === "status" && event.status.update.status === "ready",
+    )
     expect(updateEvents).toHaveLength(1)
 
     await runtime.installUpdate()
@@ -1876,7 +2035,9 @@ describe("update shutdown", () => {
     const { runtime } = await setup()
     mocks.executeTurn.mockImplementation(turnEvents("reply"))
     await runtime.sendPrompt("hello")
-    await vi.waitFor(async () => expect((await runtime.snapshot()).entries.some((e) => e.text === "reply")).toBe(true))
+    await vi.waitFor(async () =>
+      expect((await runtime.snapshot()).entries.some((e) => e.text === "reply")).toBe(true),
+    )
 
     await runtime.shutdown() // installUpdate's first step
 
@@ -1927,16 +2088,25 @@ describe("pending workspace (locate flow)", () => {
     expect(snapshot.entries.some((entry) => entry.text === "old work")).toBe(true)
 
     // The association persisted: opening again never asks twice.
-    expect(await readWorkspacePath(join(sessionRootDirectory(), "legacy-deadbeef0002"))).toBe(located)
+    expect(await readWorkspacePath(join(sessionRootDirectory(), "legacy-deadbeef0002"))).toBe(
+      located,
+    )
     await runtime.shutdown()
   })
 
   it("a missing registered folder falls back to in-place history with the locate banner", async () => {
     const { runtime } = await setup()
     await foreignSession("gone-deadbeef0003", "legacy-3", "folder was deleted")
-    await registerWorkspacePath(join(sessionRootDirectory(), "gone-deadbeef0003"), "/definitely/not/here")
+    await registerWorkspacePath(
+      join(sessionRootDirectory(), "gone-deadbeef0003"),
+      "/definitely/not/here",
+    )
 
-    const opened = await runtime.switchWorkspace("/definitely/not/here", "legacy-3", "gone-deadbeef0003")
+    const opened = await runtime.switchWorkspace(
+      "/definitely/not/here",
+      "legacy-3",
+      "gone-deadbeef0003",
+    )
     expect(opened.ok).toBe(true)
     const snapshot = await runtime.snapshot()
     expect(snapshot.entries.some((entry) => entry.text === "folder was deleted")).toBe(true)
@@ -1962,7 +2132,8 @@ describe("pending workspace edge cases", () => {
   it("a stale row whose workspace was registered after the palette loaded switches into it", async () => {
     const { runtime, cwd } = await setup()
     await foreignSession("stale-aa0000000002", "stale-1", "registered meanwhile")
-    // The "palette loaded" here: the dir was unregistered. Another instance registers it before the click.
+    // The "palette loaded" here: the dir was unregistered. Another instance registers it before the
+    // click.
     const elsewhere = join(cwd, "..", "registered-elsewhere")
     await mkdir(elsewhere, { recursive: true })
     await registerWorkspacePath(join(sessionRootDirectory(), "stale-aa0000000002"), elsewhere)
@@ -1991,7 +2162,11 @@ describe("pending workspace edge cases", () => {
 
     // The write lock is really held again: no second acquirer, and prompts flow.
     await expect(
-      acquireSessionLock({ cwd, directory: join(sessionRootDirectory(), "legacy-samefolder03"), sessionId: "same-1" }),
+      acquireSessionLock({
+        cwd,
+        directory: join(sessionRootDirectory(), "legacy-samefolder03"),
+        sessionId: "same-1",
+      }),
     ).rejects.toThrow(/already in use/)
     mocks.executeTurn.mockImplementation(turnEvents("back to work"))
     expect((await runtime.sendPrompt("continue")).accepted).toBe(true)
@@ -2016,7 +2191,9 @@ describe("pending workspace edge cases", () => {
     expect(snapshot.workspace.path).toBe(somewhere)
     expect(snapshot.needsWorkspace).toBe(false)
     // No silent association: the previewed dir remains unregistered.
-    expect(await readWorkspacePath(join(sessionRootDirectory(), "legacy-openfolder04"))).toBeUndefined()
+    expect(
+      await readWorkspacePath(join(sessionRootDirectory(), "legacy-openfolder04")),
+    ).toBeUndefined()
     await runtime.shutdown()
   })
 })
@@ -2109,7 +2286,9 @@ describe("locate race safety", () => {
 
     // State drift underneath the runtime (defense-in-depth path): the coordinator now holds B.
     expect(
-      await app.sessions.select("session-b", { directory: join(sessionRootDirectory(), "drift-bb0000000009") }),
+      await app.sessions.select("session-b", {
+        directory: join(sessionRootDirectory(), "drift-bb0000000009"),
+      }),
     ).toBe("loaded")
 
     const relockSpy = vi.spyOn(app.sessions, "relock")
@@ -2162,7 +2341,9 @@ describe("locate overlap exclusion", () => {
     expect(snapshot.needsWorkspace).toBe(true)
     expect(snapshot.session?.id).toBe("session-b")
     // A's marker was never written by the refused locate.
-    expect(await readWorkspacePath(join(sessionRootDirectory(), "ord-aa0000000010"))).toBeUndefined()
+    expect(
+      await readWorkspacePath(join(sessionRootDirectory(), "ord-aa0000000010")),
+    ).toBeUndefined()
     await runtime.shutdown()
   })
 

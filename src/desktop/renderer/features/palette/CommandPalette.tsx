@@ -5,8 +5,7 @@ import { Button } from "../../components/Button.js"
 import { Icon } from "../../components/Icon.js"
 import { formatSessionDetail } from "../../format.js"
 import { useI18n } from "../../i18n/index.js"
-import { useDesktop, useDesktopState } from "../../runtime.js"
-import { useScrollbarFlash } from "../../useScrollbarFlash.js"
+import { useDesktop, useDesktopState, useScrollbarFlash } from "../../runtime.js"
 
 type PaletteRow =
   | {
@@ -23,11 +22,10 @@ function rowKey(item: GlobalSessionPickerItem) {
   return `${item.dirName}:${item.id}`
 }
 
-const SEARCH_DEBOUNCE_MS = 150
 /**
- * The ⌘K palette: the primary way to move around — session search (title-first, content matches carry a
- * snippet) plus the app-level actions. Sessions are searched through the main process, which owns the
- * workspace's stored JSONL files.
+ * The ⌘K palette: the primary way to move around — session search (title-first, content matches
+ * carry a snippet) plus the app-level actions. Sessions are searched through the main process,
+ * which owns the workspace's stored JSONL files.
  */
 export function CommandPalette({ onClose }: { onClose: () => void }) {
   const { api } = useDesktop()
@@ -48,7 +46,8 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
 
   const needle = query.trim()
 
-  // Content search is debounced; title-free queries fall back to the recents already in the snapshot.
+  // Content search is debounced; title-free queries fall back to the recents already in the
+  // snapshot.
   useEffect(() => {
     if (!needle) {
       setFound(undefined)
@@ -64,7 +63,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
         .catch(() => {
           if (!cancelled) setFound({ query: needle, items: [] })
         })
-    }, SEARCH_DEBOUNCE_MS)
+    }, 150)
     return () => {
       cancelled = true
       clearTimeout(timer)
@@ -94,7 +93,8 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
         onClose()
         return
       }
-      // Modal focus containment: Tab cycles the dialog and its context menu, never the workspace behind them.
+      // Modal focus containment: Tab cycles the dialog and its context menu, never the workspace
+      // behind them.
       if (event.key === "Tab") {
         const focusables = [
           ...Array.from(dialogRef.current?.querySelectorAll<HTMLElement>("input, button") ?? []),
@@ -121,12 +121,14 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
     return () => window.removeEventListener("keydown", onKeyDown, true)
   }, [onClose, menu])
 
-  // Opening the palette refreshes history: sessions created outside this window (e.g. the TUI) appear.
+  // Opening the palette refreshes history: sessions created outside this window (e.g. the TUI)
+  // appear.
   useEffect(() => {
     void api.refreshSessions()
   }, [api])
 
-  // Any click outside the context menu dismisses it (its own item handles its click before this fires).
+  // Any click outside the context menu dismisses it (its own item handles its click before this
+  // fires).
   useEffect(() => {
     if (!menu) return
     const dismiss = () => setMenu(undefined)
@@ -134,9 +136,9 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
     return () => window.removeEventListener("mousedown", dismiss)
   }, [menu])
 
-  const allActions: PaletteRow[] = [
+  const actions: PaletteRow[] = [
     {
-      kind: "action",
+      kind: "action" as const,
       id: "new-session",
       label: t("palette.freshStart"),
       hint: "⌘N",
@@ -146,7 +148,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
       },
     },
     {
-      kind: "action",
+      kind: "action" as const,
       id: "open-folder",
       label: t("palette.openFolder"),
       hint: "⌘O",
@@ -160,16 +162,16 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
         else setActionError(result.reason)
       },
     },
-  ]
-  const actions = allActions.filter(
-    (action) => action.kind === "action" && (!needle || action.label.toLowerCase().includes(needle.toLowerCase())),
-  )
+  ].filter((action) => !needle || action.label.toLowerCase().includes(needle.toLowerCase()))
 
   // Only results tagged with the current query may render; anything else is a stale response.
   const currentResults = needle && found?.query === needle ? found.items : undefined
   // No query shows every session; the list scrolls.
   const sessions = needle ? (currentResults ?? []) : (state?.sessions ?? [])
-  const rows: PaletteRow[] = [...actions, ...sessions.map((item): PaletteRow => ({ kind: "session", item }))]
+  const rows: PaletteRow[] = [
+    ...actions,
+    ...sessions.map((item): PaletteRow => ({ kind: "session", item })),
+  ]
   const selectedRow = rows[Math.min(selected, Math.max(0, rows.length - 1))]
 
   const activate = async (row: PaletteRow | undefined) => {
@@ -182,7 +184,8 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
     if (rowKey(row.item) === confirmingDeleteKey) return
     setActionError(undefined)
     try {
-      // Unknown or missing folder: open the history in place; the banner's locate flow takes it from there.
+      // Unknown or missing folder: open the history in place; the banner's locate flow takes it
+      // from there.
       const result =
         row.item.workspacePath !== undefined && row.item.workspacePath !== state?.workspace.path
           ? await api.openSessionAt(row.item.workspacePath, row.item.id, row.item.dirName)
@@ -200,10 +203,14 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
     try {
       const result = await api.deleteSession(id, dirName)
       if (result.ok) {
-        // Search results are local state; remove only this storage identity, since ids repeat across folders.
+        // Search results are local state; remove only this storage identity, since ids repeat
+        // across folders.
         setFound((current) =>
           current
-            ? { ...current, items: current.items.filter((item) => item.id !== id || item.dirName !== dirName) }
+            ? {
+                ...current,
+                items: current.items.filter((item) => item.id !== id || item.dirName !== dirName),
+              }
             : current,
         )
       } else {
@@ -237,8 +244,19 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
 
   return (
     <>
-      <button type="button" className="overlayBackdrop" aria-label={t("palette.close")} onClick={onClose} />
-      <div className="palette noDrag" role="dialog" aria-modal="true" aria-label={t("palette.dialog")} ref={dialogRef}>
+      <button
+        type="button"
+        className="overlayBackdrop"
+        aria-label={t("palette.close")}
+        onClick={onClose}
+      />
+      <div
+        className="palette noDrag"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("palette.dialog")}
+        ref={dialogRef}
+      >
         <input
           ref={inputRef}
           className="palette-input"
@@ -262,16 +280,19 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
           {rows.map((row, index) => {
             const firstSession = row.kind === "session" && rows[index - 1]?.kind !== "session"
             const key = row.kind === "action" ? row.id : rowKey(row.item)
+            const selectedClass = index === selected ? " palette-row-selected" : ""
             return (
               <Fragment key={key}>
                 {!needle && index === 0 && row.kind === "action" ? (
                   <div className="palette-section">{t("palette.actions")}</div>
                 ) : null}
-                {!needle && firstSession ? <div className="palette-section">{t("palette.recentSessions")}</div> : null}
+                {!needle && firstSession ? (
+                  <div className="palette-section">{t("palette.recentSessions")}</div>
+                ) : null}
                 {row.kind === "action" ? (
                   <button
                     type="button"
-                    className={`palette-row${index === selected ? " palette-row-selected" : ""}`}
+                    className={`palette-row${selectedClass}`}
                     onMouseEnter={() => setSelected(index)}
                     onClick={() => void activate(row)}
                   >
@@ -285,12 +306,18 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
                   </button>
                 ) : (
                   <div
-                    className={`palette-row${row.item.active ? " palette-row-active" : ""}${index === selected ? " palette-row-selected" : ""}`}
+                    className={`palette-row${
+                      row.item.active ? " palette-row-active" : ""
+                    }${selectedClass}`}
                   >
                     {confirmingDeleteKey === key ? (
                       <div className="palette-confirm">
                         <span className="palette-confirmText">{t("palette.deleteConfirm")}</span>
-                        <Button variant="ghost" size="sm" onClick={() => setConfirmingDeleteKey(undefined)}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setConfirmingDeleteKey(undefined)}
+                        >
                           {t("palette.keep")}
                         </Button>
                         <Button
@@ -319,8 +346,12 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
                             {row.item.active ? <Icon icon={Check} size={12} /> : null}
                           </span>
                           <span className="palette-rowWorkspace">{row.item.workspaceLabel}</span>
-                          <span className="palette-rowDetail">{formatSessionDetail(row.item.detail, locale)}</span>
-                          {row.item.snippet ? <span className="palette-rowSnippet">{row.item.snippet}</span> : null}
+                          <span className="palette-rowDetail">
+                            {formatSessionDetail(row.item.detail, locale)}
+                          </span>
+                          {row.item.snippet ? (
+                            <span className="palette-rowSnippet">{row.item.snippet}</span>
+                          ) : null}
                         </span>
                       </button>
                     )}
@@ -330,14 +361,17 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
             )
           })}
           {searching ? <div className="palette-empty">{t("palette.searching")}</div> : null}
-          {!searching && rows.length === 0 ? <div className="palette-empty">{t("palette.noMatches")}</div> : null}
+          {!searching && rows.length === 0 ? (
+            <div className="palette-empty">{t("palette.noMatches")}</div>
+          ) : null}
         </div>
         <div className="palette-footer">
           <Icon icon={CornerDownLeft} size={11} /> {t("palette.footer")}
         </div>
       </div>
       {menu ? (
-        // Rendered outside the dialog: the dialog's translateX transform would trap position:fixed inside it.
+        // Rendered outside the dialog: the dialog's translateX transform would trap position:fixed
+        // inside it.
         <div
           className="palette-menu"
           role="menu"

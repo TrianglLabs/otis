@@ -10,7 +10,9 @@ export function useOtisHome() {
   afterEach(async () => {
     if (original === undefined) delete process.env.OTIS_HOME
     else process.env.OTIS_HOME = original
-    await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })))
+    await Promise.all(
+      directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })),
+    )
   })
 
   return async (prefix = "otis-home-") => {

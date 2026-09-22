@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
 import { ContextOverflowError } from "../../src/inference/errors.js"
 import { OllamaClient } from "../../src/inference/ollama-client.js"
-import { createPairClient, PairClient } from "../../src/inference/pair.js"
+import { OpenAICompatibleClient } from "../../src/inference/openai-compat.js"
+import { createPairClient } from "../../src/inference/pair.js"
 import type { ChatMessage, ChatStreamEvent } from "../../src/inference/types.js"
 
 describe("Ollama native transport", () => {
@@ -9,7 +10,9 @@ describe("Ollama native transport", () => {
     const fetch = vi.fn()
     const config = { model: "chat", baseURL: "http://127.0.0.1:11434", fetch }
     expect(createPairClient({ ...config, engine: "ollama" })).toBeInstanceOf(OllamaClient)
-    expect(createPairClient({ ...config, engine: "lmstudio" })).toBeInstanceOf(PairClient)
+    const lmStudio = createPairClient({ ...config, engine: "lmstudio" })
+    expect(lmStudio).toBeInstanceOf(OpenAICompatibleClient)
+    expect(lmStudio).not.toBeInstanceOf(OllamaClient)
     expect(fetch).not.toHaveBeenCalled()
   })
 
@@ -43,9 +46,16 @@ describe("Ollama native transport", () => {
       fetch: fetch as typeof globalThis.fetch,
     })
     const events: ChatStreamEvent[] = []
-    for await (const event of client.streamChat({ messages: [{ role: "user", content: "Read the docs" }], tools: [] }))
+    for await (const event of client.streamChat({
+      messages: [{ role: "user", content: "Read the docs" }],
+      tools: [],
+    }))
       events.push(event)
-    expect(events).toContainEqual({ type: "reasoning_delta", field: "reasoning", text: "Inspect 日本語." })
+    expect(events).toContainEqual({
+      type: "reasoning_delta",
+      field: "reasoning",
+      text: "Inspect 日本語.",
+    })
     expect(events).toContainEqual({
       type: "usage",
       usage: { promptTokens: 100, completionTokens: 25, totalTokens: 125 },
@@ -64,7 +74,11 @@ describe("Ollama native transport", () => {
           ...calls.map((toolCall) => ({ type: "tool_call" as const, toolCall })),
         ],
       },
-      ...calls.map((call) => ({ role: "tool" as const, toolCallId: call.id, content: "File contents" })),
+      ...calls.map((call) => ({
+        role: "tool" as const,
+        toolCallId: call.id,
+        content: "File contents",
+      })),
     ]
     await client.complete(history)
     expect(fetch.mock.calls[1][0]).toBe("http://127.0.0.1:11434/api/chat")
@@ -92,9 +106,13 @@ describe("Ollama native transport", () => {
       model: "chat",
       baseURL: "http://127.0.0.1:11434",
       fetch: async () =>
-        mode === "http" ? Response.json({ error }, { status: 400 }) : new Response(JSON.stringify({ error })),
+        mode === "http"
+          ? Response.json({ error }, { status: 400 })
+          : new Response(JSON.stringify({ error })),
     })
-    await expect(client.streamChat({ messages: [] }).next()).rejects.toBeInstanceOf(ContextOverflowError)
+    await expect(client.streamChat({ messages: [] }).next()).rejects.toBeInstanceOf(
+      ContextOverflowError,
+    )
   })
 
   it("rejects an incomplete stream instead of accepting a partial summary", async () => {
@@ -112,7 +130,9 @@ describe("Ollama native transport", () => {
       model: "chat",
       baseURL: "http://127.0.0.1:11434",
       fetch: async () =>
-        mode === "http" ? Response.json({ error }, { status: 400 }) : new Response(JSON.stringify({ error })),
+        mode === "http"
+          ? Response.json({ error }, { status: 400 })
+          : new Response(JSON.stringify({ error })),
     })
     const response = client.complete([])
     await expect(response).rejects.toThrow("at least 65,536 tokens (64K)")

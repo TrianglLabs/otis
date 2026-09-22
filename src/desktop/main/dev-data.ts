@@ -5,17 +5,21 @@ import { LOCAL_MODELS, localModelPackings } from "../../inference/local-catalog.
 import { initializeLocalSettings } from "../../local/settings.js"
 
 /** Development has its own persistent profile so it can run beside the installed app. */
-export type DevDataSandbox = {
+type DevDataSandbox = {
   /** Electron's userData: the single-instance lock, caches, window state. */
   userData: string
-  /** `OTIS_HOME` for everything Otis persists; an explicit `OTIS_HOME` wins over the sandbox default. */
+  /**
+   * `OTIS_HOME` for everything Otis persists; an explicit `OTIS_HOME` wins over the sandbox
+   * default.
+   */
   otisHome: string
 }
 
 /**
  * Defaults to the platform's app-data directory, independent of the checkout or working directory.
- * Explicit overrides remain available for isolated test runs. Packaged builds keep their existing profile.
- * The caller applies these paths before the single-instance lock and application initialization.
+ * Explicit overrides remain available for isolated test runs. Packaged builds keep their existing
+ * profile. The caller applies these paths before the single-instance lock and application
+ * initialization.
  */
 export function resolveDevData(env: {
   packaged: boolean
@@ -32,7 +36,9 @@ function cleanPath(value: string | undefined) {
   return value?.trim() || undefined
 }
 
-/** Explicit test profiles opt out so they never inherit the developer's credentials or large files. */
+/**
+ * Explicit test profiles opt out so they never inherit the developer's credentials or large files.
+ */
 export function shouldInitializeDevProfile(env: { otisDevUserData?: string; otisHome?: string }) {
   return !cleanPath(env.otisDevUserData) && !cleanPath(env.otisHome)
 }
@@ -56,9 +62,14 @@ export async function initializeDevProfile(options: {
   })
   for (const model of LOCAL_MODELS) {
     for (const packing of localModelPackings(model)) {
-      await cloneLocalGguf(packing, join(options.sourceDataDirectory, "llama"), join(options.otisHome, "llama"))
+      await cloneLocalGguf(
+        packing,
+        join(options.sourceDataDirectory, "llama"),
+        join(options.otisHome, "llama"),
+      )
     }
   }
-  // Do not re-import settings or resurrect models deliberately deleted from the dev profile on later launches.
+  // Do not re-import settings or resurrect models deliberately deleted from the dev profile on
+  // later launches.
   await writeFile(marker, "1\n", { mode: 0o600, flag: "wx" })
 }

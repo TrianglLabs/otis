@@ -1,23 +1,27 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ArtifactStore } from "../../src/app/artifacts.js"
-import {
-  Conversation,
-  type ConversationHooks,
-  type ConversationTurnOptions,
-  runConversationTurn,
-} from "../../src/app/conversation.js"
+import { Conversation, type ConversationHooks } from "../../src/app/conversation.js"
 import { ModelHost } from "../../src/app/models.js"
 import { SessionCoordinator } from "../../src/app/sessions.js"
 import { SubagentTraces } from "../../src/app/subagents.js"
 import { TranscriptStore } from "../../src/app/transcript.js"
 import type { TurnResult, TurnRunnerOptions } from "../../src/app/turn-runner.js"
 import type { AgentEvent } from "../../src/core/agent.js"
-import type { ChatMessage } from "../../src/inference/types.js"
+import type { ChatMessage, UserChatMessage } from "../../src/inference/types.js"
 import { createPermissionPolicy } from "../../src/permissions/policy.js"
+import type { ParallelClient } from "../../src/web/client.js"
 import { useOtisHome } from "./support/otis-home.js"
 
 const mocks = vi.hoisted(() => ({ executeTurn: vi.fn() }))
 vi.mock("../../src/app/turn-runner.js", () => ({ executeTurn: mocks.executeTurn }))
+
+const isolate = useOtisHome()
+
+beforeEach(() => {
+  mocks.executeTurn.mockReset()
+})
+
+const hi: UserChatMessage = { role: "user", content: "hi" }
 
 function sink() {
   return {
@@ -29,68 +33,98 @@ function sink() {
   }
 }
 
-function turnOptions(transcript: TranscriptStore, observer = sink()): ConversationTurnOptions {
+function hooks(): ConversationHooks {
   return {
-    admission: { promptId: "prompt_1", message: { role: "user", content: "hi" } },
-    client: { model: "fake", streamChat: vi.fn(), complete: vi.fn() },
-    webClient: {} as ConversationTurnOptions["webClient"],
-    webClientModel: "fake",
-    transcript,
-    subagents: new SubagentTraces(),
-    sink: observer,
-    cwd: "/tmp",
+    sink: sink(),
     debug: false,
-    signal: new AbortController().signal,
-    projectContext: [],
-    skills: { skills: [], byName: new Map() },
-    tools: [],
-    isExiting: () => false,
     onContext: () => {},
     onDiff: () => {},
-    artifacts: new ArtifactStore("/tmp"),
-    onUsage: () => {},
-    permissionPolicy: createPermissionPolicy({ cwd: "/tmp", mode: "auto" }),
     onPermissionRequest: async () => true,
     onCompletion: () => {},
   }
 }
 
-describe("runConversationTurn", () => {
+async function setup() {
+  const cwd = await isolate("otis-conversation-")
+  const transcript = new TranscriptStore()
+  const subagents = new SubagentTraces()
+  const models = new ModelHost()
+  models.client = { model: "fake", streamChat: vi.fn(), complete: vi.fn() }
+  models.selectedProvider = "fireworks"
+  const artifacts = new ArtifactStore(cwd)
+  const sessions = new SessionCoordinator({
+    client: () => models.client,
+    cwd,
+    transcript,
+    subagents,
+    isBusy: () => false,
+    isExiting: () => false,
+  })
+  const conversation = new Conversation({
+    sessions,
+    transcript,
+    subagents,
+    webClient: {} as ParallelClient,
+    cwd,
+    models,
+    projectContext: () => [],
+    skills: () => ({ skills: [], byName: new Map() }),
+    permissionPolicy: () => createPermissionPolicy({ cwd, mode: "auto" }),
+    isExiting: () => false,
+    artifacts,
+  })
+  return { conversation, sessions, transcript, artifacts }
+}
+
+describe("Conversation turns", () => {
   it("keeps recovery in the normal working phase without adding a retry label or error to chat", async () => {
-    const transcript = new TranscriptStore()
+    const { conversation, transcript } = await setup()
     const observer = sink()
-    mocks.executeTurn.mockImplementation(async (options: TurnRunnerOptions): Promise<TurnResult> => {
-      await options.onEvent?.({ type: "model", phase: "retry" })
-      expect(observer.setPhase).toHaveBeenLastCalledWith("working")
-      await options.onEvent?.({ type: "delta", text: "Recovered" })
-      await options.onEvent?.({ type: "complete", messages: [] })
-      return { status: "complete", messages: [], details: {} }
-    })
-    await runConversationTurn(turnOptions(transcript, observer))
+    mocks.executeTurn.mockImplementation(
+      async (options: TurnRunnerOptions): Promise<TurnResult> => {
+        await options.onEvent?.({ type: "model", phase: "retry" })
+        expect(observer.setPhase).toHaveBeenLastCalledWith("working")
+        await options.onEvent?.({ type: "delta", text: "Recovered" })
+        await options.onEvent?.({ type: "complete", messages: [] })
+        return { status: "complete", messages: [], details: {} }
+      },
+    )
+    await conversation.start(hi, { ...hooks(), sink: observer })
     expect(observer.startBusy).toHaveBeenCalled()
     expect(observer.setPhase).toHaveBeenLastCalledWith("working")
-    expect(transcript.entries.map((entry) => entry.text)).toEqual(["Recovered"])
+    expect(transcript.entries.map((entry) => entry.text)).toEqual(["hi", "Recovered"])
   })
 
   it("projects streamed text onto the transcript and notifies the sink", async () => {
-    const transcript = new TranscriptStore()
+    const { conversation, transcript } = await setup()
     const observer = sink()
-    mocks.executeTurn.mockImplementation(async (options: TurnRunnerOptions): Promise<TurnResult> => {
-      const events: AgentEvent[] = [
-        { type: "model", phase: "start" },
-        { type: "delta", text: "Hello" },
-        { type: "complete", messages: [{ role: "assistant", content: [{ type: "text", text: "Hello" }] }] },
-      ]
-      for (const event of events) await options.onEvent?.(event)
-      const messages: ChatMessage[] = [{ role: "assistant", content: [{ type: "text", text: "Hello" }] }]
-      return { status: "complete", messages, details: {} }
-    })
+    mocks.executeTurn.mockImplementation(
+      async (options: TurnRunnerOptions): Promise<TurnResult> => {
+        const events: AgentEvent[] = [
+          { type: "model", phase: "start" },
+          { type: "delta", text: "Hello" },
+          {
+            type: "complete",
+            messages: [{ role: "assistant", content: [{ type: "text", text: "Hello" }] }],
+          },
+        ]
+        for (const event of events) await options.onEvent?.(event)
+        const messages: ChatMessage[] = [
+          { role: "assistant", content: [{ type: "text", text: "Hello" }] },
+        ]
+        return { status: "complete", messages, details: {} }
+      },
+    )
 
-    const result = await runConversationTurn(turnOptions(transcript, observer))
+    const result = await conversation.start(hi, { ...hooks(), sink: observer })
 
     expect(result.status).toBe("complete")
-    expect(transcript.history).toEqual([{ role: "assistant", content: [{ type: "text", text: "Hello" }] }])
-    expect(transcript.entries.some((entry) => entry.speaker === "Otis" && entry.text === "Hello")).toBe(true)
+    expect(transcript.history).toEqual([
+      { role: "assistant", content: [{ type: "text", text: "Hello" }] },
+    ])
+    expect(
+      transcript.entries.some((entry) => entry.speaker === "Otis" && entry.text === "Hello"),
+    ).toBe(true)
     expect(observer.setPhase).toHaveBeenCalledWith("working")
     expect(observer.startBusy).toHaveBeenCalled()
     expect(observer.stopBusy).toHaveBeenCalled()
@@ -98,31 +132,33 @@ describe("runConversationTurn", () => {
   })
 
   it("preserves scrollback while replacing model context at a compaction checkpoint", async () => {
-    const transcript = new TranscriptStore()
+    const { conversation, transcript } = await setup()
     transcript.loadMessages([{ role: "user", content: "old" }])
     const observer = sink()
     const kept: ChatMessage[] = [{ role: "user", content: "kept" }]
-    mocks.executeTurn.mockImplementation(async (options: TurnRunnerOptions): Promise<TurnResult> => {
-      await options.onEvent?.({ type: "compaction", phase: "start" })
-      await options.onEvent?.({
-        type: "compaction",
-        phase: "complete",
-        summary: "Summary.",
-        keptMessages: kept,
-        messages: [],
-      })
-      await options.onEvent?.({
-        type: "complete",
-        messages: [{ role: "assistant", content: [{ type: "text", text: "ok" }] }],
-      })
-      return {
-        status: "complete",
-        messages: [{ role: "assistant", content: [{ type: "text", text: "ok" }] }],
-        details: {},
-      }
-    })
+    mocks.executeTurn.mockImplementation(
+      async (options: TurnRunnerOptions): Promise<TurnResult> => {
+        await options.onEvent?.({ type: "compaction", phase: "start" })
+        await options.onEvent?.({
+          type: "compaction",
+          phase: "complete",
+          summary: "Summary.",
+          keptMessages: kept,
+          messages: [],
+        })
+        await options.onEvent?.({
+          type: "complete",
+          messages: [{ role: "assistant", content: [{ type: "text", text: "ok" }] }],
+        })
+        return {
+          status: "complete",
+          messages: [{ role: "assistant", content: [{ type: "text", text: "ok" }] }],
+          details: {},
+        }
+      },
+    )
 
-    await runConversationTurn(turnOptions(transcript, observer))
+    await conversation.start(hi, { ...hooks(), sink: observer })
 
     expect(transcript.history).not.toContainEqual({ role: "user", content: "old" })
     expect(transcript.entries[0].text).toBe("old")
@@ -131,8 +167,7 @@ describe("runConversationTurn", () => {
   })
 
   it("opens a previewable file from the shared tool event path", async () => {
-    const transcript = new TranscriptStore()
-    const options = turnOptions(transcript)
+    const { conversation, transcript, artifacts } = await setup()
     mocks.executeTurn.mockImplementation(async (turn: TurnRunnerOptions): Promise<TurnResult> => {
       await turn.onEvent?.({
         type: "tool",
@@ -156,9 +191,13 @@ describe("runConversationTurn", () => {
       return { status: "complete", messages: [], details: {} }
     })
 
-    await runConversationTurn(options)
+    await conversation.start(hi, hooks())
 
-    expect(options.artifacts.metadata).toMatchObject({ path: "resume.md", kind: "markdown", editable: true })
+    expect(artifacts.metadata).toMatchObject({
+      path: "resume.md",
+      kind: "markdown",
+      editable: true,
+    })
     expect(transcript.entries.find((entry) => entry.toolCallId === "read_1")?.artifact).toEqual({
       source: "workspace",
       path: "resume.md",
@@ -171,8 +210,7 @@ describe("runConversationTurn", () => {
     "interrupted",
     "error",
   ] as const)("updates Canvas live and reveals only the final artifact when a turn ends with %s", async (status) => {
-    const transcript = new TranscriptStore()
-    const options = turnOptions(transcript)
+    const { conversation, transcript, artifacts } = await setup()
     const artifact = { source: "workspace" as const, path: "brief.md", kind: "markdown" as const }
     mocks.executeTurn.mockImplementation(async (turn: TurnRunnerOptions): Promise<TurnResult> => {
       for (const toolCallId of ["write_1", "write_2"]) {
@@ -185,78 +223,34 @@ describe("runConversationTurn", () => {
         }
         await turn.onEvent?.({ ...tool, phase: "start" })
         await turn.onEvent?.({ ...tool, phase: "end", outcome: "completed", artifact })
-        expect(options.artifacts.metadata?.path).toBe("brief.md")
+        expect(artifacts.metadata?.path).toBe("brief.md")
         expect(transcript.entries.some((entry) => entry.artifactDisplay === "ready")).toBe(false)
       }
       return status === "error"
         ? { status, message: "Provider failed", messages: [], details: {} }
         : { status, messages: [], details: {} }
     })
-    await runConversationTurn(options)
+    await conversation.start(hi, hooks())
     expect(
-      transcript.entries.filter((entry) => entry.artifactDisplay === "ready").map((entry) => entry.toolCallId),
+      transcript.entries
+        .filter((entry) => entry.artifactDisplay === "ready")
+        .map((entry) => entry.toolCallId),
     ).toEqual(["write_2"])
     expect(transcript.entries.filter((entry) => entry.artifact)).toHaveLength(2)
   })
 })
 
 describe("Conversation", () => {
-  const isolate = useOtisHome()
-
-  beforeEach(() => {
-    mocks.executeTurn.mockReset()
-  })
-
-  async function setup() {
-    const cwd = await isolate("otis-conversation-")
-    const transcript = new TranscriptStore()
-    const subagents = new SubagentTraces()
-    const models = new ModelHost()
-    models.client = { model: "fake", streamChat: vi.fn(), complete: vi.fn() }
-    models.selectedProvider = "fireworks"
-    const sessions = new SessionCoordinator({
-      client: () => models.client,
-      cwd,
-      transcript,
-      subagents,
-      isBusy: () => false,
-      isExiting: () => false,
-    })
-    const conversation = new Conversation({
-      sessions,
-      transcript,
-      subagents,
-      webClient: {} as ConversationTurnOptions["webClient"],
-      cwd,
-      models,
-      projectContext: () => [],
-      skills: () => ({ skills: [], byName: new Map() }),
-      permissionPolicy: () => createPermissionPolicy({ cwd, mode: "auto" }),
-      isExiting: () => false,
-      artifacts: new ArtifactStore(cwd),
-    })
-    return { conversation, sessions, transcript, hooks: hooks() }
-  }
-
-  function hooks(): ConversationHooks {
-    return {
-      sink: sink(),
-      debug: false,
-      onContext: () => {},
-      onDiff: () => {},
-      onPermissionRequest: async () => true,
-      onCompletion: () => {},
-    }
-  }
-
   it("admits, persists, and can cancel an active turn", async () => {
     const { conversation, sessions } = await setup()
-    mocks.executeTurn.mockImplementation(async (options: TurnRunnerOptions): Promise<TurnResult> => {
-      const signal = options.agent.signal
-      if (!signal) throw new Error("expected abort signal")
-      await abort(signal)
-      return { status: "interrupted", messages: [], details: {} }
-    })
+    mocks.executeTurn.mockImplementation(
+      async (options: TurnRunnerOptions): Promise<TurnResult> => {
+        const signal = options.agent.signal
+        if (!signal) throw new Error("expected abort signal")
+        await abort(signal)
+        return { status: "interrupted", messages: [], details: {} }
+      },
+    )
 
     const started = conversation.start({ role: "user", content: "hello" }, hooks())
     await vi.waitFor(() => expect(conversation.busy).toBe(true))
@@ -269,12 +263,14 @@ describe("Conversation", () => {
 
   it("queues a prompt while a turn is running", async () => {
     const { conversation, transcript, sessions } = await setup()
-    mocks.executeTurn.mockImplementation(async (options: TurnRunnerOptions): Promise<TurnResult> => {
-      const signal = options.agent.signal
-      if (!signal) throw new Error("expected abort signal")
-      await abort(signal)
-      return { status: "interrupted", messages: [], details: {} }
-    })
+    mocks.executeTurn.mockImplementation(
+      async (options: TurnRunnerOptions): Promise<TurnResult> => {
+        const signal = options.agent.signal
+        if (!signal) throw new Error("expected abort signal")
+        await abort(signal)
+        return { status: "interrupted", messages: [], details: {} }
+      },
+    )
 
     const started = conversation.start({ role: "user", content: "first" }, hooks())
     await vi.waitFor(() => expect(conversation.busy).toBe(true))
@@ -299,7 +295,9 @@ describe("Conversation", () => {
       return { status: "complete", messages: [], details: {} }
     })
     await conversation.start(queued, hooks())
-    expect(sessions.current?.events.filter((event) => event.type === "turn_started")).toHaveLength(2)
+    expect(sessions.current?.events.filter((event) => event.type === "turn_started")).toHaveLength(
+      2,
+    )
   })
 
   it("accepts steering on a queued turn that has already been admitted", async () => {
@@ -326,7 +324,9 @@ describe("Conversation", () => {
 
     const second = conversation.start(queued, hooks())
     await vi.waitFor(() => expect(conversation.busy).toBe(true))
-    await expect(conversation.steer({ role: "user", content: "steer this" }, () => {})).resolves.toBe("steered")
+    await expect(
+      conversation.steer({ role: "user", content: "steer this" }, () => {}),
+    ).resolves.toBe("steered")
     conversation.cancel()
     await second
   })
@@ -336,7 +336,10 @@ describe("Conversation", () => {
     const session = await sessions.ensure()
     vi.spyOn(session, "startTurn").mockRejectedValueOnce(new Error("disk full"))
     const onReady = vi.fn()
-    const result = await conversation.start({ role: "user", content: "work" }, { ...hooks(), onReady })
+    const result = await conversation.start(
+      { role: "user", content: "work" },
+      { ...hooks(), onReady },
+    )
     expect(result.status).toBe("error")
     expect(onReady).not.toHaveBeenCalled()
     expect(mocks.executeTurn).not.toHaveBeenCalled()

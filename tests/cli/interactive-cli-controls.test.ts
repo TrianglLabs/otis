@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest"
-import { getMocks, loadCli, localSettings, settle, submit, testModel } from "./support/interactive-cli-harness.js"
+import {
+  getMocks,
+  loadCli,
+  localSettings,
+  settle,
+  submit,
+  testModel,
+} from "./support/interactive-cli-harness.js"
 
 const mocks = getMocks()
 
@@ -48,9 +55,14 @@ describe("CLI interrupt", () => {
 describe("CLI mode toggle", () => {
   it("starts in auto mode and passes the shared policy to the agent", async () => {
     mocks.runAgent.mockImplementationOnce(async function* (_input, _history, options) {
-      expect((await options.permissionPolicy.evaluate({ name: "bash", input: { command: "git status" } })).effect).toBe(
-        "allow",
-      )
+      expect(
+        (
+          await options.permissionPolicy.evaluate({
+            name: "bash",
+            input: { command: "git status" },
+          })
+        ).effect,
+      ).toBe("allow")
       yield { type: "complete", messages: [] }
     })
 
@@ -87,13 +99,20 @@ describe("CLI mode toggle", () => {
         markFirstTurnStarted()
         await firstTurnReleased
         activeEffectAfterToggle = (
-          await options.permissionPolicy.evaluate({ name: "bash", input: { command: "git status" } })
+          await options.permissionPolicy.evaluate({
+            name: "bash",
+            input: { command: "git status" },
+          })
         ).effect
         yield { type: "complete", messages: [] }
       })
       .mockImplementationOnce(async function* (_input, _history, options) {
-        nextEffect = (await options.permissionPolicy.evaluate({ name: "bash", input: { command: "git status" } }))
-          .effect
+        nextEffect = (
+          await options.permissionPolicy.evaluate({
+            name: "bash",
+            input: { command: "git status" },
+          })
+        ).effect
         yield { type: "complete", messages: [] }
       })
 
@@ -113,7 +132,9 @@ describe("CLI mode toggle", () => {
   })
 
   it("honors an explicitly configured ask default", async () => {
-    mocks.loadLocalSettings.mockResolvedValue(localSettings({ permissions: { defaultMode: "ask", rules: [] } }))
+    mocks.loadLocalSettings.mockResolvedValue(
+      localSettings({ permissions: { defaultMode: "ask", rules: [] } }),
+    )
 
     await loadCli()
 
@@ -126,8 +147,12 @@ describe("CLI settings", () => {
     await loadCli()
 
     const commands = mocks.createChatUI.mock.calls.at(-1)?.[1].commands ?? []
-    expect(commands).toEqual(expect.arrayContaining([expect.objectContaining({ name: "/settings" })]))
-    expect(commands).not.toEqual(expect.arrayContaining([expect.objectContaining({ name: "/debug" })]))
+    expect(commands).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "/settings" })]),
+    )
+    expect(commands).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "/debug" })]),
+    )
 
     await submit("/settings")
     expect(mocks.ui.showCommandSubmenu).toHaveBeenLastCalledWith(
@@ -193,7 +218,9 @@ describe("CLI settings", () => {
     await turnStarted
 
     await submit("/settings")
-    const settings = (mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[0] ?? []) as Array<{ name: string }>
+    const settings = (mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[0] ?? []) as Array<{
+      name: string
+    }>
     expect(settings).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: "Hosted inference" }),
@@ -226,7 +253,11 @@ describe("CLI themes", () => {
     await submit("/settings theme")
     expect(mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[0]).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ name: "default", description: "Active", submission: "/settings theme default" }),
+        expect.objectContaining({
+          name: "default",
+          description: "Active",
+          submission: "/settings theme default",
+        }),
         expect.objectContaining({ name: "nord", submission: "/settings theme nord" }),
       ]),
     )
@@ -273,7 +304,9 @@ describe("CLI subagent panel visibility", () => {
 
     await submit("/settings")
     expect(mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[0]).toEqual(
-      expect.arrayContaining([expect.objectContaining({ name: "Subagents", description: "Hidden" })]),
+      expect.arrayContaining([
+        expect.objectContaining({ name: "Subagents", description: "Hidden" }),
+      ]),
     )
 
     await submit("/settings subagents")
@@ -296,7 +329,9 @@ describe("CLI thinking visibility", () => {
     expect(mocks.ui.showTransientHint).toHaveBeenLastCalledWith(" Thinking effort: medium ")
     expect(mocks.saveThinkingVisible).not.toHaveBeenCalled()
     await submit("/effort")
-    expect(mocks.ui.showTransientHint).toHaveBeenLastCalledWith(expect.stringContaining("Thinking: medium"))
+    expect(mocks.ui.showTransientHint).toHaveBeenLastCalledWith(
+      expect.stringContaining("Thinking: medium"),
+    )
     await submit("/effort default")
     expect(mocks.saveLocalThinking).toHaveBeenLastCalledWith(model, "default")
   })
@@ -341,7 +376,10 @@ describe("CLI Fast serving", () => {
     )
 
     await submit("/fast")
-    expect(mocks.saveFastServingSelection).toHaveBeenLastCalledWith({ ...kimi, id: kimi.fastId }, true)
+    expect(mocks.saveFastServingSelection).toHaveBeenLastCalledWith(
+      { ...kimi, id: kimi.fastId },
+      true,
+    )
     expect(mocks.ui.setModelLabel).toHaveBeenLastCalledWith("Kimi K3 Fast")
     expect(mocks.ui.showTransientHint).toHaveBeenLastCalledWith(" Fast serving on ")
   })
@@ -352,7 +390,9 @@ describe("CLI Fast serving", () => {
 
     expect(mocks.saveFastServingSelection).not.toHaveBeenCalled()
     expect(mocks.saveSelectedModel).not.toHaveBeenCalled()
-    expect(mocks.ui.showTransientHint).toHaveBeenLastCalledWith(" Fast serving is not available for this model ")
+    expect(mocks.ui.showTransientHint).toHaveBeenLastCalledWith(
+      " Fast serving is not available for this model ",
+    )
     expect(mocks.ui.setCommands).not.toHaveBeenCalled()
   })
 
@@ -382,7 +422,10 @@ describe("CLI Fast serving", () => {
     expect(mocks.saveSelectedModel).toHaveBeenLastCalledWith(beta)
 
     await submit("/fast")
-    expect(mocks.saveFastServingSelection).toHaveBeenLastCalledWith({ ...beta, id: beta.fastId }, true)
+    expect(mocks.saveFastServingSelection).toHaveBeenLastCalledWith(
+      { ...beta, id: beta.fastId },
+      true,
+    )
 
     await selectModel(alpha.id)
     expect(mocks.saveSelectedModel).toHaveBeenLastCalledWith({ ...alpha, id: alpha.fastId })

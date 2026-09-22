@@ -40,7 +40,9 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.createWorker.mockReturnValue({ destroy: mocks.destroyWorker })
   vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(560)
-  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({} as CanvasRenderingContext2D)
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
+    {} as CanvasRenderingContext2D,
+  )
 })
 afterEach(() => {
   cleanup()

@@ -36,8 +36,11 @@ describe("bundled document skill", () => {
     ])
     const script = await readSkillResource(catalog, "documents", "document.py")
     expect(script.output).toBe(await readFile(join(skill.root, "document.py"), "utf8"))
-    if (process.platform !== "win32") expect((await stat(join(skill.root, "document.py"))).mode & 0o777).toBe(0o600)
-    await expect(readSkillResource(catalog, "documents", "../secret.txt")).rejects.toThrow("outside")
+    if (process.platform !== "win32")
+      expect((await stat(join(skill.root, "document.py"))).mode & 0o777).toBe(0o600)
+    await expect(readSkillResource(catalog, "documents", "../secret.txt")).rejects.toThrow(
+      "outside",
+    )
   })
 
   it("refuses modified cached scripts and symlinked cache directories", async () => {
@@ -57,9 +60,14 @@ describe("bundled document skill", () => {
     const { root } = await setup()
     const path = join(root, ".agents", "skills", "documents", "SKILL.md")
     await mkdir(dirname(path), { recursive: true })
-    await writeFile(path, "---\nname: documents\ndescription: Our workflow.\n---\nProject instructions.")
+    await writeFile(
+      path,
+      "---\nname: documents\ndescription: Our workflow.\n---\nProject instructions.",
+    )
     const catalog = await loadSkillCatalog(root, { home: root })
     expect(catalog.byName.get("documents")?.bundled).toBeUndefined()
-    expect((await readSkillResource(catalog, "documents")).output).toContain("Project instructions.")
+    expect((await readSkillResource(catalog, "documents")).output).toContain(
+      "Project instructions.",
+    )
   })
 })

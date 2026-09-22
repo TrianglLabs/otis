@@ -62,7 +62,10 @@ describe("loadProjectContext", () => {
       else process.env.HOME = previousHome
     }
 
-    expect(files.map((file) => file.path)).toEqual([join(root, "AGENTS.md"), join(child, "AGENTS.md")])
+    expect(files.map((file) => file.path)).toEqual([
+      join(root, "AGENTS.md"),
+      join(child, "AGENTS.md"),
+    ])
   })
 
   it("skips empty AGENTS.md files", async () => {

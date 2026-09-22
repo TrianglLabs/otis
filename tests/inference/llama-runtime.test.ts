@@ -1,10 +1,19 @@
 import { createHash } from "node:crypto"
 import { EventEmitter } from "node:events"
-import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, truncate, writeFile } from "node:fs/promises"
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  truncate,
+  writeFile,
+} from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { localGgufPath } from "../../src/inference/gguf-cache.js"
 import type { HardwareProbe } from "../../src/inference/hardware.js"
 import {
   LLAMA_CPP_RELEASE_TAG,
@@ -13,13 +22,11 @@ import {
   PRISM_LLAMA_CPP_RELEASE_TAG,
   pinnedLlamaCppAsset,
 } from "../../src/inference/llama-binary.js"
-import {
-  formatLocalLoadStatus,
-  LlamaCppRuntime,
-  type LlamaCppRuntimeOptions,
-} from "../../src/inference/llama-runtime.js"
+import { formatLocalLoadStatus, LlamaCppRuntime } from "../../src/inference/llama-runtime.js"
 import { findLocalModel, type LocalModelSpec } from "../../src/inference/local-catalog.js"
 import { fitLocalModel } from "../../src/inference/local-fit.js"
+
+type LlamaCppRuntimeOptions = NonNullable<ConstructorParameters<typeof LlamaCppRuntime>[0]>
 
 const hardware: HardwareProbe = {
   platform: "darwin",
@@ -44,7 +51,9 @@ const fakeRuntimeAsset: NonNullable<LlamaCppRuntimeOptions["runtimeAsset"]> = ()
 const tempDirectories: string[] = []
 
 afterEach(async () => {
-  await Promise.all(tempDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })))
+  await Promise.all(
+    tempDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })),
+  )
 })
 
 describe("llama.cpp runtime", () => {
@@ -89,11 +98,15 @@ describe("llama.cpp runtime", () => {
 
     const binary = commands[0]
     expect(binary).toBe(join(directory, "bin", LLAMA_CPP_RELEASE_TAG, "llama-server"))
-    expect(await readFile(join(dirname(binary as string), "libllama.dylib"), "utf8")).toBe("llama library")
-    await expect(readFile(join(dirname(binary as string), ".otis-runtime.json"), "utf8")).resolves.toContain(
-      `"artifactSha256":"${fakeRuntimeAsset(hardware, "upstream").sha256}"`,
+    expect(await readFile(join(dirname(binary as string), "libllama.dylib"), "utf8")).toBe(
+      "llama library",
     )
-    expect(await readFile(join(dirname(binary as string), "ggml-metal.metal"), "utf8")).toBe("metal backend")
+    await expect(
+      readFile(join(dirname(binary as string), ".otis-runtime.json"), "utf8"),
+    ).resolves.toContain(`"artifactSha256":"${fakeRuntimeAsset(hardware, "upstream").sha256}"`)
+    expect(await readFile(join(dirname(binary as string), "ggml-metal.metal"), "utf8")).toBe(
+      "metal backend",
+    )
     await runtime.stop()
   })
 
@@ -201,7 +214,9 @@ describe("llama.cpp runtime", () => {
           }
         : {}),
       ...(change === "revision" ? { ggufRevision: "a".repeat(40) } : {}),
-      ...(change === "checksum" ? { ggufFiles: [{ ...first.ggufFiles[0], sha256: "a".repeat(64) }] } : {}),
+      ...(change === "checksum"
+        ? { ggufFiles: [{ ...first.ggufFiles[0], sha256: "a".repeat(64) }] }
+        : {}),
     }
     const directory = await tempDir()
     await cacheWeights(first, directory)
@@ -235,7 +250,10 @@ describe("llama.cpp runtime", () => {
       await runtime.ensureServing(second, fitLocalModel(second, hardware), hardware)
       expect(children).toHaveLength(2)
       expect(children[0]?.exitCode).toBe(0)
-      expect(spawnedPaths).toEqual([localGgufPath(first, directory), localGgufPath(second, directory)])
+      expect(spawnedPaths).toEqual([
+        localGgufPath(first, directory),
+        localGgufPath(second, directory),
+      ])
     } finally {
       await runtime.stop()
     }
@@ -256,7 +274,10 @@ describe("llama.cpp runtime", () => {
           if (url === pinnedArchiveURL) {
             downloads += 1
             if (downloads === 1) {
-              return new Response("gateway timeout", { status: 504, headers: { "retry-after": "2" } })
+              return new Response("gateway timeout", {
+                status: 504,
+                headers: { "retry-after": "2" },
+              })
             }
             if (downloads === 2) throw new TypeError("connection reset")
             return new Response(archiveBody)
@@ -286,11 +307,13 @@ describe("llama.cpp runtime", () => {
     await cacheWeights(model, directory)
     const fetchRuntime = vi.fn(async () => new Response("missing", { status: 404 }))
     const retry = vi.fn(async () => {})
-    const runtime = new LlamaCppRuntime(runtimeDownloadOptions(directory, fetchRuntime, { sleep: retry }))
-
-    await expect(runtime.ensureServing(model, fitLocalModel(model, hardware), hardware)).rejects.toThrow(
-      "Could not download llama.cpp (HTTP 404).",
+    const runtime = new LlamaCppRuntime(
+      runtimeDownloadOptions(directory, fetchRuntime, { sleep: retry }),
     )
+
+    await expect(
+      runtime.ensureServing(model, fitLocalModel(model, hardware), hardware),
+    ).rejects.toThrow("Could not download llama.cpp (HTTP 404).")
     expect(fetchRuntime).toHaveBeenCalledTimes(1)
     expect(retry).not.toHaveBeenCalled()
   })
@@ -347,7 +370,12 @@ describe("llama.cpp runtime", () => {
     { status: 504, attempts: 3, message: "HTTP 504" },
     { status: 404, attempts: 1, message: "HTTP 404" },
     { status: 200, contentLength: "invalid", attempts: 3, message: "invalid content length" },
-    { status: 200, contentLength: "100", attempts: 3, message: "expected 7 bytes but received 100" },
+    {
+      status: 200,
+      contentLength: "100",
+      attempts: 3,
+      message: "expected 7 bytes but received 100",
+    },
     { status: 200, attempts: 3, message: "exceeded the pinned artifact size" },
   ])("closes rejected runtime responses before retrying ($message)", async ({
     status,
@@ -357,7 +385,11 @@ describe("llama.cpp runtime", () => {
   }) => {
     const model = catalogModel()
     const directory = await tempDir()
-    const responses: { response: Response; signal: AbortSignal; cancel: ReturnType<typeof vi.fn> }[] = []
+    const responses: {
+      response: Response
+      signal: AbortSignal
+      cancel: ReturnType<typeof vi.fn>
+    }[] = []
     const assertClosed = () => {
       for (const { response, signal, cancel } of responses) {
         expect(signal.aborted).toBe(true)
@@ -389,7 +421,9 @@ describe("llama.cpp runtime", () => {
     )
 
     try {
-      await expect(runtime.ensureServing(model, fitLocalModel(model, hardware), hardware)).rejects.toThrow(message)
+      await expect(
+        runtime.ensureServing(model, fitLocalModel(model, hardware), hardware),
+      ).rejects.toThrow(message)
       expect(fetchRuntime).toHaveBeenCalledTimes(attempts)
       expect(extractArchive).not.toHaveBeenCalled()
       assertClosed()
@@ -422,9 +456,9 @@ describe("llama.cpp runtime", () => {
       }),
     )
 
-    await expect(runtime.ensureServing(model, fitLocalModel(model, hardware), hardware)).rejects.toThrow(
-      "Could not download llama.cpp: the request timed out.",
-    )
+    await expect(
+      runtime.ensureServing(model, fitLocalModel(model, hardware), hardware),
+    ).rejects.toThrow("Could not download llama.cpp: the request timed out.")
     expect(fetchRuntime).toHaveBeenCalledTimes(2)
   })
 
@@ -468,7 +502,9 @@ describe("llama.cpp runtime", () => {
     )
 
     try {
-      const pending = runtime.ensureServing(model, fitLocalModel(model, hardware), hardware, { signal: abort.signal })
+      const pending = runtime.ensureServing(model, fitLocalModel(model, hardware), hardware, {
+        signal: abort.signal,
+      })
       const result =
         action === "cancel"
           ? expect(pending).rejects.toMatchObject({ name: "AbortError" })
@@ -705,11 +741,14 @@ describe("llama.cpp runtime", () => {
     )
     expect(spawned[0]).not.toContain("--ctx-size")
     expect(spawned[0]).not.toContain("--n-gpu-layers")
-    expect((await runtime.ensureServing(model, { ...fit, contextLength: fittedContext }, hardware)).contextLength).toBe(
-      fittedContext,
-    )
+    expect(
+      (await runtime.ensureServing(model, { ...fit, contextLength: fittedContext }, hardware))
+        .contextLength,
+    ).toBe(fittedContext)
     expect(spawned).toHaveLength(1)
-    expect(progress).toEqual(expect.arrayContaining([{ phase: "download", percent: 100 }, { phase: "loading" }]))
+    expect(progress).toEqual(
+      expect.arrayContaining([{ phase: "download", percent: 100 }, { phase: "loading" }]),
+    )
     await runtime.stop()
   })
 
@@ -755,7 +794,9 @@ describe("llama.cpp runtime", () => {
           finish = resolve
         }),
     )
-    const { runtime, model, fit, children } = await generationRuntimeSetup(request as unknown as typeof fetch)
+    const { runtime, model, fit, children } = await generationRuntimeSetup(
+      request as unknown as typeof fetch,
+    )
     const pending = runtime.ensureServing(model, fit, hardware)
     await vi.waitFor(() => expect(finish).toBeDefined())
     const concurrent = runtime.ensureServing(model, fit, hardware)
@@ -774,9 +815,15 @@ describe("llama.cpp runtime", () => {
   it("stops a process whose generation fails and allows a fresh start", async () => {
     const request = vi
       .fn(async () => generationResponse())
-      .mockResolvedValueOnce(Response.json({ error: { message: "compute allocation failed" } }, { status: 500 }))
-    const { runtime, model, fit, children } = await generationRuntimeSetup(request as unknown as typeof fetch)
-    await expect(runtime.ensureServing(model, fit, hardware)).rejects.toThrow("generation check failed")
+      .mockResolvedValueOnce(
+        Response.json({ error: { message: "compute allocation failed" } }, { status: 500 }),
+      )
+    const { runtime, model, fit, children } = await generationRuntimeSetup(
+      request as unknown as typeof fetch,
+    )
+    await expect(runtime.ensureServing(model, fit, hardware)).rejects.toThrow(
+      "generation check failed",
+    )
     expect(runtime.serving).toBeUndefined()
     expect(children[0]?.exitCode).toBe(0)
     expect(request).toHaveBeenCalledOnce()
@@ -828,10 +875,99 @@ describe("llama.cpp runtime", () => {
     expect(runtime.serving).toBeUndefined()
   })
 
-  it("stops the process when generation times out", async () => {
-    const request = (async (_input, init) => await pendingGeneration(init?.signal ?? undefined)) as typeof fetch
-    const { runtime, model, fit, children } = await generationRuntimeSetup(request, { generationCheckTimeoutMs: 20 })
-    await expect(runtime.ensureServing(model, fit, hardware)).rejects.toThrow("generation check timed out")
+  it.each(["headers", "body"])("stops the process when generation %s time out", async (stage) => {
+    let requestSignal: AbortSignal | undefined
+    const request = (async (_input, init) => {
+      requestSignal = init?.signal ?? undefined
+      if (stage === "headers") return await pendingGeneration(requestSignal)
+      const signal = requestSignal
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            signal?.addEventListener("abort", () => controller.error(signal.reason), {
+              once: true,
+            })
+          },
+        }),
+      )
+    }) as typeof fetch
+    const { runtime, model, fit, children } = await generationRuntimeSetup(request, {
+      generationCheckTimeoutMs: 20,
+    })
+    await expect(runtime.ensureServing(model, fit, hardware)).rejects.toThrow(
+      "generation check timed out",
+    )
+    expect(requestSignal?.aborted).toBe(true)
+    expect(runtime.serving).toBeUndefined()
+    expect(children[0]?.exitCode).toBe(0)
+  })
+
+  it("sends only a bounded startup prompt to the new server", async () => {
+    const request = vi.fn(async () => generationResponse())
+    const { runtime, model, fit } = await generationRuntimeSetup(request as unknown as typeof fetch)
+    await runtime.ensureServing(model, fit, hardware)
+    const [url, init] = request.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe("http://127.0.0.1:18765/v1/chat/completions")
+    expect(init).toMatchObject({ method: "POST", redirect: "error" })
+    expect(JSON.parse(String(init.body))).toEqual({
+      model: model.id,
+      messages: [{ role: "user", content: "Say hello." }],
+      stream: true,
+      max_tokens: 32,
+    })
+    expect(request).toHaveBeenCalledOnce()
+    await runtime.stop()
+  })
+
+  it.each([
+    "reasoning_content",
+    "reasoning",
+    "reasoning_text",
+  ])("accepts %s when a reasoning model reaches the probe output limit", async (field) => {
+    const request = vi.fn(async () =>
+      generationResponse({ [field]: "The user asked for a greeting." }, "length"),
+    )
+    const { runtime, model, fit } = await generationRuntimeSetup(request as unknown as typeof fetch)
+    await expect(runtime.ensureServing(model, fit, hardware)).resolves.toMatchObject({
+      model: model.id,
+    })
+    await runtime.stop()
+  })
+
+  it.each([
+    ["empty output", () => generationResponse({ content: " \n" }), "produced no text or reasoning"],
+    ["broken stream", () => generationResponse({ content: "Hello" }, null), "did not finish"],
+    [
+      "unexpected finish",
+      () => generationResponse({ content: "Hello" }, "content_filter"),
+      "did not finish",
+    ],
+    ["invalid stream", () => new Response("data: {invalid}\n\n"), "Invalid inference stream"],
+    ["plain health response", () => new Response("ok"), "produced no text or reasoning"],
+    ["missing body", () => new Response(null), "no response body"],
+    [
+      "stream error",
+      () => new Response('data: {"error":{"message":"decode failed"}}\n\n'),
+      "decode failed",
+    ],
+    [
+      "unexpected tool call",
+      () =>
+        generationResponse(
+          {
+            tool_calls: [{ index: 0, id: "call_1", function: { name: "shell", arguments: "{}" } }],
+          },
+          "tool_calls",
+        ),
+      "unexpected tool call",
+    ],
+  ] as const)("rejects a generation check with %s without retrying", async (_label, response, message) => {
+    const request = vi.fn(async () => response())
+    const { runtime, model, fit, children } = await generationRuntimeSetup(
+      request as unknown as typeof fetch,
+    )
+    await expect(runtime.ensureServing(model, fit, hardware)).rejects.toThrow(message)
+    expect(request).toHaveBeenCalledOnce()
     expect(runtime.serving).toBeUndefined()
     expect(children[0]?.exitCode).toBe(0)
   })
@@ -847,7 +983,9 @@ describe("llama.cpp runtime", () => {
     const other = findLocalModel("Qwen/Qwen3.8-27B")
     if (!other) throw new Error("Missing replacement model")
     await cacheWeights(other, directory)
-    const rejected = expect(runtime.ensureServing(model, fit, hardware)).rejects.toMatchObject({ name: "AbortError" })
+    const rejected = expect(runtime.ensureServing(model, fit, hardware)).rejects.toMatchObject({
+      name: "AbortError",
+    })
     await vi.waitFor(() => expect(requestSignal).toBeDefined())
     const serving = await runtime.ensureServing(other, fitLocalModel(other, hardware), hardware)
     await rejected
@@ -975,9 +1113,15 @@ describe("llama.cpp runtime", () => {
   it("refuses to start a model that will not fit", async () => {
     const model = findLocalModel("Qwen/Qwen3.8-27B")
     if (!model) throw new Error("missing catalog entry")
-    const tight: HardwareProbe = { ...hardware, totalMemoryBytes: 8 * 1024 ** 3, gpuMemoryBytes: 8 * 1024 ** 3 }
+    const tight: HardwareProbe = {
+      ...hardware,
+      totalMemoryBytes: 8 * 1024 ** 3,
+      gpuMemoryBytes: 8 * 1024 ** 3,
+    }
     const runtime = new LlamaCppRuntime({ env: { OTIS_LLAMA_SERVER: process.execPath } })
-    await expect(runtime.ensureServing(model, fitLocalModel(model, tight), tight)).rejects.toThrow("needs")
+    await expect(runtime.ensureServing(model, fitLocalModel(model, tight), tight)).rejects.toThrow(
+      "needs",
+    )
   })
 
   it("rejects unsupported platforms before resolving or spawning a runtime", async () => {
@@ -996,9 +1140,9 @@ describe("llama.cpp runtime", () => {
       spawn: spawnRuntime as unknown as LlamaCppRuntimeOptions["spawn"],
     })
 
-    await expect(runtime.ensureServing(model, fitLocalModel(model, unsupported), unsupported)).rejects.toThrow(
-      "Local inference is not supported on win32/x64.",
-    )
+    await expect(
+      runtime.ensureServing(model, fitLocalModel(model, unsupported), unsupported),
+    ).rejects.toThrow("Local inference is not supported on win32/x64.")
     expect(spawnRuntime).not.toHaveBeenCalled()
   })
 
@@ -1037,7 +1181,11 @@ describe("llama.cpp runtime", () => {
 
     const first = runtime.ensureServing(firstModel, fitLocalModel(firstModel, hardware), hardware)
     await portStarted
-    const second = runtime.ensureServing(secondModel, fitLocalModel(secondModel, hardware), hardware)
+    const second = runtime.ensureServing(
+      secondModel,
+      fitLocalModel(secondModel, hardware),
+      hardware,
+    )
     await second
     releaseFirstPort?.(18770)
 
@@ -1069,9 +1217,9 @@ describe("llama.cpp runtime", () => {
       },
     })
 
-    await expect(runtime.ensureServing(model, fitLocalModel(model, hardware), hardware)).rejects.toThrow(
-      /FIRST-TAIL[\s\S]*FINAL/,
-    )
+    await expect(
+      runtime.ensureServing(model, fitLocalModel(model, hardware), hardware),
+    ).rejects.toThrow(/FIRST-TAIL[\s\S]*FINAL/)
   })
 
   it("rejects a llama.cpp archive whose checksum does not match the pin", async () => {
@@ -1090,9 +1238,9 @@ describe("llama.cpp runtime", () => {
       sleep: async () => {},
     })
 
-    await expect(runtime.ensureServing(model, fitLocalModel(model, hardware), hardware)).rejects.toThrow(
-      "SHA-256 verification failed",
-    )
+    await expect(
+      runtime.ensureServing(model, fitLocalModel(model, hardware), hardware),
+    ).rejects.toThrow("SHA-256 verification failed")
     expect(extractArchive).not.toHaveBeenCalled()
     expect(spawnRuntime).not.toHaveBeenCalled()
   })
@@ -1117,7 +1265,9 @@ describe("CUDA runtime bundles", () => {
     })
     const before = { ...parent }
     const environments: NodeJS.ProcessEnv[] = []
-    const listDevices = setup.options.listDevices as NonNullable<LlamaCppRuntimeOptions["listDevices"]>
+    const listDevices = setup.options.listDevices as NonNullable<
+      LlamaCppRuntimeOptions["listDevices"]
+    >
     setup.options.listDevices = async (path, env, signal) => {
       environments.push(env)
       return await listDevices(path, env, signal)
@@ -1141,7 +1291,13 @@ describe("CUDA runtime bundles", () => {
         CUDA_HOME: parent.CUDA_HOME,
         CUDA_VISIBLE_DEVICES: "1",
       })
-      for (const name of ["LD_PRELOAD", "LD_AUDIT", "GGML_BACKEND_PATH", "FIREWORKS_API_KEY", "LLAMA_ARG_DEVICE"]) {
+      for (const name of [
+        "LD_PRELOAD",
+        "LD_AUDIT",
+        "GGML_BACKEND_PATH",
+        "FIREWORKS_API_KEY",
+        "LLAMA_ARG_DEVICE",
+      ]) {
         expect(env[name]).toBeUndefined()
       }
     }
@@ -1149,7 +1305,11 @@ describe("CUDA runtime bundles", () => {
     await runtime.stop()
   })
 
-  it.each([undefined, "", ":;"])("uses only the bundle when the inherited library path is %s", async (libraryPath) => {
+  it.each([
+    undefined,
+    "",
+    ":;",
+  ])("uses only the bundle when the inherited library path is %s", async (libraryPath) => {
     const setup = await cudaRuntimeSetup()
     let childEnv: NodeJS.ProcessEnv | undefined
     const runtime = new LlamaCppRuntime({
@@ -1211,7 +1371,9 @@ describe("CUDA runtime bundles", () => {
         paths.push(String(command))
         const cuda = children.length === 1
         expect(args?.slice(-2)).toEqual(["--device", cuda ? "CUDA0" : "Vulkan0"])
-        expect(options?.env?.LD_LIBRARY_PATH).toBe(`${dirname(String(command))}:/opt/cuda-other/lib:/usr/lib/wsl/lib`)
+        expect(options?.env?.LD_LIBRARY_PATH).toBe(
+          `${dirname(String(command))}:/opt/cuda-other/lib:/usr/lib/wsl/lib`,
+        )
         if (cuda)
           queueMicrotask(() => {
             child.stderr.emit("data", diagnostic)
@@ -1257,7 +1419,9 @@ describe("CUDA runtime bundles", () => {
       ...setup.options,
       spawn: spawnRuntime as unknown as LlamaCppRuntimeOptions["spawn"],
     })
-    await expect(runtime.ensureServing(setup.model, setup.fit, setup.hardware)).rejects.toThrow(diagnostic)
+    await expect(runtime.ensureServing(setup.model, setup.fit, setup.hardware)).rejects.toThrow(
+      diagnostic,
+    )
     expect(spawnRuntime).toHaveBeenCalledOnce()
     expect(setup.downloads).toHaveLength(2)
     await runtime.stop()
@@ -1270,7 +1434,8 @@ describe("CUDA runtime bundles", () => {
       ...setup.options,
       spawn: (() => {
         const child = fakeChild()
-        const diagnostic = ++launches === 1 ? "CUDA error: initialization error" : "Vulkan device lost"
+        const diagnostic =
+          ++launches === 1 ? "CUDA error: initialization error" : "Vulkan device lost"
         queueMicrotask(() => {
           child.stderr.emit("data", diagnostic)
           child.exitCode = 1
@@ -1279,7 +1444,9 @@ describe("CUDA runtime bundles", () => {
         return child
       }) as unknown as LlamaCppRuntimeOptions["spawn"],
     })
-    await expect(runtime.ensureServing(setup.model, setup.fit, setup.hardware)).rejects.toThrow("Vulkan device lost")
+    await expect(runtime.ensureServing(setup.model, setup.fit, setup.hardware)).rejects.toThrow(
+      "Vulkan device lost",
+    )
     expect(launches).toBe(2)
     expect(runtime.serving).toBeUndefined()
     await runtime.stop()
@@ -1322,7 +1489,9 @@ describe("CUDA runtime bundles", () => {
       ...setup.options,
       spawn: spawnRuntime as unknown as LlamaCppRuntimeOptions["spawn"],
     })
-    await expect(runtime.ensureServing(setup.model, setup.fit, setup.hardware)).rejects.toThrow("spawn EACCES")
+    await expect(runtime.ensureServing(setup.model, setup.fit, setup.hardware)).rejects.toThrow(
+      "spawn EACCES",
+    )
     expect(spawnRuntime).toHaveBeenCalledOnce()
     expect(setup.downloads).toHaveLength(2)
     await runtime.stop()
@@ -1332,9 +1501,13 @@ describe("CUDA runtime bundles", () => {
     const setup = await cudaRuntimeSetup()
     const fetchRuntime = setup.options.fetch as typeof fetch
     setup.options.fetch = (async (input, init) =>
-      String(input).includes("/props") ? runtimeProperties(0) : await fetchRuntime(input, init)) as typeof fetch
+      String(input).includes("/props")
+        ? runtimeProperties(0)
+        : await fetchRuntime(input, init)) as typeof fetch
     const runtime = new LlamaCppRuntime(setup.options)
-    await expect(runtime.ensureServing(setup.model, setup.fit, setup.hardware)).rejects.toThrow("valid context size")
+    await expect(runtime.ensureServing(setup.model, setup.fit, setup.hardware)).rejects.toThrow(
+      "valid context size",
+    )
     expect(setup.commands).toHaveLength(1)
     expect(setup.downloads).toHaveLength(2)
     expect(runtime.serving).toBeUndefined()
@@ -1349,7 +1522,8 @@ describe("CUDA runtime bundles", () => {
     const old = await installFakeBinary(setup.directory, "b10964")
     const runtime = new LlamaCppRuntime({
       ...setup.options,
-      listDevices: async (path) => (path.includes("-cuda-") ? "Available devices:\n  (none)" : output),
+      listDevices: async (path) =>
+        path.includes("-cuda-") ? "Available devices:\n  (none)" : output,
     })
     await expect(runtime.ensureServing(setup.model, setup.fit, setup.hardware)).rejects.toThrow(
       "Vulkan GPU acceleration is unavailable",
@@ -1368,9 +1542,17 @@ describe("CUDA runtime bundles", () => {
     const runtime = new LlamaCppRuntime({ ...setup.options, runtimeAsset: selectAsset })
     await runtime.ensureServing(setup.model, setup.fit, setup.hardware)
     expect(setup.fit.model.quant).toBe("PQ2_0")
-    expect(selectAsset).toHaveBeenCalledWith(expect.objectContaining({ backend: "cuda", cudaVersion }), "prism")
+    expect(selectAsset).toHaveBeenCalledWith(
+      expect.objectContaining({ backend: "cuda", cudaVersion }),
+      "prism",
+    )
     expect(setup.commands).toEqual([
-      join(setup.directory, "bin", `${PRISM_LLAMA_CPP_RELEASE_TAG}-cuda-${cudaVersion}`, "llama-server"),
+      join(
+        setup.directory,
+        "bin",
+        `${PRISM_LLAMA_CPP_RELEASE_TAG}-cuda-${cudaVersion}`,
+        "llama-server",
+      ),
     ])
     expect(setup.downloads).toEqual(["https://runtime.test/cuda", "https://runtime.test/cudart"])
     await runtime.stop()
@@ -1387,13 +1569,20 @@ describe("CUDA runtime bundles", () => {
       runtimeAsset: selectAsset,
       spawn: spawn as unknown as LlamaCppRuntimeOptions["spawn"],
       listDevices: async (path) =>
-        path.includes("-cuda-") ? "Available devices:\n  (none)" : "Available devices:\n  Vulkan0: NVIDIA RTX",
+        path.includes("-cuda-")
+          ? "Available devices:\n  (none)"
+          : "Available devices:\n  Vulkan0: NVIDIA RTX",
     })
     await runtime.ensureServing(setup.model, setup.fit, setup.hardware)
     expect(setup.fit.model.quant).toBe("PQ2_0")
     expect(spawn.mock.calls[0]?.[1]).toContain(localGgufPath(fallback, setup.directory))
-    expect(selectAsset).toHaveBeenLastCalledWith(expect.objectContaining({ backend: "vulkan" }), "prism")
-    expect(setup.commands).toEqual([join(setup.directory, "bin", PRISM_LLAMA_CPP_RELEASE_TAG, "llama-server")])
+    expect(selectAsset).toHaveBeenLastCalledWith(
+      expect.objectContaining({ backend: "vulkan" }),
+      "prism",
+    )
+    expect(setup.commands).toEqual([
+      join(setup.directory, "bin", PRISM_LLAMA_CPP_RELEASE_TAG, "llama-server"),
+    ])
     expect(setup.downloads).toEqual([
       "https://runtime.test/cuda",
       "https://runtime.test/cudart",
@@ -1416,7 +1605,11 @@ describe("CUDA runtime bundles", () => {
           : {
               ...packing,
               ggufFiles: [
-                { ...packing.ggufFiles[0], size: body.length, sha256: createHash("sha256").update(body).digest("hex") },
+                {
+                  ...packing.ggufFiles[0],
+                  size: body.length,
+                  sha256: createHash("sha256").update(body).digest("hex"),
+                },
               ],
             },
       ) as LocalModelSpec["packings"],
@@ -1463,7 +1656,9 @@ describe("CUDA runtime bundles", () => {
         onProgress: ({ phase }) => progress.push(phase),
       })
       expect(paths).toEqual(
-        failure === "probe" ? [fallbackPath] : [localGgufPath(model, setup.directory), fallbackPath],
+        failure === "probe"
+          ? [fallbackPath]
+          : [localGgufPath(model, setup.directory), fallbackPath],
       )
       expect(await readFile(fallbackPath)).toEqual(body)
       expect((await stat(localGgufPath(model, setup.directory))).size).toBe(model.ggufFiles[0].size)
@@ -1491,10 +1686,14 @@ describe("CUDA runtime bundles", () => {
           ? new Response("unavailable", { status: 503 })
           : await originalFetch(input, init)) as typeof fetch,
     })
-    await expect(runtime.ensureServing(setup.model, setup.fit, setup.hardware)).rejects.toThrow("HTTP 503")
+    await expect(runtime.ensureServing(setup.model, setup.fit, setup.hardware)).rejects.toThrow(
+      "HTTP 503",
+    )
     expect(setup.commands).toEqual([])
     expect(runtime.serving).toBeUndefined()
-    expect((await stat(localGgufPath(setup.model, setup.directory))).size).toBe(setup.model.ggufFiles[0].size)
+    expect((await stat(localGgufPath(setup.model, setup.directory))).size).toBe(
+      setup.model.ggufFiles[0].size,
+    )
     await runtime.stop()
   })
 
@@ -1508,7 +1707,9 @@ describe("CUDA runtime bundles", () => {
     await runtime.ensureServing(setup.model, setup.fit, setup.hardware)
     expect(setup.downloads).toEqual(["https://runtime.test/cuda", "https://runtime.test/cudart"])
     expect(setup.commands[0]).toBe(join(setup.cudaDir, "llama-server"))
-    expect(await readFile(join(setup.cudaDir, `libcublasLt.so.${cudaVersion.split(".")[0]}`), "utf8")).toBe("library")
+    expect(
+      await readFile(join(setup.cudaDir, `libcublasLt.so.${cudaVersion.split(".")[0]}`), "utf8"),
+    ).toBe("library")
     await expect(stat(old)).rejects.toMatchObject({ code: "ENOENT" })
     await expect(stat(localGgufPath(setup.model, setup.directory))).resolves.toBeDefined()
     await runtime.stop()
@@ -1558,10 +1759,13 @@ describe("CUDA runtime bundles", () => {
       return await fetchRuntime(input, init)
     }) as typeof fetch
     if (failure === "missing library") {
-      const extract = setup.options.extractArchive as NonNullable<LlamaCppRuntimeOptions["extractArchive"]>
+      const extract = setup.options.extractArchive as NonNullable<
+        LlamaCppRuntimeOptions["extractArchive"]
+      >
       setup.options.extractArchive = async (archive, destination) => {
         await extract(archive, destination)
-        if ((await readFile(archive, "utf8")) === "cudart") await rm(join(destination, "bundle", "libcublasLt.so.13"))
+        if ((await readFile(archive, "utf8")) === "cudart")
+          await rm(join(destination, "bundle", "libcublasLt.so.13"))
       }
     }
     const runtime = new LlamaCppRuntime(setup.options)
@@ -1582,7 +1786,8 @@ describe("CUDA runtime bundles", () => {
     const setup = await cudaRuntimeSetup()
     setup.options.listDevices = async (path) => {
       if (!path.includes("-cuda-")) return "Available devices:\n  Vulkan0: NVIDIA RTX"
-      if (failure === "loader error") throw new Error("libcuda.so.1: cannot open shared object file")
+      if (failure === "loader error")
+        throw new Error("libcuda.so.1: cannot open shared object file")
       return "Available devices:\n"
     }
     const runtime = new LlamaCppRuntime(setup.options)
@@ -1595,7 +1800,9 @@ describe("CUDA runtime bundles", () => {
       "https://runtime.test/cudart",
       "https://runtime.test/vulkan",
     ])
-    expect(setup.commands).toEqual(Array(2).fill(join(setup.directory, "bin", LLAMA_CPP_RELEASE_TAG, "llama-server")))
+    expect(setup.commands).toEqual(
+      Array(2).fill(join(setup.directory, "bin", LLAMA_CPP_RELEASE_TAG, "llama-server")),
+    )
   })
 
   it("does not fall back or start a server when cancelled during the CUDA device probe", async () => {
@@ -1624,14 +1831,19 @@ describe("CUDA runtime bundles", () => {
         ? new Response("missing", { status: 404 })
         : await fetchRuntime(input, init)) as typeof fetch
     const runtime = new LlamaCppRuntime(setup.options)
-    await expect(runtime.ensureServing(setup.model, setup.fit, setup.hardware)).rejects.toThrow("HTTP 404")
+    await expect(runtime.ensureServing(setup.model, setup.fit, setup.hardware)).rejects.toThrow(
+      "HTTP 404",
+    )
     expect(await readFile(old, "utf8")).toBe("server")
     expect(setup.commands).toEqual([])
     await runtime.stop()
   })
 })
 
-async function cudaRuntimeSetup(cudaVersion: "12.8" | "13.3" = "13.3", runtime: LlamaRuntimeKind = "upstream") {
+async function cudaRuntimeSetup(
+  cudaVersion: "12.8" | "13.3" = "13.3",
+  runtime: LlamaRuntimeKind = "upstream",
+) {
   const cudaHardware: HardwareProbe = {
     ...hardware,
     platform: "linux",
@@ -1640,7 +1852,8 @@ async function cudaRuntimeSetup(cudaVersion: "12.8" | "13.3" = "13.3", runtime: 
     cudaVersion,
     unifiedMemory: false,
   }
-  const spec = runtime === "prism" ? findLocalModel("prism-ml/Ternary-Bonsai-2-27B-gguf") : catalogModel()
+  const spec =
+    runtime === "prism" ? findLocalModel("prism-ml/Ternary-Bonsai-2-27B-gguf") : catalogModel()
   if (!spec) throw new Error("missing local model")
   const fit = fitLocalModel(spec, cudaHardware)
   const model = fit.model
@@ -1658,7 +1871,9 @@ async function cudaRuntimeSetup(cudaVersion: "12.8" | "13.3" = "13.3", runtime: 
     env: {},
     dataDirectory: directory,
     runtimeAsset: (target) =>
-      target.backend === "cuda" ? { ...archive("cuda"), companion: archive("cudart") } : archive("vulkan"),
+      target.backend === "cuda"
+        ? { ...archive("cuda"), companion: archive("cudart") }
+        : archive("vulkan"),
     allocatePort: async () => 18775,
     listDevices: async (path) =>
       `Available devices:\n  ${path.includes("-cuda-") ? "CUDA0" : "Vulkan0"}: NVIDIA RTX (24576 MiB, 23000 MiB free)\n`,
@@ -1681,7 +1896,9 @@ async function cudaRuntimeSetup(cudaVersion: "12.8" | "13.3" = "13.3", runtime: 
       await mkdir(bundle)
       const files =
         kind === "cudart"
-          ? ["libcudart", "libcublas", "libcublasLt"].map((name) => `${name}.so.${cudaVersion.split(".")[0]}`)
+          ? ["libcudart", "libcublas", "libcublasLt"].map(
+              (name) => `${name}.so.${cudaVersion.split(".")[0]}`,
+            )
           : ["llama-server", "libllama.so", "libggml.so", `libggml-${kind}.so`]
       for (const file of files) await writeFile(join(bundle, file), "library")
     },
@@ -1704,7 +1921,10 @@ async function tempDir() {
   return path
 }
 
-async function generationRuntimeSetup(generationFetch: typeof fetch, overrides: Partial<LlamaCppRuntimeOptions> = {}) {
+async function generationRuntimeSetup(
+  generationFetch: typeof fetch,
+  overrides: Partial<LlamaCppRuntimeOptions> = {},
+) {
   const model = catalogModel()
   const fit = fitLocalModel(model, hardware)
   const directory = await tempDir()
@@ -1817,17 +2037,27 @@ function huggingfaceFetch(body: Uint8Array, contextLength: number): typeof fetch
     if (url.includes("/props")) return runtimeProperties(contextLength)
     if (String(input).endsWith("/v1/chat/completions")) return generationResponse()
     if (url.includes("huggingface.co")) {
-      return new Response(Buffer.from(body), { status: 200, headers: { "content-length": String(body.byteLength) } })
+      return new Response(Buffer.from(body), {
+        status: 200,
+        headers: { "content-length": String(body.byteLength) },
+      })
     }
     return new Response("missing", { status: 404 })
   }) as typeof fetch
 }
 
-function generationResponse() {
-  return new Response(
-    `data: ${JSON.stringify({ choices: [{ delta: { content: "Hello." }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`,
-    { headers: { "content-type": "text/event-stream" } },
-  )
+function generationResponse(
+  delta: Record<string, unknown> = { content: "Hello." },
+  finishReason: string | null = "stop",
+) {
+  const chunk = JSON.stringify({ choices: [{ delta, finish_reason: finishReason }] })
+  return new Response(`data: ${chunk}\n\ndata: [DONE]\n\n`, {
+    headers: { "content-type": "text/event-stream" },
+  })
+}
+
+function localGgufPath(model: LocalModelSpec, directory: string) {
+  return join(directory, "models", model.ggufFiles[0].name)
 }
 
 function runtimeProperties(contextLength: number) {

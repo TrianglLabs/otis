@@ -60,8 +60,13 @@ describe("pickerItemKey", () => {
 // These strings mirror modelMeta in the TUI's model picker (src/cli/ui/model-picker.ts) exactly.
 describe("pickerDetailLabel", () => {
   it("suffixes local availability with the modality", () => {
-    expect(pickerDetailLabel(localItem as LocalPickerChoice)).toBe("Est. 32K · Q4_K_M · 18 GB · Text")
-    const vision: LocalPickerChoice = { ...(localItem as LocalPickerChoice), supportsImageInput: true }
+    expect(pickerDetailLabel(localItem as LocalPickerChoice)).toBe(
+      "Est. 32K · Q4_K_M · 18 GB · Text",
+    )
+    const vision: LocalPickerChoice = {
+      ...(localItem as LocalPickerChoice),
+      supportsImageInput: true,
+    }
     expect(pickerDetailLabel(vision)).toBe("Est. 32K · Q4_K_M · 18 GB · Vision")
   })
 
@@ -84,8 +89,14 @@ describe("pickerDetailLabel", () => {
     expect(pickerDetailLabel({ ...pair, engine: "lmstudio", supportsImageInput: true })).toBe(
       "LM Studio · 256K model max · Q4_K_M · Vision",
     )
-    const unknown: PairPickerChoice = { ...pair, nativeContextLength: undefined, quantization: undefined }
-    expect(pickerDetailLabel(unknown)).toBe("Ollama · Context unavailable · Quant unavailable · Text")
+    const unknown: PairPickerChoice = {
+      ...pair,
+      nativeContextLength: undefined,
+      quantization: undefined,
+    }
+    expect(pickerDetailLabel(unknown)).toBe(
+      "Ollama · Context unavailable · Quant unavailable · Text",
+    )
   })
 
   it("shows exact hosted context without Est., plus modality and fast mode", () => {
@@ -101,9 +112,9 @@ describe("pickerDetailLabel", () => {
     }
     expect(pickerDetailLabel(hosted)).toBe("256K · Text")
     expect(pickerDetailLabel({ ...hosted, supportsImageInput: true })).toBe("256K · Vision")
-    expect(pickerDetailLabel({ ...hosted, fastId: "accounts/fireworks/models/kimi-k2p5-turbo-fast" })).toBe(
-      "256K · Text · Fast mode",
-    )
+    expect(
+      pickerDetailLabel({ ...hosted, fastId: "accounts/fireworks/models/kimi-k2p5-turbo-fast" }),
+    ).toBe("256K · Text · Fast mode")
     expect(pickerDetailLabel({ ...hosted, contextLength: undefined })).toBe("Text")
   })
 })

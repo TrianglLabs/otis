@@ -1,5 +1,5 @@
 import type { TreeSitterClient } from "@opentui/core"
-import type { SessionPickerItem } from "../../app/session-metadata.js"
+import type { SessionPickerItem } from "../../app/sessions.js"
 import type { SubagentTrace } from "../../app/subagents.js"
 import type { TranscriptEntry } from "../../app/transcript.js"
 import type { ModelPickerItem, ModelPickerStatus } from "../../inference/picker-catalog.js"
@@ -13,7 +13,12 @@ export type Renderer = Awaited<ReturnType<typeof import("@opentui/core").createC
 export type SetupInferenceChoice = "local" | "hosted"
 export type SetupLocalInferenceChoice = "managed" | "pair"
 export type SetupInputCancelTarget = "choice" | "local" | "configured"
-export type PairEndpointInputs = { ollama: string; lmStudio: string; omlx?: string; omlxApiKey?: string }
+export type PairEndpointInputs = {
+  ollama: string
+  lmStudio: string
+  omlx?: string
+  omlxApiKey?: string
+}
 
 export type InputMode =
   | "chat"
@@ -30,6 +35,22 @@ export type CommandSuggestion = {
   description: string
   submission?: string
   draft?: string
+}
+
+/** The subset of OpenTUI's key event the UI controllers read. */
+export type UIKey = {
+  name: string
+  ctrl?: boolean
+  meta?: boolean
+  shift?: boolean
+  sequence?: string
+  preventDefault(): void
+  stopPropagation(): void
+}
+
+export function stopKey(key: Pick<UIKey, "preventDefault" | "stopPropagation">) {
+  key.preventDefault()
+  key.stopPropagation()
 }
 
 export type { ModelPickerItem }
@@ -104,8 +125,16 @@ export type ChatUI = {
   showSetupInferenceChoice(message?: string): void
   showSetupLocalInferenceChoice(message?: string): void
   showSetupInput(message?: string, cancelTarget?: SetupInputCancelTarget): void
-  showPairSetup(message: string, cancelTarget: SetupInputCancelTarget, endpoints: PairEndpointInputs): void
-  showPairSetupError(message: string, cancelTarget: SetupInputCancelTarget, endpoints: PairEndpointInputs): void
+  showPairSetup(
+    message: string,
+    cancelTarget: SetupInputCancelTarget,
+    endpoints: PairEndpointInputs,
+  ): void
+  showPairSetupError(
+    message: string,
+    cancelTarget: SetupInputCancelTarget,
+    endpoints: PairEndpointInputs,
+  ): void
   showSetupStatus(message?: string): void
   showPermissionPrompt(detail: string): Promise<boolean>
   showSessionPicker(items: SessionPickerItem[]): void

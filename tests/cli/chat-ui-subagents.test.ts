@@ -2,23 +2,37 @@ import type { BoxRenderable, TextRenderable } from "@opentui/core"
 import { describe, expect, it, vi } from "vitest"
 import { SubagentTraces } from "../../src/app/subagents.js"
 import { TranscriptStore } from "../../src/app/transcript.js"
-import { TEXT_SHIMMER_PERIOD_MS } from "../../src/cli/ui/color-pulse.js"
-import { subagentRowId } from "../../src/cli/ui/subagent-panel.js"
 import type { AgentEvent } from "../../src/core/agent.js"
 import type { ChatMessage } from "../../src/inference/types.js"
 import { useChatHarness } from "./support/chat-ui-harness.js"
+
+/** A running title's shimmer sweeps once per period. */
+const TEXT_SHIMMER_PERIOD_MS = 1300
+
+function subagentRowId(toolCallId: string) {
+  return `subagent-${toolCallId}`
+}
 
 const childMessages: ChatMessage[] = [
   { role: "user", content: "Map the notes." },
   {
     role: "assistant",
-    content: [{ type: "tool_call", toolCall: { id: "read_1", name: "read", arguments: '{"path":"note.txt"}' } }],
+    content: [
+      {
+        type: "tool_call",
+        toolCall: { id: "read_1", name: "read", arguments: '{"path":"note.txt"}' },
+      },
+    ],
   },
   { role: "tool", toolCallId: "read_1", content: "note" },
   { role: "assistant", content: [{ type: "text", text: "Report: two notes." }] },
 ]
 
-function envelope(toolCallId: string, title: string, event: AgentEvent): Extract<AgentEvent, { type: "subagent" }> {
+function envelope(
+  toolCallId: string,
+  title: string,
+  event: AgentEvent,
+): Extract<AgentEvent, { type: "subagent" }> {
   return { type: "subagent", toolCallId, title, event }
 }
 
@@ -281,5 +295,7 @@ describe("chat UI subagents", () => {
 })
 
 function titleColors(row: TextRenderable, title: string) {
-  return row.chunks.slice(-title.length).map((chunk) => (chunk.fg ? chunk.fg.toInts().join(",") : ""))
+  return row.chunks
+    .slice(-title.length)
+    .map((chunk) => (chunk.fg ? chunk.fg.toInts().join(",") : ""))
 }

@@ -63,7 +63,11 @@ export function useTranscriptScroll() {
 
   const hasSelection = useCallback(() => {
     const selection = document.getSelection()
-    return !!selection && !selection.isCollapsed && element.current?.contains(selection.anchorNode) === true
+    return (
+      !!selection &&
+      !selection.isCollapsed &&
+      element.current?.contains(selection.anchorNode) === true
+    )
   }, [])
 
   useEffect(() => {
@@ -71,8 +75,8 @@ export function useTranscriptScroll() {
       const scroll = element.current
       if (!scroll || scroll.clientHeight === 0) return
       if (hasSelection()) {
-        // Preserve the selection while content streams, but keep the Latest button tied to the real scroll
-        // position. Selecting text at the tail has not moved the reader away from it.
+        // Preserve the selection while content streams, but keep the Latest button tied to the real
+        // scroll position. Selecting text at the tail has not moved the reader away from it.
         following.current = false
         setAtBottom(isAtBottom(scroll))
       } else if (isAtBottom(scroll)) {
@@ -88,8 +92,9 @@ export function useTranscriptScroll() {
     (event: UIEvent<HTMLElement>) => {
       const scroll = event.currentTarget
       if (event.target !== scroll || scroll.clientHeight === 0) return
-      // Layout corrections also dispatch scroll events. Only returning to the tail changes follow mode here;
-      // leaving it is driven by the user's input, never inferred from automatic scroll-position changes.
+      // Layout corrections also dispatch scroll events. Only returning to the tail changes follow
+      // mode here; leaving it is driven by the user's input, never inferred from automatic
+      // scroll-position changes.
       if (isAtBottom(scroll)) {
         setAtBottom(true)
         if (!hasSelection()) following.current = true
@@ -112,18 +117,23 @@ export function useTranscriptScroll() {
     (event: KeyboardEvent<HTMLElement>) => {
       if (event.defaultPrevented || !(event.target instanceof HTMLElement)) return
       if (event.target.closest("input, textarea, [contenteditable=true]")) return
-      if (["ArrowUp", "PageUp", "Home"].includes(event.key) || (event.key === " " && event.shiftKey)) {
-        if (scrollsTranscript(event.target, event.currentTarget)) pauseFollowing()
-      }
+      const upward =
+        ["ArrowUp", "PageUp", "Home"].includes(event.key) || (event.key === " " && event.shiftKey)
+      if (upward && scrollsTranscript(event.target, event.currentTarget)) pauseFollowing()
     },
     [pauseFollowing],
   )
 
+  // Empty transcript space and the native scrollbar share the scroller as their event target; only
+  // a press in the scrollbar gutter counts as scrolling input.
   const onPointerDownCapture = useCallback(
     (event: PointerEvent<HTMLElement>) => {
-      if (event.button === 0 && event.target === event.currentTarget && pressesVerticalScrollbar(event)) {
-        pauseFollowing()
-      }
+      const scroller = event.currentTarget
+      if (event.button !== 0 || event.target !== scroller) return
+      const gutter = scroller.offsetWidth - scroller.clientWidth
+      if (gutter <= 0) return
+      const { right } = scroller.getBoundingClientRect()
+      if (event.clientX >= right - gutter && event.clientX <= right) pauseFollowing()
     },
     [pauseFollowing],
   )
@@ -134,19 +144,12 @@ export function useTranscriptScroll() {
   const onTouchMoveCapture = useCallback(
     (event: TouchEvent<HTMLElement>) => {
       const next = event.touches[0]?.clientY
-      if (
-        next !== undefined &&
-        touchY.current !== undefined &&
-        next > touchY.current &&
-        scrollsTranscript(event.target, event.currentTarget)
-      )
-        pauseFollowing()
+      const upward = next !== undefined && touchY.current !== undefined && next > touchY.current
+      if (upward && scrollsTranscript(event.target, event.currentTarget)) pauseFollowing()
       touchY.current = next
     },
     [pauseFollowing],
   )
-
-  const isScrolling = useCallback((value: boolean) => setScrolling(value), [])
 
   const jumpToLatest = useCallback(() => {
     following.current = true
@@ -166,14 +169,22 @@ export function useTranscriptScroll() {
     onTouchMoveCapture,
     totalListHeightChanged: setListHeight,
     jumpToLatest,
-    isScrolling,
+    isScrolling: setScrolling,
   }
 }
 
 /** A nested diff consumes upward input while it has content above its own viewport. */
 function scrollsTranscript(target: EventTarget, scroller: HTMLElement) {
-  for (let node = target instanceof Element ? target : null; node && node !== scroller; node = node.parentElement) {
-    if (node instanceof HTMLElement && node.scrollTop > 0 && /auto|scroll/.test(getComputedStyle(node).overflowY)) {
+  for (
+    let node = target instanceof Element ? target : null;
+    node && node !== scroller;
+    node = node.parentElement
+  ) {
+    if (
+      node instanceof HTMLElement &&
+      node.scrollTop > 0 &&
+      /auto|scroll/.test(getComputedStyle(node).overflowY)
+    ) {
       return false
     }
   }
@@ -182,13 +193,4 @@ function scrollsTranscript(target: EventTarget, scroller: HTMLElement) {
 
 function isAtBottom(scroller: HTMLElement) {
   return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= BOTTOM_THRESHOLD
-}
-
-/** Empty transcript space and the native scrollbar share the scroller as their event target. */
-function pressesVerticalScrollbar(event: PointerEvent<HTMLElement>) {
-  const scroller = event.currentTarget
-  const gutter = scroller.offsetWidth - scroller.clientWidth
-  if (gutter <= 0) return false
-  const { right } = scroller.getBoundingClientRect()
-  return event.clientX >= right - gutter && event.clientX <= right
 }

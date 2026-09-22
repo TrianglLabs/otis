@@ -28,15 +28,24 @@ describe("document subprocess", () => {
 
   it("rejects process failures, excessive output and timeouts", async () => {
     await expect(
-      runDocumentProcess(process.execPath, ["-e", "console.error('fixture failure');process.exit(1)"], {
-        cwd: process.cwd(),
-      }),
+      runDocumentProcess(
+        process.execPath,
+        ["-e", "console.error('fixture failure');process.exit(1)"],
+        {
+          cwd: process.cwd(),
+        },
+      ),
     ).rejects.toThrow("fixture failure")
     await expect(
-      runDocumentProcess(process.execPath, ["-e", "console.log('x'.repeat(600000))"], { cwd: process.cwd() }),
+      runDocumentProcess(process.execPath, ["-e", "console.log('x'.repeat(600000))"], {
+        cwd: process.cwd(),
+      }),
     ).rejects.toThrow("too large")
     await expect(
-      runDocumentProcess(process.execPath, ["-e", "setInterval(()=>{},1000)"], { cwd: process.cwd(), timeoutMs: 30 }),
+      runDocumentProcess(process.execPath, ["-e", "setInterval(()=>{},1000)"], {
+        cwd: process.cwd(),
+        timeoutMs: 30,
+      }),
     ).rejects.toThrow("timed out")
   })
 

@@ -24,7 +24,15 @@ type CatalogCommand = {
   description: string
 }
 
-const IMMEDIATE_TYPES = new Set<SlashCommand["type"]>(["exit", "history", "home", "model", "thinking", "theme"])
+const IMMEDIATE_TYPES = new Set<SlashCommand["type"]>([
+  "exit",
+  "history",
+  "home",
+  "model",
+  "thinking",
+  "theme",
+])
+const SETTINGS = ["hosted", "pair", "servers", "debug", "subagents", "theme"] as const
 
 const CATALOG: readonly CatalogCommand[] = [
   { type: "home", name: "/home", description: "Return to home screen" },
@@ -48,72 +56,39 @@ export function slashCommands(options: { fast?: boolean } = {}): CommandSuggesti
   }))
 }
 
-export const SLASH_COMMANDS: CommandSuggestion[] = slashCommands({ fast: true })
-
 export function parseSlashCommand(value: string): SlashCommand | undefined {
-  // `/debug` shipped before Debug mode moved into Settings. Keep the command
-  // working without advertising it in the top-level command catalog.
-  if (value === "/debug") return { type: "settings", setting: "debug" }
-  // Keep the former top-level model cleanup command working as a hidden alias.
-  if (value === "/delete-model") return { type: "settings", setting: "delete-model" }
-  // `/theme` shipped before Theme moved into Settings.
-  if (value === "/theme") return { type: "settings", setting: "theme" }
-  const exact = CATALOG.find((command) => command.name === value)
-  if (exact) return toSlashCommand(exact)
-  if (value.startsWith("/compact ")) {
-    return { type: "compact", instructions: value.slice("/compact".length).trim() }
-  }
-  if (value.startsWith("/effort ")) return { type: "effort", level: value.slice("/effort".length).trim() }
-  if (value.startsWith("/queue ")) {
-    const prompt = value.slice("/queue".length).trim()
-    return { type: "queue", ...(prompt ? { prompt } : {}) }
-  }
-  if (value.startsWith("/delete-model ")) {
-    const modelId = value.slice("/delete-model".length).trim()
+  // `/debug`, `/delete-model`, and `/theme` shipped before those settings moved under
+  // `/settings`; keep them working without advertising them in the command catalog.
+  const input = /^\/(debug|delete-model|theme)(?: |$)/.test(value)
+    ? `/settings ${value.slice(1)}`
+    : value
+  const exact = CATALOG.find((command) => command.name === input)
+  if (exact) return { type: exact.type } as SlashCommand
+  const split = /^(\/[a-z-]+) (.*)$/s.exec(input)
+  if (!split) return undefined
+  const name = split[1]
+  const argument = split[2].trim()
+  if (name === "/compact") return { type: "compact", instructions: argument }
+  if (name === "/effort") return { type: "effort", level: argument }
+  if (name === "/queue") return { type: "queue", ...(argument ? { prompt: argument } : {}) }
+  if (name !== "/settings") return undefined
+  const setting = SETTINGS.find((candidate) => candidate === argument)
+  if (setting) return { type: "settings", setting }
+  if (argument === "delete-model" || argument.startsWith("delete-model ")) {
+    const modelId = argument.slice("delete-model".length).trim()
     return { type: "settings", setting: "delete-model", ...(modelId ? { modelId } : {}) }
   }
-  if (value.startsWith("/settings ")) {
-    const setting = value.slice("/settings".length).trim()
-    if (
-      setting === "hosted" ||
-      setting === "pair" ||
-      setting === "servers" ||
-      setting === "debug" ||
-      setting === "subagents" ||
-      setting === "theme"
-    ) {
-      return { type: "settings", setting }
-    }
-    if (setting === "delete-model") return { type: "settings", setting: "delete-model" }
-    if (setting.startsWith("delete-model ")) {
-      const modelId = setting.slice("delete-model".length).trim()
-      return { type: "settings", setting: "delete-model", ...(modelId ? { modelId } : {}) }
-    }
-    if (setting.startsWith("theme ")) {
-      return { type: "theme", name: setting.slice("theme".length).trim() }
-    }
-    return undefined
-  }
-  if (value.startsWith("/theme ")) {
-    return { type: "theme", name: value.slice("/theme".length).trim() }
-  }
+  if (argument.startsWith("theme "))
+    return { type: "theme", name: argument.slice("theme".length).trim() }
   return undefined
 }
 
 export function slashCommandRunsImmediately(command: SlashCommand) {
-  if (command.type === "settings") {
-    return (
-      command.setting === undefined ||
-      command.setting === "debug" ||
-      command.setting === "subagents" ||
-      command.setting === "theme"
-    )
-  }
-  return IMMEDIATE_TYPES.has(command.type)
-}
-
-function toSlashCommand(command: CatalogCommand): SlashCommand {
-  if (command.type === "compact") return { type: "compact" }
-  if (command.type === "queue") return { type: "queue" }
-  return { type: command.type }
+  if (command.type !== "settings") return IMMEDIATE_TYPES.has(command.type)
+  return (
+    command.setting === undefined ||
+    command.setting === "debug" ||
+    command.setting === "subagents" ||
+    command.setting === "theme"
+  )
 }

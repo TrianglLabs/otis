@@ -7,18 +7,21 @@ import {
   cloneLocalGguf,
   deleteLocalGguf,
   ensureLocalGguf,
-  huggingFaceGgufUrl,
   isLocalGgufDownloaded,
   listDownloadedLocalModels,
-  localGgufPath,
-  localGgufPaths,
 } from "../../src/inference/gguf-cache.js"
-import { findLocalModel, type LocalModelSpec, localModelPackings } from "../../src/inference/local-catalog.js"
+import {
+  findLocalModel,
+  type LocalModelSpec,
+  localModelPackings,
+} from "../../src/inference/local-catalog.js"
 
 const tempDirectories: string[] = []
 
 afterEach(async () => {
-  await Promise.all(tempDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })))
+  await Promise.all(
+    tempDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })),
+  )
 })
 
 describe("local GGUF cache", () => {
@@ -103,17 +106,23 @@ describe("local GGUF cache", () => {
     const model = tinyModel(body)
     const directory = await tempDir()
     const percents: number[] = []
+    const fetchImpl = vi.fn(response(body))
     const dest = await ensureLocalGguf(model, {
       dataDirectory: directory,
-      fetch: response(body),
+      fetch: fetchImpl,
       onProgress: (percent) => percents.push(percent),
     })
 
+    expect(String(fetchImpl.mock.calls[0]?.[0])).toBe(
+      `https://huggingface.co/${model.ggufRepo}/resolve/${model.ggufRevision}/tiny.gguf`,
+    )
     expect(dest).toBe(localGgufPath(model, directory))
     expect(await readFile(dest)).toEqual(Buffer.from(body))
     expect(percents.at(-1)).toBe(100)
     expect(await isLocalGgufDownloaded(model, directory)).toBe(true)
-    await expect(readFile(`${dest}.otis.json`, "utf8")).resolves.toContain(model.ggufFiles[0].sha256)
+    await expect(readFile(`${dest}.otis.json`, "utf8")).resolves.toContain(
+      model.ggufFiles[0].sha256,
+    )
   })
 
   it("verifies a legacy cached GGUF once and then skips the network", async () => {
@@ -123,7 +132,9 @@ describe("local GGUF cache", () => {
     const dest = localGgufPath(model, directory)
     await mkdir(join(directory, "models"), { recursive: true })
     await writeFile(dest, body)
-    const fetchImpl = vi.fn(async () => new Response("no", { status: 500 })) as unknown as typeof fetch
+    const fetchImpl = vi.fn(
+      async () => new Response("no", { status: 500 }),
+    ) as unknown as typeof fetch
 
     await ensureLocalGguf(model, { dataDirectory: directory, fetch: fetchImpl })
     await ensureLocalGguf(model, { dataDirectory: directory, fetch: fetchImpl })
@@ -217,7 +228,9 @@ describe("local GGUF cache", () => {
       }),
     ).rejects.toMatchObject({ name: "AbortError" })
 
-    await expect(readFile(`${localGgufPath(model, directory)}.partial`)).resolves.toEqual(Buffer.from([1, 2]))
+    await expect(readFile(`${localGgufPath(model, directory)}.partial`)).resolves.toEqual(
+      Buffer.from([1, 2]),
+    )
     expect(await isLocalGgufDownloaded(model, directory)).toBe(false)
   })
 
@@ -309,13 +322,6 @@ describe("local GGUF cache", () => {
     }
   })
 
-  it("builds an immutable Hugging Face resolve URL", () => {
-    const model = catalogModel()
-    expect(huggingFaceGgufUrl(model)).toBe(
-      `https://huggingface.co/${model.ggufRepo}/resolve/${model.ggufRevision}/${model.ggufFiles[0].name}`,
-    )
-  })
-
   it("downloads, verifies, and deletes every shard in a split GGUF", async () => {
     const shards = [new Uint8Array([1, 2]), new Uint8Array([3, 4, 5])]
     const model = splitModel(shards)
@@ -325,7 +331,9 @@ describe("local GGUF cache", () => {
       const index = model.ggufFiles.findIndex((file) => String(input).endsWith(file.name))
       const body = shards[index]
       if (!body) return new Response("missing", { status: 404 })
-      return new Response(Buffer.from(body), { headers: { "content-length": String(body.byteLength) } })
+      return new Response(Buffer.from(body), {
+        headers: { "content-length": String(body.byteLength) },
+      })
     }) as unknown as typeof fetch
 
     const primary = await ensureLocalGguf(model, {
@@ -353,6 +361,14 @@ async function tempDir() {
   const path = await mkdtemp(join(tmpdir(), "otis-gguf-"))
   tempDirectories.push(path)
   return path
+}
+
+function localGgufPaths(model: LocalModelSpec, directory: string) {
+  return model.ggufFiles.map((file) => join(directory, "models", file.name))
+}
+
+function localGgufPath(model: LocalModelSpec, directory: string) {
+  return localGgufPaths(model, directory)[0]
 }
 
 function catalogModel() {

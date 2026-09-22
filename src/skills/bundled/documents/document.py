@@ -13,6 +13,7 @@ import sys
 import tempfile
 import unicodedata
 import zipfile
+from contextlib import closing
 from pathlib import Path
 from xml.etree import ElementTree
 from xml.sax.saxutils import escape
@@ -38,18 +39,12 @@ def require(*modules):
 
 
 def office_command():
-    return (
-        shutil.which("soffice")
-        or shutil.which("libreoffice")
-        or (
-            "/Applications/LibreOffice.app/Contents/MacOS/soffice"
-            if Path("/Applications/LibreOffice.app/Contents/MacOS/soffice").is_file()
-            else None
-        )
-    )
+    bundled = Path("/Applications/LibreOffice.app/Contents/MacOS/soffice")
+    found = shutil.which("soffice") or shutil.which("libreoffice")
+    return found or (str(bundled) if bundled.is_file() else None)
 
 
-def check():
+def check(_args):
     available = {name: importlib.util.find_spec(name) is not None for name in PACKAGES}
     office = office_command()
     return {
@@ -106,90 +101,14 @@ def number(value, minimum, maximum, label, *, integer=False):
 def text(value):
     if not isinstance(value, str) or not value.strip():
         raise ValueError("Document text must be a nonempty string.")
-    if any((ord(c) < 32 and c != "\n") or 0xD800 <= ord(c) <= 0xDFFF or c in "\ufffe\uffff" for c in value):
-        raise ValueError("Document text contains unsupported control characters, tabs, or invalid Unicode.")
+    if any(
+        (ord(c) < 32 and c != "\n") or 0xD800 <= ord(c) <= 0xDFFF or c in "\ufffe\uffff"
+        for c in value
+    ):
+        raise ValueError(
+            "Document text contains unsupported control characters, tabs, or invalid Unicode."
+        )
     return value
-
-
-def block_texts(block):
-    if block["type"] in ("heading", "paragraph"):
-        return [block["text"]]
-    if block["type"] == "bullets":
-        return block["items"]
-    if block["type"] == "table":
-        return [cell for row in block["rows"] for cell in row]
-    return []
-
-
-def load_spec(path, extension):
-    if path.stat().st_size > 1024 * 1024:
-        raise ValueError("Specification exceeds 1 MB.")
-    spec = json.loads(path.read_text(encoding="utf-8"))
-    keys(
-        spec,
-        ["title", "page_size", "margin_mm", "font_size", "font_path", "max_pages", "blocks"],
-        "Specification",
-    )
-    blocks = spec.get("blocks")
-    if not isinstance(blocks, list) or not 1 <= len(blocks) <= 1000:
-        raise ValueError("blocks must contain 1–1000 entries.")
-    if spec.get("page_size", "letter") not in ("letter", "a4"):
-        raise ValueError("page_size must be letter or a4.")
-    number(spec.get("margin_mm", 18), 10, 40, "margin_mm")
-    number(spec.get("font_size", 11), 9, 16, "font_size")
-    if "title" in spec:
-        text(spec["title"])
-    if "font_path" in spec:
-        text(spec["font_path"])
-        if extension != ".pdf":
-            raise ValueError("font_path is PDF-only; DOCX uses Arial.")
-    if "max_pages" in spec:
-        number(spec["max_pages"], 1, 500, "max_pages", integer=True)
-        if extension != ".pdf":
-            raise ValueError("max_pages is PDF-only. Convert DOCX to PDF to check its pagination.")
-    previous_break = True
-    for block in blocks:
-        if not isinstance(block, dict):
-            raise ValueError("Each block must be an object.")
-        kind = block.get("type")
-        if kind in ("heading", "paragraph"):
-            keys(block, ["type", "text", "level"] if kind == "heading" else ["type", "text"], "Block")
-            text(block.get("text"))
-            if kind == "heading":
-                number(block.get("level", 1), 0, 3, "heading level", integer=True)
-        elif kind == "bullets":
-            keys(block, ["type", "items"], "Bullet block")
-            items = block.get("items")
-            if not isinstance(items, list) or not 1 <= len(items) <= 200:
-                raise ValueError("Bullet items must contain 1–200 strings.")
-            for item in items:
-                text(item)
-        elif kind == "table":
-            keys(block, ["type", "rows"], "Table block")
-            rows = block.get("rows")
-            if not isinstance(rows, list) or not 1 <= len(rows) <= 200:
-                raise ValueError("Tables must contain 1–200 rows.")
-            columns = len(rows[0]) if isinstance(rows[0], list) else 0
-            if not 1 <= columns <= 8:
-                raise ValueError("Tables must contain 1–8 columns.")
-            for row in rows:
-                if not isinstance(row, list) or len(row) != columns:
-                    raise ValueError("Table rows must have equal column counts.")
-                for cell in row:
-                    text(cell)
-        elif kind == "page_break":
-            keys(block, ["type"], "Page break")
-            if previous_break:
-                raise ValueError("Page breaks cannot be first or adjacent.")
-        else:
-            raise ValueError("Unsupported block type: " + str(kind))
-        previous_break = kind == "page_break"
-    if previous_break:
-        raise ValueError("Page breaks cannot be last.")
-    expected = [value for block in blocks for value in block_texts(block)]
-    if sum(map(len, expected)) > 200_000:
-        raise ValueError("Document text exceeds 200,000 characters.")
-    return spec, expected
 
 
 def normalized(value):
@@ -203,7 +122,8 @@ def verify_text(actual, expected):
         index = remaining.find(needle)
         if index < 0:
             raise ValueError(
-                "Output verification failed: expected text is missing or out of order: " + value[:100]
+                "Output verification failed: expected text is missing or out of order: "
+                + value[:100]
             )
         remaining = remaining[index + len(needle) :]
 
@@ -240,15 +160,16 @@ def docx_text(data):
                 continue
             if entry.file_size > 2 * 1024 * 1024:
                 raise ValueError("Word relationships exceed the document limit.")
-            relationships = ElementTree.fromstring(archive.read(entry))
-            for relation in relationships:
-                if relation.get("TargetMode") == "External" and not relation.get("Type", "").endswith(
-                    "/hyperlink"
-                ):
-                    raise ValueError("Word contains linked external assets; embed them before conversion.")
-    document = Document(io.BytesIO(data))
+            if any(
+                relation.get("TargetMode") == "External"
+                and not relation.get("Type", "").endswith("/hyperlink")
+                for relation in ElementTree.fromstring(archive.read(entry))
+            ):
+                raise ValueError(
+                    "Word contains linked external assets; embed them before conversion."
+                )
     values = []
-    for item in document.iter_inner_content():
+    for item in Document(io.BytesIO(data)).iter_inner_content():
         if isinstance(item, Paragraph) and item.text.strip():
             values.append(item.text)
         elif isinstance(item, Table):
@@ -297,11 +218,29 @@ def create_docx(spec):
     return stream.getvalue()
 
 
-def pdf_font(spec, expected):
+def create_pdf(spec, expected):
+    require("reportlab", "pypdf")
     import reportlab
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4, letter
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.units import mm
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
+    from reportlab.platypus import (
+        PageBreak,
+        Paragraph,
+        SimpleDocTemplate,
+        Spacer,
+        Table,
+        TableStyle,
+    )
 
+    characters = set("".join(expected) + "•") - {"\n"}
+    if any(unicodedata.bidirectional(c) in ("R", "AL", "AN") for c in characters):
+        raise ValueError(
+            "This PDF helper does not shape right-to-left text. Use a suitable document renderer."
+        )
     candidates = (
         [spec["font_path"]]
         if "font_path" in spec
@@ -313,35 +252,20 @@ def pdf_font(spec, expected):
             str(Path(reportlab.__file__).parent / "fonts" / "Vera.ttf"),
         ]
     )
-    characters = set("".join(expected) + "•") - {"\n"}
-    if any(unicodedata.bidirectional(c) in ("R", "AL", "AN") for c in characters):
-        raise ValueError(
-            "This PDF helper does not shape right-to-left text. Use a suitable document renderer."
-        )
     for path in candidates:
         if not Path(path).is_file():
             continue
         font = TTFont("OtisDocument", path)
         if all(font.face.charToGlyph.get(ord(c), 0) != 0 for c in characters):
             pdfmetrics.registerFont(font)
-            return "OtisDocument"
-    raise ValueError(
-        "No available TrueType font covers the document text. Set font_path to a suitable local font."
-    )
-
-
-def create_pdf(spec, expected):
-    require("reportlab", "pypdf")
-    from reportlab.lib import colors
-    from reportlab.lib.pagesizes import A4, letter
-    from reportlab.lib.styles import ParagraphStyle
-    from reportlab.lib.units import mm
-    from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
-
+            break
+    else:
+        raise ValueError(
+            "No available TrueType font covers the document text. Set font_path to a suitable local font."
+        )
     stream = io.BytesIO()
     margin = spec.get("margin_mm", 18) * mm
     size = spec.get("font_size", 11)
-    font = pdf_font(spec, expected)
     page = A4 if spec.get("page_size") == "a4" else letter
     document = SimpleDocTemplate(
         stream,
@@ -354,10 +278,21 @@ def create_pdf(spec, expected):
         author="",
     )
     body = ParagraphStyle(
-        "Body", fontName=font, fontSize=size, leading=size * 1.35, spaceAfter=6, allowWidows=0, allowOrphans=0
+        "Body",
+        fontName="OtisDocument",
+        fontSize=size,
+        leading=size * 1.35,
+        spaceAfter=6,
+        allowWidows=0,
+        allowOrphans=0,
     )
     bullet = ParagraphStyle(
-        "Bullet", parent=body, leftIndent=12, bulletIndent=0, bulletFontName=font, bulletFontSize=size
+        "Bullet",
+        parent=body,
+        leftIndent=12,
+        bulletIndent=0,
+        bulletFontName="OtisDocument",
+        bulletFontSize=size,
     )
 
     def paragraph(value, style=body, **kwargs):
@@ -385,7 +320,9 @@ def create_pdf(spec, expected):
         elif kind == "table":
             rows = [[paragraph(cell) for cell in row] for row in block["rows"]]
             table = Table(
-                rows, colWidths=[(page[0] - 2 * margin - 12) / len(rows[0])] * len(rows[0]), repeatRows=1
+                rows,
+                colWidths=[(page[0] - 2 * margin - 12) / len(rows[0])] * len(rows[0]),
+                repeatRows=1,
             )
             table.setStyle(
                 TableStyle(
@@ -417,10 +354,78 @@ def publish(data, output):
 
 def create(args):
     output = workspace_path(args.output, output=True)
-    if output.suffix.lower() not in (".pdf", ".docx"):
+    extension = output.suffix.lower()
+    if extension not in (".pdf", ".docx"):
         raise ValueError("Output must be .pdf or .docx; no format fallback is performed.")
-    spec, expected = load_spec(workspace_path(args.spec), output.suffix.lower())
-    if output.suffix.lower() == ".pdf":
+    path = workspace_path(args.spec)
+    if path.stat().st_size > 1024 * 1024:
+        raise ValueError("Specification exceeds 1 MB.")
+    spec = json.loads(path.read_text(encoding="utf-8"))
+    keys(
+        spec,
+        ["title", "page_size", "margin_mm", "font_size", "font_path", "max_pages", "blocks"],
+        "Specification",
+    )
+    blocks = spec.get("blocks")
+    if not isinstance(blocks, list) or not 1 <= len(blocks) <= 1000:
+        raise ValueError("blocks must contain 1–1000 entries.")
+    if spec.get("page_size", "letter") not in ("letter", "a4"):
+        raise ValueError("page_size must be letter or a4.")
+    number(spec.get("margin_mm", 18), 10, 40, "margin_mm")
+    number(spec.get("font_size", 11), 9, 16, "font_size")
+    if "title" in spec:
+        text(spec["title"])
+    if "font_path" in spec:
+        text(spec["font_path"])
+        if extension != ".pdf":
+            raise ValueError("font_path is PDF-only; DOCX uses Arial.")
+    if "max_pages" in spec:
+        number(spec["max_pages"], 1, 500, "max_pages", integer=True)
+        if extension != ".pdf":
+            raise ValueError("max_pages is PDF-only. Convert DOCX to PDF to check its pagination.")
+    expected = []
+    previous_break = True
+    for block in blocks:
+        if not isinstance(block, dict):
+            raise ValueError("Each block must be an object.")
+        kind = block.get("type")
+        if kind in ("heading", "paragraph"):
+            keys(
+                block, ["type", "text", "level"] if kind == "heading" else ["type", "text"], "Block"
+            )
+            expected.append(text(block.get("text")))
+            if kind == "heading":
+                number(block.get("level", 1), 0, 3, "heading level", integer=True)
+        elif kind == "bullets":
+            keys(block, ["type", "items"], "Bullet block")
+            items = block.get("items")
+            if not isinstance(items, list) or not 1 <= len(items) <= 200:
+                raise ValueError("Bullet items must contain 1–200 strings.")
+            expected.extend(text(item) for item in items)
+        elif kind == "table":
+            keys(block, ["type", "rows"], "Table block")
+            rows = block.get("rows")
+            if not isinstance(rows, list) or not 1 <= len(rows) <= 200:
+                raise ValueError("Tables must contain 1–200 rows.")
+            columns = len(rows[0]) if isinstance(rows[0], list) else 0
+            if not 1 <= columns <= 8:
+                raise ValueError("Tables must contain 1–8 columns.")
+            for row in rows:
+                if not isinstance(row, list) or len(row) != columns:
+                    raise ValueError("Table rows must have equal column counts.")
+                expected.extend(text(cell) for cell in row)
+        elif kind == "page_break":
+            keys(block, ["type"], "Page break")
+            if previous_break:
+                raise ValueError("Page breaks cannot be first or adjacent.")
+        else:
+            raise ValueError("Unsupported block type: " + str(kind))
+        previous_break = kind == "page_break"
+    if previous_break:
+        raise ValueError("Page breaks cannot be last.")
+    if sum(map(len, expected)) > 200_000:
+        raise ValueError("Document text exceeds 200,000 characters.")
+    if extension == ".pdf":
         data = create_pdf(spec, expected)
         actual, pages = pdf_text(data, spec.get("max_pages", 500))
     else:
@@ -430,7 +435,7 @@ def create(args):
     publish(data, output)
     return {
         "path": str(output),
-        "format": output.suffix[1:].lower(),
+        "format": extension[1:],
         "pages": pages,
         "verified": ["reopened", "expected_text"],
         "visual_review": "not_performed",
@@ -451,7 +456,9 @@ def convert(args):
     source_bytes = source.read_bytes()
     expected = docx_text(source_bytes)
     if not expected:
-        raise ValueError("Source has no body/table text to verify; conversion needs another review workflow.")
+        raise ValueError(
+            "Source has no body/table text to verify; conversion needs another review workflow."
+        )
     with tempfile.TemporaryDirectory(prefix="otis-convert-") as directory:
         staging = Path(directory)
         (staging / "source.docx").write_bytes(source_bytes)
@@ -494,10 +501,11 @@ def render(args):
     require("pypdfium2", "PIL")
     import pypdfium2
 
-    pdf = pypdfium2.PdfDocument(source)
-    try:
+    with pypdfium2.PdfDocument(source) as pdf:
         pages = (
-            [int(value) for value in args.pages.split(",")] if args.pages else list(range(1, len(pdf) + 1))
+            [int(value) for value in args.pages.split(",")]
+            if args.pages
+            else list(range(1, len(pdf) + 1))
         )
         if (
             not 1 <= len(pages) <= 20
@@ -509,8 +517,8 @@ def render(args):
         with tempfile.TemporaryDirectory(prefix="otis-render-", dir=output.parent) as directory:
             staging = Path(directory)
             for page in pages:
-                source_page = pdf[page - 1]
-                try:
+                image = staging / f"page-{page}.png"
+                with closing(pdf[page - 1]) as source_page:
                     width, height = source_page.get_size()
                     if (
                         not math.isfinite(width * height)
@@ -518,16 +526,10 @@ def render(args):
                         or width * height * (120 / 72) ** 2 > 20_000_000
                     ):
                         raise ValueError("Page dimensions exceed the render limit.")
-                    bitmap = source_page.render(scale=120 / 72)
-                    try:
-                        image = staging / f"page-{page}.png"
+                    with closing(source_page.render(scale=120 / 72)) as bitmap:
                         bitmap.to_pil().save(image)
-                        if not 0 < image.stat().st_size <= MAX_BYTES:
-                            raise ValueError("Rendered page exceeds the image size limit.")
-                    finally:
-                        bitmap.close()
-                finally:
-                    source_page.close()
+                if not 0 < image.stat().st_size <= MAX_BYTES:
+                    raise ValueError("Rendered page exceeds the image size limit.")
             output.mkdir(mode=0o700)  # Fail if another process created it meanwhile.
             try:
                 for page in pages:
@@ -537,8 +539,6 @@ def render(args):
             except Exception:
                 shutil.rmtree(output)
                 raise
-    finally:
-        pdf.close()
     return {
         "directory": str(output),
         "images": [f"page-{p}.png" for p in pages],
@@ -574,41 +574,25 @@ def edit_pdf(args):
 
 
 def main():
+    commands = {
+        "check": (check, []),
+        "create": (create, ["--spec", "--output"]),
+        "convert": (convert, ["--source", "--output"]),
+        "render": (render, ["--source", "--output-dir", "--pages"]),
+        "inspect-pdf": (inspect_pdf, ["--source", "--pages"]),
+        "edit-pdf": (edit_pdf, ["--source", "--spec", "--output"]),
+    }
     parser = argparse.ArgumentParser(description=__doc__)
-    commands = parser.add_subparsers(dest="command", required=True)
-    commands.add_parser("check")
-    creation = commands.add_parser("create")
-    creation.add_argument("--spec", required=True)
-    creation.add_argument("--output", required=True)
-    conversion = commands.add_parser("convert")
-    conversion.add_argument("--source", required=True)
-    conversion.add_argument("--output", required=True)
-    rendering = commands.add_parser("render")
-    rendering.add_argument("--source", required=True)
-    rendering.add_argument("--output-dir", required=True)
-    rendering.add_argument("--pages")
-    inspection = commands.add_parser("inspect-pdf")
-    inspection.add_argument("--source", required=True)
-    inspection.add_argument("--pages")
-    editing = commands.add_parser("edit-pdf")
-    editing.add_argument("--source", required=True)
-    editing.add_argument("--spec", required=True)
-    editing.add_argument("--output", required=True)
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    for name, (_, flags) in commands.items():
+        subparser = subparsers.add_parser(name)
+        for flag in flags:
+            subparser.add_argument(flag, required=flag != "--pages")
     args = parser.parse_args()
     try:
         if sys.version_info < (3, 10):
             raise ValueError("Python 3.10 or later is required.")
-        result = (
-            check()
-            if args.command == "check"
-            else {
-                "create": create,
-                "convert": convert,
-                "render": render,
-                "inspect-pdf": inspect_pdf,
-                "edit-pdf": edit_pdf,
-            }[args.command](args)
-        )
+        result = commands[args.command][0](args)
         print(json.dumps({"ok": True, **result}, ensure_ascii=False))
     except Exception as error:
         print(json.dumps({"ok": False, "error": str(error)}, ensure_ascii=False), file=sys.stderr)

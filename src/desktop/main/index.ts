@@ -1,7 +1,8 @@
 import { mkdirSync } from "node:fs"
 import { mkdir } from "node:fs/promises"
 import { homedir } from "node:os"
-import { app, type BrowserWindow, dialog } from "electron"
+import { join } from "node:path"
+import { app, BrowserWindow, dialog, shell } from "electron"
 import electronUpdater from "electron-updater"
 import { localConfigDirectory, localDataDirectory } from "../../local/paths.js"
 import { loadLocalSettings } from "../../local/settings.js"
@@ -9,12 +10,11 @@ import { DESKTOP_CHANNELS } from "../contracts.js"
 import { configureAppIcon } from "./app-icon.js"
 import { initializeDevProfile, resolveDevData, shouldInitializeDevProfile } from "./dev-data.js"
 import { registerDesktopIpc } from "./ipc.js"
-import { sendToRenderer } from "./renderer.js"
+import { handleRendererFailure, sendToRenderer } from "./renderer.js"
 import { DesktopRuntime } from "./runtime.js"
 import { handleClosedOutput } from "./stdio.js"
-import { createStatusTray, type StatusTray, trayIconDir, trayStatusGate } from "./tray.js"
+import { createStatusTray, trayIconDir, trayStatusGate } from "./tray.js"
 import { startAutoUpdates } from "./updater.js"
-import { createMainWindow } from "./window.js"
 import { recoverWorkspaceCwd, resolveWorkspaceCwd } from "./workspace.js"
 
 const { autoUpdater } = electronUpdater
@@ -25,14 +25,15 @@ handleClosedOutput(process.stderr)
 let mainWindow: BrowserWindow | undefined
 let runtime: DesktopRuntime | undefined
 let updater: ReturnType<typeof startAutoUpdates> | undefined
-let statusTray: StatusTray | undefined
 let quitting = false
-// The sole route for both tray status writers (live stream and seed); see trayStatusGate for why the seed is gated.
+// The sole route for both tray status writers (live stream and seed); see trayStatusGate for why
+// the seed is gated.
 let statusTrayGate: ReturnType<typeof trayStatusGate> | undefined
 
 app.setName(app.isPackaged ? "Otis" : "Otis Dev")
 
-// Isolate development before acquiring the lock or loading any settings, sessions or managed runtimes.
+// Isolate development before acquiring the lock or loading any settings, sessions or managed
+// runtimes.
 const devData = resolveDevData({
   packaged: app.isPackaged,
   appData: app.getPath("appData"),
@@ -56,45 +57,12 @@ if (devData) {
   mkdirSync(devData.userData, { recursive: true, mode: 0o700 })
   app.setPath("userData", devData.userData)
   app.setPath("sessionData", devData.userData)
-  // Default the Otis data root to the same sandbox; an explicit OTIS_HOME was already honored above.
+  // Default the Otis data root to the same sandbox; an explicit OTIS_HOME was already honored
+  // above.
   process.env.OTIS_HOME = devData.otisHome
 }
 
-async function workspaceCwd() {
-  // The last GUI workspace only applies when the shell handed us no cwd (Finder/Dock relaunch).
-  const lastWorkspace = (await loadLocalSettings()).lastWorkspace
-  const cwd = resolveWorkspaceCwd(process.env, process.cwd(), homedir(), lastWorkspace)
-  try {
-    await mkdir(cwd, { recursive: true })
-    return cwd
-  } catch (cause) {
-    return recoverWorkspaceCwd(cwd, cause, {
-      async choose(title, detail) {
-        const { response } = await dialog.showMessageBox({
-          type: "error",
-          message: title,
-          detail,
-          buttons: ["Choose a Folder…", "Quit"],
-          defaultId: 0,
-          cancelId: 1,
-        })
-        return response === 0 ? "pick" : "quit"
-      },
-      async pickFolder() {
-        const result = await dialog.showOpenDialog({
-          title: "Choose a workspace folder",
-          properties: ["openDirectory", "createDirectory"],
-        })
-        return result.canceled ? undefined : result.filePaths[0]
-      },
-      mkdir: (path) => mkdir(path, { recursive: true }),
-      showError: (title, detail) => dialog.showErrorBox(title, detail),
-    })
-  }
-}
-
-const gotLock = app.requestSingleInstanceLock()
-if (!gotLock) {
+if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.on("second-instance", () => {
@@ -124,16 +92,52 @@ if (!gotLock) {
       mainDir: __dirname,
       platform: process.platform,
     })
-    const cwd = await workspaceCwd()
+
+    // The last GUI workspace only applies when the shell handed us no cwd (Finder/Dock relaunch).
+    const lastWorkspace = (await loadLocalSettings()).lastWorkspace
+    let cwd: string | undefined = resolveWorkspaceCwd(
+      process.env,
+      process.cwd(),
+      homedir(),
+      lastWorkspace,
+    )
+    try {
+      await mkdir(cwd, { recursive: true })
+    } catch (cause) {
+      cwd = await recoverWorkspaceCwd(cwd, cause, {
+        async choose(title, detail) {
+          const { response } = await dialog.showMessageBox({
+            type: "error",
+            message: title,
+            detail,
+            buttons: ["Choose a Folder…", "Quit"],
+            defaultId: 0,
+            cancelId: 1,
+          })
+          return response === 0 ? "pick" : "quit"
+        },
+        async pickFolder() {
+          const result = await dialog.showOpenDialog({
+            title: "Choose a workspace folder",
+            properties: ["openDirectory", "createDirectory"],
+          })
+          return result.canceled ? undefined : result.filePaths[0]
+        },
+        mkdir: (path) => mkdir(path, { recursive: true }),
+        showError: (title, detail) => dialog.showErrorBox(title, detail),
+      })
+    }
     if (!cwd) {
       app.quit()
       return
     }
-    runtime = await DesktopRuntime.create({
+
+    const current = await DesktopRuntime.create({
       cwd,
       checkForUpdates: async () => updater?.check(),
       installUpdate: async () => {
-        // The replacement process must find the single-instance lock free and managed servers stopped.
+        // The replacement process must find the single-instance lock free and managed servers
+        // stopped.
         await runtime?.shutdown().catch(() => {})
         app.releaseSingleInstanceLock()
         updater?.install()
@@ -142,14 +146,16 @@ if (!gotLock) {
       platform: process.platform,
       send: (event) => {
         if (mainWindow) sendToRenderer(mainWindow.webContents, DESKTOP_CHANNELS.event, event)
-        // The status bar item rides the same ordered stream the renderer sees, so it can never drift.
+        // The status bar item rides the same ordered stream the renderer sees, so it can never
+        // drift.
         if (event.type === "status") statusTrayGate?.applyLive(event.status)
       },
     })
-    registerDesktopIpc(runtime)
+    runtime = current
+    registerDesktopIpc(current)
     updater = startAutoUpdates({
       isPackaged: app.isPackaged,
-      onState: (state) => runtime?.setUpdateState(state),
+      onState: (state) => current.setUpdateState(state),
       onUpdaterError: (listener) => {
         autoUpdater.on("error", listener)
         return () => autoUpdater.removeListener("error", listener)
@@ -167,51 +173,99 @@ if (!gotLock) {
       },
     })
 
-    mainWindow = createMainWindow({
+    const window = new BrowserWindow({
+      width: 1280,
+      height: 832,
+      minWidth: 960,
+      minHeight: 600,
+      title: app.getName(),
       icon: appIcon,
-      onRendererGone: () => runtime?.handleRendererGone(),
+      backgroundColor: "#1A1A1A",
+      titleBarStyle: process.platform === "darwin" ? "hiddenInset" : undefined,
+      trafficLightPosition: process.platform === "darwin" ? { x: 16, y: 16 } : undefined,
+      show: false,
+      webPreferences: {
+        preload: join(__dirname, "../preload/index.cjs"),
+        contextIsolation: true,
+        sandbox: true,
+        nodeIntegration: false,
+      },
+    })
+    mainWindow = window
+    handleRendererFailure(window, {
+      onRendererGone: () => current.handleRendererGone(),
       isQuitting: () => quitting || Boolean(updater?.isInstalling()),
     })
-    mainWindow.on("closed", () => {
+    window.once("ready-to-show", () => window.show())
+    // Keep the native app identity when the shared HTML document announces its "Otis" title.
+    window.on("page-title-updated", (event) => event.preventDefault())
+    window.on("closed", () => {
       mainWindow = undefined
     })
-
-    // The macOS status bar item: glanceable activity (idle / working / needs approval) plus quick actions,
-    // seeded from a snapshot and kept current by the status stream. macOS-only for now; tray.ts is
-    // platform-clean so a Linux app indicator can follow the same shape.
-    if (process.platform === "darwin" && runtime) {
-      const current = runtime
-      statusTray = createStatusTray({
-        appName: app.getName(),
-        iconDir: trayIconDir({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, mainDir: __dirname }),
-        actions: {
-          focusWindow: () => {
-            const window = mainWindow
-            if (!window) return
-            if (window.isMinimized()) window.restore()
-            window.show()
-            window.focus()
-          },
-          startNewSession: () => void current.startNewSession(),
-          stop: () => current.stop(),
-          installUpdate: () => void current.installUpdate(),
-        },
+    const sendWindowState = () => {
+      sendToRenderer(window.webContents, DESKTOP_CHANNELS.windowState, {
+        fullscreen: window.isFullScreen(),
       })
-      // Both the live stream (via the send fan-out above) and the seed below write to the tray. The gate
-      // drops a seed that resolves after any live event — the seed's busy/phase were captured before its
-      // session listing finished, so applying it then would roll a newer working/approval icon back to idle.
-      const trayGate = statusTray ? trayStatusGate(statusTray) : undefined
-      statusTrayGate = trayGate
-      void current
-        .snapshot()
-        .then((snapshot) => trayGate?.applySeed(snapshot))
-        .catch((error) => console.warn(`Unable to seed the status bar item: ${String(error)}`))
     }
+    window.webContents.on("did-finish-load", sendWindowState)
+    window.on("enter-full-screen", sendWindowState)
+    window.on("leave-full-screen", sendWindowState)
+    // The renderer never navigates or opens windows itself; links go to the system browser.
+    window.webContents.setWindowOpenHandler(({ url }) => {
+      if (url.startsWith("https://") || url.startsWith("http://")) void shell.openExternal(url)
+      return { action: "deny" }
+    })
+    window.webContents.on("will-navigate", (event) => event.preventDefault())
+    const devServerUrl = process.env.ELECTRON_RENDERER_URL
+    const demo = process.env.OTIS_DEMO === "1"
+    const loaded = devServerUrl
+      ? window.loadURL(demo ? `${devServerUrl}?demo` : devServerUrl)
+      : window.loadFile(
+          join(__dirname, "../renderer/index.html"),
+          demo ? { search: "demo" } : undefined,
+        )
+    // did-fail-load owns the native recovery UI, including when the dev server has disappeared.
+    void loaded.catch(() => {})
+
+    // The macOS status bar item: glanceable activity (idle / working / needs approval) plus quick
+    // actions, seeded from a snapshot and kept current by the status stream. macOS-only for now;
+    // tray.ts is platform-clean so a Linux app indicator can follow the same shape.
+    if (process.platform !== "darwin") return
+    const tray = createStatusTray({
+      appName: app.getName(),
+      iconDir: trayIconDir({
+        packaged: app.isPackaged,
+        resourcesPath: process.resourcesPath,
+        mainDir: __dirname,
+      }),
+      actions: {
+        focusWindow: () => {
+          if (!mainWindow) return
+          if (mainWindow.isMinimized()) mainWindow.restore()
+          mainWindow.show()
+          mainWindow.focus()
+        },
+        startNewSession: () => void current.startNewSession(),
+        stop: () => current.stop(),
+        installUpdate: () => void current.installUpdate(),
+      },
+    })
+    if (!tray) return
+    // Both the live stream (via the send fan-out above) and the seed below write to the tray. The
+    // gate drops a seed that resolves after any live event — the seed's busy/phase were captured
+    // before its session listing finished, so applying it then would roll a newer working/approval
+    // icon back to idle.
+    const gate = trayStatusGate(tray)
+    statusTrayGate = gate
+    void current
+      .snapshot()
+      .then((snapshot) => gate.applySeed(snapshot))
+      .catch((error) => console.warn(`Unable to seed the status bar item: ${String(error)}`))
   })
 
-  // v1 policy: one window, one workspace. Closing the window quits the app so no managed processes outlive it.
-  // During an update install both quit paths stand down: quitAndInstall owns the shutdown, and racing it with
-  // app.quit()/app.exit(0) would kill the installer handoff.
+  // v1 policy: one window, one workspace. Closing the window quits the app so no managed processes
+  // outlive it. During an update install both quit paths stand down: quitAndInstall owns the
+  // shutdown, and racing it with app.quit()/app.exit(0) would kill the installer handoff.
   app.on("window-all-closed", () => {
     if (updater?.isInstalling()) return
     app.quit()

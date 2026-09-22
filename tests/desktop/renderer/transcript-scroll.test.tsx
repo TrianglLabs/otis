@@ -14,8 +14,8 @@ function scrollOf(holder: Holder): Scroll {
   return holder.scroll
 }
 
-// The hook's consumer in the app is Virtuoso's scroller: a plain div wired to the same handlers stands in
-// for it, so the events below travel the real capture path React delegates at the root.
+// The hook's consumer in the app is Virtuoso's scroller: a plain div wired to the same handlers
+// stands in for it, so the events below travel the real capture path React delegates at the root.
 function Probe({ holder }: { holder: Holder }) {
   const scroll = useTranscriptScroll()
   holder.scroll = scroll
@@ -51,7 +51,10 @@ function stubMetrics(scroller: HTMLElement, top: number, height: number, viewpor
 
 function stubWidth(scroller: HTMLElement, content: number, gutter: number) {
   Object.defineProperty(scroller, "clientWidth", { configurable: true, get: () => content })
-  Object.defineProperty(scroller, "offsetWidth", { configurable: true, get: () => content + gutter })
+  Object.defineProperty(scroller, "offsetWidth", {
+    configurable: true,
+    get: () => content + gutter,
+  })
   scroller.getBoundingClientRect = () => ({
     x: 0,
     y: 0,
@@ -65,7 +68,11 @@ function stubWidth(scroller: HTMLElement, content: number, gutter: number) {
   })
 }
 
-function mount(top: number, height: number, viewport: number): { holder: Holder; scroller: HTMLElement } {
+function mount(
+  top: number,
+  height: number,
+  viewport: number,
+): { holder: Holder; scroller: HTMLElement } {
   const holder: Holder = {}
   render(<Probe holder={holder} />)
   const scroller = screen.getByTestId("scroller")
@@ -73,7 +80,8 @@ function mount(top: number, height: number, viewport: number): { holder: Holder;
   return { holder, scroller }
 }
 
-const nextFrame = () => act(async () => new Promise((resolve) => requestAnimationFrame(() => resolve())))
+const nextFrame = () =>
+  act(async () => new Promise((resolve) => requestAnimationFrame(() => resolve())))
 
 afterEach(() => {
   cleanup()
@@ -141,7 +149,10 @@ describe("useTranscriptScroll", () => {
     const { holder, scroller } = mount(800, 1000, 200)
     const text = document.createTextNode("selected message")
     scroller.append(text)
-    vi.spyOn(document, "getSelection").mockReturnValue({ isCollapsed: false, anchorNode: text } as unknown as Selection)
+    vi.spyOn(document, "getSelection").mockReturnValue({
+      isCollapsed: false,
+      anchorNode: text,
+    } as unknown as Selection)
 
     act(() => document.dispatchEvent(new Event("selectionchange")))
 
@@ -165,8 +176,8 @@ describe("useTranscriptScroll", () => {
     const { holder, scroller } = mount(800.5, 1001, 200)
     fireEvent.scroll(scroller)
 
-    // Chromium can clamp to a fractional bottom, then the virtual list rounds the position while the
-    // next chunk grows the content. The half-pixel correction is not a reader scrolling upward.
+    // Chromium can clamp to a fractional bottom, then the virtual list rounds the position while
+    // the next chunk grows the content. The half-pixel correction is not a reader scrolling upward.
     stubMetrics(scroller, 800, 1100, 200)
     fireEvent.scroll(scroller)
     expect(scrollOf(holder).atBottom).toBe(true)

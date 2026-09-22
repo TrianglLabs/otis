@@ -9,8 +9,8 @@ import {
   saveFastServingSelection,
   saveFireworksApiKey,
   saveFireworksSetup,
+  saveLocalServers,
   saveLocalThinking,
-  savePairEndpoints,
   savePermissionMode,
   saveSelectedModel,
   saveSelectedTheme,
@@ -22,7 +22,9 @@ import {
 const tempDirectories: string[] = []
 
 afterEach(async () => {
-  await Promise.all(tempDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })))
+  await Promise.all(
+    tempDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })),
+  )
 })
 
 describe("local settings", () => {
@@ -40,7 +42,9 @@ describe("local settings", () => {
       "prism-ml/Ternary-Bonsai-2-27B-gguf": "medium",
     })
     await saveLocalThinking("Qwen/Qwen3.8-27B", "default", { file })
-    await expect(saveLocalThinking("prism-ml/Ternary-Bonsai-2-27B-gguf", "low", { file })).rejects.toThrow()
+    await expect(
+      saveLocalThinking("prism-ml/Ternary-Bonsai-2-27B-gguf", "low", { file }),
+    ).rejects.toThrow()
     expect((await loadLocalSettings({ file, env: {} })).localThinking).toEqual({
       "prism-ml/Ternary-Bonsai-2-27B-gguf": "medium",
     })
@@ -49,12 +53,16 @@ describe("local settings", () => {
   it("seeds a private independent profile without replacing its later settings", async () => {
     const source = join(await tempDirectory(), "config.json")
     const file = join(await tempDirectory(), "dev", "config.json")
-    await saveFireworksSetup("fw_fake_import_key", model("tool-model", "Tool Model", 131_072), { file: source })
+    await saveFireworksSetup("fw_fake_import_key", model("tool-model", "Tool Model", 131_072), {
+      file: source,
+    })
     await saveThinkingVisible(false, { file: source })
     const original = await readFile(source, "utf8")
 
     await initializeLocalSettings(source, { file })
-    expect(await loadLocalSettings({ file, env: {} })).toEqual(await loadLocalSettings({ file: source, env: {} }))
+    expect(await loadLocalSettings({ file, env: {} })).toEqual(
+      await loadLocalSettings({ file: source, env: {} }),
+    )
     if (process.platform !== "win32") {
       expect((await stat(file)).mode & 0o777).toBe(0o600)
       expect((await stat(join(file, ".."))).mode & 0o777).toBe(0o700)
@@ -162,7 +170,9 @@ describe("local settings", () => {
     const file = join(await tempDirectory(), "config.json")
     await saveSelectedModel(model("tool-model", "Tool Model", 131_072), { file })
 
-    await expect(loadLocalSettings({ file, env: { FIREWORKS_API_KEY: " fw_env_key " } })).resolves.toEqual({
+    await expect(
+      loadLocalSettings({ file, env: { FIREWORKS_API_KEY: " fw_env_key " } }),
+    ).resolves.toEqual({
       fireworksApiKey: "fw_env_key",
       model: "accounts/fireworks/models/tool-model",
       modelDisplayName: "Tool Model",
@@ -248,14 +258,18 @@ describe("local settings", () => {
     await saveFireworksSetup("fw_test_key", model("tool-model", "Tool Model"), { file })
     await saveSubagentPanelVisible(false, { file })
 
-    await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({ subagentPanelVisible: false })
+    await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({
+      subagentPanelVisible: false,
+    })
     expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({
       fireworksApiKey: "fw_test_key",
       subagentPanelVisible: false,
     })
 
     await saveSelectedModel(model("accounts/fireworks/models/new", "New"), { file })
-    await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({ subagentPanelVisible: false })
+    await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({
+      subagentPanelVisible: false,
+    })
   })
 
   it("stores thinking visibility independently from reasoning behavior", async () => {
@@ -263,7 +277,9 @@ describe("local settings", () => {
     await saveFireworksSetup("fw_test_key", model("tool-model", "Tool Model"), { file })
     await saveThinkingVisible(true, { file })
 
-    await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({ thinkingVisible: true })
+    await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({
+      thinkingVisible: true,
+    })
     expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({
       fireworksApiKey: "fw_test_key",
       thinkingVisible: true,
@@ -472,13 +488,20 @@ describe("local settings", () => {
     await expect(loadLocalSettings({ file: local, env: {} })).resolves.toMatchObject({
       pairEndpoints: { ollama: "http://localhost:11434" },
     })
-    await expect(loadLocalSettings({ file: remote, env: {} })).rejects.toThrow("Invalid Otis config")
+    await expect(loadLocalSettings({ file: remote, env: {} })).rejects.toThrow(
+      "Invalid Otis config",
+    )
   })
 
   it("stores every verified PAIR endpoint independently from the selected provider", async () => {
     const file = join(await tempDirectory(), "config.json")
     await saveSelectedModel(model("hosted", "Hosted"), { file })
-    await savePairEndpoints({ ollama: "http://127.0.0.1:22111/v1", lmStudio: "http://127.0.0.1:22112" }, { file })
+    await saveLocalServers(
+      {
+        pairEndpoints: { ollama: "http://127.0.0.1:22111/v1", lmStudio: "http://127.0.0.1:22112" },
+      },
+      { file },
+    )
 
     await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({
       pairEndpoints: {
@@ -501,7 +524,9 @@ describe("local settings", () => {
   })
 
   it("returns an empty configuration for a missing file", async () => {
-    await expect(loadLocalSettings({ file: join(await tempDirectory(), "missing.json"), env: {} })).resolves.toEqual({
+    await expect(
+      loadLocalSettings({ file: join(await tempDirectory(), "missing.json"), env: {} }),
+    ).resolves.toEqual({
       fireworksApiKey: undefined,
       model: undefined,
       modelDisplayName: undefined,
@@ -524,21 +549,47 @@ describe("local settings", () => {
     await writeFile(malformed, "{broken", "utf8")
     await writeFile(unsupported, JSON.stringify({ version: 2 }), "utf8")
     await writeFile(invalidMetadata, JSON.stringify({ version: 1, modelContextLength: -1 }), "utf8")
-    await writeFile(invalidThinking, JSON.stringify({ version: 1, thinkingVisible: "sometimes" }), "utf8")
-    await writeFile(invalidSubagentPanel, JSON.stringify({ version: 1, subagentPanelVisible: "sometimes" }), "utf8")
+    await writeFile(
+      invalidThinking,
+      JSON.stringify({ version: 1, thinkingVisible: "sometimes" }),
+      "utf8",
+    )
+    await writeFile(
+      invalidSubagentPanel,
+      JSON.stringify({ version: 1, subagentPanelVisible: "sometimes" }),
+      "utf8",
+    )
     await writeFile(invalidFastMode, JSON.stringify({ version: 1, fastMode: "sometimes" }), "utf8")
-    await writeFile(invalidFastServingModels, JSON.stringify({ version: 1, fastServingModels: [false] }), "utf8")
+    await writeFile(
+      invalidFastServingModels,
+      JSON.stringify({ version: 1, fastServingModels: [false] }),
+      "utf8",
+    )
     await writeFile(invalidPairEndpoints, JSON.stringify({ version: 1, pairEndpoints: [] }), "utf8")
-    await writeFile(invalidPairEngine, JSON.stringify({ version: 1, pairEngine: "llama.cpp" }), "utf8")
+    await writeFile(
+      invalidPairEngine,
+      JSON.stringify({ version: 1, pairEngine: "llama.cpp" }),
+      "utf8",
+    )
 
-    await expect(loadLocalSettings({ file: malformed, env: {} })).rejects.toThrow("Invalid Otis config")
-    await expect(loadLocalSettings({ file: unsupported, env: {} })).rejects.toThrow("unsupported version")
-    await expect(loadLocalSettings({ file: invalidMetadata, env: {} })).rejects.toThrow("positive integer")
-    await expect(loadLocalSettings({ file: invalidThinking, env: {} })).rejects.toThrow("thinkingVisible must be")
+    await expect(loadLocalSettings({ file: malformed, env: {} })).rejects.toThrow(
+      "Invalid Otis config",
+    )
+    await expect(loadLocalSettings({ file: unsupported, env: {} })).rejects.toThrow(
+      "unsupported version",
+    )
+    await expect(loadLocalSettings({ file: invalidMetadata, env: {} })).rejects.toThrow(
+      "positive integer",
+    )
+    await expect(loadLocalSettings({ file: invalidThinking, env: {} })).rejects.toThrow(
+      "thinkingVisible must be",
+    )
     await expect(loadLocalSettings({ file: invalidSubagentPanel, env: {} })).rejects.toThrow(
       "subagentPanelVisible must be",
     )
-    await expect(loadLocalSettings({ file: invalidFastMode, env: {} })).rejects.toThrow("fastMode must be")
+    await expect(loadLocalSettings({ file: invalidFastMode, env: {} })).rejects.toThrow(
+      "fastMode must be",
+    )
     await expect(loadLocalSettings({ file: invalidFastServingModels, env: {} })).rejects.toThrow(
       "fastServingModels must be",
     )

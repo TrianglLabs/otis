@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest"
 import { SubagentTraces } from "../../src/app/subagents.js"
-import { TurnDetailsRecorder } from "../../src/app/turn-details.js"
 import type { AgentEvent } from "../../src/core/agent.js"
-import { compactionSummaryMessage } from "../../src/core/compaction.js"
 import type { ChatMessage } from "../../src/inference/types.js"
 
 const childMessages: ChatMessage[] = [
   { role: "user", content: "Map the repo." },
   {
     role: "assistant",
-    content: [{ type: "tool_call", toolCall: { id: "read_1", name: "read", arguments: '{"path":"a.ts"}' } }],
+    content: [
+      { type: "tool_call", toolCall: { id: "read_1", name: "read", arguments: '{"path":"a.ts"}' } },
+    ],
   },
   { role: "tool", toolCallId: "read_1", content: "a" },
   { role: "assistant", content: [{ type: "text", text: "Report." }] },
@@ -20,65 +20,26 @@ const parentMessages: ChatMessage[] = [
   {
     role: "assistant",
     content: [
-      { type: "tool_call", toolCall: { id: "call_a", name: "agent", arguments: '{"description":"A","prompt":"a"}' } },
-      { type: "tool_call", toolCall: { id: "call_b", name: "agent", arguments: '{"description":"B","prompt":"b"}' } },
+      {
+        type: "tool_call",
+        toolCall: { id: "call_a", name: "agent", arguments: '{"description":"A","prompt":"a"}' },
+      },
+      {
+        type: "tool_call",
+        toolCall: { id: "call_b", name: "agent", arguments: '{"description":"B","prompt":"b"}' },
+      },
     ],
   },
 ]
 
-function envelope(toolCallId: string, event: AgentEvent): Extract<AgentEvent, { type: "subagent" }> {
+function envelope(
+  toolCallId: string,
+  event: AgentEvent,
+): Extract<AgentEvent, { type: "subagent" }> {
   return { type: "subagent", toolCallId, title: `Task ${toolCallId}`, event }
 }
 
 describe("SubagentTraces", () => {
-  it("keeps child checkpoints and continuation messages consistent between the live trace and saved run", () => {
-    const traces = new SubagentTraces()
-    const recorder = new TurnDetailsRecorder()
-    const prefix: ChatMessage[] = [
-      { role: "user", content: "Explore first." },
-      {
-        role: "assistant",
-        content: [{ type: "tool_call", toolCall: { id: "old_read", name: "read", arguments: "{}" } }],
-      },
-      { role: "tool", toolCallId: "old_read", content: "old file" },
-    ]
-    const events: AgentEvent[] = [
-      {
-        type: "tool",
-        phase: "start",
-        toolCallId: "old_read",
-        name: "read",
-        activityKind: "file_read",
-        label: "Reading old file",
-      },
-      { type: "compaction", phase: "complete", summary: "Earlier exploration.", keptMessages: [], messages: prefix },
-      {
-        type: "tool",
-        phase: "start",
-        toolCallId: "read_1",
-        name: "read",
-        activityKind: "file_read",
-        label: "Reading a.ts",
-      },
-      { type: "delta", text: "Report." },
-      { type: "complete", messages: childMessages },
-    ]
-    for (const event of events) {
-      const wrapped = envelope("call_a", event)
-      traces.apply(wrapped)
-      recorder.record(wrapped)
-    }
-    const saved = recorder.subagents[0]
-    expect(saved.messages).toEqual([...prefix, compactionSummaryMessage("Earlier exploration."), ...childMessages])
-    expect(traces.runsFor(parentMessages)[0].messages).toEqual(saved.messages)
-    expect(traces.get("call_a")?.transcript.history).toEqual([
-      compactionSummaryMessage("Earlier exploration."),
-      ...childMessages,
-    ])
-    expect(saved.toolActivities?.map((activity) => activity.toolCallId)).toEqual(["old_read", "read_1"])
-    expect(traces.runsFor(parentMessages)[0].toolActivities).toEqual(saved.toolActivities)
-  })
-
   it("builds a live transcript per run and settles its status from the child's terminal event", () => {
     const traces = new SubagentTraces()
 
@@ -106,14 +67,17 @@ describe("SubagentTraces", () => {
     expect(traces.get("call_a")?.transcript.entries[1].streaming).toBe(true)
     const running = traces.get("call_a")
 
-    const completed = traces.apply(envelope("call_a", { type: "complete", messages: childMessages }))
+    const completed = traces.apply(
+      envelope("call_a", { type: "complete", messages: childMessages }),
+    )
     traces.apply(envelope("call_b", { type: "error", message: "boom" }))
 
     expect(completed).toMatchObject({ status: "complete", durationMs: expect.any(Number) })
     expect(completed.transcript.entries[1].streaming).toBe(false)
     expect(completed.transcript.history).toEqual(childMessages)
     expect(traces.get("call_b")).toMatchObject({ status: "failed" })
-    // Status changes produce a new trace object, so a view holding the old one can detect the change.
+    // Status changes produce a new trace object, so a view holding the old one can detect the
+    // change.
     expect(running?.status).toBe("running")
     expect(traces.get("call_a")).not.toBe(running)
     expect(traces.get("call_a")?.transcript).toBe(running?.transcript)
@@ -128,7 +92,9 @@ describe("SubagentTraces", () => {
         title: "B",
         status: "complete",
         messages: childMessages,
-        toolActivities: [{ toolCallId: "read_1", activityKind: "file_read", label: "Reading files: a.ts" }],
+        toolActivities: [
+          { toolCallId: "read_1", activityKind: "file_read", label: "Reading files: a.ts" },
+        ],
         durationMs: 900,
       },
     ])
@@ -144,14 +110,17 @@ describe("SubagentTraces", () => {
     traces.apply(envelope("call_a", { type: "delta", text: "still running" }))
     traces.apply(envelope("call_c", { type: "interrupted", messages: [] }))
 
-    // Running runs are not persisted, and runs whose delegating call was compacted away are dropped.
+    // Running runs are not persisted, and runs whose delegating call was compacted away are
+    // dropped.
     expect(traces.runsFor(parentMessages)).toEqual([
       {
         toolCallId: "call_b",
         title: "B",
         status: "complete",
         messages: childMessages,
-        toolActivities: [{ toolCallId: "read_1", activityKind: "file_read", label: "Reading files: a.ts" }],
+        toolActivities: [
+          { toolCallId: "read_1", activityKind: "file_read", label: "Reading files: a.ts" },
+        ],
         durationMs: 900,
       },
     ])

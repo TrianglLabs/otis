@@ -10,7 +10,10 @@ export type ReasoningContentPart = {
   type: "reasoning"
   text: string
   field: OpenAICompatibleReasoningField
-  /** Otis-owned identity and timing metadata. Optional for sessions created before reasoning traces were introduced. */
+  /**
+   * Otis-owned identity and timing metadata. Optional for sessions created before reasoning
+   * traces were introduced.
+   */
   id?: string
   startedAt?: string
   endedAt?: string
@@ -47,7 +50,10 @@ export type DocumentKind = "text" | "pdf" | "docx"
 export type DocumentContentPart = {
   type: "document"
   kind: DocumentKind
-  /** Base64 source bytes for local persistence and future artifact rendering; provider adapters must not serialize it. */
+  /**
+   * Base64 source bytes for local persistence and future artifact rendering; provider adapters
+   * must not serialize it.
+   */
   data: string
   extractedText: string
   mimeType: string
@@ -159,7 +165,10 @@ export function isPairCatalogModel(model: CatalogModel): model is PairCatalogMod
 
 export type InferenceClient = {
   readonly model: string
-  /** Counts the fully formatted request without running inference, when supported by the serving endpoint. */
+  /**
+   * Counts the fully formatted request without running inference, when supported by the
+   * serving endpoint.
+   */
   countTokens?(options: StreamChatOptions): Promise<number>
   streamChat(options: StreamChatOptions): AsyncGenerator<ChatStreamEvent>
   complete(messages: ChatMessage[], options?: CompleteOptions): Promise<string>
@@ -178,7 +187,7 @@ export type StreamChatOptions = {
   projectContext?: ContextFile[]
   signal?: AbortSignal
   now?: Date
-  skills?: readonly import("../skills/types.js").Skill[]
+  skills?: readonly import("../skills/catalog.js").Skill[]
   outputCapabilities?: OutputCapabilities
 }
 
@@ -200,4 +209,32 @@ export type LocalClientConfig = {
   inferenceURL: string
   fetch?: typeof fetch
   apiKey?: string
+}
+
+/** oMLX runs on macOS; only advertise its local setup there. Safe to import in UI adapters. */
+export function supportsOmlx(platform: string | undefined): boolean {
+  return platform === "darwin"
+}
+
+export function localServerNames(platform: string | undefined): string[] {
+  return ["Ollama", "LM Studio", ...(supportsOmlx(platform) ? ["oMLX"] : [])]
+}
+
+export const MAX_IMAGES_PER_REQUEST = 30
+export const MAX_BASE64_IMAGE_BYTES = 10_000_000
+export const MAX_RAW_IMAGE_BYTES = Math.floor(((MAX_BASE64_IMAGE_BYTES - 1) * 3) / 4)
+
+export const SUPPORTED_IMAGE_EXTENSIONS = [
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".bmp",
+  ".tif",
+  ".tiff",
+  ".ppm",
+] as const
+
+export function base64EncodedLength(byteLength: number) {
+  return 4 * Math.ceil(byteLength / 3)
 }

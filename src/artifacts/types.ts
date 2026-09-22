@@ -1,21 +1,27 @@
-import { basename, extname, isAbsolute } from "node:path"
+import { extname, isAbsolute } from "node:path"
 
-export const ARTIFACT_KINDS = ["markdown", "text", "html", "pdf", "docx"] as const
+const ARTIFACT_KINDS = ["markdown", "text", "html", "pdf", "docx"] as const
 
 export type ArtifactKind = (typeof ARTIFACT_KINDS)[number]
 
 /** Original bytes for a user-requested copy, never a converted preview. */
 export type ArtifactFile = { name: string; bytes: Uint8Array }
 
-/** A previewable file produced or opened by a workspace tool. Paths stay workspace-relative across session moves. */
+/**
+ * A previewable file produced or opened by a workspace tool. Paths stay workspace-relative across
+ * session moves.
+ */
 export type WorkspaceArtifactReference = {
   source: "workspace"
   path: string
   kind: ArtifactKind
 }
 
-/** A persisted document attachment address. The content stays in the session message, never in renderer state. */
-export type AttachmentArtifactReference = {
+/**
+ * A persisted document attachment address. The content stays in the session message, never in
+ * renderer state.
+ */
+type AttachmentArtifactReference = {
   source: "attachment"
   sha256: string
   name: string
@@ -38,7 +44,10 @@ export type PublishedArtifactReference = {
 export type FileArtifactReference = WorkspaceArtifactReference | PublishedArtifactReference
 export type ArtifactReference = FileArtifactReference | AttachmentArtifactReference
 
-/** Small identity sent with application state. File contents travel only when the renderer asks for this revision. */
+/**
+ * Small identity sent with application state. File contents travel only when the renderer asks
+ * for this revision.
+ */
 export type ArtifactMetadata = {
   id: string
   revision: number
@@ -82,10 +91,16 @@ export function artifactKindForPath(path: string): ArtifactKind | undefined {
   return FILE_KINDS.get(extname(path).toLowerCase())
 }
 
-export function artifactKindForDocument(name: string, kind: "text" | "pdf" | "docx", mimeType: string): ArtifactKind {
+export function artifactKindForDocument(
+  name: string,
+  kind: "text" | "pdf" | "docx",
+  mimeType: string,
+): ArtifactKind {
   if (kind !== "text") return kind
-  if (mimeType === "text/markdown" || [".md", ".markdown"].includes(extname(name).toLowerCase())) return "markdown"
-  if (mimeType === "text/html" || [".html", ".htm"].includes(extname(name).toLowerCase())) return "html"
+  if (mimeType === "text/markdown" || [".md", ".markdown"].includes(extname(name).toLowerCase()))
+    return "markdown"
+  if (mimeType === "text/html" || [".html", ".htm"].includes(extname(name).toLowerCase()))
+    return "html"
   return "text"
 }
 
@@ -93,12 +108,9 @@ export function artifactMimeType(kind: ArtifactKind) {
   return MIME_TYPES[kind]
 }
 
-export function isEditableArtifact(kind: ArtifactKind) {
-  return kind === "markdown" || kind === "text" || kind === "html"
-}
-
 export function isWorkspaceArtifactReference(value: unknown): value is WorkspaceArtifactReference {
-  if (!isRecord(value) || value.source !== "workspace" || typeof value.path !== "string") return false
+  if (!isRecord(value) || value.source !== "workspace" || typeof value.path !== "string")
+    return false
   if (!ARTIFACT_KINDS.includes(value.kind as ArtifactKind)) return false
   const path = value.path.replaceAll("\\", "/")
   if (!path || isAbsolute(path) || path.split("/").some((part) => part === "..")) return false
@@ -120,10 +132,11 @@ export function attachmentArtifactReference(document: {
   }
 }
 
-export function isAttachmentArtifactReference(value: unknown): value is AttachmentArtifactReference {
+function isAttachmentArtifactReference(value: unknown): value is AttachmentArtifactReference {
   if (!isRecord(value) || value.source !== "attachment") return false
   if (typeof value.sha256 !== "string" || !/^[a-f\d]{64}$/i.test(value.sha256)) return false
-  if (typeof value.name !== "string" || !value.name || typeof value.mimeType !== "string") return false
+  if (typeof value.name !== "string" || !value.name || typeof value.mimeType !== "string")
+    return false
   if (!ARTIFACT_KINDS.includes(value.kind as ArtifactKind)) return false
   return (
     artifactKindForDocument(
@@ -161,10 +174,6 @@ export function isPublishedArtifactReference(value: unknown): value is Published
 
 export function isFileArtifactReference(value: unknown): value is FileArtifactReference {
   return isWorkspaceArtifactReference(value) || isPublishedArtifactReference(value)
-}
-
-export function artifactTitle(path: string) {
-  return basename(path) || path
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

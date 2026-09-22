@@ -9,7 +9,12 @@ import {
   readWorkspaceArtifactBytes,
   workspaceArtifactMetadata,
 } from "../artifacts/files.js"
-import { loadPublishedArtifact, publishedArtifactMetadata, readPublishedArtifactBytes } from "../artifacts/published.js"
+import {
+  ArtifactPublisher,
+  loadPublishedArtifact,
+  publishedArtifactMetadata,
+  readPublishedArtifactBytes,
+} from "../artifacts/publisher.js"
 import {
   type ArtifactFile,
   type ArtifactMetadata,
@@ -29,7 +34,8 @@ import type {
   ImageContentPart,
   UserChatMessage,
 } from "../inference/types.js"
-import type { SessionToolActivity } from "../storage/index.js"
+import type { JsonlSession, SessionToolActivity } from "../storage/index.js"
+import { groupToolActivities } from "./transcript.js"
 
 type ActiveArtifact =
   | { source: "workspace"; reference: WorkspaceArtifactReference }
@@ -85,7 +91,10 @@ export class ArtifactStore {
     this.#changed()
   }
 
-  /** Watching is needed only while a UI subscribes. CLI/headless runs do not start background watchers. */
+  /**
+   * Watching is needed only while a UI subscribes. CLI/headless runs do not start background
+   * watchers.
+   */
   subscribe(listener: () => void) {
     this.#listeners.add(listener)
     this.#syncWatcher()
@@ -96,32 +105,37 @@ export class ArtifactStore {
   }
 
   openWorkspace(reference: WorkspaceArtifactReference) {
-    if (!isWorkspaceArtifactReference(reference)) throw new Error("Invalid workspace artifact reference.")
+    if (!isWorkspaceArtifactReference(reference))
+      throw new Error("Invalid workspace artifact reference.")
     if (!isCanvasArtifact(reference.kind)) return
     this.#active = { source: "workspace", reference }
     this.#changed()
   }
 
-  /** Register trusted tool results. Background reads do not replace the document the user is viewing. */
+  /**
+   * Register trusted tool results. Background reads do not replace the document the user is
+   * viewing.
+   */
   observeFile(reference: FileArtifactReference) {
     if (!isFileArtifactReference(reference)) throw new Error("Invalid file artifact reference.")
     if (reference.source === "workspace") {
-      if (!isCanvasArtifact(reference.kind)) return
-      if (!this.#active || (this.#active.source === "workspace" && this.#active.reference.path === reference.path)) {
-        this.openWorkspace(reference)
-      }
+      const active = this.#active
+      const viewing = active?.source === "workspace" && active.reference.path === reference.path
+      if (isCanvasArtifact(reference.kind) && (!active || viewing)) this.openWorkspace(reference)
       return
     }
     const versions = this.#published.get(reference.artifactId) ?? []
     const existing = versions.find((item) => item.version === reference.version)
-    if (existing && !samePublication(existing, reference)) throw new Error("Conflicting artifact revision in session.")
+    if (existing && !samePublication(existing, reference))
+      throw new Error("Conflicting artifact revision in session.")
     if (!existing)
       this.#published.set(
         reference.artifactId,
         [...versions, reference].sort((a, b) => a.version - b.version),
       )
     if (!isCanvasArtifact(reference.kind)) return
-    // Preserve an explicitly selected older revision; otherwise the open artifact follows its latest version.
+    // Preserve an explicitly selected older revision; otherwise the open artifact follows its
+    // latest version.
     if (!this.#active || this.#active.source === "workspace") {
       this.#active = { source: "published", artifactId: reference.artifactId }
     }
@@ -139,12 +153,19 @@ export class ArtifactStore {
     if (typeof message.content === "string") return
     for (const part of message.content) {
       if (part.type === "image")
-        this.#images.set(`${part.name}:${createHash("sha256").update(part.data).digest("hex")}`, part)
+        this.#images.set(
+          `${part.name}:${createHash("sha256").update(part.data).digest("hex")}`,
+          part,
+        )
     }
-    const documents = message.content.filter((part): part is DocumentContentPart => part.type === "document")
+    const documents = message.content.filter(
+      (part): part is DocumentContentPart => part.type === "document",
+    )
     for (const document of documents)
       this.#attachments.set(attachmentKey(attachmentArtifactReference(document)), document)
-    const document = documents.filter((item) => isCanvasArtifact(attachmentArtifactReference(item).kind)).at(-1)
+    const document = documents
+      .filter((item) => isCanvasArtifact(attachmentArtifactReference(item).kind))
+      .at(-1)
     if (document) this.openAttachment(document)
   }
 
@@ -158,10 +179,14 @@ export class ArtifactStore {
   }
 
   /** Full scrollback owns artifact history, independent of compaction of model context. */
-  restore(messages: readonly ChatMessage[], activities: readonly SessionToolActivity[], directory = this.directory) {
+  restore(
+    messages: readonly ChatMessage[],
+    activities: readonly SessionToolActivity[],
+    directory = this.directory,
+  ) {
     this.clear()
     this.directory = directory
-    const byCall = groupActivities(activities)
+    const byCall = groupToolActivities(activities)
     for (const message of messages) {
       if (message.role === "user") this.observeMessage(message)
       if (message.role !== "assistant") continue
@@ -178,7 +203,10 @@ export class ArtifactStore {
   /** Card clicks follow latest; version navigation explicitly pins a saved revision. */
   open(reference: ArtifactReference, version?: number) {
     if (!isCanvasArtifact(reference.kind)) return false
-    if (version !== undefined && (!Number.isSafeInteger(version) || version < 1 || reference.source !== "published"))
+    if (
+      version !== undefined &&
+      (!Number.isSafeInteger(version) || version < 1 || reference.source !== "published")
+    )
       return false
     if (reference.source === "published") {
       const versions = this.#published.get(reference.artifactId)
@@ -238,7 +266,9 @@ export class ArtifactStore {
 
   #selectedPublished(active: Extract<ActiveArtifact, { source: "published" }>) {
     const versions = this.#published.get(active.artifactId)
-    return active.version === undefined ? versions?.at(-1) : versions?.find((item) => item.version === active.version)
+    return active.version === undefined
+      ? versions?.at(-1)
+      : versions?.find((item) => item.version === active.version)
   }
 
   #changed() {
@@ -260,7 +290,8 @@ export class ArtifactStore {
     const changed = () => {
       if (this.#watchedPath === path) this.#changed()
     }
-    // Node's stat watcher handles atomic replacement, deletion and recreation without watching entire trees.
+    // Node's stat watcher handles atomic replacement, deletion and recreation without watching
+    // entire trees.
     watchFile(path, { persistent: false, interval: 500 }, changed)
     this.#stopWatching = () => unwatchFile(path, changed)
   }
@@ -281,12 +312,10 @@ function attachmentKey(reference: ReturnType<typeof attachmentArtifactReference>
   return JSON.stringify([reference.sha256, reference.name, reference.kind, reference.mimeType])
 }
 
-function groupActivities(activities: readonly SessionToolActivity[]) {
-  const grouped = new Map<string, SessionToolActivity[]>()
-  for (const activity of activities) {
-    const matching = grouped.get(activity.toolCallId) ?? []
-    matching.push(activity)
-    grouped.set(activity.toolCallId, matching)
-  }
-  return grouped
+export function sessionArtifactPublisher(session: JsonlSession) {
+  const references = session
+    .replayTranscript()
+    .toolActivities.map((activity) => activity.artifact)
+    .filter((reference): reference is FileArtifactReference => reference !== undefined)
+  return new ArtifactPublisher(session.artifactDirectory, references)
 }

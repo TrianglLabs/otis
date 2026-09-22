@@ -46,7 +46,11 @@
 .thinkingControl-panel input[type="range"]::-webkit-slider-runnable-track {
   height: 2px;
   border-radius: var(--radius-pill);
-  background: linear-gradient(to right, var(--accent) var(--thinking-fill), var(--border) var(--thinking-fill));
+  background: linear-gradient(
+    to right,
+    var(--accent) var(--thinking-fill),
+    var(--border) var(--thinking-fill)
+  );
 }
 .thinkingControl-panel input[type="range"]::-webkit-slider-thumb {
   appearance: none;

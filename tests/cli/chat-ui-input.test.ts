@@ -7,11 +7,13 @@ import {
 } from "@opentui/core"
 import { describe, expect, it, vi } from "vitest"
 import { colors } from "../../src/cli/theme.js"
-import { COLOR_PULSE_PERIOD_MS, selectionOutline } from "../../src/cli/ui/color-pulse.js"
-import { toFireworksPickerChoice } from "../../src/inference/picker-catalog.js"
+import { selectionOutline } from "../../src/cli/ui/color-pulse.js"
 import { fireworksModel } from "../../src/inference/types.js"
 import { THEME_NAMES } from "../../src/local/settings.js"
-import { useChatHarness } from "./support/chat-ui-harness.js"
+import { fireworksChoice, useChatHarness } from "./support/chat-ui-harness.js"
+
+/** The selection outline pulses from rest to accent and back over this period. */
+const COLOR_PULSE_PERIOD_MS = 2400
 
 const themeCommands = [
   { name: "/theme", description: "Choose a theme" },
@@ -111,7 +113,11 @@ describe("chat UI input", () => {
     const harness = await setup()
     const parent = [
       { name: "Hosted inference", description: "Add API key", submission: "/settings hosted" },
-      { name: "Delete local model", description: "Choose a downloaded model", submission: "/settings delete-model" },
+      {
+        name: "Delete local model",
+        description: "Choose a downloaded model",
+        submission: "/settings delete-model",
+      },
       { name: "Debug mode", description: "Off", submission: "/settings debug" },
     ]
     const showParent = vi.fn(() => harness.ui.showCommandSubmenu(parent))
@@ -343,7 +349,9 @@ describe("chat UI input", () => {
     expect(harness.childIds("setup-box")).toEqual(["setup-why", "setup-local", "setup-button-box"])
     expect(harness.text("setup-button")).toContain("Set up Otis")
     expect(harness.text("setup-why")).toBe("Your personal AI agent, powered by open models.")
-    expect(harness.text("setup-local")).toBe("Inspect files, edit code, run commands, and search the web.")
+    expect(harness.text("setup-local")).toBe(
+      "Inspect files, edit code, run commands, and search the web.",
+    )
     await harness.renderOnce()
     expect(harness.get<BoxRenderable>("welcome-panel").width).toBe(72)
 
@@ -359,7 +367,10 @@ describe("chat UI input", () => {
     ])
     expect(harness.text("setup-choice-heading")).toBe("Choose where Otis thinks")
     expect(harness.find("setup-choice-subheading")).toBeUndefined()
-    expect(harness.childIds("setup-choice-cards")).toEqual(["setup-choice-local", "setup-choice-hosted"])
+    expect(harness.childIds("setup-choice-cards")).toEqual([
+      "setup-choice-local",
+      "setup-choice-hosted",
+    ])
     await harness.renderOnce()
     expect(harness.get<BoxRenderable>("welcome-panel").width).toBe(91)
     expect(
@@ -374,7 +385,9 @@ describe("chat UI input", () => {
       "Run on this machine or connect to a local model server.",
     )
     expect(harness.text("setup-choice-local-detail-0")).toBe("Managed llama.cpp built in.")
-    expect(harness.text("setup-choice-local-detail-1")).toBe("Ollama, LM Studio, oMLX, and NVIDIA PAIR.")
+    expect(harness.text("setup-choice-local-detail-1")).toBe(
+      "Ollama, LM Studio, oMLX, and NVIDIA PAIR.",
+    )
     expect(harness.find("setup-choice-local-detail-2")).toBeUndefined()
     expect(harness.text("setup-choice-hosted-label")).toBe("Powered by Fireworks")
     expect(harness.text("setup-choice-hosted-description")).toBe(
@@ -392,10 +405,12 @@ describe("chat UI input", () => {
     const hostedTitle = harness.get<TextRenderable>("setup-choice-hosted-title")
     expect(localCard.borderColor.equals(RGBA.fromHex(colors.border))).toBe(false)
     expect(hostedCard.borderColor.equals(RGBA.fromHex(colors.border))).toBe(true)
-    expect(Math.abs(localTitle.x + localTitle.width / 2 - (localCard.x + localCard.width / 2))).toBeLessThanOrEqual(1)
-    expect(Math.abs(hostedTitle.x + hostedTitle.width / 2 - (hostedCard.x + hostedCard.width / 2))).toBeLessThanOrEqual(
-      1,
-    )
+    expect(
+      Math.abs(localTitle.x + localTitle.width / 2 - (localCard.x + localCard.width / 2)),
+    ).toBeLessThanOrEqual(1)
+    expect(
+      Math.abs(hostedTitle.x + hostedTitle.width / 2 - (hostedCard.x + hostedCard.width / 2)),
+    ).toBeLessThanOrEqual(1)
 
     harness.press("return")
     expect(onSetupInferenceChoice).toHaveBeenLastCalledWith("local")
@@ -412,7 +427,9 @@ describe("chat UI input", () => {
       "Download a curated model and run it with llama.cpp.",
     )
     expect(harness.text("setup-local-choice-managed-detail-0")).toBe("Recommended hardware:")
-    expect(harness.text("setup-local-choice-managed-detail-1")).toBe("Apple silicon · 24 GB+ unified memory")
+    expect(harness.text("setup-local-choice-managed-detail-1")).toBe(
+      "Apple silicon · 24 GB+ unified memory",
+    )
     expect(harness.text("setup-local-choice-managed-detail-2")).toBe("Linux · 24 GB+ RAM")
     expect(harness.text("setup-local-choice-managed-detail-3")).toBe("Vulkan GPU · 16 GB+ VRAM")
     expect(harness.find("setup-local-choice-managed-detail-4")).toBeUndefined()
@@ -463,7 +480,7 @@ describe("chat UI input", () => {
     expect(harness.text("setup-status")).toBe("Loading models...")
 
     harness.ui.showModelPicker([
-      toFireworksPickerChoice(
+      fireworksChoice(
         fireworksModel({
           id: "accounts/fireworks/models/tool-model",
           displayName: "Tool Model",
@@ -499,7 +516,10 @@ describe("chat UI input", () => {
     expect(onSetupLocalInferenceChoice).toHaveBeenCalledWith("pair")
   })
 
-  it.each(["linux", "win32"] as const)("omits oMLX setup and skips its fields on %s", async (platform) => {
+  it.each([
+    "linux",
+    "win32",
+  ] as const)("omits oMLX setup and skips its fields on %s", async (platform) => {
     const onPairSetupSubmit = vi.fn()
     const harness = await setup({ platform, configured: false, onPairSetupSubmit })
     harness.ui.showSetupInferenceChoice()
@@ -507,7 +527,11 @@ describe("chat UI input", () => {
     harness.ui.showSetupLocalInferenceChoice()
     expect(harness.text("setup-local-choice-pair-detail-0")).toBe("Ollama or LM Studio.")
     const endpoints = { ollama: "http://127.0.0.1:11434", lmStudio: "http://127.0.0.1:1234" }
-    harness.ui.showPairSetup("", "local", { ...endpoints, omlx: "http://127.0.0.1:8000", omlxApiKey: "unused" })
+    harness.ui.showPairSetup("", "local", {
+      ...endpoints,
+      omlx: "http://127.0.0.1:8000",
+      omlxApiKey: "unused",
+    })
     expect(harness.text("setup-pair-description")).not.toContain("oMLX")
     expect(harness.find("setup-omlx-input")).toBeUndefined()
     expect(harness.find("setup-omlx-key-input")).toBeUndefined()
@@ -539,7 +563,9 @@ describe("chat UI input", () => {
     expect(harness.text("setup-pair-ollama-label")).toBe("Ollama")
     expect(harness.text("setup-pair-lmstudio-label")).toBe("LM Studio")
     expect(harness.get<InputRenderable>("setup-pair-ollama-input").plainText).toBe(endpoints.ollama)
-    expect(harness.get<InputRenderable>("setup-pair-lmstudio-input").plainText).toBe(endpoints.lmStudio)
+    expect(harness.get<InputRenderable>("setup-pair-lmstudio-input").plainText).toBe(
+      endpoints.lmStudio,
+    )
     expect(harness.find("setup-pair-continue-box")).toBeUndefined()
     expect(harness.get<InputRenderable>("setup-pair-ollama-input").focused).toBe(true)
     const frame = harness.captureCharFrame()
@@ -573,7 +599,9 @@ describe("chat UI input", () => {
     harness.ui.showPairSetupError("LM Studio is unavailable.", "local", endpoints)
     expect(harness.text("setup-pair-message")).toBe("LM Studio is unavailable.")
     expect(harness.get<InputRenderable>("setup-pair-ollama-input").plainText).toBe(endpoints.ollama)
-    expect(harness.get<InputRenderable>("setup-pair-lmstudio-input").plainText).toBe(endpoints.lmStudio)
+    expect(harness.get<InputRenderable>("setup-pair-lmstudio-input").plainText).toBe(
+      endpoints.lmStudio,
+    )
     harness.press("escape")
     expect(harness.childIds("input-area")).toEqual(["setup-local-choice"])
   })
@@ -588,7 +616,11 @@ describe("chat UI input", () => {
 
     harness.ui.showSetupError("Try again", "choice")
     expect(harness.get<InputRenderable>("setup-input").plainText).toBe("")
-    expect(harness.childIds("setup-form")).toEqual(["setup-input-box", "setup-message", "setup-continue-box"])
+    expect(harness.childIds("setup-form")).toEqual([
+      "setup-input-box",
+      "setup-message",
+      "setup-continue-box",
+    ])
     expect(harness.text("setup-message")).toBe("Try again")
     await harness.typeText("second-secret")
     harness.submitSetup()
@@ -606,7 +638,9 @@ describe("chat UI input", () => {
     const frame = harness.captureCharFrame()
     expect(frame).toContain("____  _______________")
     expect(
-      frame.split("\n").some((line) => line.includes("Local inference") && line.includes("Hosted inference")),
+      frame
+        .split("\n")
+        .some((line) => line.includes("Local inference") && line.includes("Hosted inference")),
     ).toBe(true)
     expect(frame).toContain("Private, on your devices")
     expect(frame).toContain("Powered by Fireworks")
@@ -646,6 +680,9 @@ describe("chat UI input", () => {
 
     vi.advanceTimersByTime(COLOR_PULSE_PERIOD_MS / 2)
     expect(localCard.borderColor.equals(RGBA.fromHex(colors.accent))).toBe(true)
+    vi.advanceTimersByTime(COLOR_PULSE_PERIOD_MS / 2)
+    expect(localCard.borderColor.equals(RGBA.fromHex(selectionOutline(0)))).toBe(true)
+    vi.advanceTimersByTime(COLOR_PULSE_PERIOD_MS / 2)
 
     harness.press("right")
     expect(localCard.borderColor.equals(RGBA.fromHex(colors.border))).toBe(true)
@@ -716,7 +753,12 @@ describe("chat UI input", () => {
 
     harness.ui.setAttachmentCounts(2, 1)
     expect(harness.childIds("input-area")).toEqual(["input-box"])
-    expect(harness.childIds("input-box")).toEqual(["mode-label", "attachments", "otis-input", "input-hint"])
+    expect(harness.childIds("input-box")).toEqual([
+      "mode-label",
+      "attachments",
+      "otis-input",
+      "input-hint",
+    ])
     expect(harness.text("attachments")).toBe("[Image 1] [Image 2] +1")
 
     const bytes = new Uint8Array([1, 2, 3])
@@ -736,7 +778,10 @@ describe("chat UI input", () => {
 
   it("keeps the mode label and model hint fixed on one line when the home input grows", async () => {
     const harness = await setup()
-    const longInput = Array.from({ length: 12 }, (_, index) => `line ${index + 1} ${"x".repeat(70)}`).join("\n")
+    const longInput = Array.from(
+      { length: 12 },
+      (_, index) => `line ${index + 1} ${"x".repeat(70)}`,
+    ).join("\n")
     harness.setChatInput(longInput)
     await harness.renderOnce()
 
@@ -756,7 +801,10 @@ describe("chat UI input", () => {
   it("keeps the chat hints fixed on one line when the input grows", async () => {
     const harness = await setup({ modelLabel: "Tool Model" })
     harness.ui.showChatLayout()
-    const longInput = Array.from({ length: 12 }, (_, index) => `line ${index + 1} ${"x".repeat(70)}`).join("\n")
+    const longInput = Array.from(
+      { length: 12 },
+      (_, index) => `line ${index + 1} ${"x".repeat(70)}`,
+    ).join("\n")
     harness.setChatInput(longInput)
     await harness.renderOnce()
 

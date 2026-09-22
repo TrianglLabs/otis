@@ -64,7 +64,10 @@ export type PendingPermission = {
   resources: string[]
 }
 
-/** Lifecycle of the selected model's inference client. Prompts are only accepted in the `ready` state. */
+/**
+ * Lifecycle of the selected model's inference client. Prompts are only accepted in the `ready`
+ * state.
+ */
 export type ModelState = "unconfigured" | "starting" | "ready" | "failed"
 
 /** Update lifecycle shared by automatic checks, Settings, and the restart affordance. */
@@ -82,17 +85,26 @@ export type SubagentSummary = {
   tools: number
 }
 
-/** The mutable application state outside the transcript. Sent whole on every change; it is small. */
+/**
+ * The mutable application state outside the transcript. Sent whole on every change; it is small.
+ */
 export type DesktopStatus = {
   busy: boolean
   phase: TurnPhase
-  model: { id: string; provider: ModelProvider; displayName?: string; supportsImageInput: boolean } | null
+  model: {
+    id: string
+    provider: ModelProvider
+    displayName?: string
+    supportsImageInput: boolean
+  } | null
   modelState: ModelState
   modelError: string | undefined
   session: { id: string; title: string } | null
   /** The session's active document/web artifact. Contents are fetched once by revision. */
   artifact: ArtifactMetadata | null
-  /** The active session's working folder is unknown or gone; locate it before agent work continues. */
+  /**
+   * The active session's working folder is unknown or gone; locate it before agent work continues.
+   */
   needsWorkspace: boolean
   /** Global history: sessions from every registered workspace, recency-ordered. */
   sessions: GlobalSessionPickerItem[]
@@ -105,8 +117,9 @@ export type DesktopStatus = {
   /** Local usage statistics; undefined until the first scan completes. */
   stats: LocalStats | undefined
   /**
-   * Progress or terminal error of a model load in flight, keyed by picker item id. Progress entries clear when the
-   * load completes; error entries stay until the next selection attempt so an open picker can show the failure.
+   * Progress or terminal error of a model load in flight, keyed by picker item id. Progress entries
+   * clear when the load completes; error entries stay until the next selection attempt so an open
+   * picker can show the failure.
    */
   modelLoad: { modelId: string; status: ModelPickerStatus } | null
   /** The session's delegated runs, oldest first. */
@@ -117,12 +130,18 @@ export type DesktopStatus = {
   theme: ThemeName
   /** Desktop interface language; system follows the operating system locale. */
   language: UiLanguage
-  /** Reasoning renders as trace cards when on; plain muted text when off. Persisted in local settings. */
+  /**
+   * Reasoning renders as trace cards when on; plain muted text when off. Persisted in local
+   * settings.
+   */
   thinkingVisible: boolean
   localThinking: LocalThinkingState | null
   /** Permission behavior for mutating tools. Interactive controls offer ask and auto. */
   permissionMode: PermissionMode
-  /** Fast serving for the selected hosted model: whether it has a fast path, and whether that path is active. */
+  /**
+   * Fast serving for the selected hosted model: whether it has a fast path, and whether that path
+   * is active.
+   */
   fastServing: { available: boolean; enabled: boolean }
   /** A Fireworks API key is configured. The key itself is never sent to the renderer. */
   hostedConfigured: boolean
@@ -149,9 +168,9 @@ export type TranscriptPatchOp =
   | { op: "remove"; id: number }
 
 /**
- * Ordered updates from the main process. Every event carries the shared revision counter so a renderer that
- * reloaded can discard anything it already received in its snapshot.
- * Status events can include transcript operations so session resets update content and metadata together.
+ * Ordered updates from the main process. Every event carries the shared revision counter so a
+ * renderer that reloaded can discard anything it already received in its snapshot. Status events
+ * can include transcript operations so session resets update content and metadata together.
  */
 export type DesktopEvent =
   | { type: "transcript"; revision: number; ops: TranscriptPatchOp[] }
@@ -161,7 +180,10 @@ export type SendPromptResult =
   | { accepted: true; delivery: "started" | "steered" | "queued" }
   | { accepted: false; reason: string }
 
-/** Raw local file selected by the renderer. The main process validates and converts it before session admission. */
+/**
+ * Raw local file selected by the renderer. The main process validates and converts it before
+ * session admission.
+ */
 export type DesktopAttachmentInput = {
   name: string
   mimeType: string
@@ -181,7 +203,10 @@ export type DesktopApi = {
   openArtifact(reference: ArtifactReference, version?: number): Promise<SessionOpResult>
   saveArtifact(id: string, revision: number): Promise<SessionOpResult>
   getWindowState(): Promise<DesktopWindowState>
-  sendPrompt(text: string, attachments?: readonly DesktopAttachmentInput[]): Promise<SendPromptResult>
+  sendPrompt(
+    text: string,
+    attachments?: readonly DesktopAttachmentInput[],
+  ): Promise<SendPromptResult>
   stop(): Promise<void>
   respondToPermission(id: number, allow: boolean): Promise<void>
   selectSession(id: string, dirName?: string): Promise<SessionOpResult>
@@ -189,24 +214,41 @@ export type DesktopApi = {
   searchSessions(query: string): Promise<GlobalSessionPickerItem[]>
   startNewSession(): Promise<SessionOpResult>
   deleteSession(id: string, dirName?: string): Promise<SessionOpResult>
-  /** Recomputes the global session list; the palette calls this when it opens so external (TUI) sessions appear. */
+  /**
+   * Recomputes the global session list; the palette calls this when it opens so external (TUI)
+   * sessions appear.
+   */
   refreshSessions(): Promise<void>
-  /** Opens a session from global history, switching workspace first when it lives elsewhere. dirName pins the
-   * session's storage identity so a relocated or duplicate id can't resolve to a different conversation. */
-  openSessionAt(workspacePath: string, sessionId: string, dirName?: string): Promise<SessionOpResult>
+  /**
+   * Opens a session from global history, switching workspace first when it lives elsewhere.
+   * dirName pins the session's storage identity so a relocated or duplicate id can't resolve to a
+   * different conversation.
+   */
+  openSessionAt(
+    workspacePath: string,
+    sessionId: string,
+    dirName?: string,
+  ): Promise<SessionOpResult>
   /** Switches the window to another workspace (validated, refused during active work). */
   openWorkspace(path: string): Promise<SessionOpResult>
   /** Locates the working folder for a read-only pending session and completes its recovery. */
   locateWorkspace(path: string): Promise<SessionOpResult>
   /** Native folder picker; undefined when cancelled. */
   pickWorkspaceFolder(): Promise<string | undefined>
-  /** "Locate workspace": registers the folder for a session dir that predates workspace registration. */
+  /**
+   * "Locate workspace": registers the folder for a session dir that predates workspace
+   * registration.
+   */
   registerWorkspace(dirName: string, path: string): Promise<SessionOpResult>
-  /** The picker catalog for this machine: local fits, saved PAIR endpoints, and the verified hosted list. */
+  /**
+   * The picker catalog for this machine: local fits, saved PAIR endpoints, and the verified hosted
+   * list.
+   */
   listModels(): Promise<ModelPickerItem[]>
   /**
-   * Selects a picker item, downloading and loading a managed local model when needed. `id` is the item id, or the
-   * selectionKey for PAIR entries whose plain ids collide across engines. Resolves when the switch finishes.
+   * Selects a picker item, downloading and loading a managed local model when needed. `id` is the
+   * item id, or the selectionKey for PAIR entries whose plain ids collide across engines. Resolves
+   * when the switch finishes.
    */
   selectModel(id: string): Promise<ModelSelectResult>
   /** Cancels an in-flight model selection; a completed or absent selection is a no-op. */
@@ -224,8 +266,10 @@ export type DesktopApi = {
   setLocalThinking(model: string, level: LocalThinkingSelection): Promise<void>
   /** Persists the permission behavior used by subsequent tool calls. */
   setPermissionMode(mode: "ask" | "auto"): Promise<void>
-  /** Shows or hides reasoning traces in the transcript and subagent traces; persisted across launches. */
-  /** Toggles Fast serving for the selected hosted model, re-selecting it on the fast or standard path. */
+  /**
+   * Toggles Fast serving for the selected hosted model, re-selecting it on the fast or standard
+   * path.
+   */
   setFastServing(fast: boolean): Promise<ModelSelectResult>
   /** Opens https://app.fireworks.ai/api-keys in the system browser. */
   openFireworksKeyPage(): Promise<void>
@@ -233,7 +277,10 @@ export type DesktopApi = {
   setFireworksApiKey(apiKey: string): Promise<ModelSelectResult>
   /** Validates, probes, and persists NVIDIA PAIR endpoints, keeping only the ones that respond. */
   connectLocalServers(endpoints: LocalServerInputs): Promise<ModelSelectResult>
-  /** Deletes a downloaded local model from the model catalog, clearing the selection first when it is active. */
+  /**
+   * Deletes a downloaded local model from the model catalog, clearing the selection first when it
+   * is active.
+   */
   deleteLocalModel(id: string): Promise<ModelSelectResult>
   /** Session-only debug mode; applies from the next turn. */
   setDebugMode(enabled: boolean): Promise<void>

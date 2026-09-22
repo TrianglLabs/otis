@@ -8,10 +8,9 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { TranscriptStore } from "../../src/app/transcript.js"
 import { colors, selectTheme } from "../../src/cli/theme.js"
-import { toFireworksPickerChoice } from "../../src/inference/picker-catalog.js"
 import { fireworksModel } from "../../src/inference/types.js"
 import { THEME_NAMES, type ThemeName } from "../../src/local/settings.js"
-import { useChatHarness } from "./support/chat-ui-harness.js"
+import { fireworksChoice, useChatHarness } from "./support/chat-ui-harness.js"
 
 describe("chat UI theme switching", () => {
   const setup = useChatHarness()
@@ -147,7 +146,7 @@ describe("chat UI theme switching", () => {
     const harness = await setup()
     harness.ui.showChatLayout()
     harness.ui.showModelPicker([
-      toFireworksPickerChoice(
+      fireworksChoice(
         fireworksModel({
           id: "accounts/fireworks/models/alpha",
           displayName: "Alpha",
@@ -162,10 +161,18 @@ describe("chat UI theme switching", () => {
     const previous = selectTheme("bright")
     harness.ui.setTheme("bright", previous)
 
-    expect(messages.verticalScrollBar.slider.backgroundColor.equals(RGBA.fromHex(colors.border))).toBe(true)
-    expect(messages.verticalScrollBar.slider.foregroundColor.equals(RGBA.fromHex(colors.muted))).toBe(true)
-    expect(modelRows.verticalScrollBar.slider.backgroundColor.equals(RGBA.fromHex(colors.border))).toBe(true)
-    expect(modelRows.verticalScrollBar.slider.foregroundColor.equals(RGBA.fromHex(colors.muted))).toBe(true)
+    expect(
+      messages.verticalScrollBar.slider.backgroundColor.equals(RGBA.fromHex(colors.border)),
+    ).toBe(true)
+    expect(
+      messages.verticalScrollBar.slider.foregroundColor.equals(RGBA.fromHex(colors.muted)),
+    ).toBe(true)
+    expect(
+      modelRows.verticalScrollBar.slider.backgroundColor.equals(RGBA.fromHex(colors.border)),
+    ).toBe(true)
+    expect(
+      modelRows.verticalScrollBar.slider.foregroundColor.equals(RGBA.fromHex(colors.muted)),
+    ).toBe(true)
   })
 
   it("refreshes the detached busy wave background before mounting it", async () => {
@@ -202,11 +209,15 @@ describe("chat UI theme switching", () => {
 
     const previousNord = selectTheme("bright")
     harness.ui.setTheme("bright", previousNord)
-    expect(harness.get<BoxRenderable>("input-box").borderColor.equals(RGBA.fromHex(colors.border))).toBe(true)
+    expect(
+      harness.get<BoxRenderable>("input-box").borderColor.equals(RGBA.fromHex(colors.border)),
+    ).toBe(true)
 
     const previousBright = selectTheme("nord")
     harness.ui.setTheme("nord", previousBright)
-    expect(harness.get<TextRenderable>("input-hint").fg.equals(RGBA.fromHex(colors.muted))).toBe(true)
+    expect(harness.get<TextRenderable>("input-hint").fg.equals(RGBA.fromHex(colors.muted))).toBe(
+      true,
+    )
   })
 
   it("preserves the transcript viewport while refreshing themed content", async () => {
@@ -250,14 +261,26 @@ describe("chat UI theme switching", () => {
     harness.ui.setTheme("bright", previous)
     harness.ui.showHomeLayout()
 
-    expect(harness.get<BoxRenderable>("welcome-panel").backgroundColor.equals(RGBA.fromHex(colors.background))).toBe(
+    expect(
+      harness
+        .get<BoxRenderable>("welcome-panel")
+        .backgroundColor.equals(RGBA.fromHex(colors.background)),
+    ).toBe(true)
+    expect(
+      harness.get<TextRenderable>("welcome-brand-art").fg.equals(RGBA.fromHex(colors.accent)),
+    ).toBe(true)
+    expect(harness.get<TextRenderable>("welcome-quit").fg.equals(RGBA.fromHex(colors.muted))).toBe(
       true,
     )
-    expect(harness.get<TextRenderable>("welcome-brand-art").fg.equals(RGBA.fromHex(colors.accent))).toBe(true)
-    expect(harness.get<TextRenderable>("welcome-quit").fg.equals(RGBA.fromHex(colors.muted))).toBe(true)
-    expect(harness.get<TextRenderable>("welcome-version").fg.equals(RGBA.fromHex(colors.muted))).toBe(true)
-    expect(harness.get<TextRenderable>("welcome-stat-value-0").fg.equals(RGBA.fromHex(colors.accent))).toBe(true)
-    expect(harness.get<BoxRenderable>("welcome-stat-0").borderColor.equals(RGBA.fromHex(colors.border))).toBe(true)
+    expect(
+      harness.get<TextRenderable>("welcome-version").fg.equals(RGBA.fromHex(colors.muted)),
+    ).toBe(true)
+    expect(
+      harness.get<TextRenderable>("welcome-stat-value-0").fg.equals(RGBA.fromHex(colors.accent)),
+    ).toBe(true)
+    expect(
+      harness.get<BoxRenderable>("welcome-stat-0").borderColor.equals(RGBA.fromHex(colors.border)),
+    ).toBe(true)
   })
 
   it("recolors the chat viewport from Matrix to Bright", async () => {
@@ -314,8 +337,12 @@ describe("chat UI theme switching", () => {
 
     expect(harness.childIds("command-menu")).toEqual(["command-row-0-box"])
     expect(harness.text("command-row-0")).toBe("› /history")
-    expect(harness.get<TextRenderable>("command-row-0").bg.equals(RGBA.fromHex(colors.background))).toBe(true)
-    expect(harness.get<TextRenderable>("command-row-0").fg.equals(RGBA.fromHex(colors.accent))).toBe(true)
+    expect(
+      harness.get<TextRenderable>("command-row-0").bg.equals(RGBA.fromHex(colors.background)),
+    ).toBe(true)
+    expect(
+      harness.get<TextRenderable>("command-row-0").fg.equals(RGBA.fromHex(colors.accent)),
+    ).toBe(true)
   })
 
   it("recolors slash menu rows after the menu is closed and opened again", async () => {
@@ -335,7 +362,9 @@ describe("chat UI theme switching", () => {
     expect(menu.backgroundColor.equals(RGBA.fromHex(colors.background))).toBe(true)
     expect(row.bg.equals(RGBA.fromHex(colors.background))).toBe(true)
     expect(row.fg.equals(RGBA.fromHex(colors.accent))).toBe(true)
-    expect(harness.get<TextRenderable>("command-row-0-meta").fg.equals(RGBA.fromHex(colors.muted))).toBe(true)
+    expect(
+      harness.get<TextRenderable>("command-row-0-meta").fg.equals(RGBA.fromHex(colors.muted)),
+    ).toBe(true)
   })
 
   it("updates mounted colors for every theme transition", async () => {
@@ -358,7 +387,10 @@ describe("chat UI theme switching", () => {
         expect(messages.viewport.backgroundColor.equals(RGBA.fromHex(colors.background))).toBe(true)
         expect(messages.content.backgroundColor.equals(RGBA.fromHex(colors.background))).toBe(true)
         expect(input.textColor.equals(RGBA.fromHex(colors.text))).toBe(true)
-        expect(input.cursorColor.equals(RGBA.fromHex(colors.accent)), `${from} → ${to} cursor`).toBe(true)
+        expect(
+          input.cursorColor.equals(RGBA.fromHex(colors.accent)),
+          `${from} → ${to} cursor`,
+        ).toBe(true)
       }
     }
   })

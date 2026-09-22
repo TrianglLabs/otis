@@ -2,7 +2,11 @@ import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { initializeDevProfile, resolveDevData, shouldInitializeDevProfile } from "../../../src/desktop/main/dev-data.js"
+import {
+  initializeDevProfile,
+  resolveDevData,
+  shouldInitializeDevProfile,
+} from "../../../src/desktop/main/dev-data.js"
 import { loadLocalSettings, saveFireworksApiKey } from "../../../src/local/settings.js"
 
 const directories: string[] = []
@@ -27,24 +31,35 @@ describe("development profile import", () => {
       otisHome: join(root, "dev"),
     }
     await initializeDevProfile(options)
-    await expect(stat(join(options.otisHome, "config.json"))).rejects.toMatchObject({ code: "ENOENT" })
-    expect(await readFile(join(options.otisHome, ".installed-profile-imported"), "utf8")).toBe("1\n")
+    await expect(stat(join(options.otisHome, "config.json"))).rejects.toMatchObject({
+      code: "ENOENT",
+    })
+    expect(await readFile(join(options.otisHome, ".installed-profile-imported"), "utf8")).toBe(
+      "1\n",
+    )
   })
 
   it("retries an unsuccessful import without marking it complete", async () => {
     const root = await mkdtemp(join(tmpdir(), "otis-dev-import-"))
     directories.push(root)
     const source = join(root, "config.json")
-    const options = { sourceConfigDirectory: root, sourceDataDirectory: root, otisHome: join(root, "dev") }
+    const options = {
+      sourceConfigDirectory: root,
+      sourceDataDirectory: root,
+      otisHome: join(root, "dev"),
+    }
     await writeFile(source, "invalid config")
     await expect(initializeDevProfile(options)).rejects.toThrow()
-    await expect(stat(join(options.otisHome, ".installed-profile-imported"))).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(stat(join(options.otisHome, ".installed-profile-imported"))).rejects.toMatchObject(
+      { code: "ENOENT" },
+    )
     await rm(source)
     await saveFireworksApiKey("fw_fake_retry_key", { file: source })
     await initializeDevProfile(options)
-    expect((await loadLocalSettings({ file: join(options.otisHome, "config.json"), env: {} })).fireworksApiKey).toBe(
-      "fw_fake_retry_key",
-    )
+    expect(
+      (await loadLocalSettings({ file: join(options.otisHome, "config.json"), env: {} }))
+        .fireworksApiKey,
+    ).toBe("fw_fake_retry_key")
   })
 
   it("only imports into the default development profile", () => {
@@ -68,7 +83,9 @@ describe("development profile import", () => {
 
     const options = { sourceConfigDirectory, sourceDataDirectory, otisHome }
     await initializeDevProfile(options)
-    expect((await loadLocalSettings({ file, env: {} })).fireworksApiKey).toBe("fw_fake_installed_key")
+    expect((await loadLocalSettings({ file, env: {} })).fireworksApiKey).toBe(
+      "fw_fake_installed_key",
+    )
     await expect(stat(join(otisHome, "session.jsonl"))).rejects.toMatchObject({ code: "ENOENT" })
     await rm(file)
     await initializeDevProfile(options)
@@ -79,13 +96,21 @@ describe("development profile import", () => {
 
 describe("resolveDevData", () => {
   it("returns undefined when the build is packaged", () => {
-    expect(resolveDevData({ ...defaults, packaged: true, otisDevUserData: "/tmp/otis-dev" })).toBeUndefined()
+    expect(
+      resolveDevData({ ...defaults, packaged: true, otisDevUserData: "/tmp/otis-dev" }),
+    ).toBeUndefined()
     expect(resolveDevData({ ...defaults, packaged: true })).toBeUndefined()
   })
 
-  it.each([undefined, "  "])("uses a persistent separate profile when the override is %s", (otisDevUserData) => {
+  it.each([
+    undefined,
+    "  ",
+  ])("uses a persistent separate profile when the override is %s", (otisDevUserData) => {
     const path = join(defaults.appData, "otis-dev")
-    expect(resolveDevData({ ...defaults, otisDevUserData })).toEqual({ userData: path, otisHome: path })
+    expect(resolveDevData({ ...defaults, otisDevUserData })).toEqual({
+      userData: path,
+      otisHome: path,
+    })
   })
 
   it("sandboxes userData and defaults the Otis data root to the same directory", () => {
@@ -96,14 +121,22 @@ describe("resolveDevData", () => {
   })
 
   it("keeps an explicit OTIS_HOME so a sandbox can be shaped differently", () => {
-    expect(resolveDevData({ ...defaults, otisDevUserData: "/tmp/otis-dev", otisHome: "/tmp/otis-dev-home" })).toEqual({
+    expect(
+      resolveDevData({
+        ...defaults,
+        otisDevUserData: "/tmp/otis-dev",
+        otisHome: "/tmp/otis-dev-home",
+      }),
+    ).toEqual({
       userData: "/tmp/otis-dev",
       otisHome: "/tmp/otis-dev-home",
     })
   })
 
   it("treats a blank OTIS_HOME as unset and falls back to the sandbox", () => {
-    expect(resolveDevData({ ...defaults, otisDevUserData: "/tmp/otis-dev", otisHome: "   " })).toEqual({
+    expect(
+      resolveDevData({ ...defaults, otisDevUserData: "/tmp/otis-dev", otisHome: "   " }),
+    ).toEqual({
       userData: "/tmp/otis-dev",
       otisHome: "/tmp/otis-dev",
     })
@@ -124,7 +157,9 @@ describe("resolveDevData", () => {
   })
 
   it("resolves relative overrides to absolute paths for Electron", () => {
-    expect(resolveDevData({ ...defaults, otisDevUserData: "./test-profile", otisHome: "./test-home" })).toEqual({
+    expect(
+      resolveDevData({ ...defaults, otisDevUserData: "./test-profile", otisHome: "./test-home" }),
+    ).toEqual({
       userData: resolve("test-profile"),
       otisHome: resolve("test-home"),
     })

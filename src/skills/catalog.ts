@@ -1,26 +1,40 @@
-import type { Dirent, Stats } from "node:fs"
 import { readdir, readFile, realpath, stat } from "node:fs/promises"
 import { homedir } from "node:os"
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { parseDocument } from "yaml"
-import { bundledSkills } from "./bundled.js"
-import type { Skill, SkillCatalog } from "./types.js"
+import type { ToolResult } from "../tools/types.js"
+import { bundledSkills, materializeBundledSkill } from "./bundled.js"
 
 const SKILLS_DIRECTORY = join(".agents", "skills")
-const SKILL_FILENAME = "SKILL.md"
 const MAX_SKILL_FILE_BYTES = 1024 * 1024
 const MAX_DESCRIPTION_LENGTH = 1024
-const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u
+export const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u
 
 export async function loadSkillCatalog(
   cwd: string,
   options: { home?: string; dataDirectory?: string } = {},
 ): Promise<SkillCatalog> {
-  const skills = new Map<string, Skill>(bundledSkills(options.dataDirectory).map((skill) => [skill.name, skill]))
-  for (const source of skillSources(cwd, options.home)) {
-    for (const skill of await loadSkillsFromDirectory(source)) skills.set(skill.name, skill)
+  // Home first, then every ancestor from the filesystem root down, so the nearest project
+  // definition wins.
+  const sources = new Set([join(resolve(options.home ?? homedir()), SKILLS_DIRECTORY)])
+  const ancestors: string[] = []
+  for (let current = resolve(cwd); ; current = dirname(current)) {
+    ancestors.unshift(join(current, SKILLS_DIRECTORY))
+    if (dirname(current) === current) break
   }
+  for (const source of ancestors) sources.add(source)
 
+  const skills = new Map(bundledSkills(options.dataDirectory).map((skill) => [skill.name, skill]))
+  for (const source of sources) {
+    const entries = await readdir(source, { withFileTypes: true }).catch((error) => {
+      if (isNotFound(error)) return []
+      throw error
+    })
+    for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+      const skill = await loadSkillPackage(join(source, entry.name))
+      if (skill) skills.set(skill.name, skill)
+    }
+  }
   const ordered = [...skills.values()].sort((left, right) => left.name.localeCompare(right.name))
   return { skills: ordered, byName: new Map(ordered.map((skill) => [skill.name, skill])) }
 }
@@ -29,40 +43,17 @@ export function emptySkillCatalog(): SkillCatalog {
   return { skills: [], byName: new Map() }
 }
 
-async function loadSkillsFromDirectory(directory: string): Promise<Skill[]> {
-  let entries: Dirent[]
-  try {
-    entries = await readdir(directory, { withFileTypes: true })
-  } catch (error) {
-    if (isNotFound(error)) return []
-    throw error
-  }
-
-  const skills: Skill[] = []
-  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
-    const skill = await loadSkillPackage(join(directory, entry.name))
-    if (skill) skills.push(skill)
-  }
-  return skills
-}
-
 export async function loadSkillPackage(directory: string): Promise<Skill | undefined> {
-  let directoryStat: Stats
-  try {
-    directoryStat = await stat(directory)
-  } catch (error) {
-    if (isNotFound(error)) return undefined
-    throw error
-  }
-  if (!directoryStat.isDirectory()) return undefined
-
-  const instructionsPath = join(directory, SKILL_FILENAME)
+  const instructionsPath = join(directory, "SKILL.md")
   let contents: string
   try {
+    if (!(await stat(directory)).isDirectory()) return undefined
     const instructionsStat = await stat(instructionsPath)
     if (!instructionsStat.isFile()) return undefined
     if (instructionsStat.size > MAX_SKILL_FILE_BYTES) {
-      throw new Error(`Invalid skill ${instructionsPath}: SKILL.md exceeds ${MAX_SKILL_FILE_BYTES} bytes.`)
+      throw new Error(
+        `Invalid skill ${instructionsPath}: SKILL.md exceeds ${MAX_SKILL_FILE_BYTES} bytes.`,
+      )
     }
     contents = await readFile(instructionsPath, "utf8")
   } catch (error) {
@@ -71,63 +62,45 @@ export async function loadSkillPackage(directory: string): Promise<Skill | undef
   }
 
   const root = await realpath(directory)
-  const canonicalInstructions = await realpath(instructionsPath)
-  assertInside(root, canonicalInstructions, `Invalid skill ${instructionsPath}: SKILL.md resolves outside its skill.`)
-  return parseSkill(contents, root, canonicalInstructions, basename(directory))
-}
-
-function parseSkill(contents: string, root: string, instructionsPath: string, directoryName: string): Skill {
+  const path = await realpath(instructionsPath)
+  assertInside(
+    root,
+    path,
+    `Invalid skill ${instructionsPath}: SKILL.md resolves outside its skill.`,
+  )
   const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u.exec(contents)
-  if (!match) throw new Error(`Invalid skill ${instructionsPath}: closed YAML frontmatter is required.`)
-
+  if (!match) throw new Error(`Invalid skill ${path}: closed YAML frontmatter is required.`)
   const document = parseDocument(match[1], { uniqueKeys: true })
-  if (document.errors.length > 0) {
-    throw new Error(`Invalid skill ${instructionsPath}: ${document.errors[0]?.message ?? "invalid YAML frontmatter"}`)
-  }
+  if (document.errors.length > 0)
+    throw new Error(`Invalid skill ${path}: ${document.errors[0].message}`)
   const value = document.toJS() as unknown
-  if (!isRecord(value)) throw new Error(`Invalid skill ${instructionsPath}: frontmatter must be an object.`)
-  const name = value.name
-  const description = value.description
+  if (!isRecord(value)) throw new Error(`Invalid skill ${path}: frontmatter must be an object.`)
+  const { name, description } = value
   if (typeof name !== "string" || name.length > 64 || !SKILL_NAME.test(name)) {
-    throw new Error(`Invalid skill ${instructionsPath}: name must be 1-64 lowercase letters, numbers, or hyphens.`)
+    throw new Error(
+      `Invalid skill ${path}: name must be 1-64 lowercase letters, numbers, or hyphens.`,
+    )
   }
-  if (name !== directoryName) {
-    throw new Error(`Invalid skill ${instructionsPath}: name must match its parent directory (${directoryName}).`)
+  if (name !== basename(directory)) {
+    throw new Error(
+      `Invalid skill ${path}: name must match its parent directory (${basename(directory)}).`,
+    )
   }
-  if (typeof description !== "string" || !description.trim() || description.length > MAX_DESCRIPTION_LENGTH) {
-    throw new Error(`Invalid skill ${instructionsPath}: description must be 1-${MAX_DESCRIPTION_LENGTH} characters.`)
+  if (
+    typeof description !== "string" ||
+    !description.trim() ||
+    description.length > MAX_DESCRIPTION_LENGTH
+  ) {
+    throw new Error(
+      `Invalid skill ${path}: description must be 1-${MAX_DESCRIPTION_LENGTH} characters.`,
+    )
   }
-  return { name, description: description.trim(), root, instructionsPath }
+  return { name, description: description.trim(), root, instructionsPath: path }
 }
 
-function skillSources(cwd: string, homeOverride?: string) {
-  const sources: string[] = []
-  const seen = new Set<string>()
-  addSource(join(resolve(homeOverride ?? homedir()), SKILLS_DIRECTORY), sources, seen)
-
-  const ancestors: string[] = []
-  let current = resolve(cwd)
-  while (true) {
-    ancestors.unshift(join(current, SKILLS_DIRECTORY))
-    const parent = dirname(current)
-    if (parent === current) break
-    current = parent
-  }
-  for (const source of ancestors) addSource(source, sources, seen)
-  return sources
-}
-
-function addSource(source: string, sources: string[], seen: Set<string>) {
-  const resolved = resolve(source)
-  if (seen.has(resolved)) return
-  seen.add(resolved)
-  sources.push(resolved)
-}
-
-function assertInside(root: string, target: string, message: string) {
+export function assertInside(root: string, target: string, message: string) {
   const nested = relative(root, target)
-  if (nested === "" || (!nested.startsWith("..") && !isAbsolute(nested))) return
-  throw new Error(message)
+  if (nested !== "" && (nested.startsWith("..") || isAbsolute(nested))) throw new Error(message)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -137,3 +110,65 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function isNotFound(error: unknown) {
   return isRecord(error) && error.code === "ENOENT"
 }
+
+export async function readSkillResource(
+  catalog: SkillCatalog,
+  name: string,
+  path = "SKILL.md",
+): Promise<ToolResult> {
+  const skill = catalog.byName.get(name)
+  if (!skill) throw new Error(`Unknown skill: ${name}`)
+  if (!path.trim() || isAbsolute(path))
+    throw new Error("Skill resource path must be relative to the skill root.")
+
+  const requested = resolve(skill.root, path)
+  assertInside(skill.root, requested, `Skill resource is outside the skill root: ${requested}`)
+  if (skill.bundled) await materializeBundledSkill(skill)
+  const root = skill.bundled ? await realpath(skill.root) : skill.root
+  const canonical = await realpath(requested)
+  assertInside(root, canonical, `Skill resource is outside the skill root: ${canonical}`)
+  const resourceStat = await stat(canonical)
+
+  if (resourceStat.isDirectory()) {
+    const entries = await readdir(canonical, { withFileTypes: true })
+    return {
+      title: `Read skill directory: ${canonical}`,
+      output:
+        entries
+          .sort((left, right) => left.name.localeCompare(right.name))
+          .map((entry) => `${entry.name}${entry.isDirectory() ? "/" : ""}`)
+          .join("\n") || "Directory is empty.",
+    }
+  }
+  if (!resourceStat.isFile()) throw new Error(`Skill resource is not a regular file: ${canonical}`)
+
+  const contents = await readFile(canonical)
+  let text: string
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(contents)
+  } catch {
+    throw new Error("skill supports UTF-8 text resources only.")
+  }
+  return {
+    title: `Read skill resource: ${canonical}`,
+    output: path === "SKILL.md" ? `Skill root: ${root}\n\n${text}` : text,
+  }
+}
+
+export type Skill = {
+  name: string
+  description: string
+  root: string
+  instructionsPath: string
+  /** Embedded first-party resources, materialized only when this skill is loaded. */
+  bundled?: boolean
+}
+
+export type SkillCatalog = {
+  skills: readonly Skill[]
+  byName: ReadonlyMap<string, Skill>
+}
+
+export type ManagedSkill = { name: string; relativePath: string }
+export type ManagedSkillSource = { id: string; url: string; skills: ManagedSkill[] }
+export type SkillManagerManifest = { version: 1; sources: ManagedSkillSource[] }

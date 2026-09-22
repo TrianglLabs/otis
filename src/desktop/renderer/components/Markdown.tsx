@@ -10,8 +10,8 @@ import { IconButton } from "./Button.js"
 /** Assistant-facing Markdown: GFM, external links in the system browser, copyable code blocks. */
 const remarkPlugins = [remarkGfm]
 const CanvasBlockEnabledContext = createContext(true)
-// Component types must survive text updates, otherwise React remounts code/table subtrees and loses selection,
-// horizontal scrolling, and copy-button state.
+// Component types must survive text updates, otherwise React remounts code/table subtrees and loses
+// selection, horizontal scrolling, and copy-button state.
 const components: Components = {
   a: ({ href, children }) => (
     <a href={href} target="_blank" rel="noreferrer">

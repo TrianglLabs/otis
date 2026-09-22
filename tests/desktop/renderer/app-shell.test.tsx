@@ -10,8 +10,9 @@ import type { ModelPickerItem } from "../../../src/inference/picker-catalog.js"
 
 const WS = "/ws"
 
-// Happy DOM has no layout/scroll measurements. Shell tests exercise the rows and footer; the production
-// virtualizer, scrolling, and bounded DOM are covered by `bun run test:desktop:ui` in real Electron.
+// Happy DOM has no layout/scroll measurements. Shell tests exercise the rows and footer; the
+// production virtualizer, scrolling, and bounded DOM are covered by `bun run test:desktop:ui` in
+// real Electron.
 vi.mock("react-virtuoso", () => ({
   Virtuoso: ({
     data = [],
@@ -52,14 +53,20 @@ function sessionItem(partial: {
   }
 }
 
-import type { DesktopApi, DesktopEvent, DesktopSnapshot, DesktopUpdateState } from "../../../src/desktop/contracts.js"
+import type {
+  DesktopApi,
+  DesktopEvent,
+  DesktopSnapshot,
+  DesktopUpdateState,
+} from "../../../src/desktop/contracts.js"
 import { App } from "../../../src/desktop/renderer/App.js"
 import { DesktopProvider } from "../../../src/desktop/renderer/runtime.js"
 import { DesktopViewStore } from "../../../src/desktop/renderer/state.js"
 
 /**
- * The shell regression: routing to Settings must not unmount the conversation column, or the composer's unsent
- * draft (and the transcript's scroll position and expanded cards) are thrown away.
+ * The shell regression: routing to Settings must not unmount the conversation column, or the
+ * composer's unsent draft (and the transcript's scroll position and expanded cards) are thrown
+ * away.
  */
 
 const SNAPSHOT: DesktopSnapshot = {
@@ -210,7 +217,9 @@ describe("local thinking control", () => {
     fireEvent.change(slider, { target: { value: "2" } })
     await act(async () => fireEvent.keyUp(slider, { key: "ArrowLeft" }))
     expect(api.setLocalThinking).toHaveBeenLastCalledWith(localThinking.modelId, "medium")
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Use model default" })))
+    await act(async () =>
+      fireEvent.click(screen.getByRole("button", { name: "Use model default" })),
+    )
     expect(api.setLocalThinking).toHaveBeenLastCalledWith(localThinking.modelId, "default")
     fireEvent.keyDown(slider, { key: "Escape" })
     expect(screen.queryByRole("dialog", { name: "Thinking effort" })).toBeNull()
@@ -238,7 +247,9 @@ describe("local thinking control", () => {
     store.dispose()
     cleanup()
     await renderApp(fakeApi({ getSnapshot: vi.fn(async () => ({ ...snapshot, busy: true })) }))
-    expect((screen.getByRole("button", { name: /Thinking Extra High/ }) as HTMLButtonElement).disabled).toBe(true)
+    expect(
+      (screen.getByRole("button", { name: /Thinking Extra High/ }) as HTMLButtonElement).disabled,
+    ).toBe(true)
   })
 })
 
@@ -246,7 +257,12 @@ describe("Dashboard session navigation", () => {
   it("opens each recent session by its storage directory even when ids repeat across folders", async () => {
     const local = sessionItem({ id: "default", title: "Current folder history", detail: "1h ago" })
     const foreign = {
-      ...sessionItem({ id: "default", title: "Other folder history", detail: "2h ago", workspacePath: "/other/notes" }),
+      ...sessionItem({
+        id: "default",
+        title: "Other folder history",
+        detail: "2h ago",
+        workspacePath: "/other/notes",
+      }),
       dirName: "notes-0123456789ab",
       workspaceLabel: "notes",
     }
@@ -260,7 +276,9 @@ describe("Dashboard session navigation", () => {
     await renderApp(api)
 
     for (const session of sessions) {
-      await act(async () => fireEvent.click(screen.getByRole("button", { name: new RegExp(session.title) })))
+      await act(async () =>
+        fireEvent.click(screen.getByRole("button", { name: new RegExp(session.title) })),
+      )
       expect(api.selectSession).toHaveBeenLastCalledWith(session.id, session.dirName)
     }
     expect(api.selectSession).toHaveBeenCalledTimes(sessions.length)
@@ -281,7 +299,9 @@ describe("AppShell settings navigation", () => {
     expect(screen.getByText("Providers")).toBeTruthy()
 
     fireEvent.keyDown(tabs[0], { key: "ArrowDown" })
-    expect(screen.getByRole("tab", { name: "Appearance" }).getAttribute("aria-selected")).toBe("true")
+    expect(screen.getByRole("tab", { name: "Appearance" }).getAttribute("aria-selected")).toBe(
+      "true",
+    )
     expect(screen.getByRole("tabpanel", { name: "Appearance" })).toBeTruthy()
     expect(screen.getByText("Theme")).toBeTruthy()
 
@@ -368,7 +388,10 @@ describe("AppShell settings navigation", () => {
     const createObjectURL = vi.fn(() => "blob:screen")
     const revokeObjectURL = vi.fn()
     vi.stubGlobal("URL", { ...URL, createObjectURL, revokeObjectURL })
-    const sendPrompt = vi.fn<DesktopApi["sendPrompt"]>(async () => ({ accepted: true, delivery: "started" }))
+    const sendPrompt = vi.fn<DesktopApi["sendPrompt"]>(async () => ({
+      accepted: true,
+      delivery: "started",
+    }))
     await renderApp(
       fakeApi({
         getSnapshot: vi.fn(async () => ({
@@ -379,9 +402,13 @@ describe("AppShell settings navigation", () => {
       }),
     )
 
-    const file = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], "screen.png", {
-      type: "image/png",
-    })
+    const file = new File(
+      [new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])],
+      "screen.png",
+      {
+        type: "image/png",
+      },
+    )
     const input = document.querySelector<HTMLInputElement>('input[type="file"]')
     if (!input) throw new Error("expected image input")
     fireEvent.change(input, { target: { files: [file] } })
@@ -399,7 +426,10 @@ describe("AppShell settings navigation", () => {
   })
 
   it("accepts text documents on a text-only model", async () => {
-    const sendPrompt = vi.fn<DesktopApi["sendPrompt"]>(async () => ({ accepted: true, delivery: "started" }))
+    const sendPrompt = vi.fn<DesktopApi["sendPrompt"]>(async () => ({
+      accepted: true,
+      delivery: "started",
+    }))
     await renderApp(fakeApi({ sendPrompt }))
 
     const upload = screen.getByRole("button", { name: "Add files" }) as HTMLButtonElement
@@ -418,8 +448,15 @@ describe("AppShell settings navigation", () => {
   })
 
   it("accepts dropped images and keeps them when submission is rejected", async () => {
-    vi.stubGlobal("URL", { ...URL, createObjectURL: () => "blob:dropped", revokeObjectURL: vi.fn() })
-    const sendPrompt = vi.fn<DesktopApi["sendPrompt"]>(async () => ({ accepted: false, reason: "Session is locked." }))
+    vi.stubGlobal("URL", {
+      ...URL,
+      createObjectURL: () => "blob:dropped",
+      revokeObjectURL: vi.fn(),
+    })
+    const sendPrompt = vi.fn<DesktopApi["sendPrompt"]>(async () => ({
+      accepted: false,
+      reason: "Session is locked.",
+    }))
     await renderApp(
       fakeApi({
         getSnapshot: vi.fn(async () => ({
@@ -438,6 +475,30 @@ describe("AppShell settings navigation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send" }))
     expect(await screen.findByText("Session is locked. Your message was kept.")).toBeTruthy()
     expect(screen.getByRole("button", { name: "Remove photo.jpg" })).toBeTruthy()
+  })
+
+  it("clears only the submitted text on acceptance, keeping edits typed while the send was in flight", async () => {
+    let resolveSend: (result: { accepted: true; delivery: "started" }) => void = () => {}
+    const sendPrompt = vi.fn<DesktopApi["sendPrompt"]>(
+      () =>
+        new Promise((resolve) => {
+          resolveSend = resolve
+        }),
+    )
+    await renderApp(fakeApi({ sendPrompt }))
+    const textarea = screen.getByLabelText("Prompt") as HTMLTextAreaElement
+
+    fireEvent.change(textarea, { target: { value: "hello" } })
+    fireEvent.keyDown(textarea, { key: "Enter" })
+    expect(sendPrompt).toHaveBeenCalledExactlyOnceWith("hello", [])
+    fireEvent.change(textarea, { target: { value: "hello, and one more thing" } })
+    await act(async () => resolveSend({ accepted: true, delivery: "started" }))
+    expect(textarea.value).toBe("hello, and one more thing")
+
+    fireEvent.change(textarea, { target: { value: "second" } })
+    fireEvent.keyDown(textarea, { key: "Enter" })
+    await act(async () => resolveSend({ accepted: true, delivery: "started" }))
+    expect(textarea.value).toBe("")
   })
 
   it("changes the interactive permission mode from Settings", async () => {
@@ -616,14 +677,16 @@ describe("AppShell settings navigation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Keep" }))
     expect(deleteLocalModel).not.toHaveBeenCalled()
 
-    // Confirming hands the removal to the main process; until it settles, the row shows progress and
-    // every conflicting control is disabled.
+    // Confirming hands the removal to the main process; until it settles, the row shows progress
+    // and every conflicting control is disabled.
     fireEvent.click(screen.getByRole("button", { name: "Delete Qwen3.8 27B" }))
     fireEvent.click(screen.getByRole("button", { name: "Delete" }))
     await act(async () => {})
     expect(deleteLocalModel).toHaveBeenCalledWith("Qwen/Qwen3.8-27B")
     expect(screen.getByText("Deleting Qwen3.8 27B…")).toBeTruthy()
-    expect((screen.getByRole("button", { name: "Delete GLM-5.3" }) as HTMLButtonElement).disabled).toBe(true)
+    expect(
+      (screen.getByRole("button", { name: "Delete GLM-5.3" }) as HTMLButtonElement).disabled,
+    ).toBe(true)
     const uncachedSelect = screen
       .getByText(/Est\. 64K · MXFP4 · 63 GB/)
       .closest(".modelPicker-row")
@@ -643,7 +706,8 @@ describe("AppShell settings navigation", () => {
     await act(async () => {})
     expect(api.listModels).toHaveBeenCalledTimes(2)
     expect(screen.queryByText("Deleting Qwen3.8 27B…")).toBeNull()
-    // The row is back to its downloadable state: no delete affordance, name still listed, selection live.
+    // The row is back to its downloadable state: no delete affordance, name still listed, selection
+    // live.
     expect(screen.queryByRole("button", { name: "Delete Qwen3.8 27B" })).toBeNull()
     expect(screen.getByText("Qwen3.8 27B")).toBeTruthy()
     expect((uncachedSelect as HTMLButtonElement).disabled).toBe(false)
@@ -674,7 +738,9 @@ describe("AppShell settings navigation", () => {
       fireEvent.click(screen.getByRole("tab", { name: "General" }))
       expect(screen.queryByRole("switch", { name: "Toggle debug mode" })).toBeNull()
       // Only the debug row is gated; the rest of the Behavior section stays.
-      expect(screen.getByRole("switch", { name: "Show or hide model thinking traces" })).toBeTruthy()
+      expect(
+        screen.getByRole("switch", { name: "Show or hide model thinking traces" }),
+      ).toBeTruthy()
     } finally {
       vi.unstubAllEnvs()
     }
@@ -687,7 +753,10 @@ describe("AppShell settings navigation", () => {
     cleanup()
 
     const updated = fakeApi({
-      getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, update: { status: "ready" as const, version: "9.9.9" } })),
+      getSnapshot: vi.fn(async () => ({
+        ...SNAPSHOT,
+        update: { status: "ready" as const, version: "9.9.9" },
+      })),
     })
     await renderApp(updated)
     fireEvent.click(await screen.findByRole("button", { name: "Update" }))
@@ -718,7 +787,9 @@ describe("AppShell settings navigation", () => {
     expect(api.checkForUpdates).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole("button", { name: "Check for updates" }))
     expect(api.checkForUpdates).toHaveBeenCalledOnce()
-    expect((screen.getByRole("button", { name: "Checking…" }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole("button", { name: "Checking…" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    )
     act(() =>
       emit({
         type: "status",
@@ -727,15 +798,23 @@ describe("AppShell settings navigation", () => {
       }),
     )
     expect(screen.queryByRole("status")).toBeNull()
-    expect(screen.getByRole("button", { name: "Downloading…" }).title).toContain("Downloading Otis 9.9.9")
+    expect(screen.getByRole("button", { name: "Downloading…" }).title).toContain(
+      "Downloading Otis 9.9.9",
+    )
     expect(screen.queryByRole("button", { name: "Update" })).toBeNull()
     fireEvent.click(screen.getByRole("button", { name: /close settings/i }))
     fireEvent.click(screen.getByRole("button", { name: "Settings" }))
     await act(async () => {})
     fireEvent.click(screen.getByRole("tab", { name: "General" }))
-    expect((screen.getByRole("button", { name: "Downloading…" }) as HTMLButtonElement).disabled).toBe(true)
+    expect(
+      (screen.getByRole("button", { name: "Downloading…" }) as HTMLButtonElement).disabled,
+    ).toBe(true)
     await act(async () => {
-      emit({ type: "status", revision: 3, status: { ...SNAPSHOT, update: { status: "ready", version: "9.9.9" } } })
+      emit({
+        type: "status",
+        revision: 3,
+        status: { ...SNAPSHOT, update: { status: "ready", version: "9.9.9" } },
+      })
       finish()
     })
     expect(screen.queryByRole("status")).toBeNull()
@@ -745,9 +824,13 @@ describe("AppShell settings navigation", () => {
     expect(api.installUpdate).not.toHaveBeenCalled()
     fireEvent.click(install)
     expect(api.installUpdate).toHaveBeenCalledOnce()
-    expect((screen.getByRole("button", { name: "Restarting…" }) as HTMLButtonElement).disabled).toBe(true)
+    expect(
+      (screen.getByRole("button", { name: "Restarting…" }) as HTMLButtonElement).disabled,
+    ).toBe(true)
     fireEvent.click(screen.getByRole("button", { name: /close settings/i }))
-    expect((screen.getByRole("button", { name: "Restarting…" }) as HTMLButtonElement).disabled).toBe(true)
+    expect(
+      (screen.getByRole("button", { name: "Restarting…" }) as HTMLButtonElement).disabled,
+    ).toBe(true)
     expect(screen.getByPlaceholderText("Restarting into the update…")).toBeTruthy()
     fireEvent.click(screen.getByRole("button", { name: "Settings" }))
     await act(async () => {})
@@ -773,13 +856,17 @@ describe("AppShell settings navigation", () => {
     await act(async () => {})
     fireEvent.click(screen.getByRole("tab", { name: "General" }))
     expect(screen.getByRole("status").textContent).toBe(message)
-    expect((screen.getByRole("button", { name: "Check for updates" }) as HTMLButtonElement).disabled).toBe(disabled)
+    expect(
+      (screen.getByRole("button", { name: "Check for updates" }) as HTMLButtonElement).disabled,
+    ).toBe(disabled)
     expect(screen.queryByRole("button", { name: "Update" })).toBeNull()
   })
 
   it("shows a failed bridge request and lets the user retry to an up-to-date result", async () => {
     let emit!: (event: DesktopEvent) => void
-    const check = vi.fn<DesktopApi["checkForUpdates"]>().mockRejectedValueOnce(new Error("bridge unavailable"))
+    const check = vi
+      .fn<DesktopApi["checkForUpdates"]>()
+      .mockRejectedValueOnce(new Error("bridge unavailable"))
     const api = fakeApi({
       checkForUpdates: check,
       subscribe: vi.fn((listener) => {
@@ -791,12 +878,18 @@ describe("AppShell settings navigation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Settings" }))
     await act(async () => {})
     fireEvent.click(screen.getByRole("tab", { name: "General" }))
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Check for updates" })))
-    expect(screen.getByRole("status").textContent).toBe("Couldn’t check for updates. Please try again.")
+    await act(async () =>
+      fireEvent.click(screen.getByRole("button", { name: "Check for updates" })),
+    )
+    expect(screen.getByRole("status").textContent).toBe(
+      "Couldn’t check for updates. Please try again.",
+    )
     check.mockImplementationOnce(async () => {
       emit({ type: "status", revision: 2, status: { ...SNAPSHOT, update: { status: "current" } } })
     })
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Check for updates" })))
+    await act(async () =>
+      fireEvent.click(screen.getByRole("button", { name: "Check for updates" })),
+    )
     expect(check).toHaveBeenCalledTimes(2)
     expect(screen.getByRole("status").textContent).toBe("You’re up to date.")
   })
@@ -814,7 +907,12 @@ describe("AppShell settings navigation", () => {
 
   it("lists every session in the palette — no recents cap", async () => {
     const many = Array.from({ length: 12 }, (_, i) =>
-      sessionItem({ id: `session-${i}`, title: `Session number ${i}`, detail: "just now", active: i === 0 }),
+      sessionItem({
+        id: `session-${i}`,
+        title: `Session number ${i}`,
+        detail: "just now",
+        active: i === 0,
+      }),
     )
     const api = fakeApi({ getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, sessions: many })) })
     await renderApp(api)
@@ -870,7 +968,11 @@ describe("AppShell settings navigation", () => {
     expect(screen.getByRole("button", { name: "Fresh start" })).toBeTruthy()
   })
 
-  it.each(["button", "shortcut", "palette"])("starts a fresh session immediately from the %s", async (trigger) => {
+  it.each([
+    "button",
+    "shortcut",
+    "palette",
+  ])("starts a fresh session immediately from the %s", async (trigger) => {
     let emit: ((event: DesktopEvent) => void) | undefined
     const withConversation: DesktopSnapshot = {
       ...SNAPSHOT,
@@ -959,7 +1061,9 @@ describe("AppShell settings navigation", () => {
 
   it("never opens a result from a stale query", async () => {
     const alpha = sessionItem({ id: "session-alpha", title: "Alpha session", detail: "1h ago" })
-    const api = fakeApi({ searchSessions: vi.fn(async (q: string) => (q === "alpha" ? [alpha] : [])) })
+    const api = fakeApi({
+      searchSessions: vi.fn(async (q: string) => (q === "alpha" ? [alpha] : [])),
+    })
     await renderApp(api)
 
     fireEvent.keyDown(window, { key: "k", metaKey: true })
@@ -974,7 +1078,8 @@ describe("AppShell settings navigation", () => {
     await act(async () => {})
     expect(palette.getByText("Alpha session")).toBeTruthy()
 
-    // Retype and press Enter before the new search completes: the alpha result is gone, nothing activates.
+    // Retype and press Enter before the new search completes: the alpha result is gone, nothing
+    // activates.
     fireEvent.change(input, { target: { value: "beta" } })
     expect(palette.queryByText("Alpha session")).toBeNull()
     fireEvent.keyDown(input, { key: "Enter" })
@@ -1037,8 +1142,20 @@ describe("AppShell settings navigation", () => {
       thinkingVisible: false,
       entries: [
         { id: 1, kind: "message", speaker: "You", text: "hello" },
-        { id: 2, kind: "reasoning", speaker: "Thinking", text: "old finished trace", streaming: false },
-        { id: 3, kind: "reasoning", speaker: "Thinking", text: "live current thought", streaming: true },
+        {
+          id: 2,
+          kind: "reasoning",
+          speaker: "Thinking",
+          text: "old finished trace",
+          streaming: false,
+        },
+        {
+          id: 3,
+          kind: "reasoning",
+          speaker: "Thinking",
+          text: "live current thought",
+          streaming: true,
+        },
       ],
     }
     await renderApp(fakeApi({ getSnapshot: vi.fn(async () => withThinking) }))
@@ -1068,8 +1185,15 @@ describe("AppShell settings navigation", () => {
     expect(api.setAgentsPanelVisible).not.toHaveBeenCalled()
 
     // Runs arrive while the rail is hidden → the panel asks the runtime to open it.
-    const run = { toolCallId: "t1", title: "Survey the shell", status: "running" as const, tools: 0 }
-    act(() => listener?.({ type: "status", revision: 2, status: { ...hiddenStatus, subagents: [run] } }))
+    const run = {
+      toolCallId: "t1",
+      title: "Survey the shell",
+      status: "running" as const,
+      tools: 0,
+    }
+    act(() =>
+      listener?.({ type: "status", revision: 2, status: { ...hiddenStatus, subagents: [run] } }),
+    )
     expect(api.setAgentsPanelVisible).toHaveBeenCalledWith(true)
     // The runtime applies the preference and echoes it back.
     act(() =>
@@ -1088,9 +1212,14 @@ describe("AppShell settings navigation", () => {
         status: { ...hiddenStatus, subagents: [run], agentsPanelVisible: false },
       }),
     )
-    expect(document.querySelector(".workspaceRail")?.classList.contains("workspaceRail-hidden")).toBe(true)
-    // …opens and closes Settings: the preserved panel must not interpret the existing run as newly arrived.
-    act(() => listener?.({ type: "status", revision: 5, status: { ...hiddenStatus, subagents: [run] } }))
+    expect(
+      document.querySelector(".workspaceRail")?.classList.contains("workspaceRail-hidden"),
+    ).toBe(true)
+    // …opens and closes Settings: the preserved panel must not interpret the existing run as newly
+    // arrived.
+    act(() =>
+      listener?.({ type: "status", revision: 5, status: { ...hiddenStatus, subagents: [run] } }),
+    )
     fireEvent.click(screen.getByRole("button", { name: "Settings" }))
     await act(async () => {})
     fireEvent.click(screen.getByRole("button", { name: /close settings/i }))
@@ -1118,7 +1247,11 @@ describe("AppShell settings navigation", () => {
     expect(panel.style.getPropertyValue("--workspace-rail-width")).toBe("240px")
     const capture = vi.fn()
     const release = vi.fn()
-    Object.assign(resize, { setPointerCapture: capture, hasPointerCapture: () => true, releasePointerCapture: release })
+    Object.assign(resize, {
+      setPointerCapture: capture,
+      hasPointerCapture: () => true,
+      releasePointerCapture: release,
+    })
     fireEvent.pointerDown(resize, { button: 0, clientX: 500, pointerId: 1 })
     expect(capture).toHaveBeenCalledWith(1)
     expect(document.activeElement).toBe(resize)
@@ -1143,10 +1276,14 @@ describe("AppShell settings navigation", () => {
   })
 
   it("measures full tab labels when the first coworker arrives in an existing session", async () => {
-    vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockImplementation(function (this: HTMLElement) {
+    vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockImplementation(function (
+      this: HTMLElement,
+    ) {
       return this.classList.contains("workspaceRail-tabs") ? 320 : 0
     })
-    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (this: HTMLElement) {
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (
+      this: HTMLElement,
+    ) {
       return this.classList.contains("iconBtn") ? 26 : 0
     })
     let listener: ((event: DesktopEvent) => void) | undefined
@@ -1165,7 +1302,9 @@ describe("AppShell settings navigation", () => {
         revision: 2,
         status: {
           ...SNAPSHOT,
-          subagents: [{ toolCallId: "first", title: "First coworker", status: "running", tools: 0 }],
+          subagents: [
+            { toolCallId: "first", title: "First coworker", status: "running", tools: 0 },
+          ],
         },
       }),
     )
@@ -1236,7 +1375,9 @@ describe("AppShell settings navigation", () => {
     expect(openButtons).toHaveLength(2)
     fireEvent.click(openButtons[1])
     const panel = screen.getByLabelText("Workspace panel")
-    expect(within(panel).getByRole("tab", { name: "Canvas" }).getAttribute("aria-selected")).toBe("true")
+    expect(within(panel).getByRole("tab", { name: "Canvas" }).getAttribute("aria-selected")).toBe(
+      "true",
+    )
     expect(panel.querySelector(".canvas-tabs")).toBeNull()
     const frame = within(panel).getByTitle("Mermaid diagram")
     expect(frame.getAttribute("sandbox")).toBe("allow-scripts")
@@ -1260,11 +1401,15 @@ describe("AppShell settings navigation", () => {
         status: {
           ...status,
           theme: "bright",
-          subagents: [{ toolCallId: "t1", title: "Check the runtime", status: "running", tools: 0 }],
+          subagents: [
+            { toolCallId: "t1", title: "Check the runtime", status: "running", tools: 0 },
+          ],
         },
       }),
     )
-    expect(within(panel).getByRole("tab", { name: "Canvas" }).getAttribute("aria-selected")).toBe("true")
+    expect(within(panel).getByRole("tab", { name: "Canvas" }).getAttribute("aria-selected")).toBe(
+      "true",
+    )
     expect(postMessage.mock.calls.at(-1)?.[0]).toMatchObject({ colors: { text: "#654321" } })
 
     act(() => window.dispatchEvent(new Event("otis:canvas-reload")))
@@ -1301,7 +1446,9 @@ describe("AppShell settings navigation", () => {
     await renderApp(api)
 
     const panel = screen.getByLabelText("Workspace panel")
-    expect(within(panel).getByRole("tab", { name: "Canvas" }).getAttribute("aria-selected")).toBe("true")
+    expect(within(panel).getByRole("tab", { name: "Canvas" }).getAttribute("aria-selected")).toBe(
+      "true",
+    )
     expect(await within(panel).findByRole("heading", { name: "First draft" })).toBeTruthy()
     expect(getArtifact).toHaveBeenCalledWith(1)
 
@@ -1325,7 +1472,11 @@ describe("AppShell settings navigation", () => {
       kind: "pdf" as const,
       mimeType: "application/pdf",
     }
-    const workspace = { source: "workspace" as const, path: "docs/plan.docx", kind: "docx" as const }
+    const workspace = {
+      source: "workspace" as const,
+      path: "docs/plan.docx",
+      kind: "docx" as const,
+    }
     const openArtifact = vi.fn(async () => ({ ok: true as const }))
     const entries: TranscriptEntry[] = [
       {
@@ -1384,7 +1535,8 @@ describe("AppShell settings navigation", () => {
         getArtifact: vi.fn(async () => ({
           ...artifact,
           encoding: "utf8" as const,
-          content: "<!doctype html><html><head><title>Page</title></head><body><h1>Hello</h1></body></html>",
+          content:
+            "<!doctype html><html><head><title>Page</title></head><body><h1>Hello</h1></body></html>",
         })),
       }),
     )
@@ -1426,7 +1578,8 @@ describe("AppShell settings navigation", () => {
         getArtifact: vi.fn(async () => ({
           ...artifact,
           encoding: "html" as const,
-          content: "<h1>Launch plan</h1><table><tr><th>State</th></tr><tr><td>Ready</td></tr></table>",
+          content:
+            "<h1>Launch plan</h1><table><tr><th>State</th></tr><tr><td>Ready</td></tr></table>",
         })),
       }),
     )
@@ -1481,18 +1634,24 @@ describe("AppShell settings navigation", () => {
     expect(api.setAgentsPanelVisible).toHaveBeenCalledExactlyOnceWith(true)
 
     const { entries: _entries, revision: _revision, ...status } = hidden
-    act(() => listener?.({ type: "status", revision: 2, status: { ...status, agentsPanelVisible: true } }))
+    act(() =>
+      listener?.({ type: "status", revision: 2, status: { ...status, agentsPanelVisible: true } }),
+    )
     expect(screen.getByRole("tab", { name: "Canvas" }).getAttribute("aria-selected")).toBe("true")
   })
 
   it("rings the composer while the agent is working, and only then", async () => {
     await renderApp(fakeApi())
-    expect(document.querySelector(".composer-box")?.classList.contains("composer-boxWorking")).toBe(false)
+    expect(document.querySelector(".composer-box")?.classList.contains("composer-boxWorking")).toBe(
+      false,
+    )
     cleanup()
 
     const working: DesktopSnapshot = { ...SNAPSHOT, busy: true }
     await renderApp(fakeApi({ getSnapshot: vi.fn(async () => working) }))
-    expect(document.querySelector(".composer-box")?.classList.contains("composer-boxWorking")).toBe(true)
+    expect(document.querySelector(".composer-box")?.classList.contains("composer-boxWorking")).toBe(
+      true,
+    )
     const upload = screen.getByRole("button", { name: "Add files" })
     const stop = screen.getByRole("button", { name: "Stop" })
     expect(upload.compareDocumentPosition(stop) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
@@ -1507,7 +1666,9 @@ describe("AppShell settings navigation", () => {
 
     // The recents list shows the active session; deletion hides behind a right-click context menu.
     const activeSession = palette.getByText("Test session")
-    expect(activeSession.closest(".palette-row")?.classList.contains("palette-row-active")).toBe(true)
+    expect(activeSession.closest(".palette-row")?.classList.contains("palette-row-active")).toBe(
+      true,
+    )
     fireEvent.contextMenu(activeSession)
     fireEvent.click(screen.getByRole("menuitem", { name: "Delete session" }))
     expect(palette.getByText("Delete this session?")).toBeTruthy()
@@ -1530,8 +1691,15 @@ describe("global session history", () => {
   it.each([
     { name: "another workspace", workspacePath: "/other/project" },
     { name: "an unknown workspace", workspacePath: undefined },
-  ])("allows confirmed deletion from $name without opening its folder", async ({ workspacePath }) => {
-    const item = sessionItem({ id: "foreign", title: "Foreign history", detail: "1d ago", workspacePath })
+  ])("allows confirmed deletion from $name without opening its folder", async ({
+    workspacePath,
+  }) => {
+    const item = sessionItem({
+      id: "foreign",
+      title: "Foreign history",
+      detail: "1d ago",
+      workspacePath,
+    })
     item.dirName = "foreign-0123456789ab"
     const api = fakeApi({ getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, sessions: [item] })) })
     await renderApp(api)
@@ -1552,7 +1720,12 @@ describe("global session history", () => {
 
   it("removes only the deleted search result when different folders share a session id", async () => {
     const first = sessionItem({ id: "default", title: "First shared history", detail: "1d ago" })
-    const second = { ...first, dirName: "other-0123456789ab", title: "Second shared history", workspacePath: "/other" }
+    const second = {
+      ...first,
+      dirName: "other-0123456789ab",
+      title: "Second shared history",
+      workspacePath: "/other",
+    }
     const api = fakeApi({ searchSessions: vi.fn(async () => [first, second]) })
     await renderApp(api)
     fireEvent.keyDown(window, { key: "k", metaKey: true })
@@ -1569,10 +1742,20 @@ describe("global session history", () => {
     expect(palette.getByText(first.title)).toBeTruthy()
   })
 
-  it.each(["locked", "failed"])("keeps foreign history visible and explains a %s deletion", async (failure) => {
-    const item = sessionItem({ id: "foreign", title: "Foreign history", detail: "1d ago", workspacePath: "/other" })
+  it.each([
+    "locked",
+    "failed",
+  ])("keeps foreign history visible and explains a %s deletion", async (failure) => {
+    const item = sessionItem({
+      id: "foreign",
+      title: "Foreign history",
+      detail: "1d ago",
+      workspacePath: "/other",
+    })
     const reason =
-      failure === "locked" ? "That session is open in another Otis window." : "Could not remove the session file."
+      failure === "locked"
+        ? "That session is open in another Otis window."
+        : "Could not remove the session file."
     const api = fakeApi({
       getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, sessions: [item] })),
       deleteSession: vi.fn(async () => {
@@ -1615,7 +1798,11 @@ describe("global session history", () => {
 
     fireEvent.click(palette.getByText("Notes cleanup"))
     await act(async () => {})
-    expect(api.openSessionAt).toHaveBeenCalledWith("/other/notes", "session-foreign", "ws-0123456789ab")
+    expect(api.openSessionAt).toHaveBeenCalledWith(
+      "/other/notes",
+      "session-foreign",
+      "ws-0123456789ab",
+    )
     expect(api.selectSession).not.toHaveBeenCalled()
   })
 
@@ -1714,7 +1901,8 @@ describe("global session history", () => {
     expect(footer?.textContent).toContain("ws")
     const chip = footer?.querySelector(".composer-workspace")
     expect(chip).toBeTruthy()
-    expect(document.querySelector(".workspaceHeader-workspace")).toBeNull() // moved out of the header
+    // Moved out of the header.
+    expect(document.querySelector(".workspaceHeader-workspace")).toBeNull()
     fireEvent.click(chip as Element)
     await act(async () => {})
     await act(async () => {})
@@ -1764,7 +1952,9 @@ describe("theme application", () => {
       getItem: (key: string) => storage.get(key) ?? null,
       setItem: (key: string, value: string) => storage.set(key, value),
     })
-    await renderApp(fakeApi({ getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, theme: "matrix" as const })) }))
+    await renderApp(
+      fakeApi({ getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, theme: "matrix" as const })) }),
+    )
     expect(document.documentElement.dataset.theme).toBe("matrix")
     expect(storage.get("otis.theme")).toBe("matrix")
   })
@@ -1773,9 +1963,27 @@ describe("theme application", () => {
 describe("tool run condensing", () => {
   const entries = [
     { id: 1, kind: "message", speaker: "You", text: "fix the shell" },
-    { id: 2, kind: "tool", speaker: "Tool", text: "Searching files: keydown", activityKind: "file_search" },
-    { id: 3, kind: "tool", speaker: "Tool", text: "Reading files: AppShell.tsx", activityKind: "file_read" },
-    { id: 4, kind: "tool", speaker: "Tool", text: "Running command: bun test", activityKind: "shell" },
+    {
+      id: 2,
+      kind: "tool",
+      speaker: "Tool",
+      text: "Searching files: keydown",
+      activityKind: "file_search",
+    },
+    {
+      id: 3,
+      kind: "tool",
+      speaker: "Tool",
+      text: "Reading files: AppShell.tsx",
+      activityKind: "file_read",
+    },
+    {
+      id: 4,
+      kind: "tool",
+      speaker: "Tool",
+      text: "Running command: bun test",
+      activityKind: "shell",
+    },
     {
       id: 5,
       kind: "tool",
@@ -1790,9 +1998,12 @@ describe("tool run condensing", () => {
   it("condenses consecutive tool activity behind one row that expands into list rows on click", async () => {
     await renderApp(fakeApi({ getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, entries })) }))
 
-    // Collapsed: user message, run row, standalone diff card, answer — the run's actions mount nothing.
+    // Collapsed: user message, run row, standalone diff card, answer — the run's actions mount
+    // nothing.
     expect(document.querySelectorAll(".transcriptEntry")).toHaveLength(4)
-    const run = screen.getByRole("button", { name: "3 tool actions, latest: Running command: bun test" })
+    const run = screen.getByRole("button", {
+      name: "3 tool actions, latest: Running command: bun test",
+    })
     expect(screen.queryByText("Searching files: keydown")).toBeNull()
     expect(screen.queryByText("Reading files: AppShell.tsx")).toBeNull()
 
@@ -1800,7 +2011,8 @@ describe("tool run condensing", () => {
     expect(screen.getByText("Editing file: AppShell.tsx")).toBeTruthy()
 
     fireEvent.click(run)
-    // Expanding flattens the actions into ordinary virtualized rows beside the run's row, indented as its.
+    // Expanding flattens the actions into ordinary virtualized rows beside the run's row, indented
+    // as its.
     expect(document.querySelectorAll(".transcriptEntry")).toHaveLength(7)
     expect(document.querySelectorAll(".transcriptEntry-inRun")).toHaveLength(3)
     expect(screen.getByText("Searching files: keydown")).toBeTruthy()

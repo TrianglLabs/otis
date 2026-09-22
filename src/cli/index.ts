@@ -3,8 +3,6 @@ import { runHeadlessCommand } from "./headless-cli.js"
 import { runSkillsCommand } from "./skills-cli.js"
 import { runUpdateCommand } from "./update.js"
 
-const version = process.env.OTIS_VERSION ?? "dev"
-
 try {
   const [command, ...args] = process.argv.slice(2)
 
@@ -23,7 +21,7 @@ try {
     case "--version":
     case "-v":
     case "version":
-      console.log(`otis ${version}`)
+      console.log(`otis ${process.env.OTIS_VERSION ?? "dev"}`)
       break
     default: {
       const { InteractiveApp } = await import("./interactive-app.js")

@@ -50,7 +50,12 @@ async function setup() {
         })
       }
       if (command !== "python3" || !pythonAvailable) throw new Error("Python unavailable")
-      return JSON.stringify({ python: "/test/python3", version: [3, 12, 8], missing: ["pypdf"], libreoffice: false })
+      return JSON.stringify({
+        python: "/test/python3",
+        version: [3, 12, 8],
+        missing: ["pypdf"],
+        libreoffice: false,
+      })
     }
     throw new Error(`Unexpected command: ${args.join(" ")}`)
   })
@@ -95,7 +100,9 @@ describe("document runtime", () => {
     const fixture = await setup()
     fixture.duringInstall(() => delay(40))
     const values = await Promise.all(
-      Array.from({ length: 8 }, () => ensureDocumentRuntime(fixture, fixture.requirements, fixture.run)),
+      Array.from({ length: 8 }, () =>
+        ensureDocumentRuntime(fixture, fixture.requirements, fixture.run),
+      ),
     )
     expect(new Set(values).size).toBe(1)
     const installations = fixture.run.mock.calls.filter(([, args]) => args.includes("install"))
@@ -110,7 +117,10 @@ describe("document runtime", () => {
       ]),
     )
     expect(fixture.run.mock.calls.some(([, args]) => args.includes("check"))).toBe(true)
-    expect(await checkDocumentRuntime(fixture, fixture.run)).toMatchObject({ ready: true, missing_packages: [] })
+    expect(await checkDocumentRuntime(fixture, fixture.run)).toMatchObject({
+      ready: true,
+      missing_packages: [],
+    })
     expect(await readFile(values[0], "utf8")).toBe("fixture interpreter")
     expect(await readdir(join(fixture.dataDirectory, "document-runtime"))).toHaveLength(1)
     if (process.platform !== "win32")
@@ -125,9 +135,9 @@ describe("document runtime", () => {
     )
     expect(await readdir(join(fixture.dataDirectory, "document-runtime"))).toEqual([])
     fixture.failInstall(false)
-    await expect(ensureDocumentRuntime(fixture, fixture.requirements, fixture.run)).resolves.toContain(
-      "document-runtime",
-    )
+    await expect(
+      ensureDocumentRuntime(fixture, fixture.requirements, fixture.run),
+    ).resolves.toContain("document-runtime")
   })
 
   it("does not report a broken installation as ready", async () => {
@@ -150,7 +160,9 @@ describe("document runtime", () => {
     const outside = join(fixture.dataDirectory, "outside")
     await mkdir(outside)
     await symlink(outside, env)
-    await expect(ensureDocumentRuntime(fixture, fixture.requirements, fixture.run)).rejects.toThrow("symlink")
+    await expect(ensureDocumentRuntime(fixture, fixture.requirements, fixture.run)).rejects.toThrow(
+      "symlink",
+    )
     await expect(checkDocumentRuntime(fixture, fixture.run)).rejects.toThrow("symlink")
     expect(await readdir(outside)).toEqual([])
   })
@@ -162,7 +174,11 @@ describe("document runtime", () => {
     const lock = JSON.stringify({ pid: process.pid, token: "owner" })
     await writeFile(join(root, "setup.lock"), lock)
     const controller = new AbortController()
-    const pending = ensureDocumentRuntime({ ...fixture, signal: controller.signal }, fixture.requirements, fixture.run)
+    const pending = ensureDocumentRuntime(
+      { ...fixture, signal: controller.signal },
+      fixture.requirements,
+      fixture.run,
+    )
     const assertion = expect(pending).rejects.toThrow()
     await delay(20)
     controller.abort()
@@ -178,10 +194,16 @@ describe("document runtime", () => {
       controller.abort()
     })
     await expect(
-      ensureDocumentRuntime({ ...fixture, signal: controller.signal }, fixture.requirements, fixture.run),
+      ensureDocumentRuntime(
+        { ...fixture, signal: controller.signal },
+        fixture.requirements,
+        fixture.run,
+      ),
     ).rejects.toThrow()
     expect(await readdir(join(fixture.dataDirectory, "document-runtime"))).toEqual([])
     fixture.noPython()
-    await expect(ensureDocumentRuntime(fixture, fixture.requirements, fixture.run)).rejects.toThrow("Python 3.10")
+    await expect(ensureDocumentRuntime(fixture, fixture.requirements, fixture.run)).rejects.toThrow(
+      "Python 3.10",
+    )
   })
 })

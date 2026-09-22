@@ -7,7 +7,8 @@ import electron from "electron"
 import { build } from "vite"
 import { inlineCanvas } from "./vite-inline-canvas.js"
 
-// Real Electron layout with a fake DesktopApi. No provider, workspace, installed app, or browser automation is used.
+// Real Electron layout with a fake DesktopApi. No provider, workspace, installed app, or browser
+// automation is used.
 const output = await mkdtemp(join(tmpdir(), "otis-desktop-ui-"))
 try {
   await build({
@@ -40,10 +41,14 @@ try {
     },
   })
   const code = await new Promise<number>((resolveExit, reject) => {
-    const child = spawn(electron as unknown as string, [resolve("tests/desktop/ui/run.cjs"), output], {
-      stdio: "inherit",
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: undefined },
-    })
+    const child = spawn(
+      electron as unknown as string,
+      [resolve("tests/desktop/ui/run.cjs"), output],
+      {
+        stdio: "inherit",
+        env: { ...process.env, ELECTRON_RUN_AS_NODE: undefined },
+      },
+    )
     child.on("error", reject)
     child.on("exit", (code) => resolveExit(code ?? 1))
   })

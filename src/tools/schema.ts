@@ -1,4 +1,11 @@
-import { DOCUMENT_OPERATIONS, type DocumentOperation, TOOL_NAMES, type ToolCall, type ToolName } from "./types.js"
+import {
+  DOCUMENT_OPERATIONS,
+  type DocumentOperation,
+  type EditDocumentOperation,
+  TOOL_NAMES,
+  type ToolCall,
+  type ToolName,
+} from "./types.js"
 
 export type ToolDefinition = {
   name: ToolName
@@ -43,7 +50,9 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     parameters: objectSchema(
       {
         skill: stringSchema("Available skill name."),
-        path: stringSchema("Optional resource path relative to the skill root. Defaults to SKILL.md."),
+        path: stringSchema(
+          "Optional resource path relative to the skill root. Defaults to SKILL.md.",
+        ),
       },
       ["skill"],
     ),
@@ -130,7 +139,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           type: "array",
           minItems: 1,
           maxItems: 50,
-          description: "DOCX only: exact, unique, single-paragraph text replacements applied in order.",
+          description:
+            "DOCX only: exact, unique, single-paragraph text replacements applied in order.",
           items: objectSchema(
             {
               old: stringSchema("Exact existing text. Must occur once in the document."),
@@ -157,7 +167,9 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     parameters: objectSchema(
       {
         operation: { type: "string", enum: DOCUMENT_OPERATIONS },
-        path: stringSchema("Source workspace PDF for inspect-pdf, edit-pdf or render; source DOCX for convert."),
+        path: stringSchema(
+          "Source workspace PDF for inspect-pdf, edit-pdf or render; source DOCX for convert.",
+        ),
         spec_path: stringSchema(
           "Workspace JSON specification for create or edit-pdf. Read the documents skill's spec.md.",
         ),
@@ -181,7 +193,9 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       "Save the original bytes of a session attachment to a new workspace file for editing or local processing. Select by SHA-256 or exact unique attachment name. Does not convert formats or overwrite files.",
     parameters: objectSchema(
       {
-        attachment: stringSchema("Attachment SHA-256 from its metadata, or its exact unique filename."),
+        attachment: stringSchema(
+          "Attachment SHA-256 from its metadata, or its exact unique filename.",
+        ),
         path: stringSchema("New workspace file path with the same extension as the attachment."),
       },
       ["attachment", "path"],
@@ -232,205 +246,213 @@ export function parseSerializedToolCall(name: string, argumentsJSON: string): To
 
 export function parseStructuredToolCall(name: string, input: unknown): ToolCall {
   if (!isToolName(name)) throw new Error(`Unknown tool: ${name}`)
-
-  if (name === "web_search") {
-    if (isRecord(input) && typeof input.objective === "string" && input.objective.trim()) {
-      const searchQueries = parseRequiredStringArray(input.search_queries, 3)
-      return { name, input: { objective: input.objective.trim(), searchQueries } }
-    }
-    throw new Error('web_search requires a non-empty string "objective" and 1-3 "search_queries"')
+  const fields: Record<string, unknown> = isRecord(input) ? input : {}
+  const text = (key: string) => {
+    const value = fields[key]
+    return typeof value === "string" && value.trim() ? value.trim() : undefined
+  }
+  const integer = (key: string) => {
+    const value = fields[key]
+    return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined
   }
 
-  if (name === "web_read") {
-    if (isRecord(input) && typeof input.url === "string" && input.url.trim()) {
-      return { name, input: { url: input.url.trim(), objective: parseOptionalString(input.objective) } }
+  switch (name) {
+    case "web_search": {
+      const objective = text("objective")
+      if (!objective)
+        throw new Error(
+          'web_search requires a non-empty string "objective" and 1-3 "search_queries"',
+        )
+      const raw = fields.search_queries
+      if (!Array.isArray(raw))
+        throw new Error("search_queries must contain between 1 and 3 strings")
+      const searchQueries = raw
+        .map((item) => (typeof item === "string" ? item.trim() : ""))
+        .filter(Boolean)
+      if (
+        searchQueries.length === 0 ||
+        searchQueries.length > 3 ||
+        searchQueries.length !== raw.length
+      )
+        throw new Error("search_queries must contain between 1 and 3 non-empty strings")
+      return { name, input: { objective, searchQueries } }
     }
-    throw new Error('web_read requires a non-empty string "url"')
-  }
-
-  if (name === "skill") {
-    if (isRecord(input) && typeof input.skill === "string" && input.skill.trim()) {
-      return { name, input: { skill: input.skill.trim(), path: parseOptionalString(input.path) } }
+    case "web_read": {
+      const url = text("url")
+      if (!url) throw new Error('web_read requires a non-empty string "url"')
+      return { name, input: { url, objective: text("objective") } }
     }
-    throw new Error('skill requires a non-empty string "skill"')
-  }
-
-  if (name === "read") {
-    if (isRecord(input) && typeof input.path === "string" && input.path.trim()) {
+    case "skill": {
+      const skill = text("skill")
+      if (!skill) throw new Error('skill requires a non-empty string "skill"')
+      return { name, input: { skill, path: text("path") } }
+    }
+    case "read": {
+      const path = text("path")
+      if (!path) throw new Error('read requires a non-empty string "path"')
+      return { name, input: { path, offset: integer("offset"), limit: integer("limit") } }
+    }
+    case "grep": {
+      const pattern = text("pattern")
+      if (!pattern) throw new Error('grep requires a non-empty string "pattern"')
       return {
         name,
         input: {
-          path: input.path.trim(),
-          offset: parseOptionalInteger(input.offset),
-          limit: parseOptionalInteger(input.limit),
+          pattern,
+          path: text("path") ?? ".",
+          include: text("include"),
+          maxResults: integer("max_results"),
         },
       }
     }
-    throw new Error('read requires a non-empty string "path"')
-  }
-
-  if (name === "grep") {
-    if (isRecord(input) && typeof input.pattern === "string" && input.pattern.trim()) {
+    case "glob": {
+      const pattern = text("pattern")
+      if (!pattern) throw new Error('glob requires a non-empty string "pattern"')
+      return {
+        name,
+        input: { pattern, path: text("path") ?? ".", maxResults: integer("max_results") },
+      }
+    }
+    case "write": {
+      const path = text("path")
+      if (!path || typeof fields.content !== "string")
+        throw new Error('write requires string "path" and "content"')
+      return { name, input: { path, content: fields.content } }
+    }
+    case "edit": {
+      const path = text("path")
+      if (!path || typeof fields.old !== "string" || typeof fields.new !== "string")
+        throw new Error('edit requires string "path", "old", and "new"')
+      return { name, input: { path, old: fields.old, new: fields.new } }
+    }
+    case "edit_document": {
+      const path = text("path")
+      if (!path) throw new Error('edit_document requires a non-empty string "path"')
+      const replacements = fields.replacements
+      if (
+        replacements !== undefined &&
+        (!Array.isArray(replacements) || replacements.length === 0 || replacements.length > 50)
+      )
+        throw new Error("edit_document replacements must contain between 1 and 50 entries")
+      const formFields = fields.form_fields
+      if (
+        formFields !== undefined &&
+        (!isRecord(formFields) || Object.keys(formFields).length === 0)
+      )
+        throw new Error("edit_document form_fields must be a non-empty object")
+      if ((replacements === undefined) === (formFields === undefined))
+        throw new Error('edit_document requires exactly one of "replacements" or "form_fields"')
+      if (fields.replace_original !== undefined && typeof fields.replace_original !== "boolean")
+        throw new Error('edit_document "replace_original" must be a boolean')
+      const outputPath = text("output_path")
+      const replaceOriginal = fields.replace_original === true
+      if (replaceOriginal && outputPath)
+        throw new Error('edit_document cannot use "output_path" with "replace_original"')
+      let operation: EditDocumentOperation
+      if (replacements) {
+        operation = {
+          kind: "replace_text",
+          replacements: replacements.map((replacement, index) => {
+            if (
+              !isRecord(replacement) ||
+              typeof replacement.old !== "string" ||
+              !replacement.old ||
+              typeof replacement.new !== "string"
+            ) {
+              throw new Error(
+                `edit_document replacements[${index}] requires non-empty "old" and string "new"`,
+              )
+            }
+            if (replacement.old === replacement.new)
+              throw new Error(`edit_document replacements[${index}] does not change the text`)
+            return { old: replacement.old, new: replacement.new }
+          }),
+        }
+      } else {
+        const values: Record<string, string> = {}
+        for (const [key, value] of Object.entries(formFields ?? {})) {
+          if (!key.trim() || typeof value !== "string")
+            throw new Error("edit_document form_fields must map non-empty field names to strings")
+          values[key] = value
+        }
+        operation = { kind: "fill_pdf_form", fields: values }
+      }
+      return { name, input: { path, outputPath, replaceOriginal, operation } }
+    }
+    case "document": {
+      if (!DOCUMENT_OPERATIONS.includes(fields.operation as DocumentOperation))
+        throw new Error("document requires a supported operation")
+      const operation = fields.operation as DocumentOperation
+      const required =
+        operation === "check"
+          ? []
+          : operation === "create"
+            ? ["spec_path", "output_path"]
+            : operation === "inspect-pdf"
+              ? ["path"]
+              : operation === "edit-pdf"
+                ? ["path", "spec_path", "output_path"]
+                : ["path", "output_path"]
+      const allowed = [
+        "operation",
+        ...required,
+        ...(["inspect-pdf", "render"].includes(operation) ? ["pages"] : []),
+      ]
+      if (Object.keys(fields).some((key) => !allowed.includes(key)))
+        throw new Error(`document has arguments that do not apply to ${operation}`)
+      for (const key of required)
+        if (!text(key)) throw new Error(`document ${operation} requires ${key}`)
+      const pages = fields.pages
+      if (
+        pages !== undefined &&
+        (!Array.isArray(pages) ||
+          pages.length < 1 ||
+          pages.length > 20 ||
+          pages.some(
+            (page) => typeof page !== "number" || !Number.isSafeInteger(page) || page < 1,
+          ) ||
+          new Set(pages).size !== pages.length)
+      )
+        throw new Error("document pages must contain 1–20 unique positive integers")
       return {
         name,
         input: {
-          pattern: input.pattern.trim(),
-          path: parseOptionalString(input.path) ?? ".",
-          include: parseOptionalString(input.include),
-          maxResults: parseOptionalInteger(input.max_results),
+          operation,
+          ...(fields.path ? { path: text("path") } : {}),
+          ...(fields.spec_path ? { specPath: text("spec_path") } : {}),
+          ...(fields.output_path ? { outputPath: text("output_path") } : {}),
+          ...(pages ? { pages: pages as number[] } : {}),
         },
       }
     }
-    throw new Error('grep requires a non-empty string "pattern"')
-  }
-
-  if (name === "glob") {
-    if (isRecord(input) && typeof input.pattern === "string" && input.pattern.trim()) {
-      return {
-        name,
-        input: {
-          pattern: input.pattern.trim(),
-          path: parseOptionalString(input.path) ?? ".",
-          maxResults: parseOptionalInteger(input.max_results),
-        },
-      }
+    case "agent": {
+      const description = text("description")
+      const prompt = text("prompt")
+      if (!description || !prompt)
+        throw new Error('agent requires non-empty strings "description" and "prompt"')
+      return { name, input: { description, prompt } }
     }
-    throw new Error('glob requires a non-empty string "pattern"')
-  }
-
-  if (name === "write") {
-    if (isRecord(input) && typeof input.path === "string" && input.path.trim() && typeof input.content === "string") {
-      return { name, input: { path: input.path.trim(), content: input.content } }
+    case "save_attachment": {
+      const attachment = text("attachment")
+      const path = text("path")
+      if (!attachment || !path)
+        throw new Error('save_attachment requires non-empty strings "attachment" and "path"')
+      return { name, input: { attachment, path } }
     }
-    throw new Error('write requires string "path" and "content"')
-  }
-
-  if (name === "edit") {
-    if (
-      isRecord(input) &&
-      typeof input.path === "string" &&
-      input.path.trim() &&
-      typeof input.old === "string" &&
-      typeof input.new === "string"
-    ) {
-      return { name, input: { path: input.path.trim(), old: input.old, new: input.new } }
-    }
-    throw new Error('edit requires string "path", "old", and "new"')
-  }
-
-  if (name === "edit_document") {
-    if (!isRecord(input) || typeof input.path !== "string" || !input.path.trim()) {
-      throw new Error('edit_document requires a non-empty string "path"')
-    }
-    const replacements = parseDocumentReplacements(input.replacements)
-    const fields = parseDocumentFormFields(input.form_fields)
-    if ((replacements === undefined) === (fields === undefined)) {
-      throw new Error('edit_document requires exactly one of "replacements" or "form_fields"')
-    }
-    if (input.replace_original !== undefined && typeof input.replace_original !== "boolean") {
-      throw new Error('edit_document "replace_original" must be a boolean')
-    }
-    const outputPath = parseOptionalString(input.output_path)
-    const replaceOriginal = input.replace_original === true
-    if (replaceOriginal && outputPath) {
-      throw new Error('edit_document cannot use "output_path" with "replace_original"')
-    }
-    return {
-      name,
-      input: {
-        path: input.path.trim(),
-        outputPath,
-        replaceOriginal,
-        operation: replacements
-          ? { kind: "replace_text", replacements }
-          : { kind: "fill_pdf_form", fields: fields as Record<string, string> },
-      },
-    }
-  }
-
-  if (name === "document") {
-    if (!isRecord(input) || !DOCUMENT_OPERATIONS.includes(input.operation as DocumentOperation))
-      throw new Error("document requires a supported operation")
-    const operation = input.operation as DocumentOperation
-    const required =
-      operation === "check"
-        ? []
-        : operation === "create"
-          ? ["spec_path", "output_path"]
-          : operation === "inspect-pdf"
-            ? ["path"]
-            : operation === "edit-pdf"
-              ? ["path", "spec_path", "output_path"]
-              : ["path", "output_path"]
-    const allowed = ["operation", ...required, ...(["inspect-pdf", "render"].includes(operation) ? ["pages"] : [])]
-    if (Object.keys(input).some((key) => !allowed.includes(key)))
-      throw new Error(`document has arguments that do not apply to ${operation}`)
-    for (const key of required)
-      if (typeof input[key] !== "string" || !input[key].trim()) throw new Error(`document ${operation} requires ${key}`)
-    if (
-      input.pages !== undefined &&
-      (!Array.isArray(input.pages) ||
-        input.pages.length < 1 ||
-        input.pages.length > 20 ||
-        input.pages.some((page) => typeof page !== "number" || !Number.isSafeInteger(page) || page < 1) ||
-        new Set(input.pages).size !== input.pages.length)
-    )
-      throw new Error("document pages must contain 1–20 unique positive integers")
-    return {
-      name,
-      input: {
-        operation,
-        ...(input.path ? { path: (input.path as string).trim() } : {}),
-        ...(input.spec_path ? { specPath: (input.spec_path as string).trim() } : {}),
-        ...(input.output_path ? { outputPath: (input.output_path as string).trim() } : {}),
-        ...(input.pages ? { pages: input.pages as number[] } : {}),
-      },
-    }
-  }
-
-  if (name === "agent") {
-    if (
-      isRecord(input) &&
-      typeof input.description === "string" &&
-      input.description.trim() &&
-      typeof input.prompt === "string" &&
-      input.prompt.trim()
-    ) {
-      return { name, input: { description: input.description.trim(), prompt: input.prompt.trim() } }
-    }
-    throw new Error('agent requires non-empty strings "description" and "prompt"')
-  }
-
-  if (name === "save_attachment") {
-    if (
-      !isRecord(input) ||
-      typeof input.attachment !== "string" ||
-      !input.attachment.trim() ||
-      typeof input.path !== "string" ||
-      !input.path.trim()
-    )
-      throw new Error('save_attachment requires non-empty strings "attachment" and "path"')
-    return { name, input: { attachment: input.attachment.trim(), path: input.path.trim() } }
-  }
-  if (name === "publish_artifact") {
-    if (isRecord(input) && typeof input.path === "string" && input.path.trim()) {
-      if (input.artifact_id !== undefined && (typeof input.artifact_id !== "string" || !input.artifact_id.trim()))
+    case "publish_artifact": {
+      const path = text("path")
+      if (!path) throw new Error('publish_artifact requires a non-empty string "path"')
+      const artifactId = text("artifact_id")
+      if (fields.artifact_id !== undefined && !artifactId)
         throw new Error('publish_artifact "artifact_id" must be a non-empty string')
-      return {
-        name,
-        input: {
-          path: input.path.trim(),
-          ...(input.artifact_id ? { artifactId: (input.artifact_id as string).trim() } : {}),
-        },
-      }
+      return { name, input: { path, ...(artifactId ? { artifactId } : {}) } }
     }
-    throw new Error('publish_artifact requires a non-empty string "path"')
+    case "bash": {
+      const command = text("command")
+      if (!command) throw new Error('bash requires a non-empty string "command"')
+      return { name, input: { command, timeoutMs: integer("timeout_ms") } }
+    }
   }
-
-  if (isRecord(input) && typeof input.command === "string" && input.command.trim()) {
-    return { name, input: { command: input.command.trim(), timeoutMs: parseOptionalInteger(input.timeout_ms) } }
-  }
-  throw new Error('bash requires a non-empty string "command"')
 }
 
 function objectSchema(properties: Record<string, unknown>, required: string[]) {
@@ -451,59 +473,6 @@ function booleanSchema(description: string) {
 
 function isToolName(name: string): name is ToolName {
   return (TOOL_NAMES as readonly string[]).includes(name)
-}
-
-function parseOptionalString(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined
-}
-
-function parseOptionalInteger(value: unknown) {
-  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined
-}
-
-function parseRequiredStringArray(value: unknown, maxItems: number) {
-  if (!Array.isArray(value)) throw new Error(`search_queries must contain between 1 and ${maxItems} strings`)
-  const items = value.map((item) => (typeof item === "string" ? item.trim() : "")).filter(Boolean)
-  if (items.length === 0 || items.length > maxItems || items.length !== value.length) {
-    throw new Error(`search_queries must contain between 1 and ${maxItems} non-empty strings`)
-  }
-  return items
-}
-
-function parseDocumentReplacements(value: unknown) {
-  if (value === undefined) return undefined
-  if (!Array.isArray(value) || value.length === 0 || value.length > 50) {
-    throw new Error("edit_document replacements must contain between 1 and 50 entries")
-  }
-  return value.map((replacement, index) => {
-    if (
-      !isRecord(replacement) ||
-      typeof replacement.old !== "string" ||
-      !replacement.old ||
-      typeof replacement.new !== "string"
-    ) {
-      throw new Error(`edit_document replacements[${index}] requires non-empty "old" and string "new"`)
-    }
-    if (replacement.old === replacement.new) {
-      throw new Error(`edit_document replacements[${index}] does not change the text`)
-    }
-    return { old: replacement.old, new: replacement.new }
-  })
-}
-
-function parseDocumentFormFields(value: unknown) {
-  if (value === undefined) return undefined
-  if (!isRecord(value) || Object.keys(value).length === 0) {
-    throw new Error("edit_document form_fields must be a non-empty object")
-  }
-  const fields: Record<string, string> = {}
-  for (const [name, fieldValue] of Object.entries(value)) {
-    if (!name.trim() || typeof fieldValue !== "string") {
-      throw new Error("edit_document form_fields must map non-empty field names to strings")
-    }
-    fields[name] = fieldValue
-  }
-  return fields
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -56,7 +56,8 @@ void app
     })
     let stopped = 0
     let recoveries = 0
-    // The unit tests exercise the user's choices. Here the native renderer really crashes and is replaced.
+    // The unit tests exercise the user's choices. Here the native renderer really crashes and is
+    // replaced.
     dialog.showMessageBox = async () => {
       recoveries++
       assert.equal(stopped, 1)
@@ -70,7 +71,9 @@ void app
       isQuitting: () => false,
     })
     await window.loadURL("data:text/html,<title>Otis lifecycle test</title><p>Recovered window</p>")
-    const reloaded = new Promise<void>((resolve) => window.webContents.once("did-finish-load", () => resolve()))
+    const reloaded = new Promise<void>((resolve) =>
+      window.webContents.once("did-finish-load", () => resolve()),
+    )
     window.webContents.forcefullyCrashRenderer()
     await reloaded
     assert.equal(stopped, 1)

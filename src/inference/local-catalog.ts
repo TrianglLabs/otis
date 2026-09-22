@@ -4,8 +4,6 @@ import type { LocalCatalogModel } from "./types.js"
 
 const GIBIBYTE = 1024 ** 3
 
-export const LOCAL_CONTEXT_ALIGNMENT = 1_024
-
 type StandardKvGeometry = {
   /** Standard separate f16 key/value cache geometry. */
   bytesPerTokenPerLayer?: never
@@ -21,7 +19,7 @@ type CompressedKvGeometry = {
 }
 
 /** One KV-cache population: full-context layers, or a sliding window. */
-export type LocalKvGroup = (StandardKvGeometry | CompressedKvGeometry) & {
+type LocalKvGroup = (StandardKvGeometry | CompressedKvGeometry) & {
   layers: number
   /** When set, this group only caches `window` tokens. */
   window?: number
@@ -38,10 +36,13 @@ export type LocalGgufFile = {
   size: number
 }
 
-export type LocalModelPacking = {
+type LocalModelPacking = {
   ggufFiles: readonly [LocalGgufFile, ...LocalGgufFile[]]
   quant: string
-  /** Backends with kernels for this packing in the pinned runtime. Omitted means all supported backends. */
+  /**
+   * Backends with kernels for this packing in the pinned runtime. Omitted means all supported
+   * backends.
+   */
   supportedBackends?: readonly HardwareBackend[]
   /** Prefer this packing when the applicable memory limit or CUDA architecture rule matches. */
   useWhen?: {
@@ -120,7 +121,8 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     ],
     quant: "Q4_K_M",
     nativeContextLength: 262_144,
-    // The checkpoint is multimodal, but local image input also requires the separate mmproj artifact.
+    // The checkpoint is multimodal, but local image input also requires the separate mmproj
+    // artifact.
     supportsImageInput: false,
     attention: { groups: [{ layers: 8, kvHeads: 4, headDim: 256 }] },
   },
@@ -140,7 +142,8 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     ],
     quant: "Q4_0",
     nativeContextLength: 262_144,
-    // The checkpoint is multimodal, but local image input also requires the separate mmproj artifact.
+    // The checkpoint is multimodal, but local image input also requires the separate mmproj
+    // artifact.
     supportsImageInput: false,
     attention: {
       groups: [
@@ -224,7 +227,8 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     displayName: "Qwen3.8 Flash Next",
     sourceModel: "Qwen/Qwen3.8-Flash-Next",
     runtime: "upstream",
-    // Qwen's ggml-org conversion is Q8 only; this smaller conversion is from the official checkpoint.
+    // Qwen's ggml-org conversion is Q8 only; this smaller conversion is from the official
+    // checkpoint.
     ggufRepo: "unsloth/Qwen3.8-Flash-Next-GGUF",
     ggufRevision: "c8b5954a88c2775c546b92593eda40ea041d3176",
     ggufFiles: [
@@ -246,7 +250,8 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     ],
     quant: "UD-IQ3_XXS",
     nativeContextLength: 262_144,
-    // The checkpoint is multimodal, but local image input also requires the separate mmproj artifact.
+    // The checkpoint is multimodal, but local image input also requires the separate mmproj
+    // artifact.
     supportsImageInput: false,
     attention: { groups: [{ layers: 12, kvHeads: 2, headDim: 256 }] },
   },
@@ -388,20 +393,47 @@ export function localModelWeightBytes(model: LocalModelSpec) {
   return model.ggufFiles.reduce((total, file) => total + file.size, 0)
 }
 
-export function localModelForHardware(model: LocalModelSpec, hardware: HardwareProbe): LocalModelSpec {
+export function localModelForHardware(
+  model: LocalModelSpec,
+  hardware: HardwareProbe,
+): LocalModelSpec {
   if (!model.packings) return model
   hardware = llamaRuntimeTarget(hardware, model.runtime)
   const compatible = model.packings.filter(
     ({ supportedBackends }) => !supportedBackends || supportedBackends.includes(hardware.backend),
   )
-  const packing = compatible.find(({ useWhen }) => packingMatchesHardware(useWhen, hardware)) ?? compatible.at(-1)
-  if (!packing) throw new Error(`${model.displayName} has no packing for the ${hardware.backend} backend.`)
+  const packing =
+    compatible.find(({ useWhen: rule }) => {
+      if (!rule) return true
+      if (
+        hardware.backend === "cuda" &&
+        hardware.gpuCount > 0 &&
+        hardware.cudaComputeCapabilities?.length === hardware.gpuCount &&
+        hardware.cudaComputeCapabilities.every((compute) =>
+          rule.cudaComputeCapabilities?.includes(compute),
+        )
+      ) {
+        return true
+      }
+      const [limit, memory] = hardware.unifiedMemory
+        ? [rule.maximumUnifiedMemoryBytes, hardware.totalMemoryBytes]
+        : hardware.backend !== "cpu" && hardware.gpuMemoryBytes !== undefined
+          ? [rule.maximumDedicatedGpuMemoryBytes, hardware.gpuMemoryBytes]
+          : [rule.maximumSystemMemoryBytes, hardware.totalMemoryBytes]
+      return limit !== undefined && memory <= limit
+    }) ?? compatible.at(-1)
+  if (!packing)
+    throw new Error(`${model.displayName} has no packing for the ${hardware.backend} backend.`)
   return { ...model, ggufFiles: packing.ggufFiles, quant: packing.quant }
 }
 
 export function localModelPackings(model: LocalModelSpec): readonly LocalModelSpec[] {
   if (!model.packings) return [model]
-  return model.packings.map((packing) => ({ ...model, ggufFiles: packing.ggufFiles, quant: packing.quant }))
+  return model.packings.map((packing) => ({
+    ...model,
+    ggufFiles: packing.ggufFiles,
+    quant: packing.quant,
+  }))
 }
 
 export function findLocalModel(modelId: string) {
@@ -424,25 +456,4 @@ export function catalogModelFromSpec(
 
 export function isLocalModelId(modelId: string) {
   return findLocalModel(modelId) !== undefined
-}
-
-function packingMatchesHardware(rule: LocalModelPacking["useWhen"], hardware: HardwareProbe) {
-  if (!rule) return true
-  if (
-    hardware.backend === "cuda" &&
-    hardware.gpuCount > 0 &&
-    hardware.cudaComputeCapabilities?.length === hardware.gpuCount &&
-    hardware.cudaComputeCapabilities.every((compute) => rule.cudaComputeCapabilities?.includes(compute))
-  )
-    return true
-  if (hardware.unifiedMemory) {
-    return rule.maximumUnifiedMemoryBytes !== undefined && hardware.totalMemoryBytes <= rule.maximumUnifiedMemoryBytes
-  }
-  if (hardware.backend !== "cpu" && hardware.gpuMemoryBytes !== undefined) {
-    return (
-      rule.maximumDedicatedGpuMemoryBytes !== undefined &&
-      hardware.gpuMemoryBytes <= rule.maximumDedicatedGpuMemoryBytes
-    )
-  }
-  return rule.maximumSystemMemoryBytes !== undefined && hardware.totalMemoryBytes <= rule.maximumSystemMemoryBytes
 }

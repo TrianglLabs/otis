@@ -29,18 +29,31 @@ export async function grepLocalFiles(
   context: ToolContext,
 ): Promise<ToolResult> {
   const root = await resolveWorkspacePath(searchPath, context)
-  const rootStat = await stat(root)
+  const isFile = (await stat(root)).isFile()
+  const base = isFile ? dirname(root) : root
   const regex = new RegExp(pattern)
   const max = maxResults ?? DEFAULT_GREP_MAX_RESULTS
   const includeGlob = include ? compileGlob(include) : undefined
   const matches: string[] = []
-
-  if (rootStat.isFile()) {
-    await searchFile(dirname(root), root, regex, includeGlob, matches, max, context.signal)
-  } else {
-    await walkForMatches(root, root, regex, includeGlob, matches, max, context.signal)
+  const done = () => Boolean(context.signal?.aborted) || matches.length >= max
+  const search = async (filePath: string) => {
+    const relativePath = relative(base, filePath)
+    // A bare include pattern matches file names at any depth; a path pattern matches the whole
+    // path.
+    if (
+      includeGlob &&
+      !includeGlob.regex.test(includeGlob.hasPath ? relativePath : basename(filePath))
+    )
+      return
+    const buffer = await readFile(filePath).catch(() => undefined)
+    if (!buffer || isBinary(buffer)) return
+    for (const [index, line] of buffer.toString("utf8").split(/\r?\n/).entries()) {
+      if (done()) return
+      if (regex.test(line)) matches.push(`${relativePath}:${index + 1}:${truncateLine(line)}`)
+    }
   }
-
+  if (isFile) await search(root)
+  else await walk(root, search, done)
   return {
     title: `Grep: ${pattern}${searchPath !== "." ? ` in ${searchPath}` : ""}`,
     output: matches.length > 0 ? matches.join("\n") : "No matches found.",
@@ -54,154 +67,47 @@ export async function globLocalFiles(
   context: ToolContext,
 ): Promise<ToolResult> {
   const root = await resolveWorkspacePath(searchPath, context)
-  const rootStat = await stat(root)
   const glob = compileGlob(pattern)
   const max = maxResults ?? DEFAULT_GLOB_MAX_RESULTS
   const results: string[] = []
-
-  if (rootStat.isFile()) {
-    const relativePath = relative(root, root) || basename(root)
-    if (matchesGlob(relativePath, glob)) results.push(relativePath)
-  } else {
-    await walkForGlob(root, root, glob, results, max, context.signal)
+  const collect = (filePath: string) => {
+    const relativePath = relative(root, filePath) || basename(filePath)
+    if (glob.regex.test(relativePath)) results.push(relativePath)
   }
-
+  if ((await stat(root)).isFile()) collect(root)
+  else await walk(root, collect, () => Boolean(context.signal?.aborted) || results.length >= max)
   return {
     title: `Glob: ${pattern}${searchPath !== "." ? ` in ${searchPath}` : ""}`,
     output: results.length > 0 ? results.join("\n") : "No files matched.",
   }
 }
 
-async function walkForMatches(
-  root: string,
-  currentDirectory: string,
-  regex: RegExp,
-  include: CompiledGlob | undefined,
-  matches: string[],
-  max: number,
-  signal?: AbortSignal,
+/** Depth-first, name-ordered walk that skips build output and stops once `done` reports enough. */
+async function walk(
+  directory: string,
+  visit: (filePath: string) => Promise<void> | void,
+  done: () => boolean,
 ): Promise<void> {
-  if (signal?.aborted || matches.length >= max) return
-
-  const entries = (await readdir(currentDirectory, { withFileTypes: true })).sort((left, right) =>
+  if (done()) return
+  const entries = (await readdir(directory, { withFileTypes: true })).sort((left, right) =>
     left.name.localeCompare(right.name),
   )
   for (const entry of entries) {
-    if (signal?.aborted || matches.length >= max) return
-    const fullPath = resolve(currentDirectory, entry.name)
-
+    if (done()) return
+    const fullPath = resolve(directory, entry.name)
     if (entry.isDirectory()) {
-      if (IGNORED_DIRECTORIES.has(entry.name)) continue
-      await walkForMatches(root, fullPath, regex, include, matches, max, signal)
-    } else if (entry.isFile()) {
-      await searchFile(root, fullPath, regex, include, matches, max, signal)
-    }
+      if (!IGNORED_DIRECTORIES.has(entry.name)) await walk(fullPath, visit, done)
+    } else if (entry.isFile()) await visit(fullPath)
   }
 }
 
-async function searchFile(
-  root: string,
-  filePath: string,
-  regex: RegExp,
-  include: CompiledGlob | undefined,
-  matches: string[],
-  max: number,
-  signal?: AbortSignal,
-) {
-  if (matches.length >= max) return
-
-  const relativePath = relative(root, filePath)
-  if (include && !matchesIncludeGlob(relativePath, include)) return
-
-  let content: string
-  try {
-    const buffer = await readFile(filePath)
-    if (isBinary(buffer)) return
-    content = buffer.toString("utf8")
-  } catch {
-    return
-  }
-
-  for (const [index, line] of content.split(/\r?\n/).entries()) {
-    if (signal?.aborted || matches.length >= max) return
-    if (regex.test(line)) matches.push(`${relativePath}:${index + 1}:${truncateLine(line)}`)
-  }
-}
-
-async function walkForGlob(
-  root: string,
-  currentDirectory: string,
-  glob: CompiledGlob,
-  results: string[],
-  max: number,
-  signal?: AbortSignal,
-): Promise<void> {
-  if (signal?.aborted || results.length >= max) return
-
-  const entries = (await readdir(currentDirectory, { withFileTypes: true })).sort((left, right) =>
-    left.name.localeCompare(right.name),
-  )
-  for (const entry of entries) {
-    if (signal?.aborted || results.length >= max) return
-    const fullPath = resolve(currentDirectory, entry.name)
-
-    if (entry.isDirectory()) {
-      if (IGNORED_DIRECTORIES.has(entry.name)) continue
-      await walkForGlob(root, fullPath, glob, results, max, signal)
-    } else if (entry.isFile()) {
-      const relativePath = relative(root, fullPath)
-      if (matchesGlob(relativePath, glob)) results.push(relativePath)
-    }
-  }
-}
-
-type CompiledGlob = {
-  regex: RegExp
-  hasPathSeparator: boolean
-}
-
-function compileGlob(pattern: string): CompiledGlob {
-  let source = "^"
-  let index = 0
-  let hasPathSeparator = false
-
-  while (index < pattern.length) {
-    const character = pattern[index]
-    if (character === "*" && pattern[index + 1] === "*") {
-      index += 2
-      if (pattern[index] === "/") {
-        source += "(?:.*/)?"
-        hasPathSeparator = true
-        index += 1
-      } else {
-        source += ".*"
-      }
-    } else if (character === "*") {
-      source += "[^/]*"
-      index += 1
-    } else if (character === "?") {
-      source += "[^/]"
-      index += 1
-    } else if (character === ".") {
-      source += "\\."
-      index += 1
-    } else if ("\\^$|+()[]{}".includes(character)) {
-      source += `\\${character}`
-      index += 1
-    } else {
-      if (character === "/") hasPathSeparator = true
-      source += character
-      index += 1
-    }
-  }
-
-  return { regex: new RegExp(`${source}$`), hasPathSeparator }
-}
-
-function matchesGlob(relativePath: string, glob: CompiledGlob) {
-  return glob.regex.test(relativePath)
-}
-
-function matchesIncludeGlob(relativePath: string, glob: CompiledGlob) {
-  return glob.regex.test(glob.hasPathSeparator ? relativePath : basename(relativePath))
+function compileGlob(pattern: string) {
+  const source = pattern.replace(/\*\*\/|\*\*|\*|\?|[.\\^$|+()[\]{}]/g, (token) => {
+    if (token === "**/") return "(?:.*/)?"
+    if (token === "**") return ".*"
+    if (token === "*") return "[^/]*"
+    if (token === "?") return "[^/]"
+    return `\\${token}`
+  })
+  return { regex: new RegExp(`^${source}$`), hasPath: pattern.includes("/") }
 }

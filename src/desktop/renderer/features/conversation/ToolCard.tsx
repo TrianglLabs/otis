@@ -1,4 +1,3 @@
-import type { LucideIcon } from "lucide-react"
 import {
   Box,
   ChevronDown,
@@ -7,6 +6,7 @@ import {
   FolderSearch,
   GitBranch,
   Globe,
+  type LucideIcon,
   Pencil,
   Search,
   SquareTerminal,
@@ -20,8 +20,7 @@ import { ArtifactCard } from "../../components/ArtifactCard.js"
 import { Icon } from "../../components/Icon.js"
 import { useI18n } from "../../i18n/index.js"
 import { useDesktop } from "../../runtime.js"
-import { type DiffDisplayRow, parseDiffDisplay } from "./diff.js"
-import type { ToolRun } from "./tool-runs.js"
+import type { ToolRun } from "./TranscriptList.js"
 
 const KIND_ICONS: Record<ToolActivityKind, LucideIcon> = {
   web_search: Globe,
@@ -37,58 +36,57 @@ const KIND_ICONS: Record<ToolActivityKind, LucideIcon> = {
 }
 
 /**
- * One tool activity row: icon, label, status. When the tool produced a diff it is rendered inline, always
- * expanded — edited code is content, not a disclosure.
+ * One tool activity row: icon, label, status. When the tool produced a diff it is rendered inline,
+ * always expanded — edited code is content, not a disclosure. A ready Canvas artifact replaces the
+ * row with its card.
  */
 export function ToolCard({ entry, active }: { entry: TranscriptEntry; active: boolean }) {
-  const icon = KIND_ICONS[entry.activityKind ?? "shell"]
-  if (
+  const { api } = useDesktop()
+  const { t } = useI18n()
+  const artifact =
     entry.artifact &&
     isCanvasArtifact(entry.artifact.kind) &&
     entry.artifactDisplay !== "pending" &&
     entry.artifactDisplay !== "superseded"
-  ) {
-    return <ArtifactToolCard entry={entry} active={active} />
-  }
-
+      ? entry.artifact
+      : undefined
+  const artifactClass = artifact ? " toolCard-artifact" : ""
+  const activeClass = active ? " toolCard-active" : ""
   return (
-    <div className={`toolCard${active ? " toolCard-active" : ""}`}>
-      <div className="toolCard-header" title={entry.text}>
-        <span className="toolCard-icon">
-          <Icon icon={icon} size={13} />
-        </span>
-        <span className="toolCard-label">{entry.text}</span>
-      </div>
-      {entry.diff ? <DiffView diff={entry.diff} /> : null}
-    </div>
-  )
-}
-
-function ArtifactToolCard({ entry, active }: { entry: TranscriptEntry; active: boolean }) {
-  const { api } = useDesktop()
-  const { t } = useI18n()
-  const artifact = entry.artifact
-  if (!artifact) return null
-  const title = artifact.source === "published" ? artifact.name : (artifact.path.split("/").at(-1) ?? artifact.path)
-  return (
-    <div className={`toolCard toolCard-artifact${active ? " toolCard-active" : ""}`}>
-      <ArtifactCard
-        kind={artifact.kind}
-        title={title}
-        actionLabel={t("markdown.openCanvas")}
-        description={t(artifact.source === "published" ? "canvas.savedArtifact" : "canvas.workingFile")}
-        onOpen={() => api.openArtifact(artifact)}
-      />
+    <div className={`toolCard${artifactClass}${activeClass}`}>
+      {artifact ? (
+        <ArtifactCard
+          kind={artifact.kind}
+          title={
+            artifact.source === "published"
+              ? artifact.name
+              : (artifact.path.split("/").at(-1) ?? artifact.path)
+          }
+          actionLabel={t("markdown.openCanvas")}
+          description={t(
+            artifact.source === "published" ? "canvas.savedArtifact" : "canvas.workingFile",
+          )}
+          onOpen={() => api.openArtifact(artifact)}
+        />
+      ) : (
+        <div className="toolCard-header" title={entry.text}>
+          <span className="toolCard-icon">
+            <Icon icon={KIND_ICONS[entry.activityKind ?? "shell"]} size={13} />
+          </span>
+          <span className="toolCard-label">{entry.text}</span>
+        </div>
+      )}
       {entry.diff ? <DiffView diff={entry.diff} /> : null}
     </div>
   )
 }
 
 /**
- * The row for a run of consecutive tool activity. The label is keyed by the latest action, so each new action
- * replaces it with a short rise-and-fade (see activity-status-in) — a live burst reads as one status line in
- * motion instead of a stack of cards. The row never renders its actions itself: expanding flattens them into
- * the virtualized transcript (see flattenExpandedRuns), keeping long runs windowed.
+ * The row for a run of consecutive tool activity. The label is keyed by the latest action, so each
+ * new action replaces it with a short rise-and-fade (see activity-status-in) — a live burst reads
+ * as one status line in motion instead of a stack of cards. The row never renders its actions
+ * itself: expanding flattens them into the virtualized transcript (see flattenExpandedRuns),
+ * keeping long runs windowed.
  */
 export function ToolRunCard({
   run,
@@ -103,9 +101,6 @@ export function ToolRunCard({
 }) {
   const { t } = useI18n()
   const latest = run.entries[run.entries.length - 1]
-  if (!latest) return null
-  const icon = KIND_ICONS[latest.activityKind ?? "shell"]
-
   return (
     <div className={`toolCard toolRun${active ? " toolCard-active" : ""}`}>
       <button
@@ -116,13 +111,17 @@ export function ToolRunCard({
         aria-label={t("transcript.toolActions", { count: run.entries.length, latest: latest.text })}
       >
         <span className="toolCard-icon toolRun-icon" key={`icon-${latest.id}`}>
-          <Icon icon={icon} size={13} />
+          <Icon icon={KIND_ICONS[latest.activityKind ?? "shell"]} size={13} />
         </span>
         <span className="toolCard-label toolRun-label" key={latest.id}>
           {latest.text}
         </span>
         <span className="toolRun-chevron">
-          {expanded ? <ChevronDown size={13} aria-hidden /> : <ChevronRight size={13} aria-hidden />}
+          {expanded ? (
+            <ChevronDown size={13} aria-hidden />
+          ) : (
+            <ChevronRight size={13} aria-hidden />
+          )}
         </span>
       </button>
     </div>
@@ -130,7 +129,7 @@ export function ToolRunCard({
 }
 
 /** Unified diff rendered as a proper view: line-number gutter, sign column, hunk separators. */
-export const DiffView = memo(function DiffView({ diff }: { diff: string }) {
+const DiffView = memo(function DiffView({ diff }: { diff: string }) {
   const { t } = useI18n()
   const rows = useMemo(() => parseDiffDisplay(diff), [diff])
   if (rows.length > 200) {
@@ -166,8 +165,64 @@ function DiffRow({ row }: { row: DiffDisplayRow }) {
     <div className={`diffLine diffLine-${row.kind}`}>
       <span className="diffLine-no">{row.oldLine ?? ""}</span>
       <span className="diffLine-no">{row.newLine ?? ""}</span>
-      <span className="diffLine-sign">{row.kind === "add" ? "+" : row.kind === "remove" ? "-" : " "}</span>
+      <span className="diffLine-sign">
+        {row.kind === "add" ? "+" : row.kind === "remove" ? "-" : " "}
+      </span>
       <span className="diffLine-text">{row.text}</span>
     </div>
   )
+}
+
+/**
+ * Presentation cleanup for stored unified diffs. New diffs are generated without the decorative
+ * jsdiff header (see PATCH_OPTIONS in src/tools/files.ts); sessions recorded earlier still carry
+ * it. The file path is already shown by the tool label, and hunk headers (`@@ -a,b +c,d @@`) become
+ * line numbers in the gutter, so none of the raw patch scaffolding is shown to the user.
+ */
+type DiffDisplayRow =
+  | { kind: "add" | "remove" | "context"; text: string; oldLine?: number; newLine?: number }
+  | { kind: "gap" }
+
+const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/
+
+function parseDiffDisplay(diff: string): DiffDisplayRow[] {
+  const rows: DiffDisplayRow[] = []
+  let oldLine = 0
+  let newLine = 0
+  // Remaining lines in the active hunk; a `--- `/`+++ ` line is a file header only outside an
+  // unfinished hunk, so content like a removed SQL comment (`-- note` → `--- note`) is never
+  // mistaken for scaffolding.
+  let oldLeft = 0
+  let newLeft = 0
+
+  const inHunk = () => oldLeft > 0 || newLeft > 0
+
+  for (const line of diff.split("\n")) {
+    const hunk = HUNK_HEADER.exec(line)
+    if (hunk && !inHunk()) {
+      oldLine = Number(hunk[1])
+      newLine = Number(hunk[3])
+      oldLeft = hunk[2] === undefined ? 1 : Number(hunk[2])
+      newLeft = hunk[4] === undefined ? 1 : Number(hunk[4])
+      if (rows.length > 0) rows.push({ kind: "gap" })
+      continue
+    }
+    if (line.startsWith("\\")) continue // "\ No newline at end of file"
+    // Patch scaffolding: Index/underline/file headers, or trailing-newline noise.
+    if (!inHunk()) continue
+    if (line === "") continue
+
+    if (line.startsWith("+")) {
+      rows.push({ kind: "add", text: line.slice(1), newLine: newLine++ })
+      newLeft--
+    } else if (line.startsWith("-")) {
+      rows.push({ kind: "remove", text: line.slice(1), oldLine: oldLine++ })
+      oldLeft--
+    } else {
+      rows.push({ kind: "context", text: line.slice(1), oldLine: oldLine++, newLine: newLine++ })
+      oldLeft--
+      newLeft--
+    }
+  }
+  return rows
 }

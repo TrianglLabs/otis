@@ -2,23 +2,19 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { type AgentEvent, runAgent } from "../../src/core/agent.js"
-import {
-  providerTools,
-  subagentBrief,
-  subagentRunOptions,
-  subagentTools,
-  supportsDelegation,
-} from "../../src/core/subagent.js"
+import { type AgentEvent, runAgent, SteeringInbox } from "../../src/core/agent.js"
 import type { FireworksClient } from "../../src/inference/client.js"
 import type { ModelProvider } from "../../src/inference/types.js"
 import { createPermissionPolicy, type PermissionRequest } from "../../src/permissions/policy.js"
 import { emptySkillCatalog } from "../../src/skills/index.js"
-import { executeToolCall, TOOL_DEFINITIONS } from "../../src/tools/index.js"
+import { executeToolCall, providerTools, TOOL_DEFINITIONS } from "../../src/tools/index.js"
 import { summaryFixture } from "../support/compaction.js"
 
 const streamMock = vi.hoisted(() => vi.fn())
-const client = { model: "accounts/fireworks/models/test", streamChat: streamMock } as unknown as FireworksClient
+const client = {
+  model: "accounts/fireworks/models/test",
+  streamChat: streamMock,
+} as unknown as FireworksClient
 
 const tempDirs: string[] = []
 
@@ -27,7 +23,11 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((path) => rm(path, { recursive: true, force: true })))
 })
 
-const delegateCall = (id: string, description = "Map the notes", prompt = "List every note file.") => ({
+const delegateCall = (
+  id: string,
+  description = "Map the notes",
+  prompt = "List every note file.",
+) => ({
   type: "tool_call" as const,
   toolCall: { id, name: "agent", arguments: JSON.stringify({ description, prompt }) },
 })
@@ -43,8 +43,14 @@ describe("agent tool", () => {
       })
       .mockImplementationOnce(async function* () {
         yield { type: "reasoning_delta", field: "reasoning_content", text: "x".repeat(100_000) }
-        yield { type: "tool_call", toolCall: { id: "read_1", name: "read", arguments: '{"path":"note.txt"}' } }
-        yield { type: "usage", usage: { promptTokens: 2_000, completionTokens: 25_000, totalTokens: 27_000 } }
+        yield {
+          type: "tool_call",
+          toolCall: { id: "read_1", name: "read", arguments: '{"path":"note.txt"}' },
+        }
+        yield {
+          type: "usage",
+          usage: { promptTokens: 2_000, completionTokens: 25_000, totalTokens: 27_000 },
+        }
       })
       .mockImplementationOnce(async function* () {
         yield { type: "text_delta", text: summaryFixture("Child progress summarized.") }
@@ -56,12 +62,20 @@ describe("agent tool", () => {
         yield { type: "text_delta", text: "Finished." }
       })
     const events = await collect(
-      runAgent("delegate", [], { client, cwd, autoCompactAtTokens: 20_000, onCompaction: parentCheckpoint }),
+      runAgent("delegate", [], {
+        client,
+        cwd,
+        autoCompactAtTokens: 20_000,
+        onCompaction: parentCheckpoint,
+      }),
     )
     expect(events.at(-1)?.type).toBe("complete")
     expect(
       events.filter(
-        (event) => event.type === "subagent" && event.event.type === "compaction" && event.event.phase === "complete",
+        (event) =>
+          event.type === "subagent" &&
+          event.event.type === "compaction" &&
+          event.event.phase === "complete",
       ),
     ).toHaveLength(1)
     expect(parentCheckpoint).not.toHaveBeenCalled()
@@ -83,9 +97,16 @@ describe("agent tool", () => {
       // Child step 1: read a file.
       .mockImplementationOnce(async function* (request) {
         requests.push(clone(request))
-        yield { type: "reasoning_delta", text: "Private child reasoning.", field: "reasoning_content" }
+        yield {
+          type: "reasoning_delta",
+          text: "Private child reasoning.",
+          field: "reasoning_content",
+        }
         yield { type: "text_delta", text: "Child interim text." }
-        yield { type: "tool_call", toolCall: { id: "call_read", name: "read", arguments: '{"path":"note.txt"}' } }
+        yield {
+          type: "tool_call",
+          toolCall: { id: "call_read", name: "read", arguments: '{"path":"note.txt"}' },
+        }
       })
       // Child step 2: final report.
       .mockImplementationOnce(async function* (request) {
@@ -114,7 +135,10 @@ describe("agent tool", () => {
     // The child keeps its own tool history across its steps.
     expect(requests[2].messages).toMatchObject([
       { role: "user" },
-      { role: "assistant", content: [{ type: "reasoning" }, { type: "text" }, { type: "tool_call" }] },
+      {
+        role: "assistant",
+        content: [{ type: "reasoning" }, { type: "text" }, { type: "tool_call" }],
+      },
       { role: "tool", toolCallId: "call_read", content: expect.stringContaining("first line") },
     ])
     // The parent receives only the report as the tool result.
@@ -125,7 +149,10 @@ describe("agent tool", () => {
         role: "assistant",
         content: [
           { type: "text", text: "Let me delegate this." },
-          { type: "tool_call", toolCall: expect.objectContaining({ id: "call_agent", name: "agent" }) },
+          {
+            type: "tool_call",
+            toolCall: expect.objectContaining({ id: "call_agent", name: "agent" }),
+          },
         ],
       },
       {
@@ -135,7 +162,9 @@ describe("agent tool", () => {
       },
     ])
     expect(complete?.messages).toEqual(
-      requests[3].messages.slice(1).concat({ role: "assistant", content: [{ type: "text", text: "Done." }] }),
+      requests[3].messages
+        .slice(1)
+        .concat({ role: "assistant", content: [{ type: "text", text: "Done." }] }),
     )
   })
 
@@ -147,9 +176,16 @@ describe("agent tool", () => {
         yield delegateCall("call_agent")
       })
       .mockImplementationOnce(async function* () {
-        yield { type: "reasoning_delta", text: "Private child reasoning.", field: "reasoning_content" }
+        yield {
+          type: "reasoning_delta",
+          text: "Private child reasoning.",
+          field: "reasoning_content",
+        }
         yield { type: "text_delta", text: "Child interim text." }
-        yield { type: "tool_call", toolCall: { id: "call_read", name: "read", arguments: '{"path":"note.txt"}' } }
+        yield {
+          type: "tool_call",
+          toolCall: { id: "call_read", name: "read", arguments: '{"path":"note.txt"}' },
+        }
       })
       .mockImplementationOnce(async function* () {
         yield { type: "text_delta", text: "Report." }
@@ -171,26 +207,32 @@ describe("agent tool", () => {
       { phase: "end", toolCallId: "call_agent", name: "agent", outcome: "completed" },
     ])
     const envelopes = events.filter((event) => event.type === "subagent")
-    expect(envelopes.every((event) => event.toolCallId === "call_agent" && event.title === "Map the notes")).toBe(true)
+    expect(
+      envelopes.every(
+        (event) => event.toolCallId === "call_agent" && event.title === "Map the notes",
+      ),
+    ).toBe(true)
     const child = envelopes.map((event) => event.event)
     expect(child.filter((event) => event.type === "tool")).toMatchObject([
       { phase: "start", toolCallId: "call_read", name: "read" },
       { phase: "end", toolCallId: "call_read", name: "read", outcome: "completed" },
     ])
-    expect(child.filter((event) => event.type === "reasoning").map((event) => event.phase)).toEqual([
-      "start",
-      "delta",
-      "end",
-    ])
+    expect(child.filter((event) => event.type === "reasoning").map((event) => event.phase)).toEqual(
+      ["start", "delta", "end"],
+    )
     expect(child.filter((event) => event.type === "delta").map((event) => event.text)).toEqual([
       "Child interim text.",
       "Report.",
     ])
     expect(child.at(-1)).toMatchObject({ type: "complete" })
     // The parent's own stream carries none of the child's text, reasoning, or context accounting.
-    expect(events.some((event) => event.type === "delta" && event.text.includes("Child"))).toBe(false)
+    expect(events.some((event) => event.type === "delta" && event.text.includes("Child"))).toBe(
+      false,
+    )
     expect(events.some((event) => event.type === "reasoning")).toBe(false)
-    expect(events.filter((event) => event.type === "context").map((event) => event.messageCount)).toEqual([1, 2, 3, 4])
+    expect(
+      events.filter((event) => event.type === "context").map((event) => event.messageCount),
+    ).toEqual([1, 2, 3, 4])
     expect(events.filter((event) => event.type === "model")).toHaveLength(2)
   })
 
@@ -236,7 +278,10 @@ describe("agent tool", () => {
         // Child A blocks until child B has started, proving they run at the same time.
         if (name === "a") await gate.promise
         else gate.resolve()
-        yield { type: "tool_call", toolCall: { id: `read_${name}`, name: "read", arguments: `{"path":"${name}.txt"}` } }
+        yield {
+          type: "tool_call",
+          toolCall: { id: `read_${name}`, name: "read", arguments: `{"path":"${name}.txt"}` },
+        }
         return
       }
       timeline.push(`${name}:report`)
@@ -246,7 +291,8 @@ describe("agent tool", () => {
     const events = await collect(runAgent("delegate both", [], { client, cwd }))
     const complete = events.find((event) => event.type === "complete")
 
-    // Both children start before either reports; a sequential loop would deadlock on the gate instead.
+    // Both children start before either reports; a sequential loop would deadlock on the gate
+    // instead.
     expect(timeline.slice(0, 2).sort()).toEqual(["a:start", "b:start"])
     expect(complete?.messages.filter((message) => message.role === "tool")).toEqual([
       { role: "tool", toolCallId: "call_a", content: "agent: Read a\n\nReport a." },
@@ -254,12 +300,17 @@ describe("agent tool", () => {
     ])
     const childToolEvents = (toolCallId: string) =>
       events.filter(
-        (event) => event.type === "subagent" && event.toolCallId === toolCallId && event.event.type === "tool",
+        (event) =>
+          event.type === "subagent" &&
+          event.toolCallId === toolCallId &&
+          event.event.type === "tool",
       )
     expect(childToolEvents("call_a")).toHaveLength(2)
     expect(childToolEvents("call_b")).toHaveLength(2)
     expect(
-      events.flatMap((event) => (event.type === "tool" && event.phase === "start" ? [event.toolCallId] : [])),
+      events.flatMap((event) =>
+        event.type === "tool" && event.phase === "start" ? [event.toolCallId] : [],
+      ),
     ).toEqual(["call_a", "call_b"])
   })
 
@@ -271,10 +322,16 @@ describe("agent tool", () => {
       const first = request.messages[0].content as string
       if (first === "mixed") {
         if (request.messages.length === 1) {
-          yield { type: "tool_call", toolCall: { id: "read_1", name: "read", arguments: '{"path":"note.txt"}' } }
+          yield {
+            type: "tool_call",
+            toolCall: { id: "read_1", name: "read", arguments: '{"path":"note.txt"}' },
+          }
           yield delegateCall("call_a", "A", "Task A")
           yield delegateCall("call_b", "B", "Task B")
-          yield { type: "tool_call", toolCall: { id: "read_2", name: "read", arguments: '{"path":"note.txt"}' } }
+          yield {
+            type: "tool_call",
+            toolCall: { id: "read_2", name: "read", arguments: '{"path":"note.txt"}' },
+          }
         } else {
           yield { type: "text_delta", text: "Done." }
         }
@@ -287,7 +344,9 @@ describe("agent tool", () => {
     const events = await collect(runAgent("mixed", [], { client, cwd }))
 
     const topLevel = (phase: "start" | "end") =>
-      events.flatMap((event) => (event.type === "tool" && event.phase === phase ? [event.toolCallId] : []))
+      events.flatMap((event) =>
+        event.type === "tool" && event.phase === phase ? [event.toolCallId] : [],
+      )
     expect(topLevel("start")).toEqual(["read_1", "call_a", "call_b", "read_2"])
     expect(order.sort()).toEqual(["child-a", "child-b"])
     const ends = topLevel("end")
@@ -317,7 +376,10 @@ describe("agent tool", () => {
         return
       }
       if (request.messages.length === 1) {
-        yield { type: "tool_call", toolCall: { id: "read_env", name: "read", arguments: '{"path":"secret.env"}' } }
+        yield {
+          type: "tool_call",
+          toolCall: { id: "read_env", name: "read", arguments: '{"path":"secret.env"}' },
+        }
         return
       }
       yield { type: "text_delta", text: "Report." }
@@ -328,10 +390,95 @@ describe("agent tool", () => {
       rules: [{ tool: "read", resource: "*.env", effect: "ask" }],
     })
 
-    await collect(runAgent("delegate both", [], { client, cwd, permissionPolicy, onPermissionRequest }))
+    await collect(
+      runAgent("delegate both", [], { client, cwd, permissionPolicy, onPermissionRequest }),
+    )
 
     expect(onPermissionRequest).toHaveBeenCalledTimes(2)
     expect(maxInFlight).toBe(1)
+  })
+
+  it("lets a later child's approval proceed after an earlier child's approval request fails", async () => {
+    const cwd = await trackedTempDir()
+    await writeFile(join(cwd, "secret.env"), "x", "utf8")
+    const onPermissionRequest = vi.fn(async (_request: PermissionRequest) => {
+      if (onPermissionRequest.mock.calls.length === 1) throw new Error("approval surface crashed")
+      return true
+    })
+    streamMock.mockImplementation(async function* (request: StreamRequest) {
+      const first = request.messages[0].content as string
+      if (first === "delegate both") {
+        if (request.messages.length === 1) {
+          yield delegateCall("call_a", "A", "Task A")
+          yield delegateCall("call_b", "B", "Task B")
+        } else yield { type: "text_delta", text: "Done." }
+        return
+      }
+      if (request.messages.length === 1) {
+        yield {
+          type: "tool_call",
+          toolCall: { id: "read_env", name: "read", arguments: '{"path":"secret.env"}' },
+        }
+        return
+      }
+      const tool = request.messages.find((message) => message.role === "tool")
+      yield {
+        type: "text_delta",
+        text: String(tool?.content).startsWith("Error:") ? "denied" : "read",
+      }
+    })
+    const permissionPolicy = createPermissionPolicy({
+      cwd,
+      mode: "auto",
+      rules: [{ tool: "read", resource: "*.env", effect: "ask" }],
+    })
+
+    const events = await collect(
+      runAgent("delegate both", [], { client, cwd, permissionPolicy, onPermissionRequest }),
+    )
+    const reports = events
+      .find((event) => event.type === "complete")
+      ?.messages.flatMap((message) =>
+        message.role === "tool" ? [message.content.split("\n\n")[1]] : [],
+      )
+
+    expect(onPermissionRequest).toHaveBeenCalledTimes(2)
+    expect(reports?.sort()).toEqual(["denied", "read"])
+  })
+
+  it("keeps parent steering out of the child and delivers it to the parent's next request", async () => {
+    const cwd = await trackedTempDir()
+    await writeFile(join(cwd, "note.txt"), "note", "utf8")
+    const steering = new SteeringInbox(async () => undefined)
+    const requests: StreamRequest[] = []
+    streamMock
+      .mockImplementationOnce(async function* () {
+        yield delegateCall("call_agent")
+      })
+      .mockImplementationOnce(async function* () {
+        steering.accept({ role: "user", content: "Also check the tests." })
+        yield {
+          type: "tool_call",
+          toolCall: { id: "read_1", name: "read", arguments: '{"path":"note.txt"}' },
+        }
+      })
+      .mockImplementationOnce(async function* (request) {
+        requests.push(clone(request))
+        yield { type: "text_delta", text: "Report." }
+      })
+      .mockImplementationOnce(async function* (request) {
+        requests.push(clone(request))
+        yield { type: "text_delta", text: "Done." }
+      })
+
+    const events = await collect(runAgent("delegate", [], { client, cwd, steering }))
+
+    expect(events.at(-1)?.type).toBe("complete")
+    expect(requests[0].messages).not.toContainEqual({
+      role: "user",
+      content: "Also check the tests.",
+    })
+    expect(requests[1].messages).toContainEqual({ role: "user", content: "Also check the tests." })
   })
 
   it("reports a failed child as a failed tool call and lets the parent continue", async () => {
@@ -368,7 +515,10 @@ describe("agent tool", () => {
     })
     for (let step = 0; step < 51; step += 1) {
       streamMock.mockImplementationOnce(async function* () {
-        yield { type: "tool_call", toolCall: { id: `read_${step}`, name: "read", arguments: '{"path":"note.txt"}' } }
+        yield {
+          type: "tool_call",
+          toolCall: { id: `read_${step}`, name: "read", arguments: '{"path":"note.txt"}' },
+        }
       })
     }
     streamMock
@@ -413,19 +563,21 @@ describe("agent tool", () => {
       { role: "user", content: "delegate" },
       {
         role: "assistant",
-        content: [{ type: "tool_call", toolCall: expect.objectContaining({ id: "call_agent", name: "agent" }) }],
+        content: [
+          {
+            type: "tool_call",
+            toolCall: expect.objectContaining({ id: "call_agent", name: "agent" }),
+          },
+        ],
       },
       { role: "tool", toolCallId: "call_agent", content: "Tool call interrupted by user." },
     ])
     expect(events.some((event) => event.type === "complete")).toBe(false)
-    // The child's own interruption reaches the caller through its envelope, so its trace can be closed out.
-    expect(events.filter((event) => event.type === "subagent").map((event) => event.event.type)).toEqual([
-      "context",
-      "model",
-      "delta",
-      "context",
-      "interrupted",
-    ])
+    // The child's own interruption reaches the caller through its envelope, so its trace can be
+    // closed out.
+    expect(
+      events.filter((event) => event.type === "subagent").map((event) => event.event.type),
+    ).toEqual(["context", "model", "delta", "context", "interrupted"])
   })
 
   it("does not delegate when the agent tool is excluded from the enabled tools", async () => {
@@ -443,7 +595,10 @@ describe("agent tool", () => {
       })
 
     const events = await collect(
-      runAgent("delegate", [], { client, tools: TOOL_DEFINITIONS.filter((tool) => tool.name !== "agent") }),
+      runAgent("delegate", [], {
+        client,
+        tools: TOOL_DEFINITIONS.filter((tool) => tool.name !== "agent"),
+      }),
     )
 
     expect(streamMock).toHaveBeenCalledTimes(2)
@@ -452,50 +607,20 @@ describe("agent tool", () => {
 })
 
 describe("subagent helpers", () => {
-  const call = { name: "agent" as const, input: { description: "Map the notes", prompt: "List note files." } }
-
-  it("derives child run options from the parent's resolved options", () => {
-    const steering = { drain: async () => [], drainOrClose: async () => [], close: async () => [] }
-    const parent = { client, cwd: "/workspace", tools: TOOL_DEFINITIONS, steering, onUsage: vi.fn() }
-
-    const child = subagentRunOptions(parent)
-
-    expect(child.client).toBe(client)
-    expect(child.cwd).toBe("/workspace")
-    expect(child.onUsage).toBe(parent.onUsage)
-    expect(child.steering).toBeUndefined()
-    expect(child.tools?.map((tool) => tool.name)).toEqual(["web_search", "web_read", "skill", "read", "grep", "glob"])
-  })
-
   it("offers the agent tool for hosted and PAIR models but not the single-slot local runtime", () => {
     const names = (provider: ModelProvider) => providerTools(provider).map((tool) => tool.name)
 
-    expect(supportsDelegation("fireworks")).toBe(true)
-    expect(supportsDelegation("pair")).toBe(true)
-    expect(supportsDelegation("local")).toBe(false)
     expect(names("fireworks")).toContain("agent")
     expect(names("pair")).toContain("agent")
     expect(names("local")).not.toContain("agent")
     expect(names("local")).toEqual(names("fireworks").filter((name) => name !== "agent"))
   })
 
-  it("never grants mutating tools or further delegation to a child", () => {
-    const names = subagentTools(TOOL_DEFINITIONS).map((tool) => tool.name)
-    expect(names).not.toContain("agent")
-    expect(names).not.toContain("write")
-    expect(names).not.toContain("edit")
-    expect(names).not.toContain("edit_document")
-    expect(names).not.toContain("publish_artifact")
-    expect(names).not.toContain("bash")
-  })
-
-  it("briefs the child with the task and the read-only contract", () => {
-    const brief = subagentBrief(call)
-    expect(brief).toContain("read-only")
-    expect(brief).toContain("Task:\nList note files.")
-  })
-
   it("refuses to run the agent tool outside the agent loop", async () => {
+    const call = {
+      name: "agent" as const,
+      input: { description: "Map the notes", prompt: "List note files." },
+    }
     await expect(executeToolCall(call)).rejects.toThrow("runs inside the agent loop")
   })
 })

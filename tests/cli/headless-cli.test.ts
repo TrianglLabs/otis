@@ -11,7 +11,12 @@ const mocks = vi.hoisted(() => ({
   createSession: vi.fn(),
   listSessions: vi.fn(async () => []),
   listToolCapableModels: vi.fn<() => Promise<FireworksModel[]>>(async () => [
-    { provider: "fireworks", id: "accounts/fireworks/models/test", displayName: "Test", supportsImageInput: false },
+    {
+      provider: "fireworks",
+      id: "accounts/fireworks/models/test",
+      displayName: "Test",
+      supportsImageInput: false,
+    },
   ]),
   loadLocalSettings: vi.fn<
     () => Promise<{
@@ -31,7 +36,10 @@ const mocks = vi.hoisted(() => ({
     model: "accounts/fireworks/models/test",
   })),
   openSession: vi.fn(),
-  loadSkillCatalog: vi.fn<() => Promise<SkillCatalog>>(async () => ({ skills: [], byName: new Map() })),
+  loadSkillCatalog: vi.fn<() => Promise<SkillCatalog>>(async () => ({
+    skills: [],
+    byName: new Map(),
+  })),
   saveSelectedModel: vi.fn(async () => undefined),
   streamChat: vi.fn(),
   detectHardware: vi.fn(async () => ({
@@ -143,7 +151,9 @@ import { createPairClient } from "../../src/inference/pair.js"
 const temporaryDirectories: string[] = []
 
 afterEach(async () => {
-  await Promise.all(temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })))
+  await Promise.all(
+    temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })),
+  )
 })
 
 beforeEach(() => {
@@ -166,7 +176,9 @@ beforeEach(() => {
 describe("runHeadlessCommand", () => {
   it("does not offer publication in an ephemeral run", async () => {
     mocks.streamChat.mockImplementationOnce(async function* (request) {
-      expect(request.tools.some((tool: { name: string }) => tool.name === "publish_artifact")).toBe(false)
+      expect(request.tools.some((tool: { name: string }) => tool.name === "publish_artifact")).toBe(
+        false,
+      )
       yield { type: "text_delta", text: "Done." }
     })
     const output = streams()
@@ -182,14 +194,20 @@ describe("runHeadlessCommand", () => {
           toolCall: {
             id: "call_agent",
             name: "agent",
-            arguments: JSON.stringify({ description: "Read notes", prompt: "Read the notes and report back." }),
+            arguments: JSON.stringify({
+              description: "Read notes",
+              prompt: "Read the notes and report back.",
+            }),
           },
         }
       })
     }
     for (let step = 0; step < 51; step += 1) {
       mocks.streamChat.mockImplementationOnce(async function* () {
-        yield { type: "tool_call", toolCall: { id: `read_${step}`, name: "read", arguments: '{"path":"note.txt"}' } }
+        yield {
+          type: "tool_call",
+          toolCall: { id: `read_${step}`, name: "read", arguments: '{"path":"note.txt"}' },
+        }
       })
     }
     mocks.streamChat.mockImplementationOnce(async function* () {
@@ -210,16 +228,29 @@ describe("runHeadlessCommand", () => {
     expect(mocks.streamChat).toHaveBeenCalledTimes(delegate ? 54 : 52)
   })
 
-  it.each([false, true])("compacts during headless tool execution with ephemeral=%s", async (ephemeral) => {
-    mocks.loadLocalSettings.mockResolvedValue({ fireworksApiKey: "fw_test", model: "test", modelContextLength: 25_000 })
+  it.each([
+    false,
+    true,
+  ])("compacts during headless tool execution with ephemeral=%s", async (ephemeral) => {
+    mocks.loadLocalSettings.mockResolvedValue({
+      fireworksApiKey: "fw_test",
+      model: "test",
+      modelContextLength: 25_000,
+    })
     mocks.streamChat
       .mockImplementationOnce(async function* () {
         yield { type: "reasoning_delta", field: "reasoning_content", text: "x".repeat(100_000) }
-        yield { type: "tool_call", toolCall: { id: "read_1", name: "read", arguments: '{"path":"missing.txt"}' } }
+        yield {
+          type: "tool_call",
+          toolCall: { id: "read_1", name: "read", arguments: '{"path":"missing.txt"}' },
+        }
       })
       .mockImplementationOnce(async function* () {
         yield { type: "text_delta", text: summaryFixture("Progress summarized.") }
-        yield { type: "usage", usage: { promptTokens: 100, completionTokens: 10, totalTokens: 110 } }
+        yield {
+          type: "usage",
+          usage: { promptTokens: 100, completionTokens: 10, totalTokens: 110 },
+        }
       })
       .mockImplementationOnce(async function* (request) {
         expect(request.messages[0].content).toContain("[Compacted conversation summary]")
@@ -236,11 +267,14 @@ describe("runHeadlessCommand", () => {
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line))
-    expect(events.filter((event) => event.type === "compaction").map((event) => event.phase)).toEqual([
-      "start",
-      "complete",
-    ])
-    expect(events.at(-1)).toMatchObject({ type: "result", output: "Finished.", usage: { totalTokens: 110 } })
+    expect(
+      events.filter((event) => event.type === "compaction").map((event) => event.phase),
+    ).toEqual(["start", "complete"])
+    expect(events.at(-1)).toMatchObject({
+      type: "result",
+      output: "Finished.",
+      usage: { totalTokens: 110 },
+    })
     expect(session.compactTurn).toHaveBeenCalledTimes(ephemeral ? 0 : 1)
     if (!ephemeral) {
       expect(session.recordUsage).toHaveBeenCalledWith(
@@ -263,10 +297,15 @@ describe("runHeadlessCommand", () => {
       root: "/skills/review",
       instructionsPath: "/skills/review/SKILL.md",
     }
-    mocks.loadSkillCatalog.mockResolvedValue({ skills: [skill], byName: new Map([[skill.name, skill]]) })
+    mocks.loadSkillCatalog.mockResolvedValue({
+      skills: [skill],
+      byName: new Map([[skill.name, skill]]),
+    })
     mocks.streamChat.mockImplementationOnce(async function* (request) {
       expect(request.skills).toEqual([skill])
-      expect(request.tools).toEqual(expect.arrayContaining([expect.objectContaining({ name: "skill" })]))
+      expect(request.tools).toEqual(
+        expect.arrayContaining([expect.objectContaining({ name: "skill" })]),
+      )
       yield { type: "text_delta", text: "Done." }
     })
     const output = streams()
@@ -303,7 +342,11 @@ describe("runHeadlessCommand", () => {
       expect(request.messages[0]).toMatchObject({
         role: "user",
         content: [
-          expect.objectContaining({ type: "image", mimeType: "image/x-portable-pixmap", name: "pixel.ppm" }),
+          expect.objectContaining({
+            type: "image",
+            mimeType: "image/x-portable-pixmap",
+            name: "pixel.ppm",
+          }),
           { type: "text", text: "describe it" },
         ],
       })
@@ -311,7 +354,10 @@ describe("runHeadlessCommand", () => {
     })
     const output = streams({ processCwd: cwd })
 
-    const exitCode = await runHeadlessCommand(["--ephemeral", "--image", "pixel.ppm", "describe it"], output.options)
+    const exitCode = await runHeadlessCommand(
+      ["--ephemeral", "--image", "pixel.ppm", "describe it"],
+      output.options,
+    )
 
     expect(exitCode).toBe(0)
     expect(output.stdout()).toBe("A black pixel.\n")
@@ -338,7 +384,10 @@ describe("runHeadlessCommand", () => {
     })
     const output = streams({ processCwd: cwd })
 
-    const exitCode = await runHeadlessCommand(["--ephemeral", "--file", "notes.md", "summarize it"], output.options)
+    const exitCode = await runHeadlessCommand(
+      ["--ephemeral", "--file", "notes.md", "summarize it"],
+      output.options,
+    )
 
     expect(exitCode, output.stderr()).toBe(0)
     expect(output.stdout()).toBe("A preserved Markdown document.\n")
@@ -374,8 +423,12 @@ describe("runHeadlessCommand", () => {
 
     expect(exitCode).toBe(0)
     expect(session.admitPrompt).toHaveBeenCalledWith({ role: "user", content: "save this" })
-    expect(session.startTurn).toHaveBeenCalledWith(expect.objectContaining({ promptId: "prompt_test" }))
-    expect(session.startTurn.mock.invocationCallOrder[0]).toBeLessThan(mocks.streamChat.mock.invocationCallOrder[0])
+    expect(session.startTurn).toHaveBeenCalledWith(
+      expect.objectContaining({ promptId: "prompt_test" }),
+    )
+    expect(session.startTurn.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.streamChat.mock.invocationCallOrder[0],
+    )
     expect(session.completeTurn).toHaveBeenCalledWith(
       expect.objectContaining({ promptId: "prompt_test" }),
       expect.arrayContaining([{ role: "user", content: "save this" }]),
@@ -386,7 +439,10 @@ describe("runHeadlessCommand", () => {
   it("denies destructive tools by default and reports the policy outcome", async () => {
     mocks.streamChat
       .mockImplementationOnce(async function* () {
-        yield { type: "tool_call", toolCall: { id: "call_1", name: "bash", arguments: '{"command":"exit 9"}' } }
+        yield {
+          type: "tool_call",
+          toolCall: { id: "call_1", name: "bash", arguments: '{"command":"exit 9"}' },
+        }
       })
       .mockImplementationOnce(async function* () {
         yield { type: "text_delta", text: "Not executed." }
@@ -477,7 +533,10 @@ describe("runHeadlessCommand", () => {
       })
     const output = streams()
 
-    const exitCode = await runHeadlessCommand(["--ephemeral", "run configured command"], output.options)
+    const exitCode = await runHeadlessCommand(
+      ["--ephemeral", "run configured command"],
+      output.options,
+    )
 
     expect(exitCode).toBe(0)
     expect(output.stderr()).not.toContain("(denied)")
@@ -496,7 +555,10 @@ describe("runHeadlessCommand", () => {
     mocks.streamChat
       .mockImplementationOnce(async function* () {
         yield { type: "text_delta", text: "I will inspect it." }
-        yield { type: "tool_call", toolCall: { id: "call_1", name: "read", arguments: '{"path":"."}' } }
+        yield {
+          type: "tool_call",
+          toolCall: { id: "call_1", name: "read", arguments: '{"path":"."}' },
+        }
       })
       .mockImplementationOnce(async function* () {
         yield { type: "text_delta", text: "The final result." }
@@ -515,7 +577,10 @@ describe("runHeadlessCommand", () => {
     })
     const output = streams()
 
-    const exitCode = await runHeadlessCommand(["--ephemeral", "--output-format", "jsonl", "hello"], output.options)
+    const exitCode = await runHeadlessCommand(
+      ["--ephemeral", "--output-format", "jsonl", "hello"],
+      output.options,
+    )
     const records = output
       .stdout()
       .trim()
@@ -556,8 +621,12 @@ describe("runHeadlessCommand", () => {
     expect(records.map((record) => record.type)).toContain("reasoning_start")
     expect(records.map((record) => record.type)).toContain("reasoning_delta")
     expect(records.map((record) => record.type)).toContain("reasoning_end")
-    expect(records.find((record) => record.type === "reasoning_delta")).toMatchObject({ text: "Checking." })
-    expect(records.at(-1).reasoning).toMatchObject([{ text: "Checking.", field: "reasoning_content" }])
+    expect(records.find((record) => record.type === "reasoning_delta")).toMatchObject({
+      text: "Checking.",
+    })
+    expect(records.at(-1).reasoning).toMatchObject([
+      { text: "Checking.", field: "reasoning_content" },
+    ])
   })
 
   it("does not expose reasoning text in default JSONL output", async () => {
@@ -626,7 +695,10 @@ describe("runHeadlessCommand", () => {
     })
     const output = streams({ processCwd: cwd })
 
-    const exitCode = await runHeadlessCommand(["--ephemeral", "--image", "pixel.ppm", "hello"], output.options)
+    const exitCode = await runHeadlessCommand(
+      ["--ephemeral", "--image", "pixel.ppm", "hello"],
+      output.options,
+    )
 
     expect(exitCode).toBe(0)
     expect(FireworksClient).toHaveBeenCalledWith(
@@ -656,7 +728,10 @@ describe("runHeadlessCommand", () => {
     })
     const output = streams({ processCwd: cwd })
 
-    const exitCode = await runHeadlessCommand(["--ephemeral", "--image", "pixel.ppm", "hello"], output.options)
+    const exitCode = await runHeadlessCommand(
+      ["--ephemeral", "--image", "pixel.ppm", "hello"],
+      output.options,
+    )
 
     expect(exitCode).toBe(0)
     expect(FireworksClient).toHaveBeenCalledWith(
@@ -795,14 +870,18 @@ describe("runHeadlessCommand", () => {
       (_spec, _fit, _hardware, options) =>
         new Promise((_resolve, reject) => {
           startupSignal = options?.signal
-          startupSignal?.addEventListener("abort", () => reject(startupSignal?.reason), { once: true })
+          startupSignal?.addEventListener("abort", () => reject(startupSignal?.reason), {
+            once: true,
+          })
         }),
     )
     const once = vi.spyOn(process, "once")
     try {
       const running = runHeadlessCommand(["--ephemeral", "hello locally"], streams().options)
       await vi.waitFor(() => expect(startupSignal).toBeDefined())
-      const interrupt = once.mock.calls.find(([event]) => event === "SIGINT")?.[1] as (() => void) | undefined
+      const interrupt = once.mock.calls.find(([event]) => event === "SIGINT")?.[1] as
+        | (() => void)
+        | undefined
       interrupt?.()
 
       await expect(running).resolves.toBe(130)

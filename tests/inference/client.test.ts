@@ -12,7 +12,13 @@ describe("FireworksClient", () => {
           choices: [
             {
               delta: {
-                tool_calls: [{ index: 0, id: "call_1", function: { name: "read", arguments: '{"path":"README.md"}' } }],
+                tool_calls: [
+                  {
+                    index: 0,
+                    id: "call_1",
+                    function: { name: "read", arguments: '{"path":"README.md"}' },
+                  },
+                ],
               },
               finish_reason: "tool_calls",
             },
@@ -36,7 +42,10 @@ describe("FireworksClient", () => {
           role: "assistant",
           content: [
             { type: "reasoning", field: "reasoning_content", text: "Earlier reasoning" },
-            { type: "tool_call", toolCall: { id: "old_call", name: "read", arguments: '{"path":"old"}' } },
+            {
+              type: "tool_call",
+              toolCall: { id: "old_call", name: "read", arguments: '{"path":"old"}' },
+            },
           ],
         },
         { role: "tool", toolCallId: "old_call", content: "old result" },
@@ -83,7 +92,11 @@ describe("FireworksClient", () => {
       reasoning_content: "Earlier reasoning",
       tool_calls: [{ id: "old_call", function: { name: "read", arguments: '{"path":"old"}' } }],
     })
-    expect(body.messages[3]).toEqual({ role: "tool", tool_call_id: "old_call", content: "old result" })
+    expect(body.messages[3]).toEqual({
+      role: "tool",
+      tool_call_id: "old_call",
+      content: "old result",
+    })
   })
 
   it("surfaces provider errors without retrying through another service", async () => {
@@ -95,14 +108,16 @@ describe("FireworksClient", () => {
       inferenceURL: "http://localhost/v1/chat/completions",
     })
 
-    await expect(collect(client.streamChat({ messages: [{ role: "user", content: "hello" }] }))).rejects.toThrow(
-      "Fireworks request failed with HTTP 400: invalid model",
-    )
+    await expect(
+      collect(client.streamChat({ messages: [{ role: "user", content: "hello" }] })),
+    ).rejects.toThrow("Fireworks request failed with HTTP 400: invalid model")
     expect(fetchMock).toHaveBeenCalledOnce()
   })
 
   it("serializes image input as an OpenAI-compatible data URL with images before text", async () => {
-    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => sseResponse([]))
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      sseResponse([]),
+    )
     const client = new FireworksClient({
       apiKey: "fw_test_key",
       model: "accounts/fireworks/models/vision-model",
@@ -116,7 +131,13 @@ describe("FireworksClient", () => {
           {
             role: "user",
             content: [
-              { type: "image", data: "iVBORw==", mimeType: "image/png", name: "screen.png", sizeBytes: 4 },
+              {
+                type: "image",
+                data: "iVBORw==",
+                mimeType: "image/png",
+                name: "screen.png",
+                sizeBytes: 4,
+              },
               { type: "text", text: "What is shown?" },
             ],
           },
@@ -135,7 +156,9 @@ describe("FireworksClient", () => {
   })
 
   it("sends extracted document text without exposing the preserved source bytes", async () => {
-    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => sseResponse([]))
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      sseResponse([]),
+    )
     const client = new FireworksClient({
       apiKey: "fw_test_key",
       model: "accounts/fireworks/models/tool-model",
@@ -177,7 +200,9 @@ describe("FireworksClient", () => {
   })
 
   it("omits service_tier for Fast serving-path model IDs", async () => {
-    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => sseResponse([]))
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      sseResponse([]),
+    )
     const client = new FireworksClient({
       apiKey: "fw_test_key",
       model: "accounts/fireworks/routers/kimi-k3-fast",
@@ -193,11 +218,19 @@ describe("FireworksClient", () => {
   })
 
   it.each([
-    ["accounts/fireworks/models/gpt-oss-120b", "high"],
+    ["accounts/fireworks/models/deepseek-v4", "max"],
     ["accounts/fireworks/models/glm-5p2", "max"],
     ["accounts/fireworks/routers/glm-5p2-fast", "max"],
+    ["accounts/fireworks/models/gpt-oss-120b", "high"],
+    ["accounts/fireworks/models/minimax-m2p5", "high"],
+    ["accounts/fireworks/models/qwen3-235b-a22b", "high"],
+    ["accounts/fireworks/models/deepseek-v3p2", "high"],
+    ["accounts/fireworks/models/glm-5p1", "high"],
+    ["accounts/fireworks/models/glm-4.5-air", "high"],
   ] as const)("sends %s requests with %s reasoning", async (model, reasoningEffort) => {
-    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => sseResponse([]))
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      sseResponse([]),
+    )
     const client = new FireworksClient({
       apiKey: "fw_test_key",
       model,
@@ -209,6 +242,27 @@ describe("FireworksClient", () => {
 
     const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body))
     expect(body.reasoning_effort).toBe(reasoningEffort)
+  })
+
+  it.each([
+    "accounts/fireworks/models/kimi-k2-thinking",
+    "accounts/fireworks/models/llama-v3p1-70b-instruct",
+    "accounts/fireworks/models/qwen3-no-thinking",
+  ])("uses the provider default when %s has no documented effort ceiling", async (model) => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      sseResponse([]),
+    )
+    const client = new FireworksClient({
+      apiKey: "fw_test_key",
+      model,
+      fetch: fetchMock as typeof fetch,
+      inferenceURL: "http://localhost/v1/chat/completions",
+    })
+
+    await collect(client.streamChat({ messages: [{ role: "user", content: "hello" }] }))
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body))
+    expect(body).not.toHaveProperty("reasoning_effort")
   })
 
   it("rejects non-HTTPS provider URLs outside local tests", () => {

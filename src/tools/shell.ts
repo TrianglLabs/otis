@@ -1,27 +1,24 @@
-import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process"
-import { childProcessEnvironment } from "../local/child-environment.js"
+import { spawn } from "node:child_process"
+import { childProcessEnvironment } from "../local/paths.js"
 import type { ToolContext, ToolResult } from "./types.js"
 
 const MAX_OUTPUT = 32_000
 const TRUNCATION_MARKER = "[output truncated]\n"
 const KILL_GRACE_MS = 2_000
 
-export async function runBash(command: string, timeoutMs = 120_000, context: ToolContext): Promise<ToolResult> {
-  return {
-    title: `Bash: ${command}`,
-    output: await executeShell(command, context.cwd ?? process.cwd(), timeoutMs, context.signal),
-  }
-}
-
-function executeShell(command: string, cwd: string, timeoutMs: number, signal?: AbortSignal) {
-  return new Promise<string>((resolve) => {
+export async function runBash(
+  command: string,
+  timeoutMs = 120_000,
+  context: ToolContext,
+): Promise<ToolResult> {
+  const { signal } = context
+  const output = await new Promise<string>((resolve) => {
     if (signal?.aborted) {
       resolve("Aborted.")
       return
     }
-
     const child = spawn(process.env.SHELL || "/bin/sh", ["-lc", command], {
-      cwd,
+      cwd: context.cwd ?? process.cwd(),
       env: childProcessEnvironment(process.env),
       detached: process.platform !== "win32",
     })
@@ -31,7 +28,7 @@ function executeShell(command: string, cwd: string, timeoutMs: number, signal?: 
     let settled = false
     let forceKillTimer: NodeJS.Timeout | undefined
 
-    const finish = (result: string) => {
+    const settle = (result: string) => {
       if (settled) return
       settled = true
       clearTimeout(timeoutTimer)
@@ -39,11 +36,33 @@ function executeShell(command: string, cwd: string, timeoutMs: number, signal?: 
       signal?.removeEventListener("abort", abort)
       resolve(result)
     }
+    const report = (code?: number | null, closeSignal?: NodeJS.Signals | null) => {
+      const status = aborted
+        ? "Aborted."
+        : timedOut
+          ? `Timed out after ${timeoutMs}ms.`
+          : `Exit code: ${code ?? "unknown"}${closeSignal ? `, signal: ${closeSignal}` : ""}.`
+      settle(`${status}\n\n${output}`.trim())
+    }
+    const terminate = (termination: NodeJS.Signals) => {
+      if (!child.pid) return
+      try {
+        if (process.platform === "win32") child.kill(termination)
+        else process.kill(-child.pid, termination)
+      } catch (error) {
+        if (error instanceof Error && "code" in error && error.code === "ESRCH") return
+        try {
+          child.kill(termination)
+        } catch {
+          // The process may have exited between group and direct termination.
+        }
+      }
+    }
     const terminateThenForce = () => {
-      terminateShell(child, "SIGTERM")
+      terminate("SIGTERM")
       forceKillTimer = setTimeout(() => {
-        terminateShell(child, "SIGKILL")
-        finish(formatShellResult({ output, timedOut, aborted, timeoutMs }))
+        terminate("SIGKILL")
+        report()
       }, KILL_GRACE_MS)
     }
     const abort = () => {
@@ -57,59 +76,19 @@ function executeShell(command: string, cwd: string, timeoutMs: number, signal?: 
       },
       Math.max(1, timeoutMs),
     )
+    const append = (chunk: Buffer) => {
+      output += String(chunk)
+      if (output.length > MAX_OUTPUT) {
+        const tail = output.slice(output.length - MAX_OUTPUT + TRUNCATION_MARKER.length)
+        output = `${TRUNCATION_MARKER}${tail}`
+      }
+    }
 
     signal?.addEventListener("abort", abort, { once: true })
-    child.stdout.on("data", (chunk) => {
-      output = appendBounded(output, String(chunk))
-    })
-    child.stderr.on("data", (chunk) => {
-      output = appendBounded(output, String(chunk))
-    })
-    child.on("error", (error) => finish(`Failed to start command: ${error.message}`))
-    child.on("close", (code, closeSignal) => {
-      finish(formatShellResult({ output, timedOut, aborted, timeoutMs, code, signal: closeSignal }))
-    })
+    child.stdout.on("data", append)
+    child.stderr.on("data", append)
+    child.on("error", (error) => settle(`Failed to start command: ${error.message}`))
+    child.on("close", report)
   })
-}
-
-function terminateShell(child: ChildProcessWithoutNullStreams, signal: NodeJS.Signals) {
-  if (!child.pid) return
-
-  try {
-    if (process.platform === "win32") child.kill(signal)
-    else process.kill(-child.pid, signal)
-  } catch (error) {
-    if (isNoSuchProcessError(error)) return
-    try {
-      child.kill(signal)
-    } catch {
-      // The process may have exited between group and direct termination.
-    }
-  }
-}
-
-function isNoSuchProcessError(error: unknown) {
-  return typeof error === "object" && error !== null && "code" in error && error.code === "ESRCH"
-}
-
-function formatShellResult(options: {
-  output: string
-  timedOut: boolean
-  aborted: boolean
-  timeoutMs?: number
-  code?: number | null
-  signal?: NodeJS.Signals | null
-}) {
-  const status = options.aborted
-    ? "Aborted."
-    : options.timedOut
-      ? `Timed out after ${options.timeoutMs ?? "unknown"}ms.`
-      : `Exit code: ${options.code ?? "unknown"}${options.signal ? `, signal: ${options.signal}` : ""}.`
-  return `${status}\n\n${options.output}`.trim()
-}
-
-function appendBounded(current: string, chunk: string) {
-  const next = current + chunk
-  if (next.length <= MAX_OUTPUT) return next
-  return `${TRUNCATION_MARKER}${next.slice(next.length - MAX_OUTPUT + TRUNCATION_MARKER.length)}`
+  return { title: `Bash: ${command}`, output }
 }

@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { applyStoredTheme, rememberTheme } from "../../../src/desktop/renderer/theme.js"
+import { applyStoredTheme, rememberTheme } from "../../../src/desktop/renderer/runtime.js"
 
 describe("boot-time theme", () => {
   afterEach(() => {

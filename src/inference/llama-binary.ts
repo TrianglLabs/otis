@@ -2,7 +2,10 @@ import type { CudaVersion, HardwareBackend } from "./hardware.js"
 
 export const LLAMA_CPP_RELEASE_TAG = "b11057"
 export const PRISM_LLAMA_CPP_RELEASE_TAG = "prism-b10685-7dffb15"
-export const PINNED_LLAMA_CPP_RELEASE_TAGS = [LLAMA_CPP_RELEASE_TAG, PRISM_LLAMA_CPP_RELEASE_TAG] as const
+export const PINNED_LLAMA_CPP_RELEASE_TAGS = [
+  LLAMA_CPP_RELEASE_TAG,
+  PRISM_LLAMA_CPP_RELEASE_TAG,
+] as const
 
 export type LlamaRuntimeKind = "upstream" | "prism"
 
@@ -118,11 +121,14 @@ export type LlamaBinaryTarget = {
 
 export function supportsLlamaCppTarget(target: Pick<LlamaBinaryTarget, "platform" | "arch">) {
   return (
-    (target.platform === "darwin" || target.platform === "linux") && (target.arch === "arm64" || target.arch === "x64")
+    (target.platform === "darwin" || target.platform === "linux") &&
+    (target.arch === "arm64" || target.arch === "x64")
   )
 }
 
-export function unsupportedLlamaCppTargetMessage(target: Pick<LlamaBinaryTarget, "platform" | "arch">) {
+export function unsupportedLlamaCppTargetMessage(
+  target: Pick<LlamaBinaryTarget, "platform" | "arch">,
+) {
   return `Local inference is not supported on ${target.platform}/${target.arch}.`
 }
 
@@ -130,64 +136,59 @@ export function llamaRuntimeReleaseTag(runtime: LlamaRuntimeKind) {
   return runtime === "prism" ? PRISM_LLAMA_CPP_RELEASE_TAG : LLAMA_CPP_RELEASE_TAG
 }
 
-export function llamaRuntimeTarget<T extends LlamaBinaryTarget>(target: T, runtime: LlamaRuntimeKind): T {
+export function llamaRuntimeTarget<T extends LlamaBinaryTarget>(
+  target: T,
+  runtime: LlamaRuntimeKind,
+): T {
   // Prism publishes Linux CUDA binaries only for x64.
   return runtime === "prism" && target.backend === "cuda" && target.arch !== "x64"
     ? { ...target, backend: "vulkan", cudaVersion: undefined }
     : target
 }
 
-export function pinnedLlamaCppAsset(target: LlamaBinaryTarget, runtime: LlamaRuntimeKind = "upstream"): LlamaCppAsset {
+export function pinnedLlamaCppAsset(
+  target: LlamaBinaryTarget,
+  runtime: LlamaRuntimeKind = "upstream",
+): LlamaCppAsset {
   target = llamaRuntimeTarget(target, runtime)
+  const prism = runtime === "prism"
   const releaseTag = llamaRuntimeReleaseTag(runtime)
-  const name = assetName(target, releaseTag)
-  const assets = runtime === "prism" ? PRISM_LLAMA_CPP_ASSETS : UPSTREAM_LLAMA_CPP_ASSETS
-  const asset = assets[name]
-  if (!asset) throw new Error(`No ${runtime} llama.cpp asset is pinned for ${target.platform}/${target.arch}.`)
-  const repository = runtime === "prism" ? "PrismML-Eng/llama.cpp" : "ggml-org/llama.cpp"
+  let name: string
+  if (target.backend === "cuda") {
+    if (target.platform !== "linux" || !target.cudaVersion)
+      throw new Error("CUDA requires a compatible Linux target.")
+    const distro = prism ? "linux" : "ubuntu"
+    name = `llama-${releaseTag}-bin-${distro}-cuda-${target.cudaVersion}-${target.arch}.tar.gz`
+  } else {
+    if (!supportsLlamaCppTarget(target)) throw new Error(unsupportedLlamaCppTargetMessage(target))
+    const build =
+      target.platform === "darwin" ? "macos" : target.backend === "cpu" ? "ubuntu" : "ubuntu-vulkan"
+    name = `llama-${releaseTag}-bin-${build}-${target.arch}.tar.gz`
+  }
+  const asset = (prism ? PRISM_LLAMA_CPP_ASSETS : UPSTREAM_LLAMA_CPP_ASSETS)[name]
+  if (!asset)
+    throw new Error(
+      `No ${runtime} llama.cpp asset is pinned for ${target.platform}/${target.arch}.`,
+    )
+  const repository = prism ? "PrismML-Eng/llama.cpp" : "ggml-org/llama.cpp"
+  const archive = {
+    name,
+    url: `https://github.com/${repository}/releases/download/${releaseTag}/${name}`,
+    ...asset,
+  }
+  if (target.backend !== "cuda") return archive
   // NVIDIA's runtime/cuBLAS libraries are shared by both llama.cpp builds.
   // Use the pinned official companion for the same CUDA version and architecture;
   // all ggml/llama libraries still come exclusively from the selected runtime.
   const companionName = `cudart-llama-${LLAMA_CPP_RELEASE_TAG}-bin-ubuntu-cuda-${target.cudaVersion}-${target.arch}.tar.gz`
-  const companion = target.backend === "cuda" ? UPSTREAM_LLAMA_CPP_ASSETS[companionName] : undefined
-  if (target.backend === "cuda" && !companion) throw new Error("No CUDA runtime companion is pinned for this target.")
+  const companion = UPSTREAM_LLAMA_CPP_ASSETS[companionName]
+  if (!companion) throw new Error("No CUDA runtime companion is pinned for this target.")
   return {
-    name,
-    url: `https://github.com/${repository}/releases/download/${releaseTag}/${name}`,
-    ...asset,
-    ...(companion
-      ? {
-          companion: {
-            name: companionName,
-            url: `https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_CPP_RELEASE_TAG}/${companionName}`,
-            ...companion,
-          },
-        }
-      : {}),
+    ...archive,
+    companion: {
+      name: companionName,
+      url: `https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_CPP_RELEASE_TAG}/${companionName}`,
+      ...companion,
+    },
   }
-}
-
-function assetName(target: LlamaBinaryTarget, releaseTag: string) {
-  if (target.backend === "cuda") {
-    if (target.platform !== "linux" || !target.cudaVersion) throw new Error("CUDA requires a compatible Linux target.")
-    const platform = releaseTag === PRISM_LLAMA_CPP_RELEASE_TAG ? "linux" : "ubuntu"
-    return `llama-${releaseTag}-bin-${platform}-cuda-${target.cudaVersion}-${target.arch}.tar.gz`
-  }
-  if (target.platform === "darwin" && target.arch === "arm64") {
-    return `llama-${releaseTag}-bin-macos-arm64.tar.gz`
-  }
-  if (target.platform === "darwin" && target.arch === "x64") {
-    return `llama-${releaseTag}-bin-macos-x64.tar.gz`
-  }
-  if (target.platform === "linux" && target.arch === "arm64") {
-    return target.backend === "cpu"
-      ? `llama-${releaseTag}-bin-ubuntu-arm64.tar.gz`
-      : `llama-${releaseTag}-bin-ubuntu-vulkan-arm64.tar.gz`
-  }
-  if (target.platform === "linux" && target.arch === "x64") {
-    return target.backend === "cpu"
-      ? `llama-${releaseTag}-bin-ubuntu-x64.tar.gz`
-      : `llama-${releaseTag}-bin-ubuntu-vulkan-x64.tar.gz`
-  }
-  throw new Error(unsupportedLlamaCppTargetMessage(target))
 }

@@ -24,9 +24,7 @@ export async function readLocalFile(
   context: ToolContext,
 ): Promise<ToolResult> {
   const filePath = await resolveWorkspacePath(path, context)
-  const fileStat = await stat(filePath)
-
-  if (fileStat.isDirectory()) {
+  if ((await stat(filePath)).isDirectory()) {
     const entries = await readdir(filePath, { withFileTypes: true })
     const output = entries
       .sort((left, right) => left.name.localeCompare(right.name))
@@ -45,7 +43,8 @@ export async function readLocalFile(
       ? await createDocumentAttachment(content, basename(filePath))
       : undefined
   const pdfForm = extension === ".pdf" ? await inspectPdfForm(content).catch(() => []) : []
-  if (!document && isBinary(content)) throw new Error("read supports UTF-8 text, PDF, and DOCX files only.")
+  if (!document && isBinary(content))
+    throw new Error("read supports UTF-8 text, PDF, and DOCX files only.")
   const lines = (document?.extractedText ?? content.toString("utf8")).split(/\r?\n/)
   const start = Math.max(1, Math.floor(offset))
   const count = Math.max(1, Math.min(DEFAULT_READ_LIMIT, Math.floor(limit)))
@@ -58,27 +57,35 @@ export async function readLocalFile(
     ? `\n\n[Document extraction stopped at ${MAX_EXTRACTED_DOCUMENT_CHARS} characters. The remaining source content is not available through read; later offsets cannot retrieve it.]`
     : ""
   const formNotice =
-    pdfForm.length > 0 ? `\n\n[Interactive PDF form fields]\n${pdfForm.map((field) => `- ${field}`).join("\n")}` : ""
+    pdfForm.length > 0
+      ? `\n\n[Interactive PDF form fields]\n${pdfForm.map((field) => `- ${field}`).join("\n")}`
+      : ""
   return {
     title: `Read: ${filePath}`,
-    output: (output || (start > 1 ? "No lines at this offset." : "File is empty.")) + notice + formNotice,
+    output:
+      (output || (start > 1 ? "No lines at this offset." : "File is empty.")) + notice + formNotice,
     ...(artifact ? { artifact } : {}),
   }
 }
 
-export async function writeLocalFile(path: string, content: string, context: ToolContext): Promise<ToolResult> {
+export async function writeLocalFile(
+  path: string,
+  content: string,
+  context: ToolContext,
+): Promise<ToolResult> {
   const filePath = await resolveWorkspacePath(path, context, { allowMissingLeaf: true })
   assertTextFilePath(filePath)
-  let diff: string
-
-  try {
-    const existing = editableText(await readFile(filePath), filePath)
-    diff = existing === content ? "" : createPatch(filePath, existing, content, "", "", PATCH_OPTIONS)
-  } catch (error) {
-    if (!isNotFoundError(error)) throw error
-    diff = createPatch(filePath, "", content, "", "", PATCH_OPTIONS)
-  }
-
+  const existing = await readFile(filePath).then(
+    (bytes) => editableText(bytes, filePath),
+    (error) => {
+      if (!isNotFoundError(error)) throw error
+      return undefined
+    },
+  )
+  const diff =
+    existing === content
+      ? ""
+      : createPatch(filePath, existing ?? "", content, "", "", PATCH_OPTIONS)
   await writeFile(filePath, content, "utf8")
   const artifact = await workspaceArtifactReference(filePath, context.cwd ?? process.cwd())
   return {
@@ -96,7 +103,6 @@ export async function editLocalFile(
   context: ToolContext,
 ): Promise<ToolResult> {
   if (!oldText) throw new Error("edit requires a non-empty old string")
-
   const filePath = await resolveWorkspacePath(path, context)
   assertTextFilePath(filePath)
   const content = editableText(await readFile(filePath), filePath)
@@ -105,7 +111,6 @@ export async function editLocalFile(
   if (content.indexOf(oldText, first + oldText.length) !== -1) {
     throw new Error("old string appears multiple times; provide a more specific old string")
   }
-
   const updated = `${content.slice(0, first)}${newText}${content.slice(first + oldText.length)}`
   await writeFile(filePath, updated, "utf8")
   const artifact = await workspaceArtifactReference(filePath, context.cwd ?? process.cwd())
@@ -118,12 +123,16 @@ export async function editLocalFile(
 }
 
 export function truncateLine(line: string) {
-  return line.length <= MAX_LINE_LENGTH ? line : `${line.slice(0, MAX_LINE_LENGTH)} [line truncated]`
+  return line.length <= MAX_LINE_LENGTH
+    ? line
+    : `${line.slice(0, MAX_LINE_LENGTH)} [line truncated]`
 }
 
 function assertTextFilePath(path: string) {
   if ([".pdf", ".docx", ".doc"].includes(extname(path).toLowerCase())) {
-    throw new Error("write and edit support UTF-8 text only. PDF and Word files require a format-aware editor.")
+    throw new Error(
+      "write and edit support UTF-8 text only. PDF and Word files require a format-aware editor.",
+    )
   }
 }
 

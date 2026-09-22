@@ -14,6 +14,11 @@ export function PdfPreview({ source }: { source: string }) {
   const { t } = useI18n()
   const [document, setDocument] = useState<PDFDocumentProxy>()
   const [error, setError] = useState<string>()
+  const [scroller, setScroller] = useState<HTMLElement | null>(null)
+  const scrollerRef = useCallback((element: HTMLElement | Window | null) => {
+    setScroller(element instanceof HTMLElement ? element : null)
+  }, [])
+  const [width, setWidth] = useState(0)
 
   useEffect(() => {
     let current = true
@@ -27,7 +32,11 @@ export function PdfPreview({ source }: { source: string }) {
       if (!current) return
       port = new PdfWorker()
       worker = pdf.PDFWorker.create({ port })
-      loading = pdf.getDocument({ data: decodeBase64(source), useSystemFonts: true, worker })
+      const decoded = atob(source)
+      const data = new Uint8Array(decoded.length)
+      for (let index = 0; index < decoded.length; index += 1)
+        data[index] = decoded.charCodeAt(index)
+      loading = pdf.getDocument({ data, useSystemFonts: true, worker })
       const loaded = await loading.promise
       if (current) setDocument(loaded)
     })().catch((reason: unknown) => {
@@ -35,7 +44,8 @@ export function PdfPreview({ source }: { source: string }) {
     })
     return () => {
       current = false
-      // Let PDF.js finish its transport shutdown before terminating the worker it communicates with.
+      // Let PDF.js finish its transport shutdown before terminating the worker it communicates
+      // with.
       void (async () => {
         try {
           await loading?.destroy()
@@ -47,22 +57,6 @@ export function PdfPreview({ source }: { source: string }) {
     }
   }, [source, t])
 
-  if (error)
-    return (
-      <div className="canvas-empty" role="alert">
-        {error}
-      </div>
-    )
-  if (!document) return <div className="canvas-empty">{t("canvas.loading")}</div>
-  return <PdfPages document={document} />
-}
-
-function PdfPages({ document }: { document: PDFDocumentProxy }) {
-  const [scroller, setScroller] = useState<HTMLElement | null>(null)
-  const scrollerRef = useCallback((element: HTMLElement | Window | null) => {
-    setScroller(element instanceof HTMLElement ? element : null)
-  }, [])
-  const [width, setWidth] = useState(0)
   useEffect(() => {
     if (!scroller) return
     // Use the scrollable content width, excluding any non-overlay scrollbar.
@@ -72,6 +66,14 @@ function PdfPages({ document }: { document: PDFDocumentProxy }) {
     observer.observe(scroller)
     return () => observer.disconnect()
   }, [scroller])
+
+  if (error)
+    return (
+      <div className="canvas-empty" role="alert">
+        {error}
+      </div>
+    )
+  if (!document) return <div className="canvas-empty">{t("canvas.loading")}</div>
   return (
     <div className="canvas-pdf">
       <Virtuoso
@@ -80,7 +82,9 @@ function PdfPages({ document }: { document: PDFDocumentProxy }) {
         totalCount={width > 0 ? document.numPages : 0}
         increaseViewportBy={200}
         components={{ Header: PdfPageInset }}
-        itemContent={(index) => <PdfPageView document={document} pageNumber={index + 1} width={width} />}
+        itemContent={(index) => (
+          <PdfPageView document={document} pageNumber={index + 1} width={width} />
+        )}
       />
     </div>
   )
@@ -162,11 +166,4 @@ function PdfPageView({
       />
     </div>
   )
-}
-
-function decodeBase64(value: string) {
-  const decoded = atob(value)
-  const bytes = new Uint8Array(decoded.length)
-  for (let index = 0; index < decoded.length; index += 1) bytes[index] = decoded.charCodeAt(index)
-  return bytes
 }

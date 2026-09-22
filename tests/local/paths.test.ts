@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { childProcessEnvironment } from "../../src/local/child-environment.js"
+import { childProcessEnvironment } from "../../src/local/paths.js"
 
 describe("childProcessEnvironment", () => {
   it("does not expose provider credentials to child commands", () => {

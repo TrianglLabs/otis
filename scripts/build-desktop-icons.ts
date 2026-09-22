@@ -4,13 +4,16 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
-// Author the icon in Icon Composer. Check in its static exports so Linux builds need no Apple tools.
-if (process.platform !== "darwin") throw new Error("Generate desktop icons on macOS with Xcode 26 or later.")
+// Author the icon in Icon Composer. Check in its static exports so Linux builds need no Apple
+// tools.
+if (process.platform !== "darwin")
+  throw new Error("Generate desktop icons on macOS with Xcode 26 or later.")
 
 const resources = fileURLToPath(new URL("../resources/", import.meta.url))
 const temporary = await mkdtemp(join(tmpdir(), "otis-desktop-icons-"))
 try {
-  // A resource bundle lets AppKit render the catalog's full-resolution legacy icon using public APIs.
+  // A resource bundle lets AppKit render the catalog's full-resolution legacy icon using public
+  // APIs.
   const bundle = join(temporary, "Otis.bundle")
   const catalog = join(bundle, "Contents", "Resources")
   await mkdir(catalog, { recursive: true })
@@ -50,7 +53,12 @@ try {
   await mkdir(iconset)
   execFileSync(
     "xcrun",
-    ["swift", fileURLToPath(new URL("./export-desktop-icon.swift", import.meta.url)), bundle, iconset],
+    [
+      "swift",
+      fileURLToPath(new URL("./export-desktop-icon.swift", import.meta.url)),
+      bundle,
+      iconset,
+    ],
     { stdio: "inherit" },
   )
   const icns = join(temporary, "Otis.icns")

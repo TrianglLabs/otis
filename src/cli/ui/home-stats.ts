@@ -3,12 +3,11 @@ import type { LocalStats } from "../../local/stats.js"
 import { formatStats } from "./format.js"
 import type { Renderer } from "./types.js"
 
-export const STAT_COUNT_DURATION_MS = 900
-export const STAT_COUNT_STAGGER_MS = 70
-export const STAT_COUNT_FRAME_MS = 50
-export const STAT_COUNT_SETTLE_MS = STAT_COUNT_DURATION_MS + STAT_COUNT_STAGGER_MS * 3 + STAT_COUNT_FRAME_MS
+const STAT_COUNT_DURATION_MS = 900
+const STAT_COUNT_STAGGER_MS = 70
+const STAT_COUNT_FRAME_MS = 50
 
-export const ZERO_STATS: LocalStats = {
+const ZERO_STATS: LocalStats = {
   streak: 0,
   totalTokens: 0,
   sessionCount: 0,
@@ -20,14 +19,9 @@ export const ZERO_STATS: LocalStats = {
   recentActivity: [],
 }
 
-export type StatBox = {
-  value: TextRenderable
-  label: TextRenderable
-}
-
 type HomeStatsOptions = {
   renderer: Renderer
-  statBoxes: StatBox[]
+  statBoxes: { value: TextRenderable; label: TextRenderable }[]
   isWelcomeVisible: () => boolean
 }
 
@@ -44,7 +38,11 @@ export class HomeStats {
 
   setStats(stats: LocalStats) {
     this.to = { ...stats }
-    if (!this.options.isWelcomeVisible() || isZero(stats) || sameStats(this.displayed, stats)) {
+    if (
+      !this.options.isWelcomeVisible() ||
+      sameStats(stats, ZERO_STATS) ||
+      sameStats(this.displayed, stats)
+    ) {
       this.snap(stats)
       return
     }
@@ -52,8 +50,9 @@ export class HomeStats {
     this.start()
   }
 
+  /** Counts the cards up from zero again, e.g. when returning to the home screen. */
   replay() {
-    if (!this.options.isWelcomeVisible() || isZero(this.to)) return
+    if (!this.options.isWelcomeVisible() || sameStats(this.to, ZERO_STATS)) return
     this.from = { ...ZERO_STATS }
     this.start()
   }
@@ -104,7 +103,7 @@ export class HomeStats {
   }
 }
 
-export function interpolateStats(from: LocalStats, to: LocalStats, amount: number) {
+function interpolateStats(from: LocalStats, to: LocalStats, amount: number) {
   return {
     ...to,
     streak: Math.round(lerp(from.streak, to.streak, amount)),
@@ -115,7 +114,7 @@ export function interpolateStats(from: LocalStats, to: LocalStats, amount: numbe
   }
 }
 
-export function easeOutCubic(amount: number) {
+function easeOutCubic(amount: number) {
   const t = clamp(amount, 0, 1)
   return 1 - (1 - t) ** 3
 }
@@ -130,10 +129,6 @@ function lerp(from: number, to: number, amount: number) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value))
-}
-
-function isZero(stats: LocalStats) {
-  return sameStats(stats, ZERO_STATS)
 }
 
 function sameStats(left: LocalStats, right: LocalStats) {

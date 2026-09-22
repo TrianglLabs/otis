@@ -15,7 +15,9 @@ it("saves the displayed revision, reports errors, and resets the action when the
   const runtime = { api, store: new DesktopViewStore(api) }
   const artifact = (await api.getSnapshot()).artifact
   if (!artifact) throw new Error("Expected demo artifact")
-  const save = vi.spyOn(api, "saveArtifact").mockResolvedValue({ ok: false, reason: "The destination is read-only." })
+  const save = vi
+    .spyOn(api, "saveArtifact")
+    .mockResolvedValue({ ok: false, reason: "The destination is read-only." })
   const view = render(
     <DesktopProvider value={runtime}>
       <FileArtifact artifact={artifact} />
@@ -26,7 +28,11 @@ it("saves the displayed revision, reports errors, and resets the action when the
   expect(save).toHaveBeenCalledExactlyOnceWith(artifact.id, artifact.revision)
   expect(screen.getByRole("alert").textContent).toBe("The destination is read-only.")
   const next = { ...artifact, revision: artifact.revision + 1 }
-  vi.spyOn(api, "getArtifact").mockResolvedValue({ ...next, encoding: "html", content: "<p>Another revision</p>" })
+  vi.spyOn(api, "getArtifact").mockResolvedValue({
+    ...next,
+    encoding: "html",
+    content: "<p>Another revision</p>",
+  })
   view.rerender(
     <DesktopProvider value={runtime}>
       <FileArtifact artifact={next} />
@@ -95,7 +101,11 @@ it("shows saved revisions separately from working files and lets users pin a ver
     editable: false,
     publication: { reference, versions: [1, 2], followingLatest: true },
   }
-  vi.spyOn(api, "getArtifact").mockResolvedValue({ ...artifact, encoding: "utf8", content: "# Saved document" })
+  vi.spyOn(api, "getArtifact").mockResolvedValue({
+    ...artifact,
+    encoding: "utf8",
+    content: "# Saved document",
+  })
   const open = vi.spyOn(api, "openArtifact").mockResolvedValue({ ok: true })
   const view = render(
     <DesktopProvider value={runtime}>
@@ -111,7 +121,11 @@ it("shows saved revisions separately from working files and lets users pin a ver
   const pinned = {
     ...artifact,
     revision: 2,
-    publication: { reference: { ...reference, version: 1 }, versions: [1, 2], followingLatest: false },
+    publication: {
+      reference: { ...reference, version: 1 },
+      versions: [1, 2],
+      followingLatest: false,
+    },
   }
   view.rerender(
     <DesktopProvider value={runtime}>
@@ -127,7 +141,9 @@ it("shows saved revisions separately from working files and lets users pin a ver
   expect(screen.getByRole("alert").textContent).toBe("Session changed")
   view.rerender(
     <DesktopProvider value={runtime}>
-      <FileArtifact artifact={{ ...artifact, source: "workspace", publication: undefined, revision: 3 }} />
+      <FileArtifact
+        artifact={{ ...artifact, source: "workspace", publication: undefined, revision: 3 }}
+      />
     </DesktopProvider>,
   )
   await act(async () => {})

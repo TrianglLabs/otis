@@ -1,12 +1,15 @@
+import { randomUUID } from "node:crypto"
 import { ContextOverflowError } from "../inference/errors.js"
-import { userMessageAttachments } from "../inference/messages.js"
+import { lastAssistantText, userMessageAttachments } from "../inference/messages.js"
+import { hasObjectArguments } from "../inference/openai-compat.js"
 import { buildSystemPrompt } from "../inference/system-prompt.js"
-import { hasObjectArguments } from "../inference/tool-call-history.js"
 import type {
+  AssistantContentPart,
   ChatMessage,
   ChatToolCall,
   ContextFile,
   InferenceClient,
+  ReasoningContentPart,
   ReasoningTraceEvent,
   StreamChatOptions,
   TokenUsage,
@@ -28,20 +31,18 @@ import {
   type ToolCall,
   type ToolContext,
   type ToolDefinition,
+  type ToolName,
   type ToolResult,
 } from "../tools/index.js"
-import { AssistantResponseBuilder } from "./assistant-response.js"
 import {
   autoCompactThreshold,
   type CompactionResult,
   compactConversation,
   compactionSummaryMessage,
+  messagesContentChars,
+  requestContextEstimator,
 } from "./compaction.js"
-import { mergeGenerators, serialized } from "./concurrency.js"
 import { loadProjectContext } from "./context.js"
-import { messagesContentChars, requestContextEstimator } from "./context-tokens.js"
-import type { SteeringSource } from "./steering.js"
-import { type SubagentCall, subagentBrief, subagentResult, subagentRunOptions } from "./subagent.js"
 
 export type AgentEvent =
   | { type: "context"; messageCount: number; contentChars: number; tokens: number }
@@ -64,7 +65,10 @@ export type AgentEvent =
     }
   /** An event from a delegated child run, identified by the parent's `agent` tool call. */
   | { type: "subagent"; toolCallId: string; title: string; event: AgentEvent }
-  /** Terminal messages contain only the continuation after the latest compaction, or the full turn otherwise. */
+  /**
+   * Terminal messages contain only the continuation after the latest compaction, or the full
+   * turn otherwise.
+   */
   | { type: "interrupted"; messages: ChatMessage[] }
   | { type: "complete"; messages: ChatMessage[] }
   | { type: "error"; message: string; messages?: ChatMessage[] }
@@ -81,20 +85,41 @@ export type RunAgentOptions = ToolContext & {
   /** Last observed size of this history in the current application session, for the same client. */
   historyTokens?: number
   autoCompactAtTokens?: number
-  onCompaction?: (result: CompactionResult, steeringCount: number, messages: ChatMessage[]) => void | Promise<void>
+  onCompaction?: (
+    result: CompactionResult,
+    steeringCount: number,
+    messages: ChatMessage[],
+  ) => void | Promise<void>
   onCompactionUsage?: (usage: TokenUsage) => void | Promise<void>
   steering?: SteeringSource
   outputCapabilities?: StreamChatOptions["outputCapabilities"]
 }
+
+/**
+ * Subagents explore and research only; they never mutate the workspace, run commands, or
+ * delegate again.
+ */
+const SUBAGENT_TOOLS: ReadonlySet<ToolName> = new Set([
+  "read",
+  "grep",
+  "glob",
+  "web_search",
+  "web_read",
+  "skill",
+])
+const MAX_TOOL_OUTPUT_CHARS = 16_000
 
 export async function* runAgent(
   input: string | UserChatMessage,
   history: ChatMessage[] = [],
   options: RunAgentOptions,
 ): AsyncGenerator<AgentEvent> {
-  const userMessage: UserChatMessage = typeof input === "string" ? { role: "user", content: input } : input
+  const userMessage: UserChatMessage =
+    typeof input === "string" ? { role: "user", content: input } : input
   let messages: ChatMessage[] = [...history, userMessage]
-  const attachments = messages.flatMap((message) => (message.role === "user" ? userMessageAttachments(message) : []))
+  const attachments = messages.flatMap((message) =>
+    message.role === "user" ? userMessageAttachments(message) : [],
+  )
   let turnStart = history.length
   let steeringCount = 0
   let recoveryAttempts = 0
@@ -103,15 +128,18 @@ export async function* runAgent(
   let recoveryBudget: number | undefined
   let contextEvent: (() => AgentEvent) | undefined
   try {
-    const projectContext = options.projectContext ?? loadProjectContext(options.cwd ?? process.cwd())
+    const cwd = options.cwd ?? process.cwd()
+    const projectContext = options.projectContext ?? loadProjectContext(cwd)
     const skills =
-      options.skills ?? (await loadSkillCatalog(options.cwd ?? process.cwd(), { dataDirectory: options.dataDirectory }))
-    const tools = availableTools(options.tools ?? TOOL_DEFINITIONS, skills)
-    const modelSkills = tools.some((tool) => tool.name === "skill") ? skills : emptySkills()
+      options.skills ?? (await loadSkillCatalog(cwd, { dataDirectory: options.dataDirectory }))
+    const tools = (options.tools ?? TOOL_DEFINITIONS).filter(
+      (tool) => tool.name !== "skill" || skills.skills.length > 0,
+    )
+    const modelSkills = tools.some((tool) => tool.name === "skill") ? skills.skills : []
     const systemPrompt = buildSystemPrompt(
       projectContext,
       undefined,
-      modelSkills.skills,
+      modelSkills,
       tools,
       options.outputCapabilities,
     )
@@ -120,7 +148,9 @@ export async function* runAgent(
     const count = (value: ChatMessage[]) =>
       options.client.countTokens?.({ ...requestOptions, messages: value }) ?? estimate(value)
     let observed: { tokens: number; estimate: number; exact?: boolean } | undefined =
-      options.historyTokens === undefined ? undefined : { tokens: options.historyTokens, estimate: estimate(history) }
+      options.historyTokens === undefined
+        ? undefined
+        : { tokens: options.historyTokens, estimate: estimate(history) }
     const contextTokens = (value: ChatMessage[]) => {
       const estimated = estimate(value)
       return observed
@@ -134,25 +164,38 @@ export async function* runAgent(
       contentChars: messagesContentChars(messages),
       tokens: contextTokens(messages),
     })
-    const toolContext: RunAgentOptions = {
+    const toolContext = {
       ...options,
       projectContext,
       skills,
       tools,
       attachments: () => [...(options.attachments?.() ?? []), ...attachments],
       permissionPolicy:
-        options.permissionPolicy ??
-        createPermissionPolicy({ cwd: options.cwd ?? process.cwd(), mode: DEFAULT_PERMISSION_MODE }),
+        options.permissionPolicy ?? createPermissionPolicy({ cwd, mode: DEFAULT_PERMISSION_MODE }),
       webSession: { id: options.webSession?.id },
+    }
+    // The approval surface handles one request at a time, so concurrent children must take
+    // turns asking.
+    const approve = options.onPermissionRequest
+    let approvals: Promise<unknown> = Promise.resolve()
+    const concurrentContext = {
+      ...toolContext,
+      onPermissionRequest:
+        approve &&
+        ((request: PermissionRequest) => {
+          const approval = approvals.then(() => approve(request))
+          approvals = approval.catch(() => undefined)
+          return approval
+        }),
     }
     yield contextEvent()
 
     while (true) {
-      const steeringMessages = await options.steering?.drain()
-      if (steeringMessages?.length) {
-        steeringCount += steeringMessages.length
-        messages.push(...steeringMessages)
-        attachments.push(...steeringMessages.flatMap(userMessageAttachments))
+      const steered = await options.steering?.drain()
+      if (steered?.length) {
+        steeringCount += steered.length
+        messages.push(...steered)
+        attachments.push(...steered.flatMap(userMessageAttachments))
         yield contextEvent()
       }
       options.signal?.throwIfAborted()
@@ -174,7 +217,7 @@ export async function* runAgent(
           countContextTokens: count,
         })
         // Persist the checkpoint before committing it to live context or sending another request.
-        const segment = turnMessages(messages, turnStart)
+        const segment = messages.slice(turnStart)
         await options.onCompaction?.(result, steeringCount, segment)
         messages = [compactionSummaryMessage(result.summary), ...result.keptMessages]
         turnStart = messages.length
@@ -187,55 +230,129 @@ export async function* runAgent(
       yield { type: "model", phase: retrying ? "retry" : "start" }
       options.signal?.throwIfAborted()
       retrying = false
-      let response: AssistantResponse
-      try {
-        response = yield* streamAssistantResponse(messages, tools, {
-          ...options,
-          projectContext,
-          skills: modelSkills,
-          systemPrompt,
-        })
-      } catch (error) {
-        if (!(error instanceof ContextOverflowError) || options.signal?.aborted || overflowAttempts >= 2) throw error
-        overflowAttempts += 1
-        // Reduce the rejected request, without treating one PAIR node's limit as cluster metadata.
-        recoveryBudget = Math.max(1, Math.floor(Math.min(threshold, contextTokens(messages))))
-        retrying = true
-        continue
+
+      const content: AssistantContentPart[] = []
+      const toolCalls: ChatToolCall[] = []
+      let reasoning: (ReasoningContentPart & { id: string; startedAt: string }) | undefined
+      let usage: TokenUsage | undefined
+      let finishReason: string | undefined
+      const endReasoning = (): ReasoningTraceEvent[] => {
+        if (!reasoning) return []
+        const endedAt = new Date()
+        reasoning.endedAt = endedAt.toISOString()
+        const event: ReasoningTraceEvent = {
+          type: "reasoning",
+          phase: "end",
+          reasoningId: reasoning.id,
+          endedAt: reasoning.endedAt,
+          durationMs: Math.max(0, endedAt.getTime() - Date.parse(reasoning.startedAt)),
+        }
+        reasoning = undefined
+        return [event]
       }
-      const assistantMessage = assistantMessageFromResponse(response)
-      if (assistantMessage.content.length > 0) messages.push(assistantMessage)
-      if (response.usage) {
+      try {
+        for await (const event of options.client.streamChat({
+          messages,
+          tools,
+          systemPrompt,
+          projectContext: projectContext.length > 0 ? projectContext : undefined,
+          skills: modelSkills,
+          outputCapabilities: options.outputCapabilities,
+          signal: options.signal,
+        })) {
+          if (event.type === "text_delta") {
+            yield* endReasoning()
+            const previous = content.at(-1)
+            if (previous?.type === "text") previous.text += event.text
+            else content.push({ type: "text", text: event.text })
+            yield { type: "delta", text: event.text }
+          } else if (event.type === "reasoning_delta") {
+            if (reasoning?.field !== event.field) yield* endReasoning()
+            if (!reasoning) {
+              const startedAt = new Date().toISOString()
+              reasoning = {
+                type: "reasoning",
+                id: randomUUID(),
+                text: "",
+                field: event.field,
+                startedAt,
+              }
+              content.push(reasoning)
+              yield {
+                type: "reasoning",
+                phase: "start",
+                reasoningId: reasoning.id,
+                field: event.field,
+                startedAt,
+              }
+            }
+            reasoning.text += event.text
+            yield { type: "reasoning", phase: "delta", reasoningId: reasoning.id, text: event.text }
+          } else if (event.type === "tool_call") {
+            yield* endReasoning()
+            toolCalls.push(event.toolCall)
+            content.push({ type: "tool_call", toolCall: event.toolCall })
+          } else if (event.type === "usage") {
+            usage = event.usage
+            await options.onUsage?.(event.usage)
+          } else if (event.type === "finish") finishReason = event.reason
+        }
+      } catch (error) {
+        // An interrupted stream still publishes its partial output through the interrupted path
+        // below.
+        if (!options.signal?.aborted) {
+          // Once output has been published, replaying this request could duplicate visible work.
+          if (
+            !(error instanceof ContextOverflowError) ||
+            content.length > 0 ||
+            usage ||
+            overflowAttempts >= 2
+          ) {
+            throw error
+          }
+          overflowAttempts += 1
+          // Reduce the rejected request, without treating one PAIR node's limit as cluster
+          // metadata.
+          recoveryBudget = Math.max(1, Math.floor(Math.min(threshold, contextTokens(messages))))
+          retrying = true
+          continue
+        }
+      }
+      yield* endReasoning()
+      if (content.length > 0) messages.push({ role: "assistant", content })
+      if (usage) {
         observed = {
-          tokens: response.usage.promptTokens + response.usage.completionTokens,
+          tokens: usage.promptTokens + usage.completionTokens,
           estimate: estimate(messages),
           exact: options.client.countTokens !== undefined,
         }
       }
 
-      if (response.interrupted) {
-        if (response.toolCalls.length > 0) {
-          messages.push(...interruptedToolCalls([], response.toolCalls).messages)
-        }
-        messages.push(...(await closeSteering(options.steering)))
+      if (options.signal?.aborted) {
+        messages.push(
+          ...toolCalls.map(interruptedToolMessage),
+          ...(await closeSteering(options.steering)),
+        )
         yield contextEvent()
-        yield { type: "interrupted", messages: turnMessages(messages, turnStart) }
+        yield { type: "interrupted", messages: messages.slice(turnStart) }
         return
       }
 
       yield contextEvent()
 
       if (
-        response.finishReason === "length" ||
-        response.toolCalls.some((call) => !hasObjectArguments(call.arguments))
+        finishReason === "length" ||
+        toolCalls.some((call) => !hasObjectArguments(call.arguments))
       ) {
         // No call in this response has run yet. Earlier successful tool batches remain intact.
         const notice =
           "This response was incomplete or contained invalid tool arguments. None of its tool calls were executed. " +
           "Continue using smaller tool calls and shorter output; do not repeat earlier successful actions."
-        if (response.toolCalls.length) {
+        if (toolCalls.length) {
           messages.push(
-            ...response.toolCalls.map((call): ChatMessage => ({ role: "tool", toolCallId: call.id, content: notice })),
+            ...toolCalls.map(
+              (call): ChatMessage => ({ role: "tool", toolCallId: call.id, content: notice }),
+            ),
           )
         } else {
           messages.push({ role: "assistant", content: [{ type: "text", text: notice }] })
@@ -246,7 +363,7 @@ export async function* runAgent(
             type: "error",
             message:
               "The model couldn’t produce a complete, usable response. Otis stopped without running the incomplete actions. Earlier completed work is preserved.",
-            messages: turnMessages(messages, turnStart),
+            messages: messages.slice(turnStart),
           }
           return
         }
@@ -255,33 +372,71 @@ export async function* runAgent(
         continue
       }
 
-      if (response.toolCalls.length === 0) {
-        const steeringMessages = await options.steering?.drainOrClose()
-        if (steeringMessages?.length) {
-          steeringCount += steeringMessages.length
-          messages.push(...steeringMessages)
-          attachments.push(...steeringMessages.flatMap(userMessageAttachments))
+      if (toolCalls.length === 0) {
+        const steered = await options.steering?.drainOrClose()
+        if (steered?.length) {
+          steeringCount += steered.length
+          messages.push(...steered)
+          attachments.push(...steered.flatMap(userMessageAttachments))
           yield contextEvent()
           continue
         }
-        if (!hasText(response)) {
+        if (!content.some((part) => part.type === "text" && part.text.trim().length > 0)) {
           yield {
             type: "error",
             message: "The model returned an empty response.",
-            messages: turnMessages(messages, turnStart),
+            messages: messages.slice(turnStart),
           }
           return
         }
-        yield { type: "complete", messages: turnMessages(messages, turnStart) }
+        yield { type: "complete", messages: messages.slice(turnStart) }
         return
       }
 
-      const execution = yield* executeToolCalls(response.toolCalls, toolContext)
-      messages.push(...execution.messages)
-      if (execution.interrupted) {
-        messages.push(...(await closeSteering(options.steering)))
+      // Adjacent `agent` calls run concurrently because each delegates read-only work to an
+      // isolated child; every other call runs one at a time so workspace mutations stay ordered.
+      let index = 0
+      let aborted = false
+      while (index < toolCalls.length && !aborted) {
+        aborted = options.signal?.aborted ?? false
+        if (aborted) break
+        let end = index + 1
+        if (toolCalls[index].name === "agent") {
+          while (end < toolCalls.length && toolCalls[end].name === "agent") end += 1
+        }
+        const batch = toolCalls.slice(index, end)
+        const outcomes: ToolCallOutcome[] = []
+        if (batch.length === 1) outcomes.push(yield* executeSingleToolCall(batch[0], toolContext))
+        else {
+          const runs = batch.map((call) => executeSingleToolCall(call, concurrentContext))
+          const pending = new Map(
+            runs.map((run, i) => [i, run.next().then((step) => ({ i, step }))] as const),
+          )
+          while (pending.size > 0) {
+            const { i, step } = await Promise.race(pending.values())
+            if (step.done) {
+              pending.delete(i)
+              outcomes[i] = step.value
+            } else {
+              pending.set(
+                i,
+                runs[i].next().then((step) => ({ i, step })),
+              )
+              yield step.value
+            }
+          }
+        }
+        messages.push(...outcomes.map((outcome) => outcome.message))
+        index = end
+        aborted = outcomes.some((outcome) => outcome.interrupted)
+      }
+      if (aborted) {
+        messages.push(
+          ...toolCalls.slice(index).map(interruptedToolMessage),
+          ...(await closeSteering(options.steering)),
+        )
         yield contextEvent()
-        yield { type: "interrupted", messages: turnMessages(messages, turnStart) }
+        yield { type: "interrupted", messages: messages.slice(turnStart) }
         return
       }
       yield contextEvent()
@@ -290,13 +445,13 @@ export async function* runAgent(
     messages.push(...(await closeSteering(options.steering)))
     if (contextEvent) yield contextEvent()
     if (options.signal?.aborted) {
-      yield { type: "interrupted", messages: turnMessages(messages, turnStart) }
+      yield { type: "interrupted", messages: messages.slice(turnStart) }
       return
     }
     yield {
       type: "error",
       message: error instanceof Error ? error.message : String(error),
-      messages: turnMessages(messages, turnStart),
+      messages: messages.slice(turnStart),
     }
   }
 }
@@ -310,135 +465,11 @@ async function closeSteering(steering: SteeringSource | undefined) {
   }
 }
 
-type AssistantResponse = {
-  content: Extract<ChatMessage, { role: "assistant" }>["content"]
-  toolCalls: ChatToolCall[]
-  hasText: boolean
-  interrupted: boolean
-  usage?: TokenUsage
-  finishReason?: string
-}
-
-async function* streamAssistantResponse(
-  messages: ChatMessage[],
-  tools = TOOL_DEFINITIONS,
-  options: Pick<
-    RunAgentOptions,
-    "client" | "signal" | "projectContext" | "skills" | "onUsage" | "outputCapabilities"
-  > & { systemPrompt?: string },
-): AsyncGenerator<AgentEvent, AssistantResponse> {
-  const response = new AssistantResponseBuilder()
-  const projectContext = options.projectContext ?? []
-  let usage: TokenUsage | undefined
-  let finishReason: string | undefined
-
-  try {
-    for await (const event of options.client.streamChat({
-      messages,
-      tools,
-      systemPrompt: options.systemPrompt,
-      projectContext: projectContext.length > 0 ? projectContext : undefined,
-      skills: options.skills?.skills,
-      outputCapabilities: options.outputCapabilities,
-      signal: options.signal,
-    })) {
-      if (event.type === "text_delta") {
-        yield* response.appendText(event.text)
-        yield { type: "delta", text: event.text }
-      }
-      if (event.type === "reasoning_delta") {
-        yield* response.appendReasoning(event.text, event.field)
-      }
-      if (event.type === "tool_call") yield* response.appendToolCall(event.toolCall)
-      if (event.type === "usage") {
-        usage = event.usage
-        await options.onUsage?.(event.usage)
-      }
-      if (event.type === "finish") finishReason = event.reason
-    }
-  } catch (error) {
-    // Once output has been published, replaying this request could duplicate visible work.
-    if (!options.signal?.aborted && error instanceof ContextOverflowError && (response.content.length > 0 || usage)) {
-      throw new Error(error.message, { cause: error })
-    }
-    if (!options.signal?.aborted) throw error
-  }
-
-  yield* response.finish()
-
-  return {
-    content: response.content,
-    toolCalls: response.toolCalls,
-    hasText: response.hasText(),
-    interrupted: options.signal?.aborted ?? false,
-    usage,
-    finishReason,
-  }
-}
-
-function availableTools(tools: ToolDefinition[], skills: SkillCatalog) {
-  return skills.skills.length > 0 ? tools : tools.filter((tool) => tool.name !== "skill")
-}
-
-function emptySkills(): SkillCatalog {
-  return { skills: [], byName: new Map() }
-}
-
-function assistantMessageFromResponse(response: AssistantResponse): ChatMessage {
-  return {
-    role: "assistant",
-    content: response.content,
-  }
-}
-
-function turnMessages(messages: ChatMessage[], historyLength: number) {
-  return messages.slice(historyLength)
-}
-
 type ToolCallOutcome = { message: ChatMessage; interrupted: boolean }
-
-/**
- * Executes a response's tool calls in order. Adjacent `agent` calls run concurrently because each delegates
- * read-only work to an isolated child; every other call runs one at a time so workspace mutations stay ordered.
- */
-async function* executeToolCalls(
-  calls: ChatToolCall[],
-  context: RunAgentOptions,
-): AsyncGenerator<AgentEvent, { messages: ChatMessage[]; interrupted: boolean }> {
-  const messages: ChatMessage[] = []
-  // The approval surface handles one request at a time, so concurrent children must take turns asking.
-  const concurrentContext: RunAgentOptions = {
-    ...context,
-    onPermissionRequest: context.onPermissionRequest && serialized(context.onPermissionRequest),
-  }
-
-  let index = 0
-  while (index < calls.length) {
-    if (context.signal?.aborted) return interruptedToolCalls(messages, calls.slice(index))
-    const batch = delegationBatch(calls, index)
-    const outcomes =
-      batch.length > 1
-        ? yield* mergeGenerators(batch.map((call) => executeSingleToolCall(call, concurrentContext)))
-        : [yield* executeSingleToolCall(calls[index], context)]
-    messages.push(...outcomes.map((outcome) => outcome.message))
-    index += outcomes.length
-    if (outcomes.some((outcome) => outcome.interrupted)) return interruptedToolCalls(messages, calls.slice(index))
-  }
-
-  return { messages, interrupted: false }
-}
-
-/** Returns the run of consecutive `agent` calls starting at `index`, or just the call at `index`. */
-function delegationBatch(calls: ChatToolCall[], index: number) {
-  if (calls[index].name !== "agent") return [calls[index]]
-  let end = index
-  while (end < calls.length && calls[end].name === "agent") end += 1
-  return calls.slice(index, end)
-}
 
 async function* executeSingleToolCall(
   rawCall: ChatToolCall,
-  context: RunAgentOptions,
+  context: RunAgentOptions & { tools: ToolDefinition[] },
 ): AsyncGenerator<AgentEvent, ToolCallOutcome> {
   const toolMessage = (content: string): ToolCallOutcome => ({
     message: { role: "tool", toolCallId: rawCall.id, content },
@@ -446,36 +477,41 @@ async function* executeSingleToolCall(
   })
   const interrupted = () => ({ message: interruptedToolMessage(rawCall), interrupted: true })
 
-  const call = parseToolCall(rawCall)
-  if (!call.ok) {
-    if (context.debug) yield { type: "debug", message: `Invalid ${rawCall.name} tool call: ${call.message}` }
-    return toolMessage(`Invalid tool call: ${call.message}`)
+  let call: ToolCall
+  try {
+    call = parseSerializedToolCall(rawCall.name, rawCall.arguments)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (context.debug)
+      yield { type: "debug", message: `Invalid ${rawCall.name} tool call: ${message}` }
+    return toolMessage(`Invalid tool call: ${message}`)
   }
-  if (!(context.tools ?? TOOL_DEFINITIONS).some((tool) => tool.name === call.value.name)) {
-    const message = `Tool is not enabled: ${call.value.name}`
+  if (!context.tools.some((tool) => tool.name === call.name)) {
+    const message = `Tool is not enabled: ${call.name}`
     if (context.debug) yield { type: "debug", message }
     return toolMessage(message)
   }
 
-  const activity = describeToolCall(call.value)
-  yield {
-    type: "tool",
-    phase: "start",
+  const activity = describeToolCall(call)
+  const toolEvent = {
     toolCallId: rawCall.id,
-    name: call.value.name,
+    name: call.name,
     activityKind: activity.kind,
     label: activity.label,
   }
+  yield { type: "tool", phase: "start", ...toolEvent }
 
   let result: ToolResult | undefined
   let outcome: "completed" | "denied" | "failed" = "completed"
   try {
     if (context.signal?.aborted) return interrupted()
 
-    const permission = await context.permissionPolicy?.evaluate(call.value)
+    const permission = await context.permissionPolicy?.evaluate(call)
     if (permission?.effect === "deny") {
       outcome = "denied"
-      const matchedRule = permission.rule ? `: ${permission.rule.tool}(${permission.rule.resource ?? "*"})` : ""
+      const matchedRule = permission.rule
+        ? `: ${permission.rule.tool}(${permission.rule.resource ?? "*"})`
+        : ""
       return toolMessage(`Permission denied by policy${matchedRule}.`)
     }
     if (permission?.effect === "ask") {
@@ -483,7 +519,7 @@ async function* executeSingleToolCall(
         outcome = "denied"
         return toolMessage("Permission approval required, but no approval handler is available.")
       }
-      const approved = await context.onPermissionRequest({ call: call.value, decision: permission })
+      const approved = await context.onPermissionRequest({ call, decision: permission })
       if (context.signal?.aborted) return interrupted()
       if (!approved) {
         outcome = "denied"
@@ -491,25 +527,58 @@ async function* executeSingleToolCall(
       }
     }
 
-    result =
-      call.value.name === "agent"
-        ? yield* executeSubagent(call.value, rawCall.id, context)
-        : await executeToolCall(call.value, { ...context, authorizedArtifactPath: permission?.artifactPath })
-    return toolMessage(formatToolResult(call.value.name, result))
+    if (call.name === "agent") {
+      // The child shares the parent's client, workspace, permission policy, approval handler,
+      // usage sink, and abort signal, but starts with a fresh history, receives no steering, and
+      // works from the read-only subset of the parent's tools. Every child event surfaces wrapped
+      // in a `subagent` envelope so the caller can render the full trace; the parent's own
+      // conversation only receives the child's final report.
+      const title = call.input.description
+      const brief = [
+        "You are an Otis subagent. The main agent delegated the task below and cannot see your work, only your final reply.",
+        "You have no access to the main conversation; rely on this brief and your tools.",
+        "Your tools are read-only. Do not attempt to modify files or run commands.",
+        "When finished, reply with a concise report the main agent can act on directly: concrete findings, exact file paths and line references where relevant, and anything you could not verify. Do not ask questions.",
+        "",
+        "Task:",
+        call.input.prompt,
+      ].join("\n")
+      const child = runAgent(brief, [], {
+        ...context,
+        tools: context.tools.filter((tool) => SUBAGENT_TOOLS.has(tool.name)),
+        steering: undefined,
+        onCompaction: undefined,
+        historyTokens: undefined,
+      })
+      for await (const event of child) {
+        yield { type: "subagent", toolCallId: rawCall.id, title, event }
+        if (event.type === "complete") result = { title, output: lastAssistantText(event.messages) }
+        if (event.type === "interrupted") throw new Error("Subagent interrupted.")
+        if (event.type === "error") throw new Error(`Subagent failed: ${event.message}`)
+      }
+      if (!result) throw new Error("Subagent ended without a result.")
+    } else {
+      result = await executeToolCall(call, {
+        ...context,
+        authorizedArtifactPath: permission?.artifactPath,
+      })
+    }
+    const output =
+      result.output.length <= MAX_TOOL_OUTPUT_CHARS
+        ? result.output
+        : `${result.output.slice(0, MAX_TOOL_OUTPUT_CHARS)}\n\n[Tool output truncated to ${MAX_TOOL_OUTPUT_CHARS} characters.]`
+    return toolMessage(`${call.name}: ${result.title}\n\n${output}`)
   } catch (error) {
     outcome = "failed"
     if (context.signal?.aborted) return interrupted()
     const message = error instanceof Error ? error.message : String(error)
-    if (context.debug) yield { type: "debug", message: `Tool ${call.value.name} failed: ${message}` }
+    if (context.debug) yield { type: "debug", message: `Tool ${call.name} failed: ${message}` }
     return toolMessage(`Error: ${message}`)
   } finally {
     yield {
       type: "tool",
       phase: "end",
-      toolCallId: rawCall.id,
-      name: call.value.name,
-      activityKind: activity.kind,
-      label: activity.label,
+      ...toolEvent,
       diff: result?.diff,
       artifact: result?.artifact,
       outcome,
@@ -517,51 +586,55 @@ async function* executeSingleToolCall(
   }
 }
 
-/**
- * Runs a delegated agent loop to completion. Every child event surfaces wrapped in a `subagent` envelope so the
- * caller can render the full trace; the parent's own conversation only receives the child's final report.
- */
-async function* executeSubagent(
-  call: SubagentCall,
-  toolCallId: string,
-  context: RunAgentOptions,
-): AsyncGenerator<AgentEvent, ToolResult> {
-  const title = call.input.description
-  for await (const event of runAgent(subagentBrief(call), [], subagentRunOptions(context))) {
-    yield { type: "subagent", toolCallId, title, event }
-    if (event.type === "complete") return subagentResult(call, event.messages)
-    if (event.type === "interrupted") throw new Error("Subagent interrupted.")
-    if (event.type === "error") throw new Error(`Subagent failed: ${event.message}`)
-  }
-  throw new Error("Subagent ended without a result.")
-}
-
-function interruptedToolCalls(messages: ChatMessage[], calls: ChatToolCall[]) {
-  messages.push(...calls.map(interruptedToolMessage))
-  return { messages, interrupted: true }
-}
-
 function interruptedToolMessage(call: ChatToolCall): ChatMessage {
   return { role: "tool", toolCallId: call.id, content: "Tool call interrupted by user." }
 }
 
-function parseToolCall(rawCall: ChatToolCall): { ok: true; value: ToolCall } | { ok: false; message: string } {
-  try {
-    return { ok: true, value: parseSerializedToolCall(rawCall.name, rawCall.arguments) }
-  } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+export type SteeringSource = {
+  drain(): Promise<UserChatMessage[]>
+  drainOrClose(): Promise<UserChatMessage[]>
+  close(): Promise<UserChatMessage[]>
+}
+
+/**
+ * Owns user messages aimed at an active turn. Accepted messages become visible
+ * to the agent only after their admission has been durably recorded.
+ */
+export class SteeringInbox implements SteeringSource {
+  #accepting = true
+  readonly #pending: {
+    message: UserChatMessage
+    persisted: Promise<void>
+    onConsumed?: () => void
+  }[] = []
+
+  constructor(private readonly admit: (message: UserChatMessage) => Promise<void>) {}
+
+  accept(
+    message: UserChatMessage,
+    onConsumed?: () => void,
+  ): { accepted: false } | { accepted: true; persisted: Promise<void> } {
+    if (!this.#accepting) return { accepted: false }
+    const persisted = Promise.resolve().then(() => this.admit(message))
+    this.#pending.push({ message, persisted, onConsumed })
+    return { accepted: true, persisted }
   }
-}
 
-function formatToolResult(name: ToolCall["name"], result: ToolResult) {
-  return `${name}: ${result.title}\n\n${truncate(result.output)}`
-}
+  async drain() {
+    const pending = this.#pending.splice(0)
+    await Promise.all(pending.map((item) => item.persisted))
+    for (const item of pending) item.onConsumed?.()
+    return pending.map((item) => item.message)
+  }
 
-function truncate(text: string, maxLength = 16_000) {
-  if (text.length <= maxLength) return text
-  return `${text.slice(0, maxLength)}\n\n[Tool output truncated to ${maxLength} characters.]`
-}
+  drainOrClose() {
+    if (this.#pending.length > 0) return this.drain()
+    this.#accepting = false
+    return Promise.resolve([])
+  }
 
-function hasText(response: AssistantResponse) {
-  return response.hasText
+  close() {
+    this.#accepting = false
+    return this.drain()
+  }
 }

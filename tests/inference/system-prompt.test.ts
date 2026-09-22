@@ -48,7 +48,9 @@ describe("system prompt", () => {
   })
 
   it("advertises Mermaid only to interfaces with a Canvas", () => {
-    const prompt = buildSystemPrompt([], new Date("2026-07-16T12:00:00Z"), [], [], { mermaid: true })
+    const prompt = buildSystemPrompt([], new Date("2026-07-16T12:00:00Z"), [], [], {
+      mermaid: true,
+    })
 
     expect(prompt).toContain("lets the user open fenced Mermaid diagrams in a visual Canvas")
     expect(prompt).toContain("```mermaid")
@@ -95,7 +97,9 @@ describe("system prompt", () => {
     const dateIndex = prompt.indexOf("2026-07-16")
     expect(contextIndex).toBeGreaterThanOrEqual(0)
     expect(dateIndex).toBeGreaterThan(contextIndex)
-    expect(prompt).toContain('<file path="/work/project &amp; tools/AGENTS.md">\nUse strict TypeScript.\n</file>')
+    expect(prompt).toContain(
+      '<file path="/work/project &amp; tools/AGENTS.md">\nUse strict TypeScript.\n</file>',
+    )
   })
 
   it("advertises skill metadata without eagerly loading skill instructions", () => {
@@ -108,7 +112,9 @@ describe("system prompt", () => {
       },
     ])
 
-    expect(prompt).toContain('<skill name="review">Review code &amp; explain &lt;risks&gt;.</skill>')
+    expect(prompt).toContain(
+      '<skill name="review">Review code &amp; explain &lt;risks&gt;.</skill>',
+    )
     expect(prompt).toContain("call the skill tool to load its SKILL.md")
     expect(prompt).not.toContain("/skills/review")
   })

@@ -1,53 +1,29 @@
 import {
-  type BoxRenderable,
+  BoxRenderable,
   type InputRenderable,
   InputRenderableEvents,
-  type TextareaRenderable,
-  type TextRenderable,
+  MouseButton,
+  TextRenderable,
 } from "@opentui/core"
 import { colors } from "../theme.js"
 import { colorPulseAmount, SelectionPulse, selectionOutline } from "./color-pulse.js"
-import { bindAccentButton } from "./input-views.js"
-import type {
-  InputMode,
-  PairEndpointInputs,
-  Renderer,
-  SetupInferenceChoice,
-  SetupInputCancelTarget,
-  SetupLocalInferenceChoice,
+import type { UILayout } from "./layout.js"
+import {
+  type InputMode,
+  type PairEndpointInputs,
+  type Renderer,
+  type SetupInferenceChoice,
+  type SetupInputCancelTarget,
+  type SetupLocalInferenceChoice,
+  stopKey,
+  type UIKey,
 } from "./types.js"
 
 type InputControllerOptions = {
   renderer: Renderer
+  layout: UILayout
   configured: boolean
   localInferenceUnavailableReason?: string
-  input: TextareaRenderable
-  inputArea: BoxRenderable
-  inputBox: BoxRenderable
-  setupButtonBox: BoxRenderable
-  setupChoiceBox: BoxRenderable
-  setupChoiceMessage: TextRenderable
-  setupHostedCard: BoxRenderable
-  setupLocalChoiceBox: BoxRenderable
-  setupLocalChoiceMessage: TextRenderable
-  setupLocalCard: BoxRenderable
-  setupManagedLocalCard: BoxRenderable
-  setupPairCard: BoxRenderable
-  setupPairForm: BoxRenderable
-  setupPairLMStudioInput: InputRenderable
-  setupOmlxInput?: InputRenderable
-  setupOmlxKeyInput?: InputRenderable
-  setupPairMessage: TextRenderable
-  setupPairOllamaInput: InputRenderable
-  setupContinueButton: BoxRenderable
-  setupForm: BoxRenderable
-  setupInput: InputRenderable
-  setupInputLabel: TextRenderable
-  setupMessage: TextRenderable
-  setupStartButton: BoxRenderable
-  setupStatus: TextRenderable
-  setupStatusBox: BoxRenderable
-  welcomeQuit: TextRenderable
   onBeforePrimaryInput: () => void
   onModeChange?: (mode: InputMode) => void
   onSetup?: () => void
@@ -57,42 +33,65 @@ type InputControllerOptions = {
   onPairSetupSubmit?: (endpoints: PairEndpointInputs) => void
 }
 
-type SetupKey = {
-  name: string
-  shift?: boolean
-  sequence?: string
-  preventDefault(): void
-  stopPropagation(): void
-}
-
+/**
+ * Swaps the composer between the chat textarea and the setup screens, and drives the setup
+ * keyboard flow.
+ */
 export class InputController {
   mode: InputMode
   #setupInferenceChoice: SetupInferenceChoice = "local"
   #setupLocalInferenceChoice: SetupLocalInferenceChoice = "managed"
   #setupInputCancelTarget: SetupInputCancelTarget = "choice"
   readonly #setupChoicePulse: SelectionPulse
+  readonly #layout: UILayout
+  readonly #pairInputs: InputRenderable[]
+  readonly #primaries: BoxRenderable[]
 
   constructor(private readonly options: InputControllerOptions) {
+    const layout = options.layout
+    this.#layout = layout
     this.mode = options.configured ? "chat" : "setupButton"
     if (options.localInferenceUnavailableReason) this.#setupLocalInferenceChoice = "pair"
-    this.#setupChoicePulse = new SelectionPulse(options.renderer, (elapsed) => {
-      if (this.mode === "setupLocalChoice") this.#paintLocalInferenceChoice(elapsed)
-      else this.#paintInferenceChoice(elapsed)
-    })
-    options.setupInput.on(InputRenderableEvents.ENTER, () => this.#submitSetup())
-    options.setupPairOllamaInput.on(InputRenderableEvents.ENTER, () => this.#submitPairSetup())
-    options.setupPairLMStudioInput.on(InputRenderableEvents.ENTER, () => this.#submitPairSetup())
-    options.setupOmlxInput?.on(InputRenderableEvents.ENTER, () => this.#submitPairSetup())
-    options.setupOmlxKeyInput?.on(InputRenderableEvents.ENTER, () => this.#submitPairSetup())
-    bindAccentButton(options.setupStartButton, options.renderer, () => options.onSetup?.())
-    bindAccentButton(options.setupContinueButton, options.renderer, () => this.#submitSetup())
-    bindAccentButton(options.setupLocalCard, options.renderer, () => this.#selectInferenceChoice("local"))
-    bindAccentButton(options.setupHostedCard, options.renderer, () => this.#selectInferenceChoice("hosted"))
-    bindAccentButton(options.setupManagedLocalCard, options.renderer, () => this.#selectLocalInferenceChoice("managed"))
-    bindAccentButton(options.setupPairCard, options.renderer, () => this.#selectLocalInferenceChoice("pair"))
+    this.#pairInputs = [
+      layout.setupPairOllamaInput,
+      layout.setupPairLMStudioInput,
+      ...(layout.setupOmlxInput ? [layout.setupOmlxInput] : []),
+      ...(layout.setupOmlxKeyInput ? [layout.setupOmlxKeyInput] : []),
+    ]
+    this.#primaries = [
+      layout.inputBox,
+      layout.setupButtonBox,
+      layout.setupChoiceBox,
+      layout.setupLocalChoiceBox,
+      layout.setupForm,
+      layout.setupPairForm,
+      layout.setupStatusBox,
+    ]
+    this.#setupChoicePulse = new SelectionPulse(options.renderer, (elapsed) =>
+      this.#paintChoiceCards(elapsed),
+    )
+    layout.setupInput.on(InputRenderableEvents.ENTER, () => this.#submitSetup())
+    for (const input of this.#pairInputs)
+      input.on(InputRenderableEvents.ENTER, () => this.#submitPairSetup())
+    bindAccentButton(layout.setupStartButton, options.renderer, () => options.onSetup?.())
+    bindAccentButton(layout.setupContinueButton, options.renderer, () => this.#submitSetup())
+    bindAccentButton(layout.setupLocalCard, options.renderer, () =>
+      this.#selectInferenceChoice("local"),
+    )
+    bindAccentButton(layout.setupHostedCard, options.renderer, () =>
+      this.#selectInferenceChoice("hosted"),
+    )
+    bindAccentButton(layout.setupManagedLocalCard, options.renderer, () =>
+      this.#selectLocalInferenceChoice("managed"),
+    )
+    bindAccentButton(layout.setupPairCard, options.renderer, () =>
+      this.#selectLocalInferenceChoice("pair"),
+    )
   }
 
-  handleKey(key: SetupKey) {
+  handleKey(key: UIKey) {
+    const enter = key.name === "return" || key.name === "enter"
+    const arrow = ["left", "right", "up", "down"].includes(key.name)
     if (this.mode === "setupInput" && key.name === "escape") {
       stopKey(key)
       if (this.#setupInputCancelTarget === "configured") this.setConfigured()
@@ -108,43 +107,47 @@ export class InputController {
     }
     if (this.mode === "setupPairInput" && (key.name === "tab" || key.sequence === "\t")) {
       stopKey(key)
-      const fields = this.#serverInputs()
+      const fields = this.#pairInputs
       const current = fields.findIndex((field) => field.focused)
       this.#focusPairInput((current + (key.shift ? fields.length - 1 : 1)) % fields.length)
       return true
     }
     if (this.mode === "setupButton") {
-      if (key.name !== "return" && key.name !== "enter") return false
+      if (!enter) return false
       stopKey(key)
       this.options.onSetup?.()
       return true
     }
-    if (this.mode === "setupChoice" && ["left", "right", "up", "down"].includes(key.name)) {
+    if (this.mode === "setupChoice" && arrow) {
       stopKey(key)
       this.#setupInferenceChoice = key.name === "left" || key.name === "up" ? "local" : "hosted"
-      this.#paintInferenceChoice()
+      this.#paintChoiceCards()
       this.options.renderer.requestRender()
       return true
     }
-    if (this.mode === "setupChoice" && (key.name === "return" || key.name === "enter")) {
+    if (this.mode === "setupChoice" && enter) {
       stopKey(key)
       this.options.onSetupInferenceChoice?.(this.#setupInferenceChoice)
       return true
     }
     if (this.mode === "setupChoice" && key.name === "escape") {
       stopKey(key)
-      this.#showSetupButton()
+      this.#clearSetupInput()
+      this.mode = "setupButton"
+      this.#layout.welcomeQuit.content = " "
+      this.#setPrimary(this.#layout.setupButtonBox)
       return true
     }
-    if (this.mode === "setupLocalChoice" && ["left", "right", "up", "down"].includes(key.name)) {
+    if (this.mode === "setupLocalChoice" && arrow) {
       stopKey(key)
       const managed = key.name === "left" || key.name === "up"
-      this.#setupLocalInferenceChoice = managed && !this.options.localInferenceUnavailableReason ? "managed" : "pair"
-      this.#paintLocalInferenceChoice()
+      this.#setupLocalInferenceChoice =
+        managed && !this.options.localInferenceUnavailableReason ? "managed" : "pair"
+      this.#paintChoiceCards()
       this.options.renderer.requestRender()
       return true
     }
-    if (this.mode === "setupLocalChoice" && (key.name === "return" || key.name === "enter")) {
+    if (this.mode === "setupLocalChoice" && enter) {
       stopKey(key)
       this.options.onSetupLocalInferenceChoice?.(this.#setupLocalInferenceChoice)
       return true
@@ -154,168 +157,136 @@ export class InputController {
       this.showSetupInferenceChoice()
       return true
     }
-    if (this.mode !== "setupChoice" && this.mode !== "setupLocalChoice") return false
     return false
   }
 
   clear() {
-    this.options.input.clear()
-    this.clearSetupInput()
+    this.#layout.input.clear()
+    this.#clearSetupInput()
   }
 
   focus() {
-    if (this.mode === "chat") this.options.input.focus()
-    if (this.mode === "setupInput") this.options.setupInput.focus()
+    if (this.mode === "chat") this.#layout.input.focus()
+    if (this.mode === "setupInput") this.#layout.setupInput.focus()
     if (this.mode === "setupPairInput") this.#focusPairInput(0)
   }
 
   setConfigured() {
-    this.clearSetupInput()
+    this.#clearSetupInput()
     this.mode = "chat"
-    this.options.welcomeQuit.content = "/ for commands"
-    this.setPrimary(this.options.inputBox)
+    this.#layout.welcomeQuit.content = "/ for commands"
+    this.#setPrimary(this.#layout.inputBox)
     this.focus()
   }
 
-  #showSetupButton() {
-    this.clearSetupInput()
-    this.mode = "setupButton"
-    this.options.welcomeQuit.content = " "
-    this.setPrimary(this.options.setupButtonBox)
-  }
-
   showSetupInferenceChoice(message = "") {
-    this.clearSetupInput()
+    this.#clearSetupInput()
     this.mode = "setupChoice"
-    this.options.welcomeQuit.content = " "
-    this.#setSetupChoiceMessage(message)
-    this.setPrimary(this.options.setupChoiceBox)
+    this.#layout.welcomeQuit.content = " "
+    this.#setMessage(this.#layout.setupChoiceBox, this.#layout.setupChoiceMessage, message, 3)
+    this.#setPrimary(this.#layout.setupChoiceBox)
     this.#setupChoicePulse.start()
   }
 
   showSetupLocalInferenceChoice(message = "") {
-    this.clearSetupInput()
+    this.#clearSetupInput()
     this.mode = "setupLocalChoice"
-    this.options.welcomeQuit.content = " "
-    this.#setLocalSetupChoiceMessage(message || this.options.localInferenceUnavailableReason || "")
-    this.setPrimary(this.options.setupLocalChoiceBox)
+    this.#layout.welcomeQuit.content = " "
+    this.#setLocalChoiceMessage(message || this.options.localInferenceUnavailableReason || "")
+    this.#setPrimary(this.#layout.setupLocalChoiceBox)
     this.#setupChoicePulse.start()
   }
 
-  showSetup(message = "", cancelTarget: SetupInputCancelTarget = "choice") {
-    this.clearSetupInput()
+  showSetup(message = "", cancelTarget: SetupInputCancelTarget = "choice", error = false) {
+    this.#clearSetupInput()
     this.#setupInputCancelTarget = cancelTarget
     this.mode = "setupInput"
-    this.options.setupInputLabel.content = "Fireworks API key"
-    this.options.welcomeQuit.content = " "
-    this.#setSetupMessage(message, false)
-    this.setPrimary(this.options.setupForm)
+    this.#layout.setupInputLabel.content = "Fireworks API key"
+    this.#layout.welcomeQuit.content = " "
+    this.#setMessage(this.#layout.setupForm, this.#layout.setupMessage, message, 1, error)
+    this.#setPrimary(this.#layout.setupForm)
     this.focus()
   }
 
-  showSetupError(message: string, cancelTarget: SetupInputCancelTarget) {
-    this.showSetup(message, cancelTarget)
-    this.#setSetupMessage(message, true)
-  }
-
-  showPairSetup(message: string, cancelTarget: SetupInputCancelTarget, endpoints: PairEndpointInputs) {
-    this.clearSetupInput()
+  showPairSetup(
+    message: string,
+    cancelTarget: SetupInputCancelTarget,
+    endpoints: PairEndpointInputs,
+    error = false,
+  ) {
+    const layout = this.#layout
+    this.#clearSetupInput()
     this.#setupInputCancelTarget = cancelTarget
     this.mode = "setupPairInput"
-    this.options.setupPairOllamaInput.value = endpoints.ollama
-    this.options.setupPairLMStudioInput.value = endpoints.lmStudio
-    if (this.options.setupOmlxInput) this.options.setupOmlxInput.value = endpoints.omlx ?? ""
-    if (this.options.setupOmlxKeyInput) this.options.setupOmlxKeyInput.value = endpoints.omlxApiKey ?? ""
-    this.options.welcomeQuit.content = " "
-    this.#setPairSetupMessage(message, false)
-    this.setPrimary(this.options.setupPairForm)
+    layout.setupPairOllamaInput.value = endpoints.ollama
+    layout.setupPairLMStudioInput.value = endpoints.lmStudio
+    if (layout.setupOmlxInput) layout.setupOmlxInput.value = endpoints.omlx ?? ""
+    if (layout.setupOmlxKeyInput) layout.setupOmlxKeyInput.value = endpoints.omlxApiKey ?? ""
+    layout.welcomeQuit.content = " "
+    this.#setMessage(layout.setupPairForm, layout.setupPairMessage, message, 6, error)
+    this.#setPrimary(layout.setupPairForm)
     this.focus()
-  }
-
-  showPairSetupError(message: string, cancelTarget: SetupInputCancelTarget, endpoints: PairEndpointInputs) {
-    this.showPairSetup(message, cancelTarget, endpoints)
-    this.#setPairSetupMessage(message, true)
   }
 
   showSetupStatus(message = "Loading models...") {
-    this.clearSetupInput()
+    this.#clearSetupInput()
     this.mode = "setupStatus"
-    this.options.setupStatus.content = message
-    this.options.welcomeQuit.content = " "
-    this.setPrimary(this.options.setupStatusBox)
+    this.#layout.setupStatus.content = message
+    this.#layout.welcomeQuit.content = " "
+    this.#setPrimary(this.#layout.setupStatusBox)
   }
 
   hideSetupStatus() {
     if (this.mode !== "setupStatus") return
     this.mode = "inactive"
-    this.options.inputArea.remove(this.options.setupStatusBox.id)
+    this.#layout.inputArea.remove(this.#layout.setupStatusBox.id)
     this.options.renderer.requestRender()
   }
 
-  private setPrimary(renderable: BoxRenderable) {
+  #setPrimary(renderable: BoxRenderable) {
     this.options.onBeforePrimaryInput()
     this.options.onModeChange?.(this.mode)
-    if (renderable !== this.options.setupChoiceBox) this.#setupChoicePulse.stop()
-    this.options.input.blur()
-    this.options.setupInput.blur()
-    this.options.setupPairOllamaInput.blur()
-    this.options.setupPairLMStudioInput.blur()
-    this.options.setupOmlxInput?.blur()
-    this.options.setupOmlxKeyInput?.blur()
-    this.options.inputArea.remove(this.options.inputBox.id)
-    this.options.inputArea.remove(this.options.setupButtonBox.id)
-    this.options.inputArea.remove(this.options.setupChoiceBox.id)
-    this.options.inputArea.remove(this.options.setupLocalChoiceBox.id)
-    this.options.inputArea.remove(this.options.setupForm.id)
-    this.options.inputArea.remove(this.options.setupPairForm.id)
-    this.options.inputArea.remove(this.options.setupStatusBox.id)
-    this.options.inputArea.add(renderable, 0)
+    if (renderable !== this.#layout.setupChoiceBox) this.#setupChoicePulse.stop()
+    this.#layout.input.blur()
+    this.#layout.setupInput.blur()
+    for (const input of this.#pairInputs) input.blur()
+    for (const primary of this.#primaries) this.#layout.inputArea.remove(primary.id)
+    this.#layout.inputArea.add(renderable, 0)
     this.options.renderer.requestRender()
   }
 
-  private clearSetupInput() {
-    this.options.setupInput.value = ""
-    this.options.setupPairOllamaInput.value = ""
-    this.options.setupPairLMStudioInput.value = ""
-    if (this.options.setupOmlxInput) this.options.setupOmlxInput.value = ""
-    if (this.options.setupOmlxKeyInput) this.options.setupOmlxKeyInput.value = ""
+  #clearSetupInput() {
+    this.#layout.setupInput.value = ""
+    for (const input of this.#pairInputs) input.value = ""
   }
 
   #submitSetup() {
     if (this.mode !== "setupInput") return
-    this.options.onSetupSubmit?.(this.options.setupInput.value)
+    this.options.onSetupSubmit?.(this.#layout.setupInput.value)
   }
 
   #submitPairSetup() {
     if (this.mode !== "setupPairInput") return
+    const { setupPairOllamaInput, setupPairLMStudioInput, setupOmlxInput, setupOmlxKeyInput } =
+      this.#layout
     this.options.onPairSetupSubmit?.({
-      ollama: this.options.setupPairOllamaInput.value,
-      lmStudio: this.options.setupPairLMStudioInput.value,
-      ...(this.options.setupOmlxInput ? { omlx: this.options.setupOmlxInput.value } : {}),
-      ...(this.options.setupOmlxKeyInput ? { omlxApiKey: this.options.setupOmlxKeyInput.value } : {}),
+      ollama: setupPairOllamaInput.value,
+      lmStudio: setupPairLMStudioInput.value,
+      ...(setupOmlxInput ? { omlx: setupOmlxInput.value } : {}),
+      ...(setupOmlxKeyInput ? { omlxApiKey: setupOmlxKeyInput.value } : {}),
     })
   }
 
-  #serverInputs() {
-    return [
-      this.options.setupPairOllamaInput,
-      this.options.setupPairLMStudioInput,
-      ...(this.options.setupOmlxInput ? [this.options.setupOmlxInput] : []),
-      ...(this.options.setupOmlxKeyInput ? [this.options.setupOmlxKeyInput] : []),
-    ]
-  }
-
   #focusPairInput(index: number) {
-    const fields = this.#serverInputs()
-    for (const field of fields) field.blur()
-    fields[index]?.focus()
+    for (const field of this.#pairInputs) field.blur()
+    this.#pairInputs[index].focus()
     this.options.renderer.requestRender()
   }
 
   #selectInferenceChoice(choice: SetupInferenceChoice) {
     if (this.mode !== "setupChoice") return
     this.#setupInferenceChoice = choice
-    this.#paintInferenceChoice()
+    this.#paintChoiceCards()
     this.options.renderer.requestRender()
     this.options.onSetupInferenceChoice?.(choice)
   }
@@ -324,88 +295,74 @@ export class InputController {
     if (this.mode !== "setupLocalChoice") return
     if (choice === "managed" && this.options.localInferenceUnavailableReason) {
       this.#setupLocalInferenceChoice = "pair"
-      this.#setLocalSetupChoiceMessage(this.options.localInferenceUnavailableReason)
-      this.#paintLocalInferenceChoice()
+      this.#setLocalChoiceMessage(this.options.localInferenceUnavailableReason)
+      this.#paintChoiceCards()
       return
     }
     this.#setupLocalInferenceChoice = choice
-    this.#paintLocalInferenceChoice()
+    this.#paintChoiceCards()
     this.options.renderer.requestRender()
     this.options.onSetupLocalInferenceChoice?.(choice)
   }
 
-  #paintInferenceChoice(elapsedMs = this.#setupChoicePulse.elapsed()) {
-    this.#paintInferenceCard(this.options.setupLocalCard, "local", elapsedMs)
-    this.#paintInferenceCard(this.options.setupHostedCard, "hosted", elapsedMs)
+  /**
+   * Pulses the selected card's outline; only the mounted choice box is visible, so painting all
+   * four is harmless.
+   */
+  #paintChoiceCards(elapsedMs = this.#setupChoicePulse.elapsed()) {
+    const outline = selectionOutline(colorPulseAmount(elapsedMs))
+    const { setupLocalCard, setupHostedCard, setupManagedLocalCard, setupPairCard } = this.#layout
+    setupLocalCard.borderColor = this.#setupInferenceChoice === "local" ? outline : colors.border
+    setupHostedCard.borderColor = this.#setupInferenceChoice === "hosted" ? outline : colors.border
+    setupManagedLocalCard.borderColor =
+      this.#setupLocalInferenceChoice === "managed" ? outline : colors.border
+    setupPairCard.borderColor = this.#setupLocalInferenceChoice === "pair" ? outline : colors.border
   }
 
-  #paintLocalInferenceChoice(elapsedMs = this.#setupChoicePulse.elapsed()) {
-    this.#paintLocalInferenceCard(this.options.setupManagedLocalCard, "managed", elapsedMs)
-    this.#paintLocalInferenceCard(this.options.setupPairCard, "pair", elapsedMs)
+  #setLocalChoiceMessage(message: string) {
+    this.#setMessage(
+      this.#layout.setupLocalChoiceBox,
+      this.#layout.setupLocalChoiceMessage,
+      message,
+      3,
+    )
   }
 
-  #paintLocalInferenceCard(card: BoxRenderable, value: SetupLocalInferenceChoice, elapsedMs: number) {
-    const selected = this.#setupLocalInferenceChoice === value
-    card.borderColor = selected ? selectionOutline(colorPulseAmount(elapsedMs)) : colors.border
-  }
-
-  #paintInferenceCard(card: BoxRenderable, value: SetupInferenceChoice, elapsedMs: number) {
-    const selected = this.#setupInferenceChoice === value
-    card.borderColor = selected ? selectionOutline(colorPulseAmount(elapsedMs)) : colors.border
-  }
-
-  #setSetupChoiceMessage(message: string) {
-    const { setupChoiceBox, setupChoiceMessage } = this.options
-    setupChoiceMessage.content = message
-    const mounted = setupChoiceBox.getChildren().some((child) => child.id === setupChoiceMessage.id)
-    if (message) {
-      if (!mounted) setupChoiceBox.add(setupChoiceMessage, 3)
-    } else if (mounted) {
-      setupChoiceBox.remove(setupChoiceMessage.id)
-    }
-    this.options.renderer.requestRender()
-  }
-
-  #setLocalSetupChoiceMessage(message: string) {
-    const { setupLocalChoiceBox, setupLocalChoiceMessage } = this.options
-    setupLocalChoiceMessage.content = message
-    const mounted = setupLocalChoiceBox.getChildren().some((child) => child.id === setupLocalChoiceMessage.id)
-    if (message) {
-      if (!mounted) setupLocalChoiceBox.add(setupLocalChoiceMessage, 3)
-    } else if (mounted) {
-      setupLocalChoiceBox.remove(setupLocalChoiceMessage.id)
-    }
-    this.options.renderer.requestRender()
-  }
-
-  #setSetupMessage(message: string, error: boolean) {
-    const { setupForm, setupMessage } = this.options
-    setupMessage.content = message
-    setupMessage.fg = error ? colors.pink : colors.muted
-    const mounted = setupForm.getChildren().some((child) => child.id === setupMessage.id)
-    if (message) {
-      if (!mounted) setupForm.add(setupMessage, 1)
-    } else if (mounted) {
-      setupForm.remove(setupMessage.id)
-    }
-    this.options.renderer.requestRender()
-  }
-
-  #setPairSetupMessage(message: string, error: boolean) {
-    const { setupPairForm, setupPairMessage } = this.options
-    setupPairMessage.content = message
-    setupPairMessage.fg = error ? colors.pink : colors.muted
-    const mounted = setupPairForm.getChildren().some((child) => child.id === setupPairMessage.id)
-    if (message) {
-      if (!mounted) setupPairForm.add(setupPairMessage, 6)
-    } else if (mounted) {
-      setupPairForm.remove(setupPairMessage.id)
-    }
+  /**
+   * Mounts `label` at `index` in `box` while there is a message, and unmounts it when the message
+   * is empty.
+   */
+  #setMessage(
+    box: BoxRenderable,
+    label: TextRenderable,
+    message: string,
+    index: number,
+    error?: boolean,
+  ) {
+    label.content = message
+    if (error !== undefined) label.fg = error ? colors.pink : colors.muted
+    const mounted = box.getChildren().some((child) => child.id === label.id)
+    if (message && !mounted) box.add(label, index)
+    else if (!message && mounted) box.remove(label.id)
     this.options.renderer.requestRender()
   }
 }
 
-function stopKey(key: SetupKey) {
-  key.preventDefault()
-  key.stopPropagation()
+function bindAccentButton(button: BoxRenderable, renderer: Renderer, action: () => void) {
+  const activate = (event: { button: number; preventDefault(): void; stopPropagation(): void }) => {
+    if (event.button !== MouseButton.LEFT) return
+    event.preventDefault()
+    event.stopPropagation()
+    action()
+  }
+  const bind = (node: BoxRenderable | TextRenderable) => {
+    node.onMouseDown = activate
+    node.onMouseOver = () => renderer.setMousePointer("pointer")
+    node.onMouseOut = () => renderer.setMousePointer("default")
+    if (!(node instanceof BoxRenderable)) return
+    for (const child of node.getChildren()) {
+      if (child instanceof BoxRenderable || child instanceof TextRenderable) bind(child)
+    }
+  }
+  bind(button)
 }

@@ -10,7 +10,9 @@ const executeFile = promisify(execFile)
 const temporaryDirectories: string[] = []
 
 afterEach(async () => {
-  await Promise.all(temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })))
+  await Promise.all(
+    temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })),
+  )
 })
 
 describe("managed skills", () => {
@@ -24,7 +26,10 @@ describe("managed skills", () => {
 
     const installed = await manager.install(repository)
 
-    expect(installed).toMatchObject({ id: repository.split("/").at(-1)?.toLowerCase(), url: repository })
+    expect(installed).toMatchObject({
+      id: repository.split("/").at(-1)?.toLowerCase(),
+      url: repository,
+    })
     expect(installed.skills.map((skill) => skill.name)).toEqual(["alpha", "beta"])
     expect(await realpath(join(paths.activationDirectory, "alpha"))).toBe(
       await realpath(join(paths.rootDirectory, "sources", installed.id, "skills", "alpha")),
@@ -41,8 +46,12 @@ describe("managed skills", () => {
 
     await manager.remove(installed.id)
 
-    await expect(stat(join(paths.activationDirectory, "alpha"))).rejects.toMatchObject({ code: "ENOENT" })
-    await expect(stat(join(paths.rootDirectory, "sources", installed.id))).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(stat(join(paths.activationDirectory, "alpha"))).rejects.toMatchObject({
+      code: "ENOENT",
+    })
+    await expect(stat(join(paths.rootDirectory, "sources", installed.id))).rejects.toMatchObject({
+      code: "ENOENT",
+    })
     expect(await manager.list()).toEqual([])
   })
 
@@ -57,7 +66,9 @@ describe("managed skills", () => {
 
     await expect(manager.install(repository)).rejects.toThrow("not managed by this source")
 
-    expect(await readFile(join(paths.activationDirectory, "alpha", "owner.txt"), "utf8")).toBe("manual")
+    expect(await readFile(join(paths.activationDirectory, "alpha", "owner.txt"), "utf8")).toBe(
+      "manual",
+    )
     expect(await manager.list()).toEqual([])
     const sources = await directoryEntries(join(paths.rootDirectory, "sources"))
     expect(sources).toEqual([])
@@ -77,7 +88,9 @@ describe("managed skills", () => {
     const [updated] = await manager.update("workflows")
 
     expect(updated.skills).toEqual([{ name: "beta", relativePath: join("skills", "beta") }])
-    await expect(stat(join(paths.activationDirectory, "alpha"))).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(stat(join(paths.activationDirectory, "alpha"))).rejects.toMatchObject({
+      code: "ENOENT",
+    })
     expect(await realpath(join(paths.activationDirectory, "beta"))).toBe(
       await realpath(join(paths.rootDirectory, "sources", installed.id, "skills", "beta")),
     )
@@ -104,7 +117,10 @@ describe("managed skills", () => {
       await realpath(join(checkout, "skills", "alpha")),
     )
     expect(await manager.list()).toEqual([
-      expect.objectContaining({ id: "workflows", skills: [{ name: "alpha", relativePath: join("skills", "alpha") }] }),
+      expect.objectContaining({
+        id: "workflows",
+        skills: [{ name: "alpha", relativePath: join("skills", "alpha") }],
+      }),
     ])
   })
 

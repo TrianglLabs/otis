@@ -5,7 +5,12 @@ import { handleRendererFailure, sendToRenderer } from "../../../src/desktop/main
 
 const mocks = vi.hoisted(() => ({
   showMessageBox:
-    vi.fn<(window: BrowserWindow, options: Electron.MessageBoxOptions) => Promise<Electron.MessageBoxReturnValue>>(),
+    vi.fn<
+      (
+        window: BrowserWindow,
+        options: Electron.MessageBoxOptions,
+      ) => Promise<Electron.MessageBoxReturnValue>
+    >(),
 }))
 
 vi.mock("electron", () => ({
@@ -26,7 +31,8 @@ function setup() {
   const isQuitting = vi.fn(() => false)
   handleRendererFailure(window as unknown as BrowserWindow, { onRendererGone, isQuitting })
   const crash = () => contents.emit("render-process-gone", {}, { reason: "crashed", exitCode: 5 })
-  const send = () => sendToRenderer(contents as unknown as WebContents, "otis:event", { type: "status" })
+  const send = () =>
+    sendToRenderer(contents as unknown as WebContents, "otis:event", { type: "status" })
   return { frame, contents, window, onRendererGone, isQuitting, crash, send }
 }
 
@@ -42,7 +48,12 @@ describe("renderer delivery", () => {
     expect(frame.send).toHaveBeenCalledWith("otis:event", { type: "status" })
   })
 
-  it.each(["destroyed", "crashed", "frame-destroyed", "frame-detached"])("skips a %s target", (state) => {
+  it.each([
+    "destroyed",
+    "crashed",
+    "frame-destroyed",
+    "frame-detached",
+  ])("skips a %s target", (state) => {
     const { contents, frame, send } = setup()
     if (state === "destroyed") contents.isDestroyed.mockReturnValue(true)
     if (state === "crashed") contents.isCrashed.mockReturnValue(true)
@@ -78,7 +89,8 @@ describe("renderer recovery", () => {
     expect(send()).toBe(false)
     choose({ response: 0, checkboxChecked: false })
     await vi.waitFor(() => expect(contents.reload).toHaveBeenCalledOnce())
-    // A replacement renderer receives future updates; its initial state comes from the existing snapshot API.
+    // A replacement renderer receives future updates; its initial state comes from the existing
+    // snapshot API.
     contents.isCrashed.mockReturnValue(false)
     expect(send()).toBe(true)
     expect(onRendererGone).toHaveBeenCalledOnce()

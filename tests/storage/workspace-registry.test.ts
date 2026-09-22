@@ -1,7 +1,11 @@
 import { mkdir, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
-import { createSession, defaultSessionDirectory, sessionRootDirectory } from "../../src/storage/index.js"
+import {
+  createSession,
+  defaultSessionDirectory,
+  sessionRootDirectory,
+} from "../../src/storage/index.js"
 import {
   listWorkspaceSessionDirs,
   readWorkspacePath,
@@ -98,6 +102,8 @@ describe("workspace recovery", () => {
     const home = await isolate()
     await mkdir(join(sessionRootDirectory(), "elsewhere-deadbeef00aa"), { recursive: true })
     const recovered = await listWorkspaceSessionDirs([join(home, "projects", "otis")])
-    expect(recovered.find((entry) => entry.dirName === "elsewhere-deadbeef00aa")?.workspacePath).toBeUndefined()
+    expect(
+      recovered.find((entry) => entry.dirName === "elsewhere-deadbeef00aa")?.workspacePath,
+    ).toBeUndefined()
   })
 })

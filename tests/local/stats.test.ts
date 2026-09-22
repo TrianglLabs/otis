@@ -7,7 +7,9 @@ import { calculateLocalStats } from "../../src/local/stats.js"
 const tempDirectories: string[] = []
 
 afterEach(async () => {
-  await Promise.all(tempDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })))
+  await Promise.all(
+    tempDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })),
+  )
 })
 
 describe("calculateLocalStats", () => {
@@ -103,7 +105,9 @@ describe("calculateLocalStats", () => {
   })
 
   it("returns zeros when no local sessions exist", async () => {
-    const stats = await calculateLocalStats({ sessionsRoot: join(await tempDirectory(), "missing") })
+    const stats = await calculateLocalStats({
+      sessionsRoot: join(await tempDirectory(), "missing"),
+    })
     expect(stats).toMatchObject({
       streak: 0,
       totalTokens: 0,
@@ -142,8 +146,18 @@ describe("calculateLocalStats", () => {
     const root = await tempDirectory()
     const day = new Date(2026, 6, 16, 12)
     await writeTimeline(root, [
-      { type: "prompt_admitted", at: localISO(day, 0), promptId: "first", message: { role: "user", content: "first" } },
-      { type: "prompt_admitted", at: localISO(day, 10), promptId: "next", message: { role: "user", content: "next" } },
+      {
+        type: "prompt_admitted",
+        at: localISO(day, 0),
+        promptId: "first",
+        message: { role: "user", content: "first" },
+      },
+      {
+        type: "prompt_admitted",
+        at: localISO(day, 10),
+        promptId: "next",
+        message: { role: "user", content: "next" },
+      },
       { type: "turn_completed", at: localISO(day, 60), promptId: "first", messages: [] },
       { type: "turn_completed", at: localISO(day, 90), promptId: "next", messages: [] },
     ])
@@ -154,9 +168,19 @@ describe("calculateLocalStats", () => {
     const root = await tempDirectory()
     const day = (date: number, hour = 12) => new Date(2026, 6, date, hour).toISOString()
     await writeTimeline(root, [
-      { type: "prompt_admitted", at: day(13, 23), promptId: "work", message: { role: "user", content: "work" } },
+      {
+        type: "prompt_admitted",
+        at: day(13, 23),
+        promptId: "work",
+        message: { role: "user", content: "work" },
+      },
       { type: "turn_started", at: day(13, 23), promptId: "work" },
-      { type: "prompt_steered", at: day(14), promptId: "work", message: { role: "user", content: "focus here" } },
+      {
+        type: "prompt_steered",
+        at: day(14),
+        promptId: "work",
+        message: { role: "user", content: "focus here" },
+      },
       {
         type: "usage_recorded",
         at: day(15),
@@ -167,9 +191,15 @@ describe("calculateLocalStats", () => {
     ])
     const stats = await calculateLocalStats({ sessionsRoot: root, now: new Date(2026, 6, 15, 13) })
     expect(stats).toMatchObject({ activeDays: 3, streak: 3, sessionCount: 1, totalTokens: 15 })
-    expect(stats.recentActivity.filter((day) => day.tokens > 0)).toEqual([{ date: "2026-07-15", tokens: 15 }])
-    expect((await calculateLocalStats({ sessionsRoot: root, now: new Date(2026, 6, 16) })).streak).toBe(3)
-    expect((await calculateLocalStats({ sessionsRoot: root, now: new Date(2026, 6, 17) })).streak).toBe(0)
+    expect(stats.recentActivity.filter((day) => day.tokens > 0)).toEqual([
+      { date: "2026-07-15", tokens: 15 },
+    ])
+    expect(
+      (await calculateLocalStats({ sessionsRoot: root, now: new Date(2026, 6, 16) })).streak,
+    ).toBe(3)
+    expect(
+      (await calculateLocalStats({ sessionsRoot: root, now: new Date(2026, 6, 17) })).streak,
+    ).toBe(0)
   })
 
   it.each([
@@ -210,25 +240,43 @@ describe("calculateLocalStats", () => {
         promptId: "queued",
         message: { role: "user", content: "work later" },
       },
-      { type: "turn_completed", at: new Date(2026, 6, 16, 12).toISOString(), promptId: "queued", messages: [] },
+      {
+        type: "turn_completed",
+        at: new Date(2026, 6, 16, 12).toISOString(),
+        promptId: "queued",
+        messages: [],
+      },
     ])
-    expect(await calculateLocalStats({ sessionsRoot: root, now: new Date(2026, 6, 16, 13) })).toMatchObject({
+    expect(
+      await calculateLocalStats({ sessionsRoot: root, now: new Date(2026, 6, 16, 13) }),
+    ).toMatchObject({
       activeDays: 2,
       streak: 1,
     })
   })
 })
 
-async function writeTimeline(root: string, timeline: Array<{ type: string; at: string } & Record<string, unknown>>) {
+async function writeTimeline(
+  root: string,
+  timeline: Array<{ type: string; at: string } & Record<string, unknown>>,
+) {
   await writeSession(
     root,
     "project",
     "timeline",
-    timeline.map(({ type, at, ...fields }, index) => event(index + 1, "timeline", type, at, fields)),
+    timeline.map(({ type, at, ...fields }, index) =>
+      event(index + 1, "timeline", type, at, fields),
+    ),
   )
 }
 
-function event(seq: number, sessionId: string, type: string, at: string, fields: Record<string, unknown>) {
+function event(
+  seq: number,
+  sessionId: string,
+  type: string,
+  at: string,
+  fields: Record<string, unknown>,
+) {
   return JSON.stringify({ seq, sessionId, at, type, ...fields })
 }
 

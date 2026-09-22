@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   autoCompactThreshold,
-  COMPACTION_SUMMARY_PREFIX,
   compactConversation,
   compactionSummaryMessage,
   isCompactionSummary,
@@ -11,7 +10,10 @@ import type { ChatMessage, StreamChatOptions } from "../../src/inference/types.j
 import { summaryFixture } from "../support/compaction.js"
 
 const streamAgentMock = vi.hoisted(() => vi.fn())
-const client = { model: "accounts/fireworks/models/test", streamChat: streamAgentMock } as unknown as FireworksClient
+const client = {
+  model: "accounts/fireworks/models/test",
+  streamChat: streamAgentMock,
+} as unknown as FireworksClient
 
 describe("autoCompactThreshold", () => {
   it("reserves model context and retains the default cap for large or unknown models", () => {
@@ -29,11 +31,13 @@ describe("compaction summary messages", () => {
 
     expect(message).toEqual({
       role: "user",
-      content: `${COMPACTION_SUMMARY_PREFIX}\n\n## Goal\nDo the thing`,
+      content: "[Compacted conversation summary]\n\n## Goal\nDo the thing",
     })
     expect(isCompactionSummary(message)).toBe(true)
     expect(isCompactionSummary({ role: "user", content: "hello" })).toBe(false)
-    expect(isCompactionSummary({ role: "assistant", content: [{ type: "text", text: "hi" }] })).toBe(false)
+    expect(
+      isCompactionSummary({ role: "assistant", content: [{ type: "text", text: "hi" }] }),
+    ).toBe(false)
   })
 })
 
@@ -48,7 +52,11 @@ describe("compactConversation", () => {
         content: [
           {
             type: "tool_call",
-            toolCall: { id: "bad", name: "write", arguments: `{"content":"${"private partial content".repeat(500)}` },
+            toolCall: {
+              id: "bad",
+              name: "write",
+              arguments: `{"content":"${"private partial content".repeat(500)}`,
+            },
           },
         ],
       },
@@ -58,8 +66,13 @@ describe("compactConversation", () => {
     const original = structuredClone(messages)
     streamAgentMock.mockImplementationOnce(async function* (request: StreamChatOptions) {
       expect(JSON.stringify(request.messages)).not.toContain("private partial content")
-      expect(JSON.stringify(request.messages)).toContain("arguments were not a complete JSON object")
-      yield { type: "text_delta", text: summaryFixture("Retry the failed write using smaller steps.") }
+      expect(JSON.stringify(request.messages)).toContain(
+        "arguments were not a complete JSON object",
+      )
+      yield {
+        type: "text_delta",
+        text: summaryFixture("Retry the failed write using smaller steps."),
+      }
     })
     await compactConversation(messages, { client, keepRecentTokens: 10 })
     expect(streamAgentMock).toHaveBeenCalledOnce()
@@ -67,9 +80,9 @@ describe("compactConversation", () => {
   })
 
   it("refuses to summarize an unanswered prompt", async () => {
-    await expect(compactConversation([{ role: "user", content: "hi" }], { client })).rejects.toThrow(
-      "Not enough conversation history to compact.",
-    )
+    await expect(
+      compactConversation([{ role: "user", content: "hi" }], { client }),
+    ).rejects.toThrow("Not enough conversation history to compact.")
     expect(streamAgentMock).not.toHaveBeenCalled()
   })
 
@@ -116,7 +129,13 @@ describe("compactConversation", () => {
       {
         role: "user",
         content: [
-          { type: "image", data: "c2VjcmV0", mimeType: "image/png", name: "screen.png", sizeBytes: 6 },
+          {
+            type: "image",
+            data: "c2VjcmV0",
+            mimeType: "image/png",
+            name: "screen.png",
+            sizeBytes: 6,
+          },
           { type: "text", text: "Inspect this" },
         ],
       },
@@ -180,7 +199,10 @@ describe("compactConversation", () => {
         role: "assistant",
         content: [
           { type: "text", text: "Let me read it." },
-          { type: "tool_call", toolCall: { id: "call_1", name: "read", arguments: '{"path":"a.txt"}' } },
+          {
+            type: "tool_call",
+            toolCall: { id: "call_1", name: "read", arguments: '{"path":"a.txt"}' },
+          },
         ],
       },
       { role: "tool", toolCallId: "call_1", content: "read: a.txt\n\ncontents" },
@@ -256,7 +278,9 @@ describe("compactConversation", () => {
       yield* []
     })
 
-    await expect(compactConversation(messages, { client, keepRecentTokens: 32 })).rejects.toThrow("empty summary")
+    await expect(compactConversation(messages, { client, keepRecentTokens: 32 })).rejects.toThrow(
+      "empty summary",
+    )
   })
 
   it("keeps only the last turn when conversation fits within the keep budget", async () => {

@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest"
 import {
   parseSlashCommand,
-  SLASH_COMMANDS,
   slashCommandRunsImmediately,
   slashCommands,
 } from "../../src/cli/slash-commands.js"
+
+const SLASH_COMMANDS = slashCommands({ fast: true })
 
 describe("slash commands", () => {
   it("parses known commands and leaves unknown input for the agent", () => {
@@ -12,7 +13,10 @@ describe("slash commands", () => {
     expect(parseSlashCommand("/fast")).toEqual({ type: "fast" })
     expect(parseSlashCommand("/effort")).toEqual({ type: "effort" })
     expect(parseSlashCommand("/effort medium")).toEqual({ type: "effort", level: "medium" })
-    expect(parseSlashCommand("/delete-model")).toEqual({ type: "settings", setting: "delete-model" })
+    expect(parseSlashCommand("/delete-model")).toEqual({
+      type: "settings",
+      setting: "delete-model",
+    })
     expect(parseSlashCommand("/delete-model openai/gpt-oss-20b")).toEqual({
       type: "settings",
       setting: "delete-model",
@@ -22,10 +26,16 @@ describe("slash commands", () => {
     expect(parseSlashCommand("/settings hosted")).toEqual({ type: "settings", setting: "hosted" })
     expect(parseSlashCommand("/settings pair")).toEqual({ type: "settings", setting: "pair" })
     expect(parseSlashCommand("/settings debug")).toEqual({ type: "settings", setting: "debug" })
-    expect(parseSlashCommand("/settings subagents")).toEqual({ type: "settings", setting: "subagents" })
+    expect(parseSlashCommand("/settings subagents")).toEqual({
+      type: "settings",
+      setting: "subagents",
+    })
     expect(parseSlashCommand("/settings theme")).toEqual({ type: "settings", setting: "theme" })
     expect(parseSlashCommand("/settings theme nord")).toEqual({ type: "theme", name: "nord" })
-    expect(parseSlashCommand("/settings delete-model")).toEqual({ type: "settings", setting: "delete-model" })
+    expect(parseSlashCommand("/settings delete-model")).toEqual({
+      type: "settings",
+      setting: "delete-model",
+    })
     expect(parseSlashCommand("/settings delete-model openai/gpt-oss-20b")).toEqual({
       type: "settings",
       setting: "delete-model",
@@ -67,7 +77,9 @@ describe("slash commands", () => {
 
   it("advertises queue as an editable command", () => {
     const commands = slashCommands({ fast: true })
-    expect(commands.find((command) => command.name === "/queue")).toMatchObject({ draft: "/queue " })
+    expect(commands.find((command) => command.name === "/queue")).toMatchObject({
+      draft: "/queue ",
+    })
   })
 
   it("advertises the top-level commands without the settings-only theme picker", () => {
@@ -101,7 +113,10 @@ describe("slash commands", () => {
 
   it("keeps the former model deletion command as an unadvertised alias", () => {
     expect(SLASH_COMMANDS.some((command) => command.name === "/delete-model")).toBe(false)
-    expect(parseSlashCommand("/delete-model")).toEqual({ type: "settings", setting: "delete-model" })
+    expect(parseSlashCommand("/delete-model")).toEqual({
+      type: "settings",
+      setting: "delete-model",
+    })
   })
 
   it("parses every advertised command", () => {

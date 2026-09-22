@@ -9,7 +9,9 @@ describe("listToolCapableModels", () => {
       const url = new URL(String(input))
       if (url.pathname.endsWith("/inference/v1/models")) return Response.json({ data: [] })
       if (url.searchParams.get("pageToken") === "page-two") {
-        return Response.json({ models: [model("accounts/fireworks/models/alpha", "Alpha", true, true)] })
+        return Response.json({
+          models: [model("accounts/fireworks/models/alpha", "Alpha", true, true)],
+        })
       }
       return Response.json({
         models: [
@@ -28,7 +30,12 @@ describe("listToolCapableModels", () => {
     })
 
     expect(models).toEqual([
-      { provider: "fireworks", id: "accounts/fireworks/models/alpha", displayName: "Alpha", supportsImageInput: false },
+      {
+        provider: "fireworks",
+        id: "accounts/fireworks/models/alpha",
+        displayName: "Alpha",
+        supportsImageInput: false,
+      },
       {
         provider: "fireworks",
         id: "accounts/fireworks/models/zeta",
@@ -41,10 +48,14 @@ describe("listToolCapableModels", () => {
       .map(([input]) => new URL(String(input)))
       .filter((url) => url.pathname.endsWith("/v1/accounts/fireworks/models"))
     expect(catalogURLs).toHaveLength(2)
-    expect(catalogURLs[0].searchParams.get("filter")).toBe("supports_serverless=true AND supports_tools=true")
+    expect(catalogURLs[0].searchParams.get("filter")).toBe(
+      "supports_serverless=true AND supports_tools=true",
+    )
     expect(catalogURLs[0].searchParams.get("pageSize")).toBe("200")
     expect(catalogURLs[1].searchParams.get("pageToken")).toBe("page-two")
-    expect(fetchMock.mock.calls.map(([input]) => String(input))).toContain("http://localhost/inference/v1/models")
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).toContain(
+      "http://localhost/inference/v1/models",
+    )
     expect(fetchMock.mock.calls[0][1]?.headers).toEqual({ authorization: "Bearer fw_test_key" })
   })
 
@@ -61,7 +72,9 @@ describe("listToolCapableModels", () => {
         })
       }
       return Response.json({
-        models: [model("accounts/fireworks/models/kimi-k3", "Kimi K3", true, true, 1_048_576, true)],
+        models: [
+          model("accounts/fireworks/models/kimi-k3", "Kimi K3", true, true, 1_048_576, true),
+        ],
       })
     })
 
@@ -85,7 +98,8 @@ describe("listToolCapableModels", () => {
 
   it("keeps the serverless catalog when Fast serving paths cannot be listed", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      if (String(input).includes("/inference/v1/models")) return new Response("unavailable", { status: 503 })
+      if (String(input).includes("/inference/v1/models"))
+        return new Response("unavailable", { status: 503 })
       return Response.json({
         models: [model("accounts/fireworks/models/kimi-k3", "Kimi K3", true, true)],
       })

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { ContextOverflowError, inferenceError, inferenceResponseError } from "../../src/inference/errors.js"
-import { PairClient } from "../../src/inference/pair.js"
+import {
+  ContextOverflowError,
+  inferenceError,
+  inferenceResponseError,
+} from "../../src/inference/errors.js"
+import { createPairClient } from "../../src/inference/pair.js"
 import { parseChatCompletionStream } from "../../src/inference/stream-parser.js"
 
 describe("context overflow errors", () => {
@@ -19,9 +23,9 @@ describe("context overflow errors", () => {
         "Trying to keep the first 9000 tokens when context overflows. However, the model is loaded with context length of only 8192 tokens.",
     },
   ])("recognizes an explicit input rejection: %j", async (error) => {
-    expect(await inferenceResponseError(Response.json({ error }, { status: 400 }), "Local model")).toBeInstanceOf(
-      ContextOverflowError,
-    )
+    expect(
+      await inferenceResponseError(Response.json({ error }, { status: 400 }), "Local model"),
+    ).toBeInstanceOf(ContextOverflowError)
   })
 
   it.each([
@@ -32,7 +36,8 @@ describe("context overflow errors", () => {
       message:
         "Trying to keep the first 40000 tokens when context overflows. However, the model is loaded with context length of only 32768 tokens.",
     }
-    const client = new PairClient({
+    const client = createPairClient({
+      engine: "lmstudio",
       model: "chat",
       baseURL: "http://127.0.0.1:1234",
       fetch: async () =>
@@ -53,24 +58,36 @@ describe("context overflow errors", () => {
         400,
       ),
     ).toMatchObject({ contextLength: 65536 })
-    expect(inferenceError("overflow", { type: "exceed_context_size_error", n_ctx: 131072 }, 400)).toMatchObject({
+    expect(
+      inferenceError("overflow", { type: "exceed_context_size_error", n_ctx: 131072 }, 400),
+    ).toMatchObject({
       contextLength: 131072,
     })
     expect(
-      inferenceError("overflow", { code: "context_length_exceeded", message: "Input 90000 tokens is too long" }, 400),
+      inferenceError(
+        "overflow",
+        { code: "context_length_exceeded", message: "Input 90000 tokens is too long" },
+        400,
+      ),
     ).toMatchObject({ contextLength: undefined })
-    expect(inferenceError("output", { message: "maximum output tokens is 8192" }, 400)).not.toBeInstanceOf(
+    expect(
+      inferenceError("output", { message: "maximum output tokens is 8192" }, 400),
+    ).not.toBeInstanceOf(ContextOverflowError)
+  })
+
+  it("recognizes a rejection delivered before the SSE response starts", async () => {
+    const response = new Response(
+      'data: {"error":{"type":"exceed_context_size_error","message":"too large"}}\n\n',
+    )
+    if (!response.body) throw new Error("Missing response body")
+    await expect(parseChatCompletionStream(response.body).next()).rejects.toBeInstanceOf(
       ContextOverflowError,
     )
   })
 
-  it("recognizes a rejection delivered before the SSE response starts", async () => {
-    const response = new Response('data: {"error":{"type":"exceed_context_size_error","message":"too large"}}\n\n')
-    if (!response.body) throw new Error("Missing response body")
-    await expect(parseChatCompletionStream(response.body).next()).rejects.toBeInstanceOf(ContextOverflowError)
-  })
-
-  it.each([401, 429, 500, 503])("does not classify HTTP %s as a recoverable input rejection", async (status) => {
+  it.each([
+    401, 429, 500, 503,
+  ])("does not classify HTTP %s as a recoverable input rejection", async (status) => {
     const error = await inferenceResponseError(
       Response.json({ error: { code: "context_length_exceeded" } }, { status }),
       "Local model",

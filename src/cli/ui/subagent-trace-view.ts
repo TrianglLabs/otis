@@ -1,4 +1,11 @@
-import { BoxRenderable, fg, type ScrollBoxRenderable, TextRenderable, type TreeSitterClient, t } from "@opentui/core"
+import {
+  BoxRenderable,
+  fg,
+  type ScrollBoxRenderable,
+  TextRenderable,
+  type TreeSitterClient,
+  t,
+} from "@opentui/core"
 import type { SubagentTrace } from "../../app/subagents.js"
 import { colors } from "../theme.js"
 import { createMessagesView, createScrollbarOptions } from "./panels.js"
@@ -7,8 +14,9 @@ import { TranscriptView } from "./transcript-view.js"
 import type { Renderer } from "./types.js"
 
 /**
- * Shows one delegated run's full transcript in place of the conversation. The trace is rendered by the same
- * `TranscriptView` as the main transcript, so reasoning, text, tool cards, and diffs behave identically.
+ * Shows one delegated run's full transcript in place of the conversation. The trace is rendered
+ * by the same `TranscriptView` as the main transcript, so reasoning, text, tool cards, and diffs
+ * behave identically.
  */
 export class SubagentTraceView {
   readonly root: BoxRenderable
@@ -64,10 +72,14 @@ export class SubagentTraceView {
     this.renderer.requestRender()
   }
 
-  /** Re-renders the open trace when its run has progressed; closes when the run is no longer in the session. */
+  /**
+   * Re-renders the open trace when its run has progressed; closes when the run is no longer in
+   * the session.
+   */
   update(traces: readonly SubagentTrace[]) {
-    if (!this.#trace) return
-    const current = traces.find((trace) => trace.toolCallId === this.#trace?.toolCallId)
+    const open = this.#trace
+    if (!open) return
+    const current = traces.find((trace) => trace.toolCallId === open.toolCallId)
     if (!current) {
       this.close()
       return

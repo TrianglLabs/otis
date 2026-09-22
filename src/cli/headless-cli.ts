@@ -2,11 +2,10 @@ import { stat } from "node:fs/promises"
 import { resolve } from "node:path"
 import { parseArgs } from "node:util"
 import { Application } from "../app/application.js"
+import { sessionArtifactPublisher } from "../app/artifacts.js"
 import { resolveFireworksServing } from "../app/models.js"
-import { sessionArtifactPublisher } from "../app/session-artifacts.js"
 import { executeTurn } from "../app/turn-runner.js"
 import { autoCompactThreshold } from "../core/compaction.js"
-import { providerTools } from "../core/subagent.js"
 import { loadAttachmentFiles, validateAttachments } from "../inference/attachments.js"
 import { compactionContextLength } from "../inference/context-policy.js"
 import { loadImageFiles, validateImageAttachments } from "../inference/images.js"
@@ -20,11 +19,10 @@ import {
 } from "../inference/messages.js"
 import { pairEndpointForEngine } from "../inference/pair.js"
 import { baseFireworksModelId } from "../inference/serving-path.js"
-import type { InferenceClient, ModelProvider } from "../inference/types.js"
+import type { InferenceClient } from "../inference/types.js"
 import { saveSelectedModel } from "../local/settings.js"
 import {
   createPermissionPolicy,
-  type PermissionEffect,
   type PermissionMode,
   parsePermissionRuleString,
 } from "../permissions/policy.js"
@@ -36,12 +34,17 @@ import {
   openSession,
   type SessionLock,
 } from "../storage/index.js"
-import { TOOL_NAMES, type ToolDefinition, type ToolName } from "../tools/index.js"
-import { addUsage, emptyUsage, type HeadlessOutputFormat, HeadlessReporter } from "./headless-output.js"
+import { providerTools, TOOL_NAMES, type ToolName } from "../tools/index.js"
+import {
+  addUsage,
+  emptyUsage,
+  type HeadlessOutputFormat,
+  HeadlessReporter,
+} from "./headless-output.js"
 
 type OutputStream = { write(chunk: string): unknown }
 
-export type HeadlessCommandOptions = {
+type HeadlessCommandOptions = {
   stdin?: AsyncIterable<unknown>
   stdout?: OutputStream
   stderr?: OutputStream
@@ -49,7 +52,10 @@ export type HeadlessCommandOptions = {
   processCwd?: string
 }
 
-export async function runHeadlessCommand(argv: string[], options: HeadlessCommandOptions = {}): Promise<number> {
+export async function runHeadlessCommand(
+  argv: string[],
+  options: HeadlessCommandOptions = {},
+): Promise<number> {
   const stdout = options.stdout ?? process.stdout
   const stderr = options.stderr ?? process.stderr
   let parsed: ReturnType<typeof parseHeadlessArgs>
@@ -69,9 +75,15 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
   })
   const startedAt = Date.now()
   const controller = new AbortController()
-  const removeSignals = installSignalHandlers(controller)
+  const interrupt = () => controller.abort({ type: "signal", signal: "SIGINT" })
+  const terminate = () => controller.abort({ type: "signal", signal: "SIGTERM" })
+  process.once("SIGINT", interrupt)
+  process.once("SIGTERM", terminate)
   const timeout = parsed.timeoutMs
-    ? setTimeout(() => controller.abort({ type: "timeout", timeoutMs: parsed.timeoutMs }), parsed.timeoutMs)
+    ? setTimeout(
+        () => controller.abort({ type: "timeout", timeoutMs: parsed.timeoutMs }),
+        parsed.timeoutMs,
+      )
     : undefined
   timeout?.unref()
   let lock: SessionLock | undefined
@@ -83,16 +95,19 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
 
   try {
     const cwd = resolve(options.processCwd ?? process.cwd(), parsed.cwd ?? ".")
-    if (!(await stat(cwd)).isDirectory()) throw new Error(`Working directory is not a directory: ${cwd}`)
-    const prompt = await readPrompt(parsed.promptParts, options.stdin ?? process.stdin)
+    if (!(await stat(cwd)).isDirectory())
+      throw new Error(`Working directory is not a directory: ${cwd}`)
+    let prompt = parsed.promptParts.join(" ").trim()
+    if (!prompt) {
+      for await (const chunk of options.stdin ?? process.stdin) prompt += String(chunk)
+      prompt = prompt.trim()
+    }
     const attachments = [
       ...(await loadImageFiles(parsed.images, cwd)),
       ...(await loadAttachmentFiles(parsed.files, cwd)),
     ]
-    const images = attachments.filter((attachment) => attachment.type === "image")
-    if (!prompt.trim() && attachments.length === 0) {
-      throw new Error("A prompt or attachment is required.")
-    }
+    const hasImages = attachments.some((attachment) => attachment.type === "image")
+    if (!prompt && attachments.length === 0) throw new Error("A prompt or attachment is required.")
     validateAttachments(attachments)
     const userMessage = createUserMessage(prompt, attachments)
 
@@ -111,14 +126,29 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
         : (settings.modelProvider ?? (isLocalModelId(model) ? "local" : "fireworks"))
     modelContextLength = parsed.model ? undefined : settings.modelContextLength
     let modelSupportsImageInput = parsed.model ? undefined : settings.modelSupportsImageInput
-    if (!model) throw new Error("A model is not configured. Run Otis interactively or pass --model.")
+    if (!model)
+      throw new Error("A model is not configured. Run Otis interactively or pass --model.")
+
+    const resolveServing = async (apiKey: string) => {
+      const resolved = await resolveFireworksServing(apiKey, model, {
+        fast: parsed.model
+          ? undefined
+          : settings.fastServingModels?.includes(baseFireworksModelId(model)),
+        signal: controller.signal,
+      })
+      model = resolved.serving.id
+      modelContextLength = resolved.serving.contextLength
+      modelSupportsImageInput = resolved.serving.supportsImageInput
+      if (!parsed.model && settings.model === resolved.selected.id)
+        await saveSelectedModel(resolved.serving)
+    }
 
     let client: InferenceClient
     if (modelProvider === "local") {
       const spec = findLocalModel(model)
       if (!spec) throw new Error(`Unknown local model: ${model}`)
       modelSupportsImageInput = spec.supportsImageInput
-      if (images.length > 0 && !spec.supportsImageInput) {
+      if (hasImages && !spec.supportsImageInput) {
         throw new Error(`Selected model does not support image input: ${model}`)
       }
       const connected = await app.models.connect({
@@ -130,22 +160,25 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
       model = connected.modelId
       modelContextLength = connected.contextLength
     } else if (modelProvider === "omlx") {
-      const connected = await app.models.connect({ provider: "omlx", modelId: model, signal: controller.signal })
+      const connected = await app.models.connect({
+        provider: "omlx",
+        modelId: model,
+        signal: controller.signal,
+      })
       modelSupportsImageInput = connected.supportsImageInput
-      if (images.length > 0 && !modelSupportsImageInput)
+      if (hasImages && !modelSupportsImageInput) {
         throw new Error(`Selected oMLX model does not support image input: ${model}`)
+      }
       client = connected.client
       modelContextLength = connected.contextLength
     } else if (modelProvider === "pair") {
-      const pairEndpoint = pairEndpointForEngine(settings.pairEndpoints ?? {}, settings.pairEngine)
-      if (!pairEndpoint) throw new Error("Local model server endpoint is not configured for the selected engine.")
-      if (images.length > 0 && !modelSupportsImageInput) {
+      if (hasImages && !modelSupportsImageInput) {
         throw new Error(`Selected PAIR model does not support image input: ${model}`)
       }
       const connected = await app.models.connect({
         provider: "pair",
         modelId: model,
-        pairEndpoint,
+        pairEndpoint: pairEndpointForEngine(settings.pairEndpoints ?? {}, settings.pairEngine),
         pairEngine: settings.pairEngine,
         supportsImageInput: modelSupportsImageInput,
         signal: controller.signal,
@@ -153,24 +186,17 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
       client = connected.client
       modelContextLength = connected.contextLength
     } else {
-      if (!settings.fireworksApiKey) throw new Error("Fireworks API key is not configured.")
-      if (parsed.model || (images.length > 0 && modelSupportsImageInput === undefined)) {
-        const resolved = await resolveFireworksServing(settings.fireworksApiKey, model, {
-          fast: parsed.model ? undefined : settings.fastServingModels?.includes(baseFireworksModelId(model)),
-          signal: controller.signal,
-        })
-        model = resolved.serving.id
-        modelContextLength = resolved.serving.contextLength
-        modelSupportsImageInput = resolved.serving.supportsImageInput
-        if (!parsed.model && settings.model === resolved.selected.id) await saveSelectedModel(resolved.serving)
-      }
-      if (images.length > 0 && !modelSupportsImageInput) {
+      const fireworksApiKey = settings.fireworksApiKey
+      if (!fireworksApiKey) throw new Error("Fireworks API key is not configured.")
+      if (parsed.model || (hasImages && modelSupportsImageInput === undefined))
+        await resolveServing(fireworksApiKey)
+      if (hasImages && !modelSupportsImageInput) {
         throw new Error(`Selected model does not support image input: ${model}`)
       }
       const connected = await app.models.connect({
         provider: "fireworks",
         modelId: model,
-        fireworksApiKey: settings.fireworksApiKey,
+        fireworksApiKey,
         contextLength: modelContextLength,
         supportsImageInput: modelSupportsImageInput,
         signal: controller.signal,
@@ -179,10 +205,15 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
     }
 
     if (!parsed.ephemeral) {
-      const selectedSessionId = await resolveSessionId(parsed, cwd)
-      if (selectedSessionId) {
-        lock = await acquireSessionLock({ cwd, sessionId: selectedSessionId })
-        session = await openSession({ cwd, sessionId: selectedSessionId })
+      let sessionId = parsed.session
+      if (parsed.continue) {
+        sessionId = (await listSessions({ cwd }))[0]?.id
+        if (!sessionId)
+          throw new Error("There is no session to continue in this working directory.")
+      }
+      if (sessionId) {
+        lock = await acquireSessionLock({ cwd, sessionId })
+        session = await openSession({ cwd, sessionId })
       } else {
         session = await createSession({ cwd })
       }
@@ -194,30 +225,33 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
       modelSupportsImageInput === undefined &&
       settings.fireworksApiKey
     ) {
-      const resolved = await resolveFireworksServing(settings.fireworksApiKey, model, {
-        fast: parsed.model ? undefined : settings.fastServingModels?.includes(baseFireworksModelId(model)),
-        signal: controller.signal,
-      })
-      model = resolved.serving.id
-      modelContextLength = resolved.serving.contextLength
-      modelSupportsImageInput = resolved.serving.supportsImageInput
-      if (!parsed.model && settings.model === resolved.selected.id) await saveSelectedModel(resolved.serving)
+      await resolveServing(settings.fireworksApiKey)
     }
-    modelContextLength = compactionContextLength({ provider: modelProvider, contextLength: modelContextLength })
+    modelContextLength = compactionContextLength({
+      provider: modelProvider,
+      contextLength: modelContextLength,
+    })
     if (sessionContainsImages && !modelSupportsImageInput) {
-      throw new Error(`Selected model does not support image input required by this session: ${model}`)
+      throw new Error(
+        `Selected model does not support image input required by this session: ${model}`,
+      )
     }
 
     const replay = session?.replay()
     const history = replay?.messages ?? []
     validateImageAttachments(imageAttachmentsFromMessages([...history, userMessage]))
     const admission = session ? await session.admitPrompt(userMessage) : undefined
-    const tools = selectedTools(parsed.tools, modelProvider).filter(
-      (tool) => session || tool.name !== "publish_artifact",
+    // `--tools` narrows the provider's catalog; it cannot enable a tool the provider does not
+    // offer.
+    const tools = providerTools(modelProvider).filter(
+      (tool) =>
+        (!parsed.tools || parsed.tools.has(tool.name)) &&
+        (session || tool.name !== "publish_artifact"),
     )
+    const configuredMode = parsed.permissionMode ?? settings.permissions?.defaultMode ?? "dontAsk"
     const permissionPolicy = createPermissionPolicy({
       cwd,
-      mode: headlessPermissionMode(parsed.permissionMode, settings.permissions?.defaultMode),
+      mode: configuredMode === "ask" ? "dontAsk" : configuredMode,
       rules: [...app.permissionRules, ...parsed.permissionRules],
     })
 
@@ -228,7 +262,14 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
       historyDetails: replay,
       onCompaction: async (result, details, steeringCount, turn) => {
         if (session && admission)
-          await session.compactTurn(admission, result.summary, result.keptMessages, details, steeringCount, turn)
+          await session.compactTurn(
+            admission,
+            result.summary,
+            result.keptMessages,
+            details,
+            steeringCount,
+            turn,
+          )
       },
       agent: {
         client,
@@ -241,7 +282,9 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
         attachments: () =>
           session
             ?.replayTranscript()
-            .messages.flatMap((message) => (message.role === "user" ? userMessageAttachments(message) : [])) ?? [],
+            .messages.flatMap((message) =>
+              message.role === "user" ? userMessageAttachments(message) : [],
+            ) ?? [],
         projectContext: app.projectContext,
         skills: app.skills,
         tools,
@@ -249,13 +292,15 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
         onCompactionUsage: async (nextUsage) => {
           usage = addUsage(usage, nextUsage)
           await reporter.usage(nextUsage)
-          if (session && admission) await session.recordUsage(nextUsage, "compaction", admission.promptId)
+          if (session && admission)
+            await session.recordUsage(nextUsage, "compaction", admission.promptId)
         },
         permissionPolicy,
         onUsage: async (nextUsage) => {
           usage = addUsage(usage, nextUsage)
           await reporter.usage(nextUsage)
-          if (session && admission) await session.recordUsage(nextUsage, "agent", admission.promptId)
+          if (session && admission)
+            await session.recordUsage(nextUsage, "agent", admission.promptId)
         },
       },
       onEvent: (event) => reporter.event(event),
@@ -265,26 +310,22 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
       result.status === "complete" || result.status === "interrupted" ? result.messages : [],
     )
     if (session && admission) {
-      if (result.status === "complete") await session.completeTurn(admission, result.messages, result.details)
+      if (result.status === "complete")
+        await session.completeTurn(admission, result.messages, result.details)
       else if (result.status === "interrupted" || result.status === "error") {
         await session.interruptTurn(admission, result.messages, result.details)
       }
     }
 
-    if (result.status === "complete") {
-      await reporter.finish({
-        status: "complete",
-        output,
-        sessionId: session?.id,
-        model,
-        usage,
-        durationMs: Date.now() - startedAt,
-      })
-      return 0
-    }
-    const error = result.status === "error" ? result.message : interruptionMessage(controller.signal)
+    const interrupted = result.status === "interrupted"
+    const error =
+      result.status === "error"
+        ? result.message
+        : interrupted
+          ? interruption(controller.signal).message
+          : undefined
     await reporter.finish({
-      status: result.status === "interrupted" ? "interrupted" : "error",
+      status: result.status === "complete" ? "complete" : interrupted ? "interrupted" : "error",
       output,
       sessionId: session?.id,
       model,
@@ -292,9 +333,14 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
       durationMs: Date.now() - startedAt,
       ...(error ? { error } : {}),
     })
-    return result.status === "interrupted" ? interruptionExitCode(controller.signal) : 1
+    return result.status === "complete"
+      ? 0
+      : interrupted
+        ? interruption(controller.signal).exitCode
+        : 1
   } catch (error) {
     const interrupted = controller.signal.aborted
+    const message = interrupted ? interruption(controller.signal).message : errorMessage(error)
     await reporter.finish({
       status: interrupted ? "interrupted" : "error",
       output: "",
@@ -302,16 +348,13 @@ export async function runHeadlessCommand(argv: string[], options: HeadlessComman
       model,
       usage,
       durationMs: Date.now() - startedAt,
-      ...(!interrupted
-        ? { error: errorMessage(error) }
-        : interruptionMessage(controller.signal)
-          ? { error: interruptionMessage(controller.signal) }
-          : {}),
+      ...(message ? { error: message } : {}),
     })
-    return interrupted ? interruptionExitCode(controller.signal) : 1
+    return interrupted ? interruption(controller.signal).exitCode : 1
   } finally {
     if (timeout) clearTimeout(timeout)
-    removeSignals()
+    process.off("SIGINT", interrupt)
+    process.off("SIGTERM", terminate)
     await app?.shutdown()
     await lock?.release()
   }
@@ -342,14 +385,34 @@ function parseHeadlessArgs(argv: string[]) {
       "include-reasoning": { type: "boolean" },
     },
   })
-  if (values.session && values.continue) throw new Error("--session and --continue cannot be used together.")
+  if (values.session && values.continue)
+    throw new Error("--session and --continue cannot be used together.")
   if (values.ephemeral && (values.session || values.continue)) {
     throw new Error("--ephemeral cannot be combined with --session or --continue.")
   }
-  if (values.auto && values["permission-mode"]) throw new Error("--auto and --permission-mode cannot be combined.")
+  if (values.auto && values["permission-mode"])
+    throw new Error("--auto and --permission-mode cannot be combined.")
+  const permissionMode = values["permission-mode"]
+  if (permissionMode !== undefined && permissionMode !== "auto" && permissionMode !== "dontAsk") {
+    throw new Error("--permission-mode must be auto or dontAsk in headless mode.")
+  }
   const outputFormat = values["output-format"]
   if (outputFormat !== "plain" && outputFormat !== "json" && outputFormat !== "jsonl") {
     throw new Error("--output-format must be plain, json, or jsonl.")
+  }
+  const tools = values.tools
+    ?.split(",")
+    .map((name) => name.trim())
+    .filter(Boolean)
+  for (const name of tools ?? []) {
+    if (!(TOOL_NAMES as readonly string[]).includes(name)) throw new Error(`Unknown tool: ${name}`)
+  }
+  const timeoutSeconds = values.timeout ? Number(values.timeout) : undefined
+  if (
+    timeoutSeconds !== undefined &&
+    (!Number.isSafeInteger(timeoutSeconds) || timeoutSeconds <= 0)
+  ) {
+    throw new Error("--timeout must be a positive integer.")
   }
   return {
     help: values.help ?? false,
@@ -360,109 +423,31 @@ function parseHeadlessArgs(argv: string[]) {
     session: values.session,
     continue: values.continue ?? false,
     ephemeral: values.ephemeral ?? false,
-    permissionMode: values.auto ? "auto" : parseHeadlessPermissionMode(values["permission-mode"]),
-    permissionRules: [
-      ...parseCliPermissionRules(values.allow, "allow"),
-      ...parseCliPermissionRules(values.ask, "ask"),
-      ...parseCliPermissionRules(values.deny, "deny"),
-    ],
-    tools: values.tools === undefined ? undefined : parseToolNames(values.tools),
-    timeoutMs: values.timeout ? positiveInteger(values.timeout, "--timeout") * 1_000 : undefined,
+    permissionMode: values.auto ? "auto" : (permissionMode as PermissionMode | undefined),
+    permissionRules: (["allow", "ask", "deny"] as const).flatMap((effect) =>
+      (values[effect] ?? []).map((value) => parsePermissionRuleString(value, effect)),
+    ),
+    tools: tools && new Set(tools as ToolName[]),
+    timeoutMs: timeoutSeconds && timeoutSeconds * 1_000,
     outputFormat: outputFormat as HeadlessOutputFormat,
     includeReasoning: values["include-reasoning"] ?? false,
     promptParts: positionals,
   }
 }
 
-function parseHeadlessPermissionMode(value: string | undefined): PermissionMode | undefined {
-  if (value === undefined) return undefined
-  if (value === "dontAsk") return "dontAsk"
-  if (value === "auto") return "auto"
-  throw new Error("--permission-mode must be auto or dontAsk in headless mode.")
-}
-
-function headlessPermissionMode(
-  commandMode: PermissionMode | undefined,
-  configuredMode: PermissionMode | undefined,
-): PermissionMode {
-  const mode = commandMode ?? configuredMode ?? "dontAsk"
-  return mode === "ask" ? "dontAsk" : mode
-}
-
-function parseCliPermissionRules(values: string[] | undefined, effect: PermissionEffect) {
-  return (values ?? []).map((value) => parsePermissionRuleString(value, effect))
-}
-
-async function resolveSessionId(parsed: ReturnType<typeof parseHeadlessArgs>, cwd: string) {
-  if (parsed.session) return parsed.session
-  if (!parsed.continue) return undefined
-  const sessions = await listSessions({ cwd })
-  if (!sessions[0]) throw new Error("There is no session to continue in this working directory.")
-  return sessions[0].id
-}
-
-/** `--tools` narrows the provider's catalog; it cannot enable a tool the provider does not offer. */
-function selectedTools(requestedTools: Set<ToolName> | undefined, provider: ModelProvider): ToolDefinition[] {
-  const available = providerTools(provider)
-  return requestedTools ? available.filter((tool) => requestedTools.has(tool.name)) : available
-}
-
-function parseToolNames(value: string) {
-  const names = value
-    .split(",")
-    .map((name) => name.trim())
-    .filter(Boolean)
-  const result = new Set<ToolName>()
-  for (const name of names) {
-    if (!(TOOL_NAMES as readonly string[]).includes(name)) throw new Error(`Unknown tool: ${name}`)
-    result.add(name as ToolName)
-  }
-  return result
-}
-
-async function readPrompt(parts: string[], stdin: AsyncIterable<unknown>) {
-  const argumentPrompt = parts.join(" ").trim()
-  if (argumentPrompt) return argumentPrompt
-  let stdinPrompt = ""
-  for await (const chunk of stdin) stdinPrompt += String(chunk)
-  return stdinPrompt.trim()
-}
-
-function positiveInteger(value: string, label: string) {
-  const number = Number(value)
-  if (!Number.isSafeInteger(number) || number <= 0) throw new Error(`${label} must be a positive integer.`)
-  return number
-}
-
-function installSignalHandlers(controller: AbortController) {
-  const interrupt = () => controller.abort({ type: "signal", signal: "SIGINT" })
-  const terminate = () => controller.abort({ type: "signal", signal: "SIGTERM" })
-  process.once("SIGINT", interrupt)
-  process.once("SIGTERM", terminate)
-  return () => {
-    process.off("SIGINT", interrupt)
-    process.off("SIGTERM", terminate)
-  }
-}
-
-function interruptionExitCode(signal: AbortSignal) {
-  const reason = signal.reason as { type?: string; signal?: string } | undefined
-  if (reason?.type === "timeout") return 124
-  return reason?.signal === "SIGTERM" ? 143 : 130
-}
-
-function interruptionMessage(signal: AbortSignal) {
+function interruption(signal: AbortSignal) {
   const reason = signal.reason as { type?: string; signal?: string; timeoutMs?: number } | undefined
-  if (reason?.type === "timeout") return `Timed out after ${reason.timeoutMs ?? "unknown"}ms.`
-  if (reason?.signal) return `Interrupted by ${reason.signal}.`
-  return undefined
+  if (reason?.type === "timeout")
+    return { exitCode: 124, message: `Timed out after ${reason.timeoutMs}ms.` }
+  const message = reason?.signal ? `Interrupted by ${reason.signal}.` : undefined
+  return { exitCode: reason?.signal === "SIGTERM" ? 143 : 130, message }
 }
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error)
 }
 
-export const HEADLESS_HELP = `Usage: otis exec [options] [prompt...]
+const HEADLESS_HELP = `Usage: otis exec [options] [prompt...]
 
 Run one non-interactive Otis turn. If no prompt is given, the prompt is read from stdin.
 

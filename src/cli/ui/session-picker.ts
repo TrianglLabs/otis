@@ -2,23 +2,14 @@ import type { ScrollBoxRenderable } from "@opentui/core"
 import { colors } from "../theme.js"
 import { SelectionPulse } from "./color-pulse.js"
 import {
-  createPickerRow,
   type PickerRow,
   type PickerRowSpec,
   paintPickerOutline,
   pickerRowBoxId,
-  stylePickerRow,
+  syncPickerRows,
   truncatePickerLabel,
 } from "./picker-row.js"
-import type { Renderer, SessionPickerItem } from "./types.js"
-
-type PickerKey = {
-  name: string
-  ctrl?: boolean
-  meta?: boolean
-  preventDefault(): void
-  stopPropagation(): void
-}
+import { type Renderer, type SessionPickerItem, stopKey, type UIKey } from "./types.js"
 
 type PickerActions = {
   close: () => void
@@ -37,7 +28,9 @@ export class SessionPicker {
     private readonly renderer: Renderer,
     private readonly container: ScrollBoxRenderable,
   ) {
-    this.#pulse = new SelectionPulse(renderer, (elapsed) => this.paintSelection(elapsed))
+    this.#pulse = new SelectionPulse(renderer, (elapsed) => {
+      if (this.#items.length > 0) paintPickerOutline(this.#rows[this.#selectedIndex], true, elapsed)
+    })
   }
 
   setItems(items: SessionPickerItem[]) {
@@ -55,7 +48,7 @@ export class SessionPicker {
     this.#pulse.stop()
   }
 
-  handleKey(key: PickerKey, actions: PickerActions) {
+  handleKey(key: UIKey, actions: PickerActions) {
     if (key.name === "escape") {
       stopKey(key)
       actions.close()
@@ -63,7 +56,12 @@ export class SessionPicker {
     }
     if (key.name === "up" || key.name === "down") {
       stopKey(key)
-      this.move(key.name === "up" ? -1 : 1)
+      if (this.#items.length === 0) return true
+      const delta = key.name === "up" ? -1 : 1
+      this.#selectedIndex = (this.#selectedIndex + delta + this.#items.length) % this.#items.length
+      this.render()
+      this.scrollToSelection()
+      this.renderer.requestRender()
       return true
     }
     if (key.name === "return" || key.name === "enter") {
@@ -73,13 +71,14 @@ export class SessionPicker {
       if (selected) actions.select(selected.id)
       return true
     }
-    if (!key.ctrl && !key.meta && key.name === "n") {
+    if (key.ctrl || key.meta) return false
+    if (key.name === "n") {
       stopKey(key)
       actions.close()
       actions.create()
       return true
     }
-    if (!key.ctrl && !key.meta && key.name === "d") {
+    if (key.name === "d") {
       stopKey(key)
       const selected = this.#items[this.#selectedIndex]
       if (selected) {
@@ -94,63 +93,35 @@ export class SessionPicker {
     return false
   }
 
-  private move(delta: number) {
-    if (this.#items.length === 0) return
-    this.#selectedIndex = (this.#selectedIndex + delta + this.#items.length) % this.#items.length
-    this.render()
-    this.scrollToSelection()
-    this.renderer.requestRender()
-  }
-
   private render() {
-    const rows = this.rowData()
-    while (this.#rows.length > rows.length) {
-      const row = this.#rows.pop()
-      if (row) this.container.remove(row.box.id)
-    }
-    rows.forEach((row, index) => {
-      this.setRow(index, row)
-    })
-  }
-
-  private rowData(): PickerRowSpec[] {
-    if (this.#items.length === 0) {
-      return [{ title: "No sessions yet", meta: "Press n to start one", fg: colors.muted, selected: false }]
-    }
-
-    return this.#items.map((item, index) => ({
-      title: truncatePickerLabel(item.title, 30),
-      meta: item.detail ? truncatePickerLabel(item.detail, 30) : undefined,
-      fg: item.active ? colors.accent : colors.text,
-      selected: index === this.#selectedIndex,
-    }))
-  }
-
-  private setRow(index: number, spec: PickerRowSpec) {
-    const existing = this.#rows[index]
-    if (existing) {
-      stylePickerRow(existing, spec, this.#pulse.elapsed())
-      return
-    }
-
-    const row = createPickerRow(this.renderer, `session-row-${index}`, { outline: true })
-    stylePickerRow(row, spec, this.#pulse.elapsed())
-    this.#rows.push(row)
-    this.container.add(row.box)
-  }
-
-  private paintSelection(elapsedMs: number) {
-    if (this.#items.length === 0) return
-    const row = this.#rows[this.#selectedIndex]
-    if (row) paintPickerOutline(row, true, elapsedMs)
+    const specs: PickerRowSpec[] =
+      this.#items.length === 0
+        ? [
+            {
+              title: "No sessions yet",
+              meta: "Press n to start one",
+              fg: colors.muted,
+              selected: false,
+            },
+          ]
+        : this.#items.map((item, index) => ({
+            title: truncatePickerLabel(item.title, 30),
+            meta: item.detail ? truncatePickerLabel(item.detail, 30) : undefined,
+            fg: item.active ? colors.accent : colors.text,
+            selected: index === this.#selectedIndex,
+          }))
+    syncPickerRows(
+      this.renderer,
+      this.container,
+      this.#rows,
+      specs,
+      "session-row",
+      () => ({ outline: true }),
+      this.#pulse.elapsed(),
+    )
   }
 
   private scrollToSelection() {
     this.container.scrollChildIntoView(pickerRowBoxId(`session-row-${this.#selectedIndex}`))
   }
-}
-
-function stopKey(key: PickerKey) {
-  key.preventDefault()
-  key.stopPropagation()
 }

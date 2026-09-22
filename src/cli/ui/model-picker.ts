@@ -11,21 +11,15 @@ import { colors } from "../theme.js"
 import { SelectionPulse } from "./color-pulse.js"
 import { FAST_MODE_LABEL, RECOMMENDED_MODEL_MARK } from "./format.js"
 import {
-  createPickerRow,
   type PickerRow,
   type PickerRowSpec,
   paintPickerOutline,
   pickerRowBoxId,
   stylePickerRow,
+  syncPickerRows,
   truncatePickerLabel,
 } from "./picker-row.js"
-import type { Renderer } from "./types.js"
-
-type PickerKey = {
-  name: string
-  preventDefault(): void
-  stopPropagation(): void
-}
+import { type Renderer, stopKey, type UIKey } from "./types.js"
 
 export class ModelPicker {
   readonly #rows: PickerRow[] = []
@@ -41,20 +35,26 @@ export class ModelPicker {
   }
 
   setItems(items: ModelPickerItem[]) {
-    const previousId = this.selectedId()
+    const previous = this.#items[this.#selectedIndex]
+    const previousId = previous && previous.kind !== "header" ? modelPickerKey(previous) : undefined
     this.#items = items
     const keptIndex = previousId
       ? items.findIndex((item) => item.kind !== "header" && modelPickerKey(item) === previousId)
       : -1
-    const activeIndex = items.findIndex((item) => item.kind !== "header" && "active" in item && item.active)
-    this.#selectedIndex = keptIndex >= 0 ? keptIndex : activeIndex >= 0 ? activeIndex : firstSelectableIndex(items)
+    const activeIndex = items.findIndex(
+      (item) => item.kind !== "header" && "active" in item && item.active,
+    )
+    this.#selectedIndex =
+      keptIndex >= 0 ? keptIndex : activeIndex >= 0 ? activeIndex : firstSelectableIndex(items)
     this.render()
     this.scrollToSelection()
     this.#pulse.start()
   }
 
   setItemStatus(id: string, status: ModelPickerStatus | undefined) {
-    const item = this.#items.find((candidate) => candidate.kind === "model" && modelPickerKey(candidate) === id)
+    const item = this.#items.find(
+      (candidate) => candidate.kind === "model" && modelPickerKey(candidate) === id,
+    )
     if (!item || item.kind === "header" || item.provider === "fireworks") return
     item.status = status
     this.render()
@@ -65,7 +65,7 @@ export class ModelPicker {
     this.#pulse.stop()
   }
 
-  handleKey(key: PickerKey, actions: { close: () => void; select: (item: ModelPickerItem) => void }) {
+  handleKey(key: UIKey, actions: { close: () => void; select: (item: ModelPickerItem) => void }) {
     if (key.name === "escape") {
       stopKey(key)
       actions.close()
@@ -73,7 +73,17 @@ export class ModelPicker {
     }
     if (key.name === "up" || key.name === "down") {
       stopKey(key)
-      this.move(key.name === "up" ? -1 : 1)
+      if (this.#items.length === 0) return true
+      const delta = key.name === "up" ? -1 : 1
+      let next = this.#selectedIndex
+      for (let step = 0; step < this.#items.length; step += 1) {
+        next = (next + delta + this.#items.length) % this.#items.length
+        if (this.#items[next]?.kind !== "header") break
+      }
+      this.#selectedIndex = next
+      this.render()
+      this.scrollToSelection()
+      this.renderer.requestRender()
       return true
     }
     if (key.name === "return" || key.name === "enter") {
@@ -85,40 +95,21 @@ export class ModelPicker {
     return false
   }
 
-  private move(delta: number) {
-    if (this.#items.length === 0) return
-    let next = this.#selectedIndex
-    for (let step = 0; step < this.#items.length; step += 1) {
-      next = (next + delta + this.#items.length) % this.#items.length
-      if (this.#items[next]?.kind !== "header") break
-    }
-    this.#selectedIndex = next
-    this.render()
-    this.scrollToSelection()
-    this.renderer.requestRender()
-  }
-
-  private selectedId() {
-    const item = this.#items[this.#selectedIndex]
-    return item && item.kind !== "header" ? modelPickerKey(item) : undefined
-  }
-
   private render() {
-    const rows = this.rowData()
-    while (this.#rows.length > rows.length) {
-      const row = this.#rows.pop()
-      if (row) this.container.remove(row.box.id)
-    }
-    rows.forEach((row, index) => {
-      this.setRow(index, row)
-    })
+    syncPickerRows(
+      this.renderer,
+      this.container,
+      this.#rows,
+      this.rowData(),
+      "model-row",
+      (spec) => ({ outline: spec.header !== true }),
+      this.#pulse.elapsed(),
+    )
   }
 
   private rowData(): PickerRowSpec[] {
-    if (this.#items.length === 0) {
+    if (this.#items.length === 0)
       return [{ title: "No models found", fg: colors.muted, selected: false }]
-    }
-
     return this.#items.map((item, index) => {
       if (item.kind === "header") {
         return {
@@ -130,8 +121,11 @@ export class ModelPicker {
       }
       const disabled = item.available === false
       const suffixes = modelNameSuffixes(item)
+      const marker =
+        item.provider === "local" && item.recommended ? ` ${RECOMMENDED_MODEL_MARK}` : ""
+      const maximum = suffixes.length > 0 ? 20 : 30
       return {
-        title: modelTitle(item, suffixes.length > 0),
+        title: `${truncatePickerLabel(item.displayName, maximum - marker.length)}${marker}`,
         ...(suffixes.length > 0 ? { suffixes } : {}),
         meta: modelMeta(item),
         fg: disabled ? colors.muted : item.active ? colors.accent : colors.text,
@@ -141,28 +135,12 @@ export class ModelPicker {
     })
   }
 
-  private setRow(index: number, spec: PickerRowSpec) {
-    const existing = this.#rows[index]
-    if (existing) {
-      stylePickerRow(existing, spec, this.#pulse.elapsed())
-      return
-    }
-    const row = createPickerRow(this.renderer, `model-row-${index}`, { outline: spec.header !== true })
-    stylePickerRow(row, spec, this.#pulse.elapsed())
-    this.#rows.push(row)
-    this.container.add(row.box)
-  }
-
   private paintPulse(elapsedMs: number) {
-    const specs = this.rowData()
-    specs.forEach((spec, index) => {
+    this.rowData().forEach((spec, index) => {
       const row = this.#rows[index]
-      if (!row) return
-      if (spec.suffixes?.some((suffix) => suffix.shimmer)) {
-        stylePickerRow(row, spec, elapsedMs)
-        return
-      }
-      if (row.outline && spec.selected && spec.header !== true) paintPickerOutline(row, true, elapsedMs)
+      if (spec.suffixes?.some((suffix) => suffix.shimmer)) stylePickerRow(row, spec, elapsedMs)
+      else if (row.outline && spec.selected && spec.header !== true)
+        paintPickerOutline(row, true, elapsedMs)
     })
   }
 
@@ -179,26 +157,19 @@ export class ModelPicker {
   }
 }
 
-function modelTitle(item: ModelPickerChoice, hasSuffix: boolean) {
-  const marker = item.provider === "local" && item.recommended ? ` ${RECOMMENDED_MODEL_MARK}` : ""
-  const maximum = hasSuffix ? 20 : 30
-  return `${truncatePickerLabel(item.displayName, maximum - marker.length)}${marker}`
-}
-
 function modelNameSuffixes(item: ModelPickerChoice) {
   const suffixes: Array<{ text: string; fg?: string; shimmer?: boolean }> = []
-  if (item.provider === "omlx") {
-    if (item.status) suffixes.push({ text: item.status.label, shimmer: item.status.kind === "progress" })
-    return suffixes
-  }
-  if (item.provider === "pair") {
+  const status = item.status
+    ? { text: item.status.label, shimmer: item.status.kind === "progress" }
+    : undefined
+  if (item.provider === "pair")
     suffixes.push({ text: pairEngineLabel(item.engine), fg: colors.muted })
-    if (item.status) suffixes.push({ text: item.status.label, shimmer: item.status.kind === "progress" })
-    return suffixes
+  if (item.provider === "omlx" || item.provider === "pair") {
+    if (status) suffixes.push(status)
+  } else if (item.provider === "local") {
+    if (status) suffixes.push(status)
+    else if (item.downloaded) suffixes.push({ text: "Downloaded", fg: colors.muted })
   }
-  if (item.provider !== "local") return suffixes
-  if (item.status) suffixes.push({ text: item.status.label, shimmer: item.status.kind === "progress" })
-  else if (item.downloaded) suffixes.push({ text: "Downloaded", fg: colors.muted })
   return suffixes
 }
 
@@ -228,11 +199,8 @@ function modelPickerKey(item: ModelPickerChoice) {
 function firstSelectableIndex(items: readonly ModelPickerItem[]) {
   const index = items.findIndex((item) => isSelectablePickerItem(item))
   if (index >= 0) return index
-  const fallback = items.findIndex((item) => item.kind !== "header")
-  return Math.max(0, fallback)
-}
-
-function stopKey(key: PickerKey) {
-  key.preventDefault()
-  key.stopPropagation()
+  return Math.max(
+    0,
+    items.findIndex((item) => item.kind !== "header"),
+  )
 }

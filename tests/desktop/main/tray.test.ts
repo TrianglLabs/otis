@@ -2,7 +2,13 @@ import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { inflateSync } from "node:zlib"
-import { Menu, type MenuItemConstructorOptions, type NativeImage, nativeImage, Tray } from "electron"
+import {
+  Menu,
+  type MenuItemConstructorOptions,
+  type NativeImage,
+  nativeImage,
+  Tray,
+} from "electron"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
   ALERT_DOT,
@@ -12,17 +18,7 @@ import {
   type TrayIconVariant,
 } from "../../../scripts/tray-icon-render.js"
 import type { DesktopStatus } from "../../../src/desktop/contracts.js"
-import {
-  buildTrayMenu,
-  createStatusTray,
-  type TrayActions,
-  type TrayIconKey,
-  type TrayState,
-  trayIconDir,
-  trayIconKey,
-  trayStatusGate,
-  trayTooltip,
-} from "../../../src/desktop/main/tray.js"
+import { createStatusTray, trayIconDir, trayStatusGate } from "../../../src/desktop/main/tray.js"
 import { MARK_FACES, MARK_VIEWBOX, type MarkFace } from "../../../src/desktop/renderer/mark.js"
 
 vi.mock("electron", () => {
@@ -66,6 +62,8 @@ type MockTray = {
   popUpContextMenu: ReturnType<typeof vi.fn>
   destroy: ReturnType<typeof vi.fn>
 }
+
+type TrayActions = Parameters<typeof createStatusTray>[0]["actions"]
 
 function latestTray(): MockTray {
   const tray = (Tray as unknown as { latest?: MockTray }).latest
@@ -139,90 +137,163 @@ function actionsFixture(): TrayActions {
   return { focusWindow: vi.fn(), startNewSession: vi.fn(), stop: vi.fn(), installUpdate: vi.fn() }
 }
 
-const byLabel = (items: MenuItemConstructorOptions[], label: string) => items.find((item) => item.label === label)
+const byLabel = (items: MenuItemConstructorOptions[], label: string) =>
+  items.find((item) => item.label === label)
 
 /** Items without an explicit `enabled` are enabled — Electron's default; only `false` disables. */
 const isEnabled = (item?: MenuItemConstructorOptions) => item?.enabled !== false
 
-const click = (item?: MenuItemConstructorOptions) => (item as { click?: () => void } | undefined)?.click?.()
+const click = (item?: MenuItemConstructorOptions) =>
+  (item as { click?: () => void } | undefined)?.click?.()
+
+/**
+ * A mounted tray with real template icons, read back the way the status bar shows it: the icon
+ * currently set, the tooltip, and the menu that a click opens for a given status.
+ */
+function mountTray(appName?: string) {
+  installMockIcons()
+  const actions = actionsFixture()
+  const statusTray = createStatusTray({ iconDir: "/app/resources/tray", actions, appName })
+  if (!statusTray) throw new Error("Expected a tray")
+  const tray = latestTray()
+  const iconName = (image: unknown) =>
+    /otis(\w+)Template\.png$/.exec((image as MockImage).path)?.[1]?.toLowerCase()
+  return {
+    statusTray,
+    tray,
+    actions,
+    /**
+     * The icon variant currently shown: the last setImage, else the image the tray was built with.
+     */
+    icon: () => iconName(tray.setImage.mock.lastCall?.[0] ?? tray.image),
+    tooltip: () => tray.setToolTip.mock.lastCall?.[0] as string,
+    /** Applies the status (when given), opens the menu on click, and returns its template. */
+    menu: (status?: DesktopStatus) => {
+      if (status) statusTray.onStatus(status)
+      const onClick = tray.on.mock.calls.find(([event]) => event === "click")?.[1] as () => void
+      onClick()
+      return (
+        tray.popUpContextMenu.mock.lastCall?.[0] as { template: MenuItemConstructorOptions[] }
+      ).template
+    },
+  }
+}
 
 beforeEach(() => {
   vi.clearAllMocks()
   installMissingIcons()
-  vi.mocked(Menu.buildFromTemplate).mockImplementation((template) => ({ template }) as unknown as Menu)
+  vi.mocked(Menu.buildFromTemplate).mockImplementation(
+    (template) => ({ template }) as unknown as Menu,
+  )
   ;(Tray as unknown as { latest?: MockTray }).latest = undefined
 })
 
 describe("trayIconDir", () => {
   it("resolves the repo's resources/tray from the dev bundle in out/main", () => {
-    const dir = trayIconDir({ packaged: false, resourcesPath: "/unused", mainDir: join(repoRoot, "out", "main") })
+    const dir = trayIconDir({
+      packaged: false,
+      resourcesPath: "/unused",
+      mainDir: join(repoRoot, "out", "main"),
+    })
     expect(dir).toBe(join(repoRoot, "resources", "tray"))
     expect(existsSync(join(dir, "otisIdleTemplate.png"))).toBe(true)
   })
 
   it("resolves inside Electron's resources directory in a packaged build", () => {
     const resourcesPath = join("/Applications", "Otis.app", "Contents", "Resources")
-    expect(trayIconDir({ packaged: true, resourcesPath, mainDir: join("/anywhere", "out", "main") })).toBe(
-      join(resourcesPath, "tray"),
-    )
+    expect(
+      trayIconDir({ packaged: true, resourcesPath, mainDir: join("/anywhere", "out", "main") }),
+    ).toBe(join(resourcesPath, "tray"))
   })
 })
 
-describe("trayIconKey", () => {
+describe("tray icon", () => {
   it("is idle when nothing is in flight", () => {
-    expect(trayIconKey(statusFixture())).toBe("idle")
+    const mounted = mountTray()
+    mounted.statusTray.onStatus(statusFixture())
+    expect(mounted.icon()).toBe("idle")
   })
 
   it("is working while a turn is busy or mid-phase", () => {
-    expect(trayIconKey(statusFixture({ busy: true }))).toBe("working")
-    expect(trayIconKey(statusFixture({ phase: "thinking" }))).toBe("working")
-    expect(trayIconKey(statusFixture({ phase: "working" }))).toBe("working")
+    for (const overrides of [
+      { busy: true },
+      { phase: "thinking" },
+      { phase: "working" },
+    ] as const) {
+      const mounted = mountTray()
+      mounted.statusTray.onStatus(statusFixture(overrides))
+      expect(mounted.icon()).toBe("working")
+    }
   })
 
   it("is working while the model boots or a download is in flight", () => {
-    expect(trayIconKey(statusFixture({ modelState: "starting" }))).toBe("working")
-    expect(
-      trayIconKey(statusFixture({ modelLoad: { modelId: "m", status: { label: "Downloading…", kind: "progress" } } })),
-    ).toBe("working")
+    const booting = mountTray()
+    booting.statusTray.onStatus(statusFixture({ modelState: "starting" }))
+    expect(booting.icon()).toBe("working")
+    const downloading = mountTray()
+    downloading.statusTray.onStatus(
+      statusFixture({
+        modelLoad: { modelId: "m", status: { label: "Downloading…", kind: "progress" } },
+      }),
+    )
+    expect(downloading.icon()).toBe("working")
   })
 
   it("shows the alert when a permission blocks the run, outranking active work", () => {
-    expect(
-      trayIconKey(
-        statusFixture({
-          busy: true,
-          phase: "working",
-          permission: { id: 4, label: "Edit src/app/conversation.ts", kind: "file_edit", resources: [] },
-        }),
-      ),
-    ).toBe("alert")
+    const mounted = mountTray()
+    mounted.statusTray.onStatus(
+      statusFixture({
+        busy: true,
+        phase: "working",
+        permission: {
+          id: 4,
+          label: "Edit src/app/conversation.ts",
+          kind: "file_edit",
+          resources: [],
+        },
+      }),
+    )
+    expect(mounted.icon()).toBe("alert")
   })
 
   it("treats a failed model load as quiet, not activity", () => {
-    expect(
-      trayIconKey(statusFixture({ modelLoad: { modelId: "m", status: { label: "Failed: boom", kind: "error" } } })),
-    ).toBe("idle")
+    const mounted = mountTray()
+    mounted.statusTray.onStatus(
+      statusFixture({
+        modelLoad: { modelId: "m", status: { label: "Failed: boom", kind: "error" } },
+      }),
+    )
+    expect(mounted.icon()).toBe("idle")
   })
 })
 
-describe("trayTooltip", () => {
+describe("tray tooltip", () => {
   it("tracks the glanceable state", () => {
-    expect(trayTooltip(statusFixture())).toBe("Otis — ready")
-    expect(trayTooltip(statusFixture({ busy: true, phase: "thinking" }))).toBe("Otis — thinking")
-    expect(trayTooltip(statusFixture({ busy: true, phase: "working" }))).toBe("Otis — working")
-    expect(trayTooltip(statusFixture({ modelState: "starting" }))).toBe("Otis — preparing a model")
-    expect(
-      trayTooltip(statusFixture({ modelLoad: { modelId: "m", status: { label: "Downloading…", kind: "progress" } } })),
-    ).toBe("Otis — preparing a model")
-    expect(
-      trayTooltip(statusFixture({ permission: { id: 4, label: "Edit a file", kind: "file_edit", resources: [] } })),
-    ).toBe("Otis — needs your approval")
+    const cases: [Partial<DesktopStatus>, string][] = [
+      [{}, "Otis — ready"],
+      [{ busy: true, phase: "thinking" }, "Otis — thinking"],
+      [{ busy: true, phase: "working" }, "Otis — working"],
+      [{ modelState: "starting" }, "Otis — preparing a model"],
+      [
+        { modelLoad: { modelId: "m", status: { label: "Downloading…", kind: "progress" } } },
+        "Otis — preparing a model",
+      ],
+      [
+        { permission: { id: 4, label: "Edit a file", kind: "file_edit", resources: [] } },
+        "Otis — needs your approval",
+      ],
+    ]
+    for (const [overrides, expected] of cases) {
+      const mounted = mountTray()
+      mounted.statusTray.onStatus(statusFixture(overrides))
+      expect(mounted.tooltip()).toBe(expected)
+    }
   })
 })
 
-describe("buildTrayMenu", () => {
+describe("tray menu", () => {
   it("leads with the session's informational state, all disabled", () => {
-    const items = buildTrayMenu(statusFixture(), actionsFixture())
+    const items = mountTray().menu(statusFixture())
     const labels = items.map((item) => item.label)
     expect(labels).toContain("Fix session lock behavior")
     expect(labels).toContain("Model: Kimi K2")
@@ -234,38 +305,43 @@ describe("buildTrayMenu", () => {
   })
 
   it("omits the context row until the session has one", () => {
-    const items = buildTrayMenu(statusFixture({ contextTokens: undefined }), actionsFixture())
+    const items = mountTray().menu(statusFixture({ contextTokens: undefined }))
     expect(items.some((item) => item.label?.startsWith("Context"))).toBe(false)
   })
 
   it("describes the model by its short id when no display name is set", () => {
-    const items = buildTrayMenu(
+    const items = mountTray().menu(
       statusFixture({
-        model: { id: "accounts/fireworks/models/kimi-k2", provider: "fireworks", supportsImageInput: false },
+        model: {
+          id: "accounts/fireworks/models/kimi-k2",
+          provider: "fireworks",
+          supportsImageInput: false,
+        },
       }),
-      actionsFixture(),
     )
     expect(byLabel(items, "Model: kimi-k2")).toBeDefined()
   })
 
   it("says what is wrong instead of a model name during setup states", () => {
-    const unconfigured = buildTrayMenu(statusFixture({ model: null, modelState: "unconfigured" }), actionsFixture())
+    const unconfigured = mountTray().menu(
+      statusFixture({ model: null, modelState: "unconfigured" }),
+    )
     expect(byLabel(unconfigured, "No model selected")).toBeDefined()
-    const starting = buildTrayMenu(statusFixture({ modelState: "starting" }), actionsFixture())
+    const starting = mountTray().menu(statusFixture({ modelState: "starting" }))
     expect(byLabel(starting, "Starting model…")).toBeDefined()
-    const failed = buildTrayMenu(statusFixture({ modelState: "failed", modelError: "boom" }), actionsFixture())
+    const failed = mountTray().menu(statusFixture({ modelState: "failed", modelError: "boom" }))
     expect(byLabel(failed, "Model failed to start")).toBeDefined()
   })
 
   it("offers fresh start, show, and quit — and nothing else when quiet", () => {
-    const actions = actionsFixture()
-    const items = buildTrayMenu(statusFixture(), actions)
+    const mounted = mountTray()
+    const items = mounted.menu(statusFixture())
     const fresh = byLabel(items, "Fresh start")
     expect(fresh?.enabled).toBe(true)
     click(fresh)
-    expect(actions.startNewSession).toHaveBeenCalledOnce()
+    expect(mounted.actions.startNewSession).toHaveBeenCalledOnce()
     click(byLabel(items, "Show Otis"))
-    expect(actions.focusWindow).toHaveBeenCalledOnce()
+    expect(mounted.actions.focusWindow).toHaveBeenCalledOnce()
     expect(byLabel(items, "Stop working")).toBeUndefined()
     expect(items.some((item) => item.label?.startsWith("Needs approval"))).toBe(false)
     expect(items.some((item) => item.label?.startsWith("Coworkers"))).toBe(false)
@@ -275,71 +351,84 @@ describe("buildTrayMenu", () => {
   })
 
   it("refuses a fresh start mid-turn and offers stop instead", () => {
-    const actions = actionsFixture()
-    const items = buildTrayMenu(statusFixture({ busy: true, phase: "working" }), actions)
+    const mounted = mountTray()
+    const items = mounted.menu(statusFixture({ busy: true, phase: "working" }))
     expect(byLabel(items, "Fresh start")?.enabled).toBe(false)
     const stop = byLabel(items, "Stop working")
     expect(isEnabled(stop)).toBe(true)
     click(stop)
-    expect(actions.stop).toHaveBeenCalledOnce()
-    expect(actions.startNewSession).not.toHaveBeenCalled()
+    expect(mounted.actions.stop).toHaveBeenCalledOnce()
+    expect(mounted.actions.startNewSession).not.toHaveBeenCalled()
   })
 
   it("surfaces a pending permission as the action that needs the user", () => {
-    const actions = actionsFixture()
-    const items = buildTrayMenu(
+    const mounted = mountTray()
+    const items = mounted.menu(
       statusFixture({
         busy: true,
         phase: "working",
-        permission: { id: 4, label: "Edit src/app/conversation.ts", kind: "file_edit", resources: [] },
+        permission: {
+          id: 4,
+          label: "Edit src/app/conversation.ts",
+          kind: "file_edit",
+          resources: [],
+        },
       }),
-      actions,
     )
     const approval = byLabel(items, "Needs approval: Edit src/app/conversation.ts")
     expect(isEnabled(approval)).toBe(true)
     click(approval)
-    expect(actions.focusWindow).toHaveBeenCalledOnce()
+    expect(mounted.actions.focusWindow).toHaveBeenCalledOnce()
   })
 
   it("reports model download progress while it is in flight", () => {
-    const items = buildTrayMenu(
+    const items = mountTray().menu(
       statusFixture({
-        modelLoad: { modelId: "qwen3-30b-a3b", status: { label: "Downloading Qwen3 30B A3B — 42%", kind: "progress" } },
+        modelLoad: {
+          modelId: "qwen3-30b-a3b",
+          status: { label: "Downloading Qwen3 30B A3B — 42%", kind: "progress" },
+        },
       }),
-      actionsFixture(),
     )
     expect(byLabel(items, "Downloading Qwen3 30B A3B — 42%")?.enabled).toBe(false)
   })
 
   it("counts only running coworkers", () => {
-    const items = buildTrayMenu(
+    const items = mountTray().menu(
       statusFixture({
         subagents: [
           { toolCallId: "t1", title: "Check session lock behavior", status: "running", tools: 3 },
           { toolCallId: "t2", title: "Audit storage writes", status: "running", tools: 1 },
-          { toolCallId: "t0", title: "Map the workspace", status: "complete", durationMs: 4_100, tools: 2 },
+          {
+            toolCallId: "t0",
+            title: "Map the workspace",
+            status: "complete",
+            durationMs: 4_100,
+            tools: 2,
+          },
         ],
       }),
-      actionsFixture(),
     )
     expect(byLabel(items, "Coworkers: 2 running")?.enabled).toBe(false)
   })
 
   it("offers to restart into a ready update", () => {
-    const actions = actionsFixture()
-    const items = buildTrayMenu(statusFixture({ update: { status: "ready", version: "0.2.0" } }), actions)
+    const mounted = mountTray()
+    const items = mounted.menu(statusFixture({ update: { status: "ready", version: "0.2.0" } }))
     const restart = byLabel(items, "Restart to update — 0.2.0")
     expect(isEnabled(restart)).toBe(true)
     click(restart)
-    expect(actions.installUpdate).toHaveBeenCalledOnce()
+    expect(mounted.actions.installUpdate).toHaveBeenCalledOnce()
   })
 
   it("shows a disabled row while an update downloads, with no install action", () => {
-    const actions = actionsFixture()
-    const items = buildTrayMenu(statusFixture({ update: { status: "downloading", version: "0.2.0" } }), actions)
+    const mounted = mountTray()
+    const items = mounted.menu(
+      statusFixture({ update: { status: "downloading", version: "0.2.0" } }),
+    )
     expect(byLabel(items, "Downloading update — 0.2.0")?.enabled).toBe(false)
     click(byLabel(items, "Downloading update — 0.2.0"))
-    expect(actions.installUpdate).not.toHaveBeenCalled()
+    expect(mounted.actions.installUpdate).not.toHaveBeenCalled()
   })
 })
 
@@ -416,18 +505,25 @@ describe("createStatusTray", () => {
 
   it("opens menus synchronously from the latest status on click and right-click", () => {
     installMockIcons()
-    const statusTray = createStatusTray({ iconDir: "/app/resources/tray", actions: actionsFixture() })
+    const statusTray = createStatusTray({
+      iconDir: "/app/resources/tray",
+      actions: actionsFixture(),
+    })
     expect(statusTray).toBeDefined()
     const tray = latestTray()
     const onClick = tray.on.mock.calls.find(([event]) => event === "click")?.[1] as () => void
-    const onRightClick = tray.on.mock.calls.find(([event]) => event === "right-click")?.[1] as () => void
+    const onRightClick = tray.on.mock.calls.find(
+      ([event]) => event === "right-click",
+    )?.[1] as () => void
     expect(onClick).toBeTypeOf("function")
     expect(onRightClick).toBeTypeOf("function")
     statusTray?.onStatus(statusFixture())
     onClick()
     expect(tray.popUpContextMenu).toHaveBeenCalledOnce()
     expect(Menu.buildFromTemplate).toHaveBeenCalledOnce()
-    const firstMenu = tray.popUpContextMenu.mock.lastCall?.[0] as { template: MenuItemConstructorOptions[] }
+    const firstMenu = tray.popUpContextMenu.mock.lastCall?.[0] as {
+      template: MenuItemConstructorOptions[]
+    }
     expect(firstMenu.template.map((item) => item.label)).toContain("Fix session lock behavior")
 
     // Menu-only changes must be retained even when the icon and tooltip stay idle.
@@ -435,7 +531,9 @@ describe("createStatusTray", () => {
     expect(Menu.buildFromTemplate).toHaveBeenCalledOnce()
     onRightClick()
     expect(tray.popUpContextMenu).toHaveBeenCalledTimes(2)
-    const secondMenu = tray.popUpContextMenu.mock.lastCall?.[0] as { template: MenuItemConstructorOptions[] }
+    const secondMenu = tray.popUpContextMenu.mock.lastCall?.[0] as {
+      template: MenuItemConstructorOptions[]
+    }
     expect(secondMenu.template.map((item) => item.label)).toContain("Latest session")
     expect(secondMenu.template.map((item) => item.label)).not.toContain("Fix session lock behavior")
     expect(tray.setImage).not.toHaveBeenCalled()
@@ -450,7 +548,9 @@ describe("createStatusTray", () => {
     const onClick = tray.on.mock.calls.find(([event]) => event === "click")?.[1] as () => void
     onClick()
     expect(tray.popUpContextMenu).toHaveBeenCalledOnce()
-    const menu = tray.popUpContextMenu.mock.lastCall?.[0] as { template: MenuItemConstructorOptions[] }
+    const menu = tray.popUpContextMenu.mock.lastCall?.[0] as {
+      template: MenuItemConstructorOptions[]
+    }
     expect(byLabel(menu.template, "Starting Otis…")?.enabled).toBe(false)
     expect(byLabel(menu.template, "Fresh start")).toBeUndefined()
     expect(byLabel(menu.template, "Quit Otis")?.role).toBe("quit")
@@ -460,13 +560,17 @@ describe("createStatusTray", () => {
 
   it("does not rewrite the native icon or tooltip for repeated status flushes", () => {
     installMockIcons()
-    const statusTray = createStatusTray({ iconDir: "/app/resources/tray", actions: actionsFixture() })
+    const statusTray = createStatusTray({
+      iconDir: "/app/resources/tray",
+      actions: actionsFixture(),
+    })
     const tray = latestTray()
     for (let i = 0; i < 100; i++) statusTray?.onStatus(statusFixture({ contextTokens: i }))
     expect(tray.setImage).not.toHaveBeenCalled()
     expect(tray.setToolTip).toHaveBeenCalledExactlyOnceWith("Otis — ready")
 
-    for (let i = 0; i < 100; i++) statusTray?.onStatus(statusFixture({ busy: true, phase: "thinking" }))
+    for (let i = 0; i < 100; i++)
+      statusTray?.onStatus(statusFixture({ busy: true, phase: "thinking" }))
     expect(tray.setImage).toHaveBeenCalledOnce()
     expect(tray.setToolTip).toHaveBeenCalledTimes(2)
     expect(tray.setToolTip).toHaveBeenLastCalledWith("Otis — thinking")
@@ -486,7 +590,10 @@ describe("createStatusTray", () => {
 
   it("keeps menu state from regressing when the seed arrives after a live status", () => {
     installMockIcons()
-    const statusTray = createStatusTray({ iconDir: "/app/resources/tray", actions: actionsFixture() })
+    const statusTray = createStatusTray({
+      iconDir: "/app/resources/tray",
+      actions: actionsFixture(),
+    })
     if (!statusTray) throw new Error("Expected a tray")
     const gate = trayStatusGate(statusTray)
     gate.applyLive(statusFixture({ busy: true, session: { id: "s2", title: "Current session" } }))
@@ -494,7 +601,9 @@ describe("createStatusTray", () => {
     const tray = latestTray()
     const onClick = tray.on.mock.calls.find(([event]) => event === "click")?.[1] as () => void
     onClick()
-    const menu = tray.popUpContextMenu.mock.lastCall?.[0] as { template: MenuItemConstructorOptions[] }
+    const menu = tray.popUpContextMenu.mock.lastCall?.[0] as {
+      template: MenuItemConstructorOptions[]
+    }
     expect(menu.template.map((item) => item.label)).toContain("Current session")
     expect(byLabel(menu.template, "Fresh start")?.enabled).toBe(false)
     expect(byLabel(menu.template, "Stop working")).toBeDefined()
@@ -516,7 +625,12 @@ describe("createStatusTray", () => {
       statusFixture({
         busy: true,
         phase: "working",
-        permission: { id: 4, label: "Edit src/app/conversation.ts", kind: "file_edit", resources: [] },
+        permission: {
+          id: 4,
+          label: "Edit src/app/conversation.ts",
+          kind: "file_edit",
+          resources: [],
+        },
       }),
     )
     const alertImage = images.find((image) => image.path.endsWith("otisAlertTemplate.png"))
@@ -537,10 +651,18 @@ describe("createStatusTray", () => {
 })
 
 describe("trayStatusGate", () => {
-  /** Records the icon each applied status would show, the way createStatusTray's onStatus drives the real tray. */
+  /**
+   * Records the icon each applied status shows on a real tray, the way the desktop main drives it.
+   */
   function recordingTray() {
-    const icons: TrayIconKey[] = []
-    const tray = { onStatus: (status: TrayState) => void icons.push(trayIconKey(status)) }
+    const mounted = mountTray()
+    const icons: string[] = []
+    const tray = {
+      onStatus(status: DesktopStatus) {
+        mounted.statusTray.onStatus(status)
+        icons.push(mounted.icon() ?? "")
+      },
+    }
     return { icons, tray }
   }
 
@@ -554,7 +676,8 @@ describe("trayStatusGate", () => {
   it("drops a seed that resolves after a live status, keeping the newer working icon", () => {
     const { icons, tray } = recordingTray()
     const gate = trayStatusGate(tray)
-    // The seed's busy/phase were captured before the turn started, so it is stale by the time it resolves.
+    // The seed's busy/phase were captured before the turn started, so it is stale by the time it
+    // resolves.
     const staleSeed = statusFixture()
     gate.applyLive(statusFixture({ phase: "thinking" }))
     gate.applySeed(staleSeed)
@@ -564,7 +687,11 @@ describe("trayStatusGate", () => {
   it("drops a seed that resolves after a live approval request, keeping the alert icon", () => {
     const { icons, tray } = recordingTray()
     const gate = trayStatusGate(tray)
-    gate.applyLive(statusFixture({ permission: { id: 4, label: "Edit a file", kind: "file_edit", resources: [] } }))
+    gate.applyLive(
+      statusFixture({
+        permission: { id: 4, label: "Edit a file", kind: "file_edit", resources: [] },
+      }),
+    )
     gate.applySeed(statusFixture())
     expect(icons).toEqual(["alert"])
   })
@@ -584,7 +711,12 @@ const iconCases = [
   { variant: "idle" as TrayIconVariant, label: "1×", size: TRAY_ICON_SIZES.base, suffix: "" },
   { variant: "idle" as TrayIconVariant, label: "2×", size: TRAY_ICON_SIZES.retina, suffix: "@2x" },
   { variant: "working" as TrayIconVariant, label: "1×", size: TRAY_ICON_SIZES.base, suffix: "" },
-  { variant: "working" as TrayIconVariant, label: "2×", size: TRAY_ICON_SIZES.retina, suffix: "@2x" },
+  {
+    variant: "working" as TrayIconVariant,
+    label: "2×",
+    size: TRAY_ICON_SIZES.retina,
+    suffix: "@2x",
+  },
   { variant: "alert" as TrayIconVariant, label: "1×", size: TRAY_ICON_SIZES.base, suffix: "" },
   { variant: "alert" as TrayIconVariant, label: "2×", size: TRAY_ICON_SIZES.retina, suffix: "@2x" },
 ]
@@ -600,8 +732,12 @@ describe("committed tray icons", () => {
     expect(committed.readUInt32BE(20)).toBe(case_.size.height)
   })
 
-  it.each(iconCases)("otis $variant ($label) is a template image: black pixels, artwork present", (case_) => {
-    const { width, height, rgba } = decodePng(readFileSync(join(repoRoot, "resources", "tray", iconName(case_))))
+  it.each(
+    iconCases,
+  )("otis $variant ($label) is a template image: black pixels, artwork present", (case_) => {
+    const { width, height, rgba } = decodePng(
+      readFileSync(join(repoRoot, "resources", "tray", iconName(case_))),
+    )
     expect(width).toBe(case_.size.width)
     expect(height).toBe(case_.size.height)
     const nonBlack: number[] = []
@@ -609,16 +745,22 @@ describe("committed tray icons", () => {
     for (let pixel = 0; pixel < width * height; pixel++) {
       if (rgba[pixel * 4 + 3] === 0) continue
       opaque += 1
-      if (rgba[pixel * 4] !== 0 || rgba[pixel * 4 + 1] !== 0 || rgba[pixel * 4 + 2] !== 0) nonBlack.push(pixel)
+      if (rgba[pixel * 4] !== 0 || rgba[pixel * 4 + 1] !== 0 || rgba[pixel * 4 + 2] !== 0)
+        nonBlack.push(pixel)
     }
     expect(nonBlack).toEqual([])
     expect(opaque).toBeGreaterThan(0)
   })
 })
 
-/** Minimal PNG reader for the committed assets: filter-free RGBA scanlines, exactly what the generator emits. */
+/**
+ * Minimal PNG reader for the committed assets: filter-free RGBA scanlines, exactly what the
+ * generator emits.
+ */
 function decodePng(bytes: Buffer): { width: number; height: number; rgba: Buffer } {
-  expect(bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))).toBe(true)
+  expect(
+    bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])),
+  ).toBe(true)
   let offset = 8
   let width = 0
   let height = 0
@@ -703,7 +845,8 @@ describe("tray icon artwork", () => {
   it("alert changes nothing outside the badge and its ring", () => {
     const idle = alpha("idle")
     const alert = alpha("alert")
-    // A 2px halo around the badge absorbs anti-aliasing bleed; beyond it the grids must be identical.
+    // A 2px halo around the badge absorbs anti-aliasing bleed; beyond it the grids must be
+    // identical.
     const guard = ALERT_DOT.radius + ALERT_DOT.border + 2 / scale
     const changed: number[] = []
     for (let y = 0; y < size.height; y++) {

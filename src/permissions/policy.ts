@@ -1,14 +1,13 @@
-import { realpath } from "node:fs/promises"
-import { relative, resolve, sep } from "node:path"
-import { resolveArtifactSource } from "../artifacts/source.js"
-import { editedDocumentPath } from "../tools/document-path.js"
+import { readFile, realpath } from "node:fs/promises"
+import { join, relative, resolve, sep } from "node:path"
+import { resolveArtifactSource } from "../artifacts/files.js"
 import { TOOL_NAMES, type ToolCall, type ToolName } from "../tools/index.js"
-import { resolveWorkspacePath } from "../tools/workspace.js"
+import { editedDocumentPath, resolveWorkspacePath } from "../tools/workspace.js"
 
-export const PERMISSION_EFFECTS = ["allow", "ask", "deny"] as const
-export type PermissionEffect = (typeof PERMISSION_EFFECTS)[number]
+const PERMISSION_EFFECTS = ["allow", "ask", "deny"] as const
+type PermissionEffect = (typeof PERMISSION_EFFECTS)[number]
 
-export const PERMISSION_MODES = ["ask", "auto", "dontAsk"] as const
+const PERMISSION_MODES = ["ask", "auto", "dontAsk"] as const
 export type PermissionMode = (typeof PERMISSION_MODES)[number]
 export const DEFAULT_PERMISSION_MODE: PermissionMode = "auto"
 
@@ -23,7 +22,7 @@ export type PermissionConfig = {
   rules: PermissionRule[]
 }
 
-export type PermissionDecision = {
+type PermissionDecision = {
   effect: PermissionEffect
   resources: string[]
   rule?: PermissionRule
@@ -54,6 +53,7 @@ const RESTRICTED_BY_DEFAULT = new Set<ToolName>([
   "document",
   "save_attachment",
 ])
+const PRECEDENCE = ["deny", "ask", "allow"] as const
 
 export function createPermissionPolicy(options: PermissionPolicyOptions): PermissionPolicy {
   const rules = (options.rules ?? []).map((rule) => ({
@@ -65,71 +65,84 @@ export function createPermissionPolicy(options: PermissionPolicyOptions): Permis
   return {
     async evaluate(call) {
       const source =
-        call.name === "publish_artifact" ? await resolveArtifactSource(call.input.path, options.cwd) : undefined
+        call.name === "publish_artifact"
+          ? await resolveArtifactSource(call.input.path, options.cwd)
+          : undefined
       const resources = source?.resources ?? (await permissionResources(call, options.cwd))
-      const fallback = source?.external
-        ? options.mode === "dontAsk"
-          ? "deny"
-          : "ask"
-        : call.name === "document" && call.input.operation === "check"
-          ? "allow"
-          : defaultEffect(call.name, options.mode)
-      const decisions = resources.map((resource) => {
-        for (const effect of ["deny", "ask", "allow"] as const) {
-          const candidate = rules.find(
-            (candidate) =>
-              candidate.rule.effect === effect &&
-              candidate.tool.test(call.name) &&
-              (call.name === "bash" && candidate.rule.effect === "allow"
-                ? candidate.shellResource
-                : candidate.resource
-              ).test(resource),
-          )
-          if (candidate) return { effect, rule: candidate.rule }
-        }
-        return { effect: fallback }
-      })
-      for (const effect of ["deny", "ask", "allow"] as const) {
-        const decision = decisions.find((candidate) => candidate.effect === effect)
-        if (decision)
-          return {
-            effect,
-            resources,
-            ...(decision.rule ? { rule: decision.rule } : {}),
-            ...(source ? { artifactPath: source.path } : {}),
+      // Publishing an external file needs approval even in auto mode; readiness checks never do.
+      const mode = source?.external && options.mode === "auto" ? "ask" : options.mode
+      const restricted =
+        source?.external ||
+        (RESTRICTED_BY_DEFAULT.has(call.name) &&
+          !(call.name === "document" && call.input.operation === "check"))
+      const fallback: PermissionEffect =
+        !restricted || mode === "auto" ? "allow" : mode === "dontAsk" ? "deny" : "ask"
+      const decisions = resources.map(
+        (resource): { effect: PermissionEffect; rule?: PermissionRule } => {
+          for (const effect of PRECEDENCE) {
+            const candidate = rules.find(
+              (candidate) =>
+                candidate.rule.effect === effect &&
+                candidate.tool.test(call.name) &&
+                (call.name === "bash" && effect === "allow"
+                  ? candidate.shellResource
+                  : candidate.resource
+                ).test(resource),
+            )
+            if (candidate) return { effect, rule: candidate.rule }
           }
+          return { effect: fallback }
+        },
+      )
+      const decision = decisions.sort(
+        (left, right) => PRECEDENCE.indexOf(left.effect) - PRECEDENCE.indexOf(right.effect),
+      )[0] ?? { effect: fallback }
+      return {
+        effect: decision.effect,
+        resources,
+        ...(decision.rule ? { rule: decision.rule } : {}),
+        ...(source ? { artifactPath: source.path } : {}),
       }
-      return { effect: fallback, resources, ...(source ? { artifactPath: source.path } : {}) }
     },
   }
 }
 
 export function parsePermissionConfig(value: unknown, label = "permissions"): PermissionConfig {
   if (!isRecord(value)) throw new Error(`${label} must be an object.`)
-  const defaultMode = optionalPermissionMode(value.defaultMode, `${label}.defaultMode`)
-  if (value.rules !== undefined && !Array.isArray(value.rules)) throw new Error(`${label}.rules must be an array.`)
+  const defaultMode = value.defaultMode
+  if (
+    defaultMode !== undefined &&
+    !(
+      typeof defaultMode === "string" &&
+      (PERMISSION_MODES as readonly string[]).includes(defaultMode)
+    )
+  )
+    throw new Error(`${label}.defaultMode must be ask, auto, or dontAsk.`)
+  if (value.rules !== undefined && !Array.isArray(value.rules))
+    throw new Error(`${label}.rules must be an array.`)
   const rules = value.rules ?? []
   return {
-    ...(defaultMode ? { defaultMode } : {}),
+    ...(defaultMode ? { defaultMode: defaultMode as PermissionMode } : {}),
     rules: rules.map((rule, index) => parsePermissionRule(rule, `${label}.rules[${index}]`)),
   }
 }
 
-export function parsePermissionRule(value: unknown, label = "permission rule"): PermissionRule {
+function parsePermissionRule(value: unknown, label = "permission rule"): PermissionRule {
   if (!isRecord(value)) throw new Error(`${label} must be an object.`)
-  const tool = typeof value.tool === "string" ? normalizePermissionTool(value.tool) : undefined
-  const effect = value.effect
-  const resource = value.resource
-  if (!tool) {
+  const tool = typeof value.tool === "string" ? value.tool.toLowerCase() : ""
+  if (tool !== "*" && !(TOOL_NAMES as readonly string[]).includes(tool))
     throw new Error(`${label}.tool must be * or a known tool name.`)
-  }
-  if (typeof effect !== "string" || !isPermissionEffect(effect)) {
+  const effect = value.effect
+  if (typeof effect !== "string" || !(PERMISSION_EFFECTS as readonly string[]).includes(effect))
     throw new Error(`${label}.effect must be allow, ask, or deny.`)
-  }
-  if (resource !== undefined && (typeof resource !== "string" || !resource.trim())) {
+  const resource = value.resource
+  if (resource !== undefined && (typeof resource !== "string" || !resource.trim()))
     throw new Error(`${label}.resource must be a non-empty string.`)
+  return {
+    tool: tool as PermissionRule["tool"],
+    effect: effect as PermissionEffect,
+    ...(typeof resource === "string" ? { resource: resource.trim() } : {}),
   }
-  return { tool, effect, ...(typeof resource === "string" ? { resource: resource.trim() } : {}) }
 }
 
 export function parsePermissionRuleString(value: string, effect: PermissionEffect): PermissionRule {
@@ -138,7 +151,10 @@ export function parsePermissionRuleString(value: string, effect: PermissionEffec
   if (!input) throw new Error(`--${effect} requires a permission rule.`)
   if (open === -1) return parsePermissionRule({ tool: input, effect }, `--${effect}`)
   if (!input.endsWith(")") || open === 0) throw new Error(`Invalid --${effect} rule: ${value}`)
-  return parsePermissionRule({ tool: input.slice(0, open), resource: input.slice(open + 1, -1), effect }, `--${effect}`)
+  return parsePermissionRule(
+    { tool: input.slice(0, open), resource: input.slice(open + 1, -1), effect },
+    `--${effect}`,
+  )
 }
 
 async function permissionResources(call: ToolCall, cwd: string): Promise<string[]> {
@@ -147,44 +163,35 @@ async function permissionResources(call: ToolCall, cwd: string): Promise<string[
   if (call.name === "web_read") return [call.input.url]
   if (call.name === "web_search") return call.input.searchQueries
   if (call.name === "agent") return [call.input.description]
-  if (call.name === "edit_document") {
-    const paths = [call.input.path]
-    if (!call.input.replaceOriginal) paths.push(call.input.outputPath ?? editedDocumentPath(call.input.path))
-    return unique((await Promise.all(paths.map((path) => workspaceResources(path, cwd)))).flat())
-  }
-  if (call.name === "document") {
-    const paths = [call.input.path, call.input.specPath, call.input.outputPath].filter((path): path is string =>
-      Boolean(path),
-    )
-    return paths.length
-      ? unique((await Promise.all(paths.map((path) => workspaceResources(path, cwd)))).flat())
-      : ["check"]
-  }
-  return workspaceResources(call.input.path, cwd)
-}
-
-function unique(values: string[]) {
-  return [...new Set(values)]
-}
-
-async function workspaceResources(path: string, cwd: string) {
-  const lexical = workspaceResource(resolve(cwd, path), cwd)
-  const canonicalPath = await resolveWorkspacePath(path, { cwd }, { allowMissingLeaf: true })
-  const canonical = workspaceResource(canonicalPath, await realpath(resolve(cwd)))
-  return lexical === canonical ? [lexical] : [lexical, canonical]
+  const paths =
+    call.name === "edit_document"
+      ? [
+          call.input.path,
+          ...(call.input.replaceOriginal
+            ? []
+            : [call.input.outputPath ?? editedDocumentPath(call.input.path)]),
+        ]
+      : call.name === "document"
+        ? [call.input.path, call.input.specPath, call.input.outputPath].filter(
+            (path): path is string => Boolean(path),
+          )
+        : [call.input.path]
+  if (paths.length === 0) return ["check"]
+  const resources = await Promise.all(
+    paths.map(async (path) => {
+      const lexical = workspaceResource(resolve(cwd, path), cwd)
+      const canonicalPath = await resolveWorkspacePath(path, { cwd }, { allowMissingLeaf: true })
+      const canonical = workspaceResource(canonicalPath, await realpath(resolve(cwd)))
+      return lexical === canonical ? [lexical] : [lexical, canonical]
+    }),
+  )
+  return [...new Set(resources.flat())]
 }
 
 function workspaceResource(absolute: string, cwd: string) {
   const local = relative(cwd, absolute)
   if (!local) return "."
   return local.split(sep).join("/")
-}
-
-function defaultEffect(tool: ToolName, mode: PermissionMode): PermissionEffect {
-  if (!RESTRICTED_BY_DEFAULT.has(tool)) return "allow"
-  if (mode === "auto") return "allow"
-  if (mode === "dontAsk") return "deny"
-  return "ask"
 }
 
 function compilePattern(pattern: string, options: { shellSafeWildcard?: boolean } = {}) {
@@ -201,29 +208,32 @@ function compilePattern(pattern: string, options: { shellSafeWildcard?: boolean 
   return new RegExp(`^${expression}$`, "u")
 }
 
-function optionalPermissionMode(value: unknown, label: string): PermissionMode | undefined {
-  if (value === undefined) return undefined
-  if (typeof value === "string" && isPermissionMode(value)) return value
-  throw new Error(`${label} must be ask, auto, or dontAsk.`)
-}
-
-function isPermissionMode(value: string): value is PermissionMode {
-  return (PERMISSION_MODES as readonly string[]).includes(value)
-}
-
-function isPermissionEffect(value: string): value is PermissionEffect {
-  return (PERMISSION_EFFECTS as readonly string[]).includes(value)
-}
-
-function isPermissionTool(value: string): value is PermissionRule["tool"] {
-  return value === "*" || (TOOL_NAMES as readonly string[]).includes(value)
-}
-
-function normalizePermissionTool(value: string): PermissionRule["tool"] | undefined {
-  const normalized = value.toLowerCase()
-  return isPermissionTool(normalized) ? normalized : undefined
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+export async function loadProjectPermissionRules(cwd: string): Promise<PermissionRule[]> {
+  const content = await readFile(join(cwd, ".otis", "permissions.json"), "utf8").catch((error) => {
+    if (error.code === "ENOENT") return undefined
+    throw error
+  })
+  if (content === undefined) return []
+  let value: { version?: unknown; defaultMode?: unknown; rules?: unknown } | null
+  try {
+    value = JSON.parse(content)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`Invalid project permissions: ${message}`)
+  }
+  if (typeof value !== "object" || value?.version !== 1)
+    throw new Error("Invalid project permissions: expected version 1.")
+  if (value.defaultMode !== undefined)
+    throw new Error("Invalid project permissions: project policy may not set defaultMode.")
+  const config = parsePermissionConfig({ rules: value.rules }, "project permissions")
+  if (config.rules.some((rule) => rule.effect === "allow")) {
+    throw new Error(
+      "Invalid project permissions: project rules may ask or deny, but may not grant access.",
+    )
+  }
+  return config.rules
 }

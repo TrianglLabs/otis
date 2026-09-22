@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { TranscriptStore } from "../../src/app/transcript.js"
 import { compactionSummaryMessage } from "../../src/core/compaction.js"
 import type { ChatMessage } from "../../src/inference/types.js"
-import { openSession, readSessionEvents } from "../../src/storage/session.js"
+import { openSession, readSessionEvents } from "../../src/storage/index.js"
 
 const tempDirs: string[] = []
 
@@ -19,7 +19,10 @@ describe("session tool activity", () => {
     const options = { cwd, directory: join(cwd, "sessions") }
     const session = await openSession(options)
     const artifact = { source: "workspace" as const, path: "brief.md", kind: "markdown" as const }
-    const activity = (toolCallId: string) => ({ ...toolActivity(toolCallId, "brief.md", "diff"), artifact })
+    const activity = (toolCallId: string) => ({
+      ...toolActivity(toolCallId, "brief.md", "diff"),
+      artifact,
+    })
     const first = await session.admitPrompt("Draft the brief")
     const steering = { role: "user" as const, content: "Make it shorter" }
     await session.steerPrompt(first, steering)
@@ -27,18 +30,26 @@ describe("session tool activity", () => {
       messages: [first.message, ...toolMessages("edit_1", "brief.md"), steering],
       toolActivities: [activity("edit_1")],
     })
-    await session.completeTurn(first, toolMessages("edit_2", "brief.md"), { toolActivities: [activity("edit_2")] })
+    await session.completeTurn(first, toolMessages("edit_2", "brief.md"), {
+      toolActivities: [activity("edit_2")],
+    })
     const next = await session.admitPrompt("Revise it again")
-    await session.completeTurn(next, toolMessages("edit_3", "brief.md"), { toolActivities: [activity("edit_3")] })
+    await session.completeTurn(next, toolMessages("edit_3", "brief.md"), {
+      toolActivities: [activity("edit_3")],
+    })
 
     const reopened = await openSession(options)
     const replay = reopened.replayTranscript()
     const transcript = new TranscriptStore()
     transcript.replaceMessages(reopened.replay().messages, replay.turns)
     expect(
-      transcript.entries.filter((entry) => entry.artifactDisplay === "ready").map((entry) => entry.toolCallId),
+      transcript.entries
+        .filter((entry) => entry.artifactDisplay === "ready")
+        .map((entry) => entry.toolCallId),
     ).toEqual(["edit_2", "edit_3"])
-    expect(transcript.toolActivitiesFor(replay.messages).filter((entry) => entry.artifact)).toHaveLength(3)
+    expect(
+      transcript.toolActivitiesFor(replay.messages).filter((entry) => entry.artifact),
+    ).toHaveLength(3)
   })
   it("archives active-turn tool cards and subagent traces independently of retained model context", async () => {
     const cwd = await trackedTempDir()
@@ -46,7 +57,9 @@ describe("session tool activity", () => {
     const session = await openSession(options)
     const admission = await session.admitPrompt("map the repo")
     const messages = delegationMessages("call_agent")
-    const toolActivities = [{ toolCallId: "call_agent", activityKind: "agent" as const, label: "Delegating: Map" }]
+    const toolActivities = [
+      { toolCallId: "call_agent", activityKind: "agent" as const, label: "Delegating: Map" },
+    ]
     const subagents = [
       {
         toolCallId: "call_agent",
@@ -56,7 +69,11 @@ describe("session tool activity", () => {
         toolActivities: [toolActivity("child_edit", "a.ts", "saved diff")],
       },
     ]
-    await session.compactTurn(admission, "Progress.", [], {}, 0, { messages, toolActivities, subagents })
+    await session.compactTurn(admission, "Progress.", [], {}, 0, {
+      messages,
+      toolActivities,
+      subagents,
+    })
     await session.completeTurn(admission, [])
     await session.compact("Final summary.", [])
     const reopened = await openSession(options)
@@ -66,7 +83,11 @@ describe("session tool activity", () => {
       subagents: [],
     })
     expect(reopened.replayTranscript()).toMatchObject({
-      messages: [...messages, compactionSummaryMessage("Progress."), compactionSummaryMessage("Final summary.")],
+      messages: [
+        ...messages,
+        compactionSummaryMessage("Progress."),
+        compactionSummaryMessage("Final summary."),
+      ],
       toolActivities,
       subagents,
     })
@@ -85,7 +106,11 @@ describe("session tool activity", () => {
           { type: "text", text: "I'll edit it." },
           {
             type: "tool_call",
-            toolCall: { id: "call_edit", name: "edit", arguments: '{"path":"app.ts","old":"a","new":"b"}' },
+            toolCall: {
+              id: "call_edit",
+              name: "edit",
+              arguments: '{"path":"app.ts","old":"a","new":"b"}',
+            },
           },
         ],
       },
@@ -116,7 +141,9 @@ describe("session tool activity", () => {
     const session = await openSession({ cwd, directory })
     const admission = await session.admitPrompt("map the repo")
     const messages = delegationMessages("call_agent")
-    const toolActivities = [{ toolCallId: "call_agent", activityKind: "agent" as const, label: "Delegating: Map" }]
+    const toolActivities = [
+      { toolCallId: "call_agent", activityKind: "agent" as const, label: "Delegating: Map" },
+    ]
     const subagents = [
       {
         toolCallId: "call_agent",
@@ -127,13 +154,22 @@ describe("session tool activity", () => {
           {
             role: "assistant" as const,
             content: [
-              { type: "tool_call" as const, toolCall: { id: "read_1", name: "read", arguments: '{"path":"a.ts"}' } },
+              {
+                type: "tool_call" as const,
+                toolCall: { id: "read_1", name: "read", arguments: '{"path":"a.ts"}' },
+              },
             ],
           },
           { role: "tool" as const, toolCallId: "read_1", content: "a" },
           { role: "assistant" as const, content: [{ type: "text" as const, text: "Report." }] },
         ],
-        toolActivities: [{ toolCallId: "read_1", activityKind: "file_read" as const, label: "Reading files: a.ts" }],
+        toolActivities: [
+          {
+            toolCallId: "read_1",
+            activityKind: "file_read" as const,
+            label: "Reading files: a.ts",
+          },
+        ],
         durationMs: 1200,
       },
     ]
@@ -143,15 +179,24 @@ describe("session tool activity", () => {
     expect(reopened.replay()).toEqual({ messages, toolActivities, subagents })
 
     const orphan = join(cwd, "orphan.jsonl")
-    await writeFile(orphan, turnFile(messages, { subagents: [{ ...subagents[0], toolCallId: "call_missing" }] }))
-    await expect(readSessionEvents(orphan)).rejects.toThrow("subagent run did not match an agent tool call")
+    await writeFile(
+      orphan,
+      turnFile(messages, { subagents: [{ ...subagents[0], toolCallId: "call_missing" }] }),
+    )
+    await expect(readSessionEvents(orphan)).rejects.toThrow(
+      "subagent run did not match an agent tool call",
+    )
 
     const notAgent = join(cwd, "not-agent.jsonl")
     await writeFile(
       notAgent,
-      turnFile(toolMessages("call_edit", "a.ts"), { subagents: [{ ...subagents[0], toolCallId: "call_edit" }] }),
+      turnFile(toolMessages("call_edit", "a.ts"), {
+        subagents: [{ ...subagents[0], toolCallId: "call_edit" }],
+      }),
     )
-    await expect(readSessionEvents(notAgent)).rejects.toThrow("subagent run did not match an agent tool call")
+    await expect(readSessionEvents(notAgent)).rejects.toThrow(
+      "subagent run did not match an agent tool call",
+    )
   })
 
   it("rejects malformed subagent runs", async () => {
@@ -164,7 +209,10 @@ describe("session tool activity", () => {
       [{ ...run, durationMs: -1 }, "subagent run durationMs must be a non-negative integer"],
       [{ ...run, messages: [{ role: "system" }] }, "messages must be chat messages"],
       [
-        { ...run, toolActivities: [{ toolCallId: "read_x", activityKind: "file_read", label: "Reading" }] },
+        {
+          ...run,
+          toolActivities: [{ toolCallId: "read_x", activityKind: "file_read", label: "Reading" }],
+        },
         "tool activity did not match a tool call",
       ],
     ]
@@ -188,7 +236,9 @@ describe("session tool activity", () => {
         type: "turn_completed",
         promptId: "prompt_1",
         messages: [],
-        toolActivities: [{ toolCallId: "call_1", activityKind: "unknown", label: "Doing something" }],
+        toolActivities: [
+          { toolCallId: "call_1", activityKind: "unknown", label: "Doing something" },
+        ],
       },
     ]
     await writeFile(path, `${events.map((event) => JSON.stringify(event)).join("\n")}\n`)
@@ -225,7 +275,11 @@ function toolMessages(toolCallId: string, path: string, prompt = "prompt"): Chat
       content: [
         {
           type: "tool_call",
-          toolCall: { id: toolCallId, name: "edit", arguments: `{"path":"${path}","old":"a","new":"b"}` },
+          toolCall: {
+            id: toolCallId,
+            name: "edit",
+            arguments: `{"path":"${path}","old":"a","new":"b"}`,
+          },
         },
       ],
     },
@@ -245,7 +299,11 @@ function delegationMessages(toolCallId: string): ChatMessage[] {
       content: [
         {
           type: "tool_call",
-          toolCall: { id: toolCallId, name: "agent", arguments: '{"description":"Map","prompt":"List."}' },
+          toolCall: {
+            id: toolCallId,
+            name: "agent",
+            arguments: '{"description":"Map","prompt":"List."}',
+          },
         },
       ],
     },
@@ -257,7 +315,15 @@ function delegationMessages(toolCallId: string): ChatMessage[] {
 function turnFile(messages: ChatMessage[], details: Record<string, unknown>) {
   const events = [
     { seq: 1, sessionId: "default", at: "now", type: "session_started", version: 1 },
-    { seq: 2, sessionId: "default", at: "later", type: "turn_completed", promptId: "prompt_1", messages, ...details },
+    {
+      seq: 2,
+      sessionId: "default",
+      at: "later",
+      type: "turn_completed",
+      promptId: "prompt_1",
+      messages,
+      ...details,
+    },
   ]
   return `${events.map((event) => JSON.stringify(event)).join("\n")}\n`
 }

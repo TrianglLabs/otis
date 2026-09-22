@@ -5,8 +5,13 @@ import { TranscriptStore } from "../../src/app/transcript.js"
 import { acquireSessionLock, createSession } from "../../src/storage/index.js"
 import { useOtisHome } from "./support/otis-home.js"
 
-// A controllable gate inside the real deletion: lets the test prove the write lock is still held mid-removal.
-const gate = vi.hoisted(() => ({ active: false, entered: undefined as (() => void) | undefined, release: () => {} }))
+// A controllable gate inside the real deletion: lets the test prove the write lock is still held
+// mid-removal.
+const gate = vi.hoisted(() => ({
+  active: false,
+  entered: undefined as (() => void) | undefined,
+  release: () => {},
+}))
 vi.mock("../../src/storage/index.js", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../src/storage/index.js")>()
   return {
@@ -51,7 +56,9 @@ describe("session deletion locking", () => {
     await deleteEntered
 
     // While the file removal is in flight the guard must still own the lock.
-    await expect(acquireSessionLock({ cwd: home, sessionId: victim.id })).rejects.toThrow(/already in use/)
+    await expect(acquireSessionLock({ cwd: home, sessionId: victim.id })).rejects.toThrow(
+      /already in use/,
+    )
 
     gate.release()
     gate.active = false

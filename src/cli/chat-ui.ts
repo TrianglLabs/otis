@@ -1,43 +1,57 @@
-import { type BoxRenderable, MouseButton, type ScrollBoxRenderable, type TextRenderable } from "@opentui/core"
+import { spawn } from "node:child_process"
+import { platform } from "node:os"
+import {
+  type BoxRenderable,
+  fg,
+  MouseButton,
+  type RGBA,
+  rgbToHex,
+  ScrollBoxRenderable,
+  t,
+} from "@opentui/core"
 import type { SubagentTrace } from "../app/subagents.js"
-import type { TranscriptEntry } from "../app/transcript.js"
-import type { ThemeName } from "../local/settings.js"
-import type { LocalStats } from "../local/stats.js"
-import { copyToClipboardNative } from "./clipboard.js"
+import { isThemeName, THEME_NAMES, type ThemeName } from "../local/settings.js"
 import { colors, type ThemeColors } from "./theme.js"
 import { AgentStatus } from "./ui/agent-status.js"
 import { CommandMenu } from "./ui/command-menu.js"
-import {
-  type AgentPhase,
-  attachmentLabel,
-  CHAT_KEY_HINT,
-  CHAT_KEY_HINT_DURATION_MS,
-  formatContextLabel,
-  formatRuntimeHint,
-} from "./ui/format.js"
+import { CHAT_KEY_HINT, CHAT_KEY_HINT_DURATION_MS, formatContextLabel } from "./ui/format.js"
 import { HomeStats } from "./ui/home-stats.js"
 import { InputController } from "./ui/input-controller.js"
-import { createUILayout, setTopBarSideMinWidth, setWelcomePanelExpanded, themeRootsFrom } from "./ui/layout.js"
+import { createUILayout, setTopBarSideMinWidth, setWelcomePanelExpanded } from "./ui/layout.js"
 import { ModelPicker } from "./ui/model-picker.js"
-import { OverlayHost } from "./ui/overlays.js"
 import { createScrollbarOptions } from "./ui/panels.js"
-import { PermissionController } from "./ui/permission-controller.js"
-import { recolorTree } from "./ui/recolor.js"
 import { SessionPicker } from "./ui/session-picker.js"
-import { SessionStatus } from "./ui/session-status.js"
 import { SubagentPanel } from "./ui/subagent-panel.js"
 import { SubagentTraceView } from "./ui/subagent-trace-view.js"
 import { TranscriptView } from "./ui/transcript-view.js"
-import type { ChatUI, ChatUIOptions, Renderer } from "./ui/types.js"
-
-export type { ChatUI, CommandSuggestion, ModelPickerItem, SessionPickerItem } from "./ui/types.js"
+import {
+  type ChatUI,
+  type ChatUIOptions,
+  type CommandSuggestion,
+  type ModelPickerItem,
+  type Renderer,
+  type SessionPickerItem,
+  stopKey,
+  type UIKey,
+} from "./ui/types.js"
 
 export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI {
   let showingWelcome = true
   let busy = false
   let updateHintVisible = false
-  let activeTheme = options.theme ?? "default"
+  let activeTheme: ThemeName = options.theme ?? "default"
   let selectedModelName = options.modelLabel
+  let sessionTitle = options.sessionLabel
+  let diffAdded = 0
+  let diffRemoved = 0
+  let subagentTraces: readonly SubagentTrace[] = []
+  let commandMenuVisible = false
+  let submenuOpen = false
+  let submenuBack: (() => void) | undefined
+  let modelPickerVisible = false
+  let sessionPickerVisible = false
+  let permissionVisible = false
+  let resolvePermission: ((approved: boolean) => void) | undefined
 
   const layout = createUILayout(renderer, options)
   const {
@@ -60,29 +74,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     sessionLabel,
     sessionPanel,
     sessionRowsBox,
-    setupButtonBox,
-    setupChoiceBox,
-    setupChoiceMessage,
-    setupHostedCard,
-    setupLocalChoiceBox,
-    setupLocalChoiceMessage,
-    setupLocalCard,
-    setupManagedLocalCard,
-    setupPairCard,
-    setupPairForm,
-    setupPairLMStudioInput,
-    setupOmlxInput,
-    setupOmlxKeyInput,
-    setupPairMessage,
-    setupPairOllamaInput,
-    setupContinueButton,
-    setupForm,
     setupInput,
-    setupInputLabel,
-    setupMessage,
-    setupStartButton,
-    setupStatus,
-    setupStatusBox,
     statBoxes,
     statsRow,
     subagentPanel,
@@ -94,19 +86,18 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     updateHint,
     welcome,
     welcomePanel,
-    welcomeQuit,
   } = layout
   const commands = new CommandMenu(renderer, commandMenu, options.commands ?? [])
   const models = new ModelPicker(renderer, modelRowsBox)
   const sessions = new SessionPicker(renderer, sessionRowsBox)
-  const sessionStatus = new SessionStatus(renderer, sessionLabel, options.sessionLabel)
+  const thinkingVisible = options.thinkingVisible ?? false
   const transcriptView = new TranscriptView(
     renderer,
     messages,
     options.treeSitterClient,
-    options.thinkingVisible ?? false,
+    thinkingVisible,
   )
-  const traceView = new SubagentTraceView(renderer, options.treeSitterClient, options.thinkingVisible ?? false)
+  const traceView = new SubagentTraceView(renderer, options.treeSitterClient, thinkingVisible)
   const subagents = new SubagentPanel({
     renderer,
     chatBody,
@@ -116,14 +107,6 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     onSelect: openSubagentTrace,
   })
   subagents.setVisible(options.subagentPanelVisible ?? true)
-  let subagentTraces: readonly SubagentTrace[] = []
-  const permissions = new PermissionController({
-    renderer,
-    inputArea,
-    prompt: permissionPrompt,
-    label: permissionLabel,
-  })
-  let overlays: OverlayHost
   const status = new AgentStatus({
     renderer,
     root,
@@ -131,47 +114,17 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     agentBar,
     inputHint,
     isWelcomeVisible: () => showingWelcome,
-    isOverlayVisible: () => overlays.commandMenuVisible || permissions.isVisible,
+    isOverlayVisible: () => commandMenuVisible || permissionVisible,
     onInterrupt: options.onInterrupt,
   })
-  const homeStats = new HomeStats({
-    renderer,
-    statBoxes,
-    isWelcomeVisible: () => showingWelcome,
-  })
-  status.setInputHint(homeModelHint(selectedModelName))
+  const homeStats = new HomeStats({ renderer, statBoxes, isWelcomeVisible: () => showingWelcome })
+  refreshInputHint()
   const inputController = new InputController({
     renderer,
+    layout,
     configured: options.configured !== false,
     localInferenceUnavailableReason: options.localInferenceUnavailableReason,
-    input,
-    inputArea,
-    inputBox,
-    setupButtonBox,
-    setupChoiceBox,
-    setupChoiceMessage,
-    setupHostedCard,
-    setupLocalChoiceBox,
-    setupLocalChoiceMessage,
-    setupLocalCard,
-    setupManagedLocalCard,
-    setupPairCard,
-    setupPairForm,
-    setupPairLMStudioInput,
-    setupOmlxInput,
-    setupOmlxKeyInput,
-    setupPairMessage,
-    setupPairOllamaInput,
-    setupContinueButton,
-    setupForm,
-    setupInput,
-    setupInputLabel,
-    setupMessage,
-    setupStartButton,
-    setupStatus,
-    setupStatusBox,
-    welcomeQuit,
-    onBeforePrimaryInput: () => overlays.hideCommandMenu(),
+    onBeforePrimaryInput: () => hideCommandMenu(),
     onModeChange: (mode) =>
       setWelcomePanelExpanded(
         welcomePanel,
@@ -183,44 +136,16 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     onSetupSubmit: options.onSetupSubmit,
     onPairSetupSubmit: options.onPairSetupSubmit,
   })
-  overlays = new OverlayHost({
-    renderer,
-    chatBody,
-    inputArea,
-    commandMenu,
-    modelPanel,
-    sessionPanel,
-    commands,
-    models,
-    sessions,
-    showingWelcome: () => showingWelcome,
-    activeTheme: () => activeTheme,
-    onSubmit: options.onSubmit,
-    onPreviewTheme: options.onPreviewTheme,
-    onCancelThemePreview: options.onCancelThemePreview,
-    onCloseModelPicker: options.onCloseModelPicker,
-    onSelectModel: options.onSelectModel,
-    onNewSession: options.onNewSession,
-    onDeleteSession: options.onDeleteSession,
-    onSelectSession: options.onSelectSession,
-    showChatLayout,
-    hideSetupStatus: () => inputController.hideSetupStatus(),
-    clearInput,
-    setInput: (value) => {
-      input.setText(value)
-      options.onInputChange?.(value)
-      inputController.focus()
-    },
-    focusInput,
-    suspendStatus: () => status.suspendForOverlay(),
-    restoreStatus: () => status.restoreAfterOverlay(),
-  })
 
   input.onSubmit = () => {
     if (inputController.mode !== "chat") return
     const value = input.plainText
-    if (overlays.submitFromInput(value)) return
-    overlays.hideCommandMenu()
+    if (commandMenuVisible) {
+      const selected = commands.selected()
+      hideCommandMenu(false)
+      selectCommand(selected, value.trim())
+      return
+    }
     closeSubagentTrace()
     options.onSubmit(value.trim())
   }
@@ -228,11 +153,11 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
   input.onContentChange = () => {
     if (inputController.mode !== "chat") return
     const value = input.plainText
-    if (overlays.submenuOpen && value === "") {
+    if (submenuOpen && value === "") {
       options.onInputChange?.(value)
       return
     }
-    overlays.updateCommandMenu(value)
+    updateCommandMenu(value)
     if (value !== "") subagents.blur()
     options.onInputChange?.(value)
   }
@@ -255,8 +180,8 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
       return
     }
     if (inputController.handleKey(key)) return
-    if (permissions.handleKey(key)) return
-    if (overlays.handleKey(key)) return
+    if (handlePermissionKey(key)) return
+    if (handleOverlayKey(key)) return
     if (inputController.mode !== "chat") return
 
     if (subagents.mounted && subagents.focused) {
@@ -326,17 +251,20 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     if (!text) return
     const osc52Ok = renderer.copyToClipboardOSC52(text)
     renderer.clearSelection()
-    if (osc52Ok) {
-      status.showCopyHint()
-    } else {
+    if (osc52Ok) status.showTransientHint(" Copied! ")
+    else {
       copyToClipboardNative(text).then((nativeOk) => {
-        if (nativeOk) status.showCopyHint()
+        if (nativeOk) status.showTransientHint(" Copied! ")
       })
     }
   })
 
-  function renderTranscript(entries: TranscriptEntry[], renderOptions: { scrollToBottom?: boolean } = {}) {
-    transcriptView.render(entries, renderOptions)
+  function refreshInputHint(welcome = showingWelcome) {
+    if (welcome) status.setInputHint(selectedModelName ? ` ${selectedModelName} ` : "")
+    else
+      status.setInputHint(
+        ` ${selectedModelName || "No model selected"} · ${options.workspaceLabel} `,
+      )
   }
 
   function renderSubagents(traces: readonly SubagentTrace[]) {
@@ -354,8 +282,9 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
   function openSubagentTrace(toolCallId: string) {
     const trace = subagentTraces.find((candidate) => candidate.toolCallId === toolCallId)
     if (!trace || showingWelcome) return
-    overlays.hideCommandMenu()
-    // The trace takes the transcript's slot so pickers on the left and the run list on the right stay put.
+    hideCommandMenu()
+    // The trace takes the transcript's slot so pickers on the left and the run list on the right
+    // stay put.
     if (!traceView.trace) swapChatBodyChild(messages, traceView.root)
     traceView.open(trace)
     subagents.select(toolCallId)
@@ -374,26 +303,11 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     chatBody.add(to, slot)
   }
 
-  function setThinkingVisible(visible: boolean) {
-    transcriptView.setThinkingVisible(visible)
-    traceView.setThinkingVisible(visible)
-  }
-
-  function setSubagentPanelVisible(visible: boolean) {
-    if (!visible) closeSubagentTrace()
-    subagents.setVisible(visible)
-  }
-
   function showChatLayout() {
     if (!showingWelcome) return
-    status.setInputHint(chatInputHint())
-
+    refreshInputHint(false)
     root.live = false
-    Object.assign(inputBox, {
-      width: "100%",
-      maxWidth: undefined,
-      minWidth: 1,
-    })
+    Object.assign(inputBox, { width: "100%", maxWidth: undefined, minWidth: 1 })
     inputArea.backgroundColor = colors.background
     inputArea.marginTop = 1
     inputArea.paddingRight = 1
@@ -410,18 +324,13 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
 
   function showHomeLayout() {
     if (showingWelcome) return
-
-    overlays.hideCommandMenu()
-    overlays.dismissPickers()
+    hideCommandMenu()
+    dismissSessionPicker()
+    dismissModelPicker()
     status.hideForHome()
-    status.setInputHint(homeModelHint(selectedModelName))
-
+    refreshInputHint(true)
     root.live = true
-    Object.assign(inputBox, {
-      width: "100%",
-      maxWidth: undefined,
-      minWidth: 24,
-    })
+    Object.assign(inputBox, { width: "100%", maxWidth: undefined, minWidth: 24 })
     inputArea.marginTop = 0
     inputArea.paddingRight = 0
     closeSubagentTrace()
@@ -438,96 +347,273 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
 
   function clearInput() {
     inputController.clear()
-    overlays.hideCommandMenu()
-  }
-
-  function showSlashCommandMenu() {
-    input.setText("/")
-    overlays.updateCommandMenu("/")
-    options.onInputChange?.("/")
-    inputController.focus()
-  }
-
-  function setAttachmentCounts(images: number, documents: number) {
-    setText(attachments, attachmentLabel(images, documents))
-    const mounted = inputBox.getChildren().some((child) => child.id === attachments.id)
-    if (images + documents > 0 && !mounted) inputBox.add(attachments, 1)
-    if (images + documents === 0 && mounted) inputBox.remove(attachments.id)
-    renderer.requestRender()
-  }
-
-  function setTheme(theme: ThemeName, previous: ThemeColors) {
-    activeTheme = theme
-    recolorTree([...themeRootsFrom(layout), traceView.root], previous)
-    input.focusedBackgroundColor = colors.background
-    input.focusedTextColor = colors.text
-    setupInput.focusedBackgroundColor = colors.background
-    setupInput.focusedTextColor = colors.text
-    // recolorTree cannot reach scrollbar slider colors; restyle them directly.
-    messages.verticalScrollbarOptions = createScrollbarOptions()
-    sessionRowsBox.verticalScrollbarOptions = createScrollbarOptions()
-    modelRowsBox.verticalScrollbarOptions = createScrollbarOptions()
-    subagentRowsBox.verticalScrollbarOptions = createScrollbarOptions()
-    renderer.setBackgroundColor(colors.background)
-    status.refreshTheme(previous)
-    transcriptView.refreshTheme()
-    traceView.refreshTheme()
-    subagents.refreshTheme()
-    overlays.refreshTheme()
-    renderer.requestRender()
+    hideCommandMenu()
   }
 
   function focusInput() {
     inputController.focus()
   }
 
-  function setConfigured() {
-    inputController.setConfigured()
-    showStats()
+  function handleOverlayKey(key: UIKey) {
+    if (commandMenuVisible) {
+      const handled = commands.handleKey(key, {
+        close: (restoreThemePreview) => {
+          if (key.name === "escape" && submenuBack) {
+            const back = submenuBack
+            submenuBack = undefined
+            back()
+            return
+          }
+          hideCommandMenu(restoreThemePreview)
+        },
+        select: (command) => selectCommand(command, command.name),
+        preview: (command) => {
+          const theme = themeFromCommand(command.name)
+          if (theme) options.onPreviewTheme?.(theme)
+        },
+      })
+      if (handled && key.name === "escape") focusInput()
+      if (handled) return true
+    }
+    if (
+      modelPickerVisible &&
+      models.handleKey(key, {
+        close: () => {
+          hideModelPicker()
+          options.onCloseModelPicker?.()
+        },
+        select: (model) => options.onSelectModel?.(model),
+      })
+    ) {
+      return true
+    }
+    return (
+      sessionPickerVisible &&
+      sessions.handleKey(key, {
+        close: hideSessionPicker,
+        create: () => options.onNewSession?.(),
+        delete: (sessionId) => options.onDeleteSession?.(sessionId),
+        select: (sessionId) => options.onSelectSession?.(sessionId),
+      })
+    )
+  }
+
+  function selectCommand(command: CommandSuggestion | undefined, fallback: string) {
+    if (command?.draft !== undefined) {
+      input.setText(command.draft)
+      options.onInputChange?.(command.draft)
+      inputController.focus()
+      return
+    }
+    if (command?.name === "/theme") {
+      clearInput()
+      showThemeMenu()
+      focusInput()
+      return
+    }
+    options.onSubmit(command?.submission ?? command?.name ?? fallback)
+  }
+
+  function updateCommandMenu(value: string) {
+    submenuOpen = false
+    submenuBack = undefined
+    if (commands.update(value, showingWelcome, activeTheme)) showCommandMenu()
+    else hideCommandMenu()
+  }
+
+  function showThemeMenu() {
+    showCommandSubmenu(
+      THEME_NAMES.map((theme) => ({
+        name: theme,
+        description: theme === activeTheme ? "Active" : "",
+        submission: `/settings theme ${theme}`,
+      })),
+    )
+  }
+
+  function showCommandSubmenu(
+    items: readonly CommandSuggestion[],
+    submenuOptions: { onBack?: () => void } = {},
+  ) {
+    submenuOpen = true
+    submenuBack = submenuOptions.onBack
+    commands.showSubmenu(items)
+    commands.refreshTheme(activeTheme)
+    showCommandMenu()
+  }
+
+  function showCommandMenu() {
+    if (!commandMenuVisible) {
+      status.suspendForOverlay()
+      inputArea.add(commandMenu)
+      commandMenuVisible = true
+    }
+    renderer.requestRender()
+  }
+
+  function hideCommandMenu(restoreThemePreview = true) {
+    if (!commandMenuVisible) return
+    inputArea.remove(commandMenu.id)
+    commandMenuVisible = false
+    submenuOpen = false
+    submenuBack = undefined
+    commands.clear()
+    if (restoreThemePreview) options.onCancelThemePreview?.()
+    status.restoreAfterOverlay()
+    renderer.requestRender()
+  }
+
+  function showSessionPicker(items: SessionPickerItem[]) {
+    showChatLayout()
+    dismissModelPicker()
+    models.stop()
+    sessions.setItems(items)
+    if (!sessionPickerVisible) {
+      chatBody.add(sessionPanel, 0)
+      sessionPickerVisible = true
+    }
+    renderer.requestRender()
+  }
+
+  function showModelPicker(items: ModelPickerItem[]) {
+    inputController.hideSetupStatus()
+    showChatLayout()
+    dismissSessionPicker()
+    models.setItems(items)
+    if (!modelPickerVisible) {
+      chatBody.add(modelPanel, 0)
+      modelPickerVisible = true
+    }
+    renderer.requestRender()
+  }
+
+  function hideModelPicker() {
+    if (!modelPickerVisible) return
+    dismissModelPicker()
+    focusInput()
+    renderer.requestRender()
+  }
+
+  function hideSessionPicker() {
+    if (!sessionPickerVisible) return
+    dismissSessionPicker()
+    focusInput()
+    renderer.requestRender()
+  }
+
+  function dismissModelPicker() {
+    if (!modelPickerVisible) return
+    models.stop()
+    chatBody.remove(modelPanel.id)
+    modelPickerVisible = false
+  }
+
+  function dismissSessionPicker() {
+    if (!sessionPickerVisible) return
+    sessions.stop()
+    chatBody.remove(sessionPanel.id)
+    sessionPickerVisible = false
+  }
+
+  function showPermissionPrompt(detail: string): Promise<boolean> {
+    permissionLabel.content = detail
+    if (!permissionVisible) {
+      inputArea.add(permissionPrompt)
+      permissionVisible = true
+    }
+    renderer.requestRender()
+    const decision = new Promise<boolean>((resolve) => {
+      resolvePermission = resolve
+    })
+    status.suspendForOverlay()
+    return decision.finally(() => status.restoreAfterOverlay())
+  }
+
+  function finishPermission(approved: boolean) {
+    const resolve = resolvePermission
+    if (permissionVisible) {
+      inputArea.remove(permissionPrompt.id)
+      permissionVisible = false
+      renderer.requestRender()
+    }
+    resolvePermission = undefined
+    resolve?.(approved)
+  }
+
+  function handlePermissionKey(key: UIKey) {
+    if (!permissionVisible) return false
+    if (key.name === "y") {
+      stopKey(key)
+      finishPermission(true)
+      return true
+    }
+    if (key.name === "n" || key.name === "escape") {
+      stopKey(key)
+      finishPermission(false)
+      return true
+    }
+    return false
+  }
+
+  function renderSessionLabel() {
+    sessionLabel.content =
+      diffAdded > 0 || diffRemoved > 0
+        ? t`${sessionTitle}  ${fg(colors.green)(`+${diffAdded}`)} ${fg(colors.pink)(`−${diffRemoved}`)}`
+        : sessionTitle
+    renderer.requestRender()
+  }
+
+  function setAttachmentCounts(images: number, documents: number) {
+    const labels = [
+      ...Array.from({ length: Math.min(images, 2) }, (_, index) => `[Image ${index + 1}]`),
+      ...Array.from(
+        { length: Math.min(documents, Math.max(0, 2 - images)) },
+        (_, index) => `[File ${index + 1}]`,
+      ),
+    ]
+    const total = images + documents
+    if (total > labels.length) labels.push(`+${total - labels.length}`)
+    attachments.content = labels.join(" ")
+    const mounted = inputBox.getChildren().some((child) => child.id === attachments.id)
+    if (total > 0 && !mounted) inputBox.add(attachments, 1)
+    if (total === 0 && mounted) inputBox.remove(attachments.id)
+    renderer.requestRender()
+  }
+
+  function setTheme(theme: ThemeName, previous: ThemeColors) {
+    activeTheme = theme
+    recolorTree(
+      [...Object.values<unknown>(layout).filter(isRenderableTree), traceView.root],
+      previous,
+    )
+    input.focusedBackgroundColor = colors.background
+    input.focusedTextColor = colors.text
+    setupInput.focusedBackgroundColor = colors.background
+    setupInput.focusedTextColor = colors.text
+    // recolorTree cannot reach scrollbar slider colors; restyle them directly.
+    for (const box of [messages, sessionRowsBox, modelRowsBox, subagentRowsBox]) {
+      box.verticalScrollbarOptions = createScrollbarOptions()
+    }
+    renderer.setBackgroundColor(colors.background)
+    status.refreshTheme(previous)
+    transcriptView.refreshTheme()
+    traceView.refreshTheme()
+    subagents.refreshTheme()
+    if (commandMenuVisible) commands.refreshTheme(activeTheme)
+    renderer.requestRender()
   }
 
   function setContextLabel(label: string, color = colors.muted) {
     const padded = formatContextLabel(label)
-    setText(contextLabel, padded)
+    contextLabel.content = padded
     contextLabel.fg = color
     setTopBarSideMinWidth(topBarStart, topBarEnd, padded)
     status.setContextColor(color)
     renderer.requestRender()
   }
 
-  function setModeLabel(label: string) {
-    setText(modeLabel, label)
-    renderer.requestRender()
-  }
-
-  function setModelLabel(label: string) {
-    selectedModelName = label
-    if (showingWelcome) status.setInputHint(homeModelHint(selectedModelName))
-    else status.setInputHint(chatInputHint())
-  }
-
-  function chatInputHint() {
-    return formatRuntimeHint(selectedModelName, options.workspaceLabel)
-  }
-
-  function showPermissionPrompt(detail: string): Promise<boolean> {
-    const decision = permissions.show(detail)
-    status.suspendForOverlay()
-    return decision.finally(() => status.restoreAfterOverlay())
-  }
-
-  function hidePermissionPrompt() {
-    permissions.hide()
-    status.restoreAfterOverlay()
-  }
-
-  function setBusy(value: boolean) {
-    busy = value
-    if (!value) status.clearInterrupt()
-  }
-
   function showUpdateHint() {
-    setText(updateHint, "New update available — run `otis update`")
+    updateHint.content = "New update available — run `otis update`"
     updateHint.fg = colors.yellow
     if (!updateHintVisible) {
       welcomePanel.add(updateHint)
@@ -543,12 +629,9 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     renderer.requestRender()
   }
 
-  function setStats(stats: LocalStats) {
-    homeStats.setStats(stats)
-  }
-
   function showStats() {
-    if (!welcome.getChildren().some((child) => child.id === statsRow.id)) welcome.insertBefore(statsRow, welcomePanel)
+    if (!welcome.getChildren().some((child) => child.id === statsRow.id))
+      welcome.insertBefore(statsRow, welcomePanel)
     renderer.requestRender()
   }
 
@@ -557,61 +640,209 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
   return {
     clearInput,
     focusInput,
-    hidePermissionPrompt,
-    hideModelPicker: () => overlays.hideModelPicker(),
-    hideSessionPicker: () => overlays.hideSessionPicker(),
+    hidePermissionPrompt: () => {
+      finishPermission(false)
+      status.restoreAfterOverlay()
+    },
+    hideModelPicker,
+    hideSessionPicker,
     hideUpdateHint,
-    renderTranscript,
+    renderTranscript: (entries, renderOptions) => transcriptView.render(entries, renderOptions),
     renderSubagents,
-    setBusy,
+    setBusy: (value) => {
+      busy = value
+      if (!value) status.clearInterrupt()
+    },
     setContextLabel,
-    setDiffStats: (added, removed) => sessionStatus.setDiff(added, removed),
-    setModeLabel,
+    setDiffStats: (added, removed) => {
+      diffAdded = added
+      diffRemoved = removed
+      renderSessionLabel()
+    },
+    setModeLabel: (label) => {
+      modeLabel.content = label
+      renderer.requestRender()
+    },
     setAttachmentCounts,
-    setModelLabel,
-    setModelPickerStatus: (modelId, status) => models.setItemStatus(modelId, status),
+    setModelLabel: (label) => {
+      selectedModelName = label
+      refreshInputHint()
+    },
+    setModelPickerStatus: (modelId, modelStatus) => models.setItemStatus(modelId, modelStatus),
     setCommands: (value) => commands.setCommands(value),
-    setConfigured,
-    setSessionLabel: (label) => sessionStatus.setLabel(label),
-    setStats,
+    setConfigured: () => {
+      inputController.setConfigured()
+      showStats()
+    },
+    setSessionLabel: (label) => {
+      sessionTitle = label
+      renderSessionLabel()
+    },
+    setStats: (stats) => homeStats.setStats(stats),
     setTheme,
-    setThinkingVisible,
-    setSubagentPanelVisible,
+    setThinkingVisible: (visible) => {
+      transcriptView.setThinkingVisible(visible)
+      traceView.setThinkingVisible(visible)
+    },
+    setSubagentPanelVisible: (visible) => {
+      if (!visible) closeSubagentTrace()
+      subagents.setVisible(visible)
+    },
     showStats,
     showTransientHint: (content) => status.showTransientHint(content),
-    showCommandSubmenu: (items, submenuOptions) => overlays.showCommandSubmenu(items, submenuOptions),
-    showSlashCommandMenu,
-    showModelPicker: (items) => overlays.showModelPicker(items),
-    showSetupError: (message, cancelTarget) => inputController.showSetupError(message, cancelTarget),
+    showCommandSubmenu,
+    showSlashCommandMenu: () => {
+      input.setText("/")
+      updateCommandMenu("/")
+      options.onInputChange?.("/")
+      inputController.focus()
+    },
+    showModelPicker,
+    showSetupError: (message, cancelTarget) =>
+      inputController.showSetup(message, cancelTarget, true),
     showSetupInferenceChoice: (message) => inputController.showSetupInferenceChoice(message),
-    showSetupLocalInferenceChoice: (message) => inputController.showSetupLocalInferenceChoice(message),
+    showSetupLocalInferenceChoice: (message) =>
+      inputController.showSetupLocalInferenceChoice(message),
     showSetupInput: (message, cancelTarget) => inputController.showSetup(message, cancelTarget),
     showPairSetup: (message, cancelTarget, endpoints) =>
       inputController.showPairSetup(message, cancelTarget, endpoints),
     showPairSetupError: (message, cancelTarget, endpoints) =>
-      inputController.showPairSetupError(message, cancelTarget, endpoints),
+      inputController.showPairSetup(message, cancelTarget, endpoints, true),
     showSetupStatus: (message) => inputController.showSetupStatus(message),
     showPermissionPrompt,
-    showSessionPicker: (items) => overlays.showSessionPicker(items),
-    showThemeMenu: () => overlays.showThemeMenu(),
+    showSessionPicker,
+    showThemeMenu,
     showChatLayout,
     showHomeLayout,
     showUpdateHint,
-    setAgentPhase: (phase: AgentPhase) => status.setPhase(phase),
+    setAgentPhase: (phase) => status.setPhase(phase),
     startBusyIndicator: () => status.startBusyIndicator(),
     stopBusyIndicator: () => status.stopBusyIndicator(),
   }
 }
 
-function homeModelHint(modelName: string) {
-  return modelName ? ` ${modelName} ` : ""
+function themeFromCommand(command: string): ThemeName | undefined {
+  if (isThemeName(command)) return command
+  for (const prefix of ["/theme ", "/settings theme "]) {
+    if (!command.startsWith(prefix)) continue
+    const theme = command.slice(prefix.length)
+    if (isThemeName(theme)) return theme
+  }
+  return undefined
 }
 
-function setText(renderable: TextRenderable, content: string) {
-  renderable.content = content
+type RenderableTree = { getChildren(): unknown[] }
+
+function isRenderableTree(value: unknown): value is RenderableTree {
+  return (
+    typeof value === "object" && value !== null && !Array.isArray(value) && "getChildren" in value
+  )
 }
 
-function stopKey(key: { preventDefault(): void; stopPropagation(): void }) {
-  key.preventDefault()
-  key.stopPropagation()
+const RECOLOR_KEYS = [
+  "backgroundColor",
+  "borderColor",
+  "fg",
+  "bg",
+  "textColor",
+  "cursorColor",
+] as const
+
+type RecolorNode = {
+  getChildren?: () => unknown[]
+  wrapper?: RecolorNode
+  viewport?: RecolorNode
+  content?: RecolorNode
+} & Record<string, unknown>
+
+/**
+ * Swaps every color that matched the previous theme for the same slot in the current theme,
+ * across a tree.
+ */
+function recolorTree(renderables: Iterable<RenderableTree>, previous: ThemeColors) {
+  const replacements = new Map<string, string>()
+  const visited = new WeakSet<object>()
+  for (const key of Object.keys(previous) as (keyof ThemeColors)[]) {
+    const oldHex = previous[key].toLowerCase()
+    const newHex = colors[key]
+    if (oldHex !== newHex.toLowerCase()) replacements.set(oldHex, newHex)
+  }
+
+  const visit = (current: RecolorNode | undefined) => {
+    if (!current || visited.has(current)) return
+    visited.add(current)
+    for (const key of RECOLOR_KEYS) {
+      const value = current[key]
+      if (isColor(value)) {
+        const replacement = replacements.get(rgbToHex(value).toLowerCase())
+        if (replacement) current[key] = replacement
+      } else if (typeof value === "string") {
+        const replacement = replacements.get(value.toLowerCase())
+        if (replacement && replacement.toLowerCase() !== value.toLowerCase())
+          current[key] = replacement
+      }
+    }
+    if (current instanceof ScrollBoxRenderable) {
+      visit(current.wrapper)
+      visit(current.viewport)
+      visit(current.content)
+    }
+    for (const child of current.getChildren?.() ?? []) visit(child as RecolorNode)
+  }
+  for (const renderable of renderables) visit(renderable as RecolorNode)
+}
+
+function isColor(value: unknown): value is RGBA {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "toInts" in value &&
+    typeof value.toInts === "function"
+  )
+}
+
+let clipboardCommand: Promise<string[] | undefined> | undefined
+
+async function resolveClipboardCommand() {
+  const os = platform()
+  const exists = (name: string) =>
+    new Promise<boolean>((resolve) => {
+      const child = spawn(os === "win32" ? "where" : "which", [name], { stdio: "ignore" })
+      child.on("error", () => resolve(false))
+      child.on("exit", (code) => resolve(code === 0))
+    })
+  if (os === "darwin" && (await exists("pbcopy"))) return ["pbcopy"]
+  if (os === "linux") {
+    if (process.env.WAYLAND_DISPLAY && (await exists("wl-copy"))) return ["wl-copy"]
+    if (await exists("xclip")) return ["xclip", "-selection", "clipboard"]
+    if (await exists("xsel")) return ["xsel", "--clipboard", "--input"]
+  }
+  if (os === "win32" && (await exists("powershell.exe"))) {
+    return [
+      "powershell.exe",
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      "[Console]::InputEncoding = [System.Text.Encoding]::UTF8; Set-Clipboard -Value ([Console]::In.ReadToEnd())",
+    ]
+  }
+  return undefined
+}
+
+/**
+ * Copies through a native platform utility, which unlike OSC 52 has no size limit. The command
+ * is resolved once and cached; resolves false when no native clipboard tool exists so the caller
+ * stays on OSC 52.
+ */
+async function copyToClipboardNative(text: string) {
+  clipboardCommand ??= resolveClipboardCommand()
+  const cmd = await clipboardCommand
+  if (!cmd) return false
+  return new Promise<boolean>((resolve) => {
+    const child = spawn(cmd[0], cmd.slice(1), { stdio: ["pipe", "ignore", "ignore"] })
+    child.on("error", () => resolve(false))
+    child.on("exit", (code) => resolve(code === 0))
+    child.stdin?.on("error", () => resolve(false))
+    child.stdin?.end(text)
+  })
 }

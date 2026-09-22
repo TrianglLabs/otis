@@ -3,8 +3,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { executeTurn } from "../../src/app/turn-runner.js"
+import { SteeringInbox } from "../../src/core/agent.js"
 import { compactionSummaryMessage } from "../../src/core/compaction.js"
-import { SteeringInbox } from "../../src/core/steering.js"
 import type { ChatMessage, InferenceClient, UserChatMessage } from "../../src/inference/types.js"
 import { openSession } from "../../src/storage/session.js"
 import { TOOL_DEFINITIONS } from "../../src/tools/index.js"
@@ -12,13 +12,21 @@ import { summaryFixture } from "../support/compaction.js"
 
 const directories: string[] = []
 afterEach(async () => {
-  await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })))
+  await Promise.all(
+    directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })),
+  )
 })
 const user = (content: string): UserChatMessage => ({ role: "user", content })
-const answer = (text: string): ChatMessage => ({ role: "assistant", content: [{ type: "text", text }] })
+const answer = (text: string): ChatMessage => ({
+  role: "assistant",
+  content: [{ type: "text", text }],
+})
 
 describe("compaction checkpoints during active turns", () => {
-  it.each(["complete", "interrupt"])("preserves steering identical to the initial prompt on %s", async (ending) => {
+  it.each([
+    "complete",
+    "interrupt",
+  ])("preserves steering identical to the initial prompt on %s", async (ending) => {
     const options = await sessionOptions()
     const session = await openSession(options)
     const admission = await session.admitPrompt("continue")
@@ -77,7 +85,11 @@ describe("compaction checkpoints during active turns", () => {
           yield { type: "reasoning_delta", field: "reasoning_content", text: "x".repeat(100_000) }
           yield {
             type: "tool_call",
-            toolCall: { id: `read_${requests}`, name: "read", arguments: '{"path":"missing-fixture.txt"}' },
+            toolCall: {
+              id: `read_${requests}`,
+              name: "read",
+              arguments: '{"path":"missing-fixture.txt"}',
+            },
           }
         } else yield { type: "text_delta", text: "Finished." }
       },
@@ -97,7 +109,14 @@ describe("compaction checkpoints during active turns", () => {
       },
       onCompaction: async (compaction, details, steeringCount, turn) => {
         segments.push([...turn.messages, compactionSummaryMessage(compaction.summary)])
-        await session.compactTurn(admission, compaction.summary, compaction.keptMessages, details, steeringCount, turn)
+        await session.compactTurn(
+          admission,
+          compaction.summary,
+          compaction.keptMessages,
+          details,
+          steeringCount,
+          turn,
+        )
         // A crash here must still leave unconsumed steering and the queued prompt in the session.
         const reopened = await openSession(options)
         checkpoints.push(reopened.replayMessages())
@@ -125,7 +144,10 @@ describe("compaction checkpoints during active turns", () => {
     expect(session.replayMessages()).toEqual(expected)
     expect((await openSession(options)).replayMessages()).toEqual(expected)
     await session.completeTurn(queued, [queued.message, answer("Queued task finished.")])
-    expect((await openSession(options)).replayMessages()).toEqual([...expected, answer("Queued task finished.")])
+    expect((await openSession(options)).replayMessages()).toEqual([
+      ...expected,
+      answer("Queued task finished."),
+    ])
     const scrollback = (await openSession(options)).replayTranscript()
     expect(scrollback.messages).toEqual([
       ...segments.flat(),
@@ -134,10 +156,16 @@ describe("compaction checkpoints during active turns", () => {
       queued.message,
       answer("Queued task finished."),
     ])
-    expect(scrollback.toolActivities.map((activity) => activity.toolCallId)).toEqual(["read_1", "read_2"])
+    expect(scrollback.toolActivities.map((activity) => activity.toolCallId)).toEqual([
+      "read_1",
+      "read_2",
+    ])
   })
 
-  it.each(["abort", "error"])("retains the checkpoint and only appends the continuation after %s", async (ending) => {
+  it.each([
+    "abort",
+    "error",
+  ])("retains the checkpoint and only appends the continuation after %s", async (ending) => {
     const options = await sessionOptions()
     const session = await openSession(options)
     const previous = await session.admitPrompt("old task")
@@ -176,14 +204,23 @@ describe("compaction checkpoints during active turns", () => {
         signal: controller.signal,
       },
       onCompaction: async (compaction, details, steeringCount, turn) => {
-        await session.compactTurn(admission, compaction.summary, compaction.keptMessages, details, steeringCount, turn)
+        await session.compactTurn(
+          admission,
+          compaction.summary,
+          compaction.keptMessages,
+          details,
+          steeringCount,
+          turn,
+        )
       },
       onEvent: (event) => {
-        if (ending === "abort" && event.type === "compaction" && event.phase === "complete") controller.abort()
+        if (ending === "abort" && event.type === "compaction" && event.phase === "complete")
+          controller.abort()
       },
     })
     expect(result.status).toBe(ending === "abort" ? "interrupted" : "error")
-    if (result.status !== "interrupted" && result.status !== "error") throw new Error("Unexpected result")
+    if (result.status !== "interrupted" && result.status !== "error")
+      throw new Error("Unexpected result")
     await session.interruptTurn(admission, result.messages, result.details)
     expect(result.messages).toEqual([])
     expect((await openSession(options)).replayMessages()).toEqual([

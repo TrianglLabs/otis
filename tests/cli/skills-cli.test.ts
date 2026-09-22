@@ -49,10 +49,16 @@ describe("skills CLI", () => {
     const manager = managerMock()
 
     await expect(runSkillsCommand(["install"], { manager })).rejects.toThrow("skills install")
-    await expect(runSkillsCommand(["list", "extra"], { manager })).rejects.toThrow("does not accept")
-    await expect(runSkillsCommand(["update", "one", "two"], { manager })).rejects.toThrow("at most one")
+    await expect(runSkillsCommand(["list", "extra"], { manager })).rejects.toThrow(
+      "does not accept",
+    )
+    await expect(runSkillsCommand(["update", "one", "two"], { manager })).rejects.toThrow(
+      "at most one",
+    )
     await expect(runSkillsCommand(["remove"], { manager })).rejects.toThrow("skills remove")
-    await expect(runSkillsCommand(["unknown"], { manager })).rejects.toThrow("Unknown skills command")
+    await expect(runSkillsCommand(["unknown"], { manager })).rejects.toThrow(
+      "Unknown skills command",
+    )
   })
 })
 
