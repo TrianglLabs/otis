@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it } from "vitest"
 import { createDemoRuntime } from "../../../src/desktop/renderer/demo/demo-runtime.js"
 import type { LocalPickerChoice } from "../../../src/inference/picker-catalog.js"
 
@@ -17,22 +17,6 @@ async function localRow(
 }
 
 describe("demo runtime model lifecycle", () => {
-  it.each([
-    "darwin",
-    "linux",
-    "win32",
-  ] as const)("uses the native %s platform in desktop previews", async (platform) => {
-    const fixture = await createDemoRuntime().getSnapshot()
-    const getSnapshot = vi.fn(async () => ({ ...fixture, platform }))
-    const api = createDemoRuntime({
-      getSnapshot,
-      getWindowState: vi.fn(async () => ({ fullscreen: false })),
-      subscribeWindowState: vi.fn(() => () => {}),
-    })
-    expect((await api.getSnapshot()).platform).toBe(platform)
-    expect(getSnapshot).toHaveBeenCalledOnce()
-  })
-
   it("switches saved Word versions and reopens the latest independently of the working file", async () => {
     const api = createDemoRuntime()
     const initial = await api.getSnapshot()

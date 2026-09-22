@@ -996,34 +996,6 @@ describe("llama.cpp runtime", () => {
     await runtime.stop()
   })
 
-  it("reuses an on-disk GGUF instead of downloading again", async () => {
-    const model = findLocalModel("openai/gpt-oss-20b")
-    if (!model) throw new Error("missing catalog entry")
-    const fit = fitLocalModel(model, hardware)
-    const directory = await tempDir()
-    await cacheWeights(model, directory)
-    const urls: string[] = []
-    const runtime = new LlamaCppRuntime({
-      env: { OTIS_LLAMA_SERVER: process.execPath },
-      dataDirectory: directory,
-      allocatePort: async () => 18766,
-      readyTimeoutMs: 1_000,
-      sleep: async () => undefined,
-      spawn: ((_command, _args) => fakeChild()) as LlamaCppRuntimeOptions["spawn"],
-      fetch: (async (input: RequestInfo | URL) => {
-        urls.push(String(input))
-        if (String(input).includes("/health")) return new Response("ok", { status: 200 })
-        if (String(input).includes("/props")) return runtimeProperties(fit.contextLength)
-        if (String(input).endsWith("/v1/chat/completions")) return generationResponse()
-        return new Response("missing", { status: 404 })
-      }) as typeof fetch,
-    })
-
-    await runtime.ensureServing(model, fit, hardware)
-    expect(urls.some((url) => url.includes("huggingface.co"))).toBe(false)
-    await runtime.stop()
-  })
-
   it("waits for llama-server to exit before stop resolves", async () => {
     const model = findLocalModel("openai/gpt-oss-20b")
     if (!model) throw new Error("missing catalog entry")

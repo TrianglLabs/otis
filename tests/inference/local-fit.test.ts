@@ -49,6 +49,10 @@ describe("local model fit", () => {
     expect(fit.memoryRequiredBytes).toBe(footprint)
     expect(footprint).toBeLessThanOrEqual(fit.memoryAvailableBytes)
     expect(footprint + 16 * 4 * 256 * 4 * 1_024).toBeGreaterThan(fit.memoryAvailableBytes)
+    // Bonsai 2 shares Qwen3.8's KV geometry.
+    const bonsai = findLocalModel("prism-ml/Ternary-Bonsai-2-27B-gguf")
+    if (!bonsai) throw new Error("missing catalog entry")
+    expect(kvCacheBytes(bonsai, fit.contextLength)).toBe(16 * 4 * 256 * 4 * fit.contextLength)
   })
 
   it("keeps a weights-only fit selectable with CPU offload at 64K", () => {
@@ -160,12 +164,6 @@ describe("local model fit", () => {
     expect(fitLocalModel(bonsai, { ...linux, backend: "cpu" }).model.quant).toBe("PQ2_0")
   })
 
-  it("uses Qwen3.8's KV geometry for Bonsai 2", () => {
-    const bonsai = findLocalModel("prism-ml/Ternary-Bonsai-2-27B-gguf")
-    if (!bonsai) throw new Error("missing catalog entry")
-    expect(kvCacheBytes(bonsai, 32_768)).toBe(16 * 4 * 256 * 4 * 32_768)
-  })
-
   it.each([
     ["A100", [8.0], 80, "PQ2_0"],
     ["H100", [9.0], 80, "PQ2_0"],
@@ -233,14 +231,6 @@ describe("local model fit", () => {
     expect(apple36.totalMemoryBytes - fit.memoryRequiredBytes).toBeGreaterThanOrEqual(
       5.4 * 1024 ** 3,
     )
-  })
-
-  it("counts only Qwen3.8 full-attention layers for KV", () => {
-    const qwen = findLocalModel("Qwen/Qwen3.8-27B")
-    if (!qwen) throw new Error("missing catalog entry")
-    const allLayers = 64 * 4 * 256 * 4 * 32_768
-    expect(kvCacheBytes(qwen, 32_768)).toBe(16 * 4 * 256 * 4 * 32_768)
-    expect(kvCacheBytes(qwen, 32_768)).toBeLessThan(allLayers)
   })
 
   it("counts only Ornith full-attention layers for KV", () => {

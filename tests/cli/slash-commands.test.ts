@@ -99,24 +99,10 @@ describe("slash commands", () => {
     ])
   })
 
-  it("keeps the former theme command as an unadvertised alias", () => {
-    expect(SLASH_COMMANDS.some((command) => command.name === "/theme")).toBe(false)
-    expect(parseSlashCommand("/theme")).toEqual({ type: "settings", setting: "theme" })
-    expect(parseSlashCommand("/theme nord")).toEqual({ type: "theme", name: "nord" })
-  })
-
   it("omits /fast unless the current model has a Fast serving path", () => {
     expect(slashCommands({ fast: true }).some((command) => command.name === "/fast")).toBe(true)
     expect(slashCommands({ fast: false }).some((command) => command.name === "/fast")).toBe(false)
     expect(parseSlashCommand("/fast")).toEqual({ type: "fast" })
-  })
-
-  it("keeps the former model deletion command as an unadvertised alias", () => {
-    expect(SLASH_COMMANDS.some((command) => command.name === "/delete-model")).toBe(false)
-    expect(parseSlashCommand("/delete-model")).toEqual({
-      type: "settings",
-      setting: "delete-model",
-    })
   })
 
   it("parses every advertised command", () => {

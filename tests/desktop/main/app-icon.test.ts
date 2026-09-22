@@ -30,6 +30,7 @@ describe("configureAppIcon", () => {
     expect(nativeImage.createFromPath).toHaveBeenCalledExactlyOnceWith(path)
     // Development and Linux builds need the checked-in export without Apple tooling at runtime.
     expect(existsSync(path)).toBe(true)
+    expect(app.dock?.setIcon).not.toHaveBeenCalled()
   })
 
   it("resolves inside Electron's resources directory in a packaged build", () => {
@@ -43,20 +44,12 @@ describe("configureAppIcon", () => {
     expect(nativeImage.createFromPath).toHaveBeenCalledExactlyOnceWith(
       join(resourcesPath, "icon.png"),
     )
+    expect(app.dock?.setIcon).not.toHaveBeenCalled()
   })
 
   it("leaves the packaged macOS icon entirely to the system, without loading a flat image", () => {
     expect(configureAppIcon({ ...location, packaged: true, platform: "darwin" })).toBeUndefined()
     expect(nativeImage.createFromPath).not.toHaveBeenCalled()
-    expect(app.dock?.setIcon).not.toHaveBeenCalled()
-  })
-
-  it.each([
-    false,
-    true,
-  ])("provides the static export for Linux windows (packaged: %s)", (packaged) => {
-    expect(configureAppIcon({ ...location, packaged, platform: "linux" })).toBe(image)
-    expect(nativeImage.createFromPath).toHaveBeenCalledOnce()
     expect(app.dock?.setIcon).not.toHaveBeenCalled()
   })
 

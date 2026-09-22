@@ -18,47 +18,17 @@ import {
 import { DesktopProvider } from "../../../src/desktop/renderer/runtime.js"
 import { DesktopViewStore } from "../../../src/desktop/renderer/state.js"
 import type { ModelPickerItem } from "../../../src/inference/picker-catalog.js"
+import { fakeApi as fakeDesktopApi, snapshotFixture } from "../support/desktop-api.js"
 
 /**
  * First-run onboarding: it owns the window until a model is configured and exposes every inference
  * path.
  */
 
-const SNAPSHOT: DesktopSnapshot = {
-  busy: false,
-  phase: "idle",
-  model: null,
-  modelState: "unconfigured",
-  modelError: undefined,
+const SNAPSHOT: DesktopSnapshot = snapshotFixture({
   session: { id: "session-1", title: "New session" },
-  artifact: null,
-  needsWorkspace: false,
-  sessions: [],
-  contextTokens: undefined,
-  contextLimit: 32_768,
-  diffs: { added: 0, removed: 0 },
-  permission: null,
-  stats: undefined,
-  modelLoad: null,
-  subagents: [],
-  agentsPanelVisible: true,
-  theme: "default",
-  language: "system",
-  thinkingVisible: false,
-  permissionMode: "auto",
-  localThinking: null,
-  fastServing: { available: false, enabled: false },
-  hostedConfigured: false,
-  pairConfigured: false,
-  pairEndpoints: {},
-  debug: false,
-  update: { status: "idle" },
-  platform: "darwin",
-  version: "0.0.0-test",
   workspace: { label: "otis", path: "/tmp/otis" },
-  entries: [],
-  revision: 1,
-}
+})
 
 const FIREWORKS_ITEM: ModelPickerItem = {
   kind: "model",
@@ -114,47 +84,10 @@ const PAIR_ITEM: ModelPickerItem = {
 }
 
 function fakeApi(overrides: Partial<DesktopApi> = {}): DesktopApi {
-  return {
-    getSnapshot: vi.fn(async () => SNAPSHOT),
-    getArtifact: vi.fn(async () => undefined),
-    openArtifact: vi.fn(async () => ({ ok: true as const })),
-    saveArtifact: vi.fn(async () => ({ ok: true as const })),
-    getWindowState: vi.fn(async () => ({ fullscreen: false })),
-    sendPrompt: vi.fn(async () => ({ accepted: true as const, delivery: "started" as const })),
-    stop: vi.fn(async () => {}),
-    respondToPermission: vi.fn(async () => {}),
-    selectSession: vi.fn(async () => ({ ok: true as const })),
-    searchSessions: vi.fn(async () => []),
-    startNewSession: vi.fn(async () => ({ ok: true as const })),
-    deleteSession: vi.fn(async () => ({ ok: true as const })),
-    openSessionAt: vi.fn(async () => ({ ok: true as const })),
-    openWorkspace: vi.fn(async () => ({ ok: true as const })),
-    locateWorkspace: vi.fn(async () => ({ ok: true as const })),
-    pickWorkspaceFolder: vi.fn(async () => undefined),
-    registerWorkspace: vi.fn(async () => ({ ok: true as const })),
-    refreshSessions: vi.fn(async () => {}),
+  return fakeDesktopApi(SNAPSHOT, {
     listModels: vi.fn(async () => [FIREWORKS_ITEM, LOCAL_ITEM, OTHER_LOCAL_ITEM, PAIR_ITEM]),
-    selectModel: vi.fn(async () => ({ ok: true as const })),
-    cancelModelSelection: vi.fn(async () => {}),
-    getSubagentTrace: vi.fn(async () => []),
-    setAgentsPanelVisible: vi.fn(async () => {}),
-    setTheme: vi.fn(async () => {}),
-    setLanguage: vi.fn(async () => {}),
-    setThinkingVisible: vi.fn(async () => {}),
-    setLocalThinking: vi.fn(async () => {}),
-    setPermissionMode: vi.fn(async () => {}),
-    setFastServing: vi.fn(async () => ({ ok: true as const })),
-    openFireworksKeyPage: vi.fn(async () => {}),
-    setFireworksApiKey: vi.fn(async () => ({ ok: true as const })),
-    connectLocalServers: vi.fn(async () => ({ ok: true as const })),
-    deleteLocalModel: vi.fn(async () => ({ ok: true as const })),
-    setDebugMode: vi.fn(async () => {}),
-    installUpdate: vi.fn(async () => {}),
-    checkForUpdates: vi.fn(async () => {}),
-    subscribeWindowState: vi.fn(() => () => {}),
-    subscribe: vi.fn(() => () => {}),
     ...overrides,
-  }
+  })
 }
 
 const LOCALES = LANGUAGE_OPTIONS.flatMap((option) =>

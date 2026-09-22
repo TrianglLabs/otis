@@ -72,14 +72,15 @@ describe("compaction request contract", () => {
   })
 
   it("rejects tool calls even when accompanied by summary text and a stop finish", async () => {
-    await expect(
-      compactConversation(history, {
-        client: client([
-          { type: "text_delta", text: summaryFixture() },
-          { type: "tool_call", toolCall: { id: "unexpected", name: "bash", arguments: "{}" } },
-          { type: "finish", reason: "stop" },
-        ]),
-      }),
-    ).rejects.toThrow("requested a tool")
+    const inference = client([
+      { type: "text_delta", text: summaryFixture() },
+      { type: "tool_call", toolCall: { id: "unexpected", name: "bash", arguments: "{}" } },
+      { type: "finish", reason: "stop" },
+    ])
+    await expect(compactConversation(history, { client: inference })).rejects.toThrow(
+      "requested a tool",
+    )
+    const [request] = vi.mocked(inference.streamChat).mock.calls[0]
+    expect(request.systemPrompt).not.toContain("Additional focus")
   })
 })

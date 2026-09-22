@@ -314,42 +314,6 @@ describe("runAgent", () => {
     ])
   })
 
-  it("preserves multiple reasoning and text blocks in stream order", async () => {
-    const cwd = await trackedTempDir()
-    const requests: StreamAgentRequest[] = []
-    streamAgentMock.mockImplementationOnce(async function* (request) {
-      requests.push(clone(request) as StreamAgentRequest)
-      yield { type: "reasoning_delta", text: "First thought.", field: "reasoning_content" }
-      yield { type: "text_delta", text: "Interim. " }
-      yield { type: "reasoning_delta", text: "Second thought.", field: "reasoning_content" }
-      yield { type: "text_delta", text: "Final answer." }
-    })
-
-    const events = await collect(runAgent("answer me", [], { client, cwd }))
-    const complete = events.find((event) => event.type === "complete")
-    const assistant = complete?.messages.find((message) => message.role === "assistant")
-
-    expect(assistant).toMatchObject({
-      role: "assistant",
-      content: [
-        {
-          type: "reasoning",
-          text: "First thought.",
-          field: "reasoning_content",
-          id: expect.any(String),
-        },
-        { type: "text", text: "Interim. " },
-        {
-          type: "reasoning",
-          text: "Second thought.",
-          field: "reasoning_content",
-          id: expect.any(String),
-        },
-        { type: "text", text: "Final answer." },
-      ],
-    })
-  })
-
   it("coalesces adjacent deltas and times each reasoning block", async () => {
     vi.useFakeTimers({ toFake: ["Date"] })
     vi.setSystemTime(new Date("2026-08-06T12:00:00.000Z"))

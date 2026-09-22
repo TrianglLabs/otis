@@ -674,58 +674,42 @@ describe("runHeadlessCommand", () => {
     )
   })
 
-  it("does not upgrade a saved catalog model to Fast by default", async () => {
-    const cwd = await temporaryDirectory()
-    await writeFile(join(cwd, "pixel.ppm"), "P3\n1 1\n255\n0 0 0\n")
-    mocks.listToolCapableModels.mockResolvedValue([
-      {
-        provider: "fireworks",
-        id: "accounts/fireworks/models/kimi-k3",
-        displayName: "Kimi K3",
-        supportsImageInput: true,
-        fastId: "accounts/fireworks/routers/kimi-k3-fast",
-      },
-    ])
-    mocks.loadLocalSettings.mockResolvedValue({
-      fireworksApiKey: "fw_test",
+  it.each([
+    {
+      preference: "unset",
+      fastServingModels: undefined,
       model: "accounts/fireworks/models/kimi-k3",
-    })
-    mocks.streamChat.mockImplementationOnce(async function* () {
-      yield { type: "text_delta", text: "ok" }
-    })
-    const output = streams({ processCwd: cwd })
-
-    const exitCode = await runHeadlessCommand(
-      ["--ephemeral", "--image", "pixel.ppm", "hello"],
-      output.options,
-    )
-
-    expect(exitCode).toBe(0)
-    expect(FireworksClient).toHaveBeenCalledWith(
-      expect.objectContaining({ model: "accounts/fireworks/models/kimi-k3" }),
-    )
-  })
-
-  it("uses Fast serving when the saved preference is on", async () => {
-    const cwd = await temporaryDirectory()
-    await writeFile(join(cwd, "pixel.ppm"), "P3\n1 1\n255\n0 0 0\n")
-    mocks.listToolCapableModels.mockResolvedValue([
-      {
-        provider: "fireworks",
-        id: "accounts/fireworks/models/kimi-k3",
-        displayName: "Kimi K3",
-        supportsImageInput: true,
-        fastId: "accounts/fireworks/routers/kimi-k3-fast",
-      },
-    ])
-    mocks.loadLocalSettings.mockResolvedValue({
-      fireworksApiKey: "fw_test",
-      model: "accounts/fireworks/models/kimi-k3",
+    },
+    {
+      preference: "on",
       fastServingModels: ["accounts/fireworks/models/kimi-k3"],
+      model: "accounts/fireworks/routers/kimi-k3-fast",
+    },
+  ])("serves a saved catalog model as $model when the Fast preference is $preference", async ({
+    fastServingModels,
+    model,
+  }) => {
+    mocks.listToolCapableModels.mockResolvedValue([
+      {
+        provider: "fireworks",
+        id: "accounts/fireworks/models/kimi-k3",
+        displayName: "Kimi K3",
+        supportsImageInput: true,
+        fastId: "accounts/fireworks/routers/kimi-k3-fast",
+      },
+    ])
+    mocks.loadLocalSettings.mockResolvedValue({
+      fireworksApiKey: "fw_test",
+      model: "accounts/fireworks/models/kimi-k3",
+      ...(fastServingModels ? { fastServingModels } : {}),
     })
     mocks.streamChat.mockImplementationOnce(async function* () {
       yield { type: "text_delta", text: "ok" }
     })
+    // A saved model's serving path is only re-resolved against the catalog when an image forces the
+    // image-support check, so the attachment is what exercises the Fast preference here.
+    const cwd = await temporaryDirectory()
+    await writeFile(join(cwd, "pixel.ppm"), "P3\n1 1\n255\n0 0 0\n")
     const output = streams({ processCwd: cwd })
 
     const exitCode = await runHeadlessCommand(
@@ -734,9 +718,7 @@ describe("runHeadlessCommand", () => {
     )
 
     expect(exitCode).toBe(0)
-    expect(FireworksClient).toHaveBeenCalledWith(
-      expect.objectContaining({ model: "accounts/fireworks/routers/kimi-k3-fast" }),
-    )
+    expect(FireworksClient).toHaveBeenCalledWith(expect.objectContaining({ model }))
   })
 
   it("keeps an explicit catalog model on the base serving path", async () => {

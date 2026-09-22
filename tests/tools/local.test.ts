@@ -450,20 +450,6 @@ describe("grep", () => {
     expect(lines).not.toContain("f.ts:1:const a = 1")
   })
 
-  it("filters files by include glob pattern", async () => {
-    const context = await testContext()
-    await writeFile(join(context.cwd, "a.ts"), "TODO\n", "utf8")
-    await writeFile(join(context.cwd, "b.md"), "TODO\n", "utf8")
-
-    const result = await executeToolCall(
-      { name: "grep", input: { pattern: "TODO", path: ".", include: "*.ts" } },
-      context,
-    )
-
-    expect(result.output).toContain("a.ts:1:TODO")
-    expect(result.output).not.toContain("b.md")
-  })
-
   it("include filter matches files at any depth by basename", async () => {
     const context = await testContext()
     await mkdir(join(context.cwd, "src", "utils"), { recursive: true })

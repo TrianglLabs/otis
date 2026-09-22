@@ -95,68 +95,12 @@ describe("CLI shutdown", () => {
     )
   })
 
-  it("waits for llama-server to stop before destroying the renderer on /exit", async () => {
-    let release = () => {}
-    mocks.stopLocalRuntime.mockImplementation(
-      () =>
-        new Promise<undefined>((resolve) => {
-          release = () => resolve(undefined)
-        }),
-    )
-
-    try {
-      await loadCli()
-      const exiting = submit("/exit")
-      await settle()
-
-      expect(mocks.stopLocalRuntime).toHaveBeenCalledOnce()
-      expect(mocks.renderer.destroy).not.toHaveBeenCalled()
-
-      release()
-      await exiting
-
-      expect(mocks.renderer.destroy).toHaveBeenCalledOnce()
-      expect(mocks.stopLocalRuntime.mock.invocationCallOrder[0]).toBeLessThan(
-        mocks.renderer.destroy.mock.invocationCallOrder[0],
-      )
-    } finally {
-      release()
-    }
-  })
-
-  it("uses the same stop-then-destroy path for Ctrl+C", async () => {
-    let release = () => {}
-    mocks.stopLocalRuntime.mockImplementation(
-      () =>
-        new Promise<undefined>((resolve) => {
-          release = () => resolve(undefined)
-        }),
-    )
-
-    try {
-      await loadCli()
-      const exiting = Promise.resolve(mocks.uiOptions?.onQuit?.())
-      await settle()
-
-      expect(mocks.stopLocalRuntime).toHaveBeenCalledOnce()
-      expect(mocks.renderer.destroy).not.toHaveBeenCalled()
-
-      release()
-      await exiting
-
-      expect(mocks.renderer.destroy).toHaveBeenCalledOnce()
-      expect(mocks.stopLocalRuntime.mock.invocationCallOrder[0]).toBeLessThan(
-        mocks.renderer.destroy.mock.invocationCallOrder[0],
-      )
-    } finally {
-      release()
-    }
-  })
-
   it.each([
+    "/exit",
+    "Ctrl+C",
     "SIGINT",
     "SIGTERM",
-  ] as const)("uses the same stop-then-destroy path for %s", async (signal) => {
+  ] as const)("waits for llama-server to stop before destroying the renderer on %s", async (trigger) => {
     let release = () => {}
     const once = vi.spyOn(process, "once")
     mocks.stopLocalRuntime.mockImplementation(
@@ -165,20 +109,27 @@ describe("CLI shutdown", () => {
           release = () => resolve(undefined)
         }),
     )
-
-    try {
-      await loadCli()
-      const handler = once.mock.calls.find(([event]) => event === signal)?.[1] as
+    const quit = (): Promise<unknown> => {
+      if (trigger === "/exit") return submit("/exit")
+      if (trigger === "Ctrl+C") return Promise.resolve(mocks.uiOptions?.onQuit?.())
+      const handler = once.mock.calls.find(([event]) => event === trigger)?.[1] as
         | (() => void)
         | undefined
       expect(handler).toBeTypeOf("function")
       handler?.()
+      return Promise.resolve()
+    }
+
+    try {
+      await loadCli()
+      const exiting = quit()
       await settle()
 
       expect(mocks.stopLocalRuntime).toHaveBeenCalledOnce()
       expect(mocks.renderer.destroy).not.toHaveBeenCalled()
 
       release()
+      await exiting
       await vi.waitFor(() => expect(mocks.renderer.destroy).toHaveBeenCalledOnce())
       expect(mocks.stopLocalRuntime.mock.invocationCallOrder[0]).toBeLessThan(
         mocks.renderer.destroy.mock.invocationCallOrder[0],
@@ -347,40 +298,36 @@ describe("CLI agent status phases", () => {
 })
 
 describe("CLI completion notification", () => {
-  it("rings the bell when a turn completes and the terminal is unfocused", async () => {
+  it.each([
+    ["rings", "completes", "unfocused"],
+    ["does not ring", "completes", "focused"],
+    ["rings", "errors", "unfocused"],
+    ["does not ring", "errors", "focused"],
+  ] as const)("%s the bell when a turn %s and the terminal is %s", async (bell, outcome, focus) => {
     const session = testSession()
     mocks.createSession.mockResolvedValue(session)
-    mocks.runAgent.mockImplementationOnce(async function* () {
-      yield { type: "delta", text: "done" }
-      yield { type: "complete", messages: [{ role: "user", content: "test" }] }
-    })
+    mocks.runAgent.mockImplementationOnce(
+      outcome === "completes"
+        ? async function* () {
+            yield { type: "delta", text: "done" }
+            yield { type: "complete", messages: [{ role: "user", content: "test" }] }
+          }
+        : async function* () {
+            yield { type: "error", message: "provider down" }
+          },
+    )
     const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true)
 
     await loadCli()
 
-    for (const handler of mocks.rendererHandlers.get("blur") ?? []) handler()
+    if (focus === "unfocused")
+      for (const handler of mocks.rendererHandlers.get("blur") ?? []) handler()
 
     await submit("do something")
     await settle()
 
-    expect(writeSpy).toHaveBeenCalledWith("\x07")
-    writeSpy.mockRestore()
-  })
-
-  it("does not ring the bell when a turn completes and the terminal is focused", async () => {
-    const session = testSession()
-    mocks.createSession.mockResolvedValue(session)
-    mocks.runAgent.mockImplementationOnce(async function* () {
-      yield { type: "delta", text: "done" }
-      yield { type: "complete", messages: [{ role: "user", content: "test" }] }
-    })
-    const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true)
-
-    await loadCli()
-    await submit("do something")
-    await settle()
-
-    expect(writeSpy).not.toHaveBeenCalledWith("\x07")
+    if (bell === "rings") expect(writeSpy).toHaveBeenCalledWith("\x07")
+    else expect(writeSpy).not.toHaveBeenCalledWith("\x07")
     writeSpy.mockRestore()
   })
 
@@ -396,41 +343,6 @@ describe("CLI completion notification", () => {
 
     for (const handler of mocks.rendererHandlers.get("blur") ?? []) handler()
 
-    await submit("do something")
-    await settle()
-
-    expect(writeSpy).not.toHaveBeenCalledWith("\x07")
-    writeSpy.mockRestore()
-  })
-
-  it("rings the bell on error when the terminal is unfocused", async () => {
-    const session = testSession()
-    mocks.createSession.mockResolvedValue(session)
-    mocks.runAgent.mockImplementationOnce(async function* () {
-      yield { type: "error", message: "provider down" }
-    })
-    const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true)
-
-    await loadCli()
-
-    for (const handler of mocks.rendererHandlers.get("blur") ?? []) handler()
-
-    await submit("do something")
-    await settle()
-
-    expect(writeSpy).toHaveBeenCalledWith("\x07")
-    writeSpy.mockRestore()
-  })
-
-  it("does not ring the bell on error when the terminal is focused", async () => {
-    const session = testSession()
-    mocks.createSession.mockResolvedValue(session)
-    mocks.runAgent.mockImplementationOnce(async function* () {
-      yield { type: "error", message: "provider down" }
-    })
-    const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true)
-
-    await loadCli()
     await submit("do something")
     await settle()
 

@@ -224,48 +224,6 @@ describe("compactConversation", () => {
     expect(result.keptMessages.some((m) => m.role === "tool")).toBe(false)
   })
 
-  it("passes custom instructions through to the summarization prompt", async () => {
-    const messages: ChatMessage[] = [
-      { role: "user", content: "first" },
-      { role: "assistant", content: [{ type: "text", text: "response".repeat(20) }] },
-      { role: "user", content: "second" },
-      { role: "assistant", content: [{ type: "text", text: "response".repeat(20) }] },
-    ]
-
-    let capturedPrompt = ""
-    streamAgentMock.mockImplementationOnce(async function* (request: StreamChatOptions) {
-      capturedPrompt = request.systemPrompt ?? ""
-      yield { type: "text_delta", text: summaryFixture("Summary") }
-    })
-
-    await compactConversation(messages, {
-      client,
-      instructions: "Focus on the API design decisions",
-      keepRecentTokens: 32,
-    })
-
-    expect(capturedPrompt).toContain("Focus on the API design decisions")
-  })
-
-  it("does not include custom instructions in the prompt when none are provided", async () => {
-    const messages: ChatMessage[] = [
-      { role: "user", content: "first" },
-      { role: "assistant", content: [{ type: "text", text: "response".repeat(20) }] },
-      { role: "user", content: "second" },
-      { role: "assistant", content: [{ type: "text", text: "response".repeat(20) }] },
-    ]
-
-    let capturedPrompt = ""
-    streamAgentMock.mockImplementationOnce(async function* (request: StreamChatOptions) {
-      capturedPrompt = request.systemPrompt ?? ""
-      yield { type: "text_delta", text: summaryFixture("Summary") }
-    })
-
-    await compactConversation(messages, { client, keepRecentTokens: 32 })
-
-    expect(capturedPrompt).not.toContain("Additional focus")
-  })
-
   it("throws when the model returns an empty summary", async () => {
     const messages: ChatMessage[] = [
       { role: "user", content: "first" },

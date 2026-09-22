@@ -62,6 +62,7 @@ import type {
 import { App } from "../../../src/desktop/renderer/App.js"
 import { DesktopProvider } from "../../../src/desktop/renderer/runtime.js"
 import { DesktopViewStore } from "../../../src/desktop/renderer/state.js"
+import { fakeApi as fakeDesktopApi, snapshotFixture } from "../support/desktop-api.js"
 
 /**
  * The shell regression: routing to Settings must not unmount the conversation column, or the
@@ -69,9 +70,7 @@ import { DesktopViewStore } from "../../../src/desktop/renderer/state.js"
  * away.
  */
 
-const SNAPSHOT: DesktopSnapshot = {
-  busy: false,
-  phase: "idle",
+const SNAPSHOT: DesktopSnapshot = snapshotFixture({
   model: {
     id: "openai/gpt-oss-20b",
     provider: "fireworks",
@@ -79,10 +78,7 @@ const SNAPSHOT: DesktopSnapshot = {
     supportsImageInput: false,
   },
   modelState: "ready",
-  modelError: undefined,
   session: { id: "session-1", title: "Test session" },
-  artifact: null,
-  needsWorkspace: false,
   sessions: [
     {
       id: "session-1",
@@ -94,74 +90,11 @@ const SNAPSHOT: DesktopSnapshot = {
       workspacePath: "/ws",
     },
   ],
-  contextTokens: undefined,
-  contextLimit: 32_768,
-  diffs: { added: 0, removed: 0 },
-  permission: null,
-  stats: undefined,
-  modelLoad: null,
-  subagents: [],
-  agentsPanelVisible: true,
-  theme: "default",
-  language: "system",
-  thinkingVisible: false,
-  permissionMode: "auto",
-  localThinking: null,
-  fastServing: { available: false, enabled: false },
   hostedConfigured: true,
-  pairConfigured: false,
-  pairEndpoints: {},
-  debug: false,
-  platform: "darwin",
-  version: "0.0.0-test",
-  update: { status: "idle" },
-  workspace: { label: "ws", path: "/ws" },
-  entries: [],
-  revision: 1,
-}
+})
 
 function fakeApi(overrides: Partial<DesktopApi> = {}): DesktopApi {
-  return {
-    getSnapshot: vi.fn(async () => SNAPSHOT),
-    getArtifact: vi.fn(async () => undefined),
-    openArtifact: vi.fn(async () => ({ ok: true as const })),
-    saveArtifact: vi.fn(async () => ({ ok: true as const })),
-    getWindowState: vi.fn(async () => ({ fullscreen: false })),
-    sendPrompt: vi.fn(async () => ({ accepted: true as const, delivery: "started" as const })),
-    stop: vi.fn(async () => {}),
-    respondToPermission: vi.fn(async () => {}),
-    selectSession: vi.fn(async () => ({ ok: true as const })),
-    searchSessions: vi.fn(async () => []),
-    startNewSession: vi.fn(async () => ({ ok: true as const })),
-    deleteSession: vi.fn(async () => ({ ok: true as const })),
-    openSessionAt: vi.fn(async () => ({ ok: true as const })),
-    openWorkspace: vi.fn(async () => ({ ok: true as const })),
-    locateWorkspace: vi.fn(async () => ({ ok: true as const })),
-    pickWorkspaceFolder: vi.fn(async () => undefined),
-    registerWorkspace: vi.fn(async () => ({ ok: true as const })),
-    refreshSessions: vi.fn(async () => {}),
-    listModels: vi.fn(async () => []),
-    selectModel: vi.fn(async () => ({ ok: true as const })),
-    cancelModelSelection: vi.fn(async () => {}),
-    getSubagentTrace: vi.fn(async () => []),
-    setAgentsPanelVisible: vi.fn(async () => {}),
-    setTheme: vi.fn(async () => {}),
-    setLanguage: vi.fn(async () => {}),
-    setThinkingVisible: vi.fn(async () => {}),
-    setLocalThinking: vi.fn(async () => {}),
-    setPermissionMode: vi.fn(async () => {}),
-    setFastServing: vi.fn(async () => ({ ok: true as const })),
-    openFireworksKeyPage: vi.fn(async () => {}),
-    setFireworksApiKey: vi.fn(async () => ({ ok: true as const })),
-    connectLocalServers: vi.fn(async () => ({ ok: true as const })),
-    deleteLocalModel: vi.fn(async () => ({ ok: true as const })),
-    setDebugMode: vi.fn(async () => {}),
-    installUpdate: vi.fn(async () => {}),
-    checkForUpdates: vi.fn(async () => {}),
-    subscribeWindowState: vi.fn(() => () => {}),
-    subscribe: vi.fn(() => () => {}),
-    ...overrides,
-  }
+  return fakeDesktopApi(SNAPSHOT, overrides)
 }
 
 async function renderApp(api: DesktopApi) {
@@ -1819,24 +1752,13 @@ describe("global session history", () => {
 
     fireEvent.keyDown(window, { key: "k", metaKey: true })
     const palette = within(await screen.findByRole("dialog"))
+    // The workspace label sits beside the session row.
+    expect(palette.getByText("oldstuff")).toBeTruthy()
     fireEvent.click(palette.getByText("Old stuff"))
     await act(async () => {})
     await act(async () => {})
     expect(api.pickWorkspaceFolder).not.toHaveBeenCalled()
     expect(api.selectSession).toHaveBeenCalledWith("session-legacy", "oldstuff-0123456789ab")
-  })
-
-  it("shows the workspace label beside each session row", async () => {
-    const legacy = sessionItem({ id: "session-legacy", title: "Old stuff", detail: "2w ago" })
-    delete legacy.workspacePath
-    legacy.workspaceLabel = "oldstuff"
-    legacy.dirName = "oldstuff-0123456789ab"
-    const api = fakeApi({ getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, sessions: [legacy] })) })
-    await renderApp(api)
-
-    fireEvent.keyDown(window, { key: "k", metaKey: true })
-    const palette = within(await screen.findByRole("dialog"))
-    expect(palette.getByText("oldstuff")).toBeTruthy()
   })
 
   it("locate banner picks a folder and completes the pending session's recovery", async () => {
@@ -1870,44 +1792,35 @@ describe("global session history", () => {
     expect(await screen.findByText(/open in another Otis window/)).toBeTruthy()
   })
 
-  it("opens a folder from the palette action", async () => {
+  it.each([
+    "palette action",
+    "keyboard shortcut",
+    "composer workspace chip",
+  ] as const)("opens a folder from the %s", async (trigger) => {
     const api = fakeApi({ pickWorkspaceFolder: vi.fn(async () => "/picked/ws") })
     await renderApp(api)
-    fireEvent.keyDown(window, { key: "k", metaKey: true })
-    const palette = within(await screen.findByRole("dialog"))
-    expect(palette.getByText("⌘O")).toBeTruthy()
-    fireEvent.click(palette.getByText("Open Folder"))
-    await act(async () => {})
-    await act(async () => {})
-    expect(api.openWorkspace).toHaveBeenCalledWith("/picked/ws")
-  })
 
-  it("opens a folder with the standard keyboard shortcut", async () => {
-    const api = fakeApi({ pickWorkspaceFolder: vi.fn(async () => "/picked/shortcut") })
-    await renderApp(api)
-
-    fireEvent.keyDown(window, { key: "o", metaKey: true })
+    if (trigger === "palette action") {
+      fireEvent.keyDown(window, { key: "k", metaKey: true })
+      const palette = within(await screen.findByRole("dialog"))
+      expect(palette.getByText("⌘O")).toBeTruthy()
+      fireEvent.click(palette.getByText("Open Folder"))
+    } else if (trigger === "keyboard shortcut") {
+      fireEvent.keyDown(window, { key: "o", metaKey: true })
+    } else {
+      // The active workspace sits next to the model in the composer footer, moved out of the header.
+      const footer = document.querySelector(".composer-footer")
+      expect(footer?.textContent).toContain("ws")
+      const chip = footer?.querySelector(".composer-workspace")
+      expect(chip).toBeTruthy()
+      expect(document.querySelector(".workspaceHeader-workspace")).toBeNull()
+      fireEvent.click(chip as Element)
+    }
     await act(async () => {})
     await act(async () => {})
 
     expect(api.pickWorkspaceFolder).toHaveBeenCalledOnce()
-    expect(api.openWorkspace).toHaveBeenCalledWith("/picked/shortcut")
-  })
-
-  it("shows the active workspace next to the model in the composer and opens the folder picker from it", async () => {
-    const api = fakeApi({ pickWorkspaceFolder: vi.fn(async () => "/picked/elsewhere") })
-    await renderApp(api)
-    const footer = document.querySelector(".composer-footer")
-    expect(footer?.textContent).toContain("ws")
-    const chip = footer?.querySelector(".composer-workspace")
-    expect(chip).toBeTruthy()
-    // Moved out of the header.
-    expect(document.querySelector(".workspaceHeader-workspace")).toBeNull()
-    fireEvent.click(chip as Element)
-    await act(async () => {})
-    await act(async () => {})
-    expect(api.pickWorkspaceFolder).toHaveBeenCalled()
-    expect(api.openWorkspace).toHaveBeenCalledWith("/picked/elsewhere")
+    expect(api.openWorkspace).toHaveBeenCalledWith("/picked/ws")
   })
 })
 

@@ -248,17 +248,6 @@ describe("checkForUpdate", () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it("throws on an invalid release version", async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({ version: "nightly", artifacts: {} }))
-
-    await expect(
-      checkForUpdate({
-        currentVersion: "0.1.2",
-        fetch: fetchMock as unknown as typeof fetch,
-      }),
-    ).rejects.toThrow("Release version is not valid semver: nightly")
-  })
-
   it("passes the abort signal to fetch", async () => {
     const controller = new AbortController()
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {

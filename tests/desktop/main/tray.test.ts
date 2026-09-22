@@ -638,16 +638,6 @@ describe("createStatusTray", () => {
     expect(tray.setImage).toHaveBeenLastCalledWith(alertImage)
     expect(tray.setToolTip).toHaveBeenLastCalledWith("Otis — needs your approval")
   })
-
-  it("destroys the underlying tray", () => {
-    installMockIcons()
-    const statusTray = createStatusTray({
-      iconDir: "/app/resources/tray",
-      actions: actionsFixture(),
-    })
-    statusTray?.destroy()
-    expect(latestTray().destroy).toHaveBeenCalledOnce()
-  })
 })
 
 describe("trayStatusGate", () => {
@@ -666,34 +656,29 @@ describe("trayStatusGate", () => {
     return { icons, tray }
   }
 
-  it("applies the seed while no live status has arrived", () => {
-    const { icons, tray } = recordingTray()
-    const gate = trayStatusGate(tray)
-    gate.applySeed(statusFixture({ phase: "thinking" }))
-    expect(icons).toEqual(["working"])
-  })
+  const liveCases: Array<{ live: string; overrides: Partial<DesktopStatus>; icon: string }> = [
+    { live: "status", overrides: { phase: "thinking" }, icon: "working" },
+    {
+      live: "approval request",
+      overrides: { permission: { id: 4, label: "Edit a file", kind: "file_edit", resources: [] } },
+      icon: "alert",
+    },
+  ]
 
-  it("drops a seed that resolves after a live status, keeping the newer working icon", () => {
+  it.each(
+    liveCases,
+  )("drops a seed that resolves after a live $live, keeping the newer $icon icon", ({
+    overrides,
+    icon,
+  }) => {
     const { icons, tray } = recordingTray()
     const gate = trayStatusGate(tray)
     // The seed's busy/phase were captured before the turn started, so it is stale by the time it
     // resolves.
     const staleSeed = statusFixture()
-    gate.applyLive(statusFixture({ phase: "thinking" }))
+    gate.applyLive(statusFixture(overrides))
     gate.applySeed(staleSeed)
-    expect(icons).toEqual(["working"])
-  })
-
-  it("drops a seed that resolves after a live approval request, keeping the alert icon", () => {
-    const { icons, tray } = recordingTray()
-    const gate = trayStatusGate(tray)
-    gate.applyLive(
-      statusFixture({
-        permission: { id: 4, label: "Edit a file", kind: "file_edit", resources: [] },
-      }),
-    )
-    gate.applySeed(statusFixture())
-    expect(icons).toEqual(["alert"])
+    expect(icons).toEqual([icon])
   })
 
   it("applies every live status; only a pre-live seed applies, and only once", () => {

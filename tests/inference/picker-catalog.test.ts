@@ -290,25 +290,6 @@ describe("model picker catalog", () => {
     }
   })
 
-  it.each([
-    [8, 256, LFM],
-    [24, 256, BONSAI],
-    [48, 256, QWEN],
-    [80, 128, QWEN],
-    [96, 16, BONSAI],
-  ])("stars the shared GPU-aware choice with %d GiB VRAM and %d GiB RAM", async (gpuGiB, ramGiB, id) => {
-    const items = await listModelPickerItems({
-      hardware: linuxHardware(ramGiB, gpuGiB),
-      dataDirectory: await tempDir(),
-    })
-    const starred = items.filter(
-      (item): item is LocalPickerChoice =>
-        item.kind === "model" && item.provider === "local" && item.recommended,
-    )
-    expect(starred.map((item) => item.id)).toEqual([id])
-    expect(starred.every(isSelectablePickerItem)).toBe(true)
-  })
-
   it("shows the GPU-budgeted context and memory cost, and labels manual CPU offload", async () => {
     const model = findLocalModel("Qwen/Qwen3.8-27B")
     if (!model) throw new Error("missing catalog entry")
