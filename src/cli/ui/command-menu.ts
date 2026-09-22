@@ -1,13 +1,7 @@
 import type { BoxRenderable } from "@opentui/core"
 import { colors } from "../theme.js"
-import { createPickerRow, type PickerRow, type PickerRowSpec, stylePickerRow } from "./picker-row.js"
-import type { CommandSuggestion, Renderer } from "./types.js"
-
-type MenuKey = {
-  name: string
-  preventDefault(): void
-  stopPropagation(): void
-}
+import { type PickerRow, type PickerRowSpec, syncPickerRows } from "./picker-row.js"
+import { type CommandSuggestion, type Renderer, stopKey, type UIKey } from "./types.js"
 
 type MenuActions = {
   close: (restoreThemePreview?: boolean) => void
@@ -40,8 +34,7 @@ export class CommandMenu {
   }
 
   update(value: string, showingWelcome: boolean, activeTheme?: string) {
-    const query = commandQuery(value)
-    if (query === undefined) return false
+    if (!value.startsWith("/") || (/\s/.test(value) && !value.startsWith("/theme "))) return false
 
     const visibleCommands = this.#commands.filter((command) => {
       if (!showingWelcome) return true
@@ -50,11 +43,11 @@ export class CommandMenu {
     const themeCommands = visibleCommands.filter((command) => command.name.startsWith("/theme "))
     const regularCommands = visibleCommands.filter((command) => !command.name.startsWith("/theme "))
     this.#items =
-      query === "/theme "
+      value === "/theme "
         ? themeCommands
-        : query === "/"
+        : value === "/"
           ? regularCommands
-          : regularCommands.filter((command) => command.name.startsWith(query))
+          : regularCommands.filter((command) => command.name.startsWith(value))
     this.#selectedIndex = Math.max(0, themeItemIndex(this.#items, activeTheme))
     this.render()
     return true
@@ -75,7 +68,7 @@ export class CommandMenu {
     return this.#items[this.#selectedIndex]
   }
 
-  handleKey(key: MenuKey, actions: MenuActions) {
+  handleKey(key: UIKey, actions: MenuActions) {
     if (key.name === "escape") {
       stopKey(key)
       actions.close()
@@ -83,7 +76,13 @@ export class CommandMenu {
     }
     if (key.name === "up" || key.name === "down") {
       stopKey(key)
-      this.move(key.name === "up" ? -1 : 1, actions.preview)
+      if (this.#items.length === 0) return true
+      const delta = key.name === "up" ? -1 : 1
+      this.#selectedIndex = (this.#selectedIndex + delta + this.#items.length) % this.#items.length
+      this.render()
+      const selected = this.selected()
+      if (selected) actions.preview?.(selected)
+      this.renderer.requestRender()
       return true
     }
     if (key.name === "return" || key.name === "enter") {
@@ -96,64 +95,27 @@ export class CommandMenu {
     return false
   }
 
-  private move(delta: number, preview?: (command: CommandSuggestion) => void) {
-    if (this.#items.length === 0) return
-    this.#selectedIndex = (this.#selectedIndex + delta + this.#items.length) % this.#items.length
-    this.render()
-    const selected = this.selected()
-    if (selected) preview?.(selected)
-    this.renderer.requestRender()
-  }
-
   private render() {
-    const rows = this.rowData()
-    while (this.#rows.length > rows.length) {
-      const row = this.#rows.pop()
-      if (row) this.container.remove(row.box.id)
-    }
-    rows.forEach((row, index) => {
-      this.setRow(index, row)
-    })
-  }
-
-  private rowData(): PickerRowSpec[] {
-    if (this.#items.length === 0) {
-      return [{ title: "No matching commands", fg: colors.muted, selected: false }]
-    }
-
-    return this.#items.map((command, index) => ({
-      title: command.name.startsWith("/theme ") ? command.name.slice("/theme ".length) : command.name,
-      meta: command.description || undefined,
-      fg: colors.text,
-      selected: index === this.#selectedIndex,
+    const specs: PickerRowSpec[] =
+      this.#items.length === 0
+        ? [{ title: "No matching commands", fg: colors.muted, selected: false }]
+        : this.#items.map((command, index) => ({
+            title: command.name.startsWith("/theme ")
+              ? command.name.slice("/theme ".length)
+              : command.name,
+            meta: command.description || undefined,
+            fg: colors.text,
+            selected: index === this.#selectedIndex,
+          }))
+    syncPickerRows(this.renderer, this.container, this.#rows, specs, "command-row", () => ({
+      bg: "background",
     }))
-  }
-
-  private setRow(index: number, spec: PickerRowSpec) {
-    const existing = this.#rows[index]
-    if (existing) {
-      stylePickerRow(existing, spec)
-      return
-    }
-
-    const row = createPickerRow(this.renderer, `command-row-${index}`, { bg: "background" })
-    stylePickerRow(row, spec)
-    this.#rows.push(row)
-    this.container.add(row.box)
   }
 }
 
 function themeItemIndex(items: readonly CommandSuggestion[], activeTheme?: string) {
   if (!activeTheme) return -1
-  return items.findIndex((command) => command.name === activeTheme || command.name === `/theme ${activeTheme}`)
-}
-
-function commandQuery(value: string) {
-  if (!value.startsWith("/") || (/\s/.test(value) && !value.startsWith("/theme "))) return undefined
-  return value
-}
-
-function stopKey(key: MenuKey) {
-  key.preventDefault()
-  key.stopPropagation()
+  return items.findIndex(
+    (command) => command.name === activeTheme || command.name === `/theme ${activeTheme}`,
+  )
 }

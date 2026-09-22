@@ -42,7 +42,9 @@ describe("SessionCoordinator", () => {
     const { cwd, sessions, transcript } = await coordinator()
     const stored = await createSession({ cwd })
     const admission = await stored.admitPrompt("hello from disk")
-    await stored.completeTurn(admission, [{ role: "assistant", content: [{ type: "text", text: "hi" }] }])
+    await stored.completeTurn(admission, [
+      { role: "assistant", content: [{ type: "text", text: "hi" }] },
+    ])
 
     expect(await sessions.select(stored.id)).toBe("loaded")
     expect(transcript.history.some((message) => message.role === "user")).toBe(true)
@@ -64,7 +66,9 @@ describe("SessionCoordinator", () => {
     const { cwd, sessions, transcript } = await coordinator()
     const stored = await createSession({ cwd })
     const admission = await stored.admitPrompt("old question")
-    await stored.completeTurn(admission, [{ role: "assistant", content: [{ type: "text", text: "old answer" }] }])
+    await stored.completeTurn(admission, [
+      { role: "assistant", content: [{ type: "text", text: "old answer" }] },
+    ])
     await stored.compact("Saved progress.", [])
     await sessions.select(stored.id)
     expect(transcript.history).toEqual([compactionSummaryMessage("Saved progress.")])
@@ -133,7 +137,13 @@ describe("duplicate session ids across storage dirs", () => {
     const line = (event: Record<string, unknown>) => `${JSON.stringify(event)}\n`
     await appendFile(
       join(dir, `${sessionId}.jsonl`),
-      line({ seq: 1, sessionId, at: new Date().toISOString(), type: "session_started", version: 1 }) +
+      line({
+        seq: 1,
+        sessionId,
+        at: new Date().toISOString(),
+        type: "session_started",
+        version: 1,
+      }) +
         line({
           seq: 2,
           sessionId,
@@ -182,7 +192,8 @@ describe("duplicate session ids across storage dirs", () => {
     expect(await sessions.delete(own.id, { directory: otherDir })).toBe("locked")
     expect(sessions.current?.id).toBe(own.id) // current session untouched
 
-    // …and after the holder releases, deleting the other dir's copy must not reset our current session.
+    // …and after the holder releases, deleting the other dir's copy must not reset our current
+    // session.
     await holder.releaseLock()
     expect(await sessions.delete(own.id, { directory: otherDir })).toBe("deleted")
     expect(sessions.current?.id).toBe(own.id)
@@ -199,7 +210,8 @@ describe("previewed-session deletion", () => {
     // Simulate the read-only preview: the runtime released our write lock.
     await sessions.releaseLock()
 
-    // Another instance took the session over: deletion must refuse instead of orphaning its history.
+    // Another instance took the session over: deletion must refuse instead of orphaning its
+    // history.
     const holder = new SessionCoordinator({
       client: () => undefined,
       cwd: home,

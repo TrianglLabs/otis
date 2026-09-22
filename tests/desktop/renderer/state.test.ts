@@ -1,22 +1,127 @@
 import { describe, expect, it } from "vitest"
 import type { TranscriptEntry } from "../../../src/app/transcript.js"
-import type { DesktopApi, DesktopEvent, DesktopSnapshot, DesktopStatus } from "../../../src/desktop/contracts.js"
-import { applyTranscriptOps, DesktopViewStore, reconcileTraceEntries } from "../../../src/desktop/renderer/state.js"
+import type {
+  DesktopApi,
+  DesktopEvent,
+  DesktopSnapshot,
+  DesktopStatus,
+  TranscriptPatchOp,
+} from "../../../src/desktop/contracts.js"
+import { DesktopViewStore, reconcileTraceEntries } from "../../../src/desktop/renderer/state.js"
 
 function entry(id: number, text: string): TranscriptEntry {
   return { id, kind: "message", speaker: "Otis", text }
 }
 
-describe("applyTranscriptOps", () => {
-  it("preserves unchanged rows and ignores identical deliveries without replacing the array", () => {
+const status: DesktopStatus = {
+  busy: false,
+  phase: "idle",
+  model: null,
+  modelState: "unconfigured",
+  modelError: undefined,
+  session: null,
+  artifact: null,
+  needsWorkspace: false,
+  sessions: [],
+  workspace: { label: "~/ws", path: "/ws" },
+  contextTokens: undefined,
+  contextLimit: 128_000,
+  diffs: { added: 0, removed: 0 },
+  permission: null,
+  stats: undefined,
+  modelLoad: null,
+  subagents: [],
+  agentsPanelVisible: true,
+  theme: "default",
+  language: "system",
+  thinkingVisible: true,
+  permissionMode: "auto",
+  localThinking: null,
+  fastServing: { available: false, enabled: false },
+  hostedConfigured: false,
+  pairConfigured: false,
+  pairEndpoints: {},
+  debug: false,
+  update: { status: "idle" },
+}
+
+function snapshot(entries: TranscriptEntry[]): DesktopSnapshot {
+  return { platform: "darwin", version: "test", ...status, entries, revision: 5 }
+}
+
+function fakeApi(entries: TranscriptEntry[]): { api: DesktopApi; emit(event: DesktopEvent): void } {
+  let listener: ((event: DesktopEvent) => void) | undefined
+  return {
+    emit: (event) => listener?.(event),
+    api: {
+      getSnapshot: async () => snapshot(entries),
+      getArtifact: async () => undefined,
+      openArtifact: async () => ({ ok: true }),
+      saveArtifact: async () => ({ ok: true as const }),
+      getWindowState: async () => ({ fullscreen: false }),
+      sendPrompt: async () => ({ accepted: true, delivery: "started" }),
+      stop: async () => {},
+      respondToPermission: async () => {},
+      selectSession: async () => ({ ok: true }),
+      searchSessions: async () => [],
+      startNewSession: async () => ({ ok: true }),
+      openSessionAt: async () => ({ ok: true }),
+      openWorkspace: async () => ({ ok: true }),
+      locateWorkspace: async () => ({ ok: true }),
+      pickWorkspaceFolder: async () => undefined,
+      registerWorkspace: async () => ({ ok: true }),
+      refreshSessions: async () => {},
+      getSubagentTrace: async () => [],
+      setAgentsPanelVisible: async () => {},
+      setTheme: async () => {},
+      setLanguage: async () => {},
+      setThinkingVisible: async () => {},
+      setLocalThinking: async () => {},
+      setPermissionMode: async () => {},
+      setFastServing: async () => ({ ok: true }),
+      openFireworksKeyPage: async () => {},
+      setFireworksApiKey: async () => ({ ok: true }),
+      connectLocalServers: async () => ({ ok: true }),
+      deleteLocalModel: async () => ({ ok: true }),
+      setDebugMode: async () => {},
+      installUpdate: async () => {},
+      checkForUpdates: async () => {},
+      subscribeWindowState: () => () => {},
+      deleteSession: async () => ({ ok: true }),
+      listModels: async () => [],
+      selectModel: async () => ({ ok: true }),
+      cancelModelSelection: async () => {},
+      subscribe: (next) => {
+        listener = next
+        return () => {
+          listener = undefined
+        }
+      },
+    },
+  }
+}
+
+/** The transcript after one patch event lands on a store seeded with `base`. */
+async function patched(base: TranscriptEntry[], ops: TranscriptPatchOp[]) {
+  const { api, emit } = fakeApi(base)
+  const store = new DesktopViewStore(api)
+  await store.start()
+  emit({ type: "transcript", revision: 6, ops })
+  const entries = store.getState()?.entries
+  if (!entries) throw new Error("store has no state")
+  return entries
+}
+
+describe("transcript patches", () => {
+  it("preserves unchanged rows and ignores identical deliveries without replacing the array", async () => {
     const base = [entry(1, "a"), entry(2, "b")]
     expect(
-      applyTranscriptOps(base, [
+      await patched(base, [
         { op: "upsert", entry: { ...base[0] } },
         { op: "remove", id: 99 },
       ]),
     ).toBe(base)
-    const next = applyTranscriptOps(base, [{ op: "upsert", entry: entry(2, "changed") }])
+    const next = await patched(base, [{ op: "upsert", entry: entry(2, "changed") }])
     expect(next[0]).toBe(base[0])
     expect(next[1]).not.toBe(base[1])
   })
@@ -28,9 +133,9 @@ describe("applyTranscriptOps", () => {
     expect(next[0]).toBe(base[2])
     expect(next.map((row) => row.text)).toEqual(["c", "updated"])
   })
-  it("appends new entries and patches existing ones in place", () => {
+  it("appends new entries and patches existing ones in place", async () => {
     const base = [entry(1, "a"), entry(2, "b")]
-    const next = applyTranscriptOps(base, [
+    const next = await patched(base, [
       { op: "upsert", entry: entry(2, "b updated") },
       { op: "upsert", entry: entry(3, "c") },
     ])
@@ -38,9 +143,9 @@ describe("applyTranscriptOps", () => {
     expect(base.map((item) => item.text)).toEqual(["a", "b"])
   })
 
-  it("reset replaces the list and later ops apply on top", () => {
+  it("reset replaces the list and later ops apply on top", async () => {
     const base = [entry(1, "a"), entry(2, "b")]
-    const next = applyTranscriptOps(base, [
+    const next = await patched(base, [
       { op: "upsert", entry: entry(9, "stale") },
       { op: "reset", entries: [entry(1, "fresh")] },
       { op: "upsert", entry: entry(2, "after reset") },
@@ -48,9 +153,9 @@ describe("applyTranscriptOps", () => {
     expect(next.map((item) => item.text)).toEqual(["fresh", "after reset"])
   })
 
-  it("remove then upsert moves an entry to the end", () => {
+  it("remove then upsert moves an entry to the end", async () => {
     const base = [entry(1, "queued"), entry(2, "working")]
-    const next = applyTranscriptOps(base, [
+    const next = await patched(base, [
       { op: "remove", id: 1 },
       { op: "upsert", entry: entry(1, "activated") },
     ])
@@ -59,102 +164,8 @@ describe("applyTranscriptOps", () => {
 })
 
 describe("DesktopViewStore", () => {
-  const status: DesktopStatus = {
-    busy: false,
-    phase: "idle",
-    model: null,
-    modelState: "unconfigured",
-    modelError: undefined,
-    session: null,
-    artifact: null,
-    needsWorkspace: false,
-    sessions: [],
-    workspace: { label: "~/ws", path: "/ws" },
-    contextTokens: undefined,
-    contextLimit: 128_000,
-    diffs: { added: 0, removed: 0 },
-    permission: null,
-    stats: undefined,
-    modelLoad: null,
-    subagents: [],
-    agentsPanelVisible: true,
-    theme: "default",
-    language: "system",
-    thinkingVisible: true,
-    permissionMode: "auto",
-    localThinking: null,
-    fastServing: { available: false, enabled: false },
-    hostedConfigured: false,
-    pairConfigured: false,
-    pairEndpoints: {},
-    debug: false,
-    update: { status: "idle" },
-  }
-
-  function snapshot(): DesktopSnapshot {
-    return {
-      platform: "darwin",
-      version: "test",
-      ...status,
-      entries: [entry(1, "from snapshot")],
-      revision: 5,
-    }
-  }
-
-  function fakeApi(): { api: DesktopApi; emit(event: DesktopEvent): void } {
-    let listener: ((event: DesktopEvent) => void) | undefined
-    return {
-      emit: (event) => listener?.(event),
-      api: {
-        getSnapshot: async () => snapshot(),
-        getArtifact: async () => undefined,
-        openArtifact: async () => ({ ok: true }),
-        saveArtifact: async () => ({ ok: true as const }),
-        getWindowState: async () => ({ fullscreen: false }),
-        sendPrompt: async () => ({ accepted: true, delivery: "started" }),
-        stop: async () => {},
-        respondToPermission: async () => {},
-        selectSession: async () => ({ ok: true }),
-        searchSessions: async () => [],
-        startNewSession: async () => ({ ok: true }),
-        openSessionAt: async () => ({ ok: true }),
-        openWorkspace: async () => ({ ok: true }),
-        locateWorkspace: async () => ({ ok: true }),
-        pickWorkspaceFolder: async () => undefined,
-        registerWorkspace: async () => ({ ok: true }),
-        refreshSessions: async () => {},
-        getSubagentTrace: async () => [],
-        setAgentsPanelVisible: async () => {},
-        setTheme: async () => {},
-        setLanguage: async () => {},
-        setThinkingVisible: async () => {},
-        setLocalThinking: async () => {},
-        setPermissionMode: async () => {},
-        setFastServing: async () => ({ ok: true }),
-        openFireworksKeyPage: async () => {},
-        setFireworksApiKey: async () => ({ ok: true }),
-        connectLocalServers: async () => ({ ok: true }),
-        deleteLocalModel: async () => ({ ok: true }),
-        setDebugMode: async () => {},
-        installUpdate: async () => {},
-        checkForUpdates: async () => {},
-        subscribeWindowState: () => () => {},
-        deleteSession: async () => ({ ok: true }),
-        listModels: async () => [],
-        selectModel: async () => ({ ok: true }),
-        cancelModelSelection: async () => {},
-        subscribe: (next) => {
-          listener = next
-          return () => {
-            listener = undefined
-          }
-        },
-      },
-    }
-  }
-
   it("starts from the snapshot, replays buffered events, and drops stale revisions", async () => {
-    const { api, emit } = fakeApi()
+    const { api, emit } = fakeApi([entry(1, "from snapshot")])
     const store = new DesktopViewStore(api)
 
     const startTask = store.start()
@@ -162,11 +173,21 @@ describe("DesktopViewStore", () => {
     emit({ type: "transcript", revision: 6, ops: [{ op: "upsert", entry: entry(2, "streamed") }] })
     await startTask
 
-    expect(store.getState()?.entries.map((item) => item.text)).toEqual(["from snapshot", "streamed"])
+    expect(store.getState()?.entries.map((item) => item.text)).toEqual([
+      "from snapshot",
+      "streamed",
+    ])
 
     // A duplicate at an already-applied revision is dropped.
-    emit({ type: "transcript", revision: 6, ops: [{ op: "upsert", entry: entry(3, "duplicate stale") }] })
-    expect(store.getState()?.entries.map((item) => item.text)).toEqual(["from snapshot", "streamed"])
+    emit({
+      type: "transcript",
+      revision: 6,
+      ops: [{ op: "upsert", entry: entry(3, "duplicate stale") }],
+    })
+    expect(store.getState()?.entries.map((item) => item.text)).toEqual([
+      "from snapshot",
+      "streamed",
+    ])
 
     emit({ type: "status", revision: 7, status: { ...status, busy: true } })
     expect(store.getState()?.busy).toBe(true)
@@ -174,10 +195,14 @@ describe("DesktopViewStore", () => {
   })
 
   it("publishes a session reset and its metadata as one state change", async () => {
-    const { api, emit } = fakeApi()
+    const { api, emit } = fakeApi([entry(1, "from snapshot")])
     const store = new DesktopViewStore(api)
     await store.start()
-    emit({ type: "status", revision: 6, status: { ...status, session: { id: "old", title: "Old session" } } })
+    emit({
+      type: "status",
+      revision: 6,
+      status: { ...status, session: { id: "old", title: "Old session" } },
+    })
     const observed: (DesktopSnapshot | undefined)[] = []
     store.subscribe(() => observed.push(store.getState()))
 

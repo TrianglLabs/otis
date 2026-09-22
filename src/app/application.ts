@@ -1,32 +1,42 @@
-import { resolve } from "node:path"
+import { homedir } from "node:os"
+import { isAbsolute, parse, relative, resolve, sep } from "node:path"
 import type { ArtifactReference } from "../artifacts/types.js"
+import { requestContextEstimator } from "../core/compaction.js"
 import { loadProjectContext } from "../core/context.js"
-import { requestContextEstimator } from "../core/context-tokens.js"
-import { providerTools } from "../core/subagent.js"
 import { requireLocalContextLength } from "../inference/context-policy.js"
 import type { LocalLoadProgress } from "../inference/llama-runtime.js"
 import { catalogModelFromSpec, findLocalModel } from "../inference/local-catalog.js"
 import { createPairClient, type PairEndpoints, pairEndpointForEngine } from "../inference/pair.js"
 import type { ContextFile, OutputCapabilities, UserChatMessage } from "../inference/types.js"
-import { type LocalSettings, loadLocalSettings, saveLocalServers, saveLocalThinking } from "../local/settings.js"
+import {
+  type LocalSettings,
+  loadLocalSettings,
+  saveLocalServers,
+  saveLocalThinking,
+} from "../local/settings.js"
 import {
   createPermissionPolicy,
   DEFAULT_PERMISSION_MODE,
+  loadProjectPermissionRules,
   type PermissionMode,
   type PermissionRule,
 } from "../permissions/policy.js"
-import { loadProjectPermissionRules } from "../permissions/project-policy.js"
 import { loadSkillCatalog, type SkillCatalog } from "../skills/index.js"
+import { providerTools } from "../tools/index.js"
 import { ParallelClient } from "../web/client.js"
 import { ArtifactStore } from "./artifacts.js"
 import { Conversation } from "./conversation.js"
-import { type LocalServerDiscoveryOptions, type LocalServerInputs, prepareLocalServers } from "./local-servers.js"
+import {
+  type LocalServerDiscoveryOptions,
+  type LocalServerInputs,
+  prepareLocalServers,
+} from "./local-servers.js"
 import { ModelHost } from "./models.js"
 import { SessionCoordinator } from "./sessions.js"
 import { SubagentTraces } from "./subagents.js"
 import { TranscriptStore } from "./transcript.js"
 
-export type ApplicationOptions = {
+type ApplicationOptions = {
   cwd?: string
   env?: NodeJS.ProcessEnv
   isBusy?: () => boolean
@@ -57,11 +67,17 @@ export class Application {
     const settings = await loadLocalSettings({ env: options.env })
     const app = new Application(cwd, settings, options)
     app.models.applySavedSelection(settings)
-    await app.refreshWorkspace()
+    app.projectContext = loadProjectContext(cwd)
+    app.skills = await loadSkillCatalog(cwd)
+    app.permissionRules = [
+      ...(settings.permissions?.rules ?? []),
+      ...(await loadProjectPermissionRules(cwd)),
+    ]
     return app
   }
 
   private constructor(cwd: string, settings: LocalSettings, options: ApplicationOptions) {
+    const isExiting = options.isExiting ?? (() => false)
     this.cwd = cwd
     this.artifacts = new ArtifactStore(cwd)
     this.outputCapabilities = options.outputCapabilities ?? {}
@@ -77,7 +93,7 @@ export class Application {
       subagents: this.subagents,
       client: () => this.models.client,
       isBusy: () => (options.isBusy?.() ?? false) || this.conversation.busy,
-      isExiting: options.isExiting ?? (() => false),
+      isExiting,
       onReset: () => this.artifacts.clear(),
       onReplay: (messages, activities, session) =>
         this.artifacts.restore(messages, activities, session.artifactDirectory),
@@ -92,23 +108,15 @@ export class Application {
       projectContext: () => this.projectContext,
       skills: () => this.skills,
       permissionPolicy: () => this.createPermissionPolicy(),
-      isExiting: options.isExiting ?? (() => false),
+      isExiting,
       outputCapabilities: this.outputCapabilities,
       artifacts: this.artifacts,
     })
   }
 
-  async refreshWorkspace() {
-    this.projectContext = loadProjectContext(this.cwd)
-    this.skills = await loadSkillCatalog(this.cwd)
-    this.permissionRules = [
-      ...(this.settings.permissions?.rules ?? []),
-      ...(await loadProjectPermissionRules(this.cwd)),
-    ]
-  }
-
   async setLocalThinking(model: string, level: string) {
-    if (this.conversation.busy) throw new Error("Finish the current work before changing thinking effort.")
+    if (this.conversation.busy)
+      throw new Error("Finish the current work before changing thinking effort.")
     if (this.models.selectedProvider !== "local" || this.models.selectedId !== model) {
       throw new Error("The selected local model has changed.")
     }
@@ -140,7 +148,8 @@ export class Application {
 
   contextTokens(pendingInput?: UserChatMessage) {
     const estimate = this.contextEstimator()
-    const tokens = this.transcript.contextTokens(this.models.client) ?? estimate(this.transcript.history)
+    const tokens =
+      this.transcript.contextTokens(this.models.client) ?? estimate(this.transcript.history)
     return pendingInput ? tokens + estimate([pendingInput]) - estimate([]) : tokens
   }
 
@@ -149,52 +158,62 @@ export class Application {
   }
 
   hasConfiguredSelection() {
-    const model = this.models
-    const pairEndpoint = pairEndpointForEngine(this.pairEndpoints, model.pairEngine)
+    const { selectedId, selectedProvider, omlx, pairEngine } = this.models
     return Boolean(
-      model.selectedId &&
-        ((model.selectedProvider === "fireworks" && this.fireworksApiKey) ||
-          model.selectedProvider === "local" ||
-          (model.selectedProvider === "omlx" && model.omlx) ||
-          (model.selectedProvider === "pair" && pairEndpoint)),
+      selectedId &&
+        ((selectedProvider === "fireworks" && this.fireworksApiKey) ||
+          selectedProvider === "local" ||
+          (selectedProvider === "omlx" && omlx) ||
+          (selectedProvider === "pair" && pairEndpointForEngine(this.pairEndpoints, pairEngine))),
     )
   }
 
   async connectLocalServers(input: LocalServerInputs, options: LocalServerDiscoveryOptions = {}) {
-    if (this.conversation.busy) throw new Error("Wait for the current turn before changing local servers.")
-    const connection = await this.models.enqueueSelection(async (signal) => {
+    if (this.conversation.busy)
+      throw new Error("Wait for the current turn before changing local servers.")
+    const models = this.models
+    const connection = await models.enqueueSelection(async (signal) => {
       const combined = options.signal ? AbortSignal.any([signal, options.signal]) : signal
-      const servers = await prepareLocalServers(input, this.models.omlx, { ...options, signal: combined })
+      const servers = await prepareLocalServers(input, models.omlx, {
+        ...options,
+        signal: combined,
+      })
       combined.throwIfAborted()
-      if (this.models.selectedProvider === "omlx") {
-        const model = servers.omlxModels.find((entry) => entry.id === this.models.selectedId)
-        if (model) {
-          try {
-            requireLocalContextLength(model.contextLength, "oMLX")
-          } catch (error) {
-            // A refreshed limit invalidates the existing client only when it describes the same server.
-            if (model.baseURL === this.models.omlx?.baseURL) {
-              this.models.client = undefined
-              this.transcript.invalidateContext()
-            }
-            throw error
+      const id = models.selectedId
+      const omlxModel =
+        id &&
+        models.selectedProvider === "omlx" &&
+        servers.omlxModels.find((entry) => entry.id === id)
+      if (omlxModel) {
+        try {
+          requireLocalContextLength(omlxModel.contextLength, "oMLX")
+        } catch (error) {
+          // A refreshed limit invalidates the existing client only when it describes the same
+          // server.
+          if (omlxModel.baseURL === models.omlx?.baseURL) {
+            models.client = undefined
+            this.transcript.invalidateContext()
           }
+          throw error
         }
       }
       await saveLocalServers(servers)
       this.pairEndpoints = servers.pairEndpoints
-      this.models.omlx = servers.omlx
-      const id = this.models.selectedId
-      if (id && this.models.selectedProvider === "pair") {
-        const model = servers.pairModels.find((entry) => entry.id === id && entry.engine === this.models.pairEngine)
+      models.omlx = servers.omlx
+      if (id && models.selectedProvider === "pair") {
+        const model = servers.pairModels.find(
+          (entry) => entry.id === id && entry.engine === models.pairEngine,
+        )
         if (model)
-          this.models.activate(model, createPairClient({ baseURL: model.baseURL, model: id, engine: model.engine }))
-        else this.models.client = undefined
+          models.activate(
+            model,
+            createPairClient({ baseURL: model.baseURL, model: id, engine: model.engine }),
+          )
+        else models.client = undefined
       }
-      if (id && this.models.selectedProvider === "omlx") {
-        const model = servers.omlxModels.find((entry) => entry.id === id)
-        if (model) this.models.activate(model, this.models.omlxClient(id, model.baseURL))
-        else this.models.client = undefined
+      if (id && models.selectedProvider === "omlx") {
+        if (omlxModel) models.activate(omlxModel, models.omlxClient(id, omlxModel.baseURL))
+        else models.client = undefined
       }
       this.transcript.invalidateContext()
       return servers
@@ -204,9 +223,10 @@ export class Application {
   }
 
   /**
-   * Activates the saved selection. Fireworks and PAIR clients already exist after `applySavedSelection`; a saved
-   * local model still needs its managed llama-server started before any conversation can run. Throws with the
-   * serving error when startup fails; the previous selection is left untouched.
+   * Activates the saved selection. Fireworks and PAIR clients already exist after
+   * `applySavedSelection`; a saved local model still needs its managed llama-server started
+   * before any conversation can run. Throws with the serving error when startup fails; the
+   * previous selection is left untouched.
    */
   async startSavedSelection(
     options: {
@@ -223,20 +243,20 @@ export class Application {
       return "ready"
     }
     if (models.selectedProvider !== "local") return "unconfigured"
-
     const spec = findLocalModel(models.selectedId)
     if (!spec) throw new Error(`Unknown local model: ${models.selectedId}`)
-    const prepared = await models.prepare(catalogModelFromSpec(spec, this.settings.modelContextLength), {
-      fireworksApiKey: this.fireworksApiKey,
-      signal: options.signal ?? new AbortController().signal,
-      isExiting: options.isExiting,
-      onLocalProgress: options.onLocalProgress,
-    })
-    try {
-      options.signal?.throwIfAborted()
-    } catch (error) {
+    const prepared = await models.prepare(
+      catalogModelFromSpec(spec, this.settings.modelContextLength),
+      {
+        fireworksApiKey: this.fireworksApiKey,
+        signal: options.signal ?? new AbortController().signal,
+        isExiting: options.isExiting,
+        onLocalProgress: options.onLocalProgress,
+      },
+    )
+    if (options.signal?.aborted) {
       await prepared.rollback({ restorePrevious: false })
-      throw error
+      options.signal.throwIfAborted()
     }
     prepared.commit()
     return "ready"
@@ -251,4 +271,19 @@ export class Application {
     await this.sessions.releaseLock()
     await this.models.stop()
   }
+}
+
+const MAX_VISIBLE_SEGMENTS = 3
+
+export function formatWorkspaceLabel(cwd: string, userHome = homedir()) {
+  const absoluteCwd = resolve(cwd)
+  const fromHome = relative(resolve(userHome), absoluteCwd)
+  const inHome =
+    fromHome === "" ||
+    (fromHome !== ".." && !fromHome.startsWith(`..${sep}`) && !isAbsolute(fromHome))
+  const root = inHome ? "~" : parse(absoluteCwd).root
+  const parts = (inHome ? fromHome : relative(root, absoluteCwd)).split(sep).filter(Boolean)
+  if (parts.length === 0) return root
+  const visible = parts.length <= MAX_VISIBLE_SEGMENTS ? parts : ["…", ...parts.slice(-2)]
+  return inHome ? `~${sep}${visible.join(sep)}` : `${root}${visible.join(sep)}`
 }

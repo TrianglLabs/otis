@@ -95,7 +95,10 @@ describe("ParallelClient", () => {
       fetch: fetchMock as typeof fetch,
     })
 
-    const response = await client.read({ url: "https://example.com/docs", objective: "Read API limits" })
+    const response = await client.read({
+      url: "https://example.com/docs",
+      objective: "Read API limits",
+    })
 
     expect(response.results[0]).toEqual({
       url: "https://example.com/docs",
@@ -160,21 +163,24 @@ describe("ParallelClient", () => {
 
   it("surfaces HTTP, JSON-RPC, and insecure endpoint failures", async () => {
     const fetchMock = vi.fn(
-      async (_input: RequestInfo | URL, _init?: RequestInit) => new Response("invalid key", { status: 401 }),
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response("invalid key", { status: 401 }),
     )
     const client = new ParallelClient({
       url: "http://localhost:8787/mcp",
       fetch: fetchMock as typeof fetch,
     })
 
-    await expect(client.search({ objective: "Find docs", searchQueries: ["docs"] })).rejects.toThrow(
-      "Parallel request failed with HTTP 401: invalid key",
-    )
+    await expect(
+      client.search({ objective: "Find docs", searchQueries: ["docs"] }),
+    ).rejects.toThrow("Parallel request failed with HTTP 401: invalid key")
 
     fetchMock.mockResolvedValueOnce(
       Response.json({ jsonrpc: "2.0", id: 1, error: { code: -32000, message: "quota exceeded" } }),
     )
-    await expect(client.search({ objective: "Find docs", searchQueries: ["docs"] })).rejects.toThrow("quota exceeded")
+    await expect(
+      client.search({ objective: "Find docs", searchQueries: ["docs"] }),
+    ).rejects.toThrow("quota exceeded")
 
     expect(() => new ParallelClient({ url: "http://example.com/mcp" })).toThrow("must use HTTPS")
   })

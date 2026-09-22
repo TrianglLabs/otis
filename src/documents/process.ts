@@ -1,28 +1,24 @@
 import { spawn } from "node:child_process"
 
-export type DocumentProcessOptions = { cwd: string; signal?: AbortSignal; timeoutMs?: number }
+type DocumentProcessOptions = { cwd: string; signal?: AbortSignal; timeoutMs?: number }
 export type DocumentProcessRunner = typeof runDocumentProcess
 
-/** Fixed executable and argument arrays only. Document helpers never inherit provider credentials. */
-export function runDocumentProcess(command: string, args: string[], options: DocumentProcessOptions): Promise<string> {
+/**
+ * Fixed executable and argument arrays only. Document helpers never inherit provider credentials.
+ */
+export function runDocumentProcess(
+  command: string,
+  args: string[],
+  options: DocumentProcessOptions,
+): Promise<string> {
   options.signal?.throwIfAborted()
+  const inherited = "PATH HOME USERPROFILE SYSTEMROOT SystemRoot WINDIR TEMP TMP TMPDIR LANG LC_ALL"
   const env: NodeJS.ProcessEnv = {}
-  for (const name of [
-    "PATH",
-    "HOME",
-    "USERPROFILE",
-    "SYSTEMROOT",
-    "SystemRoot",
-    "WINDIR",
-    "TEMP",
-    "TMP",
-    "TMPDIR",
-    "LANG",
-    "LC_ALL",
-  ]) {
+  for (const name of inherited.split(" ")) {
     if (process.env[name] !== undefined) env[name] = process.env[name]
   }
-  // Disable pip configuration files, including machine-wide indexes. All packages come from the fixed manifest.
+  // Disable pip configuration files, including machine-wide indexes. All packages come from the
+  // fixed manifest.
   env.PIP_CONFIG_FILE = process.platform === "win32" ? "NUL" : "/dev/null"
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
@@ -51,12 +47,16 @@ export function runDocumentProcess(command: string, args: string[], options: Doc
       killTimer = setTimeout(() => kill("SIGKILL"), 1000)
     }
     const abort = () => stop(new Error("Document operation cancelled."))
-    const timer = setTimeout(() => stop(new Error("Document operation timed out.")), options.timeoutMs ?? 240_000)
+    const timer = setTimeout(
+      () => stop(new Error("Document operation timed out.")),
+      options.timeoutMs ?? 240_000,
+    )
     options.signal?.addEventListener("abort", abort, { once: true })
     if (options.signal?.aborted) abort()
     child.stdin.end()
     child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
-      if (stdout.length + chunk.length > 512_000) stop(new Error("Document output is too large; inspect fewer pages."))
+      if (stdout.length + chunk.length > 512_000)
+        stop(new Error("Document output is too large; inspect fewer pages."))
       else stdout += chunk
     })
     child.stderr.setEncoding("utf8").on("data", (chunk: string) => {
@@ -72,7 +72,8 @@ export function runDocumentProcess(command: string, args: string[], options: Doc
       if (failure) {
         kill("SIGKILL")
         reject(failure)
-      } else if (code !== 0) reject(new Error(stderr.trim() || `Document process failed (exit ${code}).`))
+      } else if (code !== 0)
+        reject(new Error(stderr.trim() || `Document process failed (exit ${code}).`))
       else resolve(stdout.trim())
     })
   })

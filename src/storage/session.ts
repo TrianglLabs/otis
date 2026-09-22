@@ -6,20 +6,14 @@ import { createUserMessage, summarizeUserMessage, userMessageText } from "../inf
 import type { ChatMessage, TokenUsage, UserChatMessage } from "../inference/types.js"
 import {
   type BaseSessionEvent,
-  forToolCalls,
-  isInvalidSessionFileError,
   isNotFoundError,
-  messagesAfterAdmittedPrompt,
+  isUnreadableSessionFile,
   type NewSessionEvent,
-  nextSequence,
   readSessionEvents,
   replaySession,
   replaySessionMessages,
   replaySessionTranscript,
   type SessionEvent,
-  type SessionSubagentRun,
-  type SessionSubagentStatus,
-  type SessionToolActivity,
   type SessionTurnDetails,
   type SessionTurnSegment,
   type UsagePurpose,
@@ -28,36 +22,67 @@ import {
   appendJsonLine,
   assertSessionId,
   defaultSessionDirectory,
-  sessionArtifactDirectory,
+  type SessionOptions,
   sessionDirectory,
   sessionFile,
 } from "./session-files.js"
-import type { PromptAdmission, SessionOptions, SessionSummary } from "./session-types.js"
-import { registerWorkspacePath } from "./workspace-registry.js"
+import { listWorkspaceSessionDirs, registerWorkspacePath } from "./workspace-registry.js"
 
-export const DEFAULT_SESSION_ID = "default"
+const DEFAULT_SESSION_ID = "default"
+
+export type PromptAdmission = {
+  promptId: string
+  message: UserChatMessage
+}
+
+export type SessionSummary = {
+  id: string
+  title: string
+  messageCount: number
+  updatedAt: string
+  mtimeMs: number
+}
+
+type SessionSearchResult = SessionSummary & {
+  /** The first content match, flattened to one line with context; absent for title-only hits. */
+  snippet?: string
+}
+
+/**
+ * Global session history rows carry the storage dir name (identity when ids repeat across
+ * workspaces) and the registered workspace path when known — pre-registration history reports
+ * `workspacePath: undefined` so callers can offer location.
+ */
+type GlobalSessionSummary = SessionSummary & {
+  dirName: string
+  workspacePath?: string
+}
+
+type GlobalSessionSearchResult = GlobalSessionSummary & { snippet?: string }
+
+/**
+ * Fallback titles derive from the first user message, which can be a pasted paragraph — cap them
+ * so pickers and headers stay neat. Mirrors GENERATED_TITLE_MAX_LENGTH in src/app/sessions.ts
+ * (storage can't import app).
+ */
+const FALLBACK_TITLE_MAX_LENGTH = 60
 
 export class JsonlSession {
-  readonly events: SessionEvent[]
-  private nextSeq: number
   private appendQueue: Promise<void> = Promise.resolve()
 
   constructor(
     readonly id: string,
     readonly filePath: string,
-    events: SessionEvent[] = [],
-    private readonly cwd?: string,
-  ) {
-    this.events = [...events]
-    this.nextSeq = nextSequence(this.events)
+    readonly events: SessionEvent[],
+  ) {}
+
+  /** A session owns its copies even when opened from a relocated history directory. */
+  get artifactDirectory() {
+    return `${this.filePath}.artifacts`
   }
 
   replayMessages() {
     return replaySessionMessages(this.events)
-  }
-
-  get artifactDirectory() {
-    return sessionArtifactDirectory(this.filePath)
   }
 
   replay() {
@@ -70,12 +95,9 @@ export class JsonlSession {
 
   async admitPrompt(prompt: string | UserChatMessage): Promise<PromptAdmission> {
     const message = typeof prompt === "string" ? createUserMessage(prompt) : prompt
-    const event = await this.append({
-      type: "prompt_admitted",
-      promptId: newEventId("prompt"),
-      message,
-    })
-    return { promptId: event.promptId, message: event.message }
+    const promptId = `prompt_${randomUUID()}`
+    await this.append({ type: "prompt_admitted", promptId, message })
+    return { promptId, message }
   }
 
   async steerPrompt(admission: PromptAdmission, prompt: string | UserChatMessage) {
@@ -89,7 +111,11 @@ export class JsonlSession {
     return this.append({ type: "turn_started", promptId: admission.promptId })
   }
 
-  completeTurn(admission: PromptAdmission, turnMessages: ChatMessage[], details: SessionTurnDetails = {}) {
+  completeTurn(
+    admission: PromptAdmission,
+    turnMessages: ChatMessage[],
+    details: SessionTurnDetails = {},
+  ) {
     return this.append({
       type: "turn_completed",
       promptId: admission.promptId,
@@ -98,7 +124,11 @@ export class JsonlSession {
     })
   }
 
-  interruptTurn(admission: PromptAdmission, turnMessages: ChatMessage[], details: SessionTurnDetails = {}) {
+  interruptTurn(
+    admission: PromptAdmission,
+    turnMessages: ChatMessage[],
+    details: SessionTurnDetails = {},
+  ) {
     return this.append({
       type: "turn_interrupted",
       promptId: admission.promptId,
@@ -107,7 +137,12 @@ export class JsonlSession {
     })
   }
 
-  compact(summary: string, messages: ChatMessage[], details: SessionTurnDetails = {}, throughSeq?: number) {
+  compact(
+    summary: string,
+    messages: ChatMessage[],
+    details: SessionTurnDetails = {},
+    throughSeq?: number,
+  ) {
     return this.append({
       type: "compacted",
       summary,
@@ -143,7 +178,12 @@ export class JsonlSession {
   }
 
   recordUsage(usage: TokenUsage, purpose: UsagePurpose, promptId?: string) {
-    return this.append({ type: "usage_recorded", purpose, ...(promptId ? { promptId } : {}), usage })
+    return this.append({
+      type: "usage_recorded",
+      purpose,
+      ...(promptId ? { promptId } : {}),
+      usage,
+    })
   }
 
   renameTitle(title: string) {
@@ -155,24 +195,18 @@ export class JsonlSession {
   }
 
   title() {
-    return sessionTitleFromEvents(this.events, this.replayMessages())
+    return sessionTitle(this.events, this.replayMessages())
   }
 
-  async start() {
-    if (this.events.length === 0) {
-      await this.append({ type: "session_started", version: 1, ...(this.cwd ? { cwd: this.cwd } : {}) })
-    }
-  }
-
-  private continuationMessages(admission: PromptAdmission, messages: ChatMessage[]) {
-    const checkpointed = this.events.some(
-      (event) => event.type === "compacted" && event.promptId === admission.promptId,
-    )
-    return checkpointed ? messages : messagesAfterAdmittedPrompt(admission.message, messages)
-  }
-
-  private append<T extends NewSessionEvent>(event: T): Promise<BaseSessionEvent & T> {
-    const write = this.appendQueue.then(() => this.writeEvent(event))
+  /** Appends one event with the next sequence number; concurrent appends write in call order. */
+  append<T extends NewSessionEvent>(event: T): Promise<BaseSessionEvent & T> {
+    const write = this.appendQueue.then(async () => {
+      const seq = (this.events.at(-1)?.seq ?? 0) + 1
+      const persisted = { seq, sessionId: this.id, at: new Date().toISOString(), ...event }
+      await appendJsonLine(this.filePath, JSON.stringify(persisted))
+      this.events.push(persisted as SessionEvent)
+      return persisted
+    })
     this.appendQueue = write.then(
       () => undefined,
       () => undefined,
@@ -180,17 +214,13 @@ export class JsonlSession {
     return write
   }
 
-  private async writeEvent<T extends NewSessionEvent>(event: T): Promise<BaseSessionEvent & T> {
-    const persisted = {
-      seq: this.nextSeq,
-      sessionId: this.id,
-      at: new Date().toISOString(),
-      ...event,
-    }
-    await appendJsonLine(this.filePath, JSON.stringify(persisted))
-    this.events.push(persisted as SessionEvent)
-    this.nextSeq += 1
-    return persisted
+  private continuationMessages(admission: PromptAdmission, messages: ChatMessage[]) {
+    const checkpointed = this.events.some(
+      (event) => event.type === "compacted" && event.promptId === admission.promptId,
+    )
+    if (checkpointed) return messages
+    const [first, ...rest] = messages
+    return first?.role === "user" && first.content === admission.message.content ? rest : messages
   }
 }
 
@@ -198,33 +228,49 @@ export async function openSession(options: SessionOptions) {
   const sessionId = options.sessionId ?? DEFAULT_SESSION_ID
   assertSessionId(sessionId)
 
-  // A real cwd (not a bare directory override) registers the workspace for global history; pre-existing
-  // session dirs gain their marker the first time they're opened from a known location.
-  if (!options.directory) await registerWorkspacePath(defaultSessionDirectory(options.cwd), options.cwd)
+  // A real cwd (not a bare directory override) registers the workspace for global history;
+  // pre-existing session dirs gain their marker the first time they're opened from a known
+  // location.
+  if (!options.directory)
+    await registerWorkspacePath(defaultSessionDirectory(options.cwd), options.cwd)
 
   const filePath = sessionFile(options, sessionId)
-  const session = new JsonlSession(sessionId, filePath, await readSessionEvents(filePath), options.cwd)
-  await session.start()
+  const session = new JsonlSession(sessionId, filePath, await readSessionEvents(filePath))
+  if (session.events.length === 0) {
+    await session.append({
+      type: "session_started",
+      version: 1,
+      ...(options.cwd ? { cwd: options.cwd } : {}),
+    })
+  }
   return session
 }
 
 export function createSession(options: Omit<SessionOptions, "sessionId">) {
-  return openSession({ ...options, sessionId: newSessionId() })
+  const timestamp = new Date()
+    .toISOString()
+    .replace(/[-:]/g, "")
+    .replace(/\.\d{3}Z$/, "Z")
+  return openSession({ ...options, sessionId: `session_${timestamp}_${randomUUID().slice(0, 8)}` })
 }
 
 export async function deleteSession(options: SessionOptions) {
   const sessionId = options.sessionId ?? DEFAULT_SESSION_ID
   assertSessionId(sessionId)
   const file = sessionFile(options, sessionId)
-  // Remove owned copies first: a cleanup failure must not silently orphan them by deleting their session.
-  await rm(sessionArtifactDirectory(file), { recursive: true, force: true })
+  // Remove owned copies first: a cleanup failure must not silently orphan them by deleting their
+  // session.
+  await rm(`${file}.artifacts`, { recursive: true, force: true })
   await rm(file, { force: true })
 }
 
-export async function listSessions(options: Omit<SessionOptions, "sessionId">): Promise<SessionSummary[]> {
+export async function listSessions(
+  options: Omit<SessionOptions, "sessionId">,
+): Promise<SessionSummary[]> {
+  const directory = sessionDirectory(options)
   let fileNames: string[]
   try {
-    fileNames = await readdir(sessionDirectory(options))
+    fileNames = await readdir(directory)
   } catch (error) {
     if (isNotFoundError(error)) return []
     throw error
@@ -234,27 +280,30 @@ export async function listSessions(options: Omit<SessionOptions, "sessionId">): 
   for (const fileName of fileNames) {
     if (!fileName.endsWith(".jsonl")) continue
     try {
-      summaries.push(await summarizeSessionFile(options, fileName))
+      const id = fileName.slice(0, -".jsonl".length)
+      assertSessionId(id)
+      const filePath = join(directory, fileName)
+      const events = await readSessionEvents(filePath)
+      const messages = replaySessionMessages(events)
+      summaries.push({
+        id,
+        title: sessionTitle(events, messages),
+        messageCount: messages.length,
+        updatedAt: events.at(-1)?.at ?? new Date(0).toISOString(),
+        mtimeMs: (await stat(filePath)).mtimeMs,
+      })
     } catch (error) {
-      if (isNotFoundError(error) || isInvalidSessionFileError(error)) continue
+      if (isUnreadableSessionFile(error)) continue
       throw error
     }
   }
-
-  return summaries.sort((left, right) => {
-    const updated = Date.parse(right.updatedAt) - Date.parse(left.updatedAt)
-    return updated || right.mtimeMs - left.mtimeMs
-  })
-}
-
-export type SessionSearchResult = SessionSummary & {
-  /** The first content match, flattened to one line with context. Absent when only the title matched. */
-  snippet?: string
+  return summaries.sort(byRecency)
 }
 
 /**
- * Title-first substring search over sessions, recency-ordered. Title hits rank above content hits, which carry a
- * snippet from the first matching message. Compaction summaries are excluded from the searchable text.
+ * Title-first substring search over sessions, recency-ordered. Title hits rank above content hits,
+ * which carry a snippet from the first matching message. Compaction summaries are excluded from
+ * the searchable text.
  */
 export async function searchSessions(
   options: Omit<SessionOptions, "sessionId">,
@@ -273,102 +322,96 @@ export async function searchSessions(
     }
     try {
       const events = await readSessionEvents(join(sessionDirectory(options), `${summary.id}.jsonl`))
-      // Search the full transcript, not the model-context replay: compaction drops pre-compaction messages from
-      // the model's view, but the user's original text is still on disk and should stay searchable.
-      const snippet = firstMatchSnippet(replaySessionTranscript(events).messages, needle)
-      if (snippet !== undefined) contentHits.push({ ...summary, snippet })
+      // Search the full transcript, not the model-context replay: compaction drops pre-compaction
+      // messages from the model's view, but the user's original text is still on disk and should
+      // stay searchable.
+      for (const message of replaySessionTranscript(events).messages) {
+        if (message.role === "tool" || isCompactionSummary(message)) continue
+        const text = (
+          message.role === "user"
+            ? userMessageText(message)
+            : message.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("")
+        )
+          .replace(/\s+/g, " ")
+          .trim()
+        const index = text.toLowerCase().indexOf(needle)
+        if (index === -1) continue
+        const from = Math.max(0, index - 40)
+        const to = Math.min(text.length, index + needle.length + 80)
+        const snippet = `${from > 0 ? "…" : ""}${text.slice(from, to)}${to < text.length ? "…" : ""}`
+        contentHits.push({ ...summary, snippet })
+        break
+      }
     } catch (error) {
-      if (isNotFoundError(error) || isInvalidSessionFileError(error)) continue
+      if (isUnreadableSessionFile(error)) continue
       throw error
     }
   }
   return [...titleHits, ...contentHits]
 }
 
-/** The flattened text window around the first case-insensitive match in any user or assistant message. */
-function firstMatchSnippet(messages: readonly ChatMessage[], needle: string): string | undefined {
-  for (const message of messages) {
-    if (isCompactionSummary(message)) continue
-    const text = searchableText(message)
-    const index = text.toLowerCase().indexOf(needle)
-    if (index === -1) continue
-    const from = Math.max(0, index - 40)
-    const to = Math.min(text.length, index + needle.length + 80)
-    return `${from > 0 ? "…" : ""}${text.slice(from, to)}${to < text.length ? "…" : ""}`
-  }
-  return undefined
+/** Every workspace's sessions under the shared data root, merged and recency-ordered. */
+export function listAllSessions(
+  options: { seeds?: string[] } = {},
+): Promise<GlobalSessionSummary[]> {
+  return acrossWorkspaces(options.seeds, listSessions)
 }
 
-function searchableText(message: ChatMessage): string {
-  if (message.role === "user") return userMessageText(message).replace(/\s+/g, " ").trim()
-  if (message.role === "assistant") {
-    return message.content
-      .filter((part) => part.type === "text")
-      .map((part) => part.text)
-      .join("")
-      .replace(/\s+/g, " ")
-      .trim()
-  }
-  return ""
+/** Title-first search across every workspace's sessions, ranked like single-workspace search. */
+export async function searchAllSessions(
+  query: string,
+  options: { seeds?: string[] } = {},
+): Promise<GlobalSessionSearchResult[]> {
+  const hits = await acrossWorkspaces(options.seeds, (directory) =>
+    searchSessions(directory, query),
+  )
+  // Title hits before content hits within each dir's results; keep that ordering after the merge.
+  return hits.sort(
+    (left, right) => Number(left.snippet !== undefined) - Number(right.snippet !== undefined),
+  )
 }
 
-async function summarizeSessionFile(
-  options: Omit<SessionOptions, "sessionId">,
-  fileName: string,
-): Promise<SessionSummary> {
-  const id = fileName.slice(0, -".jsonl".length)
-  assertSessionId(id)
-
-  const filePath = join(sessionDirectory(options), fileName)
-  const events = await readSessionEvents(filePath)
-  const messages = replaySessionMessages(events)
-  const fileStat = await stat(filePath)
-  return {
-    id,
-    title: sessionTitleFromEvents(events, messages),
-    messageCount: messages.length,
-    updatedAt: events.at(-1)?.at ?? new Date(0).toISOString(),
-    mtimeMs: fileStat.mtimeMs,
-  }
+async function acrossWorkspaces<T extends SessionSummary>(
+  seeds: string[] | undefined,
+  list: (options: Omit<SessionOptions, "sessionId">) => Promise<T[]>,
+): Promise<(T & { dirName: string; workspacePath?: string })[]> {
+  const dirs = await listWorkspaceSessionDirs(seeds)
+  const grouped = await Promise.all(
+    dirs.map(async ({ dir, dirName, workspacePath }) => {
+      try {
+        const rows = await list({ cwd: "", directory: dir })
+        return rows.map((row) => ({ ...row, dirName, ...(workspacePath ? { workspacePath } : {}) }))
+      } catch {
+        return [] // a corrupt or half-written dir must not sink the whole list
+      }
+    }),
+  )
+  return grouped.flat().sort(byRecency)
 }
 
-/**
- * Fallback titles derive from the first user message, which can be a pasted paragraph — cap them so pickers and
- * headers stay neat. Mirrors GENERATED_TITLE_MAX_LENGTH in src/app/session-metadata.ts (storage can't import app).
- */
-const FALLBACK_TITLE_MAX_LENGTH = 60
+function byRecency(left: SessionSummary, right: SessionSummary) {
+  return Date.parse(right.updatedAt) - Date.parse(left.updatedAt) || right.mtimeMs - left.mtimeMs
+}
 
-function sessionTitleFromEvents(events: readonly SessionEvent[], messages: readonly ChatMessage[]) {
+function sessionTitle(events: readonly SessionEvent[], messages: readonly ChatMessage[]) {
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index]
     if (event.type === "title_renamed") return event.title
   }
-
   const firstUser = messages.find(
-    (message): message is UserChatMessage => message.role === "user" && !isCompactionSummary(message),
+    (message): message is UserChatMessage =>
+      message.role === "user" && !isCompactionSummary(message),
   )
   if (!firstUser) return "Current session"
-  const firstLine = (userMessageText(firstUser) || summarizeUserMessage(firstUser)).trim().split("\n")[0]?.trim()
-  return firstLine ? truncateSessionTitle(firstLine) : "Current session"
-}
-
-function truncateSessionTitle(text: string) {
+  const text = (userMessageText(firstUser) || summarizeUserMessage(firstUser))
+    .trim()
+    .split("\n")[0]
+    .trim()
+  if (!text) return "Current session"
   if (text.length <= FALLBACK_TITLE_MAX_LENGTH) return text
   const cut = text.slice(0, FALLBACK_TITLE_MAX_LENGTH)
   const lastSpace = cut.lastIndexOf(" ")
   return `${(lastSpace > 0 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`
-}
-
-function newEventId(prefix: string) {
-  return `${prefix}_${randomUUID()}`
-}
-
-function newSessionId() {
-  const timestamp = new Date()
-    .toISOString()
-    .replace(/[-:]/g, "")
-    .replace(/\.\d{3}Z$/, "Z")
-  return `session_${timestamp}_${randomUUID().slice(0, 8)}`
 }
 
 /** Omits empty detail lists so persisted turns stay compact. */
@@ -378,17 +421,3 @@ function presentTurnDetails(details: SessionTurnDetails): SessionTurnDetails {
     ...(details.subagents?.length ? { subagents: details.subagents } : {}),
   }
 }
-
-export type {
-  PromptAdmission,
-  SessionEvent,
-  SessionOptions,
-  SessionSubagentRun,
-  SessionSubagentStatus,
-  SessionSummary,
-  SessionToolActivity,
-  SessionTurnDetails,
-  SessionTurnSegment,
-  UsagePurpose,
-}
-export { defaultSessionDirectory, forToolCalls, readSessionEvents, replaySession, replaySessionMessages }

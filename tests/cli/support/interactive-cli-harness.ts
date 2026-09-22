@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, vi } from "vitest"
 import type { LocalModelSpec } from "../../../src/inference/local-catalog.js"
-import type { FireworksModel, PairCatalogModel, UserChatMessage } from "../../../src/inference/types.js"
+import type { FireworksPickerChoice } from "../../../src/inference/picker-catalog.js"
+import { matchesFireworksModel } from "../../../src/inference/serving-path.js"
+import type {
+  FireworksModel,
+  PairCatalogModel,
+  UserChatMessage,
+} from "../../../src/inference/types.js"
 import type { ThemeName } from "../../../src/local/settings.js"
 import type { SkillCatalog } from "../../../src/skills/index.js"
 import type { SessionReplay, SessionTranscriptReplay } from "../../../src/storage/session-events.js"
@@ -125,14 +131,19 @@ const mocks = vi.hoisted(() => {
     })),
     generateCompletion,
     getTreeSitterClient: vi.fn(() => ({ initialize: vi.fn(async () => undefined) })),
-    listDownloadedLocalModels: vi.fn<(_dataDirectory?: string) => Promise<LocalModelSpec[]>>(async () => []),
-    listSessions: vi.fn<(_options?: unknown) => Promise<unknown[]>>(async () => []),
-    listToolCapableModels: vi.fn<(_apiKey?: string, _options?: { signal?: AbortSignal }) => Promise<FireworksModel[]>>(
-      async () => [testModel()],
+    listDownloadedLocalModels: vi.fn<(_dataDirectory?: string) => Promise<LocalModelSpec[]>>(
+      async () => [],
     ),
+    listSessions: vi.fn<(_options?: unknown) => Promise<unknown[]>>(async () => []),
+    listToolCapableModels: vi.fn<
+      (_apiKey?: string, _options?: { signal?: AbortSignal }) => Promise<FireworksModel[]>
+    >(async () => [testModel()]),
     loadLocalSettings: vi.fn(async () => localSettings()),
     loadProjectContext: vi.fn<(_cwd: string) => Array<{ path: string; content: string }>>(() => []),
-    loadSkillCatalog: vi.fn<() => Promise<SkillCatalog>>(async () => ({ skills: [], byName: new Map() })),
+    loadSkillCatalog: vi.fn<() => Promise<SkillCatalog>>(async () => ({
+      skills: [],
+      byName: new Map(),
+    })),
     openSession: vi.fn(),
     openFireworksKeyPage: vi.fn(async () => true),
     saveFireworksApiKey: vi.fn(async () => undefined),
@@ -141,7 +152,9 @@ const mocks = vi.hoisted(() => {
     saveSelectedModel: vi.fn(async () => undefined),
     saveSelectedTheme: vi.fn(async () => undefined),
     saveThinkingVisible: vi.fn(async () => undefined),
-    saveLocalThinking: vi.fn(async (model: string, level: string) => (level === "default" ? {} : { [model]: level })),
+    saveLocalThinking: vi.fn(async (model: string, level: string) =>
+      level === "default" ? {} : { [model]: level },
+    ),
     saveSubagentPanelVisible: vi.fn(async () => undefined),
     saveFastServingSelection: vi.fn(async () => undefined),
     detectHardware: vi.fn(async () => ({
@@ -158,7 +171,10 @@ const mocks = vi.hoisted(() => {
         spec: { id: string },
         _fit?: unknown,
         _hardware?: unknown,
-        options?: { signal?: AbortSignal; onProgress?: (progress: { phase: string; percent?: number }) => void },
+        options?: {
+          signal?: AbortSignal
+          onProgress?: (progress: { phase: string; percent?: number }) => void
+        },
       ) => {
         options?.onProgress?.({ phase: "download", percent: 47 })
         options?.onProgress?.({ phase: "loading" })
@@ -171,7 +187,9 @@ const mocks = vi.hoisted(() => {
     ),
     stopLocalRuntime: vi.fn(async () => undefined),
     checkForUpdate: vi.fn<
-      (options?: { signal?: AbortSignal }) => Promise<{ available: boolean; version: string } | null>
+      (options?: {
+        signal?: AbortSignal
+      }) => Promise<{ available: boolean; version: string } | null>
     >(async () => null),
     renderer,
     rendererHandlers,
@@ -193,7 +211,9 @@ const mocks = vi.hoisted(() => {
           onAttachmentPathPaste?(value: string): boolean
           onRemoveLastAttachment?(): boolean
           onPreviewTheme?(theme: ThemeName): void
-          onSelectModel?(model: import("../../../src/inference/picker-catalog.js").ModelPickerItem): void
+          onSelectModel?(
+            model: import("../../../src/inference/picker-catalog.js").ModelPickerItem,
+          ): void
           onSelectSession?(sessionId: string): void
           onSetup?(): void
           onSetupInferenceChoice?(choice: "local" | "hosted"): void
@@ -268,6 +288,7 @@ vi.mock("../../../src/storage/index.js", async (importOriginal) => ({
 vi.mock("../../../src/tools/index.js", () => ({
   describeToolCall: mocks.describeToolCall,
   TOOL_DEFINITIONS: [],
+  providerTools: () => [],
 }))
 vi.mock("../../../src/inference/hardware.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../../src/inference/hardware.js")>()
@@ -332,7 +353,10 @@ beforeEach(() => {
       spec: { id: string },
       _fit?: unknown,
       _hardware?: unknown,
-      options?: { signal?: AbortSignal; onProgress?: (progress: { phase: string; percent?: number }) => void },
+      options?: {
+        signal?: AbortSignal
+        onProgress?: (progress: { phase: string; percent?: number }) => void
+      },
     ) => {
       options?.onProgress?.({ phase: "download", percent: 47 })
       options?.onProgress?.({ phase: "loading" })
@@ -433,4 +457,18 @@ export function testPairModel(overrides: Partial<PairCatalogModel> = {}): PairCa
 
 export function clone(value: unknown) {
   return JSON.parse(JSON.stringify(value)) as unknown
+}
+
+/** A Fireworks picker row as the catalog lists it; `currentModel` marks it active. */
+export function fireworksChoice(
+  model: FireworksModel,
+  currentModel?: string,
+): FireworksPickerChoice {
+  return {
+    kind: "model",
+    ...model,
+    provider: "fireworks",
+    available: true,
+    active: currentModel ? matchesFireworksModel(model, currentModel) : false,
+  }
 }

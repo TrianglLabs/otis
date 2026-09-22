@@ -21,8 +21,12 @@ describe("provider key links", () => {
       throw new Error("headless")
     })
 
-    await expect(openFireworksKeyPage({ platform: "freebsd", launch: failedLaunch })).resolves.toBe(false)
+    await expect(openFireworksKeyPage({ platform: "freebsd", launch: failedLaunch })).resolves.toBe(
+      false,
+    )
     expect(failedLaunch).not.toHaveBeenCalled()
-    await expect(openFireworksKeyPage({ platform: "linux", launch: failedLaunch })).resolves.toBe(false)
+    await expect(openFireworksKeyPage({ platform: "linux", launch: failedLaunch })).resolves.toBe(
+      false,
+    )
   })
 })

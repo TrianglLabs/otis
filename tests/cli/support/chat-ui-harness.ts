@@ -1,10 +1,12 @@
 import type { BaseRenderable, InputRenderable, TextareaRenderable } from "@opentui/core"
 import { createTestRenderer, type TestRendererSetup } from "@opentui/core/testing"
 import { afterEach, vi } from "vitest"
-import { contextUsage } from "../../../src/app/context-usage.js"
-import { type ChatUI, createChatUI } from "../../../src/cli/chat-ui.js"
-import { formatContextUsage } from "../../../src/cli/context-meter.js"
-import type { ChatUIOptions } from "../../../src/cli/ui/types.js"
+import { createChatUI } from "../../../src/cli/chat-ui.js"
+import { contextUsage, formatContextUsage } from "../../../src/cli/ui/format.js"
+import type { ChatUI, ChatUIOptions } from "../../../src/cli/ui/types.js"
+import type { FireworksPickerChoice } from "../../../src/inference/picker-catalog.js"
+import { matchesFireworksModel } from "../../../src/inference/serving-path.js"
+import type { FireworksModel } from "../../../src/inference/types.js"
 
 export type ChatUIHarness = TestRendererSetup & {
   ui: ChatUI
@@ -112,5 +114,19 @@ function press(testRenderer: TestRendererSetup, name: string) {
     testRenderer.mockInput.pressArrow(name)
   } else {
     testRenderer.mockInput.pressKey(name)
+  }
+}
+
+/** A Fireworks picker row as the catalog lists it; `currentModel` marks it active. */
+export function fireworksChoice(
+  model: FireworksModel,
+  currentModel?: string,
+): FireworksPickerChoice {
+  return {
+    kind: "model",
+    ...model,
+    provider: "fireworks",
+    available: true,
+    active: currentModel ? matchesFireworksModel(model, currentModel) : false,
   }
 }

@@ -63,10 +63,39 @@ Preserve provider-native reasoning and tool-call history when sending later turn
 
 ## Editing guidance
 
-- Prefer small, direct modules with names that describe their responsibility.
 - Do not add compatibility layers unless persisted user data or a released interface requires one.
 - Keep network transport, persistence, tool execution, and UI rendering in their existing source boundaries.
 - Keep reusable conversation, session, and model coordination in `src/app`. `src/app` must not import OpenTUI,
   Electron, React, or anything from `src/cli`.
 - Add tests that assert real behavior and failure modes. Remove obsolete tests instead of preserving dead product flows.
 - Run the relevant tests, typecheck, formatter/linter checks, and release build before declaring work complete.
+
+## Refactoring rules
+
+Adapted from Joseph Suarez's PufferLib refactoring guide. The C and CUDA sections do not apply; everything else does.
+
+Objective: reduce source code length without golfing while preserving behavior, performance, and determinism.
+Discard biases against long files or functions.
+
+The refactoring algorithm, in order:
+
+1. Inline every function that is only used once and tighten the former call site.
+2. Eliminate defensive checks. Replace complex error handling with plain asserts (a single `throw` on an invariant
+   in TypeScript, `assert` or a single raise in Python). Keep error handling that a user, test, or tool result
+   observes; remove checks for conditions the type system or callers already guarantee.
+3. Reduce deeply nested code by merging and inverting conditionals.
+4. Co-optimize multi-consumer functions with their callers.
+5. Apply the syntax and style guide as a final pass.
+
+Syntax and style:
+
+- Do not split code into more files. Merge a module into its only consumer when both stay in the same boundary.
+- Soft 80-column, hard 100-column limit. Biome and ruff enforce 100.
+- 2-space indents in TypeScript, CSS, and JSON, following the ecosystem norm. Python stays at 4.
+- Single-line guard clauses such as `if (!x) return` are fine. Do not one-line loops or multi-statement branches.
+- Do not align continuation lines to an opening paren; the formatter handles this.
+- Apply semantic vertical spacing between blocks of code sparingly.
+- Tests are important, but their length and code quality are not counted. Rewrite tests freely to exercise
+  behavior through the remaining public surface.
+- Do not add source complexity or shims for ease of testing.
+- Do not block off comments with `---`, `###`, or similar rules.

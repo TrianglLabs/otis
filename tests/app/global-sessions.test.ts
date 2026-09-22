@@ -32,13 +32,19 @@ describe("global picker items", () => {
     await sessionWithText("alpha-aaaaaaaaaaaa", "default", "alpha default")
     await sessionWithText("beta-bbbbbbbbbbbb", "default", "beta default")
 
-    const items = await listGlobalSessionPickerItems({ activeId: "default", activeDirName: "beta-bbbbbbbbbbbb" })
+    const items = await listGlobalSessionPickerItems({
+      activeId: "default",
+      activeDirName: "beta-bbbbbbbbbbbb",
+    })
     expect(items).toHaveLength(2)
     const active = items.filter((item) => item.active)
     expect(active).toHaveLength(1)
     expect(active[0].dirName).toBe("beta-bbbbbbbbbbbb")
 
-    const none = await listGlobalSessionPickerItems({ activeId: "default", activeDirName: "elsewhere-cccccccccccc" })
+    const none = await listGlobalSessionPickerItems({
+      activeId: "default",
+      activeDirName: "elsewhere-cccccccccccc",
+    })
     expect(none.every((item) => !item.active)).toBe(true)
   })
 })

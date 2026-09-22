@@ -31,21 +31,31 @@ describe("CLI session turn handling", () => {
         markCompacting()
         await summaryReady
         const result = { summary: "Task progress.", keptMessages: [input] }
-        await options.onCompactionUsage?.({ promptTokens: 10, completionTokens: 2, totalTokens: 12 })
+        await options.onCompactionUsage?.({
+          promptTokens: 10,
+          completionTokens: 2,
+          totalTokens: 12,
+        })
         await options.onCompaction?.(result, 0, [input])
         yield { type: "compaction", phase: "complete", ...result, messages: [input] }
         const steering = (await options.steering?.drain()) ?? []
         yield { type: "delta", text: "Finished." }
         yield {
           type: "complete",
-          messages: [...steering, { role: "assistant", content: [{ type: "text", text: "Finished." }] }],
+          messages: [
+            ...steering,
+            { role: "assistant", content: [{ type: "text", text: "Finished." }] },
+          ],
         }
       })
       .mockImplementationOnce(async function* (input, history) {
         histories.push(clone(history))
         yield {
           type: "complete",
-          messages: [input, { role: "assistant", content: [{ type: "text", text: "Queued done." }] }],
+          messages: [
+            input,
+            { role: "assistant", content: [{ type: "text", text: "Queued done." }] },
+          ],
         }
       })
     await loadCli()
@@ -78,7 +88,9 @@ describe("CLI session turn handling", () => {
     ])
     const entries = mocks.ui.renderTranscript.mock.calls.at(-1)?.[0]
     expect(entries.filter((entry: { text: string }) => entry.text === "follow-up")).toHaveLength(1)
-    expect(entries.filter((entry: { text: string }) => entry.text === "focus on tests")).toHaveLength(1)
+    expect(
+      entries.filter((entry: { text: string }) => entry.text === "focus on tests"),
+    ).toHaveLength(1)
     expect(entries.some((entry: { delivery?: string }) => entry.delivery)).toBe(false)
   })
 
@@ -100,7 +112,11 @@ describe("CLI session turn handling", () => {
       const steering = (await options.steering?.drain()) ?? []
       yield {
         type: "complete",
-        messages: [input, ...steering, { role: "assistant", content: [{ type: "text", text: "Focused." }] }],
+        messages: [
+          input,
+          ...steering,
+          { role: "assistant", content: [{ type: "text", text: "Focused." }] },
+        ],
       }
     })
 
@@ -152,14 +168,20 @@ describe("CLI session turn handling", () => {
         await released
         yield {
           type: "complete",
-          messages: [input, { role: "assistant", content: [{ type: "text", text: "First done." }] }],
+          messages: [
+            input,
+            { role: "assistant", content: [{ type: "text", text: "First done." }] },
+          ],
         }
       })
       .mockImplementationOnce(async function* (input, history) {
         secondHistories.push(clone(history))
         yield {
           type: "complete",
-          messages: [input, { role: "assistant", content: [{ type: "text", text: "Follow-up done." }] }],
+          messages: [
+            input,
+            { role: "assistant", content: [{ type: "text", text: "Follow-up done." }] },
+          ],
         }
       })
 
@@ -168,12 +190,17 @@ describe("CLI session turn handling", () => {
     await started
     await submit("/queue follow-up task")
     expect(mocks.ui.renderTranscript.mock.calls.at(-1)?.[0]).toEqual(
-      expect.arrayContaining([expect.objectContaining({ speaker: "You", text: "follow-up task", delivery: "queued" })]),
+      expect.arrayContaining([
+        expect.objectContaining({ speaker: "You", text: "follow-up task", delivery: "queued" }),
+      ]),
     )
     releaseTurn()
     await active
 
-    expect(session.admitPrompt).toHaveBeenNthCalledWith(2, { role: "user", content: "follow-up task" })
+    expect(session.admitPrompt).toHaveBeenNthCalledWith(2, {
+      role: "user",
+      content: "follow-up task",
+    })
     expect(secondHistories).toEqual([
       [
         { role: "user", content: "first task" },
@@ -193,12 +220,17 @@ describe("CLI session turn handling", () => {
     mocks.runAgent.mockImplementationOnce(async function* (input) {
       yield {
         type: "complete",
-        messages: [input, { role: "assistant", content: [{ type: "text", text: "It is a fixture." }] }],
+        messages: [
+          input,
+          { role: "assistant", content: [{ type: "text", text: "It is a fixture." }] },
+        ],
       }
     })
 
     await loadCli()
-    expect(mocks.uiOptions?.onAttachmentPathPaste?.("tests/fixtures/dragged\\ image.ppm")).toBe(true)
+    expect(mocks.uiOptions?.onAttachmentPathPaste?.("tests/fixtures/dragged\\ image.ppm")).toBe(
+      true,
+    )
     await vi.waitFor(() => expect(mocks.ui.setAttachmentCounts).toHaveBeenCalledWith(1, 0))
 
     await submit("describe this")
@@ -224,7 +256,10 @@ describe("CLI session turn handling", () => {
     mocks.runAgent.mockImplementationOnce(async function* (input) {
       yield {
         type: "complete",
-        messages: [input, { role: "assistant", content: [{ type: "text", text: "It is the readme." }] }],
+        messages: [
+          input,
+          { role: "assistant", content: [{ type: "text", text: "It is the readme." }] },
+        ],
       }
     })
 
@@ -276,7 +311,9 @@ describe("CLI session turn handling", () => {
       { role: "user" as const, content: "first" },
       { role: "assistant" as const, content: [{ type: "text" as const, text: "ok" }] },
     ]
-    const session = testSession({ completeTurn: vi.fn(async () => Promise.reject(new Error("disk full"))) })
+    const session = testSession({
+      completeTurn: vi.fn(async () => Promise.reject(new Error("disk full"))),
+    })
     mocks.createSession.mockResolvedValue(session)
     mocks.runAgent
       .mockImplementationOnce(async function* (_input, history) {
@@ -300,7 +337,10 @@ describe("CLI session turn handling", () => {
     const histories: unknown[] = []
     const interruptedTurn = [
       { role: "user" as const, content: "add the setting" },
-      { role: "assistant" as const, content: [{ type: "text" as const, text: "I added a dedicated test." }] },
+      {
+        role: "assistant" as const,
+        content: [{ type: "text" as const, text: "I added a dedicated test." }],
+      },
     ]
     const session = testSession()
     mocks.createSession.mockResolvedValue(session)
@@ -335,7 +375,11 @@ describe("CLI session turn handling", () => {
         content: [
           {
             type: "tool_call" as const,
-            toolCall: { id: "call_edit", name: "edit", arguments: '{"path":"app.ts","old":"a","new":"b"}' },
+            toolCall: {
+              id: "call_edit",
+              name: "edit",
+              arguments: '{"path":"app.ts","old":"a","new":"b"}',
+            },
           },
         ],
       },
@@ -392,7 +436,11 @@ describe("CLI session turn handling", () => {
         content: [
           {
             type: "tool_call" as const,
-            toolCall: { id: "call_edit", name: "edit", arguments: '{"path":"app.ts","old":"a","new":"b"}' },
+            toolCall: {
+              id: "call_edit",
+              name: "edit",
+              arguments: '{"path":"app.ts","old":"a","new":"b"}',
+            },
           },
         ],
       },
@@ -452,7 +500,13 @@ describe("CLI session turn handling", () => {
     mocks.createSession.mockResolvedValue(activeSession)
     mocks.openSession.mockResolvedValue(savedSession)
     mocks.listSessions.mockResolvedValue([
-      { id: "session_saved", title: "Saved", messageCount: 2, updatedAt: "2026-01-01T00:00:00Z", mtimeMs: 0 },
+      {
+        id: "session_saved",
+        title: "Saved",
+        messageCount: 2,
+        updatedAt: "2026-01-01T00:00:00Z",
+        mtimeMs: 0,
+      },
     ])
     let markStarted = () => {}
     const started = new Promise<void>((resolve) => {
@@ -482,12 +536,20 @@ describe("CLI session turn handling", () => {
 
     releaseTurn()
     await active
-    expect(mocks.openSession).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "session_saved" }))
+    expect(mocks.openSession).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "session_saved" }),
+    )
   })
 
   it("deletes a session and refreshes the picker", async () => {
     mocks.listSessions.mockResolvedValue([
-      { id: "session_1", title: "First", messageCount: 2, updatedAt: "2025-01-01T00:00:00Z", mtimeMs: 0 },
+      {
+        id: "session_1",
+        title: "First",
+        messageCount: 2,
+        updatedAt: "2025-01-01T00:00:00Z",
+        mtimeMs: 0,
+      },
     ])
 
     await loadCli()
@@ -495,7 +557,9 @@ describe("CLI session turn handling", () => {
     mocks.uiOptions?.onDeleteSession?.("session_1")
     await settle()
 
-    expect(mocks.deleteSession).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "session_1" }))
+    expect(mocks.deleteSession).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "session_1" }),
+    )
     expect(mocks.ui.showSessionPicker).toHaveBeenLastCalledWith([
       expect.objectContaining({ id: "session_1", title: "First", active: false }),
     ])
@@ -510,14 +574,22 @@ describe("CLI session turn handling", () => {
     mocks.uiOptions?.onDeleteSession?.("session_1")
     await settle()
 
-    expect(mocks.deleteSession).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "session_1" }))
+    expect(mocks.deleteSession).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "session_1" }),
+    )
     expect(mocks.ui.showChatLayout).not.toHaveBeenCalled()
   })
 
   it("re-syncs the session picker from disk after a deletion failure", async () => {
     mocks.deleteSession.mockRejectedValue(new Error("permission denied"))
     mocks.listSessions.mockResolvedValue([
-      { id: "session_1", title: "First", messageCount: 2, updatedAt: "2025-01-01T00:00:00Z", mtimeMs: 0 },
+      {
+        id: "session_1",
+        title: "First",
+        messageCount: 2,
+        updatedAt: "2025-01-01T00:00:00Z",
+        mtimeMs: 0,
+      },
     ])
 
     await loadCli()
@@ -534,7 +606,13 @@ describe("CLI session turn handling", () => {
 
   it("defers session deletion until the active turn finishes", async () => {
     mocks.listSessions.mockResolvedValue([
-      { id: "session_1", title: "First", messageCount: 2, updatedAt: "2025-01-01T00:00:00Z", mtimeMs: 0 },
+      {
+        id: "session_1",
+        title: "First",
+        messageCount: 2,
+        updatedAt: "2025-01-01T00:00:00Z",
+        mtimeMs: 0,
+      },
     ])
 
     await loadCli()
@@ -557,7 +635,9 @@ describe("CLI session turn handling", () => {
 
     finishTurn()
     await active
-    expect(mocks.deleteSession).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "session_1" }))
+    expect(mocks.deleteSession).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "session_1" }),
+    )
   })
 
   it("returns to the home screen with slash home", async () => {
@@ -731,7 +811,9 @@ describe("CLI session turn handling", () => {
   it("includes project context size in the context meter estimate", async () => {
     const session = testSession()
     mocks.createSession.mockResolvedValue(session)
-    mocks.loadProjectContext.mockReturnValue([{ path: "/repo/AGENTS.md", content: "A".repeat(20_000) }])
+    mocks.loadProjectContext.mockReturnValue([
+      { path: "/repo/AGENTS.md", content: "A".repeat(20_000) },
+    ])
     mocks.runAgent.mockImplementationOnce(async function* () {
       yield { type: "delta", text: "done" }
       yield { type: "complete", messages: [{ role: "user", content: "test" }] }
@@ -759,7 +841,10 @@ describe("CLI session turn handling", () => {
       root: "/skills/review",
       instructionsPath: "/skills/review/SKILL.md",
     }
-    mocks.loadSkillCatalog.mockResolvedValue({ skills: [skill], byName: new Map([[skill.name, skill]]) })
+    mocks.loadSkillCatalog.mockResolvedValue({
+      skills: [skill],
+      byName: new Map([[skill.name, skill]]),
+    })
     mocks.runAgent.mockImplementationOnce(async function* () {
       yield { type: "delta", text: "done" }
       yield { type: "complete", messages: [{ role: "user", content: "review this" }] }

@@ -2,45 +2,34 @@ import { homedir } from "node:os"
 import { join, resolve } from "node:path"
 
 export function localConfigDirectory() {
-  const otisHome = cleanEnvPath(process.env.OTIS_HOME)
-  if (otisHome) return resolve(otisHome)
-  if (process.platform === "darwin") return join(homedir(), "Library", "Application Support", "otis")
-
-  if (process.platform === "win32") {
-    const appData = cleanEnvPath(process.env.APPDATA)
-    if (appData) return join(appData, "otis")
-  }
-
-  const xdgConfigHome = cleanEnvPath(process.env.XDG_CONFIG_HOME)
-  return xdgConfigHome ? join(xdgConfigHome, "otis") : join(homedir(), ".config", "otis")
+  return platformDirectory("XDG_CONFIG_HOME", ".config")
 }
 
 export function localDataDirectory() {
-  const otisHome = cleanEnvPath(process.env.OTIS_HOME)
-  if (otisHome) return resolve(otisHome)
-  if (process.platform === "darwin") return join(homedir(), "Library", "Application Support", "otis")
-
-  if (process.platform === "win32") {
-    const appData = cleanEnvPath(process.env.APPDATA)
-    if (appData) return join(appData, "otis")
-  }
-
-  const xdgDataHome = cleanEnvPath(process.env.XDG_DATA_HOME)
-  return xdgDataHome ? join(xdgDataHome, "otis") : join(homedir(), ".local", "share", "otis")
-}
-
-export function llamaRuntimeDirectory() {
-  return join(localDataDirectory(), "llama")
+  return platformDirectory("XDG_DATA_HOME", ".local", "share")
 }
 
 export function llamaBinaryDirectory(releaseTag: string) {
-  return join(llamaRuntimeDirectory(), "bin", releaseTag)
+  return join(localDataDirectory(), "llama", "bin", releaseTag)
 }
 
 export function llamaModelCacheDirectory() {
-  return join(llamaRuntimeDirectory(), "models")
+  return join(localDataDirectory(), "llama", "models")
 }
 
-function cleanEnvPath(value: string | undefined) {
-  return value?.trim() || undefined
+function platformDirectory(xdgVariable: string, ...fallback: string[]) {
+  const otisHome = process.env.OTIS_HOME?.trim()
+  if (otisHome) return resolve(otisHome)
+  if (process.platform === "darwin")
+    return join(homedir(), "Library", "Application Support", "otis")
+  const appData = process.env.APPDATA?.trim()
+  if (process.platform === "win32" && appData) return join(appData, "otis")
+  const xdg = process.env[xdgVariable]?.trim()
+  return xdg ? join(xdg, "otis") : join(homedir(), ...fallback, "otis")
+}
+
+export function childProcessEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const childEnv = { ...env }
+  delete childEnv.FIREWORKS_API_KEY
+  return childEnv
 }

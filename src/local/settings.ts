@@ -2,12 +2,19 @@ import { randomUUID } from "node:crypto"
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { dirname, join, resolve } from "node:path"
 import { isLocalModelId } from "../inference/local-catalog.js"
-import { type LocalThinkingPreferences, validateLocalThinkingSelection } from "../inference/local-thinking.js"
+import {
+  type LocalThinkingPreferences,
+  validateLocalThinkingSelection,
+} from "../inference/local-thinking.js"
 import { normalizeOmlxSettings, type OmlxSettings } from "../inference/omlx.js"
 import { normalizePairEndpoints, type PairEndpoints } from "../inference/pair.js"
 import { baseFireworksModelId, isFastFireworksModel } from "../inference/serving-path.js"
 import type { CatalogModel, FireworksModel, ModelProvider, PairEngine } from "../inference/types.js"
-import { type PermissionConfig, type PermissionMode, parsePermissionConfig } from "../permissions/policy.js"
+import {
+  type PermissionConfig,
+  type PermissionMode,
+  parsePermissionConfig,
+} from "../permissions/policy.js"
 import { localConfigDirectory } from "./paths.js"
 
 export type LocalSettings = {
@@ -25,7 +32,9 @@ export type LocalSettings = {
   lastWorkspace?: string
   thinkingVisible?: boolean
   localThinking?: LocalThinkingPreferences
-  /** When false, the chat side panel that lists delegated runs stays hidden. Omitted means shown. */
+  /**
+   * When false, the chat side panel that lists delegated runs stays hidden. Omitted means shown.
+   */
   subagentPanelVisible?: boolean
   fastServingModels?: string[]
   modelFastId?: string
@@ -48,72 +57,54 @@ export const THEME_NAMES = [
 ] as const
 export type ThemeName = (typeof THEME_NAMES)[number]
 
-export const UI_LANGUAGES = ["system", "en", "zh-CN", "ja", "ko", "es", "fr", "de", "pl", "uk", "pt-BR"] as const
+export const UI_LANGUAGES = [
+  "system",
+  "en",
+  "zh-CN",
+  "ja",
+  "ko",
+  "es",
+  "fr",
+  "de",
+  "pl",
+  "uk",
+  "pt-BR",
+] as const
 export type UiLanguage = (typeof UI_LANGUAGES)[number]
 
-export type SettingsFileOptions = {
+type SettingsFileOptions = {
   file?: string
   env?: Record<string, string | undefined>
 }
 
-type SettingsFile = {
-  omlx?: OmlxSettings
+type SettingsFile = LocalSettings & {
   version: 1
-  fireworksApiKey?: string
-  pairEndpoints?: PairEndpoints
-  pairEngine?: PairEngine
-  model?: string
-  modelDisplayName?: string
-  modelContextLength?: number
-  modelSupportsImageInput?: boolean
-  modelProvider?: ModelProvider
-  theme?: ThemeName
-  language?: UiLanguage
-  lastWorkspace?: string
-  thinkingVisible?: boolean
-  localThinking?: LocalThinkingPreferences
-  subagentPanelVisible?: boolean
   /** Read only to migrate the released global preference to the selected model. */
   fastMode?: boolean
-  fastServingModels?: string[]
-  modelFastId?: string
-  permissions?: PermissionConfig
 }
 
 export async function loadLocalSettings(options: SettingsFileOptions = {}): Promise<LocalSettings> {
   const env = options.env ?? process.env
-  const saved = await readSettingsFile(options)
-  const envFireworksApiKey = clean(env.FIREWORKS_API_KEY)
-  const fastServingModels = saved ? migratedFastServingModels(saved) : []
-  const pairEndpoints = saved?.pairEndpoints
-  const modelProvider = saved?.modelProvider ?? inferModelProvider(saved?.model)
-
+  const saved = (await readSettingsFile(options)) ?? { version: 1 }
+  const { version: _version, fastMode: _fastMode, ...settings } = saved
+  const fastServingModels = migratedFastServingModels(saved)
   return {
-    fireworksApiKey: envFireworksApiKey ?? saved?.fireworksApiKey,
-    ...(saved?.omlx ? { omlx: saved.omlx } : {}),
-    ...(pairEndpoints && hasPairEndpoints(pairEndpoints) ? { pairEndpoints } : {}),
-    ...(saved?.pairEngine ? { pairEngine: saved.pairEngine } : {}),
-    model: saved?.model,
-    modelDisplayName: saved?.modelDisplayName,
-    modelContextLength: saved?.modelContextLength,
-    ...(modelProvider ? { modelProvider } : {}),
-    ...(saved?.modelSupportsImageInput !== undefined ? { modelSupportsImageInput: saved.modelSupportsImageInput } : {}),
-    ...(saved?.theme ? { theme: saved.theme } : {}),
-    ...(saved?.language ? { language: saved.language } : {}),
-    ...(saved?.lastWorkspace ? { lastWorkspace: saved.lastWorkspace } : {}),
-    ...(saved?.localThinking ? { localThinking: saved.localThinking } : {}),
-    ...(saved?.thinkingVisible !== undefined ? { thinkingVisible: saved.thinkingVisible } : {}),
-    ...(saved?.subagentPanelVisible !== undefined ? { subagentPanelVisible: saved.subagentPanelVisible } : {}),
-    ...(fastServingModels.length > 0 ? { fastServingModels } : {}),
-    ...(saved?.modelFastId ? { modelFastId: saved.modelFastId } : {}),
-    ...(saved?.permissions ? { permissions: saved.permissions } : {}),
+    ...defined({
+      ...settings,
+      modelProvider: saved.modelProvider ?? inferModelProvider(saved.model),
+      fastServingModels: fastServingModels.length > 0 ? fastServingModels : undefined,
+    }),
+    fireworksApiKey: env.FIREWORKS_API_KEY?.trim() || saved.fireworksApiKey,
+    model: saved.model,
+    modelDisplayName: saved.modelDisplayName,
+    modelContextLength: saved.modelContextLength,
   }
 }
 
 /**
- * Every save helper reads the settings file and rewrites it whole. Chain those read-modify-write pairs so
- * overlapping updates — a model switch landing while a panel preference saves, for example — cannot clobber one
- * another with a stale read.
+ * Every save helper reads the settings file and rewrites it whole. Chain those read-modify-write
+ * pairs so overlapping updates — a model switch landing while a panel preference saves, for
+ * example — cannot clobber one another with a stale read.
  */
 let settingsWriteChain: Promise<unknown> = Promise.resolve()
 
@@ -131,8 +122,22 @@ function serializeSettingsWrite<T>(
   return run
 }
 
+function updateSettings(
+  options: SettingsFileOptions,
+  update: (saved: SettingsFile) => SettingsFile,
+) {
+  return serializeSettingsWrite(options, async (pinned) => {
+    const next = update((await readSettingsFile(pinned)) ?? { version: 1 })
+    await writeSettingsFile(next, pinned)
+    return next
+  })
+}
+
 /** Seed a new profile once, using the normal validation and private atomic writer. */
-export async function initializeLocalSettings(sourceFile: string, options: SettingsFileOptions = {}) {
+export async function initializeLocalSettings(
+  sourceFile: string,
+  options: SettingsFileOptions = {},
+) {
   await serializeSettingsWrite(options, async (pinned) => {
     if (await readSettingsFile(pinned)) return
     const source = await readSettingsFile({ file: sourceFile })
@@ -140,130 +145,95 @@ export async function initializeLocalSettings(sourceFile: string, options: Setti
   })
 }
 
-export async function saveFireworksSetup(apiKey: string, model: FireworksModel, options: SettingsFileOptions = {}) {
-  await serializeSettingsWrite(options, async (pinned) => {
-    const saved = (await readSettingsFile(pinned)) ?? { version: 1 }
-    await writeSettingsFile(
-      withSelectedModel({ ...saved, fireworksApiKey: required(apiKey, "Fireworks API key") }, model),
-      options,
-    )
-  })
+export async function saveFireworksSetup(
+  apiKey: string,
+  model: FireworksModel,
+  options: SettingsFileOptions = {},
+) {
+  await updateSettings(options, (saved) =>
+    selectedModelSettings(
+      { ...saved, fireworksApiKey: required(apiKey, "Fireworks API key") },
+      model,
+    ),
+  )
 }
 
 export async function saveFireworksApiKey(apiKey: string, options: SettingsFileOptions = {}) {
-  await serializeSettingsWrite(options, async (pinned) => {
-    const saved = (await readSettingsFile(pinned)) ?? { version: 1 }
-    await writeSettingsFile({ ...saved, fireworksApiKey: required(apiKey, "Fireworks API key") }, pinned)
-  })
-}
-
-export async function savePairEndpoints(endpoints: PairEndpoints, options: SettingsFileOptions = {}) {
-  await serializeSettingsWrite(options, async (pinned) => {
-    const saved = (await readSettingsFile(pinned)) ?? { version: 1 }
-    const pairEndpoints = persistedPairEndpoints(endpoints)
-    if (!hasPairEndpoints(pairEndpoints)) throw new Error("At least one local model server endpoint is required.")
-    await writeSettingsFile({ ...saved, pairEndpoints }, pinned)
-  })
+  await updateSettings(options, (saved) => ({
+    ...saved,
+    fireworksApiKey: required(apiKey, "Fireworks API key"),
+  }))
 }
 
 export async function saveSelectedModel(model: CatalogModel, options: SettingsFileOptions = {}) {
-  await serializeSettingsWrite(options, async (pinned) => {
-    const saved = (await readSettingsFile(pinned)) ?? { version: 1 }
-    await writeSettingsFile(withSelectedModel(saved, model), pinned)
-  })
+  await updateSettings(options, (saved) => selectedModelSettings(saved, model))
 }
 
 export async function saveLocalServers(
   servers: { pairEndpoints: PairEndpoints; omlx?: OmlxSettings },
   options: SettingsFileOptions = {},
 ) {
-  await serializeSettingsWrite(options, async (pinned) => {
-    const saved = (await readSettingsFile(pinned)) ?? { version: 1 }
-    const { omlx: _oldOmlx, pairEndpoints: _oldPair, ...rest } = saved
-    const pairEndpoints = persistedPairEndpoints(servers.pairEndpoints)
-    await writeSettingsFile(
-      {
-        ...rest,
-        ...(hasPairEndpoints(pairEndpoints) ? { pairEndpoints } : {}),
-        ...(servers.omlx ? { omlx: normalizeOmlxSettings(servers.omlx) } : {}),
-      },
-      pinned,
-    )
-  })
+  const pairEndpoints = persistedPairEndpoints(servers.pairEndpoints)
+  const omlx = servers.omlx && normalizeOmlxSettings(servers.omlx)
+  await updateSettings(options, ({ omlx: _omlx, pairEndpoints: _pairEndpoints, ...rest }) =>
+    defined({
+      ...rest,
+      pairEndpoints: hasPairEndpoints(pairEndpoints) ? pairEndpoints : undefined,
+      omlx,
+    }),
+  )
 }
 
 export async function clearSelectedModel(options: SettingsFileOptions = {}) {
-  await serializeSettingsWrite(options, async (pinned) => {
-    const saved = (await readSettingsFile(pinned)) ?? { version: 1 }
-    await writeSettingsFile(withoutSelectedModel(saved), pinned)
-  })
+  await updateSettings(options, (saved) => selectedModelSettings(saved))
 }
 
 export async function saveSelectedTheme(theme: ThemeName, options: SettingsFileOptions = {}) {
-  await serializeSettingsWrite(options, async (pinned) => {
-    const saved = (await readSettingsFile(pinned)) ?? { version: 1 }
-    await writeSettingsFile({ ...saved, theme }, pinned)
-  })
+  await updateSettings(options, (saved) => ({ ...saved, theme }))
 }
 
 export async function saveUiLanguage(language: UiLanguage, options: SettingsFileOptions = {}) {
-  await serializeSettingsWrite(options, async (pinned) => {
-    const saved = (await readSettingsFile(pinned)) ?? { version: 1 }
-    await writeSettingsFile({ ...saved, language }, pinned)
-  })
+  await updateSettings(options, (saved) => ({ ...saved, language }))
 }
 
-export async function saveLastWorkspace(workspacePath: string, options: SettingsFileOptions = {}) {
-  await serializeSettingsWrite(options, async (pinned) => {
-    const saved = (await readSettingsFile(pinned)) ?? { version: 1 }
-    await writeSettingsFile({ ...saved, lastWorkspace: workspacePath }, pinned)
-  })
+export async function saveLastWorkspace(lastWorkspace: string, options: SettingsFileOptions = {}) {
+  await updateSettings(options, (saved) => ({ ...saved, lastWorkspace }))
 }
 
-export async function saveThinkingVisible(visible: boolean, options: SettingsFileOptions = {}) {
-  await serializeSettingsWrite(options, async (pinned) => {
-    const saved = (await readSettingsFile(pinned)) ?? { version: 1 }
-    await writeSettingsFile({ ...saved, thinkingVisible: visible }, pinned)
-  })
+export async function saveThinkingVisible(
+  thinkingVisible: boolean,
+  options: SettingsFileOptions = {},
+) {
+  await updateSettings(options, (saved) => ({ ...saved, thinkingVisible }))
 }
 
-export async function saveLocalThinking(model: string, level: string, options: SettingsFileOptions = {}) {
+export async function saveLocalThinking(
+  model: string,
+  level: string,
+  options: SettingsFileOptions = {},
+) {
   validateLocalThinkingSelection(model, level)
-  return await serializeSettingsWrite(options, async (pinned) => {
-    const saved = (await readSettingsFile(pinned)) ?? { version: 1 }
+  const next = await updateSettings(options, (saved) => {
     const localThinking = { ...saved.localThinking }
     if (level === "default") delete localThinking[model]
     else localThinking[model] = level
-    await writeSettingsFile({ ...saved, localThinking }, pinned)
-    return localThinking
+    return { ...saved, localThinking }
   })
-}
-
-function parseLocalThinking(value: unknown): LocalThinkingPreferences | undefined {
-  if (value === undefined) return undefined
-  if (!isRecord(value)) throw new Error("Invalid Otis config: localThinking must be an object.")
-  const preferences: LocalThinkingPreferences = {}
-  for (const [model, level] of Object.entries(value)) {
-    if (typeof level !== "string") throw new Error("Invalid Otis config: invalid local thinking effort.")
-    validateLocalThinkingSelection(model, level)
-    if (level !== "default") preferences[model] = level
-  }
-  return preferences
+  return next.localThinking ?? {}
 }
 
 export async function savePermissionMode(mode: PermissionMode, options: SettingsFileOptions = {}) {
-  await serializeSettingsWrite(options, async (pinned) => {
-    const saved = (await readSettingsFile(pinned)) ?? { version: 1 }
-    const permissions = saved.permissions ?? { rules: [] }
-    await writeSettingsFile({ ...saved, permissions: { ...permissions, defaultMode: mode } }, pinned)
-  })
+  await updateSettings(options, (saved) => ({
+    ...saved,
+    permissions: { ...(saved.permissions ?? { rules: [] }), defaultMode: mode },
+  }))
 }
 
-export async function saveSubagentPanelVisible(visible: boolean, options: SettingsFileOptions = {}) {
-  await serializeSettingsWrite(options, async (pinned) => {
-    const saved = (await readSettingsFile(pinned)) ?? { version: 1 }
-    await writeSettingsFile({ ...saved, subagentPanelVisible: visible }, pinned)
-  })
+export async function saveSubagentPanelVisible(
+  subagentPanelVisible: boolean,
+  options: SettingsFileOptions = {},
+) {
+  await updateSettings(options, (saved) => ({ ...saved, subagentPanelVisible }))
 }
 
 export async function saveFastServingSelection(
@@ -271,19 +241,14 @@ export async function saveFastServingSelection(
   fast: boolean,
   options: SettingsFileOptions = {},
 ) {
-  await serializeSettingsWrite(options, async (pinned) => {
-    const saved = (await readSettingsFile(pinned)) ?? { version: 1 }
-    const selected = withSelectedModel(saved, model)
-    const fastServingModels = new Set(selected.fastServingModels ?? [])
+  await updateSettings(options, (saved) => {
+    const selected = selectedModelSettings(saved, model)
+    const fastServingModels = new Set(selected.fastServingModels)
     const modelId = baseFireworksModelId(model.id)
     if (fast) fastServingModels.add(modelId)
     else fastServingModels.delete(modelId)
-    await writeSettingsFile({ ...selected, fastServingModels: [...fastServingModels].sort() }, pinned)
+    return { ...selected, fastServingModels: [...fastServingModels].sort() }
   })
-}
-
-function defaultSettingsFile() {
-  return join(localConfigDirectory(), "config.json")
 }
 
 async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsFile | undefined> {
@@ -291,17 +256,119 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
   try {
     content = await readFile(settingsFilePath(options), "utf8")
   } catch (error) {
-    if (isNotFound(error)) return undefined
+    if (isRecord(error) && error.code === "ENOENT") return undefined
     throw error
   }
-
   let value: unknown
   try {
     value = JSON.parse(content)
   } catch (error) {
     throw new Error(`Invalid Otis config: ${errorMessage(error)}`)
   }
-  return parseSettingsFile(value)
+  if (!isRecord(value)) throw new Error("Invalid Otis config: expected an object.")
+  if (value.version !== 1) throw new Error("Invalid Otis config: unsupported version.")
+
+  const fireworksApiKey = optionalString(value.fireworksApiKey, "fireworksApiKey")
+  if (value.pairEndpoints !== undefined && !isRecord(value.pairEndpoints)) {
+    throw new Error("Invalid Otis config: pairEndpoints must be an object.")
+  }
+  const pairEndpoints = persistedPairEndpoints({
+    ollama: optionalString(value.pairEndpoints?.ollama, "pairEndpoints.ollama"),
+    lmStudio: optionalString(value.pairEndpoints?.lmStudio, "pairEndpoints.lmStudio"),
+  })
+  let omlx: OmlxSettings | undefined
+  if (value.omlx !== undefined) {
+    if (!isRecord(value.omlx) || typeof value.omlx.baseURL !== "string") {
+      throw new Error("Invalid Otis config: omlx must contain a baseURL.")
+    }
+    omlx = normalizeOmlxSettings({
+      baseURL: value.omlx.baseURL,
+      apiKey: optionalString(value.omlx.apiKey, "omlx.apiKey"),
+    })
+  }
+  const pairEngine = optionalChoice(
+    value.pairEngine,
+    ["ollama", "lmstudio"],
+    "Invalid Otis config: pairEngine must be ollama or lmstudio.",
+  )
+  const model = optionalString(value.model, "model")
+  const modelDisplayName = optionalString(value.modelDisplayName, "modelDisplayName")
+  const modelContextLength = value.modelContextLength
+  if (
+    modelContextLength !== undefined &&
+    (typeof modelContextLength !== "number" ||
+      !Number.isSafeInteger(modelContextLength) ||
+      modelContextLength <= 0)
+  ) {
+    throw new Error("Invalid Otis config: modelContextLength must be a positive integer.")
+  }
+  const modelSupportsImageInput = optionalBoolean(
+    value.modelSupportsImageInput,
+    "modelSupportsImageInput",
+  )
+  const language = optionalChoice(
+    value.language,
+    UI_LANGUAGES,
+    `Invalid Otis config: language must be one of ${UI_LANGUAGES.join(", ")}.`,
+  )
+  const lastWorkspace = optionalString(value.lastWorkspace, "lastWorkspace")
+  let localThinking: LocalThinkingPreferences | undefined
+  if (value.localThinking !== undefined) {
+    if (!isRecord(value.localThinking))
+      throw new Error("Invalid Otis config: localThinking must be an object.")
+    localThinking = {}
+    for (const [thinkingModel, level] of Object.entries(value.localThinking)) {
+      if (typeof level !== "string")
+        throw new Error("Invalid Otis config: invalid local thinking effort.")
+      validateLocalThinkingSelection(thinkingModel, level)
+      if (level !== "default") localThinking[thinkingModel] = level
+    }
+  }
+  const thinkingVisible = optionalBoolean(value.thinkingVisible, "thinkingVisible")
+  const subagentPanelVisible = optionalBoolean(value.subagentPanelVisible, "subagentPanelVisible")
+  const fastMode = optionalBoolean(value.fastMode, "fastMode")
+  if (value.fastServingModels !== undefined && !Array.isArray(value.fastServingModels)) {
+    throw new Error("Invalid Otis config: fastServingModels must be an array of strings.")
+  }
+  const fastServingModels = value.fastServingModels && [
+    ...new Set(
+      value.fastServingModels.map((item) => optionalString(item, "fastServingModels") as string),
+    ),
+  ]
+  const modelFastId = optionalString(value.modelFastId, "modelFastId")
+  const modelProvider = optionalChoice(
+    value.modelProvider,
+    ["fireworks", "local", "pair", "omlx"],
+    "Invalid Otis config: modelProvider must be fireworks, local, pair, or omlx.",
+  )
+  const permissions =
+    value.permissions === undefined
+      ? undefined
+      : parsePermissionConfig(value.permissions, "Invalid Otis config: permissions")
+  return defined({
+    version: 1 as const,
+    fireworksApiKey,
+    pairEndpoints: hasPairEndpoints(pairEndpoints) ? pairEndpoints : undefined,
+    omlx,
+    pairEngine,
+    model,
+    modelDisplayName,
+    modelContextLength,
+    modelSupportsImageInput,
+    modelProvider,
+    // The theme list changes across releases; an unrecognized saved name (e.g. a removed theme)
+    // falls back to the default rather than blocking startup over a cosmetic preference.
+    theme: isThemeName(value.theme) ? value.theme : undefined,
+    language,
+    lastWorkspace,
+    localThinking,
+    thinkingVisible,
+    subagentPanelVisible,
+    fastMode,
+    fastServingModels,
+    modelFastId,
+    permissions,
+  })
 }
 
 async function writeSettingsFile(settings: SettingsFile, options: SettingsFileOptions) {
@@ -311,7 +378,10 @@ async function writeSettingsFile(settings: SettingsFile, options: SettingsFileOp
   await chmodPrivate(directory, 0o700)
   const temporaryFile = `${filePath}.${process.pid}.${randomUUID()}.tmp`
   try {
-    await writeFile(temporaryFile, `${JSON.stringify(settings, null, 2)}\n`, { encoding: "utf8", mode: 0o600 })
+    await writeFile(temporaryFile, `${JSON.stringify(settings, null, 2)}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    })
     await chmodPrivate(temporaryFile, 0o600)
     await rename(temporaryFile, filePath)
   } finally {
@@ -319,154 +389,70 @@ async function writeSettingsFile(settings: SettingsFile, options: SettingsFileOp
   }
 }
 
-function parseSettingsFile(value: unknown): SettingsFile {
-  if (!isRecord(value)) throw new Error("Invalid Otis config: expected an object.")
-  if (value.version !== 1) throw new Error("Invalid Otis config: unsupported version.")
-
-  const fireworksApiKey = optionalString(value.fireworksApiKey, "fireworksApiKey")
-  const pairEndpoints = parsePairEndpoints(value.pairEndpoints)
-  const omlx = parseOmlxSettings(value.omlx)
-  const pairEngine = optionalPairEngine(value.pairEngine)
-  const model = optionalString(value.model, "model")
-  const modelDisplayName = optionalString(value.modelDisplayName, "modelDisplayName")
-  const modelContextLength = optionalPositiveInteger(value.modelContextLength, "modelContextLength")
-  const modelSupportsImageInput = optionalBoolean(value.modelSupportsImageInput, "modelSupportsImageInput")
-  const theme = optionalTheme(value.theme)
-  const language = optionalUiLanguage(value.language)
-  const lastWorkspace = optionalString(value.lastWorkspace, "lastWorkspace")
-  const localThinking = parseLocalThinking(value.localThinking)
-  const thinkingVisible = optionalBoolean(value.thinkingVisible, "thinkingVisible")
-  const subagentPanelVisible = optionalBoolean(value.subagentPanelVisible, "subagentPanelVisible")
-  const fastMode = optionalBoolean(value.fastMode, "fastMode")
-  const fastServingModels = optionalStringArray(value.fastServingModels, "fastServingModels")
-  const modelFastId = optionalString(value.modelFastId, "modelFastId")
-  const modelProvider = optionalModelProvider(value.modelProvider)
-  const permissions =
-    value.permissions === undefined
-      ? undefined
-      : parsePermissionConfig(value.permissions, "Invalid Otis config: permissions")
-  return {
-    version: 1,
-    ...(fireworksApiKey ? { fireworksApiKey } : {}),
-    ...(hasPairEndpoints(pairEndpoints) ? { pairEndpoints } : {}),
-    ...(omlx ? { omlx } : {}),
-    ...(pairEngine ? { pairEngine } : {}),
-    ...(model ? { model } : {}),
-    ...(modelDisplayName ? { modelDisplayName } : {}),
-    ...(modelContextLength ? { modelContextLength } : {}),
-    ...(modelSupportsImageInput !== undefined ? { modelSupportsImageInput } : {}),
-    ...(modelProvider ? { modelProvider } : {}),
-    ...(theme ? { theme } : {}),
-    ...(language ? { language } : {}),
-    ...(lastWorkspace ? { lastWorkspace } : {}),
-    ...(localThinking ? { localThinking } : {}),
-    ...(thinkingVisible !== undefined ? { thinkingVisible } : {}),
-    ...(subagentPanelVisible !== undefined ? { subagentPanelVisible } : {}),
-    ...(fastMode !== undefined ? { fastMode } : {}),
-    ...(fastServingModels !== undefined ? { fastServingModels } : {}),
-    ...(modelFastId ? { modelFastId } : {}),
-    ...(permissions ? { permissions } : {}),
+/** The settings with the model fields replaced by `model`, or cleared when no model is given. */
+function selectedModelSettings(settings: SettingsFile, model?: CatalogModel): SettingsFile {
+  const contextLength = model && model.provider !== "pair" ? model.contextLength : undefined
+  if (contextLength !== undefined && (!Number.isSafeInteger(contextLength) || contextLength <= 0)) {
+    throw new Error("model context length must be a positive integer.")
   }
-}
-
-function withSelectedModel(settings: SettingsFile, model: CatalogModel): SettingsFile {
-  const contextLength =
-    model.provider === "pair" || model.contextLength === undefined
-      ? undefined
-      : positiveInteger(model.contextLength, "model context length")
   const fastServingModels = migratedFastServingModels(settings)
   const pairEndpoints = persistedPairEndpoints(
-    model.provider === "pair"
-      ? { ...settings.pairEndpoints, [model.engine === "ollama" ? "ollama" : "lmStudio"]: model.baseURL }
+    model?.provider === "pair"
+      ? {
+          ...settings.pairEndpoints,
+          [model.engine === "ollama" ? "ollama" : "lmStudio"]: model.baseURL,
+        }
       : settings.pairEndpoints,
   )
-  return {
-    version: 1,
-    ...(settings.omlx ? { omlx: settings.omlx } : {}),
-    ...(settings.fireworksApiKey ? { fireworksApiKey: settings.fireworksApiKey } : {}),
-    ...(hasPairEndpoints(pairEndpoints) ? { pairEndpoints } : {}),
-    ...(model.provider === "pair" ? { pairEngine: model.engine } : {}),
-    model: required(model.id, "model"),
-    modelDisplayName: required(model.displayName, "model display name"),
-    modelProvider: model.provider,
-    ...(contextLength ? { modelContextLength: contextLength } : {}),
-    modelSupportsImageInput: model.supportsImageInput,
-    ...(model.provider === "fireworks" && model.fastId ? { modelFastId: model.fastId } : {}),
-    ...(settings.theme ? { theme: settings.theme } : {}),
-    ...(settings.language ? { language: settings.language } : {}),
-    ...(settings.lastWorkspace ? { lastWorkspace: settings.lastWorkspace } : {}),
-    ...(settings.localThinking ? { localThinking: settings.localThinking } : {}),
-    ...(settings.thinkingVisible !== undefined ? { thinkingVisible: settings.thinkingVisible } : {}),
-    ...(settings.subagentPanelVisible !== undefined ? { subagentPanelVisible: settings.subagentPanelVisible } : {}),
-    ...(shouldPersistFastServingModels(settings, fastServingModels) ? { fastServingModels } : {}),
-    ...(settings.permissions ? { permissions: settings.permissions } : {}),
-  }
-}
-
-function withoutSelectedModel(settings: SettingsFile): SettingsFile {
-  const fastServingModels = migratedFastServingModels(settings)
-  const pairEndpoints = persistedPairEndpoints(settings.pairEndpoints)
-  return {
-    version: 1,
-    ...(settings.omlx ? { omlx: settings.omlx } : {}),
-    ...(settings.fireworksApiKey ? { fireworksApiKey: settings.fireworksApiKey } : {}),
-    ...(hasPairEndpoints(pairEndpoints) ? { pairEndpoints } : {}),
-    ...(settings.theme ? { theme: settings.theme } : {}),
-    ...(settings.language ? { language: settings.language } : {}),
-    ...(settings.lastWorkspace ? { lastWorkspace: settings.lastWorkspace } : {}),
-    ...(settings.localThinking ? { localThinking: settings.localThinking } : {}),
-    ...(settings.thinkingVisible !== undefined ? { thinkingVisible: settings.thinkingVisible } : {}),
-    ...(settings.subagentPanelVisible !== undefined ? { subagentPanelVisible: settings.subagentPanelVisible } : {}),
-    ...(shouldPersistFastServingModels(settings, fastServingModels) ? { fastServingModels } : {}),
-    ...(settings.permissions ? { permissions: settings.permissions } : {}),
-  }
+  return defined({
+    version: 1 as const,
+    omlx: settings.omlx,
+    fireworksApiKey: settings.fireworksApiKey,
+    pairEndpoints: hasPairEndpoints(pairEndpoints) ? pairEndpoints : undefined,
+    ...(model
+      ? {
+          pairEngine: model.provider === "pair" ? model.engine : undefined,
+          model: required(model.id, "model"),
+          modelDisplayName: required(model.displayName, "model display name"),
+          modelProvider: model.provider,
+          modelContextLength: contextLength,
+          modelSupportsImageInput: model.supportsImageInput,
+          modelFastId: model.provider === "fireworks" && model.fastId ? model.fastId : undefined,
+        }
+      : {}),
+    theme: settings.theme,
+    language: settings.language,
+    lastWorkspace: settings.lastWorkspace,
+    localThinking: settings.localThinking,
+    thinkingVisible: settings.thinkingVisible,
+    subagentPanelVisible: settings.subagentPanelVisible,
+    fastServingModels:
+      fastServingModels.length > 0 ||
+      settings.fastServingModels !== undefined ||
+      settings.fastMode !== undefined
+        ? fastServingModels
+        : undefined,
+    permissions: settings.permissions,
+  })
 }
 
 function migratedFastServingModels(settings: SettingsFile) {
   if (settings.fastServingModels !== undefined) {
     return [...new Set(settings.fastServingModels.map(baseFireworksModelId))].sort()
   }
-  if (!settings.model || (settings.modelProvider ?? inferModelProvider(settings.model)) !== "fireworks") return []
+  if (
+    !settings.model ||
+    (settings.modelProvider ?? inferModelProvider(settings.model)) !== "fireworks"
+  )
+    return []
   return settings.fastMode === true || isFastFireworksModel(settings.model)
     ? [baseFireworksModelId(settings.model)]
     : []
 }
 
-function shouldPersistFastServingModels(settings: SettingsFile, models: string[]) {
-  return models.length > 0 || settings.fastServingModels !== undefined || settings.fastMode !== undefined
-}
-
 function inferModelProvider(modelId: string | undefined): ModelProvider | undefined {
   if (!modelId) return undefined
   return isLocalModelId(modelId) ? "local" : "fireworks"
-}
-
-function optionalModelProvider(value: unknown): ModelProvider | undefined {
-  if (value === undefined) return undefined
-  if (value === "fireworks" || value === "local" || value === "pair" || value === "omlx") return value
-  throw new Error("Invalid Otis config: modelProvider must be fireworks, local, pair, or omlx.")
-}
-
-function parseOmlxSettings(value: unknown): OmlxSettings | undefined {
-  if (value === undefined) return undefined
-  if (!isRecord(value) || typeof value.baseURL !== "string")
-    throw new Error("Invalid Otis config: omlx must contain a baseURL.")
-  return normalizeOmlxSettings({ baseURL: value.baseURL, apiKey: optionalString(value.apiKey, "omlx.apiKey") })
-}
-
-function optionalUiLanguage(value: unknown): UiLanguage | undefined {
-  if (value === undefined) return undefined
-  if (typeof value === "string" && UI_LANGUAGES.includes(value as UiLanguage)) return value as UiLanguage
-  throw new Error(`Invalid Otis config: language must be one of ${UI_LANGUAGES.join(", ")}.`)
-}
-
-function parsePairEndpoints(value: unknown) {
-  if (value === undefined) return {}
-  if (!isRecord(value)) throw new Error("Invalid Otis config: pairEndpoints must be an object.")
-  return persistedPairEndpoints({
-    ollama: optionalString(value.ollama, "pairEndpoints.ollama"),
-    lmStudio: optionalString(value.lmStudio, "pairEndpoints.lmStudio"),
-  })
 }
 
 function persistedPairEndpoints(values: PairEndpoints | undefined): PairEndpoints {
@@ -477,22 +463,22 @@ function persistedPairEndpoints(values: PairEndpoints | undefined): PairEndpoint
   }
 }
 
-function optionalPairEngine(value: unknown): PairEngine | undefined {
-  if (value === undefined) return undefined
-  if (value === "ollama" || value === "lmstudio") return value
-  throw new Error("Invalid Otis config: pairEngine must be ollama or lmstudio.")
-}
-
 function hasPairEndpoints(endpoints: PairEndpoints) {
   return Boolean(endpoints.ollama || endpoints.lmStudio)
 }
 
-function optionalTheme(value: unknown): ThemeName | undefined {
+export function isThemeName(value: unknown): value is ThemeName {
+  return typeof value === "string" && (THEME_NAMES as readonly string[]).includes(value)
+}
+
+function optionalChoice<T extends string>(
+  value: unknown,
+  choices: readonly T[],
+  message: string,
+): T | undefined {
   if (value === undefined) return undefined
-  if (isThemeName(value)) return value
-  // The theme list changes across releases; an unrecognized saved name (e.g. a removed theme) falls back to
-  // the default rather than blocking startup over a cosmetic preference.
-  return undefined
+  if (typeof value === "string" && choices.includes(value as T)) return value as T
+  throw new Error(message)
 }
 
 function optionalBoolean(value: unknown, name: string): boolean | undefined {
@@ -501,20 +487,11 @@ function optionalBoolean(value: unknown, name: string): boolean | undefined {
   throw new Error(`Invalid Otis config: ${name} must be a boolean.`)
 }
 
-export function isThemeName(value: unknown): value is ThemeName {
-  return typeof value === "string" && (THEME_NAMES as readonly string[]).includes(value)
-}
-
 function optionalString(value: unknown, name: string) {
   if (value === undefined) return undefined
-  if (typeof value !== "string" || !value.trim()) throw new Error(`Invalid Otis config: ${name} must be a string.`)
+  if (typeof value !== "string" || !value.trim())
+    throw new Error(`Invalid Otis config: ${name} must be a string.`)
   return value.trim()
-}
-
-function optionalStringArray(value: unknown, name: string) {
-  if (value === undefined) return undefined
-  if (!Array.isArray(value)) throw new Error(`Invalid Otis config: ${name} must be an array of strings.`)
-  return [...new Set(value.map((item) => optionalString(item, name) as string))]
 }
 
 function required(value: string, label: string) {
@@ -523,33 +500,20 @@ function required(value: string, label: string) {
   return trimmed
 }
 
-function optionalPositiveInteger(value: unknown, name: string) {
-  if (value === undefined) return undefined
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
-    throw new Error(`Invalid Otis config: ${name} must be a positive integer.`)
-  }
-  return value
-}
-
-function positiveInteger(value: number, label: string) {
-  if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`${label} must be a positive integer.`)
-  return value
+/**
+ * Drops undefined entries so optional settings are omitted rather than written as explicit
+ * absences.
+ */
+function defined<T extends object>(value: T): T {
+  return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)) as T
 }
 
 function settingsFilePath(options: SettingsFileOptions) {
-  return options.file ? resolve(options.file) : defaultSettingsFile()
+  return options.file ? resolve(options.file) : join(localConfigDirectory(), "config.json")
 }
 
 async function chmodPrivate(path: string, mode: number) {
   if (process.platform !== "win32") await chmod(path, mode)
-}
-
-function clean(value: string | undefined) {
-  return value?.trim() || undefined
-}
-
-function isNotFound(error: unknown) {
-  return isRecord(error) && error.code === "ENOENT"
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

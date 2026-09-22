@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest"
-import { agentSummary } from "../../../src/desktop/renderer/features/agents/agent-list.js"
+import { agentSummary } from "../../../src/desktop/renderer/features/agents/AgentTraceOverlay.js"
 
-// These strings mirror subagentSummary in the TUI's subagent panel (src/cli/ui/subagent-panel.ts) exactly.
+// These strings mirror subagentSummary in the TUI's subagent panel (src/cli/ui/subagent-panel.ts)
+// exactly.
 describe("agentSummary", () => {
   it("shows the tool count and lifecycle state", () => {
     expect(agentSummary({ status: "running", tools: 1 })).toBe("1 tool · running")
@@ -12,8 +13,12 @@ describe("agentSummary", () => {
   })
 
   it("appends the terminal word for failed and interrupted runs", () => {
-    expect(agentSummary({ status: "failed", tools: 0, durationMs: 1_500 })).toBe("0 tools · 1.5s · failed")
-    expect(agentSummary({ status: "interrupted", tools: 2, durationMs: 800 })).toBe("2 tools · 800ms · interrupted")
+    expect(agentSummary({ status: "failed", tools: 0, durationMs: 1_500 })).toBe(
+      "0 tools · 1.5s · failed",
+    )
+    expect(agentSummary({ status: "interrupted", tools: 2, durationMs: 800 })).toBe(
+      "2 tools · 800ms · interrupted",
+    )
     expect(agentSummary({ status: "failed", tools: 1 })).toBe("1 tool · failed")
   })
 })

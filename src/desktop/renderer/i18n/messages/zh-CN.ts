@@ -125,7 +125,8 @@ export const zhCN: Messages = {
   "composer.modelNoImages": "所选模型不支持图片输入。",
   "composer.modelNoImageInput": "所选模型不支持图片输入。请选择视觉模型。",
   "composer.atMostImages": "每条消息最多可附加 {{count}} 张图片。",
-  "composer.unsupportedFile": "不支持 {{name}}。请使用文本文件、PDF、DOCX、PNG、JPEG、GIF、BMP、TIFF 或 PPM。",
+  "composer.unsupportedFile":
+    "不支持 {{name}}。请使用文本文件、PDF、DOCX、PNG、JPEG、GIF、BMP、TIFF 或 PPM。",
   "composer.thatFile": "该文件",
   "composer.fileEmpty": "{{name}} 为空。",
   "composer.imageRequestLimit": "{{name}} 过大。图片数据必须低于 10 MB 请求限制。",

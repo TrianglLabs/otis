@@ -1,13 +1,19 @@
-import { extname } from "node:path"
+import { randomUUID } from "node:crypto"
+import { rename, rm, writeFile } from "node:fs/promises"
+import { dirname, extname, join } from "node:path"
 import { BrowserWindow, dialog, type IpcMainInvokeEvent, ipcMain, shell } from "electron"
 import { isArtifactReference } from "../../artifacts/types.js"
-import { DESKTOP_CHANNELS, type DesktopAttachmentInput } from "../contracts.js"
-import { saveArtifactCopy } from "./artifact-export.js"
+import {
+  DESKTOP_CHANNELS,
+  type DesktopAttachmentInput,
+  type SessionOpResult,
+} from "../contracts.js"
 import type { DesktopRuntime } from "./runtime.js"
 
 /**
- * Registers the validated IPC handlers for the desktop API. Every handler checks that the call comes from our own
- * renderer before touching the runtime, and validates payload shapes at the boundary.
+ * Registers the validated IPC handlers for the desktop API. Every handler checks that the call
+ * comes from our own renderer before touching the runtime, and validates payload shapes at the
+ * boundary.
  */
 export function registerDesktopIpc(runtime: DesktopRuntime) {
   handle(DESKTOP_CHANNELS.getSnapshot, () => runtime.snapshot())
@@ -16,31 +22,56 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
     return runtime.getArtifact(revision)
   })
   handle(DESKTOP_CHANNELS.openArtifact, (reference, version) => {
-    if (!isArtifactReference(reference)) throw new Error("openArtifact expects a valid artifact reference")
-    if (version !== undefined && (typeof version !== "number" || !Number.isSafeInteger(version) || version < 1))
+    if (!isArtifactReference(reference))
+      throw new Error("openArtifact expects a valid artifact reference")
+    if (
+      version !== undefined &&
+      (typeof version !== "number" || !Number.isSafeInteger(version) || version < 1)
+    )
       throw new Error("openArtifact expects a positive integer version")
     return runtime.openArtifact(reference, version)
   })
 
-  ipcMain.handle(DESKTOP_CHANNELS.saveArtifact, async (event: IpcMainInvokeEvent, id: unknown, revision: unknown) => {
-    assertTrustedSender(event)
-    if (typeof id !== "string" || !id) throw new Error("saveArtifact expects an artifact id")
-    if (typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 0)
-      throw new Error("saveArtifact expects a numeric revision")
-    const file = await runtime.getArtifactFile(id, revision)
-    if (!file) return { ok: false, reason: "This preview changed. Try saving the current version again." }
-    return saveArtifactCopy(file, async (name) => {
-      const result = await dialog.showSaveDialog(
-        BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getAllWindows()[0],
-        {
-          defaultPath: name,
-          filters: [{ name: extname(name).slice(1).toUpperCase(), extensions: [extname(name).slice(1)] }],
-          properties: ["showOverwriteConfirmation", "createDirectory"],
-        },
-      )
-      return result.canceled ? undefined : result.filePath
-    })
-  })
+  // Saves the captured revision only to a destination chosen through the native Save dialog.
+  ipcMain.handle(
+    DESKTOP_CHANNELS.saveArtifact,
+    async (event: IpcMainInvokeEvent, id: unknown, revision: unknown): Promise<SessionOpResult> => {
+      assertTrustedSender(event)
+      if (typeof id !== "string" || !id) throw new Error("saveArtifact expects an artifact id")
+      if (typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 0)
+        throw new Error("saveArtifact expects a numeric revision")
+      const file = await runtime.getArtifactFile(id, revision)
+      if (!file)
+        return { ok: false, reason: "This preview changed. Try saving the current version again." }
+      try {
+        const extension = extname(file.name)
+        const result = await dialog.showSaveDialog(
+          BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getAllWindows()[0],
+          {
+            defaultPath: file.name,
+            filters: [{ name: extension.slice(1).toUpperCase(), extensions: [extension.slice(1)] }],
+            properties: ["showOverwriteConfirmation", "createDirectory"],
+          },
+        )
+        if (result.canceled || !result.filePath) return { ok: true }
+        const path = result.filePath
+        if (extname(path).toLowerCase() !== extension.toLowerCase())
+          throw new Error(
+            `Keep the ${extension} extension. Saving a copy does not convert the file.`,
+          )
+        const temporary = join(dirname(path), `.otis-export-${randomUUID()}.tmp`)
+        try {
+          await writeFile(temporary, file.bytes, { flag: "wx", mode: 0o600 })
+          await rename(temporary, path)
+        } finally {
+          await rm(temporary, { force: true })
+        }
+        return { ok: true }
+      } catch (error) {
+        return { ok: false, reason: error instanceof Error ? error.message : String(error) }
+      }
+    },
+  )
 
   ipcMain.handle(DESKTOP_CHANNELS.getWindowState, (event: IpcMainInvokeEvent) => {
     assertTrustedSender(event)
@@ -49,9 +80,18 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
 
   handle(DESKTOP_CHANNELS.sendPrompt, (text, attachments) => {
     if (typeof text !== "string") throw new Error("sendPrompt expects a string")
-    if (attachments !== undefined && !isDesktopAttachmentInputs(attachments)) {
-      throw new Error("sendPrompt expects valid attachments")
-    }
+    const valid =
+      attachments === undefined ||
+      (Array.isArray(attachments) &&
+        attachments.every(
+          (attachment): attachment is DesktopAttachmentInput =>
+            typeof attachment === "object" &&
+            attachment !== null &&
+            typeof attachment.name === "string" &&
+            typeof attachment.mimeType === "string" &&
+            attachment.bytes instanceof Uint8Array,
+        ))
+    if (!valid) throw new Error("sendPrompt expects valid attachments")
     return runtime.sendPrompt(text, attachments)
   })
 
@@ -66,7 +106,8 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
 
   handle(DESKTOP_CHANNELS.selectSession, (id, dirName) => {
     if (typeof id !== "string") throw new Error("selectSession expects a string id")
-    if (dirName !== undefined && typeof dirName !== "string") throw new Error("selectSession expects a dir name")
+    if (dirName !== undefined && typeof dirName !== "string")
+      throw new Error("selectSession expects a dir name")
     return runtime.selectSession(id, dirName)
   })
 
@@ -81,7 +122,8 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
     if (typeof workspacePath !== "string" || typeof sessionId !== "string") {
       throw new Error("openSessionAt expects a workspace path and a session id")
     }
-    if (dirName !== undefined && typeof dirName !== "string") throw new Error("openSessionAt expects a dir name")
+    if (dirName !== undefined && typeof dirName !== "string")
+      throw new Error("openSessionAt expects a dir name")
     return runtime.switchWorkspace(workspacePath, sessionId, dirName)
   })
 
@@ -117,7 +159,8 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
 
   handle(DESKTOP_CHANNELS.deleteSession, (id, dirName) => {
     if (typeof id !== "string") throw new Error("deleteSession expects a string id")
-    if (dirName !== undefined && typeof dirName !== "string") throw new Error("deleteSession expects a dir name")
+    if (dirName !== undefined && typeof dirName !== "string")
+      throw new Error("deleteSession expects a dir name")
     return runtime.deleteSession(id, dirName)
   })
 
@@ -146,7 +189,8 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
     return runtime.setThinkingVisible(visible)
   })
   handle(DESKTOP_CHANNELS.setLocalThinking, (model, level) => {
-    if (typeof model !== "string" || typeof level !== "string") throw new Error("Invalid thinking effort.")
+    if (typeof model !== "string" || typeof level !== "string")
+      throw new Error("Invalid thinking effort.")
     return runtime.setLocalThinking(model, level)
   })
   handle(DESKTOP_CHANNELS.setPermissionMode, (mode) => {
@@ -157,9 +201,11 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
     if (typeof fast !== "boolean") throw new Error("Invalid Fast serving flag.")
     return runtime.setFastServing(fast)
   })
-  // Mirrors FIREWORKS_KEY_URL in src/cli/provider-links.ts; the CLI module spawns open/xdg-open, the desktop
-  // main uses Electron's shell instead.
-  handle(DESKTOP_CHANNELS.openFireworksKeyPage, () => shell.openExternal("https://app.fireworks.ai/api-keys"))
+  // Mirrors FIREWORKS_KEY_URL in src/cli/provider-links.ts; the CLI module spawns open/xdg-open,
+  // the desktop main uses Electron's shell instead.
+  handle(DESKTOP_CHANNELS.openFireworksKeyPage, () =>
+    shell.openExternal("https://app.fireworks.ai/api-keys"),
+  )
   handle(DESKTOP_CHANNELS.setFireworksApiKey, (apiKey) => {
     if (typeof apiKey !== "string") throw new Error("Invalid API key.")
     return runtime.setFireworksApiKey(apiKey)
@@ -192,20 +238,6 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
     if (typeof toolCallId !== "string" || !toolCallId) throw new Error("Invalid tool call id.")
     return runtime.getSubagentTrace(toolCallId)
   })
-}
-
-function isDesktopAttachmentInputs(value: unknown): value is DesktopAttachmentInput[] {
-  return (
-    Array.isArray(value) &&
-    value.every(
-      (attachment) =>
-        typeof attachment === "object" &&
-        attachment !== null &&
-        typeof attachment.name === "string" &&
-        typeof attachment.mimeType === "string" &&
-        attachment.bytes instanceof Uint8Array,
-    )
-  )
 }
 
 function handle<T extends unknown[]>(channel: string, handler: (...args: T) => unknown) {

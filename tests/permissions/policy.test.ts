@@ -1,12 +1,19 @@
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it } from "vitest"
 import {
   createPermissionPolicy,
+  loadProjectPermissionRules,
   parsePermissionConfig,
   parsePermissionRuleString,
 } from "../../src/permissions/policy.js"
+
+const directories: string[] = []
+
+afterEach(async () => {
+  await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true })))
+})
 
 describe("permission policy", () => {
   it("requires external publication approval even in auto mode, with canonical path rules", async () => {
@@ -24,9 +31,10 @@ describe("permission policy", () => {
       expect(external.effect).toBe("ask")
       expect(external.resources).toEqual([external.artifactPath])
       expect((await auto.evaluate(call("alias.md"))).effect).toBe("ask")
-      expect((await createPermissionPolicy({ cwd, mode: "dontAsk" }).evaluate(call("../outside.md"))).effect).toBe(
-        "deny",
-      )
+      expect(
+        (await createPermissionPolicy({ cwd, mode: "dontAsk" }).evaluate(call("../outside.md")))
+          .effect,
+      ).toBe("deny")
       const allowed = createPermissionPolicy({
         cwd,
         mode: "dontAsk",
@@ -54,13 +62,20 @@ describe("permission policy", () => {
     const auto = createPermissionPolicy({ cwd, mode: "auto" })
     const dontAsk = createPermissionPolicy({ cwd, mode: "dontAsk" })
 
-    expect((await ask.evaluate({ name: "read", input: { path: "src/index.ts" } })).effect).toBe("allow")
-    expect((await ask.evaluate({ name: "skill", input: { skill: "review" } })).effect).toBe("allow")
-    expect((await ask.evaluate({ name: "bash", input: { command: "bun test" } })).effect).toBe("ask")
-    expect((await auto.evaluate({ name: "write", input: { path: "out.txt", content: "ok" } })).effect).toBe("allow")
-    expect((await dontAsk.evaluate({ name: "edit", input: { path: "out.txt", old: "a", new: "b" } })).effect).toBe(
-      "deny",
+    expect((await ask.evaluate({ name: "read", input: { path: "src/index.ts" } })).effect).toBe(
+      "allow",
     )
+    expect((await ask.evaluate({ name: "skill", input: { skill: "review" } })).effect).toBe("allow")
+    expect((await ask.evaluate({ name: "bash", input: { command: "bun test" } })).effect).toBe(
+      "ask",
+    )
+    expect(
+      (await auto.evaluate({ name: "write", input: { path: "out.txt", content: "ok" } })).effect,
+    ).toBe("allow")
+    expect(
+      (await dontAsk.evaluate({ name: "edit", input: { path: "out.txt", old: "a", new: "b" } }))
+        .effect,
+    ).toBe("deny")
     expect(
       (
         await dontAsk.evaluate({
@@ -73,9 +88,10 @@ describe("permission policy", () => {
         })
       ).effect,
     ).toBe("deny")
-    expect((await dontAsk.evaluate({ name: "agent", input: { description: "Map", prompt: "List." } })).effect).toBe(
-      "allow",
-    )
+    expect(
+      (await dontAsk.evaluate({ name: "agent", input: { description: "Map", prompt: "List." } }))
+        .effect,
+    ).toBe("allow")
   })
 
   it("checks both source and destination for document copy edits", async () => {
@@ -100,7 +116,10 @@ describe("permission policy", () => {
       mode: "auto",
       rules: [{ tool: "agent", resource: "Deploy *", effect: "deny" }],
     })
-    const call = (description: string) => ({ name: "agent" as const, input: { description, prompt: "Do it." } })
+    const call = (description: string) => ({
+      name: "agent" as const,
+      input: { description, prompt: "Do it." },
+    })
 
     expect((await policy.evaluate(call("Deploy to production"))).effect).toBe("deny")
     expect((await policy.evaluate(call("Map the notes"))).effect).toBe("allow")
@@ -118,11 +137,16 @@ describe("permission policy", () => {
       ],
     })
 
-    expect((await policy.evaluate({ name: "bash", input: { command: "git status" } })).effect).toBe("allow")
-    expect((await policy.evaluate({ name: "bash", input: { command: "git push origin main" } })).effect).toBe("ask")
-    expect((await policy.evaluate({ name: "bash", input: { command: "git push --force origin main" } })).effect).toBe(
-      "deny",
+    expect((await policy.evaluate({ name: "bash", input: { command: "git status" } })).effect).toBe(
+      "allow",
     )
+    expect(
+      (await policy.evaluate({ name: "bash", input: { command: "git push origin main" } })).effect,
+    ).toBe("ask")
+    expect(
+      (await policy.evaluate({ name: "bash", input: { command: "git push --force origin main" } }))
+        .effect,
+    ).toBe("deny")
   })
 
   it("does not let a shell wildcard authorize control operators or command substitution", async () => {
@@ -132,11 +156,17 @@ describe("permission policy", () => {
       rules: [{ tool: "bash", resource: "git *", effect: "allow" }],
     })
 
-    expect((await policy.evaluate({ name: "bash", input: { command: "git status && rm -rf ." } })).effect).toBe("deny")
-    expect((await policy.evaluate({ name: "bash", input: { command: "git status $(touch owned)" } })).effect).toBe(
-      "deny",
+    expect(
+      (await policy.evaluate({ name: "bash", input: { command: "git status && rm -rf ." } }))
+        .effect,
+    ).toBe("deny")
+    expect(
+      (await policy.evaluate({ name: "bash", input: { command: "git status $(touch owned)" } }))
+        .effect,
+    ).toBe("deny")
+    expect((await policy.evaluate({ name: "bash", input: { command: "git status" } })).effect).toBe(
+      "allow",
     )
-    expect((await policy.evaluate({ name: "bash", input: { command: "git status" } })).effect).toBe("allow")
   })
 
   it("lets restrictive shell wildcards match control operators", async () => {
@@ -146,8 +176,13 @@ describe("permission policy", () => {
       rules: [{ tool: "bash", resource: "*", effect: "deny" }],
     })
 
-    expect((await policy.evaluate({ name: "bash", input: { command: "git status && rm -rf ." } })).effect).toBe("deny")
-    expect((await policy.evaluate({ name: "bash", input: { command: "echo $(cat .env)" } })).effect).toBe("deny")
+    expect(
+      (await policy.evaluate({ name: "bash", input: { command: "git status && rm -rf ." } }))
+        .effect,
+    ).toBe("deny")
+    expect(
+      (await policy.evaluate({ name: "bash", input: { command: "echo $(cat .env)" } })).effect,
+    ).toBe("deny")
   })
 
   it("normalizes workspace paths before matching rules", async () => {
@@ -158,7 +193,9 @@ describe("permission policy", () => {
       rules: [{ tool: "read", resource: "src/*", effect: "deny" }],
     })
 
-    expect(await policy.evaluate({ name: "read", input: { path: join(cwd, "src/token") } })).toMatchObject({
+    expect(
+      await policy.evaluate({ name: "read", input: { path: join(cwd, "src/token") } }),
+    ).toMatchObject({
       effect: "deny",
       resources: ["src/token"],
     })
@@ -221,15 +258,59 @@ describe("permission policy", () => {
       resource: "git *",
       effect: "allow",
     })
-    expect(parsePermissionConfig({ rules: [{ tool: "READ", resource: "*.env", effect: "deny" }] })).toEqual({
+    expect(
+      parsePermissionConfig({ rules: [{ tool: "READ", resource: "*.env", effect: "deny" }] }),
+    ).toEqual({
       rules: [{ tool: "read", resource: "*.env", effect: "deny" }],
     })
   })
 
   it("rejects unknown tools and malformed effects", () => {
-    expect(() => parsePermissionConfig({ rules: [{ tool: "bas", effect: "allow" }] })).toThrow("known tool")
+    expect(() => parsePermissionConfig({ rules: [{ tool: "bas", effect: "allow" }] })).toThrow(
+      "known tool",
+    )
     expect(() => parsePermissionConfig({ rules: [{ tool: "bash", effect: "sometimes" }] })).toThrow(
       "allow, ask, or deny",
     )
   })
 })
+
+describe("project permission policy", () => {
+  it("loads restrictive project rules", async () => {
+    const cwd = await tempDirectory()
+    await mkdir(join(cwd, ".otis"))
+    await writeFile(
+      join(cwd, ".otis", "permissions.json"),
+      JSON.stringify({ version: 1, rules: [{ tool: "read", resource: "*.env", effect: "deny" }] }),
+    )
+    await expect(loadProjectPermissionRules(cwd)).resolves.toEqual([
+      { tool: "read", resource: "*.env", effect: "deny" },
+    ])
+  })
+
+  it("rejects project rules that grant access", async () => {
+    const cwd = await tempDirectory()
+    await mkdir(join(cwd, ".otis"))
+    await writeFile(
+      join(cwd, ".otis", "permissions.json"),
+      JSON.stringify({ version: 1, rules: [{ tool: "bash", resource: "git *", effect: "allow" }] }),
+    )
+    await expect(loadProjectPermissionRules(cwd)).rejects.toThrow("may not grant access")
+  })
+
+  it("rejects a project default mode", async () => {
+    const cwd = await tempDirectory()
+    await mkdir(join(cwd, ".otis"))
+    await writeFile(
+      join(cwd, ".otis", "permissions.json"),
+      JSON.stringify({ version: 1, defaultMode: "auto" }),
+    )
+    await expect(loadProjectPermissionRules(cwd)).rejects.toThrow("may not set defaultMode")
+  })
+})
+
+async function tempDirectory() {
+  const directory = await mkdtemp(join(tmpdir(), "otis-permissions-"))
+  directories.push(directory)
+  return directory
+}

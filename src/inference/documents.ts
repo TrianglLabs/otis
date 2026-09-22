@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { basename, extname } from "node:path"
+import { extname } from "node:path"
 import mammoth from "mammoth"
 import {
   DOCX_MIME_TYPE,
@@ -12,7 +12,8 @@ import {
   normalizedDocumentMimeType,
   PDF_MIME_TYPE,
 } from "./document-constraints.js"
-import { validateDocxArchive } from "./docx-archive.js"
+import { errorMessage } from "./errors.js"
+import { safeAttachmentName } from "./images.js"
 import type { DocumentContentPart, DocumentKind } from "./types.js"
 
 export {
@@ -25,7 +26,7 @@ export {
   PDF_MIME_TYPE,
 } from "./document-constraints.js"
 
-const LEGACY_WORD_MIME_TYPE = "application/msword"
+import { fromBufferPromise } from "yauzl"
 
 const TEXT_MIME_BY_EXTENSION = new Map<string, string>([
   [".md", "text/markdown"],
@@ -47,14 +48,6 @@ const TEXT_MIME_BY_EXTENSION = new Map<string, string>([
   [".xml", "application/xml"],
 ])
 
-type ExtractedDocument = {
-  kind: DocumentKind
-  mimeType: string
-  text: string
-  truncated: boolean
-  pageCount?: number
-}
-
 export async function createDocumentAttachment(
   bytes: Uint8Array,
   name: string,
@@ -62,24 +55,32 @@ export async function createDocumentAttachment(
 ): Promise<DocumentContentPart> {
   if (bytes.byteLength === 0) throw new Error("Document data is empty.")
   if (bytes.byteLength > MAX_RAW_DOCUMENT_BYTES) {
-    throw new Error(`Document exceeds the ${formatMegabytes(MAX_RAW_DOCUMENT_BYTES)} MB file limit.`)
+    throw new Error(`Document exceeds the ${MAX_RAW_DOCUMENT_BYTES / (1024 * 1024)} MB file limit.`)
   }
 
-  const safeName = attachmentName(name)
+  const safeName = safeAttachmentName(name, "document.txt")
   const extension = extname(safeName).toLowerCase()
   const declared = normalizedDocumentMimeType(declaredMimeType)
   const rawDeclared = declaredMimeType?.split(";", 1)[0]?.trim().toLowerCase()
-  if (extension === ".doc" || rawDeclared === LEGACY_WORD_MIME_TYPE) {
+  if (extension === ".doc" || rawDeclared === "application/msword") {
     throw new Error("Legacy Word .doc files are not supported. Save the document as .docx first.")
   }
   if (declaredMimeType && !declared && rawDeclared !== "application/octet-stream") {
     throw new Error(`Unsupported document MIME type: ${declaredMimeType}`)
   }
+  const mismatch = () =>
+    new Error(`Document data does not match its declared MIME type (${declared}).`)
 
-  // Snapshot before asynchronous parsing so validation, extraction, and identity use the same bytes.
+  // Snapshot before asynchronous parsing so validation, extraction, and identity use the
+  // same bytes.
   const source = Buffer.from(bytes)
-  const extracted = await extractDocument(source, safeName, extension, declared)
-  return {
+  const attachment = (extracted: {
+    kind: DocumentKind
+    mimeType: string
+    text: string
+    truncated: boolean
+    pageCount?: number
+  }): DocumentContentPart => ({
     type: "document",
     kind: extracted.kind,
     data: source.toString("base64"),
@@ -90,151 +91,135 @@ export async function createDocumentAttachment(
     sha256: createHash("sha256").update(source).digest("hex"),
     truncated: extracted.truncated,
     ...(extracted.pageCount === undefined ? {} : { pageCount: extracted.pageCount }),
+  })
+
+  if (new TextDecoder("latin1").decode(source.subarray(0, 1024)).includes("%PDF-")) {
+    if (declared && declared !== PDF_MIME_TYPE) throw mismatch()
+    // PDF.js's worker module registers its own in-process handler. Explicit imports let both
+    // Bun and Electron bundle it instead of resolving an absent pdf.worker.mjs at runtime.
+    await import("pdfjs-dist/legacy/build/pdf.worker.mjs")
+    const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs")
+    // PDF.js may transfer the buffer it is given, so hand it a copy of the snapshot.
+    const loadingTask = getDocument({ data: Uint8Array.from(source), useSystemFonts: true })
+    try {
+      const pdf = await loadingTask.promise
+      if (pdf.numPages > MAX_PDF_PAGES) {
+        throw new Error(`PDF has ${pdf.numPages} pages; the limit is ${MAX_PDF_PAGES}.`)
+      }
+      const chunks: string[] = []
+      let length = 0
+      let truncated = false
+      for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+        const page = await pdf.getPage(pageNumber)
+        const content = await page.getTextContent()
+        let pageText = ""
+        for (const item of content.items) {
+          if (!("str" in item)) continue
+          if (item.str) {
+            if (pageText && !/[\s-]$/.test(pageText) && !/^[,.;:!?%)\]}]/.test(item.str))
+              pageText += " "
+            pageText += item.str
+          }
+          if (item.hasEOL && !pageText.endsWith("\n")) pageText += "\n"
+        }
+        pageText = pageText.trim()
+        page.cleanup()
+        if (!pageText) continue
+        const chunk = `${chunks.length === 0 ? "" : "\n\n"}[Page ${pageNumber}]\n${pageText}`
+        const remaining = MAX_EXTRACTED_DOCUMENT_CHARS - length
+        if (chunk.length > remaining) {
+          chunks.push(chunk.slice(0, Math.max(0, remaining)))
+          truncated = true
+          break
+        }
+        chunks.push(chunk)
+        length += chunk.length
+      }
+      const text = normalizedExtractedText(chunks.join(""))
+      return attachment({
+        kind: "pdf",
+        mimeType: PDF_MIME_TYPE,
+        text:
+          text ||
+          `[PDF has ${pdf.numPages} page${pdf.numPages === 1 ? "" : "s"} but no extractable text. It may be scanned or contain only graphics or form fields. OCR is not available.]`,
+        truncated,
+        pageCount: pdf.numPages,
+      })
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("PDF has ")) throw error
+      throw new Error(`Could not read PDF: ${errorMessage(error)}`)
+    } finally {
+      await loadingTask.destroy()
+    }
   }
+  if (extension === ".pdf" || declared === PDF_MIME_TYPE)
+    throw new Error(`${safeName} is not a valid PDF.`)
+
+  if (extension === ".docx" || declared === DOCX_MIME_TYPE) {
+    if (declared && declared !== DOCX_MIME_TYPE) throw mismatch()
+    const zip =
+      source[0] === 0x50 &&
+      source[1] === 0x4b &&
+      ((source[2] === 0x03 && source[3] === 0x04) ||
+        (source[2] === 0x05 && source[3] === 0x06) ||
+        (source[2] === 0x07 && source[3] === 0x08))
+    if (!zip) throw new Error(`${safeName} is not a valid DOCX file.`)
+    try {
+      await validateDocxArchive(source)
+      const normalized = normalizedExtractedText(
+        (await mammoth.extractRawText({ buffer: source })).value,
+      )
+      if (!normalized) throw new Error("the document contains no extractable text")
+      return attachment({
+        kind: "docx",
+        mimeType: DOCX_MIME_TYPE,
+        text: normalized.slice(0, MAX_EXTRACTED_DOCUMENT_CHARS),
+        truncated: normalized.length > MAX_EXTRACTED_DOCUMENT_CHARS,
+      })
+    } catch (error) {
+      throw new Error(`Could not read ${safeName}: ${errorMessage(error)}`)
+    }
+  }
+
+  const sample = source.subarray(0, 8_000)
+  let controls = 0
+  for (const byte of sample) {
+    if (byte < 9 || (byte > 13 && byte < 32)) controls += 1
+  }
+  if (sample.includes(0) || controls / sample.length > 0.3)
+    throw new Error(`${safeName} is not a UTF-8 text file.`)
+  let text: string
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(source)
+  } catch {
+    throw new Error(`${safeName} is not valid UTF-8 text.`)
+  }
+  if (!text.trim()) throw new Error(`${safeName} contains no text.`)
+  return attachment({
+    kind: "text",
+    mimeType: declared ?? TEXT_MIME_BY_EXTENSION.get(extension) ?? "text/plain",
+    text: text.slice(0, MAX_EXTRACTED_DOCUMENT_CHARS),
+    truncated: text.length > MAX_EXTRACTED_DOCUMENT_CHARS,
+  })
 }
 
 export function validateDocumentAttachments(documents: readonly DocumentContentPart[]) {
   if (documents.length > MAX_DOCUMENTS_PER_MESSAGE) {
     throw new Error(`Attach at most ${MAX_DOCUMENTS_PER_MESSAGE} documents to one message.`)
   }
-  const rawBytes = documents.reduce((total, document) => total + document.sizeBytes, 0)
-  if (rawBytes > MAX_TOTAL_DOCUMENT_BYTES) {
-    throw new Error(`Attached documents must total at most ${formatMegabytes(MAX_TOTAL_DOCUMENT_BYTES)} MB.`)
+  if (
+    documents.reduce((total, document) => total + document.sizeBytes, 0) > MAX_TOTAL_DOCUMENT_BYTES
+  ) {
+    throw new Error(
+      `Attached documents must total at most ${MAX_TOTAL_DOCUMENT_BYTES / (1024 * 1024)} MB.`,
+    )
   }
-  const extractedChars = documents.reduce((total, document) => total + document.extractedText.length, 0)
-  if (extractedChars > MAX_TOTAL_EXTRACTED_DOCUMENT_CHARS) {
+  const chars = documents.reduce((total, document) => total + document.extractedText.length, 0)
+  if (chars > MAX_TOTAL_EXTRACTED_DOCUMENT_CHARS) {
     throw new Error(
       `Attached documents contain too much text. Keep the extracted content under ${MAX_TOTAL_EXTRACTED_DOCUMENT_CHARS.toLocaleString()} characters per message.`,
     )
   }
-}
-
-async function extractDocument(
-  bytes: Uint8Array,
-  name: string,
-  extension: string,
-  declaredMimeType: string | undefined,
-): Promise<ExtractedDocument> {
-  if (looksLikePdf(bytes)) {
-    assertDeclaredKind(declaredMimeType, "pdf")
-    return extractPdf(bytes)
-  }
-  if (extension === ".pdf" || declaredMimeType === PDF_MIME_TYPE) {
-    throw new Error(`${name} is not a valid PDF.`)
-  }
-
-  if (extension === ".docx" || declaredMimeType === DOCX_MIME_TYPE) {
-    assertDeclaredKind(declaredMimeType, "docx")
-    if (!looksLikeZip(bytes)) throw new Error(`${name} is not a valid DOCX file.`)
-    return extractDocx(bytes, name)
-  }
-
-  assertDeclaredKind(declaredMimeType, "text")
-  return extractText(bytes, name, declaredMimeType ?? TEXT_MIME_BY_EXTENSION.get(extension) ?? "text/plain")
-}
-
-async function extractPdf(bytes: Uint8Array): Promise<ExtractedDocument> {
-  // PDF.js's worker module registers its own in-process handler. Explicit imports let both
-  // Bun and Electron bundle it instead of resolving an absent pdf.worker.mjs at runtime.
-  await import("pdfjs-dist/legacy/build/pdf.worker.mjs")
-  const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs")
-  const loadingTask = getDocument({ data: Uint8Array.from(bytes), useSystemFonts: true })
-  try {
-    const pdf = await loadingTask.promise
-    if (pdf.numPages > MAX_PDF_PAGES) {
-      throw new Error(`PDF has ${pdf.numPages} pages; the limit is ${MAX_PDF_PAGES}.`)
-    }
-
-    const chunks: string[] = []
-    let length = 0
-    let truncated = false
-    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
-      const page = await pdf.getPage(pageNumber)
-      const content = await page.getTextContent()
-      const pageText = pdfPageText(content.items)
-      page.cleanup()
-      if (!pageText) continue
-      const chunk = `${chunks.length === 0 ? "" : "\n\n"}[Page ${pageNumber}]\n${pageText}`
-      const remaining = MAX_EXTRACTED_DOCUMENT_CHARS - length
-      if (chunk.length > remaining) {
-        chunks.push(chunk.slice(0, Math.max(0, remaining)))
-        truncated = true
-        break
-      }
-      chunks.push(chunk)
-      length += chunk.length
-    }
-    const text = normalizedExtractedText(chunks.join(""))
-    return {
-      kind: "pdf",
-      mimeType: PDF_MIME_TYPE,
-      text:
-        text ||
-        `[PDF has ${pdf.numPages} page${pdf.numPages === 1 ? "" : "s"} but no extractable text. It may be scanned or contain only graphics or form fields. OCR is not available.]`,
-      truncated,
-      pageCount: pdf.numPages,
-    }
-  } catch (error) {
-    if (error instanceof Error && error.message.includes("PDF has ")) {
-      throw error
-    }
-    throw new Error(`Could not read PDF: ${errorMessage(error)}`)
-  } finally {
-    await loadingTask.destroy()
-  }
-}
-
-async function extractDocx(bytes: Uint8Array, name: string): Promise<ExtractedDocument> {
-  try {
-    await validateDocxArchive(Buffer.from(bytes))
-    const result = await mammoth.extractRawText({ buffer: Buffer.from(bytes) })
-    const normalized = normalizedExtractedText(result.value)
-    if (!normalized) throw new Error("the document contains no extractable text")
-    const truncated = normalized.length > MAX_EXTRACTED_DOCUMENT_CHARS
-    return {
-      kind: "docx",
-      mimeType: DOCX_MIME_TYPE,
-      text: normalized.slice(0, MAX_EXTRACTED_DOCUMENT_CHARS),
-      truncated,
-    }
-  } catch (error) {
-    throw new Error(`Could not read ${name}: ${errorMessage(error)}`)
-  }
-}
-
-function extractText(bytes: Uint8Array, name: string, mimeType: string): ExtractedDocument {
-  if (looksBinary(bytes)) throw new Error(`${name} is not a UTF-8 text file.`)
-  let text: string
-  try {
-    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes)
-  } catch {
-    throw new Error(`${name} is not valid UTF-8 text.`)
-  }
-  if (!text.trim()) throw new Error(`${name} contains no text.`)
-  const truncated = text.length > MAX_EXTRACTED_DOCUMENT_CHARS
-  return {
-    kind: "text",
-    mimeType,
-    text: text.slice(0, MAX_EXTRACTED_DOCUMENT_CHARS),
-    truncated,
-  }
-}
-
-function pdfPageText(items: readonly unknown[]) {
-  let text = ""
-  for (const item of items) {
-    if (!isPdfTextItem(item)) continue
-    if (item.str) {
-      if (text && !/[\s-]$/.test(text) && !/^[,.;:!?%)\]}]/.test(item.str)) text += " "
-      text += item.str
-    }
-    if (item.hasEOL && !text.endsWith("\n")) text += "\n"
-  }
-  return text.trim()
-}
-
-function isPdfTextItem(value: unknown): value is { str: string; hasEOL: boolean } {
-  return typeof value === "object" && value !== null && "str" in value && typeof value.str === "string"
 }
 
 function normalizedExtractedText(value: string) {
@@ -244,57 +229,47 @@ function normalizedExtractedText(value: string) {
     .trim()
 }
 
-function looksLikePdf(bytes: Uint8Array) {
-  const prefix = new TextDecoder("latin1").decode(bytes.subarray(0, Math.min(bytes.length, 1024)))
-  return prefix.includes("%PDF-")
-}
+const MAX_ENTRIES = 10_000
+const MAX_UNCOMPRESSED_BYTES = 100 * 1024 * 1024
+const MAX_DOCUMENT_XML_BYTES = 16 * 1024 * 1024
 
-function looksLikeZip(bytes: Uint8Array) {
-  return (
-    bytes[0] === 0x50 &&
-    bytes[1] === 0x4b &&
-    ((bytes[2] === 0x03 && bytes[3] === 0x04) ||
-      (bytes[2] === 0x05 && bytes[3] === 0x06) ||
-      (bytes[2] === 0x07 && bytes[3] === 0x08))
-  )
-}
+/** Verify every entry with bounded streaming inflation before Mammoth materializes XML. */
+export async function validateDocxArchive(bytes: Buffer) {
+  const zip = await fromBufferPromise(bytes, { validateEntrySizes: true, strictFileNames: true })
+  try {
+    if (zip.entryCount === 0 || zip.entryCount > MAX_ENTRIES)
+      throw new Error("invalid DOCX entry count")
+    const names = new Set<string>()
+    let totalBytes = 0
+    for await (const entry of zip.eachEntry()) {
+      if (names.has(entry.fileName)) throw new Error("duplicate DOCX archive entry")
+      names.add(entry.fileName)
+      if (entry.isEncrypted()) throw new Error("encrypted DOCX files are not supported")
+      // Mammoth reads local names, whereas yauzl indexes central names. Require an
+      // unambiguous package.
+      const local = await zip.readLocalFileHeaderPromise(entry)
+      if (!local.fileName.equals(entry.fileNameRaw)) throw new Error("inconsistent DOCX entry name")
+      if (
+        entry.fileName === "word/document.xml" &&
+        entry.uncompressedSize > MAX_DOCUMENT_XML_BYTES
+      ) {
+        throw new Error("main document XML exceeds the 16 MB safety limit")
+      }
+      totalBytes += entry.uncompressedSize
+      if (totalBytes > MAX_UNCOMPRESSED_BYTES)
+        throw new Error("DOCX expands beyond the 100 MB safety limit")
 
-function looksBinary(bytes: Uint8Array) {
-  const sample = bytes.subarray(0, Math.min(bytes.length, 8_000))
-  if (sample.includes(0)) return true
-  let controls = 0
-  for (const byte of sample) {
-    if (byte < 9 || (byte > 13 && byte < 32)) controls += 1
+      // yauzl aborts the stream as soon as inflated data exceeds the declared size.
+      // Draining (without retaining chunks) verifies compressed entries as well as metadata.
+      const stream = await zip.openReadStreamPromise(entry)
+      for await (const _chunk of stream) {
+        // The verified data is read again by Mammoth after the archive passes validation.
+      }
+    }
+    if (!names.has("[Content_Types].xml") || !names.has("word/document.xml")) {
+      throw new Error("not a valid DOCX file")
+    }
+  } finally {
+    zip.close()
   }
-  return sample.length > 0 && controls / sample.length > 0.3
-}
-
-function assertDeclaredKind(mimeType: string | undefined, kind: DocumentKind) {
-  if (!mimeType) return
-  const matches =
-    (kind === "pdf" && mimeType === PDF_MIME_TYPE) ||
-    (kind === "docx" && mimeType === DOCX_MIME_TYPE) ||
-    (kind === "text" && mimeType !== PDF_MIME_TYPE && mimeType !== DOCX_MIME_TYPE)
-  if (!matches) throw new Error(`Document data does not match its declared MIME type (${mimeType}).`)
-}
-
-function attachmentName(name: string) {
-  const safeName = [...basename(name)]
-    .map((character) => (isControlCharacter(character) ? " " : character))
-    .join("")
-    .trim()
-  return safeName || "document.txt"
-}
-
-function isControlCharacter(character: string) {
-  const codePoint = character.codePointAt(0) ?? 0
-  return codePoint <= 0x1f || codePoint === 0x7f
-}
-
-function formatMegabytes(bytes: number) {
-  return Math.floor(bytes / (1024 * 1024))
-}
-
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error)
 }

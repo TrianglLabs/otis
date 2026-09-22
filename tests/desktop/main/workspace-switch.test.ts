@@ -7,14 +7,23 @@ import type { DesktopEvent } from "../../../src/desktop/contracts.js"
 import { DesktopRuntime } from "../../../src/desktop/main/runtime.js"
 import type { ChatMessage, InferenceClient } from "../../../src/inference/types.js"
 import { loadLocalSettings } from "../../../src/local/settings.js"
-import { acquireSessionLock, createSession, defaultSessionDirectory, sessionFile } from "../../../src/storage/index.js"
+import {
+  acquireSessionLock,
+  createSession,
+  defaultSessionDirectory,
+  sessionFile,
+} from "../../../src/storage/index.js"
 import { useOtisHome } from "../../app/support/otis-home.js"
 
 const mocks = vi.hoisted(() => ({ executeTurn: vi.fn() }))
 vi.mock("../../../src/app/turn-runner.js", () => ({ executeTurn: mocks.executeTurn }))
 vi.mock("../../../src/inference/gguf-cache.js", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../../src/inference/gguf-cache.js")>()
-  return { ...original, isLocalGgufDownloaded: async () => false, listDownloadedLocalModels: async () => [] }
+  return {
+    ...original,
+    isLocalGgufDownloaded: async () => false,
+    listDownloadedLocalModels: async () => [],
+  }
 })
 
 const isolate = useOtisHome()
@@ -66,7 +75,9 @@ describe("DesktopRuntime workspace switching", () => {
       await foreign.admitPrompt("beta history")
 
       runtime.refreshSessions()
-      const recent = (await runtime.snapshot()).sessions.find((session) => session.id === foreign.id)
+      const recent = (await runtime.snapshot()).sessions.find(
+        (session) => session.id === foreign.id,
+      )
       if (!recent) throw new Error("The foreign session is missing from recent history.")
       expect((await runtime.selectSession(recent.id, recent.dirName)).ok).toBe(true)
       const snapshot = await runtime.snapshot()
@@ -74,9 +85,13 @@ describe("DesktopRuntime workspace switching", () => {
       expect(snapshot.workspace.path).not.toBe(cwd)
       expect(snapshot.needsWorkspace).toBe(false)
       expect(snapshot.entries.some((entry) => entry.text === "beta history")).toBe(true)
-      expect(runtime.app.projectContext.some((file) => file.path === join(otherCwd, "AGENTS.md"))).toBe(true)
+      expect(
+        runtime.app.projectContext.some((file) => file.path === join(otherCwd, "AGENTS.md")),
+      ).toBe(true)
       // Opening global history must never create an empty copy under the previous workspace.
-      await expect(readFile(sessionFile({ cwd }, foreign.id), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+      await expect(readFile(sessionFile({ cwd }, foreign.id), "utf8")).rejects.toMatchObject({
+        code: "ENOENT",
+      })
     } finally {
       await runtime.shutdown()
     }
@@ -99,7 +114,9 @@ describe("DesktopRuntime workspace switching", () => {
       if (workspace === "missing") await rm(otherCwd, { recursive: true })
 
       expect((await runtime.deleteSession(foreign.id, basename(directory))).ok).toBe(true)
-      await expect(readFile(sessionFile({ cwd: otherCwd }, foreign.id), "utf8")).rejects.toMatchObject({
+      await expect(
+        readFile(sessionFile({ cwd: otherCwd }, foreign.id), "utf8"),
+      ).rejects.toMatchObject({
         code: "ENOENT",
       })
       expect(await readFile(sessionFile({ cwd }, local.id), "utf8")).toContain("keep alpha history")
@@ -118,9 +135,14 @@ describe("DesktopRuntime workspace switching", () => {
     await foreign.admitPrompt("keep locked beta history")
     const owner = await acquireSessionLock({ cwd: otherCwd, sessionId: foreign.id })
     try {
-      const result = await runtime.deleteSession(foreign.id, basename(defaultSessionDirectory(otherCwd)))
+      const result = await runtime.deleteSession(
+        foreign.id,
+        basename(defaultSessionDirectory(otherCwd)),
+      )
       expect(result).toEqual({ ok: false, reason: "That session is open in another Otis window." })
-      expect(await readFile(sessionFile({ cwd: otherCwd }, foreign.id), "utf8")).toContain("keep locked beta history")
+      expect(await readFile(sessionFile({ cwd: otherCwd }, foreign.id), "utf8")).toContain(
+        "keep locked beta history",
+      )
       expect((await runtime.snapshot()).workspace.path).toBe(cwd)
     } finally {
       await owner.release()
@@ -138,7 +160,9 @@ describe("DesktopRuntime workspace switching", () => {
       const foreign = await createSession({ cwd: otherCwd })
       await foreign.admitPrompt("beta session")
 
-      expect((await runtime.snapshot()).sessions.some((session) => session.id === foreign.id)).toBe(false)
+      expect((await runtime.snapshot()).sessions.some((session) => session.id === foreign.id)).toBe(
+        false,
+      )
       // Opening the history palette refreshes sessions written outside this runtime.
       runtime.refreshSessions()
       const snapshot = await runtime.snapshot()
@@ -180,7 +204,9 @@ describe("DesktopRuntime workspace switching", () => {
     )
     expect(reset).toBeTruthy()
     expect(reset && reset.revision > revisionBefore).toBe(true)
-    expect(reset).toMatchObject({ status: { session: { id: foreign.id }, workspace: { path: resolve(otherCwd) } } })
+    expect(reset).toMatchObject({
+      status: { session: { id: foreign.id }, workspace: { path: resolve(otherCwd) } },
+    })
     // GUI relaunches resume the last workspace.
     expect((await loadLocalSettings()).lastWorkspace).toBe(resolve(otherCwd))
     await runtime.shutdown()
@@ -192,7 +218,8 @@ describe("DesktopRuntime workspace switching", () => {
     mocks.executeTurn.mockImplementation(
       () =>
         new Promise<TurnResult>(
-          (resolveTurn) => (release = () => resolveTurn({ status: "interrupted", messages: [], details: {} })),
+          (resolveTurn) =>
+            (release = () => resolveTurn({ status: "interrupted", messages: [], details: {} })),
         ),
     )
     await runtime.sendPrompt("long alpha turn")
@@ -230,7 +257,9 @@ describe("DesktopRuntime workspace switching", () => {
     const foreign = await createSession({ cwd: otherCwd })
     await foreign.admitPrompt("old beta session")
     const { rm } = await import("node:fs/promises")
-    const { sessionRootDirectory, defaultSessionDirectory } = await import("../../../src/storage/index.js")
+    const { sessionRootDirectory, defaultSessionDirectory } = await import(
+      "../../../src/storage/index.js"
+    )
     const dirName = basename(defaultSessionDirectory(otherCwd))
     await rm(join(sessionRootDirectory(), dirName, "workspace.json"))
 
@@ -242,7 +271,9 @@ describe("DesktopRuntime workspace switching", () => {
     await runtime.registerWorkspace(dirName as string, otherCwd)
     await flush()
     snapshot = await runtime.snapshot()
-    expect(snapshot.sessions.find((s) => s.id === foreign.id)?.workspacePath).toBe(resolve(otherCwd))
+    expect(snapshot.sessions.find((s) => s.id === foreign.id)?.workspacePath).toBe(
+      resolve(otherCwd),
+    )
 
     const opened = await runtime.switchWorkspace(otherCwd, foreign.id)
     expect(opened.ok).toBe(true)
@@ -260,7 +291,13 @@ describe("DesktopRuntime workspace switching", () => {
     const line = (event: Record<string, unknown>) => `${JSON.stringify(event)}\n`
     await appendFile(
       join(legacyDir, "default.jsonl"),
-      line({ seq: 1, sessionId: "default", at: new Date().toISOString(), type: "session_started", version: 1 }) +
+      line({
+        seq: 1,
+        sessionId: "default",
+        at: new Date().toISOString(),
+        type: "session_started",
+        version: 1,
+      }) +
         line({
           seq: 2,
           sessionId: "default",
@@ -278,13 +315,20 @@ describe("DesktopRuntime workspace switching", () => {
 
     // Switch into beta's workspace but open the legacy session by identity.
     expect((await runtime.switchWorkspace(otherCwd, "default", legacyDirName)).ok).toBe(true)
-    expect((await runtime.snapshot()).entries.some((e) => e.text === "legacy conversation")).toBe(true)
+    expect((await runtime.snapshot()).entries.some((e) => e.text === "legacy conversation")).toBe(
+      true,
+    )
 
-    // Select away to beta's other session, then back with the identity — the legacy conversation must return…
+    // Select away to beta's other session, then back with the identity — the legacy conversation
+    // must return…
     expect((await runtime.selectSession(betaOther.id)).ok).toBe(true)
-    expect((await runtime.snapshot()).entries.some((e) => e.text === "beta other conversation")).toBe(true)
+    expect(
+      (await runtime.snapshot()).entries.some((e) => e.text === "beta other conversation"),
+    ).toBe(true)
     expect((await runtime.selectSession("default", legacyDirName)).ok).toBe(true)
-    expect((await runtime.snapshot()).entries.some((e) => e.text === "legacy conversation")).toBe(true)
+    expect((await runtime.snapshot()).entries.some((e) => e.text === "legacy conversation")).toBe(
+      true,
+    )
 
     // …and deleting it must not touch beta's own "default" file.
     expect((await runtime.deleteSession("default", legacyDirName)).ok).toBe(true)
@@ -317,7 +361,9 @@ describe("workspace switch failure safety", () => {
 
     const result = await runtime.switchWorkspace(otherCwd, foreign.id)
     expect(result.ok).toBe(false)
-    expect(result.ok === false && result.reason).toBe("That session is open in another Otis window.")
+    expect(result.ok === false && result.reason).toBe(
+      "That session is open in another Otis window.",
+    )
 
     // The GUI must still be in Alpha, fully functional — not half-switched.
     expect((await runtime.snapshot()).workspace.path).toBe(resolve(cwd))
@@ -354,7 +400,13 @@ describe("workspace switch failure safety", () => {
     const line = (event: Record<string, unknown>) => `${JSON.stringify(event)}\n`
     await appendFile(
       join(legacyDir, "default.jsonl"),
-      line({ seq: 1, sessionId: "default", at: new Date().toISOString(), type: "session_started", version: 1 }) +
+      line({
+        seq: 1,
+        sessionId: "default",
+        at: new Date().toISOString(),
+        type: "session_started",
+        version: 1,
+      }) +
         line({
           seq: 2,
           sessionId: "default",

@@ -12,7 +12,13 @@ if (hot) {
   hot.dispose(() => hot.off(canvasReloadEvent, notifyCanvasReload))
 }
 
-export function CanvasPanel({ artifact, theme }: { artifact: CanvasArtifact | undefined; theme: ThemeName }) {
+export function CanvasPanel({
+  artifact,
+  theme,
+}: {
+  artifact: CanvasArtifact | undefined
+  theme: ThemeName
+}) {
   const { t } = useI18n()
   if (!artifact) return <div className="canvas-empty">{t("canvas.empty")}</div>
   if (artifact.kind !== "mermaid") return <FileArtifact artifact={artifact} />
@@ -24,7 +30,18 @@ function MermaidFrame({ source, theme }: { source: string; theme: ThemeName }) {
   const frame = useRef<HTMLIFrameElement>(null)
   const [frameRevision, setFrameRevision] = useState(0)
   const sendSource = useCallback(() => {
-    frame.current?.contentWindow?.postMessage({ type: "otis-canvas-source", source, colors: canvasColors() }, "*")
+    const styles = getComputedStyle(document.documentElement)
+    const color = (name: string, fallback: string) =>
+      styles.getPropertyValue(name).trim() || fallback
+    const colors = {
+      background: color("--bg", "#1a1a1a"),
+      surface: color("--bg-elev", "#262626"),
+      text: color("--text", "#d8dee9"),
+      muted: color("--text-dim", "#808080"),
+      accent: color("--accent", "#8b7cff"),
+      border: color("--border", "#444444"),
+    }
+    frame.current?.contentWindow?.postMessage({ type: "otis-canvas-source", source, colors }, "*")
   }, [source])
   const sendLanguage = useCallback(() => {
     frame.current?.contentWindow?.postMessage(
@@ -70,20 +87,4 @@ function MermaidFrame({ source, theme }: { source: string; theme: ThemeName }) {
       }}
     />
   )
-}
-
-function canvasColors() {
-  const styles = getComputedStyle(document.documentElement)
-  return {
-    background: cssColor(styles, "--bg", "#1a1a1a"),
-    surface: cssColor(styles, "--bg-elev", "#262626"),
-    text: cssColor(styles, "--text", "#d8dee9"),
-    muted: cssColor(styles, "--text-dim", "#808080"),
-    accent: cssColor(styles, "--accent", "#8b7cff"),
-    border: cssColor(styles, "--border", "#444444"),
-  }
-}
-
-function cssColor(styles: CSSStyleDeclaration, name: string, fallback: string) {
-  return styles.getPropertyValue(name).trim() || fallback
 }

@@ -2,14 +2,25 @@ import { createHash } from "node:crypto"
 import { chmod, mkdir, open } from "node:fs/promises"
 import { basename, dirname, join, resolve } from "node:path"
 import { localDataDirectory } from "../local/paths.js"
-import type { SessionOptions } from "./session-types.js"
 
-export function defaultSessionDirectory(cwd: string) {
-  return join(sessionRootDirectory(), projectDirectoryName(cwd))
+export type SessionOptions = {
+  cwd: string
+  sessionId?: string
+  directory?: string
 }
 
 export function sessionRootDirectory() {
   return join(localDataDirectory(), "sessions")
+}
+
+export function defaultSessionDirectory(cwd: string) {
+  const workspace = resolve(cwd)
+  const hash = createHash("sha256").update(workspace).digest("hex").slice(0, 12)
+  const slug = (basename(workspace) || "workspace")
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64)
+  return join(sessionRootDirectory(), `${slug || "workspace"}-${hash}`)
 }
 
 export function sessionDirectory(options: Omit<SessionOptions, "sessionId">) {
@@ -18,11 +29,6 @@ export function sessionDirectory(options: Omit<SessionOptions, "sessionId">) {
 
 export function sessionFile(options: SessionOptions, sessionId: string) {
   return join(sessionDirectory(options), `${sessionId}.jsonl`)
-}
-
-/** A session owns its copies even when opened from a relocated history directory. */
-export function sessionArtifactDirectory(sessionPath: string) {
-  return `${sessionPath}.artifacts`
 }
 
 export function assertSessionId(sessionId: string) {
@@ -34,8 +40,7 @@ export function assertSessionId(sessionId: string) {
 export async function appendJsonLine(filePath: string, line: string) {
   const directory = dirname(filePath)
   await mkdir(directory, { recursive: true, mode: 0o700 })
-  await chmodPrivate(directory, 0o700)
-
+  if (process.platform !== "win32") await chmod(directory, 0o700)
   const handle = await open(filePath, "a", 0o600)
   try {
     await handle.chmod(0o600)
@@ -44,18 +49,4 @@ export async function appendJsonLine(filePath: string, line: string) {
   } finally {
     await handle.close()
   }
-}
-
-function projectDirectoryName(cwd: string) {
-  const workspace = resolve(cwd)
-  const hash = createHash("sha256").update(workspace).digest("hex").slice(0, 12)
-  const slug = (basename(workspace) || "workspace")
-    .replace(/[^A-Za-z0-9._-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 64)
-  return `${slug || "workspace"}-${hash}`
-}
-
-async function chmodPrivate(path: string, mode: number) {
-  if (process.platform !== "win32") await chmod(path, mode)
 }

@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest"
 import { findLocalModel } from "../../src/inference/local-catalog.js"
-import { getMocks, loadCli, settle, submit, testSession } from "./support/interactive-cli-harness.js"
+import {
+  getMocks,
+  loadCli,
+  settle,
+  submit,
+  testSession,
+} from "./support/interactive-cli-harness.js"
 
 const mocks = getMocks()
 
@@ -10,7 +16,9 @@ describe("CLI renderer recovery", () => {
 
     for (const handler of mocks.rendererHandlers.get("focus") ?? []) handler()
 
-    expect(mocks.renderer.resetSplitFooterForReplay).toHaveBeenCalledWith({ clearSavedLines: false })
+    expect(mocks.renderer.resetSplitFooterForReplay).toHaveBeenCalledWith({
+      clearSavedLines: false,
+    })
   })
 })
 
@@ -145,7 +153,10 @@ describe("CLI shutdown", () => {
     }
   })
 
-  it.each(["SIGINT", "SIGTERM"] as const)("uses the same stop-then-destroy path for %s", async (signal) => {
+  it.each([
+    "SIGINT",
+    "SIGTERM",
+  ] as const)("uses the same stop-then-destroy path for %s", async (signal) => {
     let release = () => {}
     const once = vi.spyOn(process, "once")
     mocks.stopLocalRuntime.mockImplementation(
@@ -157,7 +168,9 @@ describe("CLI shutdown", () => {
 
     try {
       await loadCli()
-      const handler = once.mock.calls.find(([event]) => event === signal)?.[1] as (() => void) | undefined
+      const handler = once.mock.calls.find(([event]) => event === signal)?.[1] as
+        | (() => void)
+        | undefined
       expect(handler).toBeTypeOf("function")
       handler?.()
       await settle()
@@ -191,7 +204,9 @@ describe("CLI shutdown", () => {
       (_apiKey, options) =>
         new Promise((_resolve, reject) => {
           catalogSignal = options?.signal
-          catalogSignal?.addEventListener("abort", () => reject(catalogSignal?.reason), { once: true })
+          catalogSignal?.addEventListener("abort", () => reject(catalogSignal?.reason), {
+            once: true,
+          })
         }),
     )
     await loadCli()
@@ -253,7 +268,12 @@ describe("CLI agent status phases", () => {
         field: "reasoning_content",
         startedAt: "2026-08-06T12:00:00.000Z",
       }
-      yield { type: "reasoning", phase: "delta", reasoningId: "reasoning_1", text: "Inspect the file." }
+      yield {
+        type: "reasoning",
+        phase: "delta",
+        reasoningId: "reasoning_1",
+        text: "Inspect the file.",
+      }
       yield {
         type: "reasoning",
         phase: "end",

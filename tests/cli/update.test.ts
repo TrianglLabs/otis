@@ -12,7 +12,9 @@ const execFileAsync = promisify(execFile)
 const tmpDirs: string[] = []
 
 afterEach(async () => {
-  await Promise.all(tmpDirs.splice(0).map((tmpDir) => fs.rm(tmpDir, { recursive: true, force: true })))
+  await Promise.all(
+    tmpDirs.splice(0).map((tmpDir) => fs.rm(tmpDir, { recursive: true, force: true })),
+  )
 })
 
 describe("runUpdateCommand", () => {
@@ -101,7 +103,9 @@ describe("runUpdateCommand", () => {
         stdout: createOutput(),
         target: "darwin-arm64",
       }),
-    ).rejects.toThrow("Release artifact URL must stay under https://example.com/otis/latest/download/")
+    ).rejects.toThrow(
+      "Release artifact URL must stay under https://example.com/otis/latest/download/",
+    )
 
     expect(fetchMock).toHaveBeenCalledOnce()
   })
@@ -268,7 +272,10 @@ describe("checkForUpdate", () => {
       signal: controller.signal,
     })
 
-    expect(fetchMock).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ signal: controller.signal }))
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ signal: controller.signal }),
+    )
   })
 
   it("reports an update for a prerelease current version against a stable release", async () => {

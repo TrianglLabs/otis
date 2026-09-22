@@ -28,7 +28,11 @@ const devCsp: Plugin = {
 
 // The "electron" builtin and Node builtins must never be bundled into the main/preload processes. Everything else
 // (yaml, diff, …) is bundled so the packaged app does not depend on shipped node_modules.
-const electronExternals = ["electron", /^electron\/.+/, ...builtinModules.flatMap((m) => [m, `node:${m}`])]
+const electronExternals = [
+  "electron",
+  /^electron\/.+/,
+  ...builtinModules.flatMap((m) => [m, `node:${m}`]),
+]
 
 // Main and preload are forced to CJS: the sandboxed preload cannot be an ES module.
 const cjsOutput = {

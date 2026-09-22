@@ -23,7 +23,11 @@ describe("desktop compaction through the shared runtime", () => {
       {
         role: "assistant",
         content: [
-          { type: "reasoning", field: "reasoning_content", text: "Earlier reasoning. ".repeat(6_000) },
+          {
+            type: "reasoning",
+            field: "reasoning_content",
+            text: "Earlier reasoning. ".repeat(6_000),
+          },
           { type: "text", text: "Earlier visible answer." },
         ],
       },
@@ -47,7 +51,10 @@ describe("desktop compaction through the shared runtime", () => {
           expect(request.systemPrompt).not.toContain("PRIVATE_COMPACTION_CONTEXT")
           if (requests === 2) {
             yield { type: "text_delta", text: "Continuing the task." }
-            yield { type: "tool_call", toolCall: { id: "read_1", name: "read", arguments: '{"path":"note.txt"}' } }
+            yield {
+              type: "tool_call",
+              toolCall: { id: "read_1", name: "read", arguments: '{"path":"note.txt"}' },
+            }
           } else yield { type: "text_delta", text: "Finished the task." }
         }
       },
@@ -72,7 +79,11 @@ describe("desktop compaction through the shared runtime", () => {
 
       const texts = (await runtime.snapshot()).entries.map((entry) => entry.text)
       expect(texts).toEqual(
-        expect.arrayContaining(["Earlier visible answer.", "Continuing the task.", "Finished the task."]),
+        expect.arrayContaining([
+          "Earlier visible answer.",
+          "Continuing the task.",
+          "Finished the task.",
+        ]),
       )
       expect(texts.some((text) => text.includes("PRIVATE_COMPACTION_CONTEXT"))).toBe(false)
       expect(JSON.stringify(sent)).not.toContain("PRIVATE_COMPACTION_CONTEXT")
@@ -81,7 +92,11 @@ describe("desktop compaction through the shared runtime", () => {
       expect(await runtime.selectSession(session.id)).toEqual({ ok: true })
       const reopened = (await runtime.snapshot()).entries.map((entry) => entry.text)
       expect(reopened).toEqual(
-        expect.arrayContaining(["Earlier visible answer.", "Continuing the task.", "Finished the task."]),
+        expect.arrayContaining([
+          "Earlier visible answer.",
+          "Continuing the task.",
+          "Finished the task.",
+        ]),
       )
       expect(reopened.some((text) => text.includes("PRIVATE_COMPACTION_CONTEXT"))).toBe(false)
     } finally {

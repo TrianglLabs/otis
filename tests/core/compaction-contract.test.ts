@@ -1,13 +1,20 @@
 import { describe, expect, it, vi } from "vitest"
-import { compactConversation } from "../../src/core/compaction.js"
-import { requestContextEstimator } from "../../src/core/context-tokens.js"
+import { compactConversation, requestContextEstimator } from "../../src/core/compaction.js"
 import { openaiChatCompletionRequest } from "../../src/inference/openai-compat.js"
-import type { ChatMessage, ChatStreamEvent, InferenceClient, StreamChatOptions } from "../../src/inference/types.js"
+import type {
+  ChatMessage,
+  ChatStreamEvent,
+  InferenceClient,
+  StreamChatOptions,
+} from "../../src/inference/types.js"
 import { summaryFixture } from "../support/compaction.js"
 
 const history: ChatMessage[] = [
   { role: "user", content: "Build the Electron GUI." },
-  { role: "assistant", content: [{ type: "text", text: "Earlier implementation details. ".repeat(1_000) }] },
+  {
+    role: "assistant",
+    content: [{ type: "text", text: "Earlier implementation details. ".repeat(1_000) }],
+  },
   { role: "user", content: "Continue." },
 ]
 

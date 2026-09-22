@@ -1,15 +1,15 @@
-import { homedir } from "node:os"
 import { join, parse, resolve } from "node:path"
 
 /**
- * Where the desktop app works. A terminal launch keeps the shell's cwd; a Finder/Dock launch reports "/" as the
- * cwd, which would scope sessions — and the agent's file tools — to the filesystem root. GUI launches resume the
- * last workspace used in the GUI; first run gets a dedicated ~/Otis workspace, created by the caller.
+ * Where the desktop app works. A terminal launch keeps the shell's cwd; a Finder/Dock launch
+ * reports "/" as the cwd, which would scope sessions — and the agent's file tools — to the
+ * filesystem root. GUI launches resume the last workspace used in the GUI; first run gets a
+ * dedicated ~/Otis workspace, created by the caller.
  */
 export function resolveWorkspaceCwd(
   env: NodeJS.ProcessEnv,
   cwd: string,
-  home = homedir(),
+  home: string,
   lastWorkspace?: string,
 ): string {
   if (env.OTIS_WORKSPACE) return env.OTIS_WORKSPACE
@@ -17,7 +17,7 @@ export function resolveWorkspaceCwd(
   return lastWorkspace ?? join(home, "Otis")
 }
 
-export type WorkspaceRecovery = {
+type WorkspaceRecovery = {
   /** Explains the failure and asks whether to pick a replacement folder or stop. */
   choose(title: string, detail: string): Promise<"pick" | "quit">
   /** A native directory picker; undefined when the user cancels. */
@@ -28,8 +28,9 @@ export type WorkspaceRecovery = {
 }
 
 /**
- * Recovery when the workspace can't be created. Never silently substitutes another directory: the workspace owns
- * session history and tool scope, so the user either picks a replacement explicitly or the app stops.
+ * Recovery when the workspace can't be created. Never silently substitutes another directory: the
+ * workspace owns session history and tool scope, so the user either picks a replacement explicitly
+ * or the app stops.
  */
 export async function recoverWorkspaceCwd(
   cwd: string,

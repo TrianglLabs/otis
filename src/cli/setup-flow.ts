@@ -2,8 +2,6 @@ import type { LocalServerConnection, LocalServerInputs } from "../app/local-serv
 import type { ModelHost, PersistSelectionOptions } from "../app/models.js"
 import { listToolCapableModels } from "../inference/client.js"
 import { isLocalModelId } from "../inference/local-catalog.js"
-import { supportsOmlx } from "../inference/local-server-platform.js"
-import { selectDefaultFireworksModel } from "../inference/model-policy.js"
 import { discoverOmlxModels, OMLX_DEFAULT_ENDPOINT } from "../inference/omlx.js"
 import {
   discoverPairModels,
@@ -21,15 +19,21 @@ import {
   toOmlxCatalogModel,
   toPairCatalogModel,
 } from "../inference/picker-catalog.js"
-import { findFireworksModel, fireworksServingModel, isFastFireworksModel } from "../inference/serving-path.js"
-import type {
-  CatalogModel,
-  FireworksModel,
-  LocalCatalogModel,
-  ModelProvider,
-  OmlxCatalogModel,
-  PairCatalogModel,
-  PairEngine,
+import {
+  findFireworksModel,
+  fireworksServingModel,
+  isFastFireworksModel,
+  selectDefaultFireworksModel,
+} from "../inference/serving-path.js"
+import {
+  type CatalogModel,
+  type FireworksModel,
+  type LocalCatalogModel,
+  type ModelProvider,
+  type OmlxCatalogModel,
+  type PairCatalogModel,
+  type PairEngine,
+  supportsOmlx,
 } from "../inference/types.js"
 import {
   type LocalSettings,
@@ -39,7 +43,12 @@ import {
   saveSelectedModel,
 } from "../local/settings.js"
 import { openFireworksKeyPage } from "./provider-links.js"
-import type { ChatUI, PairEndpointInputs, SetupInferenceChoice, SetupLocalInferenceChoice } from "./ui/types.js"
+import type {
+  ChatUI,
+  PairEndpointInputs,
+  SetupInferenceChoice,
+  SetupLocalInferenceChoice,
+} from "./ui/types.js"
 
 type SetupFlowOptions = {
   ui: ChatUI
@@ -49,7 +58,10 @@ type SetupFlowOptions = {
   isBusy: () => boolean
   setBusy: (busy: boolean) => void
   onCredentialsChanged: (credentials: { fireworksApiKey?: string }) => void
-  connectLocalServers: (inputs: LocalServerInputs, signal: AbortSignal) => Promise<LocalServerConnection>
+  connectLocalServers: (
+    inputs: LocalServerInputs,
+    signal: AbortSignal,
+  ) => Promise<LocalServerConnection>
   persistSelection: (model: CatalogModel, options: PersistSelectionOptions) => Promise<CatalogModel>
   localLoadStatus?: () => { modelId: string; status: ModelPickerStatus } | undefined
   loadedLocalModel?: () => { model: string; contextLength: number } | undefined
@@ -62,6 +74,8 @@ type ModelPickerOpenOptions = {
   background?: boolean
   sources?: "all" | "managed"
 }
+
+const NO_TOOL_MODELS = "The hosted provider returned no public models with tool support."
 
 export class SetupFlow {
   #fireworksApiKey: string | undefined
@@ -87,7 +101,11 @@ export class SetupFlow {
     this.#selectedModel = options.settings.model
     this.#selectedModelProvider =
       options.settings.modelProvider ??
-      (options.settings.model ? (isLocalModelId(options.settings.model) ? "local" : "fireworks") : undefined)
+      (options.settings.model
+        ? isLocalModelId(options.settings.model)
+          ? "local"
+          : "fireworks"
+        : undefined)
     this.#selectedModelSupportsImageInput = options.settings.modelSupportsImageInput
     this.#pairEngine = options.settings.pairEngine
     this.#pairEndpoints = { ...options.settings.pairEndpoints }
@@ -118,11 +136,8 @@ export class SetupFlow {
   selectInference(choice: SetupInferenceChoice) {
     if (this.#closed || this.options.isBusy()) return
     this.#credentialPurpose = "onboarding"
-    if (choice === "local") {
-      this.options.ui.showSetupLocalInferenceChoice()
-      return
-    }
-    this.requestFireworksKey()
+    if (choice === "local") this.options.ui.showSetupLocalInferenceChoice()
+    else this.requestFireworksKey()
   }
 
   selectLocalInference(choice: SetupLocalInferenceChoice) {
@@ -168,19 +183,74 @@ export class SetupFlow {
       return
     }
 
-    if (this.#credentialPurpose === "settings") {
-      await this.saveHostedCredential(apiKey)
+    if (this.#credentialPurpose !== "settings") {
+      this.#fireworksApiKey = apiKey
+      this.#persistFireworksApiKey = true
+      await this.selectDefaultModel(apiKey)
       return
     }
 
-    this.#fireworksApiKey = apiKey
-    this.#persistFireworksApiKey = true
-    await this.selectDefaultModel(apiKey)
+    await this.runCatalogOperation(async (signal) => {
+      if (this.#closed || this.options.isBusy()) return
+      this.options.setBusy(true)
+      this.options.ui.showSetupStatus("Checking hosted inference...")
+      try {
+        const models = await listToolCapableModels(apiKey, { signal })
+        signal.throwIfAborted()
+        if (models.length === 0) throw new Error(NO_TOOL_MODELS)
+        await saveFireworksApiKey(apiKey)
+
+        this.#fireworksApiKey = apiKey
+        this.#models = models
+        if (this.#closed) return
+        this.options.onCredentialsChanged({ fireworksApiKey: apiKey })
+        this.options.ui.setConfigured()
+        this.options.ui.showTransientHint(" Hosted inference configured ")
+        this.options.ui.focusInput()
+      } catch (error) {
+        if (!signal.aborted && !this.#closed && !isAbortError(error)) {
+          this.options.ui.showSetupError(errorMessage(error), "configured")
+        }
+      } finally {
+        this.options.setBusy(false)
+      }
+    })
   }
 
-  async submitPairEndpoints(endpoints: PairEndpointInputs) {
+  async submitPairEndpoints(inputs: PairEndpointInputs) {
     if (this.#closed) return
-    await this.connectPair(endpoints)
+    await this.runCatalogOperation(async (signal) => {
+      if (this.#closed || this.options.isBusy()) return
+      this.options.setBusy(true)
+      this.options.ui.showSetupStatus("Checking local model server endpoints…")
+      const settings = this.#credentialPurpose === "settings"
+      try {
+        const connection = await this.options.connectLocalServers(inputs, signal)
+        this.#pairEndpoints = connection.pairEndpoints
+        this.#pairModels = connection.pairModels
+        this.#omlxModels = connection.omlxModels
+        this.#modelPickerBackTarget = settings ? "choice" : "local"
+        this.#wasConfigured = settings
+        if (this.#closed) return
+        const items = await this.listPickerItems(
+          this.#fireworksApiKey,
+          this.#selectedModel,
+          this.#pairModels,
+          signal,
+        )
+        signal.throwIfAborted()
+        this.options.ui.showModelPicker(items)
+      } catch (error) {
+        if (signal.aborted || this.#closed || isAbortError(error)) return
+        this.options.ui.showPairSetupError(
+          errorMessage(error),
+          settings ? "configured" : "local",
+          inputs,
+        )
+      } finally {
+        this.options.setBusy(false)
+      }
+    })
   }
 
   async openModelPicker(
@@ -189,70 +259,112 @@ export class SetupFlow {
     wasConfigured: boolean,
     options: ModelPickerOpenOptions = {},
   ) {
-    await this.runCatalogOperation(
-      (signal) =>
-        this.loadModels(apiKey, currentModel, wasConfigured, signal, options.background === true, options.sources),
-      options.background === true,
-    )
+    const background = options.background === true
+    const managed = options.sources === "managed"
+    await this.runCatalogOperation(async (signal) => {
+      if (this.#closed || (!background && this.options.isBusy())) return
+      if (!background) this.options.setBusy(true)
+      if (wasConfigured) {
+        this.options.ui.showChatLayout()
+        if (!background) this.options.ui.showTransientHint(" Loading models… ")
+      } else {
+        this.options.ui.showSetupStatus()
+      }
+
+      try {
+        this.#wasConfigured = wasConfigured
+        if (!managed && (this.#pairEndpoints.ollama || this.#pairEndpoints.lmStudio)) {
+          const discovery = await discoverPairModels(this.#pairEndpoints, { signal })
+          this.#pairModels = [...(discovery.ollama ?? []), ...(discovery.lmStudio ?? [])]
+        }
+        this.#omlxModels =
+          !managed && this.options.models.omlx
+            ? await discoverOmlxModels(this.options.models.omlx, { signal }).catch(() => [])
+            : []
+        const items = await this.listPickerItems(
+          apiKey,
+          currentModel,
+          managed ? [] : this.#pairModels,
+          signal,
+        )
+        signal.throwIfAborted()
+        if (!this.#closed) this.options.ui.showModelPicker(items)
+      } catch (error) {
+        if (signal.aborted || this.#closed || isAbortError(error)) return
+        if (!wasConfigured) {
+          this.options.ui.showSetupInferenceChoice(errorMessage(error))
+          return
+        }
+        this.options.ui.showChatLayout()
+        this.options.ui.setConfigured()
+        this.options.ui.focusInput()
+      } finally {
+        if (!background) this.options.setBusy(false)
+      }
+    }, background)
   }
 
   async selectModel(item: ModelPickerItem) {
     if (this.#closed || this.options.isBusy()) return
     if (item.kind === "header") return
     if (!isSelectablePickerItem(item)) {
-      this.options.ui.showTransientHint(` ${item.availabilityLabel ?? "This model will not fit in memory"} `)
+      this.options.ui.showTransientHint(
+        ` ${item.availabilityLabel ?? "This model will not fit in memory"} `,
+      )
       return
     }
     await this.options.models.enqueueSelection(async (signal) => {
       if (this.#closed) return
-      if (item.provider === "local") {
-        await this.selectLocalModel(toLocalCatalogModel(item), signal)
+      if (item.provider === "fireworks") {
+        await this.selectFireworksModel(item.id, signal)
         return
       }
-      if (item.provider === "pair" || item.provider === "omlx") {
-        await this.selectPairModel(
-          item.provider === "omlx" ? toOmlxCatalogModel(item) : toPairCatalogModel(item),
-          signal,
-        )
-        return
-      }
-      await this.selectFireworksModel(item.id, signal)
+      await this.selectManagedModel(
+        item.provider === "local"
+          ? toLocalCatalogModel(item)
+          : item.provider === "omlx"
+            ? toOmlxCatalogModel(item)
+            : toPairCatalogModel(item),
+        signal,
+      )
     })
   }
 
-  async toggleFastServing() {
-    if (this.#closed || this.options.isBusy() || !this.#fireworksApiKey || !this.#selectedModel) {
-      return "unavailable" as const
-    }
-    if (this.#selectedModelProvider !== "fireworks") return "unavailable" as const
+  async toggleFastServing(): Promise<"on" | "off" | "unavailable" | "error"> {
+    if (this.#closed || this.options.isBusy() || !this.#fireworksApiKey || !this.#selectedModel)
+      return "unavailable"
+    if (this.#selectedModelProvider !== "fireworks") return "unavailable"
     return (
-      (await this.options.models.enqueueSelection(async (signal) => {
-        if (this.#closed) return "unavailable" as const
-        this.options.setBusy(true)
-        const selectedModelId = this.#selectedModel as string
-        const previousFast = this.options.fastEnabled(selectedModelId)
-        try {
-          const models =
-            this.#models.length > 0
-              ? this.#models
-              : await this.loadVerifiedModels(this.#fireworksApiKey as string, signal)
-          const selected = findFireworksModel(models, this.#selectedModel as string)
-          if (!selected?.fastId) return "unavailable" as const
+      (await this.options.models.enqueueSelection(
+        async (signal): Promise<"on" | "off" | "unavailable" | "error"> => {
+          const apiKey = this.#fireworksApiKey
+          const selectedModelId = this.#selectedModel
+          if (this.#closed || !apiKey || !selectedModelId) return "unavailable"
+          this.options.setBusy(true)
+          const previousFast = this.options.fastEnabled(selectedModelId)
+          try {
+            const models =
+              this.#models.length > 0 ? this.#models : await this.loadVerifiedModels(apiKey, signal)
+            const selected = findFireworksModel(models, selectedModelId)
+            if (!selected?.fastId) return "unavailable"
 
-          const fast = !isFastFireworksModel(this.#selectedModel as string)
-          this.options.onFastChanged(selectedModelId, fast)
-          await this.persistFireworksSelection(selected, signal, fast)
-          return fast ? ("on" as const) : ("off" as const)
-        } catch (error) {
-          this.options.onFastChanged(selectedModelId, previousFast)
-          if (!signal.aborted && !this.#closed) {
-            this.options.ui.showTransientHint(` Could not change Fast serving: ${errorMessage(error)} `)
+            const fast = !isFastFireworksModel(selectedModelId)
+            this.options.onFastChanged(selectedModelId, fast)
+            await this.persistFireworksSelection(selected, signal, fast)
+            return fast ? "on" : "off"
+          } catch (error) {
+            this.options.onFastChanged(selectedModelId, previousFast)
+            if (!signal.aborted && !this.#closed) {
+              this.options.ui.showTransientHint(
+                ` Could not change Fast serving: ${errorMessage(error)} `,
+              )
+            }
+            return signal.aborted ? "unavailable" : "error"
+          } finally {
+            this.options.setBusy(false)
           }
-          return signal.aborted ? ("unavailable" as const) : ("error" as const)
-        } finally {
-          this.options.setBusy(false)
-        }
-      })) ?? "unavailable"
+        },
+      )) ?? "unavailable"
     )
   }
 
@@ -288,7 +400,10 @@ export class SetupFlow {
   }
 
   private requestFireworksKey() {
-    this.options.ui.showSetupInput("", this.#credentialPurpose === "settings" ? "configured" : "choice")
+    this.options.ui.showSetupInput(
+      "",
+      this.#credentialPurpose === "settings" ? "configured" : "choice",
+    )
     if (this.#openedFireworksKeyPage) return
     this.#openedFireworksKeyPage = true
     void openFireworksKeyPage()
@@ -299,202 +414,86 @@ export class SetupFlow {
     this.options.ui.showPairSetup(message, cancelTarget, {
       ollama: this.#pairEndpoints.ollama ?? PAIR_DEFAULT_ENDPOINTS.ollama,
       lmStudio: this.#pairEndpoints.lmStudio ?? PAIR_DEFAULT_ENDPOINTS.lmStudio,
-      ...(supportsOmlx(process.platform) ? { omlx: this.options.models.omlx?.baseURL ?? OMLX_DEFAULT_ENDPOINT } : {}),
+      ...(supportsOmlx(process.platform)
+        ? { omlx: this.options.models.omlx?.baseURL ?? OMLX_DEFAULT_ENDPOINT }
+        : {}),
     })
   }
 
-  private async connectPair(endpoints: PairEndpointInputs) {
-    await this.runCatalogOperation((signal) => this.loadPairModels(endpoints, signal))
-  }
-
-  private async loadPairModels(inputs: PairEndpointInputs, signal: AbortSignal) {
-    if (this.#closed || this.options.isBusy()) return
-    this.options.setBusy(true)
-    this.options.ui.showSetupStatus("Checking local model server endpoints…")
-    const cancelTarget = this.#credentialPurpose === "settings" ? "configured" : "local"
-    try {
-      const connection = await this.options.connectLocalServers(inputs, signal)
-      this.#pairEndpoints = connection.pairEndpoints
-      const models = connection.pairModels
-      this.#pairModels = models
-      this.#omlxModels = connection.omlxModels
-      this.#modelPickerBackTarget = this.#credentialPurpose === "settings" ? "choice" : "local"
-      this.#wasConfigured = this.#credentialPurpose === "settings"
-      if (!this.#closed) {
-        const items = await listModelPickerItems({
-          fireworksApiKey: this.#fireworksApiKey,
-          currentModel: this.#selectedModel,
-          currentProvider: this.#selectedModelProvider,
-          currentPairEngine: this.#pairEngine,
-          pairModels: models,
-          omlxModels: this.#omlxModels,
-          listFireworks: (key, options) => this.loadVerifiedModels(key, options?.signal),
-          loadStatus: this.options.localLoadStatus?.(),
-          loadedLocalModel: this.options.loadedLocalModel?.(),
-          signal,
-        })
-        signal.throwIfAborted()
-        this.options.ui.showModelPicker(items)
-      }
-    } catch (error) {
-      if (signal.aborted || this.#closed || isAbortError(error)) return
-      this.options.ui.showPairSetupError(errorMessage(error), cancelTarget, inputs)
-    } finally {
-      this.options.setBusy(false)
-    }
-  }
-
-  private async saveHostedCredential(apiKey: string) {
-    await this.runCatalogOperation((signal) => this.persistHostedCredential(apiKey, signal))
-  }
-
-  private async persistHostedCredential(apiKey: string, signal: AbortSignal) {
-    if (this.#closed || this.options.isBusy()) return
-    this.options.setBusy(true)
-    this.options.ui.showSetupStatus("Checking hosted inference...")
-
-    try {
-      const models = await listToolCapableModels(apiKey, { signal })
-      signal.throwIfAborted()
-      if (models.length === 0) throw new Error("The hosted provider returned no public models with tool support.")
-      await saveFireworksApiKey(apiKey)
-
-      this.#fireworksApiKey = apiKey
-      this.#models = models
-      if (this.#closed) return
-      this.options.onCredentialsChanged({ fireworksApiKey: apiKey })
-      this.options.ui.setConfigured()
-      this.options.ui.showTransientHint(" Hosted inference configured ")
-      this.options.ui.focusInput()
-    } catch (error) {
-      if (!signal.aborted && !this.#closed && !isAbortError(error)) {
-        this.options.ui.showSetupError(errorMessage(error), "configured")
-      }
-    } finally {
-      this.options.setBusy(false)
-    }
-  }
-
-  private async loadModels(
-    apiKey: string | undefined,
+  private listPickerItems(
+    fireworksApiKey: string | undefined,
     currentModel: string | undefined,
-    wasConfigured: boolean,
+    pairModels: readonly PairCatalogModel[],
     signal: AbortSignal,
-    background: boolean,
-    sources: ModelPickerOpenOptions["sources"],
   ) {
-    if (this.#closed || (!background && this.options.isBusy())) return
-    if (!background) this.options.setBusy(true)
-    if (wasConfigured) {
-      this.options.ui.showChatLayout()
-      if (!background) this.options.ui.showTransientHint(" Loading models… ")
-    } else {
-      this.options.ui.showSetupStatus()
-    }
-
-    try {
-      this.#wasConfigured = wasConfigured
-      if (sources !== "managed" && (this.#pairEndpoints.ollama || this.#pairEndpoints.lmStudio)) {
-        const discovery = await discoverPairModels(this.#pairEndpoints, { signal })
-        this.#pairModels = [...(discovery.ollama ?? []), ...(discovery.lmStudio ?? [])]
-      }
-      this.#omlxModels =
-        sources !== "managed" && this.options.models.omlx
-          ? await discoverOmlxModels(this.options.models.omlx, { signal }).catch(() => [])
-          : []
-      const items = await listModelPickerItems({
-        fireworksApiKey: apiKey,
-        currentModel,
-        currentProvider: this.#selectedModelProvider,
-        currentPairEngine: this.#pairEngine,
-        pairModels: optionsPairModels(this.#pairModels, sources),
-        omlxModels: this.#omlxModels,
-        listFireworks: (key, options) => this.loadVerifiedModels(key, options?.signal),
-        loadStatus: this.options.localLoadStatus?.(),
-        loadedLocalModel: this.options.loadedLocalModel?.(),
-        signal,
-      })
-      signal.throwIfAborted()
-      if (!this.#closed) this.options.ui.showModelPicker(items)
-    } catch (error) {
-      if (signal.aborted || this.#closed || isAbortError(error)) return
-      if (wasConfigured) {
-        this.options.ui.showChatLayout()
-        this.options.ui.setConfigured()
-        this.options.ui.focusInput()
-      } else {
-        this.options.ui.showSetupInferenceChoice(errorMessage(error))
-      }
-    } finally {
-      if (!background) this.options.setBusy(false)
-    }
+    return listModelPickerItems({
+      fireworksApiKey,
+      currentModel,
+      currentProvider: this.#selectedModelProvider,
+      currentPairEngine: this.#pairEngine,
+      pairModels,
+      omlxModels: this.#omlxModels,
+      listFireworks: (key, options) => this.loadVerifiedModels(key, options?.signal),
+      loadStatus: this.options.localLoadStatus?.(),
+      loadedLocalModel: this.options.loadedLocalModel?.(),
+      signal,
+    })
   }
 
   private async selectDefaultModel(apiKey: string) {
-    await this.runCatalogOperation((signal) => this.loadDefaultModel(apiKey, signal))
-  }
+    await this.runCatalogOperation(async (signal) => {
+      if (this.#closed || this.options.isBusy()) return
+      this.options.setBusy(true)
+      this.options.ui.showSetupStatus()
 
-  private async loadDefaultModel(apiKey: string, signal: AbortSignal) {
-    if (this.#closed || this.options.isBusy()) return
-    this.options.setBusy(true)
-    this.options.ui.showSetupStatus()
-
-    try {
-      const models = await this.loadVerifiedModels(apiKey, signal)
-      const selected = selectDefaultFireworksModel(models)
-      if (!selected) throw new Error("The hosted provider returned no public models with tool support.")
-      await this.persistFireworksSelection(selected, signal)
-      if (!signal.aborted && !this.#closed) this.finish(selected)
-    } catch (error) {
-      if (!signal.aborted && !this.#closed && !isAbortError(error)) {
-        this.options.ui.showSetupError(errorMessage(error), "choice")
+      try {
+        const selected = selectDefaultFireworksModel(await this.loadVerifiedModels(apiKey, signal))
+        if (!selected) throw new Error(NO_TOOL_MODELS)
+        await this.persistFireworksSelection(selected, signal)
+        if (!signal.aborted && !this.#closed) this.finish(selected)
+      } catch (error) {
+        if (!signal.aborted && !this.#closed && !isAbortError(error)) {
+          this.options.ui.showSetupError(errorMessage(error), "choice")
+        }
+      } finally {
+        this.options.setBusy(false)
       }
-    } finally {
-      this.options.setBusy(false)
-    }
+    })
   }
 
   private async loadVerifiedModels(apiKey: string, signal?: AbortSignal) {
     const models = await listToolCapableModels(apiKey, { signal })
-    if (models.length === 0) throw new Error("The hosted provider returned no public models with tool support.")
+    if (models.length === 0) throw new Error(NO_TOOL_MODELS)
     this.#fireworksApiKey = apiKey
     this.#models = models
     return models
   }
 
-  private async selectLocalModel(selected: LocalCatalogModel, signal: AbortSignal) {
+  private async selectManagedModel(
+    selected: LocalCatalogModel | PairCatalogModel | OmlxCatalogModel,
+    signal: AbortSignal,
+  ) {
     try {
       await this.persistSelection(selected, signal, (serving) => saveSelectedModel(serving))
       if (signal.aborted || this.#closed) return
       this.options.onConfigured()
       this.options.ui.setConfigured()
       this.options.ui.hideModelPicker()
+      if (selected.provider === "omlx") this.options.ui.showTransientHint(" Connected to oMLX ")
+      else if (selected.provider === "pair") {
+        this.options.ui.showTransientHint(
+          ` Connected through NVIDIA PAIR · ${pairEngineLabel(selected.engine)} `,
+        )
+      }
       this.options.ui.focusInput()
     } catch (error) {
       if (signal.aborted || this.#closed || isAbortError(error)) return
-      this.options.ui.setModelPickerStatus(selected.id, {
-        label: `Failed: ${errorMessage(error)}`,
-        kind: "error",
-      })
-    }
-  }
-
-  private async selectPairModel(selected: PairCatalogModel | OmlxCatalogModel, signal: AbortSignal) {
-    const key = selected.provider === "omlx" ? `omlx:${selected.id}` : pairModelKey(selected)
-    try {
-      await this.persistSelection(selected, signal, (serving) => saveSelectedModel(serving))
-      if (signal.aborted || this.#closed) return
-      this.options.onConfigured()
-      this.options.ui.setConfigured()
-      this.options.ui.hideModelPicker()
-      this.options.ui.showTransientHint(
+      const key =
         selected.provider === "omlx"
-          ? " Connected to oMLX "
-          : ` Connected through NVIDIA PAIR · ${pairEngineLabel(selected.engine)} `,
-      )
-      this.options.ui.focusInput()
-    } catch (error) {
-      if (signal.aborted || this.#closed || isAbortError(error)) return
+          ? `omlx:${selected.id}`
+          : selected.provider === "pair"
+            ? pairModelKey(selected)
+            : selected.id
       this.options.ui.setModelPickerStatus(key, {
         label: `Failed: ${errorMessage(error)}`,
         kind: "error",
@@ -525,7 +524,11 @@ export class SetupFlow {
     }
   }
 
-  private async persistFireworksSelection(selected: FireworksModel, signal: AbortSignal, fast?: boolean) {
+  private async persistFireworksSelection(
+    selected: FireworksModel,
+    signal: AbortSignal,
+    fast?: boolean,
+  ) {
     const fireworksApiKey = this.#fireworksApiKey
     if (!fireworksApiKey) throw new Error("Fireworks API key is required.")
     const serving = this.servingModel(selected)
@@ -556,7 +559,10 @@ export class SetupFlow {
     this.#pairEngine = model.provider === "pair" ? model.engine : undefined
   }
 
-  private async runCatalogOperation(operation: (signal: AbortSignal) => Promise<void>, allowWhileBusy = false) {
+  private async runCatalogOperation(
+    operation: (signal: AbortSignal) => Promise<void>,
+    allowWhileBusy = false,
+  ) {
     if (this.#closed || (!allowWhileBusy && this.options.isBusy())) return
     this.#catalogController?.abort()
     const controller = new AbortController()
@@ -574,10 +580,18 @@ export class SetupFlow {
   private finish(model?: FireworksModel) {
     if (!model && this.#selectedModelProvider !== "fireworks") return
     const fireworksApiKey = this.#fireworksApiKey
+    const id = this.#selectedModel
     const selected =
       (model ? this.servingModel(model) : undefined) ??
-      (this.#selectedModel ? findFireworksModel(this.#models, this.#selectedModel) : undefined) ??
-      (this.#selectedModel ? modelFromId(this.#selectedModel, this.#selectedModelSupportsImageInput) : undefined)
+      (id ? findFireworksModel(this.#models, id) : undefined) ??
+      (id
+        ? {
+            provider: "fireworks",
+            id,
+            displayName: id.split("/").at(-1) ?? id,
+            supportsImageInput: this.#selectedModelSupportsImageInput ?? false,
+          }
+        : undefined)
     if (!fireworksApiKey || !selected) return
 
     this.options.onConfigured(fireworksApiKey)
@@ -588,14 +602,6 @@ export class SetupFlow {
   private servingModel(model: FireworksModel) {
     return fireworksServingModel(model, this.options.fastEnabled(model.id))
   }
-}
-
-function optionsPairModels(cached: readonly PairCatalogModel[], sources: ModelPickerOpenOptions["sources"]) {
-  return sources === "managed" ? [] : cached
-}
-
-function modelFromId(id: string, supportsImageInput = false): FireworksModel {
-  return { provider: "fireworks", id, displayName: id.split("/").at(-1) ?? id, supportsImageInput }
 }
 
 function errorMessage(error: unknown) {

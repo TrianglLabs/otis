@@ -30,9 +30,11 @@ const probe = [
   "office = shutil.which('soffice') or shutil.which('libreoffice') or (os.path.isfile('/Applications/LibreOffice.app/Contents/MacOS/soffice') and '/Applications/LibreOffice.app/Contents/MacOS/soffice')",
   "print(json.dumps({'python': sys.executable, 'version': list(sys.version_info[:3]), 'missing': missing, 'libreoffice': bool(office)}))",
 ].join("\n")
+const PYTHON_REQUIRED =
+  "Python 3.10 or later is required. Install Python and restart Otis; document packages are prepared automatically."
 
 type Probe = { python: string; version: number[]; missing: string[]; libreoffice: boolean }
-export type DocumentRuntimeOptions = { dataDirectory?: string; signal?: AbortSignal }
+type DocumentRuntimeOptions = { dataDirectory?: string; signal?: AbortSignal }
 
 function locations(options: DocumentRuntimeOptions) {
   const root = join(resolve(options.dataDirectory ?? localDataDirectory()), "document-runtime")
@@ -51,7 +53,9 @@ async function inspect(
   run: DocumentProcessRunner,
 ): Promise<Probe | undefined> {
   try {
-    const value = JSON.parse(await run(python, ["-I", "-B", "-c", probe], { cwd, signal, timeoutMs: 10_000 })) as Probe
+    const value = JSON.parse(
+      await run(python, ["-I", "-B", "-c", probe], { cwd, signal, timeoutMs: 10_000 }),
+    ) as Probe
     if (
       typeof value.python === "string" &&
       Array.isArray(value.version) &&
@@ -67,28 +71,33 @@ async function inspect(
 }
 
 async function findPython(signal: AbortSignal | undefined, run: DocumentProcessRunner) {
-  const candidates = ["python3", "python3.14", "python3.13", "python3.12", "python3.11", "python3.10", "python"]
-  if (process.platform === "darwin") candidates.push("/opt/homebrew/bin/python3", "/usr/local/bin/python3")
+  const candidates = [
+    "python3",
+    "python3.14",
+    "python3.13",
+    "python3.12",
+    "python3.11",
+    "python3.10",
+    "python",
+  ]
+  if (process.platform === "darwin")
+    candidates.push("/opt/homebrew/bin/python3", "/usr/local/bin/python3")
   for (const candidate of candidates) {
     const result = await inspect(candidate, process.cwd(), signal, run)
     if (result) return result
   }
-  if (process.platform === "win32") {
-    try {
-      const path = (
-        await run("py", ["-3", "-I", "-c", "import sys; print(sys.executable)"], {
-          cwd: process.cwd(),
-          signal,
-          timeoutMs: 10_000,
-        })
-      ).trim()
-      const result = await inspect(path, process.cwd(), signal, run)
-      if (result) return result
-    } catch {
-      signal?.throwIfAborted()
-    }
+  if (process.platform !== "win32") return undefined
+  try {
+    const path = await run("py", ["-3", "-I", "-c", "import sys; print(sys.executable)"], {
+      cwd: process.cwd(),
+      signal,
+      timeoutMs: 10_000,
+    })
+    return await inspect(path.trim(), process.cwd(), signal, run)
+  } catch {
+    signal?.throwIfAborted()
+    return undefined
   }
-  return undefined
 }
 
 /** Reports readiness without creating an environment or accessing the network. */
@@ -106,38 +115,81 @@ export async function checkDocumentRuntime(
     python_version: python?.version.join(".") ?? null,
     libreoffice: python?.libreoffice ?? false,
     missing_packages: cached?.missing ?? Object.keys(packages),
-    ...(!python
-      ? {
-          reason:
-            "Python 3.10 or later is required. Install Python and restart Otis; document packages are prepared automatically.",
-        }
-      : {}),
+    ...(python ? {} : { reason: PYTHON_REQUIRED }),
   }
 }
 
-/** One immutable dependency version per data root, shared by terminal, desktop and headless workspaces. */
+/**
+ * One immutable dependency version per data root, shared by terminal, desktop and headless
+ * workspaces.
+ */
 export async function ensureDocumentRuntime(
   options: DocumentRuntimeOptions,
   requirementsPath: string,
   run: DocumentProcessRunner = runDocumentProcess,
 ) {
   const paths = locations(options)
+  const signal = options.signal
   await assertManagedDirectories(paths, true)
-  const release = await acquireSetupLock(paths.root, options.signal)
-  try {
-    const cached = await inspect(paths.python, paths.root, options.signal, run)
-    if (cached && cached.missing.length === 0) return paths.python
-    const python = await findPython(options.signal, run)
-    if (!python)
+  const lock = join(await realpath(paths.root), "setup.lock")
+  const token = randomUUID()
+  const deadline = Date.now() + 300_000
+  for (;;) {
+    if (Date.now() >= deadline)
       throw new Error(
-        "Python 3.10 or later is required. Install Python and restart Otis; document packages are prepared automatically.",
+        "Another Otis process is preparing document dependencies. Retry when it finishes.",
       )
-    options.signal?.throwIfAborted()
-    // Failed or interrupted setup is rebuilt. Never rename a venv: its interpreter paths are absolute.
+    signal?.throwIfAborted()
+    try {
+      const handle = await open(lock, "wx", 0o600)
+      try {
+        await handle.writeFile(JSON.stringify({ pid: process.pid, token }))
+      } finally {
+        await handle.close()
+      }
+      break
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error
+      const info = await lstat(lock).catch((error) => {
+        if (error.code === "ENOENT") return undefined
+        throw error
+      })
+      if (!info) continue
+      if (!info.isFile() || info.isSymbolicLink()) throw new Error("Invalid document setup lock.")
+      let stale = false
+      try {
+        const owner = JSON.parse(await readFile(lock, "utf8")) as { pid?: number }
+        if (!Number.isInteger(owner.pid) || (owner.pid ?? 0) <= 0)
+          throw new Error("Incomplete lock")
+        try {
+          process.kill(owner.pid as number, 0)
+        } catch (error) {
+          stale = error instanceof Error && "code" in error && error.code === "ESRCH"
+        }
+      } catch {
+        const current = await stat(lock).catch((error) => {
+          if (error.code === "ENOENT") return undefined
+          throw error
+        })
+        if (!current) continue
+        stale = Date.now() - current.mtimeMs > 30_000
+      }
+      if (stale) await rm(lock, { force: true })
+      else await delay(150, undefined, { signal })
+    }
+  }
+  try {
+    const cached = await inspect(paths.python, paths.root, signal, run)
+    if (cached && cached.missing.length === 0) return paths.python
+    const python = await findPython(signal, run)
+    if (!python) throw new Error(PYTHON_REQUIRED)
+    signal?.throwIfAborted()
+    // Failed or interrupted setup is rebuilt. Never rename a venv: its interpreter paths are
+    // absolute.
     await rm(paths.environment, { recursive: true, force: true })
     await mkdir(paths.environment, { mode: 0o700 })
     try {
-      await run(python.python, ["-I", "-m", "venv", paths.environment], { cwd: paths.root, signal: options.signal })
+      await run(python.python, ["-I", "-m", "venv", paths.environment], { cwd: paths.root, signal })
       await run(
         paths.python,
         [
@@ -155,15 +207,16 @@ export async function ensureDocumentRuntime(
           "-r",
           requirementsPath,
         ],
-        { cwd: paths.root, signal: options.signal },
+        { cwd: paths.root, signal },
       )
       await run(paths.python, ["-I", "-m", "pip", "--isolated", "check"], {
         cwd: paths.root,
-        signal: options.signal,
+        signal,
         timeoutMs: 15_000,
       })
-      const verified = await inspect(paths.python, paths.root, options.signal, run)
-      if (!verified || verified.missing.length) throw new Error("Installed document dependencies failed verification.")
+      const verified = await inspect(paths.python, paths.root, signal, run)
+      if (!verified || verified.missing.length)
+        throw new Error("Installed document dependencies failed verification.")
       return paths.python
     } catch (error) {
       await rm(paths.environment, { recursive: true, force: true })
@@ -174,7 +227,7 @@ export async function ensureDocumentRuntime(
       )
     }
   } finally {
-    await release()
+    if (JSON.parse(await readFile(lock, "utf8")).token === token) await rm(lock)
   }
 }
 
@@ -194,52 +247,4 @@ async function assertManagedDirectories(paths: ReturnType<typeof locations>, cre
       if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error
     }
   }
-}
-
-async function acquireSetupLock(root: string, signal?: AbortSignal) {
-  const path = join(await realpath(root), "setup.lock")
-  const token = randomUUID()
-  const deadline = Date.now() + 300_000
-  while (Date.now() < deadline) {
-    signal?.throwIfAborted()
-    try {
-      const handle = await open(path, "wx", 0o600)
-      try {
-        await handle.writeFile(JSON.stringify({ pid: process.pid, token }))
-      } finally {
-        await handle.close()
-      }
-      return async () => {
-        if (JSON.parse(await readFile(path, "utf8")).token === token) await rm(path)
-      }
-    } catch (error) {
-      if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error
-      const info = await lstat(path).catch((error) => {
-        if (error.code === "ENOENT") return undefined
-        throw error
-      })
-      if (!info) continue
-      if (!info.isFile() || info.isSymbolicLink()) throw new Error("Invalid document setup lock.")
-      let stale = false
-      try {
-        const owner = JSON.parse(await readFile(path, "utf8")) as { pid?: number }
-        if (!Number.isInteger(owner.pid) || (owner.pid ?? 0) <= 0) throw new Error("Incomplete lock")
-        try {
-          process.kill(owner.pid as number, 0)
-        } catch (error) {
-          stale = error instanceof Error && "code" in error && error.code === "ESRCH"
-        }
-      } catch {
-        const current = await stat(path).catch((error) => {
-          if (error.code === "ENOENT") return undefined
-          throw error
-        })
-        if (!current) continue
-        stale = Date.now() - current.mtimeMs > 30_000
-      }
-      if (stale) await rm(path, { force: true })
-      else await delay(150, undefined, { signal })
-    }
-  }
-  throw new Error("Another Otis process is preparing document dependencies. Retry when it finishes.")
 }

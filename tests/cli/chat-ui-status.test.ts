@@ -1,14 +1,33 @@
-import { type BoxRenderable, RGBA, type TextareaRenderable, type TextRenderable } from "@opentui/core"
+import {
+  type BoxRenderable,
+  RGBA,
+  type TextareaRenderable,
+  type TextRenderable,
+} from "@opentui/core"
 import { createTestRenderer } from "@opentui/core/testing"
 import { describe, expect, it, vi } from "vitest"
-import { contextUsage } from "../../src/app/context-usage.js"
 import { createChatUI } from "../../src/cli/chat-ui.js"
-import { formatContextUsage } from "../../src/cli/context-meter.js"
 import { colors } from "../../src/cli/theme.js"
-import { CHAT_KEY_HINT, CHAT_KEY_HINT_DURATION_MS } from "../../src/cli/ui/format.js"
-import { STAT_COUNT_SETTLE_MS, ZERO_STATS } from "../../src/cli/ui/home-stats.js"
+import {
+  CHAT_KEY_HINT,
+  CHAT_KEY_HINT_DURATION_MS,
+  contextUsage,
+  formatContextUsage,
+} from "../../src/cli/ui/format.js"
+import type { LocalStats } from "../../src/local/stats.js"
 import { useChatHarness } from "./support/chat-ui-harness.js"
 
+const ZERO_STATS: LocalStats = {
+  streak: 0,
+  totalTokens: 0,
+  sessionCount: 0,
+  avgTokensPerSession: 0,
+  avgSessionSeconds: 0,
+  activeDays: 0,
+  promptTokens: 0,
+  completionTokens: 0,
+  recentActivity: [],
+}
 const sampleStats = {
   ...ZERO_STATS,
   streak: 7,
@@ -18,8 +37,9 @@ const sampleStats = {
   avgSessionSeconds: 420,
 }
 
+/** Each card counts for 900ms, staggered 70ms apart, on a 50ms frame. */
 function settleStats() {
-  vi.advanceTimersByTime(STAT_COUNT_SETTLE_MS)
+  vi.advanceTimersByTime(900 + 70 * 3 + 50)
 }
 
 describe("chat UI status and prompts", () => {
@@ -57,7 +77,8 @@ describe("chat UI status and prompts", () => {
     expect(harness.text("input-hint")).toBe(CHAT_KEY_HINT)
     expect(hint.fg.equals(RGBA.fromHex(colors.accent))).toBe(true)
 
-    // A model change while the hint is showing updates what the hint reverts to, not what is on screen.
+    // A model change while the hint is showing updates what the hint reverts to, not what is on
+    // screen.
     harness.ui.setModelLabel("Replacement")
     expect(harness.text("input-hint")).toBe(CHAT_KEY_HINT)
 
@@ -129,6 +150,22 @@ describe("chat UI status and prompts", () => {
     expect(harness.text("welcome-stat-value-1")).toBe("1.3M")
     expect(harness.text("welcome-stat-value-2")).toBe("25K")
     expect(harness.text("welcome-stat-value-3")).toBe("7M")
+  })
+
+  it("eases the count-up so early frames cover most of the distance", async () => {
+    vi.useFakeTimers()
+    const harness = await setup()
+
+    harness.ui.setStats(sampleStats)
+    // Halfway through the first card's 900ms count, ease-out has covered 87.5% of 7.
+    vi.advanceTimersByTime(450)
+    expect(harness.text("welcome-stat-value-0")).toBe("6")
+    expect(harness.text("welcome-stat-value-1")).not.toBe("0")
+    expect(harness.text("welcome-stat-value-1")).not.toBe("1.3M")
+
+    settleStats()
+    expect(harness.text("welcome-stat-value-0")).toBe("7")
+    expect(harness.text("welcome-stat-value-1")).toBe("1.3M")
   })
 
   it("keeps the slash menu open while home stats finish animating", async () => {
@@ -242,8 +279,12 @@ describe("chat UI status and prompts", () => {
         avgSessionSeconds: 15_082,
       })
       settleStats()
-      const input = testRenderer.renderer.root.findDescendantById("otis-input") as TextareaRenderable
-      input.setText(Array.from({ length: 12 }, (_, index) => `line ${index + 1} of some long text`).join("\n"))
+      const input = testRenderer.renderer.root.findDescendantById(
+        "otis-input",
+      ) as TextareaRenderable
+      input.setText(
+        Array.from({ length: 12 }, (_, index) => `line ${index + 1} of some long text`).join("\n"),
+      )
       await testRenderer.renderOnce()
 
       const find = (id: string) => {
@@ -427,7 +468,9 @@ describe("chat UI status and prompts", () => {
   })
 
   it("suspends and restores the busy bar around the command menu", async () => {
-    const harness = await setup({ commands: [{ name: "/new", description: "Start a new session" }] })
+    const harness = await setup({
+      commands: [{ name: "/new", description: "Start a new session" }],
+    })
     harness.ui.showChatLayout()
     harness.ui.startBusyIndicator()
 
@@ -555,6 +598,8 @@ describe("chat UI status and prompts", () => {
     expect(topLine).toContain("OTIS")
     expect(topLine).toContain(formatContextUsage(contextUsage(0, 1)))
     expect(topLine).toContain("...")
-    expect(topLine).not.toContain("A very long session title that should not cover the context meter")
+    expect(topLine).not.toContain(
+      "A very long session title that should not cover the context meter",
+    )
   })
 })

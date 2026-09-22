@@ -1,31 +1,30 @@
-import type { ArtifactPublisher } from "../artifacts/publisher.js"
-import { type CompactionResult, compactConversation } from "../core/compaction.js"
-import { SteeringInbox, type SteeringSource } from "../core/steering.js"
-import { providerTools } from "../core/subagent.js"
-import type { InferenceClient } from "../inference/client.js"
-import type { ChatMessage, ContextFile, OutputCapabilities, TokenUsage, UserChatMessage } from "../inference/types.js"
+import { SteeringInbox } from "../core/agent.js"
+import { compactConversation } from "../core/compaction.js"
+import type {
+  ChatMessage,
+  ContextFile,
+  OutputCapabilities,
+  UserChatMessage,
+} from "../inference/types.js"
 import type { PermissionPolicy, PermissionRequest } from "../permissions/policy.js"
 import type { SkillCatalog } from "../skills/index.js"
 import type { JsonlSession, PromptAdmission, SessionTurnDetails } from "../storage/index.js"
-import type { ToolDefinition } from "../tools/index.js"
+import { providerTools } from "../tools/index.js"
 import type { ParallelClient } from "../web/client.js"
-import type { ArtifactStore } from "./artifacts.js"
-import { countDiffLines } from "./diff-stats.js"
+import { type ArtifactStore, sessionArtifactPublisher } from "./artifacts.js"
 import type { ModelHost } from "./models.js"
-import { sessionArtifactPublisher } from "./session-artifacts.js"
 import type { SessionCoordinator } from "./sessions.js"
 import type { SubagentTraces } from "./subagents.js"
-import type { TranscriptStore } from "./transcript.js"
-import { TranscriptProjector } from "./transcript-projector.js"
-import { executeTurn, type TurnRunnerOptions } from "./turn-runner.js"
+import { countDiffLines, TranscriptProjector, type TranscriptStore } from "./transcript.js"
+import { executeTurn } from "./turn-runner.js"
 
-export type ConversationTurnResult =
+type ConversationTurnResult =
   | { status: "complete"; messages: ChatMessage[]; details: SessionTurnDetails }
   | { status: "interrupted"; messages: ChatMessage[]; details: SessionTurnDetails }
   | { status: "error"; messages: ChatMessage[]; details: SessionTurnDetails }
   | { status: "incomplete" }
 
-export type ConversationSink = {
+type ConversationSink = {
   renderTranscript(options?: { scrollToBottom?: boolean }): void
   renderSubagents(): void
   setPhase(phase: "thinking" | "working"): void
@@ -33,215 +32,7 @@ export type ConversationSink = {
   stopBusy(): void
 }
 
-export type ConversationTurnOptions = {
-  admission: PromptAdmission
-  client: InferenceClient
-  webClient: ParallelClient
-  webClientModel: string
-  webSessionId?: string
-  transcript: TranscriptStore
-  subagents: SubagentTraces
-  sink: ConversationSink
-  cwd: string
-  debug: boolean
-  signal: AbortSignal
-  projectContext: ContextFile[]
-  skills: SkillCatalog
-  tools: ToolDefinition[]
-  autoCompactAtTokens?: number
-  onCompaction?: TurnRunnerOptions["onCompaction"]
-  onCompactionUsage?: (usage: TokenUsage) => void | Promise<void>
-  isExiting: () => boolean
-  onContext: (tokens: number) => void
-  onDiff: (added: number, removed: number) => void
-  artifacts: ArtifactStore
-  artifactPublisher?: ArtifactPublisher
-  onUsage: (usage: TokenUsage) => void | Promise<void>
-  permissionPolicy: PermissionPolicy
-  onPermissionRequest: (request: PermissionRequest) => Promise<boolean>
-  onCompletion: () => void
-  steering?: SteeringSource
-  outputCapabilities?: OutputCapabilities
-}
-
-export async function runConversationTurn(options: ConversationTurnOptions): Promise<ConversationTurnResult> {
-  const { admission, signal, transcript, subagents, sink } = options
-  let projector = new TranscriptProjector(transcript)
-  let checkpointed = false
-  let recordedTurn = false
-
-  const recordAdmittedPrompt = () => {
-    if (recordedTurn) return
-    if (!checkpointed) transcript.addMessages([admission.message])
-    recordedTurn = true
-  }
-  const recordCompletedTurn = (messages: ChatMessage[]) => {
-    if (recordedTurn) return
-    transcript.addMessages(messages)
-    recordedTurn = true
-  }
-  const showError = (message: string) => {
-    sink.stopBusy()
-    transcript.updateEntry(projector.ensureAssistantEntry().id, { text: `Error: ${message}`, streaming: false })
-    projector.finishTurn()
-    recordAdmittedPrompt()
-    sink.renderTranscript()
-    options.onCompletion()
-  }
-  const interrupt = (messages: ChatMessage[], details: SessionTurnDetails): ConversationTurnResult => {
-    projector.finishTurn()
-    transcript.addAssistantMessage("_Interrupted._")
-    recordCompletedTurn(messages)
-    sink.renderTranscript({ scrollToBottom: true })
-    return { status: "interrupted", messages, details }
-  }
-  const interruptionResult = (messages: ChatMessage[], details: SessionTurnDetails): ConversationTurnResult => {
-    if (!options.isExiting()) return interrupt(messages, details)
-    projector.finishTurn()
-    return { status: "interrupted", messages, details }
-  }
-  const interrupted = () => options.isExiting() || signal.aborted
-
-  try {
-    const result = await executeTurn({
-      input: admission.message,
-      history: transcript.history,
-      historyDetails: {
-        toolActivities: transcript.toolActivitiesFor(transcript.history),
-        subagents: subagents.runsFor(transcript.history),
-      },
-      onCompaction: options.onCompaction,
-      agent: {
-        client: options.client,
-        webClient: options.webClient,
-        webClientModel: options.webClientModel,
-        webSession: options.webSessionId ? { id: options.webSessionId } : undefined,
-        cwd: options.cwd,
-        artifactPublisher: options.artifactPublisher,
-        attachments: () => options.artifacts.attachments,
-        debug: options.debug,
-        onUsage: options.onUsage,
-        autoCompactAtTokens: options.autoCompactAtTokens,
-        historyTokens: transcript.contextTokens(options.client),
-        onCompactionUsage: options.onCompactionUsage,
-        signal,
-        projectContext: options.projectContext,
-        skills: options.skills,
-        tools: options.tools,
-        permissionPolicy: options.permissionPolicy,
-        onPermissionRequest: (request) => withAbort(options.onPermissionRequest(request), signal),
-        steering: options.steering,
-        outputCapabilities: options.outputCapabilities,
-      },
-      onEvent: (event) => {
-        if (event.type === "compaction") {
-          projector.finishStreaming()
-          if (event.phase === "start") {
-            transcript.addAssistantMessage("Context window filling up — auto-compacting conversation…")
-            sink.startBusy()
-          } else {
-            transcript.loadCompacted(event.summary, event.keptMessages)
-            sink.renderSubagents()
-            projector = new TranscriptProjector(transcript)
-            checkpointed = true
-          }
-          sink.renderTranscript()
-          return
-        }
-        if (event.type === "model") {
-          projector.apply(event)
-          sink.startBusy()
-          sink.setPhase("working")
-          sink.renderTranscript()
-          return
-        }
-        if (event.type === "subagent") {
-          subagents.apply(event)
-          sink.renderSubagents()
-          return
-        }
-        if (event.type === "context") {
-          transcript.observeContext(options.client, event.tokens)
-          options.onContext(event.tokens)
-          return
-        }
-        if (event.type === "complete") {
-          sink.stopBusy()
-          return
-        }
-
-        if (event.type === "reasoning" && event.phase === "start") sink.setPhase("thinking")
-        if (event.type === "delta" || (event.type === "tool" && event.phase === "start")) sink.setPhase("working")
-        if (event.type === "tool" && event.phase === "end" && event.diff) {
-          const diff = countDiffLines(event.diff)
-          options.onDiff(diff.added, diff.removed)
-        }
-        if (event.type === "tool" && event.phase === "end" && event.artifact) {
-          options.artifacts.observeFile(event.artifact)
-        }
-        if (projector.apply(event)) sink.renderTranscript()
-      },
-    })
-
-    if (result.status === "interrupted") return interruptionResult(result.messages, result.details)
-    if (result.status === "error") {
-      if (interrupted()) return interruptionResult(result.messages, result.details)
-      const messages = result.messages.length > 0 ? result.messages : checkpointed ? [] : [admission.message]
-      recordCompletedTurn(messages)
-      showError(result.message)
-      return { ...result, messages }
-    }
-    if (result.status === "incomplete") {
-      projector.finishTurn()
-      return { status: "incomplete" }
-    }
-
-    projector.finishTurn()
-    recordCompletedTurn(result.messages)
-    options.onCompletion()
-    return result
-  } catch (error) {
-    if (interrupted()) return interruptionResult(checkpointed ? [] : [admission.message], {})
-    showError(error instanceof Error ? error.message : String(error))
-    return { status: "error", messages: checkpointed ? [] : [admission.message], details: {} }
-  }
-}
-
-export type CompactConversationOptions = {
-  transcript: TranscriptStore
-  subagents: SubagentTraces
-  session: JsonlSession
-  client: InferenceClient
-  instructions?: string
-  autoCompactAtTokens: number
-  countContextTokens: (messages: ChatMessage[]) => number | Promise<number>
-  signal?: AbortSignal
-}
-
-export async function compactConversationTranscript(options: CompactConversationOptions): Promise<CompactionResult> {
-  const throughSeq = options.session.events.at(-1)?.seq
-  const result = await compactConversation(options.transcript.history, {
-    client: options.client,
-    instructions: options.instructions,
-    contextBudget: options.autoCompactAtTokens,
-    maxInputTokens: options.autoCompactAtTokens,
-    countContextTokens: options.countContextTokens,
-    onUsage: async (usage) => {
-      await options.session.recordUsage(usage, "compaction")
-    },
-    signal: options.signal,
-  })
-  const keptToolActivities = options.transcript.toolActivitiesFor(result.keptMessages)
-  const keptSubagents = options.subagents.runsFor(result.keptMessages)
-  await options.session.compact(
-    result.summary,
-    result.keptMessages,
-    { toolActivities: keptToolActivities, subagents: keptSubagents },
-    throughSeq,
-  )
-  options.transcript.loadCompacted(result.summary, result.keptMessages)
-  return result
-}
+const reason = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
 export type QueuedPrompt = {
   admission: PromptAdmission
@@ -259,7 +50,7 @@ export type ConversationHooks = {
   onCompletion: () => void
 }
 
-export type ConversationOptions = {
+type ConversationOptions = {
   sessions: SessionCoordinator
   transcript: TranscriptStore
   subagents: SubagentTraces
@@ -302,74 +93,294 @@ export class Conversation {
     return this.#queued.shift()
   }
 
-  /** The next queued prompt without removing it, so a caller can check the backlog before committing to a drain. */
+  /** The next queued prompt without removing it, so a caller can check the backlog first. */
   peekQueued() {
     return this.#queued[0]
   }
 
   async queue(message: UserChatMessage): Promise<QueuedPrompt> {
+    const { sessions, transcript, artifacts } = this.options
     try {
-      const session = await this.options.sessions.ensure()
+      const session = await sessions.ensure()
       const admission = await session.admitPrompt(message)
-      const entry = this.options.transcript.addQueuedUserMessage(message)
-      const queued = { admission, session, transcriptEntryId: entry.id }
+      const queued = {
+        admission,
+        session,
+        transcriptEntryId: transcript.addQueuedUserMessage(message).id,
+      }
       this.#queued.push(queued)
-      this.options.artifacts.observeMessage(message)
+      artifacts.observeMessage(message)
       return queued
     } catch (error) {
-      this.options.transcript.addDebugMessage(
-        `Could not queue prompt: ${error instanceof Error ? error.message : String(error)}`,
-      )
+      transcript.addDebugMessage(`Could not queue prompt: ${reason(error)}`)
       throw error
     }
   }
 
   async steer(message: UserChatMessage, onActivated: () => void): Promise<"steered" | "queued"> {
-    const active = this.#active
-    if (!active?.steering) {
-      await this.queue(message)
-      return "queued"
-    }
-
+    const { transcript, artifacts } = this.options
+    const steering = this.#active?.steering
     let transcriptEntryId: number | undefined
-    const acceptance = active.steering.accept(message, () => {
+    const acceptance = steering?.accept(message, () => {
       if (transcriptEntryId === undefined) return
-      this.options.transcript.activatePendingUserMessage(transcriptEntryId)
+      transcript.activatePendingUserMessage(transcriptEntryId)
       onActivated()
     })
-    if (!acceptance.accepted) {
+    if (!acceptance?.accepted) {
       await this.queue(message)
       return "queued"
     }
-
-    const entry = this.options.transcript.addSteeringUserMessage(message)
+    const entry = transcript.addSteeringUserMessage(message)
     transcriptEntryId = entry.id
     try {
       await acceptance.persisted
-      this.options.artifacts.observeMessage(message)
+      artifacts.observeMessage(message)
       return "steered"
     } catch (error) {
-      this.options.transcript.removeEntry(entry.id)
-      this.options.transcript.addDebugMessage(
-        `Could not save steering message: ${error instanceof Error ? error.message : String(error)}`,
-      )
+      transcript.removeEntry(entry.id)
+      transcript.addDebugMessage(`Could not save steering message: ${reason(error)}`)
       throw error
     }
   }
 
-  async start(input: UserChatMessage | QueuedPrompt, hooks: ConversationHooks): Promise<ConversationTurnResult> {
-    if (this.#active) return { status: "incomplete" }
-
-    const controller = new AbortController()
-    const active: ActiveWork = { controller, task: Promise.resolve() }
+  /** Runs one unit of work as the active one; its abort controller is what `cancel()` reaches. */
+  async #run<T>(work: (active: ActiveWork) => Promise<T>): Promise<T> {
+    const active: ActiveWork = { controller: new AbortController(), task: Promise.resolve() }
     this.#active = active
-    const running = this.#runTurn(input, hooks, controller)
-    active.task = running
+    const task = work(active)
+    active.task = task
     try {
-      return await running
+      return await task
     } finally {
       if (this.#active === active) this.#active = undefined
     }
+  }
+
+  async start(
+    input: UserChatMessage | QueuedPrompt,
+    hooks: ConversationHooks,
+  ): Promise<ConversationTurnResult> {
+    if (this.#active) return { status: "incomplete" }
+    const { models, transcript, subagents, artifacts } = this.options
+    const { sink } = hooks
+    return this.#run(async (active) => {
+      const { signal } = active.controller
+      const queued = "admission" in input ? input : undefined
+      const userMessage = "admission" in input ? input.admission.message : input
+      const client = models.client
+      const provider = models.selectedProvider
+      if (!client || !provider) return { status: "incomplete" }
+
+      let admission: PromptAdmission
+      let session: JsonlSession
+      try {
+        session = queued?.session ?? (await this.options.sessions.ensure())
+        admission = queued?.admission ?? (await session.admitPrompt(userMessage))
+      } catch (error) {
+        transcript.addAssistantMessage(`Error: ${reason(error)}`)
+        return { status: "error", messages: [], details: {} }
+      }
+
+      const steering = new SteeringInbox(async (message) => {
+        await session.steerPrompt(admission, message)
+      })
+      active.steering = steering
+
+      if (!queued || !transcript.activatePendingUserMessage(queued.transcriptEntryId)) {
+        transcript.addUserMessage(userMessage)
+      }
+      if (!queued) artifacts.observeMessage(userMessage)
+      try {
+        await session.startTurn(admission)
+        hooks.onReady?.(userMessage)
+        artifacts.setDirectory(session.artifactDirectory)
+
+        let projector = new TranscriptProjector(transcript)
+        let checkpointed = false
+        let recordedTurn = false
+        const record = (messages: ChatMessage[]) => {
+          if (recordedTurn) return
+          transcript.addMessages(messages)
+          recordedTurn = true
+        }
+        const fail = (message: string) => {
+          sink.stopBusy()
+          transcript.updateEntry(projector.ensureAssistantEntry().id, {
+            text: `Error: ${message}`,
+            streaming: false,
+          })
+          projector.finishTurn()
+          record(checkpointed ? [] : [admission.message])
+          sink.renderTranscript()
+          hooks.onCompletion()
+        }
+        const interrupted = (messages: ChatMessage[], details: SessionTurnDetails) => {
+          projector.finishTurn()
+          if (!this.options.isExiting()) {
+            transcript.addAssistantMessage("_Interrupted._")
+            record(messages)
+            sink.renderTranscript({ scrollToBottom: true })
+          }
+          return { status: "interrupted" as const, messages, details }
+        }
+        const aborted = () => this.options.isExiting() || signal.aborted
+
+        let result: Exclude<ConversationTurnResult, { status: "incomplete" }>
+        try {
+          const turn = await executeTurn({
+            input: admission.message,
+            history: transcript.history,
+            historyDetails: {
+              toolActivities: transcript.toolActivitiesFor(transcript.history),
+              subagents: subagents.runsFor(transcript.history),
+            },
+            onCompaction: async (compaction, details, steeringCount, segment) => {
+              await session.compactTurn(
+                admission,
+                compaction.summary,
+                compaction.keptMessages,
+                details,
+                steeringCount,
+                segment,
+              )
+            },
+            agent: {
+              client,
+              webClient: this.options.webClient,
+              webClientModel: client.model,
+              webSession: { id: session.id },
+              cwd: this.options.cwd,
+              artifactPublisher: sessionArtifactPublisher(session),
+              attachments: () => artifacts.attachments,
+              debug: hooks.debug,
+              onUsage: async (usage) => {
+                await session.recordUsage(usage, "agent", admission.promptId)
+              },
+              autoCompactAtTokens: models.autoCompactAtTokens,
+              historyTokens: transcript.contextTokens(client),
+              onCompactionUsage: async (usage) => {
+                await session.recordUsage(usage, "compaction", admission.promptId)
+              },
+              signal,
+              projectContext: this.options.projectContext(),
+              skills: this.options.skills(),
+              tools: providerTools(provider),
+              permissionPolicy: this.options.permissionPolicy(),
+              // A pending permission prompt must not outlive the turn: abort resolves it as denied.
+              onPermissionRequest: (request) => {
+                if (signal.aborted) return Promise.resolve(false)
+                const decision = hooks.onPermissionRequest(request)
+                return new Promise((resolve, reject) => {
+                  const onAbort = () => resolve(false)
+                  signal.addEventListener("abort", onAbort, { once: true })
+                  decision.then(
+                    (value) => {
+                      signal.removeEventListener("abort", onAbort)
+                      resolve(value)
+                    },
+                    (error) => {
+                      signal.removeEventListener("abort", onAbort)
+                      reject(error)
+                    },
+                  )
+                })
+              },
+              steering,
+              outputCapabilities: this.options.outputCapabilities,
+            },
+            onEvent: (event) => {
+              if (event.type === "compaction") {
+                projector.finishStreaming()
+                if (event.phase === "start") {
+                  transcript.addAssistantMessage(
+                    "Context window filling up — auto-compacting conversation…",
+                  )
+                  sink.startBusy()
+                } else {
+                  transcript.loadCompacted(event.summary, event.keptMessages)
+                  sink.renderSubagents()
+                  projector = new TranscriptProjector(transcript)
+                  checkpointed = true
+                }
+                sink.renderTranscript()
+                return
+              }
+              if (event.type === "model") {
+                projector.apply(event)
+                sink.startBusy()
+                sink.setPhase("working")
+                sink.renderTranscript()
+                return
+              }
+              if (event.type === "subagent") {
+                subagents.apply(event)
+                sink.renderSubagents()
+                return
+              }
+              if (event.type === "context") {
+                transcript.observeContext(client, event.tokens)
+                hooks.onContext(event.tokens)
+                return
+              }
+              if (event.type === "complete") {
+                sink.stopBusy()
+                return
+              }
+              if (event.type === "reasoning" && event.phase === "start") sink.setPhase("thinking")
+              if (event.type === "delta" || (event.type === "tool" && event.phase === "start"))
+                sink.setPhase("working")
+              if (event.type === "tool" && event.phase === "end") {
+                if (event.diff) {
+                  const diff = countDiffLines(event.diff)
+                  hooks.onDiff(diff.added, diff.removed)
+                }
+                if (event.artifact) artifacts.observeFile(event.artifact)
+              }
+              if (projector.apply(event)) sink.renderTranscript()
+            },
+          })
+          if (turn.status === "interrupted" || (turn.status === "error" && aborted())) {
+            result = interrupted(turn.messages, turn.details)
+          } else if (turn.status === "error") {
+            const messages =
+              turn.messages.length > 0 ? turn.messages : checkpointed ? [] : [admission.message]
+            record(messages)
+            fail(turn.message)
+            result = { ...turn, messages }
+          } else {
+            projector.finishTurn()
+            if (turn.status === "incomplete") return { status: "incomplete" }
+            record(turn.messages)
+            hooks.onCompletion()
+            result = turn
+          }
+        } catch (error) {
+          const messages = checkpointed ? [] : [admission.message]
+          if (aborted()) result = interrupted(messages, {})
+          else {
+            fail(reason(error))
+            result = { status: "error", messages, details: {} }
+          }
+        }
+        const ended = result.status === "complete" ? "completeTurn" : "interruptTurn"
+        try {
+          await session[ended](admission, result.messages, result.details)
+        } catch (error) {
+          const what = result.status === "complete" ? "turn" : "interrupted turn"
+          transcript.addDebugMessage(`Could not save ${what}: ${reason(error)}`)
+        }
+        return result
+      } catch (error) {
+        transcript.addAssistantMessage(`Error: ${reason(error)}`)
+        return { status: "error", messages: [], details: {} }
+      } finally {
+        try {
+          await steering.close()
+        } catch (error) {
+          transcript.addDebugMessage(`Could not save steering message: ${reason(error)}`)
+        }
+      }
+    })
   }
 
   async compact(
@@ -378,199 +389,53 @@ export class Conversation {
     onBegin?: () => void,
   ) {
     if (this.#active) return
-    const client = this.options.models.client
+    const { models, transcript, subagents } = this.options
+    const client = models.client
     if (!client) return
-
-    const controller = new AbortController()
-    const active: ActiveWork = { controller, task: Promise.resolve() }
-    this.#active = active
-    active.task = this.#runCompaction(client, instructions, countContextTokens, controller.signal, onBegin)
-    try {
-      await active.task
-    } finally {
-      if (this.#active === active) this.#active = undefined
-    }
-  }
-
-  async #runTurn(
-    input: UserChatMessage | QueuedPrompt,
-    hooks: ConversationHooks,
-    controller: AbortController,
-  ): Promise<ConversationTurnResult> {
-    let queued: QueuedPrompt | undefined
-    let userMessage: UserChatMessage
-    if (isQueuedPrompt(input)) {
-      queued = input
-      userMessage = input.admission.message
-    } else {
-      userMessage = input
-    }
-    const client = this.options.models.client
-    const provider = this.options.models.selectedProvider
-    if (!client || !provider) return { status: "incomplete" }
-
-    let admission: PromptAdmission
-    let session: JsonlSession
-    try {
-      session = queued?.session ?? (await this.options.sessions.ensure())
-      admission = queued?.admission ?? (await session.admitPrompt(userMessage))
-    } catch (error) {
-      this.options.transcript.addAssistantMessage(`Error: ${error instanceof Error ? error.message : String(error)}`)
-      return { status: "error", messages: [], details: {} }
-    }
-
-    const steering = new SteeringInbox(async (message) => {
-      await session.steerPrompt(admission, message)
+    await this.#run(async ({ controller: { signal } }) => {
+      transcript.addAssistantMessage("Compacting conversation…")
+      onBegin?.()
+      try {
+        const session = await this.options.sessions.ensure()
+        const skills = this.options.skills()
+        const tools = providerTools(models.selectedProvider ?? "fireworks").filter(
+          (tool) => tool.name !== "skill" || skills.skills.length > 0,
+        )
+        const throughSeq = session.events.at(-1)?.seq
+        const result = await compactConversation(transcript.history, {
+          client,
+          instructions,
+          contextBudget: models.autoCompactAtTokens,
+          maxInputTokens: models.autoCompactAtTokens,
+          countContextTokens: (messages) =>
+            client.countTokens?.({
+              messages,
+              tools,
+              skills: tools.some((tool) => tool.name === "skill") ? skills.skills : [],
+              projectContext: this.options.projectContext(),
+              outputCapabilities: this.options.outputCapabilities,
+              signal,
+            }) ?? countContextTokens(messages),
+          onUsage: async (usage) => {
+            await session.recordUsage(usage, "compaction")
+          },
+          signal,
+        })
+        const kept = result.keptMessages
+        await session.compact(
+          result.summary,
+          kept,
+          {
+            toolActivities: transcript.toolActivitiesFor(kept),
+            subagents: subagents.runsFor(kept),
+          },
+          throughSeq,
+        )
+        transcript.loadCompacted(result.summary, kept)
+      } catch (error) {
+        if (signal.aborted) return
+        transcript.addAssistantMessage(`Compaction failed: ${reason(error)}`)
+      }
     })
-    if (this.#active?.controller === controller) this.#active.steering = steering
-
-    if (!queued || !this.options.transcript.activatePendingUserMessage(queued.transcriptEntryId)) {
-      this.options.transcript.addUserMessage(userMessage)
-    }
-    if (!queued) this.options.artifacts.observeMessage(userMessage)
-    try {
-      await session.startTurn(admission)
-      hooks.onReady?.(userMessage)
-      this.options.artifacts.setDirectory(session.artifactDirectory)
-      const result = await runConversationTurn({
-        admission,
-        client,
-        webClient: this.options.webClient,
-        webClientModel: client.model,
-        webSessionId: session.id,
-        transcript: this.options.transcript,
-        subagents: this.options.subagents,
-        sink: hooks.sink,
-        cwd: this.options.cwd,
-        debug: hooks.debug,
-        signal: controller.signal,
-        projectContext: this.options.projectContext(),
-        skills: this.options.skills(),
-        tools: providerTools(provider),
-        autoCompactAtTokens: this.options.models.autoCompactAtTokens,
-        onCompaction: async (compaction, details, steeringCount, turn) => {
-          await session.compactTurn(
-            admission,
-            compaction.summary,
-            compaction.keptMessages,
-            details,
-            steeringCount,
-            turn,
-          )
-        },
-        onCompactionUsage: async (usage) => {
-          await session.recordUsage(usage, "compaction", admission.promptId)
-        },
-        isExiting: this.options.isExiting,
-        onContext: hooks.onContext,
-        onDiff: hooks.onDiff,
-        artifacts: this.options.artifacts,
-        artifactPublisher: sessionArtifactPublisher(session),
-        onUsage: async (usage) => {
-          await session.recordUsage(usage, "agent", admission.promptId)
-        },
-        permissionPolicy: this.options.permissionPolicy(),
-        onPermissionRequest: hooks.onPermissionRequest,
-        onCompletion: hooks.onCompletion,
-        steering,
-        outputCapabilities: this.options.outputCapabilities,
-      })
-
-      if (result.status === "interrupted" || result.status === "error") {
-        try {
-          await session.interruptTurn(admission, result.messages, result.details)
-        } catch (error) {
-          this.options.transcript.addDebugMessage(
-            `Could not save interrupted turn: ${error instanceof Error ? error.message : String(error)}`,
-          )
-        }
-        return result
-      }
-
-      if (result.status !== "complete") return result
-
-      try {
-        await session.completeTurn(admission, result.messages, result.details)
-      } catch (error) {
-        this.options.transcript.addDebugMessage(
-          `Could not save turn: ${error instanceof Error ? error.message : String(error)}`,
-        )
-      }
-      return result
-    } catch (error) {
-      this.options.transcript.addAssistantMessage(`Error: ${error instanceof Error ? error.message : String(error)}`)
-      return { status: "error", messages: [], details: {} }
-    } finally {
-      try {
-        await steering.close()
-      } catch (error) {
-        this.options.transcript.addDebugMessage(
-          `Could not save steering message: ${error instanceof Error ? error.message : String(error)}`,
-        )
-      }
-    }
   }
-
-  async #runCompaction(
-    client: InferenceClient,
-    instructions: string | undefined,
-    countContextTokens: (messages: ChatMessage[]) => number,
-    signal: AbortSignal,
-    onBegin?: () => void,
-  ) {
-    this.options.transcript.addAssistantMessage("Compacting conversation…")
-    onBegin?.()
-    try {
-      const session = await this.options.sessions.ensure()
-      const skills = this.options.skills()
-      const tools = providerTools(this.options.models.selectedProvider ?? "fireworks").filter(
-        (tool) => tool.name !== "skill" || skills.skills.length > 0,
-      )
-      await compactConversationTranscript({
-        transcript: this.options.transcript,
-        subagents: this.options.subagents,
-        session,
-        client,
-        instructions,
-        autoCompactAtTokens: this.options.models.autoCompactAtTokens,
-        countContextTokens: (messages) =>
-          client.countTokens?.({
-            messages,
-            tools,
-            skills: tools.some((tool) => tool.name === "skill") ? skills.skills : [],
-            projectContext: this.options.projectContext(),
-            outputCapabilities: this.options.outputCapabilities,
-            signal,
-          }) ?? countContextTokens(messages),
-        signal,
-      })
-    } catch (error) {
-      if (signal.aborted) return
-      this.options.transcript.addAssistantMessage(
-        `Compaction failed: ${error instanceof Error ? error.message : String(error)}`,
-      )
-    }
-  }
-}
-
-function isQueuedPrompt(input: UserChatMessage | QueuedPrompt): input is QueuedPrompt {
-  return "admission" in input && "session" in input && "transcriptEntryId" in input
-}
-
-function withAbort(decision: Promise<boolean>, signal: AbortSignal): Promise<boolean> {
-  if (signal.aborted) return Promise.resolve(false)
-  return new Promise((resolve, reject) => {
-    const onAbort = () => resolve(false)
-    signal.addEventListener("abort", onAbort, { once: true })
-    decision.then(
-      (value) => {
-        signal.removeEventListener("abort", onAbort)
-        resolve(value)
-      },
-      (error) => {
-        signal.removeEventListener("abort", onAbort)
-        reject(error)
-      },
-    )
-  })
 }

@@ -1,6 +1,10 @@
 import { inferenceResponseError } from "./errors.js"
-import { inferenceEndpointURL, openaiChatCompletionRequest, requiredText } from "./openai-compat.js"
-import { highestReasoningEffort } from "./reasoning.js"
+import {
+  collectCompletionText,
+  inferenceEndpointURL,
+  openaiChatCompletionRequest,
+  requiredText,
+} from "./openai-compat.js"
 import { fireworksServiceTier } from "./serving-path.js"
 import { parseChatCompletionStream } from "./stream-parser.js"
 import type {
@@ -26,7 +30,10 @@ export class FireworksClient implements InferenceClient {
     this.#apiKey = requiredText(config.apiKey, "Fireworks API key")
     this.model = requiredText(config.model, "Fireworks model")
     this.#fetch = config.fetch ?? fetch
-    this.#inferenceURL = inferenceEndpointURL(config.inferenceURL ?? DEFAULT_INFERENCE_URL, "Fireworks inference URL")
+    this.#inferenceURL = inferenceEndpointURL(
+      config.inferenceURL ?? DEFAULT_INFERENCE_URL,
+      "Fireworks inference URL",
+    )
   }
 
   async *streamChat(options: StreamChatOptions) {
@@ -45,25 +52,36 @@ export class FireworksClient implements InferenceClient {
       ),
       signal: options.signal,
     })
-
-    if (!response.ok) {
-      throw await inferenceResponseError(response, "Fireworks")
-    }
+    if (!response.ok) throw await inferenceResponseError(response, "Fireworks")
     if (!response.body) throw new Error("Fireworks response did not include a stream body")
     yield* parseChatCompletionStream(response.body)
   }
 
-  async complete(messages: ChatMessage[], options: CompleteOptions = {}) {
-    let text = ""
-    for await (const event of this.streamChat({
-      messages,
-      projectContext: options.projectContext,
-      signal: options.signal,
-      tools: [],
-    })) {
-      if (event.type === "text_delta") text += event.text
-      if (event.type === "usage") await options.onUsage?.(event.usage)
-    }
-    return text.trim()
+  complete(messages: ChatMessage[], options: CompleteOptions = {}) {
+    return collectCompletionText(this, messages, options)
   }
+}
+
+const MAX_EFFORT_MODELS = [/^deepseek-v4(?:$|-)/, /^glm-5p2(?:$|-)/]
+const HIGH_EFFORT_MODELS = [
+  /^deepseek-v3p[12](?:$|-)/,
+  /^glm-(?:4p5(?:-air)?|4p6|4p7|5|5p1)(?:$|-)/,
+  /^minimax-m2(?:$|p\d|-)/,
+  /^qwen-?3(?:$|p|-)/,
+  /(?:^|-)gpt-oss-(?:20b|120b)(?:$|-)/,
+]
+
+/** Returns the highest reasoning tier Fireworks documents for a known model family. */
+function highestReasoningEffort(model: string): "high" | "max" | undefined {
+  const resource = model.trim().split("#", 1)[0]
+  const modelId = resource
+    .split("/")
+    .at(-1)
+    ?.toLowerCase()
+    .replaceAll(".", "p")
+    .replaceAll("_", "-")
+  if (!modelId || modelId.includes("no-thinking")) return undefined
+  if (MAX_EFFORT_MODELS.some((pattern) => pattern.test(modelId))) return "max"
+  if (HIGH_EFFORT_MODELS.some((pattern) => pattern.test(modelId))) return "high"
+  return undefined
 }

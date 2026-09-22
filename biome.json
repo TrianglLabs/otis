@@ -1,13 +1,22 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.5.0/schema.json",
   "files": {
-    "includes": ["**", "!node_modules", "!.git", "!bun.lock", "!coverage", "!dist", "!out", "!resources/Otis.icon"]
+    "includes": [
+      "**",
+      "!node_modules",
+      "!.git",
+      "!bun.lock",
+      "!coverage",
+      "!dist",
+      "!out",
+      "!resources/Otis.icon"
+    ]
   },
   "formatter": {
     "enabled": true,
     "indentStyle": "space",
     "indentWidth": 2,
-    "lineWidth": 120
+    "lineWidth": 100
   },
   "linter": {
     "enabled": true,

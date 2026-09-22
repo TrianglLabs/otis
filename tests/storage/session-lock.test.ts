@@ -7,7 +7,9 @@ import { acquireSessionLock } from "../../src/storage/index.js"
 const tempDirectories: string[] = []
 
 afterEach(async () => {
-  await Promise.all(tempDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })))
+  await Promise.all(
+    tempDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })),
+  )
 })
 
 describe("session locks", () => {
@@ -30,7 +32,9 @@ describe("same-process contention", () => {
     const home = await mkdtemp(join(tmpdir(), "otis-lock-"))
     tempDirectories.push(home)
     const results = await Promise.allSettled(
-      Array.from({ length: 100 }, () => acquireSessionLock({ cwd: home, directory: home, sessionId: "contended" })),
+      Array.from({ length: 100 }, () =>
+        acquireSessionLock({ cwd: home, directory: home, sessionId: "contended" }),
+      ),
     )
     const granted = results.filter((r) => r.status === "fulfilled")
     expect(granted).toHaveLength(1)

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { TranscriptStore } from "../../src/app/transcript.js"
+import {
+  type TranscriptChange,
+  TranscriptProjector,
+  TranscriptStore,
+} from "../../src/app/transcript.js"
+import type { AgentEvent } from "../../src/core/agent.js"
 
 describe("TranscriptStore", () => {
   it("records transcript entries in insertion order with stable IDs", () => {
@@ -33,8 +38,12 @@ describe("TranscriptStore", () => {
 
   it("keeps artifact revisions in history but reveals only the last revision when the turn settles", () => {
     const transcript = new TranscriptStore()
-    const first = transcript.addToolMessage("Writing brief.md", "file_write", { toolCallId: "write_1" })
-    const second = transcript.addToolMessage("Editing brief.md", "file_edit", { toolCallId: "edit_1" })
+    const first = transcript.addToolMessage("Writing brief.md", "file_write", {
+      toolCallId: "write_1",
+    })
+    const second = transcript.addToolMessage("Editing brief.md", "file_edit", {
+      toolCallId: "edit_1",
+    })
     const artifact = { source: "workspace" as const, path: "brief.md", kind: "markdown" as const }
 
     transcript.stageArtifact(first.id, artifact)
@@ -126,7 +135,10 @@ describe("TranscriptStore", () => {
         role: "assistant" as const,
         content: [
           { type: "text" as const, text: "I'll check." },
-          { type: "tool_call" as const, toolCall: { id: "call_1", name: "read", arguments: '{"path":"a.txt"}' } },
+          {
+            type: "tool_call" as const,
+            toolCall: { id: "call_1", name: "read", arguments: '{"path":"a.txt"}' },
+          },
         ],
       },
       { role: "tool" as const, toolCallId: "call_1", content: "read: a.txt\n\ncontents" },
@@ -167,7 +179,10 @@ describe("TranscriptStore", () => {
             endedAt: "2026-08-06T12:00:01.250Z",
           },
           { type: "text", text: "I'll inspect it." },
-          { type: "tool_call", toolCall: { id: "call_1", name: "read", arguments: '{"path":"a.txt"}' } },
+          {
+            type: "tool_call",
+            toolCall: { id: "call_1", name: "read", arguments: '{"path":"a.txt"}' },
+          },
         ],
       },
     ])
@@ -196,11 +211,19 @@ describe("TranscriptStore", () => {
           { type: "text" as const, text: "I'll update both." },
           {
             type: "tool_call" as const,
-            toolCall: { id: "call_1", name: "edit", arguments: '{"path":"one.ts","old":"a","new":"b"}' },
+            toolCall: {
+              id: "call_1",
+              name: "edit",
+              arguments: '{"path":"one.ts","old":"a","new":"b"}',
+            },
           },
           {
             type: "tool_call" as const,
-            toolCall: { id: "call_2", name: "edit", arguments: '{"path":"two.ts","old":"a","new":"b"}' },
+            toolCall: {
+              id: "call_2",
+              name: "edit",
+              arguments: '{"path":"two.ts","old":"a","new":"b"}',
+            },
           },
         ],
       },
@@ -225,7 +248,9 @@ describe("TranscriptStore", () => {
 
     transcript.loadMessages(messages, toolActivities)
 
-    expect(transcript.entries.map((entry) => ({ text: entry.text, toolCallId: entry.toolCallId }))).toEqual([
+    expect(
+      transcript.entries.map((entry) => ({ text: entry.text, toolCallId: entry.toolCallId })),
+    ).toEqual([
       { text: "edit both files", toolCallId: undefined },
       { text: "I'll update both.", toolCallId: undefined },
       { text: "Editing file: one.ts", toolCallId: "call_1" },
@@ -246,11 +271,19 @@ describe("TranscriptStore", () => {
         content: [
           {
             type: "tool_call" as const,
-            toolCall: { id: "write_1", name: "write", arguments: '{"path":"brief.md","content":"one"}' },
+            toolCall: {
+              id: "write_1",
+              name: "write",
+              arguments: '{"path":"brief.md","content":"one"}',
+            },
           },
           {
             type: "tool_call" as const,
-            toolCall: { id: "write_2", name: "write", arguments: '{"path":"brief.md","content":"two"}' },
+            toolCall: {
+              id: "write_2",
+              name: "write",
+              arguments: '{"path":"brief.md","content":"two"}',
+            },
           },
         ],
       },
@@ -262,7 +295,11 @@ describe("TranscriptStore", () => {
         content: [
           {
             type: "tool_call" as const,
-            toolCall: { id: "write_3", name: "write", arguments: '{"path":"brief.md","content":"three"}' },
+            toolCall: {
+              id: "write_3",
+              name: "write",
+              arguments: '{"path":"brief.md","content":"three"}',
+            },
           },
         ],
       },
@@ -282,8 +319,14 @@ describe("TranscriptStore", () => {
     ])
 
     const artifactEntries = transcript.entries.filter((entry) => entry.artifact)
-    expect(artifactEntries.map((entry) => entry.artifactDisplay)).toEqual(["superseded", "ready", "ready"])
-    expect(transcript.toolActivitiesFor(messages).filter((activity) => activity.artifact)).toHaveLength(3)
+    expect(artifactEntries.map((entry) => entry.artifactDisplay)).toEqual([
+      "superseded",
+      "ready",
+      "ready",
+    ])
+    expect(
+      transcript.toolActivitiesFor(messages).filter((activity) => activity.artifact),
+    ).toHaveLength(3)
   })
 
   it("retains the latest matching activity when tool-call IDs repeat across compacted turns", () => {
@@ -352,18 +395,28 @@ describe("TranscriptStore", () => {
     transcript.loadMessages([{ role: "user", content: "old task" }])
     const queued = transcript.addQueuedUserMessage("queued task")
     const steering = transcript.addSteeringUserMessage("new direction")
-    transcript.loadCompacted("Summary.", [{ role: "assistant", content: [{ type: "text", text: "Kept." }] }])
-    expect(new Set(transcript.entries.map((entry) => entry.id)).size).toBe(transcript.entries.length)
+    transcript.loadCompacted("Summary.", [
+      { role: "assistant", content: [{ type: "text", text: "Kept." }] },
+    ])
+    expect(new Set(transcript.entries.map((entry) => entry.id)).size).toBe(
+      transcript.entries.length,
+    )
     expect(transcript.activatePendingUserMessage(queued.id)).toBe(true)
     expect(transcript.activatePendingUserMessage(steering.id)).toBe(true)
-    expect(transcript.entries.slice(-2).map((entry) => entry.text)).toEqual(["queued task", "new direction"])
+    expect(transcript.entries.slice(-2).map((entry) => entry.text)).toEqual([
+      "queued task",
+      "new direction",
+    ])
     expect(transcript.entries.some((entry) => entry.delivery)).toBe(false)
   })
 
   it("keeps compaction summaries in model context without displaying them on session reload", () => {
     const transcript = new TranscriptStore()
     const messages = [
-      { role: "user" as const, content: "[Compacted conversation summary]\n\n## Goal\nDo the thing" },
+      {
+        role: "user" as const,
+        content: "[Compacted conversation summary]\n\n## Goal\nDo the thing",
+      },
       { role: "user" as const, content: "recent question" },
       { role: "assistant" as const, content: [{ type: "text" as const, text: "recent answer" }] },
     ]
@@ -386,10 +439,295 @@ function toolTurn(prompt: string, path: string) {
       content: [
         {
           type: "tool_call" as const,
-          toolCall: { id: "call_0", name: "edit", arguments: `{"path":"${path}","old":"a","new":"b"}` },
+          toolCall: {
+            id: "call_0",
+            name: "edit",
+            arguments: `{"path":"${path}","old":"a","new":"b"}`,
+          },
         },
       ],
     },
     { role: "tool" as const, toolCallId: "call_0", content: "updated" },
   ]
 }
+
+function watch(store: TranscriptStore) {
+  const changes: TranscriptChange[] = []
+  const unsubscribe = store.subscribe((change) => changes.push(change))
+  return { changes, unsubscribe }
+}
+
+describe("TranscriptStore change notifications", () => {
+  it("replaces model context without publishing the compaction summary or resetting scrollback", () => {
+    const store = new TranscriptStore()
+    store.loadMessages([{ role: "user", content: "original task" }])
+    const entries = [...store.entries]
+    const { changes } = watch(store)
+
+    store.loadCompacted("Internal summary", [])
+
+    expect(changes).toEqual([])
+    expect(store.entries).toEqual(entries)
+    expect(store.history[0].content).toContain("Internal summary")
+  })
+
+  it("emits upsert for new and updated entries", () => {
+    const store = new TranscriptStore()
+    const { changes } = watch(store)
+
+    const entry = store.addAssistantMessage("hello")
+    store.updateEntry(entry.id, { text: "hello world", streaming: false })
+
+    expect(changes).toEqual([
+      { op: "upsert", id: entry.id },
+      { op: "upsert", id: entry.id },
+    ])
+  })
+
+  it("emits reset before replayed entries when messages are replaced", () => {
+    const store = new TranscriptStore()
+    store.addAssistantMessage("old")
+    const { changes } = watch(store)
+
+    store.replaceMessages([{ role: "user", content: "fresh" }])
+
+    expect(changes[0]).toEqual({ op: "reset" })
+    expect(changes.slice(1)).toEqual([{ op: "upsert", id: 1 }])
+    expect(store.entries.map((entry) => entry.text)).toEqual(["fresh"])
+  })
+
+  it("emits remove then upsert when a queued message activates, moving it to the end", () => {
+    const store = new TranscriptStore()
+    const queued = store.addQueuedUserMessage("follow up")
+    store.addAssistantMessage("working…")
+    const { changes } = watch(store)
+
+    expect(store.activatePendingUserMessage(queued.id)).toBe(true)
+
+    expect(changes).toEqual([
+      { op: "remove", id: queued.id },
+      { op: "upsert", id: queued.id },
+    ])
+    expect(store.entries.at(-1)?.id).toBe(queued.id)
+    expect(store.entries.at(-1)?.delivery).toBeUndefined()
+  })
+
+  it("emits remove and stops notifying after unsubscribe", () => {
+    const store = new TranscriptStore()
+    const entry = store.addAssistantMessage("gone")
+    const { changes, unsubscribe } = watch(store)
+    changes.length = 0
+
+    expect(store.removeEntry(entry.id)).toBe(true)
+    unsubscribe()
+    store.addAssistantMessage("not observed")
+
+    expect(changes).toEqual([{ op: "remove", id: entry.id }])
+  })
+})
+
+describe("TranscriptProjector", () => {
+  it("separates partial output from the next model attempt without adding an error message", () => {
+    const transcript = new TranscriptStore()
+    const projector = new TranscriptProjector(transcript)
+    projector.apply({ type: "delta", text: "Partial response" })
+    expect(projector.apply({ type: "model", phase: "retry" })).toBe(true)
+    projector.apply({ type: "delta", text: "Recovered response" })
+    expect(transcript.entries).toMatchObject([
+      { text: "Partial response", streaming: false },
+      { text: "Recovered response", streaming: true },
+    ])
+  })
+
+  it("streams text into one assistant card and starts a new card after reasoning or tool activity", () => {
+    const transcript = new TranscriptStore()
+    const projector = new TranscriptProjector(transcript)
+    const events: AgentEvent[] = [
+      { type: "delta", text: "Looking" },
+      { type: "delta", text: " now." },
+      {
+        type: "tool",
+        phase: "start",
+        toolCallId: "call_1",
+        name: "read",
+        activityKind: "file_read",
+        label: "Reading",
+      },
+      {
+        type: "tool",
+        phase: "end",
+        toolCallId: "call_1",
+        name: "read",
+        activityKind: "file_read",
+        label: "Reading",
+        outcome: "completed",
+      },
+      { type: "delta", text: "Found it." },
+      {
+        type: "reasoning",
+        phase: "start",
+        reasoningId: "r1",
+        field: "reasoning_content",
+        startedAt: "now",
+      },
+      { type: "reasoning", phase: "delta", reasoningId: "r1", text: "hmm" },
+      { type: "reasoning", phase: "end", reasoningId: "r1", endedAt: "later", durationMs: 400 },
+      { type: "delta", text: "Final." },
+    ]
+
+    const changed = events.map((event) => projector.apply(event))
+    projector.finishStreaming()
+
+    // The tool end without a diff and unknown event types leave the transcript untouched.
+    expect(changed).toEqual([true, true, true, false, true, true, true, true, true])
+    expect(
+      transcript.entries.map((entry) => ({
+        kind: entry.kind,
+        text: entry.text,
+        streaming: entry.streaming,
+      })),
+    ).toEqual([
+      { kind: "message", text: "Looking now.", streaming: false },
+      { kind: "tool", text: "Reading", streaming: undefined },
+      { kind: "message", text: "Found it.", streaming: false },
+      { kind: "reasoning", text: "hmm", streaming: false },
+      { kind: "message", text: "Final.", streaming: false },
+    ])
+    expect(transcript.entries[3]).toMatchObject({ reasoningId: "r1", durationMs: 400 })
+  })
+
+  it("attaches diffs to the tool card by call ID and expands debug output line by line", () => {
+    const transcript = new TranscriptStore()
+    const projector = new TranscriptProjector(transcript)
+    projector.apply({
+      type: "tool",
+      phase: "start",
+      toolCallId: "call_edit",
+      name: "edit",
+      activityKind: "file_edit",
+      label: "Editing a.ts",
+    })
+    projector.apply({ type: "debug", message: "one\ntwo" })
+    projector.apply({
+      type: "tool",
+      phase: "end",
+      toolCallId: "call_edit",
+      name: "edit",
+      activityKind: "file_edit",
+      label: "Editing a.ts",
+      diff: "--- a.ts\n+++ a.ts",
+      outcome: "completed",
+    })
+
+    expect(transcript.entries).toMatchObject([
+      { kind: "tool", toolCallId: "call_edit", diff: "--- a.ts\n+++ a.ts" },
+      { kind: "debug", text: "one" },
+      { kind: "debug", text: "two" },
+    ])
+  })
+
+  it("holds artifact cards until the turn ends and reveals only the latest revision", () => {
+    const transcript = new TranscriptStore()
+    const projector = new TranscriptProjector(transcript)
+    const artifact = { source: "workspace" as const, path: "brief.md", kind: "markdown" as const }
+
+    for (const toolCallId of ["write_1", "write_2"]) {
+      projector.apply({
+        type: "tool",
+        phase: "start",
+        toolCallId,
+        name: "write",
+        activityKind: "file_write",
+        label: "Writing brief.md",
+      })
+      projector.apply({
+        type: "tool",
+        phase: "end",
+        toolCallId,
+        name: "write",
+        activityKind: "file_write",
+        label: "Writing brief.md",
+        artifact,
+        outcome: "completed",
+      })
+    }
+
+    expect(transcript.entries.map((entry) => entry.artifactDisplay)).toEqual([
+      "superseded",
+      "pending",
+    ])
+    projector.finishTurn()
+    expect(transcript.entries.map((entry) => entry.artifactDisplay)).toEqual([
+      "superseded",
+      "ready",
+    ])
+  })
+
+  it("ignores events that do not belong to the transcript", () => {
+    const transcript = new TranscriptStore()
+    const projector = new TranscriptProjector(transcript)
+
+    expect(projector.apply({ type: "model", phase: "start" })).toBe(false)
+    expect(
+      projector.apply({ type: "context", messageCount: 1, contentChars: 10, tokens: 1_000 }),
+    ).toBe(false)
+    expect(
+      projector.apply({ type: "reasoning", phase: "delta", reasoningId: "unknown", text: "x" }),
+    ).toBe(false)
+    expect(projector.apply({ type: "complete", messages: [] })).toBe(false)
+    expect(transcript.entries).toEqual([])
+    expect(projector.ensureAssistantEntry()).toMatchObject({
+      kind: "message",
+      speaker: "Otis",
+      text: "",
+    })
+  })
+
+  it("keeps revisions pending through steering and compaction in the same turn", () => {
+    const transcript = new TranscriptStore()
+    let projector = new TranscriptProjector(transcript)
+    const artifact = {
+      source: "published" as const,
+      artifactId: "12345678-1234-1234-1234-123456789abc",
+      version: 1,
+      sha256: "a".repeat(64),
+      sourcePath: "/workspace/brief.md",
+      name: "brief.md",
+      kind: "markdown" as const,
+    }
+    const publish = (version: number) => {
+      const tool = {
+        type: "tool" as const,
+        toolCallId: `publish_${version}`,
+        name: "publish_artifact" as const,
+        activityKind: "file_read" as const,
+        label: "Publishing brief.md",
+      }
+      projector.apply({ ...tool, phase: "start" })
+      projector.apply({
+        ...tool,
+        phase: "end",
+        outcome: "completed",
+        artifact: { ...artifact, version },
+      })
+    }
+    transcript.addUserMessage("Draft the brief")
+    publish(1)
+    const steering = transcript.addSteeringUserMessage("Make it shorter")
+    transcript.activatePendingUserMessage(steering.id)
+    transcript.addQueuedUserMessage("Next task")
+    expect(transcript.entries.find((entry) => entry.artifact)?.artifactDisplay).toBe("pending")
+    transcript.loadCompacted("Drafted the brief", [])
+    projector = new TranscriptProjector(transcript)
+    publish(2)
+    expect(
+      transcript.entries.filter((entry) => entry.artifact).map((entry) => entry.artifactDisplay),
+    ).toEqual(["superseded", "pending"])
+    projector.finishTurn()
+    expect(
+      transcript.entries
+        .filter((entry) => entry.artifactDisplay === "ready")
+        .map((entry) => entry.artifact),
+    ).toEqual([{ ...artifact, version: 2 }])
+  })
+})

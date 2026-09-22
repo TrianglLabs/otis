@@ -7,9 +7,14 @@ type BashToolCall = Extract<ToolCall, { name: "bash" }>
 describe("describeToolCall", () => {
   it("describes direct tool categories", () => {
     expect(
-      describeToolCall({ name: "web_search", input: { objective: "current release", searchQueries: ["release"] } }),
+      describeToolCall({
+        name: "web_search",
+        input: { objective: "current release", searchQueries: ["release"] },
+      }),
     ).toEqual({ kind: "web_search", label: "Searching web: current release" })
-    expect(describeToolCall({ name: "web_read", input: { url: "https://example.com/docs" } })).toEqual({
+    expect(
+      describeToolCall({ name: "web_read", input: { url: "https://example.com/docs" } }),
+    ).toEqual({
       kind: "web_read",
       label: "Reading web: https://example.com/docs",
     })
@@ -29,7 +34,9 @@ describe("describeToolCall", () => {
       kind: "file_write",
       label: "Writing file: README.md",
     })
-    expect(describeToolCall({ name: "edit", input: { path: "README.md", old: "a", new: "b" } })).toEqual({
+    expect(
+      describeToolCall({ name: "edit", input: { path: "README.md", old: "a", new: "b" } }),
+    ).toEqual({
       kind: "file_edit",
       label: "Editing file: README.md",
     })
@@ -43,7 +50,9 @@ describe("describeToolCall", () => {
         },
       }),
     ).toEqual({ kind: "file_edit", label: "Editing document: resume.docx" })
-    expect(describeToolCall({ name: "agent", input: { description: "Map the notes", prompt: "List." } })).toEqual({
+    expect(
+      describeToolCall({ name: "agent", input: { description: "Map the notes", prompt: "List." } }),
+    ).toEqual({
       kind: "agent",
       label: "Delegating: Map the notes",
     })

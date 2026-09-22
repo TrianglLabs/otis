@@ -27,7 +27,8 @@ export const fr: Messages = {
   "common.hosted": "Hébergé",
   "app.loadingWorkspace": "Chargement de l’espace de travail…",
   "app.bridgeUnavailable": "Le pont de bureau est indisponible.",
-  "app.bridgeUnavailableHint": "Redémarrez l’application. Si le problème persiste, réinstallez Otis Desktop.",
+  "app.bridgeUnavailableHint":
+    "Redémarrez l’application. Si le problème persiste, réinstallez Otis Desktop.",
   "shell.workspaceMissing":
     "Otis ne trouve pas le dossier de travail de cette session. Vous pouvez consulter son historique ; choisissez le dossier une fois pour continuer. Otis le mémorisera.",
   "shell.locateWorkingFolder": "Localiser le dossier de travail",
@@ -120,7 +121,8 @@ export const fr: Messages = {
   "composer.fast": "Rapide",
   "composer.messageKept": "Votre message a été conservé.",
   "composer.imageUnsupported": "{{name}} n’est pas un type d’image pris en charge.",
-  "composer.imageTooLarge": "{{name}} est trop volumineux. Les images doivent faire au plus {{size}} Mo.",
+  "composer.imageTooLarge":
+    "{{name}} est trop volumineux. Les images doivent faire au plus {{size}} Mo.",
   "composer.tooManyImages": "Vous pouvez joindre jusqu’à {{count}} images.",
   "composer.modelNoImages": "Le modèle sélectionné ne prend pas en charge les images.",
   "composer.modelNoImageInput":
@@ -130,8 +132,10 @@ export const fr: Messages = {
     "{{name}} n’est pas pris en charge. Utilisez un fichier texte, PDF, DOCX, PNG, JPEG, GIF, BMP, TIFF ou PPM.",
   "composer.thatFile": "Ce fichier",
   "composer.fileEmpty": "{{name}} est vide.",
-  "composer.imageRequestLimit": "{{name}} est trop volumineux. Les données doivent rester sous la limite de 10 Mo.",
-  "composer.imagesRequestLimit": "Les images jointes sont trop volumineuses ensemble. Le total doit rester sous 10 Mo.",
+  "composer.imageRequestLimit":
+    "{{name}} est trop volumineux. Les données doivent rester sous la limite de 10 Mo.",
+  "composer.imagesRequestLimit":
+    "Les images jointes sont trop volumineuses ensemble. Le total doit rester sous 10 Mo.",
   "composer.fileReadFailed": "Impossible de lire le fichier.",
   "composer.fastServing": "Inférence rapide",
   "composer.modelTitle": "{{id}} · {{provider}}{{fast}} — sélectionner un modèle",
@@ -169,11 +173,13 @@ export const fr: Messages = {
   "onboarding.chooseSetup": "Choisissez une configuration de modèle",
   "onboarding.hostedBody":
     "Les meilleurs modèles ouverts, disponibles immédiatement. Paiement à l’usage avec votre clé Fireworks.",
-  "onboarding.localBody": "Exécutez les modèles sur cet ordinateur ou votre réseau d’IA local. Privé et hors ligne.",
+  "onboarding.localBody":
+    "Exécutez les modèles sur cet ordinateur ou votre réseau d’IA local. Privé et hors ligne.",
   "onboarding.back": "Retour",
   "onboarding.setupHosted": "Configurer les modèles hébergés",
   "onboarding.chooseLocal": "Choisir l’inférence locale",
-  "onboarding.localHint": "Utilisez un modèle géré par Otis ou connectez-en un que vous exécutez déjà.",
+  "onboarding.localHint":
+    "Utilisez un modèle géré par Otis ou connectez-en un que vous exécutez déjà.",
   "onboarding.managed": "Géré par Otis",
   "onboarding.managedBody": "Téléchargez un modèle sélectionné et exécutez-le avec llama.cpp.",
   "onboarding.server": "Serveurs de modèles locaux",
@@ -181,7 +187,8 @@ export const fr: Messages = {
   "onboarding.fireworksKey": "Clé API Fireworks",
   "onboarding.pasteKey": "Collez votre clé ici",
   "onboarding.getKey": "Obtenir une clé",
-  "onboarding.hostedHintBefore": "Les modèles hébergés s’exécutent sur Fireworks (paiement à l’usage).",
+  "onboarding.hostedHintBefore":
+    "Les modèles hébergés s’exécutent sur Fireworks (paiement à l’usage).",
   "onboarding.hostedHintAfter": "et collez-la ici :",
   "onboarding.keySaved": "Clé enregistrée. Choisissez maintenant un modèle :",
   "onboarding.connectServer": "Connecter un serveur de modèles local",
@@ -189,7 +196,8 @@ export const fr: Messages = {
     "Connectez-vous directement à {{servers}}, ou via NVIDIA PAIR ; les adresses locales par défaut sont préremplies. Les modèles nécessitent au moins 64K de contexte.",
   "onboarding.chooseModel": "Choisir un modèle",
   "onboarding.chooseServerModel": "Sélectionnez un modèle signalé par le serveur connecté.",
-  "onboarding.connectedNoModels": "Connexion établie, mais le serveur n’a signalé aucun modèle disponible.",
+  "onboarding.connectedNoModels":
+    "Connexion établie, mais le serveur n’a signalé aucun modèle disponible.",
   "onboarding.noLocalFit":
     "Aucun modèle local ne convient à cet ordinateur — revenez en arrière et choisissez Hébergé.",
   "onboarding.bestModel": "Meilleur modèle pour votre ordinateur",
@@ -230,9 +238,12 @@ export const fr: Messages = {
   "settings.systemLanguage": "Système ({{language}})",
   "settings.security": "Sécurité",
   "settings.permissionMode": "Mode d’autorisation",
-  "settings.permissionAutoDetail": "Exécuter automatiquement les commandes shell et les modifications de fichiers",
-  "settings.permissionAskDetail": "Demander avant les commandes shell et les modifications de fichiers",
-  "settings.permissionDenyDetail": "Refuser les commandes shell et les modifications de fichiers sans demander",
+  "settings.permissionAutoDetail":
+    "Exécuter automatiquement les commandes shell et les modifications de fichiers",
+  "settings.permissionAskDetail":
+    "Demander avant les commandes shell et les modifications de fichiers",
+  "settings.permissionDenyDetail":
+    "Refuser les commandes shell et les modifications de fichiers sans demander",
   "settings.dontAsk": "Ne pas demander",
   "settings.ask": "Demander",
   "settings.auto": "Automatique",
@@ -257,10 +268,13 @@ export const fr: Messages = {
   "updates.checkFailed": "Impossible de rechercher les mises à jour. Réessayez.",
   "updates.checkingNewer": "Recherche d’une version plus récente…",
   "updates.downloadingVersion": "Téléchargement d’Otis {{version}} en arrière-plan…",
-  "updates.unavailableBuild": "La recherche de mises à jour est indisponible dans cette version d’Otis.",
+  "updates.unavailableBuild":
+    "La recherche de mises à jour est indisponible dans cette version d’Otis.",
   "updates.upToDate": "Vous êtes à jour.",
-  "updates.backgroundHint": "Les mises à jour se téléchargent en arrière-plan. Vous choisissez quand redémarrer.",
-  "canvas.viewport": "Zone du diagramme. Faites glisser pour déplacer ; utilisez les commandes pour zoomer.",
+  "updates.backgroundHint":
+    "Les mises à jour se téléchargent en arrière-plan. Vous choisissez quand redémarrer.",
+  "canvas.viewport":
+    "Zone du diagramme. Faites glisser pour déplacer ; utilisez les commandes pour zoomer.",
   "canvas.controls": "Commandes d’affichage du diagramme",
   "canvas.zoomOut": "Dézoomer",
   "canvas.resetView": "Réinitialiser la vue",
@@ -268,5 +282,6 @@ export const fr: Messages = {
   "canvas.renderFailed": "Impossible d’afficher ce diagramme Mermaid.",
   "canvas.loadFailed": "Impossible de charger Mermaid.",
   "canvas.emptySource": "Le bloc Mermaid est vide.",
-  "canvas.tooLarge": "Ce diagramme Mermaid est trop volumineux. La limite est de 50 000 caractères.",
+  "canvas.tooLarge":
+    "Ce diagramme Mermaid est trop volumineux. La limite est de 50 000 caractères.",
 }

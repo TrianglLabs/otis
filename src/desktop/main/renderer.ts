@@ -15,7 +15,8 @@ export function handleRendererFailure(
   options: { onRendererGone: () => void; isQuitting: () => boolean },
 ) {
   let prompting = false
-  const closed = () => options.isQuitting() || window.isDestroyed() || window.webContents.isDestroyed()
+  const closed = () =>
+    options.isQuitting() || window.isDestroyed() || window.webContents.isDestroyed()
 
   async function offerReload(detail: string) {
     if (prompting || closed()) return
@@ -48,14 +49,16 @@ export function handleRendererFailure(
   window.webContents.on("render-process-gone", (_event, details) => {
     if (closed()) return
     options.onRendererGone()
-    // Only the platform's reason/exit code is included, never prompts, file contents, or credentials.
+    // Only the platform's reason/exit code is included, never prompts, file contents, or
+    // credentials.
     void offerReload(
       `The UI process exited (${details.reason}, code ${details.exitCode}). Any active task was stopped. ` +
         "Reload the window to return to your session. This will not restart the task or run queued prompts.",
     )
   })
   window.webContents.on("did-fail-load", (_event, errorCode, _description, _url, isMainFrame) => {
-    // ERR_ABORTED is expected when navigation is superseded. Subframe failures must not interrupt the agent.
+    // ERR_ABORTED is expected when navigation is superseded. Subframe failures must not interrupt
+    // the agent.
     if (!isMainFrame || errorCode === -3 || closed()) return
     options.onRendererGone()
     void offerReload(

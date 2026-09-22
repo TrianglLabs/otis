@@ -6,8 +6,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { ArtifactStore } from "../../src/app/artifacts.js"
 import type { DocumentContentPart } from "../../src/inference/types.js"
 import { createPermissionPolicy } from "../../src/permissions/policy.js"
-import { saveAttachment } from "../../src/tools/attachments.js"
-import { executeToolCall } from "../../src/tools/index.js"
+import { executeToolCall, type ToolContext } from "../../src/tools/index.js"
 
 const directories: string[] = []
 afterEach(async () => {
@@ -35,16 +34,24 @@ async function directory() {
   return path
 }
 
+function save(input: { attachment: string; path: string }, context: ToolContext) {
+  return executeToolCall({ name: "save_attachment", input }, context)
+}
+
 describe("save_attachment", () => {
   it("writes original bytes privately, emits a Canvas reference, and never overwrites", async () => {
     const cwd = await directory()
     const attachment = document()
     const context = { cwd, attachments: () => [attachment, attachment] }
-    const call = { name: "save_attachment", input: { attachment: attachment.sha256, path: "copy.txt" } } as const
+    const call = {
+      name: "save_attachment",
+      input: { attachment: attachment.sha256, path: "copy.txt" },
+    } as const
     const result = await executeToolCall(call, context)
     expect(await readFile(join(cwd, "copy.txt"), "utf8")).toBe("original text")
     expect(result.artifact).toBeUndefined()
-    if (process.platform !== "win32") expect((await stat(join(cwd, "copy.txt"))).mode & 0o777).toBe(0o600)
+    if (process.platform !== "win32")
+      expect((await stat(join(cwd, "copy.txt"))).mode & 0o777).toBe(0o600)
     await expect(executeToolCall(call, context)).rejects.toMatchObject({ code: "EEXIST" })
     expect(await readdir(cwd)).toEqual(["copy.txt"])
   })
@@ -54,15 +61,19 @@ describe("save_attachment", () => {
     const first = document("notes.txt", "first")
     const second = document("notes.txt", "second")
     const context = { cwd, attachments: () => [first, second] }
-    await expect(saveAttachment({ attachment: "notes.txt", path: "copy.txt" }, context)).rejects.toThrow("ambiguous")
-    await saveAttachment({ attachment: first.sha256, path: "first.txt" }, context)
+    await expect(save({ attachment: "notes.txt", path: "copy.txt" }, context)).rejects.toThrow(
+      "ambiguous",
+    )
+    await save({ attachment: first.sha256, path: "first.txt" }, context)
     expect(await readFile(join(cwd, "first.txt"), "utf8")).toBe("first")
-    await expect(saveAttachment({ attachment: first.sha256, path: "copy.pdf" }, context)).rejects.toThrow(
+    await expect(save({ attachment: first.sha256, path: "copy.pdf" }, context)).rejects.toThrow(
       "does not convert",
     )
-    await expect(saveAttachment({ attachment: "missing", path: "copy.txt" }, context)).rejects.toThrow("not found")
+    await expect(save({ attachment: "missing", path: "copy.txt" }, context)).rejects.toThrow(
+      "not found",
+    )
     await expect(
-      saveAttachment(
+      save(
         { attachment: first.sha256, path: "copy.txt" },
         {
           cwd,
@@ -79,13 +90,16 @@ describe("save_attachment", () => {
     const attachment = document()
     await symlink(outside, join(cwd, "outside"))
     const context = { cwd, attachments: () => [attachment] }
-    await expect(saveAttachment({ attachment: attachment.name, path: "outside/copy.txt" }, context)).rejects.toThrow(
-      "outside",
-    )
+    await expect(
+      save({ attachment: attachment.name, path: "outside/copy.txt" }, context),
+    ).rejects.toThrow("outside")
     const controller = new AbortController()
     controller.abort()
     await expect(
-      saveAttachment({ attachment: attachment.name, path: "copy.txt" }, { ...context, signal: controller.signal }),
+      save(
+        { attachment: attachment.name, path: "copy.txt" },
+        { ...context, signal: controller.signal },
+      ),
     ).rejects.toThrow()
     expect(await readdir(outside)).toEqual([])
   })
@@ -94,9 +108,16 @@ describe("save_attachment", () => {
     const cwd = await directory()
     await writeFile(join(cwd, "protected.txt"), "existing")
     await symlink(join(cwd, "protected.txt"), join(cwd, "alias.txt"))
-    const call = { name: "save_attachment", input: { attachment: "notes.txt", path: "alias.txt" } } as const
-    expect(await createPermissionPolicy({ cwd, mode: "dontAsk" }).evaluate(call)).toMatchObject({ effect: "deny" })
-    expect(await createPermissionPolicy({ cwd, mode: "ask" }).evaluate(call)).toMatchObject({ effect: "ask" })
+    const call = {
+      name: "save_attachment",
+      input: { attachment: "notes.txt", path: "alias.txt" },
+    } as const
+    expect(await createPermissionPolicy({ cwd, mode: "dontAsk" }).evaluate(call)).toMatchObject({
+      effect: "deny",
+    })
+    expect(await createPermissionPolicy({ cwd, mode: "ask" }).evaluate(call)).toMatchObject({
+      effect: "ask",
+    })
     expect(
       await createPermissionPolicy({
         cwd,
@@ -111,14 +132,17 @@ describe("save_attachment", () => {
     const source = document()
     const store = new ArtifactStore(cwd)
     store.restore([{ role: "user", content: [source] }], [])
-    await saveAttachment(
+    await save(
       { attachment: source.sha256, path: "restored.txt" },
       { cwd, attachments: () => store.attachments },
     )
     expect(await readFile(join(cwd, "restored.txt"), "utf8")).toBe(source.extractedText)
     store.clear()
     await expect(
-      saveAttachment({ attachment: source.sha256, path: "missing.txt" }, { cwd, attachments: () => store.attachments }),
+      save(
+        { attachment: source.sha256, path: "missing.txt" },
+        { cwd, attachments: () => store.attachments },
+      ),
     ).rejects.toThrow("not found")
   })
 })

@@ -26,9 +26,10 @@ import type {
 } from "../../contracts.js"
 
 /**
- * A fixture-backed DesktopApi for UI development (`?demo`). It mirrors real application semantics — admission
- * before acceptance, queued follow-ups, permission round-trips, stop — so the interface is exercised honestly
- * before it is connected to a workspace. Never used when the preload bridge is present without `?demo`.
+ * A fixture-backed DesktopApi for UI development (`?demo`). It mirrors real application semantics —
+ * admission before acceptance, queued follow-ups, permission round-trips, stop — so the interface
+ * is exercised honestly before it is connected to a workspace. Never used when the preload bridge
+ * is present without `?demo`.
  */
 type DemoHostApi = Pick<DesktopApi, "getWindowState" | "subscribeWindowState" | "getSnapshot">
 
@@ -165,14 +166,24 @@ const DEMO_WEBPAGE = demoArtifact(
 // Preview HTML stands in for converted DOCX bytes, just like the working Word fixture above.
 // These references and hashes are fixture identities only; the demo never writes published files.
 const DEMO_SAVED_WORD = [
-  { status: "Initial draft", date: "October 5", audience: "Internal team", next: "Gather feedback from the team." },
+  {
+    status: "Initial draft",
+    date: "October 5",
+    audience: "Internal team",
+    next: "Gather feedback from the team.",
+  },
   {
     status: "Review",
     date: "October 12",
     audience: "Invited testers",
     next: "Review accessibility and document previews.",
   },
-  { status: "Approved", date: "October 19", audience: "All users", next: "Publish the release notes and launch." },
+  {
+    status: "Approved",
+    date: "October 19",
+    audience: "All users",
+    next: "Publish the release notes and launch.",
+  },
 ].map((draft, index): DemoSavedArtifactFixture => {
   const version = index + 1
   const reference: PublishedArtifactReference = {
@@ -210,7 +221,6 @@ const DEMO_SAVED_WORD = [
   }
 })
 const DEMO_LATEST_WORD = DEMO_SAVED_WORD[2]
-if (!DEMO_LATEST_WORD) throw new Error("The saved Word demo needs a latest revision.")
 
 const DEMO_ARTIFACTS_BY_SESSION = new Map<string, DemoArtifactFixture>([
   ["session_versions", DEMO_LATEST_WORD],
@@ -283,7 +293,8 @@ ET`
 0 -22 Td
 (Original bytes remain the source of truth) Tj
 ET`
-  const stream = (content: string) => `<< /Length ${content.length} >>\nstream\n${content}\nendstream`
+  const stream = (content: string) =>
+    `<< /Length ${content.length} >>\nstream\n${content}\nendstream`
   const objects = [
     `<< /Type /Catalog /Pages 2 0 R >>`,
     `<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>`,
@@ -400,19 +411,27 @@ const DEMO_MODELS: ModelPickerChoice[] = [
 ]
 
 const DEMO_ACTIVITY_TOKENS = [
-  0, 32_400, 0, 58_900, 76_300, 0, 91_200, 44_800, 0, 0, 112_600, 84_100, 63_500, 0, 128_900, 147_200, 0, 98_400,
-  176_800, 132_500, 0, 154_300, 201_600, 188_400, 0, 224_900, 196_700, 251_300,
+  0, 32_400, 0, 58_900, 76_300, 0, 91_200, 44_800, 0, 0, 112_600, 84_100, 63_500, 0, 128_900,
+  147_200, 0, 98_400, 176_800, 132_500, 0, 154_300, 201_600, 188_400, 0, 224_900, 196_700, 251_300,
 ]
 
-function demoRecentActivity() {
-  const cursor = new Date()
-  cursor.setHours(12, 0, 0, 0)
-  cursor.setDate(cursor.getDate() - (DEMO_ACTIVITY_TOKENS.length - 1))
-  return DEMO_ACTIVITY_TOKENS.map((tokens) => {
-    const date = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(cursor.getDate()).padStart(2, "0")}`
-    cursor.setDate(cursor.getDate() + 1)
-    return { date, tokens }
-  })
+const DEMO_SUBAGENT = {
+  toolCallId: "demo_agent_1",
+  title: "Survey sidebar focus handling",
+  status: "complete" as const,
+  tools: 2,
+  durationMs: 1_900,
+}
+
+function demoSession(id: string, title: string, detail: string, workspace = "otis") {
+  return {
+    id,
+    title,
+    detail,
+    dirName: `${workspace}-demo`,
+    workspaceLabel: workspace,
+    workspacePath: `/Users/dev/Projects/${workspace}`,
+  }
 }
 
 class DemoRuntime implements DesktopApi {
@@ -429,7 +448,9 @@ class DemoRuntime implements DesktopApi {
   #modelTimer: ReturnType<typeof setTimeout> | undefined
   #modelSeq = 0
   #downloadedLocalIds = new Set(
-    DEMO_MODELS.filter((item) => item.provider === "local" && item.downloaded).map((item) => item.id),
+    DEMO_MODELS.filter((item) => item.provider === "local" && item.downloaded).map(
+      (item) => item.id,
+    ),
   )
 
   async getWindowState() {
@@ -457,70 +478,17 @@ class DemoRuntime implements DesktopApi {
     workspace: { label: "~/Projects/otis", path: "/Users/dev/Projects/otis" },
     sessions: [
       {
-        id: "session_versions",
-        title: "Canvas preview · Saved versions",
-        detail: "Open now",
+        ...demoSession("session_versions", "Canvas preview · Saved versions", "Open now"),
         active: true,
-        dirName: "otis-demo",
-        workspaceLabel: "otis",
-        workspacePath: "/Users/dev/Projects/otis",
       },
-      {
-        id: "session_pdf",
-        title: "Canvas preview · PDF",
-        detail: "Demo",
-        dirName: "otis-demo",
-        workspaceLabel: "otis",
-        workspacePath: "/Users/dev/Projects/otis",
-      },
-      {
-        id: "session_docx",
-        title: "Canvas preview · Word",
-        detail: "Demo",
-        dirName: "otis-demo",
-        workspaceLabel: "otis",
-        workspacePath: "/Users/dev/Projects/otis",
-      },
-      {
-        id: "session_webpage",
-        title: "Canvas preview · Webpage",
-        detail: "Demo",
-        dirName: "otis-demo",
-        workspaceLabel: "otis",
-        workspacePath: "/Users/dev/Projects/otis",
-      },
-      {
-        id: "session_demo1",
-        title: "Canvas preview · Markdown",
-        detail: "Demo",
-        dirName: "otis-demo",
-        workspaceLabel: "otis",
-        workspacePath: "/Users/dev/Projects/otis",
-      },
-      {
-        id: "session_demo2",
-        title: "Fix flaky session lock test",
-        detail: "3h ago",
-        dirName: "otis-demo",
-        workspaceLabel: "otis",
-        workspacePath: "/Users/dev/Projects/otis",
-      },
-      {
-        id: "session_demo3",
-        title: "Refactor GGUF cache cleanup",
-        detail: "Yesterday",
-        dirName: "otis-demo",
-        workspaceLabel: "otis",
-        workspacePath: "/Users/dev/Projects/otis",
-      },
-      {
-        id: "session_notes",
-        title: "Reading list cleanup",
-        detail: "2d ago",
-        dirName: "notes-demo",
-        workspaceLabel: "notes",
-        workspacePath: "/Users/dev/Projects/notes",
-      },
+      demoSession("session_pdf", "Canvas preview · PDF", "Demo"),
+      demoSession("session_docx", "Canvas preview · Word", "Demo"),
+      demoSession("session_webpage", "Canvas preview · Webpage", "Demo"),
+      demoSession("session_demo1", "Canvas preview · Markdown", "Demo"),
+      demoSession("session_demo2", "Fix flaky session lock test", "3h ago"),
+      demoSession("session_demo3", "Refactor GGUF cache cleanup", "Yesterday"),
+      demoSession("session_notes", "Reading list cleanup", "2d ago", "notes"),
+      // An unregistered folder: no workspace path, so opening it goes through the locate flow.
       {
         id: "session_old",
         title: "Legacy import dry run",
@@ -543,7 +511,16 @@ class DemoRuntime implements DesktopApi {
       activeDays: 124,
       promptTokens: 19_909_600,
       completionTokens: 5_000_000,
-      recentActivity: demoRecentActivity(),
+      recentActivity: DEMO_ACTIVITY_TOKENS.map((tokens, index) => {
+        const day = new Date()
+        day.setHours(12, 0, 0, 0)
+        day.setDate(day.getDate() - (DEMO_ACTIVITY_TOKENS.length - 1 - index))
+        const month = String(day.getMonth() + 1).padStart(2, "0")
+        return {
+          date: `${day.getFullYear()}-${month}-${String(day.getDate()).padStart(2, "0")}`,
+          tokens,
+        }
+      }),
     },
     entries: savedVersionsTranscript(),
     agentsPanelVisible: true,
@@ -558,15 +535,7 @@ class DemoRuntime implements DesktopApi {
     pairEndpoints: {},
     debug: false,
     update: { status: "current" },
-    subagents: [
-      {
-        toolCallId: "demo_agent_1",
-        title: "Survey sidebar focus handling",
-        status: "complete",
-        tools: 2,
-        durationMs: 1_900,
-      },
-    ],
+    subagents: [DEMO_SUBAGENT],
   }
 
   async setAgentsPanelVisible(visible: boolean): Promise<void> {
@@ -615,7 +584,10 @@ class DemoRuntime implements DesktopApi {
     return { ok: true }
   }
 
-  async connectLocalServers(endpoints: { ollama?: string; lmStudio?: string }): Promise<ModelSelectResult> {
+  async connectLocalServers(endpoints: {
+    ollama?: string
+    lmStudio?: string
+  }): Promise<ModelSelectResult> {
     if (!endpoints.ollama?.trim() && !endpoints.lmStudio?.trim()) {
       return { ok: false, reason: "Enter at least one Ollama, LM Studio, or NVIDIA PAIR endpoint." }
     }
@@ -645,7 +617,8 @@ class DemoRuntime implements DesktopApi {
 
   /** Pretends to re-select the demo model on its other serving path, chip state pulse included. */
   async setFastServing(fast: boolean): Promise<ModelSelectResult> {
-    if (this.#state.busy) return { ok: false, reason: "Finish the current work before changing Fast serving." }
+    if (this.#state.busy)
+      return { ok: false, reason: "Finish the current work before changing Fast serving." }
     this.#state = { ...this.#state, modelState: "starting" }
     this.#emitStatus()
     await new Promise((resolve) => setTimeout(resolve, 900))
@@ -654,7 +627,9 @@ class DemoRuntime implements DesktopApi {
       modelState: "ready",
       fastServing: { available: true, enabled: fast },
       model: {
-        id: fast ? "accounts/fireworks/routers/kimi-k2p5-turbo-fast" : "accounts/fireworks/models/kimi-k2p5-turbo",
+        id: fast
+          ? "accounts/fireworks/routers/kimi-k2p5-turbo-fast"
+          : "accounts/fireworks/models/kimi-k2p5-turbo",
         provider: "fireworks",
         displayName: "Kimi K2.5 Turbo",
         supportsImageInput: true,
@@ -695,7 +670,8 @@ class DemoRuntime implements DesktopApi {
 
   async getSnapshot(): Promise<DesktopSnapshot> {
     return {
-      // Native previews use the actual host; standalone fixtures retain their deterministic platform.
+      // Native previews use the actual host; standalone fixtures retain their deterministic
+      // platform.
       platform: this.hostApi ? (await this.hostApi.getSnapshot()).platform : "darwin",
       version: "0.1.35",
       revision: this.#revision,
@@ -709,9 +685,13 @@ class DemoRuntime implements DesktopApi {
     if (!artifact || artifact.revision !== revision) return undefined
     const fixture = artifact.publication
       ? DEMO_SAVED_WORD.find(
-          (candidate) => candidate.metadata.publication?.reference.version === artifact.publication?.reference.version,
+          (candidate) =>
+            candidate.metadata.publication.reference.version ===
+            artifact.publication?.reference.version,
         )
-      : [...DEMO_ARTIFACTS_BY_SESSION.values()].find((candidate) => candidate.metadata.id === artifact.id)
+      : [...DEMO_ARTIFACTS_BY_SESSION.values()].find(
+          (candidate) => candidate.metadata.id === artifact.id,
+        )
     return fixture ? { ...fixture.payload, ...artifact } : undefined
   }
 
@@ -730,9 +710,11 @@ class DemoRuntime implements DesktopApi {
         )
       })
       const fixture = DEMO_SAVED_WORD.find(
-        (candidate) => candidate.metadata.publication.reference.version === (version ?? DEMO_SAVED_WORD.length),
+        (candidate) =>
+          candidate.metadata.publication.reference.version === (version ?? DEMO_SAVED_WORD.length),
       )
-      if (!known || !fixture) return { ok: false, reason: "That saved demo version is unavailable." }
+      if (!known || !fixture)
+        return { ok: false, reason: "That saved demo version is unavailable." }
       this.#state = {
         ...this.#state,
         artifact: {
@@ -745,9 +727,11 @@ class DemoRuntime implements DesktopApi {
       this.#emitStatus()
       return { ok: true }
     }
-    if (reference.source !== "workspace") return { ok: false, reason: "That demo attachment is unavailable." }
+    if (reference.source !== "workspace")
+      return { ok: false, reason: "That demo attachment is unavailable." }
     const fixture = [...DEMO_ARTIFACTS_BY_SESSION.values()].find(
-      (candidate) => candidate.metadata.path === reference.path && candidate.metadata.kind === reference.kind,
+      (candidate) =>
+        candidate.metadata.path === reference.path && candidate.metadata.kind === reference.kind,
     )
     if (!fixture) return { ok: false, reason: "That demo artifact is unavailable." }
     this.#state = {
@@ -766,12 +750,17 @@ class DemoRuntime implements DesktopApi {
     }
   }
 
-  async sendPrompt(text: string, attachments: readonly DesktopAttachmentInput[] = []): Promise<SendPromptResult> {
-    if (!text.trim() && attachments.length === 0) return { accepted: false, reason: "The prompt is empty." }
+  async sendPrompt(
+    text: string,
+    attachments: readonly DesktopAttachmentInput[] = [],
+  ): Promise<SendPromptResult> {
+    if (!text.trim() && attachments.length === 0)
+      return { accepted: false, reason: "The prompt is empty." }
     const display = [
       text,
       ...attachments.map(
-        (attachment) => `${attachment.mimeType.startsWith("image/") ? "📎" : "📄"} ${attachment.name}`,
+        (attachment) =>
+          `${attachment.mimeType.startsWith("image/") ? "📎" : "📄"} ${attachment.name}`,
       ),
     ]
       .filter(Boolean)
@@ -813,7 +802,7 @@ class DemoRuntime implements DesktopApi {
         ...this.#state,
         workspace: { label: `~/Projects/${workspacePath.split("/").pop()}`, path: workspacePath },
       }
-      this.#emit({ type: "status", revision: ++this.#revision, status: this.#status() })
+      this.#emitStatus()
     }
     return result
   }
@@ -837,7 +826,8 @@ class DemoRuntime implements DesktopApi {
   }
 
   async selectSession(id: string): Promise<SessionOpResult> {
-    if (this.#state.busy) return { ok: false, reason: "Finish the current work before switching sessions." }
+    if (this.#state.busy)
+      return { ok: false, reason: "Finish the current work before switching sessions." }
     const target = this.#state.sessions.find((session) => session.id === id)
     if (!target) return { ok: false, reason: "Unknown session." }
     this.#interrupt()
@@ -857,24 +847,15 @@ class DemoRuntime implements DesktopApi {
       session: { id: target.id, title: target.title },
       sessions: this.#state.sessions.map((session) => ({ ...session, active: session.id === id })),
       artifact,
-      subagents: DEMO_ARTIFACTS_BY_SESSION.has(id)
-        ? [
-            {
-              toolCallId: "demo_agent_1",
-              title: "Survey sidebar focus handling",
-              status: "complete",
-              tools: 2,
-              durationMs: 1_900,
-            },
-          ]
-        : [],
+      subagents: DEMO_ARTIFACTS_BY_SESSION.has(id) ? [DEMO_SUBAGENT] : [],
     }
     this.#emitStatus([{ op: "reset", entries }])
     return { ok: true }
   }
 
   async startNewSession(): Promise<SessionOpResult> {
-    if (this.#state.busy) return { ok: false, reason: "Finish the current work before starting over." }
+    if (this.#state.busy)
+      return { ok: false, reason: "Finish the current work before starting over." }
     this.#interrupt()
     this.#state = {
       ...this.#state,
@@ -889,7 +870,8 @@ class DemoRuntime implements DesktopApi {
   }
 
   async deleteSession(id: string): Promise<SessionOpResult> {
-    if (this.#state.busy) return { ok: false, reason: "Finish the current work before deleting sessions." }
+    if (this.#state.busy)
+      return { ok: false, reason: "Finish the current work before deleting sessions." }
     const sessions = this.#state.sessions.filter((session) => session.id !== id)
     const deletingActive = this.#state.session?.id === id
     this.#state = {
@@ -922,7 +904,9 @@ class DemoRuntime implements DesktopApi {
       // Like the real catalog: an over-budget model stays listed while its weights are cached, then
       // disappears once they are deleted.
       ...rows.filter(
-        (item) => item.provider === "local" && (item.available || !("downloaded" in item) || item.downloaded),
+        (item) =>
+          item.provider === "local" &&
+          (item.available || !("downloaded" in item) || item.downloaded),
       ),
       { kind: "header", id: "header-pair", displayName: "NVIDIA PAIR" },
       ...rows.filter((item) => item.provider === "pair"),
@@ -932,10 +916,12 @@ class DemoRuntime implements DesktopApi {
   }
 
   async selectModel(id: string): Promise<ModelSelectResult> {
-    if (this.#state.busy) return { ok: false, reason: "Finish the current work before switching models." }
+    if (this.#state.busy)
+      return { ok: false, reason: "Finish the current work before switching models." }
     const item = (await this.listModels()).find(
       (entry): entry is ModelPickerChoice =>
-        entry.kind === "model" && ("selectionKey" in entry ? entry.selectionKey === id : entry.id === id),
+        entry.kind === "model" &&
+        ("selectionKey" in entry ? entry.selectionKey === id : entry.id === id),
     )
     if (!item) return { ok: false, reason: "That model is no longer in the catalog." }
     if (item.active) return { ok: true }
@@ -943,9 +929,31 @@ class DemoRuntime implements DesktopApi {
       return { ok: false, reason: item.availabilityLabel ?? "Not available." }
     }
     const seq = ++this.#modelSeq
-    // Only a managed local model that still needs its weights shows a visible load, like the real runtime.
+    // Only a managed local model that still needs its weights shows a visible load, like the real
+    // runtime.
     if (item.provider === "local" && "downloaded" in item && !item.downloaded) {
-      return this.#simulateModelLoad(item, seq)
+      const steps = ["Downloading 12%", "Downloading 45%", "Downloading 78%", "Loading"]
+      return new Promise((resolve) => {
+        let index = 0
+        const step = () => {
+          if (seq !== this.#modelSeq)
+            return resolve({ ok: false, reason: "The selection was cancelled." })
+          if (index === steps.length) {
+            // The simulated download put the weights back on disk: the row is deletable again.
+            this.#downloadedLocalIds.add(item.id)
+            this.#activateModel(item)
+            return resolve({ ok: true })
+          }
+          this.#state = {
+            ...this.#state,
+            modelLoad: { modelId: item.id, status: { label: steps[index], kind: "progress" } },
+          }
+          this.#emitStatus()
+          index += 1
+          this.#modelTimer = setTimeout(step, 650)
+        }
+        step()
+      })
     }
     await new Promise((resolve) => setTimeout(resolve, 350))
     if (seq !== this.#modelSeq) return { ok: false, reason: "The selection was superseded." }
@@ -964,7 +972,8 @@ class DemoRuntime implements DesktopApi {
   }
 
   async deleteLocalModel(id: string): Promise<ModelSelectResult> {
-    if (this.#state.busy) return { ok: false, reason: "Finish the current work before deleting a model." }
+    if (this.#state.busy)
+      return { ok: false, reason: "Finish the current work before deleting a model." }
     const known = DEMO_MODELS.some((item) => item.provider === "local" && item.id === id)
     if (!known) return { ok: false, reason: "That model is not in the local catalog." }
     // Slow enough to review the pending state, like deleting hundreds of GBs for real.
@@ -985,34 +994,6 @@ class DemoRuntime implements DesktopApi {
     return { ok: true }
   }
 
-  #simulateModelLoad(item: ModelPickerChoice, seq: number): Promise<ModelSelectResult> {
-    const steps = ["Downloading 12%", "Downloading 45%", "Downloading 78%", "Loading"]
-    return new Promise((resolve) => {
-      let index = 0
-      const step = () => {
-        if (seq !== this.#modelSeq) {
-          resolve({ ok: false, reason: "The selection was cancelled." })
-          return
-        }
-        if (index < steps.length) {
-          this.#state = {
-            ...this.#state,
-            modelLoad: { modelId: item.id, status: { label: steps[index] as string, kind: "progress" } },
-          }
-          this.#emitStatus()
-          index += 1
-          this.#modelTimer = setTimeout(step, 650)
-          return
-        }
-        // The simulated download put the weights back on disk: the row is deletable again.
-        this.#downloadedLocalIds.add(item.id)
-        this.#activateModel(item)
-        resolve({ ok: true })
-      }
-      step()
-    })
-  }
-
   #activateModel(item: ModelPickerChoice) {
     this.#state = {
       ...this.#state,
@@ -1024,13 +1005,16 @@ class DemoRuntime implements DesktopApi {
     this.#emitStatus()
   }
 
-  // --- Simulation ---
-
   #runTurn(prompt: string, generation: number) {
     this.#state = { ...this.#state, busy: true, phase: "thinking" }
     this.#emitStatus()
 
-    const reply = cannedReply(prompt)
+    const reply: CannedReply = {
+      reasoning: `The user wants: “${prompt.slice(0, 80)}”. I should find the keyboard handling, make the change, and run the tests before reporting back.`,
+      intro: "I'll find the keyboard handling first, then make the change.",
+      denied: "Understood — I won't run the tests.",
+      final: FINAL_ANSWER,
+    }
     this.#after(generation, 450, () => {
       const reasoning = this.#push({
         id: this.#nextId++,
@@ -1042,7 +1026,11 @@ class DemoRuntime implements DesktopApi {
         startedAt: new Date().toISOString(),
       })
       this.#streamText(reasoning.id, reply.reasoning, generation, () => {
-        this.#patch(reasoning.id, { streaming: false, endedAt: new Date().toISOString(), durationMs: 1200 })
+        this.#patch(reasoning.id, {
+          streaming: false,
+          endedAt: new Date().toISOString(),
+          durationMs: 1200,
+        })
         this.#after(generation, 250, () => {
           this.#streamText(this.#pushAssistant("", true).id, reply.intro, generation, () => {
             this.#runTools(generation, reply)
@@ -1061,14 +1049,21 @@ class DemoRuntime implements DesktopApi {
         ...this.#state,
         subagents: [
           ...this.#state.subagents,
-          { toolCallId: agentId, title: "Check session lock behavior", status: "running", tools: 0 },
+          {
+            toolCallId: agentId,
+            title: "Check session lock behavior",
+            status: "running",
+            tools: 0,
+          },
         ],
       }
       this.#emitStatus()
       this.#after(generation, 900, () => {
         this.#state = {
           ...this.#state,
-          subagents: this.#state.subagents.map((run) => (run.toolCallId === agentId ? { ...run, tools: 1 } : run)),
+          subagents: this.#state.subagents.map((run) =>
+            run.toolCallId === agentId ? { ...run, tools: 1 } : run,
+          ),
         }
         this.#emitStatus()
       })
@@ -1076,87 +1071,69 @@ class DemoRuntime implements DesktopApi {
         this.#state = {
           ...this.#state,
           subagents: this.#state.subagents.map((run) =>
-            run.toolCallId === agentId ? { ...run, status: "complete" as const, durationMs: 2_600 } : run,
+            run.toolCallId === agentId
+              ? { ...run, status: "complete" as const, durationMs: 2_600 }
+              : run,
           ),
         }
         this.#emitStatus()
       })
     })
-    this.#after(generation, 400, () => {
-      this.#push({
-        id: this.#nextId++,
-        kind: "tool",
-        speaker: "Tool",
-        text: "Searching files: keydown",
-        activityKind: "file_search",
-        toolCallId: `call_${generation}_1`,
-      })
-      this.#after(generation, 450, () => {
+    const tools = [
+      [400, "Searching files: keydown", "file_search"],
+      [450, "Reading files: src/desktop/renderer/shell/AppShell.tsx", "file_read"],
+      [450, "Running command: bun run typecheck", "shell"],
+      [500, "Editing file: src/desktop/renderer/shell/AppShell.tsx", "file_edit"],
+    ] as const
+    const runTool = (index: number) => {
+      const [delay, text, activityKind] = tools[index]
+      const last = index === tools.length - 1
+      this.#after(generation, delay, () => {
         this.#push({
           id: this.#nextId++,
           kind: "tool",
           speaker: "Tool",
-          text: "Reading files: src/desktop/renderer/shell/AppShell.tsx",
-          activityKind: "file_read",
-          toolCallId: `call_${generation}_2`,
+          text,
+          activityKind,
+          toolCallId: `call_${generation}_${index + 1}`,
+          ...(last ? { diff: SAMPLE_DIFF } : {}),
         })
-        this.#after(generation, 450, () => {
-          this.#push({
-            id: this.#nextId++,
-            kind: "tool",
-            speaker: "Tool",
-            text: "Running command: bun run typecheck",
-            activityKind: "shell",
-            toolCallId: `call_${generation}_3`,
-          })
-          this.#after(generation, 500, () => {
+        if (!last) return runTool(index + 1)
+        this.#state = {
+          ...this.#state,
+          diffs: { added: this.#state.diffs.added + 5, removed: this.#state.diffs.removed + 2 },
+        }
+        this.#emitStatus()
+        this.#after(generation, 600, () => {
+          this.#state = {
+            ...this.#state,
+            permission: {
+              id: generation,
+              label: "Running command: bun test",
+              kind: "shell",
+              resources: ["bun test"],
+            },
+          }
+          this.#emitStatus()
+          new Promise<boolean>((resolve) => {
+            this.#permissionResolve = resolve
+          }).then((allow) => {
+            if (generation !== this.#generation) return
+            if (!allow) return this.#finishTurn(generation, `${reply.denied}\n\n${reply.final}`)
             this.#push({
               id: this.#nextId++,
               kind: "tool",
               speaker: "Tool",
-              text: "Editing file: src/desktop/renderer/shell/AppShell.tsx",
-              activityKind: "file_edit",
-              toolCallId: `call_${generation}_4`,
-              diff: SAMPLE_DIFF,
+              text: "Running command: bun test",
+              activityKind: "shell",
+              toolCallId: `call_${generation}_5`,
             })
-            this.#state = {
-              ...this.#state,
-              diffs: { added: this.#state.diffs.added + 5, removed: this.#state.diffs.removed + 2 },
-            }
-            this.#emitStatus()
-            this.#requestPermission(generation, reply)
+            this.#after(generation, 700, () => this.#finishTurn(generation, reply.final))
           })
         })
       })
-    })
-  }
-
-  #requestPermission(generation: number, reply: CannedReply) {
-    this.#after(generation, 600, () => {
-      this.#state = {
-        ...this.#state,
-        permission: { id: generation, label: "Running command: bun test", kind: "shell", resources: ["bun test"] },
-      }
-      this.#emitStatus()
-      new Promise<boolean>((resolve) => {
-        this.#permissionResolve = resolve
-      }).then((allow) => {
-        if (generation !== this.#generation) return
-        if (allow) {
-          this.#push({
-            id: this.#nextId++,
-            kind: "tool",
-            speaker: "Tool",
-            text: "Running command: bun test",
-            activityKind: "shell",
-            toolCallId: `call_${generation}_5`,
-          })
-          this.#after(generation, 700, () => this.#finishTurn(generation, reply.final))
-        } else {
-          this.#finishTurn(generation, `${reply.denied}\n\n${reply.final}`)
-        }
-      })
-    })
+    }
+    runTool(0)
   }
 
   #finishTurn(generation: number, text: string) {
@@ -1173,7 +1150,10 @@ class DemoRuntime implements DesktopApi {
     })
   }
 
-  /** Moves the queued message into the active position (like transcript.activatePendingUserMessage) and runs it. */
+  /**
+   * Moves the queued message into the active position (like transcript.activatePendingUserMessage)
+   * and runs it.
+   */
   #activateQueued(text: string) {
     const queuedEntry = this.#state.entries.find((entry) => entry.delivery === "queued")
     if (queuedEntry) {
@@ -1222,8 +1202,6 @@ class DemoRuntime implements DesktopApi {
     }
     step()
   }
-
-  // --- Plumbing ---
 
   #entry(speaker: "You" | "Otis", text: string): TranscriptEntry {
     return { id: this.#nextId++, kind: "message", speaker, text }
@@ -1279,7 +1257,12 @@ class DemoRuntime implements DesktopApi {
   }
 
   #emitStatus(ops?: TranscriptPatchOp[]) {
-    this.#emit({ type: "status", revision: ++this.#revision, status: this.#status(), ...(ops ? { ops } : {}) })
+    this.#emit({
+      type: "status",
+      revision: ++this.#revision,
+      status: this.#status(),
+      ...(ops ? { ops } : {}),
+    })
   }
 
   #emit(event: DesktopEvent) {
@@ -1289,22 +1272,34 @@ class DemoRuntime implements DesktopApi {
 
 type CannedReply = { reasoning: string; intro: string; denied: string; final: string }
 
-function cannedReply(prompt: string): CannedReply {
-  return {
-    reasoning: `The user wants: “${prompt.slice(0, 80)}”. I should find the keyboard handling, make the change, and run the tests before reporting back.`,
-    intro: "I'll find the keyboard handling first, then make the change.",
-    denied: "Understood — I won't run the tests.",
-    final: FINAL_ANSWER,
-  }
-}
-
 let fixtureId = 1
-const fixture = (entry: Omit<TranscriptEntry, "id">): TranscriptEntry => ({ id: fixtureId++, ...entry })
+const fixture = (entry: Omit<TranscriptEntry, "id">): TranscriptEntry => ({
+  id: fixtureId++,
+  ...entry,
+})
+const tool = (
+  text: string,
+  activityKind: TranscriptEntry["activityKind"],
+  toolCallId: string,
+  diff?: string,
+) =>
+  fixture({
+    kind: "tool",
+    speaker: "Tool",
+    text,
+    activityKind,
+    toolCallId,
+    ...(diff ? { diff } : {}),
+  })
 
 function savedVersionsTranscript(): TranscriptEntry[] {
   fixtureId = 1
   return [
-    fixture({ kind: "message", speaker: "You", text: "Show me the three saved versions of the launch plan." }),
+    fixture({
+      kind: "message",
+      speaker: "You",
+      text: "Show me the three saved versions of the launch plan.",
+    }),
     fixture({
       kind: "message",
       speaker: "Otis",
@@ -1337,36 +1332,15 @@ function demoTranscript(): TranscriptEntry[] {
       endedAt: "2026-09-07T10:00:01Z",
       durationMs: 1150,
     }),
-    fixture({ kind: "message", speaker: "Otis", text: "Let me look at the shell's keyboard handling first." }),
     fixture({
-      kind: "tool",
-      speaker: "Tool",
-      text: "Searching files: keydown",
-      activityKind: "file_search",
-      toolCallId: "c1",
+      kind: "message",
+      speaker: "Otis",
+      text: "Let me look at the shell's keyboard handling first.",
     }),
-    fixture({
-      kind: "tool",
-      speaker: "Tool",
-      text: "Reading files: src/desktop/renderer/shell/AppShell.tsx",
-      activityKind: "file_read",
-      toolCallId: "c2",
-    }),
-    fixture({
-      kind: "tool",
-      speaker: "Tool",
-      text: "Editing file: src/desktop/renderer/shell/AppShell.tsx",
-      activityKind: "file_edit",
-      toolCallId: "c3",
-      diff: SAMPLE_DIFF,
-    }),
-    fixture({
-      kind: "tool",
-      speaker: "Tool",
-      text: "Running command: bun test tests/desktop",
-      activityKind: "shell",
-      toolCallId: "c4",
-    }),
+    tool("Searching files: keydown", "file_search", "c1"),
+    tool("Reading files: src/desktop/renderer/shell/AppShell.tsx", "file_read", "c2"),
+    tool("Editing file: src/desktop/renderer/shell/AppShell.tsx", "file_edit", "c3", SAMPLE_DIFF),
+    tool("Running command: bun test tests/desktop", "shell", "c4"),
     fixture({
       kind: "message",
       speaker: "Otis",
@@ -1384,7 +1358,11 @@ useEffect(() => {
 
 All 214 tests pass.`,
     }),
-    fixture({ kind: "message", speaker: "You", text: "Also collapse it automatically below 900px window width" }),
+    fixture({
+      kind: "message",
+      speaker: "You",
+      text: "Also collapse it automatically below 900px window width",
+    }),
     fixture({
       kind: "message",
       speaker: "Otis",
@@ -1397,7 +1375,11 @@ sequenceDiagram
   Sidebar-->>User: Preserve the compact layout
 \`\`\``,
     }),
-    fixture({ kind: "message", speaker: "You", text: "Can you show the agent loop and its runtime states too?" }),
+    fixture({
+      kind: "message",
+      speaker: "You",
+      text: "Can you show the agent loop and its runtime states too?",
+    }),
     fixture({
       kind: "message",
       speaker: "Otis",
@@ -1440,13 +1422,7 @@ function errorTranscript(): TranscriptEntry[] {
   fixtureId = 50
   return [
     fixture({ kind: "message", speaker: "You", text: "Why is the session lock test flaky on CI?" }),
-    fixture({
-      kind: "tool",
-      speaker: "Tool",
-      text: "Searching files: acquireSessionLock",
-      activityKind: "file_search",
-      toolCallId: "e1",
-    }),
+    tool("Searching files: acquireSessionLock", "file_search", "e1"),
     fixture({
       kind: "message",
       speaker: "Otis",

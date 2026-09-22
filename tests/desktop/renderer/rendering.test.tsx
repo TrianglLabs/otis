@@ -9,7 +9,6 @@ import { Markdown } from "../../../src/desktop/renderer/components/Markdown.js"
 import { createDemoRuntime } from "../../../src/desktop/renderer/demo/demo-runtime.js"
 import { AgentTraceOverlay } from "../../../src/desktop/renderer/features/agents/AgentTraceOverlay.js"
 import { CanvasOpenContext } from "../../../src/desktop/renderer/features/canvas/canvas-context.js"
-import * as diff from "../../../src/desktop/renderer/features/conversation/diff.js"
 import { EntryView } from "../../../src/desktop/renderer/features/conversation/entries.js"
 import { ToolCard } from "../../../src/desktop/renderer/features/conversation/ToolCard.js"
 import { DesktopProvider, useDesktopState } from "../../../src/desktop/renderer/runtime.js"
@@ -33,7 +32,13 @@ describe("stable message rendering", () => {
             text: "Review this file",
             messageText: "Review this file",
             artifacts: [
-              { source: "attachment", name: "main.py", kind: "text", mimeType: "text/plain", sha256: "a".repeat(64) },
+              {
+                source: "attachment",
+                name: "main.py",
+                kind: "text",
+                mimeType: "text/plain",
+                sha256: "a".repeat(64),
+              },
             ],
           }}
           active={false}
@@ -73,24 +78,28 @@ describe("stable message rendering", () => {
         />
       </DesktopProvider>,
     )
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Open in Canvas: final.html" })))
+    await act(async () =>
+      fireEvent.click(screen.getByRole("button", { name: "Open in Canvas: final.html" })),
+    )
     expect(openArtifact).toHaveBeenCalledExactlyOnceWith(artifact)
   })
 
-  it("keeps a pending artifact revision in the ordinary tool activity", () => {
+  it("keeps a pending artifact revision in the ordinary tool activity", async () => {
     const view = render(
-      <ToolCard
-        entry={{
-          id: 1,
-          kind: "tool",
-          speaker: "Tool",
-          text: "Editing final.html",
-          activityKind: "file_edit",
-          artifact: { source: "workspace", path: "final.html", kind: "html" },
-          artifactDisplay: "pending",
-        }}
-        active={true}
-      />,
+      <DesktopProvider value={await testRuntime()}>
+        <ToolCard
+          entry={{
+            id: 1,
+            kind: "tool",
+            speaker: "Tool",
+            text: "Editing final.html",
+            activityKind: "file_edit",
+            artifact: { source: "workspace", path: "final.html", kind: "html" },
+            artifactDisplay: "pending",
+          }}
+          active={true}
+        />
+      </DesktopProvider>,
     )
 
     expect(view.container.querySelector(".artifactCard")).toBeNull()
@@ -124,7 +133,9 @@ describe("stable message rendering", () => {
     const openCanvas = vi.fn()
     render(
       <CanvasOpenContext.Provider value={openCanvas}>
-        <Markdown text={"```mermaid\nflowchart LR\n  A --> B\n```\n\n```ts\nconst answer = 42\n```"} />
+        <Markdown
+          text={"```mermaid\nflowchart LR\n  A --> B\n```\n\n```ts\nconst answer = 42\n```"}
+        />
       </CanvasOpenContext.Provider>,
     )
 
@@ -161,8 +172,8 @@ describe("stable message rendering", () => {
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith("const answer = 42")
   })
 
-  it("does not reparse a completed diff when the tool's activity status changes", () => {
-    const parse = vi.spyOn(diff, "parseDiffDisplay")
+  it("does not reparse a completed diff when the tool's activity status changes", async () => {
+    const runtime = await testRuntime()
     const entry = {
       id: 1,
       kind: "tool" as const,
@@ -170,14 +181,18 @@ describe("stable message rendering", () => {
       text: "Edit",
       diff: "@@ -1 +1 @@\n-old\n+new",
     }
-    const view = render(<ToolCard entry={entry} active={true} />)
+    const card = (props: Partial<typeof entry>, active: boolean) => (
+      <DesktopProvider value={runtime}>
+        <ToolCard entry={{ ...entry, ...props }} active={active} />
+      </DesktopProvider>
+    )
+    const view = render(card({}, true))
     const line = view.container.querySelector(".diffLine")
-    expect(parse).toHaveBeenCalledTimes(1)
-    view.rerender(<ToolCard entry={{ ...entry, text: "Edited file" }} active={false} />)
-    expect(parse).toHaveBeenCalledTimes(1)
+    expect(line).toBeTruthy()
+    view.rerender(card({ text: "Edited file" }, false))
+    // A status-only change keeps the parsed diff rows; the same DOM nodes stay mounted.
     expect(view.container.querySelector(".diffLine")).toBe(line)
-    view.rerender(<ToolCard entry={{ ...entry, diff: "@@ -1 +1 @@\n-old\n+changed" }} active={false} />)
-    expect(parse).toHaveBeenCalledTimes(2)
+    view.rerender(card({ diff: "@@ -1 +1 @@\n-old\n+changed" }, false))
     expect(view.container.textContent).toContain("changed")
   })
 })
@@ -192,7 +207,13 @@ describe("user delivery markers", () => {
       delivery: "queued" as const,
     }
     const view = render(
-      <EntryView entry={entry} active={false} thinkingVisible={false} expanded={false} onExpandedChange={() => {}} />,
+      <EntryView
+        entry={entry}
+        active={false}
+        thinkingVisible={false}
+        expanded={false}
+        onExpandedChange={() => {}}
+      />,
     )
     expect(view.container.querySelector(".userRow-queued")).toBeTruthy()
     expect(screen.getByRole("img", { name: "Queued" })).toBeTruthy()
@@ -211,7 +232,13 @@ describe("user delivery markers", () => {
       delivery: "steering" as const,
     }
     const view = render(
-      <EntryView entry={entry} active={false} thinkingVisible={false} expanded={false} onExpandedChange={() => {}} />,
+      <EntryView
+        entry={entry}
+        active={false}
+        thinkingVisible={false}
+        expanded={false}
+        onExpandedChange={() => {}}
+      />,
     )
     expect(view.container.querySelector(".userRow-steering")).toBeTruthy()
     expect(screen.getByRole("img", { name: "Steering" })).toBeTruthy()
@@ -267,7 +294,12 @@ describe("scoped desktop subscriptions", () => {
         runtime.emit({
           type: "transcript",
           revision: runtime.snapshot.revision + index,
-          ops: [{ op: "upsert", entry: { id: 99, kind: "message", speaker: "Otis", text: `Token ${index}` } }],
+          ops: [
+            {
+              op: "upsert",
+              entry: { id: 99, kind: "message", speaker: "Otis", text: `Token ${index}` },
+            },
+          ],
         }),
       )
     }
@@ -288,7 +320,11 @@ describe("scoped desktop subscriptions", () => {
     const runtime = await testRuntime()
     let revision = runtime.snapshot.revision
     const run = { toolCallId: "trace", title: "Test trace", status: "running" as const, tools: 0 }
-    runtime.emit({ type: "status", revision: ++revision, status: { ...runtime.snapshot, subagents: [run] } })
+    runtime.emit({
+      type: "status",
+      revision: ++revision,
+      status: { ...runtime.snapshot, subagents: [run] },
+    })
     const getTrace = vi.fn(async () => [])
     runtime.api.getSubagentTrace = getTrace
     render(
@@ -301,7 +337,11 @@ describe("scoped desktop subscriptions", () => {
     await act(async () => runtime.emit({ type: "transcript", revision: ++revision, ops: [] }))
     expect(getTrace).toHaveBeenCalledTimes(1)
     await act(async () =>
-      runtime.emit({ type: "status", revision: ++revision, status: { ...runtime.snapshot, subagents: [run] } }),
+      runtime.emit({
+        type: "status",
+        revision: ++revision,
+        status: { ...runtime.snapshot, subagents: [run] },
+      }),
     )
     expect(getTrace).toHaveBeenCalledTimes(2)
     await act(async () =>

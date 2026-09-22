@@ -11,7 +11,11 @@ const mocks = vi.hoisted(() => ({ executeTurn: vi.fn(), listGlobal: vi.fn() }))
 vi.mock("../../../src/app/turn-runner.js", () => ({ executeTurn: mocks.executeTurn }))
 vi.mock("../../../src/inference/gguf-cache.js", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../../src/inference/gguf-cache.js")>()
-  return { ...original, isLocalGgufDownloaded: async () => false, listDownloadedLocalModels: async () => [] }
+  return {
+    ...original,
+    isLocalGgufDownloaded: async () => false,
+    listDownloadedLocalModels: async () => [],
+  }
 })
 vi.mock("../../../src/app/global-sessions.js", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../../src/app/global-sessions.js")>()
@@ -35,7 +39,12 @@ describe("global session list caching", () => {
     const cwd = join(home, "workspace")
     await mkdir(cwd, { recursive: true })
     const app = await Application.create({ cwd })
-    const runtime = DesktopRuntime.forApplication(app, { cwd, version: "test", platform: "darwin", send: () => {} })
+    const runtime = DesktopRuntime.forApplication(app, {
+      cwd,
+      version: "test",
+      platform: "darwin",
+      send: () => {},
+    })
     const scansBefore = mocks.listGlobal.mock.calls.length
 
     await Promise.all(Array.from({ length: 10 }, () => runtime.snapshot()))
@@ -49,7 +58,12 @@ describe("global session list caching", () => {
     const cwd = join(home, "workspace")
     await mkdir(cwd, { recursive: true })
     const app = await Application.create({ cwd })
-    const runtime = DesktopRuntime.forApplication(app, { cwd, version: "test", platform: "darwin", send: () => {} })
+    const runtime = DesktopRuntime.forApplication(app, {
+      cwd,
+      version: "test",
+      platform: "darwin",
+      send: () => {},
+    })
 
     await runtime.snapshot() // warms the cache
     const scansAfterWarm = mocks.listGlobal.mock.calls.length
@@ -59,7 +73,8 @@ describe("global session list caching", () => {
     const external = await createSession({ cwd })
     await external.admitPrompt("from the terminal")
 
-    expect((await runtime.snapshot()).sessions.some((s) => s.id === external.id)).toBe(false) // still cached
+    // Still cached.
+    expect((await runtime.snapshot()).sessions.some((s) => s.id === external.id)).toBe(false)
     runtime.refreshSessions()
     await vi.waitFor(async () =>
       expect((await runtime.snapshot()).sessions.some((s) => s.id === external.id)).toBe(true),
@@ -83,23 +98,29 @@ describe("global session list caching", () => {
       send: () => {},
     })
 
-    mocks.executeTurn.mockImplementation(async (options: TurnRunnerOptions): Promise<TurnResult> => {
-      for (let i = 0; i < 5; i += 1) await options.onEvent?.({ type: "delta", text: `chunk ${i}` })
-      await options.onEvent?.({
-        type: "complete",
-        messages: [{ role: "assistant", content: [{ type: "text", text: "done" }] }],
-      })
-      return { status: "complete", messages: [], details: {} }
-    })
+    mocks.executeTurn.mockImplementation(
+      async (options: TurnRunnerOptions): Promise<TurnResult> => {
+        for (let i = 0; i < 5; i += 1)
+          await options.onEvent?.({ type: "delta", text: `chunk ${i}` })
+        await options.onEvent?.({
+          type: "complete",
+          messages: [{ role: "assistant", content: [{ type: "text", text: "done" }] }],
+        })
+        return { status: "complete", messages: [], details: {} }
+      },
+    )
 
     await runtime.sendPrompt("stream something")
     await vi.waitFor(async () =>
-      expect((await runtime.snapshot()).entries.some((e) => e.text?.includes("chunk 4"))).toBe(true),
+      expect((await runtime.snapshot()).entries.some((e) => e.text?.includes("chunk 4"))).toBe(
+        true,
+      ),
     )
     const scansDuringStreaming = mocks.listGlobal.mock.calls.length
     await vi.waitFor(async () => expect((await runtime.snapshot()).busy).toBe(false))
 
-    // More status flushes after streaming must not rescan; the settled turn invalidated once, so allow one more.
+    // More status flushes after streaming must not rescan; the settled turn invalidated once, so
+    // allow one more.
     await runtime.snapshot()
     await runtime.snapshot()
     expect(mocks.listGlobal.mock.calls.length).toBeLessThanOrEqual(scansDuringStreaming + 1)

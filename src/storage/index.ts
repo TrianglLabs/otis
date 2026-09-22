@@ -1,34 +1,30 @@
 export {
   createSession,
-  DEFAULT_SESSION_ID,
-  defaultSessionDirectory,
   deleteSession,
-  forToolCalls,
   JsonlSession,
+  listAllSessions,
   listSessions,
   openSession,
   type PromptAdmission,
+  type SessionSummary,
+  searchAllSessions,
+  searchSessions,
+} from "./session.js"
+export {
+  forToolCalls,
   readSessionEvents,
-  replaySession,
   replaySessionMessages,
   type SessionEvent,
-  type SessionOptions,
-  type SessionSearchResult,
   type SessionSubagentRun,
   type SessionSubagentStatus,
-  type SessionSummary,
   type SessionToolActivity,
   type SessionTurnDetails,
   type SessionTurnSegment,
-  searchSessions,
-  type UsagePurpose,
-} from "./session.js"
-export { sessionFile, sessionRootDirectory } from "./session-files.js"
+} from "./session-events.js"
 export {
-  type GlobalSessionSearchResult,
-  type GlobalSessionSummary,
-  listAllSessions,
-  searchAllSessions,
-} from "./session-global.js"
+  defaultSessionDirectory,
+  sessionFile,
+  sessionRootDirectory,
+} from "./session-files.js"
 export { acquireSessionLock, type SessionLock } from "./session-lock.js"
-export { listWorkspaceSessionDirs, readWorkspacePath, registerWorkspacePath } from "./workspace-registry.js"
+export { readWorkspacePath, registerWorkspacePath } from "./workspace-registry.js"

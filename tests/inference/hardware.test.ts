@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest"
-import { availableModelMemory, detectHardware, inferenceMemoryBudget } from "../../src/inference/hardware.js"
+import {
+  availableModelMemory,
+  detectHardware,
+  inferenceMemoryBudget,
+} from "../../src/inference/hardware.js"
 
 describe("hardware detection", () => {
   it.each([
@@ -29,7 +33,9 @@ describe("hardware detection", () => {
     expect(hardware.cudaVersion).toBe(cudaVersion)
     expect(hardware.gpuCount).toBe(output.split("\n").length)
     const capabilities = output.split("\n").map((line) => Number(line.split(",")[2]))
-    expect(hardware.cudaComputeCapabilities).toEqual(capabilities.every(Number.isFinite) ? capabilities : undefined)
+    expect(hardware.cudaComputeCapabilities).toEqual(
+      capabilities.every(Number.isFinite) ? capabilities : undefined,
+    )
     expect(inferenceMemoryBudget(hardware).deviceHeadroomBytes).toBe(1024 ** 3)
   })
 
@@ -46,7 +52,9 @@ describe("hardware detection", () => {
     })
     const budget = inferenceMemoryBudget(hardware)
     expect(budget.deviceHeadroomBytes).toBe(9_831 * 1024 ** 2)
-    expect(availableModelMemory(hardware)).toBe(hardware.totalMemoryBytes - budget.deviceHeadroomBytes)
+    expect(availableModelMemory(hardware)).toBe(
+      hardware.totalMemoryBytes - budget.deviceHeadroomBytes,
+    )
   })
 
   it("uses NVIDIA VRAM and Vulkan on Linux", async () => {
@@ -107,7 +115,9 @@ describe("hardware detection", () => {
     expect(hardware).toMatchObject({ backend: "vulkan", gpuMemoryBytes: 16 * 1024 ** 3 })
   })
 
-  it.each([16, 128, 512])("keeps GPU headroom independent of %d GiB host RAM when VRAM is unknown", async (ramGiB) => {
+  it.each([
+    16, 128, 512,
+  ])("keeps GPU headroom independent of %d GiB host RAM when VRAM is unknown", async (ramGiB) => {
     const hardware = await detectHardware({
       env: { platform: "linux", arch: "arm64", totalMemoryBytes: ramGiB * 1024 ** 3 },
       nvidiaSmi: async () => undefined,
@@ -123,7 +133,10 @@ describe("hardware detection", () => {
     const hardware = await detectHardware({
       env: { platform: "linux", arch: "x64", totalMemoryBytes: 64 * 1024 ** 3 },
       nvidiaSmi: async () => undefined,
-      linuxGraphics: async () => [{ memoryTotalBytes: 16 * 1024 ** 3 }, { memoryTotalBytes: 8 * 1024 ** 3 }],
+      linuxGraphics: async () => [
+        { memoryTotalBytes: 16 * 1024 ** 3 },
+        { memoryTotalBytes: 8 * 1024 ** 3 },
+      ],
     })
     expect(hardware).toMatchObject({ gpuCount: 2, gpuMemoryBytes: 24 * 1024 ** 3 })
     expect(inferenceMemoryBudget(hardware)).toEqual({
@@ -132,7 +145,10 @@ describe("hardware detection", () => {
     })
   })
 
-  it.each(["nvidia", "drm"])("retains the GPU count when %s reports incomplete VRAM", async (probe) => {
+  it.each([
+    "nvidia",
+    "drm",
+  ])("retains the GPU count when %s reports incomplete VRAM", async (probe) => {
     const hardware = await detectHardware({
       env: { platform: "linux", arch: "x64", totalMemoryBytes: 128 * 1024 ** 3 },
       nvidiaSmi: async () => (probe === "nvidia" ? "24576\n[N/A]\n" : undefined),

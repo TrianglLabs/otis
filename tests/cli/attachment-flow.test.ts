@@ -29,6 +29,45 @@ function setup() {
   return { flow, ui }
 }
 
+describe("pending attachments", () => {
+  it("names pasted images with an incrementing sequence and counts them", async () => {
+    const { flow, ui } = setup()
+    flow.setModelCapability(true)
+
+    await flow.attachPastedImage(pngBytes())
+    await flow.attachPastedImage(pngBytes())
+
+    expect(flow.pending.items.map((item) => item.name)).toEqual([
+      "pasted-image-1.png",
+      "pasted-image-2.png",
+    ])
+    expect(ui.setAttachmentCounts).toHaveBeenLastCalledWith(2, 0)
+  })
+
+  it("removes the last attachment, clears the rest, and keeps prior snapshots", async () => {
+    const { flow, ui } = setup()
+    flow.setModelCapability(true)
+    await flow.attachPastedImage(pngBytes())
+    const snapshot = flow.pending.items
+    await flow.attachPastedImage(pngBytes())
+
+    expect(snapshot).toHaveLength(1)
+    expect(flow.pending.count).toBe(2)
+    expect(flow.removeLast()).toBe(true)
+    expect(flow.pending.count).toBe(1)
+    expect(ui.setAttachmentCounts).toHaveBeenLastCalledWith(1, 0)
+    flow.clear()
+    expect(flow.pending.count).toBe(0)
+    expect(ui.setAttachmentCounts).toHaveBeenLastCalledWith(0, 0)
+
+    // Nothing left: neither call touches the composer again.
+    const calls = ui.setAttachmentCounts.mock.calls.length
+    flow.clear()
+    expect(flow.removeLast()).toBe(false)
+    expect(ui.setAttachmentCounts.mock.calls).toHaveLength(calls)
+  })
+})
+
 describe("attachment preparation", () => {
   it("waits for extraction before allowing the message to be sent", async () => {
     const { flow, ui } = setup()
@@ -65,3 +104,7 @@ describe("attachment preparation", () => {
     expect(ui.setAttachmentCounts).not.toHaveBeenCalledWith(0, 1)
   })
 })
+
+function pngBytes() {
+  return new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+}

@@ -10,7 +10,6 @@ import type { Renderer } from "./types.js"
 
 const SIDE_PANEL_WIDTH = 41
 const SIDE_PANEL_MIN_WIDTH = 30
-const SUBAGENT_PANEL_WIDTH = 34
 
 // OpenTUI's scrollbar slider hardcodes a dark track (#252527) and gray thumb
 // (#9a9ea3); recolor both from the active theme so they stay visible.
@@ -43,9 +42,7 @@ export function createStatsRow(renderer: Renderer) {
     gap: 1,
   })
   const attributes = createTextAttributes({ bold: true })
-  const statBoxes: Array<{ value: TextRenderable; label: TextRenderable }> = []
-
-  for (let index = 0; index < 4; index += 1) {
+  const statBoxes = initialStats.map((stat, index) => {
     const box = new BoxRenderable(renderer, {
       id: `welcome-stat-${index}`,
       flexDirection: "column",
@@ -62,80 +59,39 @@ export function createStatsRow(renderer: Renderer) {
     })
     const value = new TextRenderable(renderer, {
       id: `welcome-stat-value-${index}`,
-      content: initialStats[index].value,
+      content: stat.value,
       fg: colors.accent,
       attributes,
       alignSelf: "center",
     })
     const label = new TextRenderable(renderer, {
       id: `welcome-stat-label-${index}`,
-      content: initialStats[index].label,
+      content: stat.label,
       fg: colors.muted,
       alignSelf: "center",
     })
     box.add(value)
     box.add(label)
     statsRow.add(box)
-    statBoxes.push({ value, label })
-  }
-
+    return { value, label }
+  })
   return { statsRow, statBoxes }
 }
 
-export function createSessionPanel(renderer: Renderer) {
-  return createSidePanel(renderer, {
-    id: "session-panel",
-    headerId: "session-panel-header",
-    rowsId: "session-rows",
-    footerId: "session-panel-footer",
-    header: "Sessions",
-    footer: "[↑↓] move · [n] new · [d] delete",
-  })
-}
-
-export function createModelPanel(renderer: Renderer) {
-  return createSidePanel(renderer, {
-    id: "model-panel",
-    headerId: "model-panel-header",
-    rowsId: "model-rows",
-    footerId: "model-panel-footer",
-    header: "Models",
-    footer: "[↑↓] move",
-  })
-}
-
-/** Delegated runs list beside the transcript; narrower than the pickers because titles are 3-7 words. */
-export function createSubagentPanel(renderer: Renderer) {
-  return createSidePanel(renderer, {
-    id: "subagent-panel",
-    headerId: "subagent-panel-header",
-    rowsId: "subagent-rows",
-    footerId: "subagent-panel-footer",
-    header: "Subagents",
-    footer: "[→] focus",
-    side: "right",
-    width: SUBAGENT_PANEL_WIDTH,
-  })
-}
-
-function createSidePanel(
+/**
+ * A header, scrolling rows, and keyboard-helper footer beside the transcript, e.g. `session` →
+ * `session-panel`.
+ */
+export function createSidePanel(
   renderer: Renderer,
-  spec: {
-    id: string
-    headerId: string
-    rowsId: string
-    footerId: string
-    header: string
-    footer: string
-    side?: "left" | "right"
-    width?: number
-  },
+  spec: { id: string; header: string; footer: string; side?: "left" | "right"; width?: number },
 ) {
+  const width = spec.width ?? SIDE_PANEL_WIDTH
   const panel = new BoxRenderable(renderer, {
-    id: spec.id,
+    id: `${spec.id}-panel`,
     flexDirection: "column",
-    width: spec.width ?? SIDE_PANEL_WIDTH,
-    minWidth: Math.min(SIDE_PANEL_MIN_WIDTH, spec.width ?? SIDE_PANEL_WIDTH),
+    width,
+    minWidth: Math.min(SIDE_PANEL_MIN_WIDTH, width),
     flexShrink: 0,
     height: "100%",
     backgroundColor: colors.surface,
@@ -146,7 +102,7 @@ function createSidePanel(
     ...(spec.side === "right" ? { marginLeft: 1, marginRight: 1 } : { marginRight: 1 }),
   })
   const rows = new ScrollBoxRenderable(renderer, {
-    id: spec.rowsId,
+    id: `${spec.id}-rows`,
     flexGrow: 1,
     flexShrink: 1,
     // Leftover column space only; a content-sized basis lets a long list
@@ -161,7 +117,7 @@ function createSidePanel(
   })
   panel.add(
     new TextRenderable(renderer, {
-      id: spec.headerId,
+      id: `${spec.id}-panel-header`,
       content: spec.header,
       fg: colors.accent,
       bg: colors.surface,
@@ -172,7 +128,7 @@ function createSidePanel(
   )
   panel.add(rows)
   const footer = new TextRenderable(renderer, {
-    id: spec.footerId,
+    id: `${spec.id}-panel-footer`,
     content: spec.footer,
     fg: colors.muted,
     bg: colors.surface,

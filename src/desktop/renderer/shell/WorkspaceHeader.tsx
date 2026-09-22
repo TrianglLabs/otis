@@ -5,8 +5,8 @@ import { useI18n } from "../i18n/index.js"
 import { useDesktop, useDesktopSelector, useDesktopState } from "../runtime.js"
 
 /**
- * The compact bar above the conversation: session title centered, session metadata (diffs, context) plus search
- * and settings on the right. Session navigation lives in the ⌘K palette.
+ * The compact bar above the conversation: session title centered, session metadata (diffs, context)
+ * plus search and settings on the right. Session navigation lives in the ⌘K palette.
  */
 export function WorkspaceHeader({
   hasCanvas,
@@ -32,11 +32,16 @@ export function WorkspaceHeader({
   if (!state) return <header className="workspaceHeader" />
 
   const { diffs, contextTokens, contextLimit } = state
+  const contextPercent =
+    contextTokens === undefined
+      ? 0
+      : Math.min(100, Math.round((contextTokens / Math.max(1, contextLimit)) * 100))
 
   return (
     <header className="workspaceHeader">
       <div className="workspaceHeader-left">
-        {/* Only once a conversation exists — on the empty home screen, you are already at a fresh start. */}
+        {/* Only once a conversation exists — on the empty home screen, you are already at a
+            fresh start. */}
         {hasEntries ? (
           <Button
             variant="ghost"
@@ -69,17 +74,24 @@ export function WorkspaceHeader({
             })}
           >
             <span className="contextMeter-track">
-              <span
-                className="contextMeter-fill"
-                style={{ width: `${Math.min(100, Math.round((contextTokens / Math.max(1, contextLimit)) * 100))}%` }}
-              />
+              <span className="contextMeter-fill" style={{ width: `${contextPercent}%` }} />
             </span>
             <span className="contextMeter-text">{formatTokenCount(contextTokens)}</span>
           </span>
         ) : null}
         <div className="workspaceHeader-actions">
-          <IconButton icon={Search} label={t("header.searchSessions")} onClick={onOpenPalette} className="noDrag" />
-          <IconButton icon={Settings} label={t("common.settings")} onClick={onOpenSettings} className="noDrag" />
+          <IconButton
+            icon={Search}
+            label={t("header.searchSessions")}
+            onClick={onOpenPalette}
+            className="noDrag"
+          />
+          <IconButton
+            icon={Settings}
+            label={t("common.settings")}
+            onClick={onOpenSettings}
+            className="noDrag"
+          />
           {/* Rightmost: it opens the rail that slides in from the right edge. */}
           {(state.subagents.length > 0 || hasCanvas) && !state.agentsPanelVisible ? (
             <IconButton

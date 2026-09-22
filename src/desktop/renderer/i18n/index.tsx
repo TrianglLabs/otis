@@ -10,11 +10,12 @@ import { pl } from "./messages/pl.js"
 import { ptBR } from "./messages/pt-BR.js"
 import { uk } from "./messages/uk.js"
 import { zhCN } from "./messages/zh-CN.js"
-import { createTranslator } from "./translate.js"
 
-export type ResolvedLocale = Exclude<UiLanguage, "system">
+export type { Translate } from "./messages/en.js"
 
-export const catalogs: Record<ResolvedLocale, Messages> = {
+type ResolvedLocale = Exclude<UiLanguage, "system">
+
+const catalogs: Record<ResolvedLocale, Messages> = {
   en,
   "zh-CN": zhCN,
   ja,
@@ -41,12 +42,18 @@ export const LANGUAGE_OPTIONS: readonly { value: UiLanguage; label: string }[] =
   { value: "pt-BR", label: "Português (Brasil)" },
 ]
 
-export type { Translate } from "./messages/en.js"
+export const englishT = createTranslator(en, "en")
 
 type I18nValue = { locale: ResolvedLocale; systemLocale: ResolvedLocale; t: Translate }
-const I18nContext = createContext<I18nValue>({ locale: "en", systemLocale: "en", t: createTranslator(en, "en") })
+const I18nContext = createContext<I18nValue>({ locale: "en", systemLocale: "en", t: englishT })
 
-export function I18nProvider({ language = "system", children }: { language?: UiLanguage; children: ReactNode }) {
+export function I18nProvider({
+  language = "system",
+  children,
+}: {
+  language?: UiLanguage
+  children: ReactNode
+}) {
   const [systemLocale, setSystemLocale] = useState(detectSystemLocale)
   useEffect(() => {
     const update = () => setSystemLocale(detectSystemLocale())
@@ -68,29 +75,30 @@ export function useI18n() {
   return useContext(I18nContext)
 }
 
-export function resolveLocale(language: UiLanguage, systemLanguages: readonly string[]): ResolvedLocale {
-  if (language !== "system") return language
-  for (const candidate of systemLanguages) {
+function detectSystemLocale(): ResolvedLocale {
+  for (const candidate of navigator.languages) {
     const normalized = candidate.toLowerCase()
-    if (normalized === "zh" || normalized.startsWith("zh-cn") || normalized.startsWith("zh-hans")) return "zh-CN"
+    if (normalized === "zh" || normalized.startsWith("zh-cn") || normalized.startsWith("zh-hans"))
+      return "zh-CN"
     if (normalized === "pt" || normalized.startsWith("pt-br")) return "pt-BR"
-    const base = normalized.split("-")[0]
-    if (
-      base === "en" ||
-      base === "ja" ||
-      base === "ko" ||
-      base === "es" ||
-      base === "fr" ||
-      base === "de" ||
-      base === "pl" ||
-      base === "uk"
-    ) {
-      return base
-    }
+    // Every remaining catalog is keyed by its bare language; regional variants map to the base.
+    const base = normalized.split("-")[0] ?? ""
+    if (Object.hasOwn(catalogs, base)) return base as ResolvedLocale
   }
   return "en"
 }
 
-function detectSystemLocale(): ResolvedLocale {
-  return resolveLocale("system", typeof navigator === "undefined" ? [] : navigator.languages)
+function createTranslator(messages: Messages, locale: string): Translate {
+  const plurals = new Intl.PluralRules(locale)
+  return (key, values) => {
+    const message = messages[key] ?? en[key]
+    const template =
+      typeof message === "string"
+        ? message
+        : (message[plurals.select(Number(values?.count ?? 0))] ?? message.other)
+    if (!values) return template
+    return template.replace(/\{\{(\w+)\}\}/g, (match, name: string) =>
+      Object.hasOwn(values, name) ? String(values[name]) : match,
+    )
+  }
 }

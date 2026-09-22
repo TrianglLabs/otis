@@ -12,7 +12,7 @@ import {
   openSession,
   readSessionEvents,
   replaySessionMessages,
-} from "../../src/storage/session.js"
+} from "../../src/storage/index.js"
 
 const tempDirs: string[] = []
 const originalOtisHome = process.env.OTIS_HOME
@@ -54,7 +54,11 @@ describe("JsonlSession", () => {
     await session.completeTurn(admission, turnMessages)
 
     expect(session.events.map((event) => event.seq)).toEqual([1, 2, 3])
-    expect(session.events.map((event) => event.type)).toEqual(["session_started", "prompt_admitted", "turn_completed"])
+    expect(session.events.map((event) => event.type)).toEqual([
+      "session_started",
+      "prompt_admitted",
+      "turn_completed",
+    ])
     expect(session.replayMessages()).toEqual([
       { role: "user", content: "hello" },
       { role: "assistant", content: [{ type: "text", text: "hi" }] },
@@ -70,7 +74,10 @@ describe("JsonlSession", () => {
     const queued = await session.admitPrompt("then update the docs")
     const activeMessages: ChatMessage[] = [
       active.message,
-      { role: "assistant", content: [{ type: "text", text: "I started with the implementation." }] },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "I started with the implementation." }],
+      },
       { role: "user", content: "focus on tests" },
       { role: "assistant", content: [{ type: "text", text: "The tests need one change." }] },
     ]
@@ -105,18 +112,30 @@ describe("JsonlSession", () => {
     const message = {
       role: "user" as const,
       content: [
-        { type: "image" as const, data: "iVBORw==", mimeType: "image/png" as const, name: "screen.png", sizeBytes: 4 },
+        {
+          type: "image" as const,
+          data: "iVBORw==",
+          mimeType: "image/png" as const,
+          name: "screen.png",
+          sizeBytes: 4,
+        },
         { type: "text" as const, text: "Describe this" },
       ],
     }
     const admission = await session.admitPrompt(message)
-    const turnMessages: ChatMessage[] = [message, { role: "assistant", content: [{ type: "text", text: "A screen." }] }]
+    const turnMessages: ChatMessage[] = [
+      message,
+      { role: "assistant", content: [{ type: "text", text: "A screen." }] },
+    ]
 
     await session.completeTurn(admission, turnMessages)
     const reopened = await openSession({ cwd, directory })
 
     expect(reopened.replayMessages()).toEqual(turnMessages)
-    expect(reopened.events.at(-1)).toMatchObject({ type: "turn_completed", messages: turnMessages.slice(1) })
+    expect(reopened.events.at(-1)).toMatchObject({
+      type: "turn_completed",
+      messages: turnMessages.slice(1),
+    })
   })
 
   it("persists original document assets and extracted text without duplication", async () => {
@@ -142,7 +161,10 @@ describe("JsonlSession", () => {
       ],
     }
     const admission = await session.admitPrompt(message)
-    const turnMessages: ChatMessage[] = [message, { role: "assistant", content: [{ type: "text", text: "Ready." }] }]
+    const turnMessages: ChatMessage[] = [
+      message,
+      { role: "assistant", content: [{ type: "text", text: "Ready." }] },
+    ]
 
     await session.completeTurn(admission, turnMessages)
     const reopened = await openSession({ cwd, directory })
@@ -173,7 +195,10 @@ describe("JsonlSession", () => {
     const admission = await session.admitPrompt("add the setting")
     const messages: ChatMessage[] = [
       { role: "user", content: "add the setting" },
-      { role: "assistant", content: [{ type: "text", text: "I updated the client and added a test." }] },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "I updated the client and added a test." }],
+      },
     ]
 
     await session.interruptTurn(admission, messages)
@@ -236,7 +261,10 @@ describe("JsonlSession", () => {
           type: "turn_completed",
           promptId: "prompt_1",
           messages: [
-            { role: "assistant", content: [{ type: "reasoning", field: "reasoning_content", text: "Legacy" }] },
+            {
+              role: "assistant",
+              content: [{ type: "reasoning", field: "reasoning_content", text: "Legacy" }],
+            },
           ],
         }),
       ].join("\n")}\n`,
@@ -247,7 +275,12 @@ describe("JsonlSession", () => {
       { type: "session_started" },
       {
         type: "turn_completed",
-        messages: [{ role: "assistant", content: [{ type: "reasoning", field: "reasoning_content", text: "Legacy" }] }],
+        messages: [
+          {
+            role: "assistant",
+            content: [{ type: "reasoning", field: "reasoning_content", text: "Legacy" }],
+          },
+        ],
       },
     ])
   })
@@ -255,7 +288,10 @@ describe("JsonlSession", () => {
   it("rejects malformed JSONL with a line number", async () => {
     const cwd = await trackedTempDir()
     const path = join(cwd, "bad.jsonl")
-    await writeFile(path, '{"seq":1,"sessionId":"default","at":"now","type":"session_started","version":1}\nnope\n')
+    await writeFile(
+      path,
+      '{"seq":1,"sessionId":"default","at":"now","type":"session_started","version":1}\nnope\n',
+    )
 
     await expect(readSessionEvents(path)).rejects.toThrow("Invalid session JSON at line 2")
   })
@@ -292,7 +328,11 @@ describe("JsonlSession", () => {
       const sessions = await listSessions({ cwd, directory })
 
       expect(
-        sessions.map((session) => ({ id: session.id, title: session.title, messageCount: session.messageCount })),
+        sessions.map((session) => ({
+          id: session.id,
+          title: session.title,
+          messageCount: session.messageCount,
+        })),
       ).toEqual([
         { id: "second", title: "newer session", messageCount: 1 },
         { id: "first", title: "older session", messageCount: 1 },
@@ -357,7 +397,9 @@ describe("JsonlSession", () => {
       { role: "assistant", content: [{ type: "text", text: "hi" }] },
     ])
 
-    const keptMessages: ChatMessage[] = [{ role: "assistant", content: [{ type: "text", text: "hi" }] }]
+    const keptMessages: ChatMessage[] = [
+      { role: "assistant", content: [{ type: "text", text: "hi" }] },
+    ]
     await session.compact("Summary of the conversation", keptMessages)
 
     expect(session.events.map((event) => event.type)).toEqual([
@@ -443,7 +485,9 @@ describe("JsonlSession", () => {
       { role: "assistant", content: [{ type: "text", text: "reply" }] },
     ])
 
-    await session.compact("Summary", [{ role: "assistant", content: [{ type: "text", text: "reply" }] }])
+    await session.compact("Summary", [
+      { role: "assistant", content: [{ type: "text", text: "reply" }] },
+    ])
 
     const after = await session.admitPrompt("after compaction")
     await session.completeTurn(after, [

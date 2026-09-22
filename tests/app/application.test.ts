@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { Application } from "../../src/app/application.js"
+import { Application, formatWorkspaceLabel } from "../../src/app/application.js"
 import type { ConversationHooks } from "../../src/app/conversation.js"
 import type { TurnResult, TurnRunnerOptions } from "../../src/app/turn-runner.js"
 import { useOtisHome } from "./support/otis-home.js"
@@ -18,7 +18,9 @@ describe("Application", () => {
     const pending = { role: "user" as const, content: "next prompt" }
     app.transcript.observeContext(client, 90_000)
     expect(app.contextTokens()).toBe(90_000)
-    expect(app.contextTokens(pending)).toBe(90_000 + app.contextEstimator()([pending]) - app.contextEstimator()([]))
+    expect(app.contextTokens(pending)).toBe(
+      90_000 + app.contextEstimator()([pending]) - app.contextEstimator()([]),
+    )
     app.models.client = { ...client }
     expect(app.contextTokens()).toBe(app.contextEstimator()([]))
     app.models.client = client
@@ -59,13 +61,15 @@ describe("Application", () => {
     app.models.client = { model: "fake", streamChat: vi.fn(), complete: vi.fn() }
     app.models.selectedProvider = "fireworks"
 
-    mocks.executeTurn.mockImplementation(async (options: TurnRunnerOptions): Promise<TurnResult> => {
-      await options.agent.onPermissionRequest?.({
-        call: { name: "bash", input: { command: "ls" } },
-        decision: { effect: "ask", resources: [] },
-      })
-      return { status: "interrupted", messages: [], details: {} }
-    })
+    mocks.executeTurn.mockImplementation(
+      async (options: TurnRunnerOptions): Promise<TurnResult> => {
+        await options.agent.onPermissionRequest?.({
+          call: { name: "bash", input: { command: "ls" } },
+          decision: { effect: "ask", resources: [] },
+        })
+        return { status: "interrupted", messages: [], details: {} }
+      },
+    )
 
     const started = app.conversation.start({ role: "user", content: "run ls" }, hangingHooks())
     await vi.waitFor(() => expect(app.conversation.busy).toBe(true))
@@ -91,3 +95,23 @@ function hangingHooks(): ConversationHooks {
     onCompletion: () => {},
   }
 }
+
+describe("workspace label", () => {
+  it("abbreviates paths inside the home directory", () => {
+    expect(formatWorkspaceLabel("/Users/test", "/Users/test")).toBe("~")
+    expect(formatWorkspaceLabel("/Users/test/work/otis", "/Users/test")).toBe("~/work/otis")
+  })
+
+  it("compacts deep paths while preserving the current directory and its parent", () => {
+    expect(formatWorkspaceLabel("/Users/test/code/clients/triangl/otis", "/Users/test")).toBe(
+      "~/…/triangl/otis",
+    )
+    expect(formatWorkspaceLabel("/opt/company/projects/otis", "/Users/test")).toBe(
+      "/…/projects/otis",
+    )
+  })
+
+  it("does not treat a sibling path as part of the home directory", () => {
+    expect(formatWorkspaceLabel("/Users/test-other/work/otis", "/Users/test")).toBe("/…/work/otis")
+  })
+})

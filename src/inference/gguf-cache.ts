@@ -1,9 +1,19 @@
 import { createHash, randomUUID } from "node:crypto"
 import { constants, createReadStream } from "node:fs"
-import { chmod, copyFile, link, mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
+import {
+  chmod,
+  copyFile,
+  link,
+  mkdir,
+  open,
+  readFile,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { llamaModelCacheDirectory } from "../local/paths.js"
-import { normalizedSha256, sha256File } from "./file-integrity.js"
 import {
   LOCAL_MODELS,
   type LocalGgufFile,
@@ -15,33 +25,30 @@ import {
 const DOWNLOAD_LOCK_POLL_MS = 250
 const GGUF_MANIFEST_VERSION = 1
 
-export function localGgufPath(model: LocalModelSpec, dataDirectory?: string) {
-  return localGgufPaths(model, dataDirectory)[0]
-}
-
-export function localGgufPaths(model: LocalModelSpec, dataDirectory?: string) {
+function localGgufPaths(model: LocalModelSpec, dataDirectory?: string) {
   const root = dataDirectory ? join(dataDirectory, "models") : llamaModelCacheDirectory()
   return model.ggufFiles.map((file) => join(root, file.name))
 }
 
-export function huggingFaceGgufUrl(model: LocalModelSpec, file: LocalGgufFile = model.ggufFiles[0]) {
-  return `https://huggingface.co/${model.ggufRepo}/resolve/${model.ggufRevision}/${file.name}`
-}
-
 export async function isLocalGgufDownloaded(model: LocalModelSpec, dataDirectory?: string) {
   const states = await Promise.all(
-    localGgufPaths(model, dataDirectory).map((path, index) => hasPinnedFileSize(path, model.ggufFiles[index].size)),
+    localGgufPaths(model, dataDirectory).map((path, index) =>
+      hasPinnedFileSize(path, model.ggufFiles[index].size),
+    ),
   )
   return states.every(Boolean)
 }
 
-export async function isAnyLocalModelPackingDownloaded(model: LocalModelSpec, dataDirectory?: string) {
+export async function isAnyLocalModelPackingDownloaded(
+  model: LocalModelSpec,
+  dataDirectory?: string,
+) {
   return (await downloadedLocalPacking(model, dataDirectory)) !== undefined
 }
 
 export async function listDownloadedLocalModels(dataDirectory?: string) {
   const downloaded = await Promise.all(
-    LOCAL_MODELS.map(async (model) => await downloadedLocalPacking(model, dataDirectory)),
+    LOCAL_MODELS.map((model) => downloadedLocalPacking(model, dataDirectory)),
   )
   return downloaded.filter((model): model is LocalModelSpec => model !== undefined)
 }
@@ -55,9 +62,15 @@ async function downloadedLocalPacking(model: LocalModelSpec, dataDirectory?: str
 
 export async function deleteLocalGguf(model: LocalModelSpec, dataDirectory?: string) {
   const packings = localModelPackings(model)
-  const destinations = [...new Set(packings.flatMap((packing) => localGgufPaths(packing, dataDirectory)))]
-  const primaries = [...new Set(packings.map((packing) => localGgufPath(packing, dataDirectory)))].sort()
-  await Promise.all(primaries.map((primary) => mkdir(dirname(primary), { recursive: true, mode: 0o700 })))
+  const destinations = [
+    ...new Set(packings.flatMap((packing) => localGgufPaths(packing, dataDirectory))),
+  ]
+  const primaries = [
+    ...new Set(packings.map((packing) => localGgufPaths(packing, dataDirectory)[0])),
+  ].sort()
+  await Promise.all(
+    primaries.map((primary) => mkdir(dirname(primary), { recursive: true, mode: 0o700 })),
+  )
   const releaseLocks: Array<() => Promise<void>> = []
   try {
     for (const primary of primaries) releaseLocks.push(await acquireDownloadLock(lockPath(primary)))
@@ -73,8 +86,15 @@ export async function deleteLocalGguf(model: LocalModelSpec, dataDirectory?: str
   }
 }
 
-/** Reuse a complete download in another profile, with independently writable and deletable files. */
-export async function cloneLocalGguf(model: LocalModelSpec, sourceDirectory: string, dataDirectory: string) {
+/**
+ * Reuse a complete download in another profile, with independently writable and deletable
+ * files.
+ */
+export async function cloneLocalGguf(
+  model: LocalModelSpec,
+  sourceDirectory: string,
+  dataDirectory: string,
+) {
   if (!(await isLocalGgufDownloaded(model, sourceDirectory))) return
   const sources = localGgufPaths(model, sourceDirectory)
   const destinations = localGgufPaths(model, dataDirectory)
@@ -92,8 +112,13 @@ export async function cloneLocalGguf(model: LocalModelSpec, sourceDirectory: str
       }
       const temporary = `${dest}.${process.pid}.${randomUUID()}.tmp`
       try {
-        // Reflink where supported; otherwise a local copy. Never share writable inodes or cache directories.
-        await copyFile(sources[index], temporary, constants.COPYFILE_FICLONE | constants.COPYFILE_EXCL)
+        // Reflink where supported; otherwise a local copy. Never share writable inodes or
+        // cache directories.
+        await copyFile(
+          sources[index],
+          temporary,
+          constants.COPYFILE_FICLONE | constants.COPYFILE_EXCL,
+        )
         await chmod(temporary, 0o600)
         if (!(await hasPinnedFileSize(temporary, file.size))) continue
         await link(temporary, dest)
@@ -101,7 +126,8 @@ export async function cloneLocalGguf(model: LocalModelSpec, sourceDirectory: str
         if (await hasMatchingManifest(sources[index], model, file, sha256)) {
           await writeGgufManifest(dest, model, file, sha256)
         }
-        // Without a matching manifest, the usual load path verifies the clone's hash before using it.
+        // Without a matching manifest, the usual load path verifies the clone's hash before
+        // using it.
       } catch (error) {
         // The installed app may remove a source while it is being copied; never recreate it there.
         if (!isNotFound(error) && !isAlreadyExists(error)) throw error
@@ -114,7 +140,7 @@ export async function cloneLocalGguf(model: LocalModelSpec, sourceDirectory: str
   }
 }
 
-export type DownloadGgufOptions = {
+type DownloadGgufOptions = {
   dataDirectory?: string
   env?: NodeJS.ProcessEnv
   fetch?: typeof fetch
@@ -124,77 +150,124 @@ export type DownloadGgufOptions = {
 
 export async function ensureLocalGguf(model: LocalModelSpec, options: DownloadGgufOptions = {}) {
   const destinations = localGgufPaths(model, options.dataDirectory)
-  const primary = destinations[0]
   const totalBytes = localModelWeightBytes(model)
-  await mkdir(dirname(primary), { recursive: true, mode: 0o700 })
-  const releaseLock = await acquireDownloadLock(lockPath(primary), options.signal)
+  await mkdir(dirname(destinations[0]), { recursive: true, mode: 0o700 })
+  const releaseLock = await acquireDownloadLock(lockPath(destinations[0]), options.signal)
   try {
     let completedBytes = 0
     let lastPercent = -1
+    const report = (fileBytes: number) => {
+      const percent = Math.min(100, Math.floor(((completedBytes + fileBytes) / totalBytes) * 100))
+      if (percent === lastPercent) return
+      lastPercent = percent
+      options.onProgress?.(percent)
+    }
     for (const [index, pinnedFile] of model.ggufFiles.entries()) {
       const dest = destinations[index]
+      const expectedSha256 = normalizedSha256(pinnedFile.sha256)
       await mkdir(dirname(dest), { recursive: true, mode: 0o700 })
-      await ensureGgufFile(model, pinnedFile, dest, options, (fileBytes) => {
-        const percent = downloadPercent(completedBytes + fileBytes, totalBytes)
-        if (percent !== lastPercent) {
-          lastPercent = percent
-          options.onProgress?.(percent)
+      let verified = await hasPinnedFileSize(dest, pinnedFile.size)
+      if (verified && !(await hasMatchingManifest(dest, model, pinnedFile, expectedSha256))) {
+        verified = (await sha256File(dest)) === expectedSha256
+        if (verified) await writeGgufManifest(dest, model, pinnedFile, expectedSha256)
+      }
+      if (!verified) {
+        const partial = partialPath(dest)
+        let resumedBytes = 0
+        try {
+          const info = await stat(partial)
+          resumedBytes = info.isFile() && info.size <= pinnedFile.size ? info.size : -1
+          if (resumedBytes === pinnedFile.size && (await sha256File(partial)) !== expectedSha256)
+            resumedBytes = -1
+          if (resumedBytes < 0) {
+            await rm(partial, { force: true })
+            resumedBytes = 0
+          }
+        } catch (error) {
+          if (!isNotFound(error)) throw error
         }
-      })
+        if (resumedBytes !== pinnedFile.size) {
+          await downloadGgufFile(
+            model,
+            pinnedFile,
+            partial,
+            resumedBytes,
+            expectedSha256,
+            options,
+            report,
+          )
+        }
+        await rename(partial, dest)
+        await writeGgufManifest(dest, model, pinnedFile, expectedSha256)
+      }
       completedBytes += pinnedFile.size
+      report(0)
     }
     if (lastPercent !== 100) options.onProgress?.(100)
-    return primary
+    return destinations[0]
   } finally {
     await releaseLock()
   }
 }
 
-async function ensureGgufFile(
+/**
+ * Stream the pinned file into `partial`, appending to a verified prefix of `resumedBytes` when
+ * the server honors the range.
+ */
+async function downloadGgufFile(
   model: LocalModelSpec,
   pinnedFile: LocalGgufFile,
-  dest: string,
+  partial: string,
+  resumedBytes: number,
+  expectedSha256: string,
   options: DownloadGgufOptions,
   onReceived: (bytes: number) => void,
 ) {
-  const expectedSha256 = normalizedSha256(pinnedFile.sha256)
-  if (await isVerifiedGguf(dest, model, pinnedFile, expectedSha256)) {
-    onReceived(pinnedFile.size)
-    return
-  }
-
-  const partial = partialPath(dest)
-  const resumedBytes = await validPartialSize(partial, pinnedFile.size, expectedSha256)
-  if (resumedBytes === pinnedFile.size) {
-    await publishGguf(partial, dest, model, pinnedFile, expectedSha256)
-    onReceived(pinnedFile.size)
-    return
-  }
-
   options.signal?.throwIfAborted()
+  const env = options.env ?? process.env
   const headers: Record<string, string> = { "user-agent": "otis" }
-  const token = huggingFaceToken(options.env ?? process.env)
+  const token = env.HF_TOKEN?.trim() || env.HUGGING_FACE_HUB_TOKEN?.trim()
   if (token) headers.authorization = `Bearer ${token}`
   if (resumedBytes > 0) headers.range = `bytes=${resumedBytes}-`
-
-  const fetchImpl = options.fetch ?? fetch
-  const response = await fetchImpl(huggingFaceGgufUrl(model, pinnedFile), {
-    headers,
-    signal: options.signal,
-    redirect: "follow",
-  })
+  const response = await (options.fetch ?? fetch)(
+    `https://huggingface.co/${model.ggufRepo}/resolve/${model.ggufRevision}/${pinnedFile.name}`,
+    { headers, signal: options.signal, redirect: "follow" },
+  )
   if (!response.ok || !response.body) {
     throw new Error(`Could not download ${model.displayName} (HTTP ${response.status}).`)
   }
 
-  const append = resumedBytes > 0 && response.status === 206
-  const start = append ? resumedBytes : 0
-  validateDownloadResponse(response, start, model, pinnedFile)
+  const start = resumedBytes > 0 && response.status === 206 ? resumedBytes : 0
+  if (start > 0) {
+    const match = response.headers.get("content-range")?.match(/^bytes (\d+)-(\d+)\/(\d+)$/)
+    if (
+      !match ||
+      Number(match[1]) !== start ||
+      Number(match[2]) !== pinnedFile.size - 1 ||
+      Number(match[3]) !== pinnedFile.size
+    ) {
+      throw new Error(
+        `Could not resume ${model.displayName}: the server returned an invalid byte range.`,
+      )
+    }
+  }
+  const contentLengthHeader = response.headers.get("content-length")
+  const contentLength = contentLengthHeader === null ? undefined : Number(contentLengthHeader)
+  if (contentLength !== undefined && (!Number.isSafeInteger(contentLength) || contentLength < 0)) {
+    throw new Error(
+      `Could not download ${model.displayName}: the server returned an invalid content length.`,
+    )
+  }
+  if (contentLength !== undefined && contentLength !== pinnedFile.size - start) {
+    throw new Error(
+      `Could not download ${model.displayName}: expected ${pinnedFile.size - start} response bytes but received ${contentLength}.`,
+    )
+  }
+
   const hash = createHash("sha256")
-  if (start > 0) await updateHashFromFile(hash, partial)
-  const file = await open(partial, append ? "a" : "w", 0o600)
+  if (start > 0) for await (const chunk of createReadStream(partial)) hash.update(chunk)
+  const file = await open(partial, start > 0 ? "a" : "w", 0o600)
   let received = start
-  let closed = false
   let discardPartial = false
   onReceived(received)
   try {
@@ -203,10 +276,12 @@ async function ensureGgufFile(
       const { done, value } = await reader.read()
       if (done) break
       options.signal?.throwIfAborted()
-      if (!value || value.byteLength === 0) continue
+      if (!value?.byteLength) continue
       if (received + value.byteLength > pinnedFile.size) {
         discardPartial = true
-        throw new Error(`Could not download ${model.displayName}: the response exceeded the pinned file size.`)
+        throw new Error(
+          `Could not download ${model.displayName}: the response exceeded the pinned file size.`,
+        )
       }
       await file.writeFile(value)
       hash.update(value)
@@ -219,16 +294,12 @@ async function ensureGgufFile(
         `Could not download ${model.displayName}: expected ${pinnedFile.size} bytes but received ${received}.`,
       )
     }
-    const actualSha256 = hash.digest("hex")
-    if (actualSha256 !== expectedSha256) {
+    if (hash.digest("hex") !== expectedSha256) {
       discardPartial = true
       throw new Error(`Could not download ${model.displayName}: SHA-256 verification failed.`)
     }
-    await file.close()
-    closed = true
-    await publishGguf(partial, dest, model, pinnedFile, expectedSha256)
   } finally {
-    if (!closed) await file.close().catch(() => undefined)
+    await file.close().catch(() => undefined)
     if (discardPartial) await rm(partial, { force: true }).catch(() => undefined)
   }
 }
@@ -241,75 +312,6 @@ async function hasPinnedFileSize(path: string, expectedBytes: number) {
     if (isNotFound(error)) return false
     throw error
   }
-}
-
-async function isVerifiedGguf(dest: string, model: LocalModelSpec, pinnedFile: LocalGgufFile, expectedSha256: string) {
-  try {
-    const info = await stat(dest)
-    if (!info.isFile() || info.size !== pinnedFile.size) return false
-  } catch (error) {
-    if (isNotFound(error)) return false
-    throw error
-  }
-  if (await hasMatchingManifest(dest, model, pinnedFile, expectedSha256)) return true
-  if ((await sha256File(dest)) !== expectedSha256) return false
-  await writeGgufManifest(dest, model, pinnedFile, expectedSha256)
-  return true
-}
-
-async function validPartialSize(partial: string, expectedBytes: number, expectedSha256: string) {
-  try {
-    const info = await stat(partial)
-    if (!info.isFile() || info.size > expectedBytes) {
-      await rm(partial, { force: true })
-      return 0
-    }
-    if (info.size === expectedBytes && (await sha256File(partial)) !== expectedSha256) {
-      await rm(partial, { force: true })
-      return 0
-    }
-    return info.size
-  } catch (error) {
-    if (isNotFound(error)) return 0
-    throw error
-  }
-}
-
-function validateDownloadResponse(response: Response, start: number, model: LocalModelSpec, pinnedFile: LocalGgufFile) {
-  if (start > 0) {
-    const contentRange = response.headers.get("content-range")
-    const match = contentRange?.match(/^bytes (\d+)-(\d+)\/(\d+)$/)
-    if (
-      !match ||
-      Number(match[1]) !== start ||
-      Number(match[2]) !== pinnedFile.size - 1 ||
-      Number(match[3]) !== pinnedFile.size
-    ) {
-      throw new Error(`Could not resume ${model.displayName}: the server returned an invalid byte range.`)
-    }
-  }
-  const contentLengthHeader = response.headers.get("content-length")
-  const contentLength = contentLengthHeader === null ? undefined : Number(contentLengthHeader)
-  const expectedResponseBytes = pinnedFile.size - start
-  if (contentLength !== undefined && (!Number.isSafeInteger(contentLength) || contentLength < 0)) {
-    throw new Error(`Could not download ${model.displayName}: the server returned an invalid content length.`)
-  }
-  if (contentLength !== undefined && contentLength !== expectedResponseBytes) {
-    throw new Error(
-      `Could not download ${model.displayName}: expected ${expectedResponseBytes} response bytes but received ${contentLength}.`,
-    )
-  }
-}
-
-async function publishGguf(
-  partial: string,
-  dest: string,
-  model: LocalModelSpec,
-  pinnedFile: LocalGgufFile,
-  expectedSha256: string,
-) {
-  await rename(partial, dest)
-  await writeGgufManifest(dest, model, pinnedFile, expectedSha256)
 }
 
 async function hasMatchingManifest(
@@ -340,30 +342,31 @@ async function writeGgufManifest(
 ) {
   const path = manifestPath(dest)
   const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`
+  const manifest = {
+    version: GGUF_MANIFEST_VERSION,
+    model: model.id,
+    revision: model.ggufRevision,
+    sha256: expectedSha256,
+    size: pinnedFile.size,
+  }
   try {
-    await writeFile(
-      temporary,
-      `${JSON.stringify({
-        version: GGUF_MANIFEST_VERSION,
-        model: model.id,
-        revision: model.ggufRevision,
-        sha256: expectedSha256,
-        size: pinnedFile.size,
-      })}\n`,
-      { encoding: "utf8", mode: 0o600 },
-    )
+    await writeFile(temporary, `${JSON.stringify(manifest)}\n`, { encoding: "utf8", mode: 0o600 })
     await rename(temporary, path)
   } finally {
     await rm(temporary, { force: true })
   }
 }
 
-async function updateHashFromFile(hash: ReturnType<typeof createHash>, path: string) {
+async function sha256File(path: string) {
+  const hash = createHash("sha256")
   for await (const chunk of createReadStream(path)) hash.update(chunk)
+  return hash.digest("hex")
 }
 
-function downloadPercent(received: number, total: number) {
-  return Math.min(100, Math.floor((received / total) * 100))
+function normalizedSha256(value: string) {
+  const digest = value.toLowerCase().replace(/^sha256:/, "")
+  if (!/^[a-f0-9]{64}$/.test(digest)) throw new Error("Expected a valid SHA-256 digest.")
+  return digest
 }
 
 function partialPath(dest: string) {
@@ -400,7 +403,18 @@ async function acquireDownloadLock(path: string, signal?: AbortSignal) {
         await rm(path, { force: true })
         continue
       }
-      await abortableDelay(DOWNLOAD_LOCK_POLL_MS, signal)
+      signal?.throwIfAborted()
+      await new Promise<void>((resolve, reject) => {
+        const abort = () => {
+          clearTimeout(timer)
+          reject(signal?.reason)
+        }
+        const timer = setTimeout(() => {
+          signal?.removeEventListener("abort", abort)
+          resolve()
+        }, DOWNLOAD_LOCK_POLL_MS)
+        signal?.addEventListener("abort", abort, { once: true })
+      })
     }
   }
 }
@@ -412,44 +426,20 @@ async function isStaleLock(path: string) {
     try {
       value = JSON.parse(contents) as { pid?: unknown }
     } catch {
-      const info = await stat(path)
-      return Date.now() - info.mtimeMs > 5_000
+      // A lock still being written has no JSON yet; only an old one is abandoned.
+      return Date.now() - (await stat(path)).mtimeMs > 5_000
     }
     if (!Number.isSafeInteger(value.pid) || Number(value.pid) <= 0) return true
     try {
       process.kill(Number(value.pid), 0)
       return false
     } catch (error) {
-      return !isPermissionDenied(error)
+      return errorCode(error) !== "EPERM"
     }
   } catch (error) {
     if (isNotFound(error)) return true
     throw error
   }
-}
-
-function abortableDelay(ms: number, signal?: AbortSignal) {
-  return new Promise<void>((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(signal?.reason ?? new DOMException("The operation was aborted.", "AbortError"))
-      return
-    }
-    const timer = setTimeout(done, ms)
-    const abort = () => {
-      clearTimeout(timer)
-      signal?.removeEventListener("abort", abort)
-      reject(signal?.reason ?? new DOMException("The operation was aborted.", "AbortError"))
-    }
-    function done() {
-      signal?.removeEventListener("abort", abort)
-      resolve()
-    }
-    signal?.addEventListener("abort", abort, { once: true })
-  })
-}
-
-function huggingFaceToken(env: NodeJS.ProcessEnv) {
-  return env.HF_TOKEN?.trim() || env.HUGGING_FACE_HUB_TOKEN?.trim() || undefined
 }
 
 function isNotFound(error: unknown) {
@@ -458,10 +448,6 @@ function isNotFound(error: unknown) {
 
 function isAlreadyExists(error: unknown) {
   return errorCode(error) === "EEXIST"
-}
-
-function isPermissionDenied(error: unknown) {
-  return errorCode(error) === "EPERM"
 }
 
 function errorCode(error: unknown) {

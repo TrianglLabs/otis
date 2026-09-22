@@ -9,11 +9,12 @@ import {
 import { describe, expect, it, vi } from "vitest"
 import { TranscriptStore } from "../../src/app/transcript.js"
 import { colors, selectTheme } from "../../src/cli/theme.js"
-import { COLOR_PULSE_PERIOD_MS, TEXT_SHIMMER_PERIOD_MS } from "../../src/cli/ui/color-pulse.js"
-import { LOCAL_DOWNLOADING_LABEL, LOCAL_LOADING_LABEL } from "../../src/inference/llama-runtime.js"
-import { toFireworksPickerChoice } from "../../src/inference/picker-catalog.js"
 import { fireworksModel } from "../../src/inference/types.js"
-import { useChatHarness } from "./support/chat-ui-harness.js"
+import { fireworksChoice, useChatHarness } from "./support/chat-ui-harness.js"
+
+/** The selection outline pulses over 2400ms; a running title's shimmer sweeps once per 1300ms. */
+const COLOR_PULSE_PERIOD_MS = 2400
+const TEXT_SHIMMER_PERIOD_MS = 1300
 
 describe("chat UI rendering", () => {
   const setup = useChatHarness()
@@ -21,7 +22,9 @@ describe("chat UI rendering", () => {
   it("destroys discarded transcript cards and their native children", async () => {
     const harness = await setup({ thinkingVisible: true })
     const transcript = new TranscriptStore()
-    const reasoning = transcript.addReasoningMessage("Long thought. ".repeat(1_000), { reasoningId: "old" })
+    const reasoning = transcript.addReasoningMessage("Long thought. ".repeat(1_000), {
+      reasoningId: "old",
+    })
     harness.ui.showChatLayout()
     harness.ui.renderTranscript(transcript.entries)
     const root = harness.get<BoxRenderable>(`message-${reasoning.id}`)
@@ -37,7 +40,9 @@ describe("chat UI rendering", () => {
     const harness = await setup({ thinkingVisible: true })
     const transcript = new TranscriptStore()
     const assistant = transcript.addAssistantMessage("# Answer\n```ts\nconst value = 1\n```")
-    const reasoning = transcript.addReasoningMessage("Checking the change", { reasoningId: "thought" })
+    const reasoning = transcript.addReasoningMessage("Checking the change", {
+      reasoningId: "thought",
+    })
     const tool = transcript.addToolMessage("Editing src/app.ts", "file_edit")
     transcript.updateEntry(tool.id, {
       diff: ["--- a/src/app.ts", "+++ b/src/app.ts", "@@ -1 +1 @@", "-old", "+new"].join("\n"),
@@ -84,7 +89,9 @@ describe("chat UI rendering", () => {
   it("does not update unchanged history while another message streams", async () => {
     const harness = await setup({ thinkingVisible: true })
     const transcript = new TranscriptStore()
-    const old = transcript.addReasoningMessage("Old thought. ".repeat(10_000), { reasoningId: "old" })
+    const old = transcript.addReasoningMessage("Old thought. ".repeat(10_000), {
+      reasoningId: "old",
+    })
     const live = transcript.addAssistantMessage("Starting")
     harness.ui.showChatLayout()
     harness.ui.renderTranscript(transcript.entries)
@@ -163,8 +170,12 @@ describe("chat UI rendering", () => {
     expect(harness.find(`message-${reasoning.id}`)).toBeUndefined()
 
     harness.ui.setThinkingVisible(true)
-    expect(harness.text(`message-${reasoning.id}-reasoning-content`)).toContain("one\ntwo\nthree\nfour\nfive")
-    expect(harness.text(`message-${reasoning.id}-reasoning-header`)).toBe("Thought for 1.3s · click to expand")
+    expect(harness.text(`message-${reasoning.id}-reasoning-content`)).toContain(
+      "one\ntwo\nthree\nfour\nfive",
+    )
+    expect(harness.text(`message-${reasoning.id}-reasoning-header`)).toBe(
+      "Thought for 1.3s · click to expand",
+    )
     expect(harness.childIds(`message-${reasoning.id}`)).toEqual([
       `message-${reasoning.id}-reasoning-preview`,
       `message-${reasoning.id}-reasoning-header`,
@@ -178,18 +189,26 @@ describe("chat UI rendering", () => {
     const harness = await setup({ thinkingVisible: true })
     const transcript = new TranscriptStore()
     const user = transcript.addUserMessage("question")
-    const firstReasoning = transcript.addReasoningMessage("first thought", { reasoningId: "reasoning_1" })
+    const firstReasoning = transcript.addReasoningMessage("first thought", {
+      reasoningId: "reasoning_1",
+    })
     const tool = transcript.addToolMessage("Reading a file", "file_read")
-    const secondReasoning = transcript.addReasoningMessage("second thought", { reasoningId: "reasoning_2" })
+    const secondReasoning = transcript.addReasoningMessage("second thought", {
+      reasoningId: "reasoning_2",
+    })
     const assistant = transcript.addAssistantMessage("answer")
-    const visibleOrder = [user, firstReasoning, tool, secondReasoning, assistant].map((entry) => `message-${entry.id}`)
+    const visibleOrder = [user, firstReasoning, tool, secondReasoning, assistant].map(
+      (entry) => `message-${entry.id}`,
+    )
 
     harness.ui.showChatLayout()
     harness.ui.renderTranscript(transcript.entries)
     expect(harness.childIds("messages")).toEqual(visibleOrder)
 
     harness.ui.setThinkingVisible(false)
-    expect(harness.childIds("messages")).toEqual([user, tool, assistant].map((entry) => `message-${entry.id}`))
+    expect(harness.childIds("messages")).toEqual(
+      [user, tool, assistant].map((entry) => `message-${entry.id}`),
+    )
 
     harness.ui.setThinkingVisible(true)
     expect(harness.childIds("messages")).toEqual(visibleOrder)
@@ -207,7 +226,9 @@ describe("chat UI rendering", () => {
 
     const markdown = harness.get<MarkdownRenderable>(`message-${reasoning.id}-reasoning-content`)
     expect(markdown.content).toBe("one\ntwo\nthree\nfour\nfive")
-    expect(harness.text(`message-${reasoning.id}-reasoning-header`)).toBe("Thinking… · click to expand")
+    expect(harness.text(`message-${reasoning.id}-reasoning-header`)).toBe(
+      "Thinking… · click to expand",
+    )
     expect(markdown.fg?.equals(RGBA.fromHex(colors.muted))).toBe(true)
     expect(harness.childIds(`message-${reasoning.id}`)).toEqual([
       `message-${reasoning.id}-reasoning-header`,
@@ -219,14 +240,18 @@ describe("chat UI rendering", () => {
     await harness.mockMouse.click(toggle.x + 1, toggle.y)
 
     expect(markdown.content).toContain("one\ntwo\nthree\nfour\nfive")
-    expect(harness.text(`message-${reasoning.id}-reasoning-header`)).toBe("Thinking… · click to collapse")
+    expect(harness.text(`message-${reasoning.id}-reasoning-header`)).toBe(
+      "Thinking… · click to collapse",
+    )
 
     transcript.updateEntry(reasoning.id, { streaming: false, durationMs: 800 })
     harness.ui.renderTranscript(transcript.entries)
 
     expect(harness.get(`message-${reasoning.id}-reasoning-content`)).toBe(markdown)
     expect(markdown.content).toContain("one\ntwo\nthree\nfour\nfive")
-    expect(harness.text(`message-${reasoning.id}-reasoning-header`)).toBe("Thought for 800ms · click to collapse")
+    expect(harness.text(`message-${reasoning.id}-reasoning-header`)).toBe(
+      "Thought for 800ms · click to collapse",
+    )
     expect(harness.childIds(`message-${reasoning.id}`)).toEqual([
       `message-${reasoning.id}-reasoning-preview`,
       `message-${reasoning.id}-reasoning-header`,
@@ -236,7 +261,10 @@ describe("chat UI rendering", () => {
   it("keeps collapsed streaming traces clipped without replacing the markdown prefix", async () => {
     const harness = await setup({ thinkingVisible: true })
     const transcript = new TranscriptStore()
-    const reasoning = transcript.addReasoningMessage("alpha\n", { reasoningId: "reasoning_1", streaming: true })
+    const reasoning = transcript.addReasoningMessage("alpha\n", {
+      reasoningId: "reasoning_1",
+      streaming: true,
+    })
     harness.ui.showChatLayout()
     harness.ui.renderTranscript(transcript.entries)
     await harness.renderOnce()
@@ -292,8 +320,12 @@ describe("chat UI rendering", () => {
     harness.ui.showChatLayout()
 
     const messages = harness.get<ScrollBoxRenderable>("messages")
-    expect(messages.verticalScrollBar.slider.backgroundColor.equals(RGBA.fromHex(colors.border))).toBe(true)
-    expect(messages.verticalScrollBar.slider.foregroundColor.equals(RGBA.fromHex(colors.muted))).toBe(true)
+    expect(
+      messages.verticalScrollBar.slider.backgroundColor.equals(RGBA.fromHex(colors.border)),
+    ).toBe(true)
+    expect(
+      messages.verticalScrollBar.slider.foregroundColor.equals(RGBA.fromHex(colors.muted)),
+    ).toBe(true)
     await harness.renderOnce()
     expect(messages.x + messages.width).toBe(harness.renderer.terminalWidth)
     const inputBox = harness.get<BoxRenderable>("input-box")
@@ -302,18 +334,30 @@ describe("chat UI rendering", () => {
 
     harness.ui.showSessionPicker([{ id: "session_1", title: "Previous work", detail: "1h ago" }])
     const sessionRows = harness.get<ScrollBoxRenderable>("session-rows")
-    expect(sessionRows.verticalScrollBar.slider.backgroundColor.equals(RGBA.fromHex(colors.border))).toBe(true)
-    expect(sessionRows.verticalScrollBar.slider.foregroundColor.equals(RGBA.fromHex(colors.muted))).toBe(true)
+    expect(
+      sessionRows.verticalScrollBar.slider.backgroundColor.equals(RGBA.fromHex(colors.border)),
+    ).toBe(true)
+    expect(
+      sessionRows.verticalScrollBar.slider.foregroundColor.equals(RGBA.fromHex(colors.muted)),
+    ).toBe(true)
     await harness.renderOnce()
     const sessionPanel = harness.get<BoxRenderable>("session-panel")
     expect(sessionRows.x + sessionRows.width).toBe(sessionPanel.x + sessionPanel.width)
 
     harness.ui.showModelPicker([
-      fireworksRow({ id: "accounts/fireworks/models/alpha", displayName: "Alpha", supportsImageInput: false }),
+      fireworksRow({
+        id: "accounts/fireworks/models/alpha",
+        displayName: "Alpha",
+        supportsImageInput: false,
+      }),
     ])
     const modelRows = harness.get<ScrollBoxRenderable>("model-rows")
-    expect(modelRows.verticalScrollBar.slider.backgroundColor.equals(RGBA.fromHex(colors.border))).toBe(true)
-    expect(modelRows.verticalScrollBar.slider.foregroundColor.equals(RGBA.fromHex(colors.muted))).toBe(true)
+    expect(
+      modelRows.verticalScrollBar.slider.backgroundColor.equals(RGBA.fromHex(colors.border)),
+    ).toBe(true)
+    expect(
+      modelRows.verticalScrollBar.slider.foregroundColor.equals(RGBA.fromHex(colors.muted)),
+    ).toBe(true)
     await harness.renderOnce()
     const modelPanel = harness.get<BoxRenderable>("model-panel")
     expect(modelRows.x + modelRows.width).toBe(modelPanel.x + modelPanel.width)
@@ -457,7 +501,11 @@ describe("chat UI rendering", () => {
         },
         true,
       ),
-      fireworksRow({ id: "accounts/fireworks/models/beta", displayName: "Beta", supportsImageInput: false }),
+      fireworksRow({
+        id: "accounts/fireworks/models/beta",
+        displayName: "Beta",
+        supportsImageInput: false,
+      }),
     ]
 
     harness.ui.showSessionPicker([{ id: "session", title: "Session", detail: "now" }])
@@ -495,7 +543,11 @@ describe("chat UI rendering", () => {
         },
         true,
       ),
-      fireworksRow({ id: "accounts/fireworks/models/inkling", displayName: "Inkling", supportsImageInput: false }),
+      fireworksRow({
+        id: "accounts/fireworks/models/inkling",
+        displayName: "Inkling",
+        supportsImageInput: false,
+      }),
     ])
 
     expect(harness.text("model-row-0")).toBe("› Kimi K3")
@@ -527,7 +579,9 @@ describe("chat UI rendering", () => {
 
     expect(harness.text("model-row-0")).toBe("NVIDIA PAIR")
     expect(harness.text("model-row-1")).toBe("› Qwen 3.5 35B  Ollama")
-    const engine = harness.get<TextRenderable>("model-row-1").chunks.find((chunk) => chunk.text === "Ollama")
+    const engine = harness
+      .get<TextRenderable>("model-row-1")
+      .chunks.find((chunk) => chunk.text === "Ollama")
     expect(engine?.fg?.equals(RGBA.fromHex(colors.muted))).toBe(true)
     expect(harness.text("model-row-1-meta")).toBe("  256K model max · Q4_K_M · Text")
   })
@@ -550,7 +604,9 @@ describe("chat UI rendering", () => {
     ])
 
     expect(harness.text("model-row-0")).toBe("› Remote model  LM Studio")
-    expect(harness.text("model-row-0-meta")).toBe("  Context unavailable · Quant unavailable · Vision")
+    expect(harness.text("model-row-0-meta")).toBe(
+      "  Context unavailable · Quant unavailable · Vision",
+    )
   })
 
   it("pulses a reserved outline on the selected session and model rows", async () => {
@@ -586,7 +642,11 @@ describe("chat UI rendering", () => {
         },
         true,
       ),
-      fireworksRow({ id: "accounts/fireworks/models/beta", displayName: "Beta", supportsImageInput: false }),
+      fireworksRow({
+        id: "accounts/fireworks/models/beta",
+        displayName: "Beta",
+        supportsImageInput: false,
+      }),
     ])
     expect(harness.text("model-row-0")).toBe("› Alpha")
     expect(harness.text("model-row-1")).toBe("  Beta")
@@ -638,7 +698,9 @@ describe("chat UI rendering", () => {
     expect(harness.text("model-row-0")).toBe("LOCAL")
     expect(harness.text("model-row-1")).toBe("  Qwen3.8 27B  Downloaded")
     expect(harness.text("model-row-1-meta")).toBe("  Needs 19 GB · Text")
-    expect(harness.get<TextRenderable>("model-row-1").fg.equals(RGBA.fromHex(colors.muted))).toBe(true)
+    expect(harness.get<TextRenderable>("model-row-1").fg.equals(RGBA.fromHex(colors.muted))).toBe(
+      true,
+    )
     expect(harness.text("model-row-2")).toBe("HOSTED")
     expect(harness.text("model-row-3")).toBe("› Alpha")
 
@@ -669,9 +731,14 @@ describe("chat UI rendering", () => {
       active: true,
     }
 
-    harness.ui.showModelPicker([{ kind: "header", id: "header-local", displayName: "Local" }, local])
+    harness.ui.showModelPicker([
+      { kind: "header", id: "header-local", displayName: "Local" },
+      local,
+    ])
     expect(harness.text("model-row-1")).toBe("› gpt-oss 20B *  Downloaded")
-    const downloaded = harness.get<TextRenderable>("model-row-1").chunks.find((chunk) => chunk.text === "Downloaded")
+    const downloaded = harness
+      .get<TextRenderable>("model-row-1")
+      .chunks.find((chunk) => chunk.text === "Downloaded")
     expect(downloaded?.fg?.equals(RGBA.fromHex(colors.muted))).toBe(true)
     expect(harness.text("model-row-1-meta")).toBe("  128K · MXFP4 · 16 GB · Text")
 
@@ -679,14 +746,11 @@ describe("chat UI rendering", () => {
     expect(harness.text("model-row-1")).toBe("› gpt-oss 20B *  Downloading 47%")
     expect(harness.text("model-row-1-meta")).toBe("  128K · MXFP4 · 16 GB · Text")
 
-    harness.ui.setModelPickerStatus(local.id, { label: LOCAL_LOADING_LABEL, kind: "progress" })
+    harness.ui.setModelPickerStatus(local.id, { label: "Loading", kind: "progress" })
     expect(harness.text("model-row-1")).toBe("› gpt-oss 20B *  Loading")
   })
 
-  it.each([
-    `${LOCAL_DOWNLOADING_LABEL} 47%`,
-    LOCAL_LOADING_LABEL,
-  ])("shimmers %s for local model progress", async (label) => {
+  it.each(["Downloading 47%", "Loading"])("shimmers %s for local model progress", async (label) => {
     const harness = await setup()
     vi.useFakeTimers()
     const local = {
@@ -705,7 +769,10 @@ describe("chat UI rendering", () => {
       active: true,
     }
 
-    harness.ui.showModelPicker([{ kind: "header", id: "header-local", displayName: "Local" }, local])
+    harness.ui.showModelPicker([
+      { kind: "header", id: "header-local", displayName: "Local" },
+      local,
+    ])
     harness.ui.setModelPickerStatus(local.id, { label, kind: "progress" })
 
     const first = statusLetterColors(harness.get<TextRenderable>("model-row-1"), label)
@@ -765,7 +832,7 @@ describe("chat UI rendering", () => {
 })
 
 function fireworksRow(fields: Parameters<typeof fireworksModel>[0], active = false) {
-  return toFireworksPickerChoice(fireworksModel(fields), active ? fields.id : undefined)
+  return fireworksChoice(fireworksModel(fields), active ? fields.id : undefined)
 }
 
 function statusLetterColors(row: TextRenderable, label: string) {

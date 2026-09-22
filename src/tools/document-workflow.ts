@@ -7,13 +7,17 @@ import { bundledSkills, materializeBundledSkill } from "../skills/bundled.js"
 import type { ToolCall, ToolContext, ToolResult } from "./types.js"
 import { isNotFoundError, resolveWorkspacePath } from "./workspace.js"
 
-type Input = Extract<ToolCall, { name: "document" }>["input"]
-
-export async function runDocumentWorkflow(input: Input, context: ToolContext): Promise<ToolResult> {
+export async function runDocumentWorkflow(
+  input: Extract<ToolCall, { name: "document" }>["input"],
+  context: ToolContext,
+): Promise<ToolResult> {
   context.signal?.throwIfAborted()
   const options = { dataDirectory: context.dataDirectory, signal: context.signal }
   if (input.operation === "check") {
-    return { title: "Check document capabilities", output: JSON.stringify(await checkDocumentRuntime(options)) }
+    return {
+      title: "Check document capabilities",
+      output: JSON.stringify(await checkDocumentRuntime(options)),
+    }
   }
   const cwd = await resolveWorkspacePath(".", context)
   const args: string[] = [input.operation]
@@ -33,15 +37,14 @@ export async function runDocumentWorkflow(input: Input, context: ToolContext): P
   let output: string | undefined
   if (input.outputPath) {
     output = await resolveWorkspacePath(input.outputPath, context, { allowMissingLeaf: true })
-    try {
-      await lstat(output)
-      throw new Error("Document output already exists; choose a new path.")
-    } catch (error) {
+    const existing = await lstat(output).catch((error) => {
       if (!isNotFoundError(error)) throw error
-    }
+    })
+    if (existing) throw new Error("Document output already exists; choose a new path.")
     if (input.operation !== "render") {
       const allowed = input.operation === "create" ? [".pdf", ".docx"] : [".pdf"]
-      if (!allowed.includes(extname(output).toLowerCase())) throw new Error("Unsupported document output format.")
+      if (!allowed.includes(extname(output).toLowerCase()))
+        throw new Error("Unsupported document output format.")
     }
     args.push(input.operation === "render" ? "--output-dir" : "--output", output)
   }
@@ -49,12 +52,14 @@ export async function runDocumentWorkflow(input: Input, context: ToolContext): P
   if (input.operation === "convert") {
     const status = await checkDocumentRuntime(options)
     if (!status.python) throw new Error(status.reason)
-    if (!status.libreoffice) throw new Error("Word-to-PDF conversion requires a local LibreOffice installation.")
+    if (!status.libreoffice)
+      throw new Error("Word-to-PDF conversion requires a local LibreOffice installation.")
   }
   const skill = bundledSkills(context.dataDirectory).find((entry) => entry.name === "documents")
   if (!skill) throw new Error("Bundled documents skill is missing.")
   await materializeBundledSkill(skill)
-  // This executable always uses first-party helpers, even when a project overrides the workflow instructions.
+  // This executable always uses first-party helpers, even when a project overrides the workflow
+  // instructions.
   const python = await ensureDocumentRuntime(options, join(skill.root, "requirements.txt"))
   const result = JSON.parse(
     await runDocumentProcess(python, ["-E", "-s", "-B", join(skill.root, "document.py"), ...args], {
@@ -63,8 +68,15 @@ export async function runDocumentWorkflow(input: Input, context: ToolContext): P
     }),
   ) as { ok?: boolean }
   if (result.ok !== true) throw new Error("Document helper did not verify a successful result.")
-  const artifact = output && input.operation !== "render" ? await workspaceArtifactReference(output, cwd) : undefined
-  return { title: `Document: ${input.operation}`, output: JSON.stringify(result), ...(artifact ? { artifact } : {}) }
+  const artifact =
+    output && input.operation !== "render"
+      ? await workspaceArtifactReference(output, cwd)
+      : undefined
+  return {
+    title: `Document: ${input.operation}`,
+    output: JSON.stringify(result),
+    ...(artifact ? { artifact } : {}),
+  }
 }
 
 async function boundedFile(path: string, maximum: number) {

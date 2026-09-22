@@ -76,7 +76,9 @@ class PdfEditingTest(unittest.TestCase):
         if split:
             canvas.drawString(40, 700, "Built reliable ")
             canvas.drawString(
-                40 + pdfmetrics.stringWidth("Built reliable ", font, 12), 700, "software for customers."
+                40 + pdfmetrics.stringWidth("Built reliable ", font, 12),
+                700,
+                "software for customers.",
             )
         else:
             canvas.drawString(40, 700, "Built reliable software for customers.")
@@ -94,7 +96,9 @@ class PdfEditingTest(unittest.TestCase):
     def plan(self, data, *, new="Built dependable software and led a team.", single=False):
         layout = helper.inspect(data)
         runs = [
-            run for run in layout["pages"][0]["runs"] if run["text"].startswith(("Built", "software", "Led"))
+            run
+            for run in layout["pages"][0]["runs"]
+            if run["text"].startswith(("Built", "software", "Led"))
         ]
         if single:
             runs = runs[:1]
@@ -132,7 +136,13 @@ class PdfEditingTest(unittest.TestCase):
                 (self.root / "edits.json").write_text(json.dumps(plan))
                 destination = "edited-embedded.pdf" if embedded else "edited-standard.pdf"
                 result = self.command(
-                    "edit-pdf", "--source", "source.pdf", "--spec", "edits.json", "--output", destination
+                    "edit-pdf",
+                    "--source",
+                    "source.pdf",
+                    "--spec",
+                    "edits.json",
+                    "--output",
+                    destination,
                 )
                 self.assertIn("unchanged_pixels_outside_edits", result["verified"])
                 self.assertEqual(result["comparison_dpi"], 144)
@@ -193,7 +203,8 @@ class PdfEditingTest(unittest.TestCase):
         self.assertNotIn("customers", content)
         self.assertIn("Education: Example University", content)
         self.assertLess(
-            len(helper.inspect(result)["pages"][0]["runs"]), len(helper.inspect(data)["pages"][0]["runs"])
+            len(helper.inspect(result)["pages"][0]["runs"]),
+            len(helper.inspect(data)["pages"][0]["runs"]),
         )
 
     def test_multiple_edits_keep_original_object_identity_after_removing_a_line(self):
@@ -321,7 +332,9 @@ class PdfEditingTest(unittest.TestCase):
             }
             with (
                 self.subTest(edge=edge),
-                self.assertRaisesRegex(ValueError, "page boundary" if edge else "lines would overlap"),
+                self.assertRaisesRegex(
+                    ValueError, "page boundary" if edge else "lines would overlap"
+                ),
             ):
                 helper.edit(data, plan)
 
@@ -351,7 +364,9 @@ class PdfEditingTest(unittest.TestCase):
         signature = DictionaryObject(
             {
                 NameObject("/Type"): NameObject("/Sig"),
-                NameObject("/ByteRange"): ArrayObject([NumberObject(value) for value in [0, 1, 2, 3]]),
+                NameObject("/ByteRange"): ArrayObject(
+                    [NumberObject(value) for value in [0, 1, 2, 3]]
+                ),
                 NameObject("/Contents"): ByteStringObject(b"synthetic signature"),
             }
         )

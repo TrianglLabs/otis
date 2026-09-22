@@ -28,16 +28,26 @@ describe("ArtifactStore", () => {
       const initial = store.metadata?.revision ?? 0
       await writeFile(join(cwd, "replacement.md"), "Replaced externally")
       await rename(join(cwd, "replacement.md"), path)
-      await vi.waitFor(() => expect(store.metadata?.revision).toBeGreaterThan(initial), { timeout: 2000 })
-      await expect(store.load(store.metadata?.revision ?? 0)).resolves.toMatchObject({ content: "Replaced externally" })
+      await vi.waitFor(() => expect(store.metadata?.revision).toBeGreaterThan(initial), {
+        timeout: 2000,
+      })
+      await expect(store.load(store.metadata?.revision ?? 0)).resolves.toMatchObject({
+        content: "Replaced externally",
+      })
       const replaced = store.metadata?.revision ?? 0
       await rm(path)
-      await vi.waitFor(() => expect(store.metadata?.revision).toBeGreaterThan(replaced), { timeout: 2000 })
+      await vi.waitFor(() => expect(store.metadata?.revision).toBeGreaterThan(replaced), {
+        timeout: 2000,
+      })
       await expect(store.load(store.metadata?.revision ?? 0)).rejects.toThrow("moved or deleted")
       const deleted = store.metadata?.revision ?? 0
       await writeFile(path, "Recreated")
-      await vi.waitFor(() => expect(store.metadata?.revision).toBeGreaterThan(deleted), { timeout: 2000 })
-      await expect(store.load(store.metadata?.revision ?? 0)).resolves.toMatchObject({ content: "Recreated" })
+      await vi.waitFor(() => expect(store.metadata?.revision).toBeGreaterThan(deleted), {
+        timeout: 2000,
+      })
+      await expect(store.load(store.metadata?.revision ?? 0)).resolves.toMatchObject({
+        content: "Recreated",
+      })
       store.clear()
       const cleared = changed.mock.calls.length
       await writeFile(path, "After clearing")
@@ -78,7 +88,8 @@ describe("ArtifactStore", () => {
     store.observeMessage(source)
     expect(store.metadata?.title).toBe("brief.md")
     const revision = store.metadata?.revision
-    for (const document of [code, config, raw]) expect(store.open(attachmentArtifactReference(document))).toBe(false)
+    for (const document of [code, config, raw])
+      expect(store.open(attachmentArtifactReference(document))).toBe(false)
     store.observeFile({ source: "workspace", kind: "text", path: "notes.txt" })
     expect(store.metadata?.revision).toBe(revision)
     store.restore([source], [])
@@ -88,8 +99,14 @@ describe("ArtifactStore", () => {
 
   it("keeps every attachment available after compaction and restores them from full scrollback", async () => {
     const cwd = await trackedTempDir()
-    const first = await createDocumentAttachment(new TextEncoder().encode("First source"), "first.md")
-    const second = await createDocumentAttachment(new TextEncoder().encode("Second source"), "second.md")
+    const first = await createDocumentAttachment(
+      new TextEncoder().encode("First source"),
+      "first.md",
+    )
+    const second = await createDocumentAttachment(
+      new TextEncoder().encode("Second source"),
+      "second.md",
+    )
     const message = { role: "user" as const, content: [first, second] }
     const transcript = new TranscriptStore()
     const artifacts = new ArtifactStore(cwd)
@@ -98,7 +115,9 @@ describe("ArtifactStore", () => {
     transcript.loadCompacted("Summary only", [])
     expect(transcript.history).not.toContain(message)
     expect(artifacts.open(attachmentArtifactReference(first))).toBe(true)
-    await expect(artifacts.load(artifacts.metadata?.revision ?? 0)).resolves.toMatchObject({ content: "First source" })
+    await expect(artifacts.load(artifacts.metadata?.revision ?? 0)).resolves.toMatchObject({
+      content: "First source",
+    })
     expect(artifacts.open({ ...attachmentArtifactReference(first), name: "wrong.md" })).toBe(false)
 
     artifacts.clear()
@@ -127,7 +146,9 @@ describe("ArtifactStore", () => {
     const updated = artifacts.metadata
     expect(updated?.revision).toBe(2)
     await expect(artifacts.load(first?.revision ?? 0)).resolves.toBeUndefined()
-    await expect(artifacts.load(updated?.revision ?? 0)).resolves.toMatchObject({ content: "# Updated\n" })
+    await expect(artifacts.load(updated?.revision ?? 0)).resolves.toMatchObject({
+      content: "# Updated\n",
+    })
     await expect(artifacts.exportFile(first?.revision ?? 0)).resolves.toBeUndefined()
     await expect(artifacts.exportFile(updated?.revision ?? 0)).resolves.toEqual({
       name: "notes.md",
@@ -139,16 +160,27 @@ describe("ArtifactStore", () => {
     const cwd = await trackedTempDir()
     const artifacts = new ArtifactStore(cwd)
     const pdf = await createDocumentAttachment(minimalPdf("Canvas PDF"), "report.pdf")
-    artifacts.observeMessage({ role: "user", content: [{ type: "text", text: "Review this" }, pdf] })
+    artifacts.observeMessage({
+      role: "user",
+      content: [{ type: "text", text: "Review this" }, pdf],
+    })
     const pdfPayload = await artifacts.load(artifacts.metadata?.revision ?? 0)
-    expect(pdfPayload).toMatchObject({ kind: "pdf", encoding: "base64", title: "report.pdf", editable: false })
+    expect(pdfPayload).toMatchObject({
+      kind: "pdf",
+      encoding: "base64",
+      title: "report.pdf",
+      editable: false,
+    })
     expect(
       Buffer.from(pdfPayload?.content ?? "", "base64")
         .subarray(0, 5)
         .toString(),
     ).toBe("%PDF-")
 
-    const docx = await createDocumentAttachment(await minimalDocx("Native Word preview"), "brief.docx")
+    const docx = await createDocumentAttachment(
+      await minimalDocx("Native Word preview"),
+      "brief.docx",
+    )
     artifacts.observeMessage({ role: "user", content: [docx] })
     await expect(artifacts.load(artifacts.metadata?.revision ?? 0)).resolves.toMatchObject({
       kind: "docx",
@@ -172,7 +204,11 @@ describe("ArtifactStore", () => {
         content: [
           {
             type: "tool_call",
-            toolCall: { id: "write_1", name: "write", arguments: '{"path":"result.html","content":"..."}' },
+            toolCall: {
+              id: "write_1",
+              name: "write",
+              arguments: '{"path":"result.html","content":"..."}',
+            },
           },
         ],
       },
@@ -187,10 +223,14 @@ describe("ArtifactStore", () => {
         artifact: { source: "workspace", path: "result.html", kind: "html" },
       },
     ])
-    expect(artifacts.metadata).toMatchObject({ source: "workspace", path: "result.html", kind: "html" })
-    expect(() => artifacts.openWorkspace({ source: "workspace", path: "../outside.md", kind: "markdown" })).toThrow(
-      "Invalid workspace artifact reference",
-    )
+    expect(artifacts.metadata).toMatchObject({
+      source: "workspace",
+      path: "result.html",
+      kind: "html",
+    })
+    expect(() =>
+      artifacts.openWorkspace({ source: "workspace", path: "../outside.md", kind: "markdown" }),
+    ).toThrow("Invalid workspace artifact reference")
   })
 
   it("refuses a workspace artifact whose path became an escaping symlink", async () => {
@@ -201,8 +241,12 @@ describe("ArtifactStore", () => {
     const artifacts = new ArtifactStore(cwd)
     artifacts.openWorkspace({ source: "workspace", path: "preview.md", kind: "markdown" })
 
-    await expect(artifacts.load(artifacts.metadata?.revision ?? 0)).rejects.toThrow("outside the workspace")
-    await expect(artifacts.exportFile(artifacts.metadata?.revision ?? 0)).rejects.toThrow("outside the workspace")
+    await expect(artifacts.load(artifacts.metadata?.revision ?? 0)).rejects.toThrow(
+      "outside the workspace",
+    )
+    await expect(artifacts.exportFile(artifacts.metadata?.revision ?? 0)).rejects.toThrow(
+      "outside the workspace",
+    )
   })
 })
 

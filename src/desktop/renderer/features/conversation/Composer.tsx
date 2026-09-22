@@ -13,16 +13,14 @@ import {
   MAX_IMAGES_PER_REQUEST,
   MAX_RAW_IMAGE_BYTES,
   SUPPORTED_IMAGE_EXTENSIONS,
-} from "../../../../inference/image-constraints.js"
+} from "../../../../inference/types.js"
 import type { DesktopAttachmentInput } from "../../../contracts.js"
 import { Button } from "../../components/Button.js"
 import { FileTypeIcon } from "../../components/FileTypeIcon.js"
 import { Icon } from "../../components/Icon.js"
-import { shortModelId } from "../../format.js"
 import { useI18n } from "../../i18n/index.js"
 import { useDesktop, useDesktopState } from "../../runtime.js"
 import { ModelPicker } from "../models/ModelPicker.js"
-import { draftAfterSend } from "./draft.js"
 import { ThinkingControl } from "./ThinkingControl.js"
 
 type PendingAttachment = DesktopAttachmentInput & {
@@ -56,33 +54,16 @@ const SUPPORTED_IMAGE_MIME_TYPES = new Set([
   "image/x-portable-pixmap",
 ])
 
-function supportedImageFile(file: File) {
-  const extension = fileExtension(file.name)
-  return SUPPORTED_IMAGE_MIME_TYPES.has(file.type.toLowerCase()) || SUPPORTED_IMAGE_EXTENSION_SET.has(extension)
-}
-
-function supportedDocumentFile(file: File) {
-  return (
-    Boolean(normalizedDocumentMimeType(file.type)) || SUPPORTED_DOCUMENT_EXTENSION_SET.has(fileExtension(file.name))
-  )
-}
-
 function fileExtension(name: string) {
   const dot = name.lastIndexOf(".")
   return dot === -1 ? "" : name.slice(dot).toLowerCase()
 }
 
 /**
- * The prompt composer. Enter sends, Shift+Enter inserts a newline, Escape stops active work. The draft is only
- * cleared after the application accepts the prompt (recorded in the session); on rejection the text stays put and
- * the reason is shown.
+ * The prompt composer. Enter sends, Shift+Enter inserts a newline, Escape stops active work. The
+ * draft is only cleared after the application accepts the prompt (recorded in the session); on
+ * rejection the text stays put and the reason is shown.
  */
-/** The chip shows just the folder name; the full path stays in the tooltip. */
-function workspaceFolderName(workspace: { label: string; path: string }): string {
-  const parts = workspace.path.split("/").filter(Boolean)
-  return parts.at(-1) ?? workspace.label
-}
-
 export const Composer = memo(function Composer({ installing = false }: { installing?: boolean }) {
   const { api } = useDesktop()
   const { t } = useI18n()
@@ -115,16 +96,15 @@ export const Composer = memo(function Composer({ installing = false }: { install
   const needsWorkspace = state?.needsWorkspace ?? false
   const supportsImages = state?.model?.supportsImageInput === true
   const hasPendingImage = pendingAttachments.some((attachment) => attachment.kind === "image")
-  const hasMessage = draft.trim().length > 0 || pendingAttachments.length > 0
-  const canSend =
-    modelState === "ready" &&
-    hasMessage &&
-    !sending &&
-    !addingAttachments &&
-    !installing &&
-    !needsWorkspace &&
-    (!hasPendingImage || supportsImages)
-  const canAttach = modelState === "ready" && !sending && !addingAttachments && !installing && !needsWorkspace
+  const canAttach =
+    modelState === "ready" && !sending && !addingAttachments && !installing && !needsWorkspace
+  const canSubmit = canAttach && (draft.trim().length > 0 || pendingAttachments.length > 0)
+  const canSend = canSubmit && (!hasPendingImage || supportsImages)
+  const boxWorkingClass = busy ? " composer-boxWorking" : ""
+  const boxDisabledClass = modelState !== "ready" && !busy ? " composer-boxDisabled" : ""
+  const boxDropClass = dragActive ? " composer-boxDrop" : ""
+  const modelStateClass =
+    modelState === "starting" || modelState === "failed" ? ` composer-model-${modelState}` : ""
 
   const replacePendingAttachments = (attachments: PendingAttachment[]) => {
     pendingAttachmentsRef.current = attachments
@@ -151,23 +131,31 @@ export const Composer = memo(function Composer({ installing = false }: { install
     if (files.length === 0 || addingAttachmentsRef.current) return
 
     const legacyWord = files.find(
-      (file) => fileExtension(file.name) === ".doc" || file.type.toLowerCase() === "application/msword",
+      (file) =>
+        fileExtension(file.name) === ".doc" || file.type.toLowerCase() === "application/msword",
     )
     if (legacyWord) {
-      setSendError(`Legacy Word .doc files are not supported. Save ${legacyWord.name} as .docx first.`)
+      setSendError(
+        `Legacy Word .doc files are not supported. Save ${legacyWord.name} as .docx first.`,
+      )
       return
     }
-    const classified = files.map((file) => ({
-      file,
-      kind: supportedImageFile(file)
-        ? ("image" as const)
-        : supportedDocumentFile(file)
-          ? ("document" as const)
-          : undefined,
-    }))
+    const classified = files.map((file) => {
+      const extension = fileExtension(file.name)
+      const mimeType = file.type.toLowerCase()
+      const kind =
+        SUPPORTED_IMAGE_MIME_TYPES.has(mimeType) || SUPPORTED_IMAGE_EXTENSION_SET.has(extension)
+          ? ("image" as const)
+          : normalizedDocumentMimeType(file.type) || SUPPORTED_DOCUMENT_EXTENSION_SET.has(extension)
+            ? ("document" as const)
+            : undefined
+      return { file, kind }
+    })
     const unsupported = classified.find(({ kind }) => !kind)?.file
     if (unsupported) {
-      setSendError(t("composer.unsupportedFile", { name: unsupported.name || t("composer.thatFile") }))
+      setSendError(
+        t("composer.unsupportedFile", { name: unsupported.name || t("composer.thatFile") }),
+      )
       return
     }
     if (classified.some(({ kind }) => kind === "image") && !supportsImages) {
@@ -190,7 +178,8 @@ export const Composer = memo(function Composer({ installing = false }: { install
     }
     const invalidSize = classified.find(
       ({ file, kind }) =>
-        file.size === 0 || (kind === "image" ? file.size > MAX_RAW_IMAGE_BYTES : file.size > MAX_RAW_DOCUMENT_BYTES),
+        file.size === 0 ||
+        (kind === "image" ? file.size > MAX_RAW_IMAGE_BYTES : file.size > MAX_RAW_DOCUMENT_BYTES),
     )
     if (invalidSize) {
       setSendError(
@@ -203,8 +192,10 @@ export const Composer = memo(function Composer({ installing = false }: { install
       return
     }
     const encodedBytes =
-      currentImages.reduce((total, image) => total + base64EncodedLength(image.bytes.byteLength), 0) +
-      newImages.reduce((total, { file }) => total + base64EncodedLength(file.size), 0)
+      currentImages.reduce(
+        (total, image) => total + base64EncodedLength(image.bytes.byteLength),
+        0,
+      ) + newImages.reduce((total, { file }) => total + base64EncodedLength(file.size), 0)
     if (encodedBytes >= MAX_BASE64_IMAGE_BYTES) {
       setSendError(t("composer.imagesRequestLimit"))
       return
@@ -221,7 +212,9 @@ export const Composer = memo(function Composer({ installing = false }: { install
     setAddingAttachments(true)
     setSendError(null)
     try {
-      const bytes = await Promise.all(files.map(async (file) => new Uint8Array(await file.arrayBuffer())))
+      const bytes = await Promise.all(
+        files.map(async (file) => new Uint8Array(await file.arrayBuffer())),
+      )
       const additions = classified.map(
         ({ file, kind }, index): PendingAttachment => ({
           id: nextAttachmentId.current++,
@@ -246,38 +239,14 @@ export const Composer = memo(function Composer({ installing = false }: { install
     }
   }
 
-  const removeAttachment = (id: number) => {
-    const attachment = pendingAttachmentsRef.current.find((candidate) => candidate.id === id)
-    if (attachment?.previewUrl) URL.revokeObjectURL(attachment.previewUrl)
-    replacePendingAttachments(pendingAttachmentsRef.current.filter((candidate) => candidate.id !== id))
-    setSendError(null)
-  }
-
-  const openFolder = async () => {
-    const path = await api.pickWorkspaceFolder()
-    if (!path) return
-    setWorkspaceError(undefined)
-    const result = await api.openWorkspace(path)
-    if (!result.ok) setWorkspaceError(result.reason)
-  }
-
   const submit = async () => {
-    const text = draft
-    const attachments = pendingAttachmentsRef.current
-    if (
-      (!text.trim() && attachments.length === 0) ||
-      sending ||
-      addingAttachments ||
-      modelState !== "ready" ||
-      installing ||
-      needsWorkspace
-    ) {
-      return
-    }
-    if (attachments.some(({ kind }) => kind === "image") && !supportsImages) {
+    if (!canSubmit) return
+    if (hasPendingImage && !supportsImages) {
       setSendError(t("composer.modelNoImageInput"))
       return
     }
+    const text = draft
+    const attachments = pendingAttachmentsRef.current
     setSending(true)
     setSendError(null)
     try {
@@ -286,7 +255,9 @@ export const Composer = memo(function Composer({ installing = false }: { install
         attachments.map(({ name, mimeType, bytes }) => ({ name, mimeType, bytes })),
       )
       if (result.accepted) {
-        setDraft((current) => draftAfterSend(current, text, true))
+        // Acceptance consumes only the submitted text: anything typed while admission was in flight
+        // is newer input and stays.
+        setDraft((current) => (current === text ? "" : current))
         for (const attachment of attachments) {
           if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl)
         }
@@ -295,7 +266,9 @@ export const Composer = memo(function Composer({ installing = false }: { install
         setSendError(`${result.reason} ${t("composer.messageKept")}`)
       }
     } catch (error) {
-      setSendError(`${error instanceof Error ? error.message : String(error)} ${t("composer.messageKept")}`)
+      setSendError(
+        `${error instanceof Error ? error.message : String(error)} ${t("composer.messageKept")}`,
+      )
     } finally {
       setSending(false)
       textareaRef.current?.focus()
@@ -323,7 +296,7 @@ export const Composer = memo(function Composer({ installing = false }: { install
       ) : null}
       <form
         aria-label={t("composer.label")}
-        className={`composer-box${busy ? " composer-boxWorking" : ""}${modelState !== "ready" && !busy ? " composer-boxDisabled" : ""}${dragActive ? " composer-boxDrop" : ""}`}
+        className={`composer-box${boxWorkingClass}${boxDisabledClass}${boxDropClass}`}
         onSubmit={(event) => {
           event.preventDefault()
           void submit()
@@ -357,7 +330,9 @@ export const Composer = memo(function Composer({ installing = false }: { install
           <ul className="composer-attachments" aria-label={t("composer.attachedFiles")}>
             {pendingAttachments.map((attachment) => (
               <li
-                className={`composer-attachment${attachment.kind === "document" ? " composer-attachmentDocument" : ""}`}
+                className={`composer-attachment${
+                  attachment.kind === "document" ? " composer-attachmentDocument" : ""
+                }`}
                 key={attachment.id}
                 title={attachment.name}
               >
@@ -372,7 +347,13 @@ export const Composer = memo(function Composer({ installing = false }: { install
                   type="button"
                   aria-label={t("composer.removeAttachment", { name: attachment.name })}
                   disabled={sending}
-                  onClick={() => removeAttachment(attachment.id)}
+                  onClick={() => {
+                    if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl)
+                    replacePendingAttachments(
+                      pendingAttachmentsRef.current.filter((other) => other.id !== attachment.id),
+                    )
+                    setSendError(null)
+                  }}
                 >
                   <Icon icon={X} size={11} />
                 </button>
@@ -407,7 +388,7 @@ export const Composer = memo(function Composer({ installing = false }: { install
               <>
                 <button
                   type="button"
-                  className={`composer-model${state.modelState === "starting" || state.modelState === "failed" ? ` composer-model-${state.modelState}` : ""}`}
+                  className={`composer-model${modelStateClass}`}
                   onClick={() => setPickerOpen((open) => !open)}
                   title={t("composer.modelTitle", {
                     id: state.model.id,
@@ -416,28 +397,46 @@ export const Composer = memo(function Composer({ installing = false }: { install
                         ? "Fireworks"
                         : state.model.provider === "omlx"
                           ? "oMLX"
-                          : t(state.model.provider === "local" ? "models.local" : "models.localServers"),
+                          : t(
+                              state.model.provider === "local"
+                                ? "models.local"
+                                : "models.localServers",
+                            ),
                     fast: state.fastServing.enabled ? ` · ${t("composer.fastServing")}` : "",
                   })}
                   aria-haspopup="dialog"
                   aria-expanded={pickerOpen}
                 >
-                  {state.fastServing.enabled ? <Icon icon={Zap} size={11} className="composer-fast" /> : null}
-                  {state.model.displayName ?? shortModelId(state.model.id)}
+                  {state.fastServing.enabled ? (
+                    <Icon icon={Zap} size={11} className="composer-fast" />
+                  ) : null}
+                  {/* The short model id is the last path segment; mirrored in
+                      src/desktop/main/tray.ts. */}
+                  {state.model.displayName ?? state.model.id.split("/").at(-1)}
                   <Icon icon={ChevronDown} size={11} />
                 </button>
                 <ThinkingControl />
               </>
             ) : null}
             {state ? (
+              // The chip shows just the folder name; the full path stays in the tooltip.
               <button
                 type="button"
                 className="composer-workspace noDrag"
-                title={workspaceError ?? `${state.workspace.path} — ${t("composer.openDifferentFolder")}`}
-                onClick={() => void openFolder()}
+                title={
+                  workspaceError ?? `${state.workspace.path} — ${t("composer.openDifferentFolder")}`
+                }
+                onClick={() =>
+                  void api.pickWorkspaceFolder().then(async (path) => {
+                    if (!path) return
+                    setWorkspaceError(undefined)
+                    const result = await api.openWorkspace(path)
+                    if (!result.ok) setWorkspaceError(result.reason)
+                  })
+                }
               >
                 <Icon icon={FolderOpen} size={11} />
-                {workspaceFolderName(state.workspace)}
+                {state.workspace.path.split("/").filter(Boolean).at(-1) ?? state.workspace.label}
               </button>
             ) : null}
           </span>

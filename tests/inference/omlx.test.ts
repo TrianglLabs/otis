@@ -26,7 +26,12 @@ describe("oMLX", () => {
       expect(String(url)).toBe(`${settings.baseURL}/v1/models/status`)
       return Response.json({
         models: [
-          { id: "physical", model_alias: "vision-alias", model_type: "vlm", model_context_length: 262144 },
+          {
+            id: "physical",
+            model_alias: "vision-alias",
+            model_type: "vlm",
+            model_context_length: 262144,
+          },
           { id: "profile", model_type: "llm" },
           { id: "embedding", model_type: "embedding" },
           { id: "reranker", model_type: "reranker" },
@@ -62,7 +67,9 @@ describe("oMLX", () => {
     const fetch = vi.fn(async (url: RequestInfo | URL) =>
       String(url).endsWith("/status")
         ? new Response("not found", { status: 404 })
-        : Response.json({ data: [{ id: "chat", max_model_len: -1, model_context_length: 262144 }] }),
+        : Response.json({
+            data: [{ id: "chat", max_model_len: -1, model_context_length: 262144 }],
+          }),
     )
     const [model] = await discoverOmlxModels(settings, { fetch: fetch as typeof globalThis.fetch })
     expect(model).toMatchObject({ supportsImageInput: false })
@@ -80,7 +87,9 @@ describe("oMLX", () => {
       }),
     ).rejects.toThrow("HTTP 401")
     await expect(
-      discoverOmlxModels(settings, { fetch: vi.fn(async () => Response.json({ data: null })) as never }),
+      discoverOmlxModels(settings, {
+        fetch: vi.fn(async () => Response.json({ data: null })) as never,
+      }),
     ).rejects.toThrow("invalid model list")
     const controller = new AbortController()
     controller.abort()
@@ -96,7 +105,9 @@ describe("oMLX", () => {
   })
 
   it("normalizes loopback endpoints and rejects remote or credential-bearing URLs", () => {
-    expect(normalizeOmlxSettings({ baseURL: " http://localhost:8000/v1/ ", apiKey: " key " })).toEqual({
+    expect(
+      normalizeOmlxSettings({ baseURL: " http://localhost:8000/v1/ ", apiKey: " key " }),
+    ).toEqual({
       baseURL: "http://localhost:8000",
       apiKey: "key",
     })
@@ -114,9 +125,13 @@ describe("oMLX", () => {
     const client = new OmlxClient({
       ...settings,
       model: "chat",
-      fetch: vi.fn(async () => new Response(`Invalid key: ${settings.apiKey}`, { status: 401 })) as never,
+      fetch: vi.fn(
+        async () => new Response(`Invalid key: ${settings.apiKey}`, { status: 401 }),
+      ) as never,
     })
-    await expect(client.complete([{ role: "user", content: "hello" }])).rejects.toThrow("Invalid key: [redacted]")
+    await expect(client.complete([{ role: "user", content: "hello" }])).rejects.toThrow(
+      "Invalid key: [redacted]",
+    )
   })
 
   it("streams tools and reasoning and replays provider-native history with credentials only in headers", async () => {
@@ -132,7 +147,11 @@ describe("oMLX", () => {
           ].join("\n\n"),
         ),
     )
-    const client = new OmlxClient({ ...settings, model: "chat", fetch: fetch as typeof globalThis.fetch })
+    const client = new OmlxClient({
+      ...settings,
+      model: "chat",
+      fetch: fetch as typeof globalThis.fetch,
+    })
     const messages: ChatMessage[] = [{ role: "user", content: "Read it." }]
     const events = []
     for await (const event of client.streamChat({
@@ -140,7 +159,11 @@ describe("oMLX", () => {
       tools: [{ name: "read", description: "Read", parameters: { type: "object" } }],
     }))
       events.push(event)
-    expect(events).toContainEqual({ type: "reasoning_delta", field: "reasoning_content", text: "Inspect the file." })
+    expect(events).toContainEqual({
+      type: "reasoning_delta",
+      field: "reasoning_content",
+      text: "Inspect the file.",
+    })
     expect(events).toContainEqual({
       type: "tool_call",
       toolCall: { id: "read_1", name: "read", arguments: '{"path":"README.md"}' },
@@ -154,7 +177,10 @@ describe("oMLX", () => {
         role: "assistant",
         content: [
           { type: "reasoning", field: "reasoning_content", text: "Inspect the file." },
-          { type: "tool_call", toolCall: { id: "read_1", name: "read", arguments: '{"path":"README.md"}' } },
+          {
+            type: "tool_call",
+            toolCall: { id: "read_1", name: "read", arguments: '{"path":"README.md"}' },
+          },
         ],
       },
       { role: "tool", toolCallId: "read_1", content: "File contents" },

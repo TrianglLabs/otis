@@ -2,15 +2,27 @@
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import type { DesktopApi, DesktopEvent, DesktopSnapshot } from "../../../src/desktop/contracts.js"
+import type {
+  DesktopApi,
+  DesktopEvent,
+  DesktopSnapshot,
+  UiLanguage,
+} from "../../../src/desktop/contracts.js"
 import { App } from "../../../src/desktop/renderer/App.js"
-import { catalogs, I18nProvider, type ResolvedLocale } from "../../../src/desktop/renderer/i18n/index.js"
-import { createTranslator } from "../../../src/desktop/renderer/i18n/translate.js"
+import {
+  I18nProvider,
+  LANGUAGE_OPTIONS,
+  type Translate,
+  useI18n,
+} from "../../../src/desktop/renderer/i18n/index.js"
 import { DesktopProvider } from "../../../src/desktop/renderer/runtime.js"
 import { DesktopViewStore } from "../../../src/desktop/renderer/state.js"
 import type { ModelPickerItem } from "../../../src/inference/picker-catalog.js"
 
-/** First-run onboarding: it owns the window until a model is configured and exposes every inference path. */
+/**
+ * First-run onboarding: it owns the window until a model is configured and exposes every inference
+ * path.
+ */
 
 const SNAPSHOT: DesktopSnapshot = {
   busy: false,
@@ -145,16 +157,29 @@ function fakeApi(overrides: Partial<DesktopApi> = {}): DesktopApi {
   }
 }
 
-async function renderApp(api: DesktopApi, language: ResolvedLocale | "system" = "system") {
+const LOCALES = LANGUAGE_OPTIONS.flatMap((option) =>
+  option.value === "system" ? [] : [option.value],
+)
+
+/** Renders the app under the language and hands back the translator the UI itself is using. */
+async function renderApp(api: DesktopApi, language: UiLanguage = "system") {
   const store = new DesktopViewStore(api)
   await store.start()
+  let t: Translate | undefined
+  function Probe() {
+    t = useI18n().t
+    return null
+  }
   render(
     <DesktopProvider value={{ api, store }}>
       <I18nProvider language={language}>
         <App />
+        <Probe />
       </I18nProvider>
     </DesktopProvider>,
   )
+  if (!t) throw new Error("app did not render")
+  return t
 }
 
 afterEach(() => cleanup())
@@ -166,12 +191,11 @@ function rowButton(name: HTMLElement): HTMLButtonElement {
 }
 
 describe("OnboardingPage", () => {
-  it.each(
-    Object.keys(catalogs) as ResolvedLocale[],
-  )("omits oMLX from Linux onboarding and settings in %s", async (language) => {
-    const t = createTranslator(catalogs[language], language)
-    const api = fakeApi({ getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, platform: "linux" as const, language })) })
-    await renderApp(api, language)
+  it.each(LOCALES)("omits oMLX from Linux onboarding and settings in %s", async (language) => {
+    const api = fakeApi({
+      getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, platform: "linux" as const, language })),
+    })
+    const t = await renderApp(api, language)
     expect(document.body.textContent).not.toContain("Mac")
     fireEvent.click(rowButton(await screen.findByText(t("common.local"))))
     const servers = rowButton(await screen.findByText(t("onboarding.server")))
@@ -252,7 +276,9 @@ describe("OnboardingPage", () => {
     const api = fakeApi()
     await renderApp(api)
     fireEvent.click(await screen.findByRole("button", { name: /Hosted/ }))
-    fireEvent.change(screen.getByLabelText("Fireworks API key"), { target: { value: "fw_test_key" } })
+    fireEvent.change(screen.getByLabelText("Fireworks API key"), {
+      target: { value: "fw_test_key" },
+    })
     fireEvent.click(screen.getByRole("button", { name: /Continue/ }))
     expect(api.setFireworksApiKey).toHaveBeenCalledWith("fw_test_key")
     // No model rows until the key is in place.
@@ -271,11 +297,15 @@ describe("OnboardingPage", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Hosted/ }))
     expect(api.listModels).not.toHaveBeenCalled()
 
-    fireEvent.change(screen.getByLabelText("Fireworks API key"), { target: { value: "fw_test_key" } })
+    fireEvent.change(screen.getByLabelText("Fireworks API key"), {
+      target: { value: "fw_test_key" },
+    })
     fireEvent.click(screen.getByRole("button", { name: /Continue/ }))
     // The runtime accepts the key and echoes hostedConfigured through a status event.
     const { entries: _e, revision: _r, ...status } = SNAPSHOT
-    await act(async () => listener?.({ type: "status", revision: 2, status: { ...status, hostedConfigured: true } }))
+    await act(async () =>
+      listener?.({ type: "status", revision: 2, status: { ...status, hostedConfigured: true } }),
+    )
     expect(api.listModels).toHaveBeenCalled()
     expect(await screen.findByText("Kimi K2.6")).toBeTruthy()
   })
@@ -298,7 +328,11 @@ describe("OnboardingPage", () => {
   })
 
   it.each([
-    ["a reported failure", "download failed", vi.fn(async () => ({ ok: false as const, reason: "download failed" }))],
+    [
+      "a reported failure",
+      "download failed",
+      vi.fn(async () => ({ ok: false as const, reason: "download failed" })),
+    ],
     [
       "a rejected desktop call",
       "bridge disconnected",
@@ -366,8 +400,12 @@ describe("OnboardingPage", () => {
     fireEvent.click(servers)
 
     expect(screen.getByText(/default local addresses are prefilled/)).toBeTruthy()
-    expect((screen.getByLabelText("Ollama") as HTMLInputElement).value).toBe("http://127.0.0.1:11434")
-    expect((screen.getByLabelText("LM Studio") as HTMLInputElement).value).toBe("http://127.0.0.1:1234")
+    expect((screen.getByLabelText("Ollama") as HTMLInputElement).value).toBe(
+      "http://127.0.0.1:11434",
+    )
+    expect((screen.getByLabelText("LM Studio") as HTMLInputElement).value).toBe(
+      "http://127.0.0.1:1234",
+    )
     fireEvent.click(screen.getByRole("button", { name: "Connect" }))
 
     expect(api.connectLocalServers).toHaveBeenCalledWith({
@@ -401,7 +439,9 @@ describe("OnboardingPage", () => {
     expect(api.connectLocalServers).toHaveBeenCalled()
 
     // Endpoints answer → models list inside Settings, no onboarding card involved.
-    await act(async () => listener?.({ type: "status", revision: 2, status: { ...status, pairConfigured: true } }))
+    await act(async () =>
+      listener?.({ type: "status", revision: 2, status: { ...status, pairConfigured: true } }),
+    )
     fireEvent.click(await screen.findByText("PAIR cluster model"))
     expect(api.selectModel).toHaveBeenCalledWith("ollama:qwen3:32b")
 
@@ -473,7 +513,10 @@ describe("OnboardingPage", () => {
       active: false,
     }
     const api = fakeApi({
-      getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, omlx: { baseURL: item.baseURL, hasApiKey: true } })),
+      getSnapshot: vi.fn(async () => ({
+        ...SNAPSHOT,
+        omlx: { baseURL: item.baseURL, hasApiKey: true },
+      })),
       listModels: vi.fn(async () => [item]),
     })
     await renderApp(api)

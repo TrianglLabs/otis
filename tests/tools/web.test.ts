@@ -23,7 +23,10 @@ describe("web tools", () => {
     const result = await executeToolCall(
       {
         name: "web_search",
-        input: { objective: "Find the latest release", searchQueries: ["latest release", "release notes"] },
+        input: {
+          objective: "Find the latest release",
+          searchQueries: ["latest release", "release notes"],
+        },
       },
       { webClient, webClientModel: "tool-model", webSession },
     )
@@ -45,7 +48,14 @@ describe("web tools", () => {
     const read = vi.fn(async () => ({
       extractId: "extract_1",
       sessionId: "parallel_session",
-      results: [{ url: "https://example.com/docs", title: "Docs", excerpts: ["Excerpt"], fullContent: "Full docs" }],
+      results: [
+        {
+          url: "https://example.com/docs",
+          title: "Docs",
+          excerpts: ["Excerpt"],
+          fullContent: "Full docs",
+        },
+      ],
       errors: [{ url: "https://example.com/missing", type: "NOT_FOUND", status: 404 }],
       warnings: ["One URL failed"],
     }))
@@ -61,13 +71,15 @@ describe("web tools", () => {
     expect(webSession.id).toBe("parallel_session")
     expect(result.output).toContain("Full docs")
     expect(result.output).not.toContain("Excerpt")
-    expect(result.output).toContain("Could not read https://example.com/missing: NOT_FOUND (HTTP 404)")
+    expect(result.output).toContain(
+      "Could not read https://example.com/missing: NOT_FOUND (HTTP 404)",
+    )
     expect(result.output).toContain("Warnings:\n- One URL failed")
   })
 
   it("fails clearly when no web client is configured", async () => {
-    await expect(executeToolCall({ name: "web_read", input: { url: "https://example.com" } })).rejects.toThrow(
-      "Web client is not configured",
-    )
+    await expect(
+      executeToolCall({ name: "web_read", input: { url: "https://example.com" } }),
+    ).rejects.toThrow("Web client is not configured")
   })
 })

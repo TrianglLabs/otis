@@ -1,12 +1,20 @@
 import { appendFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
-import { createSession, listAllSessions, searchAllSessions, sessionRootDirectory } from "../../src/storage/index.js"
+import {
+  createSession,
+  listAllSessions,
+  searchAllSessions,
+  sessionRootDirectory,
+} from "../../src/storage/index.js"
 import { useOtisHome } from "../app/support/otis-home.js"
 
 const isolate = useOtisHome()
 
-/** A session file the way releases before workspace registration wrote it: no marker, no cwd on the start event. */
+/**
+ * A session file the way releases before workspace registration wrote it: no marker, no cwd on
+ * the start event.
+ */
 async function legacySession(dirName: string, sessionId: string, title: string) {
   const dir = join(sessionRootDirectory(), dirName)
   await mkdir(dir, { recursive: true })

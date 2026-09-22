@@ -25,7 +25,11 @@ describe("bundled document extraction", () => {
         ...(format === "compiled" ? ["--compile"] : ["--target=node", "--format=cjs"]),
       ])
       for (const [name, bytes, expected] of [
-        ["report.pdf", minimalPdf("Bundled PDF text"), { text: "[Page 1]\nBundled PDF text", pages: 1 }],
+        [
+          "report.pdf",
+          minimalPdf("Bundled PDF text"),
+          { text: "[Page 1]\nBundled PDF text", pages: 1 },
+        ],
         ["report.docx", await minimalDocx("Bundled Word text"), { text: "Bundled Word text" }],
       ] as const) {
         const path = join(directory, name)

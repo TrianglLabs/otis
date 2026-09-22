@@ -121,14 +121,17 @@ export const en = {
   "composer.imageTooLarge": "{{name}} is too large. Images must be {{size}} MB or smaller.",
   "composer.tooManyImages": "You can attach up to {{count}} images.",
   "composer.modelNoImages": "The selected model does not support image input",
-  "composer.modelNoImageInput": "The selected model does not support image input. Choose a vision model.",
+  "composer.modelNoImageInput":
+    "The selected model does not support image input. Choose a vision model.",
   "composer.atMostImages": "You can attach at most {{count}} images to one message.",
   "composer.unsupportedFile":
     "{{name}} is not supported. Use a text file, PDF, DOCX, PNG, JPEG, GIF, BMP, TIFF, or PPM.",
   "composer.thatFile": "That file",
   "composer.fileEmpty": "{{name}} is empty.",
-  "composer.imageRequestLimit": "{{name}} is too large. Image data must stay under the 10 MB request limit.",
-  "composer.imagesRequestLimit": "The attached images are too large together. Total image data must stay under 10 MB.",
+  "composer.imageRequestLimit":
+    "{{name}} is too large. Image data must stay under the 10 MB request limit.",
+  "composer.imagesRequestLimit":
+    "The attached images are too large together. Total image data must stay under 10 MB.",
   "composer.fileReadFailed": "The file could not be read.",
   "composer.fastServing": "Fast serving",
   "composer.modelTitle": "{{id}} · {{provider}}{{fast}} — select a model",
@@ -164,8 +167,10 @@ export const en = {
   "markdown.copied": "Copied",
   "onboarding.tagline": "Your personal AI agent, powered by open models.",
   "onboarding.chooseSetup": "Choose a model setup",
-  "onboarding.hostedBody": "Top open models, ready instantly. Pay-as-you-go — you connect it with a Fireworks key.",
-  "onboarding.localBody": "Run models on this computer or your local AI network. Private and works offline.",
+  "onboarding.hostedBody":
+    "Top open models, ready instantly. Pay-as-you-go — you connect it with a Fireworks key.",
+  "onboarding.localBody":
+    "Run models on this computer or your local AI network. Private and works offline.",
   "onboarding.back": "Back",
   "onboarding.setupHosted": "Set up hosted models",
   "onboarding.chooseLocal": "Choose local inference",

@@ -99,17 +99,32 @@ window.addEventListener("message", (event) => {
     if (lastError !== undefined) renderError()
     return
   }
-  const request = canvasRequest(event.data)
-  if (!request) return
+  const request = event.data
+  if (request?.type !== "otis-canvas-source" || typeof request.source !== "string") return
+  const colors = request.colors
+  const validColors =
+    !!colors &&
+    typeof colors === "object" &&
+    ["background", "surface", "text", "muted", "accent", "border"].every(
+      (name) => typeof colors[name] === "string" && colors[name].length <= 100,
+    )
+  if (!validColors) return
   const requestId = ++latestRequest
-  applyColors(request.colors)
+  document.body.style.color = colors.text
+  document.documentElement.style.setProperty("--canvas-surface", colors.surface)
+  document.documentElement.style.setProperty("--canvas-border", colors.border)
+  document.documentElement.style.setProperty("--canvas-text", colors.text)
+  document.documentElement.style.setProperty("--canvas-muted", colors.muted)
+  document.documentElement.style.setProperty("--canvas-hover", colors.background)
+  errorView.style.color = colors.muted
   root.hidden = true
   root.innerHTML = ""
   errorView.hidden = true
   errorView.textContent = ""
   lastError = undefined
-  if (request.error) showError(request.error, requestId)
-  else void render(request.source, request.colors, requestId)
+  if (request.source.length === 0) showError("emptySource", requestId)
+  else if (request.source.length > 50_000) showError("tooLarge", requestId)
+  else void render(request.source, colors, requestId)
 })
 
 async function render(source, colors, requestId) {
@@ -202,16 +217,6 @@ function endDrag(event) {
   if (viewport.hasPointerCapture(event.pointerId)) viewport.releasePointerCapture(event.pointerId)
 }
 
-function applyColors(colors) {
-  document.body.style.color = colors.text
-  document.documentElement.style.setProperty("--canvas-surface", colors.surface)
-  document.documentElement.style.setProperty("--canvas-border", colors.border)
-  document.documentElement.style.setProperty("--canvas-text", colors.text)
-  document.documentElement.style.setProperty("--canvas-muted", colors.muted)
-  document.documentElement.style.setProperty("--canvas-hover", colors.background)
-  errorView.style.color = colors.muted
-}
-
 function showError(message, requestId) {
   if (requestId !== latestRequest) return
   root.hidden = true
@@ -220,34 +225,18 @@ function showError(message, requestId) {
   lastError = message
   renderError()
   parent.postMessage(
-    { type: "otis-canvas-render", ok: false, message: Object.hasOwn(labels, message) ? labels[message] : message },
+    {
+      type: "otis-canvas-render",
+      ok: false,
+      message: Object.hasOwn(labels, message) ? labels[message] : message,
+    },
     "*",
   )
 }
 
 function renderError() {
-  errorView.textContent = `${labels.renderFailed}\n\n${Object.hasOwn(labels, lastError) ? labels[lastError] : lastError}`
-}
-
-function canvasRequest(value) {
-  if (!value || typeof value !== "object") return false
-  if (value.type !== "otis-canvas-source" || typeof value.source !== "string") return false
-  if (!value.colors || typeof value.colors !== "object") return false
-  const validColors = ["background", "surface", "text", "muted", "accent", "border"].every(
-    (name) => typeof value.colors[name] === "string" && value.colors[name].length <= 100,
-  )
-  if (!validColors) return false
-  if (value.source.length === 0) {
-    return { source: value.source, colors: value.colors, error: "emptySource" }
-  }
-  if (value.source.length > 50_000) {
-    return {
-      source: value.source,
-      colors: value.colors,
-      error: "tooLarge",
-    }
-  }
-  return { source: value.source, colors: value.colors }
+  const detail = Object.hasOwn(labels, lastError) ? labels[lastError] : lastError
+  errorView.textContent = `${labels.renderFailed}\n\n${detail}`
 }
 
 function requiredElement(id) {

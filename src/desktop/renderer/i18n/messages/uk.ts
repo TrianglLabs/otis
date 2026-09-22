@@ -22,7 +22,8 @@ export const uk: Messages = {
   "common.hosted": "Хмарні",
   "app.loadingWorkspace": "Завантаження робочого простору…",
   "app.bridgeUnavailable": "Міст настільного застосунку недоступний.",
-  "app.bridgeUnavailableHint": "Перезапустіть застосунок. Якщо проблема не зникне, перевстановіть Otis Desktop.",
+  "app.bridgeUnavailableHint":
+    "Перезапустіть застосунок. Якщо проблема не зникне, перевстановіть Otis Desktop.",
   "shell.workspaceMissing":
     "Otis не може знайти робочу папку цього сеансу. Ви можете переглянути його історію; виберіть папку, щоб продовжити. Otis її запам’ятає.",
   "shell.locateWorkingFolder": "Знайти робочу папку",
@@ -125,7 +126,8 @@ export const uk: Messages = {
   "composer.fast": "Швидко",
   "composer.messageKept": "Ваше повідомлення збережено.",
   "composer.imageUnsupported": "{{name}} має непідтримуваний тип зображення.",
-  "composer.imageTooLarge": "{{name}} завеликий. Розмір зображення не може перевищувати {{size}} МБ.",
+  "composer.imageTooLarge":
+    "{{name}} завеликий. Розмір зображення не може перевищувати {{size}} МБ.",
   "composer.tooManyImages": "Можна прикріпити не більше {{count}} зображень.",
   "composer.modelNoImages": "Вибрана модель не підтримує введення зображень",
   "composer.modelNoImageInput":
@@ -135,7 +137,8 @@ export const uk: Messages = {
     "{{name}} має непідтримуваний формат. Використовуйте текстовий файл, PDF, DOCX, PNG, JPEG, GIF, BMP, TIFF або PPM.",
   "composer.thatFile": "Цей файл",
   "composer.fileEmpty": "{{name}} порожній.",
-  "composer.imageRequestLimit": "{{name}} завеликий. Дані зображення мають не перевищувати ліміт запиту 10 МБ.",
+  "composer.imageRequestLimit":
+    "{{name}} завеликий. Дані зображення мають не перевищувати ліміт запиту 10 МБ.",
   "composer.imagesRequestLimit":
     "Прикріплені зображення разом завеликі. Загальний обсяг даних зображень має бути меншим за 10 МБ.",
   "composer.fileReadFailed": "Не вдалося прочитати файл.",
@@ -180,7 +183,8 @@ export const uk: Messages = {
   "onboarding.back": "Назад",
   "onboarding.setupHosted": "Налаштувати хмарні моделі",
   "onboarding.chooseLocal": "Вибрати локальний інференс",
-  "onboarding.localHint": "Скористайтеся моделлю під керуванням Otis або підключіть модель, яку вже запускаєте.",
+  "onboarding.localHint":
+    "Скористайтеся моделлю під керуванням Otis або підключіть модель, яку вже запускаєте.",
   "onboarding.managed": "Під керуванням Otis",
   "onboarding.managedBody": "Завантажте відібрану модель і запустіть її за допомогою llama.cpp.",
   "onboarding.server": "Локальні сервери моделей",
@@ -197,7 +201,8 @@ export const uk: Messages = {
   "onboarding.chooseModel": "Виберіть модель",
   "onboarding.chooseServerModel": "Виберіть модель, про яку повідомив підключений сервер.",
   "onboarding.connectedNoModels": "Підключено, але сервер не повідомив про доступні моделі.",
-  "onboarding.noLocalFit": "Жодна локальна модель не підходить для цього комп’ютера — поверніться та виберіть хмарну.",
+  "onboarding.noLocalFit":
+    "Жодна локальна модель не підходить для цього комп’ютера — поверніться та виберіть хмарну.",
   "onboarding.bestModel": "Найкраща модель для вашого комп’ютера",
   "onboarding.downloadContinue": "Завантажити й продовжити",
   "settings.close": "Закрити налаштування (Esc)",
@@ -265,8 +270,10 @@ export const uk: Messages = {
   "updates.downloadingVersion": "Завантаження Otis {{version}} у фоновому режимі…",
   "updates.unavailableBuild": "Перевірка оновлень недоступна в цій збірці Otis.",
   "updates.upToDate": "У вас найновіша версія.",
-  "updates.backgroundHint": "Оновлення завантажуються у фоновому режимі. Ви вирішуєте, коли перезапустити застосунок.",
-  "canvas.viewport": "Полотно діаграми. Перетягуйте для переміщення; змінюйте масштаб за допомогою кнопок.",
+  "updates.backgroundHint":
+    "Оновлення завантажуються у фоновому режимі. Ви вирішуєте, коли перезапустити застосунок.",
+  "canvas.viewport":
+    "Полотно діаграми. Перетягуйте для переміщення; змінюйте масштаб за допомогою кнопок.",
   "canvas.controls": "Керування виглядом діаграми",
   "canvas.zoomOut": "Зменшити",
   "canvas.resetView": "Скинути вигляд",

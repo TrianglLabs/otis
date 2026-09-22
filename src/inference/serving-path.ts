@@ -6,12 +6,11 @@ export function isFastFireworksModel(modelId: string) {
   return /\/routers\/[^/]+-fast$/i.test(normalizedModelResource(modelId))
 }
 
-export function baseModelIdForFastServingPath(fastId: string) {
+function baseModelIdForFastServingPath(fastId: string) {
   const resource = normalizedModelResource(fastId)
   if (!isFastFireworksModel(resource)) return undefined
-  const slug = resource.split("/").at(-1)
-  if (!slug) return undefined
-  return `accounts/fireworks/models/${slug.slice(0, -"-fast".length)}`
+  const name = resource.slice(resource.lastIndexOf("/") + 1, -"-fast".length)
+  return `accounts/fireworks/models/${name}`
 }
 
 export function baseFireworksModelId(modelId: string) {
@@ -31,19 +30,26 @@ export function findFireworksModel(models: readonly FireworksModel[], modelId: s
   return models.find((model) => matchesFireworksModel(model, modelId))
 }
 
-/** Fast serving is opt-in. Keep an already-Fast model ID; otherwise require an explicit preference. */
+/**
+ * Fast serving is opt-in. Keep an already-Fast model ID; otherwise require an explicit
+ * preference.
+ */
 export function useFastServingPath(modelId: string | undefined, fast?: boolean) {
   return Boolean(modelId && isFastFireworksModel(modelId)) || fast === true
 }
 
 export function fireworksServingModel(model: FireworksModel, fast: boolean): FireworksModel {
   if (!model.fastId) return model
-  return fast
-    ? { ...model, id: model.fastId }
-    : { ...model, id: baseModelIdForFastServingPath(model.fastId) ?? model.id }
+  return {
+    ...model,
+    id: fast ? model.fastId : (baseModelIdForFastServingPath(model.fastId) ?? model.id),
+  }
 }
 
-export function withFastServingPaths(models: readonly FireworksModel[], fastIds: readonly string[]) {
+export function withFastServingPaths(
+  models: readonly FireworksModel[],
+  fastIds: readonly string[],
+) {
   const fastByBaseId = new Map<string, string>()
   for (const fastId of fastIds) {
     const baseId = baseModelIdForFastServingPath(fastId)
@@ -57,4 +63,19 @@ export function withFastServingPaths(models: readonly FireworksModel[], fastIds:
 
 function normalizedModelResource(modelId: string) {
   return modelId.trim().split("#", 1)[0] ?? ""
+}
+
+const DEFAULT_FIREWORKS_MODEL_IDS = [
+  "accounts/fireworks/models/muse-glimmer-30b",
+  "accounts/fireworks/models/inkling",
+] as const
+
+export function selectDefaultFireworksModel(
+  models: readonly FireworksModel[],
+): FireworksModel | undefined {
+  for (const modelId of DEFAULT_FIREWORKS_MODEL_IDS) {
+    const model = models.find((candidate) => candidate.id === modelId)
+    if (model) return model
+  }
+  return models.find((model) => !isFastFireworksModel(model.id)) ?? models[0]
 }

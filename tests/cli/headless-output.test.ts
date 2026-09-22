@@ -108,7 +108,10 @@ describe("HeadlessReporter", () => {
       title: "Map the notes",
       event: { type: "tool_start", toolCallId: "call_read", name: "read" },
     })
-    expect(lines[2]).toMatchObject({ type: "subagent", event: { type: "assistant_delta", text: "Child report." } })
+    expect(lines[2]).toMatchObject({
+      type: "subagent",
+      event: { type: "assistant_delta", text: "Child report." },
+    })
     expect(plainStderr).toBe("→ Delegating: Map the notes\n  → Reading files: note.txt\n")
   })
 
@@ -127,7 +130,12 @@ describe("HeadlessReporter", () => {
       field: "reasoning_content",
       startedAt: "2026-08-06T12:00:00.000Z",
     })
-    await reporter.event({ type: "reasoning", phase: "delta", reasoningId: "reasoning_1", text: "Check it." })
+    await reporter.event({
+      type: "reasoning",
+      phase: "delta",
+      reasoningId: "reasoning_1",
+      text: "Check it.",
+    })
     await reporter.event({
       type: "reasoning",
       phase: "end",

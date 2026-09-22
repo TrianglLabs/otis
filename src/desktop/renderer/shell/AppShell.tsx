@@ -9,20 +9,28 @@ import { OnboardingPage } from "../features/onboarding/OnboardingPage.js"
 import { CommandPalette } from "../features/palette/CommandPalette.js"
 import { SettingsPage } from "../features/settings/SettingsPage.js"
 import { useI18n } from "../i18n/index.js"
-import { useDesktop, useDesktopState } from "../runtime.js"
-import { rememberTheme } from "../theme.js"
+import { rememberTheme, useDesktop, useDesktopState } from "../runtime.js"
 import { WorkspaceHeader } from "./WorkspaceHeader.js"
 import { WorkspacePanel } from "./WorkspacePanel.js"
 
 /**
- * The application shell: the conversation column and the delegated-runs rail when the session has subagents.
- * There is no session sidebar — the ⌘K palette is the only session navigation. The header rows double as the
- * window drag region (the macOS title bar is hidden); interactive elements opt out with `noDrag`.
+ * The application shell: the conversation column and the delegated-runs rail when the session has
+ * subagents. There is no session sidebar — the ⌘K palette is the only session navigation. The
+ * header rows double as the window drag region (the macOS title bar is hidden); interactive
+ * elements opt out with `noDrag`.
  */
 export function AppShell() {
   const { api } = useDesktop()
   const { t } = useI18n()
-  const state = useDesktopState("theme", "platform", "model", "needsWorkspace", "update", "session", "artifact")
+  const state = useDesktopState(
+    "theme",
+    "platform",
+    "model",
+    "needsWorkspace",
+    "update",
+    "session",
+    "artifact",
+  )
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [windowFullscreen, setWindowFullscreen] = useState(false)
   const [installing, setInstalling] = useState(false)
@@ -47,11 +55,14 @@ export function AppShell() {
     })
   }, [])
   const openedDiagram =
-    openedCanvas && openedCanvas.sessionId === sessionId && openedCanvas.sharedRevision === state?.artifact?.revision
+    openedCanvas &&
+    openedCanvas.sessionId === sessionId &&
+    openedCanvas.sharedRevision === state?.artifact?.revision
       ? openedCanvas.artifact
       : undefined
   const canvasArtifact =
-    openedDiagram ?? (state?.artifact && isCanvasArtifact(state.artifact.kind) ? state.artifact : undefined)
+    openedDiagram ??
+    (state?.artifact && isCanvasArtifact(state.artifact.kind) ? state.artifact : undefined)
   const openSettings = useCallback(() => setSettingsOpen(true), [])
   const closeSettings = useCallback(() => setSettingsOpen(false), [])
 
@@ -102,8 +113,10 @@ export function AppShell() {
     return () => window.removeEventListener("keydown", onKeyDown)
   }, [api])
 
-  const platformClass = state?.platform === "darwin" ? "platform-darwin" : "platform-linux"
   const readyUpdate = state?.update.status === "ready" ? state.update : undefined
+  const platformClass = state?.platform === "darwin" ? "platform-darwin" : "platform-linux"
+  const settingsClass = settingsOpen ? " settingsOpen" : ""
+  const fullscreenClass = windowFullscreen ? " windowFullscreen" : ""
   const installUpdate = () => {
     if (installing || !readyUpdate) return
     setInstalling(true)
@@ -112,11 +125,9 @@ export function AppShell() {
 
   return (
     <CanvasOpenContext.Provider value={openCanvas}>
-      <div
-        className={`appShell ${platformClass}${settingsOpen ? " settingsOpen" : ""}${windowFullscreen ? " windowFullscreen" : ""}`}
-      >
-        {/* The workspace stays mounted behind Settings so drafts, scroll positions, expanded cards, and the
-          workspace-panel selection survive the round trip. */}
+      <div className={`appShell ${platformClass}${settingsClass}${fullscreenClass}`}>
+        {/* The workspace stays mounted behind Settings so drafts, scroll positions, expanded
+            cards, and the workspace-panel selection survive the round trip. */}
         <div
           className={`workspaceView${settingsOpen ? " workspaceView-hidden" : ""}`}
           aria-hidden={settingsOpen}
@@ -136,7 +147,9 @@ export function AppShell() {
                   <div className="workspaceBanner">
                     <span>
                       {t("shell.workspaceMissing")}
-                      {locateError ? <span className="workspaceBanner-error">{locateError}</span> : null}
+                      {locateError ? (
+                        <span className="workspaceBanner-error">{locateError}</span>
+                      ) : null}
                     </span>
                     <Button
                       variant="ghost"
@@ -145,7 +158,11 @@ export function AppShell() {
                         void api.pickWorkspaceFolder().then(async (path) => {
                           if (!path) return
                           const result = await api.locateWorkspace(path)
-                          setLocateError(result.ok ? undefined : (result.reason ?? t("shell.couldNotOpenFolder")))
+                          setLocateError(
+                            result.ok
+                              ? undefined
+                              : (result.reason ?? t("shell.couldNotOpenFolder")),
+                          )
                         })
                       }
                     >
@@ -170,7 +187,9 @@ export function AppShell() {
                 onClick={installUpdate}
               >
                 <Icon icon={Download} size={12} />
-                <span className="updateFab-label">{installing ? t("shell.restarting") : t("shell.update")}</span>
+                <span className="updateFab-label">
+                  {installing ? t("shell.restarting") : t("shell.update")}
+                </span>
               </button>
             ) : null}
           </div>
@@ -178,7 +197,11 @@ export function AppShell() {
         </div>
         {settingsOpen ? (
           <div className="settingsLayer">
-            <SettingsPage onClose={closeSettings} installing={installing} onInstallUpdate={installUpdate} />
+            <SettingsPage
+              onClose={closeSettings}
+              installing={installing}
+              onInstallUpdate={installUpdate}
+            />
           </div>
         ) : null}
         {paletteOpen ? <CommandPalette onClose={() => setPaletteOpen(false)} /> : null}

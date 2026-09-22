@@ -6,7 +6,8 @@ export const MAX_TOTAL_EXTRACTED_DOCUMENT_CHARS = 180_000
 export const MAX_PDF_PAGES = 500
 
 export const PDF_MIME_TYPE = "application/pdf"
-export const DOCX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+export const DOCX_MIME_TYPE =
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 export const SUPPORTED_DOCUMENT_EXTENSIONS = [
   ".txt",
@@ -56,7 +57,7 @@ export const SUPPORTED_DOCUMENT_EXTENSIONS = [
   ".docx",
 ] as const
 
-export const SUPPORTED_DOCUMENT_MIME_TYPES = [
+const SUPPORTED_DOCUMENT_MIME_TYPES = [
   "text/plain",
   "text/markdown",
   "text/csv",
@@ -79,7 +80,9 @@ export function normalizedDocumentMimeType(value: string | undefined) {
   const mimeType = value?.split(";", 1)[0]?.trim().toLowerCase()
   if (!mimeType || mimeType === "application/octet-stream") return undefined
   if (mimeType.startsWith("text/")) return mimeType
-  return (SUPPORTED_DOCUMENT_MIME_TYPES as readonly string[]).includes(mimeType) ? mimeType : undefined
+  return (SUPPORTED_DOCUMENT_MIME_TYPES as readonly string[]).includes(mimeType)
+    ? mimeType
+    : undefined
 }
 
 export function isSupportedDocumentMimeType(value: unknown): value is string {

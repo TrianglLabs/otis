@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest"
-import {
-  recoverWorkspaceCwd,
-  resolveWorkspaceCwd,
-  type WorkspaceRecovery,
-} from "../../../src/desktop/main/workspace.js"
+import { recoverWorkspaceCwd, resolveWorkspaceCwd } from "../../../src/desktop/main/workspace.js"
+
+type WorkspaceRecovery = Parameters<typeof recoverWorkspaceCwd>[2]
 
 describe("resolveWorkspaceCwd", () => {
   it("keeps the shell's cwd for terminal launches", () => {
@@ -15,8 +13,12 @@ describe("resolveWorkspaceCwd", () => {
   })
 
   it("honors OTIS_WORKSPACE over everything, including root", () => {
-    expect(resolveWorkspaceCwd({ OTIS_WORKSPACE: "/tmp/picked" }, "/", "/Users/nik")).toBe("/tmp/picked")
-    expect(resolveWorkspaceCwd({ OTIS_WORKSPACE: "/tmp/picked" }, "/Users/nik/code", "/Users/nik")).toBe("/tmp/picked")
+    expect(resolveWorkspaceCwd({ OTIS_WORKSPACE: "/tmp/picked" }, "/", "/Users/nik")).toBe(
+      "/tmp/picked",
+    )
+    expect(
+      resolveWorkspaceCwd({ OTIS_WORKSPACE: "/tmp/picked" }, "/Users/nik/code", "/Users/nik"),
+    ).toBe("/tmp/picked")
   })
 })
 

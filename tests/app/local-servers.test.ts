@@ -4,7 +4,6 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { Application } from "../../src/app/application.js"
 import { prepareLocalServers } from "../../src/app/local-servers.js"
 import { autoCompactThreshold } from "../../src/core/compaction.js"
-import { providerTools } from "../../src/core/subagent.js"
 import { DesktopRuntime } from "../../src/desktop/main/runtime.js"
 import type { OmlxCatalogModel } from "../../src/inference/types.js"
 import { localConfigDirectory } from "../../src/local/paths.js"
@@ -14,6 +13,7 @@ import {
   saveSelectedModel,
   saveSelectedTheme,
 } from "../../src/local/settings.js"
+import { providerTools } from "../../src/tools/index.js"
 import { useOtisHome } from "./support/otis-home.js"
 
 const isolate = useOtisHome()
@@ -46,11 +46,18 @@ describe("local server coordination", () => {
       throw new Error("unexpected network call")
     })
     vi.stubGlobal("fetch", network)
-    expect(await runtime.connectLocalServers({ omlx: `${model.baseURL}/v1`, omlxApiKey: "private-omlx-key" })).toEqual({
+    expect(
+      await runtime.connectLocalServers({
+        omlx: `${model.baseURL}/v1`,
+        omlxApiKey: "private-omlx-key",
+      }),
+    ).toEqual({
       ok: true,
     })
     expect(
-      (await runtime.listModels()).filter((item) => item.kind === "model" && item.provider === "omlx"),
+      (await runtime.listModels()).filter(
+        (item) => item.kind === "model" && item.provider === "omlx",
+      ),
     ).toMatchObject([{ selectionKey: "omlx:chat", supportsImageInput: true }])
     expect(await runtime.selectModel("omlx:chat")).toEqual({ ok: true })
     expect(stop).toHaveBeenCalled()
@@ -68,17 +75,25 @@ describe("local server coordination", () => {
     if (process.platform !== "win32")
       expect((await stat(join(localConfigDirectory(), "config.json"))).mode & 0o777).toBe(0o600)
     await clearSelectedModel()
-    expect(await loadLocalSettings({ env: {} })).toMatchObject({ omlx: { apiKey: "private-omlx-key" } })
+    expect(await loadLocalSettings({ env: {} })).toMatchObject({
+      omlx: { apiKey: "private-omlx-key" },
+    })
     await app.shutdown()
   })
 
   it("rebuilds the active client on reconnect, preserves a blank key on the same endpoint, and invalidates removed servers", async () => {
     const cwd = await isolate("otis-omlx-reconnect-")
     const app = await Application.create({ cwd, env: {} })
-    await app.connectLocalServers({ omlx: model.baseURL, omlxApiKey: "key-one" }, { discoverPair, discoverOmlx })
+    await app.connectLocalServers(
+      { omlx: model.baseURL, omlxApiKey: "key-one" },
+      { discoverPair, discoverOmlx },
+    )
     app.models.activate(model, app.models.omlxClient(model.id, model.baseURL))
     const previous = app.models.client
-    await app.connectLocalServers({ omlx: model.baseURL, omlxApiKey: "" }, { discoverPair, discoverOmlx })
+    await app.connectLocalServers(
+      { omlx: model.baseURL, omlxApiKey: "" },
+      { discoverPair, discoverOmlx },
+    )
     expect(app.models.omlx?.apiKey).toBe("key-one")
     expect(app.models.client).not.toBe(previous)
     const beforeFailure = await readFile(join(localConfigDirectory(), "config.json"), "utf8")
@@ -95,7 +110,10 @@ describe("local server coordination", () => {
     ).rejects.toThrow("401")
     expect(await readFile(join(localConfigDirectory(), "config.json"), "utf8")).toBe(beforeFailure)
     const changed = { ...model, baseURL: "http://127.0.0.1:8001", contextLength: 65536 }
-    await app.connectLocalServers({ omlx: changed.baseURL }, { discoverPair, discoverOmlx: async () => [changed] })
+    await app.connectLocalServers(
+      { omlx: changed.baseURL },
+      { discoverPair, discoverOmlx: async () => [changed] },
+    )
     expect(app.models.omlx).toEqual({ baseURL: changed.baseURL })
     expect(app.models.autoCompactAtTokens).toBe(autoCompactThreshold(65536))
     await app.connectLocalServers(
@@ -188,9 +206,14 @@ describe("local server coordination", () => {
 
   it("propagates cancellation and rejects empty or malformed setup", async () => {
     await expect(prepareLocalServers({}, undefined)).rejects.toThrow("Enter at least one")
-    await expect(prepareLocalServers({ omlx: "http://example.com" }, undefined)).rejects.toThrow("127.0.0.1")
+    await expect(prepareLocalServers({ omlx: "http://example.com" }, undefined)).rejects.toThrow(
+      "127.0.0.1",
+    )
     await expect(
-      prepareLocalServers({ omlx: model.baseURL }, undefined, { discoverPair, discoverOmlx: async () => [] }),
+      prepareLocalServers({ omlx: model.baseURL }, undefined, {
+        discoverPair,
+        discoverOmlx: async () => [],
+      }),
     ).rejects.toThrow("no available models")
     const controller = new AbortController()
     controller.abort()

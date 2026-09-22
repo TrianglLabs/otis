@@ -1,21 +1,31 @@
+import { EventEmitter } from "node:events"
 import electronUpdater from "electron-updater"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { DesktopUpdateState } from "../../../src/desktop/contracts.js"
-import { createInstallGuard, startAutoUpdates } from "../../../src/desktop/main/updater.js"
+import { startAutoUpdates } from "../../../src/desktop/main/updater.js"
 
 // No Electron process, release feed, credentials, or real downloads in these tests.
 vi.mock("electron-updater", async () => {
   const { EventEmitter } = await import("node:events")
   return {
     default: {
-      autoUpdater: Object.assign(new EventEmitter(), { checkForUpdates: vi.fn(), quitAndInstall: vi.fn() }),
+      autoUpdater: Object.assign(new EventEmitter(), {
+        checkForUpdates: vi.fn(),
+        quitAndInstall: vi.fn(),
+      }),
     },
   }
 })
 
 const { autoUpdater } = electronUpdater
 const checkFeed = vi.mocked(autoUpdater.checkForUpdates)
-const updateInfo = { version: "9.9.9", files: [], releaseDate: "2026-09-10", path: "fake.zip", sha512: "fake-hash" }
+const updateInfo = {
+  version: "9.9.9",
+  files: [],
+  releaseDate: "2026-09-10",
+  path: "fake.zip",
+  sha512: "fake-hash",
+}
 const downloadedEvent = { ...updateInfo, downloadedFile: "/preview/fake.zip" }
 const result = (available = false, downloadPromise?: Promise<string[]>) => ({
   isUpdateAvailable: available,
@@ -37,16 +47,39 @@ describe("startAutoUpdates", () => {
     vi.useRealTimers()
   })
 
+  /**
+   * Wires the updater the way the desktop main does: installer errors and app quit are real events.
+   */
   function start(isPackaged = true) {
     const states: DesktopUpdateState[] = []
+    const app = new EventEmitter()
+    const onInstallFailed = vi.fn()
     const controller = startAutoUpdates({
       isPackaged,
       onState: (state) => states.push(state),
-      onUpdaterError: () => () => {},
-      onBeforeQuit: () => () => {},
-      onInstallFailed: vi.fn(),
+      onUpdaterError: (listener) => {
+        autoUpdater.on("error", listener)
+        return () => autoUpdater.removeListener("error", listener)
+      },
+      onBeforeQuit: (listener) => {
+        app.once("before-quit", listener)
+        return () => app.removeListener("before-quit", listener)
+      },
+      onInstallFailed,
     })
-    return { ...controller, states }
+    return { ...controller, states, app, onInstallFailed }
+  }
+
+  /** A downloaded update is waiting, and the user has asked to restart into it. */
+  async function installing() {
+    checkFeed.mockImplementationOnce(async () => {
+      autoUpdater.emit("update-downloaded", downloadedEvent)
+      return result(true, Promise.resolve(["cached.zip"]))
+    })
+    const updater = start()
+    await updater.check()
+    updater.install()
+    return updater
   }
 
   it("does not check, schedule, or install updates in development", async () => {
@@ -126,7 +159,10 @@ describe("startAutoUpdates", () => {
     checkFeed.mockRejectedValueOnce(new Error("offline"))
     const updater = start()
     await expect(updater.check()).resolves.toBeUndefined()
-    expect(updater.states.at(-1)).toEqual({ status: "error", message: "Couldn’t check for updates. Please try again." })
+    expect(updater.states.at(-1)).toEqual({
+      status: "error",
+      message: "Couldn’t check for updates. Please try again.",
+    })
     await updater.check()
     expect(updater.states.at(-1)).toEqual({ status: "current" })
   })
@@ -159,70 +195,46 @@ describe("startAutoUpdates", () => {
     await updater.check()
     expect(updater.states.at(-1)).toEqual({ status: "unavailable" })
   })
-})
 
-describe("createInstallGuard", () => {
-  function harness(overrides: Partial<Parameters<typeof createInstallGuard>[0]> = {}) {
-    const deps = {
-      quitAndInstall: vi.fn(),
-      onError: vi.fn((_: (error: Error) => void) => () => {}),
-      onBeforeQuit: vi.fn((_: () => void) => () => {}),
-      onFailed: vi.fn(),
-      ...overrides,
-    }
-    createInstallGuard(deps)()
-    return { deps }
-  }
-
-  it("leaves windows alone and calls quitAndInstall directly", () => {
-    const { deps } = harness()
-    expect(deps.quitAndInstall).toHaveBeenCalledOnce()
-  })
-
-  it("does not fail while the installer is still preparing — before-quit marks success-in-progress", () => {
-    let beforeQuit: (() => void) | undefined
-    let onError: ((error: Error) => void) | undefined
-    const { deps } = harness({
-      onBeforeQuit: vi.fn((listener: () => void) => {
-        beforeQuit = listener
-        return () => {}
-      }),
-      onError: vi.fn((listener: (error: Error) => void) => {
-        onError = listener
-        return () => {}
-      }),
+  describe("install", () => {
+    it("leaves windows alone and calls quitAndInstall directly", async () => {
+      const updater = await installing()
+      expect(autoUpdater.quitAndInstall).toHaveBeenCalledOnce()
+      expect(updater.isInstalling()).toBe(true)
+      expect(updater.onInstallFailed).not.toHaveBeenCalled()
     })
-    // Slow healthy prep: quiet for as long as it takes, then the app starts quitting.
-    beforeQuit?.()
-    onError?.(new Error("late ShipIt noise"))
-    expect(deps.onFailed).not.toHaveBeenCalled()
-  })
 
-  it("fails on the updater's explicit error event", () => {
-    let onError: ((error: Error) => void) | undefined
-    const { deps } = harness({
-      onError: vi.fn((listener: (error: Error) => void) => {
-        onError = listener
-        return () => {}
-      }),
+    it("does not fail while the installer is still preparing — before-quit marks success-in-progress", async () => {
+      const updater = await installing()
+      // Slow healthy prep: quiet for as long as it takes, then the app starts quitting.
+      updater.app.emit("before-quit")
+      autoUpdater.emit("error", new Error("late ShipIt noise"))
+      expect(updater.onInstallFailed).not.toHaveBeenCalled()
+      expect(updater.states.at(-1)).toEqual({ status: "ready", version: "9.9.9" })
     })
-    onError?.(new Error("ShipIt failed"))
-    expect(deps.onFailed).toHaveBeenCalledOnce()
-    onError?.(new Error("duplicate"))
-    expect(deps.onFailed).toHaveBeenCalledOnce()
-  })
 
-  it("fails immediately when quitAndInstall throws", () => {
-    const { deps } = harness({
-      quitAndInstall: vi.fn(() => {
+    it("fails on the updater's explicit error event, once", async () => {
+      const updater = await installing()
+      autoUpdater.emit("error", new Error("ShipIt failed"))
+      expect(updater.onInstallFailed).toHaveBeenCalledOnce()
+      autoUpdater.emit("error", new Error("duplicate"))
+      updater.app.emit("before-quit")
+      expect(updater.onInstallFailed).toHaveBeenCalledOnce()
+    })
+
+    it("fails immediately when quitAndInstall throws", async () => {
+      vi.mocked(autoUpdater.quitAndInstall).mockImplementationOnce(() => {
         throw new Error("installer unsupported")
-      }),
+      })
+      const updater = await installing()
+      expect(updater.onInstallFailed).toHaveBeenCalledOnce()
     })
-    expect(deps.onFailed).toHaveBeenCalledOnce()
-  })
 
-  it("never fails on elapsed time alone — silence means the app simply keeps running", () => {
-    const { deps } = harness()
-    expect(deps.onFailed).not.toHaveBeenCalled()
+    it("never fails on elapsed time alone — silence means the app simply keeps running", async () => {
+      const updater = await installing()
+      await vi.advanceTimersByTimeAsync(3 * 60 * 60 * 1000)
+      expect(updater.onInstallFailed).not.toHaveBeenCalled()
+      expect(checkFeed).toHaveBeenCalledOnce()
+    })
   })
 })

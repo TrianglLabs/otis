@@ -27,7 +27,8 @@ export const ko: Messages = {
   "common.hosted": "호스팅",
   "app.loadingWorkspace": "작업 공간 불러오는 중…",
   "app.bridgeUnavailable": "데스크톱 브리지를 사용할 수 없습니다.",
-  "app.bridgeUnavailableHint": "앱을 다시 시작하세요. 문제가 계속되면 Otis Desktop을 다시 설치하세요.",
+  "app.bridgeUnavailableHint":
+    "앱을 다시 시작하세요. 문제가 계속되면 Otis Desktop을 다시 설치하세요.",
   "shell.workspaceMissing":
     "이 세션의 작업 폴더를 찾을 수 없습니다. 기록은 읽을 수 있습니다. 계속하려면 폴더를 한 번 선택하세요. Otis가 기억합니다.",
   "shell.locateWorkingFolder": "작업 폴더 찾기",
@@ -123,14 +124,17 @@ export const ko: Messages = {
   "composer.imageTooLarge": "{{name}}이(가) 너무 큽니다. 이미지는 {{size}}MB 이하여야 합니다.",
   "composer.tooManyImages": "이미지는 최대 {{count}}개까지 첨부할 수 있습니다.",
   "composer.modelNoImages": "선택한 모델은 이미지를 지원하지 않습니다.",
-  "composer.modelNoImageInput": "선택한 모델은 이미지 입력을 지원하지 않습니다. 비전 모델을 선택하세요.",
+  "composer.modelNoImageInput":
+    "선택한 모델은 이미지 입력을 지원하지 않습니다. 비전 모델을 선택하세요.",
   "composer.atMostImages": "메시지 하나에 이미지를 최대 {{count}}개 첨부할 수 있습니다.",
   "composer.unsupportedFile":
     "{{name}}은(는) 지원되지 않습니다. 텍스트, PDF, DOCX, PNG, JPEG, GIF, BMP, TIFF 또는 PPM을 사용하세요.",
   "composer.thatFile": "해당 파일",
   "composer.fileEmpty": "{{name}}이(가) 비어 있습니다.",
-  "composer.imageRequestLimit": "{{name}}이(가) 너무 큽니다. 이미지 데이터는 10MB 요청 제한 미만이어야 합니다.",
-  "composer.imagesRequestLimit": "첨부 이미지의 합계가 너무 큽니다. 전체 이미지 데이터는 10MB 미만이어야 합니다.",
+  "composer.imageRequestLimit":
+    "{{name}}이(가) 너무 큽니다. 이미지 데이터는 10MB 요청 제한 미만이어야 합니다.",
+  "composer.imagesRequestLimit":
+    "첨부 이미지의 합계가 너무 큽니다. 전체 이미지 데이터는 10MB 미만이어야 합니다.",
   "composer.fileReadFailed": "파일을 읽을 수 없습니다.",
   "composer.fastServing": "고속 추론",
   "composer.modelTitle": "{{id}} · {{provider}}{{fast}} — 모델 선택",
@@ -166,7 +170,8 @@ export const ko: Messages = {
   "markdown.copied": "복사됨",
   "onboarding.tagline": "오픈 모델로 구동되는 개인 AI 에이전트.",
   "onboarding.chooseSetup": "모델 설정 방식 선택",
-  "onboarding.hostedBody": "최고의 오픈 모델을 즉시 사용하세요. Fireworks 키로 사용량만큼 결제합니다.",
+  "onboarding.hostedBody":
+    "최고의 오픈 모델을 즉시 사용하세요. Fireworks 키로 사용량만큼 결제합니다.",
   "onboarding.localBody":
     "이 컴퓨터 또는 로컬 AI 네트워크에서 모델을 실행하세요. 비공개이며 오프라인에서도 작동합니다.",
   "onboarding.back": "뒤로",
@@ -189,7 +194,8 @@ export const ko: Messages = {
   "onboarding.chooseModel": "모델 선택",
   "onboarding.chooseServerModel": "연결된 서버에서 보고한 모델을 선택하세요.",
   "onboarding.connectedNoModels": "연결되었지만 서버에서 사용 가능한 모델을 보고하지 않았습니다.",
-  "onboarding.noLocalFit": "이 컴퓨터에 맞는 로컬 모델이 없습니다. 뒤로 돌아가 호스팅을 선택하세요.",
+  "onboarding.noLocalFit":
+    "이 컴퓨터에 맞는 로컬 모델이 없습니다. 뒤로 돌아가 호스팅을 선택하세요.",
   "onboarding.bestModel": "이 컴퓨터에 가장 적합한 모델",
   "onboarding.downloadContinue": "다운로드하고 계속",
   "settings.close": "설정 닫기 (Esc)",
@@ -257,7 +263,8 @@ export const ko: Messages = {
   "updates.downloadingVersion": "Otis {{version}}을(를) 백그라운드에서 다운로드 중…",
   "updates.unavailableBuild": "이 Otis 빌드에서는 업데이트를 확인할 수 없습니다.",
   "updates.upToDate": "최신 상태입니다.",
-  "updates.backgroundHint": "업데이트는 백그라운드에서 다운로드됩니다. 다시 시작할 시점을 선택할 수 있습니다.",
+  "updates.backgroundHint":
+    "업데이트는 백그라운드에서 다운로드됩니다. 다시 시작할 시점을 선택할 수 있습니다.",
   "canvas.viewport": "다이어그램 캔버스. 드래그하여 이동하고 컨트롤로 확대하거나 축소하세요.",
   "canvas.controls": "다이어그램 보기 컨트롤",
   "canvas.zoomOut": "축소",

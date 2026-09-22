@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest"
 import {
   baseFireworksModelId,
-  baseModelIdForFastServingPath,
   fireworksServiceTier,
   fireworksServingModel,
   isFastFireworksModel,
   matchesFireworksModel,
+  selectDefaultFireworksModel,
   useFastServingPath,
   withFastServingPaths,
 } from "../../src/inference/serving-path.js"
@@ -19,15 +19,15 @@ describe("Fireworks serving paths", () => {
   })
 
   it("maps Fast router IDs back to the matching base model", () => {
-    expect(baseModelIdForFastServingPath("accounts/fireworks/routers/kimi-k3-fast")).toBe(
+    expect(baseFireworksModelId("accounts/fireworks/routers/kimi-k3-fast")).toBe(
       "accounts/fireworks/models/kimi-k3",
     )
-    expect(baseModelIdForFastServingPath("accounts/fireworks/routers/kimi-k2p7-code-fast")).toBe(
+    expect(baseFireworksModelId("accounts/fireworks/routers/kimi-k2p7-code-fast")).toBe(
       "accounts/fireworks/models/kimi-k2p7-code",
     )
-    expect(baseModelIdForFastServingPath("accounts/fireworks/models/kimi-k3")).toBeUndefined()
-    expect(baseFireworksModelId("accounts/fireworks/routers/kimi-k3-fast")).toBe("accounts/fireworks/models/kimi-k3")
-    expect(baseFireworksModelId("accounts/fireworks/models/kimi-k3")).toBe("accounts/fireworks/models/kimi-k3")
+    expect(baseFireworksModelId("accounts/fireworks/models/kimi-k3")).toBe(
+      "accounts/fireworks/models/kimi-k3",
+    )
   })
 
   it("omits Priority on Fast requests and keeps it for base models", () => {
@@ -74,6 +74,40 @@ describe("Fireworks serving paths", () => {
   })
 })
 
+describe("Fireworks default model policy", () => {
+  const muse = model("accounts/fireworks/models/muse-glimmer-30b", "Muse Glimmer")
+  const inkling = model("accounts/fireworks/models/inkling", "Inkling")
+
+  it("prefers Muse Glimmer regardless of catalog order", () => {
+    expect(selectDefaultFireworksModel([model("fallback", "Fallback"), inkling, muse])).toBe(muse)
+  })
+
+  it("falls back to Inkling when Muse Glimmer is unavailable", () => {
+    expect(selectDefaultFireworksModel([model("fallback", "Fallback"), inkling])).toBe(inkling)
+  })
+
+  it("uses the first verified catalog model when neither preferred model is available", () => {
+    const first = model("first", "First")
+    expect(selectDefaultFireworksModel([first, model("second", "Second")])).toBe(first)
+  })
+
+  it("returns undefined for an empty catalog", () => {
+    expect(selectDefaultFireworksModel([])).toBeUndefined()
+  })
+
+  it("skips Fast serving-path entries when choosing a fallback default", () => {
+    const fast = model("accounts/fireworks/routers/kimi-k3-fast", "Kimi K3 Fast")
+    const standard = model("accounts/fireworks/models/kimi-k3", "Kimi K3")
+    expect(selectDefaultFireworksModel([fast, standard])).toBe(standard)
+  })
+})
+
 function model(id: string, displayName: string): FireworksModel {
-  return { provider: "fireworks", id, displayName, supportsImageInput: true, contextLength: 128_000 }
+  return {
+    provider: "fireworks",
+    id,
+    displayName,
+    supportsImageInput: true,
+    contextLength: 128_000,
+  }
 }

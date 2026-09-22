@@ -20,44 +20,52 @@ export type ToolActivity = {
   label: string
 }
 
-export function describeToolCall(call: ToolCall) {
-  if (call.name === "web_search") return activity("web_search", `Searching web: ${shortToolText(call.input.objective)}`)
-  if (call.name === "web_read") return activity("web_read", `Reading web: ${shortToolText(call.input.url)}`)
-  if (call.name === "skill") return activity("file_read", `Loading skill: ${shortToolText(call.input.skill)}`)
-  if (call.name === "read") return activity("file_read", `Reading files: ${shortToolText(call.input.path)}`)
-  if (call.name === "grep") return activity("file_search", `Searching files: ${shortToolText(call.input.pattern)}`)
-  if (call.name === "glob") return activity("file_search", `Finding files: ${shortToolText(call.input.pattern)}`)
-  if (call.name === "write") return activity("file_write", `Writing file: ${shortToolText(call.input.path)}`)
+export function describeToolCall(call: ToolCall): ToolActivity {
+  if (call.name === "web_search")
+    return { kind: "web_search", label: `Searching web: ${short(call.input.objective)}` }
+  if (call.name === "web_read")
+    return { kind: "web_read", label: `Reading web: ${short(call.input.url)}` }
+  if (call.name === "skill")
+    return { kind: "file_read", label: `Loading skill: ${short(call.input.skill)}` }
+  if (call.name === "read")
+    return { kind: "file_read", label: `Reading files: ${short(call.input.path)}` }
+  if (call.name === "grep")
+    return { kind: "file_search", label: `Searching files: ${short(call.input.pattern)}` }
+  if (call.name === "glob")
+    return { kind: "file_search", label: `Finding files: ${short(call.input.pattern)}` }
+  if (call.name === "write")
+    return { kind: "file_write", label: `Writing file: ${short(call.input.path)}` }
   if (call.name === "save_attachment")
-    return activity("file_write", `Saving attachment: ${shortToolText(call.input.path)}`)
-  if (call.name === "edit") return activity("file_edit", `Editing file: ${shortToolText(call.input.path)}`)
-  if (call.name === "edit_document") return activity("file_edit", `Editing document: ${shortToolText(call.input.path)}`)
-  if (call.name === "document")
-    return activity(
-      call.input.operation === "check" || call.input.operation === "inspect-pdf" ? "file_inspect" : "file_write",
-      `Document: ${call.input.operation}${call.input.path ? ` · ${shortToolText(call.input.path)}` : ""}`,
-    )
+    return { kind: "file_write", label: `Saving attachment: ${short(call.input.path)}` }
+  if (call.name === "edit")
+    return { kind: "file_edit", label: `Editing file: ${short(call.input.path)}` }
+  if (call.name === "edit_document")
+    return { kind: "file_edit", label: `Editing document: ${short(call.input.path)}` }
+  if (call.name === "document") {
+    const inspecting = call.input.operation === "check" || call.input.operation === "inspect-pdf"
+    return {
+      kind: inspecting ? "file_inspect" : "file_write",
+      label: `Document: ${call.input.operation}${call.input.path ? ` · ${short(call.input.path)}` : ""}`,
+    }
+  }
   if (call.name === "publish_artifact")
-    return activity("file_read", `Publishing artifact: ${shortToolText(call.input.path)}`)
-  if (call.name === "agent") return activity("agent", `Delegating: ${shortToolText(call.input.description)}`)
+    return { kind: "file_read", label: `Publishing artifact: ${short(call.input.path)}` }
+  if (call.name === "agent")
+    return { kind: "agent", label: `Delegating: ${short(call.input.description)}` }
 
   const command = call.input.command
-  if (/\b(rg|grep|find)\b/.test(command)) return activity("file_search", `Searching files: ${shortToolText(command)}`)
+  if (/\b(rg|grep|find)\b/.test(command))
+    return { kind: "file_search", label: `Searching files: ${short(command)}` }
   if (/^\s*(ls|pwd|tree)\b/.test(command))
-    return activity("file_inspect", `Inspecting files: ${shortToolText(command)}`)
-  if (/^\s*git\b/.test(command)) return activity("git", `Inspecting git: ${shortToolText(command)}`)
-  return activity("shell", `Running command: ${shortToolText(command)}`)
+    return { kind: "file_inspect", label: `Inspecting files: ${short(command)}` }
+  if (/^\s*git\b/.test(command)) return { kind: "git", label: `Inspecting git: ${short(command)}` }
+  return { kind: "shell", label: `Running command: ${short(command)}` }
 }
 
 export function isToolActivityKind(value: unknown): value is ToolActivityKind {
   return typeof value === "string" && (TOOL_ACTIVITY_KINDS as readonly string[]).includes(value)
 }
 
-function activity(kind: ToolActivityKind, label: string): ToolActivity {
-  return { kind, label }
-}
-
-function shortToolText(text: string, maxLength = 96) {
-  if (text.length <= maxLength) return text
-  return `${text.slice(0, maxLength - 3)}...`
+function short(text: string) {
+  return text.length <= 96 ? text : `${text.slice(0, 93)}...`
 }

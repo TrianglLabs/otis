@@ -1,6 +1,9 @@
 import { Brain, ChevronDown, RotateCcw } from "lucide-react"
 import { type CSSProperties, useEffect, useRef, useState } from "react"
-import type { LocalThinkingSelection, LocalThinkingState } from "../../../../inference/local-thinking.js"
+import type {
+  LocalThinkingSelection,
+  LocalThinkingState,
+} from "../../../../inference/local-thinking.js"
 import { Icon } from "../../components/Icon.js"
 import { useI18n } from "../../i18n/index.js"
 import { useDesktop, useDesktopState } from "../../runtime.js"
@@ -33,6 +36,7 @@ function ThinkingSlider({ state, disabled }: { state: LocalThinkingState; disabl
   const saveId = useRef(0)
   const effective = selected === "default" ? state.defaultLevel : selected
   const levelLabel = t(`thinking.${effective}`)
+  const fillPercent = (state.levels.indexOf(effective) / (state.levels.length - 1)) * 100
 
   useEffect(() => {
     if (pending.current !== undefined) return
@@ -62,7 +66,12 @@ function ThinkingSlider({ state, disabled }: { state: LocalThinkingState; disabl
   }, [open])
 
   async function save(value: LocalThinkingSelection) {
-    if (disabled || value === pending.current || (pending.current === undefined && value === committed.current)) return
+    if (
+      disabled ||
+      value === pending.current ||
+      (pending.current === undefined && value === committed.current)
+    )
+      return
     const id = ++saveId.current
     pending.current = value
     setSaving(true)
@@ -106,11 +115,7 @@ function ThinkingSlider({ state, disabled }: { state: LocalThinkingState; disabl
           className="thinkingControl-panel"
           role="dialog"
           aria-label={t("thinking.title")}
-          style={
-            {
-              "--thinking-fill": `${(state.levels.indexOf(effective) / (state.levels.length - 1)) * 100}%`,
-            } as CSSProperties
-          }
+          style={{ "--thinking-fill": `${fillPercent}%` } as CSSProperties}
         >
           <span className="thinkingControl-header">
             <span className="thinkingControl-selected" aria-hidden="true">
@@ -141,9 +146,16 @@ function ThinkingSlider({ state, disabled }: { state: LocalThinkingState; disabl
             onPointerUp={(event) => void save(state.levels[Number(event.currentTarget.value)])}
             onKeyUp={(event) => {
               if (
-                ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"].includes(
-                  event.key,
-                )
+                [
+                  "ArrowLeft",
+                  "ArrowRight",
+                  "ArrowUp",
+                  "ArrowDown",
+                  "Home",
+                  "End",
+                  "PageUp",
+                  "PageDown",
+                ].includes(event.key)
               ) {
                 void save(state.levels[Number(event.currentTarget.value)])
               }

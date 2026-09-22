@@ -1,13 +1,59 @@
-import type {
-  ParallelClientConfig,
-  WebReadError,
-  WebReadOptions,
-  WebReadResponse,
-  WebReadResult,
-  WebSearchOptions,
-  WebSearchResponse,
-  WebSearchResult,
-} from "./types.js"
+type ParallelClientConfig = {
+  url?: string
+  fetch?: typeof fetch
+}
+
+type WebSearchOptions = {
+  objective: string
+  searchQueries: string[]
+  clientModel?: string
+  sessionId?: string
+  signal?: AbortSignal
+}
+
+type WebSearchResult = {
+  url: string
+  title?: string
+  publishDate?: string
+  excerpts: string[]
+}
+
+type WebSearchResponse = {
+  searchId: string
+  sessionId: string
+  results: WebSearchResult[]
+  warnings: string[]
+}
+
+type WebReadOptions = {
+  url: string
+  objective?: string
+  clientModel?: string
+  sessionId?: string
+  signal?: AbortSignal
+}
+
+type WebReadResult = {
+  url: string
+  title?: string
+  excerpts: string[]
+  fullContent?: string
+}
+
+type WebReadError = {
+  url: string
+  type: string
+  status?: number
+  content?: string
+}
+
+type WebReadResponse = {
+  extractId: string
+  sessionId: string
+  results: WebReadResult[]
+  errors: WebReadError[]
+  warnings: string[]
+}
 
 const DEFAULT_MCP_URL = "https://search.parallel.ai/mcp"
 const MAX_SEARCH_QUERIES = 3
@@ -19,37 +65,91 @@ export class ParallelClient {
   readonly #fetch: typeof fetch
 
   constructor(config: ParallelClientConfig = {}) {
-    this.#url = validMcpURL(config.url ?? DEFAULT_MCP_URL)
+    const url = parseURL(config.url ?? DEFAULT_MCP_URL, "Parallel MCP URL")
+    const localHTTP =
+      url.protocol === "http:" && (url.hostname === "localhost" || url.hostname === "127.0.0.1")
+    if (url.protocol !== "https:" && !localHTTP) throw new Error("Parallel MCP URL must use HTTPS.")
+    url.search = ""
+    url.hash = ""
+    this.#url = url.toString()
     this.#fetch = config.fetch ?? fetch
   }
 
   async search(options: WebSearchOptions): Promise<WebSearchResponse> {
     const objective = required(options.objective, "Web search objective")
-    const searchQueries = requiredSearchQueries(options.searchQueries)
+    const queries = options.searchQueries.map((query) => required(query, "Web search query"))
+    if (queries.length === 0 || queries.length > MAX_SEARCH_QUERIES)
+      throw new Error(`Web search requires between 1 and ${MAX_SEARCH_QUERIES} queries.`)
     const value = await this.#call(
       "web_search",
-      {
-        objective,
-        search_queries: searchQueries,
-        ...optionalRequestContext(options),
-      },
+      { objective, search_queries: queries, ...requestContext(options) },
       options.signal,
     )
-    return parseSearchResponse(value)
+    if (!isRecord(value) || !Array.isArray(value.results))
+      throw new Error("Parallel search response was invalid.")
+    return {
+      searchId: requiredResponseString(value.search_id, "search_id"),
+      sessionId: requiredResponseString(value.session_id, "session_id"),
+      results: value.results.map((result): WebSearchResult => {
+        if (!isRecord(result))
+          throw new Error("Parallel search response contained an invalid result.")
+        const title = cleanUnknown(result.title)
+        const publishDate = cleanUnknown(result.publish_date)
+        return {
+          url: validPublicURL(requiredResponseString(result.url, "result URL")),
+          ...(title ? { title } : {}),
+          ...(publishDate ? { publishDate } : {}),
+          excerpts: optionalStringArray(result.excerpts),
+        }
+      }),
+      warnings: parseWarnings(value.warnings),
+    }
   }
 
   async read(options: WebReadOptions): Promise<WebReadResponse> {
-    const url = validPublicURL(options.url)
+    const objective = options.objective?.trim()
     const value = await this.#call(
       "web_fetch",
       {
-        urls: [url],
-        ...(clean(options.objective) ? { objective: clean(options.objective) } : {}),
-        ...optionalRequestContext(options),
+        urls: [validPublicURL(options.url)],
+        ...(objective ? { objective } : {}),
+        ...requestContext(options),
       },
       options.signal,
     )
-    return parseReadResponse(value)
+    if (!isRecord(value) || !Array.isArray(value.results))
+      throw new Error("Parallel extract response was invalid.")
+    return {
+      extractId: requiredResponseString(value.extract_id, "extract_id"),
+      sessionId: requiredResponseString(value.session_id, "session_id"),
+      results: value.results.map((result): WebReadResult => {
+        if (!isRecord(result))
+          throw new Error("Parallel extract response contained an invalid result.")
+        const title = cleanUnknown(result.title)
+        const fullContent = cleanUnknown(result.full_content)
+        return {
+          url: validPublicURL(requiredResponseString(result.url, "result URL")),
+          ...(title ? { title } : {}),
+          excerpts: optionalStringArray(result.excerpts),
+          ...(fullContent ? { fullContent } : {}),
+        }
+      }),
+      errors: (Array.isArray(value.errors) ? value.errors : []).map((error): WebReadError => {
+        if (!isRecord(error))
+          throw new Error("Parallel extract response contained an invalid error.")
+        const status = error.http_status_code
+        const content = cleanUnknown(error.content)
+        return {
+          url: requiredResponseString(error.url, "error URL"),
+          type: requiredResponseString(error.error_type, "error type"),
+          ...(typeof status === "number" && Number.isInteger(status) && status > 0
+            ? { status }
+            : {}),
+          ...(content ? { content } : {}),
+        }
+      }),
+      warnings: parseWarnings(value.warnings),
+    }
   }
 
   async #call(name: string, args: Record<string, unknown>, signal?: AbortSignal) {
@@ -67,154 +167,56 @@ export class ParallelClient {
       }),
       signal,
     })
-    let body = ""
-    try {
-      body = await response.text()
-    } catch {
-      body = ""
-    }
+    const body = await response.text().catch(() => "")
     if (!response.ok) {
       const detail = (body || response.statusText).slice(0, MAX_ERROR_CHARS)
       throw new Error(`Parallel request failed with HTTP ${response.status}: ${detail}`)
     }
-    return unwrapMcpResult(parseMcpEnvelope(body))
+    // The envelope is either a plain JSON object or the first JSON data line of an SSE stream.
+    const json = body.trim().startsWith("{")
+      ? body.trim()
+      : body
+          .split(/\r?\n/)
+          .map((line) => (line.startsWith("data:") ? line.slice(5).trim() : ""))
+          .find((data) => data.startsWith("{"))
+    const envelope = parseJson(json ?? "", "Parallel MCP response")
+    if (!isRecord(envelope)) throw new Error("Parallel MCP response was not valid JSON.")
+    if (isRecord(envelope.error))
+      throw new Error(cleanUnknown(envelope.error.message) ?? "Parallel MCP request failed.")
+    const result = envelope.result
+    if (!isRecord(result)) throw new Error("Parallel MCP response was missing a result.")
+    const text = Array.isArray(result.content)
+      ? result.content
+          .map((item) => (isRecord(item) ? cleanUnknown(item.text) : undefined))
+          .find(Boolean)
+      : undefined
+    if (result.isError === true) throw new Error(text ?? "Parallel MCP tool returned an error.")
+    if (!text) throw new Error("Parallel MCP response was missing text content.")
+    return parseJson(text, "Parallel MCP result")
   }
 }
 
-function optionalRequestContext(options: { clientModel?: string; sessionId?: string }) {
-  const modelName = clean(options.clientModel)
-  const sessionId = clean(options.sessionId)?.slice(0, MAX_SESSION_ID_CHARS)
+function requestContext(options: { clientModel?: string; sessionId?: string }) {
+  const modelName = options.clientModel?.trim()
+  const sessionId = options.sessionId?.trim().slice(0, MAX_SESSION_ID_CHARS)
   return {
     ...(modelName ? { model_name: modelName } : {}),
     ...(sessionId ? { session_id: sessionId } : {}),
   }
 }
 
-function parseMcpEnvelope(body: string) {
-  const trimmed = body.trim()
-  if (trimmed.startsWith("{")) return parseJsonObject(trimmed, "Parallel MCP response")
-
-  for (const line of body.split(/\r?\n/)) {
-    const data = sseData(line)
-    if (!data?.startsWith("{")) continue
-    return parseJsonObject(data, "Parallel MCP response")
-  }
-  throw new Error("Parallel MCP response was not valid JSON.")
-}
-
-function unwrapMcpResult(value: Record<string, unknown>) {
-  if (isRecord(value.error)) {
-    throw new Error(cleanUnknown(value.error.message) ?? "Parallel MCP request failed.")
-  }
-  if (!isRecord(value.result)) throw new Error("Parallel MCP response was missing a result.")
-  const text = mcpText(value.result)
-  if (value.result.isError === true) {
-    throw new Error(text ?? "Parallel MCP tool returned an error.")
-  }
-  if (!text) throw new Error("Parallel MCP response was missing text content.")
-  return parseJsonValue(text, "Parallel MCP result")
-}
-
-function mcpText(result: Record<string, unknown>) {
-  if (!Array.isArray(result.content)) return undefined
-  for (const item of result.content) {
-    if (!isRecord(item)) continue
-    const text = cleanUnknown(item.text)
-    if (text) return text
-  }
-  return undefined
-}
-
-function sseData(line: string) {
-  if (!line.startsWith("data:")) return undefined
-  return line.startsWith("data: ") ? line.slice(6).trim() : line.slice(5).trim()
-}
-
-function parseSearchResponse(value: unknown): WebSearchResponse {
-  if (!isRecord(value) || !Array.isArray(value.results)) throw new Error("Parallel search response was invalid.")
-  return {
-    searchId: requiredResponseString(value.search_id, "search_id"),
-    sessionId: requiredResponseString(value.session_id, "session_id"),
-    results: value.results.map(parseSearchResult),
-    warnings: parseWarnings(value.warnings),
-  }
-}
-
-function parseSearchResult(value: unknown): WebSearchResult {
-  if (!isRecord(value)) throw new Error("Parallel search response contained an invalid result.")
-  return {
-    url: validPublicURL(requiredResponseString(value.url, "result URL")),
-    ...(cleanUnknown(value.title) ? { title: cleanUnknown(value.title) } : {}),
-    ...(cleanUnknown(value.publish_date) ? { publishDate: cleanUnknown(value.publish_date) } : {}),
-    excerpts: optionalStringArray(value.excerpts),
-  }
-}
-
-function parseReadResponse(value: unknown): WebReadResponse {
-  if (!isRecord(value) || !Array.isArray(value.results)) {
-    throw new Error("Parallel extract response was invalid.")
-  }
-  return {
-    extractId: requiredResponseString(value.extract_id, "extract_id"),
-    sessionId: requiredResponseString(value.session_id, "session_id"),
-    results: value.results.map(parseReadResult),
-    errors: Array.isArray(value.errors) ? value.errors.map(parseReadError) : [],
-    warnings: parseWarnings(value.warnings),
-  }
-}
-
-function parseReadResult(value: unknown): WebReadResult {
-  if (!isRecord(value)) throw new Error("Parallel extract response contained an invalid result.")
-  const fullContent = cleanUnknown(value.full_content)
-  return {
-    url: validPublicURL(requiredResponseString(value.url, "result URL")),
-    ...(cleanUnknown(value.title) ? { title: cleanUnknown(value.title) } : {}),
-    excerpts: optionalStringArray(value.excerpts),
-    ...(fullContent ? { fullContent } : {}),
-  }
-}
-
-function parseReadError(value: unknown): WebReadError {
-  if (!isRecord(value)) throw new Error("Parallel extract response contained an invalid error.")
-  const status = positiveInteger(value.http_status_code)
-  const content = cleanUnknown(value.content)
-  return {
-    url: requiredResponseString(value.url, "error URL"),
-    type: requiredResponseString(value.error_type, "error type"),
-    ...(status ? { status } : {}),
-    ...(content ? { content } : {}),
-  }
-}
-
-function requiredSearchQueries(value: string[]) {
-  if (!Array.isArray(value)) throw new Error("Web search queries are required.")
-  const queries = value.map((query) => required(query, "Web search query"))
-  if (queries.length === 0 || queries.length > MAX_SEARCH_QUERIES) {
-    throw new Error(`Web search requires between 1 and ${MAX_SEARCH_QUERIES} queries.`)
-  }
-  return queries
-}
-
-function validMcpURL(value: string) {
-  const url = parseURL(value, "Parallel MCP URL")
-  const localHTTP = url.protocol === "http:" && (url.hostname === "localhost" || url.hostname === "127.0.0.1")
-  if (url.protocol !== "https:" && !localHTTP) throw new Error("Parallel MCP URL must use HTTPS.")
-  url.search = ""
-  url.hash = ""
-  return url.toString()
-}
-
 function validPublicURL(value: string) {
   const url = parseURL(value, "Web URL")
-  if (url.protocol !== "https:" && url.protocol !== "http:") throw new Error("Web URL must use HTTP or HTTPS.")
+  if (url.protocol !== "https:" && url.protocol !== "http:")
+    throw new Error("Web URL must use HTTP or HTTPS.")
   return url.toString()
 }
 
 function parseURL(value: string, label: string) {
+  const trimmed = required(value, label)
   try {
-    return new URL(required(value, label))
-  } catch (error) {
-    if (error instanceof Error && error.message.endsWith("is required.")) throw error
+    return new URL(trimmed)
+  } catch {
     throw new Error(`${label} is invalid.`)
   }
 }
@@ -248,13 +250,7 @@ function parseWarnings(value: unknown) {
   })
 }
 
-function parseJsonObject(text: string, label: string) {
-  const value = parseJsonValue(text, label)
-  if (!isRecord(value)) throw new Error(`${label} was not valid JSON.`)
-  return value
-}
-
-function parseJsonValue(text: string, label: string) {
+function parseJson(text: string, label: string) {
   try {
     return JSON.parse(text) as unknown
   } catch {
@@ -262,16 +258,8 @@ function parseJsonValue(text: string, label: string) {
   }
 }
 
-function clean(value: string | undefined) {
-  return value?.trim() || undefined
-}
-
 function cleanUnknown(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : undefined
-}
-
-function positiveInteger(value: unknown) {
-  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

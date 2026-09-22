@@ -27,7 +27,8 @@ export const de: Messages = {
   "common.hosted": "Gehostet",
   "app.loadingWorkspace": "Arbeitsbereich wird geladen…",
   "app.bridgeUnavailable": "Die Desktop-Verbindung ist nicht verfügbar.",
-  "app.bridgeUnavailableHint": "Starte die App neu. Falls das Problem bleibt, installiere Otis Desktop neu.",
+  "app.bridgeUnavailableHint":
+    "Starte die App neu. Falls das Problem bleibt, installiere Otis Desktop neu.",
   "shell.workspaceMissing":
     "Otis konnte den Arbeitsordner dieser Sitzung nicht finden. Der Verlauf ist weiterhin lesbar; wähle den Ordner einmal aus, um fortzufahren. Otis merkt ihn sich.",
   "shell.locateWorkingFolder": "Arbeitsordner suchen",
@@ -123,13 +124,15 @@ export const de: Messages = {
   "composer.imageTooLarge": "{{name}} ist zu groß. Bilder dürfen höchstens {{size}} MB groß sein.",
   "composer.tooManyImages": "Du kannst bis zu {{count}} Bilder anhängen.",
   "composer.modelNoImages": "Das ausgewählte Modell unterstützt keine Bilder.",
-  "composer.modelNoImageInput": "Das ausgewählte Modell unterstützt keine Bilder. Wähle ein Bildmodell.",
+  "composer.modelNoImageInput":
+    "Das ausgewählte Modell unterstützt keine Bilder. Wähle ein Bildmodell.",
   "composer.atMostImages": "Du kannst höchstens {{count}} Bilder pro Nachricht anhängen.",
   "composer.unsupportedFile":
     "{{name}} wird nicht unterstützt. Verwende eine Textdatei, PDF, DOCX, PNG, JPEG, GIF, BMP, TIFF oder PPM.",
   "composer.thatFile": "Diese Datei",
   "composer.fileEmpty": "{{name}} ist leer.",
-  "composer.imageRequestLimit": "{{name}} ist zu groß. Die Bilddaten müssen unter dem 10-MB-Limit bleiben.",
+  "composer.imageRequestLimit":
+    "{{name}} ist zu groß. Die Bilddaten müssen unter dem 10-MB-Limit bleiben.",
   "composer.imagesRequestLimit":
     "Die angehängten Bilder sind zusammen zu groß. Die Bilddaten müssen unter 10 MB bleiben.",
   "composer.fileReadFailed": "Die Datei konnte nicht gelesen werden.",
@@ -169,11 +172,13 @@ export const de: Messages = {
   "onboarding.chooseSetup": "Modellkonfiguration auswählen",
   "onboarding.hostedBody":
     "Führende offene Modelle, sofort verfügbar. Nutzungsabhängige Zahlung mit deinem Fireworks-Schlüssel.",
-  "onboarding.localBody": "Modelle auf diesem Computer oder im lokalen KI-Netzwerk ausführen. Privat und offline.",
+  "onboarding.localBody":
+    "Modelle auf diesem Computer oder im lokalen KI-Netzwerk ausführen. Privat und offline.",
   "onboarding.back": "Zurück",
   "onboarding.setupHosted": "Gehostete Modelle einrichten",
   "onboarding.chooseLocal": "Lokale Inferenz auswählen",
-  "onboarding.localHint": "Nutze ein von Otis verwaltetes Modell oder verbinde ein bereits laufendes.",
+  "onboarding.localHint":
+    "Nutze ein von Otis verwaltetes Modell oder verbinde ein bereits laufendes.",
   "onboarding.managed": "Von Otis verwaltet",
   "onboarding.managedBody": "Ein ausgewähltes Modell herunterladen und mit llama.cpp ausführen.",
   "onboarding.server": "Lokale Modellserver",
@@ -181,7 +186,8 @@ export const de: Messages = {
   "onboarding.fireworksKey": "Fireworks-API-Schlüssel",
   "onboarding.pasteKey": "Schlüssel hier einfügen",
   "onboarding.getKey": "Schlüssel anfordern",
-  "onboarding.hostedHintBefore": "Gehostete Modelle laufen auf Fireworks (nutzungsabhängige Zahlung).",
+  "onboarding.hostedHintBefore":
+    "Gehostete Modelle laufen auf Fireworks (nutzungsabhängige Zahlung).",
   "onboarding.hostedHintAfter": "und füge ihn hier ein:",
   "onboarding.keySaved": "Schlüssel gespeichert. Wähle jetzt ein Modell:",
   "onboarding.connectServer": "Lokalen Modellserver verbinden",
@@ -190,7 +196,8 @@ export const de: Messages = {
   "onboarding.chooseModel": "Modell auswählen",
   "onboarding.chooseServerModel": "Wähle ein vom verbundenen Server gemeldetes Modell.",
   "onboarding.connectedNoModels": "Verbunden, aber der Server meldet keine verfügbaren Modelle.",
-  "onboarding.noLocalFit": "Kein lokales Modell passt auf diesen Computer — gehe zurück und wähle Gehostet.",
+  "onboarding.noLocalFit":
+    "Kein lokales Modell passt auf diesen Computer — gehe zurück und wähle Gehostet.",
   "onboarding.bestModel": "Bestes Modell für deinen Computer",
   "onboarding.downloadContinue": "Herunterladen und fortfahren",
   "settings.close": "Einstellungen schließen (Esc)",
@@ -258,8 +265,10 @@ export const de: Messages = {
   "updates.downloadingVersion": "Otis {{version}} wird im Hintergrund geladen…",
   "updates.unavailableBuild": "Dieser Otis-Build unterstützt keine Updateprüfung.",
   "updates.upToDate": "Alles ist aktuell.",
-  "updates.backgroundHint": "Updates werden im Hintergrund geladen. Du entscheidest, wann neu gestartet wird.",
-  "canvas.viewport": "Diagrammfläche. Zum Verschieben ziehen; zum Zoomen die Steuerelemente verwenden.",
+  "updates.backgroundHint":
+    "Updates werden im Hintergrund geladen. Du entscheidest, wann neu gestartet wird.",
+  "canvas.viewport":
+    "Diagrammfläche. Zum Verschieben ziehen; zum Zoomen die Steuerelemente verwenden.",
   "canvas.controls": "Diagrammansicht",
   "canvas.zoomOut": "Verkleinern",
   "canvas.resetView": "Ansicht zurücksetzen",

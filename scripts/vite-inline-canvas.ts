@@ -10,7 +10,10 @@ const mermaidPath = resolve(repositoryRoot, "node_modules/@mermaid-js/tiny/dist/
 const canvasMarker = '<template id="otis-canvas-runtime"></template>'
 const canvasReloadEvent = "otis:canvas-reload"
 
-/** Produces one self-contained document so a sandboxed file:// iframe never needs subresource access. */
+/**
+ * Produces one self-contained document so a sandboxed file:// iframe never needs subresource
+ * access.
+ */
 export function inlineCanvas(): Plugin {
   return {
     name: "otis-inline-canvas",
@@ -28,18 +31,25 @@ export function inlineCanvas(): Plugin {
     async transformIndexHtml(html, context) {
       const path = context.path.split("?", 1)[0]
       if (!path.endsWith("/canvas.html") && path !== "canvas.html") return html
-      // The sandbox gives Canvas an opaque origin, so Vite's injected client cannot load there. The parent
-      // renderer owns HMR and remounts this frame when the custom event above arrives.
-      if (context.server) html = html.replace(/<script type="module" src="[^"]*\/@vite\/client"><\/script>\s*/i, "")
+      // The sandbox gives Canvas an opaque origin, so Vite's injected client cannot load there.
+      // The parent renderer owns HMR and remounts this frame when the custom event above arrives.
+      if (context.server)
+        html = html.replace(/<script type="module" src="[^"]*\/@vite\/client"><\/script>\s*/i, "")
       if (html.includes("data-otis-canvas-script")) return html
-      const [mermaid, runtime] = await Promise.all([readFile(mermaidPath, "utf8"), readFile(runtimePath, "utf8")])
-      if (!html.includes(canvasMarker)) throw new Error("Canvas HTML is missing its runtime marker.")
-      const scripts = `<script data-otis-canvas-script="mermaid">${safeInline(mermaid)}</script>\n    <script data-otis-canvas-script="renderer">${safeInline(runtime)}</script>`
-      return html.replace(canvasMarker, () => scripts)
+      const [mermaid, runtime] = await Promise.all([
+        readFile(mermaidPath, "utf8"),
+        readFile(runtimePath, "utf8"),
+      ])
+      if (!html.includes(canvasMarker))
+        throw new Error("Canvas HTML is missing its runtime marker.")
+      const scripts = [mermaid, runtime].map((source) =>
+        source.replaceAll(/<\/script/gi, "<\\/script"),
+      )
+      return html.replace(
+        canvasMarker,
+        () =>
+          `<script data-otis-canvas-script="mermaid">${scripts[0]}</script>\n    <script data-otis-canvas-script="renderer">${scripts[1]}</script>`,
+      )
     },
   }
-}
-
-function safeInline(source: string) {
-  return source.replaceAll(/<\/script/gi, "<\\/script")
 }

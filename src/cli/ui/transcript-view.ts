@@ -81,12 +81,17 @@ export class TranscriptView {
 
   render(entries: readonly TranscriptEntry[], options: { scrollToBottom?: boolean } = {}) {
     this.#entries = entries
-    const reasoningIDs = new Set(entries.flatMap((entry) => (entry.reasoningId ? [entry.reasoningId] : [])))
+    const reasoningIDs = new Set(
+      entries.flatMap((entry) => (entry.reasoningId ? [entry.reasoningId] : [])),
+    )
     for (const reasoningId of this.#expandedReasoningIDs) {
       if (!reasoningIDs.has(reasoningId)) this.#expandedReasoningIDs.delete(reasoningId)
     }
     const visible = entries.filter((entry) => entry.kind !== "reasoning" || this.thinkingVisible)
-    const visibleEntries = [...visible.filter((entry) => !entry.delivery), ...visible.filter((entry) => entry.delivery)]
+    const visibleEntries = [
+      ...visible.filter((entry) => !entry.delivery),
+      ...visible.filter((entry) => entry.delivery),
+    ]
     const entryIDs = new Set(visibleEntries.map((entry) => entry.id))
 
     for (const [id, renderable] of this.#renderables) {
@@ -97,30 +102,46 @@ export class TranscriptView {
 
     visibleEntries.forEach((entry, index) => {
       const previousEntry = visibleEntries[index - 1]
+      const kind = entry.kind === "tool" || entry.kind === "reasoning" ? entry.kind : "message"
       let existing = this.#renderables.get(entry.id)
-
-      if (existing && !canReuse(existing, entry)) {
+      const reusable =
+        existing?.kind === kind &&
+        (existing.kind !== "reasoning" || existing.entry.reasoningId === entry.reasoningId)
+      if (existing && !reusable) {
         existing.root.destroyRecursively()
         this.#renderables.delete(entry.id)
         existing = undefined
       }
-
-      if (existing) {
-        if (
-          existing.entry !== entry ||
-          existing.previousKind !== previousEntry?.kind ||
-          existing.width !== this.renderer.terminalWidth
-        ) {
-          this.update(existing, entry, previousEntry)
-        }
-      } else {
-        const renderable = this.create(entry, previousEntry)
+      if (!existing) {
+        const renderable =
+          kind === "tool"
+            ? this.createToolCard(entry)
+            : kind === "reasoning"
+              ? this.createReasoningCard(entry)
+              : this.createMessageCard(entry)
         this.update(renderable, entry, previousEntry)
         this.#renderables.set(entry.id, renderable)
         this.messages.add(renderable.root, index)
+      } else if (
+        existing.entry !== entry ||
+        existing.previousKind !== previousEntry?.kind ||
+        existing.width !== this.renderer.terminalWidth
+      ) {
+        this.update(existing, entry, previousEntry)
       }
     })
-    this.orderRenderables(visibleEntries)
+
+    const desired = visibleEntries.map(
+      (entry) => (this.#renderables.get(entry.id) as TranscriptRenderable).root,
+    )
+    const current = this.messages.getChildren()
+    if (
+      current.length !== desired.length ||
+      current.some((child, index) => child.id !== desired[index]?.id)
+    ) {
+      for (const root of desired) this.messages.remove(root.id)
+      for (const root of desired) this.messages.add(root)
+    }
 
     if (options.scrollToBottom) this.messages.scrollTo(this.messages.scrollHeight)
     this.renderer.requestRender()
@@ -140,74 +161,86 @@ export class TranscriptView {
     this.render(this.#entries)
   }
 
-  private orderRenderables(entries: readonly TranscriptEntry[]) {
-    const desired = entries.flatMap((entry) => {
-      const renderable = this.#renderables.get(entry.id)
-      return renderable ? [renderable.root] : []
-    })
-    const current = this.messages.getChildren()
-    if (current.length === desired.length && current.every((child, index) => child.id === desired[index]?.id)) return
-    for (const root of desired) this.messages.remove(root.id)
-    for (const root of desired) this.messages.add(root)
-  }
-
-  private create(entry: TranscriptEntry, previousEntry?: TranscriptEntry): TranscriptRenderable {
-    if (entry.kind === "tool") return this.createToolCard(entry, previousEntry)
-    if (entry.kind === "reasoning") return this.createReasoningCard(entry, previousEntry)
-    return this.createMessageCard(entry, previousEntry)
-  }
-
-  private update(renderable: TranscriptRenderable, entry: TranscriptEntry, previousEntry?: TranscriptEntry) {
+  private update(
+    renderable: TranscriptRenderable,
+    entry: TranscriptEntry,
+    previousEntry?: TranscriptEntry,
+  ) {
     renderable.entry = entry
     renderable.previousKind = previousEntry?.kind
     renderable.width = this.renderer.terminalWidth
+    // Consecutive tool cards pack together; every other card gets a blank line above it.
+    if (entry.kind === "tool") renderable.root.marginTop = previousEntry?.kind === "tool" ? 0 : 1
+    else renderable.root.marginTop = entry.kind === "message" || entry.kind === "reasoning" ? 1 : 0
+
     if (renderable.kind === "tool") {
-      renderable.root.marginTop = entryMarginTop(entry, previousEntry)
-      renderable.icon.content = toolIcon(entry)
+      renderable.icon.content =
+        useRichToolIcons && entry.activityKind ? TOOL_ICONS[entry.activityKind] : FALLBACK_TOOL_ICON
       renderable.label.content = entry.text || " "
-      if (entry.diff) this.addDiff(renderable, entry)
+      if (entry.diff) this.addDiff(renderable, entry, entry.diff)
       return
     }
 
     if (renderable.kind === "reasoning") {
-      renderable.root.marginTop = entryMarginTop(entry, previousEntry)
-      renderable.entry = entry
-      renderable.header.content = reasoningHeader(
-        entry,
-        renderable.expanded,
-        reasoningExceedsPreview(entry.text, this.renderer.terminalWidth - 2),
-      )
+      const label = entry.streaming
+        ? "Thinking…"
+        : entry.durationMs === undefined
+          ? "Thought"
+          : `Thought for ${formatElapsed(entry.durationMs)}`
+      const truncated = reasoningExceedsPreview(entry.text, this.renderer.terminalWidth - 2)
+      renderable.header.content = truncated
+        ? `${label} · click to ${renderable.expanded ? "collapse" : "expand"}`
+        : label
       renderable.content.streaming = entry.streaming === true
       renderable.content.content = entry.text || " "
-      this.applyReasoningPreview(renderable)
-      this.orderReasoningCard(renderable, entry.streaming === true)
+      // Keep the full markdown document so streaming can append. Clip the tail
+      // instead of rewriting a sliding window, which wiped the first preview line.
+      const { preview, header, expanded } = renderable
+      preview.maxHeight = expanded ? undefined : REASONING_PREVIEW_HEIGHT
+      preview.overflow = expanded ? "visible" : "hidden"
+      preview.justifyContent = expanded ? "flex-start" : "flex-end"
+      // The header leads a streaming thought and trails a finished one.
+      const desired = entry.streaming ? [header, preview] : [preview, header]
+      const current = renderable.root.getChildren()
+      if (
+        current.length !== desired.length ||
+        current.some((child, index) => child.id !== desired[index].id)
+      ) {
+        for (const child of current) renderable.root.remove(child.id)
+        for (const child of desired) renderable.root.add(child)
+      }
       return
     }
 
-    renderable.root.backgroundColor = entryBackground(entry)
-    renderable.root.paddingY = entry.kind === "message" ? 1 : 0
-    renderable.root.marginTop = entryMarginTop(entry, previousEntry)
-    renderable.root.gap = entry.kind === "message" ? 1 : 0
-    renderable.speaker.content = speakerLabel(entry)
-    renderable.speaker.fg = speakerColor(entry)
+    const message = entry.kind === "message"
+    renderable.root.backgroundColor = message
+      ? entry.speaker === "You"
+        ? colors.userSurface
+        : colors.surface
+      : colors.background
+    renderable.root.paddingY = message ? 1 : 0
+    renderable.root.gap = message ? 1 : 0
+    renderable.speaker.content = entry.delivery
+      ? `${entry.speaker} · ${entry.delivery}`
+      : entry.speaker
+    renderable.speaker.fg = entry.speaker === "You" ? colors.accent : colors.muted
     renderable.content.streaming = entry.streaming === true
     renderable.content.internalBlockMode = "top-level"
-    renderable.content.content = messageContent(entry)
+    renderable.content.content =
+      entry.kind === "debug" ? `> debug: \`${entry.text.replace(/`/g, "'")}\`` : entry.text || " "
   }
 
-  private createReasoningCard(entry: TranscriptEntry, previousEntry?: TranscriptEntry): ReasoningCard {
+  private createReasoningCard(entry: TranscriptEntry): ReasoningCard {
     const root = new BoxRenderable(this.renderer, {
       id: `message-${entry.id}`,
       flexDirection: "column",
       backgroundColor: colors.background,
       paddingX: 1,
       paddingY: 0,
-      marginTop: entryMarginTop(entry, previousEntry),
       gap: 1,
     })
     const header = new TextRenderable(this.renderer, {
       id: `message-${entry.id}-reasoning-header`,
-      content: reasoningHeader(entry),
       fg: colors.muted,
     })
     const preview = new BoxRenderable(this.renderer, {
@@ -218,7 +251,17 @@ export class TranscriptView {
       justifyContent: "flex-end",
       maxHeight: REASONING_PREVIEW_HEIGHT,
     })
-    const content = this.createReasoningContent(entry)
+    const content = new MarkdownRenderable(this.renderer, {
+      id: `message-${entry.id}-reasoning-content`,
+      content: entry.text || " ",
+      fg: colors.muted,
+      syntaxStyle: createMutedMarkdownStyle(),
+      treeSitterClient: this.treeSitterClient,
+      streaming: entry.streaming === true,
+      internalBlockMode: "top-level",
+      tableOptions: createMarkdownTableOptions(),
+      flexShrink: 0,
+    })
     // The card owns this style; release it after recursive child destruction.
     root.once(RenderableEvents.DESTROYED, () => content.syntaxStyle.destroy())
     preview.add(content)
@@ -247,50 +290,13 @@ export class TranscriptView {
     return card
   }
 
-  private createReasoningContent(entry: TranscriptEntry) {
-    return new MarkdownRenderable(this.renderer, {
-      id: `message-${entry.id}-reasoning-content`,
-      content: entry.text || " ",
-      fg: colors.muted,
-      syntaxStyle: createMutedMarkdownStyle(),
-      treeSitterClient: this.treeSitterClient,
-      streaming: entry.streaming === true,
-      internalBlockMode: "top-level",
-      tableOptions: createMarkdownTableOptions(),
-      flexShrink: 0,
-    })
-  }
-
-  private applyReasoningPreview(card: ReasoningCard) {
-    // Keep the full markdown document so streaming can append. Clip the tail
-    // instead of rewriting a sliding window, which wiped the first preview line.
-    if (card.expanded) {
-      card.preview.maxHeight = undefined
-      card.preview.overflow = "visible"
-      card.preview.justifyContent = "flex-start"
-      return
-    }
-    card.preview.maxHeight = REASONING_PREVIEW_HEIGHT
-    card.preview.overflow = "hidden"
-    card.preview.justifyContent = "flex-end"
-  }
-
-  private orderReasoningCard(card: ReasoningCard, streaming: boolean) {
-    const desired = streaming ? [card.header, card.preview] : [card.preview, card.header]
-    const current = card.root.getChildren()
-    if (current.length === desired.length && current.every((child, index) => child.id === desired[index].id)) return
-    for (const child of current) card.root.remove(child.id)
-    for (const child of desired) card.root.add(child)
-  }
-
-  private createToolCard(entry: TranscriptEntry, previousEntry?: TranscriptEntry): ToolCard {
-    const card = new BoxRenderable(this.renderer, {
+  private createToolCard(entry: TranscriptEntry): ToolCard {
+    const root = new BoxRenderable(this.renderer, {
       id: `message-${entry.id}`,
       flexDirection: "column",
-      backgroundColor: entryBackground(entry),
+      backgroundColor: colors.background,
       paddingX: 1,
       paddingY: 0,
-      marginTop: entryMarginTop(entry, previousEntry),
       gap: 1,
     })
     const header = new BoxRenderable(this.renderer, {
@@ -300,36 +306,29 @@ export class TranscriptView {
     })
     const icon = new TextRenderable(this.renderer, {
       id: `message-${entry.id}-tool-icon`,
-      content: toolIcon(entry),
       fg: colors.accent,
     })
     const label = new TextRenderable(this.renderer, {
       id: `message-${entry.id}-tool-label`,
-      content: entry.text || " ",
       fg: colors.text,
     })
     header.add(icon)
     header.add(label)
-    card.add(header)
-
-    const toolCard: ToolCard = { kind: "tool", root: card, icon, label }
-    if (entry.diff) this.addDiff(toolCard, entry)
-    return toolCard
+    root.add(header)
+    return { kind: "tool", root, icon, label }
   }
 
-  private addDiff(card: ToolCard, entry: TranscriptEntry) {
-    if (!entry.diff) return
+  private addDiff(card: ToolCard, entry: TranscriptEntry, diff: string) {
     if (card.diff) {
-      card.diff.diff = entry.diff
+      card.diff.diff = diff
       return
     }
-
     const syntaxStyle = createCodeSyntaxStyle()
-    const diff = new DiffRenderable(this.renderer, {
+    card.diff = new DiffRenderable(this.renderer, {
       id: `message-${entry.id}-diff`,
       width: "100%",
       marginBottom: 1,
-      diff: entry.diff,
+      diff,
       view: "split",
       filetype: filetypeFromPath(entry.text),
       syntaxStyle,
@@ -351,28 +350,19 @@ export class TranscriptView {
       removedSignColor: colors.pink,
     })
     card.root.once(RenderableEvents.DESTROYED, () => syntaxStyle.destroy())
-    card.root.add(diff)
-    card.diff = diff
+    card.root.add(card.diff)
   }
 
-  private createMessageCard(entry: TranscriptEntry, previousEntry?: TranscriptEntry): MessageCard {
-    const card = new BoxRenderable(this.renderer, {
+  private createMessageCard(entry: TranscriptEntry): MessageCard {
+    const root = new BoxRenderable(this.renderer, {
       id: `message-${entry.id}`,
       flexDirection: "column",
-      backgroundColor: entryBackground(entry),
       paddingX: 1,
-      paddingY: entry.kind === "message" ? 1 : 0,
-      marginTop: entryMarginTop(entry, previousEntry),
-      gap: entry.kind === "message" ? 1 : 0,
     })
-    const speaker = new TextRenderable(this.renderer, {
-      id: `message-${entry.id}-speaker`,
-      content: speakerLabel(entry),
-      fg: speakerColor(entry),
-    })
+    const speaker = new TextRenderable(this.renderer, { id: `message-${entry.id}-speaker` })
     const content = new MarkdownRenderable(this.renderer, {
       id: `message-${entry.id}-content`,
-      content: messageContent(entry),
+      content: entry.text || " ",
       fg: colors.text,
       syntaxStyle: createMarkdownStyle(),
       treeSitterClient: this.treeSitterClient,
@@ -380,38 +370,11 @@ export class TranscriptView {
       internalBlockMode: "top-level",
       tableOptions: createMarkdownTableOptions(),
     })
-    card.once(RenderableEvents.DESTROYED, () => content.syntaxStyle.destroy())
-    card.add(speaker)
-    card.add(content)
-
-    const messageCard: MessageCard = { kind: "message", root: card, speaker, content }
-    return messageCard
+    root.once(RenderableEvents.DESTROYED, () => content.syntaxStyle.destroy())
+    root.add(speaker)
+    root.add(content)
+    return { kind: "message", root, speaker, content }
   }
-}
-
-function canReuse(renderable: TranscriptRenderable, entry: TranscriptEntry) {
-  const kind = entry.kind === "tool" ? "tool" : entry.kind === "reasoning" ? "reasoning" : "message"
-  if (renderable.kind !== kind) return false
-  return renderable.kind !== "reasoning" || renderable.entry.reasoningId === entry.reasoningId
-}
-
-function entryBackground(entry: TranscriptEntry) {
-  if (entry.kind !== "message") return colors.background
-  return entry.speaker === "You" ? colors.userSurface : colors.surface
-}
-
-function entryMarginTop(entry: TranscriptEntry, previousEntry?: TranscriptEntry) {
-  if (entry.kind === "tool") return previousEntry?.kind === "tool" ? 0 : 1
-  return entry.kind === "message" || entry.kind === "reasoning" ? 1 : 0
-}
-
-function reasoningHeader(entry: TranscriptEntry, expanded = false, truncated = false) {
-  const label = entry.streaming
-    ? "Thinking…"
-    : entry.durationMs === undefined
-      ? "Thought"
-      : `Thought for ${formatElapsed(entry.durationMs)}`
-  return truncated ? `${label} · click to ${expanded ? "collapse" : "expand"}` : label
 }
 
 function reasoningExceedsPreview(text: string, width: number) {
@@ -440,32 +403,17 @@ function reasoningExceedsPreview(text: string, width: number) {
   return false
 }
 
-function speakerColor(entry: TranscriptEntry) {
-  return entry.speaker === "You" ? colors.accent : colors.muted
-}
-
-function speakerLabel(entry: TranscriptEntry) {
-  return entry.delivery ? `${entry.speaker} · ${entry.delivery}` : entry.speaker
-}
-
-function toolIcon(entry: TranscriptEntry) {
-  if (!useRichToolIcons) return FALLBACK_TOOL_ICON
-  return entry.activityKind ? TOOL_ICONS[entry.activityKind] : FALLBACK_TOOL_ICON
-}
-
 function supportsRichToolIcons() {
   if (process.env.OTIS_SAFE_ICONS === "1" || process.env.OTIS_RICH_ICONS === "0") return false
   if (process.env.OTIS_RICH_ICONS === "1") return true
   if (process.env.TERM === "dumb") return false
 
-  const locale = [process.env.LC_ALL, process.env.LC_CTYPE, process.env.LANG].filter(Boolean).join(" ").toLowerCase()
+  const locale = [process.env.LC_ALL, process.env.LC_CTYPE, process.env.LANG]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase()
   if (locale.includes("utf")) return true
   return process.platform !== "win32" || Boolean(process.env.WT_SESSION || process.env.TERM_PROGRAM)
-}
-
-function messageContent(entry: TranscriptEntry) {
-  if (entry.kind === "debug") return `> debug: \`${entry.text.replace(/`/g, "'")}\``
-  return entry.text || " "
 }
 
 const FILETYPE_MAP: Record<string, string> = {

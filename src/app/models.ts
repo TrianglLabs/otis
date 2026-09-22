@@ -2,7 +2,7 @@ import { autoCompactThreshold } from "../core/compaction.js"
 import { FireworksClient, listToolCapableModels } from "../inference/client.js"
 import { compactionContextLength, requireLocalContextLength } from "../inference/context-policy.js"
 import { detectHardware, type HardwareProbe } from "../inference/hardware.js"
-import { LlamaCppRuntime, type LocalLoadProgress, type LocalServingEndpoint } from "../inference/llama-runtime.js"
+import { LlamaCppRuntime, type LocalLoadProgress } from "../inference/llama-runtime.js"
 import {
   catalogModelFromSpec,
   findLocalModel,
@@ -18,19 +18,28 @@ import {
 } from "../inference/local-thinking.js"
 import { discoverOmlxModels, OmlxClient, type OmlxSettings } from "../inference/omlx.js"
 import { createPairClient, pairEndpointForEngine } from "../inference/pair.js"
-import { findFireworksModel, fireworksServingModel, useFastServingPath } from "../inference/serving-path.js"
-import type { CatalogModel, InferenceClient, ModelProvider, PairEngine } from "../inference/types.js"
+import {
+  findFireworksModel,
+  fireworksServingModel,
+  useFastServingPath,
+} from "../inference/serving-path.js"
+import type {
+  CatalogModel,
+  InferenceClient,
+  ModelProvider,
+  PairEngine,
+} from "../inference/types.js"
 import { isLocalCatalogModel, isPairCatalogModel } from "../inference/types.js"
 import type { LocalSettings } from "../local/settings.js"
 
-export type ActiveLocalModel = {
+type ActiveLocalModel = {
   spec: LocalModelSpec
   fit: LocalModelFit
   hardware: HardwareProbe
   contextLength: number
 }
 
-export type PreparedModelSelection = {
+type PreparedModelSelection = {
   /** The exact serving model resolved during preparation, including its runtime context. */
   model: CatalogModel
   /** Commit must synchronously activate the already-prepared model and must not fail. */
@@ -38,7 +47,7 @@ export type PreparedModelSelection = {
   rollback: (options: { restorePrevious: boolean }) => Promise<void>
 }
 
-export type ConnectModelOptions = {
+type ConnectModelOptions = {
   provider: ModelProvider
   modelId: string
   fireworksApiKey?: string
@@ -49,7 +58,7 @@ export type ConnectModelOptions = {
   signal?: AbortSignal
 }
 
-export type ConnectedModel = {
+type ConnectedModel = {
   client: InferenceClient
   modelId: string
   provider: ModelProvider
@@ -57,7 +66,7 @@ export type ConnectedModel = {
   supportsImageInput?: boolean
 }
 
-export type PrepareModelOptions = {
+type PrepareModelOptions = {
   fireworksApiKey?: string
   signal: AbortSignal
   isExiting?: () => boolean
@@ -70,7 +79,7 @@ export type PersistSelectionOptions = PrepareModelOptions & {
   wrap?: (prepared: PreparedModelSelection) => PreparedModelSelection
 }
 
-export type ModelHostOptions = {
+type ModelHostOptions = {
   llama?: LlamaCppRuntime
   env?: NodeJS.ProcessEnv
 }
@@ -100,7 +109,8 @@ export class ModelHost {
     this.localThinking = { ...settings.localThinking }
     this.selectedId = settings.model
     this.selectedProvider =
-      settings.modelProvider ?? (settings.model ? (isLocalModelId(settings.model) ? "local" : "fireworks") : undefined)
+      settings.modelProvider ??
+      (settings.model ? (isLocalModelId(settings.model) ? "local" : "fireworks") : undefined)
     this.pairEngine = settings.pairEngine
     this.supportsImageInput = settings.modelSupportsImageInput
     this.autoCompactAtTokens = autoCompactThreshold(
@@ -111,11 +121,18 @@ export class ModelHost {
     )
 
     if (settings.fireworksApiKey && this.selectedId && this.selectedProvider === "fireworks") {
-      this.client = new FireworksClient({ apiKey: settings.fireworksApiKey, model: this.selectedId })
+      this.client = new FireworksClient({
+        apiKey: settings.fireworksApiKey,
+        model: this.selectedId,
+      })
     }
     const pairEndpoint = pairEndpointForEngine(settings.pairEndpoints ?? {}, this.pairEngine)
     if (pairEndpoint && this.pairEngine && this.selectedId && this.selectedProvider === "pair") {
-      this.client = createPairClient({ baseURL: pairEndpoint, model: this.selectedId, engine: this.pairEngine })
+      this.client = createPairClient({
+        baseURL: pairEndpoint,
+        model: this.selectedId,
+        engine: this.pairEngine,
+      })
     }
   }
 
@@ -127,11 +144,19 @@ export class ModelHost {
     if (this.selectedProvider !== "local" || !this.selectedId) return null
     const capability = localThinkingCapability(this.selectedId)
     if (!capability) return null
-    return { ...capability, modelId: this.selectedId, selected: this.localThinking[this.selectedId] ?? "default" }
+    return {
+      ...capability,
+      modelId: this.selectedId,
+      selected: this.localThinking[this.selectedId] ?? "default",
+    }
   }
 
   #localClient(model: string, inferenceURL: string) {
-    return new LlamaCppClient({ model, inferenceURL, thinkingLevel: () => this.localThinking[model] })
+    return new LlamaCppClient({
+      model,
+      inferenceURL,
+      thinkingLevel: () => this.localThinking[model],
+    })
   }
 
   cancelSelection() {
@@ -143,7 +168,9 @@ export class ModelHost {
     await this.#selectionTail
   }
 
-  enqueueSelection<T>(operation: (signal: AbortSignal, selectionId: number) => Promise<T>): Promise<T | undefined> {
+  enqueueSelection<T>(
+    operation: (signal: AbortSignal, selectionId: number) => Promise<T>,
+  ): Promise<T | undefined> {
     const selectionId = ++this.#selectionId
     this.#selectionController?.abort()
     const controller = new AbortController()
@@ -161,7 +188,10 @@ export class ModelHost {
     })
   }
 
-  async persistSelection(selected: CatalogModel, options: PersistSelectionOptions): Promise<CatalogModel> {
+  async persistSelection(
+    selected: CatalogModel,
+    options: PersistSelectionOptions,
+  ): Promise<CatalogModel> {
     let prepared: PreparedModelSelection | undefined
     try {
       prepared = await this.prepare(selected, options)
@@ -171,7 +201,9 @@ export class ModelHost {
     } catch (error) {
       if (prepared) {
         try {
-          await prepared.rollback({ restorePrevious: !options.signal.aborted && options.isClosed?.() !== true })
+          await prepared.rollback({
+            restorePrevious: !options.signal.aborted && options.isClosed?.() !== true,
+          })
         } catch (rollbackError) {
           throw new AggregateError(
             [error, rollbackError],
@@ -198,12 +230,41 @@ export class ModelHost {
     if (model.provider !== "local") this.activeLocal = undefined
   }
 
-  async prepare(model: CatalogModel, options: PrepareModelOptions): Promise<PreparedModelSelection> {
+  async prepare(
+    model: CatalogModel,
+    options: PrepareModelOptions,
+  ): Promise<PreparedModelSelection> {
     const prepareId = ++this.#prepareId
     const previousLocal = this.activeLocal
     const exiting = () => options.isExiting?.() === true
-    const restoreIfActive = async (error?: unknown) => {
-      if (!options.signal.aborted && !exiting()) await this.restorePrevious(previousLocal, error, options.signal)
+    // A failed or aborted step restores whatever was serving before, unless the app is going away
+    // anyway.
+    const guarded = async <T>(step: () => Promise<T>) => {
+      try {
+        const value = await step()
+        options.signal.throwIfAborted()
+        return value
+      } catch (error) {
+        if (!options.signal.aborted && !exiting())
+          await this.restorePrevious(previousLocal, error, options.signal)
+        throw error
+      }
+    }
+    const selection = (model: CatalogModel, commit: () => void): PreparedModelSelection => {
+      let finalized = false
+      return {
+        model,
+        commit: () => {
+          if (finalized) return
+          finalized = true
+          commit()
+        },
+        rollback: async ({ restorePrevious }) => {
+          if (finalized) return
+          finalized = true
+          if (restorePrevious) await this.restorePrevious(previousLocal, undefined, options.signal)
+        },
+      }
     }
 
     if (isLocalCatalogModel(model)) {
@@ -213,83 +274,57 @@ export class ModelHost {
       options.signal.throwIfAborted()
       const fit = fitLocalModel(spec, hardware)
       const selectedSpec = fit.model
-      let serving: LocalServingEndpoint
-      try {
-        serving = await this.llama.ensureServing(selectedSpec, fit, hardware, {
+      const serving = await guarded(() =>
+        this.llama.ensureServing(selectedSpec, fit, hardware, {
           signal: options.signal,
           onProgress: (progress) => {
             if (prepareId !== this.#prepareId || options.signal.aborted || exiting()) return
             options.onLocalProgress?.(progress)
           },
-        })
-        options.signal.throwIfAborted()
-      } catch (error) {
-        await restoreIfActive(error)
-        throw error
-      }
+        }),
+      )
       const activeModel = { ...model, contextLength: serving.contextLength }
-      return transactionalSelection(activeModel, {
-        commit: () => {
-          this.activeLocal = { spec: selectedSpec, fit, hardware, contextLength: serving.contextLength }
-          this.activate(activeModel, this.#localClient(selectedSpec.id, serving.inferenceURL))
-        },
-        rollback: async ({ restorePrevious }) => {
-          if (restorePrevious) await this.restorePrevious(previousLocal, undefined, options.signal)
-        },
+      return selection(activeModel, () => {
+        this.activeLocal = {
+          spec: selectedSpec,
+          fit,
+          hardware,
+          contextLength: serving.contextLength,
+        }
+        this.activate(activeModel, this.#localClient(selectedSpec.id, serving.inferenceURL))
       })
     }
 
-    if (isPairCatalogModel(model) || model.provider === "omlx") {
-      if (model.provider === "omlx") requireLocalContextLength(model.contextLength, "oMLX")
-      const client =
-        model.provider === "omlx"
-          ? this.omlxClient(model.id, model.baseURL)
-          : createPairClient({ baseURL: model.baseURL, model: model.id, engine: model.engine })
-      try {
-        await this.llama.stop()
-        options.signal.throwIfAborted()
-      } catch (error) {
-        await restoreIfActive(error)
-        throw error
-      }
-      return transactionalSelection(model, {
-        commit: () => {
-          this.activeLocal = undefined
-          this.activate(model, client)
-        },
-        rollback: async ({ restorePrevious }) => {
-          if (restorePrevious) await this.restorePrevious(previousLocal, undefined, options.signal)
-        },
-      })
+    let client: InferenceClient
+    if (model.provider === "omlx") {
+      requireLocalContextLength(model.contextLength, "oMLX")
+      client = this.omlxClient(model.id, model.baseURL)
+    } else if (isPairCatalogModel(model)) {
+      client = createPairClient({ baseURL: model.baseURL, model: model.id, engine: model.engine })
+    } else {
+      if (!options.fireworksApiKey) throw new Error("Fireworks API key is required.")
+      client = new FireworksClient({ apiKey: options.fireworksApiKey, model: model.id })
     }
-
-    if (!options.fireworksApiKey) throw new Error("Fireworks API key is required.")
-    try {
-      await this.llama.stop()
-      options.signal.throwIfAborted()
-    } catch (error) {
-      await restoreIfActive(error)
-      throw error
-    }
-    const client = new FireworksClient({ apiKey: options.fireworksApiKey, model: model.id })
-    return transactionalSelection(model, {
-      commit: () => {
-        this.activeLocal = undefined
-        this.activate(model, client)
-      },
-      rollback: async ({ restorePrevious }) => {
-        if (restorePrevious) await this.restorePrevious(previousLocal, undefined, options.signal)
-      },
-    })
+    await guarded(() => this.llama.stop())
+    return selection(model, () => this.activate(model, client))
   }
 
-  async restorePrevious(previous: ActiveLocalModel | undefined, originalError?: unknown, signal?: AbortSignal) {
+  async restorePrevious(
+    previous: ActiveLocalModel | undefined,
+    originalError?: unknown,
+    signal?: AbortSignal,
+  ) {
     try {
       if (!previous) {
         await this.llama.stop()
         return
       }
-      const serving = await this.llama.ensureServing(previous.spec, previous.fit, previous.hardware, { signal })
+      const serving = await this.llama.ensureServing(
+        previous.spec,
+        previous.fit,
+        previous.hardware,
+        { signal },
+      )
       signal?.throwIfAborted()
       previous.contextLength = serving.contextLength
       this.activeLocal = previous
@@ -308,11 +343,32 @@ export class ModelHost {
   }
 
   async connect(options: ConnectModelOptions): Promise<ConnectedModel> {
-    if (options.provider === "omlx") {
+    const { provider, modelId } = options
+    if (provider === "local") {
+      const spec = findLocalModel(modelId)
+      if (!spec) throw new Error(`Unknown local model: ${modelId}`)
+      const hardware = await detectHardware()
+      const fit = fitLocalModel(spec, hardware)
+      const selectedSpec = fit.model
+      const serving = await this.llama.ensureServing(selectedSpec, fit, hardware, {
+        signal: options.signal,
+      })
+      const client = this.#localClient(selectedSpec.id, serving.inferenceURL)
+      this.activeLocal = { spec: selectedSpec, fit, hardware, contextLength: serving.contextLength }
+      this.activate(catalogModelFromSpec(selectedSpec, serving.contextLength), client)
+      return {
+        client,
+        modelId: selectedSpec.id,
+        provider,
+        contextLength: serving.contextLength,
+        supportsImageInput: selectedSpec.supportsImageInput,
+      }
+    }
+    if (provider === "omlx") {
       if (!this.omlx) throw new Error("oMLX is not configured. Connect it in Local servers.")
       const models = await discoverOmlxModels(this.omlx, { signal: options.signal })
-      const model = models.find((entry) => entry.id === options.modelId)
-      if (!model) throw new Error(`oMLX model is no longer available: ${options.modelId}`)
+      const model = models.find((entry) => entry.id === modelId)
+      if (!model) throw new Error(`oMLX model is no longer available: ${modelId}`)
       requireLocalContextLength(model.contextLength, "oMLX")
       const client = this.omlxClient(model.id, model.baseURL)
       await this.llama.stop()
@@ -321,75 +377,41 @@ export class ModelHost {
       return {
         client,
         modelId: model.id,
-        provider: "omlx",
+        provider,
         contextLength: compactionContextLength(model),
         supportsImageInput: model.supportsImageInput,
       }
     }
-    if (options.provider === "local") {
-      const spec = findLocalModel(options.modelId)
-      if (!spec) throw new Error(`Unknown local model: ${options.modelId}`)
-      const hardware = await detectHardware()
-      const fit = fitLocalModel(spec, hardware)
-      const selectedSpec = fit.model
-      const serving = await this.llama.ensureServing(selectedSpec, fit, hardware, { signal: options.signal })
-      const client = this.#localClient(selectedSpec.id, serving.inferenceURL)
-      const model = catalogModelFromSpec(selectedSpec, serving.contextLength)
-      this.activeLocal = { spec: selectedSpec, fit, hardware, contextLength: serving.contextLength }
-      this.activate(model, client)
-      return {
-        client,
-        modelId: selectedSpec.id,
-        provider: "local",
-        contextLength: serving.contextLength,
-        supportsImageInput: selectedSpec.supportsImageInput,
-      }
-    }
-
-    if (options.provider === "pair") {
-      if (!options.pairEndpoint)
+    const supportsImageInput = options.supportsImageInput ?? false
+    let client: InferenceClient
+    let contextLength: number | undefined
+    if (provider === "pair") {
+      const baseURL = options.pairEndpoint
+      if (!baseURL)
         throw new Error("Local model server endpoint is not configured for the selected engine.")
       const engine = options.pairEngine ?? "ollama"
-      const client = createPairClient({ baseURL: options.pairEndpoint, model: options.modelId, engine })
+      client = createPairClient({ baseURL, model: modelId, engine })
+      contextLength = compactionContextLength({ provider })
       await this.llama.stop()
       this.activate(
-        {
-          provider: "pair",
-          id: options.modelId,
-          displayName: options.modelId,
-          baseURL: options.pairEndpoint,
-          engine,
-          supportsImageInput: options.supportsImageInput ?? false,
-        },
+        { provider, id: modelId, displayName: modelId, baseURL, engine, supportsImageInput },
         client,
       )
-      return {
+    } else {
+      if (!options.fireworksApiKey) throw new Error("Fireworks API key is not configured.")
+      client = new FireworksClient({ apiKey: options.fireworksApiKey, model: modelId })
+      contextLength = options.contextLength
+      await this.llama.stop()
+      this.activate(
+        { provider, id: modelId, displayName: modelId, contextLength, supportsImageInput },
         client,
-        modelId: options.modelId,
-        provider: "pair",
-        contextLength: compactionContextLength({ provider: "pair" }),
-        supportsImageInput: options.supportsImageInput,
-      }
+      )
     }
-
-    if (!options.fireworksApiKey) throw new Error("Fireworks API key is not configured.")
-    const client = new FireworksClient({ apiKey: options.fireworksApiKey, model: options.modelId })
-    await this.llama.stop()
-    this.activate(
-      {
-        provider: "fireworks",
-        id: options.modelId,
-        displayName: options.modelId,
-        contextLength: options.contextLength,
-        supportsImageInput: options.supportsImageInput ?? false,
-      },
-      client,
-    )
     return {
       client,
-      modelId: options.modelId,
-      provider: "fireworks",
-      contextLength: options.contextLength,
+      modelId,
+      provider,
+      contextLength,
       supportsImageInput: options.supportsImageInput,
     }
   }
@@ -399,7 +421,8 @@ export class ModelHost {
   }
 
   omlxClient(model: string, baseURL: string) {
-    if (!this.omlx || this.omlx.baseURL !== baseURL) throw new Error("oMLX endpoint changed. Refresh the model list.")
+    if (!this.omlx || this.omlx.baseURL !== baseURL)
+      throw new Error("oMLX endpoint changed. Refresh the model list.")
     return new OmlxClient({ ...this.omlx, model })
   }
 }
@@ -411,33 +434,11 @@ export async function resolveFireworksServing(
 ) {
   const models = await listToolCapableModels(apiKey, { signal: options.signal })
   const selected = findFireworksModel(models, modelId)
-  if (!selected) throw new Error(`Model is not a tool-capable Fireworks serverless model: ${modelId}`)
+  if (!selected)
+    throw new Error(`Model is not a tool-capable Fireworks serverless model: ${modelId}`)
   return {
     selected,
     serving: fireworksServingModel(selected, useFastServingPath(modelId, options.fast)),
-  }
-}
-
-function transactionalSelection(
-  model: CatalogModel,
-  actions: {
-    commit: () => void
-    rollback: (options: { restorePrevious: boolean }) => Promise<void>
-  },
-): PreparedModelSelection {
-  let finalized = false
-  return {
-    model,
-    commit: () => {
-      if (finalized) return
-      finalized = true
-      actions.commit()
-    },
-    rollback: async (options) => {
-      if (finalized) return
-      finalized = true
-      await actions.rollback(options)
-    },
   }
 }
 

@@ -2,9 +2,9 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { COMPACTION_SUMMARY_PREFIX } from "../../src/core/compaction.js"
+import { compactionSummaryMessage } from "../../src/core/compaction.js"
 import type { ChatMessage } from "../../src/inference/types.js"
-import { createSession, openSession, searchSessions } from "../../src/storage/session.js"
+import { createSession, openSession, searchSessions } from "../../src/storage/index.js"
 
 const tempDirs: string[] = []
 
@@ -38,11 +38,15 @@ describe("searchSessions", () => {
   it("finds content written before a compaction", async () => {
     const cwd = await trackedTempDir()
     const session = await createSession({ cwd, directory: sessionDir(cwd) })
-    // "zephyr" lives only in pre-compaction content — not the title, not the compacted model context.
+    // "zephyr" lives only in pre-compaction content — not the title, not the compacted model
+    // context.
     const admission = await session.admitPrompt("hello there")
     await session.completeTurn(admission, [
       { role: "user", content: "hello there" },
-      { role: "assistant", content: [{ type: "text", text: "The zephyr protocol uses rotating keys." }] },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "The zephyr protocol uses rotating keys." }],
+      },
     ])
     await session.compact("Summary", [
       { role: "user", content: "a different follow up" },
@@ -56,7 +60,11 @@ describe("searchSessions", () => {
 
   it("matches titles without a snippet, and content with a snippet from the matching message", async () => {
     const cwd = await trackedTempDir()
-    await writeSession(cwd, "refactor the view store", "Split the store into slices and keep selectors stable.")
+    await writeSession(
+      cwd,
+      "refactor the view store",
+      "Split the store into slices and keep selectors stable.",
+    )
     await writeSession(cwd, "fix the flaky lock test", "The lock waits for the drain.")
 
     const titleHits = await searchSessions({ cwd, directory: sessionDir(cwd) }, "view store")
@@ -82,7 +90,11 @@ describe("searchSessions", () => {
     await writeSession(cwd, "palette search", "done")
 
     const results = await searchSessions({ cwd, directory: sessionDir(cwd) }, "palette")
-    expect(results.map((result) => result.title)).toEqual(["palette search", "palette tokens", "unrelated chat"])
+    expect(results.map((result) => result.title)).toEqual([
+      "palette search",
+      "palette tokens",
+      "unrelated chat",
+    ])
     expect(results[2].snippet).toContain("palette redesign")
   })
 
@@ -94,15 +106,18 @@ describe("searchSessions", () => {
       { role: "user", content: "hello" },
       { role: "assistant", content: [{ type: "text", text: "hi" }] },
     ])
-    const summaryAdmission = await session.admitPrompt(`${COMPACTION_SUMMARY_PREFIX}\n\ndiscussed the zephyr budget`)
+    const summary = compactionSummaryMessage("discussed the zephyr budget")
+    const summaryAdmission = await session.admitPrompt(summary)
     await session.completeTurn(summaryAdmission, [
-      { role: "user", content: `${COMPACTION_SUMMARY_PREFIX}\n\ndiscussed the zephyr budget` },
+      summary,
       { role: "assistant", content: [{ type: "text", text: "ok" }] },
     ])
 
     // The word only appears inside the compaction summary, which is not searchable.
     await expect(searchSessions({ cwd, directory: sessionDir(cwd) }, "zephyr")).resolves.toEqual([])
     await expect(searchSessions({ cwd, directory: sessionDir(cwd) }, "  ")).resolves.toHaveLength(1)
-    await expect(searchSessions({ cwd, directory: sessionDir(cwd) }, "nothing matches this")).resolves.toEqual([])
+    await expect(
+      searchSessions({ cwd, directory: sessionDir(cwd) }, "nothing matches this"),
+    ).resolves.toEqual([])
   })
 })

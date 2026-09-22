@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest"
 import { compactionContextLength } from "../../src/inference/context-policy.js"
+import { normalizeLocalBaseURL } from "../../src/inference/openai-compat.js"
 import {
+  createPairClient,
   discoverPairModels,
-  normalizePairBaseURL,
   normalizePairEndpoints,
   PAIR_DEFAULT_ENDPOINTS,
-  PairClient,
   pairEndpointForEngine,
   pairEngineLabel,
   pairModelKey,
@@ -91,15 +91,20 @@ describe("NVIDIA PAIR inference", () => {
 
   it("keeps one reachable engine when the other endpoint fails", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      if (String(input).endsWith("/api/tags")) return Response.json({ models: [{ name: "ollama-model" }] })
+      if (String(input).endsWith("/api/tags"))
+        return Response.json({ models: [{ name: "ollama-model" }] })
       return new Response("offline", { status: 503 })
     })
 
-    const result = await discoverPairModels(PAIR_DEFAULT_ENDPOINTS, { fetch: fetchMock as typeof fetch })
+    const result = await discoverPairModels(PAIR_DEFAULT_ENDPOINTS, {
+      fetch: fetchMock as typeof fetch,
+    })
 
     expect(result.ollama?.[0]?.id).toBe("ollama-model")
     expect(result.lmStudio).toBeUndefined()
-    expect(result.errors).toEqual([expect.objectContaining({ engine: "lmstudio", baseURL: "http://127.0.0.1:1234" })])
+    expect(result.errors).toEqual([
+      expect.objectContaining({ engine: "lmstudio", baseURL: "http://127.0.0.1:1234" }),
+    ])
   })
 
   it("reports an invalid inventory against the configured engine", async () => {
@@ -125,7 +130,8 @@ describe("NVIDIA PAIR inference", () => {
           { headers: { "content-type": "text/event-stream" } },
         ),
     )
-    const client = new PairClient({
+    const client = createPairClient({
+      engine: "lmstudio",
       model: "qwen3.5:35b",
       baseURL: "http://localhost:1234",
       fetch: fetchMock as typeof fetch,
@@ -151,7 +157,10 @@ describe("NVIDIA PAIR inference", () => {
     }
 
     expect(events).toEqual([
-      { type: "tool_call", toolCall: { id: "call_1", name: "read", arguments: '{"path":"README.md"}' } },
+      {
+        type: "tool_call",
+        toolCall: { id: "call_1", name: "read", arguments: '{"path":"README.md"}' },
+      },
     ])
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe("http://localhost:1234/v1/chat/completions")
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
@@ -163,12 +172,16 @@ describe("NVIDIA PAIR inference", () => {
   })
 
   it("accepts only loopback PAIR base URLs", () => {
-    expect(normalizePairBaseURL(" http://localhost:11434/v1 ")).toBe("http://localhost:11434")
-    expect(normalizePairBaseURL("http://[::1]:1234")).toBe("http://[::1]:1234")
-    expect(() => normalizePairBaseURL("http://192.168.1.5:11434")).toThrow("must use HTTP")
-    expect(() => normalizePairBaseURL("https://localhost:11434")).toThrow("must use HTTP")
-    expect(() => normalizePairBaseURL("http://localhost:11434/v1/models")).toThrow("without an API path")
-    expect(() => normalizePairBaseURL("http://localhost:11434/v1/chat/completions")).toThrow("without an API path")
+    expect(normalizeLocalBaseURL(" http://localhost:11434/v1 ")).toBe("http://localhost:11434")
+    expect(normalizeLocalBaseURL("http://[::1]:1234")).toBe("http://[::1]:1234")
+    expect(() => normalizeLocalBaseURL("http://192.168.1.5:11434")).toThrow("must use HTTP")
+    expect(() => normalizeLocalBaseURL("https://localhost:11434")).toThrow("must use HTTP")
+    expect(() => normalizeLocalBaseURL("http://localhost:11434/v1/models")).toThrow(
+      "without an API path",
+    )
+    expect(() => normalizeLocalBaseURL("http://localhost:11434/v1/chat/completions")).toThrow(
+      "without an API path",
+    )
   })
 
   it("normalizes engine-specific endpoints and rejects one proxy in both fields", () => {
@@ -193,7 +206,9 @@ describe("NVIDIA PAIR inference", () => {
     const endpoints = { ollama: "http://localhost:11434", lmStudio: "http://localhost:1234" }
     expect(pairEndpointForEngine(endpoints, "lmstudio")).toBe("http://localhost:1234")
     expect(pairEngineLabel("lmstudio")).toBe("LM Studio")
-    expect(pairModelKey({ engine: "ollama", id: "model" })).not.toBe(pairModelKey({ engine: "lmstudio", id: "model" }))
+    expect(pairModelKey({ engine: "ollama", id: "model" })).not.toBe(
+      pairModelKey({ engine: "lmstudio", id: "model" }),
+    )
   })
 
   it("uses an automatic conservative budget without treating PAIR metadata as a serving limit", () => {

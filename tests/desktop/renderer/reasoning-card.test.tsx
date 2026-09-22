@@ -6,21 +6,31 @@ import { afterEach, describe, expect, it } from "vitest"
 import type { TranscriptEntry } from "../../../src/app/transcript.js"
 import { EntryView } from "../../../src/desktop/renderer/features/conversation/entries.js"
 
-/** Traces on: live thinking streams openly, finished thinking hides behind its summary row. Traces off: only the Thinking… status line shows while live; content never renders. */
+/**
+ * Traces on: live thinking streams openly, finished thinking hides behind its summary row. Traces
+ * off: only the Thinking… status line shows while live; content never renders.
+ */
 
 function reasoningEntry(overrides: Partial<TranscriptEntry>): TranscriptEntry {
   return { id: 1, kind: "reasoning", speaker: "Thinking", text: "", ...overrides }
 }
 
-function TestEntry(props: Pick<ComponentProps<typeof EntryView>, "entry" | "active" | "thinkingVisible">) {
+function TestEntry(
+  props: Pick<ComponentProps<typeof EntryView>, "entry" | "active" | "thinkingVisible">,
+) {
   const [expanded, setExpanded] = useState(false)
-  return <EntryView {...props} expanded={expanded} onExpandedChange={(_id, open) => setExpanded(open)} />
+  return (
+    <EntryView {...props} expanded={expanded} onExpandedChange={(_id, open) => setExpanded(open)} />
+  )
 }
 
 afterEach(() => cleanup())
 
 describe("ReasoningCard", () => {
-  it.each([true, false])("keeps the live status stable while streaming with traces visible=%s", (thinkingVisible) => {
+  it.each([
+    true,
+    false,
+  ])("keeps the live status stable while streaming with traces visible=%s", (thinkingVisible) => {
     const { getByRole, container, rerender } = render(
       <TestEntry
         entry={reasoningEntry({ streaming: true, text: "Considering the first option" })}
@@ -36,7 +46,10 @@ describe("ReasoningCard", () => {
 
     rerender(
       <TestEntry
-        entry={reasoningEntry({ streaming: true, text: "Considering the first option and a second one" })}
+        entry={reasoningEntry({
+          streaming: true,
+          text: "Considering the first option and a second one",
+        })}
         active={false}
         thinkingVisible={thinkingVisible}
       />,
@@ -49,7 +62,11 @@ describe("ReasoningCard", () => {
 
   it("replaces the live effect with a static summary when thinking finishes", () => {
     const { container, queryByRole, getByRole, rerender } = render(
-      <TestEntry entry={reasoningEntry({ streaming: true })} active={true} thinkingVisible={true} />,
+      <TestEntry
+        entry={reasoningEntry({ streaming: true })}
+        active={true}
+        thinkingVisible={true}
+      />,
     )
     expect(getByRole("status")).toBeTruthy()
     rerender(
@@ -61,7 +78,9 @@ describe("ReasoningCard", () => {
     )
     expect(queryByRole("status")).toBeNull()
     expect(container.querySelector(".thinking-label")).toBeNull()
-    expect(getByRole("button", { name: "Thought for 2.3s" }).querySelector(".reasoning-cube")).toBeTruthy()
+    expect(
+      getByRole("button", { name: "Thought for 2.3s" }).querySelector(".reasoning-cube"),
+    ).toBeTruthy()
     expect(container.querySelector(".reasoning-body")).toBeNull()
   })
 

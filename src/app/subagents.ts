@@ -1,13 +1,19 @@
 import type { AgentEvent } from "../core/agent.js"
 import { compactionSummaryMessage } from "../core/compaction.js"
 import type { ChatMessage } from "../inference/types.js"
-import { forToolCalls, type SessionSubagentRun, type SessionSubagentStatus } from "../storage/index.js"
-import { TranscriptStore } from "./transcript.js"
-import { TranscriptProjector } from "./transcript-projector.js"
+import {
+  forToolCalls,
+  type SessionSubagentRun,
+  type SessionSubagentStatus,
+} from "../storage/index.js"
+import { TranscriptProjector, TranscriptStore } from "./transcript.js"
 
 export type SubagentStatus = "running" | SessionSubagentStatus
 
-/** One delegated run as the interface shows it: its title, progress, and a transcript of everything it did. */
+/**
+ * One delegated run as the interface shows it: its title, progress, and a transcript of
+ * everything it did.
+ */
 export type SubagentTrace = {
   readonly toolCallId: string
   readonly title: string
@@ -23,7 +29,10 @@ type LiveTrace = {
   messages: ChatMessage[]
 }
 
-/** The delegated runs of the current session, built live from `subagent` events or loaded from a saved session. */
+/**
+ * The delegated runs of the current session, built live from `subagent` events or loaded from a
+ * saved session.
+ */
 export class SubagentTraces {
   readonly #traces = new Map<string, LiveTrace>()
 
@@ -41,7 +50,12 @@ export class SubagentTraces {
     if (!live) {
       const transcript = new TranscriptStore()
       live = {
-        trace: { toolCallId: envelope.toolCallId, title: envelope.title, status: "running", transcript },
+        trace: {
+          toolCallId: envelope.toolCallId,
+          title: envelope.title,
+          status: "running",
+          transcript,
+        },
         projector: new TranscriptProjector(transcript),
         startedAt: Date.now(),
         messages: [],
@@ -63,7 +77,12 @@ export class SubagentTraces {
       live.messages.push(...(event.messages ?? []))
       live.trace = {
         ...live.trace,
-        status: event.type === "complete" ? "complete" : event.type === "interrupted" ? "interrupted" : "failed",
+        status:
+          event.type === "complete"
+            ? "complete"
+            : event.type === "interrupted"
+              ? "interrupted"
+              : "failed",
         durationMs: Date.now() - live.startedAt,
       }
     }
@@ -93,25 +112,19 @@ export class SubagentTraces {
 
   /** The finished runs whose delegating call survives in `messages`, in the persisted shape. */
   runsFor(messages: readonly ChatMessage[]): SessionSubagentRun[] {
-    const finished = [...this.#traces.values()].flatMap(({ trace, messages }) =>
-      trace.status === "running" ? [] : [toSessionRun(trace, trace.status, messages)],
-    )
+    const finished: SessionSubagentRun[] = []
+    for (const { trace, messages: runMessages } of this.#traces.values()) {
+      if (trace.status === "running") continue
+      const toolActivities = trace.transcript.toolActivitiesFor(runMessages)
+      finished.push({
+        toolCallId: trace.toolCallId,
+        title: trace.title,
+        status: trace.status,
+        messages: runMessages,
+        ...(toolActivities.length > 0 ? { toolActivities } : {}),
+        ...(trace.durationMs === undefined ? {} : { durationMs: trace.durationMs }),
+      })
+    }
     return forToolCalls(finished, messages)
-  }
-}
-
-function toSessionRun(
-  trace: SubagentTrace,
-  status: SessionSubagentStatus,
-  messages: ChatMessage[],
-): SessionSubagentRun {
-  const toolActivities = trace.transcript.toolActivitiesFor(messages)
-  return {
-    toolCallId: trace.toolCallId,
-    title: trace.title,
-    status,
-    messages,
-    ...(toolActivities.length > 0 ? { toolActivities } : {}),
-    ...(trace.durationMs === undefined ? {} : { durationMs: trace.durationMs }),
   }
 }

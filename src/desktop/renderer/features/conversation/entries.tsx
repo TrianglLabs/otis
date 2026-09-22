@@ -7,7 +7,6 @@ import { ArtifactCard } from "../../components/ArtifactCard.js"
 import { Icon } from "../../components/Icon.js"
 import { Markdown } from "../../components/Markdown.js"
 import { OtisMark } from "../../components/OtisMark.js"
-import { formatDuration } from "../../format.js"
 import { useI18n } from "../../i18n/index.js"
 import { useDesktop } from "../../runtime.js"
 import { ToolCard } from "./ToolCard.js"
@@ -26,56 +25,94 @@ export const EntryView = memo(function EntryView({
   expanded: boolean
   onExpandedChange: (id: number, expanded: boolean) => void
 }) {
-  if (entry.kind === "reasoning")
-    return (
-      <ReasoningCard
-        entry={entry}
-        thinkingVisible={thinkingVisible}
-        expanded={expanded}
-        onExpandedChange={onExpandedChange}
-      />
-    )
-  if (entry.kind === "tool") return <ToolCard entry={entry} active={active} />
-  if (entry.kind === "debug") return <DebugLine entry={entry} />
-  if (entry.speaker === "You") return <UserMessage entry={entry} />
-  return <AssistantMessage entry={entry} />
-})
-
-function UserMessage({ entry }: { entry: TranscriptEntry }) {
   const { t } = useI18n()
-  const steering = entry.delivery === "steering"
-  const queued = entry.delivery === "queued"
-  return (
-    <div className={`userRow${steering ? " userRow-steering" : ""}${queued ? " userRow-queued" : ""}`}>
-      {steering ? (
-        <span
-          className="steeringIndicator"
-          role="img"
-          aria-label={t("transcript.steering")}
-          title={t("transcript.steeringTitle")}
+  if (entry.kind === "tool") return <ToolCard entry={entry} active={active} />
+  if (entry.kind === "debug") return <div className="debugLine">{entry.text}</div>
+  if (entry.kind === "reasoning") {
+    // Traces off: only live thinking reaches here (finished traces are filtered upstream) — a quiet
+    // status line, never the trace content itself.
+    if (!thinkingVisible) {
+      return (
+        <div className="reasoning-text">
+          <ThinkingStatus />
+        </div>
+      )
+    }
+    if (entry.streaming) {
+      // Live thinking streams openly: a muted preview of the freshest lines, not interactive.
+      const preview = entry.text.trimEnd().split("\n").slice(-3).join("\n")
+      return (
+        <div className="reasoning">
+          <div className="reasoning-header reasoning-headerLive">
+            <ThinkingStatus />
+          </div>
+          {preview ? <div className="reasoning-body reasoning-preview">{preview}</div> : null}
+        </div>
+      )
+    }
+    // Finished thinking is collapsed behind a quiet summary row.
+    const ms = entry.durationMs
+    const label =
+      ms === undefined
+        ? t("transcript.thought")
+        : t("transcript.thoughtFor", {
+            duration: ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`,
+          })
+    return (
+      <div className="reasoning">
+        <button
+          type="button"
+          className="reasoning-header"
+          onClick={() => onExpandedChange(entry.id, !expanded)}
+          aria-expanded={expanded}
         >
-          <Icon icon={ShipWheel} size={16} />
-        </span>
-      ) : null}
-      {queued ? (
-        <span
-          className="queuedIndicator"
-          role="img"
-          aria-label={t("transcript.queued")}
-          title={t("transcript.queuedTitle")}
-        >
-          <Icon icon={ListEnd} size={16} />
-        </span>
-      ) : null}
-      <div className={`userMessage${entry.artifacts?.length ? " userMessage-artifacts" : ""}`}>
-        {(entry.messageText ?? entry.text) ? <span>{entry.messageText ?? entry.text}</span> : null}
-        {entry.artifacts?.length ? <MessageArtifacts artifacts={entry.artifacts} /> : null}
+          <OtisMark className="reasoning-cube" decorative />
+          <span className="reasoning-label">{label}</span>
+          {expanded ? (
+            <ChevronDown size={13} aria-hidden />
+          ) : (
+            <ChevronRight size={13} aria-hidden />
+          )}
+        </button>
+        {expanded && entry.text ? <div className="reasoning-body">{entry.text}</div> : null}
       </div>
-    </div>
-  )
-}
-
-function AssistantMessage({ entry }: { entry: TranscriptEntry }) {
+    )
+  }
+  if (entry.speaker === "You") {
+    const steering = entry.delivery === "steering"
+    const queued = entry.delivery === "queued"
+    const text = entry.messageText ?? entry.text
+    const steeringClass = steering ? " userRow-steering" : ""
+    const queuedClass = queued ? " userRow-queued" : ""
+    return (
+      <div className={`userRow${steeringClass}${queuedClass}`}>
+        {steering ? (
+          <span
+            className="steeringIndicator"
+            role="img"
+            aria-label={t("transcript.steering")}
+            title={t("transcript.steeringTitle")}
+          >
+            <Icon icon={ShipWheel} size={16} />
+          </span>
+        ) : null}
+        {queued ? (
+          <span
+            className="queuedIndicator"
+            role="img"
+            aria-label={t("transcript.queued")}
+            title={t("transcript.queuedTitle")}
+          >
+            <Icon icon={ListEnd} size={16} />
+          </span>
+        ) : null}
+        <div className={`userMessage${entry.artifacts?.length ? " userMessage-artifacts" : ""}`}>
+          {text ? <span>{text}</span> : null}
+          {entry.artifacts?.length ? <MessageArtifacts artifacts={entry.artifacts} /> : null}
+        </div>
+      </div>
+    )
+  }
   const isError = entry.text.startsWith("Error:") || entry.text.startsWith("Could not")
   return (
     <div className={`assistantMessage${isError ? " assistantMessage-error" : ""}`}>
@@ -83,7 +120,7 @@ function AssistantMessage({ entry }: { entry: TranscriptEntry }) {
       {entry.artifacts?.length ? <MessageArtifacts artifacts={entry.artifacts} /> : null}
     </div>
   )
-}
+})
 
 function MessageArtifacts({ artifacts }: { artifacts: ArtifactReference[] }) {
   const { api } = useDesktop()
@@ -92,8 +129,13 @@ function MessageArtifacts({ artifacts }: { artifacts: ArtifactReference[] }) {
     <div className="messageArtifacts">
       {artifacts.map((artifact) => {
         const title =
-          artifact.source === "workspace" ? (artifact.path.split("/").at(-1) ?? artifact.path) : artifact.name
-        const key = artifact.source === "workspace" ? `workspace:${artifact.path}` : `attachment:${artifact.sha256}`
+          artifact.source === "workspace"
+            ? (artifact.path.split("/").at(-1) ?? artifact.path)
+            : artifact.name
+        const key =
+          artifact.source === "workspace"
+            ? `workspace:${artifact.path}`
+            : `attachment:${artifact.sha256}`
         if (!isCanvasArtifact(artifact.kind)) return <span key={key}>📄 {title}</span>
         return (
           <ArtifactCard
@@ -117,65 +159,4 @@ function ThinkingStatus() {
       <span className="thinking-label">{t("transcript.thinking")}</span>
     </span>
   )
-}
-
-function ReasoningCard({
-  entry,
-  thinkingVisible,
-  expanded,
-  onExpandedChange,
-}: {
-  entry: TranscriptEntry
-  thinkingVisible: boolean
-  expanded: boolean
-  onExpandedChange: (id: number, expanded: boolean) => void
-}) {
-  const { t } = useI18n()
-  if (!thinkingVisible) {
-    // Traces off: only live thinking reaches here (finished traces are filtered upstream) — a quiet status
-    // line, never the trace content itself.
-    return (
-      <div className="reasoning-text">
-        <ThinkingStatus />
-      </div>
-    )
-  }
-
-  if (entry.streaming) {
-    // Live thinking streams openly: a muted preview of the freshest lines, not interactive.
-    const preview = entry.text.trimEnd().split("\n").slice(-3).join("\n")
-    return (
-      <div className="reasoning">
-        <div className="reasoning-header reasoning-headerLive">
-          <ThinkingStatus />
-        </div>
-        {preview ? <div className="reasoning-body reasoning-preview">{preview}</div> : null}
-      </div>
-    )
-  }
-
-  // Finished thinking is collapsed behind a quiet summary row.
-  const label =
-    entry.durationMs !== undefined
-      ? t("transcript.thoughtFor", { duration: formatDuration(entry.durationMs) })
-      : t("transcript.thought")
-  return (
-    <div className="reasoning">
-      <button
-        type="button"
-        className="reasoning-header"
-        onClick={() => onExpandedChange(entry.id, !expanded)}
-        aria-expanded={expanded}
-      >
-        <OtisMark className="reasoning-cube" decorative />
-        <span className="reasoning-label">{label}</span>
-        {expanded ? <ChevronDown size={13} aria-hidden /> : <ChevronRight size={13} aria-hidden />}
-      </button>
-      {expanded && entry.text ? <div className="reasoning-body">{entry.text}</div> : null}
-    </div>
-  )
-}
-
-function DebugLine({ entry }: { entry: TranscriptEntry }) {
-  return <div className="debugLine">{entry.text}</div>
 }

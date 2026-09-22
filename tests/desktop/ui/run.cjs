@@ -10,20 +10,27 @@ const timeout = setTimeout(() => {
 }, 60_000)
 
 app.whenReady().then(async () => {
-  session.defaultSession.webRequest.onBeforeRequest({ urls: ["http://*/*", "https://*/*"] }, (_request, done) =>
-    done({ cancel: true }),
+  session.defaultSession.webRequest.onBeforeRequest(
+    { urls: ["http://*/*", "https://*/*"] },
+    (_request, done) => done({ cancel: true }),
   )
   const window = new BrowserWindow({
     show: false,
     width: 1000,
     height: 850,
-    webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
+    webPreferences: {
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      backgroundThrottling: false,
+    },
   })
   window.webContents.on("render-process-gone", (_event, details) => {
     console.error("Renderer exited", details.reason)
     app.exit(1)
   })
-  // The isolated fixture requests native input so pointer capture is exercised with a real active pointer.
+  // The isolated fixture requests native input so pointer capture is exercised with a real active
+  // pointer.
   window.webContents.on("console-message", async (details) => {
     const prefix = "OTIS_UI_INPUT:"
     if (!details.message.startsWith(prefix)) return

@@ -17,7 +17,9 @@ const directories: string[] = []
 
 afterEach(async () => {
   vi.restoreAllMocks()
-  await Promise.all(directories.splice(0).map((path) => fs.rm(path, { recursive: true, force: true })))
+  await Promise.all(
+    directories.splice(0).map((path) => fs.rm(path, { recursive: true, force: true })),
+  )
 })
 
 describe("DOCX editing", () => {
@@ -55,16 +57,23 @@ describe("DOCX editing", () => {
     const attributes = boundary === "sym" ? ' w:font="Wingdings" w:char="F0A7"' : ""
     await fs.writeFile(
       join(context.cwd, "resume.docx"),
-      await docxParagraph(`<w:r><w:t>Name</w:t><w:${boundary}${attributes}/><w:t>Title</w:t></w:r>`),
+      await docxParagraph(
+        `<w:r><w:t>Name</w:t><w:${boundary}${attributes}/><w:t>Title</w:t></w:r>`,
+      ),
     )
-    await expect(editLocalDocument(wordEdit("NameTitle", "Changed"), context)).rejects.toThrow("not found")
-    await expect(fs.readFile(join(context.cwd, "resume-edited.docx"))).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(editLocalDocument(wordEdit("NameTitle", "Changed"), context)).rejects.toThrow(
+      "not found",
+    )
+    await expect(fs.readFile(join(context.cwd, "resume-edited.docx"))).rejects.toMatchObject({
+      code: "ENOENT",
+    })
     await editLocalDocument(wordEdit("Title", "Role"), context)
     const document = await readDocxXml(join(context.cwd, "resume-edited.docx"))
-    expect(Array.from(document.getElementsByTagNameNS(WORD_NAMESPACE, "t")).map((node) => node.textContent)).toEqual([
-      "Name",
-      "Role",
-    ])
+    expect(
+      Array.from(document.getElementsByTagNameNS(WORD_NAMESPACE, "t")).map(
+        (node) => node.textContent,
+      ),
+    ).toEqual(["Name", "Role"])
     expect(document.getElementsByTagNameNS(WORD_NAMESPACE, boundary).length).toBe(1)
   })
 
@@ -72,12 +81,17 @@ describe("DOCX editing", () => {
     const context = await testContext()
     await fs.writeFile(join(context.cwd, "resume.docx"), await minimalDocx("aaa"))
     await expect(editLocalDocument(wordEdit("aa", "b"), context)).rejects.toThrow("appears 2 times")
-    await expect(fs.readFile(join(context.cwd, "resume-edited.docx"))).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(fs.readFile(join(context.cwd, "resume-edited.docx"))).rejects.toMatchObject({
+      code: "ENOENT",
+    })
   })
 })
 
 describe("document replacement conflicts", () => {
-  it.each(["preparation", "publication"])("preserves a concurrent save during %s", async (stage) => {
+  it.each([
+    "preparation",
+    "publication",
+  ])("preserves a concurrent save during %s", async (stage) => {
     const context = await testContext()
     const path = join(context.cwd, "resume.docx")
     const source = await docxParagraph("<w:r><w:t>First draft</w:t></w:r>")
@@ -100,9 +114,9 @@ describe("document replacement conflicts", () => {
       })
     }
 
-    await expect(editLocalDocument({ ...wordEdit("First", "Final"), replaceOriginal: true }, context)).rejects.toThrow(
-      "source document changed",
-    )
+    await expect(
+      editLocalDocument({ ...wordEdit("First", "Final"), replaceOriginal: true }, context),
+    ).rejects.toThrow("source document changed")
     expect(await fs.readFile(path)).toEqual(Buffer.from(concurrent))
     expect(await fs.readdir(context.cwd)).toEqual(["resume.docx"])
   })
@@ -117,9 +131,9 @@ describe("document replacement conflicts", () => {
       await fs.unlink(path)
       return value
     })
-    await expect(editLocalDocument({ ...wordEdit("First", "Final"), replaceOriginal: true }, context)).rejects.toThrow(
-      "source document changed",
-    )
+    await expect(
+      editLocalDocument({ ...wordEdit("First", "Final"), replaceOriginal: true }, context),
+    ).rejects.toThrow("source document changed")
     expect(await fs.readdir(context.cwd)).toEqual([])
   })
 
@@ -127,7 +141,10 @@ describe("document replacement conflicts", () => {
     const context = await testContext()
     const source = await minimalDocx("First draft")
     await fs.writeFile(join(context.cwd, "resume.docx"), source)
-    const result = await editLocalDocument({ ...wordEdit("First", "Final"), replaceOriginal: true }, context)
+    const result = await editLocalDocument(
+      { ...wordEdit("First", "Final"), replaceOriginal: true },
+      context,
+    )
     const backup = result.output.match(/backed up at (.+)\.\n/)?.[1]
     if (!backup) throw new Error("The tool did not return a backup path")
     expect(await fs.readFile(backup)).toEqual(Buffer.from(source))
@@ -158,7 +175,10 @@ describe("PDF signature detection", () => {
   ])("rejects signature dictionaries stored as %s objects before writing", async (storage) => {
     const context = await testContext()
     const pdf = await formPdf()
-    const signature = pdf.context.obj({ ByteRange: [0, 1, 2, 3], Contents: PDFHexString.of("010203") })
+    const signature = pdf.context.obj({
+      ByteRange: [0, 1, 2, 3],
+      Contents: PDFHexString.of("010203"),
+    })
     const field = pdf.context.obj({
       FT: "Sig",
       T: PDFString.of("Signature"),
@@ -175,7 +195,9 @@ describe("PDF signature detection", () => {
       source = Buffer.from(encoded, "latin1")
     }
     await fs.writeFile(join(context.cwd, "form.pdf"), source)
-    await expect(editLocalDocument(pdfEdit(), context)).rejects.toThrow("Signed PDFs cannot be edited")
+    await expect(editLocalDocument(pdfEdit(), context)).rejects.toThrow(
+      "Signed PDFs cannot be edited",
+    )
     expect(await fs.readFile(join(context.cwd, "form.pdf"))).toEqual(source)
     expect(await fs.readdir(context.cwd)).toEqual(["form.pdf"])
   })
@@ -189,7 +211,9 @@ describe("PDF signature detection", () => {
     await editLocalDocument(pdfEdit(), context)
     const edited = await PDFDocument.load(await fs.readFile(join(context.cwd, "form-edited.pdf")))
     expect(edited.getForm().getTextField("Name").getText()).toBe("Ada")
-    expect(edited.getForm().getSignature("Signature").acroField.dict.has(PDFName.of("V"))).toBe(false)
+    expect(edited.getForm().getSignature("Signature").acroField.dict.has(PDFName.of("V"))).toBe(
+      false,
+    )
   })
 
   it("rejects a certification signature even without a form signature field", async () => {
@@ -203,7 +227,9 @@ describe("PDF signature detection", () => {
     )
     const source = Buffer.from(await pdf.save())
     await fs.writeFile(join(context.cwd, "form.pdf"), source)
-    await expect(editLocalDocument(pdfEdit(), context)).rejects.toThrow("Signed PDFs cannot be edited")
+    await expect(editLocalDocument(pdfEdit(), context)).rejects.toThrow(
+      "Signed PDFs cannot be edited",
+    )
     expect(await fs.readFile(join(context.cwd, "form.pdf"))).toEqual(source)
     expect(await fs.readdir(context.cwd)).toEqual(["form.pdf"])
   })

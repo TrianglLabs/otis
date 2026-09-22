@@ -398,7 +398,13 @@ button.reasoning-header:hover {
   /* Include the separator's whitespace in its measured height. */
   height: 11px;
   margin: 0;
-  background: linear-gradient(to bottom, transparent 5px, var(--hairline) 5px, var(--hairline) 6px, transparent 6px);
+  background: linear-gradient(
+    to bottom,
+    transparent 5px,
+    var(--hairline) 5px,
+    var(--hairline) 6px,
+    transparent 6px
+  );
 }
 
 .diffLine-text {

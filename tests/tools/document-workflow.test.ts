@@ -66,14 +66,19 @@ describe("document tool", () => {
     ])
     expect(result.artifact).toEqual({ source: "workspace", path: "resume final.pdf", kind: "pdf" })
     await expect(
-      executeToolCall(call({ operation: "create", spec_path: "plan.json", output_path: "resume final.pdf" }), context),
+      executeToolCall(
+        call({ operation: "create", spec_path: "plan.json", output_path: "resume final.pdf" }),
+        context,
+      ),
     ).rejects.toThrow("already exists")
     expect(mocks.ensure).toHaveBeenCalledOnce()
   })
 
   it("checks capabilities without installing or executing a helper", async () => {
     const context = await setup()
-    expect(JSON.parse((await executeToolCall(call({ operation: "check" }), context)).output)).toEqual({
+    expect(
+      JSON.parse((await executeToolCall(call({ operation: "check" }), context)).output),
+    ).toEqual({
       ready: false,
       python: null,
     })
@@ -87,7 +92,10 @@ describe("document tool", () => {
     await writeFile(join(context.cwd, "source.docx"), "fixture Word")
     mocks.check.mockResolvedValue({ ready: false, python: "/test/python3", libreoffice: false })
     await expect(
-      executeToolCall(call({ operation: "convert", path: "source.docx", output_path: "converted.pdf" }), context),
+      executeToolCall(
+        call({ operation: "convert", path: "source.docx", output_path: "converted.pdf" }),
+        context,
+      ),
     ).rejects.toThrow("LibreOffice")
     expect(mocks.ensure).not.toHaveBeenCalled()
     expect(mocks.run).not.toHaveBeenCalled()
@@ -110,12 +118,22 @@ describe("document tool", () => {
 
   it("passes page selection and rejects a helper failure without reporting success", async () => {
     const context = await setup()
-    await executeToolCall(call({ operation: "inspect-pdf", path: "source.pdf", pages: [1, 3] }), context)
-    expect(mocks.run.mock.calls[0][1]).toEqual(expect.arrayContaining(["inspect-pdf", "--pages", "1,3"]))
+    await executeToolCall(
+      call({ operation: "inspect-pdf", path: "source.pdf", pages: [1, 3] }),
+      context,
+    )
+    expect(mocks.run.mock.calls[0][1]).toEqual(
+      expect.arrayContaining(["inspect-pdf", "--pages", "1,3"]),
+    )
     mocks.run.mockRejectedValue(new Error("Text exceeds original space"))
     await expect(
       executeToolCall(
-        call({ operation: "edit-pdf", path: "source.pdf", spec_path: "plan.json", output_path: "edited.pdf" }),
+        call({
+          operation: "edit-pdf",
+          path: "source.pdf",
+          spec_path: "plan.json",
+          output_path: "edited.pdf",
+        }),
         context,
       ),
     ).rejects.toThrow("original space")
@@ -124,7 +142,12 @@ describe("document tool", () => {
 
   it("checks every document path against policy and restricts preparation under non-auto modes", async () => {
     const context = await setup()
-    const edit = call({ operation: "edit-pdf", path: "source.pdf", spec_path: "plan.json", output_path: "edited.pdf" })
+    const edit = call({
+      operation: "edit-pdf",
+      path: "source.pdf",
+      spec_path: "plan.json",
+      output_path: "edited.pdf",
+    })
     const ask = createPermissionPolicy({ cwd: context.cwd, mode: "ask" })
     expect(await ask.evaluate(edit)).toMatchObject({
       effect: "ask",

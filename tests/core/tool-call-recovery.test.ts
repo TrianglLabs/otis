@@ -5,7 +5,12 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { type AgentEvent, runAgent } from "../../src/core/agent.js"
 import { FireworksClient } from "../../src/inference/client.js"
 import { openaiChatCompletionRequest } from "../../src/inference/openai-compat.js"
-import type { ChatMessage, ChatStreamEvent, InferenceClient, StreamChatOptions } from "../../src/inference/types.js"
+import type {
+  ChatMessage,
+  ChatStreamEvent,
+  InferenceClient,
+  StreamChatOptions,
+} from "../../src/inference/types.js"
 import { createPermissionPolicy } from "../../src/permissions/policy.js"
 import { emptySkillCatalog } from "../../src/skills/index.js"
 
@@ -64,9 +69,13 @@ describe("tool-call recovery", () => {
     ])
     const events = await collect(runAgent("Write the files", [], { ...options, client }))
     expect(events.at(-1)?.type).toBe("complete")
-    expect(events.filter((event) => event.type === "model" && event.phase === "retry")).toHaveLength(1)
     expect(
-      events.flatMap((event) => (event.type === "tool" && event.phase === "start" ? [event.toolCallId] : [])),
+      events.filter((event) => event.type === "model" && event.phase === "retry"),
+    ).toHaveLength(1)
+    expect(
+      events.flatMap((event) =>
+        event.type === "tool" && event.phase === "start" ? [event.toolCallId] : [],
+      ),
     ).toEqual(["first", "fresh"])
     expect((await readdir(options.cwd)).sort()).toEqual(["done.txt", "final.txt"])
     expect(await readFile(join(options.cwd, "done.txt"), "utf8")).toBe("earlier completed action")
@@ -76,10 +85,15 @@ describe("tool-call recovery", () => {
     expect(retry.messages.filter((message) => message.role === "user")).toHaveLength(1)
     const terminal = events.at(-1)
     if (terminal?.type !== "complete") throw new Error("Expected completion")
-    expect(JSON.stringify(terminal.messages)).toContain("unfinished") // diagnostic history is untouched
+    // Diagnostic history is untouched.
+    expect(JSON.stringify(terminal.messages)).toContain("unfinished")
   })
 
-  it.each(["malformed", "length", "reasoning-only"])("stops after one retry for repeated %s output", async (kind) => {
+  it.each([
+    "malformed",
+    "length",
+    "reasoning-only",
+  ])("stops after one retry for repeated %s output", async (kind) => {
     const options = await workspace()
     const step: ChatStreamEvent[] =
       kind === "malformed"
@@ -87,7 +101,13 @@ describe("tool-call recovery", () => {
         : [
             ...(kind === "length"
               ? [writeCall("truncated", "partial.txt", "syntactically valid but incomplete output")]
-              : [{ type: "reasoning_delta" as const, field: "reasoning_content" as const, text: "Still thinking" }]),
+              : [
+                  {
+                    type: "reasoning_delta" as const,
+                    field: "reasoning_content" as const,
+                    text: "Still thinking",
+                  },
+                ]),
             { type: "finish", reason: "length" },
           ]
     const { client, requests } = scriptedClient([step, step])
@@ -103,7 +123,11 @@ describe("tool-call recovery", () => {
 
   it("does not reset the recovery budget after successful tool work", async () => {
     const options = await workspace()
-    const { client, requests } = scriptedClient([[malformed], [writeCall("ok", "done.txt", "done")], [malformed]])
+    const { client, requests } = scriptedClient([
+      [malformed],
+      [writeCall("ok", "done.txt", "done")],
+      [malformed],
+    ])
     const events = await collect(runAgent("Do the task", [], { ...options, client }))
     expect(requests).toHaveLength(3)
     expect(events.at(-1)?.type).toBe("error")
@@ -115,7 +139,11 @@ describe("tool-call recovery", () => {
     const controller = new AbortController()
     const { client, requests } = scriptedClient([[malformed]])
     const events: AgentEvent[] = []
-    for await (const event of runAgent("Do the task", [], { ...options, client, signal: controller.signal })) {
+    for await (const event of runAgent("Do the task", [], {
+      ...options,
+      client,
+      signal: controller.signal,
+    })) {
       events.push(event)
       if (event.type === "model" && event.phase === "retry") controller.abort()
     }
@@ -144,7 +172,10 @@ describe("tool-call recovery", () => {
                         {
                           index: 0,
                           id: "broken",
-                          function: { name: "write", arguments: '{"path":"partial.txt","content":"private unfinished' },
+                          function: {
+                            name: "write",
+                            arguments: '{"path":"partial.txt","content":"private unfinished',
+                          },
                         },
                       ],
                     },
@@ -152,12 +183,21 @@ describe("tool-call recovery", () => {
                   },
                 ],
               },
-              { choices: [], usage: { prompt_tokens: 3191, completion_tokens: 65536, total_tokens: 68727 } },
+              {
+                choices: [],
+                usage: { prompt_tokens: 3191, completion_tokens: 65536, total_tokens: 68727 },
+              },
             ]
           : [{ choices: [{ delta: { content: "Recovered." }, finish_reason: "stop" }] }]
-      return new Response(`${chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("")}data: [DONE]\n\n`)
+      return new Response(
+        `${chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("")}data: [DONE]\n\n`,
+      )
     })
-    const client = new FireworksClient({ model: "fake", apiKey: "fake-test-key", fetch: fetchMock as typeof fetch })
+    const client = new FireworksClient({
+      model: "fake",
+      apiKey: "fake-test-key",
+      fetch: fetchMock as typeof fetch,
+    })
     const onUsage = vi.fn()
     const events = await collect(runAgent("Do the task", [], { ...options, client, onUsage }))
     expect(events.at(-1)?.type).toBe("complete")
@@ -165,7 +205,11 @@ describe("tool-call recovery", () => {
     expect(JSON.stringify(requests[1])).not.toContain("private unfinished")
     expect(JSON.stringify(requests[1])).toContain("Provider reasoning")
     expect(JSON.stringify(requests)).not.toContain("fake-test-key")
-    expect(onUsage).toHaveBeenCalledWith({ promptTokens: 3191, completionTokens: 65536, totalTokens: 68727 })
+    expect(onUsage).toHaveBeenCalledWith({
+      promptTokens: 3191,
+      completionTokens: 65536,
+      totalTokens: 68727,
+    })
     expect(await readdir(options.cwd)).toEqual([])
 
     const terminal = events.at(-1)

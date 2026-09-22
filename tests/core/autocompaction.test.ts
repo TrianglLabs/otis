@@ -1,8 +1,11 @@
 import { describe, expect, it, vi } from "vitest"
-import { type AgentEvent, runAgent } from "../../src/core/agent.js"
-import { autoCompactThreshold, compactConversation, compactionSummaryMessage } from "../../src/core/compaction.js"
-import { estimateMessageTokens, requestContextEstimator } from "../../src/core/context-tokens.js"
-import { SteeringInbox } from "../../src/core/steering.js"
+import { type AgentEvent, runAgent, SteeringInbox } from "../../src/core/agent.js"
+import {
+  autoCompactThreshold,
+  compactConversation,
+  compactionSummaryMessage,
+  requestContextEstimator,
+} from "../../src/core/compaction.js"
 import { ContextOverflowError } from "../../src/inference/errors.js"
 import { OmlxClient } from "../../src/inference/omlx.js"
 import type { ChatMessage, InferenceClient, StreamChatOptions } from "../../src/inference/types.js"
@@ -10,7 +13,10 @@ import { TOOL_DEFINITIONS } from "../../src/tools/index.js"
 import { summaryFixture } from "../support/compaction.js"
 
 const user = (content: string): ChatMessage => ({ role: "user", content })
-const answer = (text: string): ChatMessage => ({ role: "assistant", content: [{ type: "text", text }] })
+const answer = (text: string): ChatMessage => ({
+  role: "assistant",
+  content: [{ type: "text", text }],
+})
 const large = "x".repeat(1_040_000)
 const longResponse: ChatMessage = {
   role: "assistant",
@@ -32,7 +38,11 @@ describe("bounded compaction", () => {
   it("stops on a reported sub-minimum allocation without summarizing or replacing history", async () => {
     const fetch = vi.fn(async () =>
       Response.json(
-        { error: { message: "Prompt too long: 40000 tokens exceeds max context window of 32768 tokens" } },
+        {
+          error: {
+            message: "Prompt too long: 40000 tokens exceeds max context window of 32768 tokens",
+          },
+        },
         { status: 400 },
       ),
     )
@@ -71,7 +81,10 @@ describe("bounded compaction", () => {
     client.streamChat = vi.fn<InferenceClient["streamChat"]>(async function* (request) {
       if (request.systemPrompt?.startsWith("You are a conversation summarizer")) {
         expect(request.systemPrompt).not.toContain("at most 2000 tokens")
-        yield { type: "text_delta", text: summaryFixture("Previous work is complete; continue the current task.") }
+        yield {
+          type: "text_delta",
+          text: summaryFixture("Previous work is complete; continue the current task."),
+        }
       } else {
         expect(checkpointed).toBe(true)
         const tokens = requestContextEstimator(request)(request.messages)
@@ -93,7 +106,9 @@ describe("bounded compaction", () => {
         },
       }),
     )
-    expect(events.filter((event) => event.type === "compaction" && event.phase === "complete")).toHaveLength(1)
+    expect(
+      events.filter((event) => event.type === "compaction" && event.phase === "complete"),
+    ).toHaveLength(1)
     expect(events.at(-1)?.type).toBe("complete")
   })
 
@@ -115,7 +130,9 @@ describe("bounded compaction", () => {
           { status: 400 },
         )
       }
-      const summarizing = request.messages[0].content.startsWith("You are a conversation summarizer")
+      const summarizing = request.messages[0].content.startsWith(
+        "You are a conversation summarizer",
+      )
       if (!summarizing) expect(checkpointed).toBe(true)
       const content = summarizing ? summaryFixture("Earlier work preserved.") : "Finished."
       return new Response(
@@ -168,7 +185,9 @@ describe("bounded compaction", () => {
     })
     const messages = [user("task"), longResponse, user("continue")]
     const original = structuredClone(messages)
-    await expect(compactConversation(messages, { client })).rejects.toThrow("did not finish its summary (length)")
+    await expect(compactConversation(messages, { client })).rejects.toThrow(
+      "did not finish its summary (length)",
+    )
     expect(messages).toEqual(original)
   })
 
@@ -177,9 +196,10 @@ describe("bounded compaction", () => {
     const client = summaryClient()
     const result = await compactConversation(messages, { client, targetTokens: 125_000 })
     messages = [compactionSummaryMessage(result.summary), ...result.keptMessages]
+    const estimate = requestContextEstimator({ tools: [], systemPrompt: "" })
     for (let turn = 0; turn < 4; turn += 1) {
       messages.push(user("continue"), answer("continued"))
-      expect(estimateMessageTokens(messages)).toBeLessThan(250_000)
+      expect(estimate(messages)).toBeLessThan(250_000)
     }
     expect(client.streamChat).toHaveBeenCalledOnce()
   })
@@ -219,7 +239,10 @@ describe("bounded compaction", () => {
       user("focus on tests"),
       user("use Bun"),
     ]
-    const result = await compactConversation(messages, { client: summaryClient(), targetTokens: 10_000 })
+    const result = await compactConversation(messages, {
+      client: summaryClient(),
+      targetTokens: 10_000,
+    })
     expect(result.keptMessages).toEqual(messages.slice(-2))
   })
 
@@ -234,7 +257,9 @@ describe("bounded compaction", () => {
 
   it("rejects a non-shrinking summary even when the caller does not supply a target", async () => {
     await expect(
-      compactConversation([user("hi"), answer("hello")], { client: summaryClient("Long summary.".repeat(100)) }),
+      compactConversation([user("hi"), answer("hello")], {
+        client: summaryClient("Long summary.".repeat(100)),
+      }),
     ).rejects.toThrow("did not free enough")
   })
 
@@ -256,7 +281,9 @@ describe("bounded compaction", () => {
       expect(
         characters.some(
           (character) =>
-            character.length === 1 && character.charCodeAt(0) >= 0xd800 && character.charCodeAt(0) <= 0xdfff,
+            character.length === 1 &&
+            character.charCodeAt(0) >= 0xd800 &&
+            character.charCodeAt(0) <= 0xdfff,
         ),
       ).toBe(false)
     }
@@ -280,13 +307,18 @@ describe("bounded compaction", () => {
       requests.push(request)
       yield { type: "text_delta", text: summaryFixture("Summary so far.") }
     })
-    await compactConversation([user(`${"a".repeat(40_000)}TAIL_MARKER`), answer("done"), user("continue")], {
-      client,
-      maxInputTokens: 4_000,
-      targetTokens: 2_000,
-    })
+    await compactConversation(
+      [user(`${"a".repeat(40_000)}TAIL_MARKER`), answer("done"), user("continue")],
+      {
+        client,
+        maxInputTokens: 4_000,
+        targetTokens: 2_000,
+      },
+    )
     expect(requests.length).toBeGreaterThan(1)
-    expect(requests.every((request) => requestContextEstimator(request)(request.messages) <= 4_000)).toBe(true)
+    expect(
+      requests.every((request) => requestContextEstimator(request)(request.messages) <= 4_000),
+    ).toBe(true)
     expect(requests[1].messages[0].content).toContain("Summary so far.")
     expect(requests.at(-1)?.messages[0].content).toContain("TAIL_MARKER")
   })
@@ -309,9 +341,15 @@ describe("bounded compaction", () => {
       user("continue"),
     ]
     await compactConversation(messages, { client, maxInputTokens: 4_000, targetTokens: 2_000 })
-    expect(requests.some((request) => String(request.messages[0].content).includes("ASSISTANT_TAIL"))).toBe(true)
-    expect(requests.some((request) => String(request.messages[0].content).includes("TOOL_TAIL"))).toBe(true)
-    expect(requests.every((request) => requestContextEstimator(request)(request.messages) <= 4_000)).toBe(true)
+    expect(
+      requests.some((request) => String(request.messages[0].content).includes("ASSISTANT_TAIL")),
+    ).toBe(true)
+    expect(
+      requests.some((request) => String(request.messages[0].content).includes("TOOL_TAIL")),
+    ).toBe(true)
+    expect(
+      requests.every((request) => requestContextEstimator(request)(request.messages) <= 4_000),
+    ).toBe(true)
   })
 })
 
@@ -326,7 +364,10 @@ describe("autocompaction at model request boundaries", () => {
     client.streamChat = vi.fn<InferenceClient["streamChat"]>(async function* () {
       yield { type: "text_delta", text: partial }
       if (reportsUsage)
-        yield { type: "usage", usage: { promptTokens: 7_000, completionTokens: 2_000, totalTokens: 9_000 } }
+        yield {
+          type: "usage",
+          usage: { promptTokens: 7_000, completionTokens: 2_000, totalTokens: 9_000 },
+        }
       controller.abort()
     })
     const events = await collect(
@@ -341,7 +382,11 @@ describe("autocompaction at model request boundaries", () => {
     const messages = [user("task"), answer(partial)]
     expect(events.at(-1)).toEqual({ type: "interrupted", messages })
     const expectedTokens = reportsUsage ? 9_000 : requestContextEstimator({ tools: [] })(messages)
-    expect(events.at(-2)).toMatchObject({ type: "context", messageCount: 2, tokens: expectedTokens })
+    expect(events.at(-2)).toMatchObject({
+      type: "context",
+      messageCount: 2,
+      tokens: expectedTokens,
+    })
   })
 
   it("uses the preceding turn's observed context before the next request", async () => {
@@ -359,11 +404,16 @@ describe("autocompaction at model request boundaries", () => {
     )
     expect(events[0]).toMatchObject({ type: "context", tokens: expect.any(Number) })
     expect(events[1]).toEqual({ type: "compaction", phase: "start" })
-    expect(events.filter((event) => event.type === "compaction" && event.phase === "complete")).toHaveLength(1)
+    expect(
+      events.filter((event) => event.type === "compaction" && event.phase === "complete"),
+    ).toHaveLength(1)
     expect(events.at(-1)?.type).toBe("complete")
   })
 
-  it.each(["request", "summary"])("surfaces a rejected %s without retrying or replacing history", async (phase) => {
+  it.each([
+    "request",
+    "summary",
+  ])("surfaces a rejected %s without retrying or replacing history", async (phase) => {
     const client = summaryClient()
     client.streamChat = vi.fn<InferenceClient["streamChat"]>(() => {
       throw new Error("Context length exceeded")
@@ -383,7 +433,11 @@ describe("autocompaction at model request boundaries", () => {
     expect(client.streamChat).toHaveBeenCalledOnce()
     expect(checkpoint).not.toHaveBeenCalled()
     expect(history).toEqual(original)
-    expect(events.at(-1)).toEqual({ type: "error", message: "Context length exceeded", messages: [user("continue")] })
+    expect(events.at(-1)).toEqual({
+      type: "error",
+      message: "Context length exceeded",
+      messages: [user("continue")],
+    })
   })
 
   it("uses provider usage to trigger compaction when character estimates undercount the request", async () => {
@@ -393,8 +447,12 @@ describe("autocompaction at model request boundaries", () => {
       requests += 1
       if (requests === 1) {
         yield { type: "tool_call", toolCall: { id: "a", name: "read", arguments: "{}" } }
-        yield { type: "usage", usage: { promptTokens: 7_000, completionTokens: 3_000, totalTokens: 10_000 } }
-      } else if (requests === 2) yield { type: "text_delta", text: summaryFixture("Task summarized.") }
+        yield {
+          type: "usage",
+          usage: { promptTokens: 7_000, completionTokens: 3_000, totalTokens: 10_000 },
+        }
+      } else if (requests === 2)
+        yield { type: "text_delta", text: summaryFixture("Task summarized.") }
       else yield { type: "text_delta", text: "Finished." }
     })
     const events = await collect(
@@ -407,8 +465,12 @@ describe("autocompaction at model request boundaries", () => {
       }),
     )
     expect(requests).toBe(3)
-    expect(events.some((event) => event.type === "context" && (event.tokens ?? 0) >= 10_000)).toBe(true)
-    expect(events.filter((event) => event.type === "compaction" && event.phase === "complete")).toHaveLength(1)
+    expect(events.some((event) => event.type === "context" && (event.tokens ?? 0) >= 10_000)).toBe(
+      true,
+    )
+    expect(
+      events.filter((event) => event.type === "compaction" && event.phase === "complete"),
+    ).toHaveLength(1)
     expect(events.at(-1)?.type).toBe("complete")
   })
 
@@ -443,7 +505,9 @@ describe("autocompaction at model request boundaries", () => {
     )
     expect(requests).toHaveLength(3)
     expect(events.at(-1)).toEqual({ type: "complete", messages: [answer("Finished.")] })
-    expect(events.filter((event) => event.type === "compaction" && event.phase === "complete")).toHaveLength(1)
+    expect(
+      events.filter((event) => event.type === "compaction" && event.phase === "complete"),
+    ).toHaveLength(1)
   })
 
   it("compacts resumed history before the first inference and includes steering received during summarization", async () => {
@@ -476,7 +540,10 @@ describe("autocompaction at model request boundaries", () => {
     )
     expect(requests).toBe(2)
     expect(checkpoint).toHaveBeenCalledWith(expect.anything(), 0, [user("continue")])
-    expect(events.at(-1)).toEqual({ type: "complete", messages: [user("new direction"), answer("Done.")] })
+    expect(events.at(-1)).toEqual({
+      type: "complete",
+      messages: [user("new direction"), answer("Done.")],
+    })
   })
 
   it("keeps original history and stops before another request if checkpoint persistence fails", async () => {
@@ -494,9 +561,15 @@ describe("autocompaction at model request boundaries", () => {
       }),
     )
     expect(client.streamChat).toHaveBeenCalledOnce()
-    expect(events.at(-1)).toEqual({ type: "error", message: "Disk full", messages: [user("continue")] })
+    expect(events.at(-1)).toEqual({
+      type: "error",
+      message: "Disk full",
+      messages: [user("continue")],
+    })
     expect(history[1]).toEqual(longResponse)
-    expect(events.some((event) => event.type === "compaction" && event.phase === "complete")).toBe(false)
+    expect(events.some((event) => event.type === "compaction" && event.phase === "complete")).toBe(
+      false,
+    )
   })
 
   it("does not accept a partially streamed summary after cancellation", async () => {
@@ -544,9 +617,13 @@ describe("authoritative request counts and overflow recovery", () => {
         ? 25_000
         : 1_000,
     )
-    const events = await collect(runAgent("continue", history, { ...options, client, autoCompactAtTokens: 8_000 }))
+    const events = await collect(
+      runAgent("continue", history, { ...options, client, autoCompactAtTokens: 8_000 }),
+    )
     expect(events.some((event) => event.type === "context" && event.tokens === 25_000)).toBe(true)
-    expect(events.filter((event) => event.type === "compaction" && event.phase === "complete")).toHaveLength(1)
+    expect(
+      events.filter((event) => event.type === "compaction" && event.phase === "complete"),
+    ).toHaveLength(1)
     expect(events.at(-1)?.type).toBe("complete")
     expect(client.streamChat).toHaveBeenCalledTimes(2)
   })
@@ -655,7 +732,9 @@ describe("authoritative request counts and overflow recovery", () => {
   it("counts summary chunks with the serving tokenizer and preserves their complete Unicode content", async () => {
     const client = summaryClient()
     const chunks: string[] = []
-    client.countTokens = vi.fn(async (request: StreamChatOptions) => String(request.messages[0].content).length + 500)
+    client.countTokens = vi.fn(
+      async (request: StreamChatOptions) => String(request.messages[0].content).length + 500,
+    )
     client.streamChat = vi.fn<InferenceClient["streamChat"]>(async function* (request) {
       expect(await client.countTokens?.(request)).toBeLessThanOrEqual(4_000)
       const input = String(request.messages[0].content)
@@ -663,11 +742,14 @@ describe("authoritative request counts and overflow recovery", () => {
       chunks.push(input)
       yield { type: "text_delta", text: summaryFixture("Summary.") }
     })
-    await compactConversation([user(`${"漢🌍".repeat(4_000)}TAIL_MARKER`), answer("done"), user("next")], {
-      client,
-      maxInputTokens: 4_000,
-      targetTokens: 2_000,
-    })
+    await compactConversation(
+      [user(`${"漢🌍".repeat(4_000)}TAIL_MARKER`), answer("done"), user("next")],
+      {
+        client,
+        maxInputTokens: 4_000,
+        targetTokens: 2_000,
+      },
+    )
     expect(chunks.length).toBeGreaterThan(1)
     expect(chunks.at(-1)).toContain("TAIL_MARKER")
   })
@@ -701,7 +783,10 @@ it("recovers inside a tool loop without executing earlier tools again", async ()
     requests += 1
     if (requests === 1) {
       yield { type: "text_delta", text: "notes ".repeat(16_000) }
-      yield { type: "tool_call", toolCall: { id: "read-once", name: "read", arguments: '{"path":"package.json"}' } }
+      yield {
+        type: "tool_call",
+        toolCall: { id: "read-once", name: "read", arguments: '{"path":"package.json"}' },
+      }
     } else if (requests === 2) throw new ContextOverflowError("Too large after tool result")
     else yield { type: "text_delta", text: "Done." }
   })
@@ -718,7 +803,9 @@ it("recovers inside a tool loop without executing earlier tools again", async ()
   expect(requests).toBe(3)
   expect(events.filter((event) => event.type === "tool" && event.phase === "start")).toHaveLength(1)
   expect(checkpoint).toHaveBeenCalledOnce()
-  expect(checkpoint.mock.calls[0][2]).toContainEqual(expect.objectContaining({ role: "tool", toolCallId: "read-once" }))
+  expect(checkpoint.mock.calls[0][2]).toContainEqual(
+    expect.objectContaining({ role: "tool", toolCallId: "read-once" }),
+  )
   expect(events.at(-1)).toEqual({ type: "complete", messages: [answer("Done.")] })
 })
 
@@ -759,7 +846,10 @@ it("bounds repeated context rejections even when there is still history to compa
     requests += 1
     throw new ContextOverflowError("Still too large")
   })
-  const history = Array.from({ length: 16 }, (_, index) => [user(`Task ${index}`), answer("x".repeat(8_000))]).flat()
+  const history = Array.from({ length: 16 }, (_, index) => [
+    user(`Task ${index}`),
+    answer("x".repeat(8_000)),
+  ]).flat()
   const events = await collect(
     runAgent("next", history, { client, tools: [], skills: emptySkills, projectContext: [] }),
   )

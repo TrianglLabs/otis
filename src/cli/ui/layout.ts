@@ -1,14 +1,14 @@
-import { BoxRenderable, RGBA, TextRenderable } from "@opentui/core"
+import {
+  BoxRenderable,
+  InputRenderable,
+  RGBA,
+  TextareaRenderable,
+  TextRenderable,
+} from "@opentui/core"
+import { localServerNames, supportsOmlx } from "../../inference/types.js"
 import { colors } from "../theme.js"
 import { formatContextLabel } from "./format.js"
-import { createChatInput, createPermissionPrompt, createSetupViews } from "./input-views.js"
-import {
-  createMessagesView,
-  createModelPanel,
-  createSessionPanel,
-  createStatsRow,
-  createSubagentPanel,
-} from "./panels.js"
+import { createMessagesView, createSidePanel, createStatsRow } from "./panels.js"
 import type { ChatUIOptions, Renderer } from "./types.js"
 
 const version = process.env.OTIS_VERSION ?? "dev"
@@ -17,8 +17,16 @@ const HOME_PANEL_WIDTH = "78%"
 const HOME_PANEL_MAX_WIDTH = 72
 const SETUP_CHOICE_PANEL_WIDTH = "92%"
 const SETUP_CHOICE_PANEL_MAX_WIDTH = 92
+/** Delegated runs list beside the transcript; narrower than the pickers since titles are short. */
+const SUBAGENT_PANEL_WIDTH = 34
 
-export function setTopBarSideMinWidth(start: BoxRenderable, end: BoxRenderable, paddedContext: string) {
+export type UILayout = ReturnType<typeof createUILayout>
+
+export function setTopBarSideMinWidth(
+  start: BoxRenderable,
+  end: BoxRenderable,
+  paddedContext: string,
+) {
   const minWidth = Math.max(TOP_BAR_BRAND.length, paddedContext.length)
   start.minWidth = minWidth
   end.minWidth = minWidth
@@ -31,13 +39,102 @@ export function setWelcomePanelExpanded(panel: BoxRenderable, expanded: boolean)
 
 export function createUILayout(
   renderer: Renderer,
-  options: Pick<ChatUIOptions, "configured" | "contextLabel" | "modeLabel" | "sessionLabel" | "platform">,
+  options: Pick<
+    ChatUIOptions,
+    "configured" | "contextLabel" | "modeLabel" | "sessionLabel" | "platform"
+  >,
 ) {
   const { statsRow, statBoxes } = createStatsRow(renderer)
-  const { panel: sessionPanel, rows: sessionRowsBox } = createSessionPanel(renderer)
-  const { panel: modelPanel, rows: modelRowsBox } = createModelPanel(renderer)
-  const { panel: subagentPanel, rows: subagentRowsBox, footer: subagentPanelFooter } = createSubagentPanel(renderer)
-  const { input, inputBox, inputHint, modeLabel } = createChatInput(renderer, options.modeLabel)
+  const { panel: sessionPanel, rows: sessionRowsBox } = createSidePanel(renderer, {
+    id: "session",
+    header: "Sessions",
+    footer: "[↑↓] move · [n] new · [d] delete",
+  })
+  const { panel: modelPanel, rows: modelRowsBox } = createSidePanel(renderer, {
+    id: "model",
+    header: "Models",
+    footer: "[↑↓] move",
+  })
+  const {
+    panel: subagentPanel,
+    rows: subagentRowsBox,
+    footer: subagentPanelFooter,
+  } = createSidePanel(renderer, {
+    id: "subagent",
+    header: "Subagents",
+    footer: "[→] focus",
+    side: "right",
+    width: SUBAGENT_PANEL_WIDTH,
+  })
+
+  const input = new TextareaRenderable(renderer, {
+    id: "otis-input",
+    placeholder: "",
+    flexGrow: 1,
+    flexShrink: 1,
+    // Size from leftover row space only; a content-derived basis would let long
+    // lines squeeze the mode label and hint beside the input.
+    flexBasis: 0,
+    minWidth: 1,
+    minHeight: 1,
+    maxHeight: 10,
+    wrapMode: "word",
+    scrollMargin: 0,
+    textColor: colors.text,
+    cursorColor: colors.accent,
+    backgroundColor: colors.background,
+    focusedBackgroundColor: colors.background,
+    focusedTextColor: colors.text,
+    keyBindings: [
+      { name: "return", action: "submit" },
+      { name: "kpenter", action: "submit" },
+      { name: "linefeed", action: "submit" },
+      { name: "return", shift: true, action: "newline" },
+      { name: "kpenter", shift: true, action: "newline" },
+      { name: "linefeed", shift: true, action: "newline" },
+      { name: "return", ctrl: true, action: "newline" },
+      { name: "kpenter", ctrl: true, action: "newline" },
+      { name: "linefeed", ctrl: true, action: "newline" },
+    ],
+  })
+  const modeLabel = new TextRenderable(renderer, {
+    id: "mode-label",
+    content: options.modeLabel,
+    flexShrink: 0,
+    fg: colors.accent,
+    selectable: false,
+  })
+  const inputHint = new TextRenderable(renderer, {
+    id: "input-hint",
+    content: "",
+    flexShrink: 1,
+    minWidth: 0,
+    fg: colors.muted,
+    bg: colors.background,
+    selectable: false,
+    truncate: true,
+  })
+  const inputBox = new BoxRenderable(renderer, {
+    id: "input-box",
+    flexDirection: "row",
+    // Keep row children at their natural height, pinned to the first input line;
+    // the default stretch would let the label and hint wrap as the textarea grows.
+    alignItems: "flex-start",
+    width: "100%",
+    maxWidth: undefined,
+    minWidth: 24,
+    flexShrink: 0,
+    backgroundColor: colors.background,
+    border: true,
+    borderStyle: "rounded",
+    borderColor: colors.border,
+    paddingX: 1,
+    paddingY: 0,
+    gap: 1,
+  })
+  inputBox.add(modeLabel)
+  inputBox.add(input)
+  inputBox.add(inputHint)
   const attachments = new TextRenderable(renderer, {
     id: "attachments",
     content: "",
@@ -48,31 +145,196 @@ export function createUILayout(
     truncate: true,
     selectable: false,
   })
-  const {
-    setupButtonBox,
-    setupChoiceBox,
-    setupChoiceMessage,
-    setupHostedCard,
-    setupLocalChoiceBox,
-    setupLocalChoiceMessage,
-    setupLocalCard,
-    setupManagedLocalCard,
-    setupPairCard,
+
+  const platform = options.platform ?? process.platform
+  const showOmlx = supportsOmlx(platform)
+  const servers = localServerNames(platform)
+  const serverList = new Intl.ListFormat("en", { type: "disjunction" })
+  const setupButtonBox = createSetupColumn(renderer, "setup-box")
+  setupButtonBox.add(
+    new TextRenderable(renderer, {
+      id: "setup-why",
+      content: "Your personal AI agent, powered by open models.",
+      fg: colors.text,
+      selectable: false,
+    }),
+  )
+  setupButtonBox.add(
+    new TextRenderable(renderer, {
+      id: "setup-local",
+      content: "Inspect files, edit code, run commands, and search the web.",
+      fg: colors.muted,
+      selectable: false,
+      wrapMode: "word",
+    }),
+  )
+  const setupStartButton = createAccentButton(renderer, "setup-button", "Set up Otis")
+  setupButtonBox.add(setupStartButton)
+
+  const setupChoiceBox = createSetupColumn(renderer, "setup-choice")
+  setupChoiceBox.add(
+    new TextRenderable(renderer, {
+      id: "setup-choice-heading",
+      content: "Choose where Otis thinks",
+      fg: colors.text,
+      selectable: false,
+    }),
+  )
+  const setupChoiceCards = createChoiceCardRow(renderer, "setup-choice-cards")
+  const setupLocalCard = createInferenceChoiceCard(renderer, {
+    id: "setup-choice-local",
+    title: "Local inference",
+    label: "Private, on your devices",
+    description: "Run on this machine or connect to a local model server.",
+    details: [
+      "Managed llama.cpp built in.",
+      `${new Intl.ListFormat("en").format([...servers, "NVIDIA PAIR"])}.`,
+    ],
+  })
+  const setupHostedCard = createInferenceChoiceCard(renderer, {
+    id: "setup-choice-hosted",
+    title: "Hosted inference",
+    label: "Powered by Fireworks",
+    description: "Fast remote inference with no local hardware requirements.",
+    details: [
+      "Zero Data Retention by default.",
+      "Uses your own Fireworks API key.",
+      "Configure it anytime in Settings.",
+    ],
+  })
+  setupChoiceCards.add(setupLocalCard)
+  setupChoiceCards.add(setupHostedCard)
+  setupChoiceBox.add(setupChoiceCards)
+  const setupChoiceMessage = createSetupMessage(renderer, "setup-choice-message", colors.pink)
+  setupChoiceBox.add(
+    new TextRenderable(renderer, {
+      id: "setup-choice-hint",
+      content: "[←→] move · [enter] select",
+      fg: colors.muted,
+      selectable: false,
+    }),
+  )
+
+  const setupLocalChoiceBox = createSetupColumn(renderer, "setup-local-choice")
+  setupLocalChoiceBox.add(
+    new TextRenderable(renderer, {
+      id: "setup-local-choice-heading",
+      content: "Choose local inference type",
+      fg: colors.text,
+      selectable: false,
+    }),
+  )
+  const setupLocalChoiceCards = createChoiceCardRow(renderer, "setup-local-choice-cards")
+  const setupManagedLocalCard = createInferenceChoiceCard(renderer, {
+    id: "setup-local-choice-managed",
+    title: "This machine",
+    label: "Managed by Otis",
+    description: "Download a curated model and run it with llama.cpp.",
+    details: [
+      "Recommended hardware:",
+      "Apple silicon · 24 GB+ unified memory",
+      "Linux · 24 GB+ RAM",
+      "Vulkan GPU · 16 GB+ VRAM",
+    ],
+  })
+  const setupPairCard = createInferenceChoiceCard(renderer, {
+    id: "setup-local-choice-pair",
+    title: "Local servers",
+    label: "Managed by you",
+    description: "Connect to a model server already running on this computer.",
+    details: [
+      `${serverList.format(servers)}.`,
+      "NVIDIA PAIR for cluster routing.",
+      "Only one working endpoint is required.",
+    ],
+  })
+  setupLocalChoiceCards.add(setupManagedLocalCard)
+  setupLocalChoiceCards.add(setupPairCard)
+  setupLocalChoiceBox.add(setupLocalChoiceCards)
+  const setupLocalChoiceMessage = createSetupMessage(
+    renderer,
+    "setup-local-choice-message",
+    colors.pink,
+  )
+  setupLocalChoiceBox.add(
+    new TextRenderable(renderer, {
+      id: "setup-local-choice-hint",
+      content: "[←→] move · [enter] select · [esc] back",
+      fg: colors.muted,
+      selectable: false,
+    }),
+  )
+
+  const setupInput = createSetupInput(renderer, "setup-input")
+  const setupInputLabel = new TextRenderable(renderer, {
+    id: "setup-input-label",
+    content: "Fireworks API key",
+    fg: colors.accent,
+    selectable: false,
+  })
+  const setupMessage = createSetupMessage(renderer, "setup-message", colors.muted)
+  const setupInputBox = createSetupInputBox(renderer, "setup-input-box")
+  setupInputBox.add(setupInputLabel)
+  setupInputBox.add(setupInput)
+  const setupContinueButton = createAccentButton(renderer, "setup-continue", "Continue")
+  const setupForm = createSetupColumn(renderer, "setup-form")
+  setupForm.add(setupInputBox)
+  setupForm.add(setupContinueButton)
+
+  const setupPairForm = createSetupColumn(renderer, "setup-pair-form")
+  setupPairForm.add(
+    new TextRenderable(renderer, {
+      id: "setup-pair-heading",
+      content: "Local server endpoints",
+      fg: colors.text,
+      selectable: false,
+    }),
+  )
+  setupPairForm.add(
+    new TextRenderable(renderer, {
+      id: "setup-pair-description",
+      content: `Connect to ${serverList.format(servers)}. PAIR addresses: PAIR → Endpoints. Only one server is required. Models need at least 64K context.${showOmlx ? " oMLX key: optional; blank keeps the saved key." : ""}`,
+      fg: colors.muted,
+      selectable: false,
+      wrapMode: "word",
+    }),
+  )
+  const setupPairOllamaInput = createSetupInputRow(
+    renderer,
     setupPairForm,
-    setupPairLMStudioInput,
-    setupOmlxInput,
-    setupOmlxKeyInput,
-    setupPairMessage,
-    setupPairOllamaInput,
-    setupContinueButton,
-    setupForm,
-    setupInput,
-    setupInputLabel,
-    setupMessage,
-    setupStartButton,
-    setupStatus,
-    setupStatusBox,
-  } = createSetupViews(renderer, options.platform)
+    "setup-pair-ollama",
+    "Ollama",
+  )
+  const setupPairLMStudioInput = createSetupInputRow(
+    renderer,
+    setupPairForm,
+    "setup-pair-lmstudio",
+    "LM Studio",
+  )
+  const setupOmlxInput = showOmlx
+    ? createSetupInputRow(renderer, setupPairForm, "setup-omlx", "oMLX")
+    : undefined
+  const setupOmlxKeyInput = showOmlx
+    ? createSetupInputRow(renderer, setupPairForm, "setup-omlx-key", "API key")
+    : undefined
+  const setupPairMessage = createSetupMessage(renderer, "setup-pair-message", colors.muted)
+  setupPairForm.add(
+    new TextRenderable(renderer, {
+      id: "setup-pair-hint",
+      content: "[tab] switch field · [enter] continue · [esc] back",
+      fg: colors.muted,
+      selectable: false,
+    }),
+  )
+
+  const setupStatusBox = createSetupColumn(renderer, "setup-status-box")
+  const setupStatus = new TextRenderable(renderer, {
+    id: "setup-status",
+    content: "",
+    fg: colors.accent,
+    selectable: false,
+  })
+  setupStatusBox.add(setupStatus)
 
   const welcomePanel = new BoxRenderable(renderer, {
     id: "welcome-panel",
@@ -257,7 +519,38 @@ export function createUILayout(
     paddingY: 1,
     gap: 0,
   })
-  const { prompt: permissionPrompt, label: permissionLabel } = createPermissionPrompt(renderer)
+  const permissionPrompt = new BoxRenderable(renderer, {
+    id: "permission-prompt",
+    flexDirection: "column",
+    position: "absolute",
+    left: 0,
+    bottom: 3,
+    width: "100%",
+    flexShrink: 0,
+    backgroundColor: colors.surface,
+    border: true,
+    borderStyle: "rounded",
+    borderColor: colors.yellow,
+    paddingX: 1,
+    paddingY: 1,
+    gap: 0,
+  })
+  const permissionLabel = new TextRenderable(renderer, {
+    id: "permission-label",
+    content: " ",
+    fg: colors.yellow,
+    selectable: false,
+    truncate: true,
+  })
+  permissionPrompt.add(permissionLabel)
+  permissionPrompt.add(
+    new TextRenderable(renderer, {
+      id: "permission-hint",
+      content: " [y] allow   [n] deny ",
+      fg: colors.muted,
+      selectable: false,
+    }),
+  )
   const messages = createMessagesView(renderer)
   const chatBody = new BoxRenderable(renderer, {
     id: "chat-body",
@@ -362,15 +655,169 @@ export function createUILayout(
   }
 }
 
-/** Persistent layout renderables, including trees that home/chat may unmount. */
-export function themeRootsFrom(layout: ReturnType<typeof createUILayout>) {
-  const roots: Array<{ getChildren(): unknown[] }> = []
-  for (const value of Object.values(layout)) {
-    if (isThemeRoot(value)) roots.push(value)
-  }
-  return roots
+/** A full-width centered column that takes the input's slot on the home screen. */
+function createSetupColumn(renderer: Renderer, id: string) {
+  return new BoxRenderable(renderer, {
+    id,
+    flexDirection: "column",
+    width: "100%",
+    minWidth: 24,
+    flexShrink: 0,
+    alignItems: "center",
+    backgroundColor: colors.background,
+    gap: 1,
+  })
 }
 
-function isThemeRoot(value: unknown): value is { getChildren(): unknown[] } {
-  return typeof value === "object" && value !== null && !Array.isArray(value) && "getChildren" in value
+function createChoiceCardRow(renderer: Renderer, id: string) {
+  return new BoxRenderable(renderer, {
+    id,
+    flexDirection: "row",
+    width: "100%",
+    minWidth: 1,
+    flexShrink: 0,
+    alignItems: "stretch",
+    gap: 2,
+  })
+}
+
+function createSetupMessage(renderer: Renderer, id: string, fg: string) {
+  return new TextRenderable(renderer, { id, content: "", fg, selectable: false, truncate: true })
+}
+
+function createSetupInput(renderer: Renderer, id: string) {
+  return new InputRenderable(renderer, {
+    id,
+    placeholder: "",
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 1,
+    textColor: colors.text,
+    cursorColor: colors.accent,
+    backgroundColor: colors.background,
+    focusedBackgroundColor: colors.background,
+    focusedTextColor: colors.text,
+  })
+}
+
+function createSetupInputBox(renderer: Renderer, id: string) {
+  return new BoxRenderable(renderer, {
+    id,
+    flexDirection: "row",
+    width: "100%",
+    minWidth: 24,
+    flexShrink: 0,
+    backgroundColor: colors.background,
+    border: true,
+    borderStyle: "rounded",
+    borderColor: colors.border,
+    paddingX: 1,
+    paddingY: 0,
+    gap: 1,
+  })
+}
+
+/** A labelled endpoint field appended to `form`; returns the input. */
+function createSetupInputRow(renderer: Renderer, form: BoxRenderable, id: string, label: string) {
+  const input = createSetupInput(renderer, `${id}-input`)
+  const box = createSetupInputBox(renderer, `${id}-box`)
+  box.add(
+    new TextRenderable(renderer, {
+      id: `${id}-label`,
+      content: label,
+      width: 9,
+      flexShrink: 0,
+      fg: colors.accent,
+      selectable: false,
+    }),
+  )
+  box.add(input)
+  form.add(box)
+  return input
+}
+
+function createInferenceChoiceCard(
+  renderer: Renderer,
+  options: { id: string; title: string; label: string; description: string; details: string[] },
+) {
+  const card = new BoxRenderable(renderer, {
+    id: options.id,
+    flexDirection: "column",
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
+    minWidth: 1,
+    border: true,
+    borderStyle: "rounded",
+    borderColor: colors.border,
+    paddingX: 2,
+    paddingTop: 1,
+    paddingBottom: 0,
+    gap: 0,
+  })
+  card.add(
+    new TextRenderable(renderer, {
+      id: `${options.id}-title`,
+      content: options.title,
+      fg: colors.text,
+      alignSelf: "center",
+      selectable: false,
+      wrapMode: "word",
+    }),
+  )
+  card.add(
+    new TextRenderable(renderer, {
+      id: `${options.id}-label`,
+      content: options.label,
+      fg: colors.accent,
+      alignSelf: "center",
+      selectable: false,
+      wrapMode: "word",
+    }),
+  )
+  card.add(
+    new TextRenderable(renderer, {
+      id: `${options.id}-description`,
+      content: options.description,
+      fg: colors.text,
+      marginTop: 1,
+      selectable: false,
+      wrapMode: "word",
+    }),
+  )
+  options.details.forEach((detail, index) => {
+    card.add(
+      new TextRenderable(renderer, {
+        id: `${options.id}-detail-${index}`,
+        content: detail,
+        fg: colors.muted,
+        ...(index === 0 ? { marginTop: 1 } : {}),
+        selectable: false,
+        wrapMode: "word",
+      }),
+    )
+  })
+  return card
+}
+
+function createAccentButton(renderer: Renderer, id: string, label: string) {
+  const box = new BoxRenderable(renderer, {
+    id: `${id}-box`,
+    flexDirection: "row",
+    paddingX: 2,
+    paddingY: 0,
+    backgroundColor: colors.accent,
+    flexShrink: 0,
+    marginTop: 1,
+  })
+  box.add(
+    new TextRenderable(renderer, {
+      id,
+      content: ` ${label} `,
+      fg: colors.background,
+      bg: colors.accent,
+      selectable: false,
+    }),
+  )
+  return box
 }

@@ -12,8 +12,8 @@ import {
   X,
 } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
-import { localServerNames, supportsOmlx } from "../../../../inference/local-server-platform.js"
 import type { ModelPickerChoice, ModelPickerItem } from "../../../../inference/picker-catalog.js"
+import { localServerNames, supportsOmlx } from "../../../../inference/types.js"
 import lmStudioIcon from "../../assets/lm-studio.svg"
 import ollamaIcon from "../../assets/ollama.svg"
 import omlxIcon from "../../assets/omlx.svg"
@@ -22,22 +22,38 @@ import { Icon } from "../../components/Icon.js"
 import { OtisMark } from "../../components/OtisMark.js"
 import { useI18n } from "../../i18n/index.js"
 import { useDesktop, useDesktopState } from "../../runtime.js"
-import { isPickerRowSelectable, mergeModelLoad, pickerDetailLabel, pickerItemKey } from "../models/model-list.js"
+import {
+  isPickerRowSelectable,
+  mergeModelLoad,
+  pickerDetailLabel,
+  pickerItemKey,
+} from "../models/model-list.js"
 
-const LOCAL_SERVER_DEFAULTS = { ollama: "http://127.0.0.1:11434", lmStudio: "http://127.0.0.1:1234" }
+const LOCAL_SERVER_DEFAULTS = {
+  ollama: "http://127.0.0.1:11434",
+  lmStudio: "http://127.0.0.1:1234",
+}
 
 type OnboardingPath = "welcome" | "cloud" | "local" | "managed" | "server" | "serverModels"
 type OnboardingDirection = "forward" | "back"
 
 /**
- * First-run onboarding, rendered in place of the conversation until a model is configured. Hosted inference uses
- * Fireworks; local inference can either be managed by Otis or connect to an existing Ollama, oMLX, LM Studio, or NVIDIA
- * PAIR endpoint. A successful selection sets `model` and the shell swaps this page for the workspace.
+ * First-run onboarding, rendered in place of the conversation until a model is configured. Hosted
+ * inference uses Fireworks; local inference can either be managed by Otis or connect to an existing
+ * Ollama, oMLX, LM Studio, or NVIDIA PAIR endpoint. A successful selection sets `model` and the
+ * shell swaps this page for the workspace.
  */
 export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void }) {
   const { api } = useDesktop()
   const { locale, t } = useI18n()
-  const state = useDesktopState("hostedConfigured", "modelLoad", "pairConfigured", "pairEndpoints", "omlx", "platform")
+  const state = useDesktopState(
+    "hostedConfigured",
+    "modelLoad",
+    "pairConfigured",
+    "pairEndpoints",
+    "omlx",
+    "platform",
+  )
   const showOmlx = supportsOmlx(state?.platform)
   const servers = localServerNames(state?.platform)
   const serverList = new Intl.ListFormat(locale, { type: "disjunction" })
@@ -68,28 +84,41 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
   const pairConfigured = state?.pairConfigured === true || Boolean(state?.omlx)
 
   useEffect(() => {
-    if (path === "managed" || (path === "cloud" && hostedConfigured) || (path === "serverModels" && pairConfigured)) {
+    if (
+      path === "managed" ||
+      (path === "cloud" && hostedConfigured) ||
+      (path === "serverModels" && pairConfigured)
+    ) {
       void load()
     }
   }, [path, hostedConfigured, pairConfigured, load])
 
   const modelLoad = state?.modelLoad ?? null
   const rowProvider =
-    path === "cloud" ? "fireworks" : path === "managed" ? "local" : path === "serverModels" ? "pair" : null
+    path === "cloud"
+      ? "fireworks"
+      : path === "managed"
+        ? "local"
+        : path === "serverModels"
+          ? "pair"
+          : null
   const rows = mergeModelLoad(items ?? [], modelLoad).filter(
     (item): item is ModelPickerChoice =>
       item.kind === "model" &&
       rowProvider !== null &&
       (item.provider === rowProvider || (rowProvider === "pair" && item.provider === "omlx")),
   )
-  async function saveKey() {
-    setError(undefined)
-    const result = await api.setFireworksApiKey(apiKey.trim())
-    if (!result.ok) setError(result.reason)
-  }
+
+  // The local step shows the single best model for this computer: the recommended row when it fits,
+  // else the first row that does.
+  const pick =
+    rows.find((item) => "recommended" in item && item.recommended && isPickerRowSelectable(item)) ??
+    rows.find(isPickerRowSelectable)
+  const pickStatus = pick && "status" in pick ? pick.status : undefined
+  const pickLoading = pickStatus?.kind === "progress"
+  const pickError = error ?? (pickStatus?.kind === "error" ? pickStatus.label : undefined)
 
   async function select(item: ModelPickerChoice) {
-    if (!isPickerRowSelectable(item)) return
     setError(undefined)
     try {
       const result = await api.selectModel(pickerItemKey(item))
@@ -105,20 +134,15 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
     }
   }
 
-  function openServerSetup() {
-    setOllama(state?.pairEndpoints.ollama ?? LOCAL_SERVER_DEFAULTS.ollama)
-    setLmStudio(state?.pairEndpoints.lmStudio ?? LOCAL_SERVER_DEFAULTS.lmStudio)
-    setOmlx(showOmlx ? (state?.omlx?.baseURL ?? "http://127.0.0.1:8000") : "")
-    setOmlxApiKey("")
-    setError(undefined)
-    navigate("server", "forward")
-  }
-
   async function connectServer() {
     setError(undefined)
     setServerPending(true)
     try {
-      const result = await api.connectLocalServers({ ollama, lmStudio, ...(showOmlx ? { omlx, omlxApiKey } : {}) })
+      const result = await api.connectLocalServers({
+        ollama,
+        lmStudio,
+        ...(showOmlx ? { omlx, omlxApiKey } : {}),
+      })
       if (!result.ok) {
         setError(result.reason)
         return
@@ -126,7 +150,11 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
       setOmlxApiKey("")
       const catalog = await load()
       if (!catalog) return
-      if (!catalog.some((item) => item.kind === "model" && (item.provider === "pair" || item.provider === "omlx"))) {
+      if (
+        !catalog.some(
+          (item) => item.kind === "model" && (item.provider === "pair" || item.provider === "omlx"),
+        )
+      ) {
         setError(t("onboarding.connectedNoModels"))
         return
       }
@@ -134,12 +162,6 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
     } finally {
       setServerPending(false)
     }
-  }
-
-  function goBack() {
-    setError(undefined)
-    if (path === "serverModels") navigate("server", "back")
-    else navigate(path === "managed" || path === "server" ? "local" : "welcome", "back")
   }
 
   function navigate(next: OnboardingPath, nextDirection: OnboardingDirection) {
@@ -160,7 +182,10 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
             onClick={onOpenSettings}
           />
         </div>
-        <div key={path} className={`onboarding-welcome onboarding-step onboarding-step-${direction}`}>
+        <div
+          key={path}
+          className={`onboarding-welcome onboarding-step onboarding-step-${direction}`}
+        >
           <div className="onboarding-brand">
             <OtisMark className="onboarding-logo" />
             <h1 className="onboarding-title">Otis</h1>
@@ -169,7 +194,11 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
           <div className="onboarding-choices">
             <p className="onboarding-choose">{t("onboarding.chooseSetup")}</p>
             <div className="onboarding-cards">
-              <button type="button" className="onboarding-card" onClick={() => navigate("cloud", "forward")}>
+              <button
+                type="button"
+                className="onboarding-card"
+                onClick={() => navigate("cloud", "forward")}
+              >
                 <Icon icon={Cloud} size={15} className="onboarding-cardIcon" />
                 <span className="onboarding-cardText">
                   <span className="onboarding-cardTitle">{t("common.hosted")}</span>
@@ -177,7 +206,11 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                 </span>
                 <Icon icon={ChevronRight} size={14} className="onboarding-cardChevron" />
               </button>
-              <button type="button" className="onboarding-card" onClick={() => navigate("local", "forward")}>
+              <button
+                type="button"
+                className="onboarding-card"
+                onClick={() => navigate("local", "forward")}
+              >
                 <Icon icon={HardDrive} size={15} className="onboarding-cardIcon" />
                 <span className="onboarding-cardText">
                   <span className="onboarding-cardTitle">{t("common.local")}</span>
@@ -195,7 +228,16 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
   return (
     <main className="onboarding">
       <div className="onboarding-topbar">
-        <Button variant="ghost" size="sm" className="noDrag" onClick={goBack}>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="noDrag"
+          onClick={() => {
+            setError(undefined)
+            if (path === "serverModels") navigate("server", "back")
+            else navigate(path === "managed" || path === "server" ? "local" : "welcome", "back")
+          }}
+        >
           <Icon icon={ArrowLeft} size={13} />
           {t("onboarding.back")}
         </Button>
@@ -223,7 +265,11 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
               <p className="onboarding-hint">{t("onboarding.localHint")}</p>
             </div>
             <div className="onboarding-cards">
-              <button type="button" className="onboarding-card" onClick={() => navigate("managed", "forward")}>
+              <button
+                type="button"
+                className="onboarding-card"
+                onClick={() => navigate("managed", "forward")}
+              >
                 <span className="onboarding-cardMark" aria-hidden>
                   <OtisMark className="onboarding-cardOtisMark" decorative />
                 </span>
@@ -233,16 +279,35 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                 </span>
                 <Icon icon={ChevronRight} size={14} className="onboarding-cardChevron" />
               </button>
-              <button type="button" className="onboarding-card" onClick={openServerSetup}>
+              <button
+                type="button"
+                className="onboarding-card"
+                onClick={() => {
+                  setOllama(state?.pairEndpoints.ollama ?? LOCAL_SERVER_DEFAULTS.ollama)
+                  setLmStudio(state?.pairEndpoints.lmStudio ?? LOCAL_SERVER_DEFAULTS.lmStudio)
+                  setOmlx(showOmlx ? (state?.omlx?.baseURL ?? "http://127.0.0.1:8000") : "")
+                  setOmlxApiKey("")
+                  setError(undefined)
+                  navigate("server", "forward")
+                }}
+              >
                 <span className="onboarding-providerMarks" aria-hidden>
-                  <img className="onboarding-providerMark onboarding-providerMarkOllama" src={ollamaIcon} alt="" />
+                  <img
+                    className="onboarding-providerMark onboarding-providerMarkOllama"
+                    src={ollamaIcon}
+                    alt=""
+                  />
                   <img className="onboarding-providerMark" src={lmStudioIcon} alt="" />
-                  {showOmlx ? <img className="onboarding-providerMark" src={omlxIcon} alt="" /> : null}
+                  {showOmlx ? (
+                    <img className="onboarding-providerMark" src={omlxIcon} alt="" />
+                  ) : null}
                 </span>
                 <span className="onboarding-cardText">
                   <span className="onboarding-cardTitle">{t("onboarding.server")}</span>
                   <span className="onboarding-cardBody">
-                    {t("onboarding.serverBody", { servers: serverList.format([...servers, "NVIDIA PAIR"]) })}
+                    {t("onboarding.serverBody", {
+                      servers: serverList.format([...servers, "NVIDIA PAIR"]),
+                    })}
                   </span>
                 </span>
                 <Icon icon={ChevronRight} size={14} className="onboarding-cardChevron" />
@@ -255,7 +320,11 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
           <>
             <p className="onboarding-hint">
               {t("onboarding.hostedHintBefore")}{" "}
-              <button type="button" className="onboarding-link" onClick={() => void api.openFireworksKeyPage()}>
+              <button
+                type="button"
+                className="onboarding-link"
+                onClick={() => void api.openFireworksKeyPage()}
+              >
                 {t("onboarding.getKey")}
               </button>{" "}
               {t("onboarding.hostedHintAfter")}
@@ -271,7 +340,17 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                 autoComplete="off"
                 onChange={(event) => setApiKey(event.target.value)}
               />
-              <Button variant="primary" size="sm" disabled={!apiKey.trim()} onClick={() => void saveKey()}>
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={!apiKey.trim()}
+                onClick={() => {
+                  setError(undefined)
+                  void api.setFireworksApiKey(apiKey.trim()).then((result) => {
+                    if (!result.ok) setError(result.reason)
+                  })
+                }}
+              >
                 {t("common.continue")}
                 <Icon icon={ArrowRight} size={13} />
               </Button>
@@ -279,10 +358,66 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
           </>
         ) : null}
 
-        {path === "cloud" && hostedConfigured ? <p className="onboarding-hint">{t("onboarding.keySaved")}</p> : null}
+        {path === "cloud" && hostedConfigured ? (
+          <p className="onboarding-hint">{t("onboarding.keySaved")}</p>
+        ) : null}
 
         {path === "managed" ? (
-          <LocalPick items={rows} itemsLoaded={items !== undefined} error={error} onSelect={select} />
+          <div className="onboarding-local">
+            <OtisMark className="onboarding-logo" />
+            {!pick ? (
+              error ? (
+                <p className="onboarding-error">{error}</p>
+              ) : (
+                <p className="onboarding-hint">
+                  {items ? t("onboarding.noLocalFit") : t("common.loadingModels")}
+                </p>
+              )
+            ) : (
+              <>
+                <p className="onboarding-panelTitle">{t("onboarding.bestModel")}</p>
+                <div className="onboarding-localPick">
+                  <span className="onboarding-rowName">
+                    {pick.displayName}
+                    {"recommended" in pick && pick.recommended ? (
+                      <span className="onboarding-recommended" title={t("common.recommended")}>
+                        <Icon icon={Star} size={11} />
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="onboarding-rowDetail">
+                    {pickLoading ? pickStatus.label : pickerDetailLabel(pick, t)}
+                  </span>
+                </div>
+                <div className="onboarding-actions">
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    disabled={pickLoading}
+                    onClick={() => void select(pick)}
+                  >
+                    {"downloaded" in pick && pick.downloaded
+                      ? t("common.continue")
+                      : t("onboarding.downloadContinue")}
+                    {pickLoading ? (
+                      <Icon icon={Loader2} size={13} className="spin" />
+                    ) : (
+                      <Icon icon={ArrowRight} size={13} />
+                    )}
+                  </Button>
+                  {pickLoading ? (
+                    <IconButton
+                      icon={X}
+                      label={t("common.cancelModelLoad")}
+                      size={22}
+                      onClick={() => void api.cancelModelSelection()}
+                    />
+                  ) : null}
+                </div>
+                {pickError ? <p className="onboarding-error">{pickError}</p> : null}
+              </>
+            )}
+          </div>
         ) : null}
 
         {path === "server" ? (
@@ -348,7 +483,9 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                     aria-label={t("settings.omlxKey")}
                     value={omlxApiKey}
                     onChange={(event) => setOmlxApiKey(event.target.value)}
-                    placeholder={state?.omlx?.hasApiKey ? t("settings.omlxKeyHint") : t("settings.omlxKey")}
+                    placeholder={
+                      state?.omlx?.hasApiKey ? t("settings.omlxKeyHint") : t("settings.omlxKey")
+                    }
                     autoComplete="off"
                     onKeyDown={(event) => {
                       if (event.key === "Enter") void connectServer()
@@ -357,7 +494,12 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                 </>
               ) : null}
               <div className="onboarding-actions onboarding-actionsEnd">
-                <Button variant="primary" size="sm" disabled={serverPending} onClick={() => void connectServer()}>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  disabled={serverPending}
+                  onClick={() => void connectServer()}
+                >
                   <Icon
                     icon={serverPending ? Loader2 : Plug}
                     size={13}
@@ -391,7 +533,9 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                   </button>
                 </div>
               ))}
-              {!items && !error ? <p className="onboarding-hint">{t("common.loadingModels")}</p> : null}
+              {!items && !error ? (
+                <p className="onboarding-hint">{t("common.loadingModels")}</p>
+              ) : null}
             </div>
           </>
         ) : null}
@@ -417,7 +561,9 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                         </span>
                       ) : null}
                     </span>
-                    <span className={`onboarding-rowDetail${status?.kind === "error" ? " error" : ""}`}>
+                    <span
+                      className={`onboarding-rowDetail${status?.kind === "error" ? " error" : ""}`}
+                    >
                       {loading ? <Icon icon={Loader2} size={11} className="spin" /> : null}
                       {status?.label ?? pickerDetailLabel(item, t)}
                     </span>
@@ -434,83 +580,14 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                 </div>
               )
             })}
-            {!items && !error ? <p className="onboarding-hint">{t("common.loadingModels")}</p> : null}
+            {!items && !error ? (
+              <p className="onboarding-hint">{t("common.loadingModels")}</p>
+            ) : null}
           </div>
         ) : null}
 
         {path !== "managed" && error ? <p className="onboarding-error">{error}</p> : null}
       </div>
     </main>
-  )
-}
-
-/** The local step: the brand mark and the single best model for this computer — no list to dig through. */
-function LocalPick({
-  items,
-  itemsLoaded,
-  error,
-  onSelect,
-}: {
-  items: ModelPickerChoice[]
-  itemsLoaded: boolean
-  error: string | undefined
-  onSelect: (item: ModelPickerChoice) => void
-}) {
-  const { api } = useDesktop()
-  const { t } = useI18n()
-  const pick =
-    items.find((item) => "recommended" in item && item.recommended && isPickerRowSelectable(item)) ??
-    items.find(isPickerRowSelectable)
-  if (!pick) {
-    return (
-      <div className="onboarding-local">
-        <OtisMark className="onboarding-logo" />
-        {error ? (
-          <p className="onboarding-error">{error}</p>
-        ) : (
-          <p className="onboarding-hint">{itemsLoaded ? t("onboarding.noLocalFit") : t("common.loadingModels")}</p>
-        )}
-      </div>
-    )
-  }
-  const status = "status" in pick ? pick.status : undefined
-  const loading = status?.kind === "progress"
-  const displayedError = error ?? (status?.kind === "error" ? status.label : undefined)
-  return (
-    <div className="onboarding-local">
-      <OtisMark className="onboarding-logo" />
-      <p className="onboarding-panelTitle">{t("onboarding.bestModel")}</p>
-      <div className="onboarding-localPick">
-        <span className="onboarding-rowName">
-          {pick.displayName}
-          {"recommended" in pick && pick.recommended ? (
-            <span className="onboarding-recommended" title={t("common.recommended")}>
-              <Icon icon={Star} size={11} />
-            </span>
-          ) : null}
-        </span>
-        <span className="onboarding-rowDetail">{loading ? status.label : pickerDetailLabel(pick, t)}</span>
-      </div>
-      <div className="onboarding-actions">
-        <Button
-          variant="primary"
-          size="sm"
-          disabled={!isPickerRowSelectable(pick) || loading}
-          onClick={() => onSelect(pick)}
-        >
-          {"downloaded" in pick && pick.downloaded ? t("common.continue") : t("onboarding.downloadContinue")}
-          {loading ? <Icon icon={Loader2} size={13} className="spin" /> : <Icon icon={ArrowRight} size={13} />}
-        </Button>
-        {loading ? (
-          <IconButton
-            icon={X}
-            label={t("common.cancelModelLoad")}
-            size={22}
-            onClick={() => void api.cancelModelSelection()}
-          />
-        ) : null}
-      </div>
-      {displayedError ? <p className="onboarding-error">{displayedError}</p> : null}
-    </div>
   )
 }

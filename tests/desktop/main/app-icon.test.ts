@@ -3,7 +3,7 @@ import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { app, type NativeImage, nativeImage } from "electron"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { appIconPath, configureAppIcon } from "../../../src/desktop/main/app-icon.js"
+import { configureAppIcon } from "../../../src/desktop/main/app-icon.js"
 
 vi.mock("electron", () => ({
   app: { dock: { setIcon: vi.fn() } },
@@ -11,26 +11,39 @@ vi.mock("electron", () => ({
 }))
 
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url))
-const location = { packaged: false, resourcesPath: "/unused", mainDir: join(repoRoot, "out", "main") }
+const location = {
+  packaged: false,
+  resourcesPath: "/unused",
+  mainDir: join(repoRoot, "out", "main"),
+}
+const image = { isEmpty: () => false } as NativeImage
 
-describe("appIconPath", () => {
+describe("configureAppIcon", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(nativeImage.createFromPath).mockReturnValue(image)
+  })
+
   it("resolves the repo's resources/icon.png from the dev bundle in out/main", () => {
-    const path = appIconPath({ packaged: false, resourcesPath: "/unused", mainDir: join(repoRoot, "out", "main") })
-    expect(path).toBe(join(repoRoot, "resources", "icon.png"))
+    expect(configureAppIcon({ ...location, platform: "linux" })).toBe(image)
+    const path = join(repoRoot, "resources", "icon.png")
+    expect(nativeImage.createFromPath).toHaveBeenCalledExactlyOnceWith(path)
     // Development and Linux builds need the checked-in export without Apple tooling at runtime.
     expect(existsSync(path)).toBe(true)
   })
 
   it("resolves inside Electron's resources directory in a packaged build", () => {
     const resourcesPath = join("/Applications", "Otis.app", "Contents", "Resources")
-    expect(appIconPath({ packaged: true, resourcesPath, mainDir: join("/anywhere", "out", "main") })).toBe(
+    configureAppIcon({
+      packaged: true,
+      resourcesPath,
+      mainDir: join("/anywhere", "out", "main"),
+      platform: "linux",
+    })
+    expect(nativeImage.createFromPath).toHaveBeenCalledExactlyOnceWith(
       join(resourcesPath, "icon.png"),
     )
   })
-})
-
-describe("configureAppIcon", () => {
-  beforeEach(() => vi.clearAllMocks())
 
   it("leaves the packaged macOS icon entirely to the system, without loading a flat image", () => {
     expect(configureAppIcon({ ...location, packaged: true, platform: "darwin" })).toBeUndefined()
@@ -38,18 +51,16 @@ describe("configureAppIcon", () => {
     expect(app.dock?.setIcon).not.toHaveBeenCalled()
   })
 
-  it.each([false, true])("provides the static export for Linux windows (packaged: %s)", (packaged) => {
-    const image = { isEmpty: () => false } as NativeImage
-    vi.mocked(nativeImage.createFromPath).mockReturnValue(image)
-    const options = { ...location, packaged, platform: "linux" as const }
-    expect(configureAppIcon(options)).toBe(image)
-    expect(nativeImage.createFromPath).toHaveBeenCalledWith(appIconPath(options))
+  it.each([
+    false,
+    true,
+  ])("provides the static export for Linux windows (packaged: %s)", (packaged) => {
+    expect(configureAppIcon({ ...location, packaged, platform: "linux" })).toBe(image)
+    expect(nativeImage.createFromPath).toHaveBeenCalledOnce()
     expect(app.dock?.setIcon).not.toHaveBeenCalled()
   })
 
   it("uses the exported icon in macOS development, where the bundle belongs to Electron", () => {
-    const image = { isEmpty: () => false } as NativeImage
-    vi.mocked(nativeImage.createFromPath).mockReturnValue(image)
     expect(configureAppIcon({ ...location, platform: "darwin" })).toBe(image)
     expect(app.dock?.setIcon).toHaveBeenCalledExactlyOnceWith(image)
   })

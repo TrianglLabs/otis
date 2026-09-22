@@ -15,46 +15,30 @@ export type LocalStats = {
   recentActivity: LocalUsageDay[]
 }
 
-export type LocalUsageDay = {
+type LocalUsageDay = {
   date: string
   tokens: number
 }
 
-export type LocalStatsOptions = {
+type LocalStatsOptions = {
   sessionsRoot?: string
   now?: Date
 }
 
+const ACTIVITY_EVENTS = new Set([
+  "prompt_admitted",
+  "prompt_steered",
+  "turn_started",
+  "usage_recorded",
+  "turn_completed",
+  "turn_interrupted",
+])
+
 export async function calculateLocalStats(options: LocalStatsOptions = {}): Promise<LocalStats> {
-  const files = await findSessionFiles(options.sessionsRoot ?? sessionRootDirectory())
-  const sessions = await Promise.all(files.map(readValidSession))
-  const activeSessions = sessions.filter((events) => events.some((event) => event.type === "prompt_admitted"))
-  const usageEvents = activeSessions.flatMap((events) => events.filter((event) => event.type === "usage_recorded"))
-  const totalTokens = usageEvents.reduce((sum, event) => sum + event.usage.totalTokens, 0)
-  const intervals = activeSessions.map(turnIntervals)
-  const totalDurationSeconds = intervals.reduce((sum, turns) => sum + sessionDurationSeconds(turns), 0)
-  const sessionCount = activeSessions.length
   const now = options.now ?? new Date()
-  const activity = activeSessions.flatMap((events, index) => activityDates(events, intervals[index]))
-
-  return {
-    streak: calculateStreak(activity, now),
-    totalTokens,
-    sessionCount,
-    avgTokensPerSession: sessionCount === 0 ? 0 : totalTokens / sessionCount,
-    avgSessionSeconds: sessionCount === 0 ? 0 : totalDurationSeconds / sessionCount,
-    activeDays: new Set(activity.map(localDateKey)).size,
-    promptTokens: usageEvents.reduce((sum, event) => sum + event.usage.promptTokens, 0),
-    completionTokens: usageEvents.reduce((sum, event) => sum + event.usage.completionTokens, 0),
-    recentActivity: recentActivityDays(usageEvents, now),
-  }
-}
-
-async function findSessionFiles(root: string) {
-  const entries = await readDirectory(root)
+  const root = options.sessionsRoot ?? sessionRootDirectory()
   const files: string[] = []
-
-  for (const entry of entries) {
+  for (const entry of await readDirectory(root)) {
     const path = join(root, entry.name)
     if (entry.isFile() && entry.name.endsWith(".jsonl")) files.push(path)
     if (!entry.isDirectory()) continue
@@ -62,124 +46,94 @@ async function findSessionFiles(root: string) {
       if (child.isFile() && child.name.endsWith(".jsonl")) files.push(join(path, child.name))
     }
   }
-  return files
+  const sessions = await Promise.all(
+    files.map((path) => readSessionEvents(path).catch((): SessionEvent[] => [])),
+  )
+
+  let totalTokens = 0
+  let promptTokens = 0
+  let completionTokens = 0
+  let totalDurationSeconds = 0
+  let sessionCount = 0
+  const days = new Set<string>()
+  const dailyTokens = new Map<string, number>()
+  for (const events of sessions) {
+    if (!events.some((event) => event.type === "prompt_admitted")) continue
+    sessionCount += 1
+    // Older sessions only recorded admission. Keep those estimates readable, but prefer
+    // actual starts so queued prompts do not contribute waiting time.
+    const started = new Map<string, { start: number; exact: boolean }>()
+    const intervals: { start: number; end: number; exact: boolean }[] = []
+    for (const event of events) {
+      const at = timestamp(event.at)
+      if (at !== undefined && ACTIVITY_EVENTS.has(event.type)) days.add(localDateKey(new Date(at)))
+      if (event.type === "usage_recorded") {
+        totalTokens += event.usage.totalTokens
+        promptTokens += event.usage.promptTokens
+        completionTokens += event.usage.completionTokens
+        if (at === undefined) continue
+        const key = localDateKey(new Date(at))
+        dailyTokens.set(key, (dailyTokens.get(key) ?? 0) + event.usage.totalTokens)
+      } else if (event.type === "prompt_admitted" || event.type === "turn_started") {
+        if (at !== undefined)
+          started.set(event.promptId, { start: at, exact: event.type === "turn_started" })
+      } else if (event.type === "turn_completed" || event.type === "turn_interrupted") {
+        const turn = started.get(event.promptId)
+        started.delete(event.promptId)
+        if (turn !== undefined && at !== undefined && at >= turn.start)
+          intervals.push({ ...turn, end: at })
+      }
+    }
+    // Merge overlapping intervals in a session, including old queued admissions, so
+    // the same wall-clock time is never counted twice. Idle gaps stay excluded.
+    let through = -Infinity
+    let milliseconds = 0
+    for (const { start, end, exact } of intervals.sort((a, b) => a.start - b.start)) {
+      milliseconds += Math.max(0, end - Math.max(start, through))
+      through = Math.max(through, end)
+      // Count every local calendar day touched by a recorded run, including midnight
+      // crossings with no intermediate usage report. Never fill gaps from estimated starts.
+      if (!exact) continue
+      const cursor = new Date(start)
+      cursor.setHours(0, 0, 0, 0)
+      for (; cursor.getTime() <= end; cursor.setDate(cursor.getDate() + 1))
+        days.add(localDateKey(cursor))
+    }
+    totalDurationSeconds += milliseconds / 1000
+  }
+
+  const cursor = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  if (!days.has(localDateKey(cursor))) cursor.setDate(cursor.getDate() - 1)
+  let streak = 0
+  for (; days.has(localDateKey(cursor)); cursor.setDate(cursor.getDate() - 1)) streak += 1
+
+  const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 27)
+  const recentActivity = Array.from({ length: 28 }, () => {
+    const date = localDateKey(day)
+    day.setDate(day.getDate() + 1)
+    return { date, tokens: dailyTokens.get(date) ?? 0 }
+  })
+  return {
+    streak,
+    totalTokens,
+    sessionCount,
+    avgTokensPerSession: sessionCount === 0 ? 0 : totalTokens / sessionCount,
+    avgSessionSeconds: sessionCount === 0 ? 0 : totalDurationSeconds / sessionCount,
+    activeDays: days.size,
+    promptTokens,
+    completionTokens,
+    recentActivity,
+  }
 }
 
 async function readDirectory(path: string) {
   try {
     return await readdir(path, { withFileTypes: true })
   } catch (error) {
-    if (isNotFound(error)) return []
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT")
+      return []
     throw error
   }
-}
-
-async function readValidSession(path: string): Promise<SessionEvent[]> {
-  try {
-    return await readSessionEvents(path)
-  } catch {
-    return []
-  }
-}
-
-type TurnInterval = { start: number; end: number; exact: boolean }
-
-// Older sessions only recorded admission. Keep those estimates readable, but prefer
-// actual starts so queued prompts do not contribute waiting time.
-function turnIntervals(events: readonly SessionEvent[]): TurnInterval[] {
-  const started = new Map<string, { start: number; exact: boolean }>()
-  const intervals: TurnInterval[] = []
-
-  for (const event of events) {
-    if (event.type === "prompt_admitted" || event.type === "turn_started") {
-      const at = timestamp(event.at)
-      if (at !== undefined) started.set(event.promptId, { start: at, exact: event.type === "turn_started" })
-      continue
-    }
-    if (event.type !== "turn_completed" && event.type !== "turn_interrupted") continue
-    const turn = started.get(event.promptId)
-    const end = timestamp(event.at)
-    started.delete(event.promptId)
-    if (turn === undefined || end === undefined || end < turn.start) continue
-    intervals.push({ ...turn, end })
-  }
-  return intervals
-}
-
-// Merge overlapping intervals in a session, including old queued admissions, so
-// the same wall-clock time is never counted twice. Idle gaps stay excluded.
-function sessionDurationSeconds(intervals: readonly TurnInterval[]) {
-  let through = -Infinity
-  let milliseconds = 0
-  for (const { start, end } of [...intervals].sort((a, b) => a.start - b.start)) {
-    milliseconds += Math.max(0, end - Math.max(start, through))
-    through = Math.max(through, end)
-  }
-  return milliseconds / 1000
-}
-
-function activityDates(events: readonly SessionEvent[], intervals: readonly TurnInterval[]) {
-  const dates = events
-    .filter(
-      (event) =>
-        event.type === "prompt_admitted" ||
-        event.type === "prompt_steered" ||
-        event.type === "turn_started" ||
-        event.type === "usage_recorded" ||
-        event.type === "turn_completed" ||
-        event.type === "turn_interrupted",
-    )
-    .map((event) => new Date(event.at))
-    .filter((date) => Number.isFinite(date.getTime()))
-  // Count every local calendar day touched by a recorded run, including midnight
-  // crossings with no intermediate usage report. Never fill gaps from estimated starts.
-  for (const { start, end, exact } of intervals) {
-    if (!exact) continue
-    const cursor = new Date(start)
-    cursor.setHours(0, 0, 0, 0)
-    while (cursor.getTime() <= end) {
-      dates.push(new Date(cursor))
-      cursor.setDate(cursor.getDate() + 1)
-    }
-  }
-  return dates
-}
-
-function recentActivityDays(
-  events: readonly Extract<SessionEvent, { type: "usage_recorded" }>[],
-  now: Date,
-): LocalUsageDay[] {
-  const totals = new Map<string, number>()
-  for (const event of events) {
-    const date = new Date(event.at)
-    if (!Number.isFinite(date.getTime())) continue
-    const key = localDateKey(date)
-    totals.set(key, (totals.get(key) ?? 0) + event.usage.totalTokens)
-  }
-
-  const cursor = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  cursor.setDate(cursor.getDate() - 27)
-  return Array.from({ length: 28 }, () => {
-    const date = localDateKey(cursor)
-    const day = { date, tokens: totals.get(date) ?? 0 }
-    cursor.setDate(cursor.getDate() + 1)
-    return day
-  })
-}
-
-function calculateStreak(activity: readonly Date[], now: Date) {
-  if (!Number.isFinite(now.getTime())) throw new Error("Current date is invalid.")
-  const days = new Set(activity.map(localDateKey))
-  const cursor = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-
-  if (!days.has(localDateKey(cursor))) cursor.setDate(cursor.getDate() - 1)
-
-  let streak = 0
-  while (days.has(localDateKey(cursor))) {
-    streak += 1
-    cursor.setDate(cursor.getDate() - 1)
-  }
-  return streak
 }
 
 function localDateKey(value: Date) {
@@ -190,8 +144,4 @@ function timestamp(value: string | undefined) {
   if (!value) return undefined
   const parsed = Date.parse(value)
   return Number.isFinite(parsed) ? parsed : undefined
-}
-
-function isNotFound(error: unknown) {
-  return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT"
 }

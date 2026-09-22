@@ -1,11 +1,10 @@
 import { listToolCapableModels } from "./catalog.js"
 import { LOCAL_MIN_CONTEXT_LENGTH } from "./context-policy.js"
 import { isAnyLocalModelPackingDownloaded, isLocalGgufDownloaded } from "./gguf-cache.js"
-import { detectHardware, type HardwareProbe } from "./hardware.js"
+import { detectHardware, type HardwareProbe, inferenceMemoryBudget } from "./hardware.js"
 import { supportsLlamaCppTarget, unsupportedLlamaCppTargetMessage } from "./llama-binary.js"
-import { isLocalModelId, LOCAL_MODELS } from "./local-catalog.js"
-import { fitLocalModel, formatMemoryLabel, type LocalModelFit, memoryRequiredFor } from "./local-fit.js"
-import { recommendedLocalModelIds } from "./local-recommendation.js"
+import { findLocalModel, isLocalModelId, LOCAL_MODELS } from "./local-catalog.js"
+import { fitLocalModel, formatMemoryLabel, memoryRequiredFor } from "./local-fit.js"
 import { pairModelKey } from "./pair.js"
 import { matchesFireworksModel } from "./serving-path.js"
 import type {
@@ -19,7 +18,7 @@ import type {
 
 export type ModelPickerItem = ModelPickerHeader | ModelPickerChoice
 
-export type ModelPickerHeader = {
+type ModelPickerHeader = {
   kind: "header"
   id: string
   displayName: string
@@ -36,7 +35,10 @@ export type LocalPickerChoice = LocalCatalogModel & {
   recommended: boolean
   availabilityLabel: string
   loadedContextLength?: number
-  /** At least one packing for this model is cached, including one selected for different hardware. */
+  /**
+   * At least one packing for this model is cached, including one selected for different
+   * hardware.
+   */
   hasDownloadedPacking: boolean
   downloaded: boolean
   status?: ModelPickerStatus
@@ -67,9 +69,13 @@ export type OmlxPickerChoice = OmlxCatalogModel & {
   status?: ModelPickerStatus
 }
 
-export type ModelPickerChoice = LocalPickerChoice | FireworksPickerChoice | PairPickerChoice | OmlxPickerChoice
+export type ModelPickerChoice =
+  | LocalPickerChoice
+  | FireworksPickerChoice
+  | PairPickerChoice
+  | OmlxPickerChoice
 
-export type ListModelPickerOptions = {
+type ListModelPickerOptions = {
   fireworksApiKey?: string
   currentModel?: string
   currentProvider?: ModelProvider
@@ -83,70 +89,165 @@ export type ListModelPickerOptions = {
   detect?: typeof detectHardware
   listFireworks?: typeof listToolCapableModels
   /**
-   * Keep downloaded local models listed even when they cannot run on this machine — selection stays
-   * unavailable. The desktop catalog opts in so cached files remain deletable from the GUI; the default
-   * (CLI) behavior keeps them hidden.
+   * Keep downloaded local models listed even when they cannot run on this machine — selection
+   * stays unavailable. The desktop catalog opts in so cached files remain deletable from the
+   * GUI; the default (CLI) behavior keeps them hidden.
    */
   includeDownloadedUnavailable?: boolean
   signal?: AbortSignal
 }
 
-export async function listModelPickerItems(options: ListModelPickerOptions = {}): Promise<ModelPickerItem[]> {
+// Curated preference order, not a ranking inferred from parameter count or file size.
+// Peers in a group are offered together; an unavailable group falls back to the next.
+const RECOMMENDATION_GROUPS: readonly (readonly string[])[] = [
+  ["zai-org/GLM-5.3"],
+  ["Qwen/Qwen3.8-Flash-Next"],
+  ["Qwen/Qwen3.8-27B"],
+  ["prism-ml/Ternary-Bonsai-2-27B-gguf"],
+  ["ornith-ai/Ornith-1.5-9B", "google/gemma-4-12B-it"],
+  ["LiquidAI/LFM2.5-2.6B"],
+]
+
+function recommendedLocalModelIds(hardware: HardwareProbe): readonly string[] {
+  const total = hardware.totalMemoryBytes
+  if (!supportsLlamaCppTarget(hardware) || !Number.isFinite(total) || total <= 0) return []
+  // Unknown VRAM cannot establish GPU residency. Use host fit in that case,
+  // just as for CPU inference; this is not a promise of GPU acceleration.
+  const gpu = inferenceMemoryBudget(hardware).gpuMemoryBudgetBytes
+  if (gpu !== undefined && (!Number.isFinite(gpu) || gpu <= 0)) return []
+  for (const group of RECOMMENDATION_GROUPS) {
+    const fitting = group.filter((id) => {
+      const model = findLocalModel(id)
+      if (!model) return false
+      const fit = fitLocalModel(model, hardware)
+      return fit.available && !fit.requiresCpuOffload
+    })
+    if (fitting.length > 0) return fitting
+  }
+  return []
+}
+
+export async function listModelPickerItems(
+  options: ListModelPickerOptions = {},
+): Promise<ModelPickerItem[]> {
   const hardware = options.hardware ?? (await (options.detect ?? detectHardware)())
   const currentProvider =
     options.currentProvider ??
-    (options.currentModel ? (isLocalModelId(options.currentModel) ? "local" : "fireworks") : undefined)
+    (options.currentModel
+      ? isLocalModelId(options.currentModel)
+        ? "local"
+        : "fireworks"
+      : undefined)
   const currentLocalModel = currentProvider === "local" ? options.currentModel : undefined
-  const currentFireworksModel = currentProvider === "fireworks" ? options.currentModel : undefined
-  const localUnavailableReason = supportsLlamaCppTarget(hardware)
+  const unsupported = supportsLlamaCppTarget(hardware)
     ? undefined
     : unsupportedLlamaCppTargetMessage(hardware)
   const recommendedModelIds = new Set(recommendedLocalModelIds(hardware))
+  const status = (key: string) =>
+    options.loadStatus?.modelId === key ? { status: options.loadStatus.status } : {}
   const localItems = (
     await Promise.all(
-      LOCAL_MODELS.map(async (model) => {
+      LOCAL_MODELS.map(async (model): Promise<LocalPickerChoice | undefined> => {
         const fit = fitLocalModel(model, hardware)
-        const selectedModel = fit.model
-        const downloaded = await isLocalGgufDownloaded(selectedModel, options.dataDirectory)
+        const selected = fit.model
+        const downloaded = await isLocalGgufDownloaded(selected, options.dataDirectory)
         const hasDownloadedPacking =
           downloaded || (await isAnyLocalModelPackingDownloaded(model, options.dataDirectory))
-        if (!fit.available && !(options.includeDownloadedUnavailable === true && hasDownloadedPacking)) return undefined
-        const loadedContextLength =
+        if (
+          !fit.available &&
+          !(options.includeDownloadedUnavailable === true && hasDownloadedPacking)
+        )
+          return undefined
+        const loaded =
           currentLocalModel === model.id && options.loadedLocalModel?.model === model.id
             ? options.loadedLocalModel.contextLength
             : undefined
-        return toLocalPickerChoice(
-          selectedModel,
-          fit,
-          recommendedModelIds,
-          localUnavailableReason,
-          loadedContextLength,
-          currentLocalModel,
+        let availabilityLabel: string
+        if (unsupported) availabilityLabel = unsupported
+        else if (loaded !== undefined) {
+          const cost = formatMemoryLabel(memoryRequiredFor(selected, loaded))
+          availabilityLabel = `${formatContextWindow(loaded)} · ${selected.quant} · ${cost}`
+        } else if (!fit.available)
+          availabilityLabel = `Needs ${formatMemoryLabel(fit.memoryRequiredBytes)}`
+        else {
+          const offload = fit.requiresCpuOffload ? " · Uses system RAM" : ""
+          const cost = formatMemoryLabel(fit.memoryRequiredBytes)
+          availabilityLabel = `Est. ${formatContextWindow(fit.contextLength)} · ${selected.quant} · ${cost}${offload}`
+        }
+        return {
+          kind: "model",
+          provider: "local",
+          id: selected.id,
+          displayName: selected.displayName,
+          contextLength:
+            loaded ?? (fit.available ? fit.contextLength : selected.nativeContextLength),
+          supportsImageInput: selected.supportsImageInput,
+          available: !unsupported && fit.available,
+          recommended: !unsupported && fit.available && recommendedModelIds.has(selected.id),
+          availabilityLabel,
+          ...(loaded === undefined ? {} : { loadedContextLength: loaded }),
           downloaded,
           hasDownloadedPacking,
-          options.loadStatus,
-        )
+          status:
+            options.loadStatus?.modelId === selected.id ? options.loadStatus.status : undefined,
+          active: currentLocalModel === selected.id,
+        }
       }),
     )
-  ).filter((item): item is LocalPickerChoice => item !== undefined)
+  ).filter((item) => item !== undefined)
 
-  const fireworks = await loadFireworksModels(options)
-
-  return [
-    ...localSection(localItems),
-    ...pairSection(options.pairModels ?? [], options),
-    ...omlxSection(options.omlxModels ?? [], options),
-    ...fireworksSection(fireworks, currentFireworksModel),
-  ]
-}
-
-async function loadFireworksModels(options: ListModelPickerOptions) {
-  if (!options.fireworksApiKey) return []
-  try {
-    return await (options.listFireworks ?? listToolCapableModels)(options.fireworksApiKey, { signal: options.signal })
-  } catch {
-    return []
+  let fireworks: readonly FireworksModel[] = []
+  if (options.fireworksApiKey) {
+    const list = options.listFireworks ?? listToolCapableModels
+    fireworks = await list(options.fireworksApiKey, { signal: options.signal }).catch(() => [])
   }
+  const pairModels = options.pairModels ?? []
+  const omlxModels = options.omlxModels ?? []
+  const currentFireworksModel = currentProvider === "fireworks" ? options.currentModel : undefined
+  const header = (id: string, displayName: string): ModelPickerHeader => ({
+    kind: "header",
+    id,
+    displayName,
+  })
+  return [
+    ...(localItems.length ? [header("header-local", "Local"), ...localItems] : []),
+    ...(pairModels.length ? [header("header-pair", "NVIDIA PAIR")] : []),
+    ...pairModels.map((model): PairPickerChoice => {
+      // Load status is keyed like the renderer's rows: PAIR entries by selectionKey, not the
+      // bare model id.
+      const selectionKey = pairModelKey(model)
+      return {
+        ...model,
+        kind: "model",
+        available: true,
+        active:
+          options.currentProvider === "pair" &&
+          options.currentModel === model.id &&
+          options.currentPairEngine === model.engine,
+        selectionKey,
+        ...status(selectionKey),
+      }
+    }),
+    ...(omlxModels.length ? [header("header-omlx", "oMLX")] : []),
+    ...omlxModels.map((model): OmlxPickerChoice => {
+      const selectionKey = `omlx:${model.id}`
+      const available =
+        model.contextLength === undefined || model.contextLength >= LOCAL_MIN_CONTEXT_LENGTH
+      return {
+        ...model,
+        kind: "model",
+        available,
+        ...(available
+          ? {}
+          : { availabilityLabel: "Requires 64K context. Increase the model's context in oMLX." }),
+        selectionKey,
+        active: options.currentProvider === "omlx" && options.currentModel === model.id,
+        ...status(selectionKey),
+      }
+    }),
+    ...(fireworks.length ? [header("header-hosted", "Hosted")] : []),
+    ...fireworks.map((model) => toFireworksPickerChoice(model, currentFireworksModel)),
+  ]
 }
 
 export function isSelectablePickerItem(
@@ -170,7 +271,7 @@ export function toPairCatalogModel(item: PairPickerChoice): PairCatalogModel {
     kind: _kind,
     available: _available,
     active: _active,
-    selectionKey: _selectionKey,
+    selectionKey: _key,
     status: _status,
     ...model
   } = item
@@ -188,106 +289,10 @@ export function toOmlxCatalogModel(item: OmlxPickerChoice): OmlxCatalogModel {
   }
 }
 
-function omlxSection(models: readonly OmlxCatalogModel[], options: ListModelPickerOptions): ModelPickerItem[] {
-  if (!models.length) return []
-  return [
-    { kind: "header", id: "header-omlx", displayName: "oMLX" },
-    ...models.map((model): OmlxPickerChoice => {
-      const selectionKey = `omlx:${model.id}`
-      const available = model.contextLength === undefined || model.contextLength >= LOCAL_MIN_CONTEXT_LENGTH
-      return {
-        ...model,
-        kind: "model",
-        available,
-        ...(available ? {} : { availabilityLabel: "Requires 64K context. Increase the model's context in oMLX." }),
-        selectionKey,
-        active: options.currentProvider === "omlx" && options.currentModel === model.id,
-        ...(options.loadStatus?.modelId === selectionKey ? { status: options.loadStatus.status } : {}),
-      }
-    }),
-  ]
-}
-
-function fireworksSection(models: readonly FireworksModel[], currentModel?: string): ModelPickerItem[] {
-  if (models.length === 0) return []
-  return [
-    { kind: "header", id: "header-hosted", displayName: "Hosted" },
-    ...models.map((model) => toFireworksPickerChoice(model, currentModel)),
-  ]
-}
-
-function localSection(models: readonly LocalPickerChoice[]): ModelPickerItem[] {
-  if (models.length === 0) return []
-  return [{ kind: "header", id: "header-local", displayName: "Local" }, ...models]
-}
-
-function pairSection(models: readonly PairCatalogModel[], options: ListModelPickerOptions): ModelPickerItem[] {
-  if (models.length === 0) return []
-  return [
-    { kind: "header", id: "header-pair", displayName: "NVIDIA PAIR" },
-    ...models.map((model): PairPickerChoice => {
-      const selectionKey = pairModelKey(model)
-      return {
-        ...model,
-        kind: "model",
-        available: true,
-        active:
-          options.currentProvider === "pair" &&
-          options.currentModel === model.id &&
-          options.currentPairEngine === model.engine,
-        selectionKey,
-        // Load status is keyed like the renderer's rows: PAIR entries by selectionKey, not the bare model id.
-        ...(options.loadStatus?.modelId === selectionKey ? { status: options.loadStatus.status } : {}),
-      }
-    }),
-  ]
-}
-
-function toLocalPickerChoice(
-  model: (typeof LOCAL_MODELS)[number],
-  fit: ReturnType<typeof fitLocalModel>,
-  recommendedModelIds: ReadonlySet<string>,
-  localUnavailableReason: string | undefined,
-  loadedContextLength: number | undefined,
-  currentModel: string | undefined,
-  downloaded: boolean,
-  hasDownloadedPacking: boolean,
-  loadStatus?: { modelId: string; status: ModelPickerStatus },
-): LocalPickerChoice {
-  return {
-    kind: "model",
-    provider: "local",
-    id: model.id,
-    displayName: model.displayName,
-    contextLength: loadedContextLength ?? (fit.available ? fit.contextLength : model.nativeContextLength),
-    supportsImageInput: model.supportsImageInput,
-    available: localUnavailableReason === undefined && fit.available,
-    recommended: localUnavailableReason === undefined && fit.available && recommendedModelIds.has(model.id),
-    availabilityLabel: localAvailabilityLabel(model, fit, localUnavailableReason, loadedContextLength),
-    ...(loadedContextLength === undefined ? {} : { loadedContextLength }),
-    downloaded,
-    hasDownloadedPacking,
-    status: loadStatus?.modelId === model.id ? loadStatus.status : undefined,
-    active: currentModel === model.id,
-  }
-}
-
-function localAvailabilityLabel(
-  model: (typeof LOCAL_MODELS)[number],
-  fit: LocalModelFit,
-  localUnavailableReason: string | undefined,
-  loadedContextLength: number | undefined,
-) {
-  if (localUnavailableReason) return localUnavailableReason
-  if (loadedContextLength !== undefined) {
-    return `${formatContextWindow(loadedContextLength)} · ${model.quant} · ${formatMemoryLabel(memoryRequiredFor(model, loadedContextLength))}`
-  }
-  if (!fit.available) return `Needs ${formatMemoryLabel(fit.memoryRequiredBytes)}`
-  const offload = fit.requiresCpuOffload ? " · Uses system RAM" : ""
-  return `Est. ${formatContextWindow(fit.contextLength)} · ${model.quant} · ${formatMemoryLabel(fit.memoryRequiredBytes)}${offload}`
-}
-
-export function toFireworksPickerChoice(model: FireworksModel, currentModel?: string): FireworksPickerChoice {
+function toFireworksPickerChoice(
+  model: FireworksModel,
+  currentModel?: string,
+): FireworksPickerChoice {
   return {
     kind: "model",
     ...model,
@@ -299,10 +304,8 @@ export function toFireworksPickerChoice(model: FireworksModel, currentModel?: st
 
 export function formatContextWindow(tokens: number) {
   if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`
-  if (tokens >= 1_000) {
-    if (tokens % 1_000 === 0) return `${tokens / 1_000}K`
-    if (tokens % 1_024 === 0) return `${tokens / 1_024}K`
-    return `${Math.round(tokens / 1_000)}K`
-  }
-  return String(tokens)
+  if (tokens < 1_000) return String(tokens)
+  if (tokens % 1_000 === 0) return `${tokens / 1_000}K`
+  if (tokens % 1_024 === 0) return `${tokens / 1_024}K`
+  return `${Math.round(tokens / 1_000)}K`
 }

@@ -129,13 +129,15 @@ export const pl: Messages = {
   "composer.imageTooLarge": "{{name}} jest za duży. Obrazy nie mogą przekraczać {{size}} MB.",
   "composer.tooManyImages": "Możesz załączyć maksymalnie {{count}} obrazów.",
   "composer.modelNoImages": "Wybrany model nie obsługuje obrazów",
-  "composer.modelNoImageInput": "Wybrany model nie obsługuje obrazów. Wybierz model z obsługą obrazu.",
+  "composer.modelNoImageInput":
+    "Wybrany model nie obsługuje obrazów. Wybierz model z obsługą obrazu.",
   "composer.atMostImages": "Do jednej wiadomości możesz załączyć maksymalnie {{count}} obrazów.",
   "composer.unsupportedFile":
     "{{name}} nie jest obsługiwany. Użyj pliku tekstowego, PDF, DOCX, PNG, JPEG, GIF, BMP, TIFF lub PPM.",
   "composer.thatFile": "Ten plik",
   "composer.fileEmpty": "{{name}} jest pusty.",
-  "composer.imageRequestLimit": "{{name}} jest za duży. Dane obrazu muszą mieścić się w limicie żądania 10 MB.",
+  "composer.imageRequestLimit":
+    "{{name}} jest za duży. Dane obrazu muszą mieścić się w limicie żądania 10 MB.",
   "composer.imagesRequestLimit":
     "Załączone obrazy są łącznie za duże. Łączny rozmiar danych obrazów musi być mniejszy niż 10 MB.",
   "composer.fileReadFailed": "Nie udało się odczytać pliku.",
@@ -175,11 +177,13 @@ export const pl: Messages = {
   "onboarding.chooseSetup": "Wybierz konfigurację modelu",
   "onboarding.hostedBody":
     "Najlepsze otwarte modele, dostępne od razu. Płacisz za użycie i łączysz je kluczem Fireworks.",
-  "onboarding.localBody": "Uruchamiaj modele na tym komputerze lub w lokalnej sieci AI. Prywatnie i bez internetu.",
+  "onboarding.localBody":
+    "Uruchamiaj modele na tym komputerze lub w lokalnej sieci AI. Prywatnie i bez internetu.",
   "onboarding.back": "Wstecz",
   "onboarding.setupHosted": "Skonfiguruj modele hostowane",
   "onboarding.chooseLocal": "Wybierz lokalną inferencję",
-  "onboarding.localHint": "Użyj modelu zarządzanego przez Otis lub połącz model, który już uruchamiasz.",
+  "onboarding.localHint":
+    "Użyj modelu zarządzanego przez Otis lub połącz model, który już uruchamiasz.",
   "onboarding.managed": "Zarządzane przez Otis",
   "onboarding.managedBody": "Pobierz wybrany model i uruchom go za pomocą llama.cpp.",
   "onboarding.server": "Lokalne serwery modeli",
@@ -196,7 +200,8 @@ export const pl: Messages = {
   "onboarding.chooseModel": "Wybierz model",
   "onboarding.chooseServerModel": "Wybierz model zgłoszony przez połączony serwer.",
   "onboarding.connectedNoModels": "Połączono, ale serwer nie zgłosił żadnych dostępnych modeli.",
-  "onboarding.noLocalFit": "Żaden lokalny model nie pasuje do tego komputera — wróć i wybierz modele hostowane.",
+  "onboarding.noLocalFit":
+    "Żaden lokalny model nie pasuje do tego komputera — wróć i wybierz modele hostowane.",
   "onboarding.bestModel": "Najlepszy model dla Twojego komputera",
   "onboarding.downloadContinue": "Pobierz i kontynuuj",
   "settings.close": "Zamknij ustawienia (Esc)",
@@ -264,8 +269,10 @@ export const pl: Messages = {
   "updates.downloadingVersion": "Pobieranie Otis {{version}} w tle…",
   "updates.unavailableBuild": "Sprawdzanie aktualizacji jest niedostępne w tej kompilacji Otis.",
   "updates.upToDate": "Masz najnowszą wersję.",
-  "updates.backgroundHint": "Aktualizacje są pobierane w tle. Ty decydujesz, kiedy uruchomić aplikację ponownie.",
-  "canvas.viewport": "Kanwa diagramu. Przeciągnij, aby przesunąć; użyj przycisków, aby zmienić powiększenie.",
+  "updates.backgroundHint":
+    "Aktualizacje są pobierane w tle. Ty decydujesz, kiedy uruchomić aplikację ponownie.",
+  "canvas.viewport":
+    "Kanwa diagramu. Przeciągnij, aby przesunąć; użyj przycisków, aby zmienić powiększenie.",
   "canvas.controls": "Sterowanie widokiem diagramu",
   "canvas.zoomOut": "Pomniejsz",
   "canvas.resetView": "Resetuj widok",

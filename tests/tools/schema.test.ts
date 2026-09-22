@@ -27,21 +27,33 @@ describe("parseStructuredToolCall", () => {
       input: { path: "result.html" },
     })
     for (const path of [undefined, "", "  ", 42]) {
-      expect(() => parseStructuredToolCall("publish_artifact", { path })).toThrow("non-empty string")
+      expect(() => parseStructuredToolCall("publish_artifact", { path })).toThrow(
+        "non-empty string",
+      )
     }
-    expect(parseStructuredToolCall("publish_artifact", { path: "moved.md", artifact_id: " original-id " })).toEqual({
+    expect(
+      parseStructuredToolCall("publish_artifact", {
+        path: "moved.md",
+        artifact_id: " original-id ",
+      }),
+    ).toEqual({
       name: "publish_artifact",
       input: { path: "moved.md", artifactId: "original-id" },
     })
     for (const artifact_id of ["", " ", 42]) {
-      expect(() => parseStructuredToolCall("publish_artifact", { path: "moved.md", artifact_id })).toThrow(
-        "artifact_id",
-      )
+      expect(() =>
+        parseStructuredToolCall("publish_artifact", { path: "moved.md", artifact_id }),
+      ).toThrow("artifact_id")
     }
   })
 
   it("requires a source attachment identity and a destination", () => {
-    expect(parseStructuredToolCall("save_attachment", { attachment: " resume.pdf ", path: " source.pdf " })).toEqual({
+    expect(
+      parseStructuredToolCall("save_attachment", {
+        attachment: " resume.pdf ",
+        path: " source.pdf ",
+      }),
+    ).toEqual({
       name: "save_attachment",
       input: { attachment: "resume.pdf", path: "source.pdf" },
     })
@@ -56,7 +68,12 @@ describe("parseStructuredToolCall", () => {
   })
 
   it("parses subagent delegation and rejects empty briefs", () => {
-    expect(parseStructuredToolCall("agent", { description: " Map the notes ", prompt: " List note files. " })).toEqual({
+    expect(
+      parseStructuredToolCall("agent", {
+        description: " Map the notes ",
+        prompt: " List note files. ",
+      }),
+    ).toEqual({
       name: "agent",
       input: { description: "Map the notes", prompt: "List note files." },
     })
@@ -82,14 +99,17 @@ describe("parseStructuredToolCall", () => {
       },
     })
     expect(
-      parseStructuredToolCall("web_read", { url: " https://example.com/docs ", objective: " API limits " }),
+      parseStructuredToolCall("web_read", {
+        url: " https://example.com/docs ",
+        objective: " API limits ",
+      }),
     ).toEqual({
       name: "web_read",
       input: { url: "https://example.com/docs", objective: "API limits" },
     })
-    expect(() => parseStructuredToolCall("web_search", { objective: "news", search_queries: [] })).toThrow(
-      "search_queries",
-    )
+    expect(() =>
+      parseStructuredToolCall("web_search", { objective: "news", search_queries: [] }),
+    ).toThrow("search_queries")
   })
 
   it("keeps only positive integer options for local tools", () => {
@@ -105,7 +125,9 @@ describe("parseStructuredToolCall", () => {
   })
 
   it("parses progressive skill resource reads", () => {
-    expect(parseStructuredToolCall("skill", { skill: " review ", path: " references/RULES.md " })).toEqual({
+    expect(
+      parseStructuredToolCall("skill", { skill: " review ", path: " references/RULES.md " }),
+    ).toEqual({
       name: "skill",
       input: { skill: "review", path: "references/RULES.md" },
     })
@@ -120,12 +142,16 @@ describe("parseStructuredToolCall", () => {
   })
 
   it("preserves write and edit content exactly", () => {
-    expect(parseStructuredToolCall("write", { path: " note.txt ", content: "  keep whitespace  " })).toEqual({
+    expect(
+      parseStructuredToolCall("write", { path: " note.txt ", content: "  keep whitespace  " }),
+    ).toEqual({
       name: "write",
       input: { path: "note.txt", content: "  keep whitespace  " },
     })
 
-    expect(parseStructuredToolCall("edit", { path: " note.txt ", old: "  old  ", new: "  new  " })).toEqual({
+    expect(
+      parseStructuredToolCall("edit", { path: " note.txt ", old: "  old  ", new: "  new  " }),
+    ).toEqual({
       name: "edit",
       input: { path: "note.txt", old: "  old  ", new: "  new  " },
     })
@@ -162,7 +188,9 @@ describe("parseStructuredToolCall", () => {
         operation: { kind: "fill_pdf_form", fields: { Name: "Ada Lovelace", Confirmed: "true" } },
       },
     })
-    expect(() => parseStructuredToolCall("edit_document", { path: "resume.docx" })).toThrow("exactly one")
+    expect(() => parseStructuredToolCall("edit_document", { path: "resume.docx" })).toThrow(
+      "exactly one",
+    )
     expect(() =>
       parseStructuredToolCall("edit_document", {
         path: "resume.docx",
@@ -187,7 +215,12 @@ describe("parseStructuredToolCall", () => {
     })
 
     expect(
-      parseStructuredToolCall("grep", { pattern: "TODO", path: " src ", include: "*.ts", max_results: 50 }),
+      parseStructuredToolCall("grep", {
+        pattern: "TODO",
+        path: " src ",
+        include: "*.ts",
+        max_results: 50,
+      }),
     ).toEqual({
       name: "grep",
       input: { pattern: "TODO", path: "src", include: "*.ts", maxResults: 50 },
@@ -200,19 +233,35 @@ describe("parseStructuredToolCall", () => {
       input: { pattern: "**/*.ts", path: ".", maxResults: undefined },
     })
 
-    expect(parseStructuredToolCall("glob", { pattern: "*.json", path: "config", max_results: 100 })).toEqual({
+    expect(
+      parseStructuredToolCall("glob", { pattern: "*.json", path: "config", max_results: 100 }),
+    ).toEqual({
       name: "glob",
       input: { pattern: "*.json", path: "config", maxResults: 100 },
     })
   })
 
   it("rejects unknown tools and missing required fields", () => {
-    expect(() => parseStructuredToolCall("delete", { path: "README.md" })).toThrow("Unknown tool: delete")
-    expect(() => parseStructuredToolCall("read", { path: "   " })).toThrow('read requires a non-empty string "path"')
-    expect(() => parseStructuredToolCall("bash", { command: "" })).toThrow('bash requires a non-empty string "command"')
-    expect(() => parseStructuredToolCall("grep", { pattern: "" })).toThrow('grep requires a non-empty string "pattern"')
-    expect(() => parseStructuredToolCall("glob", { pattern: "" })).toThrow('glob requires a non-empty string "pattern"')
-    expect(() => parseStructuredToolCall("web_read", { url: "" })).toThrow('web_read requires a non-empty string "url"')
-    expect(() => parseStructuredToolCall("skill", { skill: "" })).toThrow('skill requires a non-empty string "skill"')
+    expect(() => parseStructuredToolCall("delete", { path: "README.md" })).toThrow(
+      "Unknown tool: delete",
+    )
+    expect(() => parseStructuredToolCall("read", { path: "   " })).toThrow(
+      'read requires a non-empty string "path"',
+    )
+    expect(() => parseStructuredToolCall("bash", { command: "" })).toThrow(
+      'bash requires a non-empty string "command"',
+    )
+    expect(() => parseStructuredToolCall("grep", { pattern: "" })).toThrow(
+      'grep requires a non-empty string "pattern"',
+    )
+    expect(() => parseStructuredToolCall("glob", { pattern: "" })).toThrow(
+      'glob requires a non-empty string "pattern"',
+    )
+    expect(() => parseStructuredToolCall("web_read", { url: "" })).toThrow(
+      'web_read requires a non-empty string "url"',
+    )
+    expect(() => parseStructuredToolCall("skill", { skill: "" })).toThrow(
+      'skill requires a non-empty string "skill"',
+    )
   })
 })

@@ -19,7 +19,11 @@ describe("ModelHost", () => {
   ])("rejects an oMLX serving limit of %i before stopping or persisting the previous model", async (contextLength) => {
     const llama = fakeLlama()
     const host = new ModelHost({ llama })
-    host.applySavedSelection({ model: hosted.id, modelProvider: "fireworks", fireworksApiKey: "test-key" })
+    host.applySavedSelection({
+      model: hosted.id,
+      modelProvider: "fireworks",
+      fireworksApiKey: "test-key",
+    })
     const previous = host.client
     host.omlx = { baseURL: "http://127.0.0.1:8000" }
     const model: OmlxCatalogModel = {
@@ -31,9 +35,9 @@ describe("ModelHost", () => {
       contextLength,
     }
     const persist = vi.fn()
-    await expect(host.persistSelection(model, { signal: new AbortController().signal, persist })).rejects.toThrow(
-      "at least 65,536 tokens (64K)",
-    )
+    await expect(
+      host.persistSelection(model, { signal: new AbortController().signal, persist }),
+    ).rejects.toThrow("at least 65,536 tokens (64K)")
     expect(llama.stop).not.toHaveBeenCalled()
     expect(persist).not.toHaveBeenCalled()
     expect(host.client).toBe(previous)
@@ -60,7 +64,8 @@ describe("ModelHost", () => {
     expect(host.autoCompactAtTokens).toBe(autoCompactThreshold(contextLength ?? 65536))
     expect(persist).toHaveBeenCalledWith(model)
     // The fallback remains policy only; it is not invented server metadata.
-    if (contextLength === undefined) expect(persist.mock.calls[0][0]).not.toHaveProperty("contextLength")
+    if (contextLength === undefined)
+      expect(persist.mock.calls[0][0]).not.toHaveProperty("contextLength")
   })
 
   it.each([
@@ -107,7 +112,9 @@ describe("ModelHost", () => {
     expect(host.supportsImageInput).toBe(true)
     expect(host.client?.model).toBe(settings.model)
     expect(host.autoCompactAtTokens).toBe(
-      autoCompactThreshold(compactionContextLength({ provider: "fireworks", contextLength: 128_000 })),
+      autoCompactThreshold(
+        compactionContextLength({ provider: "fireworks", contextLength: 128_000 }),
+      ),
     )
     expect(host.activeLocal).toBeUndefined()
   })
@@ -175,5 +182,8 @@ describe("ModelHost", () => {
 })
 
 function fakeLlama() {
-  return { stop: vi.fn(async () => undefined), ensureServing: vi.fn() } as unknown as LlamaCppRuntime
+  return {
+    stop: vi.fn(async () => undefined),
+    ensureServing: vi.fn(),
+  } as unknown as LlamaCppRuntime
 }

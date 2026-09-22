@@ -33,7 +33,14 @@ it("localizes Canvas controls and existing errors without rerendering the diagra
   send({
     type: "otis-canvas-source",
     source: "",
-    colors: { background: "white", surface: "white", text: "black", muted: "gray", accent: "blue", border: "gray" },
+    colors: {
+      background: "white",
+      surface: "white",
+      text: "black",
+      muted: "gray",
+      accent: "blue",
+      border: "gray",
+    },
   })
   expect(document.getElementById("error").textContent).toContain("The Mermaid block is empty.")
   expect(notify).toHaveBeenLastCalledWith(

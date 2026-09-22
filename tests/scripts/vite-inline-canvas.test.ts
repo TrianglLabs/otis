@@ -32,7 +32,10 @@ describe("inline Canvas build", () => {
     expect(html).toContain('data-otis-canvas-script="renderer"')
     // It executes as a classic inline script, with no module loader inside the opaque-origin frame.
     expect(
-      () => new Script(html.match(/<script data-otis-canvas-script="renderer">([\s\S]*?)<\/script>/)?.[1] ?? ""),
+      () =>
+        new Script(
+          html.match(/<script data-otis-canvas-script="renderer">([\s\S]*?)<\/script>/)?.[1] ?? "",
+        ),
     ).not.toThrow()
 
     const send = vi.spyOn(server.ws, "send").mockImplementation(() => {})

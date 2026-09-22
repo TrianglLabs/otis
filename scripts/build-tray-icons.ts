@@ -4,8 +4,8 @@ import { fileURLToPath } from "node:url"
 import { renderTrayIcon, TRAY_ICON_SIZES, type TrayIconVariant } from "./tray-icon-render.js"
 
 // Regenerates the tray template images checked in under resources/tray. Rerun after changing
-// src/desktop/renderer/mark.ts (bun run build:desktop:tray). The generator is pure TypeScript, so no Apple
-// tooling is required and the committed files can be verified byte-for-byte in tests.
+// src/desktop/renderer/mark.ts (bun run build:desktop:tray). The generator is pure TypeScript, so
+// no Apple tooling is required and the committed files can be verified byte-for-byte in tests.
 const outDir = fileURLToPath(new URL("../resources/tray/", import.meta.url))
 await mkdir(outDir, { recursive: true })
 

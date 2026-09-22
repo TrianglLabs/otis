@@ -1,8 +1,8 @@
 import type { ModelPickerChoice, ModelPickerItem } from "../../../../inference/picker-catalog.js"
 import type { DesktopStatus } from "../../../contracts.js"
 import { formatContextWindow } from "../../format.js"
+import { englishT } from "../../i18n/index.js"
 import type { Translate } from "../../i18n/messages/en.js"
-import { englishT } from "../../i18n/translate.js"
 
 /** The identifier `selectModel` expects: the item id, or the selectionKey for PAIR entries. */
 export function pickerItemKey(item: ModelPickerChoice): string {
@@ -10,19 +10,26 @@ export function pickerItemKey(item: ModelPickerChoice): string {
 }
 
 /**
- * Overlays an in-flight load's progress or terminal error onto its catalog row. The catalog is fetched once per
- * picker open, so the per-tick updates the main process streams through status events are merged in client-side.
+ * Overlays an in-flight load's progress or terminal error onto its catalog row. The catalog is
+ * fetched once per picker open, so the per-tick updates the main process streams through status
+ * events are merged in client-side.
  */
-export function mergeModelLoad(items: ModelPickerItem[], modelLoad: DesktopStatus["modelLoad"]): ModelPickerItem[] {
+export function mergeModelLoad(
+  items: ModelPickerItem[],
+  modelLoad: DesktopStatus["modelLoad"],
+): ModelPickerItem[] {
   if (!modelLoad) return items
   return items.map((item) =>
-    item.kind === "model" && pickerItemKey(item) === modelLoad.modelId ? { ...item, status: modelLoad.status } : item,
+    item.kind === "model" && pickerItemKey(item) === modelLoad.modelId
+      ? { ...item, status: modelLoad.status }
+      : item,
   )
 }
 
 /**
- * Mirrors isSelectablePickerItem from the picker catalog. Duplicated deliberately: the catalog module pulls
- * Node-only dependencies (hardware probe, GGUF cache) that must stay out of the renderer bundle.
+ * Mirrors isSelectablePickerItem from the picker catalog. Duplicated deliberately: the catalog
+ * module pulls Node-only dependencies (hardware probe, GGUF cache) that must stay out of the
+ * renderer bundle.
  */
 export function isPickerRowSelectable(
   item: ModelPickerItem | undefined,
@@ -30,15 +37,22 @@ export function isPickerRowSelectable(
   return item?.kind === "model" && item.available === true
 }
 
-export type PickerDetailPart = { label: string; modality?: "text" | "vision" }
+type PickerDetailPart = { label: string; modality?: "text" | "vision" }
 
-/** Structured row metadata lets the GUI decorate capabilities without parsing the TUI-compatible label. */
-export function pickerDetailParts(item: ModelPickerChoice, t: Translate = englishT): PickerDetailPart[] {
+/**
+ * Structured row metadata lets the GUI decorate capabilities without parsing the TUI-compatible
+ * label.
+ */
+export function pickerDetailParts(
+  item: ModelPickerChoice,
+  t: Translate = englishT,
+): PickerDetailPart[] {
   const modality: PickerDetailPart = item.supportsImageInput
     ? { label: t("models.vision"), modality: "vision" }
     : { label: t("models.text"), modality: "text" }
   if (item.provider === "local") return [{ label: item.availabilityLabel }, modality]
-  if (item.provider === "omlx" && item.availabilityLabel) return [{ label: item.availabilityLabel }, modality]
+  if (item.provider === "omlx" && item.availabilityLabel)
+    return [{ label: item.availabilityLabel }, modality]
   if (item.provider === "pair") {
     return [
       { label: item.engine === "ollama" ? "Ollama" : "LM Studio" },
@@ -60,9 +74,9 @@ export function pickerDetailParts(item: ModelPickerChoice, t: Translate = englis
 
 /**
  * Row subtitle when no live status overrides it. Mirrors modelMeta in the TUI's model picker
- * (src/cli/ui/model-picker.ts) string-for-string — "Est." is a managed-local concept, hosted rows show the exact
- * context — except that PAIR rows also lead with the engine label the TUI renders as a name suffix, since this
- * picker has no suffix column.
+ * (src/cli/ui/model-picker.ts) string-for-string — "Est." is a managed-local concept, hosted rows
+ * show the exact context — except that PAIR rows also lead with the engine label the TUI renders as
+ * a name suffix, since this picker has no suffix column.
  */
 export function pickerDetailLabel(item: ModelPickerChoice, t: Translate = englishT): string {
   return pickerDetailParts(item, t)
