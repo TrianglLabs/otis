@@ -1,5 +1,6 @@
 import { SteeringInbox } from "../core/agent.js"
 import { compactConversation } from "../core/compaction.js"
+import { reportedContextLengthIsServing } from "../inference/context-policy.js"
 import type {
   ChatMessage,
   ContextFile,
@@ -197,11 +198,10 @@ export class Conversation {
 
         let projector = new TranscriptProjector(transcript)
         let checkpointed = false
-        let recordedTurn = false
+        // A prompt that never received a response stays in scrollback only: as model history it
+        // would be an unanswered message every later request and compaction has to carry.
         const record = (messages: ChatMessage[]) => {
-          if (recordedTurn) return
-          transcript.addMessages(messages)
-          recordedTurn = true
+          if (messages.some((message) => message.role !== "user")) transcript.addMessages(messages)
         }
         const fail = (message: string) => {
           sink.stopBusy()
@@ -210,7 +210,6 @@ export class Conversation {
             streaming: false,
           })
           projector.finishTurn()
-          record(checkpointed ? [] : [admission.message])
           sink.renderTranscript()
           hooks.onCompletion()
         }
@@ -257,6 +256,7 @@ export class Conversation {
                 await session.recordUsage(usage, "agent", admission.promptId)
               },
               autoCompactAtTokens: models.autoCompactAtTokens,
+              trustReportedContextLength: reportedContextLengthIsServing(provider),
               historyTokens: transcript.contextTokens(client),
               onCompactionUsage: async (usage) => {
                 await session.recordUsage(usage, "compaction", admission.promptId)
@@ -401,12 +401,24 @@ export class Conversation {
         const tools = providerTools(models.selectedProvider ?? "fireworks").filter(
           (tool) => tool.name !== "skill" || skills.skills.length > 0,
         )
-        const throughSeq = session.events.at(-1)?.seq
+        // The checkpoint covers history only; a prompt admitted but not yet started stays a
+        // queued turn of its own after it.
+        const started = new Set(
+          session.events.flatMap((event) =>
+            event.type !== "prompt_admitted" && "promptId" in event && event.promptId
+              ? [event.promptId]
+              : [],
+          ),
+        )
+        let throughSeq: number | undefined
+        for (const event of session.events) {
+          if (event.type !== "prompt_admitted" || started.has(event.promptId))
+            throughSeq = event.seq
+        }
         const result = await compactConversation(transcript.history, {
           client,
           instructions,
           contextBudget: models.autoCompactAtTokens,
-          maxInputTokens: models.autoCompactAtTokens,
           countContextTokens: (messages) =>
             client.countTokens?.({
               messages,

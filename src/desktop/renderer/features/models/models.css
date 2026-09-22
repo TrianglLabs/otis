@@ -143,6 +143,11 @@
   display: inline-flex;
 }
 
+.modelPicker-cpuOffload {
+  color: var(--text-dim);
+  display: inline-flex;
+}
+
 .modelPicker-detail {
   font-family: var(--font-mono);
   font-size: var(--text-micro);

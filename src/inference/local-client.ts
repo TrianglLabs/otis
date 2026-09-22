@@ -1,13 +1,22 @@
-import { type LocalThinkingLevel, localThinkingParameters } from "./local-thinking.js"
+import {
+  type LocalThinkingLevel,
+  localThinkingParameters,
+  minimalLocalThinkingLevel,
+} from "./local-thinking.js"
 import { OpenAICompatibleClient } from "./openai-compat.js"
 import type { LocalClientConfig, StreamChatOptions } from "./types.js"
 
-export class LlamaCppClient extends OpenAICompatibleClient {
-  readonly #thinkingLevel: (() => LocalThinkingLevel | undefined) | undefined
+type LlamaCppClientConfig = LocalClientConfig & {
+  thinkingLevel?: () => LocalThinkingLevel | undefined
+  /** Throws when the managed server died since it was ready, instead of a bare fetch failure. */
+  assertServing?: () => void
+}
 
-  constructor(
-    config: LocalClientConfig & { thinkingLevel?: () => LocalThinkingLevel | undefined },
-  ) {
+export class LlamaCppClient extends OpenAICompatibleClient {
+  readonly #thinkingLevel: LlamaCppClientConfig["thinkingLevel"]
+  readonly #assertServing: LlamaCppClientConfig["assertServing"]
+
+  constructor(config: LlamaCppClientConfig) {
     super({
       ...config,
       modelLabel: "Local model",
@@ -15,13 +24,21 @@ export class LlamaCppClient extends OpenAICompatibleClient {
       requestLabel: "Local model",
     })
     this.#thinkingLevel = config.thinkingLevel
+    this.#assertServing = config.assertServing
+  }
+
+  protected override request(options: StreamChatOptions, suffix?: string) {
+    this.#assertServing?.()
+    return super.request(options, suffix)
   }
 
   protected override requestBody(options: StreamChatOptions) {
-    return {
-      ...super.requestBody(options),
-      ...localThinkingParameters(this.model, this.#thinkingLevel?.()),
-    }
+    // Internal requests such as compaction can ask for the least reasoning the template allows,
+    // overriding the saved effort for that request only.
+    const level = options.minimalReasoning
+      ? minimalLocalThinkingLevel(this.model)
+      : this.#thinkingLevel?.()
+    return { ...super.requestBody(options), ...localThinkingParameters(this.model, level) }
   }
 
   async countTokens(options: StreamChatOptions): Promise<number> {

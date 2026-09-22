@@ -123,6 +123,7 @@ export class Application {
     const preferences = await saveLocalThinking(model, level)
     this.settings.localThinking = preferences
     this.models.localThinking = preferences
+    this.models.refreshAutoCompact()
     this.transcript.invalidateContext()
   }
 

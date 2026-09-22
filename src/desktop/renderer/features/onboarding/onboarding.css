@@ -437,6 +437,11 @@
   color: var(--warning);
 }
 
+.onboarding-cpuOffload {
+  display: inline-flex;
+  color: var(--text-dim);
+}
+
 .onboarding-rowDetail {
   display: inline-flex;
   align-items: center;

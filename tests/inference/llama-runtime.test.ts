@@ -14,7 +14,7 @@ import {
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import type { HardwareProbe } from "../../src/inference/hardware.js"
+import { type HardwareProbe, inferenceMemoryBudget } from "../../src/inference/hardware.js"
 import {
   LLAMA_CPP_RELEASE_TAG,
   type LlamaRuntimeKind,
@@ -24,6 +24,7 @@ import {
 } from "../../src/inference/llama-binary.js"
 import { formatLocalLoadStatus, LlamaCppRuntime } from "../../src/inference/llama-runtime.js"
 import { findLocalModel, type LocalModelSpec } from "../../src/inference/local-catalog.js"
+import { LlamaCppClient } from "../../src/inference/local-client.js"
 import { fitLocalModel } from "../../src/inference/local-fit.js"
 
 type LlamaCppRuntimeOptions = NonNullable<ConstructorParameters<typeof LlamaCppRuntime>[0]>
@@ -651,7 +652,7 @@ describe("llama.cpp runtime", () => {
   })
 
   it.each([
-    ["unified memory", hardware, 9831],
+    ["unified memory", hardware],
     [
       "two GPUs",
       {
@@ -663,7 +664,6 @@ describe("llama.cpp runtime", () => {
         gpuCount: 2,
         gpuMemoryBytes: 32 * 1024 ** 3,
       },
-      1024,
     ],
     [
       "unknown VRAM",
@@ -677,7 +677,6 @@ describe("llama.cpp runtime", () => {
         gpuCount: 1,
         gpuMemoryBytes: undefined,
       },
-      1024,
     ],
     [
       "CPU",
@@ -690,9 +689,9 @@ describe("llama.cpp runtime", () => {
         gpuCount: 0,
         gpuMemoryBytes: undefined,
       },
-      6554,
     ],
-  ] as const)("downloads the GGUF and passes the per-device margin for %s", async (_label, hardware, targetMiB) => {
+  ] as const)("downloads the GGUF and passes the per-device margin for %s", async (_label, hardware) => {
+    const targetMiB = inferenceMemoryBudget(hardware).deviceHeadroomBytes / 1024 ** 2
     const catalog = findLocalModel("openai/gpt-oss-20b")
     if (!catalog) throw new Error("missing catalog entry")
     const spawned: string[][] = []
@@ -762,6 +761,11 @@ describe("llama.cpp runtime", () => {
       env: {
         OTIS_LLAMA_SERVER: process.execPath,
         PATH: "/usr/bin",
+        DYLD_LIBRARY_PATH: "/opt/metal/lib",
+        MTL_DEBUG_LAYER: "0",
+        HF_TOKEN: "hf_secret",
+        HUGGING_FACE_HUB_TOKEN: "hf_secret",
+        FIREWORKS_API_KEY: "fw_secret",
         LLAMA_ARG_CTX_SIZE: "262144",
         LLAMA_ARG_FIT_TARGET: "0",
         LLAMA_ARG_SPEC_TYPE: "draft-mtp",
@@ -781,9 +785,98 @@ describe("llama.cpp runtime", () => {
 
     await runtime.ensureServing(model, fit, hardware)
 
-    expect(childEnv).toMatchObject({ PATH: "/usr/bin", LLAMA_CACHE: join(directory, "models") })
-    expect(Object.keys(childEnv ?? {}).some((name) => name.startsWith("LLAMA_ARG_"))).toBe(false)
+    expect(childEnv).toEqual({
+      PATH: "/usr/bin",
+      DYLD_LIBRARY_PATH: "/opt/metal/lib",
+      MTL_DEBUG_LAYER: "0",
+      LLAMA_CACHE: join(directory, "models"),
+    })
     await runtime.stop()
+  })
+
+  it("reaps a recorded llama-server left by a crashed Otis before starting another", async () => {
+    const { runtime, model, fit, children, directory, signals, alive } = await orphanSetup({
+      ownerPid: 999_999,
+      command: `${process.execPath} --model weights.gguf --port 18701`,
+    })
+
+    await runtime.ensureServing(model, fit, hardware)
+
+    expect(signals).toEqual([[4242, "SIGTERM"]])
+    expect(alive.has(4242)).toBe(false)
+    expect(JSON.parse(await readFile(join(directory, "server.json"), "utf8"))).toMatchObject({
+      pid: children[0]?.pid,
+      ownerPid: process.pid,
+      port: 18765,
+      binaryPath: process.execPath,
+    })
+    await runtime.stop()
+    await expect(stat(join(directory, "server.json"))).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it.each([
+    ["dead", { alivePids: [], command: `${process.execPath} --model weights.gguf` }],
+    ["unrelated", { alivePids: [4242], command: "/usr/bin/python3 train.py" }],
+  ])("ignores and removes a stale server record whose pid is %s", async (_label, setup) => {
+    const { runtime, model, fit, signals, recordBeforeSpawn } = await orphanSetup({
+      ownerPid: 999_999,
+      ...setup,
+    })
+    const serving = await runtime.ensureServing(model, fit, hardware)
+    expect(serving.model).toBe(model.id)
+    expect(signals).toEqual([])
+    expect(recordBeforeSpawn()).toBe("removed")
+    await runtime.stop()
+  })
+
+  it("leaves another running Otis's server alone", async () => {
+    const { runtime, model, fit, signals } = await orphanSetup({
+      ownerPid: 4343,
+      alivePids: [4242, 4343],
+      command: `${process.execPath} --model weights.gguf`,
+    })
+    await runtime.ensureServing(model, fit, hardware)
+    expect(signals).toEqual([])
+    await runtime.stop()
+  })
+
+  it("reports a server that died mid-session on the next request until it is reselected", async () => {
+    const generation = vi.fn(async () => generationResponse())
+    const { runtime, model, fit, children } = await generationRuntimeSetup(
+      generation as unknown as typeof fetch,
+    )
+    const serving = await runtime.ensureServing(model, fit, hardware)
+    const requests = vi.fn(async () => generationResponse())
+    const client = new LlamaCppClient({
+      model: model.id,
+      inferenceURL: serving.inferenceURL,
+      assertServing: () => runtime.assertServing(),
+      fetch: requests as unknown as typeof fetch,
+    })
+    const request = { messages: [{ role: "user" as const, content: "hi" }] }
+    await client.streamChat(request).next()
+    expect(requests).toHaveBeenCalledOnce()
+
+    const child = children[0]
+    if (!child) throw new Error("Missing server process")
+    child.stderr.emit("data", `${"x".repeat(3_000)}\nggml_metal: failed to allocate buffer\n`)
+    child.signalCode = "SIGKILL"
+    child.emit("exit", null, "SIGKILL")
+    const failure = expect(client.streamChat(request).next()).rejects
+    await failure.toThrow("The local model server exited unexpectedly (signal SIGKILL).")
+    await failure.toThrow("ggml_metal: failed to allocate buffer")
+    await failure.toThrow("Reselect the model to restart it.")
+    await expect(client.countTokens(request)).rejects.toThrow("Reselect the model")
+    expect(requests).toHaveBeenCalledOnce()
+
+    const restarted = await runtime.ensureServing(model, fit, hardware)
+    expect(children).toHaveLength(2)
+    expect(restarted.inferenceURL).toBe(serving.inferenceURL)
+    expect(() => runtime.assertServing()).not.toThrow()
+    await client.streamChat(request).next()
+    expect(requests).toHaveBeenCalledTimes(2)
+    await runtime.stop()
+    expect(() => runtime.assertServing()).not.toThrow()
   })
 
   it("marks a model ready only after generation finishes and probes each process once", async () => {
@@ -808,7 +901,8 @@ describe("llama.cpp runtime", () => {
     expect(request).toHaveBeenCalledOnce()
     expect(children).toHaveLength(1)
     expect(serving.contextLength).toBe(65_536)
-    expect(children[0]?.listenerCount("exit")).toBe(0)
+    // Only the lifetime listener that notices a mid-session exit remains after startup.
+    expect(children[0]?.listenerCount("exit")).toBe(1)
     await runtime.stop()
   })
 
@@ -902,7 +996,7 @@ describe("llama.cpp runtime", () => {
     expect(children[0]?.exitCode).toBe(0)
   })
 
-  it("sends only a bounded startup prompt to the new server", async () => {
+  it("sends only a bounded, minimally reasoned startup prompt to the new server", async () => {
     const request = vi.fn(async () => generationResponse())
     const { runtime, model, fit } = await generationRuntimeSetup(request as unknown as typeof fetch)
     await runtime.ensureServing(model, fit, hardware)
@@ -913,9 +1007,69 @@ describe("llama.cpp runtime", () => {
       model: model.id,
       messages: [{ role: "user", content: "Say hello." }],
       stream: true,
-      max_tokens: 32,
+      max_tokens: 8,
+      reasoning_effort: "low",
     })
     expect(request).toHaveBeenCalledOnce()
+    await runtime.stop()
+  })
+
+  it("turns thinking off for the startup probe when the model's template allows it", async () => {
+    const model = findLocalModel("Qwen/Qwen3.8-27B")
+    if (!model) throw new Error("missing catalog entry")
+    const directory = await tempDir()
+    await cacheWeights(model, directory)
+    const bodies: Record<string, unknown>[] = []
+    const runtime = new LlamaCppRuntime({
+      env: { OTIS_LLAMA_SERVER: process.execPath },
+      dataDirectory: directory,
+      allocatePort: async () => 18766,
+      spawn: (() => fakeChild()) as unknown as LlamaCppRuntimeOptions["spawn"],
+      fetch: (async (input, init) => {
+        if (String(input).endsWith("/props")) return runtimeProperties(65_536)
+        if (String(input).endsWith("/v1/chat/completions")) {
+          bodies.push(JSON.parse(String(init?.body)))
+          return generationResponse()
+        }
+        return new Response("ok")
+      }) as typeof fetch,
+    })
+    await runtime.ensureServing(model, fitLocalModel(model, hardware), hardware)
+    expect(bodies).toEqual([
+      expect.objectContaining({
+        max_tokens: 8,
+        chat_template_kwargs: { enable_thinking: false },
+      }),
+    ])
+    expect(bodies[0]).not.toHaveProperty("reasoning_effort")
+    await runtime.stop()
+  })
+
+  it.each([
+    ["GPU", hardware, false, 120_000],
+    ["CPU offload", hardware, true, 600_000],
+    [
+      "CPU",
+      {
+        ...hardware,
+        platform: "linux",
+        arch: "x64",
+        backend: "cpu",
+        unifiedMemory: false,
+        gpuCount: 0,
+        gpuMemoryBytes: undefined,
+      },
+      false,
+      600_000,
+    ],
+  ] as const)("gives the generation probe on %s its deadline", async (_label, hardware, offload, deadline) => {
+    const timeout = vi.spyOn(AbortSignal, "timeout")
+    const request = vi.fn(async () => generationResponse())
+    const { runtime, model } = await generationRuntimeSetup(request as unknown as typeof fetch)
+    const fit = { ...fitLocalModel(model, hardware), requiresCpuOffload: offload }
+    await runtime.ensureServing(model, fit, hardware)
+    expect(timeout).toHaveBeenCalledWith(deadline)
+    expect(timeout).not.toHaveBeenCalledWith(deadline === 120_000 ? 600_000 : 120_000)
     await runtime.stop()
   })
 
@@ -1319,9 +1473,133 @@ describe("CUDA runtime bundles", () => {
       }) as LlamaCppRuntimeOptions["spawn"],
     })
     await runtime.ensureServing(setup.model, setup.fit, setup.hardware)
-    expect(childEnv).toMatchObject(env)
+    const { OTIS_LLAMA_SERVER: _server, ...loaderSettings } = env
+    expect(childEnv).toMatchObject(loaderSettings)
+    expect(childEnv).not.toHaveProperty("OTIS_LLAMA_SERVER")
     expect(listDevices).not.toHaveBeenCalled()
     expect(setup.downloads).toEqual([])
+    await runtime.stop()
+  })
+
+  it("forwards only loader, GPU, locale, and display settings to the server and its probe", async () => {
+    const setup = await cudaRuntimeSetup()
+    const parent = Object.freeze({
+      PATH: "/usr/bin",
+      HOME: "/home/otis",
+      TMPDIR: "/tmp",
+      LANG: "en_US.UTF-8",
+      LC_ALL: "C",
+      LD_LIBRARY_PATH: "/opt/nvidia/lib",
+      CUDA_VISIBLE_DEVICES: "0",
+      NVIDIA_VISIBLE_DEVICES: "all",
+      GGML_VK_VISIBLE_DEVICES: "0",
+      VK_ICD_FILENAMES: "/etc/vulkan/icd.d/nvidia_icd.json",
+      DISPLAY: ":0",
+      WAYLAND_DISPLAY: "wayland-0",
+      XDG_RUNTIME_DIR: "/run/user/1000",
+      XDG_DATA_HOME: "/home/otis/.local/share",
+      HF_TOKEN: "hf_secret",
+      HUGGING_FACE_HUB_TOKEN: "hf_secret",
+      FIREWORKS_API_KEY: "fw_secret",
+      OMLX_API_KEY: "omlx_secret",
+      AWS_SECRET_ACCESS_KEY: "aws_secret",
+      SSH_AUTH_SOCK: "/tmp/ssh-agent.sock",
+      DYLD_LIBRARY_PATH: "/opt/mac/lib",
+    })
+    const environments: NodeJS.ProcessEnv[] = []
+    const listDevices = setup.options.listDevices as NonNullable<
+      LlamaCppRuntimeOptions["listDevices"]
+    >
+    const runtime = new LlamaCppRuntime({
+      ...setup.options,
+      env: parent,
+      listDevices: async (path, env, signal) => {
+        environments.push(env)
+        return await listDevices(path, env, signal)
+      },
+      spawn: ((_command, _args, options) => {
+        environments.push(options?.env ?? {})
+        return fakeChild()
+      }) as LlamaCppRuntimeOptions["spawn"],
+    })
+    await runtime.ensureServing(setup.model, setup.fit, setup.hardware)
+    expect(environments).toHaveLength(2)
+    for (const env of environments) {
+      expect(env).toEqual({
+        PATH: "/usr/bin",
+        HOME: "/home/otis",
+        TMPDIR: "/tmp",
+        LANG: "en_US.UTF-8",
+        LC_ALL: "C",
+        LD_LIBRARY_PATH: `${setup.cudaDir}:/opt/nvidia/lib`,
+        CUDA_VISIBLE_DEVICES: "0",
+        NVIDIA_VISIBLE_DEVICES: "all",
+        GGML_VK_VISIBLE_DEVICES: "0",
+        VK_ICD_FILENAMES: "/etc/vulkan/icd.d/nvidia_icd.json",
+        DISPLAY: ":0",
+        WAYLAND_DISPLAY: "wayland-0",
+        XDG_RUNTIME_DIR: "/run/user/1000",
+        XDG_DATA_HOME: "/home/otis/.local/share",
+        LLAMA_CACHE: join(setup.directory, "models"),
+      })
+    }
+    await runtime.stop()
+  })
+
+  it("retries once on a fresh port when llama-server cannot bind, without a backend retry", async () => {
+    const setup = await cudaRuntimeSetup()
+    const ports = [18775, 18776, 18777]
+    const spawnedPorts: string[] = []
+    const runtime = new LlamaCppRuntime({
+      ...setup.options,
+      allocatePort: async () => {
+        const port = ports.shift()
+        if (!port) throw new Error("port allocation exhausted")
+        return port
+      },
+      spawn: ((_command: string, args: readonly string[]) => {
+        const child = fakeChild()
+        const port = String(args[args.indexOf("--port") + 1])
+        spawnedPorts.push(port)
+        if (spawnedPorts.length === 1)
+          queueMicrotask(() => {
+            child.stderr.emit(
+              "data",
+              `couldn't bind HTTP server socket, hostname: 127.0.0.1, port: ${port}`,
+            )
+            child.exitCode = 1
+            child.emit("exit", 1)
+          })
+        return child
+      }) as LlamaCppRuntimeOptions["spawn"],
+    })
+    const serving = await runtime.ensureServing(setup.model, setup.fit, setup.hardware)
+    expect(spawnedPorts).toEqual(["18775", "18776"])
+    expect(serving.inferenceURL).toBe("http://127.0.0.1:18776/v1/chat/completions")
+    expect(setup.downloads).toHaveLength(2)
+    await runtime.stop()
+  })
+
+  it("reports a bind failure that repeats on the second port", async () => {
+    const setup = await cudaRuntimeSetup()
+    const spawnRuntime = vi.fn(() => {
+      const child = fakeChild()
+      queueMicrotask(() => {
+        child.stderr.emit("data", "failed to bind to address 127.0.0.1")
+        child.exitCode = 1
+        child.emit("exit", 1)
+      })
+      return child
+    })
+    const runtime = new LlamaCppRuntime({
+      ...setup.options,
+      spawn: spawnRuntime as unknown as LlamaCppRuntimeOptions["spawn"],
+    })
+    await expect(runtime.ensureServing(setup.model, setup.fit, setup.hardware)).rejects.toThrow(
+      "failed to bind to address 127.0.0.1",
+    )
+    expect(spawnRuntime).toHaveBeenCalledTimes(2)
+    expect(setup.downloads).toHaveLength(2)
     await runtime.stop()
   })
 
@@ -1335,6 +1613,7 @@ describe("CUDA runtime bundles", () => {
     setup.options.env = { LD_LIBRARY_PATH: "/opt/cuda-other/lib:/usr/lib/wsl/lib" }
     const children: ReturnType<typeof fakeChild>[] = []
     const paths: string[] = []
+    const notices: string[] = []
     const runtime = new LlamaCppRuntime({
       ...setup.options,
       spawn: ((command, args, options) => {
@@ -1356,7 +1635,10 @@ describe("CUDA runtime bundles", () => {
         return child
       }) as LlamaCppRuntimeOptions["spawn"],
     })
-    await runtime.ensureServing(setup.model, setup.fit, setup.hardware)
+    await runtime.ensureServing(setup.model, setup.fit, setup.hardware, {
+      onNotice: (message) => notices.push(message),
+    })
+    expect(notices).toEqual([`CUDA failed (${diagnostic}); running on Vulkan.`])
     expect(paths).toEqual([
       join(setup.cudaDir, "llama-server"),
       join(setup.directory, "bin", LLAMA_CPP_RELEASE_TAG, "llama-server"),
@@ -1375,7 +1657,6 @@ describe("CUDA runtime bundles", () => {
   it.each([
     "ggml_cuda_init: found 1 CUDA devices\nerror loading model: invalid GGUF tensor",
     "std::bad_alloc",
-    "failed to bind to address 127.0.0.1",
   ])("preserves unrelated startup errors without a backend retry: %s", async (diagnostic) => {
     const setup = await cudaRuntimeSetup()
     const spawnRuntime = vi.fn(() => {
@@ -1399,27 +1680,78 @@ describe("CUDA runtime bundles", () => {
     await runtime.stop()
   })
 
-  it("stops after one retry if Vulkan also fails during model loading", async () => {
+  it("falls back to the CPU bundle when Vulkan also fails during model loading", async () => {
     const setup = await cudaRuntimeSetup()
-    let launches = 0
+    const diagnostics = ["CUDA error: initialization error", "ggml_vulkan: device lost"]
+    const notices: string[] = []
     const runtime = new LlamaCppRuntime({
       ...setup.options,
-      spawn: (() => {
+      runtimeAsset: cpuAwareRuntimeAsset(setup),
+      spawn: ((command: string) => {
         const child = fakeChild()
-        const diagnostic =
-          ++launches === 1 ? "CUDA error: initialization error" : "Vulkan device lost"
+        setup.commands.push(command)
+        const diagnostic = diagnostics.shift()
+        if (diagnostic)
+          queueMicrotask(() => {
+            child.stderr.emit("data", diagnostic)
+            child.exitCode = 1
+            child.emit("exit", 1)
+          })
+        return child
+      }) as unknown as LlamaCppRuntimeOptions["spawn"],
+    })
+    const serving = await runtime.ensureServing(setup.model, setup.fit, setup.hardware, {
+      onNotice: (message) => notices.push(message),
+    })
+    expect(serving.model).toBe(setup.model.id)
+    expect(setup.commands).toEqual([
+      join(setup.cudaDir, "llama-server"),
+      join(setup.directory, "bin", LLAMA_CPP_RELEASE_TAG, "llama-server"),
+      join(setup.directory, "bin", `${LLAMA_CPP_RELEASE_TAG}-cpu`, "llama-server"),
+    ])
+    expect(notices).toEqual([
+      "CUDA failed (CUDA error: initialization error); running on Vulkan.",
+      "CUDA failed (CUDA error: initialization error) and Vulkan failed " +
+        "(ggml_vulkan: device lost); running on CPU.",
+    ])
+    // The CPU bundle stays beside the GPU bundles; the pinned release owns all three.
+    expect((await readdir(join(setup.directory, "bin"))).sort()).toEqual([
+      LLAMA_CPP_RELEASE_TAG,
+      `${LLAMA_CPP_RELEASE_TAG}-cpu`,
+      `${LLAMA_CPP_RELEASE_TAG}-cuda-13.3`,
+    ])
+    // Reuse the live CPU process under the original hardware selection.
+    expect(await runtime.ensureServing(setup.model, setup.fit, setup.hardware)).toBe(serving)
+    expect(setup.commands).toHaveLength(3)
+    await runtime.stop()
+  })
+
+  it("keeps an unrelated Vulkan load failure, carrying the CUDA cause, without a CPU retry", async () => {
+    const setup = await cudaRuntimeSetup()
+    const diagnostics = [
+      "CUDA error: initialization error",
+      "error loading model: invalid GGUF tensor",
+    ]
+    const runtime = new LlamaCppRuntime({
+      ...setup.options,
+      runtimeAsset: cpuAwareRuntimeAsset(setup),
+      spawn: ((command: string) => {
+        const child = fakeChild()
+        setup.commands.push(command)
+        const diagnostic = diagnostics.shift()
         queueMicrotask(() => {
-          child.stderr.emit("data", diagnostic)
+          child.stderr.emit("data", diagnostic ?? "unexpected launch")
           child.exitCode = 1
           child.emit("exit", 1)
         })
         return child
       }) as unknown as LlamaCppRuntimeOptions["spawn"],
     })
-    await expect(runtime.ensureServing(setup.model, setup.fit, setup.hardware)).rejects.toThrow(
-      "Vulkan device lost",
-    )
-    expect(launches).toBe(2)
+    const failure = expect(runtime.ensureServing(setup.model, setup.fit, setup.hardware)).rejects
+    await failure.toThrow("error loading model: invalid GGUF tensor")
+    await failure.toThrow("Earlier: CUDA failed (CUDA error: initialization error).")
+    expect(setup.commands).toHaveLength(2)
+    expect(setup.downloads).not.toContain("https://runtime.test/cpu")
     expect(runtime.serving).toBeUndefined()
     await runtime.stop()
   })
@@ -1487,21 +1819,64 @@ describe("CUDA runtime bundles", () => {
   })
 
   it.each([
-    "Available devices:\n  (none)",
-    "Available devices:\n  CUDA0: NVIDIA RTX",
-  ])("refuses an unusable Vulkan fallback instead of silently selecting CPU: %s", async (output) => {
+    ["Available devices:\n  (none)", "no Vulkan device was reported"],
+    ["Available devices:\n  CUDA0: NVIDIA RTX", "no Vulkan device was reported"],
+    [new Error("libvulkan.so.1: cannot open shared object file"), "libvulkan.so.1: cannot open"],
+  ])("runs on the CPU bundle, saying why, when neither CUDA nor Vulkan reports a device: %s", async (vulkanProbe, cause) => {
     const setup = await cudaRuntimeSetup()
     const old = await installFakeBinary(setup.directory, "b10964")
+    const notices: string[] = []
     const runtime = new LlamaCppRuntime({
       ...setup.options,
-      listDevices: async (path) =>
-        path.includes("-cuda-") ? "Available devices:\n  (none)" : output,
+      runtimeAsset: cpuAwareRuntimeAsset(setup),
+      listDevices: async (path) => {
+        if (path.includes("-cuda-")) return "Available devices:\n  (none)"
+        if (vulkanProbe instanceof Error) throw vulkanProbe
+        return vulkanProbe
+      },
+      spawn: ((_command, args) => {
+        expect(args).not.toContain("--device")
+        setup.commands.push(String(_command))
+        return fakeChild()
+      }) as LlamaCppRuntimeOptions["spawn"],
     })
-    await expect(runtime.ensureServing(setup.model, setup.fit, setup.hardware)).rejects.toThrow(
-      "Vulkan GPU acceleration is unavailable",
-    )
-    expect(setup.commands).toEqual([])
-    expect(await readFile(old, "utf8")).toBe("server")
+    await runtime.ensureServing(setup.model, setup.fit, setup.hardware, {
+      onNotice: (message) => notices.push(message),
+    })
+    expect(setup.commands).toEqual([
+      join(setup.directory, "bin", `${LLAMA_CPP_RELEASE_TAG}-cpu`, "llama-server"),
+    ])
+    expect(notices).toHaveLength(1)
+    expect(notices[0]).toMatch(/^CUDA failed \(no CUDA device was reported\) and Vulkan failed \(/)
+    expect(notices[0]).toContain(cause)
+    expect(notices[0]).toMatch(/; running on CPU\.$/)
+    expect(setup.downloads).toEqual([
+      "https://runtime.test/cuda",
+      "https://runtime.test/cudart",
+      "https://runtime.test/vulkan",
+      "https://runtime.test/cpu",
+    ])
+    await expect(stat(old)).rejects.toMatchObject({ code: "ENOENT" })
+    await runtime.stop()
+  })
+
+  it("notices a CUDA probe failure with its cause when Vulkan takes over", async () => {
+    const setup = await cudaRuntimeSetup()
+    const notices: string[] = []
+    setup.options.listDevices = async (path) => {
+      if (path.includes("-cuda-")) throw new Error("libcuda.so.1: cannot open shared object file")
+      return "Available devices:\n  Vulkan0: NVIDIA RTX"
+    }
+    const runtime = new LlamaCppRuntime(setup.options)
+    await runtime.ensureServing(setup.model, setup.fit, setup.hardware, {
+      onNotice: (message) => notices.push(message),
+    })
+    expect(notices).toEqual([
+      "CUDA failed (libcuda.so.1: cannot open shared object file); running on Vulkan.",
+    ])
+    expect(setup.commands).toEqual([
+      join(setup.directory, "bin", LLAMA_CPP_RELEASE_TAG, "llama-server"),
+    ])
     await runtime.stop()
   })
 
@@ -1887,6 +2262,62 @@ async function cudaRuntimeSetup(
   }
 }
 
+/** Also pins a Linux CPU archive, so the CUDA -> Vulkan -> CPU chain can finish. */
+function cpuAwareRuntimeAsset(
+  setup: Awaited<ReturnType<typeof cudaRuntimeSetup>>,
+): NonNullable<LlamaCppRuntimeOptions["runtimeAsset"]> {
+  const asset = setup.options.runtimeAsset
+  if (!asset) throw new Error("missing fake runtime asset")
+  return (target, runtime) =>
+    target.backend === "cpu"
+      ? {
+          name: "cpu",
+          url: "https://runtime.test/cpu",
+          size: 3,
+          sha256: createHash("sha256").update("cpu").digest("hex"),
+        }
+      : asset(target, runtime)
+}
+
+/** A model start with a recorded server from an earlier process, plus fake pid controls. */
+async function orphanSetup(record: {
+  ownerPid: number
+  command: string
+  alivePids?: readonly number[]
+}) {
+  const alive = new Set(record.alivePids ?? [4242])
+  const signals: Array<[number, NodeJS.Signals | 0]> = []
+  const esrch = () => Object.assign(new Error("kill ESRCH"), { code: "ESRCH" })
+  let recordBeforeSpawn: string | undefined
+  const setup = await generationRuntimeSetup(async () => generationResponse(), {
+    signalProcess: (pid, signal) => {
+      if (!alive.has(pid)) throw esrch()
+      if (signal === 0) return
+      signals.push([pid, signal])
+      alive.delete(pid)
+    },
+    processCommand: async (pid) => (alive.has(pid) && pid === 4242 ? record.command : ""),
+    // Port allocation runs after the stale record is handled and before the new one is written.
+    allocatePort: async () => {
+      recordBeforeSpawn = await readFile(join(setup.directory, "server.json"), "utf8").catch(
+        () => "removed",
+      )
+      return 18765
+    },
+  })
+  await writeFile(
+    join(setup.directory, "server.json"),
+    JSON.stringify({
+      pid: 4242,
+      ownerPid: record.ownerPid,
+      port: 18701,
+      binaryPath: process.execPath,
+      startedAt: new Date(0).toISOString(),
+    }),
+  )
+  return { ...setup, signals, alive, recordBeforeSpawn: () => recordBeforeSpawn }
+}
+
 async function tempDir() {
   const path = await mkdtemp(join(tmpdir(), "otis-llama-"))
   tempDirectories.push(path)
@@ -1908,6 +2339,7 @@ async function generationRuntimeSetup(
     allocatePort: async () => 18765,
     spawn: (() => {
       const child = fakeChild()
+      child.pid = 700 + children.length
       children.push(child)
       return child
     }) as unknown as LlamaCppRuntimeOptions["spawn"],
@@ -1935,6 +2367,7 @@ function fakeChild() {
   const child = new EventEmitter() as EventEmitter & {
     stdout: EventEmitter
     stderr: EventEmitter
+    pid?: number
     exitCode: number | null
     signalCode: NodeJS.Signals | null
     kill: (signal?: string) => boolean

@@ -245,6 +245,53 @@ describe("FireworksClient", () => {
   })
 
   it.each([
+    "accounts/fireworks/models/deepseek-v4",
+    "accounts/fireworks/models/gpt-oss-120b",
+  ])("sends the lowest documented effort for a minimal-reasoning %s request", async (model) => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      sseResponse([]),
+    )
+    const client = new FireworksClient({
+      apiKey: "fw_test_key",
+      model,
+      fetch: fetchMock as typeof fetch,
+      inferenceURL: "http://localhost/v1/chat/completions",
+    })
+
+    await collect(
+      client.streamChat({
+        messages: [{ role: "user", content: "summarize" }],
+        minimalReasoning: true,
+      }),
+    )
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body))
+    expect(body.reasoning_effort).toBe("low")
+  })
+
+  it("keeps the provider default for a minimal-reasoning request without documented efforts", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      sseResponse([]),
+    )
+    const client = new FireworksClient({
+      apiKey: "fw_test_key",
+      model: "accounts/fireworks/models/kimi-k2-thinking",
+      fetch: fetchMock as typeof fetch,
+      inferenceURL: "http://localhost/v1/chat/completions",
+    })
+
+    await collect(
+      client.streamChat({
+        messages: [{ role: "user", content: "summarize" }],
+        minimalReasoning: true,
+      }),
+    )
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body))
+    expect(body).not.toHaveProperty("reasoning_effort")
+  })
+
+  it.each([
     "accounts/fireworks/models/kimi-k2-thinking",
     "accounts/fireworks/models/llama-v3p1-70b-instruct",
     "accounts/fireworks/models/qwen3-no-thinking",

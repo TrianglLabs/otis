@@ -242,6 +242,7 @@ vi.mock("../../../src/skills/index.js", () => ({
 vi.mock("../../../src/inference/client.js", () => ({
   FireworksClient: mocks.FireworksClient,
   listToolCapableModels: mocks.listToolCapableModels,
+  fireworksReasoningEffort: () => undefined,
 }))
 vi.mock("../../../src/inference/pair.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../../src/inference/pair.js")>()

@@ -41,6 +41,9 @@ export type LocalPickerChoice = LocalCatalogModel & {
    */
   hasDownloadedPacking: boolean
   downloaded: boolean
+  /** Some layers run on the CPU because the model exceeds the GPU budget at 64K. */
+  cpuOffload: boolean
+  /** Size of the selected packing's GGUF files, cached or not. */
   status?: ModelPickerStatus
   active: boolean
 }
@@ -97,9 +100,11 @@ type ListModelPickerOptions = {
   signal?: AbortSignal
 }
 
-// Curated preference order, not a ranking inferred from parameter count or file size.
+type PreferenceGroups = readonly (readonly string[])[]
+
+// Curated preference orders, not rankings inferred from parameter count or file size.
 // Peers in a group are offered together; an unavailable group falls back to the next.
-const RECOMMENDATION_GROUPS: readonly (readonly string[])[] = [
+const GPU_RECOMMENDATION_GROUPS: PreferenceGroups = [
   ["zai-org/GLM-5.3"],
   ["Qwen/Qwen3.8-Flash-Next"],
   ["Qwen/Qwen3.8-27B"],
@@ -107,24 +112,40 @@ const RECOMMENDATION_GROUPS: readonly (readonly string[])[] = [
   ["ornith-ai/Ornith-1.5-9B", "google/gemma-4-12B-it"],
   ["LiquidAI/LFM2.5-2.6B"],
 ]
+// Host memory bandwidth bounds generation without a GPU that holds the model: prefer mixtures of
+// experts with few active parameters and small dense models over 27B-class dense weights.
+const CPU_RECOMMENDATION_GROUPS: PreferenceGroups = [
+  ["Qwen/Qwen3.8-Flash-Next"],
+  ["openai/gpt-oss-20b", "google/gemma-4-26B-A4B-it"],
+  ["ornith-ai/Ornith-1.5-9B", "google/gemma-4-12B-it"],
+  ["LiquidAI/LFM2.5-2.6B"],
+]
 
-function recommendedLocalModelIds(hardware: HardwareProbe): readonly string[] {
-  const total = hardware.totalMemoryBytes
-  if (!supportsLlamaCppTarget(hardware) || !Number.isFinite(total) || total <= 0) return []
-  // Unknown VRAM cannot establish GPU residency. Use host fit in that case,
-  // just as for CPU inference; this is not a promise of GPU acceleration.
+function recommendLocalModels(hardware: HardwareProbe) {
   const gpu = inferenceMemoryBudget(hardware).gpuMemoryBudgetBytes
-  if (gpu !== undefined && (!Number.isFinite(gpu) || gpu <= 0)) return []
-  for (const group of RECOMMENDATION_GROUPS) {
-    const fitting = group.filter((id) => {
-      const model = findLocalModel(id)
-      if (!model) return false
-      const fit = fitLocalModel(model, hardware)
-      return fit.available && !fit.requiresCpuOffload
-    })
-    if (fitting.length > 0) return fitting
+  // A GPU that holds a whole model wins. Otherwise the host-bandwidth order applies, whether the
+  // GPU is small, unreported, or absent, and the starred model may spill layers to the CPU.
+  const plans: readonly [PreferenceGroups, boolean][] =
+    gpu !== undefined && gpu > 0
+      ? [
+          [GPU_RECOMMENDATION_GROUPS, false],
+          [CPU_RECOMMENDATION_GROUPS, true],
+        ]
+      : [[CPU_RECOMMENDATION_GROUPS, true]]
+  if (supportsLlamaCppTarget(hardware)) {
+    for (const [groups, allowOffload] of plans) {
+      for (const group of groups) {
+        const fitting = group.filter((id) => {
+          const model = findLocalModel(id)
+          if (!model) return false
+          const fit = fitLocalModel(model, hardware)
+          return fit.available && (allowOffload || !fit.requiresCpuOffload)
+        })
+        if (fitting.length > 0) return { starred: fitting, groups }
+      }
+    }
   }
-  return []
+  return { starred: [] as readonly string[], groups: plans[0][0] }
 }
 
 export async function listModelPickerItems(
@@ -142,7 +163,15 @@ export async function listModelPickerItems(
   const unsupported = supportsLlamaCppTarget(hardware)
     ? undefined
     : unsupportedLlamaCppTargetMessage(hardware)
-  const recommendedModelIds = new Set(recommendedLocalModelIds(hardware))
+  const { starred, groups } = recommendLocalModels(hardware)
+  const recommendedModelIds = new Set(starred)
+  // Starred rows first, then the preference order, so the first selectable row is the fallback
+  // when nothing is starred; models outside the order keep their catalog position after them.
+  const preference = (id: string) => {
+    if (recommendedModelIds.has(id)) return -1
+    const index = groups.findIndex((group) => group.includes(id))
+    return index < 0 ? groups.length : index
+  }
   const status = (key: string) =>
     options.loadStatus?.modelId === key ? { status: options.loadStatus.status } : {}
   const localItems = (
@@ -170,9 +199,8 @@ export async function listModelPickerItems(
         } else if (!fit.available)
           availabilityLabel = `Needs ${formatMemoryLabel(fit.memoryRequiredBytes)}`
         else {
-          const offload = fit.requiresCpuOffload ? " · Uses system RAM" : ""
           const cost = formatMemoryLabel(fit.memoryRequiredBytes)
-          availabilityLabel = `Est. ${formatContextWindow(fit.contextLength)} · ${selected.quant} · ${cost}${offload}`
+          availabilityLabel = `Est. ${formatContextWindow(fit.contextLength)} · ${selected.quant} · ${cost}`
         }
         return {
           kind: "model",
@@ -188,13 +216,16 @@ export async function listModelPickerItems(
           ...(loaded === undefined ? {} : { loadedContextLength: loaded }),
           downloaded,
           hasDownloadedPacking,
+          cpuOffload: fit.available && fit.requiresCpuOffload,
           status:
             options.loadStatus?.modelId === selected.id ? options.loadStatus.status : undefined,
           active: currentLocalModel === selected.id,
         }
       }),
     )
-  ).filter((item) => item !== undefined)
+  )
+    .filter((item) => item !== undefined)
+    .sort((a, b) => preference(a.id) - preference(b.id))
 
   let fireworks: readonly FireworksModel[] = []
   if (options.fireworksApiKey) {

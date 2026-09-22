@@ -195,7 +195,7 @@ export class JsonlSession {
   }
 
   title() {
-    return sessionTitle(this.events, this.replayMessages())
+    return sessionTitle(this.events)
   }
 
   /** Appends one event with the next sequence number; concurrent appends write in call order. */
@@ -284,11 +284,10 @@ export async function listSessions(
       assertSessionId(id)
       const filePath = join(directory, fileName)
       const events = await readSessionEvents(filePath)
-      const messages = replaySessionMessages(events)
       summaries.push({
         id,
-        title: sessionTitle(events, messages),
-        messageCount: messages.length,
+        title: sessionTitle(events),
+        messageCount: replaySessionMessages(events).length,
         updatedAt: events.at(-1)?.at ?? new Date(0).toISOString(),
         mtimeMs: (await stat(filePath)).mtimeMs,
       })
@@ -393,15 +392,20 @@ function byRecency(left: SessionSummary, right: SessionSummary) {
   return Date.parse(right.updatedAt) - Date.parse(left.updatedAt) || right.mtimeMs - left.mtimeMs
 }
 
-function sessionTitle(events: readonly SessionEvent[], messages: readonly ChatMessage[]) {
+/** Falls back to the first prompt in model history, or in scrollback when none was answered. */
+function sessionTitle(events: readonly SessionEvent[]) {
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index]
     if (event.type === "title_renamed") return event.title
   }
-  const firstUser = messages.find(
-    (message): message is UserChatMessage =>
-      message.role === "user" && !isCompactionSummary(message),
-  )
+  const firstPrompt = (messages: readonly ChatMessage[]) =>
+    messages.find(
+      (message): message is UserChatMessage =>
+        message.role === "user" && !isCompactionSummary(message),
+    )
+  const firstUser =
+    firstPrompt(replaySessionMessages(events)) ??
+    firstPrompt(replaySessionTranscript(events).messages)
   if (!firstUser) return "Current session"
   const text = (userMessageText(firstUser) || summarizeUserMessage(firstUser))
     .trim()

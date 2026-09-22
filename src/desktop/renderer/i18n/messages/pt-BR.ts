@@ -90,6 +90,7 @@ export const ptBR: Messages = {
   "models.hosted": "Hospedado",
   "models.noModels": "Não há modelos disponíveis.",
   "models.downloadingWhenSelected": "Baixa ao selecionar",
+  "models.partlyOnCpu": "Executa parcialmente na CPU",
   "models.delete": "Excluir modelo baixado",
   "models.deleteConfirm": "Excluir este modelo?",
   "models.deletingName": "Excluindo {{name}}…",

@@ -16,6 +16,8 @@ import type {
   InferenceClient,
   StreamChatOptions,
   ToolDefinition,
+  UserChatMessage,
+  UserContentPart,
 } from "./types.js"
 
 export function openaiChatCompletionRequest(
@@ -185,6 +187,8 @@ export function hasObjectArguments(argumentsJSON: string): boolean {
  * A request-only projection: never mutate the transcript or guess missing tool input.
  * Keep call IDs and matching results, but replace malformed arguments with a valid
  * empty object and an explicit failure result. This also recovers older saved sessions.
+ * Adjacent user messages (a compaction summary before the kept prompt, drained steering)
+ * become one message, because strict chat templates reject non-alternating roles.
  */
 export function toolCallHistoryForRequest(messages: readonly ChatMessage[]): ChatMessage[] {
   const result: ChatMessage[] = []
@@ -198,6 +202,7 @@ export function toolCallHistoryForRequest(messages: readonly ChatMessage[]): Cha
   }
   for (const message of messages) {
     if (message.role !== "tool") finishBatch()
+    const previous = result.at(-1)
     if (message.role === "assistant") {
       const content = message.content.map((part) => {
         if (part.type !== "tool_call" || hasObjectArguments(part.toolCall.arguments)) return part
@@ -209,10 +214,35 @@ export function toolCallHistoryForRequest(messages: readonly ChatMessage[]): Cha
     } else if (message.role === "tool" && invalid.has(message.toolCallId)) {
       missing.delete(message.toolCallId)
       result.push({ ...message, content: INVALID_TOOL_ARGUMENTS_RESULT })
+    } else if (message.role === "user" && previous?.role === "user") {
+      result[result.length - 1] = mergeUserMessages(previous, message)
     } else result.push(message)
   }
   finishBatch()
   return result
+}
+
+function mergeUserMessages(first: UserChatMessage, second: UserChatMessage): UserChatMessage {
+  if (typeof first.content === "string" && typeof second.content === "string")
+    return { role: "user", content: `${first.content}\n\n${second.content}` }
+  const parts = (message: UserChatMessage): UserContentPart[] =>
+    typeof message.content === "string"
+      ? [{ type: "text", text: message.content }]
+      : message.content
+  const left = parts(first)
+  const right = parts(second)
+  const last = left.at(-1)
+  const next = right[0]
+  if (last?.type !== "text" || next?.type !== "text")
+    return { role: "user", content: [...left, ...right] }
+  return {
+    role: "user",
+    content: [
+      ...left.slice(0, -1),
+      { type: "text", text: `${last.text}\n\n${next.text}` },
+      ...right.slice(1),
+    ],
+  }
 }
 
 type OpenAICompatibleClientConfig = {
@@ -274,6 +304,7 @@ export class OpenAICompatibleClient implements InferenceClient {
     return response
   }
 
+  /** Generic servers expose no reasoning control, so `minimalReasoning` changes nothing here. */
   protected requestBody(options: StreamChatOptions) {
     return openaiChatCompletionRequest(this.model, options)
   }

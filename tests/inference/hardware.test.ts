@@ -39,22 +39,56 @@ describe("hardware detection", () => {
     expect(inferenceMemoryBudget(hardware).deviceHeadroomBytes).toBe(1024 ** 3)
   })
 
-  it("treats Apple Silicon as Metal with unified memory", async () => {
+  it("treats Apple Silicon as Metal with a working set inside unified memory", async () => {
     const hardware = await detectHardware({
       env: { platform: "darwin", arch: "arm64", totalMemoryBytes: 64 * 1024 ** 3 },
       nvidiaSmi: async () => undefined,
+      metalWiredLimitMiB: async () => 0,
     })
     expect(hardware).toMatchObject({
       backend: "metal",
       unifiedMemory: true,
       gpuCount: 1,
-      gpuMemoryBytes: 64 * 1024 ** 3,
+      gpuMemoryBytes: 48 * 1024 ** 3,
     })
-    const budget = inferenceMemoryBudget(hardware)
-    expect(budget.deviceHeadroomBytes).toBe(9_831 * 1024 ** 2)
-    expect(availableModelMemory(hardware)).toBe(
-      hardware.totalMemoryBytes - budget.deviceHeadroomBytes,
-    )
+    // llama.cpp's own per-device margin; the system headroom applies to the host pool only.
+    expect(inferenceMemoryBudget(hardware)).toEqual({
+      deviceHeadroomBytes: 1024 ** 3,
+      gpuMemoryBudgetBytes: 47 * 1024 ** 3,
+    })
+    expect(availableModelMemory(hardware)).toBe(64 * 1024 ** 3 - 9_831 * 1024 ** 2)
+  })
+
+  it.each([
+    [8, 5_726_623_061],
+    [16, 11_453_246_122],
+    [36, 24 * 1024 ** 3],
+    [48, 36 * 1024 ** 3],
+    [192, 144 * 1024 ** 3],
+  ])("models the default Metal working set of a %d GiB Mac as %d bytes", async (ramGiB, bytes) => {
+    const probe = (metalWiredLimitMiB: () => Promise<number | undefined>) =>
+      detectHardware({
+        env: { platform: "darwin", arch: "arm64", totalMemoryBytes: ramGiB * 1024 ** 3 },
+        metalWiredLimitMiB,
+      })
+    expect((await probe(async () => 0)).gpuMemoryBytes).toBe(bytes)
+    expect((await probe(async () => undefined)).gpuMemoryBytes).toBe(bytes)
+    expect(
+      (
+        await probe(async () => {
+          throw new Error("sysctl: unknown oid")
+        })
+      ).gpuMemoryBytes,
+    ).toBe(bytes)
+  })
+
+  it("uses a raised iogpu.wired_limit_mb as the Metal working set", async () => {
+    const hardware = await detectHardware({
+      env: { platform: "darwin", arch: "arm64", totalMemoryBytes: 96 * 1024 ** 3 },
+      metalWiredLimitMiB: async () => 86_016,
+    })
+    expect(hardware.gpuMemoryBytes).toBe(86_016 * 1024 ** 2)
+    expect(inferenceMemoryBudget(hardware).gpuMemoryBudgetBytes).toBe(83 * 1024 ** 3)
   })
 
   it("uses NVIDIA VRAM and Vulkan on Linux", async () => {
@@ -157,6 +191,77 @@ describe("hardware detection", () => {
     expect(hardware).toMatchObject({ backend: "vulkan", gpuCount: 2 })
     expect(hardware.gpuMemoryBytes).toBeUndefined()
     expect(inferenceMemoryBudget(hardware)).toEqual({ deviceHeadroomBytes: 1024 ** 3 })
+  })
+
+  it.each([
+    [
+      "an AMD APU",
+      { driver: "amdgpu", memoryTotalBytes: 512 * 1024 ** 2, gttTotalBytes: 64 * 1024 ** 3 },
+    ],
+    [
+      "Strix Halo",
+      { driver: "amdgpu", memoryTotalBytes: 4 * 1024 ** 3, gttTotalBytes: 96 * 1024 ** 3 },
+    ],
+    ["an Intel iGPU under i915", { driver: "i915" }],
+    ["an Intel iGPU under xe", { driver: "xe" }],
+  ])("treats %s as unified memory budgeted from host RAM", async (_name, device) => {
+    const hardware = await detectHardware({
+      env: { platform: "linux", arch: "x64", totalMemoryBytes: 128 * 1024 ** 3 },
+      nvidiaSmi: async () => undefined,
+      linuxGraphics: async () => [device],
+    })
+    expect(hardware).toMatchObject({
+      backend: "vulkan",
+      unifiedMemory: true,
+      gpuCount: 1,
+      gpuMemoryBytes: 128 * 1024 ** 3,
+    })
+    expect(inferenceMemoryBudget(hardware)).toEqual({
+      deviceHeadroomBytes: 1024 ** 3,
+      gpuMemoryBudgetBytes: 127 * 1024 ** 3,
+    })
+    expect(availableModelMemory(hardware)).toBe(128 * 1024 ** 3 - 13_108 * 1024 ** 2)
+  })
+
+  it.each([
+    [
+      "a discrete AMD card",
+      { driver: "amdgpu", memoryTotalBytes: 16 * 1024 ** 3, gttTotalBytes: 16 * 1024 ** 3 },
+    ],
+    [
+      "a small AMD card without a large GTT",
+      { driver: "amdgpu", memoryTotalBytes: 4 * 1024 ** 3, gttTotalBytes: 4 * 1024 ** 3 },
+    ],
+    ["an Intel Arc card reporting VRAM", { driver: "xe", memoryTotalBytes: 16 * 1024 ** 3 }],
+  ])("keeps %s dedicated", async (_name, device) => {
+    const hardware = await detectHardware({
+      env: { platform: "linux", arch: "x64", totalMemoryBytes: 64 * 1024 ** 3 },
+      nvidiaSmi: async () => undefined,
+      linuxGraphics: async () => [device],
+    })
+    expect(hardware).toMatchObject({
+      backend: "vulkan",
+      unifiedMemory: false,
+      gpuCount: 1,
+      gpuMemoryBytes: device.memoryTotalBytes,
+    })
+  })
+
+  it("budgets a discrete card and ignores the APU beside it", async () => {
+    const hardware = await detectHardware({
+      env: { platform: "linux", arch: "x64", totalMemoryBytes: 64 * 1024 ** 3 },
+      nvidiaSmi: async () => undefined,
+      linuxGraphics: async () => [
+        { driver: "amdgpu", memoryTotalBytes: 512 * 1024 ** 2, gttTotalBytes: 32 * 1024 ** 3 },
+        { driver: "amdgpu", memoryTotalBytes: 24 * 1024 ** 3, gttTotalBytes: 24 * 1024 ** 3 },
+      ],
+    })
+    expect(hardware).toMatchObject({
+      unifiedMemory: false,
+      gpuCount: 1,
+      gpuMemoryBytes: 24 * 1024 ** 3,
+    })
+    expect(inferenceMemoryBudget(hardware).gpuMemoryBudgetBytes).toBe(23 * 1024 ** 3)
   })
 
   it("falls back to CPU when no GPU is reported", async () => {

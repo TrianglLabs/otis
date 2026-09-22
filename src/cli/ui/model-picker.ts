@@ -9,7 +9,7 @@ import {
 } from "../../inference/picker-catalog.js"
 import { colors } from "../theme.js"
 import { SelectionPulse } from "./color-pulse.js"
-import { FAST_MODE_LABEL, RECOMMENDED_MODEL_MARK } from "./format.js"
+import { CPU_OFFLOAD_MODEL_MARK, FAST_MODE_LABEL, RECOMMENDED_MODEL_MARK } from "./format.js"
 import {
   type PickerRow,
   type PickerRowSpec,
@@ -122,7 +122,9 @@ export class ModelPicker {
       const disabled = item.available === false
       const suffixes = modelNameSuffixes(item)
       const marker =
-        item.provider === "local" && item.recommended ? ` ${RECOMMENDED_MODEL_MARK}` : ""
+        item.provider === "local"
+          ? `${item.recommended ? ` ${RECOMMENDED_MODEL_MARK}` : ""}${item.cpuOffload ? ` ${CPU_OFFLOAD_MODEL_MARK}` : ""}`
+          : ""
       const maximum = suffixes.length > 0 ? 20 : 30
       return {
         title: `${truncatePickerLabel(item.displayName, maximum - marker.length)}${marker}`,

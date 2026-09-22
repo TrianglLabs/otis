@@ -1,10 +1,19 @@
-import { describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ModelHost } from "../../src/app/models.js"
 import { autoCompactThreshold } from "../../src/core/compaction.js"
 import { compactionContextLength } from "../../src/inference/context-policy.js"
 import type { LlamaCppRuntime } from "../../src/inference/llama-runtime.js"
 import type { FireworksModel, OmlxCatalogModel } from "../../src/inference/types.js"
 import type { LocalSettings } from "../../src/local/settings.js"
+
+const mocks = vi.hoisted(() => ({ listToolCapableModels: vi.fn() }))
+vi.mock("../../src/inference/client.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/inference/client.js")>()),
+  listToolCapableModels: mocks.listToolCapableModels,
+}))
+beforeEach(() => {
+  mocks.listToolCapableModels.mockReset()
+})
 
 const hosted: FireworksModel = {
   provider: "fireworks",
@@ -117,6 +126,80 @@ describe("ModelHost", () => {
       ),
     )
     expect(host.activeLocal).toBeUndefined()
+  })
+
+  it("refreshes a saved Fireworks window from the catalog only when the selection lacks it", async () => {
+    mocks.listToolCapableModels.mockResolvedValue([{ ...hosted, contextLength: 131_072 }])
+    const host = new ModelHost({ llama: fakeLlama() })
+    const connected = await host.connect({
+      provider: "fireworks",
+      modelId: hosted.id,
+      fireworksApiKey: "fw_test",
+    })
+    expect(connected.contextLength).toBe(131_072)
+    expect(host.autoCompactAtTokens).toBe(autoCompactThreshold(131_072))
+    expect(mocks.listToolCapableModels).toHaveBeenCalledOnce()
+
+    await host.connect({
+      provider: "fireworks",
+      modelId: hosted.id,
+      fireworksApiKey: "fw_test",
+      contextLength: 65_536,
+    })
+    expect(host.autoCompactAtTokens).toBe(autoCompactThreshold(65_536))
+    expect(mocks.listToolCapableModels).toHaveBeenCalledOnce()
+  })
+
+  it("budgets an unreachable catalog like a 128K model instead of failing the connection", async () => {
+    mocks.listToolCapableModels.mockImplementation(async () => {
+      throw new Error("offline")
+    })
+    const host = new ModelHost({ llama: fakeLlama() })
+    const connected = await host.connect({
+      provider: "fireworks",
+      modelId: hosted.id,
+      fireworksApiKey: "fw_test",
+    })
+    expect(connected.contextLength).toBeUndefined()
+    expect(host.autoCompactAtTokens).toBe(autoCompactThreshold(131_072))
+  })
+
+  it("reserves more output for a high thinking effort at 64K and nothing extra at 128K", () => {
+    const host = new ModelHost({ llama: fakeLlama() })
+    host.applySavedSelection({
+      model: "Qwen/Qwen3.8-27B",
+      modelProvider: "local",
+      modelContextLength: 65_536,
+    })
+    expect(host.autoCompactAtTokens).toBe(49_152)
+    host.localThinking = { "Qwen/Qwen3.8-27B": "low" }
+    host.refreshAutoCompact()
+    expect(host.autoCompactAtTokens).toBe(52_428)
+    host.localThinking = { "Qwen/Qwen3.8-27B": "xhigh" }
+    host.refreshAutoCompact()
+    expect(host.autoCompactAtTokens).toBe(49_152)
+
+    host.applySavedSelection({
+      model: "Qwen/Qwen3.8-27B",
+      modelProvider: "local",
+      modelContextLength: 131_072,
+    })
+    expect(host.autoCompactAtTokens).toBe(104_857)
+
+    host.applySavedSelection({
+      fireworksApiKey: "fw_test",
+      model: "accounts/fireworks/models/deepseek-v4",
+      modelProvider: "fireworks",
+      modelContextLength: 65_536,
+    })
+    expect(host.autoCompactAtTokens).toBe(49_152)
+    host.applySavedSelection({
+      fireworksApiKey: "fw_test",
+      model: "accounts/fireworks/models/llama-v3p1-70b-instruct",
+      modelProvider: "fireworks",
+      modelContextLength: 65_536,
+    })
+    expect(host.autoCompactAtTokens).toBe(52_428)
   })
 
   it("records a local selection without creating a client until serving starts", () => {

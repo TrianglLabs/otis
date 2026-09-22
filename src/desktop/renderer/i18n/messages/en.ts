@@ -87,6 +87,7 @@ export const en = {
   "models.hosted": "Hosted",
   "models.noModels": "No models are available.",
   "models.downloadingWhenSelected": "Downloads when selected",
+  "models.partlyOnCpu": "Runs partly on the CPU",
   "models.delete": "Delete downloaded model",
   "models.deleteConfirm": "Delete this model?",
   "models.deletingName": "Deleting {{name}}…",

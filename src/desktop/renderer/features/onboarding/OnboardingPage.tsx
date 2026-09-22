@@ -3,6 +3,7 @@ import {
   ArrowRight,
   ChevronRight,
   Cloud,
+  Cpu,
   HardDrive,
   KeyRound,
   Loader2,
@@ -114,6 +115,13 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
   const pick =
     rows.find((item) => "recommended" in item && item.recommended && isPickerRowSelectable(item)) ??
     rows.find(isPickerRowSelectable)
+  // Rows that are all unavailable for one identical reason hit a platform limit, not a memory fit.
+  const reasons = new Set(
+    rows.map((item) =>
+      item.available || !("availabilityLabel" in item) ? undefined : item.availabilityLabel,
+    ),
+  )
+  const platformLimit = reasons.size === 1 ? [...reasons][0] : undefined
   const pickStatus = pick && "status" in pick ? pick.status : undefined
   const pickLoading = pickStatus?.kind === "progress"
   const pickError = error ?? (pickStatus?.kind === "error" ? pickStatus.label : undefined)
@@ -370,7 +378,9 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                 <p className="onboarding-error">{error}</p>
               ) : (
                 <p className="onboarding-hint">
-                  {items ? t("onboarding.noLocalFit") : t("common.loadingModels")}
+                  {items
+                    ? (platformLimit ?? t("onboarding.noLocalFit"))
+                    : t("common.loadingModels")}
                 </p>
               )
             ) : (
@@ -382,6 +392,11 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                     {"recommended" in pick && pick.recommended ? (
                       <span className="onboarding-recommended" title={t("common.recommended")}>
                         <Icon icon={Star} size={11} />
+                      </span>
+                    ) : null}
+                    {"cpuOffload" in pick && pick.cpuOffload ? (
+                      <span className="onboarding-cpuOffload" title={t("models.partlyOnCpu")}>
+                        <Icon icon={Cpu} size={11} />
                       </span>
                     ) : null}
                   </span>
@@ -558,6 +573,11 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                       {"recommended" in item && item.recommended ? (
                         <span className="onboarding-recommended" title={t("common.recommended")}>
                           <Icon icon={Star} size={11} />
+                        </span>
+                      ) : null}
+                      {"cpuOffload" in item && item.cpuOffload ? (
+                        <span className="onboarding-cpuOffload" title={t("models.partlyOnCpu")}>
+                          <Icon icon={Cpu} size={11} />
                         </span>
                       ) : null}
                     </span>

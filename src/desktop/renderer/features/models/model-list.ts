@@ -50,7 +50,9 @@ export function pickerDetailParts(
   const modality: PickerDetailPart = item.supportsImageInput
     ? { label: t("models.vision"), modality: "vision" }
     : { label: t("models.text"), modality: "text" }
-  if (item.provider === "local") return [{ label: item.availabilityLabel }, modality]
+  if (item.provider === "local") {
+    return [{ label: item.availabilityLabel }, modality]
+  }
   if (item.provider === "omlx" && item.availabilityLabel)
     return [{ label: item.availabilityLabel }, modality]
   if (item.provider === "pair") {

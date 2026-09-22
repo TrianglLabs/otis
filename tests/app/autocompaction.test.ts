@@ -131,21 +131,24 @@ describe("compaction checkpoints during active turns", () => {
     if (result.status !== "complete") throw new Error("Turn did not complete")
     await session.completeTurn(admission, result.messages, result.details)
     expect(summaries).toBe(2)
+    // Prompts and steering that have not received a response are scrollback, never unanswered
+    // model history: the queued prompt joins once its own turn runs, and steering pending at a
+    // checkpoint joins with the continuation that answers it.
     expect(checkpoints).toEqual([
-      [compactionSummaryMessage(summaryFixture("Summary 1.")), user("steering 1"), queued.message],
-      [compactionSummaryMessage(summaryFixture("Summary 2.")), user("steering 2"), queued.message],
+      [compactionSummaryMessage(summaryFixture("Summary 1."))],
+      [compactionSummaryMessage(summaryFixture("Summary 2."))],
     ])
     const expected = [
       compactionSummaryMessage(summaryFixture("Summary 2.")),
       user("steering 2"),
       answer("Finished."),
-      queued.message,
     ]
     expect(session.replayMessages()).toEqual(expected)
     expect((await openSession(options)).replayMessages()).toEqual(expected)
     await session.completeTurn(queued, [queued.message, answer("Queued task finished.")])
     expect((await openSession(options)).replayMessages()).toEqual([
       ...expected,
+      queued.message,
       answer("Queued task finished."),
     ])
     const scrollback = (await openSession(options)).replayTranscript()

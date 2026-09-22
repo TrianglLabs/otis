@@ -1,4 +1,4 @@
-import { Check, Download, Eye, Loader2, Star, Text, Trash2, X } from "lucide-react"
+import { Check, Cpu, Download, Eye, Loader2, Star, Text, Trash2, X } from "lucide-react"
 import { Fragment, useCallback, useEffect, useRef, useState } from "react"
 import type { ModelPickerChoice, ModelPickerItem } from "../../../../inference/picker-catalog.js"
 import { Button, IconButton } from "../../components/Button.js"
@@ -212,6 +212,14 @@ export function ModelPicker({ onClose }: { onClose: () => void }) {
                               title={t("common.recommended")}
                             >
                               <Icon icon={Star} size={11} />
+                            </span>
+                          ) : null}
+                          {"cpuOffload" in item && item.cpuOffload ? (
+                            <span
+                              className="modelPicker-cpuOffload"
+                              title={t("models.partlyOnCpu")}
+                            >
+                              <Icon icon={Cpu} size={11} />
                             </span>
                           ) : null}
                         </span>

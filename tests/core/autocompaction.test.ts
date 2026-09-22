@@ -7,6 +7,7 @@ import {
   requestContextEstimator,
 } from "../../src/core/compaction.js"
 import { ContextOverflowError } from "../../src/inference/errors.js"
+import { OllamaClient } from "../../src/inference/ollama-client.js"
 import { OmlxClient } from "../../src/inference/omlx.js"
 import type { ChatMessage, InferenceClient, StreamChatOptions } from "../../src/inference/types.js"
 import { TOOL_DEFINITIONS } from "../../src/tools/index.js"
@@ -674,6 +675,7 @@ describe("authoritative request counts and overflow recovery", () => {
       runAgent("continue", history, {
         ...options,
         client,
+        autoCompactAtTokens: 40_000,
         onCompaction: () => {
           checkpointed = true
         },
@@ -706,6 +708,7 @@ describe("authoritative request counts and overflow recovery", () => {
       runAgent("continue", [user("task"), answer("x".repeat(100_000))], {
         ...options,
         client,
+        autoCompactAtTokens: 40_000,
         signal: controller.signal,
         onCompaction: checkpoint,
       }),
@@ -719,7 +722,7 @@ describe("authoritative request counts and overflow recovery", () => {
   it("stops clearly when a new prompt alone cannot be compacted", async () => {
     const client = summaryClient()
     client.streamChat = vi.fn<InferenceClient["streamChat"]>(() => {
-      throw new ContextOverflowError("Too large")
+      throw new ContextOverflowError("Too large", 131_072)
     })
     const events = await collect(runAgent("x".repeat(10_000), [], { ...options, client }))
     expect(client.streamChat).toHaveBeenCalledOnce()
@@ -727,6 +730,92 @@ describe("authoritative request counts and overflow recovery", () => {
       type: "error",
       message: expect.stringContaining("Increase the server context"),
     })
+  })
+
+  it("reports a configuration error when Ollama rejects a small request without a limit", async () => {
+    const fetch = vi.fn(async () =>
+      Response.json({ error: "the input length exceeds the context length" }, { status: 400 }),
+    )
+    const client = new OllamaClient({
+      model: "chat",
+      baseURL: "http://127.0.0.1:11434",
+      fetch: fetch as typeof globalThis.fetch,
+    })
+    const history = [user("earlier task"), answer("Earlier work.")]
+    const original = structuredClone(history)
+    const events = await collect(
+      runAgent("continue", history, {
+        ...options,
+        client,
+        autoCompactAtTokens: autoCompactThreshold(65_536),
+      }),
+    )
+    expect(events.at(-1)).toMatchObject({
+      type: "error",
+      message: expect.stringContaining("without reporting its context limit"),
+    })
+    expect(events.at(-1)).toMatchObject({
+      message: expect.stringContaining("at least 65,536 tokens (64K)"),
+    })
+    expect(events.some((event) => event.type === "compaction")).toBe(false)
+    expect(fetch).toHaveBeenCalledOnce()
+    expect(history).toEqual(original)
+  })
+
+  it.each([
+    [true, "Task 27", "Task 26"],
+    [false, "Task 26", "Task 25"],
+  ])("trusting a reported window (%s) sizes recovery from that window rather than the rejected request", async (trustReportedContextLength, kept, summarized) => {
+    const client = summaryClient()
+    let requests = 0
+    let second: ChatMessage[] = []
+    client.streamChat = vi.fn<InferenceClient["streamChat"]>(async function* (request) {
+      if (request.systemPrompt?.startsWith("You are a conversation summarizer")) {
+        yield { type: "text_delta", text: summaryFixture("Earlier tasks done.") }
+        return
+      }
+      requests += 1
+      if (requests === 1) throw new ContextOverflowError("Too many input tokens", 65_536)
+      second = request.messages
+      yield { type: "text_delta", text: "Finished." }
+    })
+    const history = Array.from({ length: 30 }, (_, index) => [
+      user(`Task ${index}`),
+      answer("w".repeat(16_000)),
+    ]).flat()
+    const events = await collect(
+      runAgent("next", history, {
+        ...options,
+        client,
+        autoCompactAtTokens: 250_000,
+        trustReportedContextLength,
+      }),
+    )
+    expect(events.at(-1)).toEqual({ type: "complete", messages: [answer("Finished.")] })
+    expect(second).toContainEqual(user(kept))
+    expect(second).not.toContainEqual(user(summarized))
+  })
+
+  it("asks summary requests for minimal reasoning and leaves output headroom", async () => {
+    const client = summaryClient()
+    const requests: StreamChatOptions[] = []
+    client.streamChat = vi.fn<InferenceClient["streamChat"]>(async function* (request) {
+      requests.push(request)
+      yield { type: "text_delta", text: summaryFixture("Summarized.") }
+    })
+    const budget = autoCompactThreshold(65_536)
+    const history = Array.from({ length: 40 }, (_, index) => [
+      user(`Task ${index}`),
+      answer("w".repeat(8_000)),
+    ]).flat()
+    await compactConversation([...history, user("next")], { client, contextBudget: budget })
+    expect(requests.length).toBeGreaterThan(1)
+    const sizes = requests.map((request) =>
+      requestContextEstimator({ tools: [], systemPrompt: request.systemPrompt })(request.messages),
+    )
+    for (const request of requests) expect(request.minimalReasoning).toBe(true)
+    expect(Math.max(...sizes)).toBeGreaterThan(budget / 2)
+    expect(Math.max(...sizes)).toBeLessThanOrEqual(budget - 2_000 - 4_096)
   })
 
   it("counts summary chunks with the serving tokenizer and preserves their complete Unicode content", async () => {
@@ -797,6 +886,7 @@ it("recovers inside a tool loop without executing earlier tools again", async ()
       tools: TOOL_DEFINITIONS.filter((tool) => tool.name === "read"),
       skills: emptySkills,
       projectContext: [],
+      autoCompactAtTokens: 40_000,
       onCompaction: checkpoint,
     }),
   )
@@ -844,7 +934,7 @@ it("bounds repeated context rejections even when there is still history to compa
       return
     }
     requests += 1
-    throw new ContextOverflowError("Still too large")
+    throw new ContextOverflowError("Still too large", 131_072)
   })
   const history = Array.from({ length: 16 }, (_, index) => [
     user(`Task ${index}`),

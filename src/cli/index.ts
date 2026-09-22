@@ -3,6 +3,23 @@ import { runHeadlessCommand } from "./headless-cli.js"
 import { runSkillsCommand } from "./skills-cli.js"
 import { runUpdateCommand } from "./update.js"
 
+// A crash must not orphan a multi-gigabyte llama-server. Both the interactive app and headless
+// runs shut down on SIGTERM through their own quit paths, which stop the managed server; raise
+// that in-process, then exit with the original error once the loop drains or a deadline passes.
+const crash = (error: unknown) => {
+  process.off("uncaughtException", crash)
+  process.off("unhandledRejection", crash)
+  process.exitCode = 1
+  process.once("exit", () => {
+    process.exitCode = 1
+    console.error(error)
+  })
+  setTimeout(() => process.exit(), 10_000).unref()
+  process.emit("SIGTERM", "SIGTERM")
+}
+process.on("uncaughtException", crash)
+process.on("unhandledRejection", crash)
+
 try {
   const [command, ...args] = process.argv.slice(2)
 

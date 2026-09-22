@@ -463,6 +463,44 @@ describe("runAgent", () => {
     ])
   })
 
+  it("keeps partial output and closes its tool calls when the stream fails", async () => {
+    streamAgentMock.mockImplementationOnce(async function* () {
+      yield { type: "reasoning_delta", text: "Plan.", field: "reasoning_content" }
+      yield { type: "text_delta", text: "Reading." }
+      yield {
+        type: "tool_call",
+        toolCall: { id: "call_1", name: "read", arguments: '{"path":"note.txt"}' },
+      }
+      throw new Error("connection reset")
+    })
+
+    const events = await collect(runAgent("read the note", [], { client }))
+    const error = events.at(-1)
+    expect(error).toMatchObject({ type: "error", message: "connection reset" })
+    if (error?.type !== "error") throw new Error("Expected an error event")
+    expect(error.messages).toEqual([
+      { role: "user", content: "read the note" },
+      {
+        role: "assistant",
+        content: [
+          expect.objectContaining({ type: "reasoning", text: "Plan." }),
+          { type: "text", text: "Reading." },
+          {
+            type: "tool_call",
+            toolCall: { id: "call_1", name: "read", arguments: '{"path":"note.txt"}' },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        toolCallId: "call_1",
+        content: "Tool call not executed: the response failed before it could run.",
+      },
+    ])
+    expect(events.some((event) => event.type === "reasoning" && event.phase === "end")).toBe(true)
+    expect(events.some((event) => event.type === "tool")).toBe(false)
+  })
+
   it("does not complete silently when a normal model response is empty", async () => {
     streamAgentMock.mockImplementationOnce(async function* () {
       yield* []

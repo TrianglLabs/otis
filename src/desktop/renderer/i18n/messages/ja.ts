@@ -90,6 +90,7 @@ export const ja: Messages = {
   "models.hosted": "ホスト型",
   "models.noModels": "利用可能なモデルがありません。",
   "models.downloadingWhenSelected": "選択時にダウンロード",
+  "models.partlyOnCpu": "一部を CPU で実行",
   "models.delete": "ダウンロード済みモデルを削除",
   "models.deleteConfirm": "このモデルを削除しますか？",
   "models.deletingName": "{{name}} を削除中…",

@@ -90,6 +90,7 @@ export const es: Messages = {
   "models.hosted": "En la nube",
   "models.noModels": "No hay modelos disponibles.",
   "models.downloadingWhenSelected": "Se descarga al seleccionarlo",
+  "models.partlyOnCpu": "Se ejecuta en parte en la CPU",
   "models.delete": "Eliminar modelo descargado",
   "models.deleteConfirm": "¿Eliminar este modelo?",
   "models.deletingName": "Eliminando {{name}}…",

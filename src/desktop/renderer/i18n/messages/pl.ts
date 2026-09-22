@@ -95,6 +95,7 @@ export const pl: Messages = {
   "models.hosted": "Hostowane",
   "models.noModels": "Brak dostępnych modeli.",
   "models.downloadingWhenSelected": "Pobieranie po wybraniu",
+  "models.partlyOnCpu": "Działa częściowo na CPU",
   "models.delete": "Usuń pobrany model",
   "models.deleteConfirm": "Usunąć ten model?",
   "models.deletingName": "Usuwanie {{name}}…",

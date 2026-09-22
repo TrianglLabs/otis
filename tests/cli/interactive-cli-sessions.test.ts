@@ -284,7 +284,7 @@ describe("CLI session turn handling", () => {
     expect(mocks.ui.setAttachmentCounts).toHaveBeenLastCalledWith(0, 0)
   })
 
-  it("keeps admitted failed prompts in live context", async () => {
+  it("keeps a failed prompt in the transcript but out of live model context", async () => {
     const histories: unknown[] = []
     const session = testSession()
     mocks.createSession.mockResolvedValue(session)
@@ -302,7 +302,14 @@ describe("CLI session turn handling", () => {
     await submit("first")
     await submit("second")
 
-    expect(histories[1]).toEqual([{ role: "user", content: "first" }])
+    expect(histories[1]).toEqual([])
+    const entries = mocks.ui.renderTranscript.mock.calls.at(-1)?.[0] as { text: string }[]
+    expect(entries.map((entry) => entry.text)).toEqual([
+      "first",
+      "Error: provider down",
+      "second",
+      "Error: still down",
+    ])
   })
 
   it("keeps completed replies in live context when saving the turn fails", async () => {
@@ -655,7 +662,13 @@ describe("CLI session turn handling", () => {
     mocks.createSession.mockResolvedValue(session)
     mocks.runAgent.mockImplementationOnce(async function* () {
       yield { type: "delta", text: "hello" }
-      yield { type: "complete", messages: [{ role: "user", content: "fix the bug" }] }
+      yield {
+        type: "complete",
+        messages: [
+          { role: "user", content: "fix the bug" },
+          { role: "assistant", content: [{ type: "text", text: "hello" }] },
+        ],
+      }
     })
     mocks.generateCompletion.mockResolvedValue("Fix parser bug")
 
@@ -675,7 +688,13 @@ describe("CLI session turn handling", () => {
     mocks.openSession.mockResolvedValue(secondSession)
     mocks.runAgent.mockImplementationOnce(async function* () {
       yield { type: "delta", text: "hello" }
-      yield { type: "complete", messages: [{ role: "user", content: "fix the bug" }] }
+      yield {
+        type: "complete",
+        messages: [
+          { role: "user", content: "fix the bug" },
+          { role: "assistant", content: [{ type: "text", text: "hello" }] },
+        ],
+      }
     })
 
     let resolveTitle!: () => void
@@ -712,7 +731,13 @@ describe("CLI session turn handling", () => {
     mocks.openSession.mockResolvedValue(secondSession)
     mocks.generateCompletion.mockResolvedValue("Fix parser bug")
     mocks.runAgent.mockImplementationOnce(async function* () {
-      yield { type: "complete", messages: [{ role: "user", content: "fix the bug" }] }
+      yield {
+        type: "complete",
+        messages: [
+          { role: "user", content: "fix the bug" },
+          { role: "assistant", content: [{ type: "text", text: "hello" }] },
+        ],
+      }
     })
 
     await loadCli()
@@ -733,7 +758,13 @@ describe("CLI session turn handling", () => {
     mocks.createSession.mockResolvedValue(session)
     mocks.runAgent.mockImplementationOnce(async function* () {
       yield { type: "delta", text: "hello" }
-      yield { type: "complete", messages: [{ role: "user", content: "fix the bug" }] }
+      yield {
+        type: "complete",
+        messages: [
+          { role: "user", content: "fix the bug" },
+          { role: "assistant", content: [{ type: "text", text: "hello" }] },
+        ],
+      }
     })
 
     await loadCli()

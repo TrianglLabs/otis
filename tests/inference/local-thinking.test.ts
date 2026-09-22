@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   localThinkingCapability,
   localThinkingParameters,
+  minimalLocalThinkingLevel,
   validateLocalThinkingSelection,
 } from "../../src/inference/local-thinking.js"
 
@@ -39,5 +40,14 @@ describe("local thinking capabilities", () => {
     expect(localThinkingParameters("zai-org/GLM-5.3", "max")).toEqual({ reasoning_effort: "max" })
     expect(localThinkingParameters("Qwen/Qwen3.8-27B", undefined)).toEqual({})
     expect(localThinkingParameters("unknown", "high")).toEqual({})
+  })
+
+  it("picks off when listed, else the lowest native effort, for minimal reasoning", () => {
+    expect(minimalLocalThinkingLevel("Qwen/Qwen3.8-27B")).toBe("off")
+    expect(minimalLocalThinkingLevel("prism-ml/Ternary-Bonsai-2-27B-gguf")).toBe("off")
+    expect(minimalLocalThinkingLevel("google/gemma-4-12B-it")).toBe("off")
+    expect(minimalLocalThinkingLevel("openai/gpt-oss-20b")).toBe("low")
+    expect(minimalLocalThinkingLevel("zai-org/GLM-5.3")).toBe("low")
+    expect(minimalLocalThinkingLevel("LiquidAI/LFM2.5-2.6B")).toBeUndefined()
   })
 })

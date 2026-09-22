@@ -53,6 +53,61 @@ describe("LlamaCppClient", () => {
     expect(requests[3]).not.toHaveProperty("reasoning_effort")
     expect(requests[3]).not.toHaveProperty("chat_template_kwargs")
   })
+  it.each([
+    ["Qwen/Qwen3.8-27B", "xhigh", { chat_template_kwargs: { enable_thinking: false } }],
+    ["openai/gpt-oss-20b", "high", { reasoning_effort: "low" }],
+    ["zai-org/GLM-5.3", "max", { reasoning_effort: "low" }],
+    ["google/gemma-4-12B-it", "on", { chat_template_kwargs: { enable_thinking: false } }],
+    ["LiquidAI/LFM2.5-2.6B", undefined, {}],
+  ] as const)("spends the least reasoning %s allows when a request asks for it", async (model, saved, expected) => {
+    const requests: Array<Record<string, unknown>> = []
+    const client = new LlamaCppClient({
+      model,
+      inferenceURL: "http://127.0.0.1:18765/v1/chat/completions",
+      thinkingLevel: () => saved,
+      fetch: async (_url, init) => {
+        requests.push(JSON.parse(String(init?.body)))
+        return new Response("data: [DONE]\n\n")
+      },
+    })
+    const messages = [{ role: "user" as const, content: "Summarize." }]
+    await client.streamChat({ messages, minimalReasoning: true }).next()
+    await client.streamChat({ messages }).next()
+    const minimal = requests[0]
+    const { reasoning_effort, chat_template_kwargs, ...rest } = minimal
+    expect({
+      ...(reasoning_effort === undefined ? {} : { reasoning_effort }),
+      ...(chat_template_kwargs === undefined ? {} : { chat_template_kwargs }),
+    }).toEqual(expected)
+    expect(rest.model).toBe(model)
+    // The saved effort is untouched for ordinary requests.
+    if (saved === "xhigh" || saved === "high" || saved === "max")
+      expect(requests[1]).toMatchObject({ reasoning_effort: saved })
+    if (saved === "on")
+      expect(requests[1]).toMatchObject({ chat_template_kwargs: { enable_thinking: true } })
+  })
+
+  it("checks the managed server before every request", async () => {
+    const fetchMock = vi.fn(async () => new Response("data: [DONE]\n\n"))
+    let exit: Error | undefined
+    const client = new LlamaCppClient({
+      model: "openai/gpt-oss-20b",
+      inferenceURL: "http://127.0.0.1:18765/v1/chat/completions",
+      fetch: fetchMock as unknown as typeof fetch,
+      assertServing: () => {
+        if (exit) throw exit
+      },
+    })
+    const request = { messages: [{ role: "user" as const, content: "hello" }] }
+    await client.streamChat(request).next()
+    expect(fetchMock).toHaveBeenCalledOnce()
+    exit = new Error("The local model server exited unexpectedly (code 137).")
+    await expect(client.streamChat(request).next()).rejects.toBe(exit)
+    await expect(client.countTokens(request)).rejects.toBe(exit)
+    await expect(client.complete(request.messages)).rejects.toBe(exit)
+    expect(fetchMock).toHaveBeenCalledOnce()
+  })
+
   it("streams OpenAI-compatible tool calls without Fireworks-only fields", async () => {
     const fetchMock = vi.fn(
       async (_input: RequestInfo | URL, _init?: RequestInit) =>

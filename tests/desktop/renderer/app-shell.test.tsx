@@ -531,6 +531,7 @@ describe("AppShell settings navigation", () => {
       availabilityLabel: "32K · Q4_K_M · 18 GB",
       recommended: false,
       hasDownloadedPacking: true,
+      cpuOffload: false,
       downloaded: true,
       active: false,
     }
@@ -545,6 +546,7 @@ describe("AppShell settings navigation", () => {
       availabilityLabel: "Est. 64K · MXFP4 · 63 GB",
       recommended: false,
       hasDownloadedPacking: false,
+      cpuOffload: false,
       downloaded: false,
       active: false,
     }
@@ -560,6 +562,7 @@ describe("AppShell settings navigation", () => {
       availabilityLabel: "Needs 390 GB",
       recommended: false,
       hasDownloadedPacking: true,
+      cpuOffload: false,
       downloaded: true,
       active: false,
     }

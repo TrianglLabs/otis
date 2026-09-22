@@ -46,6 +46,14 @@ export function validateLocalThinkingSelection(
   }
 }
 
+/** The least reasoning the model's template controls allow: "off" when listed, else the lowest. */
+export function minimalLocalThinkingLevel(model: string): LocalThinkingLevel | undefined {
+  const levels = localThinkingCapability(model)?.levels
+  if (!levels) return undefined
+  const rank = (level: LocalThinkingLevel) => LOCAL_THINKING_LEVELS.indexOf(level)
+  return [...levels].sort((a, b) => rank(a) - rank(b))[0]
+}
+
 export function localThinkingParameters(model: string, level: LocalThinkingLevel | undefined) {
   if (!level || !localThinkingCapability(model)?.levels.includes(level)) return {}
   if (level === "off" || level === "on")

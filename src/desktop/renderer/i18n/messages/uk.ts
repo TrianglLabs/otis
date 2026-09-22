@@ -95,6 +95,7 @@ export const uk: Messages = {
   "models.hosted": "Хмарні",
   "models.noModels": "Немає доступних моделей.",
   "models.downloadingWhenSelected": "Завантажиться після вибору",
+  "models.partlyOnCpu": "Частково працює на CPU",
   "models.delete": "Видалити завантажену модель",
   "models.deleteConfirm": "Видалити цю модель?",
   "models.deletingName": "Видалення {{name}}…",

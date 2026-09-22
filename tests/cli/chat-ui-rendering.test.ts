@@ -519,7 +519,7 @@ describe("chat UI rendering", () => {
     expect(harness.text("model-row-0")).not.toContain("accounts/fireworks")
     expect(harness.text("model-row-1")).toBe("  Beta")
     expect(harness.text("model-row-1-meta")).toBe("  Text")
-    expect(harness.text("model-panel-footer")).toBe("[↑↓] move")
+    expect(harness.text("model-panel-footer")).toBe("[↑↓] move · * recommended · ◐ partly on CPU")
     expect(harness.text("model-panel-header")).toBe("Models")
 
     harness.press("down")
@@ -676,6 +676,7 @@ describe("chat UI rendering", () => {
       recommended: false,
       availabilityLabel: "Needs 19 GB",
       hasDownloadedPacking: true,
+      cpuOffload: false,
       downloaded: true,
       active: false,
     }
@@ -727,6 +728,7 @@ describe("chat UI rendering", () => {
       availabilityLabel: "128K · MXFP4 · 16 GB",
       loadedContextLength: 131_072,
       hasDownloadedPacking: true,
+      cpuOffload: false,
       downloaded: true,
       active: true,
     }
@@ -765,6 +767,7 @@ describe("chat UI rendering", () => {
       availabilityLabel: "128K · MXFP4 · 16 GB",
       loadedContextLength: 131_072,
       hasDownloadedPacking: true,
+      cpuOffload: false,
       downloaded: true,
       active: true,
     }
@@ -797,6 +800,7 @@ describe("chat UI rendering", () => {
       recommended: true,
       availabilityLabel: "Est. 128K · MXFP4 · 16 GB",
       hasDownloadedPacking: false,
+      cpuOffload: false,
       downloaded: false,
       active: true,
     }

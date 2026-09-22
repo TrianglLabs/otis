@@ -95,6 +95,7 @@ vi.mock("../../src/inference/client.js", () => ({
     return { model: config.model, streamChat: mocks.streamChat }
   }),
   listToolCapableModels: mocks.listToolCapableModels,
+  fireworksReasoningEffort: () => undefined,
 }))
 vi.mock("../../src/inference/hardware.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/inference/hardware.js")>()
