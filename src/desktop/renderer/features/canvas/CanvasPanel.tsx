@@ -29,6 +29,7 @@ function MermaidFrame({ source, theme }: { source: string; theme: ThemeName }) {
   const { locale, t } = useI18n()
   const frame = useRef<HTMLIFrameElement>(null)
   const [frameRevision, setFrameRevision] = useState(0)
+  const [renderError, setRenderError] = useState<string>()
   const sendSource = useCallback(() => {
     const styles = getComputedStyle(document.documentElement)
     const color = (name: string, fallback: string) =>
@@ -65,26 +66,54 @@ function MermaidFrame({ source, theme }: { source: string; theme: ThemeName }) {
   }, [locale, t])
 
   useEffect(sendLanguage, [sendLanguage])
-  useEffect(() => sendSource(), [sendSource, theme])
+  useEffect(() => {
+    setRenderError(undefined)
+    sendSource()
+  }, [sendSource, theme])
   useEffect(() => {
     const reload = () => setFrameRevision((revision) => revision + 1)
     window.addEventListener(canvasReloadEvent, reload)
     return () => window.removeEventListener(canvasReloadEvent, reload)
   }, [])
+  // The frame reports each render; failures are announced here since the frame's own text sits
+  // behind its sandbox boundary for assistive technology.
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== frame.current?.contentWindow) return
+      if (event.data?.type !== "otis-canvas-render") return
+      const message = event.data.message
+      setRenderError(
+        event.data.ok
+          ? undefined
+          : typeof message === "string"
+            ? message
+            : t("canvas.renderFailed"),
+      )
+    }
+    window.addEventListener("message", onMessage)
+    return () => window.removeEventListener("message", onMessage)
+  }, [t])
 
   return (
-    <iframe
-      key={frameRevision}
-      ref={frame}
-      className="canvas-frame"
-      title={t("canvas.diagram")}
-      sandbox="allow-scripts"
-      referrerPolicy="no-referrer"
-      src={new URL("canvas.html", location.href).href}
-      onLoad={() => {
-        sendLanguage()
-        sendSource()
-      }}
-    />
+    <>
+      {renderError ? (
+        <div className="canvas-frameAlert" role="alert">
+          {renderError}
+        </div>
+      ) : null}
+      <iframe
+        key={frameRevision}
+        ref={frame}
+        className="canvas-frame"
+        title={t("canvas.diagram")}
+        sandbox="allow-scripts"
+        referrerPolicy="no-referrer"
+        src={new URL("canvas.html", location.href).href}
+        onLoad={() => {
+          sendLanguage()
+          sendSource()
+        }}
+      />
+    </>
   )
 }

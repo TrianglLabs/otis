@@ -16,6 +16,32 @@ describe("Ollama native transport", () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
+  it("abandons an Ollama stream that stays silent past the idle limit", async () => {
+    const client = new OllamaClient({
+      model: "chat",
+      baseURL: "http://127.0.0.1:11434",
+      idleTimeoutMs: 20,
+      fetch: (async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(
+                new TextEncoder().encode(`${JSON.stringify({ message: { content: "Hi" } })}\n`),
+              )
+            },
+            pull: () => new Promise<void>(() => {}),
+          }),
+        )) as typeof fetch,
+    })
+    const events: ChatStreamEvent[] = []
+    await expect(
+      (async () => {
+        for await (const event of client.streamChat({ messages: [] })) events.push(event)
+      })(),
+    ).rejects.toThrow("Ollama sent no data for 20 ms; the request timed out.")
+    expect(events).toEqual([{ type: "text_delta", text: "Hi" }])
+  })
+
   it("disables truncation and shifting, streams UTF-8, and replays thinking and complete tool exchanges", async () => {
     const chunks = [
       { message: { thinking: "Inspect 日本語." } },

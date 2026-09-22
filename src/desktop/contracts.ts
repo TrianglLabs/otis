@@ -1,5 +1,8 @@
+import type { SubagentSummary } from "../app/application.js"
+import type { PendingPermission, TurnPhase } from "../app/conversation.js"
 import type { GlobalSessionPickerItem } from "../app/global-sessions.js"
 import type { LocalServerInputs } from "../app/local-servers.js"
+import type { ModelState } from "../app/models.js"
 import type { TranscriptEntry } from "../app/transcript.js"
 import type { ArtifactMetadata, ArtifactPayload, ArtifactReference } from "../artifacts/types.js"
 import type { LocalThinkingSelection, LocalThinkingState } from "../inference/local-thinking.js"
@@ -8,11 +11,13 @@ import type { ModelProvider } from "../inference/types.js"
 import type { ThemeName, UiLanguage } from "../local/settings.js"
 import type { PermissionMode } from "../permissions/policy.js"
 
+export type { SubagentSummary } from "../app/application.js"
+export type { PendingPermission, TurnPhase } from "../app/conversation.js"
+export type { ModelState } from "../app/models.js"
 export type { ThemeName, UiLanguage } from "../local/settings.js"
 export type { PermissionMode } from "../permissions/policy.js"
 
 import type { LocalStats } from "../local/stats.js"
-import type { ToolActivityKind } from "../tools/activity.js"
 
 export const DESKTOP_CHANNELS = {
   getSnapshot: "desktop:get-snapshot",
@@ -37,6 +42,7 @@ export const DESKTOP_CHANNELS = {
   cancelModelSelection: "desktop:cancel-model-selection",
   getSubagentTrace: "desktop:subagent-trace",
   setAgentsPanelVisible: "desktop:set-agents-panel-visible",
+  setWorkspacePanelWidth: "desktop:set-workspace-panel-width",
   setTheme: "desktop:set-theme",
   setLanguage: "desktop:set-language",
   setThinkingVisible: "desktop:set-thinking-visible",
@@ -55,35 +61,11 @@ export const DESKTOP_CHANNELS = {
   event: "desktop:event",
 } as const
 
-export type TurnPhase = "idle" | "thinking" | "working"
-
-export type PendingPermission = {
-  id: number
-  label: string
-  kind: ToolActivityKind
-  resources: string[]
-}
-
-/**
- * Lifecycle of the selected model's inference client. Prompts are only accepted in the `ready`
- * state.
- */
-export type ModelState = "unconfigured" | "starting" | "ready" | "failed"
-
 /** Update lifecycle shared by automatic checks, Settings, and the restart affordance. */
 export type DesktopUpdateState =
   | { status: "idle" | "checking" | "current" | "unavailable" }
   | { status: "downloading" | "ready"; version: string }
   | { status: "error"; message: string }
-
-/** One delegated run as the panel lists it: identity, lifecycle, and its tool-call count. */
-export type SubagentSummary = {
-  toolCallId: string
-  title: string
-  status: "running" | "complete" | "failed" | "interrupted"
-  durationMs?: number
-  tools: number
-}
 
 /**
  * The mutable application state outside the transcript. Sent whole on every change; it is small.
@@ -126,6 +108,8 @@ export type DesktopStatus = {
   subagents: SubagentSummary[]
   /** The delegated-runs rail preference; persisted as subagentPanelVisible in local settings. */
   agentsPanelVisible: boolean
+  /** The workspace panel width the user last dragged to; undefined follows the responsive default. */
+  workspacePanelWidth: number | undefined
   /** The active color theme; persisted in local settings. */
   theme: ThemeName
   /** Desktop interface language; system follows the operating system locale. */
@@ -192,6 +176,14 @@ export type DesktopAttachmentInput = {
 
 export type SessionOpResult = { ok: true } | { ok: false; reason: string }
 
+/**
+ * A preview fetch: the payload for a live revision, a stale marker the renderer ignores, or a
+ * reason shown verbatim.
+ */
+export type ArtifactResult =
+  | { ok: true; payload: ArtifactPayload }
+  | { ok: false; reason: string; stale?: boolean }
+
 export type ModelSelectResult = { ok: true } | { ok: false; reason: string }
 
 export type DesktopWindowState = { fullscreen: boolean }
@@ -199,7 +191,7 @@ export type DesktopWindowState = { fullscreen: boolean }
 /** The API surface exposed to the renderer through the preload bridge. */
 export type DesktopApi = {
   getSnapshot(): Promise<DesktopSnapshot>
-  getArtifact(revision: number): Promise<ArtifactPayload | undefined>
+  getArtifact(revision: number): Promise<ArtifactResult>
   openArtifact(reference: ArtifactReference, version?: number): Promise<SessionOpResult>
   saveArtifact(id: string, revision: number): Promise<SessionOpResult>
   getWindowState(): Promise<DesktopWindowState>
@@ -257,6 +249,8 @@ export type DesktopApi = {
   getSubagentTrace(toolCallId: string): Promise<TranscriptEntry[]>
   /** Shows or hides the delegated-runs rail; persisted across launches. */
   setAgentsPanelVisible(visible: boolean): Promise<void>
+  /** Remembers the dragged workspace panel width; undefined restores the responsive default. */
+  setWorkspacePanelWidth(width: number | undefined): Promise<void>
   /** Applies and persists a color theme. Unknown theme names are ignored. */
   setTheme(theme: ThemeName): Promise<void>
   /** Applies and persists the desktop interface language. */

@@ -16,10 +16,8 @@ import { dirname, join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { type HardwareProbe, inferenceMemoryBudget } from "../../src/inference/hardware.js"
 import {
-  LLAMA_CPP_RELEASE_TAG,
   type LlamaRuntimeKind,
   llamaRuntimeReleaseTag,
-  PRISM_LLAMA_CPP_RELEASE_TAG,
   pinnedLlamaCppAsset,
 } from "../../src/inference/llama-binary.js"
 import { formatLocalLoadStatus, LlamaCppRuntime } from "../../src/inference/llama-runtime.js"
@@ -40,6 +38,11 @@ const hardware: HardwareProbe = {
 }
 
 const pinnedAsset = pinnedLlamaCppAsset(hardware)
+/** The pinned release tags, read from the asset table's download URLs. */
+const releaseTagOf = (runtime: LlamaRuntimeKind) =>
+  pinnedLlamaCppAsset(hardware, runtime).url.split("/").at(-2) ?? ""
+const LLAMA_CPP_RELEASE_TAG = releaseTagOf("upstream")
+const PRISM_LLAMA_CPP_RELEASE_TAG = releaseTagOf("prism")
 const pinnedArchiveURL = pinnedAsset.url
 const archiveBody = Buffer.from("archive")
 const fakeRuntimeAsset: NonNullable<LlamaCppRuntimeOptions["runtimeAsset"]> = () => ({
@@ -58,8 +61,94 @@ afterEach(async () => {
 })
 
 describe("llama.cpp runtime", () => {
-  it("labels the runtime download separately from model weights", () => {
+  it("labels the runtime download, verification, and loading phases", () => {
     expect(formatLocalLoadStatus({ phase: "runtime-download" })).toBe("Downloading llama.cpp")
+    expect(formatLocalLoadStatus({ phase: "download", percent: 42 })).toBe("Downloading 42%")
+    expect(formatLocalLoadStatus({ phase: "verifying", percent: 7 })).toBe("Verifying 7%")
+    expect(formatLocalLoadStatus({ phase: "loading" })).toBe("Loading")
+  })
+
+  it("reports verification of a legacy cached GGUF before loading", async () => {
+    const model = catalogModel()
+    const fit = fitLocalModel(model, hardware)
+    const directory = await tempDir()
+    const body = new Uint8Array([9, 8, 7, 6])
+    const tiny = tinyModel(model, body)
+    await mkdir(join(directory, "models"), { recursive: true })
+    await writeFile(localGgufPath(tiny, directory), body)
+    await installFakeBinary(directory, LLAMA_CPP_RELEASE_TAG)
+    const progress: Parameters<typeof formatLocalLoadStatus>[0][] = []
+    const runtime = new LlamaCppRuntime({
+      env: {},
+      dataDirectory: directory,
+      allocatePort: async () => 18766,
+      spawn: (() => fakeChild()) as unknown as LlamaCppRuntimeOptions["spawn"],
+      fetch: huggingfaceFetch(body, fit.contextLength),
+    })
+    await runtime.ensureServing(tiny, { ...fit, model: tiny }, hardware, {
+      onProgress: (event) => progress.push(event),
+    })
+    expect(progress).toEqual([
+      { phase: "verifying", percent: 100 },
+      { phase: "download", percent: 100 },
+      { phase: "loading" },
+    ])
+    await runtime.stop()
+  })
+
+  it("resumes an interrupted runtime download by byte range", async () => {
+    const model = catalogModel()
+    const directory = await tempDir()
+    await cacheWeights(model, directory)
+    const ranges: Array<string | null> = []
+    const fetchRuntime = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url !== pinnedArchiveURL) return new Response("missing", { status: 404 })
+      const range = new Headers(init?.headers).get("range")
+      ranges.push(range)
+      if (range === null) {
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(archiveBody.subarray(0, 3))
+            },
+            pull(controller) {
+              controller.error(new Error("connection reset"))
+            },
+          }),
+          { headers: { "content-length": String(archiveBody.byteLength) } },
+        )
+      }
+      expect(range).toBe("bytes=3-")
+      return new Response(archiveBody.subarray(3), {
+        status: 206,
+        headers: {
+          "content-length": String(archiveBody.byteLength - 3),
+          "content-range": `bytes 3-${archiveBody.byteLength - 1}/${archiveBody.byteLength}`,
+        },
+      })
+    })
+    const runtime = new LlamaCppRuntime(
+      runtimeDownloadOptions(
+        directory,
+        (async (input, init) => {
+          const url = String(input)
+          if (url.includes("/health")) return new Response("ok")
+          if (url.includes("/props")) return runtimeProperties(65_536)
+          if (url.endsWith("/v1/chat/completions")) return generationResponse()
+          return await fetchRuntime(input, init)
+        }) as typeof fetch,
+        { sleep: async () => {} },
+      ),
+    )
+    await runtime.ensureServing(model, fitLocalModel(model, hardware), hardware)
+    expect(ranges).toEqual([null, "bytes=3-"])
+    expect(
+      await readFile(join(directory, "bin", LLAMA_CPP_RELEASE_TAG, "llama-server"), "utf8"),
+    ).toBe("server")
+    // Nothing is left to resume once the bundle is installed.
+    expect(await readdir(join(directory, "downloads"))).toEqual([])
+    await runtime.stop()
   })
 
   it("installs the complete llama.cpp runtime bundle beside llama-server", async () => {
@@ -804,14 +893,41 @@ describe("llama.cpp runtime", () => {
 
     expect(signals).toEqual([[4242, "SIGTERM"]])
     expect(alive.has(4242)).toBe(false)
-    expect(JSON.parse(await readFile(join(directory, "server.json"), "utf8"))).toMatchObject({
+    const ownRecord = join(directory, "servers", `${process.pid}.json`)
+    expect(JSON.parse(await readFile(ownRecord, "utf8"))).toMatchObject({
       pid: children[0]?.pid,
       ownerPid: process.pid,
       port: 18765,
       binaryPath: process.execPath,
     })
+    await expect(stat(join(directory, "servers", "999999.json"))).rejects.toMatchObject({
+      code: "ENOENT",
+    })
     await runtime.stop()
+    await expect(stat(ownRecord)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("reaps dead owners' servers, leaves live owners' alone, and drops the legacy record", async () => {
+    const { runtime, model, fit, signals, alive, directory } = await orphanSetup({
+      ownerPid: 999_999,
+      alivePids: [4242, 4343, 4444],
+      command: `${process.execPath} --model weights.gguf --port 18701`,
+      commands: { 4343: `${process.execPath} --model weights.gguf --port 18702` },
+    })
+    const record = (pid: number, ownerPid: number) =>
+      JSON.stringify({ pid, ownerPid, port: 18702, binaryPath: process.execPath })
+    await writeFile(join(directory, "servers", "4444.json"), record(4343, 4444))
+    await writeFile(join(directory, "server.json"), record(4242, 999_998))
+
+    await runtime.ensureServing(model, fit, hardware)
+
+    expect(signals).toEqual([[4242, "SIGTERM"]])
+    expect(alive.has(4343)).toBe(true)
+    expect(new Set(await readdir(join(directory, "servers")))).toEqual(
+      new Set(["4444.json", `${process.pid}.json`]),
+    )
     await expect(stat(join(directory, "server.json"))).rejects.toMatchObject({ code: "ENOENT" })
+    await runtime.stop()
   })
 
   it.each([
@@ -1448,6 +1564,37 @@ describe("CUDA runtime bundles", () => {
     })
     await runtime.ensureServing(setup.model, setup.fit, setup.hardware)
     expect(childEnv?.LD_LIBRARY_PATH).toBe(setup.cudaDir)
+    await runtime.stop()
+  })
+
+  it("keeps the verified CUDA archive when its companion download fails, then reuses it", async () => {
+    const setup = await cudaRuntimeSetup()
+    let companionFailures = 1
+    const fetchRuntime = setup.options.fetch as typeof fetch
+    setup.options.fetch = (async (input, init) => {
+      if (String(input).endsWith("/cudart") && companionFailures > 0) {
+        companionFailures -= 1
+        setup.downloads.push(String(input))
+        return new Response("missing", { status: 404 })
+      }
+      return await fetchRuntime(input, init)
+    }) as typeof fetch
+    const runtime = new LlamaCppRuntime(setup.options)
+    await expect(runtime.ensureServing(setup.model, setup.fit, setup.hardware)).rejects.toThrow(
+      "HTTP 404",
+    )
+    const downloads = join(setup.directory, "downloads")
+    expect(await readdir(downloads)).toEqual(["cuda"])
+    expect(setup.commands).toEqual([])
+
+    await runtime.ensureServing(setup.model, setup.fit, setup.hardware)
+    expect(setup.downloads).toEqual([
+      "https://runtime.test/cuda",
+      "https://runtime.test/cudart",
+      "https://runtime.test/cudart",
+    ])
+    expect(await readdir(downloads)).toEqual([])
+    expect(setup.commands).toEqual([join(setup.cudaDir, "llama-server")])
     await runtime.stop()
   })
 
@@ -2284,6 +2431,8 @@ async function orphanSetup(record: {
   ownerPid: number
   command: string
   alivePids?: readonly number[]
+  /** Command lines of other live pids; 4242 always answers with `command`. */
+  commands?: Record<number, string>
 }) {
   const alive = new Set(record.alivePids ?? [4242])
   const signals: Array<[number, NodeJS.Signals | 0]> = []
@@ -2296,17 +2445,20 @@ async function orphanSetup(record: {
       signals.push([pid, signal])
       alive.delete(pid)
     },
-    processCommand: async (pid) => (alive.has(pid) && pid === 4242 ? record.command : ""),
+    processCommand: async (pid) =>
+      !alive.has(pid) ? "" : pid === 4242 ? record.command : (record.commands?.[pid] ?? ""),
     // Port allocation runs after the stale record is handled and before the new one is written.
     allocatePort: async () => {
-      recordBeforeSpawn = await readFile(join(setup.directory, "server.json"), "utf8").catch(
-        () => "removed",
-      )
+      recordBeforeSpawn = await readFile(
+        join(setup.directory, "servers", `${record.ownerPid}.json`),
+        "utf8",
+      ).catch(() => "removed")
       return 18765
     },
   })
+  await mkdir(join(setup.directory, "servers"), { recursive: true })
   await writeFile(
-    join(setup.directory, "server.json"),
+    join(setup.directory, "servers", `${record.ownerPid}.json`),
     JSON.stringify({
       pid: 4242,
       ownerPid: record.ownerPid,

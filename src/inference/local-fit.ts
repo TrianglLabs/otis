@@ -7,11 +7,20 @@ import {
   localModelWeightBytes,
 } from "./local-catalog.js"
 
-// The pinned llama.cpp estimator reports roughly 1.1 GiB of compute buffers for
-// the largest-context catalog model. Keep additional margin because graph memory
-// is architecture- and backend-dependent; llama.cpp remains authoritative at load.
-const RUNTIME_OVERHEAD_BYTES = 1.5 * 1024 ** 3
+// llama.cpp reserves its compute buffers for one micro-batch (n_ubatch, default 512) in which
+// every token produces logits (llama-context.cpp, "reserve worst-case graph"), so the buffers
+// hold an f32 [n_vocab, 512] logits slice, an f16 [n_ctx, 512] flash-attention mask that is
+// built on the host and copied to the device, and one micro-batch of layer activations. A
+// fixed floor covers the process itself. The pinned runtime reports 409 MiB device plus 136 MiB
+// host compute buffers for LFM2.5 2.6B at 128K against 538 MiB modeled here (see
+// tests/inference/local-fit.test.ts); llama.cpp remains authoritative at load.
+const MICRO_BATCH_TOKENS = 512
+const RUNTIME_FLOOR_BYTES = 512 * 1024 ** 2
+/** Peak live activations of a micro-batch: two FFN intermediates of about four times the width. */
+const ACTIVATION_WIDTHS = 8
 const KV_ELEMENT_BYTES = 4 // f16 key + f16 value
+/** A sliding-window cache holds the window plus one micro-batch, in 256-cell steps. */
+const KV_CELL_ALIGNMENT = 256
 const CONTEXT_ALIGNMENT = 1_024
 
 export type LocalModelFit = {
@@ -80,20 +89,32 @@ function fitWithinMemory(model: LocalModelSpec, memoryAvailableBytes: number): L
 }
 
 export function memoryRequiredFor(model: LocalModelSpec, contextLength: number) {
+  const logits = model.vocabSize * MICRO_BATCH_TOKENS * 4
+  const masks = 2 * contextLength * MICRO_BATCH_TOKENS * 2
+  const activations = ACTIVATION_WIDTHS * model.hiddenSize * MICRO_BATCH_TOKENS * 4
   return (
     localModelWeightBytes(model) +
     kvCacheBytes(model.attention, contextLength) +
-    RUNTIME_OVERHEAD_BYTES
+    RUNTIME_FLOOR_BYTES +
+    logits +
+    masks +
+    activations
   )
 }
 
+/** llama-kv-cache-iswa.cpp: `GGML_PAD(min(n_ctx, n_swa * n_seq_max + n_ubatch), 256)` cells. */
 function kvCacheBytes(attention: LocalAttentionSpec, contextLength: number) {
   return attention.groups.reduce((total, group) => {
-    const tokens =
-      group.window === undefined ? contextLength : Math.min(contextLength, group.window)
+    const cells =
+      group.window === undefined
+        ? contextLength
+        : Math.min(
+            contextLength,
+            Math.ceil((group.window + MICRO_BATCH_TOKENS) / KV_CELL_ALIGNMENT) * KV_CELL_ALIGNMENT,
+          )
     const bytesPerTokenPerLayer =
       group.bytesPerTokenPerLayer ?? group.kvHeads * group.headDim * KV_ELEMENT_BYTES
-    return total + group.layers * bytesPerTokenPerLayer * tokens
+    return total + group.layers * bytesPerTokenPerLayer * cells
   }, 0)
 }
 

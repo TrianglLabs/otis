@@ -90,6 +90,10 @@ const session = {
 }
 
 vi.mock("../../src/core/context.js", () => ({ loadProjectContext: () => [] }))
+vi.mock("../../src/app/turn-runner.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/app/turn-runner.js")>()
+  return { ...actual, executeTurn: vi.fn(actual.executeTurn) }
+})
 vi.mock("../../src/inference/client.js", () => ({
   FireworksClient: vi.fn(function FireworksClient(config: { model: string }) {
     return { model: config.model, streamChat: mocks.streamChat }
@@ -145,6 +149,7 @@ vi.mock("../../src/storage/index.js", async (importOriginal) => ({
   openSession: mocks.openSession,
 }))
 
+import { executeTurn } from "../../src/app/turn-runner.js"
 import { runHeadlessCommand } from "../../src/cli/headless-cli.js"
 import { FireworksClient } from "../../src/inference/client.js"
 import { createPairClient } from "../../src/inference/pair.js"
@@ -240,7 +245,7 @@ describe("runHeadlessCommand", () => {
     })
     mocks.streamChat
       .mockImplementationOnce(async function* () {
-        yield { type: "reasoning_delta", field: "reasoning_content", text: "x".repeat(100_000) }
+        yield { type: "reasoning_delta", field: "reasoning_content", text: "x".repeat(200_000) }
         yield {
           type: "tool_call",
           toolCall: { id: "read_1", name: "read", arguments: '{"path":"missing.txt"}' },
@@ -780,8 +785,32 @@ describe("runHeadlessCommand", () => {
       expect.objectContaining({ id: "openai/gpt-oss-20b" }),
       expect.anything(),
       expect.anything(),
-      { signal: expect.any(AbortSignal) },
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     )
+  })
+
+  it.each([
+    ["fireworks", true],
+    ["pair", false],
+  ] as const)("trusts a reported context window for overflow recovery on %s: %s", async (provider, trusted) => {
+    mocks.loadLocalSettings.mockResolvedValue(
+      provider === "pair"
+        ? {
+            model: "qwen3.5:35b",
+            modelProvider: "pair",
+            pairEngine: "ollama",
+            pairEndpoints: { ollama: "http://127.0.0.1:11434" },
+          }
+        : { fireworksApiKey: "fw_test", model: "accounts/fireworks/models/test" },
+    )
+    mocks.streamChat.mockImplementationOnce(async function* () {
+      yield { type: "text_delta", text: "answer" }
+    })
+    const output = streams()
+
+    expect(await runHeadlessCommand(["--ephemeral", "hello"], output.options)).toBe(0)
+    expect(vi.mocked(executeTurn)).toHaveBeenCalledOnce()
+    expect(vi.mocked(executeTurn).mock.calls[0]?.[0].agent.trustReportedContextLength).toBe(trusted)
   })
 
   it("reuses the configured PAIR endpoint for headless execution", async () => {

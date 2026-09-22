@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { dirname, join, resolve } from "node:path"
+import { errorMessage, isRecord } from "../inference/errors.js"
 import { isLocalModelId } from "../inference/local-catalog.js"
 import {
   type LocalThinkingPreferences,
@@ -36,6 +37,8 @@ export type LocalSettings = {
    * When false, the chat side panel that lists delegated runs stays hidden. Omitted means shown.
    */
   subagentPanelVisible?: boolean
+  /** The desktop workspace panel width in CSS pixels; omitted follows the responsive default. */
+  workspacePanelWidth?: number
   fastServingModels?: string[]
   modelFastId?: string
   permissions?: PermissionConfig
@@ -236,6 +239,13 @@ export async function saveSubagentPanelVisible(
   await updateSettings(options, (saved) => ({ ...saved, subagentPanelVisible }))
 }
 
+export async function saveWorkspacePanelWidth(
+  workspacePanelWidth: number | undefined,
+  options: SettingsFileOptions = {},
+) {
+  await updateSettings(options, (saved) => ({ ...saved, workspacePanelWidth }))
+}
+
 export async function saveFastServingSelection(
   model: FireworksModel,
   fast: boolean,
@@ -326,6 +336,14 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
   }
   const thinkingVisible = optionalBoolean(value.thinkingVisible, "thinkingVisible")
   const subagentPanelVisible = optionalBoolean(value.subagentPanelVisible, "subagentPanelVisible")
+  const workspacePanelWidth = value.workspacePanelWidth
+  if (
+    workspacePanelWidth !== undefined &&
+    (typeof workspacePanelWidth !== "number" ||
+      !Number.isFinite(workspacePanelWidth) ||
+      workspacePanelWidth <= 0)
+  )
+    throw new Error("Invalid Otis config: workspacePanelWidth must be a positive number.")
   const fastMode = optionalBoolean(value.fastMode, "fastMode")
   if (value.fastServingModels !== undefined && !Array.isArray(value.fastServingModels)) {
     throw new Error("Invalid Otis config: fastServingModels must be an array of strings.")
@@ -364,6 +382,7 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
     localThinking,
     thinkingVisible,
     subagentPanelVisible,
+    workspacePanelWidth,
     fastMode,
     fastServingModels,
     modelFastId,
@@ -426,6 +445,7 @@ function selectedModelSettings(settings: SettingsFile, model?: CatalogModel): Se
     localThinking: settings.localThinking,
     thinkingVisible: settings.thinkingVisible,
     subagentPanelVisible: settings.subagentPanelVisible,
+    workspacePanelWidth: settings.workspacePanelWidth,
     fastServingModels:
       fastServingModels.length > 0 ||
       settings.fastServingModels !== undefined ||
@@ -514,12 +534,4 @@ function settingsFilePath(options: SettingsFileOptions) {
 
 async function chmodPrivate(path: string, mode: number) {
   if (process.platform !== "win32") await chmod(path, mode)
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
-
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error)
 }

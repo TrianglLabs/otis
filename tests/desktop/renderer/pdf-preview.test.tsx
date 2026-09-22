@@ -61,7 +61,7 @@ describe("PDF preview lifecycle", () => {
       destroy: vi.fn(async () => {}),
     }
     mocks.getDocument.mockReturnValue(loading)
-    render(<PdfPreview source={btoa("document")} />)
+    render(<PdfPreview data={pdfBytes()} />)
     expect((await screen.findByRole("alert")).textContent).toBe("Page rendering failed")
     expect(page.cleanup).toHaveBeenCalled()
   })
@@ -77,7 +77,7 @@ describe("PDF preview lifecycle", () => {
       destroy: vi.fn(() => disposal.promise),
     }
     mocks.getDocument.mockReturnValue(loading)
-    const view = render(<PdfPreview source={btoa("document")} />)
+    const view = render(<PdfPreview data={pdfBytes()} />)
     const canvas = (await screen.findByLabelText("Page 1")) as HTMLCanvasElement
     await waitFor(() => expect(page.render).toHaveBeenCalled())
     view.unmount()
@@ -86,17 +86,84 @@ describe("PDF preview lifecycle", () => {
     expect(canvas.height).toBe(0)
     expect(loading.destroy).toHaveBeenCalledOnce()
     expect(mocks.terminate).not.toHaveBeenCalled()
-    await act(async () => disposal.resolve())
+    await act(async () => disposal.resolve(undefined))
     expect(mocks.destroyWorker).toHaveBeenCalledOnce()
     expect(mocks.terminate).toHaveBeenCalledOnce()
   })
 
   it("does not create a worker if the preview unmounts during the library import", async () => {
-    const view = render(<PdfPreview source={btoa("document")} />)
+    const view = render(<PdfPreview data={pdfBytes()} />)
     view.unmount()
     await act(async () => {})
     expect(mocks.constructWorker).not.toHaveBeenCalled()
     expect(mocks.getDocument).not.toHaveBeenCalled()
+  })
+
+  it("replaces the document in place, releasing the old transport only after the new one loads", async () => {
+    const first = fakePage()
+    const second = fakePage()
+    const firstLoading = {
+      promise: Promise.resolve({ numPages: 1, getPage: vi.fn(async () => first) }),
+      destroy: vi.fn(async () => {}),
+    }
+    const secondLoaded = deferred<{ numPages: number; getPage: () => Promise<unknown> }>()
+    const secondLoading = { promise: secondLoaded.promise, destroy: vi.fn(async () => {}) }
+    mocks.getDocument.mockReturnValueOnce(firstLoading).mockReturnValueOnce(secondLoading)
+    const view = render(<PdfPreview data={pdfBytes("one")} />)
+    await screen.findByLabelText("Page 1")
+    await waitFor(() => expect(first.render).toHaveBeenCalled())
+    view.rerender(<PdfPreview data={pdfBytes("two")} />)
+    await waitFor(() => expect(mocks.getDocument).toHaveBeenCalledTimes(2))
+    // The bytes are copied so a transferred buffer never empties the retained payload.
+    const handed = mocks.getDocument.mock.calls[1]?.[0] as { data: Uint8Array }
+    expect(handed.data).toEqual(pdfBytes("two"))
+    expect(screen.getByLabelText("Page 1")).toBeTruthy()
+    expect(screen.queryByText("Loading preview…")).toBeNull()
+    expect(firstLoading.destroy).not.toHaveBeenCalled()
+    await act(async () => secondLoaded.resolve({ numPages: 2, getPage: vi.fn(async () => second) }))
+    expect(firstLoading.destroy).toHaveBeenCalledOnce()
+    await waitFor(() => expect(second.render).toHaveBeenCalled())
+  })
+
+  it("re-renders pages only once the width has settled, scaling them meanwhile", async () => {
+    const observers: (() => void)[] = []
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: () => void) {
+          observers.push(callback)
+        }
+        observe() {}
+        disconnect() {}
+      },
+    )
+    let clientWidth = 560
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => clientWidth)
+    const page = fakePage()
+    mocks.getDocument.mockReturnValue({
+      promise: Promise.resolve({ numPages: 1, getPage: vi.fn(async () => page) }),
+      destroy: vi.fn(async () => {}),
+    })
+    render(<PdfPreview data={pdfBytes()} />)
+    const canvas = (await screen.findByLabelText("Page 1")) as HTMLCanvasElement
+    await waitFor(() => expect(page.render).toHaveBeenCalledOnce())
+    expect(canvas.style.width).toBe("528px")
+    clientWidth = 400
+    act(() => {
+      for (const notify of observers) notify()
+    })
+    expect(canvas.style.width).toBe("368px")
+    clientWidth = 420
+    act(() => {
+      for (const notify of observers) notify()
+    })
+    expect(canvas.style.width).toBe("388px")
+    expect(page.render).toHaveBeenCalledOnce()
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 180))
+    })
+    await waitFor(() => expect(page.render).toHaveBeenCalledTimes(2))
+    expect(page.getViewport).toHaveBeenLastCalledWith({ scale: 388 / 612 })
   })
 
   it("limits bitmap memory for oversized pages", async () => {
@@ -105,7 +172,7 @@ describe("PDF preview lifecycle", () => {
       promise: Promise.resolve({ numPages: 1, getPage: vi.fn(async () => page) }),
       destroy: vi.fn(async () => {}),
     })
-    render(<PdfPreview source={btoa("document")} />)
+    render(<PdfPreview data={pdfBytes()} />)
     const canvas = (await screen.findByLabelText("Page 1")) as HTMLCanvasElement
     await waitFor(() => expect(page.render).toHaveBeenCalled())
     expect(canvas.width * canvas.height).toBeLessThanOrEqual(8_000_000)
@@ -113,18 +180,25 @@ describe("PDF preview lifecycle", () => {
   })
 })
 
+function pdfBytes(text = "document") {
+  return new TextEncoder().encode(text)
+}
+
 function fakePage(height = 792) {
   return {
-    getViewport: ({ scale }: { scale: number }) => ({ width: 612 * scale, height: height * scale }),
+    getViewport: vi.fn(({ scale }: { scale: number }) => ({
+      width: 612 * scale,
+      height: height * scale,
+    })),
     render: vi.fn(() => ({ promise: Promise.resolve(), cancel: vi.fn() })),
     cleanup: vi.fn(),
   }
 }
 
-function deferred() {
-  let resolve = () => {}
+function deferred<T = void>() {
+  let resolve = (_value: T) => {}
   let reject = (_error: Error) => {}
-  const promise = new Promise<void>((done, fail) => {
+  const promise = new Promise<T>((done, fail) => {
     resolve = done
     reject = fail
   })

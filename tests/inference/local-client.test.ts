@@ -4,6 +4,16 @@ import type { LocalThinkingLevel } from "../../src/inference/local-thinking.js"
 
 afterEach(() => vi.restoreAllMocks())
 
+/** A body that delivers one chunk and then never settles another read. */
+function stalledBody(head: string) {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(head))
+    },
+    pull: () => new Promise<void>(() => {}),
+  })
+}
+
 describe("LlamaCppClient", () => {
   it("applies the saved effort to inference and token counting while preserving reasoning history", async () => {
     let level: LocalThinkingLevel | undefined = "medium"
@@ -187,7 +197,71 @@ describe("local request token counting", () => {
       "http://127.0.0.1:1234/v1/chat/completions",
     ])
     expect(requests[0].body).toEqual(requests[1].body)
-    expect(requests[0].signal).toBe(controller.signal)
+    // The request signal derives from the caller's: cancelling the turn cancels the request.
+    expect(requests[0].signal?.aborted).toBe(false)
+    controller.abort()
+    expect(requests[0].signal?.aborted).toBe(true)
+  })
+
+  it("abandons a stream that stops delivering bytes, naming the idle limit", async () => {
+    const client = new LlamaCppClient({
+      model: "local",
+      inferenceURL: "http://127.0.0.1:1234/v1/chat/completions",
+      idleTimeoutMs: 20,
+      fetch: async () =>
+        new Response(stalledBody('data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n')),
+    })
+    const events: unknown[] = []
+    await expect(
+      (async () => {
+        for await (const event of client.streamChat({ messages: [] })) events.push(event)
+      })(),
+    ).rejects.toThrow("Local model sent no data for 20 ms; the request timed out.")
+    expect(events).toEqual([{ type: "text_delta", text: "Hi" }])
+  })
+
+  it("restarts the idle clock on every chunk", async () => {
+    const client = new LlamaCppClient({
+      model: "local",
+      inferenceURL: "http://127.0.0.1:1234/v1/chat/completions",
+      idleTimeoutMs: 40,
+      fetch: async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            async start(controller) {
+              for (let index = 0; index < 5; index += 1) {
+                await new Promise((resolve) => setTimeout(resolve, 25))
+                controller.enqueue(
+                  new TextEncoder().encode(
+                    `data: {"choices":[{"delta":{"content":"${index}"}}]}\n\n`,
+                  ),
+                )
+              }
+              controller.close()
+            },
+          }),
+        ),
+    })
+    const texts: string[] = []
+    for await (const event of client.streamChat({ messages: [] })) {
+      if (event.type === "text_delta") texts.push(event.text)
+    }
+    expect(texts).toEqual(["0", "1", "2", "3", "4"])
+  })
+
+  it.each([
+    ["headers", () => new Promise<Response>(() => {})],
+    ["the JSON body", async () => new Response(stalledBody("{"))],
+  ])("bounds a token count whose %s never arrive", async (_what, fetchImpl) => {
+    const client = new LlamaCppClient({
+      model: "local",
+      inferenceURL: "http://127.0.0.1:1234/v1/chat/completions",
+      idleTimeoutMs: 20,
+      fetch: fetchImpl,
+    })
+    await expect(client.countTokens({ messages: [] })).rejects.toThrow(
+      "Local model sent no data for 20 ms; the request timed out.",
+    )
   })
 
   it.each([

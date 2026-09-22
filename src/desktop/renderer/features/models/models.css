@@ -138,14 +138,20 @@
   text-overflow: ellipsis;
 }
 
+/* Name marks center on the caps and digits of the model name, not the line box, so they do not
+   hang below the baseline. */
+.modelPicker-recommended,
+.modelPicker-cpuOffload {
+  display: inline-flex;
+  transform: translateY(-0.5px);
+}
+
 .modelPicker-recommended {
   color: var(--warning);
-  display: inline-flex;
 }
 
 .modelPicker-cpuOffload {
   color: var(--text-dim);
-  display: inline-flex;
 }
 
 .modelPicker-detail {

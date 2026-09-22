@@ -17,6 +17,7 @@ type PairClientConfig = {
   model: string
   baseURL: string
   fetch?: typeof fetch
+  idleTimeoutMs?: number
 }
 
 type PairDiscoveryOptions = {
@@ -37,6 +38,7 @@ class PairClient extends OpenAICompatibleClient {
       model: config.model,
       inferenceURL: `${normalizeLocalBaseURL(config.baseURL)}/v1/chat/completions`,
       fetch: config.fetch,
+      idleTimeoutMs: config.idleTimeoutMs,
       modelLabel: "Local model-server model",
       inferenceURLLabel: "Local model-server inference URL",
       requestLabel: "Local model server",

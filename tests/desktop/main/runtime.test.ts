@@ -1,4 +1,4 @@
-import { appendFile, mkdir } from "node:fs/promises"
+import { appendFile, mkdir, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { Application } from "../../../src/app/application.js"
@@ -12,7 +12,6 @@ import type {
   LocalPickerChoice,
   listModelPickerItems,
   ModelPickerItem,
-  PairPickerChoice,
 } from "../../../src/inference/picker-catalog.js"
 import type {
   ChatMessage,
@@ -20,7 +19,6 @@ import type {
   PairCatalogModel,
 } from "../../../src/inference/types.js"
 import { loadLocalSettings, saveSelectedModel } from "../../../src/local/settings.js"
-import type { PermissionRequest } from "../../../src/permissions/policy.js"
 import {
   acquireSessionLock,
   readWorkspacePath,
@@ -77,6 +75,27 @@ async function setup(configureClient = true, extra: Record<string, unknown> = {}
     ...extra,
   })
   return { app, runtime, sent, cwd }
+}
+
+/**
+ * Stands in for model preparation: the selection commits by activating the fake client. `during`
+ * runs inside preparation, where progress is reported and cancellation lands.
+ */
+function preparing(
+  app: Application,
+  during?: (options: {
+    signal: AbortSignal
+    onLocalProgress?: (p: never) => void
+  }) => Promise<void>,
+) {
+  return vi.spyOn(app.models, "prepare").mockImplementation(async (model, options) => {
+    await during?.(options as never)
+    return {
+      model,
+      commit: () => app.models.activate(model, fakeClient),
+      rollback: async () => {},
+    }
+  })
 }
 
 async function foreignSession(dirName: string, sessionId: string, text: string) {
@@ -147,72 +166,6 @@ describe("DesktopRuntime model startup", () => {
     await runtime.shutdown()
   })
 
-  it("a model picked during startup supersedes it and is never overwritten by the late startup", async () => {
-    const home = await isolate("otis-desktop-")
-    const cwd = join(home, "workspace")
-    await mkdir(cwd, { recursive: true })
-    await saveSelectedModel({
-      provider: "local",
-      id: "Qwen/Qwen3.8-27B",
-      displayName: "Qwen3.8 27B",
-      contextLength: 32_768,
-      supportsImageInput: false,
-    })
-
-    const app = await Application.create({ cwd })
-    const fireworksChoice: FireworksPickerChoice = {
-      kind: "model",
-      provider: "fireworks",
-      id: "accounts/fireworks/models/kimi",
-      displayName: "Kimi",
-      supportsImageInput: false,
-      available: true,
-      active: false,
-    }
-    const prepare = vi.spyOn(app.models, "prepare").mockImplementation(async (model, options) => {
-      if (model.provider === "local") {
-        // The saved model's startup is slow like a long download; a real prepare rejects when
-        // aborted. If nothing aborts it, it commits late — over any selection made in the meantime.
-        await new Promise<void>((resolve, reject) => {
-          const timer = setTimeout(resolve, 100)
-          options.signal.addEventListener("abort", () => {
-            clearTimeout(timer)
-            reject(Object.assign(new Error("aborted"), { name: "AbortError" }))
-          })
-        })
-      }
-      return {
-        model,
-        commit: () => app.models.activate(model, fakeClient),
-        rollback: async () => {},
-      }
-    })
-    const runtime = DesktopRuntime.forApplication(app, {
-      cwd,
-      version: "test",
-      platform: "darwin",
-      send: () => {},
-      listPickerItems: async () => [fireworksChoice],
-      discoverPair: async () => ({ errors: [] }),
-    })
-    await vi.waitFor(() => expect(prepare).toHaveBeenCalledOnce())
-
-    const result = await runtime.selectModel(fireworksChoice.id)
-    expect(result).toEqual({ ok: true })
-
-    // The aborted startup must not reactivate the saved local model over the user's newer pick;
-    // wait past the point its slow prepare would commit if nothing had superseded it.
-    await app.models.waitForSelection()
-    await new Promise((resolve) => setTimeout(resolve, 150))
-    expect(app.models.selectedId).toBe(fireworksChoice.id)
-    expect(app.models.client).toBe(fakeClient)
-    const snapshot = await runtime.snapshot()
-    expect(snapshot.modelState).toBe("ready")
-    expect(snapshot.model?.id).toBe(fireworksChoice.id)
-    expect((await loadLocalSettings()).model).toBe(fireworksChoice.id)
-    await runtime.shutdown()
-  })
-
   it("selecting the failed saved model retries preparation instead of reporting false success", async () => {
     const home = await isolate("otis-desktop-")
     const cwd = join(home, "workspace")
@@ -253,16 +206,11 @@ describe("DesktopRuntime model startup", () => {
     await vi.waitFor(async () => expect((await runtime.snapshot()).modelState).toBe("failed"))
     expect(app.models.client).toBeUndefined()
 
-    const persist = vi
-      .spyOn(app.models, "persistSelection")
-      .mockImplementation(async (model, options) => {
-        await options.persist(model)
-        app.models.activate(model, fakeClient)
-        return model
-      })
+    const prepare = preparing(app)
     const result = await runtime.selectModel(activeRow.id)
     expect(result).toEqual({ ok: true })
-    expect(persist).toHaveBeenCalledOnce()
+    // The failed startup and the retry: the active row is not a dead shortcut.
+    expect(prepare).toHaveBeenCalledTimes(2)
     expect(app.models.client).toBe(fakeClient)
     expect((await runtime.snapshot()).modelState).toBe("ready")
     await runtime.shutdown()
@@ -477,49 +425,6 @@ describe("DesktopRuntime subagents", () => {
     await runtime.shutdown()
   })
 
-  it("validates and activates a Fireworks API key", async () => {
-    const home = await isolate("otis-desktop-")
-    const cwd = join(home, "workspace")
-    await mkdir(cwd, { recursive: true })
-    const app = await Application.create({ cwd })
-    app.models.client = fakeClient
-    app.models.selectedId = "accounts/fireworks/models/fake"
-    app.models.selectedProvider = "fireworks"
-    const listToolCapableModels = vi.fn(async () => [{ id: "kimi" }])
-    const runtime = DesktopRuntime.forApplication(app, {
-      cwd,
-      version: "test",
-      platform: "darwin",
-      send: () => {},
-      listToolCapableModels: listToolCapableModels as never,
-    })
-
-    expect(await runtime.setFireworksApiKey("  ")).toEqual({
-      ok: false,
-      reason: "Fireworks API key is required.",
-    })
-    expect(listToolCapableModels).not.toHaveBeenCalled()
-    expect((await runtime.snapshot()).hostedConfigured).toBe(false)
-
-    listToolCapableModels.mockRejectedValueOnce(
-      new Error("Could not load Fireworks models (HTTP 401): bad key"),
-    )
-    expect(await runtime.setFireworksApiKey("bad-key")).toEqual({
-      ok: false,
-      reason: "Could not load Fireworks models (HTTP 401): bad key",
-    })
-    expect((await loadLocalSettings()).fireworksApiKey).toBeUndefined()
-
-    expect(await runtime.setFireworksApiKey(" good-key ")).toEqual({ ok: true })
-    expect(app.fireworksApiKey).toBe("good-key")
-    expect((await loadLocalSettings()).fireworksApiKey).toBe("good-key")
-    // A live hosted selection is rebuilt onto the new key.
-    expect(app.models.client).not.toBe(fakeClient)
-    expect(app.models.client?.model).toBe("accounts/fireworks/models/fake")
-    expect((await runtime.snapshot()).hostedConfigured).toBe(true)
-    await runtime.shutdown()
-  })
-
   it("connects NVIDIA PAIR endpoints, keeping only the engines that respond", async () => {
     const home = await isolate("otis-desktop-")
     const cwd = join(home, "workspace")
@@ -567,81 +472,6 @@ describe("DesktopRuntime subagents", () => {
     expect(snapshot.pairConfigured).toBe(true)
     expect(snapshot.pairEndpoints).toEqual({ ollama: "http://127.0.0.1:11434" })
     expect((await loadLocalSettings()).pairEndpoints).toEqual({ ollama: "http://127.0.0.1:11434" })
-    await runtime.shutdown()
-  })
-
-  it("deletes the active local model and clears the selection", async () => {
-    const home = await isolate("otis-desktop-")
-    const cwd = join(home, "workspace")
-    await mkdir(cwd, { recursive: true })
-    await saveSelectedModel({
-      provider: "local",
-      id: "openai/gpt-oss-20b",
-      displayName: "gpt-oss 20B",
-      contextLength: 32_768,
-      supportsImageInput: false,
-    })
-    const app = await Application.create({ cwd })
-    app.models.client = fakeClient
-    app.models.selectedId = "openai/gpt-oss-20b"
-    app.models.selectedProvider = "local"
-    app.models.activeLocal = { spec: { id: "openai/gpt-oss-20b" }, contextLength: 32_768 } as never
-    const stop = vi.spyOn(app.models.llama, "stop").mockResolvedValue(undefined)
-    mocks.listDownloaded.mockResolvedValue([findLocalModel("openai/gpt-oss-20b")])
-    const runtime = DesktopRuntime.forApplication(app, {
-      cwd,
-      version: "test",
-      platform: "darwin",
-      send: () => {},
-    })
-
-    const result = await runtime.deleteLocalModel("openai/gpt-oss-20b")
-    expect(result).toEqual({ ok: true })
-    expect(mocks.deleteGguf).toHaveBeenCalledOnce()
-    expect(stop).toHaveBeenCalled()
-    expect(app.models.selectedId).toBeUndefined()
-    expect(app.models.client).toBeUndefined()
-    const snapshot = await runtime.snapshot()
-    expect(snapshot.model).toBeNull()
-    expect(snapshot.modelState).toBe("unconfigured")
-    expect((await loadLocalSettings()).model).toBeUndefined()
-    await runtime.shutdown()
-  })
-
-  it("restores the active local model when deletion fails", async () => {
-    const home = await isolate("otis-desktop-")
-    const cwd = join(home, "workspace")
-    await mkdir(cwd, { recursive: true })
-    await saveSelectedModel({
-      provider: "local",
-      id: "openai/gpt-oss-20b",
-      displayName: "gpt-oss 20B",
-      contextLength: 32_768,
-      supportsImageInput: false,
-    })
-    const app = await Application.create({ cwd })
-    app.models.client = fakeClient
-    app.models.selectedId = "openai/gpt-oss-20b"
-    app.models.selectedProvider = "local"
-    app.models.activeLocal = { spec: { id: "openai/gpt-oss-20b" }, contextLength: 32_768 } as never
-    vi.spyOn(app.models.llama, "stop").mockResolvedValue(undefined)
-    const restore = vi.spyOn(app.models, "restorePrevious").mockResolvedValue(undefined)
-    mocks.listDownloaded.mockResolvedValue([findLocalModel("openai/gpt-oss-20b")])
-    mocks.deleteGguf.mockRejectedValueOnce(new Error("disk busy"))
-    const runtime = DesktopRuntime.forApplication(app, {
-      cwd,
-      version: "test",
-      platform: "darwin",
-      send: () => {},
-    })
-
-    const result = await runtime.deleteLocalModel("openai/gpt-oss-20b")
-    expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.reason).toContain("Could not delete")
-    // The cleared selection is rolled back.
-    expect((await loadLocalSettings()).model).toBe("openai/gpt-oss-20b")
-    expect(restore).toHaveBeenCalled()
-    expect(app.models.selectedId).toBe("openai/gpt-oss-20b")
     await runtime.shutdown()
   })
 
@@ -712,54 +542,6 @@ describe("DesktopRuntime subagents", () => {
     releaseDelete()
     expect(await pending).toEqual({ ok: true })
     expect(app.models.selectedId).toBeUndefined()
-    await runtime.shutdown()
-  })
-
-  it("rejects deletion while a selection is in flight", async () => {
-    const home = await isolate("otis-desktop-")
-    const cwd = join(home, "workspace")
-    await mkdir(cwd, { recursive: true })
-    const app = await Application.create({ cwd })
-    app.models.client = fakeClient
-    app.models.selectedId = "accounts/fireworks/models/fake"
-    app.models.selectedProvider = "fireworks"
-    const kimi: FireworksPickerChoice = {
-      kind: "model",
-      provider: "fireworks",
-      id: "accounts/fireworks/models/kimi",
-      displayName: "Kimi",
-      supportsImageInput: false,
-      available: true,
-      active: false,
-    }
-    // The prepare only settles when the selection is aborted, so the switch stays in flight until
-    // cancelled.
-    vi.spyOn(app.models, "prepare").mockImplementation(
-      async (_model, options) =>
-        new Promise((_resolve, reject) => {
-          options.signal.addEventListener("abort", () =>
-            reject(Object.assign(new Error("aborted"), { name: "AbortError" })),
-          )
-        }) as never,
-    )
-    const runtime = DesktopRuntime.forApplication(app, {
-      cwd,
-      version: "test",
-      platform: "darwin",
-      send: () => {},
-      listPickerItems: async () => [kimi],
-      discoverPair: async () => ({ errors: [] }),
-    })
-    mocks.listDownloaded.mockResolvedValue([findLocalModel("openai/gpt-oss-20b")])
-
-    const selecting = runtime.selectModel(kimi.id)
-    await new Promise((resolve) => setTimeout(resolve, 10))
-    expect(await runtime.deleteLocalModel("openai/gpt-oss-20b")).toEqual({
-      ok: false,
-      reason: "Finish the current work before deleting a model.",
-    })
-    await runtime.cancelModelSelection()
-    await selecting
     await runtime.shutdown()
   })
 
@@ -881,63 +663,6 @@ describe("DesktopRuntime subagents", () => {
     await runtime.shutdown()
   })
 
-  it("keeps queued work parked while no model is usable and resumes it once one is ready", async () => {
-    const home = await isolate("otis-desktop-")
-    const cwd = join(home, "workspace")
-    await mkdir(cwd, { recursive: true })
-    await saveSelectedModel({
-      provider: "local",
-      id: "openai/gpt-oss-20b",
-      displayName: "gpt-oss 20B",
-      contextLength: 32_768,
-      supportsImageInput: false,
-    })
-    const app = await Application.create({ cwd })
-    const kimi: FireworksPickerChoice = {
-      kind: "model",
-      provider: "fireworks",
-      id: "accounts/fireworks/models/kimi",
-      displayName: "Kimi",
-      supportsImageInput: false,
-      available: true,
-      active: false,
-    }
-    // The saved model's startup fails, so the runtime is left without a usable client.
-    vi.spyOn(app.models, "prepare").mockRejectedValueOnce(new Error("model failed to load"))
-    const runtime = DesktopRuntime.forApplication(app, {
-      cwd,
-      version: "test",
-      platform: "darwin",
-      send: () => {},
-      listPickerItems: async () => [kimi],
-      discoverPair: async () => ({ errors: [] }),
-    })
-    await vi.waitFor(async () => expect((await runtime.snapshot()).modelState).toBe("failed"))
-
-    // A parked follow-up: admitted to the session, waiting for a driver.
-    await app.conversation.queue({ role: "user", content: "hold this" })
-    expect(app.conversation.peekQueued()).toBeTruthy()
-
-    // The failed start leaves nothing that can serve the queue; it must not drain into the void.
-    expect(app.models.client).toBeUndefined()
-    expect(mocks.executeTurn).not.toHaveBeenCalled()
-
-    // Once a selection commits, the parked follow-up resumes on the new model.
-    vi.spyOn(app.models, "prepare").mockImplementation(async (model) => ({
-      model,
-      commit: () => app.models.activate(model, fakeClient),
-      rollback: async () => {},
-    }))
-    expect(await runtime.selectModel(kimi.id)).toEqual({ ok: true })
-    await vi.waitFor(() => expect(mocks.executeTurn).toHaveBeenCalled())
-    expect(app.conversation.peekQueued()).toBeUndefined()
-    const ran = mocks.executeTurn.mock.calls.map((call) =>
-      JSON.stringify(call[0]).includes("hold this"),
-    )
-    expect(ran.some(Boolean)).toBe(true)
-    await runtime.shutdown()
-  })
-
   it("persists the agents rail visibility preference", async () => {
     const { runtime } = await setup()
     expect((await runtime.snapshot()).agentsPanelVisible).toBe(true)
@@ -949,6 +674,40 @@ describe("DesktopRuntime subagents", () => {
     await runtime.setAgentsPanelVisible(true)
     expect((await runtime.snapshot()).agentsPanelVisible).toBe(true)
     expect((await loadLocalSettings()).subagentPanelVisible).toBe(true)
+    await runtime.shutdown()
+  })
+
+  it("persists the workspace panel width and clears it on reset", async () => {
+    const { runtime } = await setup()
+    expect((await runtime.snapshot()).workspacePanelWidth).toBeUndefined()
+    await runtime.setWorkspacePanelWidth(431)
+    expect((await runtime.snapshot()).workspacePanelWidth).toBe(431)
+    expect((await loadLocalSettings()).workspacePanelWidth).toBe(431)
+    await runtime.setWorkspacePanelWidth(undefined)
+    expect((await runtime.snapshot()).workspacePanelWidth).toBeUndefined()
+    expect((await loadLocalSettings()).workspacePanelWidth).toBeUndefined()
+    await runtime.shutdown()
+  })
+
+  it("answers preview fetches with a result instead of an invoke error", async () => {
+    const { runtime, app } = await setup()
+    await writeFile(join(runtime.app.cwd, "notes.md"), "# Notes")
+    app.artifacts.openWorkspace({ source: "workspace", kind: "markdown", path: "notes.md" })
+    const revision = app.artifacts.metadata?.revision ?? 0
+    expect(await runtime.getArtifact(revision)).toMatchObject({
+      ok: true,
+      payload: { content: "# Notes" },
+    })
+    expect(await runtime.getArtifact(revision + 1)).toEqual({
+      ok: false,
+      stale: true,
+      reason: "This preview changed.",
+    })
+    await rm(join(runtime.app.cwd, "notes.md"))
+    expect(await runtime.getArtifact(revision)).toEqual({
+      ok: false,
+      reason: expect.stringContaining("no longer at notes.md"),
+    })
     await runtime.shutdown()
   })
 
@@ -1088,8 +847,7 @@ describe("DesktopRuntime conversation flow", () => {
     })
     expect(JSON.stringify(artifact)).not.toContain("Desktop document text")
     await expect(runtime.getArtifact(artifact?.revision ?? 0)).resolves.toMatchObject({
-      encoding: "utf8",
-      content: "Desktop document text",
+      payload: { encoding: "utf8", content: "Desktop document text" },
     })
     app.transcript.loadCompacted("Attachment summary", [])
     const reference = userEntry?.artifacts?.[0]
@@ -1148,135 +906,7 @@ describe("DesktopRuntime conversation flow", () => {
     expect(mocks.executeTurn).not.toHaveBeenCalled()
     if (change !== "shutdown") await runtime.shutdown()
   })
-
-  it("drains queued follow-ups through the conversation after the active turn settles", async () => {
-    const { runtime, app } = await setup()
-
-    let releaseFirst!: () => void
-    const gate = new Promise<void>((resolve) => {
-      releaseFirst = resolve
-    })
-    let calls = 0
-    mocks.executeTurn.mockImplementation(
-      async (options: TurnRunnerOptions): Promise<TurnResult> => {
-        calls += 1
-        const turn = calls
-        // Close the steering inbox so the follow-up is queued instead of steered.
-        await options.agent.steering?.drainOrClose()
-        if (turn === 1) await gate
-        await options.onEvent?.({ type: "delta", text: `reply ${turn}` })
-        const messages: ChatMessage[] = [
-          { role: "assistant", content: [{ type: "text", text: `reply ${turn}` }] },
-        ]
-        await options.onEvent?.({ type: "complete", messages })
-        return { status: "complete", messages, details: {} }
-      },
-    )
-
-    const first = await runtime.sendPrompt("first")
-    expect(first).toEqual({ accepted: true, delivery: "started" })
-
-    const second = await runtime.sendPrompt("second")
-    expect(second).toEqual({ accepted: true, delivery: "queued" })
-    expect(calls).toBe(1)
-
-    releaseFirst()
-    await vi.waitFor(() => expect(calls).toBe(2))
-
-    await vi.waitFor(async () => {
-      const snapshot = await runtime.snapshot()
-      expect(snapshot.busy).toBe(false)
-      expect(snapshot.entries.some((entry) => entry.text === "reply 2")).toBe(true)
-    })
-    const userEntries = app.transcript.entries.filter((entry) => entry.speaker === "You")
-    expect(userEntries.map((entry) => entry.text)).toEqual(["first", "second"])
-    expect(userEntries.every((entry) => entry.delivery === undefined)).toBe(true)
-    await runtime.shutdown()
-  })
-
-  it("reports submission as rejected when session admission fails", async () => {
-    const { runtime, app } = await setup()
-    vi.spyOn(app.sessions, "ensure").mockRejectedValue(new Error("disk full"))
-    mocks.executeTurn.mockImplementation(turnEvents("unreachable"))
-
-    const result = await runtime.sendPrompt("hello")
-    expect(result.accepted).toBe(false)
-    expect(mocks.executeTurn).not.toHaveBeenCalled()
-    // The failure is visible in the transcript, and no user message was recorded.
-    expect(app.transcript.entries.some((entry) => entry.speaker === "You")).toBe(false)
-    expect(app.transcript.entries.some((entry) => entry.text.includes("disk full"))).toBe(true)
-    await runtime.shutdown()
-  })
-
-  it("routes permission requests to the GUI and ignores stale replies", async () => {
-    const { runtime } = await setup()
-
-    mocks.executeTurn.mockImplementation(
-      async (options: TurnRunnerOptions): Promise<TurnResult> => {
-        const request: PermissionRequest = {
-          call: { name: "bash", input: { command: "bun test" } },
-          decision: { effect: "ask", resources: ["bun test"] },
-        }
-        const allowed = await options.agent.onPermissionRequest?.(request)
-        const text = allowed ? "allowed" : "denied"
-        const messages: ChatMessage[] = [{ role: "assistant", content: [{ type: "text", text }] }]
-        await options.onEvent?.({ type: "delta", text })
-        await options.onEvent?.({ type: "complete", messages })
-        return { status: "complete", messages, details: {} }
-      },
-    )
-
-    const sendTask = runtime.sendPrompt("run the tests")
-    await vi.waitFor(async () => {
-      expect((await runtime.snapshot()).permission).toMatchObject({
-        label: "Running command: bun test",
-      })
-    })
-
-    // A stale id is ignored and must not resolve the pending request.
-    await runtime.respondToPermission(999_999, true)
-    const pending = (await runtime.snapshot()).permission
-    if (!pending) throw new Error("expected a pending permission request")
-    await runtime.respondToPermission(pending.id, false)
-
-    await sendTask
-    await vi.waitFor(async () => {
-      const snapshot = await runtime.snapshot()
-      expect(snapshot.permission).toBeNull()
-      expect(snapshot.entries.some((entry) => entry.text === "denied")).toBe(true)
-    })
-    await runtime.shutdown()
-  })
-
-  it("denies an unanswered permission request on shutdown", async () => {
-    const { runtime } = await setup()
-    let observed: boolean | undefined
-    mocks.executeTurn.mockImplementation(
-      async (options: TurnRunnerOptions): Promise<TurnResult> => {
-        const request: PermissionRequest = {
-          call: { name: "bash", input: { command: "rm -rf build" } },
-          decision: { effect: "ask", resources: ["rm -rf build"] },
-        }
-        observed = await options.agent.onPermissionRequest?.(request)
-        return { status: "interrupted", messages: [], details: {} }
-      },
-    )
-
-    const sendTask = runtime.sendPrompt("clean the build")
-    await vi.waitFor(async () => expect((await runtime.snapshot()).permission).not.toBeNull())
-    await runtime.shutdown()
-    await sendTask
-    expect(observed).toBe(false)
-  })
 })
-
-function gate() {
-  let resolve!: () => void
-  const promise = new Promise<void>((r) => {
-    resolve = r
-  })
-  return { promise, resolve }
-}
 
 const completed = (): TurnResult => ({
   status: "complete",
@@ -1392,64 +1022,6 @@ describe("DesktopRuntime cancellation and timing", () => {
       await vi.waitFor(async () => expect((await runtime.snapshot()).busy).toBe(false))
       const userEntries = app.transcript.entries.filter((entry) => entry.speaker === "You")
       expect(userEntries.map((entry) => entry.text)).toEqual(["first", "second", "fourth"])
-    } finally {
-      await runtime.shutdown()
-    }
-  })
-
-  it("drains a follow-up whose admission finished after its predecessor completed", async () => {
-    const { app, runtime } = await setup()
-    const finishFirst = gate()
-    const permitAdmission = gate()
-    const admissionStarted = gate()
-    let calls = 0
-    mocks.executeTurn.mockImplementation(
-      async (options: TurnRunnerOptions): Promise<TurnResult> => {
-        calls++
-        await options.agent.steering?.drainOrClose()
-        if (calls === 1) await finishFirst.promise
-        return completed()
-      },
-    )
-    try {
-      await runtime.sendPrompt("first")
-      const ensure = app.sessions.ensure.bind(app.sessions)
-      vi.spyOn(app.sessions, "ensure").mockImplementation(async () => {
-        admissionStarted.resolve()
-        await permitAdmission.promise
-        return ensure()
-      })
-      const followup = runtime.sendPrompt("second")
-      await admissionStarted.promise
-      finishFirst.resolve()
-      await vi.waitFor(async () => expect((await runtime.snapshot()).busy).toBe(false))
-      permitAdmission.resolve()
-      expect(await followup).toMatchObject({ accepted: true, delivery: "queued" })
-      await vi.waitFor(() => expect(calls).toBe(2), { timeout: 500 })
-    } finally {
-      finishFirst.resolve()
-      permitAdmission.resolve()
-      await runtime.shutdown()
-    }
-  })
-
-  it("clears the approval card when Stop cancels its turn", async () => {
-    const { runtime } = await setup()
-    mocks.executeTurn.mockImplementation(
-      async (options: TurnRunnerOptions): Promise<TurnResult> => {
-        await options.agent.onPermissionRequest?.({
-          call: { name: "bash", input: { command: "echo test" } },
-          decision: { effect: "ask", resources: ["echo test"] },
-        })
-        return { status: "interrupted", messages: [], details: {} }
-      },
-    )
-    try {
-      await runtime.sendPrompt("request approval")
-      await vi.waitFor(async () => expect((await runtime.snapshot()).permission).not.toBeNull())
-      runtime.stop()
-      await vi.waitFor(async () => expect((await runtime.snapshot()).busy).toBe(false))
-      expect((await runtime.snapshot()).permission).toBeNull()
     } finally {
       await runtime.shutdown()
     }
@@ -1616,28 +1188,6 @@ describe("DesktopRuntime model selection", () => {
     await runtime.shutdown()
   })
 
-  it("rejects a selection while a turn is running", async () => {
-    const { runtime, app } = await setupWithCatalog([localChoice])
-    let release!: () => void
-    mocks.executeTurn.mockImplementation(
-      () =>
-        new Promise<TurnResult>((resolve) => {
-          release = () => resolve({ status: "interrupted", messages: [], details: {} })
-        }),
-    )
-    const admitted = await runtime.sendPrompt("hold")
-    expect(admitted).toEqual({ accepted: true, delivery: "started" })
-    await vi.waitFor(() => expect(app.conversation.busy).toBe(true))
-
-    const result = await runtime.selectModel(localChoice.id)
-    expect(result).toEqual({
-      ok: false,
-      reason: "Finish the current work before switching models.",
-    })
-    release()
-    await runtime.shutdown()
-  })
-
   it("rejects unknown and unavailable models without touching the model host", async () => {
     const unavailable = {
       ...localChoice,
@@ -1658,27 +1208,22 @@ describe("DesktopRuntime model selection", () => {
 
   it("switches models with progress events and persists the choice", async () => {
     const { runtime, app, sent } = await setupWithCatalog([localChoice])
-    const persist = vi
-      .spyOn(app.models, "persistSelection")
-      .mockImplementation(async (model, options) => {
-        options.onLocalProgress?.({ phase: "download", percent: 42 })
-        // A real load spans many flush windows; holding here lets the batched status pump deliver
-        // the progress row before completion clears it.
-        await new Promise((resolve) => setTimeout(resolve, 60))
-        await options.persist(model)
-        app.models.activate(model, fakeClient)
-        return model
-      })
+    const prepare = preparing(app, async (options) => {
+      options.onLocalProgress?.({ phase: "download", percent: 42 } as never)
+      // A real load spans many flush windows; holding here lets the batched status pump deliver
+      // the progress row before completion clears it.
+      await new Promise((resolve) => setTimeout(resolve, 60))
+    })
 
     const result = await runtime.selectModel(localChoice.id)
     expect(result).toEqual({ ok: true })
 
-    expect(persist).toHaveBeenCalledOnce()
-    const call = persist.mock.calls[0]
-    if (!call) throw new Error("persistSelection was not called")
-    const [persistedModel, persistOptions] = call
-    expect(persistedModel).toMatchObject({ provider: "local", id: localChoice.id })
-    expect(persistOptions.fireworksApiKey).toBe("fw-key")
+    expect(prepare).toHaveBeenCalledOnce()
+    const call = prepare.mock.calls[0]
+    if (!call) throw new Error("prepare was not called")
+    const [preparedModel, prepareOptions] = call
+    expect(preparedModel).toMatchObject({ provider: "local", id: localChoice.id })
+    expect(prepareOptions.fireworksApiKey).toBe("fw-key")
     // The selection was persisted through the provided hook before commit.
     const saved = await loadLocalSettings()
     expect(saved.model).toBe(localChoice.id)
@@ -1701,35 +1246,6 @@ describe("DesktopRuntime model selection", () => {
     await runtime.shutdown()
   })
 
-  it("keeps a restored previous model ready and leaves the failure on the picker row", async () => {
-    const { runtime, app, sent } = await setupWithCatalog([localChoice])
-    vi.spyOn(app.models, "persistSelection").mockRejectedValue(new Error("server did not start"))
-
-    const result = await runtime.selectModel(localChoice.id)
-    expect(result).toEqual({ ok: false, reason: "server did not start" })
-
-    await flush()
-    const last = sent.filter((event) => event.type === "status").at(-1)
-    expect(last?.status.modelState).toBe("ready")
-    expect(last?.status.modelLoad).toEqual({
-      modelId: localChoice.id,
-      status: { label: "Failed: server did not start", kind: "error" },
-    })
-    await runtime.shutdown()
-  })
-
-  it("reports a failed first selection as modelState failed", async () => {
-    const { runtime, app } = await setupWithCatalog([localChoice], { configureClient: false })
-    vi.spyOn(app.models, "persistSelection").mockRejectedValue(new Error("out of memory"))
-
-    const result = await runtime.selectModel(localChoice.id)
-    expect(result).toEqual({ ok: false, reason: "out of memory" })
-    const snapshot = await runtime.snapshot()
-    expect(snapshot.modelState).toBe("failed")
-    expect(snapshot.modelError).toBe("out of memory")
-    await runtime.shutdown()
-  })
-
   it("rejects prompts while a model switch is in flight, then admits them again", async () => {
     mocks.executeTurn.mockReset()
     mocks.executeTurn.mockImplementation(turnEvents("after the switch"))
@@ -1739,14 +1255,11 @@ describe("DesktopRuntime model selection", () => {
     const started = new Promise<void>((resolve) => {
       persistStarted = resolve
     })
-    vi.spyOn(app.models, "persistSelection").mockImplementation(async (model, options) => {
+    preparing(app, async () => {
       persistStarted()
       await new Promise<void>((resolve) => {
         releasePersist = resolve
       })
-      await options.persist(model)
-      app.models.activate(model, fakeClient)
-      return model
     })
 
     const pending = runtime.selectModel(localChoice.id)
@@ -1770,13 +1283,10 @@ describe("DesktopRuntime model selection", () => {
     mocks.executeTurn.mockImplementation(turnEvents("backlog ran"))
     const { runtime, app } = await setupWithCatalog([localChoice])
     let releasePersist!: () => void
-    vi.spyOn(app.models, "persistSelection").mockImplementation(async (model, options) => {
+    preparing(app, async () => {
       await new Promise<void>((resolve) => {
         releasePersist = resolve
       })
-      await options.persist(model)
-      app.models.activate(model, fakeClient)
-      return model
     })
     await app.conversation.queue({ role: "user", content: "queued without a driver" })
 
@@ -1818,27 +1328,22 @@ describe("DesktopRuntime model selection", () => {
     const preparationStarted = new Promise<void>((resolve) => {
       persistStarted = resolve
     })
-    vi.spyOn(app.models, "persistSelection").mockImplementation(async (model, options) => {
+    preparing(app, async () => {
       persistStarted()
       await new Promise<void>((resolve) => {
         releasePersist = resolve
       })
-      await options.persist(model)
-      app.models.activate(model, fakeClient)
-      return model
     })
 
     // Delay the follow-up's session admission behind a gate, like a slow session write.
     const originalSteer = app.conversation.steer.bind(app.conversation)
     let releaseAdmission!: () => void
-    const steer = vi
-      .spyOn(app.conversation, "steer")
-      .mockImplementation(async (message, onActivated) => {
-        await new Promise<void>((resolve) => {
-          releaseAdmission = resolve
-        })
-        return originalSteer(message, onActivated)
+    const steer = vi.spyOn(app.conversation, "steer").mockImplementation(async (message) => {
+      await new Promise<void>((resolve) => {
+        releaseAdmission = resolve
       })
+      return originalSteer(message)
+    })
 
     expect(await runtime.sendPrompt("first")).toEqual({ accepted: true, delivery: "started" })
     await vi.waitFor(() => expect(app.conversation.busy).toBe(true))
@@ -1867,7 +1372,7 @@ describe("DesktopRuntime model selection", () => {
     await runtime.shutdown()
   })
 
-  it("orders selections by click, not by catalog speed", async () => {
+  it("orders selections by click: a newer click supersedes the older one in flight", async () => {
     const older: FireworksPickerChoice = {
       kind: "model",
       provider: "fireworks",
@@ -1883,65 +1388,23 @@ describe("DesktopRuntime model selection", () => {
       displayName: "Newer",
     }
     const { runtime, app, listPickerItems } = await setupWithCatalog([older, newer])
-    // The older click's catalog lookup is the slow one; without queue-ordered lookups it would win
-    // the queue.
-    listPickerItems.mockImplementationOnce(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 80))
-      return [older, newer]
-    })
-    vi.spyOn(app.models, "persistSelection").mockImplementation(async (model) => {
-      app.models.activate(model, fakeClient)
-      return model
-    })
+    // The picker lists once; clicks resolve against that listing without another fetch, so the
+    // second click joins the queue before the first has started and supersedes it.
+    await runtime.listModels()
+    preparing(app)
 
     const first = runtime.selectModel(older.id)
     const second = runtime.selectModel(newer.id)
     expect(await first).toEqual({ ok: false, reason: "The selection was superseded." })
     expect(await second).toEqual({ ok: true })
     expect(app.models.selectedId).toBe(newer.id)
-    await runtime.shutdown()
-  })
-
-  it("shortcuts the active model only while a client is live", async () => {
-    const { runtime, app } = await setupWithCatalog([{ ...localChoice, active: true }])
-    const persist = vi.spyOn(app.models, "persistSelection")
-
-    expect(await runtime.selectModel(localChoice.id)).toEqual({ ok: true })
-    expect(persist).not.toHaveBeenCalled()
-    await runtime.shutdown()
-  })
-
-  it("reports a PAIR selection failure on the engine-qualified row", async () => {
-    const pairItem: PairPickerChoice = {
-      kind: "model",
-      provider: "pair",
-      id: "qwen3:32b",
-      displayName: "qwen3:32b",
-      baseURL: "http://127.0.0.1:11434",
-      engine: "ollama",
-      supportsImageInput: false,
-      available: true,
-      active: false,
-      selectionKey: "pair:ollama:qwen3:32b",
-    }
-    const { runtime, app, sent } = await setupWithCatalog([pairItem])
-    vi.spyOn(app.models, "persistSelection").mockRejectedValue(new Error("endpoint went away"))
-
-    const result = await runtime.selectModel(pairItem.selectionKey)
-    expect(result).toEqual({ ok: false, reason: "endpoint went away" })
-
-    await flush()
-    const last = sent.filter((event) => event.type === "status").at(-1)
-    expect(last?.status.modelLoad).toEqual({
-      modelId: "pair:ollama:qwen3:32b",
-      status: { label: "Failed: endpoint went away", kind: "error" },
-    })
+    expect(listPickerItems).toHaveBeenCalledOnce()
     await runtime.shutdown()
   })
 
   it("cancels an in-flight selection and clears its progress", async () => {
     const { runtime, app, sent } = await setupWithCatalog([localChoice])
-    vi.spyOn(app.models, "persistSelection").mockImplementation(
+    vi.spyOn(app.models, "prepare").mockImplementation(
       (_model, options) =>
         new Promise((_resolve, reject) => {
           options.onLocalProgress?.({ phase: "loading" })

@@ -10,7 +10,12 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { Virtuoso } from "react-virtuoso"
 import { useI18n } from "../../i18n/index.js"
 
-export function PdfPreview({ source }: { source: string }) {
+type PdfSession = { loading: PDFDocumentLoadingTask; worker: PDFWorker; port: Worker }
+
+/** Pages re-render only once the panel width has settled; meanwhile the bitmaps scale in CSS. */
+const RENDER_WIDTH_SETTLE_MS = 120
+
+export function PdfPreview({ data }: { data: Uint8Array }) {
   const { t } = useI18n()
   const [document, setDocument] = useState<PDFDocumentProxy>()
   const [error, setError] = useState<string>()
@@ -19,43 +24,47 @@ export function PdfPreview({ source }: { source: string }) {
     setScroller(element instanceof HTMLElement ? element : null)
   }, [])
   const [width, setWidth] = useState(0)
+  const [renderWidth, setRenderWidth] = useState(0)
+  // The transport behind the displayed document; it outlives a data change until the replacement
+  // has loaded, so existing pages never lose their document mid-render.
+  const shown = useRef<PdfSession>(undefined)
 
   useEffect(() => {
     let current = true
-    let loading: PDFDocumentLoadingTask | undefined
-    let worker: PDFWorker | undefined
-    let port: Worker | undefined
-    setDocument(undefined)
-    setError(undefined)
+    let pending: PdfSession | undefined
     void (async () => {
       const pdf = await import("pdfjs-dist/legacy/build/pdf.mjs")
       if (!current) return
-      port = new PdfWorker()
-      worker = pdf.PDFWorker.create({ port })
-      const decoded = atob(source)
-      const data = new Uint8Array(decoded.length)
-      for (let index = 0; index < decoded.length; index += 1)
-        data[index] = decoded.charCodeAt(index)
-      loading = pdf.getDocument({ data, useSystemFonts: true, worker })
+      const port = new PdfWorker()
+      const worker = pdf.PDFWorker.create({ port })
+      // PDF.js transfers the buffer it is given; keep the payload intact for later reloads.
+      const loading = pdf.getDocument({ data: data.slice(), useSystemFonts: true, worker })
+      pending = { loading, worker, port }
       const loaded = await loading.promise
-      if (current) setDocument(loaded)
+      if (!current) return
+      const previous = shown.current
+      shown.current = pending
+      pending = undefined
+      setDocument(loaded)
+      setError(undefined)
+      if (previous) release(previous)
     })().catch((reason: unknown) => {
-      if (current) setError(reason instanceof Error ? reason.message : t("canvas.previewFailed"))
+      if (!current) return
+      setError(reason instanceof Error ? reason.message : t("canvas.previewFailed"))
+      if (pending) release(pending)
+      pending = undefined
     })
     return () => {
       current = false
-      // Let PDF.js finish its transport shutdown before terminating the worker it communicates
-      // with.
-      void (async () => {
-        try {
-          await loading?.destroy()
-        } finally {
-          worker?.destroy()
-          port?.terminate()
-        }
-      })().catch((reason: unknown) => console.error("Could not release PDF preview", reason))
+      if (pending) release(pending)
     }
-  }, [source, t])
+  }, [data])
+  useEffect(
+    () => () => {
+      if (shown.current) release(shown.current)
+    },
+    [],
+  )
 
   useEffect(() => {
     if (!scroller) return
@@ -66,6 +75,16 @@ export function PdfPreview({ source }: { source: string }) {
     observer.observe(scroller)
     return () => observer.disconnect()
   }, [scroller])
+
+  useEffect(() => {
+    if (width === renderWidth) return
+    if (renderWidth === 0) {
+      setRenderWidth(width)
+      return
+    }
+    const timer = setTimeout(() => setRenderWidth(width), RENDER_WIDTH_SETTLE_MS)
+    return () => clearTimeout(timer)
+  }, [width, renderWidth])
 
   if (error)
     return (
@@ -79,15 +98,32 @@ export function PdfPreview({ source }: { source: string }) {
       <Virtuoso
         className="canvas-pdfPages"
         scrollerRef={scrollerRef}
-        totalCount={width > 0 ? document.numPages : 0}
+        totalCount={renderWidth > 0 ? document.numPages : 0}
         increaseViewportBy={200}
         components={{ Header: PdfPageInset }}
         itemContent={(index) => (
-          <PdfPageView document={document} pageNumber={index + 1} width={width} />
+          <PdfPageView
+            document={document}
+            pageNumber={index + 1}
+            width={renderWidth}
+            displayWidth={width}
+          />
         )}
       />
     </div>
   )
+}
+
+function release(session: PdfSession) {
+  // Let PDF.js finish its transport shutdown before terminating the worker it communicates with.
+  void (async () => {
+    try {
+      await session.loading.destroy()
+    } finally {
+      session.worker.destroy()
+      session.port.terminate()
+    }
+  })().catch((reason: unknown) => console.error("Could not release PDF preview", reason))
 }
 
 function PdfPageInset() {
@@ -98,10 +134,12 @@ function PdfPageView({
   document,
   pageNumber,
   width,
+  displayWidth,
 }: {
   document: PDFDocumentProxy
   pageNumber: number
   width: number
+  displayWidth: number
 }) {
   const { t } = useI18n()
   const canvas = useRef<HTMLCanvasElement>(null)
@@ -151,7 +189,7 @@ function PdfPageView({
     }
   }, [document, pageNumber, width, t])
   return (
-    <div className="canvas-pdfItem" style={{ height: width / aspectRatio + 16 }}>
+    <div className="canvas-pdfItem" style={{ height: displayWidth / aspectRatio + 16 }}>
       {error ? (
         <div className="canvas-pdfError" role="alert">
           {error}
@@ -160,7 +198,7 @@ function PdfPageView({
       <canvas
         ref={canvas}
         className="canvas-pdfPage"
-        style={{ width, height: width / aspectRatio }}
+        style={{ width: displayWidth, height: displayWidth / aspectRatio }}
         aria-label={t("canvas.page", { number: pageNumber })}
         hidden={!!error}
       />

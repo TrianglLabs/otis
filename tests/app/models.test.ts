@@ -215,6 +215,80 @@ describe("ModelHost", () => {
     expect(host.autoCompactAtTokens).toBe(autoCompactThreshold(65_536))
   })
 
+  it.each([
+    "prepare",
+    "connect",
+  ] as const)("relays a serving notice from %s to the adapter hook", async (path) => {
+    const llama = fakeLlama()
+    vi.mocked(llama.ensureServing).mockImplementation(
+      async (
+        spec: { id: string },
+        _fit,
+        _hardware,
+        options?: { onNotice?: (m: string) => void },
+      ) => {
+        options?.onNotice?.("CUDA failed (no device); running on Vulkan.")
+        return {
+          model: spec.id,
+          inferenceURL: "http://127.0.0.1:1/v1/chat/completions",
+          contextLength: 65_536,
+        }
+      },
+    )
+    const host = new ModelHost({ llama })
+    const notices: string[] = []
+    host.onNotice = (message) => notices.push(message)
+    const model = {
+      provider: "local" as const,
+      id: "openai/gpt-oss-20b",
+      displayName: "gpt-oss",
+      contextLength: 65_536,
+      supportsImageInput: false,
+    }
+    if (path === "prepare") {
+      const prepared = await host.prepare(model, { signal: new AbortController().signal })
+      prepared.commit()
+    } else await host.connect({ provider: "local", modelId: model.id })
+    expect(notices).toEqual(["CUDA failed (no device); running on Vulkan."])
+    expect(host.selectedId).toBe(model.id)
+  })
+
+  it("drops a notice from a superseded prepare", async () => {
+    const llama = fakeLlama()
+    let notify: ((message: string) => void) | undefined
+    vi.mocked(llama.ensureServing).mockImplementation(
+      async (
+        spec: { id: string },
+        _fit,
+        _hardware,
+        options?: { onNotice?: (m: string) => void },
+      ) => {
+        notify = options?.onNotice
+        return {
+          model: spec.id,
+          inferenceURL: "http://127.0.0.1:1/v1/chat/completions",
+          contextLength: 65_536,
+        }
+      },
+    )
+    const host = new ModelHost({ llama })
+    const notices: string[] = []
+    host.onNotice = (message) => notices.push(message)
+    await host.prepare(
+      {
+        provider: "local",
+        id: "openai/gpt-oss-20b",
+        displayName: "gpt-oss",
+        contextLength: 65_536,
+        supportsImageInput: false,
+      },
+      { signal: new AbortController().signal },
+    )
+    host.cancelPrepare()
+    notify?.("late notice")
+    expect(notices).toEqual([])
+  })
+
   it("persists then commits a prepared selection", async () => {
     const host = new ModelHost({ llama: fakeLlama() })
     const order: string[] = []
@@ -246,6 +320,66 @@ describe("ModelHost", () => {
     expect(host.client).toBeUndefined()
   })
 
+  it("keeps a failed selection on its picker row until the next attempt", async () => {
+    const llama = fakeLlama()
+    vi.mocked(llama.ensureServing).mockImplementation(async (_spec, _fit, _hardware, options) => {
+      options?.onProgress?.({ phase: "download", percent: 42 })
+      throw new Error("no space left")
+    })
+    const host = new ModelHost({ llama })
+    const seen: unknown[] = []
+    host.subscribe(() => seen.push(host.load))
+    const model = {
+      provider: "local" as const,
+      id: "openai/gpt-oss-20b",
+      displayName: "gpt-oss",
+      contextLength: 65_536,
+      supportsImageInput: false,
+    }
+    const persist = vi.fn()
+    await expect(
+      host.persistSelection(model, { signal: new AbortController().signal, persist }),
+    ).rejects.toThrow("no space left")
+    expect(seen).toContainEqual({
+      modelId: model.id,
+      status: { label: "Downloading 42%", kind: "progress" },
+    })
+    expect(host.load).toEqual({
+      modelId: model.id,
+      status: { label: "Failed: no space left", kind: "error" },
+    })
+    expect(host.state).toBe("failed")
+    expect(host.error).toBe("no space left")
+    expect(persist).not.toHaveBeenCalled()
+
+    // The next attempt clears the row first and reports on the caller's key.
+    const controller = new AbortController()
+    controller.abort()
+    await expect(
+      host.persistSelection(model, { signal: controller.signal, persist, loadKey: "row" }),
+    ).rejects.toThrow()
+    expect(host.load).toBeUndefined()
+  })
+
+  it("marks a selection open from enqueue until it settles", async () => {
+    const host = new ModelHost({ llama: fakeLlama() })
+    const states: boolean[] = []
+    host.subscribe(() => states.push(host.selecting))
+    let finish!: () => void
+    const pending = host.enqueueSelection(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve
+        }),
+    )
+    expect(host.selecting).toBe(true)
+    await vi.waitFor(() => expect(finish).toBeDefined())
+    finish()
+    await pending
+    expect(host.selecting).toBe(false)
+    expect(states).toEqual([true, false])
+  })
+
   it("serializes selections and aborts the previous request", async () => {
     const host = new ModelHost({ llama: fakeLlama() })
     let firstSignal: AbortSignal | undefined
@@ -266,6 +400,7 @@ describe("ModelHost", () => {
 
 function fakeLlama() {
   return {
+    alive: true,
     stop: vi.fn(async () => undefined),
     ensureServing: vi.fn(),
   } as unknown as LlamaCppRuntime

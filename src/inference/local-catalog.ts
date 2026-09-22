@@ -72,6 +72,10 @@ export type LocalModelSpec = {
   nativeContextLength: number
   supportsImageInput: boolean
   attention: LocalAttentionSpec
+  /** `vocab_size` of the source checkpoint; it sizes the logits slice of the compute buffer. */
+  vocabSize: number
+  /** `hidden_size` of the source checkpoint; it scales the activations of one micro-batch. */
+  hiddenSize: number
 }
 
 const BONSAI_PTQ1: LocalModelPacking = {
@@ -103,6 +107,8 @@ const BONSAI_PQ2: LocalModelPacking = {
  *
  * Attention groups are the layers that actually allocate a token KV cache.
  * Hybrid recurrent and convolution layers keep fixed state, not per-token KV.
+ * `vocabSize` and `hiddenSize` are `vocab_size` and `hidden_size` (the text config of a
+ * multimodal checkpoint) from each source model's config.json on Hugging Face.
  */
 export const LOCAL_MODELS: readonly LocalModelSpec[] = [
   {
@@ -125,6 +131,8 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     // artifact.
     supportsImageInput: false,
     attention: { groups: [{ layers: 8, kvHeads: 4, headDim: 256 }] },
+    vocabSize: 248_320,
+    hiddenSize: 4_096,
   },
   {
     id: "google/gemma-4-12B-it",
@@ -151,6 +159,8 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
         { layers: 40, kvHeads: 8, headDim: 256, window: 1024 },
       ],
     },
+    vocabSize: 262_144,
+    hiddenSize: 3_840,
   },
   {
     id: "LiquidAI/LFM2.5-2.6B",
@@ -170,6 +180,8 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     nativeContextLength: 131_072,
     supportsImageInput: false,
     attention: { groups: [{ layers: 8, kvHeads: 8, headDim: 64 }] },
+    vocabSize: 128_000,
+    hiddenSize: 2_048,
   },
   {
     id: "Qwen/Qwen3.8-27B",
@@ -189,6 +201,8 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     nativeContextLength: 262_144,
     supportsImageInput: false,
     attention: { groups: [{ layers: 16, kvHeads: 4, headDim: 256 }] },
+    vocabSize: 248_320,
+    hiddenSize: 5_120,
   },
   {
     id: "prism-ml/Ternary-Bonsai-2-27B-gguf",
@@ -221,6 +235,8 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     supportsImageInput: false,
     // Bonsai retains the Qwen3.8 27B architecture and KV-cache geometry.
     attention: { groups: [{ layers: 16, kvHeads: 4, headDim: 256 }] },
+    vocabSize: 248_320,
+    hiddenSize: 5_120,
   },
   {
     id: "Qwen/Qwen3.8-Flash-Next",
@@ -254,6 +270,8 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     // artifact.
     supportsImageInput: false,
     attention: { groups: [{ layers: 12, kvHeads: 2, headDim: 256 }] },
+    vocabSize: 248_320,
+    hiddenSize: 2_560,
   },
   {
     id: "openai/gpt-oss-20b",
@@ -278,6 +296,8 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
         { layers: 12, kvHeads: 8, headDim: 64, window: 128 },
       ],
     },
+    vocabSize: 201_088,
+    hiddenSize: 2_880,
   },
   {
     id: "google/gemma-4-26B-A4B-it",
@@ -302,6 +322,8 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
         { layers: 25, kvHeads: 8, headDim: 256, window: 1024 },
       ],
     },
+    vocabSize: 262_144,
+    hiddenSize: 2_816,
   },
   {
     id: "google/gemma-4-31B-it",
@@ -326,6 +348,8 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
         { layers: 50, kvHeads: 16, headDim: 256, window: 1024 },
       ],
     },
+    vocabSize: 262_144,
+    hiddenSize: 5_376,
   },
   {
     id: "zai-org/GLM-5.3",
@@ -386,6 +410,8 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     supportsImageInput: false,
     // GLM's MLA cache stores a 512-wide latent plus 64 rotary dimensions per layer.
     attention: { groups: [{ layers: 78, bytesPerTokenPerLayer: (512 + 64) * 2 }] },
+    vocabSize: 154_880,
+    hiddenSize: 6_144,
   },
 ]
 

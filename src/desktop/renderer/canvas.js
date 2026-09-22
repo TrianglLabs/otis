@@ -26,6 +26,7 @@ let panX = 0
 let panY = 0
 let drag
 let latestRequest = 0
+let lastSource
 
 zoomOut.addEventListener("click", () => setZoom(scale / 1.2))
 zoomIn.addEventListener("click", () => setZoom(scale * 1.2))
@@ -110,6 +111,9 @@ window.addEventListener("message", (event) => {
     )
   if (!validColors) return
   const requestId = ++latestRequest
+  // A re-render of the same diagram (a theme or language change) keeps the user's zoom and pan.
+  const keepView = request.source === lastSource
+  lastSource = request.source
   document.body.style.color = colors.text
   document.documentElement.style.setProperty("--canvas-surface", colors.surface)
   document.documentElement.style.setProperty("--canvas-border", colors.border)
@@ -124,10 +128,10 @@ window.addEventListener("message", (event) => {
   lastError = undefined
   if (request.source.length === 0) showError("emptySource", requestId)
   else if (request.source.length > 50_000) showError("tooLarge", requestId)
-  else void render(request.source, colors, requestId)
+  else void render(request.source, colors, requestId, keepView)
 })
 
-async function render(source, colors, requestId) {
+async function render(source, colors, requestId, keepView) {
   const mermaid = globalThis.mermaid
   if (!mermaid) return showError("loadFailed", requestId)
 
@@ -166,7 +170,8 @@ async function render(source, colors, requestId) {
     const result = await mermaid.render(`otis-canvas-${renderId++}`, source)
     if (requestId !== latestRequest) return
     root.innerHTML = result.svg
-    resetView()
+    if (keepView) applyView()
+    else resetView()
     const svg = root.querySelector("svg")
     if (svg) {
       const viewBoxWidth = Number(svg.getAttribute("viewBox")?.split(/\s+/)[2])

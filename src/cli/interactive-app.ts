@@ -1,35 +1,25 @@
 import { createCliRenderer, getTreeSitterClient, type TreeSitterClient } from "@opentui/core"
-import { Application, formatWorkspaceLabel } from "../app/application.js"
-import type { QueuedPrompt } from "../app/conversation.js"
-import type { PersistSelectionOptions } from "../app/models.js"
-import { autoCompactThreshold } from "../core/compaction.js"
-import { FireworksClient } from "../inference/client.js"
-import { deleteLocalGguf, listDownloadedLocalModels } from "../inference/gguf-cache.js"
+import { Application, type AppStatus, formatWorkspaceLabel } from "../app/application.js"
+import type { ConversationEvent } from "../app/conversation.js"
+import { SESSION_REASONS } from "../app/sessions.js"
+import { errorMessage } from "../inference/errors.js"
+import { listDownloadedLocalModels } from "../inference/gguf-cache.js"
 import {
   supportsLlamaCppTarget,
   unsupportedLlamaCppTargetMessage,
 } from "../inference/llama-binary.js"
-import { formatLocalLoadStatus, type LocalLoadProgress } from "../inference/llama-runtime.js"
 import {
-  catalogModelFromSpec,
   findLocalModel,
   type LocalModelSpec,
   localModelWeightBytes,
 } from "../inference/local-catalog.js"
 import { formatMemoryLabel } from "../inference/local-fit.js"
-import { createUserMessage, summarizeUserMessage } from "../inference/messages.js"
-import type { ModelPickerItem, ModelPickerStatus } from "../inference/picker-catalog.js"
-import { baseFireworksModelId, isFastFireworksModel } from "../inference/serving-path.js"
+import { createUserMessage } from "../inference/messages.js"
+import type { ModelPickerItem } from "../inference/picker-catalog.js"
+import { isFastFireworksModel } from "../inference/serving-path.js"
+import type { ModelProvider, UserChatMessage } from "../inference/types.js"
 import {
-  type CatalogModel,
-  isLocalCatalogModel,
-  type ModelProvider,
-  type UserChatMessage,
-} from "../inference/types.js"
-import {
-  clearSelectedModel,
   isThemeName,
-  saveSelectedModel,
   saveSelectedTheme,
   saveSubagentPanelVisible,
   saveThinkingVisible,
@@ -37,7 +27,6 @@ import {
   type ThemeName,
 } from "../local/settings.js"
 import { calculateLocalStats } from "../local/stats.js"
-import { describeToolCall } from "../tools/index.js"
 import { AttachmentFlow } from "./attachment-flow.js"
 import { createChatUI } from "./chat-ui.js"
 import { SetupFlow } from "./setup-flow.js"
@@ -76,22 +65,17 @@ export class InteractiveApp {
   #setupFlow!: SetupFlow
   #terminal!: TerminalController
   #busy = false
-  #debug = false
   #exiting = false
   #quitPromise: Promise<void> | undefined
-  #localModelManagementTask: Promise<void> | undefined
   #configured = false
   #selectedTheme: ThemeName = "default"
   #thinkingVisible = false
   #subagentPanelVisible = true
-  #fastServingModels = new Set<string>()
-  #fastAvailable = false
-  #downloadedModelsAvailable = false
   readonly #pendingActions: PendingAction[] = []
-  #drainingPendingActions = false
+  #pendingDrain: Promise<void> | undefined
   #updateCheckController: AbortController | undefined
-  #startupModelController: AbortController | undefined
-  #localLoadStatus: { modelId: string; status: ModelPickerStatus } | undefined
+  /** The status last applied to the screen; the next one is diffed against it. */
+  #status: AppStatus | undefined
   #removeShutdownListeners: (() => void) | undefined
 
   static async start() {
@@ -106,6 +90,11 @@ export class InteractiveApp {
     })
     const settings = this.#app.settings
     const models = this.#app.models
+    // A backend fallback during a local model start is told once, in the transcript.
+    models.onNotice = (message) => {
+      this.#app.transcript.addAssistantMessage(message)
+      if (!this.#exiting) this.#ui.renderTranscript(this.#app.transcript.entries)
+    }
     const localInferenceUnavailableReason = supportsLlamaCppTarget(process)
       ? undefined
       : unsupportedLlamaCppTargetMessage(process)
@@ -113,22 +102,14 @@ export class InteractiveApp {
     this.#selectedTheme = settings.theme ?? "default"
     this.#thinkingVisible = settings.thinkingVisible ?? false
     this.#subagentPanelVisible = settings.subagentPanelVisible ?? true
-    this.#fastServingModels = new Set(settings.fastServingModels ?? [])
-    this.#downloadedModelsAvailable = (await listDownloadedLocalModels()).length > 0
-    this.#fastAvailable =
-      models.selectedProvider === "fireworks" &&
-      (Boolean(settings.modelFastId) || isFastFireworksModel(settings.model ?? ""))
     this.#configured = this.#app.hasConfiguredSelection()
     this.#attachments = new AttachmentFlow({
       cwd: this.#app.cwd,
       isBusy: () => this.#isBusy(),
-      apiKey: () => this.#app.fireworksApiKey,
-      selectedModelId: () => this.#app.models.selectedId,
+      app: this.#app,
       ui: () => this.#ui,
-      transcript: this.#app.transcript,
       onContextChange: () => this.#updateContextIndicator(),
     })
-    this.#attachments.setModelCapability(models.supportsImageInput)
 
     this.#renderer = await createCliRenderer({
       exitOnCtrlC: false,
@@ -145,10 +126,11 @@ export class InteractiveApp {
       treeSitterClient = undefined
     }
 
+    const status = this.#app.status()
     this.#ui = createChatUI(this.#renderer, {
       configured: this.#configured,
       localInferenceUnavailableReason,
-      commands: slashCommands({ fast: this.#fastAvailable }),
+      commands: slashCommands({ fast: status.fastServing.available }),
       contextLabel: formatContextUsage(
         contextUsage(
           this.#app.contextEstimator()(this.#app.transcript.history),
@@ -157,7 +139,7 @@ export class InteractiveApp {
       ),
       modelLabel: modelLabel(
         models.selectedProvider,
-        settings.modelDisplayName ?? models.selectedId,
+        models.displayName ?? models.selectedId,
         models.selectedId ?? "",
       ),
       modeLabel: formatModeLabel(this.#app.permissionMode),
@@ -171,9 +153,7 @@ export class InteractiveApp {
       onImagePaste: (bytes, mimeType) => this.#attachments.attachPastedImage(bytes, mimeType),
       onAttachmentPathPaste: (value) => this.#attachments.handlePathPaste(value),
       onRemoveLastAttachment: () => this.#attachments.removeLast(),
-      onInterrupt: () => {
-        this.#app.conversation.cancel()
-      },
+      onInterrupt: () => this.#app.conversation.stop(),
       onQuit: () => this.#quit(),
       onSetup: () => this.#setupFlow.begin(),
       onSetupInferenceChoice: (choice) => this.#setupFlow.selectInference(choice),
@@ -205,57 +185,33 @@ export class InteractiveApp {
       onPreviewTheme: (theme) => this.#previewTheme(theme),
       onCancelThemePreview: () => this.#previewTheme(this.#selectedTheme),
       onToggleMode: () => {
-        this.#app.permissionMode = this.#app.permissionMode === "ask" ? "auto" : "ask"
-        this.#ui.setModeLabel(formatModeLabel(this.#app.permissionMode))
+        // The mode applies at once and is remembered; the label follows through status.
+        void this.#app.setPermissionMode(this.#app.permissionMode === "ask" ? "auto" : "ask")
       },
     })
+    this.#status = status
+    this.#app.subscribe((event) => {
+      if (event.type === "status") this.#syncStatus()
+      else if (event.type !== "transcript") this.#onConversationEvent(event)
+    })
     this.#setupFlow = new SetupFlow({
-      settings,
-      models: this.#app.models,
+      ui: this.#ui,
+      app: this.#app,
       localInferenceUnavailableReason,
       isBusy: () => this.#isBusy(),
       setBusy: (value) => {
         this.#busy = value
+        // A prompt parked behind a setup operation runs as soon as the operation ends.
+        if (!value) this.#app.conversation.drain()
       },
-      onCredentialsChanged: (credentials) => {
-        this.#app.fireworksApiKey = credentials.fireworksApiKey
-        if (
-          credentials.fireworksApiKey &&
-          models.selectedId &&
-          models.selectedProvider === "fireworks"
-        ) {
-          models.client = new FireworksClient({
-            apiKey: credentials.fireworksApiKey,
-            model: models.selectedId,
-          })
-        }
+      onCredentialsChanged: () => {
         this.#ui.showStats()
         void this.#refreshLocalStats()
       },
-      connectLocalServers: async (inputs, signal) => {
-        const connection = await this.#app.connectLocalServers(inputs, { signal })
-        this.#attachments.setModelCapability(this.#app.models.supportsImageInput)
-        this.#updateContextIndicator()
-        return connection
-      },
-      persistSelection: (model, options) => this.#persistSelection(model, options),
-      localLoadStatus: () => this.#localLoadStatus,
-      loadedLocalModel: () =>
-        models.activeLocal
-          ? { model: models.activeLocal.spec.id, contextLength: models.activeLocal.contextLength }
-          : undefined,
-      onConfigured: (fireworksKey) => {
-        if (fireworksKey) this.#app.fireworksApiKey = fireworksKey
+      onConfigured: () => {
         this.#configured = true
         void this.#refreshLocalStats()
       },
-      fastEnabled: (modelId) => this.#fastServingModels.has(baseFireworksModelId(modelId)),
-      onFastChanged: (modelId, fast) => {
-        const baseModelId = baseFireworksModelId(modelId)
-        if (fast) this.#fastServingModels.add(baseModelId)
-        else this.#fastServingModels.delete(baseModelId)
-      },
-      ui: this.#ui,
     })
     this.#terminal = new TerminalController(
       this.#renderer,
@@ -291,58 +247,28 @@ export class InteractiveApp {
       })
 
     if (this.#configured) void this.#refreshLocalStats()
-    if (models.selectedId && models.selectedProvider === "omlx") {
-      const controller = new AbortController()
-      this.#startupModelController = controller
-      this.#busy = true
-      this.#ui.setBusy(true)
+    // A saved local or oMLX model still needs its server; the start joins the selection queue, so
+    // a model picked meanwhile supersedes it instead of racing it.
+    if (models.selectedId && !models.client) {
+      const provider = models.selectedProvider
+      const name = (provider === "local" && findLocalModel(models.selectedId)?.displayName) || ""
       try {
-        await this.#app.startSavedSelection({ signal: controller.signal })
-        this.#attachments.setModelCapability(models.supportsImageInput)
-        this.#updateContextIndicator()
+        await this.#app.startSavedSelection({ isExiting: () => this.#exiting })
       } catch (error) {
-        if (controller.signal.aborted || this.#exiting) return
+        if (this.#exiting) return
         this.#configured = false
-        this.#app.transcript.addAssistantMessage(
-          `Could not connect to oMLX: ${errorMessage(error)}`,
-        )
-      } finally {
-        this.#busy = false
-        this.#ui.setBusy(false)
-        if (this.#startupModelController === controller) this.#startupModelController = undefined
-      }
-      if (!this.#configured) this.#setupFlow.begin()
-    }
-    const spec =
-      models.selectedProvider === "local" && models.selectedId
-        ? findLocalModel(models.selectedId)
-        : undefined
-    if (spec) {
-      const startupController = new AbortController()
-      this.#startupModelController = startupController
-      const model = catalogModelFromSpec(spec, settings.modelContextLength)
-      try {
-        await this.#app.startSavedSelection({
-          signal: startupController.signal,
-          isExiting: () => this.#exiting,
-          onLocalProgress: (progress) => this.#showLocalLoadProgress(model.id, progress),
-        })
-        this.#downloadedModelsAvailable = true
-        this.#syncActivatedModel(model)
-        this.#clearLocalLoadStatus(model.id)
-      } catch (error) {
-        this.#clearLocalLoadStatus(model.id)
-        await this.#refreshDownloadedModelAvailability()
-        if (startupController.signal.aborted || this.#exiting) return
-        this.#configured = false
-        this.#ui.showChatLayout()
-        this.#app.transcript.addAssistantMessage(
-          `Could not start ${spec.displayName}: ${errorMessage(error)}`,
-        )
-        this.#ui.renderTranscript(this.#app.transcript.entries, { scrollToBottom: true })
-      } finally {
-        if (this.#startupModelController === startupController)
-          this.#startupModelController = undefined
+        if (provider === "omlx") {
+          this.#app.transcript.addAssistantMessage(
+            `Could not connect to oMLX: ${errorMessage(error)}`,
+          )
+          this.#setupFlow.begin()
+        } else {
+          this.#ui.showChatLayout()
+          this.#app.transcript.addAssistantMessage(
+            `Could not start ${name}: ${errorMessage(error)}`,
+          )
+          this.#ui.renderTranscript(this.#app.transcript.entries, { scrollToBottom: true })
+        }
       }
     }
     if (
@@ -367,72 +293,68 @@ export class InteractiveApp {
 
     const command = parseSlashCommand(value)
     if (command?.type === "queue") {
-      if (!command.prompt) return
-      if (this.#isBusy()) await this.#queuePrompt(createUserMessage(command.prompt))
-      else await this.#runPromptTurn(command.prompt)
-      await this.#drainPendingActions()
+      if (command.prompt) await this.#submitPrompt(createUserMessage(command.prompt), "queue")
       return
     }
-
-    if (this.#isBusy()) {
-      if (command && slashCommandRunsImmediately(command)) {
-        await this.#runSlashCommand(command)
-        return
-      }
-      if (command) {
+    if (command) {
+      if (this.#isBusy() && !slashCommandRunsImmediately(command)) {
         this.#ui.clearInput()
         this.#pendingActions.push({ type: "command", command })
         return
       }
-      const message = createUserMessage(value)
-      if (!this.#app.conversation.busy) {
-        await this.#queuePrompt(message)
-        return
-      }
-      try {
-        await this.#app.conversation.steer(message, () => {
-          if (!this.#exiting)
-            this.#ui.renderTranscript(this.#app.transcript.entries, { scrollToBottom: true })
-        })
-        this.#attachments.clear()
-        this.#ui.clearInput()
-        this.#updateContextIndicator()
-      } catch {
-        // The conversation already recorded the failure in the transcript.
-      }
-      this.#ui.renderTranscript(this.#app.transcript.entries, { scrollToBottom: true })
-      return
-    }
-
-    if (command) {
       await this.#runSlashCommand(command)
       await this.#drainPendingActions()
       return
     }
-
     if (!this.#configured) {
       this.#setupFlow.begin()
       return
     }
-
-    if (!this.#app.models.client) return
-
-    await this.#runPromptTurn(value)
-    await this.#drainPendingActions()
+    let message: UserChatMessage
+    try {
+      message = await this.#attachments.prompt(value)
+    } catch (error) {
+      this.#attachments.showMessage(`Could not send attachments: ${errorMessage(error)}`)
+      return
+    }
+    await this.#submitPrompt(message, "send")
   }
 
-  async #queuePrompt(message: UserChatMessage) {
-    if (!this.#configured || !this.#app.models.client) return
-
+  /**
+   * Hands a prompt to the conversation: steered or queued behind running work, started otherwise.
+   * A setup operation's busy window (catalog loads, key checks) is not the model's, so a prompt
+   * typed during one is parked and runs when it ends; /queue parks explicitly behind a busy turn.
+   * Anything the gate refuses is told, not dropped.
+   */
+  async #submitPrompt(message: UserChatMessage, mode: "send" | "queue") {
+    const conversation = this.#app.conversation
+    const blocked = this.#app.admissionGate()
+    if (blocked) {
+      this.#ui.showTransientHint(` ${blocked} `)
+      this.#ui.focusInput()
+      return
+    }
+    let delivery: "started" | "steered" | "queued"
     try {
-      await this.#app.conversation.queue(message)
-      this.#attachments.clear()
-      this.#ui.clearInput()
-      this.#updateContextIndicator()
+      if ((this.#busy && !conversation.busy) || (mode === "queue" && this.#isBusy())) {
+        await conversation.queue(message)
+        delivery = "queued"
+      } else {
+        if (!conversation.busy) this.#ui.showChatLayout()
+        delivery = (await conversation.submit(message)).delivery
+      }
     } catch {
       // The conversation already recorded the failure in the transcript.
+      this.#ui.renderTranscript(this.#app.transcript.entries, { scrollToBottom: true })
+      return
     }
+    this.#attachments.clear()
+    this.#ui.clearInput()
+    this.#updateContextIndicator()
     this.#ui.renderTranscript(this.#app.transcript.entries, { scrollToBottom: true })
+    if (delivery !== "started") return
+    await conversation.idle()
+    await this.#drainPendingActions()
   }
 
   async #runOrDefer(pending: PendingAction, hidePicker?: () => void) {
@@ -445,22 +367,22 @@ export class InteractiveApp {
     await this.#drainPendingActions()
   }
 
-  async #drainPendingActions() {
-    if (this.#drainingPendingActions || this.#isBusy() || this.#exiting) return
-    this.#drainingPendingActions = true
-    try {
-      while (!this.#isBusy() && !this.#exiting) {
-        const queued = this.#app.conversation.takeQueued()
-        if (queued) {
-          await this.#runPromptTurn("", queued)
-          continue
-        }
-        const pending = this.#pendingActions.shift()
-        if (!pending) return
-        await this.#runPendingAction(pending)
-      }
-    } finally {
-      this.#drainingPendingActions = false
+  /** Runs the actions deferred during busy work, once idle; a drain in flight is shared. */
+  #drainPendingActions(): Promise<void> {
+    if (this.#pendingDrain) return this.#pendingDrain
+    if (this.#isBusy() || this.#exiting || this.#pendingActions.length === 0)
+      return Promise.resolve()
+    this.#pendingDrain = this.#runPendingActions().finally(() => {
+      this.#pendingDrain = undefined
+    })
+    return this.#pendingDrain
+  }
+
+  async #runPendingActions() {
+    while (!this.#isBusy() && !this.#exiting) {
+      const pending = this.#pendingActions.shift()
+      if (!pending) return
+      await this.#runPendingAction(pending)
     }
   }
 
@@ -493,14 +415,7 @@ export class InteractiveApp {
         return
       case "model": {
         this.#ui.clearInput()
-        await this.#setupFlow.openModelPicker(
-          this.#app.fireworksApiKey,
-          this.#app.models.selectedId,
-          true,
-          {
-            background: this.#isBusy(),
-          },
-        )
+        await this.#setupFlow.openModelPicker(true, { background: this.#isBusy() })
         return
       }
       case "settings": {
@@ -510,8 +425,9 @@ export class InteractiveApp {
         } else if (command.setting === "pair" || command.setting === "servers") {
           this.#setupFlow.configurePairInference()
         } else if (command.setting === "debug") {
-          this.#debug = !this.#debug
-          this.#ui.showTransientHint(` Debug mode ${this.#debug ? "on" : "off"} `)
+          const { conversation } = this.#app
+          conversation.debug = !conversation.debug
+          this.#ui.showTransientHint(` Debug mode ${conversation.debug ? "on" : "off"} `)
           this.#ui.focusInput()
         } else if (command.setting === "subagents") {
           await this.#setPanelVisible("subagents", !this.#subagentPanelVisible)
@@ -519,11 +435,10 @@ export class InteractiveApp {
           this.#openThemeMenu()
         } else if (command.setting === "delete-model") {
           if (command.modelId) {
-            this.#startLocalModelDeletion(command.modelId)
+            void this.#deleteLocalModel(command.modelId)
             return
           }
           const models = await listDownloadedLocalModels()
-          this.#downloadedModelsAvailable = models.length > 0
           if (models.length === 0) {
             this.#ui.showTransientHint(" No downloaded local models. ")
             this.#ui.focusInput()
@@ -531,7 +446,7 @@ export class InteractiveApp {
           }
           this.#showLocalModelDeleteMenu(models)
         } else {
-          this.#openSettingsMenu()
+          await this.#openSettingsMenu()
         }
         return
       }
@@ -591,106 +506,74 @@ export class InteractiveApp {
     }
   }
 
-  async #runPromptTurn(value: string, queued?: QueuedPrompt) {
-    if (!this.#app.models.client || !this.#app.models.selectedProvider) return
-
-    const ready = queued ? undefined : this.#attachments.ensureReadyToSend(value)
-    if (ready) {
-      try {
-        await ready
-      } catch (error) {
-        this.#attachments.showMessage(`Could not send attachments: ${errorMessage(error)}`)
+  /** The conversation's stream, mapped onto the screen; status changes arrive separately. */
+  #onConversationEvent(event: ConversationEvent) {
+    if (this.#exiting) return
+    const ui = this.#ui
+    const app = this.#app
+    switch (event.type) {
+      case "busy":
+        ui.setBusy(event.busy)
+        if (event.busy) return
+        ui.stopBusyIndicator()
+        ui.focusInput()
+        void this.#drainPendingActions()
+        return
+      case "indicator":
+        if (event.active) ui.startBusyIndicator()
+        else ui.stopBusyIndicator()
+        return
+      case "phase":
+        ui.setAgentPhase(event.phase)
+        return
+      case "context": {
+        const usage = contextUsage(event.tokens, app.models.autoCompactAtTokens)
+        ui.setContextLabel(formatContextUsage(usage), contextUsageColor(usage.percent))
         return
       }
-    }
-
-    this.#ui.setBusy(true)
-    this.#ui.showChatLayout()
-    const userMessage =
-      queued?.admission.message ?? createUserMessage(value, this.#attachments.pending.items)
-
-    try {
-      const result = await this.#app.conversation.start(queued ?? userMessage, {
-        sink: {
-          renderTranscript: (options) =>
-            this.#ui.renderTranscript(this.#app.transcript.entries, options),
-          renderSubagents: () => this.#ui.renderSubagents(this.#app.subagents.all),
-          setPhase: (phase) => this.#ui.setAgentPhase(phase),
-          startBusy: () => this.#ui.startBusyIndicator(),
-          stopBusy: () => this.#ui.stopBusyIndicator(),
-        },
-        debug: this.#debug,
-        onContext: (tokens) => {
-          const usage = contextUsage(tokens, this.#app.models.autoCompactAtTokens)
-          this.#ui.setContextLabel(formatContextUsage(usage), contextUsageColor(usage.percent))
-        },
-        onDiff: (added, removed) => {
-          const diffs = this.#app.sessions.addDiff(added, removed)
-          this.#ui.setDiffStats(diffs.added, diffs.removed)
-        },
-        onPermissionRequest: (request) =>
-          this.#ui.showPermissionPrompt(describeToolCall(request.call).label),
-        onCompletion: () => this.#terminal.notifyCompletion(),
-        onReady: (message) => {
-          if (this.#app.transcript.history.length === 1) {
-            this.#ui.setSessionLabel(
-              this.#app.sessions.provisionalLabel(value || summarizeUserMessage(message)),
-            )
-          }
-          this.#attachments.clear()
-          this.#updateContextIndicator()
-          this.#ui.clearInput()
-          this.#ui.renderTranscript(this.#app.transcript.entries, { scrollToBottom: true })
-        },
-      })
-      if (this.#exiting) return
-      this.#ui.renderTranscript(this.#app.transcript.entries)
-      if (result.status === "incomplete") return
-      if (result.status !== "complete") {
+      case "permission": {
+        const request = event.request
+        if (!request) {
+          ui.hidePermissionPrompt()
+          return
+        }
+        void ui
+          .showPermissionPrompt(request.label)
+          .then((allow) => app.conversation.respondToPermission(request.id, allow))
+        return
+      }
+      case "render":
+        ui.renderTranscript(
+          app.transcript.entries,
+          event.scrollToBottom ? { scrollToBottom: true } : undefined,
+        )
+        return
+      case "subagents":
+        ui.renderSubagents(app.subagents.all)
+        return
+      case "admitted":
+        ui.showChatLayout()
+        this.#attachments.clear()
+        this.#syncStatus()
         this.#updateContextIndicator()
+        ui.clearInput()
+        ui.renderTranscript(app.transcript.entries, { scrollToBottom: true })
         return
-      }
-      this.#refreshSessionLabel()
-      this.#updateContextIndicator()
-      const turnSession = this.#app.sessions.current
-      if (turnSession && !turnSession.hasTitle()) {
-        void this.#app.sessions
-          .generateTitle(turnSession)
-          .then((title) => {
-            if (title) this.#ui.setSessionLabel(title)
-          })
-          .catch(() => {
-            // Title generation is best-effort; the first user message remains as the label.
-          })
-      }
-    } finally {
-      this.#ui.setBusy(false)
-      if (!this.#exiting) {
-        this.#ui.stopBusyIndicator()
-        this.#ui.focusInput()
-      }
+      case "settled":
+        ui.renderTranscript(app.transcript.entries)
+        this.#updateContextIndicator()
+        if (event.result.status === "complete" || event.result.status === "error")
+          this.#terminal.notifyCompletion()
+        return
     }
   }
 
   async #runCompaction(instructions?: string) {
     if (this.#isBusy() || !this.#app.models.client) return
-
-    this.#ui.setBusy(true)
     this.#ui.showChatLayout()
-    this.#ui.startBusyIndicator()
-    try {
-      await this.#app.conversation.compact(instructions, this.#app.contextEstimator(), () => {
-        this.#ui.renderTranscript(this.#app.transcript.entries, { scrollToBottom: true })
-      })
-      this.#ui.renderSubagents(this.#app.subagents.all)
-      this.#refreshSessionLabel()
-      this.#updateContextIndicator()
-      this.#ui.renderTranscript(this.#app.transcript.entries, { scrollToBottom: true })
-    } finally {
-      this.#ui.setBusy(false)
-      this.#ui.stopBusyIndicator()
-      if (!this.#exiting) this.#ui.focusInput()
-    }
+    await this.#app.conversation.compact(instructions, this.#app.contextEstimator())
+    this.#syncStatus()
+    this.#updateContextIndicator()
   }
 
   #quit() {
@@ -699,11 +582,9 @@ export class InteractiveApp {
       this.#removeShutdownListeners?.()
       this.#removeShutdownListeners = undefined
       this.#updateCheckController?.abort()
-      this.#startupModelController?.abort()
       this.#ui.hidePermissionPrompt()
       try {
         await this.#setupFlow.shutdown()
-        await this.#localModelManagementTask?.catch(() => undefined)
         await this.#app.shutdown()
       } finally {
         this.#renderer.destroy()
@@ -725,10 +606,7 @@ export class InteractiveApp {
     try {
       const result = await this.#app.sessions.select(sessionId)
       if (result === "locked") {
-        this.#reportSessionError(
-          "Could not open session",
-          new Error("It is open in another Otis window."),
-        )
+        this.#reportSessionError("Could not open session", new Error(SESSION_REASONS.locked))
       } else if (result === "loaded") {
         this.#reflectSession()
       } else {
@@ -744,10 +622,7 @@ export class InteractiveApp {
     try {
       const result = await this.#app.sessions.delete(sessionId)
       if (result === "locked") {
-        this.#reportSessionError(
-          "Could not delete session",
-          new Error("It is open in another Otis window."),
-        )
+        this.#reportSessionError("Could not delete session", new Error(SESSION_REASONS.locked))
       } else if (result === "deleted" && wasCurrent) {
         this.#reflectSession()
       }
@@ -768,20 +643,48 @@ export class InteractiveApp {
     this.#ui.focusInput()
   }
 
-  #refreshSessionLabel() {
-    this.#ui.setSessionLabel(this.#app.sessions.activeLabel())
-  }
-
   #reflectSession() {
     const sessions = this.#app.sessions
     const ui = this.#ui
-    ui.setDiffStats(sessions.diffs.added, sessions.diffs.removed)
-    this.#refreshSessionLabel()
+    this.#syncStatus()
     ui.showChatLayout()
     ui.renderTranscript(sessions.transcript.entries, { scrollToBottom: true })
     ui.renderSubagents(sessions.subagents.all)
     this.#updateContextIndicator()
     ui.focusInput()
+  }
+
+  /**
+   * Applies what changed since the last applied status to the screen. Every setter is a plain
+   * assignment, so diffing keeps the terminal quiet during streaming and makes the call sites
+   * that mutate model or session state indifferent to what the screen shows.
+   */
+  #syncStatus() {
+    if (this.#exiting) return
+    const prev = this.#status
+    const next = this.#app.status()
+    this.#status = next
+    if (!prev) return
+    const ui = this.#ui
+    const label = (model: AppStatus["model"]) =>
+      model ? modelLabel(model.provider, model.displayName ?? model.id, model.id) : "No model"
+    if (label(prev.model) !== label(next.model)) ui.setModelLabel(label(next.model))
+    if (next.modelState === "ready") this.#configured = true
+    if (prev.fastServing.available !== next.fastServing.available)
+      ui.setCommands(slashCommands({ fast: next.fastServing.available }))
+    if (prev.modelLoad !== next.modelLoad) {
+      if (prev.modelLoad && prev.modelLoad.modelId !== next.modelLoad?.modelId)
+        ui.setModelPickerStatus(prev.modelLoad.modelId, undefined)
+      if (next.modelLoad) ui.setModelPickerStatus(next.modelLoad.modelId, next.modelLoad.status)
+    }
+    const session = (status: AppStatus) => status.session?.title ?? "Current session"
+    if (session(prev) !== session(next)) ui.setSessionLabel(session(next))
+    if (prev.diffs.added !== next.diffs.added || prev.diffs.removed !== next.diffs.removed)
+      ui.setDiffStats(next.diffs.added, next.diffs.removed)
+    if (prev.contextTokens !== next.contextTokens || prev.contextLimit !== next.contextLimit)
+      this.#updateContextIndicator()
+    if (prev.permissionMode !== next.permissionMode)
+      ui.setModeLabel(formatModeLabel(next.permissionMode))
   }
 
   #reportSessionError(prefix: string, error: unknown) {
@@ -791,7 +694,9 @@ export class InteractiveApp {
     this.#ui.focusInput()
   }
 
-  #openSettingsMenu() {
+  async #openSettingsMenu() {
+    const downloaded = (await listDownloadedLocalModels()).length > 0
+    if (this.#exiting) return
     const items = [
       {
         name: "Hosted inference",
@@ -808,7 +713,7 @@ export class InteractiveApp {
             : "Connect a local model server",
         submission: "/settings servers",
       },
-      ...(this.#downloadedModelsAvailable
+      ...(downloaded
         ? [
             {
               name: "Delete local model",
@@ -824,7 +729,7 @@ export class InteractiveApp {
       },
       {
         name: "Debug mode",
-        description: this.#debug ? "On" : "Off",
+        description: this.#app.conversation.debug ? "On" : "Off",
         submission: "/settings debug",
       },
       {
@@ -845,7 +750,7 @@ export class InteractiveApp {
         description: theme === this.#selectedTheme ? "Active" : "",
         submission: `/settings theme ${theme}`,
       })),
-      { onBack: () => this.#openSettingsMenu() },
+      { onBack: () => void this.#openSettingsMenu() },
     )
     this.#ui.focusInput()
   }
@@ -862,69 +767,28 @@ export class InteractiveApp {
           submission: `/settings delete-model ${model.id}`,
         }
       }),
-      { onBack: () => this.#openSettingsMenu() },
+      { onBack: () => void this.#openSettingsMenu() },
     )
     this.#ui.focusInput()
   }
 
-  #startLocalModelDeletion(modelId: string) {
-    if (this.#localModelManagementTask) return
-    const task = this.#deleteLocalModel(modelId)
-    this.#localModelManagementTask = task
-    void task.then(
-      () => {
-        if (this.#localModelManagementTask === task) this.#localModelManagementTask = undefined
-      },
-      (error) => {
-        if (this.#localModelManagementTask === task) this.#localModelManagementTask = undefined
-        if (!this.#exiting)
-          this.#ui.showTransientHint(` Could not manage local models: ${errorMessage(error)} `)
-      },
-    )
-  }
-
+  /**
+   * Deletes a downloaded model through the application; an active model's deletion reopens the
+   * picker so the user chooses a replacement. The application refuses while a selection is open
+   * (the download in progress is not cancelled) and reports why.
+   */
   async #deleteLocalModel(modelId: string) {
     if (this.#exiting || this.#isBusy()) return
     const spec = findLocalModel(modelId)
     if (!spec) return
-
-    const models = this.#app.models
     this.#busy = true
     this.#ui.setBusy(true)
-    await this.#setupFlow.cancelModelSelection()
-    const active = models.selectedProvider === "local" && models.selectedId === spec.id
-    const previousActive = models.activeLocal
-    let settingsCleared = false
-    let remaining: LocalModelSpec[] = []
-
+    let deleted: Awaited<ReturnType<Application["deleteLocalModel"]>>
     try {
-      const downloaded = await listDownloadedLocalModels()
-      const deletingLast = downloaded.length === 1 && downloaded[0]?.id === spec.id
-
-      if (active) {
-        await clearSelectedModel()
-        settingsCleared = true
-      }
-      if (active || deletingLast) await models.llama.stop()
-      await deleteLocalGguf(spec)
-      remaining = await listDownloadedLocalModels()
+      deleted = await this.#app.deleteLocalModel(modelId)
     } catch (error) {
-      let failure = error
-      if (settingsCleared) {
-        try {
-          await saveSelectedModel(catalogModelFromSpec(spec, previousActive?.contextLength))
-          if (previousActive) await models.restorePrevious(previousActive)
-        } catch (rollbackError) {
-          failure = new AggregateError(
-            [error, rollbackError],
-            `${errorMessage(error)} The active local model could not be restored.`,
-          )
-        }
-      }
       if (!this.#exiting) {
-        this.#ui.showTransientHint(
-          ` Could not delete ${spec.displayName}: ${errorMessage(failure)} `,
-        )
+        this.#ui.showTransientHint(` ${errorMessage(error)} `)
         this.#ui.focusInput()
       }
       return
@@ -932,102 +796,23 @@ export class InteractiveApp {
       this.#busy = false
       if (!this.#exiting) this.#ui.setBusy(false)
     }
-
-    this.#downloadedModelsAvailable = remaining.length > 0
-    if (active) {
-      models.cancelPrepare()
-      models.activeLocal = undefined
-      models.selectedId = undefined
-      models.selectedProvider = undefined
-      models.client = undefined
+    if (this.#exiting) return
+    if (deleted.wasActive) {
       this.#configured = false
-      this.#attachments.setModelCapability(false)
-      models.autoCompactAtTokens = autoCompactThreshold()
-      this.#setupFlow.forgetSelectedModel(spec.id)
-      if (this.#exiting) return
-      this.#ui.setModelLabel("No model")
-      this.#setFastAvailable(false)
-      this.#updateContextIndicator()
-      await this.#setupFlow.openModelPicker(this.#app.fireworksApiKey, undefined, true)
+      await this.#setupFlow.openModelPicker(true)
       if (!this.#exiting)
         this.#ui.showTransientHint(` Deleted ${spec.displayName}. Choose another model. `)
       return
     }
-
-    if (this.#exiting) return
-    if (remaining.length > 0) this.#showLocalModelDeleteMenu(remaining)
+    if (deleted.remaining.length > 0) this.#showLocalModelDeleteMenu(deleted.remaining)
     else {
       this.#ui.showTransientHint(` Deleted ${spec.displayName}. `)
       this.#ui.focusInput()
     }
   }
 
-  #showLocalLoadProgress(modelId: string, progress: LocalLoadProgress) {
-    const status: ModelPickerStatus = { label: formatLocalLoadStatus(progress), kind: "progress" }
-    this.#localLoadStatus = { modelId, status }
-    this.#ui.setModelPickerStatus(modelId, status)
-  }
-
-  #syncActivatedModel(model: CatalogModel) {
-    this.#attachments.setModelCapability(this.#app.models.supportsImageInput)
-    this.#configured = true
-    if (this.#exiting) return
-    this.#ui.setModelLabel(modelLabel(model.provider, model.displayName, model.id))
-    this.#setFastAvailable(
-      model.provider === "fireworks" && (Boolean(model.fastId) || isFastFireworksModel(model.id)),
-    )
-    this.#updateContextIndicator()
-  }
-
-  #clearLocalLoadStatus(modelId: string) {
-    if (this.#localLoadStatus?.modelId === modelId) this.#localLoadStatus = undefined
-    if (!this.#exiting) this.#ui.setModelPickerStatus(modelId, undefined)
-  }
-
-  #setFastAvailable(available: boolean) {
-    this.#fastAvailable = available
-    if (!this.#exiting) this.#ui.setCommands(slashCommands({ fast: available }))
-  }
-
-  async #refreshDownloadedModelAvailability() {
-    const available = (await listDownloadedLocalModels()).length > 0
-    if (!this.#exiting) this.#downloadedModelsAvailable = available
-  }
-
   #isBusy() {
     return this.#busy || this.#app.conversation.busy
-  }
-
-  async #persistSelection(model: CatalogModel, options: PersistSelectionOptions) {
-    if (this.#localLoadStatus && this.#localLoadStatus.modelId !== model.id) {
-      this.#ui.setModelPickerStatus(this.#localLoadStatus.modelId, undefined)
-      this.#localLoadStatus = undefined
-    }
-    try {
-      const activated = await this.#app.models.persistSelection(model, {
-        ...options,
-        isExiting: () => this.#exiting,
-        onLocalProgress: (progress) => this.#showLocalLoadProgress(model.id, progress),
-        wrap: (prepared) => ({
-          model: prepared.model,
-          commit: () => {
-            prepared.commit()
-            this.#syncActivatedModel(prepared.model)
-            this.#clearLocalLoadStatus(prepared.model.id)
-          },
-          rollback: async (rollback) => {
-            this.#clearLocalLoadStatus(prepared.model.id)
-            await prepared.rollback(rollback)
-          },
-        }),
-      })
-      if (isLocalCatalogModel(activated)) this.#downloadedModelsAvailable = true
-      return activated
-    } catch (error) {
-      this.#clearLocalLoadStatus(model.id)
-      if (isLocalCatalogModel(model)) await this.#refreshDownloadedModelAvailability()
-      throw error
-    }
   }
 
   #updateContextIndicator(pendingInput = "") {
@@ -1131,10 +916,6 @@ function modelLabel(
   if (provider === "pair") return `${name} · NVIDIA PAIR`
   if (provider === "local") return `${name} · Local`
   return withFastModelMark(name, isFastFireworksModel(id))
-}
-
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error)
 }
 
 const WAKE_CHECK_INTERVAL_MS = 5_000

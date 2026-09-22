@@ -106,10 +106,14 @@ describe("artifact publication", () => {
     await expect(store.load(store.metadata?.revision ?? 0)).resolves.toMatchObject({
       content: "Third",
     })
+    // A newly published artifact takes the view while following latest, never while pinned.
     const unrelated = await publish(moved, context)
     expect(unrelated.artifactId).not.toBe(first.artifactId)
     store.observeFile(unrelated)
-    expect(store.metadata?.id).toBe(id)
+    expect(store.metadata?.id).toBe(`published:${unrelated.artifactId}`)
+    expect(store.open(first, 1)).toBe(true)
+    store.observeFile(unrelated)
+    expect(store.metadata).toMatchObject({ id, publication: { reference: { version: 1 } } })
     await expect(publish(moved, context, "unknown-id")).rejects.toThrow("Unknown artifact_id")
     await expect(
       context.artifactPublisher.publish(
@@ -320,7 +324,7 @@ describe("artifact publication", () => {
     const fixtures = [
       { name: "page.html", bytes: Buffer.from("<h1>Page</h1>"), encoding: "utf8" },
       { name: "notes.txt", bytes: Buffer.from("Notes"), encoding: "utf8" },
-      { name: "report.pdf", bytes: Buffer.from(minimalPdf("PDF")), encoding: "base64" },
+      { name: "report.pdf", bytes: Buffer.from(minimalPdf("PDF")), encoding: "bytes" },
       { name: "brief.docx", bytes: Buffer.from(await minimalDocx("Word")), encoding: "html" },
     ]
     for (const fixture of fixtures) {

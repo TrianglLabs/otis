@@ -2,10 +2,16 @@ import { constants } from "node:fs"
 import { open, realpath } from "node:fs/promises"
 import { basename, isAbsolute, relative, resolve, sep } from "node:path"
 import mammoth from "mammoth"
-import { createDocumentAttachment, MAX_RAW_DOCUMENT_BYTES } from "../inference/documents.js"
+import { MAX_PDF_PAGES } from "../inference/document-constraints.js"
+import {
+  createDocumentAttachment,
+  MAX_RAW_DOCUMENT_BYTES,
+  validateDocxArchive,
+} from "../inference/documents.js"
 import type { DocumentContentPart } from "../inference/types.js"
 import { isCanvasArtifact } from "./canvas.js"
 import {
+  type ArtifactKind,
   type ArtifactMetadata,
   type ArtifactPayload,
   artifactKindForDocument,
@@ -15,7 +21,9 @@ import {
 } from "./types.js"
 
 const MAX_RENDERED_DOCX_CHARS = 4_000_000
+/** The store and export cap for text artifacts; Markdown previews render a smaller subset. */
 const MAX_TEXT_ARTIFACT_BYTES = 2_000_000
+export const MAX_MARKDOWN_PREVIEW_BYTES = 512 * 1024
 
 /**
  * Bound reads even if the source grows, and refuse directories, devices, and final-component
@@ -89,15 +97,6 @@ export function attachmentArtifactMetadata(
   }
 }
 
-export async function loadWorkspaceArtifact(
-  cwd: string,
-  reference: WorkspaceArtifactReference,
-  revision: number,
-): Promise<ArtifactPayload> {
-  const bytes = await readWorkspaceArtifactBytes(cwd, reference)
-  return payloadFromBytes(bytes, workspaceArtifactMetadata(reference, revision), reference.path)
-}
-
 export async function readWorkspaceArtifactBytes(
   cwd: string,
   reference: WorkspaceArtifactReference,
@@ -123,17 +122,10 @@ function isNestedPath(path: string) {
   return path === "" || (!path.startsWith("..") && !isAbsolute(path))
 }
 
-export async function loadAttachmentArtifact(
-  document: DocumentContentPart,
-  revision: number,
-): Promise<ArtifactPayload> {
-  return payloadFromBytes(
-    Buffer.from(document.data, "base64"),
-    attachmentArtifactMetadata(document, revision),
-    document.name,
-  )
-}
-
+/**
+ * Preview-time conversion checks only what the renderer needs: the PDF header and page count, the
+ * DOCX archive bounds, and the text caps. Publication runs the full document validation.
+ */
 export async function payloadFromBytes(
   bytes: Buffer,
   metadata: ArtifactMetadata,
@@ -141,28 +133,59 @@ export async function payloadFromBytes(
 ): Promise<ArtifactPayload> {
   if (bytes.byteLength > MAX_RAW_DOCUMENT_BYTES)
     throw new Error("This file is too large to preview in Canvas.")
-  if (metadata.kind === "pdf" || metadata.kind === "docx") {
-    // Revalidate a workspace file at preview time; an attached document was validated before it
-    // entered the session.
-    if (metadata.source !== "attachment")
-      await createDocumentAttachment(bytes, name, metadata.mimeType)
-    if (metadata.kind === "pdf")
-      return { ...metadata, encoding: "base64", content: bytes.toString("base64") }
+  const { kind } = metadata
+  if (kind === "pdf") {
+    if (!new TextDecoder("latin1").decode(bytes.subarray(0, 1024)).includes("%PDF-"))
+      throw new Error(`${name} is not a PDF file.`)
+    const pages = await pdfPageCount(bytes)
+    if (pages > MAX_PDF_PAGES)
+      throw new Error(`PDF has ${pages} pages; the limit is ${MAX_PDF_PAGES}.`)
+    // A tight copy: the renderer receives exactly these bytes, never a shared pool slab.
+    return { ...metadata, kind, encoding: "bytes", content: new Uint8Array(bytes) }
+  }
+  if (kind === "docx") {
+    if (bytes[0] !== 0x50 || bytes[1] !== 0x4b) throw new Error(`${name} is not a DOCX file.`)
+    await validateDocxArchive(bytes)
     const result = await mammoth.convertToHtml({ buffer: bytes })
     if (result.value.length > MAX_RENDERED_DOCX_CHARS)
       throw new Error("This Word document is too large to preview.")
-    return { ...metadata, encoding: "html", content: result.value }
+    return { ...metadata, kind, encoding: "html", content: result.value }
   }
+  if (kind === "markdown" && bytes.byteLength > MAX_MARKDOWN_PREVIEW_BYTES)
+    throw new Error(
+      "This Markdown file is too large to preview in Canvas. Save a copy to open it elsewhere.",
+    )
+  return { ...metadata, kind, encoding: "utf8", content: decodeArtifactText(bytes, name) }
+}
+
+/** Full validation before a publication is persisted or advertised as successful. */
+export async function validateArtifactBytes(bytes: Buffer, kind: ArtifactKind, name: string) {
+  if (kind === "pdf" || kind === "docx") {
+    await createDocumentAttachment(bytes, name, artifactMimeType(kind))
+    return
+  }
+  decodeArtifactText(bytes, name)
+}
+
+function decodeArtifactText(bytes: Buffer, name: string) {
   if (bytes.byteLength > MAX_TEXT_ARTIFACT_BYTES)
     throw new Error("This text file is too large to preview in Canvas.")
   try {
-    return {
-      ...metadata,
-      encoding: "utf8",
-      content: new TextDecoder("utf-8", { fatal: true }).decode(bytes),
-    }
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes)
   } catch {
     throw new Error(`${name} is not valid UTF-8 text.`)
+  }
+}
+
+async function pdfPageCount(bytes: Buffer) {
+  // PDF.js's worker module registers its own in-process handler; see createDocumentAttachment.
+  await import("pdfjs-dist/legacy/build/pdf.worker.mjs")
+  const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs")
+  const loading = getDocument({ data: Uint8Array.from(bytes), useSystemFonts: true })
+  try {
+    return (await loading.promise).numPages
+  } finally {
+    await loading.destroy()
   }
 }
 

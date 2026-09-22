@@ -8,6 +8,16 @@
   background: transparent;
 }
 
+/* Announced, not shown: the sandboxed frame already displays the same failure text. */
+.canvas-frameAlert {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .canvas-artifact {
   flex: 1;
   min-width: 0;

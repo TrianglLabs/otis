@@ -155,6 +155,7 @@ const mocks = vi.hoisted(() => {
     ),
     saveSubagentPanelVisible: vi.fn(async () => undefined),
     saveFastServingSelection: vi.fn(async () => undefined),
+    savePermissionMode: vi.fn(async () => undefined),
     detectHardware: vi.fn(async () => ({
       platform: "darwin" as const,
       arch: "arm64",
@@ -274,6 +275,7 @@ vi.mock("../../../src/local/settings.js", async (importOriginal) => ({
   saveLocalThinking: mocks.saveLocalThinking,
   saveSubagentPanelVisible: mocks.saveSubagentPanelVisible,
   saveFastServingSelection: mocks.saveFastServingSelection,
+  savePermissionMode: mocks.savePermissionMode,
 }))
 vi.mock("../../../src/local/stats.js", () => ({ calculateLocalStats: mocks.calculateLocalStats }))
 vi.mock("../../../src/storage/index.js", async (importOriginal) => ({

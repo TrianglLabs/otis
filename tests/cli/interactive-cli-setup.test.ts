@@ -641,6 +641,7 @@ describe("interactive CLI setup", () => {
     const onBack = mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[1]?.onBack
     expect(onBack).toBeTypeOf("function")
     onBack?.()
+    await settle()
     expect(mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[0]).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: "Hosted inference" }),
@@ -860,6 +861,10 @@ describe("interactive CLI setup", () => {
     expect(mocks.ui.setModelLabel).not.toHaveBeenCalledWith(expect.stringMatching(/%|loading/i))
     expect(mocks.ui.hideModelPicker).toHaveBeenCalled()
     expect(mocks.ui.setConfigured).toHaveBeenCalled()
+    // The download left the GGUF in the cache; Settings lists it for deletion from now on.
+    const cached = findLocalModel("openai/gpt-oss-20b")
+    if (!cached) throw new Error("missing local model")
+    mocks.listDownloadedLocalModels.mockResolvedValue([cached])
     await submit("/settings")
     expect(mocks.ui.showCommandSubmenu).toHaveBeenLastCalledWith(
       expect.arrayContaining([expect.objectContaining({ name: "Delete local model" })]),

@@ -9,6 +9,14 @@ import {
   MAX_RAW_IMAGE_BYTES,
 } from "./types.js"
 
+// Vision billing by 512px tiles after fitting the image into 2048x2048 and its short side to
+// 768px: 85 tokens plus 170 per tile, so between 255 and 1,445 tokens.
+const IMAGE_BASE_TOKENS = 85
+const IMAGE_TILE_TOKENS = 170
+const IMAGE_TILE_SIDE = 512
+const IMAGE_MAX_LONG_SIDE = 2_048
+const IMAGE_MAX_SHORT_SIDE = 768
+
 export async function loadImageFiles(
   paths: readonly string[],
   cwd: string,
@@ -78,6 +86,61 @@ export function validateImageAttachments(images: readonly ImageContentPart[]) {
   if (base64Bytes >= MAX_BASE64_IMAGE_BYTES) {
     throw new Error("Total image data must be under the Fireworks 10 MB base64 request limit.")
   }
+}
+
+export function estimateImageTokens(
+  image: Pick<ImageContentPart, "data" | "mimeType" | "sizeBytes">,
+): number {
+  // Without a readable header, assume a square: uncompressed formats hold three bytes per pixel
+  // and compressed ones about a quarter of a byte.
+  const fallbackSide = Math.sqrt(
+    image.sizeBytes /
+      (image.mimeType === "image/tiff" || image.mimeType === "image/x-portable-pixmap" ? 3 : 0.25),
+  )
+  const [width, height] = imageDimensions(image) ?? [fallbackSide, fallbackSide]
+  const scale = Math.min(1, IMAGE_MAX_LONG_SIDE / Math.max(width, height))
+  const shortScale = Math.min(1, IMAGE_MAX_SHORT_SIDE / (Math.min(width, height) * scale))
+  const tiles = (side: number) =>
+    Math.max(1, Math.ceil((side * scale * shortScale) / IMAGE_TILE_SIDE))
+  return IMAGE_BASE_TOKENS + IMAGE_TILE_TOKENS * tiles(width) * tiles(height)
+}
+
+/** Pixel size from a PNG, GIF, BMP, or JPEG header, decoding only the base64 it needs. */
+function imageDimensions({ data, mimeType }: Pick<ImageContentPart, "data" | "mimeType">) {
+  const bytes = (offset: number, length: number) => {
+    const first = Math.floor(offset / 3)
+    const chunk = Buffer.from(data.slice(first * 4, Math.ceil((offset + length) / 3) * 4), "base64")
+    const slice = chunk.subarray(offset - first * 3, offset - first * 3 + length)
+    return slice.length === length ? slice : undefined
+  }
+  const dimensions = (width: number, height: number): [number, number] | undefined =>
+    width > 0 && height > 0 ? [width, height] : undefined
+  if (mimeType === "image/png") {
+    const header = bytes(16, 8)
+    return header && dimensions(header.readUInt32BE(0), header.readUInt32BE(4))
+  }
+  if (mimeType === "image/gif") {
+    const header = bytes(6, 4)
+    return header && dimensions(header.readUInt16LE(0), header.readUInt16LE(2))
+  }
+  if (mimeType === "image/bmp") {
+    const header = bytes(18, 8)
+    return header && dimensions(Math.abs(header.readInt32LE(0)), Math.abs(header.readInt32LE(4)))
+  }
+  if (mimeType !== "image/jpeg") return undefined
+  // Walk the segments to the first start-of-frame marker (SOF0 to SOF15 except DHT, JPG, DAC),
+  // whose payload is precision, height, then width.
+  let offset = 2
+  for (let segment = bytes(offset, 9); segment; segment = bytes(offset, 9)) {
+    if (segment[0] !== 0xff) return undefined
+    const marker = segment[1]
+    if (marker === 0xff) offset += 1
+    else if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker))
+      return dimensions(segment.readUInt16BE(7), segment.readUInt16BE(5))
+    else if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd8)) offset += 2
+    else offset += 2 + segment.readUInt16BE(2)
+  }
+  return undefined
 }
 
 export function detectImageMimeType(bytes: Uint8Array): ImageMimeType | undefined {

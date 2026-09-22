@@ -95,7 +95,7 @@ describe("model picker catalog", () => {
     [18, [ORNITH, GEMMA]],
     [24, [BONSAI]],
     [32, [BONSAI]],
-    [36, [BONSAI]],
+    [36, [QWEN]],
     [48, [QWEN]],
     [64, [QWEN]],
     [96, [QWEN]],
@@ -105,7 +105,7 @@ describe("model picker catalog", () => {
     [384, [FLASH]],
     [512, [GLM]],
     [1024, [GLM]],
-  ])("stars models that fit the Metal working set of a %d GiB Mac at 64K", async (ramGiB, ids) => {
+  ])("stars models that fit the Metal working set of a %d GiB Mac on macOS 15 at 64K", async (ramGiB, ids) => {
     const hardware = await macHardware(ramGiB)
     const items = await listModelPickerItems({ hardware, dataDirectory: await tempDir() })
     const recommended = items.filter(
@@ -113,8 +113,8 @@ describe("model picker catalog", () => {
         item.kind === "model" && item.provider === "local" && item.recommended,
     )
     expect(recommended.map((model) => model.id)).toEqual(ids)
-    // macOS wires two thirds of RAM up to 36 GiB and three quarters above; llama.cpp then keeps
-    // its 1 GiB margin, so a starred model must hold 64K inside what remains.
+    // macOS 15 wires two thirds of RAM up to 36 GiB and three quarters above; llama.cpp then
+    // keeps its 1 GiB margin, so a starred model must hold 64K inside what remains.
     const workingSet = Math.floor(
       (ramGiB * GIBIBYTE * (ramGiB <= 36 ? 2 : 3)) / (ramGiB <= 36 ? 3 : 4),
     )
@@ -127,6 +127,33 @@ describe("model picker catalog", () => {
       expect(memoryRequiredFor(fit.model, 65_536)).toBeLessThanOrEqual(workingSet - GIBIBYTE)
       expect(row.cpuOffload).toBe(false)
     }
+  })
+
+  it.each([
+    [16, [ORNITH, GEMMA]],
+    [24, [BONSAI]],
+    [32, [QWEN]],
+    [36, [QWEN]],
+    [48, [QWEN]],
+    [96, [QWEN]],
+    [128, [FLASH]],
+    [384, [FLASH]],
+    [512, [GLM]],
+  ])("stars models that fit the 78% working set of a %d GiB Mac on macOS 26 at 64K", async (ramGiB, ids) => {
+    const hardware = await macHardware(ramGiB, 0, "25.0.0")
+    await expect(recommendedIds(hardware)).resolves.toEqual(ids)
+    for (const id of ids) {
+      const model = findLocalModel(id)
+      if (!model) throw new Error(`missing catalog entry: ${id}`)
+      expect(memoryRequiredFor(fitLocalModel(model, hardware).model, 65_536)).toBeLessThanOrEqual(
+        (hardware.gpuMemoryBytes ?? 0) - GIBIBYTE,
+      )
+    }
+    // The measured working set of this 36 GiB M4 Max (macOS 27.0) stars Qwen3.8 27B.
+    if (ramGiB !== 36) return
+    const measured = await macHardware(36, 0, "27.0.0")
+    expect(measured.gpuMemoryBytes).toBe(30_150_672_384)
+    await expect(recommendedIds(measured)).resolves.toEqual([QWEN])
   })
 
   it("stars a GPU-resident model on a 96 GiB Mac once iogpu.wired_limit_mb is raised", async () => {
@@ -159,7 +186,8 @@ describe("model picker catalog", () => {
     [8188, [LFM]],
     [8191, [LFM]],
     [8192, [LFM]],
-    [12288, [ORNITH, GEMMA]],
+    // Vulkan selects Bonsai's PTQ1 packing, whose 64K footprint is just inside 11 GiB.
+    [12288, [BONSAI]],
     [16380, [BONSAI]],
   ])("stars models whose full footprint fits %d MiB of Vulkan VRAM", async (gpuMiB, ids) => {
     await expect(
@@ -172,14 +200,14 @@ describe("model picker catalog", () => {
     [4, [FLASH]],
     [6, [LFM]],
     [8, [LFM]],
-    [12, [ORNITH, GEMMA]],
+    [12, [BONSAI]],
     [16, [BONSAI]],
     [20, [BONSAI]],
-    [24, [BONSAI]],
+    [24, [QWEN]],
     [32, [QWEN]],
     [48, [QWEN]],
     [64, [QWEN]],
-    [80, [QWEN]],
+    [80, [FLASH]],
     [96, [FLASH]],
     [192, [FLASH]],
     [256, [FLASH]],
@@ -192,7 +220,7 @@ describe("model picker catalog", () => {
   it.each([
     32, 64, 128, 256, 1024,
   ])("keeps the 24 GiB GPU recommendation stable with %d GiB host RAM", async (ramGiB) => {
-    await expect(recommendedIds(linuxHardware(ramGiB, 24))).resolves.toEqual([BONSAI])
+    await expect(recommendedIds(linuxHardware(ramGiB, 24))).resolves.toEqual([QWEN])
   })
 
   it.each([
@@ -201,9 +229,9 @@ describe("model picker catalog", () => {
     await expect(recommendedIds(linuxHardware(ramGiB, 96))).resolves.toEqual([FLASH])
   })
 
-  it("keeps the 27B and 31B models selectable on 16 GiB RAM with a 24 GiB card", async () => {
+  it("keeps the 27B and 31B models selectable on 16 GiB RAM with a 20 GiB card", async () => {
     const items = await listModelPickerItems({
-      hardware: linuxHardware(16, 24),
+      hardware: linuxHardware(16, 20),
       dataDirectory: await tempDir(),
     })
     const local = items.filter(
@@ -247,8 +275,8 @@ describe("model picker catalog", () => {
         nvidiaSmi: async () => nvidiaOutput,
       })
     // Equal combined VRAM, but two devices need 2 GiB rather than 1 GiB of headroom.
-    const single = await probe("25600\n")
-    const dual = await probe("12800\n12800\n")
+    const single = await probe("0, GPU-0, NVIDIA GPU, 24576\n")
+    const dual = await probe("0, GPU-0, NVIDIA GPU, 12288\n1, GPU-1, NVIDIA GPU, 12288\n")
     expect(single.gpuMemoryBytes).toBe(dual.gpuMemoryBytes)
     await expect(recommendedIds(single)).resolves.toEqual([QWEN])
     await expect(recommendedIds(dual)).resolves.toEqual([BONSAI])
@@ -271,7 +299,8 @@ describe("model picker catalog", () => {
   it.each([
     [8, [LFM]],
     [12, [ORNITH, GEMMA]],
-    [16, [ORNITH, GEMMA]],
+    // gpt-oss holds 64K in the 14 GiB host budget; Gemma 4 26B A4B needs 16 GiB.
+    [16, [GPT_OSS]],
     [24, [GPT_OSS, GEMMA_A4B]],
     [32, [GPT_OSS, GEMMA_A4B]],
     [128, [FLASH]],
@@ -287,6 +316,16 @@ describe("model picker catalog", () => {
       available: true,
       recommended: false,
     })
+  })
+
+  it("keeps Intel integrated graphics on the CPU order while an AMD APU uses the GPU order", async () => {
+    const unified = (gpuVendor: "intel" | "amd"): HardwareProbe => ({
+      ...linuxHardware(32, 32),
+      unifiedMemory: true,
+      gpuVendor,
+    })
+    await expect(recommendedIds(unified("intel"))).resolves.toEqual([GPT_OSS, GEMMA_A4B])
+    await expect(recommendedIds(unified("amd"))).resolves.toEqual([QWEN])
   })
 
   it("uses the CPU preference order when a Vulkan device does not report VRAM", async () => {
@@ -340,7 +379,7 @@ describe("model picker catalog", () => {
   it("shows the GPU-budgeted context and memory cost, and labels manual CPU offload", async () => {
     const model = findLocalModel("Qwen/Qwen3.8-27B")
     if (!model) throw new Error("missing catalog entry")
-    for (const gpuGiB of [24, 32]) {
+    for (const gpuGiB of [20, 32]) {
       const items = await listModelPickerItems({
         hardware: {
           platform: "linux",
@@ -360,11 +399,11 @@ describe("model picker catalog", () => {
       if (!row) throw new Error("missing picker row")
       expect(isSelectablePickerItem(row)).toBe(true)
       expect(row.recommended).toBe(gpuGiB === 32)
-      expect(row.contextLength).toBe(gpuGiB === 32 ? 193_536 : 65_536)
+      expect(row.contextLength).toBe(gpuGiB === 32 ? 194_560 : 65_536)
       expect(row.availabilityLabel).toContain(
         formatMemoryLabel(memoryRequiredFor(model, row.contextLength)),
       )
-      expect(row.cpuOffload).toBe(gpuGiB === 24)
+      expect(row.cpuOffload).toBe(gpuGiB === 20)
     }
   })
 
@@ -562,7 +601,7 @@ describe("model picker catalog", () => {
       contextLength: 80_128,
       loadedContextLength: 80_128,
     })
-    expect(active?.availabilityLabel).toMatch(/^80K · Q4_K_M · /)
+    expect(active?.availabilityLabel).toMatch(/^~78K · Q4_K_M · /)
     expect(
       local
         .filter((item) => item.id !== model.id)
@@ -721,13 +760,19 @@ describe("model picker catalog", () => {
     ).toMatchObject({ active: true })
   })
 
-  it("labels context windows without decimal rounding on binary sizes", async () => {
+  it("labels context windows in binary K, exact thousands, or a marked rounding", async () => {
     expect(formatContextWindow(32_768)).toBe("32K")
     expect(formatContextWindow(16_384)).toBe("16K")
     expect(formatContextWindow(8_192)).toBe("8K")
     expect(formatContextWindow(98_304)).toBe("96K")
+    expect(formatContextWindow(131_072)).toBe("128K")
     expect(formatContextWindow(128_000)).toBe("128K")
+    expect(formatContextWindow(193_536)).toBe("189K")
+    expect(formatContextWindow(200_000)).toBe("200K")
     expect(formatContextWindow(262_144)).toBe("256K")
+    expect(formatContextWindow(65_535)).toBe("~64K")
+    expect(formatContextWindow(1_048_576)).toBe("1M")
+    expect(formatContextWindow(512)).toBe("512")
     const items = await listModelPickerItems({ hardware: ample, dataDirectory: await tempDir() })
     const local = items.filter(
       (item): item is LocalPickerChoice => item.kind === "model" && item.provider === "local",
@@ -791,9 +836,9 @@ function localGgufPath(model: LocalModelSpec, directory: string) {
 }
 
 /** A detected Mac: the default Metal working set unless `iogpu.wired_limit_mb` is raised. */
-function macHardware(ramGiB: number, wiredLimitMiB = 0) {
+function macHardware(ramGiB: number, wiredLimitMiB = 0, release = "24.6.0") {
   return detectHardware({
-    env: { platform: "darwin", arch: "arm64", totalMemoryBytes: ramGiB * GIBIBYTE },
+    env: { platform: "darwin", arch: "arm64", totalMemoryBytes: ramGiB * GIBIBYTE, release },
     metalWiredLimitMiB: async () => wiredLimitMiB,
   })
 }

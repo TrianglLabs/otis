@@ -15,17 +15,22 @@ import {
   writeFile,
 } from "node:fs/promises"
 import { createServer } from "node:net"
-import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { promisify } from "node:util"
 import {
   llamaBinaryDirectory,
   llamaModelCacheDirectory,
-  llamaServerRecordPath,
+  llamaServerRecordsDirectory,
 } from "../local/paths.js"
 import { LOCAL_MIN_CONTEXT_LENGTH } from "./context-policy.js"
 import { errorMessage, inferenceResponseError } from "./errors.js"
-import { ensureLocalGguf } from "./gguf-cache.js"
+import {
+  acquireDownloadLock,
+  ensureLocalGguf,
+  type GgufProgress,
+  hashFile,
+  sha256File,
+} from "./gguf-cache.js"
 import { type HardwareBackend, type HardwareProbe, inferenceMemoryBudget } from "./hardware.js"
 import {
   type LlamaBinaryTarget,
@@ -56,7 +61,7 @@ const STOP_TIMEOUT_MS = 5_000
 const KILL_WAIT_MS = 1_000
 const EXIT_TAIL_BYTES = 2_048
 const RUNTIME_MANIFEST = ".otis-runtime.json"
-const SERVER_RECORD = "server.json"
+const RUNTIME_DOWNLOADS = "downloads"
 const execFileAsync = promisify(execFile)
 
 // Retry on the next backend only for diagnostics identifying this backend. A generic model,
@@ -139,22 +144,21 @@ class RetryableRuntimeDownloadError extends Error {
   }
 }
 
-export type LocalLoadProgress =
-  | { phase: "runtime-download" }
-  | { phase: "download"; percent: number }
-  | { phase: "loading" }
+export type LocalLoadProgress = { phase: "runtime-download" } | GgufProgress | { phase: "loading" }
 
 const LOCAL_RUNTIME_DOWNLOADING_LABEL = "Downloading llama.cpp"
 const LOCAL_DOWNLOADING_LABEL = "Downloading"
+const LOCAL_VERIFYING_LABEL = "Verifying"
 const LOCAL_LOADING_LABEL = "Loading"
 
 /**
- * Short picker-row label for a managed local model being downloaded or loaded. Shared by the
- * TUI and desktop.
+ * Short picker-row label for a managed local model being downloaded, verified, or loaded. Shared
+ * by the TUI and desktop.
  */
 export function formatLocalLoadStatus(progress: LocalLoadProgress) {
   if (progress.phase === "runtime-download") return LOCAL_RUNTIME_DOWNLOADING_LABEL
   if (progress.phase === "download") return `${LOCAL_DOWNLOADING_LABEL} ${progress.percent}%`
+  if (progress.phase === "verifying") return `${LOCAL_VERIFYING_LABEL} ${progress.percent}%`
   return LOCAL_LOADING_LABEL
 }
 
@@ -207,6 +211,11 @@ export class LlamaCppRuntime {
 
   get serving() {
     return this.#serving
+  }
+
+  /** False once the managed server exited after it was last known ready. */
+  get alive() {
+    return this.#exit === undefined
   }
 
   /** Throws when the managed server exited after it was last known ready. */
@@ -317,10 +326,15 @@ export class LlamaCppRuntime {
     }
   }
 
-  #recordPath() {
+  /** One record per owning Otis process, named by that process's pid. */
+  #recordsDirectory() {
     return this.#options.dataDirectory
-      ? join(this.#options.dataDirectory, SERVER_RECORD)
-      : llamaServerRecordPath()
+      ? join(this.#options.dataDirectory, "servers")
+      : llamaServerRecordsDirectory()
+  }
+
+  #recordPath() {
+    return join(this.#recordsDirectory(), `${process.pid}.json`)
   }
 
   async #recordServer(child: ChildProcess, port: number, binaryPath: string) {
@@ -348,48 +362,62 @@ export class LlamaCppRuntime {
     }
   }
 
-  /** A crashed Otis leaves its llama-server running; reap that orphan before starting another. */
-  async #reapRecordedServer() {
-    const path = this.#recordPath()
-    let record: { pid?: unknown; ownerPid?: unknown; binaryPath?: unknown } | null = null
+  /**
+   * A crashed Otis leaves its llama-server running; reap every orphan whose owner is gone before
+   * starting another. Records of live owners are theirs. The single-file record of earlier
+   * releases is dropped without reading it.
+   */
+  async #reapRecordedServers() {
+    const directory = this.#recordsDirectory()
+    await rm(join(dirname(directory), "server.json"), { force: true })
+    let names: string[]
     try {
-      record = JSON.parse(await readFile(path, "utf8"))
+      names = await readdir(directory)
     } catch (error) {
       if (isNotFound(error)) return
+      throw error
     }
-    const pid = Number(record?.pid)
-    const owner = Number(record?.ownerPid)
-    // Another running Otis owns a live record; only an orphan is reaped.
-    if (
-      owner !== process.pid &&
-      Number.isSafeInteger(owner) &&
-      owner > 0 &&
-      this.#processAlive(owner)
-    )
-      return
-    if (Number.isSafeInteger(pid) && pid > 0 && this.#processAlive(pid)) {
-      const command = await (this.#options.processCommand ?? processCommand)(pid)
-      if (typeof record?.binaryPath === "string" && command.includes(record.binaryPath)) {
-        const signal = this.#options.signalProcess ?? signalProcess
-        await this.#terminate(
-          (name) => {
-            try {
-              signal(pid, name)
-            } catch {
-              // Gone between the liveness probe and the signal.
-            }
-          },
-          () => !this.#processAlive(pid),
-        )
+    for (const name of names.filter((name) => name.endsWith(".json"))) {
+      const path = join(directory, name)
+      let record: { pid?: unknown; ownerPid?: unknown; binaryPath?: unknown } | null = null
+      try {
+        record = JSON.parse(await readFile(path, "utf8"))
+      } catch {
+        // Unreadable or malformed: removed below.
       }
+      const pid = Number(record?.pid)
+      const owner = Number(record?.ownerPid)
+      if (
+        owner !== process.pid &&
+        Number.isSafeInteger(owner) &&
+        owner > 0 &&
+        this.#processAlive(owner)
+      )
+        continue
+      if (Number.isSafeInteger(pid) && pid > 0 && this.#processAlive(pid)) {
+        const command = await (this.#options.processCommand ?? processCommand)(pid)
+        if (typeof record?.binaryPath === "string" && command.includes(record.binaryPath)) {
+          const signal = this.#options.signalProcess ?? signalProcess
+          await this.#terminate(
+            (name) => {
+              try {
+                signal(pid, name)
+              } catch {
+                // Gone between the liveness probe and the signal.
+              }
+            },
+            () => !this.#processAlive(pid),
+          )
+        }
+      }
+      await rm(path, { force: true })
     }
-    await rm(path, { force: true })
   }
 
   async #start(key: string, fit: LocalModelFit, hardware: HardwareProbe, context: StartContext) {
     const { signal } = context
     const { model } = fit
-    await this.#reapRecordedServer()
+    await this.#reapRecordedServers()
     signal.throwIfAborted()
     // Backends fall back in one direction only: CUDA to Vulkan to CPU, never back.
     const failures: string[] = []
@@ -443,7 +471,7 @@ export class LlamaCppRuntime {
       env: this.#options.env,
       fetch: this.#options.fetch,
       signal,
-      onProgress: (percent) => onProgress?.({ phase: "download", percent }),
+      onProgress,
     })
     signal.throwIfAborted()
     onProgress?.({ phase: "loading" })
@@ -622,63 +650,25 @@ export class LlamaCppRuntime {
     const artifactSha256 = asset.companion
       ? createHash("sha256").update(`${asset.sha256}:${asset.companion.sha256}`).digest("hex")
       : asset.sha256
-    if (!(await isUsableRuntimeBundle(binaryDir, releaseTag, hardware, artifactSha256))) {
+    const usable = () => isUsableRuntimeBundle(binaryDir, releaseTag, hardware, artifactSha256)
+    if (!(await usable())) {
+      // Archives and partial downloads persist beside the bundle root, so a retry after a failed
+      // companion download or a dropped connection resumes instead of starting over. One
+      // process downloads a bundle at a time.
+      const downloads = join(dirname(binaryRoot), RUNTIME_DOWNLOADS)
       await mkdir(binaryRoot, { recursive: true, mode: 0o700 })
+      await mkdir(downloads, { recursive: true, mode: 0o700 })
       onProgress?.({ phase: "runtime-download" })
-      const extract = this.#options.extractArchive ?? extractTarGz
-      const download = await this.#downloadToTemp(asset, signal)
-      let extractDir: string | undefined
-      let candidateDir: string | undefined
+      const releaseLock = await acquireDownloadLock(join(downloads, `${bundleName}.lock`), signal)
       try {
-        extractDir = await mkdtemp(join(binaryRoot, `.${releaseTag}-extract-`))
-        candidateDir = `${extractDir}.bundle`
-        await extract(download.archivePath, extractDir)
-        signal.throwIfAborted()
-        const found = await findNamedFile(extractDir, "llama-server")
-        if (!found) throw new Error("llama.cpp archive did not include llama-server.")
-        if (asset.companion) {
-          const companion = await this.#downloadToTemp(asset.companion, signal)
-          try {
-            const companionDir = join(extractDir, "cuda-runtime")
-            await mkdir(companionDir)
-            await extract(companion.archivePath, companionDir)
-            for (const library of cudaRuntimeLibraries(hardware)) {
-              const source = await findNamedFile(companionDir, library)
-              if (!source) throw new Error(`CUDA runtime archive did not include ${library}.`)
-              await rename(source, join(dirname(found), library))
-            }
-          } finally {
-            await rm(companion.directory, { recursive: true, force: true })
-          }
+        if (!(await usable())) {
+          await this.#installBundle(
+            { asset, hardware, releaseTag, artifactSha256, binaryDir, downloads },
+            signal,
+          )
         }
-        signal.throwIfAborted()
-        await chmod(found, 0o755)
-        const manifest = {
-          version: 2,
-          releaseTag,
-          platform: hardware.platform,
-          arch: hardware.arch,
-          backend: hardware.backend,
-          cudaVersion: hardware.cudaVersion,
-          artifactSha256,
-        }
-        await writeFile(join(dirname(found), RUNTIME_MANIFEST), `${JSON.stringify(manifest)}\n`, {
-          encoding: "utf8",
-          mode: 0o600,
-        })
-        if (!(await isUsableRuntimeBundle(dirname(found), releaseTag, hardware, artifactSha256))) {
-          throw new Error("llama.cpp archive did not include the required runtime libraries.")
-        }
-
-        // llama-server dynamically loads the libraries and backend assets shipped
-        // beside it. Publish that directory atomically as one runtime bundle.
-        await rename(dirname(found), candidateDir)
-        const usable = () => isUsableRuntimeBundle(binaryDir, releaseTag, hardware, artifactSha256)
-        await publishRuntimeBundle(candidateDir, binaryDir, `${extractDir}.previous`, usable)
       } finally {
-        if (extractDir) await rm(extractDir, { recursive: true, force: true })
-        if (candidateDir) await rm(candidateDir, { recursive: true, force: true })
-        await rm(download.directory, { recursive: true, force: true })
+        await releaseLock()
       }
       await assertExecutable(binaryPath)
     }
@@ -720,6 +710,73 @@ export class LlamaCppRuntime {
     const next: HardwareBackend = hardware.backend === "cuda" ? "vulkan" : "cpu"
     const fallback = { ...hardware, backend: next, cudaVersion: undefined }
     return await this.#resolveBinary(model, fallback, context, failures)
+  }
+
+  async #installBundle(
+    bundle: {
+      asset: LlamaCppAsset
+      hardware: HardwareProbe
+      releaseTag: string
+      artifactSha256: string
+      binaryDir: string
+      downloads: string
+    },
+    signal: AbortSignal,
+  ) {
+    const { asset, hardware, releaseTag, artifactSha256, binaryDir, downloads } = bundle
+    const extract = this.#options.extractArchive ?? extractTarGz
+    const archivePath = await this.#downloadArchive(asset, downloads, signal)
+    let extractDir: string | undefined
+    let candidateDir: string | undefined
+    try {
+      extractDir = await mkdtemp(join(dirname(binaryDir), `.${releaseTag}-extract-`))
+      candidateDir = `${extractDir}.bundle`
+      await extract(archivePath, extractDir)
+      signal.throwIfAborted()
+      const found = await findNamedFile(extractDir, "llama-server")
+      if (!found) throw new Error("llama.cpp archive did not include llama-server.")
+      if (asset.companion) {
+        const companionPath = await this.#downloadArchive(asset.companion, downloads, signal)
+        const companionDir = join(extractDir, "cuda-runtime")
+        await mkdir(companionDir)
+        await extract(companionPath, companionDir)
+        for (const library of cudaRuntimeLibraries(hardware)) {
+          const source = await findNamedFile(companionDir, library)
+          if (!source) throw new Error(`CUDA runtime archive did not include ${library}.`)
+          await rename(source, join(dirname(found), library))
+        }
+      }
+      signal.throwIfAborted()
+      await chmod(found, 0o755)
+      const manifest = {
+        version: 2,
+        releaseTag,
+        platform: hardware.platform,
+        arch: hardware.arch,
+        backend: hardware.backend,
+        cudaVersion: hardware.cudaVersion,
+        artifactSha256,
+      }
+      await writeFile(join(dirname(found), RUNTIME_MANIFEST), `${JSON.stringify(manifest)}\n`, {
+        encoding: "utf8",
+        mode: 0o600,
+      })
+      if (!(await isUsableRuntimeBundle(dirname(found), releaseTag, hardware, artifactSha256))) {
+        throw new Error("llama.cpp archive did not include the required runtime libraries.")
+      }
+
+      // llama-server dynamically loads the libraries and backend assets shipped
+      // beside it. Publish that directory atomically as one runtime bundle.
+      await rename(dirname(found), candidateDir)
+      const usable = () => isUsableRuntimeBundle(binaryDir, releaseTag, hardware, artifactSha256)
+      await publishRuntimeBundle(candidateDir, binaryDir, `${extractDir}.previous`, usable)
+      // Installed: nothing is left for a retry to reuse.
+      await rm(archivePath, { force: true })
+      if (asset.companion) await rm(join(downloads, asset.companion.name), { force: true })
+    } finally {
+      if (extractDir) await rm(extractDir, { recursive: true, force: true })
+      if (candidateDir) await rm(candidateDir, { recursive: true, force: true })
+    }
   }
 
   async #waitUntilReady(port: number, child: ChildProcess, logs: ServerLogs, signal: AbortSignal) {
@@ -781,7 +838,20 @@ export class LlamaCppRuntime {
     throw new Error("Timed out waiting for the local model server to start.")
   }
 
-  async #downloadToTemp(asset: LlamaCppArchive, signal?: AbortSignal) {
+  /**
+   * Downloads a pinned archive into `directory`, resuming a partial file from an earlier attempt
+   * or run by byte range. A verified archive already there is reused; the caller removes it once
+   * the bundle is installed.
+   */
+  async #downloadArchive(asset: LlamaCppArchive, directory: string, signal?: AbortSignal) {
+    const archivePath = join(directory, asset.name)
+    const partial = `${archivePath}.partial`
+    if (
+      (await hasSize(archivePath, asset.size)) &&
+      (await sha256File(archivePath)) === asset.sha256
+    )
+      return archivePath
+    await rm(archivePath, { force: true })
     const fetchImpl = this.#options.fetch ?? fetch
     const attempts = Math.max(
       1,
@@ -800,16 +870,20 @@ export class LlamaCppRuntime {
       }
       let response: Response | undefined
       let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
-      let directory: string | undefined
       let file: FileHandle | undefined
+      let discardPartial = false
       let complete = false
       try {
         try {
           requestSignal.throwIfAborted()
+          const resumedBytes = await partialSize(partial, asset.size)
           resetTimeout()
           try {
             response = await fetchImpl(asset.url, {
-              headers: { "user-agent": "otis" },
+              headers: {
+                "user-agent": "otis",
+                ...(resumedBytes > 0 ? { range: `bytes=${resumedBytes}-` } : {}),
+              },
               signal: requestSignal,
             })
           } catch (error) {
@@ -818,6 +892,10 @@ export class LlamaCppRuntime {
           }
           requestSignal.throwIfAborted()
           resetTimeout()
+          if (response.status === 416) {
+            discardPartial = true
+            throw retryable("the server rejected the resumed byte range.")
+          }
           if (!response.ok) {
             const message = `Could not download llama.cpp (HTTP ${response.status}).`
             const status = response.status
@@ -835,6 +913,19 @@ export class LlamaCppRuntime {
             throw new RetryableRuntimeDownloadError(message, retryAfterMs)
           }
           if (!response.body) throw retryable("empty response body.")
+          const start = resumedBytes > 0 && response.status === 206 ? resumedBytes : 0
+          if (start > 0) {
+            const range = response.headers.get("content-range")?.match(/^bytes (\d+)-(\d+)\/(\d+)$/)
+            if (
+              !range ||
+              Number(range[1]) !== start ||
+              Number(range[2]) !== asset.size - 1 ||
+              Number(range[3]) !== asset.size
+            ) {
+              discardPartial = true
+              throw retryable("the server returned an invalid byte range.")
+            }
+          }
           const contentLengthHeader = response.headers.get("content-length")
           const contentLength =
             contentLengthHeader === null ? undefined : Number(contentLengthHeader)
@@ -844,14 +935,13 @@ export class LlamaCppRuntime {
           ) {
             throw retryable("the server returned an invalid content length.")
           }
-          if (contentLength !== undefined && contentLength !== asset.size) {
-            throw retryable(`expected ${asset.size} bytes but received ${contentLength}.`)
+          if (contentLength !== undefined && contentLength !== asset.size - start) {
+            throw retryable(`expected ${asset.size - start} bytes but received ${contentLength}.`)
           }
-          directory = await mkdtemp(join(tmpdir(), "otis-llama-dl-"))
-          const archivePath = join(directory, "llama.tar.gz")
-          file = await open(archivePath, "wx", 0o600)
           const hash = createHash("sha256")
-          let received = 0
+          if (start > 0) await hashFile(partial, hash)
+          file = await open(partial, start > 0 ? "a" : "w", 0o600)
+          let received = start
           reader = response.body.getReader()
           for (;;) {
             let chunk: ReadableStreamReadResult<Uint8Array>
@@ -867,6 +957,7 @@ export class LlamaCppRuntime {
             if (!value?.byteLength) continue
             resetTimeout()
             if (received + value.byteLength > asset.size) {
+              discardPartial = true
               throw retryable("the response exceeded the pinned artifact size.")
             }
             await file.writeFile(value)
@@ -877,11 +968,15 @@ export class LlamaCppRuntime {
           signal?.throwIfAborted()
           if (received !== asset.size)
             throw retryable(`expected ${asset.size} bytes but received ${received}.`)
-          if (hash.digest("hex") !== asset.sha256) throw retryable("SHA-256 verification failed.")
+          if (hash.digest("hex") !== asset.sha256) {
+            discardPartial = true
+            throw retryable("SHA-256 verification failed.")
+          }
           await file.close()
           file = undefined
+          await rename(partial, archivePath)
           complete = true
-          return { archivePath, directory }
+          return archivePath
         } finally {
           clearTimeout(timeout)
           if (!complete) {
@@ -890,7 +985,7 @@ export class LlamaCppRuntime {
           }
           reader?.releaseLock()
           await file?.close().catch(() => undefined)
-          if (!complete && directory) await rm(directory, { recursive: true, force: true })
+          if (discardPartial) await rm(partial, { force: true })
         }
       } catch (error) {
         signal?.throwIfAborted()
@@ -1179,6 +1274,28 @@ async function allocatePort() {
 
 function processHasTerminated(child: ChildProcess) {
   return child.exitCode !== null || child.signalCode != null
+}
+
+/** The resumable size of a partial download; an oversized one is discarded. */
+async function partialSize(partial: string, expectedBytes: number) {
+  try {
+    const info = await stat(partial)
+    if (info.isFile() && info.size <= expectedBytes) return info.size
+  } catch (error) {
+    if (!isNotFound(error)) throw error
+    return 0
+  }
+  await rm(partial, { force: true })
+  return 0
+}
+
+async function hasSize(path: string, expectedBytes: number) {
+  try {
+    const info = await stat(path)
+    return info.isFile() && info.size === expectedBytes
+  } catch {
+    return false
+  }
 }
 
 async function assertExecutable(path: string) {

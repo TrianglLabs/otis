@@ -8,8 +8,43 @@ import type {
   UserContentPart,
 } from "./types.js"
 
-const ESTIMATED_IMAGE_TOKENS = 1_024
-const CHARS_PER_TOKEN = 4
+// Token rates per UTF-16 code unit, fitted by least squares to the Qwen2, Llama 3, and LFM2.5
+// tokenizers over the corpus in tests/inference/token-estimate.test.ts. BPE tokens are mostly
+// space-prefixed words, so a space costs most of a token and a letter little; punctuation tends
+// to stand alone, Qwen splits digits singly, CJK text runs 1.3 to 1.6 characters per token,
+// other non-ASCII letters about three, and an emoji (two surrogate units) two tokens.
+const TOKENS_PER_LETTER = 0.14
+const TOKENS_PER_SPACE = 0.45
+const TOKENS_PER_SYMBOL = 0.55
+const TOKENS_PER_DIGIT = 1
+const TOKENS_PER_CJK_UNIT = 0.7
+const TOKENS_PER_OTHER_UNIT = 0.3
+
+/** A tokenizer-free estimate of the tokens a text costs, fractional so sums stay unbiased. */
+export function estimateTextTokens(text: string): number {
+  let tokens = 0
+  for (let index = 0; index < text.length; index += 1) {
+    const code = text.charCodeAt(index)
+    if (code === 0x20 || code === 0x0a || code === 0x09 || code === 0x0d) tokens += TOKENS_PER_SPACE
+    else if (code > 0x7f) tokens += cjkOrEmoji(code) ? TOKENS_PER_CJK_UNIT : TOKENS_PER_OTHER_UNIT
+    else if (code >= 0x30 && code <= 0x39) tokens += TOKENS_PER_DIGIT
+    else if ((code >= 0x41 && code <= 0x5a) || (code >= 0x61 && code <= 0x7a))
+      tokens += TOKENS_PER_LETTER
+    else tokens += TOKENS_PER_SYMBOL
+  }
+  return tokens
+}
+
+/** CJK ideographs, kana, hangul, and fullwidth forms, plus surrogate halves (emoji). */
+function cjkOrEmoji(code: number) {
+  return (
+    (code >= 0x2e80 && code <= 0x9fff) ||
+    (code >= 0xac00 && code <= 0xd7af) ||
+    (code >= 0xd800 && code <= 0xdfff) ||
+    (code >= 0xf900 && code <= 0xfaff) ||
+    (code >= 0xff00 && code <= 0xffef)
+  )
+}
 
 export function createUserMessage(
   text: string,
@@ -72,17 +107,6 @@ export function displayUserMessage(message: UserChatMessage): string {
     attachment.type === "image" ? `📎 ${attachment.name}` : `📄 ${attachment.name}`,
   )
   return [userMessageText(message), ...attachments].filter(Boolean).join("\n")
-}
-
-export function userMessageContentChars(message: UserChatMessage): number {
-  return (
-    userMessageText(message).length +
-    userMessageImages(message).length * ESTIMATED_IMAGE_TOKENS * CHARS_PER_TOKEN +
-    userMessageDocuments(message).reduce(
-      (total, document) => total + formatDocumentForModel(document).length,
-      0,
-    )
-  )
 }
 
 /**

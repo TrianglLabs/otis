@@ -29,28 +29,33 @@ const WORD_PREVIEW_CSS = `
 export function FileArtifact({ artifact }: { artifact: ArtifactMetadata }) {
   const { api } = useDesktop()
   const { t } = useI18n()
-  const [payload, setPayload] = useState<ArtifactPayload>()
-  const [error, setError] = useState<string>()
+  // The previous payload stays on screen while a new revision of the same artifact loads; a
+  // different artifact starts from the loading state.
+  const [loaded, setLoaded] = useState<{ id: string; payload?: ArtifactPayload; error?: string }>()
+  const payload = loaded?.id === artifact.id ? loaded.payload : undefined
+  const error = loaded?.id === artifact.id ? loaded.error : undefined
 
   useEffect(() => {
     let current = true
-    setPayload(undefined)
-    setError(undefined)
+    const id = artifact.id
     void api.getArtifact(artifact.revision).then(
-      (value) => {
+      (result) => {
         if (!current) return
-        if (value) setPayload(value)
-        else setError(t("canvas.previewFailed"))
+        if (result.ok) setLoaded({ id, payload: result.payload })
+        else if (!result.stale) setLoaded({ id, error: result.reason })
       },
       (reason: unknown) => {
         if (!current) return
-        setError(reason instanceof Error ? reason.message : t("canvas.previewFailed"))
+        setLoaded({
+          id,
+          error: reason instanceof Error ? reason.message : t("canvas.previewFailed"),
+        })
       },
     )
     return () => {
       current = false
     }
-  }, [api, artifact.id, artifact.revision, t])
+  }, [api, artifact.id, artifact.revision])
 
   return (
     <section className="canvas-artifact" aria-label={artifact.title}>
@@ -72,7 +77,6 @@ export function FileArtifact({ artifact }: { artifact: ArtifactMetadata }) {
           key={`${artifact.id}:${artifact.revision}`}
           id={artifact.id}
           revision={artifact.revision}
-          disabled={!payload || Boolean(error)}
         />
       </header>
       <div className="canvas-artifactBody">
@@ -83,33 +87,26 @@ export function FileArtifact({ artifact }: { artifact: ArtifactMetadata }) {
             <Markdown text={payload.content} enableCanvas={false} />
           </article>
         ) : null}
-        {payload?.kind === "pdf" ? <PdfPreview source={payload.content} /> : null}
+        {payload?.kind === "pdf" ? <PdfPreview key={artifact.id} data={payload.content} /> : null}
         {payload?.kind === "docx" ? (
           <iframe
             className="canvas-frame"
             title={payload.title}
-            sandbox="allow-same-origin"
+            sandbox=""
             referrerPolicy="no-referrer"
             srcDoc={`<!doctype html><html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; font-src data:"><title>${payload.title.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")}</title><style>${WORD_PREVIEW_CSS}</style></head><body><main>${payload.content}</main></body></html>`}
           />
         ) : null}
         {payload?.kind === "html" ? (
-          <WebpagePreview source={payload.content} title={payload.title} />
+          <WebpagePreview key={artifact.id} source={payload.content} title={payload.title} />
         ) : null}
       </div>
     </section>
   )
 }
 
-function ArtifactSave({
-  id,
-  revision,
-  disabled,
-}: {
-  id: string
-  revision: number
-  disabled: boolean
-}) {
+/** Export reads the original bytes of the selected reference, so it does not wait on the preview. */
+function ArtifactSave({ id, revision }: { id: string; revision: number }) {
   const { api } = useDesktop()
   const { t } = useI18n()
   const [saving, setSaving] = useState(false)
@@ -131,7 +128,7 @@ function ArtifactSave({
       <IconButton
         icon={Download}
         label={t("canvas.saveCopy")}
-        disabled={disabled || saving}
+        disabled={saving}
         onClick={() => void save()}
       />
       {error ? <span role="alert">{error}</span> : null}
@@ -191,6 +188,16 @@ function WebpagePreview({ source, title }: { source: string; title: string }) {
     frame.current?.contentWindow?.postMessage({ type: "otis-webpage-source", source, title }, "*")
   }, [source, title])
   useEffect(sendSource, [sendSource])
+  // The sandboxed preview relays link clicks; only its own window may ask, and only for http(s).
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== frame.current?.contentWindow) return
+      if (event.data?.type !== "otis-webpage-link" || typeof event.data.url !== "string") return
+      if (/^https?:\/\//i.test(event.data.url)) window.open(event.data.url, "_blank", "noopener")
+    }
+    window.addEventListener("message", onMessage)
+    return () => window.removeEventListener("message", onMessage)
+  }, [])
   return (
     <iframe
       ref={frame}

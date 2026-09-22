@@ -82,7 +82,7 @@ describe("compaction checkpoints during active turns", () => {
         expect(request.messages).not.toContainEqual(queued.message)
         if (requests > 1) expect(request.messages).toContainEqual(user(`steering ${requests - 1}`))
         if (requests < 3) {
-          yield { type: "reasoning_delta", field: "reasoning_content", text: "x".repeat(100_000) }
+          yield { type: "reasoning_delta", field: "reasoning_content", text: "x".repeat(200_000) }
           yield {
             type: "tool_call",
             toolCall: {
@@ -177,7 +177,7 @@ describe("compaction checkpoints during active turns", () => {
       {
         role: "assistant",
         content: [
-          { type: "reasoning", field: "reasoning_content", text: "x".repeat(100_000) },
+          { type: "reasoning", field: "reasoning_content", text: "x".repeat(200_000) },
           { type: "text", text: "Done." },
         ],
       },

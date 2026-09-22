@@ -1,54 +1,34 @@
-import type { TranscriptStore } from "../app/transcript.js"
+import type { Application } from "../app/application.js"
 import {
   loadAttachmentFiles,
   parsePastedAttachmentPaths,
   validateAttachments,
 } from "../inference/attachments.js"
-import { listToolCapableModels } from "../inference/client.js"
-import { createPastedImageAttachment, validateImageAttachments } from "../inference/images.js"
-import { findLocalModel } from "../inference/local-catalog.js"
-import {
-  createUserMessage,
-  imageAttachmentsFromMessages,
-  messagesContainImages,
-} from "../inference/messages.js"
-import {
-  findFireworksModel,
-  fireworksServingModel,
-  isFastFireworksModel,
-} from "../inference/serving-path.js"
-import type { AttachmentContentPart, ChatMessage } from "../inference/types.js"
-import { saveSelectedModel } from "../local/settings.js"
+import { errorMessage } from "../inference/errors.js"
+import { createPastedImageAttachment } from "../inference/images.js"
+import type { AttachmentContentPart, UserChatMessage } from "../inference/types.js"
 import type { ChatUI } from "./ui/types.js"
 
 type AttachmentFlowOptions = {
   cwd: string
   isBusy: () => boolean
-  apiKey: () => string | undefined
-  selectedModelId: () => string | undefined
+  app: Application
   ui: () => ChatUI
-  transcript: TranscriptStore
   onContextChange: () => void
 }
 
+/** The composer's pending attachments: pasted images and dropped files, checked as they arrive. */
 export class AttachmentFlow {
   readonly pending = new PendingAttachments()
-  #supportsImageInput: boolean | undefined
-  #capabilityCheck: { modelId: string; promise: Promise<void> } | undefined
   #generation = 0
   #readingFiles = 0
 
   constructor(private readonly options: AttachmentFlowOptions) {}
 
-  setModelCapability(supports: boolean | undefined) {
-    this.#supportsImageInput = supports
-    this.#capabilityCheck = undefined
-  }
-
   async attachPastedImage(bytes: Uint8Array, mimeType?: string) {
     if (this.options.isBusy()) return
     try {
-      await this.#ensureModelSupportsImages()
+      await this.options.app.ensureImageSupport()
       const attachment = this.pending.nextPastedImage(bytes, mimeType)
       validateAttachments([...this.pending.items, attachment])
       this.pending.add(attachment)
@@ -83,65 +63,22 @@ export class AttachmentFlow {
   }
 
   /**
-   * Fails when a send would: files still reading, invalid attachments, or images the model cannot
-   * take. Returns nothing when the send can proceed synchronously, so a plain text turn starts
-   * without a microtask.
+   * The prompt to send, or a rejection for what a send would fail on: files still reading,
+   * invalid attachments, or images the model cannot take.
    */
-  ensureReadyToSend(value: string): Promise<void> | undefined {
-    if (this.#readingFiles > 0) {
-      return Promise.reject(new Error("Files are still being read. Please wait before sending."))
-    }
-    validateAttachments(this.pending.items)
-    const messages = [
-      ...this.options.transcript.history,
-      createUserMessage(value, this.pending.items),
-    ]
-    if (!messagesContainImages(messages)) return
-    return this.#ensureImagesReadyToSend(messages)
-  }
-
-  async #ensureImagesReadyToSend(messages: ChatMessage[]) {
-    validateImageAttachments(imageAttachmentsFromMessages(messages))
-    await this.#ensureModelSupportsImages()
+  async prompt(value: string): Promise<UserChatMessage> {
+    if (this.#readingFiles > 0)
+      throw new Error("Files are still being read. Please wait before sending.")
+    return this.options.app.buildPrompt(value, this.pending.items)
   }
 
   showMessage(message: string) {
-    this.options.ui().showChatLayout()
-    this.options.transcript.addAssistantMessage(message)
-    this.options.ui().renderTranscript(this.options.transcript.entries, { scrollToBottom: true })
-    this.options.ui().focusInput()
-  }
-
-  async #ensureModelSupportsImages() {
-    if (this.#supportsImageInput === true) return
-    const modelId = this.options.selectedModelId()
-    if (!modelId) throw new Error("Select a model first.")
-    const unsupported = new Error(`Selected model does not support image input: ${modelId}`)
-    const local = findLocalModel(modelId)
-    if (local) {
-      this.#supportsImageInput = local.supportsImageInput
-      if (!local.supportsImageInput) throw unsupported
-      return
-    }
-    const apiKey = this.options.apiKey()
-    if (!apiKey) throw new Error("Select a hosted model first.")
-    if (this.#supportsImageInput === false) throw unsupported
-    if (this.#capabilityCheck?.modelId === modelId) return this.#capabilityCheck.promise
-
-    const promise = (async () => {
-      const selected = findFireworksModel(await listToolCapableModels(apiKey), modelId)
-      if (!selected) throw new Error(`Selected model is no longer available: ${modelId}`)
-      if (this.options.selectedModelId() !== modelId) {
-        throw new Error("The selected model changed while checking image support.")
-      }
-      this.#supportsImageInput = selected.supportsImageInput
-      await saveSelectedModel(fireworksServingModel(selected, isFastFireworksModel(modelId)))
-      if (!selected.supportsImageInput) throw unsupported
-    })().finally(() => {
-      if (this.#capabilityCheck?.promise === promise) this.#capabilityCheck = undefined
-    })
-    this.#capabilityCheck = { modelId, promise }
-    return promise
+    const ui = this.options.ui()
+    const { transcript } = this.options.app
+    ui.showChatLayout()
+    transcript.addAssistantMessage(message)
+    ui.renderTranscript(transcript.entries, { scrollToBottom: true })
+    ui.focusInput()
   }
 
   async #attachPaths(paths: readonly string[]) {
@@ -152,7 +89,7 @@ export class AttachmentFlow {
       const attachments = await loadAttachmentFiles(paths, this.options.cwd)
       if (generation !== this.#generation) return
       if (attachments.some((attachment) => attachment.type === "image"))
-        await this.#ensureModelSupportsImages()
+        await this.options.app.ensureImageSupport()
       if (generation !== this.#generation) return
       const combined = [...this.pending.items, ...attachments]
       validateAttachments(combined)
@@ -172,10 +109,6 @@ export class AttachmentFlow {
     this.options.onContextChange()
     this.options.ui().focusInput()
   }
-}
-
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error)
 }
 
 class PendingAttachments {

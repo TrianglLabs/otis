@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto"
-import { unwatchFile, watchFile } from "node:fs"
-import { resolve } from "node:path"
+import { readFileSync, unwatchFile, watchFile } from "node:fs"
+import { rm, writeFile } from "node:fs/promises"
+import { join, resolve } from "node:path"
 import { isCanvasArtifact } from "../artifacts/canvas.js"
 import {
   attachmentArtifactMetadata,
-  loadAttachmentArtifact,
-  loadWorkspaceArtifact,
+  payloadFromBytes,
   readWorkspaceArtifactBytes,
   workspaceArtifactMetadata,
 } from "../artifacts/files.js"
@@ -23,6 +23,7 @@ import {
   attachmentArtifactReference,
   type FileArtifactReference,
   isFileArtifactReference,
+  isPublishedArtifactReference,
   isWorkspaceArtifactReference,
   type PublishedArtifactReference,
   type WorkspaceArtifactReference,
@@ -42,10 +43,22 @@ type ActiveArtifact =
   | { source: "attachment"; document: DocumentContentPart }
   | { source: "published"; artifactId: string; version?: number }
 
-/** Session-scoped identities and selection. Adapters receive metadata, not document bytes. */
+/** The user's pinned revision, kept beside the session's published copies so reloads honor it. */
+const PIN_FILE = "pinned.json"
+
+/**
+ * Session-scoped identities and selection. Adapters receive metadata, not document bytes.
+ *
+ * What Canvas shows: a newly produced canvas artifact (published or written this turn) takes the
+ * view unless the user has pinned a specific version; attachments and background reads open only
+ * when nothing is active. Replay applies the same rule in transcript order, then the persisted
+ * pin, so a reload shows what the live session showed.
+ */
 export class ArtifactStore {
   #active: ActiveArtifact | undefined
   #revision = 0
+  #key: string | undefined
+  #digest: string | undefined
   #attachments = new Map<string, DocumentContentPart>()
   #images = new Map<string, ImageContentPart>()
   #published = new Map<string, PublishedArtifactReference[]>()
@@ -56,6 +69,8 @@ export class ArtifactStore {
   constructor(
     private readonly cwd: string,
     private directory?: string,
+    /** How often the selected working file is polled for external changes. */
+    private readonly watchIntervalMs = 500,
   ) {}
 
   /** Original sources remain available to local tools after model-context compaction. */
@@ -113,33 +128,34 @@ export class ArtifactStore {
   }
 
   /**
-   * Register trusted tool results. Background reads do not replace the document the user is
-   * viewing.
+   * Register a trusted tool result. A produced file (written or published) takes the view unless a
+   * pinned revision is showing; a background read (`produced` false) opens only when nothing is
+   * active.
    */
-  observeFile(reference: FileArtifactReference) {
+  observeFile(reference: FileArtifactReference, produced = true) {
     if (!isFileArtifactReference(reference)) throw new Error("Invalid file artifact reference.")
-    if (reference.source === "workspace") {
-      const active = this.#active
-      const viewing = active?.source === "workspace" && active.reference.path === reference.path
-      if (isCanvasArtifact(reference.kind) && (!active || viewing)) this.openWorkspace(reference)
-      return
+    if (reference.source === "published") {
+      produced = true
+      const versions = this.#published.get(reference.artifactId) ?? []
+      const existing = versions.find((item) => item.version === reference.version)
+      if (existing && !samePublication(existing, reference))
+        throw new Error("Conflicting artifact revision in session.")
+      if (!existing)
+        this.#published.set(
+          reference.artifactId,
+          [...versions, reference].sort((a, b) => a.version - b.version),
+        )
     }
-    const versions = this.#published.get(reference.artifactId) ?? []
-    const existing = versions.find((item) => item.version === reference.version)
-    if (existing && !samePublication(existing, reference))
-      throw new Error("Conflicting artifact revision in session.")
-    if (!existing)
-      this.#published.set(
-        reference.artifactId,
-        [...versions, reference].sort((a, b) => a.version - b.version),
-      )
-    if (!isCanvasArtifact(reference.kind)) return
-    // Preserve an explicitly selected older revision; otherwise the open artifact follows its
-    // latest version.
-    if (!this.#active || this.#active.source === "workspace") {
-      this.#active = { source: "published", artifactId: reference.artifactId }
+    const active = this.#active
+    const pinned = active?.source === "published" && active.version !== undefined
+    const takesView = isCanvasArtifact(reference.kind) && !pinned && (produced || !active)
+    if (takesView) {
+      this.#active =
+        reference.source === "workspace"
+          ? { source: "workspace", reference }
+          : { source: "published", artifactId: reference.artifactId }
     }
-    this.#changed()
+    if (takesView || reference.source === "published") this.#changed()
   }
 
   openAttachment(document: DocumentContentPart) {
@@ -166,7 +182,7 @@ export class ArtifactStore {
     const document = documents
       .filter((item) => isCanvasArtifact(attachmentArtifactReference(item).kind))
       .at(-1)
-    if (document) this.openAttachment(document)
+    if (document && !this.#active) this.openAttachment(document)
   }
 
   clear() {
@@ -194,10 +210,11 @@ export class ArtifactStore {
         if (part.type !== "tool_call") continue
         const activity = byCall.get(part.toolCall.id)?.shift()
         if (!activity?.artifact) continue
-        this.observeFile(activity.artifact)
-        this.open(activity.artifact)
+        this.observeFile(activity.artifact, activity.activityKind !== "file_read")
       }
     }
+    const pin = this.#readPin()
+    if (pin) this.open(pin.reference, pin.version)
   }
 
   /** Card clicks follow latest; version navigation explicitly pins a saved revision. */
@@ -213,6 +230,7 @@ export class ArtifactStore {
       if (!versions?.some((item) => samePublication(item, reference))) return false
       if (version !== undefined && !versions.some((item) => item.version === version)) return false
       this.#active = { source: "published", artifactId: reference.artifactId, version }
+      this.#writePin(version === undefined ? undefined : { reference, version })
       this.#changed()
       return true
     }
@@ -226,6 +244,7 @@ export class ArtifactStore {
     return true
   }
 
+  /** The payload for a revision, or undefined once that revision is stale. */
   async load(revision: number): Promise<ArtifactPayload | undefined> {
     const active = this.#active
     if (!active || revision !== this.#revision) return undefined
@@ -234,10 +253,21 @@ export class ArtifactStore {
       const reference = this.#selectedPublished(active)
       if (!reference || !this.directory) return undefined
       payload = await loadPublishedArtifact(reference, revision, this.directory)
+    } else if (active.source === "workspace") {
+      const reference = active.reference
+      const bytes = await readWorkspaceArtifactBytes(this.cwd, reference)
+      if (this.#active === active) this.#digest = digest(bytes)
+      payload = await payloadFromBytes(
+        bytes,
+        workspaceArtifactMetadata(reference, revision),
+        reference.path,
+      )
     } else {
-      payload = await (active.source === "workspace"
-        ? loadWorkspaceArtifact(this.cwd, active.reference, revision)
-        : loadAttachmentArtifact(active.document, revision))
+      payload = await payloadFromBytes(
+        Buffer.from(active.document.data, "base64"),
+        attachmentArtifactMetadata(active.document, revision),
+        active.document.name,
+      )
     }
     return revision === this.#revision ? payload : undefined
   }
@@ -271,30 +301,78 @@ export class ArtifactStore {
       : versions?.find((item) => item.version === active.version)
   }
 
-  #changed() {
-    this.#revision += 1
+  /**
+   * The revision advances only when the selected reference or its content changes, so listeners
+   * can refresh metadata such as the version list without refetching an unchanged preview.
+   */
+  #changed(contentChanged = false) {
+    const metadata = this.metadata
+    const key =
+      metadata && JSON.stringify([metadata.id, metadata.path, metadata.publication?.reference])
+    if (contentChanged || key !== this.#key) this.#revision += 1
+    this.#key = key
     this.#syncWatcher()
     for (const listener of this.#listeners) listener()
   }
 
   #syncWatcher() {
-    const path =
-      this.#listeners.size > 0 && this.#active?.source === "workspace"
-        ? resolve(this.cwd, this.#active.reference.path)
-        : undefined
+    const active = this.#active
+    const reference =
+      this.#listeners.size > 0 && active?.source === "workspace" ? active.reference : undefined
+    const path = reference && resolve(this.cwd, reference.path)
     if (path === this.#watchedPath) return
     this.#stopWatching?.()
     this.#stopWatching = undefined
     this.#watchedPath = path
-    if (!path) return
-    const changed = () => {
-      if (this.#watchedPath === path) this.#changed()
+    this.#digest = undefined
+    if (!path || !reference) return
+    // A stat change with identical bytes (touch, chmod, a rewrite of the same text) is not a new
+    // revision; a missing or unreadable file always is.
+    const changed = async () => {
+      if (this.#watchedPath !== path) return
+      const next = await readWorkspaceArtifactBytes(this.cwd, reference).then(
+        digest,
+        () => undefined,
+      )
+      if (this.#watchedPath !== path || next === this.#digest) return
+      this.#digest = next
+      this.#changed(true)
     }
+    const tick = () => void changed()
     // Node's stat watcher handles atomic replacement, deletion and recreation without watching
     // entire trees.
-    watchFile(path, { persistent: false, interval: 500 }, changed)
-    this.#stopWatching = () => unwatchFile(path, changed)
+    watchFile(path, { persistent: false, interval: this.watchIntervalMs }, tick)
+    this.#stopWatching = () => unwatchFile(path, tick)
   }
+
+  #readPin() {
+    if (!this.directory) return undefined
+    try {
+      const pin: unknown = JSON.parse(readFileSync(join(this.directory, PIN_FILE), "utf8"))
+      if (
+        typeof pin !== "object" ||
+        pin === null ||
+        !isPublishedArtifactReference((pin as { reference?: unknown }).reference) ||
+        typeof (pin as { version?: unknown }).version !== "number"
+      )
+        return undefined
+      return pin as { reference: PublishedArtifactReference; version: number }
+    } catch {
+      return undefined
+    }
+  }
+
+  #writePin(pin: { reference: PublishedArtifactReference; version: number } | undefined) {
+    if (!this.directory) return
+    const path = join(this.directory, PIN_FILE)
+    void (
+      pin ? writeFile(path, JSON.stringify(pin), { mode: 0o600 }) : rm(path, { force: true })
+    ).catch(() => {})
+  }
+}
+
+function digest(bytes: Buffer) {
+  return createHash("sha256").update(bytes).digest("hex")
 }
 
 function samePublication(a: PublishedArtifactReference, b: PublishedArtifactReference) {

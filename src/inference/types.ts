@@ -204,6 +204,8 @@ export type FireworksClientConfig = {
   model: string
   fetch?: typeof fetch
   inferenceURL?: string
+  /** Abandon a request whose response stays silent this long; every chunk restarts the clock. */
+  idleTimeoutMs?: number
 }
 
 export type LocalClientConfig = {
@@ -211,6 +213,7 @@ export type LocalClientConfig = {
   inferenceURL: string
   fetch?: typeof fetch
   apiKey?: string
+  idleTimeoutMs?: number
 }
 
 /** oMLX runs on macOS; only advertise its local setup there. Safe to import in UI adapters. */

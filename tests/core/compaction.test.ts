@@ -4,12 +4,16 @@ import {
   compactConversation,
   compactionSummaryMessage,
   isCompactionSummary,
+  NOTHING_TO_COMPACT,
 } from "../../src/core/compaction.js"
 import type { FireworksClient } from "../../src/inference/client.js"
 import type { ChatMessage, StreamChatOptions } from "../../src/inference/types.js"
 import { summaryFixture } from "../support/compaction.js"
 
 const streamAgentMock = vi.hoisted(() => vi.fn())
+/** Enough summarizable history to exceed the summary cap, so compaction is worth a request. */
+// About 3,200 estimated tokens: more than the 2,000-token summary cap.
+const filler = " detail".repeat(2_500)
 const client = {
   model: "accounts/fireworks/models/test",
   streamChat: streamAgentMock,
@@ -66,7 +70,7 @@ describe("compactConversation", () => {
             toolCall: {
               id: "bad",
               name: "write",
-              arguments: `{"content":"${"private partial content".repeat(500)}`,
+              arguments: `{"content":"${"private partial content".repeat(800)}`,
             },
           },
         ],
@@ -90,11 +94,42 @@ describe("compactConversation", () => {
     expect(messages).toEqual(original)
   })
 
-  it("refuses to summarize an unanswered prompt", async () => {
-    await expect(
-      compactConversation([{ role: "user", content: "hi" }], { client }),
-    ).rejects.toThrow("Not enough conversation history to compact.")
+  it.each([
+    ["an unanswered prompt", [{ role: "user", content: "hi" }] as ChatMessage[]],
+    [
+      "a single exchange",
+      [
+        { role: "user", content: "hi" },
+        { role: "assistant", content: [{ type: "text", text: "hello" }] },
+      ] as ChatMessage[],
+    ],
+    [
+      "one exchange since the last summary",
+      [
+        compactionSummaryMessage(summaryFixture()),
+        { role: "user", content: "hi" },
+        { role: "assistant", content: [{ type: "text", text: "hello" }] },
+      ] as ChatMessage[],
+    ],
+  ])("reports nothing to compact for %s without a summary request", async (_name, messages) => {
+    await expect(compactConversation(messages, { client })).rejects.toThrow(NOTHING_TO_COMPACT)
     expect(streamAgentMock).not.toHaveBeenCalled()
+  })
+
+  it("instructs the summarizer to redact credentials seen in tool output", async () => {
+    const messages: ChatMessage[] = [
+      { role: "user", content: "Read the env" },
+      { role: "assistant", content: [{ type: "text", text: `Done.${filler}` }] },
+      { role: "user", content: "Continue" },
+    ]
+    streamAgentMock.mockImplementationOnce(async function* (request: StreamChatOptions) {
+      expect(request.systemPrompt).toContain(
+        "Omit credentials, tokens, and keys that appear in tool output, replacing each with [redacted].",
+      )
+      yield { type: "text_delta", text: summaryFixture() }
+    })
+    await compactConversation(messages, { client, keepRecentTokens: 10 })
+    expect(streamAgentMock).toHaveBeenCalledOnce()
   })
 
   it("compacts a single turn without separating a tool call from its result", async () => {
@@ -104,7 +139,7 @@ describe("compactConversation", () => {
         role: "assistant",
         content: [{ type: "tool_call", toolCall: { id: "call_1", name: "read", arguments: "{}" } }],
       },
-      { role: "tool", toolCallId: "call_1", content: "result".repeat(100) },
+      { role: "tool", toolCallId: "call_1", content: "result".repeat(4_000) },
       { role: "assistant", content: [{ type: "text", text: "ok" }] },
     ]
     streamAgentMock.mockImplementationOnce(async function* () {
@@ -122,7 +157,7 @@ describe("compactConversation", () => {
         content: [{ type: "tool_call", toolCall: { id: "lost", name: "read", arguments: "{}" } }],
       },
       { role: "user", content: "second question" },
-      { role: "assistant", content: [{ type: "text", text: "second answer ".repeat(40) }] },
+      { role: "assistant", content: [{ type: "text", text: "second answer ".repeat(800) }] },
       { role: "user", content: "third question" },
       { role: "assistant", content: [{ type: "text", text: "third answer" }] },
     ]
@@ -142,7 +177,7 @@ describe("compactConversation", () => {
   ])("accepts the required heading written as %s", async (heading) => {
     const messages: ChatMessage[] = [
       { role: "user", content: "first question" },
-      { role: "assistant", content: [{ type: "text", text: "first answer".repeat(20) }] },
+      { role: "assistant", content: [{ type: "text", text: "first answer".repeat(1_000) }] },
       { role: "user", content: "second question" },
       { role: "assistant", content: [{ type: "text", text: "second answer" }] },
     ]
@@ -160,7 +195,7 @@ describe("compactConversation", () => {
   it("rejects a required section whose body is empty", async () => {
     const messages: ChatMessage[] = [
       { role: "user", content: "first question" },
-      { role: "assistant", content: [{ type: "text", text: "first answer".repeat(20) }] },
+      { role: "assistant", content: [{ type: "text", text: "first answer".repeat(1_000) }] },
       { role: "user", content: "second question" },
       { role: "assistant", content: [{ type: "text", text: "second answer" }] },
     ]
@@ -175,7 +210,7 @@ describe("compactConversation", () => {
   it("summarizes older messages and keeps the last turn", async () => {
     const messages: ChatMessage[] = [
       { role: "user", content: "first question" },
-      { role: "assistant", content: [{ type: "text", text: "first answer".repeat(20) }] },
+      { role: "assistant", content: [{ type: "text", text: "first answer".repeat(1_000) }] },
       { role: "user", content: "second question" },
       { role: "assistant", content: [{ type: "text", text: "second answer" }] },
     ]
@@ -208,7 +243,7 @@ describe("compactConversation", () => {
           { type: "text", text: "Inspect this" },
         ],
       },
-      { role: "assistant", content: [{ type: "text", text: "I inspected it." }] },
+      { role: "assistant", content: [{ type: "text", text: `I inspected it.${filler}` }] },
       { role: "user", content: "Continue" },
       { role: "assistant", content: [{ type: "text", text: "Continuing." }] },
     ]
@@ -243,7 +278,7 @@ describe("compactConversation", () => {
           { type: "text", text: "Review this" },
         ],
       },
-      { role: "assistant", content: [{ type: "text", text: "Reviewed." }] },
+      { role: "assistant", content: [{ type: "text", text: `Reviewed.${filler}` }] },
       { role: "user", content: "Continue" },
       { role: "assistant", content: [{ type: "text", text: "Continuing." }] },
     ]
@@ -275,7 +310,7 @@ describe("compactConversation", () => {
         ],
       },
       { role: "tool", toolCallId: "call_1", content: "read: a.txt\n\ncontents" },
-      { role: "assistant", content: [{ type: "text", text: "Here's what I found." }] },
+      { role: "assistant", content: [{ type: "text", text: `Here's what I found.${filler}` }] },
       { role: "user", content: "now edit it" },
       { role: "assistant", content: [{ type: "text", text: "Done editing." }] },
     ]
@@ -296,7 +331,7 @@ describe("compactConversation", () => {
   it("throws when the model returns an empty summary", async () => {
     const messages: ChatMessage[] = [
       { role: "user", content: "first" },
-      { role: "assistant", content: [{ type: "text", text: "response".repeat(20) }] },
+      { role: "assistant", content: [{ type: "text", text: "response".repeat(3_000) }] },
       { role: "user", content: "second" },
       { role: "assistant", content: [{ type: "text", text: "response".repeat(20) }] },
     ]
@@ -313,7 +348,7 @@ describe("compactConversation", () => {
   it("keeps only the last turn when conversation fits within the keep budget", async () => {
     const messages: ChatMessage[] = [
       { role: "user", content: "turn one" },
-      { role: "assistant", content: [{ type: "text", text: "reply one".repeat(20) }] },
+      { role: "assistant", content: [{ type: "text", text: "reply one".repeat(2_000) }] },
       { role: "user", content: "turn two" },
       { role: "assistant", content: [{ type: "text", text: "reply two" }] },
       { role: "user", content: "turn three" },

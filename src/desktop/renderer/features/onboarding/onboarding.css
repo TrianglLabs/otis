@@ -432,13 +432,17 @@
   white-space: nowrap;
 }
 
-.onboarding-recommended {
+.onboarding-recommended,
+.onboarding-cpuOffload {
   display: inline-flex;
+  transform: translateY(-0.5px);
+}
+
+.onboarding-recommended {
   color: var(--warning);
 }
 
 .onboarding-cpuOffload {
-  display: inline-flex;
   color: var(--text-dim);
 }
 

@@ -1,7 +1,7 @@
 import type { CudaVersion, HardwareBackend } from "./hardware.js"
 
-export const LLAMA_CPP_RELEASE_TAG = "b11057"
-export const PRISM_LLAMA_CPP_RELEASE_TAG = "prism-b10685-7dffb15"
+const LLAMA_CPP_RELEASE_TAG = "b11057"
+const PRISM_LLAMA_CPP_RELEASE_TAG = "prism-b10685-7dffb15"
 export const PINNED_LLAMA_CPP_RELEASE_TAGS = [
   LLAMA_CPP_RELEASE_TAG,
   PRISM_LLAMA_CPP_RELEASE_TAG,

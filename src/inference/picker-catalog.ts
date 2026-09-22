@@ -124,9 +124,11 @@ const CPU_RECOMMENDATION_GROUPS: PreferenceGroups = [
 function recommendLocalModels(hardware: HardwareProbe) {
   const gpu = inferenceMemoryBudget(hardware).gpuMemoryBudgetBytes
   // A GPU that holds a whole model wins. Otherwise the host-bandwidth order applies, whether the
-  // GPU is small, unreported, or absent, and the starred model may spill layers to the CPU.
+  // GPU is small, unreported, or absent, and the starred model may spill layers to the CPU. Intel
+  // integrated graphics generate at host-memory speed too, unlike an AMD APU's wider fabric.
+  const intelIntegrated = hardware.unifiedMemory && hardware.gpuVendor === "intel"
   const plans: readonly [PreferenceGroups, boolean][] =
-    gpu !== undefined && gpu > 0
+    gpu !== undefined && gpu > 0 && !intelIntegrated
       ? [
           [GPU_RECOMMENDATION_GROUPS, false],
           [CPU_RECOMMENDATION_GROUPS, true],
@@ -333,10 +335,15 @@ function toFireworksPickerChoice(
   }
 }
 
+/**
+ * Exact thousands for provider-stated decimal windows, binary K for local and native windows,
+ * and a rounded binary K marked `~` otherwise. Mirrored in src/desktop/renderer/format.ts.
+ */
 export function formatContextWindow(tokens: number) {
+  if (tokens % 1_048_576 === 0) return `${tokens / 1_048_576}M`
   if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`
   if (tokens < 1_000) return String(tokens)
   if (tokens % 1_000 === 0) return `${tokens / 1_000}K`
   if (tokens % 1_024 === 0) return `${tokens / 1_024}K`
-  return `${Math.round(tokens / 1_000)}K`
+  return `~${Math.round(tokens / 1_024)}K`
 }

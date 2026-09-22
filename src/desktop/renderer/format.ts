@@ -8,16 +8,18 @@ export function formatTokenCount(tokens: number): string {
 }
 
 /**
- * Mirrors formatContextWindow from the inference picker catalog (uppercase K, exact divisions
- * only). Duplicated deliberately: the catalog module pulls Node-only dependencies that must stay
- * out of the renderer bundle.
+ * Mirrors formatContextWindow from the inference picker catalog: exact thousands for
+ * provider-stated decimal windows, binary K for local and native windows, and a rounded binary K
+ * marked `~` otherwise. Duplicated deliberately: the catalog module pulls Node-only dependencies that must
+ * stay out of the renderer bundle.
  */
 export function formatContextWindow(tokens: number): string {
+  if (tokens % 1_048_576 === 0) return `${tokens / 1_048_576}M`
   if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`
   if (tokens < 1_000) return String(tokens)
   if (tokens % 1_000 === 0) return `${tokens / 1_000}K`
   if (tokens % 1_024 === 0) return `${tokens / 1_024}K`
-  return `${Math.round(tokens / 1_000)}K`
+  return `~${Math.round(tokens / 1_024)}K`
 }
 
 /**

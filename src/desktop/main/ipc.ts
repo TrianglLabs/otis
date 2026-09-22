@@ -176,6 +176,11 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
     if (typeof visible !== "boolean") throw new Error("Invalid visibility flag.")
     return runtime.setAgentsPanelVisible(visible)
   })
+  handle(DESKTOP_CHANNELS.setWorkspacePanelWidth, (width) => {
+    if (width !== undefined && (typeof width !== "number" || !Number.isFinite(width) || width <= 0))
+      throw new Error("Invalid panel width.")
+    return runtime.setWorkspacePanelWidth(width)
+  })
   handle(DESKTOP_CHANNELS.setTheme, (theme) => {
     if (typeof theme !== "string") throw new Error("Invalid theme.")
     return runtime.setTheme(theme)

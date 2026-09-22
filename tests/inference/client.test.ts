@@ -99,6 +99,36 @@ describe("FireworksClient", () => {
     })
   })
 
+  it("abandons a Fireworks stream that stays silent past the idle limit", async () => {
+    const client = new FireworksClient({
+      apiKey: "fw_test_key",
+      model: "accounts/fireworks/models/tool-model",
+      inferenceURL: "http://localhost/v1/chat/completions",
+      idleTimeoutMs: 20,
+      fetch: (async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(
+                new TextEncoder().encode('data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n'),
+              )
+            },
+            pull: () => new Promise<void>(() => {}),
+          }),
+        )) as typeof fetch,
+    })
+    const events: unknown[] = []
+    await expect(
+      (async () => {
+        for await (const event of client.streamChat({
+          messages: [{ role: "user", content: "hello" }],
+        }))
+          events.push(event)
+      })(),
+    ).rejects.toThrow("Fireworks sent no data for 20 ms; the request timed out.")
+    expect(events).toEqual([{ type: "text_delta", text: "Hi" }])
+  })
+
   it("surfaces provider errors without retrying through another service", async () => {
     const fetchMock = vi.fn(async () => new Response("invalid model", { status: 400 }))
     const client = new FireworksClient({

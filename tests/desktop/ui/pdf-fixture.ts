@@ -22,5 +22,5 @@ export function pdfFixture(pageCount: number) {
   source += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`
   for (const offset of offsets) source += `${String(offset).padStart(10, "0")} 00000 n \n`
   source += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`
-  return btoa(source)
+  return new TextEncoder().encode(source)
 }
