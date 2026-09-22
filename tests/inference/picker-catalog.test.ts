@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import {
+  availableModelMemory,
   detectHardware,
   type HardwareProbe,
   inferenceMemoryBudget,
@@ -51,6 +52,9 @@ const FLASH = "Qwen/Qwen3.8-Flash-Next"
 const GLM = "zai-org/GLM-5.3"
 const ORNITH = "ornith-ai/Ornith-1.5-9B"
 const GEMMA = "google/gemma-4-12B-it"
+const GPT_OSS = "openai/gpt-oss-20b"
+const GEMMA_A4B = "google/gemma-4-26B-A4B-it"
+const GEMMA_31B = "google/gemma-4-31B-it"
 
 const tempDirectories: string[] = []
 
@@ -87,29 +91,47 @@ describe("model picker catalog", () => {
 
   it.each([
     [8, [LFM]],
-    [12, [ORNITH]],
-    [16, [BONSAI]],
+    [16, [ORNITH, GEMMA]],
+    [18, [ORNITH, GEMMA]],
     [24, [BONSAI]],
-    [32, [QWEN]],
+    [32, [BONSAI]],
+    [36, [BONSAI]],
+    [48, [QWEN]],
     [64, [QWEN]],
-    [96, [FLASH]],
-    [196, [FLASH]],
+    [96, [QWEN]],
+    [128, [FLASH]],
+    [192, [FLASH]],
     [256, [FLASH]],
-    [384, [GLM]],
+    [384, [FLASH]],
     [512, [GLM]],
     [1024, [GLM]],
-  ])("marks the recommended fitting models at %d GB", async (memoryGB, modelIds) => {
-    const items = await listModelPickerItems({
-      hardware: appleHardware(memoryGB),
-      dataDirectory: await tempDir(),
-    })
+  ])("stars models that fit the Metal working set of a %d GiB Mac at 64K", async (ramGiB, ids) => {
+    const hardware = await macHardware(ramGiB)
+    const items = await listModelPickerItems({ hardware, dataDirectory: await tempDir() })
     const recommended = items.filter(
       (item): item is LocalPickerChoice =>
         item.kind === "model" && item.provider === "local" && item.recommended,
     )
+    expect(recommended.map((model) => model.id)).toEqual(ids)
+    // macOS wires two thirds of RAM up to 36 GiB and three quarters above; llama.cpp then keeps
+    // its 1 GiB margin, so a starred model must hold 64K inside what remains.
+    const workingSet = Math.floor(
+      (ramGiB * GIBIBYTE * (ramGiB <= 36 ? 2 : 3)) / (ramGiB <= 36 ? 3 : 4),
+    )
+    expect(hardware.gpuMemoryBytes).toBe(workingSet)
+    for (const row of recommended) {
+      const model = findLocalModel(row.id)
+      if (!model) throw new Error(`missing catalog entry: ${row.id}`)
+      const fit = fitLocalModel(model, hardware)
+      expect(fit.requiresCpuOffload).toBe(false)
+      expect(memoryRequiredFor(fit.model, 65_536)).toBeLessThanOrEqual(workingSet - GIBIBYTE)
+      expect(row.cpuOffload).toBe(false)
+    }
+  })
 
-    expect(recommended.map((model) => model.id)).toEqual(modelIds)
-    expect(recommended.every((model) => model.available)).toBe(true)
+  it("stars a GPU-resident model on a 96 GiB Mac once iogpu.wired_limit_mb is raised", async () => {
+    await expect(recommendedIds(await macHardware(96))).resolves.toEqual([QWEN])
+    await expect(recommendedIds(await macHardware(96, 86_016))).resolves.toEqual([FLASH])
   })
 
   it.each([
@@ -130,7 +152,7 @@ describe("model picker catalog", () => {
         item.provider === "local" &&
         item.id === "prism-ml/Ternary-Bonsai-2-27B-gguf",
     )
-    expect(bonsai?.availabilityLabel).toContain(`· ${quant} ·`)
+    expect(bonsai?.availabilityLabel).toContain(`· ${quant}`)
   })
 
   it.each([
@@ -146,7 +168,8 @@ describe("model picker catalog", () => {
   })
 
   it.each([
-    [4, []],
+    // Nothing fits 4 GiB whole, so the host-bandwidth order applies with CPU offload.
+    [4, [FLASH]],
     [6, [LFM]],
     [8, [LFM]],
     [12, [ORNITH, GEMMA]],
@@ -173,11 +196,36 @@ describe("model picker catalog", () => {
   })
 
   it.each([
-    [8, LFM],
-    [16, BONSAI],
-    [32, QWEN],
-  ])("falls back when %d GiB host RAM cannot fit a larger GPU candidate", async (ramGiB, id) => {
-    await expect(recommendedIds(linuxHardware(ramGiB, 96))).resolves.toEqual([id])
+    8, 16, 32,
+  ])("keeps a GPU-resident recommendation independent of %d GiB host RAM", async (ramGiB) => {
+    await expect(recommendedIds(linuxHardware(ramGiB, 96))).resolves.toEqual([FLASH])
+  })
+
+  it("keeps the 27B and 31B models selectable on 16 GiB RAM with a 24 GiB card", async () => {
+    const items = await listModelPickerItems({
+      hardware: linuxHardware(16, 24),
+      dataDirectory: await tempDir(),
+    })
+    const local = items.filter(
+      (item): item is LocalPickerChoice => item.kind === "model" && item.provider === "local",
+    )
+    expect(local.map((item) => item.id)).toEqual([
+      BONSAI,
+      QWEN,
+      ORNITH,
+      GEMMA,
+      LFM,
+      GPT_OSS,
+      GEMMA_A4B,
+      GEMMA_31B,
+    ])
+    for (const id of [QWEN, GEMMA_31B]) {
+      expect(local.find((item) => item.id === id)).toMatchObject({
+        available: true,
+        recommended: false,
+        cpuOffload: true,
+      })
+    }
   })
 
   it("includes weights, 64K cache, runtime buffers, and headroom at the VRAM boundary", async () => {
@@ -206,57 +254,57 @@ describe("model picker catalog", () => {
     await expect(recommendedIds(dual)).resolves.toEqual([BONSAI])
   })
 
-  it("falls back at the exact host-fit boundary without rounding memory upward", async () => {
-    const hardware = appleHardware(16)
+  it("falls back at the exact working-set boundary without rounding memory upward", async () => {
     const model = findLocalModel(BONSAI)
-    if (!model) throw new Error("missing Bonsai catalog entry")
-    const selected = fitLocalModel(model, hardware).model
-    // These Macs reserve 3 GiB; the selected PTQ1 packing remains the same below 16 GiB.
-    const totalMemoryBytes = memoryRequiredFor(selected, 65_536) + 3 * GIBIBYTE
-    await expect(recommendedIds({ ...hardware, totalMemoryBytes })).resolves.toEqual([BONSAI])
-    const fallback = await recommendedIds({ ...hardware, totalMemoryBytes: totalMemoryBytes - 1 })
-    expect(fallback).not.toContain(BONSAI)
-    expect(fallback.length).toBeGreaterThan(0)
+    const packing = model && localModelPackings(model).find(({ quant }) => quant === "PQ2_0")
+    if (!packing) throw new Error("missing Bonsai packing")
+    // Above 16 GiB Bonsai uses PQ2, and two thirds of RAM less llama.cpp's margin must hold it.
+    const totalMemoryBytes = ((memoryRequiredFor(packing, 65_536) + GIBIBYTE) * 3) / 2
+    await expect(recommendedIds(await macHardware(totalMemoryBytes / GIBIBYTE))).resolves.toEqual([
+      BONSAI,
+    ])
+    await expect(
+      recommendedIds(await macHardware((totalMemoryBytes - 2) / GIBIBYTE)),
+    ).resolves.toEqual([ORNITH, GEMMA])
   })
 
   it.each([
     [8, [LFM]],
     [12, [ORNITH, GEMMA]],
-    [16, [BONSAI]],
-    [32, [QWEN]],
-    [256, [FLASH]],
-    [1024, [GLM]],
-  ])("uses host fit for CPU-only systems with %d GiB RAM", async (ramGiB, ids) => {
+    [16, [ORNITH, GEMMA]],
+    [24, [GPT_OSS, GEMMA_A4B]],
+    [32, [GPT_OSS, GEMMA_A4B]],
+    [128, [FLASH]],
+    [1024, [FLASH]],
+  ])("prefers mixtures of experts and small dense models on a CPU-only host with %d GiB RAM", async (ramGiB, ids) => {
     // Stale GPU metadata must not constrain CPU recommendations.
-    await expect(recommendedIds({ ...linuxHardware(ramGiB, 1), backend: "cpu" })).resolves.toEqual(
-      ids,
-    )
+    const hardware: HardwareProbe = { ...linuxHardware(ramGiB, 1), backend: "cpu" }
+    await expect(recommendedIds(hardware)).resolves.toEqual(ids)
+    if (ramGiB < 32) return
+    // The 27B dense model fits host RAM but would decode at one or two tokens per second.
+    const items = await listModelPickerItems({ hardware, dataDirectory: await tempDir() })
+    expect(items.find((item) => item.kind === "model" && item.id === QWEN)).toMatchObject({
+      available: true,
+      recommended: false,
+    })
   })
 
-  it("uses host fit when a Vulkan device does not report VRAM", async () => {
-    await expect(recommendedIds(linuxHardware(32))).resolves.toEqual([QWEN])
+  it("uses the CPU preference order when a Vulkan device does not report VRAM", async () => {
+    await expect(recommendedIds(linuxHardware(32))).resolves.toEqual([GPT_OSS, GEMMA_A4B])
+  })
+
+  it("does not recommend when nothing fits 4 GiB of unified memory", async () => {
+    await expect(recommendedIds(await macHardware(4))).resolves.toEqual([])
   })
 
   it.each([
-    Number.NaN,
-    Number.POSITIVE_INFINITY,
-    -1,
-    0,
-    4 * GIBIBYTE,
-  ])("does not recommend with invalid or insufficient host memory: %s", async (total) => {
-    await expect(
-      recommendedIds({ ...appleHardware(16), totalMemoryBytes: total }),
-    ).resolves.toEqual([])
-  })
-
-  it.each([
-    Number.NaN,
-    Number.POSITIVE_INFINITY,
-    -1,
-    0,
     GIBIBYTE,
-  ])("does not treat invalid or insufficient VRAM as unlimited: %s", async (gpuMemoryBytes) => {
-    await expect(recommendedIds({ ...linuxHardware(64, 24), gpuMemoryBytes })).resolves.toEqual([])
+    2 * GIBIBYTE,
+  ])("falls back to the CPU preference order when %d bytes of VRAM hold no model", async (gpuMemoryBytes) => {
+    await expect(recommendedIds({ ...linuxHardware(64, 24), gpuMemoryBytes })).resolves.toEqual([
+      GPT_OSS,
+      GEMMA_A4B,
+    ])
   })
 
   it("does not recommend local models on an unsupported runtime target", async () => {
@@ -264,25 +312,24 @@ describe("model picker catalog", () => {
     await expect(recommendedIds({ ...linuxHardware(64), arch: "ia32" })).resolves.toEqual([])
   })
 
-  it("never recommends a model whose context exceeds the full host or GPU budget", async () => {
+  it("stars only GPU-resident fits, or hybrid fits inside GPU plus host memory", async () => {
     const directory = await tempDir()
     for (const ramGiB of [8, 12, 16, 24, 32, 64, 96, 196, 256, 384, 1024]) {
       for (const gpuGiB of [4, 8, 16, 24, 48, 80, 96, 384]) {
         const hardware = linuxHardware(ramGiB, gpuGiB)
         const ids = await recommendedIds(hardware, directory)
-        if (gpuGiB >= 8) expect(ids.length).toBeGreaterThan(0)
+        expect(ids.length).toBeGreaterThan(0)
+        const gpuBudget = gpuGiB * GIBIBYTE - inferenceMemoryBudget(hardware).deviceHeadroomBytes
         for (const id of ids) {
           const model = findLocalModel(id)
           if (!model) throw new Error(`missing catalog entry: ${id}`)
           const fit = fitLocalModel(model, hardware)
           expect(fit.available).toBe(true)
-          expect(fit.requiresCpuOffload).toBe(false)
           expect(fit.contextLength).toBeGreaterThanOrEqual(65_536)
-          expect(memoryRequiredFor(fit.model, fit.contextLength)).toBeLessThanOrEqual(
-            fit.memoryAvailableBytes,
-          )
-          expect(memoryRequiredFor(fit.model, fit.contextLength)).toBeLessThanOrEqual(
-            gpuGiB * GIBIBYTE - inferenceMemoryBudget(hardware).deviceHeadroomBytes,
+          const required = memoryRequiredFor(fit.model, fit.contextLength)
+          expect(required).toBeLessThanOrEqual(fit.memoryAvailableBytes)
+          expect(required).toBeLessThanOrEqual(
+            fit.requiresCpuOffload ? gpuBudget + availableModelMemory(hardware) : gpuBudget,
           )
           if (id === BONSAI) expect(fit.model.quant).toBe("PTQ1_0")
         }
@@ -317,7 +364,7 @@ describe("model picker catalog", () => {
       expect(row.availabilityLabel).toContain(
         formatMemoryLabel(memoryRequiredFor(model, row.contextLength)),
       )
-      expect(row.availabilityLabel.includes("Uses system RAM")).toBe(gpuGiB === 24)
+      expect(row.cpuOffload).toBe(gpuGiB === 24)
     }
   })
 
@@ -340,12 +387,12 @@ describe("model picker catalog", () => {
         item.kind === "model" && item.provider === "local" && item.id === model.id,
     )
     expect(bonsai).toMatchObject({ downloaded: false, hasDownloadedPacking: true })
-    expect(bonsai?.availabilityLabel).toContain("· PQ2_0 ·")
+    expect(bonsai?.availabilityLabel).toContain("· PQ2_0")
   })
 
-  it("lists official local models above hosted entries", async () => {
+  it("lists local models in recommendation order above hosted entries", async () => {
     const items = await listModelPickerItems({
-      hardware: { ...ample, totalMemoryBytes: 512 * 1024 ** 3, gpuMemoryBytes: 512 * 1024 ** 3 },
+      hardware: await macHardware(512),
       dataDirectory: await tempDir(),
       currentModel: "accounts/fireworks/models/inkling",
       fireworksApiKey: "fw_test",
@@ -359,9 +406,11 @@ describe("model picker catalog", () => {
     })
 
     expect(items[0]).toEqual({ kind: "header", id: "header-local", displayName: "Local" })
+    // The star first, then the preference order, then the rest in catalog order.
     expect(
       items.slice(1, 1 + LOCAL_MODELS.length).map((item) => ("id" in item ? item.id : undefined)),
-    ).toEqual(LOCAL_MODELS.map((model) => model.id))
+    ).toEqual([GLM, FLASH, QWEN, BONSAI, ORNITH, GEMMA, LFM, GPT_OSS, GEMMA_A4B, GEMMA_31B])
+    expect(items[1]).toMatchObject({ recommended: true })
     const hostedHeader = items.findIndex(
       (item) => item.kind === "header" && item.displayName === "Hosted",
     )
@@ -683,17 +732,40 @@ describe("model picker catalog", () => {
     const local = items.filter(
       (item): item is LocalPickerChoice => item.kind === "model" && item.provider === "local",
     )
-    expect(local.map((item) => item.availabilityLabel.split(" ·")[0])).toEqual([
-      "Est. 256K",
-      "Est. 256K",
-      "Est. 128K",
-      "Est. 256K",
-      "Est. 256K",
-      "Est. 256K",
-      "Est. 128K",
-      "Est. 256K",
-      "Est. 256K",
+    expect(
+      Object.fromEntries(local.map((item) => [item.id, item.availabilityLabel.split(" ·")[0]])),
+    ).toEqual({
+      [ORNITH]: "Est. 256K",
+      [GEMMA]: "Est. 256K",
+      [LFM]: "Est. 128K",
+      [QWEN]: "Est. 256K",
+      [BONSAI]: "Est. 256K",
+      [FLASH]: "Est. 256K",
+      [GPT_OSS]: "Est. 128K",
+      [GEMMA_A4B]: "Est. 256K",
+      [GEMMA_31B]: "Est. 256K",
+    })
+  })
+
+  it("orders CPU-only rows by the CPU preference so the first row is the fallback", async () => {
+    const items = await listModelPickerItems({
+      hardware: { ...linuxHardware(32), backend: "cpu", gpuCount: 0 },
+      dataDirectory: await tempDir(),
+    })
+    const local = items.filter(
+      (item): item is LocalPickerChoice => item.kind === "model" && item.provider === "local",
+    )
+    expect(local.map((item) => item.id)).toEqual([
+      GPT_OSS,
+      GEMMA_A4B,
+      ORNITH,
+      GEMMA,
+      LFM,
+      QWEN,
+      BONSAI,
+      GEMMA_31B,
     ])
+    expect(local[0]).toMatchObject({ recommended: true, available: true })
   })
 })
 
@@ -718,8 +790,12 @@ function localGgufPath(model: LocalModelSpec, directory: string) {
   return join(directory, "models", model.ggufFiles[0].name)
 }
 
-function appleHardware(memoryGiB: number): HardwareProbe {
-  return { ...ample, totalMemoryBytes: memoryGiB * GIBIBYTE, gpuMemoryBytes: memoryGiB * GIBIBYTE }
+/** A detected Mac: the default Metal working set unless `iogpu.wired_limit_mb` is raised. */
+function macHardware(ramGiB: number, wiredLimitMiB = 0) {
+  return detectHardware({
+    env: { platform: "darwin", arch: "arm64", totalMemoryBytes: ramGiB * GIBIBYTE },
+    metalWiredLimitMiB: async () => wiredLimitMiB,
+  })
 }
 
 function linuxHardware(ramGiB: number, gpuGiB?: number): HardwareProbe {

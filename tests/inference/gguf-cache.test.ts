@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { mkdir, mkdtemp, readFile, rm, stat, truncate, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, stat, truncate, utimes, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -19,6 +19,7 @@ import {
 const tempDirectories: string[] = []
 
 afterEach(async () => {
+  vi.useRealTimers()
   await Promise.all(
     tempDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })),
   )
@@ -232,6 +233,117 @@ describe("local GGUF cache", () => {
       Buffer.from([1, 2]),
     )
     expect(await isLocalGgufDownloaded(model, directory)).toBe(false)
+  })
+
+  it("fails before downloading when the cache volume lacks space for the remaining bytes", async () => {
+    const body = new Uint8Array([1, 2, 3, 4, 5, 6])
+    const model = tinyModel(body)
+    const directory = await tempDir()
+    await mkdir(join(directory, "models"), { recursive: true })
+    await writeFile(`${localGgufPath(model, directory)}.partial`, body.slice(0, 2))
+    const fetchImpl = vi.fn(response(body))
+    const statfs = vi.fn(async () => ({ bavail: 3n, bsize: 1 }))
+
+    await expect(
+      ensureLocalGguf(model, { dataDirectory: directory, fetch: fetchImpl, statfs }),
+    ).rejects.toThrow(
+      `Not enough disk space to download ${model.displayName}: 0.0 GB needed, 0.0 GB available ` +
+        `in ${join(directory, "models")}.`,
+    )
+    expect(fetchImpl).not.toHaveBeenCalled()
+    expect(statfs).toHaveBeenCalledWith(join(directory, "models"))
+
+    // The four bytes still missing fit; the cached prefix is not counted again.
+    statfs.mockResolvedValue({ bavail: 4n, bsize: 1 })
+    await ensureLocalGguf(model, { dataDirectory: directory, fetch: fetchImpl, statfs })
+    expect(fetchImpl).toHaveBeenCalledOnce()
+    expect(await isLocalGgufDownloaded(model, directory)).toBe(true)
+
+    // A verified cache needs no space and no probe.
+    statfs.mockClear()
+    await ensureLocalGguf(model, { dataDirectory: directory, fetch: fetchImpl, statfs })
+    expect(statfs).not.toHaveBeenCalled()
+    expect(fetchImpl).toHaveBeenCalledOnce()
+  })
+
+  it("reports the shortfall in gigabytes", async () => {
+    const model = catalogModel()
+    const directory = await tempDir()
+    await expect(
+      ensureLocalGguf(model, {
+        dataDirectory: directory,
+        fetch: vi.fn() as unknown as typeof fetch,
+        statfs: async () => ({ bavail: 3, bsize: 1024 ** 3 }),
+      }),
+    ).rejects.toThrow(
+      `${(model.ggufFiles[0].size / 1024 ** 3).toFixed(1)} GB needed, 3.0 GB available`,
+    )
+  })
+
+  it("takes over a download lock whose holder stopped refreshing it, even with a live pid", async () => {
+    const body = new Uint8Array([1, 2, 3, 4])
+    const model = tinyModel(body)
+    const directory = await tempDir()
+    const lock = `${localGgufPath(model, directory)}.download.lock`
+    await mkdir(join(directory, "models"), { recursive: true })
+    await writeFile(lock, `${JSON.stringify({ pid: process.pid, startedAt: "2020-01-01" })}\n`)
+    const stale = new Date(Date.now() - 61_000)
+    await utimes(lock, stale, stale)
+
+    await ensureLocalGguf(model, { dataDirectory: directory, fetch: response(body) })
+
+    expect(await isLocalGgufDownloaded(model, directory)).toBe(true)
+    await expect(stat(lock)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("keeps waiting on a lock that a live holder refreshed recently", async () => {
+    const body = new Uint8Array([1, 2, 3, 4])
+    const model = tinyModel(body)
+    const directory = await tempDir()
+    const lock = `${localGgufPath(model, directory)}.download.lock`
+    await mkdir(join(directory, "models"), { recursive: true })
+    await writeFile(lock, `${JSON.stringify({ pid: process.pid, startedAt: "2020-01-01" })}\n`)
+    const fetchImpl = vi.fn(response(body))
+    const abort = new AbortController()
+    setTimeout(() => abort.abort(), 600)
+
+    await expect(
+      ensureLocalGguf(model, { dataDirectory: directory, fetch: fetchImpl, signal: abort.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" })
+    expect(fetchImpl).not.toHaveBeenCalled()
+    await expect(stat(lock)).resolves.toBeDefined()
+  })
+
+  it("refreshes the download lock while bytes are still arriving", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] })
+    const body = new Uint8Array([1, 2])
+    const model = tinyModel(body)
+    const directory = await tempDir()
+    const lock = `${localGgufPath(model, directory)}.download.lock`
+    let stream: ReadableStreamDefaultController<Uint8Array> | undefined
+    const fetchImpl = (async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            stream = controller
+          },
+        }),
+        { status: 200, headers: { "content-length": "2" } },
+      )) as typeof fetch
+
+    const download = ensureLocalGguf(model, { dataDirectory: directory, fetch: fetchImpl })
+    await vi.waitFor(() => expect(stream).toBeDefined())
+    const stale = new Date(Date.now() - 61_000)
+    await utimes(lock, stale, stale)
+    await vi.advanceTimersByTimeAsync(15_000)
+    await vi.waitFor(async () => {
+      expect(Date.now() - (await stat(lock)).mtimeMs).toBeLessThan(10_000)
+    })
+
+    stream?.enqueue(body)
+    stream?.close()
+    await download
+    await expect(stat(lock)).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("serializes concurrent callers and publishes one verified download", async () => {

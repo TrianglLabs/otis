@@ -20,8 +20,9 @@ const localItem: ModelPickerItem = {
   supportsImageInput: false,
   available: true,
   recommended: true,
-  availabilityLabel: "Est. 32K · Q4_K_M · 18 GB",
+  availabilityLabel: "Est. 32K · Q4_K_M",
   hasDownloadedPacking: true,
+  cpuOffload: false,
   downloaded: true,
   active: false,
 }
@@ -60,14 +61,12 @@ describe("pickerItemKey", () => {
 // These strings mirror modelMeta in the TUI's model picker (src/cli/ui/model-picker.ts) exactly.
 describe("pickerDetailLabel", () => {
   it("suffixes local availability with the modality", () => {
-    expect(pickerDetailLabel(localItem as LocalPickerChoice)).toBe(
-      "Est. 32K · Q4_K_M · 18 GB · Text",
-    )
+    expect(pickerDetailLabel(localItem as LocalPickerChoice)).toBe("Est. 32K · Q4_K_M · Text")
     const vision: LocalPickerChoice = {
       ...(localItem as LocalPickerChoice),
       supportsImageInput: true,
     }
-    expect(pickerDetailLabel(vision)).toBe("Est. 32K · Q4_K_M · 18 GB · Vision")
+    expect(pickerDetailLabel(vision)).toBe("Est. 32K · Q4_K_M · Vision")
   })
 
   it("leads PAIR rows with the engine and shows context, quantization, and modality", () => {

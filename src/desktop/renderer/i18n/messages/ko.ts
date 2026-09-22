@@ -90,6 +90,7 @@ export const ko: Messages = {
   "models.hosted": "호스팅",
   "models.noModels": "사용 가능한 모델이 없습니다.",
   "models.downloadingWhenSelected": "선택 시 다운로드",
+  "models.partlyOnCpu": "일부를 CPU에서 실행",
   "models.delete": "다운로드한 모델 삭제",
   "models.deleteConfirm": "이 모델을 삭제할까요?",
   "models.deletingName": "{{name}} 삭제 중…",

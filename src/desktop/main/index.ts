@@ -32,6 +32,28 @@ let statusTrayGate: ReturnType<typeof trayStatusGate> | undefined
 
 app.setName(app.isPackaged ? "Otis" : "Otis Dev")
 
+// A crash must not orphan a multi-gigabyte llama-server: stop it through the runtime's shutdown
+// path, then exit with the original error instead of Electron's default of staying open.
+const crash = (error: unknown) => {
+  process.off("uncaughtException", crash)
+  process.off("unhandledRejection", crash)
+  quitting = true
+  const detail = error instanceof Error ? (error.stack ?? error.message) : String(error)
+  const exit = () => {
+    console.error(error)
+    try {
+      dialog.showErrorBox("A JavaScript error occurred in the main process", detail)
+    } catch {
+      // Not available before the app is ready.
+    }
+    app.exit(1)
+  }
+  setTimeout(exit, 10_000).unref()
+  void (runtime?.shutdown() ?? Promise.resolve()).catch(() => {}).finally(exit)
+}
+process.on("uncaughtException", crash)
+process.on("unhandledRejection", crash)
+
 // Isolate development before acquiring the lock or loading any settings, sessions or managed
 // runtimes.
 const devData = resolveDevData({

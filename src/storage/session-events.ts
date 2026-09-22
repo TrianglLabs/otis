@@ -198,7 +198,10 @@ export function replaySession(events: readonly SessionEvent[]): SessionReplay {
     }
   }
 
-  const all = [base, ...turns]
+  // A prompt that never received a response is scrollback, not model history: it would be an
+  // unanswered message every later request and compaction has to carry. This also covers older
+  // files whose admitted prompt has no ending event.
+  const all = [base, ...turns.filter((turn) => turn.messages.some((m) => m.role !== "user"))]
   return {
     messages: all.flatMap((turn) => turn.messages),
     toolActivities: all.flatMap((turn) => turn.toolActivities),

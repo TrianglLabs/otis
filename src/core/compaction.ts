@@ -17,15 +17,31 @@ import type {
 const DEFAULT_KEEP_RECENT_TOKENS = 20_000
 const AUTO_COMPACT_THRESHOLD_TOKENS = 250_000
 const AUTO_COMPACT_CONTEXT_RATIO = 0.8
+/** A hosted model with no reported window is budgeted like a 128K model, not the cap. */
+const UNKNOWN_CONTEXT_LENGTH = 131_072
+/** Summary requests leave room for the summary itself and the model's reasoning about it. */
+const SUMMARY_OUTPUT_RESERVE_TOKENS = 2_000 + 4_096
 
-export function autoCompactThreshold(contextLength?: number) {
-  if (contextLength === undefined) return AUTO_COMPACT_THRESHOLD_TOKENS
+/**
+ * The context size at which a request compacts first: the window minus the larger of a 20%
+ * margin and the expected output, capped for very large windows.
+ */
+export function autoCompactThreshold(
+  contextLength: number = UNKNOWN_CONTEXT_LENGTH,
+  outputReserveTokens = 0,
+) {
   if (!Number.isSafeInteger(contextLength) || contextLength <= 0)
     throw new Error("Model context length is invalid.")
-  return Math.min(
-    AUTO_COMPACT_THRESHOLD_TOKENS,
-    Math.max(1, Math.floor(contextLength * AUTO_COMPACT_CONTEXT_RATIO)),
+  const reserve = Math.max(
+    outputReserveTokens,
+    contextLength - Math.floor(contextLength * AUTO_COMPACT_CONTEXT_RATIO),
   )
+  return Math.min(AUTO_COMPACT_THRESHOLD_TOKENS, Math.max(1, contextLength - reserve))
+}
+
+/** The input a normal summary request may use from a budget; recovery halves instead. */
+export function summaryInputBudget(budget: number) {
+  return Math.max(Math.floor(budget / 2), budget - SUMMARY_OUTPUT_RESERVE_TOKENS)
 }
 
 /** Prefix that marks a user message as a compaction summary, so display logic can skip it. */
@@ -82,24 +98,18 @@ export async function compactConversation(
   }
   const summaryReserve = Math.min(2_000, Math.max(1, Math.floor((targetTokens - fixedTokens) / 2)))
 
-  // Prefer user boundaries; split long turns only between complete tool exchanges.
+  // Prefer user boundaries; split long turns only between complete tool exchanges. Results
+  // directly follow their call, so a call still unanswered at the next non-tool message never
+  // receives one: it is closed, not a reason to keep every later boundary off limits.
   const suffixTokens = new Array<number>(messages.length + 1).fill(0)
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     suffixTokens[index] = suffixTokens[index + 1] + estimateMessageTokens([messages[index]])
   }
-  const pendingCalls = new Set<string>()
   const boundaries: number[] = []
   let hasHistory = false
   for (let index = 0; index < unansweredStart; index += 1) {
-    const message = messages[index]
-    if (!isCompactionSummary(message)) hasHistory = true
-    if (message.role === "assistant") {
-      for (const part of message.content) {
-        if (part.type === "tool_call") pendingCalls.add(part.toolCall.id)
-      }
-    } else if (message.role === "tool") pendingCalls.delete(message.toolCallId)
-    if (hasHistory && pendingCalls.size === 0 && messages[index + 1]?.role !== "tool")
-      boundaries.push(index + 1)
+    if (!isCompactionSummary(messages[index])) hasHistory = true
+    if (hasHistory && messages[index + 1]?.role !== "tool") boundaries.push(index + 1)
   }
   const cutPoint = (keepRecentTokens: number) => {
     if (suffixTokens[0] <= keepRecentTokens) {
@@ -190,7 +200,7 @@ Use this format:
 - [Data, file paths, error messages, or other details needed to continue]
 ${focus}`
   const estimate = requestContextEstimator({ tools: [], systemPrompt })
-  const maxInputTokens = options.maxInputTokens ?? AUTO_COMPACT_THRESHOLD_TOKENS
+  const maxInputTokens = options.maxInputTokens ?? summaryInputBudget(budget)
   const summaryRequest = (input: string) => ({
     messages: [
       {
@@ -200,6 +210,7 @@ ${focus}`
     ],
     systemPrompt,
     tools: [],
+    minimalReasoning: true,
     signal: options.signal,
   })
   const countRequest = (request: ReturnType<typeof summaryRequest>) =>
@@ -264,16 +275,7 @@ ${focus}`
       options.signal?.throwIfAborted()
       summary = text.trim()
       if (!summary) throw new Error("Compaction failed: the model returned an empty summary.")
-      const sections = new Map(
-        summary
-          .split(/^##[ \t]+/m)
-          .slice(1)
-          .map((section) => {
-            const [heading, ...body] = section.split("\n")
-            return [heading.trim().toLowerCase(), body.join("\n").trim()]
-          }),
-      )
-      if (["goal", "progress", "next steps"].some((heading) => !sections.get(heading))) {
+      if (["goal", "progress", "next step"].some((name) => !summarySection(summary, name))) {
         throw new Error(
           "Compaction failed: the model omitted required summary sections (Goal, Progress, Next Steps). The conversation was left unchanged.",
         )
@@ -289,6 +291,24 @@ ${focus}`
   }
   options.signal?.throwIfAborted()
   return { summary, keptMessages }
+}
+
+/**
+ * The body under a required heading, tolerating heading level, a plural, and a trailing colon;
+ * it runs until the next heading of the same or a higher level.
+ */
+function summarySection(summary: string, name: string) {
+  const level = (line: string) => /^(#{1,3})[ \t]+\S/.exec(line)?.[1].length ?? Number.NaN
+  const heading = new RegExp(`^#{1,3}[ \\t]+${name}s?:?[ \\t]*$`, "i")
+  const lines = summary.split("\n")
+  const start = lines.findIndex((line) => heading.test(line))
+  if (start === -1) return ""
+  let end = start + 1
+  while (end < lines.length && !(level(lines[end]) <= level(lines[start]))) end += 1
+  return lines
+    .slice(start + 1, end)
+    .join("\n")
+    .trim()
 }
 
 export function messagesContentChars(messages: readonly ChatMessage[]): number {

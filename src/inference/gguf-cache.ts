@@ -10,6 +10,8 @@ import {
   rename,
   rm,
   stat,
+  statfs,
+  utimes,
   writeFile,
 } from "node:fs/promises"
 import { dirname, join } from "node:path"
@@ -23,6 +25,9 @@ import {
 } from "./local-catalog.js"
 
 const DOWNLOAD_LOCK_POLL_MS = 250
+/** A live holder refreshes the lock's mtime; after a reboot its pid may belong to anything. */
+const DOWNLOAD_LOCK_HEARTBEAT_MS = 15_000
+const DOWNLOAD_LOCK_STALE_MS = 60_000
 const GGUF_MANIFEST_VERSION = 1
 
 function localGgufPaths(model: LocalModelSpec, dataDirectory?: string) {
@@ -146,6 +151,7 @@ type DownloadGgufOptions = {
   fetch?: typeof fetch
   signal?: AbortSignal
   onProgress?: (percent: number) => void
+  statfs?: (path: string) => Promise<{ bavail: number | bigint; bsize: number | bigint }>
 }
 
 export async function ensureLocalGguf(model: LocalModelSpec, options: DownloadGgufOptions = {}) {
@@ -154,6 +160,52 @@ export async function ensureLocalGguf(model: LocalModelSpec, options: DownloadGg
   await mkdir(dirname(destinations[0]), { recursive: true, mode: 0o700 })
   const releaseLock = await acquireDownloadLock(lockPath(destinations[0]), options.signal)
   try {
+    // Verify every file first so the space check counts only bytes still to download.
+    const pending: Array<{ dest: string; partial: string; resumedBytes: number }> = []
+    for (const [index, pinnedFile] of model.ggufFiles.entries()) {
+      const dest = destinations[index]
+      const expectedSha256 = normalizedSha256(pinnedFile.sha256)
+      await mkdir(dirname(dest), { recursive: true, mode: 0o700 })
+      let verified = await hasPinnedFileSize(dest, pinnedFile.size)
+      if (verified && !(await hasMatchingManifest(dest, model, pinnedFile, expectedSha256))) {
+        verified = (await sha256File(dest)) === expectedSha256
+        if (verified) await writeGgufManifest(dest, model, pinnedFile, expectedSha256)
+      }
+      if (verified) continue
+      const partial = partialPath(dest)
+      let resumedBytes = 0
+      try {
+        const info = await stat(partial)
+        resumedBytes = info.isFile() && info.size <= pinnedFile.size ? info.size : -1
+        if (resumedBytes === pinnedFile.size && (await sha256File(partial)) !== expectedSha256)
+          resumedBytes = -1
+        if (resumedBytes < 0) {
+          await rm(partial, { force: true })
+          resumedBytes = 0
+        }
+      } catch (error) {
+        if (!isNotFound(error)) throw error
+      }
+      pending.push({ dest, partial, resumedBytes })
+    }
+    const neededBytes = pending.reduce(
+      (sum, { dest, resumedBytes }) =>
+        sum + model.ggufFiles[destinations.indexOf(dest)].size - resumedBytes,
+      0,
+    )
+    if (neededBytes > 0) {
+      const directory = dirname(destinations[0])
+      const space = await (options.statfs ?? statfs)(directory)
+      const availableBytes = Number(space.bavail) * Number(space.bsize)
+      if (availableBytes < neededBytes) {
+        const gigabytes = (bytes: number) => (bytes / 1024 ** 3).toFixed(1)
+        throw new Error(
+          `Not enough disk space to download ${model.displayName}: ${gigabytes(neededBytes)} GB ` +
+            `needed, ${gigabytes(availableBytes)} GB available in ${directory}.`,
+        )
+      }
+    }
+
     let completedBytes = 0
     let lastPercent = -1
     const report = (fileBytes: number) => {
@@ -164,40 +216,21 @@ export async function ensureLocalGguf(model: LocalModelSpec, options: DownloadGg
     }
     for (const [index, pinnedFile] of model.ggufFiles.entries()) {
       const dest = destinations[index]
-      const expectedSha256 = normalizedSha256(pinnedFile.sha256)
-      await mkdir(dirname(dest), { recursive: true, mode: 0o700 })
-      let verified = await hasPinnedFileSize(dest, pinnedFile.size)
-      if (verified && !(await hasMatchingManifest(dest, model, pinnedFile, expectedSha256))) {
-        verified = (await sha256File(dest)) === expectedSha256
-        if (verified) await writeGgufManifest(dest, model, pinnedFile, expectedSha256)
-      }
-      if (!verified) {
-        const partial = partialPath(dest)
-        let resumedBytes = 0
-        try {
-          const info = await stat(partial)
-          resumedBytes = info.isFile() && info.size <= pinnedFile.size ? info.size : -1
-          if (resumedBytes === pinnedFile.size && (await sha256File(partial)) !== expectedSha256)
-            resumedBytes = -1
-          if (resumedBytes < 0) {
-            await rm(partial, { force: true })
-            resumedBytes = 0
-          }
-        } catch (error) {
-          if (!isNotFound(error)) throw error
-        }
-        if (resumedBytes !== pinnedFile.size) {
+      const work = pending.find((entry) => entry.dest === dest)
+      if (work) {
+        const expectedSha256 = normalizedSha256(pinnedFile.sha256)
+        if (work.resumedBytes !== pinnedFile.size) {
           await downloadGgufFile(
             model,
             pinnedFile,
-            partial,
-            resumedBytes,
+            work.partial,
+            work.resumedBytes,
             expectedSha256,
             options,
             report,
           )
         }
-        await rename(partial, dest)
+        await rename(work.partial, dest)
         await writeGgufManifest(dest, model, pinnedFile, expectedSha256)
       }
       completedBytes += pinnedFile.size
@@ -387,14 +420,21 @@ async function acquireDownloadLock(path: string, signal?: AbortSignal) {
     try {
       const handle = await open(path, "wx", 0o600)
       try {
-        await handle.writeFile(`${JSON.stringify({ pid: process.pid })}\n`, "utf8")
+        const lock = { pid: process.pid, startedAt: new Date().toISOString() }
+        await handle.writeFile(`${JSON.stringify(lock)}\n`, "utf8")
       } catch (error) {
         await rm(path, { force: true })
         throw error
       } finally {
         await handle.close().catch(() => undefined)
       }
+      const heartbeat = setInterval(() => {
+        const now = new Date()
+        void utimes(path, now, now).catch(() => undefined)
+      }, DOWNLOAD_LOCK_HEARTBEAT_MS)
+      heartbeat.unref?.()
       return async () => {
+        clearInterval(heartbeat)
         await rm(path, { force: true })
       }
     } catch (error) {
@@ -430,6 +470,9 @@ async function isStaleLock(path: string) {
       return Date.now() - (await stat(path)).mtimeMs > 5_000
     }
     if (!Number.isSafeInteger(value.pid) || Number(value.pid) <= 0) return true
+    // The holder refreshes the mtime while alive; a stale one is abandoned even when its pid
+    // has been reused by an unrelated process since a reboot.
+    if (Date.now() - (await stat(path)).mtimeMs > DOWNLOAD_LOCK_STALE_MS) return true
     try {
       process.kill(Number(value.pid), 0)
       return false

@@ -46,7 +46,7 @@ export class FireworksClient implements InferenceClient {
       },
       body: JSON.stringify(
         openaiChatCompletionRequest(this.model, options, {
-          reasoningEffort: highestReasoningEffort(this.model),
+          reasoningEffort: fireworksReasoningEffort(this.model, options.minimalReasoning),
           serviceTier: fireworksServiceTier(this.model),
         }),
       ),
@@ -71,8 +71,15 @@ const HIGH_EFFORT_MODELS = [
   /(?:^|-)gpt-oss-(?:20b|120b)(?:$|-)/,
 ]
 
-/** Returns the highest reasoning tier Fireworks documents for a known model family. */
-function highestReasoningEffort(model: string): "high" | "max" | undefined {
+/**
+ * The highest reasoning tier Fireworks documents for a known model family, or its lowest
+ * documented tier when a request should reason as little as possible. Families without a
+ * documented ceiling keep the provider default either way.
+ */
+export function fireworksReasoningEffort(
+  model: string,
+  minimal = false,
+): "low" | "high" | "max" | undefined {
   const resource = model.trim().split("#", 1)[0]
   const modelId = resource
     .split("/")
@@ -81,7 +88,10 @@ function highestReasoningEffort(model: string): "high" | "max" | undefined {
     .replaceAll(".", "p")
     .replaceAll("_", "-")
   if (!modelId || modelId.includes("no-thinking")) return undefined
-  if (MAX_EFFORT_MODELS.some((pattern) => pattern.test(modelId))) return "max"
-  if (HIGH_EFFORT_MODELS.some((pattern) => pattern.test(modelId))) return "high"
-  return undefined
+  const highest = MAX_EFFORT_MODELS.some((pattern) => pattern.test(modelId))
+    ? "max"
+    : HIGH_EFFORT_MODELS.some((pattern) => pattern.test(modelId))
+      ? "high"
+      : undefined
+  return highest && minimal ? "low" : highest
 }

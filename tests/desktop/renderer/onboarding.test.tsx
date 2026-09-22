@@ -48,9 +48,10 @@ const LOCAL_ITEM: ModelPickerItem = {
   contextLength: 32_768,
   supportsImageInput: false,
   available: true,
-  availabilityLabel: "Est. 32K · Q4_K_M · 6 GB",
+  availabilityLabel: "Est. 32K · Q4_K_M",
   recommended: true,
   hasDownloadedPacking: false,
+  cpuOffload: false,
   downloaded: false,
   active: false,
 }
@@ -64,8 +65,9 @@ const OTHER_LOCAL_ITEM: ModelPickerItem = {
   supportsImageInput: false,
   available: true,
   recommended: false,
-  availabilityLabel: "Est. 32K · Q4_K_M · 16 GB",
+  availabilityLabel: "Est. 32K · Q4_K_M",
   hasDownloadedPacking: false,
+  cpuOffload: false,
   downloaded: false,
   active: false,
 }
@@ -252,12 +254,83 @@ describe("OnboardingPage", () => {
     fireEvent.click(managed)
 
     expect(await screen.findByText("Qwen 3.5 9B")).toBeTruthy()
+    // The row says what the button will fetch, and that the other figure is memory, not a download.
+    expect(screen.getByText("Est. 32K · Q4_K_M · Text")).toBeTruthy()
     // No list to dig through: other local models, hosted models, and PAIR inventory stay hidden.
     expect(screen.queryByText("Qwen 3.5 27B")).toBeNull()
     expect(screen.queryByText("Kimi K2.6")).toBeNull()
     expect(screen.queryByText("PAIR cluster model")).toBeNull()
     fireEvent.click(screen.getByRole("button", { name: /Download and continue/ }))
     expect(api.selectModel).toHaveBeenCalledWith("Qwen/Qwen3.5-9B")
+  })
+
+  it("falls back to the first selectable local row when nothing is recommended", async () => {
+    const api = fakeApi({
+      listModels: vi.fn(async () => [
+        { ...LOCAL_ITEM, recommended: false, available: false, availabilityLabel: "Needs 9 GB" },
+        { ...OTHER_LOCAL_ITEM, downloaded: true },
+      ]),
+    })
+    await renderApp(api)
+    fireEvent.click(await screen.findByRole("button", { name: /^Local/ }))
+    fireEvent.click(await screen.findByRole("button", { name: /Managed by Otis/ }))
+
+    expect(await screen.findByText("Qwen 3.5 27B")).toBeTruthy()
+    expect(screen.queryByText("Qwen 3.5 9B")).toBeNull()
+    expect(screen.queryByText(/download/)).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: /^Continue/ }))
+    expect(api.selectModel).toHaveBeenCalledWith("Qwen/Qwen3.5-27B")
+  })
+
+  it("marks a model that spills layers to the CPU with a chip icon, not label text", async () => {
+    const api = fakeApi({
+      listModels: vi.fn(async () => [
+        {
+          ...LOCAL_ITEM,
+          recommended: false,
+          cpuOffload: true,
+          availabilityLabel: "Est. 64K · Q4_K_M · 9 GB",
+        },
+      ]),
+    })
+    await renderApp(api)
+    fireEvent.click(await screen.findByRole("button", { name: /^Local/ }))
+    fireEvent.click(await screen.findByRole("button", { name: /Managed by Otis/ }))
+
+    expect(await screen.findByTitle("Runs partly on the CPU")).toBeTruthy()
+    expect(screen.queryByText(/system RAM|CPU/)).toBeNull()
+  })
+
+  it("explains an unsupported platform instead of claiming nothing fits", async () => {
+    const reason = "Local inference is not supported on win32/x64."
+    const api = fakeApi({
+      getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, platform: "win32" as const })),
+      listModels: vi.fn(async () => [
+        { ...LOCAL_ITEM, available: false, recommended: false, availabilityLabel: reason },
+        { ...OTHER_LOCAL_ITEM, available: false, availabilityLabel: reason },
+      ]),
+    })
+    await renderApp(api)
+    fireEvent.click(await screen.findByRole("button", { name: /^Local/ }))
+    fireEvent.click(await screen.findByRole("button", { name: /Managed by Otis/ }))
+
+    expect(await screen.findByText(reason)).toBeTruthy()
+    expect(screen.queryByText(/No local model fits this computer/)).toBeNull()
+    expect(screen.queryByRole("button", { name: /Download and continue/ })).toBeNull()
+  })
+
+  it("keeps the no-fit message when rows are unavailable for different memory reasons", async () => {
+    const api = fakeApi({
+      listModels: vi.fn(async () => [
+        { ...LOCAL_ITEM, available: false, recommended: false, availabilityLabel: "Needs 9 GB" },
+        { ...OTHER_LOCAL_ITEM, available: false, availabilityLabel: "Needs 19 GB" },
+      ]),
+    })
+    await renderApp(api)
+    fireEvent.click(await screen.findByRole("button", { name: /^Local/ }))
+    fireEvent.click(await screen.findByRole("button", { name: /Managed by Otis/ }))
+
+    expect(await screen.findByText(/No local model fits this computer/)).toBeTruthy()
   })
 
   it.each([

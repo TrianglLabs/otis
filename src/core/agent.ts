@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import { unreportedContextLimitError } from "../inference/context-policy.js"
 import { ContextOverflowError } from "../inference/errors.js"
 import { lastAssistantText, userMessageAttachments } from "../inference/messages.js"
 import { hasObjectArguments } from "../inference/openai-compat.js"
@@ -85,6 +86,11 @@ export type RunAgentOptions = ToolContext & {
   /** Last observed size of this history in the current application session, for the same client. */
   historyTokens?: number
   autoCompactAtTokens?: number
+  /**
+   * Whether a limit reported in an overflow error is the serving window (Fireworks, managed
+   * llama.cpp, oMLX) rather than one PAIR node's allocation, which is never cluster metadata.
+   */
+  trustReportedContextLength?: boolean
   onCompaction?: (
     result: CompactionResult,
     steeringCount: number,
@@ -127,6 +133,23 @@ export async function* runAgent(
   let overflowAttempts = 0
   let recoveryBudget: number | undefined
   let contextEvent: (() => AgentEvent) | undefined
+  // The response being streamed; a failed stream still publishes what it produced.
+  let content: AssistantContentPart[] = []
+  let reasoning: (ReasoningContentPart & { id: string; startedAt: string }) | undefined
+  const endReasoning = (): ReasoningTraceEvent[] => {
+    if (!reasoning) return []
+    const endedAt = new Date()
+    reasoning.endedAt = endedAt.toISOString()
+    const event: ReasoningTraceEvent = {
+      type: "reasoning",
+      phase: "end",
+      reasoningId: reasoning.id,
+      endedAt: reasoning.endedAt,
+      durationMs: Math.max(0, endedAt.getTime() - Date.parse(reasoning.startedAt)),
+    }
+    reasoning = undefined
+    return [event]
+  }
   try {
     const cwd = options.cwd ?? process.cwd()
     const projectContext = options.projectContext ?? loadProjectContext(cwd)
@@ -205,7 +228,7 @@ export async function* runAgent(
       }
       if (recoveryBudget !== undefined || contextTokens(messages) >= threshold) {
         const budget = recoveryBudget ?? threshold
-        const summaryBudget = recoveryBudget === undefined ? budget : Math.floor(budget / 2)
+        const summaryBudget = recoveryBudget === undefined ? undefined : Math.floor(budget / 2)
         recoveryBudget = undefined
         yield { type: "compaction", phase: "start" }
         const result = await compactConversation(messages, {
@@ -231,25 +254,10 @@ export async function* runAgent(
       options.signal?.throwIfAborted()
       retrying = false
 
-      const content: AssistantContentPart[] = []
+      content = []
       const toolCalls: ChatToolCall[] = []
-      let reasoning: (ReasoningContentPart & { id: string; startedAt: string }) | undefined
       let usage: TokenUsage | undefined
       let finishReason: string | undefined
-      const endReasoning = (): ReasoningTraceEvent[] => {
-        if (!reasoning) return []
-        const endedAt = new Date()
-        reasoning.endedAt = endedAt.toISOString()
-        const event: ReasoningTraceEvent = {
-          type: "reasoning",
-          phase: "end",
-          reasoningId: reasoning.id,
-          endedAt: reasoning.endedAt,
-          durationMs: Math.max(0, endedAt.getTime() - Date.parse(reasoning.startedAt)),
-        }
-        reasoning = undefined
-        return [event]
-      }
       try {
         for await (const event of options.client.streamChat({
           messages,
@@ -301,6 +309,16 @@ export async function* runAgent(
         // An interrupted stream still publishes its partial output through the interrupted path
         // below.
         if (!options.signal?.aborted) {
+          const tokens = contextTokens(messages)
+          // A rejection with no reported limit, on input already inside half the budget, means
+          // the serving window is smaller than local agent use supports.
+          if (
+            error instanceof ContextOverflowError &&
+            error.contextLength === undefined &&
+            tokens <= threshold / 2
+          ) {
+            throw unreportedContextLimitError(tokens)
+          }
           // Once output has been published, replaying this request could duplicate visible work.
           if (
             !(error instanceof ContextOverflowError) ||
@@ -311,15 +329,22 @@ export async function* runAgent(
             throw error
           }
           overflowAttempts += 1
-          // Reduce the rejected request, without treating one PAIR node's limit as cluster
+          // Reduce the rejected request to the reported window when that is the serving limit;
+          // otherwise to the rejected size, never treating one PAIR node's limit as cluster
           // metadata.
-          recoveryBudget = Math.max(1, Math.floor(Math.min(threshold, contextTokens(messages))))
+          const reported =
+            options.trustReportedContextLength && error.contextLength !== undefined
+              ? autoCompactThreshold(error.contextLength)
+              : tokens
+          recoveryBudget = Math.max(1, Math.floor(Math.min(threshold, reported)))
           retrying = true
           continue
         }
       }
       yield* endReasoning()
-      if (content.length > 0) messages.push({ role: "assistant", content })
+      const response = content
+      content = []
+      if (response.length > 0) messages.push({ role: "assistant", content: response })
       if (usage) {
         observed = {
           tokens: usage.promptTokens + usage.completionTokens,
@@ -381,7 +406,7 @@ export async function* runAgent(
           yield contextEvent()
           continue
         }
-        if (!content.some((part) => part.type === "text" && part.text.trim().length > 0)) {
+        if (!response.some((part) => part.type === "text" && part.text.trim().length > 0)) {
           yield {
             type: "error",
             message: "The model returned an empty response.",
@@ -442,7 +467,14 @@ export async function* runAgent(
       yield contextEvent()
     }
   } catch (error) {
-    messages.push(...(await closeSteering(options.steering)))
+    // Partial output stays in the record, as after an interruption, and every call it left
+    // unanswered is closed so the history never carries a dangling tool call.
+    yield* endReasoning()
+    if (content.length > 0) messages.push({ role: "assistant", content })
+    messages.push(
+      ...unansweredToolCalls(messages.slice(turnStart)).map(failedToolMessage),
+      ...(await closeSteering(options.steering)),
+    )
     if (contextEvent) yield contextEvent()
     if (options.signal?.aborted) {
       yield { type: "interrupted", messages: messages.slice(turnStart) }
@@ -453,6 +485,27 @@ export async function* runAgent(
       message: error instanceof Error ? error.message : String(error),
       messages: messages.slice(turnStart),
     }
+  }
+}
+
+function unansweredToolCalls(messages: readonly ChatMessage[]) {
+  const pending = new Map<string, ChatToolCall>()
+  for (const message of messages) {
+    if (message.role === "tool") pending.delete(message.toolCallId)
+    else if (message.role === "assistant") {
+      for (const part of message.content) {
+        if (part.type === "tool_call") pending.set(part.toolCall.id, part.toolCall)
+      }
+    }
+  }
+  return [...pending.values()]
+}
+
+function failedToolMessage(call: ChatToolCall): ChatMessage {
+  return {
+    role: "tool",
+    toolCallId: call.id,
+    content: "Tool call not executed: the response failed before it could run.",
   }
 }
 

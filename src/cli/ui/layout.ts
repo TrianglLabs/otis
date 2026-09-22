@@ -53,7 +53,7 @@ export function createUILayout(
   const { panel: modelPanel, rows: modelRowsBox } = createSidePanel(renderer, {
     id: "model",
     header: "Models",
-    footer: "[↑↓] move",
+    footer: "[↑↓] move · * recommended · ◐ partly on CPU",
   })
   const {
     panel: subagentPanel,

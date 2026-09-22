@@ -189,6 +189,8 @@ export type StreamChatOptions = {
   now?: Date
   skills?: readonly import("../skills/catalog.js").Skill[]
   outputCapabilities?: OutputCapabilities
+  /** Spend as little on reasoning as the model allows, e.g. for a summary that must fit. */
+  minimalReasoning?: boolean
 }
 
 export type CompleteOptions = {

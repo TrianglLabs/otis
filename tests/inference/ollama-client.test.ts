@@ -115,6 +115,36 @@ describe("Ollama native transport", () => {
     )
   })
 
+  it("sends adjacent user messages as one alternating-role message", async () => {
+    const fetch = vi.fn(
+      async (_url: RequestInfo | URL, _init?: RequestInit) =>
+        new Response('{"message":{"content":"ok"},"done":true,"done_reason":"stop"}\n'),
+    )
+    const client = new OllamaClient({
+      model: "chat",
+      baseURL: "http://127.0.0.1:11434",
+      fetch: fetch as typeof globalThis.fetch,
+    })
+    await client.complete([
+      { role: "user", content: "[Compacted conversation summary]\n\nEarlier work." },
+      { role: "user", content: "continue" },
+      { role: "assistant", content: [{ type: "text", text: "Working." }] },
+      { role: "user", content: "steer one" },
+      { role: "user", content: [{ type: "text", text: "steer two" }] },
+    ])
+    const body = JSON.parse(String(fetch.mock.calls[0][1]?.body))
+    expect(body.messages.map((message: { role: string }) => message.role)).toEqual([
+      "system",
+      "user",
+      "assistant",
+      "user",
+    ])
+    expect(body.messages[1].content).toBe(
+      "[Compacted conversation summary]\n\nEarlier work.\n\ncontinue",
+    )
+    expect(body.messages[3]).toMatchObject({ content: "steer one\n\nsteer two", images: [] })
+  })
+
   it("rejects an incomplete stream instead of accepting a partial summary", async () => {
     const client = new OllamaClient({
       model: "chat",

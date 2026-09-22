@@ -154,10 +154,13 @@ weights. Each row reports a fitted context and memory estimate; models that cann
 unless a cached copy needs to remain visible for deletion. Context is the largest window that fits the full inference
 footprint, up to the checkpoint's native length. Memory math uses
 each checkpoint's real KV groups (full-attention layers vs sliding-window layers), not a uniform transformer cache.
-Hard availability is based on host memory because llama.cpp can split a model between a discrete GPU and system RAM.
-The preflight estimate reserves 15% of Apple unified memory (at least 3 GiB), 10% of other system memory (at least
-2 GiB), and another 1.5 GiB for runtime buffers. It never requires the complete model to fit in VRAM. On Linux,
-`nvidia-smi` detects NVIDIA devices and DRM render nodes detect any other Vulkan-capable GPU, including AMD and Intel.
+Hard availability is GPU-resident fit or, because llama.cpp can split a model between a GPU and system RAM, fit within
+GPU plus host memory. The preflight estimate reserves 15% of Apple unified memory (at least 3 GiB) or 10% of other
+system memory (at least 2 GiB) for the host, 1 GiB per GPU inside the GPU budget, and another 1.5 GiB for runtime
+buffers. On Apple silicon the GPU budget is the Metal working set (two thirds of RAM up to 36 GiB, three quarters
+above, or a raised `iogpu.wired_limit_mb`). On Linux, `nvidia-smi` detects NVIDIA devices and DRM render nodes detect
+any other Vulkan-capable GPU, including AMD and Intel; integrated graphics (an i915/xe device without a VRAM report,
+or amdgpu with at most 4 GiB of VRAM and a GTT at least twice that) are budgeted from host RAM as unified memory.
 If no render device is present, Otis uses the CPU build.
 
 Picker and settings rows are a provider-tagged catalog: Fireworks entries may include a Fast serving path; managed-local
@@ -187,14 +190,17 @@ fallback. A bounded `--list-devices` probe checks actual GPU availability before
 selects Vulkan without discarding the CUDA cache. Vulkan must pass its own device check. The managed server receives
 the verified device names through `--device` so a disappearing backend cannot silently select another backend. If a
 CUDA server exits during model loading with a recognized CUDA diagnostic, Otis cleans up that attempt and retries
-once with verified Vulkan using the same GGUF. Other startup/model/context errors, download or verification failures,
-and cancellation are propagated. CPU-only machines continue to use the CPU runtime directly.
+with verified Vulkan using the same GGUF; if Vulkan reports no device or exits with a recognized Vulkan diagnostic,
+it retries on the CPU build. The chain is strictly CUDA, Vulkan, CPU, never backwards, and each fallback emits a
+notice with the accumulated causes. Other startup/model/context errors, download or verification failures, and
+cancellation are propagated. CPU-only machines continue to use the CPU runtime directly.
 
 Both device checks and managed Linux servers receive a private child environment with the bundle directory first in
 `LD_LIBRARY_PATH`. Existing entries remain behind it for system/container/WSL driver discovery. `LD_PRELOAD`, `LD_AUDIT`,
-and `GGML_BACKEND_PATH` are removed for these children so inherited overrides cannot supersede the bundle. Device
-visibility variables are preserved. Otis does not mutate the parent environment, driver installation, or system CUDA
-toolkit. `OTIS_LLAMA_SERVER` preserves the custom executable's loader settings and bypasses device checks and fallback.
+and `GGML_BACKEND_PATH` are removed for these children so inherited overrides cannot supersede the bundle. The child
+environment is built from an allowlist (path, home, temporary directories, locale, loader paths, GPU visibility, and
+display variables, plus `LLAMA_CACHE`); Hugging Face tokens and provider keys are never forwarded. Otis does not
+mutate the parent environment, driver installation, or system CUDA toolkit. `OTIS_LLAMA_SERVER` preserves the custom executable's loader settings and bypasses device checks and fallback.
 
 On Linux x64, Bonsai uses Prism's official CUDA 12.8/13.3 binaries with the matching NVIDIA libraries
 from upstream's pinned companion archive. Its llama/ggml libraries come exclusively from Prism. The pinned Prism release
@@ -215,20 +221,21 @@ The picker shows the hardware-preferred packing; a saved model identity is resol
 Cache discovery recognizes either packing, and deleting Bonsai removes both so a packing selected on another machine
 configuration cannot become orphaned.
 
-Recommendations use a curated preference order with fit-based fallback, not fixed RAM tiers. Each candidate resolves
-its backend-compatible packing and must pass the same host-memory fit used by the picker. The full footprint is the
-selected GGUF weights plus the model-specific KV cache at the estimated context and 1.5 GiB of runtime buffers.
-For dedicated GPUs with known VRAM, that entire footprint must also fit within VRAM after the runtime's headroom
-reservation on every detected GPU (1 GiB per GPU, not once for combined VRAM). The estimated context uses the smaller
-host or GPU budget and must remain at least 64K. If only host RAM can fit the minimum footprint, the model remains
-manually selectable at an estimated 64K with a `Uses system RAM` label, but is not recommended. GPU count is
+Recommendations use curated preference orders with fit-based fallback, not fixed RAM tiers. Each candidate resolves
+its backend-compatible packing and must pass the same fit used by the picker. The full footprint is the selected GGUF
+weights plus the model-specific KV cache at the estimated context and 1.5 GiB of runtime buffers. With a known GPU
+budget (VRAM, or a unified-memory working set, after 1 GiB per GPU, not once for combined memory), the GPU order
+stars a model whose footprint fits that budget at 64K or more; the estimated context grows within it. If only GPU plus
+host memory fits the minimum footprint, the model remains manually selectable at an estimated 64K with a `Uses system
+RAM` label. When no GPU-resident candidate exists, or the GPU is absent, unreported, or too small, a CPU order biased
+to mixtures of experts and small dense models applies with host fit, and its star may carry that label. GPU count is
 retained even when some devices cannot report capacity; combined VRAM is unknown unless every device reports it.
 Unknown VRAM still uses the fixed 1 GiB per-GPU runtime margin, never a percentage of host RAM.
 These are capacity estimates; live memory use, runtime buffers, and per-device layer placement can change the actual
-fit at startup. Unified-memory and CPU systems use host fit alone, as do GPU systems
-whose probe cannot report VRAM. Exact byte counts are used throughout, with no memory rounding or upper-capacity cutoff.
+fit at startup. Exact byte counts are used throughout, with no memory rounding or upper-capacity cutoff.
 Unavailable preference groups fall back to smaller fitting models, so a missing catalog model does not create an empty
-hardware tier. Both UI adapters receive the same shared recommendation flag.
+hardware tier. Local rows are ordered starred first, then by the preference order. Both UI adapters receive the
+same shared recommendation flag.
 
 Each GGUF URL contains an immutable Hugging Face revision. Otis verifies the pinned byte count and Git LFS SHA-256,
 publishes the completed file atomically, and records a private sidecar manifest so a verified cache does not need to be
@@ -239,12 +246,13 @@ Download percent and a loading state appear next to the model name in the `/mode
 show `Downloaded` next to the name. Otis then starts `llama-server` on `127.0.0.1` with `--jinja` and without llama.cpp
 `--tools`. Chat then uses the same OpenAI-compatible SSE path as Fireworks, without Fireworks-only `service_tier` or
 `reasoning_effort` fields. Otis tools remain in the local runtime. `OTIS_LLAMA_SERVER` overrides the bundled binary.
-llama.cpp's native fitter is authoritative at startup. Otis passes 1 GiB of fit headroom for a discrete GPU, or the
-system-memory headroom for unified-memory and CPU backends, then reads `/props` and persists the context actually
+llama.cpp's native fitter is authoritative at startup. Otis passes 1 GiB of fit headroom per GPU, including Apple
+unified memory, or the system-memory headroom for the CPU backend, then reads `/props` and persists the context actually
 loaded. Layers that do not fit in discrete GPU memory remain in system RAM. Otis also removes inherited `LLAMA_ARG_*`
 variables from the child environment so a separate llama.cpp configuration cannot silently alter its managed server.
-Before marking a newly started model ready, Otis sends a private, tool-free streaming generation check with a
-32-token output limit and a two-minute timeout. The check requires text or reasoning and a completed response;
+Before marking a newly started model ready, Otis sends a private, tool-free streaming generation check with an
+8-token output limit at the model's lowest documented thinking setting, and a two-minute timeout (ten minutes when
+layers are offloaded to the CPU or the backend is CPU). The check requires text or reasoning and a completed response;
 reaching the probe's token limit is valid. Failure stops that process and leaves selection uncommitted. Cancellation
 and process exit abort the check. Reusing an already-ready process does not repeat it. This checks basic generation,
 not full-context memory capacity, and never runs against user-managed oMLX or PAIR endpoints.
@@ -409,9 +417,12 @@ skill metadata is not advertised to the model.
 ## Sessions and local statistics
 
 The agent checks context before every model request, including requests within a tool loop and after steering input.
-The trigger is 80% of the serving context, capped at 250,000 tokens. Hosted and managed-local models use their serving
-context, oMLX uses its reported request limit (64K policy budget if unavailable), and Ollama/LM Studio/PAIR use
-the 64K local-agent minimum as their working budget. Unknown hosted context retains the 250,000-token fallback.
+The trigger reserves output room from the serving context: at least 20%, raised to 16K tokens when the selected or
+default thinking level is high or above (8K otherwise), and capped at 250,000 tokens. Hosted and managed-local models
+use their serving context, oMLX uses its reported request limit (64K policy budget if unavailable), and Ollama/LM
+Studio/PAIR use the 64K local-agent minimum as their working budget. Unknown hosted context is treated as a 128K
+window, and a Fireworks selection saved without a context length is refreshed from the catalog on connect. Summary
+requests ask for the model's minimal reasoning and leave headroom for the summary itself.
 A completed task waits until the next request before compacting.
 
 The runtime and context meter share one estimator, including the assembled system prompt, tool definitions, native

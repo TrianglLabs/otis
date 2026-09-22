@@ -1,8 +1,8 @@
 import { execFile } from "node:child_process"
 import { constants } from "node:fs"
-import { access, readdir, readFile } from "node:fs/promises"
+import { access, readdir, readFile, readlink } from "node:fs/promises"
 import { totalmem } from "node:os"
-import { join } from "node:path"
+import { basename, join } from "node:path"
 import { promisify } from "node:util"
 
 const execFileAsync = promisify(execFile)
@@ -18,7 +18,11 @@ export type HardwareProbe = {
   totalMemoryBytes: number
   /** Number of detected GPUs, including devices whose VRAM is unknown. */
   gpuCount: number
-  /** Combined GPU capacity; omitted unless every detected device reports memory. */
+  /**
+   * Combined GPU capacity; omitted unless every detected device reports memory. With unified
+   * memory this is what the GPU may wire: the Metal working set on Apple silicon, or host RAM for
+   * Linux integrated graphics.
+   */
   gpuMemoryBytes?: number
   backend: HardwareBackend
   cudaVersion?: CudaVersion
@@ -30,10 +34,7 @@ export type HardwareProbe = {
 type InferenceMemoryBudget = {
   /** Per-device margin passed to llama.cpp, which broadcasts it to every device. */
   deviceHeadroomBytes: number
-  /**
-   * Aggregate dedicated VRAM for weights, context cache, and runtime buffers, after per-GPU
-   * headroom.
-   */
+  /** Aggregate GPU memory for weights, context cache, and runtime buffers, after per-GPU headroom. */
   gpuMemoryBudgetBytes?: number
 }
 
@@ -46,10 +47,16 @@ type HardwareDetectOptions = {
   nvidiaSmi?: () => Promise<string | undefined>
   glibcVersion?: () => Promise<string | undefined>
   linuxGraphics?: () => Promise<readonly LinuxGraphicsDevice[]>
+  /** `sysctl -n iogpu.wired_limit_mb`: zero unless the user raised the Metal working set. */
+  metalWiredLimitMiB?: () => Promise<number | undefined>
 }
 
 type LinuxGraphicsDevice = {
+  /** Kernel driver name, such as amdgpu, i915, or xe. */
+  driver?: string
   memoryTotalBytes?: number
+  /** amdgpu's GTT aperture into host RAM, which dwarfs an APU's BIOS VRAM carve-out. */
+  gttTotalBytes?: number
 }
 
 export async function detectHardware(options: HardwareDetectOptions = {}): Promise<HardwareProbe> {
@@ -58,10 +65,16 @@ export async function detectHardware(options: HardwareDetectOptions = {}): Promi
   const totalMemoryBytes = options.env?.totalMemoryBytes ?? totalmem()
   const host = { platform, arch, totalMemoryBytes, unifiedMemory: false }
   if (platform === "darwin" && arch === "arm64") {
+    // Metal wires at most recommendedMaxWorkingSetSize: two thirds of RAM up to 36 GiB and three
+    // quarters above, unless the user raised iogpu.wired_limit_mb.
+    const wired = await (options.metalWiredLimitMiB ?? defaultMetalWiredLimit)().catch(
+      () => undefined,
+    )
+    const [share, of] = totalMemoryBytes <= 36 * GIBIBYTE ? [2, 3] : [3, 4]
     return {
       ...host,
       gpuCount: 1,
-      gpuMemoryBytes: totalMemoryBytes,
+      gpuMemoryBytes: wired ? wired * MEBIBYTE : Math.floor((totalMemoryBytes * share) / of),
       backend: "metal",
       unifiedMemory: true,
     }
@@ -117,13 +130,37 @@ export async function detectHardware(options: HardwareDetectOptions = {}): Promi
 
   const graphics = await (options.linuxGraphics ?? defaultLinuxGraphics)().catch(() => [])
   if (graphics.length === 0) return { ...host, gpuCount: 0, backend: "cpu" }
-  const memory = graphics.map((device) => device.memoryTotalBytes)
+  // Integrated graphics share host RAM: an APU reports only its BIOS carve-out as VRAM and Intel
+  // reports none. A discrete card alongside one is the device that matters for budgeting.
+  const integrated = ({
+    driver,
+    memoryTotalBytes: vram,
+    gttTotalBytes: gtt,
+  }: LinuxGraphicsDevice) =>
+    driver === "i915" || driver === "xe"
+      ? vram === undefined
+      : driver === "amdgpu" &&
+        vram !== undefined &&
+        vram <= 4 * GIBIBYTE &&
+        gtt !== undefined &&
+        gtt >= 2 * vram
+  const discrete = graphics.filter((device) => !integrated(device))
+  if (discrete.length === 0) {
+    return {
+      ...host,
+      gpuCount: graphics.length,
+      gpuMemoryBytes: totalMemoryBytes,
+      backend: "vulkan",
+      unifiedMemory: true,
+    }
+  }
+  const memory = discrete.map((device) => device.memoryTotalBytes)
   const knownMemory = memory.every(
     (total): total is number => total !== undefined && Number.isSafeInteger(total) && total > 0,
   )
   return {
     ...host,
-    gpuCount: graphics.length,
+    gpuCount: discrete.length,
     ...(knownMemory ? { gpuMemoryBytes: memory.reduce((sum, total) => sum + total, 0) } : {}),
     backend: "vulkan",
   }
@@ -135,19 +172,20 @@ export function availableModelMemory(hardware: HardwareProbe) {
 }
 
 export function inferenceMemoryBudget(hardware: HardwareProbe): InferenceMemoryBudget {
-  const dedicatedGpu = !hardware.unifiedMemory && hardware.backend !== "cpu"
-  // A GPU's margin does not depend on whether its driver reports VRAM capacity.
-  const deviceHeadroomBytes = dedicatedGpu ? GIBIBYTE : systemHeadroom(hardware)
+  if (hardware.backend === "cpu") return { deviceHeadroomBytes: systemHeadroom(hardware) }
+  // llama.cpp's default per-device margin, whether the device is dedicated or shares host RAM,
+  // and whether or not its driver reports capacity.
+  const deviceHeadroomBytes = GIBIBYTE
   return {
     deviceHeadroomBytes,
-    ...(dedicatedGpu && hardware.gpuMemoryBytes !== undefined
-      ? {
+    ...(hardware.gpuMemoryBytes === undefined
+      ? {}
+      : {
           gpuMemoryBudgetBytes: Math.max(
             0,
             hardware.gpuMemoryBytes - hardware.gpuCount * deviceHeadroomBytes,
           ),
-        }
-      : {}),
+        }),
   }
 }
 
@@ -166,7 +204,8 @@ async function defaultNvidiaSmi() {
   for (const fields of ["memory.total,driver_version,compute_cap", "memory.total"]) {
     try {
       const args = [`--query-gpu=${fields}`, "--format=csv,noheader,nounits"]
-      return (await execFileAsync("nvidia-smi", args, { timeout: 2_000 })).stdout
+      // Cold driver initialization without nvidia-persistenced can take several seconds.
+      return (await execFileAsync("nvidia-smi", args, { timeout: 10_000 })).stdout
     } catch {
       // Try the reduced query, then report no NVIDIA devices.
     }
@@ -183,6 +222,11 @@ function versionAtLeast(value: string, minimum: string) {
     if (difference !== 0) return difference > 0
   }
   return true
+}
+
+async function defaultMetalWiredLimit() {
+  const result = await execFileAsync("sysctl", ["-n", "iogpu.wired_limit_mb"], { timeout: 2_000 })
+  return Number(result.stdout.trim())
 }
 
 async function defaultGlibcVersion() {
@@ -210,14 +254,18 @@ async function defaultLinuxGraphics(): Promise<LinuxGraphicsDevice[]> {
   }
   return await Promise.all(
     usableRenderNodes.map(async (entry) => {
-      const value = await readFile(
-        join(drmRoot, entry.name, "device", "mem_info_vram_total"),
-        "utf8",
-      ).catch(() => "")
-      const parsed = Number(value.trim())
+      const device = join(drmRoot, entry.name, "device")
+      const bytes = async (name: string) => {
+        const value = (await readFile(join(device, name), "utf8").catch(() => "")).trim()
+        const parsed = Number(value)
+        return value && Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined
+      }
       return {
-        memoryTotalBytes:
-          value.trim() && Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined,
+        driver: await readlink(join(device, "driver"))
+          .then((target) => basename(target))
+          .catch(() => undefined),
+        memoryTotalBytes: await bytes("mem_info_vram_total"),
+        gttTotalBytes: await bytes("mem_info_gtt_total"),
       }
     }),
   )

@@ -19,34 +19,31 @@ export type LocalModelFit = {
   available: boolean
   contextLength: number
   memoryRequiredBytes: number
+  /** The pool the fit was sized against: the GPU budget when resident there, else host memory. */
   memoryAvailableBytes: number
-  /** The minimum context fits host RAM but exceeds the known dedicated GPU budget. */
+  /** The minimum context exceeds the GPU budget, so some layers run on the CPU. */
   requiresCpuOffload: boolean
 }
 
 export function fitLocalModel(model: LocalModelSpec, hardware: HardwareProbe): LocalModelFit {
   const selectedModel = localModelForHardware(model, hardware)
-  const memoryAvailableBytes = availableModelMemory(hardware)
-  const hostFit = fitWithinMemory(selectedModel, memoryAvailableBytes)
-  const gpuMemoryBudgetBytes = inferenceMemoryBudget(hardware).gpuMemoryBudgetBytes
-  if (!hostFit.available || gpuMemoryBudgetBytes === undefined) return hostFit
+  const hostBytes = availableModelMemory(hardware)
+  const gpuBytes = inferenceMemoryBudget(hardware).gpuMemoryBudgetBytes
+  if (gpuBytes === undefined) return fitWithinMemory(selectedModel, hostBytes)
 
-  // Keep host fit as the availability gate, but budget the entire inference footprint
-  // in VRAM before recommending a GPU model or estimating its usable context.
+  // Unified memory is one pool the GPU may only partly wire. A dedicated GPU streams its own
+  // layers from the mapped file, so host RAM only has to hold the layers that spill to the CPU.
   const gpuFit = fitWithinMemory(
     selectedModel,
-    Math.min(memoryAvailableBytes, gpuMemoryBudgetBytes),
+    hardware.unifiedMemory ? Math.min(hostBytes, gpuBytes) : gpuBytes,
   )
   if (gpuFit.available) return gpuFit
 
-  // Like llama.cpp's fitter, reduce context to the minimum before spilling layers to RAM.
+  // Like llama.cpp's fitter, reduce context to the minimum before spilling layers to the CPU.
   // Manual selection remains available, but this is not a GPU recommendation.
-  return {
-    ...hostFit,
-    contextLength: LOCAL_MIN_CONTEXT_LENGTH,
-    memoryRequiredBytes: memoryRequiredFor(selectedModel, LOCAL_MIN_CONTEXT_LENGTH),
-    requiresCpuOffload: true,
-  }
+  const hybridBytes = hardware.unifiedMemory ? hostBytes : gpuBytes + hostBytes
+  const available = gpuFit.memoryRequiredBytes <= hybridBytes
+  return { ...gpuFit, available, memoryAvailableBytes: hybridBytes, requiresCpuOffload: available }
 }
 
 function fitWithinMemory(model: LocalModelSpec, memoryAvailableBytes: number): LocalModelFit {
@@ -102,6 +99,5 @@ function kvCacheBytes(attention: LocalAttentionSpec, contextLength: number) {
 
 export function formatMemoryLabel(bytes: number) {
   const gib = bytes / 1024 ** 3
-  if (gib >= 10) return `${Math.round(gib)} GB`
-  return `${gib.toFixed(1).replace(/\.0$/, "")} GB`
+  return `${gib >= 10 ? Math.round(gib) : gib.toFixed(1).replace(/\.0$/, "")} GB`
 }

@@ -90,6 +90,7 @@ export const de: Messages = {
   "models.hosted": "Gehostet",
   "models.noModels": "Keine Modelle verfügbar.",
   "models.downloadingWhenSelected": "Wird bei Auswahl heruntergeladen",
+  "models.partlyOnCpu": "Läuft teilweise auf der CPU",
   "models.delete": "Heruntergeladenes Modell löschen",
   "models.deleteConfirm": "Dieses Modell löschen?",
   "models.deletingName": "{{name}} wird gelöscht…",

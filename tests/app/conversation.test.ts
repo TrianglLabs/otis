@@ -7,9 +7,11 @@ import { SubagentTraces } from "../../src/app/subagents.js"
 import { TranscriptStore } from "../../src/app/transcript.js"
 import type { TurnResult, TurnRunnerOptions } from "../../src/app/turn-runner.js"
 import type { AgentEvent } from "../../src/core/agent.js"
+import { compactionSummaryMessage, isCompactionSummary } from "../../src/core/compaction.js"
 import type { ChatMessage, UserChatMessage } from "../../src/inference/types.js"
 import { createPermissionPolicy } from "../../src/permissions/policy.js"
 import type { ParallelClient } from "../../src/web/client.js"
+import { summaryFixture } from "../support/compaction.js"
 import { useOtisHome } from "./support/otis-home.js"
 
 const mocks = vi.hoisted(() => ({ executeTurn: vi.fn() }))
@@ -73,8 +75,14 @@ async function setup() {
     isExiting: () => false,
     artifacts,
   })
-  return { conversation, sessions, transcript, artifacts }
+  return { conversation, sessions, transcript, artifacts, models }
 }
+
+const reply = (text: string): ChatMessage => ({
+  role: "assistant",
+  content: [{ type: "text", text }],
+})
+const estimate = (messages: ChatMessage[]) => Math.ceil(JSON.stringify(messages).length / 4)
 
 describe("Conversation turns", () => {
   it("keeps recovery in the normal working phase without adding a retry label or error to chat", async () => {
@@ -329,6 +337,105 @@ describe("Conversation", () => {
     ).resolves.toBe("steered")
     conversation.cancel()
     await second
+  })
+
+  it("keeps a failed prompt out of model history so later prompts and compaction still work", async () => {
+    const { conversation, transcript, sessions, models } = await setup()
+    const huge: UserChatMessage = { role: "user", content: "x".repeat(50_000) }
+    const message =
+      "The latest input and fixed context leave no room for a compaction summary. Increase the server context or reduce the input or project context."
+    mocks.executeTurn.mockImplementationOnce(
+      async (): Promise<TurnResult> => ({
+        status: "error",
+        message,
+        messages: [huge],
+        details: {},
+      }),
+    )
+    expect((await conversation.start(huge, hooks())).status).toBe("error")
+    expect(transcript.history).toEqual([])
+    expect(transcript.entries.map((entry) => entry.text)).toEqual([
+      huge.content,
+      `Error: ${message}`,
+    ])
+
+    const long = reply("detail ".repeat(2_000))
+    mocks.executeTurn
+      .mockImplementationOnce(async (options: TurnRunnerOptions): Promise<TurnResult> => {
+        expect(options.history).toEqual([])
+        return { status: "complete", messages: [hi, long], details: {} }
+      })
+      .mockImplementationOnce(async (options: TurnRunnerOptions): Promise<TurnResult> => {
+        expect(options.history).toEqual([hi, long])
+        return {
+          status: "complete",
+          messages: [{ role: "user", content: "more" }, reply("done")],
+          details: {},
+        }
+      })
+    await conversation.start(hi, hooks())
+    await conversation.start({ role: "user", content: "more" }, hooks())
+    const session = sessions.current
+    if (!session) throw new Error("Expected a session")
+    expect(session.replayMessages()).toEqual(transcript.history)
+    expect(session.replayTranscript().messages).toEqual([huge, ...transcript.history])
+
+    if (!models.client) throw new Error("Expected a client")
+    models.client.streamChat = vi.fn(async function* () {
+      yield { type: "text_delta" as const, text: summaryFixture("Earlier detail summarized.") }
+    })
+    await conversation.compact(undefined, estimate)
+    expect(transcript.entries.at(-1)?.text).not.toContain("Compaction failed")
+    expect(transcript.history[0]).toEqual(
+      compactionSummaryMessage(summaryFixture("Earlier detail summarized.")),
+    )
+    expect(transcript.history).not.toContainEqual(huge)
+  })
+
+  it("checkpoints /compact before a queued prompt so that prompt survives a reload", async () => {
+    const { conversation, transcript, sessions, models } = await setup()
+    const long = reply("detail ".repeat(2_000))
+    mocks.executeTurn.mockImplementationOnce(
+      async (): Promise<TurnResult> => ({ status: "complete", messages: [hi, long], details: {} }),
+    )
+    await conversation.start(hi, hooks())
+    mocks.executeTurn.mockImplementationOnce(
+      async (): Promise<TurnResult> => ({
+        status: "complete",
+        messages: [{ role: "user", content: "again" }, reply("ok")],
+        details: {},
+      }),
+    )
+    await conversation.start({ role: "user", content: "again" }, hooks())
+    const queued = await conversation.queue({ role: "user", content: "later" })
+    const session = sessions.current
+    if (!session || !models.client) throw new Error("Expected a session and a client")
+    const admittedSeq = session.events.find(
+      (event) => event.type === "prompt_admitted" && event.promptId === queued.admission.promptId,
+    )?.seq
+    models.client.streamChat = vi.fn(async function* () {
+      yield { type: "text_delta" as const, text: summaryFixture("First turn summarized.") }
+    })
+    await conversation.compact(undefined, estimate)
+    const compacted = session.events.at(-1)
+    expect(compacted).toMatchObject({ type: "compacted", throughSeq: (admittedSeq ?? 0) - 1 })
+    expect(transcript.history.some(isCompactionSummary)).toBe(true)
+
+    const next = conversation.takeQueued()
+    if (!next) throw new Error("Expected the queued prompt")
+    mocks.executeTurn.mockImplementationOnce(
+      async (): Promise<TurnResult> => ({
+        status: "complete",
+        messages: [next.admission.message, reply("later done")],
+        details: {},
+      }),
+    )
+    await conversation.start(next, hooks())
+    expect(session.replayMessages()).toEqual(transcript.history)
+    expect(session.replayMessages().slice(-2)).toEqual([
+      next.admission.message,
+      reply("later done"),
+    ])
   })
 
   it("does not execute or announce a turn when its start cannot be recorded", async () => {

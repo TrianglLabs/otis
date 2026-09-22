@@ -24,7 +24,7 @@ afterEach(async () => {
 })
 
 describe("JsonlSession", () => {
-  it("persists execution starts separately from admission without changing replayed messages", async () => {
+  it("persists execution starts separately from admission and keeps an unanswered prompt out of model history", async () => {
     const cwd = await trackedTempDir()
     const options = { cwd, directory: join(cwd, "sessions") }
     const session = await openSession(options)
@@ -39,7 +39,50 @@ describe("JsonlSession", () => {
       "turn_interrupted",
     ])
     expect(reopened.events[2]).toMatchObject({ promptId: admission.promptId })
-    expect(reopened.replayMessages()).toEqual([admission.message])
+    expect(reopened.replayMessages()).toEqual([])
+    expect(reopened.replayTranscript().messages).toEqual([admission.message])
+    expect(reopened.title()).toBe("queued work")
+  })
+
+  it("replays an older file whose admitted prompt never ended as scrollback only", async () => {
+    const cwd = await trackedTempDir()
+    const directory = join(cwd, "sessions")
+    await mkdir(directory, { recursive: true })
+    const at = "2026-01-01T00:00:00.000Z"
+    const huge = { role: "user", content: "huge attachment" }
+    const answer = { role: "assistant", content: [{ type: "text", text: "answer" }] }
+    const write = (id: string, events: object[]) =>
+      writeFile(
+        join(directory, `${id}.jsonl`),
+        `${events.map((event, index) => JSON.stringify({ seq: index + 1, sessionId: id, at, ...event })).join("\n")}\n`,
+      )
+    await write("recovered", [
+      { type: "session_started", version: 1 },
+      { type: "prompt_admitted", promptId: "prompt_1", message: huge },
+      { type: "turn_started", promptId: "prompt_1" },
+      {
+        type: "prompt_admitted",
+        promptId: "prompt_2",
+        message: { role: "user", content: "second" },
+      },
+      { type: "turn_started", promptId: "prompt_2" },
+      { type: "turn_completed", promptId: "prompt_2", messages: [answer] },
+    ])
+    await write("stuck", [
+      { type: "session_started", version: 1 },
+      { type: "prompt_admitted", promptId: "prompt_1", message: huge },
+    ])
+    const recovered = await openSession({ cwd, directory, sessionId: "recovered" })
+    expect(recovered.replayMessages()).toEqual([{ role: "user", content: "second" }, answer])
+    expect(recovered.replayTranscript().messages).toEqual([
+      huge,
+      { role: "user", content: "second" },
+      answer,
+    ])
+    const stuck = await openSession({ cwd, directory, sessionId: "stuck" })
+    expect(stuck.replayMessages()).toEqual([])
+    expect(stuck.replayTranscript().messages).toEqual([huge])
+    expect(stuck.title()).toBe("huge attachment")
   })
   it("admits prompts before completion and replays messages without duplicate users", async () => {
     const cwd = await trackedTempDir()
@@ -84,7 +127,9 @@ describe("JsonlSession", () => {
 
     await session.completeTurn(active, activeMessages)
 
-    expect(session.replayMessages()).toEqual([...activeMessages, queued.message])
+    // The queued prompt joins model history once its own turn runs.
+    expect(session.replayMessages()).toEqual(activeMessages)
+    expect(session.replayTranscript().messages).toEqual([...activeMessages, queued.message])
     expect(session.events.map((event) => event.type)).toEqual([
       "session_started",
       "prompt_admitted",
@@ -182,10 +227,11 @@ describe("JsonlSession", () => {
     await second.admitPrompt("second")
 
     expect(second.events.map((event) => event.seq)).toEqual([1, 2, 3])
-    expect(replaySessionMessages(second.events)).toEqual([
+    expect(second.replayTranscript().messages).toEqual([
       { role: "user", content: "first" },
       { role: "user", content: "second" },
     ])
+    expect(replaySessionMessages(second.events)).toEqual([])
   })
 
   it("persists and replays interrupted turn progress", async () => {
@@ -321,9 +367,12 @@ describe("JsonlSession", () => {
       const first = await openSession({ cwd, directory, sessionId: "first" })
       const second = await openSession({ cwd, directory, sessionId: "second" })
 
-      await first.admitPrompt("older session\nwith details")
+      const reply: ChatMessage = { role: "assistant", content: [{ type: "text", text: "ok" }] }
+      const older = await first.admitPrompt("older session\nwith details")
+      await first.completeTurn(older, [older.message, reply])
       vi.setSystemTime(new Date("2026-01-01T00:00:00.001Z"))
-      await second.admitPrompt("newer session")
+      const newer = await second.admitPrompt("newer session")
+      await second.completeTurn(newer, [newer.message, reply])
 
       const sessions = await listSessions({ cwd, directory })
 
@@ -334,8 +383,8 @@ describe("JsonlSession", () => {
           messageCount: session.messageCount,
         })),
       ).toEqual([
-        { id: "second", title: "newer session", messageCount: 1 },
-        { id: "first", title: "older session", messageCount: 1 },
+        { id: "second", title: "newer session", messageCount: 2 },
+        { id: "first", title: "older session", messageCount: 2 },
       ])
     } finally {
       vi.useRealTimers()
@@ -351,7 +400,7 @@ describe("JsonlSession", () => {
     await writeFile(join(directory, "bad name.jsonl"), "{}\n")
 
     await expect(listSessions({ cwd, directory })).resolves.toMatchObject([
-      { id: "valid", title: "valid session", messageCount: 1 },
+      { id: "valid", title: "valid session", messageCount: 0 },
     ])
   })
 

@@ -1,5 +1,9 @@
 import { autoCompactThreshold } from "../core/compaction.js"
-import { FireworksClient, listToolCapableModels } from "../inference/client.js"
+import {
+  FireworksClient,
+  fireworksReasoningEffort,
+  listToolCapableModels,
+} from "../inference/client.js"
 import { compactionContextLength, requireLocalContextLength } from "../inference/context-policy.js"
 import { detectHardware, type HardwareProbe } from "../inference/hardware.js"
 import { LlamaCppRuntime, type LocalLoadProgress } from "../inference/llama-runtime.js"
@@ -25,6 +29,7 @@ import {
 } from "../inference/serving-path.js"
 import type {
   CatalogModel,
+  FireworksModel,
   InferenceClient,
   ModelProvider,
   PairEngine,
@@ -95,6 +100,8 @@ export class ModelHost {
   autoCompactAtTokens = autoCompactThreshold()
   activeLocal: ActiveLocalModel | undefined
   localThinking: LocalThinkingPreferences = {}
+  /** The compaction window of the active selection, kept so a thinking change can re-budget. */
+  #contextLength: number | undefined
   #prepareId = 0
   #selectionId = 0
   #selectionController: AbortController | undefined
@@ -113,12 +120,11 @@ export class ModelHost {
       (settings.model ? (isLocalModelId(settings.model) ? "local" : "fireworks") : undefined)
     this.pairEngine = settings.pairEngine
     this.supportsImageInput = settings.modelSupportsImageInput
-    this.autoCompactAtTokens = autoCompactThreshold(
-      compactionContextLength({
-        provider: this.selectedProvider,
-        contextLength: settings.modelContextLength,
-      }),
-    )
+    this.#contextLength = compactionContextLength({
+      provider: this.selectedProvider,
+      contextLength: settings.modelContextLength,
+    })
+    this.refreshAutoCompact()
 
     if (settings.fireworksApiKey && this.selectedId && this.selectedProvider === "fireworks") {
       this.client = new FireworksClient({
@@ -140,6 +146,22 @@ export class ModelHost {
     this.#prepareId += 1
   }
 
+  /**
+   * Re-derives the compaction trigger from the active window and the output one turn may need:
+   * a high thinking effort can spend 16K tokens reasoning, a lower one about half that.
+   */
+  refreshAutoCompact() {
+    let effort: string | undefined
+    if (this.selectedProvider === "local" && this.selectedId) {
+      const capability = localThinkingCapability(this.selectedId)
+      effort = this.localThinking[this.selectedId] ?? capability?.defaultLevel
+    } else if (this.selectedProvider === "fireworks" && this.selectedId) {
+      effort = fireworksReasoningEffort(this.selectedId)
+    }
+    const reserve = effort === "high" || effort === "xhigh" || effort === "max" ? 16_384 : 8_192
+    this.autoCompactAtTokens = autoCompactThreshold(this.#contextLength, reserve)
+  }
+
   thinkingState(): LocalThinkingState | null {
     if (this.selectedProvider !== "local" || !this.selectedId) return null
     const capability = localThinkingCapability(this.selectedId)
@@ -156,6 +178,7 @@ export class ModelHost {
       model,
       inferenceURL,
       thinkingLevel: () => this.localThinking[model],
+      assertServing: () => this.llama.assertServing(),
     })
   }
 
@@ -225,7 +248,8 @@ export class ModelHost {
     this.selectedProvider = model.provider
     this.pairEngine = model.provider === "pair" ? model.engine : undefined
     this.supportsImageInput = model.supportsImageInput
-    this.autoCompactAtTokens = autoCompactThreshold(compactionContextLength(model))
+    this.#contextLength = compactionContextLength(model)
+    this.refreshAutoCompact()
     this.client = client
     if (model.provider !== "local") this.activeLocal = undefined
   }
@@ -309,6 +333,26 @@ export class ModelHost {
     return selection(model, () => this.activate(model, client))
   }
 
+  /**
+   * A saved selection without a window is budgeted like a 128K model; the catalog's reported
+   * window is better when it can be fetched, so this refreshes it best-effort before activation.
+   */
+  async fireworksContextLength(
+    apiKey: string,
+    model: FireworksModel,
+    signal?: AbortSignal,
+  ): Promise<FireworksModel> {
+    try {
+      const { serving } = await resolveFireworksServing(apiKey, model.id, { signal })
+      return serving.contextLength === undefined
+        ? model
+        : { ...model, contextLength: serving.contextLength }
+    } catch {
+      signal?.throwIfAborted()
+      return model
+    }
+  }
+
   async restorePrevious(
     previous: ActiveLocalModel | undefined,
     originalError?: unknown,
@@ -331,7 +375,8 @@ export class ModelHost {
       this.client = this.#localClient(previous.spec.id, serving.inferenceURL)
       this.selectedProvider = "local"
       if (this.selectedId === previous.spec.id) {
-        this.autoCompactAtTokens = autoCompactThreshold(serving.contextLength)
+        this.#contextLength = serving.contextLength
+        this.refreshAutoCompact()
       }
     } catch (restoreError) {
       if (originalError === undefined) throw restoreError
@@ -400,12 +445,19 @@ export class ModelHost {
     } else {
       if (!options.fireworksApiKey) throw new Error("Fireworks API key is not configured.")
       client = new FireworksClient({ apiKey: options.fireworksApiKey, model: modelId })
-      contextLength = options.contextLength
+      let model: FireworksModel = {
+        provider,
+        id: modelId,
+        displayName: modelId,
+        contextLength: options.contextLength,
+        supportsImageInput,
+      }
+      if (model.contextLength === undefined) {
+        model = await this.fireworksContextLength(options.fireworksApiKey, model, options.signal)
+      }
+      contextLength = model.contextLength
       await this.llama.stop()
-      this.activate(
-        { provider, id: modelId, displayName: modelId, contextLength, supportsImageInput },
-        client,
-      )
+      this.activate(model, client)
     }
     return {
       client,
@@ -430,7 +482,7 @@ export class ModelHost {
 export async function resolveFireworksServing(
   apiKey: string,
   modelId: string,
-  options: { fast?: boolean; signal: AbortSignal },
+  options: { fast?: boolean; signal?: AbortSignal },
 ) {
   const models = await listToolCapableModels(apiKey, { signal: options.signal })
   const selected = findFireworksModel(models, modelId)

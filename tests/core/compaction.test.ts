@@ -16,12 +16,23 @@ const client = {
 } as unknown as FireworksClient
 
 describe("autoCompactThreshold", () => {
-  it("reserves model context and retains the default cap for large or unknown models", () => {
+  it("reserves model context and retains the default cap for large models", () => {
     expect(autoCompactThreshold(32_000)).toBe(25_600)
     expect(autoCompactThreshold(131_072)).toBe(104_857)
     expect(autoCompactThreshold(1_000_000)).toBe(250_000)
-    expect(autoCompactThreshold()).toBe(250_000)
     expect(() => autoCompactThreshold(0)).toThrow("context length is invalid")
+  })
+
+  it("budgets an unknown hosted window like a 128K model instead of the cap", () => {
+    expect(autoCompactThreshold()).toBe(autoCompactThreshold(131_072))
+    expect(autoCompactThreshold()).toBe(104_857)
+  })
+
+  it("reserves the larger of the expected output and 20% of the window", () => {
+    expect(autoCompactThreshold(65_536, 16_384)).toBe(49_152)
+    expect(autoCompactThreshold(65_536, 8_192)).toBe(52_428)
+    expect(autoCompactThreshold(131_072, 16_384)).toBe(104_857)
+    expect(autoCompactThreshold(131_072, 8_192)).toBe(104_857)
   })
 })
 
@@ -101,6 +112,64 @@ describe("compactConversation", () => {
     })
     const result = await compactConversation(messages, { client, keepRecentTokens: 10 })
     expect(result.keptMessages).toEqual([messages[3]])
+  })
+
+  it("compacts past a tool call that never received a result", async () => {
+    const messages: ChatMessage[] = [
+      { role: "user", content: "first question" },
+      {
+        role: "assistant",
+        content: [{ type: "tool_call", toolCall: { id: "lost", name: "read", arguments: "{}" } }],
+      },
+      { role: "user", content: "second question" },
+      { role: "assistant", content: [{ type: "text", text: "second answer ".repeat(40) }] },
+      { role: "user", content: "third question" },
+      { role: "assistant", content: [{ type: "text", text: "third answer" }] },
+    ]
+    streamAgentMock.mockImplementationOnce(async function* () {
+      yield { type: "text_delta", text: summaryFixture("Keep going") }
+    })
+    const result = await compactConversation(messages, { client, keepRecentTokens: 32 })
+    expect(result.keptMessages).toEqual(messages.slice(4))
+  })
+
+  it.each([
+    "## Goal:",
+    "## Goals",
+    "# Goal",
+    "### Goal",
+    "## GOAL",
+  ])("accepts the required heading written as %s", async (heading) => {
+    const messages: ChatMessage[] = [
+      { role: "user", content: "first question" },
+      { role: "assistant", content: [{ type: "text", text: "first answer".repeat(20) }] },
+      { role: "user", content: "second question" },
+      { role: "assistant", content: [{ type: "text", text: "second answer" }] },
+    ]
+    streamAgentMock.mockImplementationOnce(async function* () {
+      yield {
+        type: "text_delta",
+        text: `${heading}\nShip it.\n\n## Progress\n### Done\n- [x] Read the code\n\n## Next Steps\n1. Write tests`,
+      }
+    })
+    await expect(
+      compactConversation(messages, { client, keepRecentTokens: 32 }),
+    ).resolves.toMatchObject({ summary: expect.stringContaining("Ship it.") })
+  })
+
+  it("rejects a required section whose body is empty", async () => {
+    const messages: ChatMessage[] = [
+      { role: "user", content: "first question" },
+      { role: "assistant", content: [{ type: "text", text: "first answer".repeat(20) }] },
+      { role: "user", content: "second question" },
+      { role: "assistant", content: [{ type: "text", text: "second answer" }] },
+    ]
+    streamAgentMock.mockImplementationOnce(async function* () {
+      yield { type: "text_delta", text: "## Goal\n\n## Progress\nDone.\n\n## Next Steps\nNone." }
+    })
+    await expect(compactConversation(messages, { client, keepRecentTokens: 32 })).rejects.toThrow(
+      "omitted required summary sections",
+    )
   })
 
   it("summarizes older messages and keeps the last turn", async () => {

@@ -89,6 +89,7 @@ export const zhCN: Messages = {
   "models.hosted": "云端",
   "models.noModels": "没有可用模型。",
   "models.downloadingWhenSelected": "选择后下载",
+  "models.partlyOnCpu": "部分在 CPU 上运行",
   "models.delete": "删除已下载的模型",
   "models.deleteConfirm": "删除此模型？",
   "models.deletingName": "正在删除 {{name}}…",

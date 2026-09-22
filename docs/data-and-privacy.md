@@ -34,7 +34,8 @@ document helpers process files locally and do not call a document API. Installin
 uses the Python package index; loading the skill alone performs no installation or network request.
 
 Provider keys are never written to sessions, transcripts, tool results, or usage records. A `FIREWORKS_API_KEY`
-environment value overrides a saved key without being copied into `config.json`.
+environment value overrides a saved key without being copied into `config.json`. The managed `llama-server` child and
+its device probe receive an allowlisted environment; Hugging Face tokens and provider keys are never forwarded to them.
 
 Model-provided thinking is assistant history and is retained in local sessions even when hidden in the UI. Treat it as
 potentially sensitive. Visible traces show a short preview and can be expanded in OpenTUI.

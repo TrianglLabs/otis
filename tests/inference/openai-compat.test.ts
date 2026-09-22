@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { compactionSummaryMessage } from "../../src/core/compaction.js"
 import {
   hasObjectArguments,
   openaiChatCompletionRequest,
@@ -103,6 +104,51 @@ describe("tool-call request history", () => {
       role: "tool",
       toolCallId: "call_1",
       content: INVALID_TOOL_ARGUMENTS_RESULT,
+    })
+  })
+})
+
+describe("adjacent user messages", () => {
+  it("serializes a compaction summary and the kept prompt as one user message", () => {
+    const summary = compactionSummaryMessage("## Goal\nShip it")
+    const messages: ChatMessage[] = [summary, { role: "user", content: "continue" }]
+    const original = structuredClone(messages)
+    const wire = openaiChatCompletionRequest("test", { messages })
+    expect(wire.messages.slice(1)).toEqual([
+      { role: "user", content: `${summary.content}\n\ncontinue` },
+    ])
+    expect(messages).toEqual(original)
+  })
+
+  it("merges drained steering after a reply, keeping attachments and text in order", () => {
+    const image = {
+      type: "image" as const,
+      data: "aGk=",
+      mimeType: "image/png" as const,
+      name: "shot.png",
+      sizeBytes: 2,
+    }
+    const messages: ChatMessage[] = [
+      { role: "user", content: "start" },
+      { role: "assistant", content: [{ type: "text", text: "Working." }] },
+      { role: "user", content: [image, { type: "text", text: "look here" }] },
+      { role: "user", content: "and then this" },
+      { role: "user", content: [{ type: "text", text: "finally" }, image] },
+    ]
+    const wire = openaiChatCompletionRequest("test", { messages })
+    expect(wire.messages.map((message) => message.role)).toEqual([
+      "system",
+      "user",
+      "assistant",
+      "user",
+    ])
+    expect(wire.messages[3]).toEqual({
+      role: "user",
+      content: [
+        { type: "image_url", image_url: { url: "data:image/png;base64,aGk=" } },
+        { type: "text", text: "look here\n\nand then this\n\nfinally" },
+        { type: "image_url", image_url: { url: "data:image/png;base64,aGk=" } },
+      ],
     })
   })
 })
