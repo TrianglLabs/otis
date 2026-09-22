@@ -1,15 +1,17 @@
 import { SteeringInbox } from "../core/agent.js"
-import { compactConversation } from "../core/compaction.js"
+import { compactConversation, NOTHING_TO_COMPACT } from "../core/compaction.js"
 import { reportedContextLengthIsServing } from "../inference/context-policy.js"
+import { errorMessage } from "../inference/errors.js"
 import type {
   ChatMessage,
   ContextFile,
   OutputCapabilities,
   UserChatMessage,
 } from "../inference/types.js"
-import type { PermissionPolicy, PermissionRequest } from "../permissions/policy.js"
+import type { PermissionPolicy } from "../permissions/policy.js"
 import type { SkillCatalog } from "../skills/index.js"
 import type { JsonlSession, PromptAdmission, SessionTurnDetails } from "../storage/index.js"
+import { describeToolCall, type ToolActivityKind } from "../tools/activity.js"
 import { providerTools } from "../tools/index.js"
 import type { ParallelClient } from "../web/client.js"
 import { type ArtifactStore, sessionArtifactPublisher } from "./artifacts.js"
@@ -19,36 +21,43 @@ import type { SubagentTraces } from "./subagents.js"
 import { countDiffLines, TranscriptProjector, type TranscriptStore } from "./transcript.js"
 import { executeTurn } from "./turn-runner.js"
 
-type ConversationTurnResult =
+export type ConversationTurnResult =
   | { status: "complete"; messages: ChatMessage[]; details: SessionTurnDetails }
   | { status: "interrupted"; messages: ChatMessage[]; details: SessionTurnDetails }
   | { status: "error"; messages: ChatMessage[]; details: SessionTurnDetails }
   | { status: "incomplete" }
 
-type ConversationSink = {
-  renderTranscript(options?: { scrollToBottom?: boolean }): void
-  renderSubagents(): void
-  setPhase(phase: "thinking" | "working"): void
-  startBusy(): void
-  stopBusy(): void
+export type TurnPhase = "idle" | "thinking" | "working"
+
+/** A tool call awaiting the user's approval, as the interface shows it. */
+export type PendingPermission = {
+  id: number
+  label: string
+  kind: ToolActivityKind
+  resources: string[]
 }
 
-const reason = (error: unknown) => (error instanceof Error ? error.message : String(error))
+/**
+ * What an interface needs to follow a conversation: the busy window of a turn or drain loop, the
+ * streaming indicator and phase inside it, and the moments the transcript, delegated runs, or an
+ * approval request changed. `admitted` fires once the prompt is durably recorded; `settled` after
+ * every turn, whatever its outcome.
+ */
+export type ConversationEvent =
+  | { type: "busy"; busy: boolean }
+  | { type: "indicator"; active: boolean }
+  | { type: "phase"; phase: "thinking" | "working" }
+  | { type: "context"; tokens: number }
+  | { type: "permission"; request: PendingPermission | null }
+  | { type: "render"; scrollToBottom?: boolean }
+  | { type: "subagents" }
+  | { type: "admitted"; message: UserChatMessage }
+  | { type: "settled"; result: ConversationTurnResult }
 
 export type QueuedPrompt = {
   admission: PromptAdmission
   session: JsonlSession
   transcriptEntryId: number
-}
-
-export type ConversationHooks = {
-  sink: ConversationSink
-  debug: boolean
-  onReady?: (message: UserChatMessage) => void
-  onContext: (tokens: number) => void
-  onDiff: (added: number, removed: number) => void
-  onPermissionRequest: (request: PermissionRequest) => Promise<boolean>
-  onCompletion: () => void
 }
 
 type ConversationOptions = {
@@ -64,6 +73,8 @@ type ConversationOptions = {
   isExiting: () => boolean
   outputCapabilities?: OutputCapabilities
   artifacts: ArtifactStore
+  /** Why a prompt cannot be admitted or the queue driven right now; undefined when it can. */
+  gate: () => string | undefined
 }
 
 type ActiveWork = {
@@ -74,16 +85,79 @@ type ActiveWork = {
 
 export class Conversation {
   #active: ActiveWork | undefined
+  #draining = false
+  #wasBusy = false
+  #idleWaiters: (() => void)[] = []
   readonly #queued: QueuedPrompt[] = []
+  #permissionSeq = 0
+  #pending: { request: PendingPermission; resolve: (allow: boolean) => void } | undefined
+  readonly #listeners = new Set<(event: ConversationEvent) => void>()
+  /** What the active turn is doing; idle between turns. */
+  phase: TurnPhase = "idle"
+  /** Session-only debug mode; applies from the next turn. */
+  debug = false
 
   constructor(private readonly options: ConversationOptions) {}
 
+  /** A turn is running, or the drain loop is between turns of a queued backlog. */
   get busy() {
-    return this.#active !== undefined
+    return this.#active !== undefined || this.#draining
+  }
+
+  get draining() {
+    return this.#draining
+  }
+
+  get permission() {
+    return this.#pending?.request ?? null
+  }
+
+  subscribe(listener: (event: ConversationEvent) => void) {
+    this.#listeners.add(listener)
+    return () => {
+      this.#listeners.delete(listener)
+    }
+  }
+
+  #emit(event: ConversationEvent) {
+    for (const listener of this.#listeners) listener(event)
+  }
+
+  #syncBusy() {
+    const busy = this.busy
+    if (busy === this.#wasBusy) return
+    this.#wasBusy = busy
+    this.#emit({ type: "busy", busy })
+    if (!busy) for (const resolve of this.#idleWaiters.splice(0)) resolve()
+  }
+
+  /** Resolves once no turn is running and the backlog driver has exited. */
+  idle(): Promise<void> {
+    if (!this.busy) return Promise.resolve()
+    return new Promise((resolve) => this.#idleWaiters.push(resolve))
   }
 
   cancel() {
     this.#active?.controller.abort()
+  }
+
+  /** Cancels the active work and denies any unanswered approval. */
+  stop() {
+    this.#settlePending(false)
+    this.cancel()
+  }
+
+  /** Stale or unknown ids are ignored, so a cancelled request stays denied. */
+  respondToPermission(id: number, allow: boolean) {
+    if (this.#pending?.request.id === id) this.#settlePending(allow)
+  }
+
+  #settlePending(allow: boolean) {
+    const pending = this.#pending
+    if (!pending) return
+    this.#pending = undefined
+    pending.resolve(allow)
+    this.#emit({ type: "permission", request: null })
   }
 
   async wait() {
@@ -113,19 +187,19 @@ export class Conversation {
       artifacts.observeMessage(message)
       return queued
     } catch (error) {
-      transcript.addDebugMessage(`Could not queue prompt: ${reason(error)}`)
+      transcript.addDebugMessage(`Could not queue prompt: ${errorMessage(error)}`)
       throw error
     }
   }
 
-  async steer(message: UserChatMessage, onActivated: () => void): Promise<"steered" | "queued"> {
+  async steer(message: UserChatMessage): Promise<"steered" | "queued"> {
     const { transcript, artifacts } = this.options
     const steering = this.#active?.steering
     let transcriptEntryId: number | undefined
     const acceptance = steering?.accept(message, () => {
       if (transcriptEntryId === undefined) return
       transcript.activatePendingUserMessage(transcriptEntryId)
-      onActivated()
+      this.#emit({ type: "render", scrollToBottom: true })
     })
     if (!acceptance?.accepted) {
       await this.queue(message)
@@ -139,8 +213,80 @@ export class Conversation {
       return "steered"
     } catch (error) {
       transcript.removeEntry(entry.id)
-      transcript.addDebugMessage(`Could not save steering message: ${reason(error)}`)
+      transcript.addDebugMessage(`Could not save steering message: ${errorMessage(error)}`)
       throw error
+    }
+  }
+
+  /**
+   * Admits one prompt: steered into the running turn (queued behind it when the inbox is closed),
+   * queued behind a parked backlog, or started as a new turn. Throws with the gate's reason when
+   * nothing can serve it. steer() and queue() admit the prompt to the session before returning,
+   * and a started prompt is acknowledged only after its admission, so an accepted delivery means
+   * the prompt is durably recorded; a rejection means nothing was saved and the draft must be kept.
+   */
+  async submit(message: UserChatMessage): Promise<{ delivery: "started" | "steered" | "queued" }> {
+    const blocked = this.options.gate()
+    if (blocked) throw new Error(blocked)
+    if (this.busy) {
+      const delivery = await this.steer(message)
+      if (delivery === "queued") this.drain()
+      return { delivery }
+    }
+    // Follow-ups waiting without a driver (parked by a gate that has since lifted) run first: admit
+    // the new prompt behind them and restart the driver, preserving send order. The queue is only
+    // consumed after the new admission succeeds, so a failed admission leaves the backlog intact.
+    if (this.#queued.length > 0) {
+      await this.queue(message)
+      this.drain()
+      return { delivery: "queued" }
+    }
+    let admit!: () => void
+    const admitted = new Promise<"admitted">((resolve) => {
+      admit = () => resolve("admitted")
+    })
+    const settled = this.#drive(message, admit).then(
+      () => "settled" as const,
+      () => "settled" as const,
+    )
+    if ((await Promise.race([admitted, settled])) === "settled")
+      throw new Error("The prompt could not be submitted.")
+    return { delivery: "started" }
+  }
+
+  /**
+   * Starts a driver for a queued backlog that has none: its admission may have completed after
+   * the previous driver exited, or the gate that parked it may have lifted. Idempotent; parks
+   * while the gate reports a reason.
+   */
+  drain() {
+    if (this.busy || this.options.gate()) return
+    const queued = this.#queued.shift()
+    if (queued) void this.#drive(queued)
+  }
+
+  /**
+   * Runs a prompt and then the backlog behind it: every settled turn hands the next queued prompt
+   * back until the queue is empty or the gate parks it. The busy window spans the whole loop.
+   */
+  async #drive(first: UserChatMessage | QueuedPrompt, onAdmitted?: () => void) {
+    let input = first
+    this.#draining = true
+    this.#syncBusy()
+    try {
+      for (;;) {
+        const result = await this.start(input, onAdmitted)
+        onAdmitted = undefined
+        this.options.sessions.settleTurn(result)
+        this.#emit({ type: "settled", result })
+        if (this.options.gate()) return
+        const queued = this.#queued.shift()
+        if (!queued) return
+        input = queued
+      }
+    } finally {
+      this.#draining = false
+      this.#syncBusy()
     }
   }
 
@@ -148,22 +294,28 @@ export class Conversation {
   async #run<T>(work: (active: ActiveWork) => Promise<T>): Promise<T> {
     const active: ActiveWork = { controller: new AbortController(), task: Promise.resolve() }
     this.#active = active
+    this.#syncBusy()
     const task = work(active)
     active.task = task
     try {
       return await task
     } finally {
       if (this.#active === active) this.#active = undefined
+      this.#syncBusy()
     }
+  }
+
+  #setPhase(phase: "thinking" | "working") {
+    this.phase = phase
+    this.#emit({ type: "phase", phase })
   }
 
   async start(
     input: UserChatMessage | QueuedPrompt,
-    hooks: ConversationHooks,
+    onAdmitted?: () => void,
   ): Promise<ConversationTurnResult> {
     if (this.#active) return { status: "incomplete" }
     const { models, transcript, subagents, artifacts } = this.options
-    const { sink } = hooks
     return this.#run(async (active) => {
       const { signal } = active.controller
       const queued = "admission" in input ? input : undefined
@@ -178,7 +330,7 @@ export class Conversation {
         session = queued?.session ?? (await this.options.sessions.ensure())
         admission = queued?.admission ?? (await session.admitPrompt(userMessage))
       } catch (error) {
-        transcript.addAssistantMessage(`Error: ${reason(error)}`)
+        transcript.addAssistantMessage(`Error: ${errorMessage(error)}`)
         return { status: "error", messages: [], details: {} }
       }
 
@@ -193,7 +345,8 @@ export class Conversation {
       if (!queued) artifacts.observeMessage(userMessage)
       try {
         await session.startTurn(admission)
-        hooks.onReady?.(userMessage)
+        onAdmitted?.()
+        this.#emit({ type: "admitted", message: userMessage })
         artifacts.setDirectory(session.artifactDirectory)
 
         let projector = new TranscriptProjector(transcript)
@@ -204,21 +357,20 @@ export class Conversation {
           if (messages.some((message) => message.role !== "user")) transcript.addMessages(messages)
         }
         const fail = (message: string) => {
-          sink.stopBusy()
+          this.#emit({ type: "indicator", active: false })
           transcript.updateEntry(projector.ensureAssistantEntry().id, {
             text: `Error: ${message}`,
             streaming: false,
           })
           projector.finishTurn()
-          sink.renderTranscript()
-          hooks.onCompletion()
+          this.#emit({ type: "render" })
         }
         const interrupted = (messages: ChatMessage[], details: SessionTurnDetails) => {
           projector.finishTurn()
           if (!this.options.isExiting()) {
             transcript.addAssistantMessage("_Interrupted._")
             record(messages)
-            sink.renderTranscript({ scrollToBottom: true })
+            this.#emit({ type: "render", scrollToBottom: true })
           }
           return { status: "interrupted" as const, messages, details }
         }
@@ -251,7 +403,7 @@ export class Conversation {
               cwd: this.options.cwd,
               artifactPublisher: sessionArtifactPublisher(session),
               attachments: () => artifacts.attachments,
-              debug: hooks.debug,
+              debug: this.debug,
               onUsage: async (usage) => {
                 await session.recordUsage(usage, "agent", admission.promptId)
               },
@@ -267,22 +419,29 @@ export class Conversation {
               tools: providerTools(provider),
               permissionPolicy: this.options.permissionPolicy(),
               // A pending permission prompt must not outlive the turn: abort resolves it as denied.
+              // A previous request that never resolved (an interrupted turn) is denied before a new
+              // one is shown.
               onPermissionRequest: (request) => {
                 if (signal.aborted) return Promise.resolve(false)
-                const decision = hooks.onPermissionRequest(request)
-                return new Promise((resolve, reject) => {
-                  const onAbort = () => resolve(false)
+                this.#settlePending(false)
+                const activity = describeToolCall(request.call)
+                const pending: PendingPermission = {
+                  id: ++this.#permissionSeq,
+                  label: activity.label,
+                  kind: activity.kind,
+                  resources: request.decision.resources,
+                }
+                return new Promise<boolean>((resolve) => {
+                  const onAbort = () => this.#settlePending(false)
+                  this.#pending = {
+                    request: pending,
+                    resolve: (allow) => {
+                      signal.removeEventListener("abort", onAbort)
+                      resolve(allow)
+                    },
+                  }
                   signal.addEventListener("abort", onAbort, { once: true })
-                  decision.then(
-                    (value) => {
-                      signal.removeEventListener("abort", onAbort)
-                      resolve(value)
-                    },
-                    (error) => {
-                      signal.removeEventListener("abort", onAbort)
-                      reject(error)
-                    },
-                  )
+                  this.#emit({ type: "permission", request: pending })
                 })
               },
               steering,
@@ -295,48 +454,49 @@ export class Conversation {
                   transcript.addAssistantMessage(
                     "Context window filling up — auto-compacting conversation…",
                   )
-                  sink.startBusy()
+                  this.#emit({ type: "indicator", active: true })
                 } else {
                   transcript.loadCompacted(event.summary, event.keptMessages)
-                  sink.renderSubagents()
+                  this.#emit({ type: "subagents" })
                   projector = new TranscriptProjector(transcript)
                   checkpointed = true
                 }
-                sink.renderTranscript()
+                this.#emit({ type: "render" })
                 return
               }
               if (event.type === "model") {
                 projector.apply(event)
-                sink.startBusy()
-                sink.setPhase("working")
-                sink.renderTranscript()
+                this.#emit({ type: "indicator", active: true })
+                this.#setPhase("working")
+                this.#emit({ type: "render" })
                 return
               }
               if (event.type === "subagent") {
                 subagents.apply(event)
-                sink.renderSubagents()
+                this.#emit({ type: "subagents" })
                 return
               }
               if (event.type === "context") {
                 transcript.observeContext(client, event.tokens)
-                hooks.onContext(event.tokens)
+                this.#emit({ type: "context", tokens: event.tokens })
                 return
               }
               if (event.type === "complete") {
-                sink.stopBusy()
+                this.#emit({ type: "indicator", active: false })
                 return
               }
-              if (event.type === "reasoning" && event.phase === "start") sink.setPhase("thinking")
+              if (event.type === "reasoning" && event.phase === "start") this.#setPhase("thinking")
               if (event.type === "delta" || (event.type === "tool" && event.phase === "start"))
-                sink.setPhase("working")
+                this.#setPhase("working")
               if (event.type === "tool" && event.phase === "end") {
                 if (event.diff) {
                   const diff = countDiffLines(event.diff)
-                  hooks.onDiff(diff.added, diff.removed)
+                  this.options.sessions.addDiff(diff.added, diff.removed)
                 }
-                if (event.artifact) artifacts.observeFile(event.artifact)
+                if (event.artifact)
+                  artifacts.observeFile(event.artifact, event.activityKind !== "file_read")
               }
-              if (projector.apply(event)) sink.renderTranscript()
+              if (projector.apply(event)) this.#emit({ type: "render" })
             },
           })
           if (turn.status === "interrupted" || (turn.status === "error" && aborted())) {
@@ -351,14 +511,13 @@ export class Conversation {
             projector.finishTurn()
             if (turn.status === "incomplete") return { status: "incomplete" }
             record(turn.messages)
-            hooks.onCompletion()
             result = turn
           }
         } catch (error) {
           const messages = checkpointed ? [] : [admission.message]
           if (aborted()) result = interrupted(messages, {})
           else {
-            fail(reason(error))
+            fail(errorMessage(error))
             result = { status: "error", messages, details: {} }
           }
         }
@@ -367,17 +526,18 @@ export class Conversation {
           await session[ended](admission, result.messages, result.details)
         } catch (error) {
           const what = result.status === "complete" ? "turn" : "interrupted turn"
-          transcript.addDebugMessage(`Could not save ${what}: ${reason(error)}`)
+          transcript.addDebugMessage(`Could not save ${what}: ${errorMessage(error)}`)
         }
         return result
       } catch (error) {
-        transcript.addAssistantMessage(`Error: ${reason(error)}`)
+        transcript.addAssistantMessage(`Error: ${errorMessage(error)}`)
         return { status: "error", messages: [], details: {} }
       } finally {
+        this.phase = "idle"
         try {
           await steering.close()
         } catch (error) {
-          transcript.addDebugMessage(`Could not save steering message: ${reason(error)}`)
+          transcript.addDebugMessage(`Could not save steering message: ${errorMessage(error)}`)
         }
       }
     })
@@ -386,7 +546,6 @@ export class Conversation {
   async compact(
     instructions: string | undefined,
     countContextTokens: (messages: ChatMessage[]) => number,
-    onBegin?: () => void,
   ) {
     if (this.#active) return
     const { models, transcript, subagents } = this.options
@@ -394,7 +553,8 @@ export class Conversation {
     if (!client) return
     await this.#run(async ({ controller: { signal } }) => {
       transcript.addAssistantMessage("Compacting conversation…")
-      onBegin?.()
+      this.#emit({ type: "indicator", active: true })
+      this.#emit({ type: "render", scrollToBottom: true })
       try {
         const session = await this.options.sessions.ensure()
         const skills = this.options.skills()
@@ -446,7 +606,14 @@ export class Conversation {
         transcript.loadCompacted(result.summary, kept)
       } catch (error) {
         if (signal.aborted) return
-        transcript.addAssistantMessage(`Compaction failed: ${reason(error)}`)
+        const message = errorMessage(error)
+        transcript.addAssistantMessage(
+          message === NOTHING_TO_COMPACT ? message : `Compaction failed: ${message}`,
+        )
+      } finally {
+        this.#emit({ type: "indicator", active: false })
+        this.#emit({ type: "subagents" })
+        this.#emit({ type: "render", scrollToBottom: true })
       }
     })
   }

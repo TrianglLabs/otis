@@ -7,6 +7,7 @@ import {
   localSettings,
   settle,
   submit,
+  testModel,
   testSession,
 } from "./support/interactive-cli-harness.js"
 
@@ -459,7 +460,7 @@ describe("CLI session turn handling", () => {
         toolCallId: "call_edit",
         activityKind: "file_edit" as const,
         label: "Editing file: app.ts",
-        diff: "--- app.ts\n+++ app.ts\n-old\n+new",
+        diff: "--- app.ts\n+++ app.ts\n@@ -1 +1 @@\n-old\n+new",
       },
     ]
     const session = testSession({
@@ -628,11 +629,17 @@ describe("CLI session turn handling", () => {
     const turnFinished = new Promise<void>((resolve) => {
       finishTurn = resolve
     })
+    let markStarted!: () => void
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve
+    })
     mocks.runAgent.mockImplementationOnce(async function* () {
+      markStarted()
       yield { type: "model", phase: "start" }
       await turnFinished
     })
     const active = submit("working on something")
+    await started
 
     mocks.ui.showSessionPicker.mockClear()
     mocks.uiOptions?.onDeleteSession?.("session_1")
@@ -645,6 +652,87 @@ describe("CLI session turn handling", () => {
     expect(mocks.deleteSession).toHaveBeenCalledWith(
       expect.objectContaining({ sessionId: "session_1" }),
     )
+  })
+
+  it("tells the user why a prompt typed during the saved model's startup cannot run yet", async () => {
+    let finishStart:
+      | ((value: { model: string; inferenceURL: string; contextLength: number }) => void)
+      | undefined
+    mocks.ensureLocalServing.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishStart = resolve
+        }),
+    )
+    mocks.loadLocalSettings.mockResolvedValue(
+      localSettings({
+        model: "openai/gpt-oss-20b",
+        modelDisplayName: "gpt-oss 20B",
+        modelContextLength: 32_768,
+        modelProvider: "local",
+        fireworksApiKey: undefined,
+      }),
+    )
+    // Boot awaits the local start; the screen is live before it finishes.
+    const booting = import("../../src/cli/index.js")
+    await vi.waitFor(() => expect(mocks.uiOptions).toBeDefined())
+    await vi.waitFor(() => expect(finishStart).toBeDefined())
+
+    await mocks.uiOptions?.onSubmit("hello")
+    expect(mocks.ui.showTransientHint).toHaveBeenLastCalledWith(
+      " The model is still starting. Try again in a moment. ",
+    )
+    expect(mocks.createSession).not.toHaveBeenCalled()
+    expect(mocks.runAgent).not.toHaveBeenCalled()
+
+    finishStart?.({
+      model: "openai/gpt-oss-20b",
+      inferenceURL: "http://127.0.0.1:18765/v1/chat/completions",
+      contextLength: 32_768,
+    })
+    await booting
+    mocks.runAgent.mockImplementationOnce(async function* (input) {
+      yield { type: "complete", messages: [input] }
+    })
+    await submit("hello again")
+    expect(mocks.runAgent).toHaveBeenCalledOnce()
+  })
+
+  it("runs a prompt parked behind a setup operation as soon as it ends", async () => {
+    let listCatalog: ((models: ReturnType<typeof testModel>[]) => void) | undefined
+    mocks.listToolCapableModels.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          listCatalog = resolve
+        }),
+    )
+    mocks.runAgent.mockImplementationOnce(async function* (input) {
+      yield { type: "complete", messages: [input] }
+    })
+    await loadCli()
+
+    // /model loads the catalog in the foreground: the app is busy, the conversation is not.
+    const opening = submit("/model")
+    await vi.waitFor(() => expect(listCatalog).toBeDefined())
+    await submit("hello while loading")
+    expect(mocks.ui.renderTranscript.mock.calls.at(-1)?.[0]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          speaker: "You",
+          text: "hello while loading",
+          delivery: "queued",
+        }),
+      ]),
+    )
+    expect(mocks.runAgent).not.toHaveBeenCalled()
+
+    listCatalog?.([testModel()])
+    await opening
+    await vi.waitFor(() => expect(mocks.runAgent).toHaveBeenCalledOnce())
+    expect(mocks.runAgent.mock.calls[0]?.[0]).toEqual({
+      role: "user",
+      content: "hello while loading",
+    })
   })
 
   it("returns to the home screen with slash home", async () => {
@@ -843,7 +931,7 @@ describe("CLI session turn handling", () => {
     const session = testSession()
     mocks.createSession.mockResolvedValue(session)
     mocks.loadProjectContext.mockReturnValue([
-      { path: "/repo/AGENTS.md", content: "A".repeat(20_000) },
+      { path: "/repo/AGENTS.md", content: "A".repeat(40_000) },
     ])
     mocks.runAgent.mockImplementationOnce(async function* () {
       yield { type: "delta", text: "done" }
@@ -860,7 +948,7 @@ describe("CLI session turn handling", () => {
       return match ? [Number(match[1]) * 1_000] : []
     })
 
-    // The project context alone contributes 5,000 estimated tokens. Assert on
+    // The project context alone contributes about 5,600 estimated tokens. Assert on
     // that contribution instead of coupling this test to the system prompt size.
     expect(Math.max(...estimates)).toBeGreaterThan(5_000)
   })

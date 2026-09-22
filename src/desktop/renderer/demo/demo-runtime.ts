@@ -13,6 +13,7 @@ import {
 } from "../../../inference/local-thinking.js"
 import type { ModelPickerChoice, ModelPickerItem } from "../../../inference/picker-catalog.js"
 import type {
+  ArtifactResult,
   DesktopApi,
   DesktopAttachmentInput,
   DesktopEvent,
@@ -85,10 +86,10 @@ type DemoSavedArtifactFixture = DemoArtifactFixture & {
 function demoArtifact(
   metadata: Omit<ArtifactMetadata, "revision" | "source">,
   encoding: ArtifactPayload["encoding"],
-  content: string,
+  content: ArtifactPayload["content"],
 ): DemoArtifactFixture {
   const complete: ArtifactMetadata = { ...metadata, revision: 1, source: "workspace" }
-  return { metadata: complete, payload: { ...complete, encoding, content } }
+  return { metadata: complete, payload: { ...complete, encoding, content } as ArtifactPayload }
 }
 
 const DEMO_MARKDOWN = demoArtifact(
@@ -113,7 +114,7 @@ const DEMO_PDF = demoArtifact(
     editable: false,
     path: "product-brief.pdf",
   },
-  "base64",
+  "bytes",
   demoPdf(),
 )
 
@@ -199,7 +200,7 @@ const DEMO_SAVED_WORD = [
     id: `published:${reference.artifactId}`,
     revision: 1,
     source: "published",
-    kind: "docx",
+    kind: "docx" as const,
     title: reference.name,
     mimeType: DEMO_DOCX.metadata.mimeType,
     editable: false,
@@ -217,7 +218,7 @@ const DEMO_SAVED_WORD = [
 <table><thead><tr><th>Milestone</th><th>Plan</th></tr></thead><tbody><tr><td>Launch date</td><td>${draft.date}</td></tr><tr><td>Audience</td><td>${draft.audience}</td></tr><tr><td>Status</td><td>${draft.status}</td></tr></tbody></table>
 <h2>Next step</h2><p>${draft.next}</p>
 <h2>Revision history</h2><p>This is the saved content for version ${version}. Selecting an older version leaves the latest version unchanged.</p>`,
-    },
+    } as ArtifactPayload,
   }
 })
 const DEMO_LATEST_WORD = DEMO_SAVED_WORD[2]
@@ -315,7 +316,7 @@ ET`
   document += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`
   document += offsets.map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`).join("")
   document += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`
-  return btoa(document)
+  return new TextEncoder().encode(document)
 }
 
 const DEMO_MODELS: ModelPickerChoice[] = [
@@ -528,6 +529,7 @@ class DemoRuntime implements DesktopApi {
     },
     entries: savedVersionsTranscript(),
     agentsPanelVisible: true,
+    workspacePanelWidth: undefined,
     theme: "default",
     language: "system",
     thinkingVisible: true,
@@ -544,6 +546,11 @@ class DemoRuntime implements DesktopApi {
 
   async setAgentsPanelVisible(visible: boolean): Promise<void> {
     this.#state = { ...this.#state, agentsPanelVisible: visible }
+    this.#emitStatus()
+  }
+
+  async setWorkspacePanelWidth(width: number | undefined): Promise<void> {
+    this.#state = { ...this.#state, workspacePanelWidth: width }
     this.#emitStatus()
   }
 
@@ -684,9 +691,10 @@ class DemoRuntime implements DesktopApi {
     }
   }
 
-  async getArtifact(revision: number): Promise<ArtifactPayload | undefined> {
+  async getArtifact(revision: number): Promise<ArtifactResult> {
     const artifact = this.#state.artifact
-    if (!artifact || artifact.revision !== revision) return undefined
+    if (!artifact || artifact.revision !== revision)
+      return { ok: false, stale: true, reason: "This preview changed." }
     const fixture = artifact.publication
       ? DEMO_SAVED_WORD.find(
           (candidate) =>
@@ -696,7 +704,8 @@ class DemoRuntime implements DesktopApi {
       : [...DEMO_ARTIFACTS_BY_SESSION.values()].find(
           (candidate) => candidate.metadata.id === artifact.id,
         )
-    return fixture ? { ...fixture.payload, ...artifact } : undefined
+    if (!fixture) return { ok: false, reason: "That demo artifact is unavailable." }
+    return { ok: true, payload: { ...fixture.payload, ...artifact } as ArtifactPayload }
   }
 
   async saveArtifact(_id: string, _revision: number): Promise<SessionOpResult> {

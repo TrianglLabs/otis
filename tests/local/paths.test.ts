@@ -1,6 +1,6 @@
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { childProcessEnvironment, llamaServerRecordPath } from "../../src/local/paths.js"
+import { childProcessEnvironment, llamaServerRecordsDirectory } from "../../src/local/paths.js"
 
 const originalHome = process.env.OTIS_HOME
 afterEach(() => {
@@ -20,9 +20,9 @@ describe("childProcessEnvironment", () => {
   })
 })
 
-describe("llamaServerRecordPath", () => {
+describe("llamaServerRecordsDirectory", () => {
   it("lives beside the managed runtime and model caches", () => {
     process.env.OTIS_HOME = "/tmp/otis-home"
-    expect(llamaServerRecordPath()).toBe(join("/tmp/otis-home", "llama", "server.json"))
+    expect(llamaServerRecordsDirectory()).toBe(join("/tmp/otis-home", "llama", "servers"))
   })
 })

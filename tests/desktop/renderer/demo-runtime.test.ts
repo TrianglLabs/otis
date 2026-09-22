@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { createDemoRuntime } from "../../../src/desktop/renderer/demo/demo-runtime.js"
 import type { LocalPickerChoice } from "../../../src/inference/picker-catalog.js"
 
@@ -16,7 +16,15 @@ async function localRow(
   return row
 }
 
+/** Runs a demo operation whose simulated delays are on fake timers to completion. */
+async function settle<T>(operation: Promise<T>) {
+  await vi.runAllTimersAsync()
+  return operation
+}
+
 describe("demo runtime model lifecycle", () => {
+  afterEach(() => vi.useRealTimers())
+
   it("switches saved Word versions and reopens the latest independently of the working file", async () => {
     const api = createDemoRuntime()
     const initial = await api.getSnapshot()
@@ -29,7 +37,10 @@ describe("demo runtime model lifecycle", () => {
       followingLatest: true,
       reference: { version: 3 },
     })
-    expect((await api.getArtifact(initialArtifact.revision))?.content).toContain("October 19")
+    expect(await api.getArtifact(initialArtifact.revision)).toMatchObject({
+      ok: true,
+      payload: { content: expect.stringContaining("October 19") },
+    })
 
     for (const [version, date] of [
       [1, "October 5"],
@@ -40,8 +51,14 @@ describe("demo runtime model lifecycle", () => {
       const selected = (await api.getSnapshot()).artifact
       if (!selected) throw new Error("Expected the selected saved artifact")
       expect(selected.publication).toMatchObject({ followingLatest: false, reference: { version } })
-      expect((await api.getArtifact(selected.revision))?.content).toContain(date)
-      expect(await api.getArtifact(initialArtifact.revision)).toBeUndefined()
+      expect(await api.getArtifact(selected.revision)).toMatchObject({
+        ok: true,
+        payload: { content: expect.stringContaining(date) },
+      })
+      expect(await api.getArtifact(initialArtifact.revision)).toMatchObject({
+        ok: false,
+        stale: true,
+      })
     }
 
     const beforeInvalid = (await api.getSnapshot()).artifact
@@ -85,15 +102,14 @@ describe("demo runtime model lifecycle", () => {
     })
     expect(JSON.stringify(snapshot.artifact)).not.toContain("Release checklist")
     expect(await api.getArtifact(snapshot.artifact?.revision ?? 0)).toMatchObject({
-      kind: "docx",
-      encoding: "html",
+      payload: { kind: "docx", encoding: "html" },
     })
 
     await api.selectSession("session_pdf")
     let selected = await api.getSnapshot()
     expect(selected.artifact).toMatchObject({ kind: "pdf", title: "product-brief.pdf" })
     expect(await api.getArtifact(selected.artifact?.revision ?? 0)).toMatchObject({
-      encoding: "base64",
+      payload: { encoding: "bytes", content: expect.any(Uint8Array) },
     })
 
     await api.selectSession("session_webpage")
@@ -103,9 +119,9 @@ describe("demo runtime model lifecycle", () => {
       title: "canvas-overview.html",
       editable: true,
     })
-    expect((await api.getArtifact(selected.artifact?.revision ?? 0))?.content).toContain(
-      "Your work stays in view",
-    )
+    expect(await api.getArtifact(selected.artifact?.revision ?? 0)).toMatchObject({
+      payload: { content: expect.stringContaining("Your work stays in view") },
+    })
 
     await api.selectSession("session_demo1")
     selected = await api.getSnapshot()
@@ -114,12 +130,13 @@ describe("demo runtime model lifecycle", () => {
       title: "canvas-demo.md",
       editable: true,
     })
-    expect((await api.getArtifact(selected.artifact?.revision ?? 0))?.content).toContain(
-      "Native workflow",
-    )
+    expect(await api.getArtifact(selected.artifact?.revision ?? 0)).toMatchObject({
+      payload: { content: expect.stringContaining("Native workflow") },
+    })
   })
 
   it("restores the deletable state after a deleted model is downloaded again", async () => {
+    vi.useFakeTimers()
     const api = createDemoRuntime()
 
     expect(await localRow(api, QWEN_27B)).toMatchObject({
@@ -127,7 +144,7 @@ describe("demo runtime model lifecycle", () => {
       hasDownloadedPacking: true,
     })
 
-    expect(await api.deleteLocalModel(QWEN_27B)).toEqual({ ok: true })
+    expect(await settle(api.deleteLocalModel(QWEN_27B))).toEqual({ ok: true })
     // An available row stays listed and returns to its downloadable state.
     expect(await localRow(api, QWEN_27B)).toMatchObject({
       downloaded: false,
@@ -136,22 +153,22 @@ describe("demo runtime model lifecycle", () => {
 
     // Re-selecting runs the simulated download; success means the weights are cached on disk again,
     // so the row must report as downloaded — and be deletable — once more.
-    expect(await api.selectModel(QWEN_27B)).toEqual({ ok: true })
+    expect(await settle(api.selectModel(QWEN_27B))).toEqual({ ok: true })
     const restored = await localRow(api, QWEN_27B)
     expect(restored.downloaded).toBe(true)
     expect(restored.hasDownloadedPacking).toBe(true)
     expect(restored.active).toBe(true)
-    // The delete settle and the four-step download simulation run on real timers (~4s total).
-  }, 15_000)
+  })
 
   it("marks a newly downloaded model as cached and deletable", async () => {
+    vi.useFakeTimers()
     const api = createDemoRuntime()
     const id = "openai/gpt-oss-120b"
     expect(await localRow(api, id)).toMatchObject({
       downloaded: false,
       hasDownloadedPacking: false,
     })
-    expect(await api.selectModel(id)).toEqual({ ok: true })
+    expect(await settle(api.selectModel(id))).toEqual({ ok: true })
     expect(await localRow(api, id)).toMatchObject({ downloaded: true, hasDownloadedPacking: true })
-  }, 10_000)
+  })
 })

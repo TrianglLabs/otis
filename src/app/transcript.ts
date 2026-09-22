@@ -58,14 +58,50 @@ export type TranscriptEntry = {
   delivery?: TranscriptDelivery
 }
 
+/**
+ * Counts changed lines inside unified-diff hunks. Headers precede the first hunk, so content that
+ * itself starts with "---" or "+++" (a Markdown rule, a front-matter fence) is counted like any
+ * other line. A removal and addition with identical text differ only by the trailing newline,
+ * which the "\ No newline" marker flags on either side; that pair is not a change.
+ */
 export function countDiffLines(diff: string) {
   let added = 0
   let removed = 0
-  for (const line of diff.split("\n")) {
-    if (line.startsWith("+++") || line.startsWith("---")) continue
-    if (line.startsWith("+")) added += 1
-    else if (line.startsWith("-")) removed += 1
+  let inHunk = false
+  let removal: string | undefined
+  let addition: string | undefined
+  const settle = () => {
+    if (addition !== undefined) added += 1
+    addition = undefined
   }
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("@@")) {
+      settle()
+      inHunk = true
+      removal = undefined
+      continue
+    }
+    if (!inHunk) continue
+    if (line.startsWith("\\")) {
+      if (addition !== undefined) {
+        removed -= 1
+        addition = undefined
+      } else if (removal !== undefined) removal = `${removal}\u0000`
+      continue
+    }
+    settle()
+    if (line.startsWith("-")) {
+      removed += 1
+      removal = line.slice(1)
+    } else if (line.startsWith("+")) {
+      const text = line.slice(1)
+      if (removal === `${text}\u0000`) removed -= 1
+      else if (removal === text) addition = text
+      else added += 1
+      removal = undefined
+    } else removal = undefined
+  }
+  settle()
   return { added, removed }
 }
 

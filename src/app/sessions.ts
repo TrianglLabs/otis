@@ -16,11 +16,19 @@ import {
   type SessionToolActivity,
   searchSessions,
 } from "../storage/index.js"
+import type { ConversationTurnResult } from "./conversation.js"
 import type { SubagentTraces } from "./subagents.js"
 import { countDiffLines, type TranscriptStore } from "./transcript.js"
 
 const GENERATED_TITLE_MAX_LENGTH = 60
 const DISPLAY_TITLE_MAX_LENGTH = 36
+
+/** Why a session operation was refused, worded once for every interface. */
+export const SESSION_REASONS = {
+  locked: "That session is open in another Otis window.",
+  noop: "Finish the current work before switching sessions.",
+  busy: "Finish the current work before deleting sessions.",
+} as const
 
 type SessionCoordinatorOptions = {
   client: () => InferenceClient | undefined
@@ -46,8 +54,21 @@ export class SessionCoordinator {
   #title: string | undefined
   #added = 0
   #removed = 0
+  readonly #listeners = new Set<() => void>()
 
   constructor(private readonly options: SessionCoordinatorOptions) {}
+
+  /** Notifies when the active session, its title, or its diff totals change. */
+  subscribe(listener: () => void) {
+    this.#listeners.add(listener)
+    return () => {
+      this.#listeners.delete(listener)
+    }
+  }
+
+  #notify() {
+    for (const listener of this.#listeners) listener()
+  }
 
   get current() {
     return this.#session
@@ -145,6 +166,18 @@ export class SessionCoordinator {
     return "ok"
   }
 
+  /**
+   * Bookkeeping after a turn settles: a completed turn on an untitled session gets a generated
+   * title, and listeners learn the session changed either way.
+   */
+  settleTurn(result: ConversationTurnResult) {
+    const session = this.#session
+    if (result.status === "complete" && session && !session.hasTitle()) {
+      void this.generateTitle(session).then(() => this.#notify())
+    }
+    this.#notify()
+  }
+
   async select(
     sessionId: string,
     storage?: { directory: string },
@@ -160,7 +193,13 @@ export class SessionCoordinator {
     } catch {
       return "locked" // open in another Otis process — writes must not interleave
     }
-    const session = await openSession({ ...where, sessionId })
+    let session: JsonlSession
+    try {
+      session = await openSession({ ...where, sessionId })
+    } catch (error) {
+      await lock.release()
+      throw error
+    }
     this.#session = session
     this.#directory = storage?.directory ? resolve(storage.directory) : undefined
     await this.releaseLock()
@@ -243,6 +282,7 @@ export class SessionCoordinator {
   addDiff(added: number, removed: number) {
     this.#added += added
     this.#removed += removed
+    this.#notify()
     return this.diffs
   }
 
@@ -299,6 +339,7 @@ ${lines.join("\n")}`
     await turnSession.renameTitle(title)
     if (this.options.isExiting() || this.#session?.id !== turnSession.id) return undefined
     this.#title = title
+    this.#notify()
     return title
   }
 
@@ -312,6 +353,7 @@ ${lines.join("\n")}`
     this.options.transcript.replaceMessages([])
     this.options.subagents.load([])
     this.options.onReset?.()
+    this.#notify()
   }
 
   #loadCurrent(session: JsonlSession) {
@@ -328,6 +370,7 @@ ${lines.join("\n")}`
       this.#added += counts.added
       this.#removed += counts.removed
     }
+    this.#notify()
   }
 }
 

@@ -54,6 +54,19 @@ therefore run Vitest through Bun; use the package scripts instead of invoking `v
 Provider tests must use documented response shapes or local fakes. They must never call Fireworks or Parallel or
 depend on a real API key.
 
+`tests/integration` holds the runs that use real processes. The provider contract there runs an in-process fake
+that speaks the OpenAI wire format and is part of `bun run test`. The suites that boot the real managed
+`llama-server` through the application are opt-in:
+
+```sh
+bun run test:integration
+```
+
+They run only with `OTIS_INTEGRATION=1`, on a machine that already caches a catalog model and its pinned runtime
+under an Otis data directory (the released or dev profile, or the roots named in `OTIS_INTEGRATION_DATA`, colon
+separated). They never download anything, only read the cache through symlinks in a private temporary home, and
+skip with the reason when nothing usable is cached. Expect them to take a few minutes.
+
 ## Pull requests
 
 Keep pull requests focused. Explain user-visible behavior, important tradeoffs, persisted-format changes, and how the

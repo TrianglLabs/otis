@@ -17,9 +17,9 @@ export function llamaModelCacheDirectory() {
   return join(localDataDirectory(), "llama", "models")
 }
 
-/** Records the managed llama-server so a crashed Otis's orphan is reaped on the next start. */
-export function llamaServerRecordPath() {
-  return join(localDataDirectory(), "llama", "server.json")
+/** One record per owning Otis process, so a crashed Otis's orphan is reaped on the next start. */
+export function llamaServerRecordsDirectory() {
+  return join(localDataDirectory(), "llama", "servers")
 }
 
 function platformDirectory(xdgVariable: string, ...fallback: string[]) {

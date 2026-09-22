@@ -9,6 +9,24 @@ export function sendToRenderer(contents: WebContents, channel: string, payload: 
   return true
 }
 
+/**
+ * Subframes hold Canvas previews: only the empty frame, its srcdoc body, and our own bundled
+ * canvas and webpage documents may load there. Source HTML that navigates a frame elsewhere is
+ * blocked; the preview relays link clicks to the system browser instead. The main frame keeps its
+ * will-navigate handling.
+ */
+export function guardFrameNavigation(window: BrowserWindow, rendererBase: string) {
+  const allowed = new Set([
+    "about:blank",
+    "about:srcdoc",
+    ...["canvas.html", "webpage.html"].map((name) => new URL(name, rendererBase).href),
+  ])
+  window.webContents.on("will-frame-navigate", (details) => {
+    if (details.isMainFrame || allowed.has(details.url)) return
+    details.preventDefault()
+  })
+}
+
 /** Recovery is user-driven: no reload loops and no implicit retry of interrupted agent work. */
 export function handleRendererFailure(
   window: BrowserWindow,

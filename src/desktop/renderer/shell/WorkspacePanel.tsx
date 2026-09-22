@@ -4,6 +4,7 @@ import {
   type KeyboardEvent,
   type PointerEvent,
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -22,6 +23,7 @@ import { useI18n } from "../i18n/index.js"
 import { useDesktop, useDesktopSelector } from "../runtime.js"
 
 type PanelTab = "coworkers" | "canvas"
+const PANEL_TABS: readonly PanelTab[] = ["coworkers", "canvas"]
 const EMPTY_RUNS: SubagentSummary[] = []
 const PANEL_MIN_WIDTH = 240
 const PANEL_MAX_WIDTH = 720
@@ -33,19 +35,22 @@ const PANEL_KEYBOARD_STEP = 16
  * Canvas.
  */
 export function WorkspacePanel({ artifact }: { artifact: CanvasArtifact | undefined }) {
+  // Drags update the local width immediately; the saved width seeds it and survives relaunches.
   const [railWidth, setRailWidth] = useState<number>()
   const state = useDesktopSelector((snapshot) => ({
     sessionId: snapshot?.session?.id,
     runs: snapshot?.subagents ?? EMPTY_RUNS,
     visible: snapshot?.agentsPanelVisible ?? true,
     theme: snapshot?.theme ?? "default",
+    savedWidth: snapshot?.workspacePanelWidth,
   }))
+  const { sessionId, savedWidth, ...panel } = state
   return (
     <SessionWorkspacePanel
-      key={state.sessionId}
-      {...state}
+      key={sessionId}
+      {...panel}
       artifact={artifact}
-      railWidth={railWidth}
+      railWidth={railWidth ?? savedWidth}
       onRailWidthChange={setRailWidth}
     />
   )
@@ -71,6 +76,7 @@ function SessionWorkspacePanel({
   const [activeTab, setActiveTab] = useState<PanelTab>(artifact ? "canvas" : "coworkers")
   const [openTraceId, setOpenTraceId] = useState<string>()
   const [resizing, setResizing] = useState(false)
+  const panelId = useId()
   const [contentMinWidth, setContentMinWidth] = useState(PANEL_MIN_WIDTH)
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth)
   const panelRef = useRef<HTMLElement>(null)
@@ -190,6 +196,27 @@ function SessionWorkspacePanel({
     stopResizeRef.current = stop
   }
 
+  // Persist once a drag settles or a keyboard/double-click change lands, never on mount.
+  const persistedWidth = useRef(railWidth)
+  useEffect(() => {
+    if (resizing || railWidth === persistedWidth.current) return
+    persistedWidth.current = railWidth
+    void api.setWorkspacePanelWidth(railWidth)
+  }, [railWidth, resizing, api])
+
+  const selectTabWithKeyboard = (event: KeyboardEvent<HTMLDivElement>) => {
+    const index = PANEL_TABS.indexOf(activeTab)
+    let next: number
+    if (event.key === "ArrowRight") next = (index + 1) % PANEL_TABS.length
+    else if (event.key === "ArrowLeft") next = (index + PANEL_TABS.length - 1) % PANEL_TABS.length
+    else if (event.key === "Home") next = 0
+    else if (event.key === "End") next = PANEL_TABS.length - 1
+    else return
+    event.preventDefault()
+    setActiveTab(PANEL_TABS[next])
+    tabsRef.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus()
+  }
+
   const resizeWithKeyboard = (event: KeyboardEvent<HTMLHRElement>) => {
     let width: number | undefined
     if (event.key === "ArrowLeft") width = effectiveWidth + PANEL_KEYBOARD_STEP
@@ -209,6 +236,26 @@ function SessionWorkspacePanel({
     const active = activeTab === tab ? " workspaceRail-view-active" : ""
     return `workspaceRail-view workspaceRail-view-${tab}${active}`
   }
+  const tab = (name: PanelTab, label: string) => (
+    <button
+      type="button"
+      role="tab"
+      id={`${panelId}-tab-${name}`}
+      aria-selected={activeTab === name}
+      aria-controls={`${panelId}-view-${name}`}
+      tabIndex={activeTab === name ? 0 : -1}
+      onClick={() => setActiveTab(name)}
+    >
+      {label}
+    </button>
+  )
+  const view = (name: PanelTab) => ({
+    className: viewClass(name),
+    role: "tabpanel",
+    id: `${panelId}-view-${name}`,
+    "aria-labelledby": `${panelId}-tab-${name}`,
+    "aria-hidden": activeTab !== name,
+  })
   return (
     <>
       <aside
@@ -222,6 +269,11 @@ function SessionWorkspacePanel({
             "--workspace-rail-width": `${effectiveWidth}px`,
           } as CSSProperties
         }
+        onKeyDown={(event) => {
+          if (event.key !== "Escape" || event.defaultPrevented) return
+          event.preventDefault()
+          void api.setAgentsPanelVisible(false)
+        }}
       >
         <hr
           className="workspaceRail-resizeHandle noDrag"
@@ -242,23 +294,10 @@ function SessionWorkspacePanel({
             className="workspaceRail-tabs noDrag"
             role="tablist"
             aria-label={t("panel.workspaceViews")}
+            onKeyDown={selectTabWithKeyboard}
           >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === "coworkers"}
-              onClick={() => setActiveTab("coworkers")}
-            >
-              {t("panel.coworkers")}
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === "canvas"}
-              onClick={() => setActiveTab("canvas")}
-            >
-              {t("panel.canvas")}
-            </button>
+            {tab("coworkers", t("panel.coworkers"))}
+            {tab("canvas", t("panel.canvas"))}
           </div>
           <IconButton
             icon={ChevronsRight}
@@ -268,7 +307,7 @@ function SessionWorkspacePanel({
           />
         </div>
         <div className="workspaceRail-views">
-          <div className={viewClass("coworkers")} aria-hidden={activeTab !== "coworkers"}>
+          <div {...view("coworkers")}>
             {runs.length > 0 ? (
               <ul className="agentsRail-list">
                 {runs.map((run) => (
@@ -297,7 +336,7 @@ function SessionWorkspacePanel({
               <div className="workspaceRail-empty">{t("panel.noCoworkers")}</div>
             )}
           </div>
-          <div className={viewClass("canvas")} aria-hidden={activeTab !== "canvas"}>
+          <div {...view("canvas")}>
             <CanvasPanel artifact={artifact} theme={theme} />
           </div>
         </div>

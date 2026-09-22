@@ -1,7 +1,11 @@
 import { EventEmitter } from "node:events"
 import { app, type BrowserWindow, dialog, type WebContents } from "electron"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { handleRendererFailure, sendToRenderer } from "../../../src/desktop/main/renderer.js"
+import {
+  guardFrameNavigation,
+  handleRendererFailure,
+  sendToRenderer,
+} from "../../../src/desktop/main/renderer.js"
 
 const mocks = vi.hoisted(() => ({
   showMessageBox:
@@ -159,5 +163,28 @@ describe("renderer recovery", () => {
     crash()
     await vi.waitFor(() => expect(app.quit).toHaveBeenCalledOnce())
     expect(dialog.showErrorBox).toHaveBeenCalledOnce()
+  })
+})
+
+describe("frame navigation", () => {
+  it.each([
+    ["file:///app/out/renderer/index.html", "file:///app/out/renderer/webpage.html"],
+    ["http://localhost:5173/?demo", "http://localhost:5173/canvas.html"],
+  ])("allows only the empty frame, srcdoc, and bundled preview documents from %s", (base, own) => {
+    const { contents } = setup()
+    guardFrameNavigation({ webContents: contents } as unknown as BrowserWindow, base)
+    const navigate = (url: string, isMainFrame = false) => {
+      const details = { url, isMainFrame, preventDefault: vi.fn() }
+      contents.emit("will-frame-navigate", details)
+      return !details.preventDefault.mock.calls.length
+    }
+    expect(navigate("about:blank")).toBe(true)
+    expect(navigate("about:srcdoc")).toBe(true)
+    expect(navigate(own)).toBe(true)
+    expect(navigate("https://example.com/")).toBe(false)
+    expect(navigate("file:///etc/passwd")).toBe(false)
+    expect(navigate(`${own}?x=1`)).toBe(false)
+    // The main frame keeps its own will-navigate handling.
+    expect(navigate("https://example.com/", true)).toBe(true)
   })
 })

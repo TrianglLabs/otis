@@ -118,6 +118,7 @@ function statusFixture(overrides: Partial<DesktopStatus> = {}): DesktopStatus {
     modelLoad: null,
     subagents: [],
     agentsPanelVisible: true,
+    workspacePanelWidth: undefined,
     theme: "default",
     language: "system",
     thinkingVisible: true,

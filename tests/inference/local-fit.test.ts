@@ -8,6 +8,9 @@ import {
 } from "../../src/inference/local-catalog.js"
 import { fitLocalModel, memoryRequiredFor } from "../../src/inference/local-fit.js"
 
+const GIBIBYTE = 1024 ** 3
+const MEBIBYTE = 1024 ** 2
+
 const apple128: HardwareProbe = {
   platform: "darwin",
   arch: "arm64",
@@ -42,10 +45,12 @@ describe("local model fit", () => {
     expect(fit.available).toBe(true)
     expect(fit.requiresCpuOffload).toBe(false)
     expect(fit.memoryAvailableBytes).toBe(31 * 1024 ** 3)
-    expect(fit.contextLength).toBe(193_536)
+    expect(fit.contextLength).toBe(194_560)
     // Qwen: 16 full-attention layers, 4 KV heads, 256 dimensions, f16 K+V.
     const footprint =
-      localModelWeightBytes(qwen) + 16 * 4 * 256 * 4 * fit.contextLength + 1.5 * 1024 ** 3
+      localModelWeightBytes(qwen) +
+      16 * 4 * 256 * 4 * fit.contextLength +
+      runtimeOverhead(qwen, fit.contextLength)
     expect(fit.memoryRequiredBytes).toBe(footprint)
     expect(footprint).toBeLessThanOrEqual(fit.memoryAvailableBytes)
     expect(footprint + 16 * 4 * 256 * 4 * 1_024).toBeGreaterThan(fit.memoryAvailableBytes)
@@ -58,14 +63,19 @@ describe("local model fit", () => {
   it("keeps a weights-only fit selectable with CPU offload at 64K", () => {
     const qwen = findLocalModel("Qwen/Qwen3.8-27B")
     if (!qwen) throw new Error("missing catalog entry")
-    const hardware = { ...linux32, gpuMemoryBytes: 24 * 1024 ** 3 }
-    expect(localModelWeightBytes(qwen)).toBeLessThan(23 * 1024 ** 3)
+    const hardware = { ...linux32, gpuMemoryBytes: 20 * 1024 ** 3 }
+    expect(localModelWeightBytes(qwen)).toBeLessThan(19 * 1024 ** 3)
     const fit = fitLocalModel(qwen, hardware)
     expect(fit.available).toBe(true)
     expect(fit.requiresCpuOffload).toBe(true)
     expect(fit.contextLength).toBe(65_536)
-    expect(fit.memoryRequiredBytes).toBeGreaterThan(23 * 1024 ** 3)
+    expect(fit.memoryRequiredBytes).toBeGreaterThan(19 * 1024 ** 3)
     expect(fit.memoryRequiredBytes).toBeLessThan(fit.memoryAvailableBytes)
+    // A 24 GB card holds the 64K footprint itself, with a little context to spare.
+    expect(fitLocalModel(qwen, { ...linux32, gpuMemoryBytes: 24 * 1024 ** 3 })).toMatchObject({
+      requiresCpuOffload: false,
+      contextLength: 67_584,
+    })
   })
 
   it("holds a GPU-resident model without host RAM for its layers", () => {
@@ -75,29 +85,29 @@ describe("local model fit", () => {
     expect(fit).toMatchObject({
       available: true,
       requiresCpuOffload: false,
-      contextLength: 193_536,
+      contextLength: 194_560,
       memoryAvailableBytes: 31 * 1024 ** 3,
     })
   })
 
-  it("keeps the 27B and 31B models selectable on 16 GB RAM with a 24 GB card", () => {
+  it("keeps the 27B and 31B models selectable on 16 GB RAM with a 20 GB card", () => {
     const hardware = {
       ...linux32,
       totalMemoryBytes: 16 * 1024 ** 3,
-      gpuMemoryBytes: 24 * 1024 ** 3,
+      gpuMemoryBytes: 20 * 1024 ** 3,
     }
     for (const id of ["Qwen/Qwen3.8-27B", "google/gemma-4-31B-it"]) {
       const model = findLocalModel(id)
       if (!model) throw new Error("missing catalog entry")
       const fit = fitLocalModel(model, hardware)
-      // Only the layers that spill past the 23 GiB GPU budget need the 14 GiB host pool.
+      // Only the layers that spill past the 19 GiB GPU budget need the 14 GiB host pool.
       expect(fit).toMatchObject({
         available: true,
         requiresCpuOffload: true,
         contextLength: 65_536,
-        memoryAvailableBytes: 37 * 1024 ** 3,
+        memoryAvailableBytes: 33 * 1024 ** 3,
       })
-      expect(fit.memoryRequiredBytes).toBeGreaterThan(23 * 1024 ** 3)
+      expect(fit.memoryRequiredBytes).toBeGreaterThan(19 * 1024 ** 3)
     }
     // GPU plus host still has to hold the minimum footprint.
     const qwen = findLocalModel("Qwen/Qwen3.8-27B")
@@ -262,19 +272,59 @@ describe("local model fit", () => {
     )
   })
 
-  it("keeps Qwen3.8 27B off the GPU of 32 and 36 GB Macs by its 64K cache alone", () => {
+  it("keeps Qwen3.8 27B off the GPU of a 32 GB Mac's two-thirds working set", () => {
     const qwen = findLocalModel("Qwen/Qwen3.8-27B")
     if (!qwen) throw new Error("missing catalog entry")
-    for (const ramGiB of [32, 36]) {
-      const fit = fitLocalModel(qwen, appleHardware(ramGiB))
-      expect(fit).toMatchObject({
-        available: true,
-        requiresCpuOffload: true,
-        contextLength: 65_536,
-      })
-      expect(memoryRequiredFor(qwen, 65_536)).toBeGreaterThan(
-        Math.floor((ramGiB * 1024 ** 3 * 2) / 3) - 1024 ** 3,
-      )
+    expect(fitLocalModel(qwen, appleHardware(32))).toMatchObject({
+      available: true,
+      requiresCpuOffload: true,
+      contextLength: 65_536,
+    })
+    expect(memoryRequiredFor(qwen, 65_536)).toBeGreaterThan(
+      Math.floor((32 * GIBIBYTE * 2) / 3) - GIBIBYTE,
+    )
+    // Two thirds of 36 GiB less the margin is 23 GiB, just above the 22.85 GiB footprint.
+    expect(fitLocalModel(qwen, appleHardware(36))).toMatchObject({
+      requiresCpuOffload: false,
+      contextLength: 67_584,
+    })
+  })
+
+  it("scales Qwen3.8 27B inside the measured working set of a 36 GB Mac on macOS 27", () => {
+    const qwen = findLocalModel("Qwen/Qwen3.8-27B")
+    if (!qwen) throw new Error("missing catalog entry")
+    // recommendedMaxWorkingSetSize of an M4 Max with 36 GiB on macOS 27.0 (hardware.test.ts).
+    const hardware = { ...appleHardware(36), gpuMemoryBytes: 30_150_672_384 }
+    const fit = fitLocalModel(qwen, hardware)
+    expect(fit).toMatchObject({
+      available: true,
+      requiresCpuOffload: false,
+      contextLength: 132_096,
+      memoryAvailableBytes: 30_150_672_384 - GIBIBYTE,
+    })
+    expect(fit.memoryRequiredBytes).toBeLessThanOrEqual(fit.memoryAvailableBytes)
+    expect(memoryRequiredFor(qwen, fit.contextLength + 1_024)).toBeGreaterThan(
+      fit.memoryAvailableBytes,
+    )
+  })
+
+  it("models llama.cpp's compute buffers from the vocabulary, context, and width", () => {
+    const lfm = findLocalModel("LiquidAI/LFM2.5-2.6B")
+    const glm = findLocalModel("zai-org/GLM-5.3")
+    if (!lfm || !glm) throw new Error("missing catalog entry")
+    // llama-server b10666 on this Mac, LFM2.5-2.6B-Q4_K_M with Otis's arguments, fitted to its
+    // native 131,072 context: "MTL0 compute buffer size = 409.45 MiB" and "CPU compute buffer
+    // size = 136.01 MiB"; the KV cache logged 2048 MiB for 131,072 cells over 8 layers.
+    const measuredComputeBytes = (409.45 + 136.01) * MEBIBYTE
+    const modeled = runtimeOverhead(lfm, 131_072) - 512 * MEBIBYTE
+    expect(Math.abs(modeled / measuredComputeBytes - 1)).toBeLessThan(0.03)
+    expect(kvCacheBytes(lfm, 131_072)).toBe(2_048 * MEBIBYTE)
+    // GLM's 1M-token mask dominates; LFM's small vocabulary stays within twice the floor.
+    expect(runtimeOverhead(glm, glm.nativeContextLength)).toBeGreaterThan(2 * GIBIBYTE)
+    expect(runtimeOverhead(lfm, 65_536)).toBeLessThan(GIBIBYTE)
+    for (const model of LOCAL_MODELS) {
+      expect(runtimeOverhead(model, 65_536)).toBeLessThan(1.5 * GIBIBYTE)
+      expect(runtimeOverhead(model, 65_536)).toBeGreaterThan(0.75 * GIBIBYTE)
     }
   })
 
@@ -298,7 +348,8 @@ describe("local model fit", () => {
     const gemma = findLocalModel("google/gemma-4-31B-it")
     if (!gemma) throw new Error("missing catalog entry")
     const naive = 60 * 16 * 256 * 4 * 32_768
-    const expected = 10 * 4 * 512 * 4 * 32_768 + 50 * 16 * 256 * 4 * 1_024
+    // A 1,024-token window holds the window plus a 512-token micro-batch: 1,536 cells.
+    const expected = 10 * 4 * 512 * 4 * 32_768 + 50 * 16 * 256 * 4 * 1_536
     expect(kvCacheBytes(gemma, 32_768)).toBe(expected)
     expect(kvCacheBytes(gemma, 32_768)).toBeLessThan(naive)
     expect(memoryRequiredFor(gemma, 32_768)).toBeGreaterThan(localModelWeightBytes(gemma))
@@ -307,7 +358,7 @@ describe("local model fit", () => {
   it("uses Gemma 4 12B's official global and sliding-layer geometry", () => {
     const gemma = findLocalModel("google/gemma-4-12B-it")
     if (!gemma) throw new Error("missing catalog entry")
-    const expected = 8 * 1 * 512 * 4 * 32_768 + 40 * 8 * 256 * 4 * 1_024
+    const expected = 8 * 1 * 512 * 4 * 32_768 + 40 * 8 * 256 * 4 * 1_536
     expect(kvCacheBytes(gemma, 32_768)).toBe(expected)
   })
 
@@ -350,7 +401,10 @@ describe("local model fit", () => {
     const atWindow = kvCacheBytes(model, 128)
     const atNative = kvCacheBytes(model, model.nativeContextLength)
     expect(atNative).toBeGreaterThan(atWindow)
-    expect(atNative).toBe(12 * 8 * 64 * 4 * 131_072 + 12 * 8 * 64 * 4 * 128)
+    // The 128-token window plus a 512-token micro-batch pads to 768 cells, never past the context.
+    expect(atNative).toBe(12 * 8 * 64 * 4 * 131_072 + 12 * 8 * 64 * 4 * 768)
+    expect(atWindow).toBe(24 * 8 * 64 * 4 * 128)
+    expect(kvCacheBytes(model, 1_024)).toBe(12 * 8 * 64 * 4 * 1_024 + 12 * 8 * 64 * 4 * 768)
   })
 })
 
@@ -366,7 +420,25 @@ function appleHardware(ramGiB: number): HardwareProbe {
   }
 }
 
-/** Context-dependent memory only: the KV cache without weights and fixed runtime buffers. */
+/**
+ * Buffers that do not scale with the weights, as local-fit.ts models them: a 512 MiB process
+ * floor, an f32 logits slice for a 512-token micro-batch, an f16 mask on the host and on the
+ * device, and eight widths of f32 activations per micro-batch token.
+ */
+function runtimeOverhead(model: LocalModelSpec, contextLength: number) {
+  return (
+    512 * MEBIBYTE +
+    model.vocabSize * 512 * 4 +
+    2 * contextLength * 512 * 2 +
+    8 * model.hiddenSize * 512 * 4
+  )
+}
+
+/** The KV cache alone: the footprint without weights and runtime buffers. */
 function kvCacheBytes(model: LocalModelSpec, contextLength: number) {
-  return memoryRequiredFor(model, contextLength) - memoryRequiredFor(model, 0)
+  return (
+    memoryRequiredFor(model, contextLength) -
+    localModelWeightBytes(model) -
+    runtimeOverhead(model, contextLength)
+  )
 }

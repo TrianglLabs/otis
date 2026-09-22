@@ -258,9 +258,12 @@ describe("bounded compaction", () => {
 
   it("rejects a non-shrinking summary even when the caller does not supply a target", async () => {
     await expect(
-      compactConversation([user("hi"), answer("hello")], {
-        client: summaryClient("Long summary.".repeat(100)),
-      }),
+      compactConversation(
+        [user("hi"), answer("hello ".repeat(2_000)), user("more"), answer("ok")],
+        {
+          client: summaryClient("Long summary.".repeat(1_000)),
+        },
+      ),
     ).rejects.toThrow("did not free enough")
   })
 
@@ -391,7 +394,7 @@ describe("autocompaction at model request boundaries", () => {
   })
 
   it("uses the preceding turn's observed context before the next request", async () => {
-    const history = [user("task"), answer("prior response ".repeat(300))]
+    const history = [user("task"), answer("prior response ".repeat(1_500))]
     const client = summaryClient("Short summary.")
     const events = await collect(
       runAgent("continue", history, {
@@ -457,7 +460,7 @@ describe("autocompaction at model request boundaries", () => {
       else yield { type: "text_delta", text: "Finished." }
     })
     const events = await collect(
-      runAgent("task ".repeat(400), [], {
+      runAgent("task ".repeat(2_000), [], {
         client,
         tools: [],
         skills: emptySkills,
@@ -705,7 +708,8 @@ describe("authoritative request counts and overflow recovery", () => {
       throw new Error("Disk full")
     })
     const events = await collect(
-      runAgent("continue", [user("task"), answer("x".repeat(100_000))], {
+      // About 28,000 estimated tokens: past half the threshold, so an unreported limit recovers.
+      runAgent("continue", [user("task"), answer("x".repeat(200_000))], {
         ...options,
         client,
         autoCompactAtTokens: 40_000,
@@ -779,9 +783,10 @@ describe("authoritative request counts and overflow recovery", () => {
       second = request.messages
       yield { type: "text_delta", text: "Finished." }
     })
+    // Each answer estimates to about 4,000 tokens.
     const history = Array.from({ length: 30 }, (_, index) => [
       user(`Task ${index}`),
-      answer("w".repeat(16_000)),
+      answer("w".repeat(28_600)),
     ]).flat()
     const events = await collect(
       runAgent("next", history, {
@@ -806,7 +811,7 @@ describe("authoritative request counts and overflow recovery", () => {
     const budget = autoCompactThreshold(65_536)
     const history = Array.from({ length: 40 }, (_, index) => [
       user(`Task ${index}`),
-      answer("w".repeat(8_000)),
+      answer("w".repeat(14_300)),
     ]).flat()
     await compactConversation([...history, user("next")], { client, contextBudget: budget })
     expect(requests.length).toBeGreaterThan(1)
@@ -956,7 +961,11 @@ it("does not accept a summary whose serving token count exceeds the target", asy
       client,
       targetTokens: 4_000,
       countContextTokens: async (messages) =>
-        String(messages[0].content).includes("[Compacted conversation summary]") ? 5_000 : 1_000,
+        String(messages[0].content).includes("[Compacted conversation summary]")
+          ? 5_000
+          : messages.some((message) => message.role === "assistant")
+            ? 3_000
+            : 1_000,
     }),
   ).rejects.toThrow("did not free enough context")
   expect(history).toEqual(original)

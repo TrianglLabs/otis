@@ -1,16 +1,23 @@
 import { describe, expect, it, vi } from "vitest"
-import { TranscriptStore } from "../../src/app/transcript.js"
+import { Application } from "../../src/app/application.js"
 import { AttachmentFlow } from "../../src/cli/attachment-flow.js"
 import type { ChatUI } from "../../src/cli/ui/types.js"
 import { loadAttachmentFiles } from "../../src/inference/attachments.js"
 import { createDocumentAttachment } from "../../src/inference/documents.js"
+import { useOtisHome } from "../app/support/otis-home.js"
 
 vi.mock("../../src/inference/attachments.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/inference/attachments.js")>()),
   loadAttachmentFiles: vi.fn(),
 }))
 
-function setup() {
+const isolate = useOtisHome()
+
+async function setup(supportsImageInput: boolean | undefined = true) {
+  const app = await Application.create({ cwd: await isolate("otis-attachments-"), env: {} })
+  app.models.selectedId = "accounts/fireworks/models/vision"
+  app.models.selectedProvider = "fireworks"
+  app.models.supportsImageInput = supportsImageInput
   const ui = {
     setAttachmentCounts: vi.fn(),
     focusInput: vi.fn(),
@@ -20,19 +27,16 @@ function setup() {
   const flow = new AttachmentFlow({
     cwd: process.cwd(),
     isBusy: () => false,
-    apiKey: () => undefined,
-    selectedModelId: () => "text-only",
+    app,
     ui: () => ui as unknown as ChatUI,
-    transcript: new TranscriptStore(),
     onContextChange: vi.fn(),
   })
-  return { flow, ui }
+  return { flow, ui, app }
 }
 
 describe("pending attachments", () => {
   it("names pasted images with an incrementing sequence and counts them", async () => {
-    const { flow, ui } = setup()
-    flow.setModelCapability(true)
+    const { flow, ui } = await setup()
 
     await flow.attachPastedImage(pngBytes())
     await flow.attachPastedImage(pngBytes())
@@ -44,9 +48,17 @@ describe("pending attachments", () => {
     expect(ui.setAttachmentCounts).toHaveBeenLastCalledWith(2, 0)
   })
 
+  it("refuses a pasted image the model cannot take, in the transcript", async () => {
+    const { flow, app } = await setup(false)
+    await flow.attachPastedImage(pngBytes())
+    expect(flow.pending.count).toBe(0)
+    expect(app.transcript.entries.at(-1)?.text).toBe(
+      "Could not attach pasted image: accounts/fireworks/models/vision does not support image input. Choose a vision model.",
+    )
+  })
+
   it("removes the last attachment, clears the rest, and keeps prior snapshots", async () => {
-    const { flow, ui } = setup()
-    flow.setModelCapability(true)
+    const { flow, ui } = await setup()
     await flow.attachPastedImage(pngBytes())
     const snapshot = flow.pending.items
     await flow.attachPastedImage(pngBytes())
@@ -70,7 +82,7 @@ describe("pending attachments", () => {
 
 describe("attachment preparation", () => {
   it("waits for extraction before allowing the message to be sent", async () => {
-    const { flow, ui } = setup()
+    const { flow, ui } = await setup()
     const document = await createDocumentAttachment(new TextEncoder().encode("notes"), "notes.txt")
     let finish!: (documents: [typeof document]) => void
     vi.mocked(loadAttachmentFiles).mockReturnValueOnce(
@@ -80,14 +92,17 @@ describe("attachment preparation", () => {
     )
 
     expect(flow.handlePathPaste("notes.txt")).toBe(true)
-    await expect(flow.ensureReadyToSend("summarize")).rejects.toThrow("still being read")
+    await expect(flow.prompt("summarize")).rejects.toThrow("still being read")
     finish([document])
     await vi.waitFor(() => expect(ui.setAttachmentCounts).toHaveBeenCalledWith(0, 1))
-    expect(flow.ensureReadyToSend("summarize")).toBeUndefined()
+    await expect(flow.prompt("summarize")).resolves.toEqual({
+      role: "user",
+      content: [document, { type: "text", text: "summarize" }],
+    })
   })
 
   it("discards a late file read after the composer is cleared for a new session", async () => {
-    const { flow, ui } = setup()
+    const { flow, ui } = await setup()
     const document = await createDocumentAttachment(new TextEncoder().encode("notes"), "notes.txt")
     let finish!: (documents: [typeof document]) => void
     const read = new Promise<[typeof document]>((resolve) => {
@@ -97,7 +112,10 @@ describe("attachment preparation", () => {
 
     flow.handlePathPaste("notes.txt")
     flow.clear()
-    expect(flow.ensureReadyToSend("new conversation")).toBeUndefined()
+    await expect(flow.prompt("new conversation")).resolves.toEqual({
+      role: "user",
+      content: "new conversation",
+    })
     finish([document])
     await read
     expect(flow.pending.count).toBe(0)

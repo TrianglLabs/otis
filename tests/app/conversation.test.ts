@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ArtifactStore } from "../../src/app/artifacts.js"
-import { Conversation, type ConversationHooks } from "../../src/app/conversation.js"
+import { Conversation, type ConversationEvent } from "../../src/app/conversation.js"
 import { ModelHost } from "../../src/app/models.js"
 import { SessionCoordinator } from "../../src/app/sessions.js"
 import { SubagentTraces } from "../../src/app/subagents.js"
@@ -25,24 +25,19 @@ beforeEach(() => {
 
 const hi: UserChatMessage = { role: "user", content: "hi" }
 
-function sink() {
+/** Records the conversation's stream; `phases` and `indicators` are the ordered transitions. */
+function observe(conversation: Conversation) {
+  const events: ConversationEvent[] = []
+  conversation.subscribe((event) => events.push(event))
   return {
-    renderTranscript: vi.fn(),
-    renderSubagents: vi.fn(),
-    setPhase: vi.fn(),
-    startBusy: vi.fn(),
-    stopBusy: vi.fn(),
-  }
-}
-
-function hooks(): ConversationHooks {
-  return {
-    sink: sink(),
-    debug: false,
-    onContext: () => {},
-    onDiff: () => {},
-    onPermissionRequest: async () => true,
-    onCompletion: () => {},
+    events,
+    get phases() {
+      return events.flatMap((event) => (event.type === "phase" ? [event.phase] : []))
+    },
+    get indicators() {
+      return events.flatMap((event) => (event.type === "indicator" ? [event.active] : []))
+    },
+    has: (type: ConversationEvent["type"]) => events.some((event) => event.type === type),
   }
 }
 
@@ -74,6 +69,7 @@ async function setup() {
     permissionPolicy: () => createPermissionPolicy({ cwd, mode: "auto" }),
     isExiting: () => false,
     artifacts,
+    gate: () => undefined,
   })
   return { conversation, sessions, transcript, artifacts, models }
 }
@@ -87,25 +83,25 @@ const estimate = (messages: ChatMessage[]) => Math.ceil(JSON.stringify(messages)
 describe("Conversation turns", () => {
   it("keeps recovery in the normal working phase without adding a retry label or error to chat", async () => {
     const { conversation, transcript } = await setup()
-    const observer = sink()
+    const observer = observe(conversation)
     mocks.executeTurn.mockImplementation(
       async (options: TurnRunnerOptions): Promise<TurnResult> => {
         await options.onEvent?.({ type: "model", phase: "retry" })
-        expect(observer.setPhase).toHaveBeenLastCalledWith("working")
+        expect(observer.phases.at(-1)).toBe("working")
         await options.onEvent?.({ type: "delta", text: "Recovered" })
         await options.onEvent?.({ type: "complete", messages: [] })
         return { status: "complete", messages: [], details: {} }
       },
     )
-    await conversation.start(hi, { ...hooks(), sink: observer })
-    expect(observer.startBusy).toHaveBeenCalled()
-    expect(observer.setPhase).toHaveBeenLastCalledWith("working")
+    await conversation.start(hi)
+    expect(observer.indicators).toContain(true)
+    expect(observer.phases.at(-1)).toBe("working")
     expect(transcript.entries.map((entry) => entry.text)).toEqual(["hi", "Recovered"])
   })
 
   it("projects streamed text onto the transcript and notifies the sink", async () => {
     const { conversation, transcript } = await setup()
-    const observer = sink()
+    const observer = observe(conversation)
     mocks.executeTurn.mockImplementation(
       async (options: TurnRunnerOptions): Promise<TurnResult> => {
         const events: AgentEvent[] = [
@@ -124,7 +120,7 @@ describe("Conversation turns", () => {
       },
     )
 
-    const result = await conversation.start(hi, { ...hooks(), sink: observer })
+    const result = await conversation.start(hi)
 
     expect(result.status).toBe("complete")
     expect(transcript.history).toEqual([
@@ -133,16 +129,16 @@ describe("Conversation turns", () => {
     expect(
       transcript.entries.some((entry) => entry.speaker === "Otis" && entry.text === "Hello"),
     ).toBe(true)
-    expect(observer.setPhase).toHaveBeenCalledWith("working")
-    expect(observer.startBusy).toHaveBeenCalled()
-    expect(observer.stopBusy).toHaveBeenCalled()
-    expect(observer.renderTranscript).toHaveBeenCalled()
+    expect(observer.phases).toContain("working")
+    expect(observer.indicators).toEqual([true, false])
+    expect(observer.has("render")).toBe(true)
+    expect(observer.has("admitted")).toBe(true)
   })
 
   it("preserves scrollback while replacing model context at a compaction checkpoint", async () => {
     const { conversation, transcript } = await setup()
     transcript.loadMessages([{ role: "user", content: "old" }])
-    const observer = sink()
+    const observer = observe(conversation)
     const kept: ChatMessage[] = [{ role: "user", content: "kept" }]
     mocks.executeTurn.mockImplementation(
       async (options: TurnRunnerOptions): Promise<TurnResult> => {
@@ -166,12 +162,12 @@ describe("Conversation turns", () => {
       },
     )
 
-    await conversation.start(hi, { ...hooks(), sink: observer })
+    await conversation.start(hi)
 
     expect(transcript.history).not.toContainEqual({ role: "user", content: "old" })
     expect(transcript.entries[0].text).toBe("old")
     expect(transcript.entries.some((entry) => entry.text.includes("Summary."))).toBe(false)
-    expect(observer.startBusy).toHaveBeenCalled()
+    expect(observer.indicators).toContain(true)
   })
 
   it("opens a previewable file from the shared tool event path", async () => {
@@ -199,7 +195,7 @@ describe("Conversation turns", () => {
       return { status: "complete", messages: [], details: {} }
     })
 
-    await conversation.start(hi, hooks())
+    await conversation.start(hi)
 
     expect(artifacts.metadata).toMatchObject({
       path: "resume.md",
@@ -238,7 +234,7 @@ describe("Conversation turns", () => {
         ? { status, message: "Provider failed", messages: [], details: {} }
         : { status, messages: [], details: {} }
     })
-    await conversation.start(hi, hooks())
+    await conversation.start(hi)
     expect(
       transcript.entries
         .filter((entry) => entry.artifactDisplay === "ready")
@@ -260,7 +256,7 @@ describe("Conversation", () => {
       },
     )
 
-    const started = conversation.start({ role: "user", content: "hello" }, hooks())
+    const started = conversation.start({ role: "user", content: "hello" })
     await vi.waitFor(() => expect(conversation.busy).toBe(true))
     conversation.cancel()
     await conversation.wait()
@@ -280,7 +276,7 @@ describe("Conversation", () => {
       },
     )
 
-    const started = conversation.start({ role: "user", content: "first" }, hooks())
+    const started = conversation.start({ role: "user", content: "first" })
     await vi.waitFor(() => expect(conversation.busy).toBe(true))
     await conversation.queue({ role: "user", content: "next" })
     const queued = conversation.takeQueued()
@@ -302,7 +298,7 @@ describe("Conversation", () => {
       })
       return { status: "complete", messages: [], details: {} }
     })
-    await conversation.start(queued, hooks())
+    await conversation.start(queued)
     expect(sessions.current?.events.filter((event) => event.type === "turn_started")).toHaveLength(
       2,
     )
@@ -324,17 +320,17 @@ describe("Conversation", () => {
         return { status: "interrupted", messages: [], details: {} }
       })
 
-    const first = conversation.start({ role: "user", content: "first" }, hooks())
+    const first = conversation.start({ role: "user", content: "first" })
     await vi.waitFor(() => expect(conversation.busy).toBe(true))
     const queued = await conversation.queue({ role: "user", content: "second" })
     conversation.cancel()
     await first
 
-    const second = conversation.start(queued, hooks())
+    const second = conversation.start(queued)
     await vi.waitFor(() => expect(conversation.busy).toBe(true))
-    await expect(
-      conversation.steer({ role: "user", content: "steer this" }, () => {}),
-    ).resolves.toBe("steered")
+    await expect(conversation.steer({ role: "user", content: "steer this" })).resolves.toBe(
+      "steered",
+    )
     conversation.cancel()
     await second
   })
@@ -352,7 +348,7 @@ describe("Conversation", () => {
         details: {},
       }),
     )
-    expect((await conversation.start(huge, hooks())).status).toBe("error")
+    expect((await conversation.start(huge)).status).toBe("error")
     expect(transcript.history).toEqual([])
     expect(transcript.entries.map((entry) => entry.text)).toEqual([
       huge.content,
@@ -373,8 +369,8 @@ describe("Conversation", () => {
           details: {},
         }
       })
-    await conversation.start(hi, hooks())
-    await conversation.start({ role: "user", content: "more" }, hooks())
+    await conversation.start(hi)
+    await conversation.start({ role: "user", content: "more" })
     const session = sessions.current
     if (!session) throw new Error("Expected a session")
     expect(session.replayMessages()).toEqual(transcript.history)
@@ -392,13 +388,34 @@ describe("Conversation", () => {
     expect(transcript.history).not.toContainEqual(huge)
   })
 
+  it("says nothing to compact for a single exchange instead of failing", async () => {
+    const { conversation, transcript, models } = await setup()
+    mocks.executeTurn.mockImplementationOnce(
+      async (): Promise<TurnResult> => ({
+        status: "complete",
+        messages: [hi, reply("hello")],
+        details: {},
+      }),
+    )
+    await conversation.start(hi)
+    if (!models.client) throw new Error("Expected a client")
+    const streamChat = vi.fn(async function* () {
+      yield { type: "text_delta" as const, text: summaryFixture() }
+    })
+    models.client.streamChat = streamChat
+    await conversation.compact(undefined, estimate)
+    expect(transcript.entries.at(-1)?.text).toBe("Nothing to compact yet.")
+    expect(streamChat).not.toHaveBeenCalled()
+    expect(transcript.history).toEqual([hi, reply("hello")])
+  })
+
   it("checkpoints /compact before a queued prompt so that prompt survives a reload", async () => {
     const { conversation, transcript, sessions, models } = await setup()
     const long = reply("detail ".repeat(2_000))
     mocks.executeTurn.mockImplementationOnce(
       async (): Promise<TurnResult> => ({ status: "complete", messages: [hi, long], details: {} }),
     )
-    await conversation.start(hi, hooks())
+    await conversation.start(hi)
     mocks.executeTurn.mockImplementationOnce(
       async (): Promise<TurnResult> => ({
         status: "complete",
@@ -406,7 +423,7 @@ describe("Conversation", () => {
         details: {},
       }),
     )
-    await conversation.start({ role: "user", content: "again" }, hooks())
+    await conversation.start({ role: "user", content: "again" })
     const queued = await conversation.queue({ role: "user", content: "later" })
     const session = sessions.current
     if (!session || !models.client) throw new Error("Expected a session and a client")
@@ -430,7 +447,7 @@ describe("Conversation", () => {
         details: {},
       }),
     )
-    await conversation.start(next, hooks())
+    await conversation.start(next)
     expect(session.replayMessages()).toEqual(transcript.history)
     expect(session.replayMessages().slice(-2)).toEqual([
       next.admission.message,
@@ -443,12 +460,11 @@ describe("Conversation", () => {
     const session = await sessions.ensure()
     vi.spyOn(session, "startTurn").mockRejectedValueOnce(new Error("disk full"))
     const onReady = vi.fn()
-    const result = await conversation.start(
-      { role: "user", content: "work" },
-      { ...hooks(), onReady },
-    )
+    const observer = observe(conversation)
+    const result = await conversation.start({ role: "user", content: "work" }, onReady)
     expect(result.status).toBe("error")
     expect(onReady).not.toHaveBeenCalled()
+    expect(observer.has("admitted")).toBe(false)
     expect(mocks.executeTurn).not.toHaveBeenCalled()
     expect(conversation.busy).toBe(false)
     expect(transcript.entries.at(-1)?.text).toBe("Error: disk full")

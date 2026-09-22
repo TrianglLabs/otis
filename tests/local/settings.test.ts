@@ -17,6 +17,7 @@ import {
   saveSubagentPanelVisible,
   saveThinkingVisible,
   saveUiLanguage,
+  saveWorkspacePanelWidth,
 } from "../../src/local/settings.js"
 
 const tempDirectories: string[] = []
@@ -109,11 +110,15 @@ describe("local settings", () => {
         { file },
       ),
       saveSubagentPanelVisible(true, { file }),
+      saveWorkspacePanelWidth(416, { file }),
     ])
 
     const saved = await loadLocalSettings({ file })
     expect(saved.model).toBe("openai/gpt-oss-20b")
     expect(saved.subagentPanelVisible).toBe(true)
+    expect(saved.workspacePanelWidth).toBe(416)
+    await saveWorkspacePanelWidth(undefined, { file })
+    expect((await loadLocalSettings({ file })).workspacePanelWidth).toBeUndefined()
   })
 
   it("stores a Fireworks key without replacing the selected local model", async () => {
@@ -542,6 +547,7 @@ describe("local settings", () => {
     const invalidMetadata = join(directory, "invalid-metadata.json")
     const invalidThinking = join(directory, "invalid-thinking.json")
     const invalidSubagentPanel = join(directory, "invalid-subagent-panel.json")
+    const invalidPanelWidth = join(directory, "invalid-panel-width.json")
     const invalidFastMode = join(directory, "invalid-fast-mode.json")
     const invalidFastServingModels = join(directory, "invalid-fast-serving-models.json")
     const invalidPairEndpoints = join(directory, "invalid-pair-endpoints.json")
@@ -557,6 +563,11 @@ describe("local settings", () => {
     await writeFile(
       invalidSubagentPanel,
       JSON.stringify({ version: 1, subagentPanelVisible: "sometimes" }),
+      "utf8",
+    )
+    await writeFile(
+      invalidPanelWidth,
+      JSON.stringify({ version: 1, workspacePanelWidth: -1 }),
       "utf8",
     )
     await writeFile(invalidFastMode, JSON.stringify({ version: 1, fastMode: "sometimes" }), "utf8")
@@ -586,6 +597,9 @@ describe("local settings", () => {
     )
     await expect(loadLocalSettings({ file: invalidSubagentPanel, env: {} })).rejects.toThrow(
       "subagentPanelVisible must be",
+    )
+    await expect(loadLocalSettings({ file: invalidPanelWidth, env: {} })).rejects.toThrow(
+      "workspacePanelWidth must be",
     )
     await expect(loadLocalSettings({ file: invalidFastMode, env: {} })).rejects.toThrow(
       "fastMode must be",

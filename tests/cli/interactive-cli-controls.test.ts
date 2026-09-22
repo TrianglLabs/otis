@@ -72,14 +72,18 @@ describe("CLI mode toggle", () => {
     expect(mocks.createChatUI.mock.calls.at(-1)?.[1]).toMatchObject({ modeLabel: "› auto" })
   })
 
-  it("cycles mode label on toggle", async () => {
+  it("cycles the mode label on toggle and remembers the mode", async () => {
     await loadCli()
 
     mocks.uiOptions?.onToggleMode?.()
     expect(mocks.ui.setModeLabel).toHaveBeenCalledWith("? ask")
+    await settle()
+    expect(mocks.savePermissionMode).toHaveBeenCalledWith("ask")
 
     mocks.uiOptions?.onToggleMode?.()
     expect(mocks.ui.setModeLabel).toHaveBeenCalledWith("› auto")
+    await settle()
+    expect(mocks.savePermissionMode).toHaveBeenLastCalledWith("auto")
   })
 
   it("applies a busy mode change to the next turn without changing the active turn policy", async () => {
@@ -199,6 +203,8 @@ describe("CLI settings", () => {
   })
 
   it("opens model browsing immediately and defers the selected model until the turn finishes", async () => {
+    const other = testModel({ id: "accounts/fireworks/models/other", displayName: "Other" })
+    mocks.listToolCapableModels.mockResolvedValue([testModel(), other])
     let releaseTurn = () => {}
     const turnReleased = new Promise<void>((resolve) => {
       releaseTurn = resolve
@@ -233,7 +239,7 @@ describe("CLI settings", () => {
     expect(mocks.ui.showModelPicker).toHaveBeenCalled()
     const model = mocks.ui.showModelPicker.mock.calls
       .at(-1)?.[0]
-      .find((item: { provider?: string }) => item.provider === "fireworks")
+      .find((item: { id?: string }) => item.id === other.id)
     expect(model).toBeDefined()
     mocks.uiOptions?.onSelectModel?.(model)
     await settle()
@@ -241,7 +247,7 @@ describe("CLI settings", () => {
 
     releaseTurn()
     await turn
-    expect(mocks.saveSelectedModel).toHaveBeenCalled()
+    expect(mocks.saveSelectedModel).toHaveBeenCalledWith(other)
   })
 })
 
@@ -263,6 +269,7 @@ describe("CLI themes", () => {
     )
     const onBack = mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[1]?.onBack
     onBack?.()
+    await settle()
     expect(mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[0]).toEqual(
       expect.arrayContaining([expect.objectContaining({ name: "Theme", description: "default" })]),
     )
@@ -365,9 +372,8 @@ describe("CLI Fast serving", () => {
     expect(mocks.saveFastServingSelection).toHaveBeenCalledWith(kimi, false)
     expect(mocks.ui.setModelLabel).toHaveBeenLastCalledWith("Kimi K3")
     expect(mocks.ui.showTransientHint).toHaveBeenLastCalledWith(" Fast serving off ")
-    expect(mocks.ui.setCommands).toHaveBeenCalledWith(
-      expect.arrayContaining([expect.objectContaining({ name: "/fast" })]),
-    )
+    // The Fast path is still available on the base model, so the command list is left alone.
+    expect(mocks.ui.setCommands).not.toHaveBeenCalled()
 
     await submit("/fast")
     expect(mocks.saveFastServingSelection).toHaveBeenLastCalledWith(

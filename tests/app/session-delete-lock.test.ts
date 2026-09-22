@@ -11,6 +11,7 @@ const gate = vi.hoisted(() => ({
   active: false,
   entered: undefined as (() => void) | undefined,
   release: () => {},
+  failOpen: false,
 }))
 vi.mock("../../src/storage/index.js", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../src/storage/index.js")>()
@@ -24,6 +25,10 @@ vi.mock("../../src/storage/index.js", async (importOriginal) => {
         })
       }
       return original.deleteSession(options)
+    },
+    openSession: async (options: Parameters<typeof original.openSession>[0]) => {
+      if (gate.failOpen) throw new Error("session file is corrupt")
+      return original.openSession(options)
     },
   }
 })
@@ -67,6 +72,26 @@ describe("session deletion locking", () => {
     // Afterward the id is free again (a fresh session with the same id could be locked).
     const lock = await acquireSessionLock({ cwd: home, sessionId: victim.id })
     await lock.release()
+  })
+
+  it("releases the write lock when opening the selected session fails", async () => {
+    const home = await isolate()
+    const stored = await createSession({ cwd: home })
+    await stored.admitPrompt("unreadable later")
+    const sessions = await coordinator(home)
+
+    gate.failOpen = true
+    try {
+      await expect(sessions.select(stored.id)).rejects.toThrow("corrupt")
+    } finally {
+      gate.failOpen = false
+    }
+    expect(sessions.current).toBeUndefined()
+    // Nothing holds the lock: another instance (or a retry) can open the session.
+    const lock = await acquireSessionLock({ cwd: home, sessionId: stored.id })
+    await lock.release()
+    expect(await sessions.select(stored.id)).toBe("loaded")
+    await sessions.releaseLock()
   })
 
   it("refuses to delete a session another instance holds, without touching the file", async () => {

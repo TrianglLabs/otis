@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto"
 import { chmod, mkdir, open, rename, rm } from "node:fs/promises"
 import { join } from "node:path"
-import { payloadFromBytes, readArtifactBytes } from "./files.js"
+import { payloadFromBytes, readArtifactBytes, validateArtifactBytes } from "./files.js"
 import {
   type ArtifactMetadata,
   artifactMimeType,
@@ -58,8 +58,7 @@ export class ArtifactPublisher {
         }
     if (!isPublishedArtifactReference(reference))
       throw new Error("Invalid published artifact reference.")
-    // Validate the exact bytes before persisting or advertising a successful publication.
-    await payloadFromBytes(bytes, publishedArtifactMetadata(reference, 0), reference.name)
+    await validateArtifactBytes(bytes, reference.kind, reference.name)
     await mkdir(this.directory, { recursive: true, mode: 0o700 })
     if (process.platform !== "win32") await chmod(this.directory, 0o700)
     // Re-publishing unchanged content also repairs a missing or damaged copy, without inventing

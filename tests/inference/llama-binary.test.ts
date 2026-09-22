@@ -1,11 +1,18 @@
 import { describe, expect, it } from "vitest"
 import {
-  LLAMA_CPP_RELEASE_TAG,
+  type LlamaRuntimeKind,
   llamaRuntimeTarget,
-  PRISM_LLAMA_CPP_RELEASE_TAG,
   pinnedLlamaCppAsset,
   supportsLlamaCppTarget,
 } from "../../src/inference/llama-binary.js"
+
+/** The pinned release tags, read from the asset table's download URLs. */
+const releaseTagOf = (runtime: LlamaRuntimeKind) =>
+  pinnedLlamaCppAsset({ platform: "darwin", arch: "arm64", backend: "metal" }, runtime)
+    .url.split("/")
+    .at(-2)
+const LLAMA_CPP_RELEASE_TAG = releaseTagOf("upstream")
+const PRISM_LLAMA_CPP_RELEASE_TAG = releaseTagOf("prism")
 
 describe("llama.cpp binary selection", () => {
   it("builds deterministic asset URLs for the pinned release", () => {

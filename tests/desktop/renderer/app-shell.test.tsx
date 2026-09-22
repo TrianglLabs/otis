@@ -1253,14 +1253,13 @@ describe("AppShell settings navigation", () => {
   it("keeps responsive Canvas width, keyboard resizing, and ARIA bounds in sync with window size", async () => {
     let viewport = 1000
     vi.spyOn(window, "innerWidth", "get").mockImplementation(() => viewport)
-    await renderApp(
-      fakeApi({
-        getSnapshot: async () => ({
-          ...SNAPSHOT,
-          subagents: [{ toolCallId: "one", title: "Coworker", status: "complete", tools: 1 }],
-        }),
+    const api = fakeApi({
+      getSnapshot: async () => ({
+        ...SNAPSHOT,
+        subagents: [{ toolCallId: "one", title: "Coworker", status: "complete", tools: 1 }],
       }),
-    )
+    })
+    await renderApp(api)
     fireEvent.click(screen.getByRole("tab", { name: "Canvas" }))
     const resize = screen.getByRole("separator", { name: "Resize side panel" })
     const panel = screen.getByLabelText("Workspace panel") as HTMLElement
@@ -1271,6 +1270,7 @@ describe("AppShell settings navigation", () => {
     expect(resize.getAttribute("aria-valuemax")).toBe("720")
     fireEvent.keyDown(resize, { key: "ArrowRight" })
     expect(panel.style.getPropertyValue("--workspace-rail-width")).toBe("544px")
+    expect(api.setWorkspacePanelWidth).toHaveBeenLastCalledWith(544)
     viewport = 960
     fireEvent(window, new Event("resize"))
     expect(resize.getAttribute("aria-valuenow")).toBe("480")
@@ -1280,6 +1280,52 @@ describe("AppShell settings navigation", () => {
     expect(resize.getAttribute("aria-valuenow")).toBe("544")
     fireEvent.doubleClick(resize)
     expect(resize.getAttribute("aria-valuenow")).toBe("560")
+    expect(api.setWorkspacePanelWidth).toHaveBeenLastCalledWith(undefined)
+    expect(api.setWorkspacePanelWidth).toHaveBeenCalledTimes(2)
+  })
+
+  it("starts from the saved panel width and exposes accessible, keyboard-driven tabs", async () => {
+    const api = fakeApi({
+      getSnapshot: async () => ({
+        ...SNAPSHOT,
+        workspacePanelWidth: 500,
+        subagents: [{ toolCallId: "one", title: "Coworker", status: "complete", tools: 1 }],
+      }),
+    })
+    await renderApp(api)
+    const panel = screen.getByLabelText("Workspace panel")
+    expect(
+      screen.getByRole("separator", { name: "Resize side panel" }).getAttribute("aria-valuenow"),
+    ).toBe("500")
+    expect(api.setWorkspacePanelWidth).not.toHaveBeenCalled()
+
+    const coworkers = screen.getByRole("tab", { name: "Coworkers" })
+    const canvas = screen.getByRole("tab", { name: "Canvas" })
+    const viewOf = (tab: HTMLElement) => {
+      const view = document.getElementById(tab.getAttribute("aria-controls") ?? "")
+      if (!view) throw new Error("tab panel is missing")
+      expect(view.getAttribute("role")).toBe("tabpanel")
+      expect(view.getAttribute("aria-labelledby")).toBe(tab.id)
+      return view
+    }
+    expect(viewOf(canvas).getAttribute("aria-hidden")).toBe("true")
+    expect(viewOf(coworkers).getAttribute("aria-hidden")).toBe("false")
+    expect(canvas.tabIndex).toBe(-1)
+    fireEvent.keyDown(coworkers, { key: "ArrowRight" })
+    expect(canvas.getAttribute("aria-selected")).toBe("true")
+    expect(document.activeElement).toBe(canvas)
+    expect(viewOf(canvas).getAttribute("aria-hidden")).toBe("false")
+    expect(coworkers.tabIndex).toBe(-1)
+    fireEvent.keyDown(canvas, { key: "ArrowRight" })
+    expect(coworkers.getAttribute("aria-selected")).toBe("true")
+    fireEvent.keyDown(coworkers, { key: "End" })
+    expect(canvas.getAttribute("aria-selected")).toBe("true")
+    fireEvent.keyDown(canvas, { key: "Home" })
+    expect(coworkers.getAttribute("aria-selected")).toBe("true")
+
+    fireEvent.keyDown(coworkers, { key: "Escape" })
+    expect(api.setAgentsPanelVisible).toHaveBeenCalledWith(false)
+    expect(panel.getAttribute("aria-label")).toBe("Workspace panel")
   })
 
   it("opens only the requested completed Mermaid block in one sandboxed Canvas renderer", async () => {
@@ -1352,6 +1398,98 @@ describe("AppShell settings navigation", () => {
     expect(within(panel).getByTitle("Mermaid diagram")).not.toBe(frame)
   })
 
+  it("announces Mermaid render failures reported by the sandboxed frame", async () => {
+    const withDiagram: DesktopSnapshot = {
+      ...SNAPSHOT,
+      entries: [
+        {
+          id: 1,
+          kind: "message",
+          speaker: "Otis",
+          text: "```mermaid\nflowchart LR\n  A --> B\n```",
+          streaming: false,
+        },
+      ],
+    }
+    await renderApp(fakeApi({ getSnapshot: vi.fn(async () => withDiagram) }))
+    fireEvent.click(screen.getByRole("button", { name: /^Open in Canvas:/ }))
+    const frame = screen.getByTitle("Mermaid diagram") as HTMLIFrameElement
+    const report = (source: Window | null, data: unknown) =>
+      act(() => {
+        window.dispatchEvent(new MessageEvent("message", { data, source }))
+      })
+    report({} as unknown as Window, { type: "otis-canvas-render", ok: false, message: "Spoofed" })
+    expect(screen.queryByRole("alert")).toBeNull()
+    report(frame.contentWindow, { type: "otis-canvas-render", ok: false, message: "Parse error" })
+    expect(screen.getByRole("alert").textContent).toBe("Parse error")
+    report(frame.contentWindow, { type: "otis-canvas-render", ok: true })
+    expect(screen.queryByRole("alert")).toBeNull()
+  })
+
+  it("keeps an opened diagram across revisions of the same artifact and yields to a new one", async () => {
+    let listener: ((event: DesktopEvent) => void) | undefined
+    const artifact = {
+      id: "workspace:resume.md",
+      revision: 1,
+      source: "workspace" as const,
+      kind: "markdown" as const,
+      title: "resume.md",
+      mimeType: "text/markdown",
+      editable: true,
+      path: "resume.md",
+    }
+    const withDiagram: DesktopSnapshot = {
+      ...SNAPSHOT,
+      artifact,
+      entries: [
+        {
+          id: 1,
+          kind: "message",
+          speaker: "Otis",
+          text: "```mermaid\nflowchart LR\n  A --> B\n```",
+          streaming: false,
+        },
+      ],
+    }
+    const api = fakeApi({
+      getSnapshot: vi.fn(async () => withDiagram),
+      getArtifact: vi.fn(async (revision: number) => ({
+        ok: true as const,
+        payload: { ...artifact, revision, encoding: "utf8" as const, content: "# Resume" },
+      })),
+      subscribe: vi.fn((fn: (event: DesktopEvent) => void) => {
+        listener = fn
+        return () => {}
+      }),
+    })
+    await renderApp(api)
+    const panel = screen.getByLabelText("Workspace panel")
+    expect(await within(panel).findByRole("heading", { name: "Resume" })).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: /^Open in Canvas:/ }))
+    expect(within(panel).getByTitle("Mermaid diagram")).toBeTruthy()
+    const { entries: _entries, revision: _revision, ...status } = withDiagram
+    act(() =>
+      listener?.({
+        type: "status",
+        revision: 2,
+        status: { ...status, artifact: { ...artifact, revision: 2 } },
+      }),
+    )
+    expect(within(panel).getByTitle("Mermaid diagram")).toBeTruthy()
+    act(() =>
+      listener?.({
+        type: "status",
+        revision: 3,
+        status: {
+          ...status,
+          artifact: { ...artifact, id: "workspace:cover.md", title: "cover.md", revision: 3 },
+        },
+      }),
+    )
+    expect(within(panel).queryByTitle("Mermaid diagram")).toBeNull()
+    expect(await within(panel).findByRole("heading", { name: "Resume" })).toBeTruthy()
+  })
+
   it("opens workspace documents in Canvas and refreshes them on artifact revisions", async () => {
     let listener: ((event: DesktopEvent) => void) | undefined
     const artifact = {
@@ -1365,10 +1503,13 @@ describe("AppShell settings navigation", () => {
       path: "resume.md",
     }
     const getArtifact = vi.fn(async (revision: number) => ({
-      ...artifact,
-      revision,
-      encoding: "utf8" as const,
-      content: revision === 1 ? "# First draft" : "# Updated draft",
+      ok: true as const,
+      payload: {
+        ...artifact,
+        revision,
+        encoding: "utf8" as const,
+        content: revision === 1 ? "# First draft" : "# Updated draft",
+      },
     }))
     const withArtifact: DesktopSnapshot = { ...SNAPSHOT, artifact }
     const api = fakeApi({
@@ -1469,10 +1610,13 @@ describe("AppShell settings navigation", () => {
       fakeApi({
         getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, artifact })),
         getArtifact: vi.fn(async () => ({
-          ...artifact,
-          encoding: "utf8" as const,
-          content:
-            "<!doctype html><html><head><title>Page</title></head><body><h1>Hello</h1></body></html>",
+          ok: true as const,
+          payload: {
+            ...artifact,
+            encoding: "utf8" as const,
+            content:
+              "<!doctype html><html><head><title>Page</title></head><body><h1>Hello</h1></body></html>",
+          },
         })),
       }),
     )
@@ -1495,6 +1639,22 @@ describe("AppShell settings navigation", () => {
       }),
       "*",
     )
+
+    // Link clicks relayed by the preview open in the system browser through the window-open path.
+    const open = vi.spyOn(window, "open").mockImplementation(() => null)
+    const relay = (source: Window | null, url: unknown) =>
+      act(async () => {
+        window.dispatchEvent(
+          new MessageEvent("message", { data: { type: "otis-webpage-link", url }, source }),
+        )
+      })
+    const current = () => (frame as HTMLIFrameElement).contentWindow
+    await relay({} as unknown as Window, "https://example.com/")
+    await relay(current(), "javascript:alert(1)")
+    await relay(current(), "file:///etc/passwd")
+    expect(open).not.toHaveBeenCalled()
+    await relay(current(), "https://example.com/docs")
+    expect(open).toHaveBeenCalledExactlyOnceWith("https://example.com/docs", "_blank", "noopener")
   })
 
   it("renders Word artifacts as styled semantic documents without script access", async () => {
@@ -1512,10 +1672,13 @@ describe("AppShell settings navigation", () => {
       fakeApi({
         getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, artifact })),
         getArtifact: vi.fn(async () => ({
-          ...artifact,
-          encoding: "html" as const,
-          content:
-            "<h1>Launch plan</h1><table><tr><th>State</th></tr><tr><td>Ready</td></tr></table>",
+          ok: true as const,
+          payload: {
+            ...artifact,
+            encoding: "html" as const,
+            content:
+              "<h1>Launch plan</h1><table><tr><th>State</th></tr><tr><td>Ready</td></tr></table>",
+          },
         })),
       }),
     )
@@ -1524,7 +1687,7 @@ describe("AppShell settings navigation", () => {
     const frame = document.querySelector('iframe[title="plan.docx"]')
     expect(frame).toBeTruthy()
     if (!frame) throw new Error("Word Canvas frame is missing")
-    expect(frame.getAttribute("sandbox")).toBe("allow-same-origin")
+    expect(frame.getAttribute("sandbox")).toBe("")
     expect(frame.getAttribute("srcdoc")).toContain("<h1>Launch plan</h1>")
     expect(frame.getAttribute("srcdoc")).toContain("border-collapse: collapse")
   })

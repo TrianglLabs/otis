@@ -36,28 +36,30 @@ export function AppShell() {
   const [installing, setInstalling] = useState(false)
   const [locateError, setLocateError] = useState<string | undefined>(undefined)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  // An opened diagram yields to a different session artifact or session; a refreshed revision of
+  // the same artifact keeps the diagram in view.
   const [openedCanvas, setOpenedCanvas] = useState<{
     sessionId: string | undefined
     artifact: CanvasArtifact
-    sharedRevision: number | undefined
+    sharedArtifactId: string | undefined
   }>()
   const nextCanvasId = useRef(0)
   const sessionId = state?.session?.id
   const sessionIdRef = useRef(sessionId)
   sessionIdRef.current = sessionId
-  const sharedArtifactRevisionRef = useRef(state?.artifact?.revision)
-  sharedArtifactRevisionRef.current = state?.artifact?.revision
+  const sharedArtifactIdRef = useRef(state?.artifact?.id)
+  sharedArtifactIdRef.current = state?.artifact?.id
   const openCanvas = useCallback((source: string) => {
     setOpenedCanvas({
       sessionId: sessionIdRef.current,
       artifact: { kind: "mermaid", id: ++nextCanvasId.current, source },
-      sharedRevision: sharedArtifactRevisionRef.current,
+      sharedArtifactId: sharedArtifactIdRef.current,
     })
   }, [])
   const openedDiagram =
     openedCanvas &&
     openedCanvas.sessionId === sessionId &&
-    openedCanvas.sharedRevision === state?.artifact?.revision
+    openedCanvas.sharedArtifactId === state?.artifact?.id
       ? openedCanvas.artifact
       : undefined
   const canvasArtifact =

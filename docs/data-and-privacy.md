@@ -29,6 +29,10 @@ the portable model request path; Otis sends the locally extracted text and bound
 SHA-256 used to distinguish attachments with the same filename, instead. That extracted
 content is still part of the hosted prompt when a hosted model is selected.
 
+Canvas previews and exports read workspace files through their resolved path and refuse symlinks that leave the
+workspace. A hard link inside the workspace to a file outside it is indistinguishable from an ordinary file and is
+read as workspace content; this is a known limitation of path-based checks.
+
 Saving an attachment for editing creates a separate private workspace file under the normal write policy. Bundled
 document helpers process files locally and do not call a document API. Installing their optional Python dependencies
 uses the Python package index; loading the skill alone performs no installation or network request.

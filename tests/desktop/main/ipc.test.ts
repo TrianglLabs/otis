@@ -128,3 +128,14 @@ it("rejects calls from anything but our own renderer", async () => {
     expect(() => stop({ sender: {}, senderFrame: { url } })).toThrow("untrusted sender")
   }
 })
+
+it("validates and forwards the workspace panel width", async () => {
+  const setWorkspacePanelWidth = vi.fn(async () => {})
+  const handler = handlerFor(DESKTOP_CHANNELS.setWorkspacePanelWidth, { setWorkspacePanelWidth })
+  await handler(420)
+  await handler(undefined)
+  expect(setWorkspacePanelWidth.mock.calls).toEqual([[420], [undefined]])
+  for (const width of [0, -5, Number.NaN, "420", null]) {
+    expect(() => handler(width)).toThrow("Invalid panel width")
+  }
+})

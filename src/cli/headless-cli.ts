@@ -6,13 +6,15 @@ import { sessionArtifactPublisher } from "../app/artifacts.js"
 import { resolveFireworksServing } from "../app/models.js"
 import { executeTurn } from "../app/turn-runner.js"
 import { autoCompactThreshold } from "../core/compaction.js"
-import { loadAttachmentFiles, validateAttachments } from "../inference/attachments.js"
-import { compactionContextLength } from "../inference/context-policy.js"
-import { loadImageFiles, validateImageAttachments } from "../inference/images.js"
+import { loadAttachmentFiles } from "../inference/attachments.js"
+import {
+  compactionContextLength,
+  reportedContextLengthIsServing,
+} from "../inference/context-policy.js"
+import { errorMessage } from "../inference/errors.js"
+import { loadImageFiles } from "../inference/images.js"
 import { findLocalModel, isLocalModelId } from "../inference/local-catalog.js"
 import {
-  createUserMessage,
-  imageAttachmentsFromMessages,
   lastAssistantText,
   messagesContainImages,
   userMessageAttachments,
@@ -108,8 +110,6 @@ export async function runHeadlessCommand(
     ]
     const hasImages = attachments.some((attachment) => attachment.type === "image")
     if (!prompt && attachments.length === 0) throw new Error("A prompt or attachment is required.")
-    validateAttachments(attachments)
-    const userMessage = createUserMessage(prompt, attachments)
 
     app = await Application.create({
       cwd,
@@ -148,9 +148,6 @@ export async function runHeadlessCommand(
       const spec = findLocalModel(model)
       if (!spec) throw new Error(`Unknown local model: ${model}`)
       modelSupportsImageInput = spec.supportsImageInput
-      if (hasImages && !spec.supportsImageInput) {
-        throw new Error(`Selected model does not support image input: ${model}`)
-      }
       const connected = await app.models.connect({
         provider: "local",
         modelId: model,
@@ -166,15 +163,9 @@ export async function runHeadlessCommand(
         signal: controller.signal,
       })
       modelSupportsImageInput = connected.supportsImageInput
-      if (hasImages && !modelSupportsImageInput) {
-        throw new Error(`Selected oMLX model does not support image input: ${model}`)
-      }
       client = connected.client
       modelContextLength = connected.contextLength
     } else if (modelProvider === "pair") {
-      if (hasImages && !modelSupportsImageInput) {
-        throw new Error(`Selected PAIR model does not support image input: ${model}`)
-      }
       const connected = await app.models.connect({
         provider: "pair",
         modelId: model,
@@ -190,9 +181,6 @@ export async function runHeadlessCommand(
       if (!fireworksApiKey) throw new Error("Fireworks API key is not configured.")
       if (parsed.model || (hasImages && modelSupportsImageInput === undefined))
         await resolveServing(fireworksApiKey)
-      if (hasImages && !modelSupportsImageInput) {
-        throw new Error(`Selected model does not support image input: ${model}`)
-      }
       const connected = await app.models.connect({
         provider: "fireworks",
         modelId: model,
@@ -231,15 +219,16 @@ export async function runHeadlessCommand(
       provider: modelProvider,
       contextLength: modelContextLength,
     })
-    if (sessionContainsImages && !modelSupportsImageInput) {
-      throw new Error(
-        `Selected model does not support image input required by this session: ${model}`,
-      )
-    }
 
     const replay = session?.replay()
     const history = replay?.messages ?? []
-    validateImageAttachments(imageAttachmentsFromMessages([...history, userMessage]))
+    // Images a PAIR server did not vouch for count as unsupported, like the interactive app.
+    if (modelProvider !== "fireworks")
+      app.models.supportsImageInput = modelSupportsImageInput === true
+    const userMessage = await app.buildPrompt(prompt, attachments, {
+      history,
+      signal: controller.signal,
+    })
     const admission = session ? await session.admitPrompt(userMessage) : undefined
     // `--tools` narrows the provider's catalog; it cannot enable a tool the provider does not
     // offer.
@@ -289,6 +278,7 @@ export async function runHeadlessCommand(
         skills: app.skills,
         tools,
         autoCompactAtTokens: autoCompactThreshold(modelContextLength),
+        trustReportedContextLength: reportedContextLengthIsServing(modelProvider),
         onCompactionUsage: async (nextUsage) => {
           usage = addUsage(usage, nextUsage)
           await reporter.usage(nextUsage)
@@ -441,10 +431,6 @@ function interruption(signal: AbortSignal) {
     return { exitCode: 124, message: `Timed out after ${reason.timeoutMs}ms.` }
   const message = reason?.signal ? `Interrupted by ${reason.signal}.` : undefined
   return { exitCode: reason?.signal === "SIGTERM" ? 143 : 130, message }
-}
-
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error)
 }
 
 const HEADLESS_HELP = `Usage: otis exec [options] [prompt...]

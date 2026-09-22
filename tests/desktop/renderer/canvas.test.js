@@ -62,3 +62,52 @@ it("localizes Canvas controls and existing errors without rerendering the diagra
   notify.mockRestore()
   document.body.innerHTML = ""
 })
+
+it("keeps zoom and pan across a theme re-render and resets them for a new diagram", async () => {
+  document.body.innerHTML =
+    '<div id="diagram"></div><div id="error"></div><div id="viewport"></div><div id="controls"></div><button id="zoom-out"></button><button id="zoom-in"></button><button id="reset-view"></button>'
+  vi.resetModules()
+  const listen = vi.spyOn(window, "addEventListener")
+  await import("../../../src/desktop/renderer/canvas.js")
+  const receive = listen.mock.calls.find(([type]) => type === "message")[1]
+  listen.mockRestore()
+  const notify = vi.spyOn(window.parent, "postMessage").mockImplementation(() => {})
+  vi.stubGlobal("mermaid", {
+    initialize: vi.fn(),
+    render: vi.fn(async () => ({ svg: '<svg viewBox="0 0 320 120"></svg>' })),
+  })
+  const colors = (accent) => ({
+    background: "white",
+    surface: "white",
+    text: "black",
+    muted: "gray",
+    accent,
+    border: "gray",
+  })
+  const send = (source, accent) =>
+    receive({
+      source: window.parent,
+      data: { type: "otis-canvas-source", source, colors: colors(accent) },
+    })
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
+  send("graph TD; A-->B", "blue")
+  await settle()
+  expect(notify).toHaveBeenLastCalledWith(
+    expect.objectContaining({ type: "otis-canvas-render", ok: true }),
+    "*",
+  )
+  document.getElementById("zoom-in").click()
+  document.getElementById("zoom-in").click()
+  expect(document.getElementById("reset-view").textContent).toBe("144%")
+  send("graph TD; A-->B", "red")
+  await settle()
+  expect(globalThis.mermaid.render).toHaveBeenCalledTimes(2)
+  expect(document.getElementById("reset-view").textContent).toBe("144%")
+  send("graph TD; A-->C", "red")
+  await settle()
+  expect(document.getElementById("reset-view").textContent).toBe("100%")
+  window.removeEventListener("message", receive)
+  notify.mockRestore()
+  vi.unstubAllGlobals()
+  document.body.innerHTML = ""
+})

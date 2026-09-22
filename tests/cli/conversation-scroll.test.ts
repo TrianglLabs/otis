@@ -45,15 +45,26 @@ const reasoningScript: AgentEvent[] = [
   },
 ]
 
-function conversationSink(ui: ChatUI, transcript: TranscriptStore, subagents: SubagentTraces) {
-  return {
-    renderTranscript: (options?: { scrollToBottom?: boolean }) =>
-      ui.renderTranscript(transcript.entries, options),
-    renderSubagents: () => ui.renderSubagents(subagents.all),
-    setPhase: (phase: "thinking" | "working") => ui.setAgentPhase(phase),
-    startBusy: () => ui.startBusyIndicator(),
-    stopBusy: () => ui.stopBusyIndicator(),
-  }
+/** The subset of the interactive app's event mapping that drives the transcript view. */
+function follow(
+  conversation: Conversation,
+  ui: ChatUI,
+  transcript: TranscriptStore,
+  subagents: SubagentTraces,
+) {
+  conversation.subscribe((event) => {
+    if (event.type === "render")
+      ui.renderTranscript(
+        transcript.entries,
+        event.scrollToBottom ? { scrollToBottom: true } : undefined,
+      )
+    else if (event.type === "subagents") ui.renderSubagents(subagents.all)
+    else if (event.type === "phase") ui.setAgentPhase(event.phase)
+    else if (event.type === "indicator") {
+      if (event.active) ui.startBusyIndicator()
+      else ui.stopBusyIndicator()
+    }
+  })
 }
 
 describe("conversation scrolling", () => {
@@ -93,18 +104,10 @@ describe("conversation scrolling", () => {
       permissionPolicy: () => createPermissionPolicy({ cwd, mode: "auto" }),
       isExiting: () => false,
       artifacts: new ArtifactStore(cwd),
+      gate: () => undefined,
     })
-    await conversation.start(
-      { role: "user", content: "hi" },
-      {
-        sink: conversationSink(harness.ui, transcript, subagents),
-        debug: false,
-        onContext: () => {},
-        onDiff: () => {},
-        onPermissionRequest: async () => true,
-        onCompletion: () => {},
-      },
-    )
+    follow(conversation, harness.ui, transcript, subagents)
+    await conversation.start({ role: "user", content: "hi" })
   }
 
   async function fillTranscript(

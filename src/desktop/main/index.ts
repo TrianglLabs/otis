@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs"
 import { mkdir } from "node:fs/promises"
 import { homedir } from "node:os"
 import { join } from "node:path"
+import { pathToFileURL } from "node:url"
 import { app, BrowserWindow, dialog, shell } from "electron"
 import electronUpdater from "electron-updater"
 import { localConfigDirectory, localDataDirectory } from "../../local/paths.js"
@@ -10,7 +11,7 @@ import { DESKTOP_CHANNELS } from "../contracts.js"
 import { configureAppIcon } from "./app-icon.js"
 import { initializeDevProfile, resolveDevData, shouldInitializeDevProfile } from "./dev-data.js"
 import { registerDesktopIpc } from "./ipc.js"
-import { handleRendererFailure, sendToRenderer } from "./renderer.js"
+import { guardFrameNavigation, handleRendererFailure, sendToRenderer } from "./renderer.js"
 import { DesktopRuntime } from "./runtime.js"
 import { handleClosedOutput } from "./stdio.js"
 import { createStatusTray, trayIconDir, trayStatusGate } from "./tray.js"
@@ -239,6 +240,10 @@ if (!app.requestSingleInstanceLock()) {
     })
     window.webContents.on("will-navigate", (event) => event.preventDefault())
     const devServerUrl = process.env.ELECTRON_RENDERER_URL
+    guardFrameNavigation(
+      window,
+      devServerUrl ?? pathToFileURL(join(__dirname, "../renderer/index.html")).href,
+    )
     const demo = process.env.OTIS_DEMO === "1"
     const loaded = devServerUrl
       ? window.loadURL(demo ? `${devServerUrl}?demo` : devServerUrl)

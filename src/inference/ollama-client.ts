@@ -4,6 +4,8 @@ import { ContextOverflowError, inferenceError, inferenceResponseError } from "./
 import { formatDocumentForModel, textContent } from "./messages.js"
 import {
   collectCompletionText,
+  fetchWithIdleTimeout,
+  LOCAL_IDLE_TIMEOUT_MS,
   normalizeLocalBaseURL,
   openaiChatCompletionRequest,
   requiredText,
@@ -38,11 +40,18 @@ export class OllamaClient implements InferenceClient {
   readonly model: string
   readonly #url: string
   readonly #fetch: typeof fetch
+  readonly #idleTimeoutMs: number
 
-  constructor(config: { model: string; baseURL: string; fetch?: typeof fetch }) {
+  constructor(config: {
+    model: string
+    baseURL: string
+    fetch?: typeof fetch
+    idleTimeoutMs?: number
+  }) {
     this.model = requiredText(config.model, "Ollama model")
     this.#url = `${normalizeLocalBaseURL(config.baseURL)}/api/chat`
     this.#fetch = config.fetch ?? fetch
+    this.#idleTimeoutMs = config.idleTimeoutMs ?? LOCAL_IDLE_TIMEOUT_MS
   }
 
   async *streamChat(options: StreamChatOptions): AsyncGenerator<ChatStreamEvent> {
@@ -51,61 +60,69 @@ export class OllamaClient implements InferenceClient {
       // other transport.
       const request = openaiChatCompletionRequest(this.model, options)
       const names = new Map<string, string>()
-      const response = await this.#fetch(this.#url, {
-        method: "POST",
-        headers: { accept: "application/x-ndjson", "content-type": "application/json" },
-        signal: options.signal,
-        redirect: "error",
-        body: JSON.stringify({
-          model: this.model,
-          messages: [
-            request.messages[0],
-            ...toolCallHistoryForRequest(options.messages).map((message) => {
-              if (message.role === "user") {
-                if (typeof message.content === "string") return message
-                return {
-                  role: "user",
-                  content: message.content
-                    .filter((part) => part.type !== "image")
-                    .map((part) =>
-                      part.type === "document" ? formatDocumentForModel(part) : part.text,
-                    )
-                    .join("\n"),
-                  images: message.content
-                    .filter((part) => part.type === "image")
-                    .map((part) => part.data),
+      const response = await fetchWithIdleTimeout(
+        this.#fetch,
+        this.#url,
+        {
+          method: "POST",
+          headers: { accept: "application/x-ndjson", "content-type": "application/json" },
+          signal: options.signal,
+          redirect: "error",
+          body: JSON.stringify({
+            model: this.model,
+            messages: [
+              request.messages[0],
+              ...toolCallHistoryForRequest(options.messages).map((message) => {
+                if (message.role === "user") {
+                  if (typeof message.content === "string") return message
+                  return {
+                    role: "user",
+                    content: message.content
+                      .filter((part) => part.type !== "image")
+                      .map((part) =>
+                        part.type === "document" ? formatDocumentForModel(part) : part.text,
+                      )
+                      .join("\n"),
+                    images: message.content
+                      .filter((part) => part.type === "image")
+                      .map((part) => part.data),
+                  }
                 }
-              }
-              if (message.role === "tool") {
-                return {
-                  role: "tool",
-                  content: message.content,
-                  tool_call_id: message.toolCallId,
-                  tool_name: names.get(message.toolCallId),
+                if (message.role === "tool") {
+                  return {
+                    role: "tool",
+                    content: message.content,
+                    tool_call_id: message.toolCallId,
+                    tool_name: names.get(message.toolCallId),
+                  }
                 }
-              }
-              const calls = message.content.flatMap((part) => {
-                if (part.type !== "tool_call") return []
-                names.set(part.toolCall.id, part.toolCall.name)
-                const { id, name } = part.toolCall
-                return [{ id, function: { name, arguments: JSON.parse(part.toolCall.arguments) } }]
-              })
-              return {
-                role: "assistant",
-                content: textContent(message.content),
-                thinking: message.content
-                  .map((part) => (part.type === "reasoning" ? part.text : ""))
-                  .join(""),
-                ...(calls.length ? { tool_calls: calls } : {}),
-              }
-            }),
-          ],
-          ...(request.tools ? { tools: request.tools } : {}),
-          stream: true,
-          truncate: false,
-          shift: false,
-        }),
-      })
+                const calls = message.content.flatMap((part) => {
+                  if (part.type !== "tool_call") return []
+                  names.set(part.toolCall.id, part.toolCall.name)
+                  const { id, name } = part.toolCall
+                  return [
+                    { id, function: { name, arguments: JSON.parse(part.toolCall.arguments) } },
+                  ]
+                })
+                return {
+                  role: "assistant",
+                  content: textContent(message.content),
+                  thinking: message.content
+                    .map((part) => (part.type === "reasoning" ? part.text : ""))
+                    .join(""),
+                  ...(calls.length ? { tool_calls: calls } : {}),
+                }
+              }),
+            ],
+            ...(request.tools ? { tools: request.tools } : {}),
+            stream: true,
+            truncate: false,
+            shift: false,
+          }),
+        },
+        this.#idleTimeoutMs,
+        "Ollama",
+      )
       if (!response.ok) throw await inferenceResponseError(response, "Ollama")
       if (!response.body) throw new Error("Ollama response did not include a stream body")
 

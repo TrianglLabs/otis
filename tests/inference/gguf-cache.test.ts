@@ -111,7 +111,10 @@ describe("local GGUF cache", () => {
     const dest = await ensureLocalGguf(model, {
       dataDirectory: directory,
       fetch: fetchImpl,
-      onProgress: (percent) => percents.push(percent),
+      onProgress: ({ phase, percent }) => {
+        expect(phase).toBe("download")
+        percents.push(percent)
+      },
     })
 
     expect(String(fetchImpl.mock.calls[0]?.[0])).toBe(
@@ -137,11 +140,40 @@ describe("local GGUF cache", () => {
       async () => new Response("no", { status: 500 }),
     ) as unknown as typeof fetch
 
-    await ensureLocalGguf(model, { dataDirectory: directory, fetch: fetchImpl })
+    const progress: Array<{ phase: string; percent: number }> = []
+    await ensureLocalGguf(model, {
+      dataDirectory: directory,
+      fetch: fetchImpl,
+      onProgress: (event) => progress.push(event),
+    })
     await ensureLocalGguf(model, { dataDirectory: directory, fetch: fetchImpl })
 
     expect(fetchImpl).not.toHaveBeenCalled()
     await expect(readFile(`${dest}.otis.json`, "utf8")).resolves.toContain(model.ggufRevision)
+    // Hashing a cached file is reported as verification, ending before the completion mark.
+    expect(progress).toEqual([
+      { phase: "verifying", percent: 100 },
+      { phase: "download", percent: 100 },
+    ])
+  })
+
+  it("reports verification progress while hashing a large legacy cache", async () => {
+    const body = new Uint8Array(4 * 1024 ** 2).fill(7)
+    const model = tinyModel(body)
+    const directory = await tempDir()
+    await mkdir(join(directory, "models"), { recursive: true })
+    await writeFile(localGgufPath(model, directory), body)
+    const verifying: number[] = []
+    await ensureLocalGguf(model, {
+      dataDirectory: directory,
+      fetch: response(body),
+      onProgress: ({ phase, percent }) => {
+        if (phase === "verifying") verifying.push(percent)
+      },
+    })
+    expect(verifying.length).toBeGreaterThan(1)
+    expect(verifying).toEqual([...verifying].sort((a, b) => a - b))
+    expect(verifying.at(-1)).toBe(100)
   })
 
   it("replaces a same-size cached file whose checksum is wrong", async () => {
@@ -171,9 +203,20 @@ describe("local GGUF cache", () => {
         headers: { "content-length": "3", "content-range": "bytes 3-5/6" },
       })
     }) as unknown as typeof fetch
+    const progress: Array<{ phase: string; percent: number }> = []
 
-    await ensureLocalGguf(model, { dataDirectory: directory, fetch: fetchImpl })
+    await ensureLocalGguf(model, {
+      dataDirectory: directory,
+      fetch: fetchImpl,
+      onProgress: (event) => progress.push(event),
+    })
 
+    // The kept prefix is hashed before the range response is appended to it.
+    expect(progress).toEqual([
+      { phase: "verifying", percent: 50 },
+      { phase: "download", percent: 50 },
+      { phase: "download", percent: 100 },
+    ])
     expect(fetchImpl).toHaveBeenCalledOnce()
     expect(await readFile(dest)).toEqual(Buffer.from(body))
     await expect(stat(`${dest}.partial`)).rejects.toMatchObject({ code: "ENOENT" })
@@ -223,8 +266,8 @@ describe("local GGUF cache", () => {
         dataDirectory: directory,
         signal: abort.signal,
         fetch: response(body.slice(0, 2), model.ggufFiles[0].size),
-        onProgress: (percent) => {
-          if (percent === 50) abort.abort()
+        onProgress: ({ phase, percent }) => {
+          if (phase === "download" && percent === 50) abort.abort()
         },
       }),
     ).rejects.toMatchObject({ name: "AbortError" })
@@ -451,7 +494,7 @@ describe("local GGUF cache", () => {
     const primary = await ensureLocalGguf(model, {
       dataDirectory: directory,
       fetch: fetchImpl,
-      onProgress: (percent) => percents.push(percent),
+      onProgress: ({ percent }) => percents.push(percent),
     })
     const paths = localGgufPaths(model, directory)
 

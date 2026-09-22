@@ -12,7 +12,10 @@ Managed local inference supports macOS and Linux on arm64 and x64. For a good ex
 
 CPU-only inference remains available on supported systems, but it is slower. On Linux, llama.cpp can split a model
 between GPU memory and system RAM, so the complete model does not need to fit in VRAM. Integrated graphics (AMD APUs
-such as Strix Halo, Intel iGPUs) share system RAM and are budgeted from it, like Apple unified memory.
+such as Strix Halo, Intel iGPUs) share system RAM and are budgeted from it, like Apple unified memory; Intel iGPUs use
+the CPU recommendation order. `CUDA_VISIBLE_DEVICES` (indexes or UUIDs) limits which NVIDIA GPUs are budgeted. MIG
+partitions are budgeted individually when their memory is readable, otherwise the whole GPU is budgeted with a note.
+Inside a container, the cgroup memory limit caps the host memory Otis budgets.
 
 On unsupported platforms, managed models appear unavailable before any download begins.
 
@@ -46,8 +49,9 @@ not publish a Linux arm64 CUDA binary, so Bonsai keeps Vulkan there.
 Otis also retries with Vulkan if the CUDA server exits during model loading with a recognizable CUDA backend
 error. Fallback runs strictly CUDA, then Vulkan, then the CPU build: when Vulkan reports no device or exits with a
 recognizable Vulkan error, Otis loads the model on the pinned CPU runtime and reports why, including the CUDA and
-Vulkan causes. Download or checksum failures, cancellation, and unrelated model errors do not trigger a backend
-switch. CPU-only machines still use the CPU runtime directly.
+Vulkan causes. The notice appears in the transcript, in both the terminal and the desktop. Download or checksum
+failures, cancellation, and unrelated model errors do not trigger a backend switch. CPU-only machines still use the
+CPU runtime directly.
 
 Existing CUDA toolkit and driver installations are left untouched. Libraries stay in Otis's own data directory. For
 managed Linux servers and their device checks, Otis puts the bundle first in the child process's library search path,
@@ -58,14 +62,16 @@ on macOS), GPU visibility (`CUDA_*`, `NVIDIA_*`, `GGML_*`, `VK_*`, `MTL_*`), and
 and provider keys never reach the server. A custom `OTIS_LLAMA_SERVER` retains its loader settings and bypasses
 automatic backend selection.
 
-After updating Otis, the next managed model load downloads the new runtime when needed. Existing GGUF downloads and
-sessions are retained. CUDA, Vulkan, and CPU bundles can coexist (on Linux the CPU build installs beside the others),
+After updating Otis, the next managed model load downloads the new runtime when needed. Runtime archives download
+to `<data>/llama/downloads` and resume by byte range after an interruption; a verified server archive survives a
+failed CUDA companion download and is reused on the retry; one Otis process downloads a given bundle at a time.
+Existing GGUF downloads and sessions are retained. CUDA, Vulkan, and CPU bundles can coexist (on Linux the CPU build installs beside the others),
 and obsolete runtime releases are cleaned up after the new runtime is available. Both the terminal and desktop use
 this same selection and upgrade path.
 
-Otis records its managed server (`<data>/llama/server.json`) while it runs. If Otis crashes and leaves the server
-behind, the next model load stops that orphan before starting a new one; a server owned by another running Otis is
-left alone. If the server dies during a session, the next request reports its exit code or signal with the last log
+Otis records its managed server (`<data>/llama/servers/<pid>.json`, one file per Otis process) while it runs. If
+Otis crashes and leaves the server behind, the next model load stops that orphan before starting a new one; a server
+whose owning Otis is still running is left alone. Records from the earlier single-file layout are removed. If the server dies during a session, the next request reports its exit code or signal with the last log
 lines, and reselecting the model restarts it.
 
 For Bonsai 2, Otis also selects the packing automatically. It uses the 5.95 GB `PTQ1_0` packing with up to 8 GiB of
@@ -109,29 +115,30 @@ Examples with a dedicated GPU:
 | --- | --- |
 | 4 GiB | Qwen3.8 Flash Next when host RAM holds it, else the CPU order |
 | 6–8 GiB | LFM2.5 2.6B |
-| 12 GiB | Ornith 1.5 9B / Gemma 4 12B |
-| 16–24 GiB | Bonsai 2 27B |
-| 32–80 GiB | Qwen3.8 27B |
-| 96–256 GiB | Qwen3.8 Flash Next |
+| 12–20 GiB | Bonsai 2 27B (its PTQ1 packing at 12 GiB fits by a few hundred MiB; CUDA's PQ2 packing needs 16 GiB) |
+| 24–64 GiB | Qwen3.8 27B |
+| 80–256 GiB | Qwen3.8 Flash Next |
 | 384 GiB and above | GLM-5.3 |
 
-On Apple silicon, Metal can wire at most the GPU working set (`recommendedMaxWorkingSetSize`): about two thirds of
-unified memory up to 36 GiB and three quarters above. Otis models that working set, reserves llama.cpp's 1 GiB margin
-inside it, and stars only models that hold 64K there; the rest of memory stays with the system. With the default
-working set:
+On Apple silicon, Metal can wire at most the GPU working set (`recommendedMaxWorkingSetSize`). macOS 15 and earlier
+report about two thirds of unified memory up to 36 GiB and three quarters above; macOS 26 and later report 78% (an
+M2 Max with 32 GiB and an M4 Max with 36 GiB both measure 78%, rounded up to a 16 KiB page), which Otis applies from
+32 GiB up. Otis models that working set, reserves llama.cpp's 1 GiB margin inside it, and stars only models that
+hold 64K there; the rest of memory stays with the system. With the default working set:
 
-| Unified memory | Recommended model |
-| --- | --- |
-| 8 GiB | LFM2.5 2.6B |
-| 16–18 GiB | Ornith 1.5 9B / Gemma 4 12B |
-| 24–36 GiB | Bonsai 2 27B |
-| 48–96 GiB | Qwen3.8 27B |
-| 128–384 GiB | Qwen3.8 Flash Next |
-| 512 GiB | GLM-5.3 |
+| Unified memory | Recommended model (macOS 15) | Recommended model (macOS 26 and later) |
+| --- | --- | --- |
+| 8 GiB | LFM2.5 2.6B | LFM2.5 2.6B |
+| 16–18 GiB | Ornith 1.5 9B / Gemma 4 12B | Ornith 1.5 9B / Gemma 4 12B |
+| 24 GiB | Bonsai 2 27B | Bonsai 2 27B |
+| 32 GiB | Bonsai 2 27B | Qwen3.8 27B |
+| 36–96 GiB | Qwen3.8 27B | Qwen3.8 27B |
+| 128–384 GiB | Qwen3.8 Flash Next | Qwen3.8 Flash Next |
+| 512 GiB | GLM-5.3 | GLM-5.3 |
 
 The working set can be raised with `sudo sysctl iogpu.wired_limit_mb=<MiB>` (it resets at reboot); Otis reads that
-value at startup and budgets against it. Leave the system a few GiB: for example `26624` lets a 36 GiB Mac star
-Qwen3.8 27B, `86016` lets a 96 GiB Mac star Qwen3.8 Flash Next, and `344064` lets a 384 GiB Mac star GLM-5.3.
+value at startup and budgets against it. Leave the system a few GiB: for example `86016` lets a 96 GiB Mac star
+Qwen3.8 Flash Next, and `344064` lets a 384 GiB Mac star GLM-5.3.
 These are examples, not hard tier boundaries: exact artifact sizes and detected memory determine fit. Smaller systems
 fall back to smaller fitting models, and larger systems have no artificial upper cutoff. CPU-only systems follow the
 host-bandwidth order above; this is not a throughput guarantee.
@@ -140,8 +147,8 @@ Local rows list starred models first, then the rest of the preference order, the
 
 Otis checks that the cache volume has room for the remaining bytes before a download starts, counting cached and
 partial files, and fails early with the needed and available sizes otherwise. It verifies the pinned size and checksum
-of every completed artifact. Interrupted model downloads resume from a partial file, but the final files must still
-pass verification. A download lock that its holder stops refreshing expires after a minute, so a crashed download
+of every completed artifact, and shows `Verifying N%` while hashing a cached or resumed file. Interrupted model
+downloads resume from a partial file, but the final files must still pass verification. A download lock that its holder stops refreshing expires after a minute, so a crashed download
 never blocks the next one. The picker shows download progress and marks cached models as `Downloaded`.
 
 The managed server listens only on `127.0.0.1`. Otis starts it with llama.cpp's Jinja chat-template support and keeps
@@ -150,12 +157,18 @@ tool execution in the Otis runtime instead of enabling llama.cpp's built-in tool
 ## Context and memory estimates
 
 For a model that is not running, the picker labels its calculated context as `Est.`. The `memory` figure is the
-estimated use: the selected GGUF files, the model's KV cache at that context, and 1.5 GiB for runtime buffers. Otis
-separately reserves 15% of Apple unified memory (at least 3 GiB) or 10% of other system RAM (at least 2 GiB) for the
-host, and 1 GiB per GPU—llama.cpp's default `--fit-target`—inside the GPU budget. Unified memory is one pool; Otis
-does not add it twice as RAM and VRAM, and a Mac's GPU budget is the Metal working set less that margin. A dedicated
-GPU holds a GPU-resident model on its own; a model that spills layers must fit GPU plus host memory. These are capacity
-estimates, not a guarantee against other applications consuming memory.
+estimated use: the selected GGUF files, the model's KV cache at that context, and the runtime buffers llama.cpp
+reserves for one 512-token micro-batch: an f32 logits slice (`vocab_size` × 512 × 4 bytes), an f16 attention mask
+on the host and on the device (2 × context × 512 × 2 bytes), eight widths of activations (8 × `hidden_size` × 512 ×
+4 bytes), and a 512 MiB floor for the process. For the catalog that is 0.9 to 1.25 GiB at 64K and up to 2.9 GiB for
+GLM-5.3 at its 1M native context; the pinned runtime reports 409 MiB of device and 136 MiB of host compute buffers
+for LFM2.5 2.6B at 128K against 538 MiB modeled. A sliding-window cache holds its window plus one micro-batch, in
+256-cell steps (1,536 cells for Gemma 4, 768 for gpt-oss), as llama.cpp allocates it. Otis separately reserves 15% of
+Apple unified memory (at least 3 GiB) or 10% of other system RAM (at least 2 GiB) for the host, and 1 GiB per
+GPU—llama.cpp's default `--fit-target`—inside the GPU budget. Unified memory is one pool; Otis does not add it
+twice as RAM and VRAM, and a Mac's GPU budget is the Metal working set less that margin. A dedicated GPU holds a
+GPU-resident model on its own; a model that spills layers must fit GPU plus host memory. These are capacity estimates,
+not a guarantee against other applications consuming memory.
 
 At startup, llama.cpp performs the authoritative fit and chooses the actual context and GPU offload. Otis reads the
 loaded context from the server and labels it `loaded` for the active model. On Linux with a discrete GPU, layers that

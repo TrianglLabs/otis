@@ -99,8 +99,9 @@ Otis must say when it has checked structure and content but has not visually rev
 the user inspect the result, but showing a preview does not prove the model inspected it.
 
 Canvas's **Save a copy** action saves the original bytes of the displayed document, including a selected older
-published revision. Word exports stay DOCX even though their preview is HTML. Choosing a destination uses the native
-Save dialog; cancelling does not write a file. A changed selection or session during preparation invalidates the export.
+published revision, and works even when the preview itself could not render. Word exports stay DOCX even though
+their preview is HTML. Choosing a destination uses the native Save dialog; cancelling does not write a file. A changed
+selection or session during preparation invalidates the export.
 
 Scanned PDFs require a separate OCR workflow. The helper does not provide image editing, complex-script shaping,
 unrestricted PDF page reflow, spreadsheets, or slides. Text/Markdown/code use the normal file tools. Unsupported

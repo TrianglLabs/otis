@@ -1627,7 +1627,7 @@ async function runDesktopUiChecks() {
   pdfHost.style.cssText = "display:flex;width:560px;height:600px"
   document.body.append(pdfHost)
   const pdfRoot = createRoot(pdfHost)
-  pdfRoot.render(<PdfPreview source={pdfFixture(120)} />)
+  pdfRoot.render(<PdfPreview data={pdfFixture(120)} />)
   await untilSlow(
     () => (pdfHost.querySelector<HTMLCanvasElement>(".canvas-pdfPage")?.width ?? 0) > 300,
     "Long PDF did not render its first page",
@@ -1688,9 +1688,8 @@ async function runDesktopUiChecks() {
   }
   const artifactApi = createDemoRuntime()
   artifactApi.getArtifact = async () => ({
-    ...artifact,
-    encoding: "utf8",
-    content: "# Saved document",
+    ok: true,
+    payload: { ...artifact, kind: "markdown", encoding: "utf8", content: "# Saved document" },
   })
   artifactRoot.render(
     <DesktopProvider value={{ api: artifactApi, store: new DesktopViewStore(artifactApi) }}>

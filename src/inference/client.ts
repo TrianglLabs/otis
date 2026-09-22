@@ -1,6 +1,8 @@
 import { inferenceResponseError } from "./errors.js"
 import {
   collectCompletionText,
+  DEFAULT_IDLE_TIMEOUT_MS,
+  fetchWithIdleTimeout,
   inferenceEndpointURL,
   openaiChatCompletionRequest,
   requiredText,
@@ -25,6 +27,7 @@ export class FireworksClient implements InferenceClient {
   readonly #apiKey: string
   readonly #fetch: typeof fetch
   readonly #inferenceURL: string
+  readonly #idleTimeoutMs: number
 
   constructor(config: FireworksClientConfig) {
     this.#apiKey = requiredText(config.apiKey, "Fireworks API key")
@@ -34,24 +37,31 @@ export class FireworksClient implements InferenceClient {
       config.inferenceURL ?? DEFAULT_INFERENCE_URL,
       "Fireworks inference URL",
     )
+    this.#idleTimeoutMs = config.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS
   }
 
   async *streamChat(options: StreamChatOptions) {
-    const response = await this.#fetch(this.#inferenceURL, {
-      method: "POST",
-      headers: {
-        accept: "text/event-stream",
-        authorization: `Bearer ${this.#apiKey}`,
-        "content-type": "application/json",
+    const response = await fetchWithIdleTimeout(
+      this.#fetch,
+      this.#inferenceURL,
+      {
+        method: "POST",
+        headers: {
+          accept: "text/event-stream",
+          authorization: `Bearer ${this.#apiKey}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(
+          openaiChatCompletionRequest(this.model, options, {
+            reasoningEffort: fireworksReasoningEffort(this.model, options.minimalReasoning),
+            serviceTier: fireworksServiceTier(this.model),
+          }),
+        ),
+        signal: options.signal,
       },
-      body: JSON.stringify(
-        openaiChatCompletionRequest(this.model, options, {
-          reasoningEffort: fireworksReasoningEffort(this.model, options.minimalReasoning),
-          serviceTier: fireworksServiceTier(this.model),
-        }),
-      ),
-      signal: options.signal,
-    })
+      this.#idleTimeoutMs,
+      "Fireworks",
+    )
     if (!response.ok) throw await inferenceResponseError(response, "Fireworks")
     if (!response.body) throw new Error("Fireworks response did not include a stream body")
     yield* parseChatCompletionStream(response.body)

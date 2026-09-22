@@ -20,6 +20,99 @@ import type {
   UserContentPart,
 } from "./types.js"
 
+/** Hosted streams that stay silent this long are abandoned. */
+export const DEFAULT_IDLE_TIMEOUT_MS = 5 * 60 * 1000
+/** Local servers may spend minutes on prompt processing before the first token. */
+export const LOCAL_IDLE_TIMEOUT_MS = 10 * 60 * 1000
+
+/**
+ * Fetches with an inactivity limit: the request is abandoned when neither headers nor a further
+ * body chunk arrive within `idleTimeoutMs`, and every chunk restarts the clock. The returned
+ * response body is the guarded stream, so JSON and event-stream readers share the same limit.
+ */
+export async function fetchWithIdleTimeout(
+  fetchImpl: typeof fetch,
+  url: string,
+  init: RequestInit,
+  idleTimeoutMs: number,
+  label: string,
+): Promise<Response> {
+  const idle = new AbortController()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const arm = () => {
+    clearTimeout(timer)
+    timer = setTimeout(
+      () =>
+        idle.abort(
+          new Error(
+            `${label} sent no data for ${formatInterval(idleTimeoutMs)}; the request timed out.`,
+          ),
+        ),
+      idleTimeoutMs,
+    )
+    timer.unref?.()
+  }
+  const signal = init.signal ? AbortSignal.any([init.signal, idle.signal]) : idle.signal
+  // Fakes and stalled sockets alike settle through the signal, not only through fetch itself.
+  const abortion = new Promise<never>((_resolve, reject) => {
+    signal.addEventListener("abort", () => reject(signal.reason), { once: true })
+  })
+  const settle = () => {
+    clearTimeout(timer)
+    // The rejection is observed by whichever race already used it; a later one must not leak.
+    abortion.catch(() => undefined)
+  }
+  arm()
+  signal.throwIfAborted()
+  let response: Response
+  try {
+    response = await Promise.race([fetchImpl(url, { ...init, signal }), abortion])
+  } catch (error) {
+    settle()
+    throw error
+  }
+  if (!response.body) {
+    settle()
+    return response
+  }
+  arm()
+  const reader = response.body.getReader()
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      let chunk: ReadableStreamReadResult<Uint8Array>
+      try {
+        chunk = await Promise.race([reader.read(), abortion])
+      } catch (error) {
+        settle()
+        await reader.cancel(error).catch(() => undefined)
+        throw error
+      }
+      if (chunk.done) {
+        settle()
+        controller.close()
+        return
+      }
+      arm()
+      controller.enqueue(chunk.value)
+    },
+    async cancel(reason) {
+      settle()
+      await reader.cancel(reason).catch(() => undefined)
+    },
+  })
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  })
+}
+
+function formatInterval(ms: number) {
+  if (ms < 1_000) return `${ms} ms`
+  const [value, unit] = ms < 60_000 ? [ms / 1_000, "second"] : [ms / 60_000, "minute"]
+  return `${value} ${unit}${value === 1 ? "" : "s"}`
+}
+
 export function openaiChatCompletionRequest(
   model: string,
   options: StreamChatOptions,
@@ -253,6 +346,7 @@ type OpenAICompatibleClientConfig = {
   requestLabel: string
   fetch?: typeof fetch
   apiKey?: string
+  idleTimeoutMs?: number
 }
 
 /** Shared transport for local OpenAI-compatible inference servers. */
@@ -262,6 +356,7 @@ export class OpenAICompatibleClient implements InferenceClient {
   readonly #inferenceURL: string
   readonly #apiKey: string | undefined
   readonly #requestLabel: string
+  readonly #idleTimeoutMs: number
 
   constructor(config: OpenAICompatibleClientConfig) {
     this.model = requiredText(config.model, config.modelLabel)
@@ -269,6 +364,7 @@ export class OpenAICompatibleClient implements InferenceClient {
     this.#inferenceURL = inferenceEndpointURL(config.inferenceURL, config.inferenceURLLabel)
     this.#apiKey = config.apiKey?.trim() || undefined
     this.#requestLabel = config.requestLabel
+    this.#idleTimeoutMs = config.idleTimeoutMs ?? LOCAL_IDLE_TIMEOUT_MS
   }
 
   async *streamChat(options: StreamChatOptions) {
@@ -289,17 +385,23 @@ export class OpenAICompatibleClient implements InferenceClient {
   protected async request(options: StreamChatOptions, suffix = "") {
     const url = new URL(this.#inferenceURL)
     url.pathname = `${url.pathname.replace(/\/$/, "")}${suffix}`
-    const response = await this.#fetch(url.toString(), {
-      method: "POST",
-      headers: {
-        accept: suffix ? "application/json" : "text/event-stream",
-        "content-type": "application/json",
-        ...(this.#apiKey ? { authorization: `Bearer ${this.#apiKey}` } : {}),
+    const response = await fetchWithIdleTimeout(
+      this.#fetch,
+      url.toString(),
+      {
+        method: "POST",
+        headers: {
+          accept: suffix ? "application/json" : "text/event-stream",
+          "content-type": "application/json",
+          ...(this.#apiKey ? { authorization: `Bearer ${this.#apiKey}` } : {}),
+        },
+        body: JSON.stringify(this.requestBody(options)),
+        signal: options.signal,
+        redirect: "error",
       },
-      body: JSON.stringify(this.requestBody(options)),
-      signal: options.signal,
-      redirect: "error",
-    })
+      this.#idleTimeoutMs,
+      this.#requestLabel,
+    )
     if (!response.ok) throw await inferenceResponseError(response, this.#requestLabel)
     return response
   }

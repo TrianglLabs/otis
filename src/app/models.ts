@@ -5,8 +5,13 @@ import {
   listToolCapableModels,
 } from "../inference/client.js"
 import { compactionContextLength, requireLocalContextLength } from "../inference/context-policy.js"
+import { errorMessage } from "../inference/errors.js"
 import { detectHardware, type HardwareProbe } from "../inference/hardware.js"
-import { LlamaCppRuntime, type LocalLoadProgress } from "../inference/llama-runtime.js"
+import {
+  formatLocalLoadStatus,
+  LlamaCppRuntime,
+  type LocalLoadProgress,
+} from "../inference/llama-runtime.js"
 import {
   catalogModelFromSpec,
   findLocalModel,
@@ -22,6 +27,7 @@ import {
 } from "../inference/local-thinking.js"
 import { discoverOmlxModels, OmlxClient, type OmlxSettings } from "../inference/omlx.js"
 import { createPairClient, pairEndpointForEngine } from "../inference/pair.js"
+import type { ModelPickerStatus } from "../inference/picker-catalog.js"
 import {
   findFireworksModel,
   fireworksServingModel,
@@ -43,6 +49,19 @@ type ActiveLocalModel = {
   hardware: HardwareProbe
   contextLength: number
 }
+
+/**
+ * Lifecycle of the selected model's inference client. Prompts are only accepted in the `ready`
+ * state, which is exactly "a client exists".
+ */
+export type ModelState = "unconfigured" | "starting" | "ready" | "failed"
+
+/**
+ * Progress or terminal error of a model load in flight, keyed by picker row. Progress entries
+ * clear when the load completes; error entries stay until the next selection attempt so an open
+ * picker can show the failure.
+ */
+export type ModelLoad = { modelId: string; status: ModelPickerStatus }
 
 type PreparedModelSelection = {
   /** The exact serving model resolved during preparation, including its runtime context. */
@@ -82,6 +101,8 @@ export type PersistSelectionOptions = PrepareModelOptions & {
   persist: (serving: CatalogModel) => Promise<void>
   isClosed?: () => boolean
   wrap?: (prepared: PreparedModelSelection) => PreparedModelSelection
+  /** The picker row that shows progress and failure; PAIR and oMLX rows are keyed by selectionKey. */
+  loadKey?: string
 }
 
 type ModelHostOptions = {
@@ -92,23 +113,79 @@ type ModelHostOptions = {
 export class ModelHost {
   readonly llama: LlamaCppRuntime
   omlx: OmlxSettings | undefined
-  client: InferenceClient | undefined
   selectedId: string | undefined
   selectedProvider: ModelProvider | undefined
+  /** Display metadata of the selection, from settings at launch and the catalog on activation. */
+  displayName: string | undefined
+  fastId: string | undefined
   pairEngine: PairEngine | undefined
   supportsImageInput: boolean | undefined
   autoCompactAtTokens = autoCompactThreshold()
   activeLocal: ActiveLocalModel | undefined
   localThinking: LocalThinkingPreferences = {}
+  load: ModelLoad | undefined
+  /** Adapters set this to show one-time serving notices, such as a backend fallback. */
+  onNotice: ((message: string) => void) | undefined
   /** The compaction window of the active selection, kept so a thinking change can re-budget. */
   #contextLength: number | undefined
+  #client: InferenceClient | undefined
+  #state: Exclude<ModelState, "ready"> = "unconfigured"
+  #error: string | undefined
+  #selecting = 0
   #prepareId = 0
   #selectionId = 0
   #selectionController: AbortController | undefined
   #selectionTail: Promise<void> = Promise.resolve()
+  readonly #listeners = new Set<() => void>()
 
   constructor(options: ModelHostOptions = {}) {
     this.llama = options.llama ?? new LlamaCppRuntime({ env: options.env })
+  }
+
+  get client() {
+    return this.#client
+  }
+
+  set client(client: InferenceClient | undefined) {
+    this.#client = client
+    this.#notify()
+  }
+
+  /** A live client is the ready state; the explicit states only describe its absence. */
+  get state(): ModelState {
+    return this.#client ? "ready" : this.#state
+  }
+
+  get error() {
+    return this.#client ? undefined : this.#error
+  }
+
+  /** A selection request is open: from enqueue until it commits, fails, or is superseded. */
+  get selecting() {
+    return this.#selecting > 0
+  }
+
+  setState(state: Exclude<ModelState, "ready">, error?: string) {
+    this.#state = state
+    this.#error = error
+    this.#notify()
+  }
+
+  setLoad(load: ModelLoad | undefined) {
+    this.load = load
+    this.#notify()
+  }
+
+  /** Notifies about every change of client, state, load, or selection activity. */
+  subscribe(listener: () => void) {
+    this.#listeners.add(listener)
+    return () => {
+      this.#listeners.delete(listener)
+    }
+  }
+
+  #notify() {
+    for (const listener of this.#listeners) listener()
   }
 
   applySavedSelection(settings: LocalSettings) {
@@ -118,6 +195,8 @@ export class ModelHost {
     this.selectedProvider =
       settings.modelProvider ??
       (settings.model ? (isLocalModelId(settings.model) ? "local" : "fireworks") : undefined)
+    this.displayName = settings.modelDisplayName
+    this.fastId = settings.modelFastId
     this.pairEngine = settings.pairEngine
     this.supportsImageInput = settings.modelSupportsImageInput
     this.#contextLength = compactionContextLength({
@@ -198,6 +277,8 @@ export class ModelHost {
     this.#selectionController?.abort()
     const controller = new AbortController()
     this.#selectionController = controller
+    this.#selecting += 1
+    this.#notify()
     const result = this.#selectionTail.then(async () => {
       if (controller.signal.aborted) return undefined
       return await operation(controller.signal, selectionId)
@@ -208,50 +289,94 @@ export class ModelHost {
     )
     return result.finally(() => {
       if (this.#selectionController === controller) this.#selectionController = undefined
+      this.#selecting -= 1
+      this.#notify()
     })
   }
 
+  /**
+   * Prepares, persists, and commits one selection, reporting local progress and the outcome on
+   * the picker row. A failure that was not a cancellation stays on the row until the next attempt;
+   * a restored previous model stays ready, otherwise the host is failed with the message.
+   */
   async persistSelection(
     selected: CatalogModel,
     options: PersistSelectionOptions,
   ): Promise<CatalogModel> {
+    const modelId = options.loadKey ?? selected.id
+    this.setLoad(undefined)
     let prepared: PreparedModelSelection | undefined
     try {
-      prepared = await this.prepare(selected, options)
+      prepared = await this.prepare(selected, {
+        ...options,
+        onLocalProgress: (progress) => {
+          this.setLoad({
+            modelId,
+            status: { label: formatLocalLoadStatus(progress), kind: "progress" },
+          })
+          options.onLocalProgress?.(progress)
+        },
+      })
       if (options.wrap) prepared = options.wrap(prepared)
       options.signal.throwIfAborted()
       await options.persist(prepared.model)
     } catch (error) {
+      let failure = error
       if (prepared) {
         try {
           await prepared.rollback({
             restorePrevious: !options.signal.aborted && options.isClosed?.() !== true,
           })
         } catch (rollbackError) {
-          throw new AggregateError(
+          failure = new AggregateError(
             [error, rollbackError],
             `${errorMessage(error)} The previous model could not be restored.`,
           )
         }
       }
-      throw error
+      if (options.signal.aborted || options.isClosed?.() === true || isAbortError(failure)) {
+        this.setLoad(undefined)
+        throw failure
+      }
+      const message = errorMessage(failure)
+      if (!this.#client) this.setState("failed", message)
+      this.setLoad({ modelId, status: { label: `Failed: ${message}`, kind: "error" } })
+      throw failure
     }
 
     // No await is allowed between persistence and commit: they become visible
     // as one selection before another queued request can supersede it.
     prepared.commit()
+    this.setLoad(undefined)
     return prepared.model
+  }
+
+  /** Forgets the active selection entirely, as after deleting the model that served it. */
+  clearActive() {
+    this.cancelPrepare()
+    this.activeLocal = undefined
+    this.selectedId = undefined
+    this.selectedProvider = undefined
+    this.displayName = undefined
+    this.fastId = undefined
+    this.pairEngine = undefined
+    this.supportsImageInput = undefined
+    this.autoCompactAtTokens = autoCompactThreshold()
+    this.#client = undefined
+    this.setState("unconfigured")
   }
 
   activate(model: CatalogModel, client: InferenceClient) {
     this.selectedId = model.id
     this.selectedProvider = model.provider
+    this.displayName = model.displayName
+    this.fastId = model.provider === "fireworks" ? model.fastId : undefined
     this.pairEngine = model.provider === "pair" ? model.engine : undefined
     this.supportsImageInput = model.supportsImageInput
     this.#contextLength = compactionContextLength(model)
     this.refreshAutoCompact()
-    this.client = client
     if (model.provider !== "local") this.activeLocal = undefined
+    this.client = client
   }
 
   async prepare(
@@ -304,6 +429,10 @@ export class ModelHost {
           onProgress: (progress) => {
             if (prepareId !== this.#prepareId || options.signal.aborted || exiting()) return
             options.onLocalProgress?.(progress)
+          },
+          onNotice: (message) => {
+            if (prepareId !== this.#prepareId || options.signal.aborted || exiting()) return
+            this.onNotice?.(message)
           },
         }),
       )
@@ -397,6 +526,7 @@ export class ModelHost {
       const selectedSpec = fit.model
       const serving = await this.llama.ensureServing(selectedSpec, fit, hardware, {
         signal: options.signal,
+        onNotice: (message) => this.onNotice?.(message),
       })
       const client = this.#localClient(selectedSpec.id, serving.inferenceURL)
       this.activeLocal = { spec: selectedSpec, fit, hardware, contextLength: serving.contextLength }
@@ -494,6 +624,6 @@ export async function resolveFireworksServing(
   }
 }
 
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error)
+export function isAbortError(error: unknown) {
+  return error instanceof Error && error.name === "AbortError"
 }

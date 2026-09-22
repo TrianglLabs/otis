@@ -115,14 +115,28 @@ fail before output publication. Reopened text is checked with PDFium and pypdf; 
 must match outside the edited glyph bounds plus a one-point antialiasing margin. This automated comparison is separate
 from model or human visual inspection. The helper uses the pinned PDFium dependency and the document tool’s permission policy.
 The session artifact store retains attachment references independently of model context, so compaction does not
-break artifact cards. Webpage previews run in a separate opaque-origin document with a fixed CSP; source HTML
-inherits its network restrictions while inline interactions remain available. PDF previews use a dedicated worker
-and virtualized pages with bounded bitmap sizes, disposing rendering tasks and worker resources when closed.
+break artifact cards. One rule decides what Canvas shows: a newly produced canvas artifact (published or written this
+turn) takes the view unless the user has pinned a specific saved version; attachments and background reads open only
+when nothing is active. Session replay applies the same rule in transcript order and then the pin, which is persisted
+beside the session's published copies, so a reload shows what the live session showed. The artifact revision advances
+only when the selected reference or the watched file's content changes; metadata such as the version list updates
+without refetching the preview, and a stale fetch is ignored rather than shown.
+Webpage previews run in a separate opaque-origin document with a fixed CSP; source HTML inherits its network
+restrictions while inline interactions remain available. The preview frame cannot navigate or open windows: the main
+process allows subframes to load only the empty frame, their srcdoc body, and the bundled canvas and webpage
+documents, and the preview relays http(s) link clicks to the app, which opens them in the system browser. Markdown
+previews render relative image references as-is; only data: URIs and bundled assets resolve, since the renderer has
+no workspace file access. Markdown previews stop at 512 KB while the 2 MB store cap still applies to export.
+PDF previews use a dedicated worker and virtualized pages with bounded bitmap sizes, disposing rendering tasks and
+worker resources when closed; page bitmaps re-render once the panel width settles and scale in CSS meanwhile.
+Preview-time validation checks the PDF header and page count and the DOCX archive bounds; publication keeps the full
+document validation. PDF bytes cross the renderer boundary as typed arrays rather than base64 text.
 Canvas eligibility is a shared, browser-safe policy in `src/artifacts/canvas.ts`. Code and raw text remain available
 to tools and the transcript without selecting Canvas, including after session restoration. Export reads original
 bytes from the selected source or immutable published version through the application artifact store; it never uses
-converted preview HTML. Desktop validates the artifact identity and revision before capturing those bytes, then owns
-the native Save dialog and atomic destination write. File bytes and destination paths stay outside the renderer.
+converted preview HTML, and it is available whenever a reference is selected, independent of preview success. Desktop
+validates the artifact identity and revision before capturing those bytes, then owns the native Save dialog and
+atomic destination write. File bytes and destination paths stay outside the renderer.
 
 Legacy `.doc` files are rejected. Scanned PDFs still render in Canvas, but the model receives only a clear no-text
 notice because OCR is outside the current boundary.
@@ -156,12 +170,17 @@ footprint, up to the checkpoint's native length. Memory math uses
 each checkpoint's real KV groups (full-attention layers vs sliding-window layers), not a uniform transformer cache.
 Hard availability is GPU-resident fit or, because llama.cpp can split a model between a GPU and system RAM, fit within
 GPU plus host memory. The preflight estimate reserves 15% of Apple unified memory (at least 3 GiB) or 10% of other
-system memory (at least 2 GiB) for the host, 1 GiB per GPU inside the GPU budget, and another 1.5 GiB for runtime
-buffers. On Apple silicon the GPU budget is the Metal working set (two thirds of RAM up to 36 GiB, three quarters
-above, or a raised `iogpu.wired_limit_mb`). On Linux, `nvidia-smi` detects NVIDIA devices and DRM render nodes detect
+system memory (at least 2 GiB) for the host, 1 GiB per GPU inside the GPU budget, and llama.cpp's compute buffers for
+one 512-token micro-batch (an f32 logits slice sized by the vocabulary, an f16 attention mask sized by the context on
+the host and the device, and activations sized by the hidden width) plus a 512 MiB process floor. On Apple silicon
+the GPU budget is the Metal working set (two thirds of RAM up to 36 GiB and three quarters above on macOS 15; 78%
+from 32 GiB up on macOS 26 and later, as measured; or a raised `iogpu.wired_limit_mb`). On Linux, `nvidia-smi` detects NVIDIA devices and DRM render nodes detect
 any other Vulkan-capable GPU, including AMD and Intel; integrated graphics (an i915/xe device without a VRAM report,
-or amdgpu with at most 4 GiB of VRAM and a GTT at least twice that) are budgeted from host RAM as unified memory.
-If no render device is present, Otis uses the CPU build.
+or amdgpu with at most 4 GiB of VRAM and a GTT at least twice that) are budgeted from host RAM as unified memory,
+and the probe records the GPU vendor so Intel iGPUs take the CPU recommendation order. `CUDA_VISIBLE_DEVICES` selects
+which `nvidia-smi` rows are summed, by index or UUID; a MIG-enabled GPU is replaced by its partitions when their
+memory is readable, otherwise budgeted whole with a note on the probe. On Linux the host total is the smaller of
+physical memory and the cgroup limit. If no render device is present, Otis uses the CPU build.
 
 Picker and settings rows are a provider-tagged catalog: Fireworks entries may include a Fast serving path; managed-local
 entries carry a fitted context and never a `fastId`; PAIR entries carry their endpoint identity. Managed-local rows not
@@ -183,8 +202,10 @@ Linux CUDA compatibility checks use glibc, NVIDIA driver version, and every dete
 official Ubuntu 24.04 CUDA archives require glibc 2.39; CUDA 12.8 (x64) requires driver 570.211.01 and SM 50–120, while
 CUDA 13.3 (x64/arm64) requires driver 610.43.02 and SM 75–121. These deliberately require the toolkit's full driver
 version because upstream ships PTX kernels; CUDA minor-version compatibility alone does not guarantee PTX support.
-Each CUDA server archive is paired with its official `cudart` archive. Both are size/checksum verified before their
-libraries are installed together atomically. The cache manifest fingerprints both archives and requires the CUDA
+Each CUDA server archive is paired with its official `cudart` archive. Archives download into a persistent
+`downloads` directory under a per-bundle lock, resume by byte range with the same range and hash checks as GGUF
+files, and a verified archive is kept for the retry when its companion fails. Both are size/checksum verified before
+their libraries are installed together atomically. The cache manifest fingerprints both archives and requires the CUDA
 backend and all three companion libraries. CUDA variants have separate cache directories, preserving a cached Vulkan
 fallback. A bounded `--list-devices` probe checks actual GPU availability before model loading; a failed CUDA check
 selects Vulkan without discarding the CUDA cache. Vulkan must pass its own device check. The managed server receives
@@ -192,7 +213,8 @@ the verified device names through `--device` so a disappearing backend cannot si
 CUDA server exits during model loading with a recognized CUDA diagnostic, Otis cleans up that attempt and retries
 with verified Vulkan using the same GGUF; if Vulkan reports no device or exits with a recognized Vulkan diagnostic,
 it retries on the CPU build. The chain is strictly CUDA, Vulkan, CPU, never backwards, and each fallback emits a
-notice with the accumulated causes. Other startup/model/context errors, download or verification failures, and
+notice with the accumulated causes; `ModelHost.onNotice` delivers it to the adapters, which append it to the
+transcript. Other startup/model/context errors, download or verification failures, and
 cancellation are propagated. CPU-only machines continue to use the CPU runtime directly.
 
 Both device checks and managed Linux servers receive a private child environment with the bundle directory first in
@@ -223,7 +245,8 @@ configuration cannot become orphaned.
 
 Recommendations use curated preference orders with fit-based fallback, not fixed RAM tiers. Each candidate resolves
 its backend-compatible packing and must pass the same fit used by the picker. The full footprint is the selected GGUF
-weights plus the model-specific KV cache at the estimated context and 1.5 GiB of runtime buffers. With a known GPU
+weights plus the model-specific KV cache at the estimated context (sliding-window layers hold their window plus one
+micro-batch, padded to 256 cells) and the runtime buffers above. With a known GPU
 budget (VRAM, or a unified-memory working set, after 1 GiB per GPU, not once for combined memory), the GPU order
 stars a model whose footprint fits that budget at 64K or more; the estimated context grows within it. If only GPU plus
 host memory fits the minimum footprint, the model remains manually selectable at an estimated 64K with a `Uses system
@@ -422,13 +445,27 @@ default thinking level is high or above (8K otherwise), and capped at 250,000 to
 use their serving context, oMLX uses its reported request limit (64K policy budget if unavailable), and Ollama/LM
 Studio/PAIR use the 64K local-agent minimum as their working budget. Unknown hosted context is treated as a 128K
 window, and a Fireworks selection saved without a context length is refreshed from the catalog on connect. Summary
-requests ask for the model's minimal reasoning and leave headroom for the summary itself.
+requests ask for the model's minimal reasoning, leave headroom for the summary itself, and instruct the summarizer to
+replace credentials seen in tool output with `[redacted]`. `/compact` reports "Nothing to compact yet." when the
+summarizable history is no larger than the summary cap, without sending a request.
+
+Every inference client aborts a stream that delivers no bytes for an idle interval (5 minutes hosted, 10 minutes
+local) with an error naming the interval; the interval resets on each chunk and also guards token counting. Context
+window labels use one rule: exact thousands print as decimal K, exact multiples of 1024 as binary K, and anything else
+is rounded to the nearest 1024 and marked with `~`.
 A completed task waits until the next request before compacting.
 
 The runtime and context meter share one estimator, including the assembled system prompt, tool definitions, native
-reasoning, and tool history. During an active run, the last request's reported prompt and completion usage informs
-context checks, with estimates for newly added content. New turns, reopened sessions, and freshly compacted history
-use character estimates until the next response reports usage. Token accounting adds no metadata to chat messages.
+reasoning, and tool history. It rates each UTF-16 code unit by class—letters, whitespace, punctuation, digits, CJK,
+other non-ASCII—with rates fitted by least squares to the Qwen2, Llama 3, and LFM2.5 tokenizers over a corpus of
+prose, TypeScript, JSON tool output, CJK text, and a diff, plus five tokens of chat-template framing per message;
+each class lands within 15% of every reference tokenizer where a flat four characters per token undercounted JSON by
+a fifth and CJK by two thirds. An image costs 85 tokens plus 170 per 512px tile after scaling its long side to
+2048px and its short side to 768px, with dimensions read from the PNG, JPEG, GIF, or BMP header and a size-based
+square when the header is unreadable. During an active run, the last request's reported prompt and completion usage
+informs context checks, with estimates for newly added content. New turns, reopened sessions, and freshly compacted
+history use these estimates until the next response reports usage. Token accounting adds no metadata to chat
+messages.
 
 Compaction reserves the fixed prompt, tools, and unanswered input first, then targets half of the remaining trigger
 budget. It retains a bounded suffix of complete tool exchanges and preserves unanswered user messages. Summary

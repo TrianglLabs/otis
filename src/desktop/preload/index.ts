@@ -37,6 +37,8 @@ const api: DesktopApi = {
     ipcRenderer.invoke(DESKTOP_CHANNELS.getSubagentTrace, toolCallId),
   setAgentsPanelVisible: (visible) =>
     ipcRenderer.invoke(DESKTOP_CHANNELS.setAgentsPanelVisible, visible),
+  setWorkspacePanelWidth: (width) =>
+    ipcRenderer.invoke(DESKTOP_CHANNELS.setWorkspacePanelWidth, width),
   setTheme: (theme) => ipcRenderer.invoke(DESKTOP_CHANNELS.setTheme, theme),
   setLanguage: (language) => ipcRenderer.invoke(DESKTOP_CHANNELS.setLanguage, language),
   setThinkingVisible: (visible) => ipcRenderer.invoke(DESKTOP_CHANNELS.setThinkingVisible, visible),

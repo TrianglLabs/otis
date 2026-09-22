@@ -51,6 +51,7 @@ const SNAPSHOT: DesktopSnapshot = {
   modelLoad: null,
   subagents: [],
   agentsPanelVisible: true,
+  workspacePanelWidth: undefined,
   theme: "default",
   language: "system",
   thinkingVisible: false,

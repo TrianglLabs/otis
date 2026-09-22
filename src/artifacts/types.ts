@@ -64,10 +64,12 @@ export type ArtifactMetadata = {
   }
 }
 
-export type ArtifactPayload = ArtifactMetadata & {
-  encoding: "utf8" | "base64" | "html"
-  content: string
-}
+/** PDF bytes cross process boundaries as a typed array; text and converted HTML as strings. */
+export type ArtifactPayload = ArtifactMetadata &
+  (
+    | { kind: "pdf"; encoding: "bytes"; content: Uint8Array }
+    | { kind: Exclude<ArtifactKind, "pdf">; encoding: "utf8" | "html"; content: string }
+  )
 
 const FILE_KINDS = new Map<string, ArtifactKind>([
   [".md", "markdown"],

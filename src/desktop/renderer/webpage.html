@@ -18,13 +18,28 @@
     <script>
       // This separately loaded, opaque-origin document owns the preview policy. Its srcdoc child
       // inherits that policy, which source HTML cannot relax or hide inside a comment or script.
+      // The frame cannot navigate or open windows, so link clicks are relayed up to the app,
+      // which opens http(s) targets in the system browser.
+      const frame = document.getElementById("preview")
+      const linkRelay =
+        "<script>document.addEventListener('click', (event) => {" +
+        "const anchor = event.target instanceof Element ? event.target.closest('a[href]') : null;" +
+        "if (!anchor || !/^https?:\\/\\//i.test(anchor.href)) return;" +
+        "event.preventDefault();" +
+        "parent.postMessage({ type: 'otis-webpage-link', url: anchor.href }, '*');" +
+        "}, true)<" +
+        "/script>"
       window.addEventListener("message", (event) => {
+        if (event.source === frame.contentWindow) {
+          if (event.data?.type === "otis-webpage-link" && typeof event.data.url === "string")
+            parent.postMessage({ type: "otis-webpage-link", url: event.data.url }, "*")
+          return
+        }
         if (event.source !== parent || event.data?.type !== "otis-webpage-source") return
         const { source, title } = event.data
         if (typeof source !== "string" || typeof title !== "string") return
-        const frame = document.getElementById("preview")
         frame.title = title
-        frame.srcdoc = source
+        frame.srcdoc = source + linkRelay
       })
     </script>
   </body>

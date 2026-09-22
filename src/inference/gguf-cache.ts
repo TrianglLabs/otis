@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto"
+import { createHash, type Hash, randomUUID } from "node:crypto"
 import { constants, createReadStream } from "node:fs"
 import {
   chmod,
@@ -145,12 +145,15 @@ export async function cloneLocalGguf(
   }
 }
 
+/** Percent of the model's bytes downloaded, or hashed while a cached file is verified. */
+export type GgufProgress = { phase: "download" | "verifying"; percent: number }
+
 type DownloadGgufOptions = {
   dataDirectory?: string
   env?: NodeJS.ProcessEnv
   fetch?: typeof fetch
   signal?: AbortSignal
-  onProgress?: (percent: number) => void
+  onProgress?: (progress: GgufProgress) => void
   statfs?: (path: string) => Promise<{ bavail: number | bigint; bsize: number | bigint }>
 }
 
@@ -160,15 +163,26 @@ export async function ensureLocalGguf(model: LocalModelSpec, options: DownloadGg
   await mkdir(dirname(destinations[0]), { recursive: true, mode: 0o700 })
   const releaseLock = await acquireDownloadLock(lockPath(destinations[0]), options.signal)
   try {
+    let lastReport = ""
+    const report = (phase: GgufProgress["phase"], bytes: number) => {
+      const percent = Math.min(100, Math.floor((bytes / totalBytes) * 100))
+      if (`${phase}:${percent}` === lastReport) return
+      lastReport = `${phase}:${percent}`
+      options.onProgress?.({ phase, percent })
+    }
     // Verify every file first so the space check counts only bytes still to download.
     const pending: Array<{ dest: string; partial: string; resumedBytes: number }> = []
+    let checkedBytes = 0
     for (const [index, pinnedFile] of model.ggufFiles.entries()) {
       const dest = destinations[index]
       const expectedSha256 = normalizedSha256(pinnedFile.sha256)
+      const checked = checkedBytes
+      const verifying = (hashed: number) => report("verifying", checked + hashed)
+      checkedBytes += pinnedFile.size
       await mkdir(dirname(dest), { recursive: true, mode: 0o700 })
       let verified = await hasPinnedFileSize(dest, pinnedFile.size)
       if (verified && !(await hasMatchingManifest(dest, model, pinnedFile, expectedSha256))) {
-        verified = (await sha256File(dest)) === expectedSha256
+        verified = (await sha256File(dest, verifying)) === expectedSha256
         if (verified) await writeGgufManifest(dest, model, pinnedFile, expectedSha256)
       }
       if (verified) continue
@@ -177,7 +191,10 @@ export async function ensureLocalGguf(model: LocalModelSpec, options: DownloadGg
       try {
         const info = await stat(partial)
         resumedBytes = info.isFile() && info.size <= pinnedFile.size ? info.size : -1
-        if (resumedBytes === pinnedFile.size && (await sha256File(partial)) !== expectedSha256)
+        if (
+          resumedBytes === pinnedFile.size &&
+          (await sha256File(partial, verifying)) !== expectedSha256
+        )
           resumedBytes = -1
         if (resumedBytes < 0) {
           await rm(partial, { force: true })
@@ -207,13 +224,6 @@ export async function ensureLocalGguf(model: LocalModelSpec, options: DownloadGg
     }
 
     let completedBytes = 0
-    let lastPercent = -1
-    const report = (fileBytes: number) => {
-      const percent = Math.min(100, Math.floor(((completedBytes + fileBytes) / totalBytes) * 100))
-      if (percent === lastPercent) return
-      lastPercent = percent
-      options.onProgress?.(percent)
-    }
     for (const [index, pinnedFile] of model.ggufFiles.entries()) {
       const dest = destinations[index]
       const work = pending.find((entry) => entry.dest === dest)
@@ -227,16 +237,16 @@ export async function ensureLocalGguf(model: LocalModelSpec, options: DownloadGg
             work.resumedBytes,
             expectedSha256,
             options,
-            report,
+            (phase, fileBytes) => report(phase, completedBytes + fileBytes),
           )
         }
         await rename(work.partial, dest)
         await writeGgufManifest(dest, model, pinnedFile, expectedSha256)
       }
       completedBytes += pinnedFile.size
-      report(0)
+      report("download", completedBytes)
     }
-    if (lastPercent !== 100) options.onProgress?.(100)
+    if (lastReport !== "download:100") options.onProgress?.({ phase: "download", percent: 100 })
     return destinations[0]
   } finally {
     await releaseLock()
@@ -254,7 +264,7 @@ async function downloadGgufFile(
   resumedBytes: number,
   expectedSha256: string,
   options: DownloadGgufOptions,
-  onReceived: (bytes: number) => void,
+  progress: (phase: GgufProgress["phase"], fileBytes: number) => void,
 ) {
   options.signal?.throwIfAborted()
   const env = options.env ?? process.env
@@ -298,11 +308,11 @@ async function downloadGgufFile(
   }
 
   const hash = createHash("sha256")
-  if (start > 0) for await (const chunk of createReadStream(partial)) hash.update(chunk)
+  if (start > 0) await hashFile(partial, hash, (hashed) => progress("verifying", hashed))
   const file = await open(partial, start > 0 ? "a" : "w", 0o600)
   let received = start
   let discardPartial = false
-  onReceived(received)
+  progress("download", received)
   try {
     const reader = response.body.getReader()
     for (;;) {
@@ -319,7 +329,7 @@ async function downloadGgufFile(
       await file.writeFile(value)
       hash.update(value)
       received += value.byteLength
-      onReceived(received)
+      progress("download", received)
     }
     options.signal?.throwIfAborted()
     if (received !== pinnedFile.size) {
@@ -390,10 +400,20 @@ async function writeGgufManifest(
   }
 }
 
-async function sha256File(path: string) {
+export async function sha256File(path: string, onProgress?: (bytes: number) => void) {
   const hash = createHash("sha256")
-  for await (const chunk of createReadStream(path)) hash.update(chunk)
+  await hashFile(path, hash, onProgress)
   return hash.digest("hex")
+}
+
+/** Feeds a file into `hash`, reporting the bytes hashed so far after each chunk. */
+export async function hashFile(path: string, hash: Hash, onProgress?: (bytes: number) => void) {
+  let bytes = 0
+  for await (const chunk of createReadStream(path)) {
+    hash.update(chunk)
+    bytes += chunk.length
+    onProgress?.(bytes)
+  }
 }
 
 function normalizedSha256(value: string) {
@@ -414,7 +434,11 @@ function lockPath(dest: string) {
   return `${dest}.download.lock`
 }
 
-async function acquireDownloadLock(path: string, signal?: AbortSignal) {
+/**
+ * An exclusive, heartbeat-refreshed lock file; the returned function releases it. A holder that
+ * stops refreshing loses the lock after a minute, so a crashed process cannot block the next.
+ */
+export async function acquireDownloadLock(path: string, signal?: AbortSignal) {
   for (;;) {
     signal?.throwIfAborted()
     try {

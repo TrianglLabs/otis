@@ -29,9 +29,8 @@ it("saves the displayed revision, reports errors, and resets the action when the
   expect(screen.getByRole("alert").textContent).toBe("The destination is read-only.")
   const next = { ...artifact, revision: artifact.revision + 1 }
   vi.spyOn(api, "getArtifact").mockResolvedValue({
-    ...next,
-    encoding: "html",
-    content: "<p>Another revision</p>",
+    ok: true,
+    payload: { ...next, kind: "docx", encoding: "html", content: "<p>Another revision</p>" },
   })
   view.rerender(
     <DesktopProvider value={runtime}>
@@ -102,9 +101,8 @@ it("shows saved revisions separately from working files and lets users pin a ver
     publication: { reference, versions: [1, 2], followingLatest: true },
   }
   vi.spyOn(api, "getArtifact").mockResolvedValue({
-    ...artifact,
-    encoding: "utf8",
-    content: "# Saved document",
+    ok: true,
+    payload: { ...artifact, kind: "markdown", encoding: "utf8", content: "# Saved document" },
   })
   const open = vi.spyOn(api, "openArtifact").mockResolvedValue({ ok: true })
   const view = render(
@@ -149,4 +147,74 @@ it("shows saved revisions separately from working files and lets users pin a ver
   await act(async () => {})
   expect(screen.queryByRole("combobox")).toBeNull()
   expect(screen.getByText("Working file")).toBeTruthy()
+})
+
+it("keeps the current preview while a revision loads, ignores stale results, and shows reasons verbatim", async () => {
+  const api = createDemoRuntime()
+  const runtime = { api, store: new DesktopViewStore(api) }
+  const artifact: ArtifactMetadata = {
+    id: "workspace:notes.md",
+    revision: 1,
+    source: "workspace",
+    kind: "markdown",
+    title: "notes.md",
+    mimeType: "text/markdown",
+    editable: true,
+    path: "notes.md",
+  }
+  const pending = new Map<number, (result: Awaited<ReturnType<typeof api.getArtifact>>) => void>()
+  vi.spyOn(api, "getArtifact").mockImplementation(
+    (revision) =>
+      new Promise((resolve) => {
+        pending.set(revision, resolve)
+      }),
+  )
+  const at = (revision: number, id = artifact.id) => (
+    <DesktopProvider value={runtime}>
+      <FileArtifact artifact={{ ...artifact, id, revision }} />
+    </DesktopProvider>
+  )
+  const view = render(at(1))
+  // Export reads original bytes, so it never waits for the preview.
+  const save = screen.getByRole("button", { name: "Save a copy" }) as HTMLButtonElement
+  expect(save.disabled).toBe(false)
+  expect(screen.getByText("Loading preview…")).toBeTruthy()
+  await act(async () =>
+    pending.get(1)?.({
+      ok: true,
+      payload: { ...artifact, kind: "markdown", encoding: "utf8", content: "# First" },
+    }),
+  )
+  expect(screen.getByRole("heading", { name: "First" })).toBeTruthy()
+
+  view.rerender(at(2))
+  await act(async () => {})
+  expect(screen.getByRole("heading", { name: "First" })).toBeTruthy()
+  expect(screen.queryByText("Loading preview…")).toBeNull()
+  await act(async () => pending.get(2)?.({ ok: false, stale: true, reason: "stale" }))
+  expect(screen.getByRole("heading", { name: "First" })).toBeTruthy()
+  expect(screen.queryByText("stale")).toBeNull()
+
+  view.rerender(at(3))
+  await act(async () =>
+    pending.get(3)?.({ ok: false, reason: "The file changed while being read." }),
+  )
+  expect(screen.getByText("The file changed while being read.")).toBeTruthy()
+  expect(screen.queryByRole("heading", { name: "First" })).toBeNull()
+  expect((screen.getByRole("button", { name: "Save a copy" }) as HTMLButtonElement).disabled).toBe(
+    false,
+  )
+
+  view.rerender(at(4))
+  await act(async () =>
+    pending.get(4)?.({
+      ok: true,
+      payload: { ...artifact, kind: "markdown", encoding: "utf8", content: "# Fourth" },
+    }),
+  )
+  expect(screen.getByRole("heading", { name: "Fourth" })).toBeTruthy()
+  view.rerender(at(5, "workspace:other.md"))
+  await act(async () => {})
+  expect(screen.queryByRole("heading", { name: "Fourth" })).toBeNull()
+  expect(screen.getByText("Loading preview…")).toBeTruthy()
 })
