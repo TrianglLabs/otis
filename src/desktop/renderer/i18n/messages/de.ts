@@ -145,7 +145,6 @@ export const de: Messages = {
   "composer.sendFollowUpTitle": "Folgeanfrage senden (Enter)",
   "composer.sendTitle": "Senden (Enter)",
   "composer.followUp": "Folgeanfrage",
-  "home.modelStarting": "Das ausgewählte Modell wird gestartet…",
   "home.modelFailed": "Das ausgewählte Modell konnte nicht starten{{detail}}",
   "home.pickDifferent": "Wähle im Modellmenü der Eingabe ein anderes Modell.",
   "home.noModel": "Noch kein Modell eingerichtet.",
@@ -278,4 +277,7 @@ export const de: Messages = {
   "canvas.loadFailed": "Mermaid konnte nicht geladen werden.",
   "canvas.emptySource": "Der Mermaid-Block ist leer.",
   "canvas.tooLarge": "Dieses Mermaid-Diagramm ist zu groß. Die Grenze liegt bei 50.000 Zeichen.",
+  "composer.tokensPerSecond": "{{rate}} Tok/s",
+  "composer.prefill": "{{seconds}}s Prefill",
+  "composer.speedLabel": "Generierungsgeschwindigkeit",
 }

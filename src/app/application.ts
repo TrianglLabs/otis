@@ -65,7 +65,7 @@ import {
   type PermissionMode,
   type PermissionRule,
 } from "../permissions/policy.js"
-import { loadSkillCatalog, type SkillCatalog } from "../skills/index.js"
+import { loadSkillCatalog, type SkillCatalog } from "../skills/catalog.js"
 import { providerTools } from "../tools/index.js"
 import { ParallelClient } from "../web/client.js"
 import { ArtifactStore } from "./artifacts.js"
@@ -74,6 +74,7 @@ import {
   type ConversationEvent,
   type PendingPermission,
   type TurnPhase,
+  type TurnSpeed,
 } from "./conversation.js"
 import {
   type LocalServerDiscoveryOptions,
@@ -112,6 +113,8 @@ export type SubagentSummary = {
 export type AppStatus = {
   busy: boolean
   phase: TurnPhase
+  /** Generation speed of the latest model request; null until the current turn streams. */
+  speed: TurnSpeed | null
   model: {
     id: string
     provider: ModelProvider
@@ -325,6 +328,7 @@ export class Application {
     return {
       busy: conversation.busy,
       phase: conversation.phase,
+      speed: conversation.speed,
       model: selectedId
         ? {
             id: selectedId,

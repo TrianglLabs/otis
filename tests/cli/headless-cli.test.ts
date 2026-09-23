@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { FireworksModel } from "../../src/inference/types.js"
 import type { PermissionConfig } from "../../src/permissions/policy.js"
-import type { SkillCatalog } from "../../src/skills/index.js"
+import type { SkillCatalog } from "../../src/skills/catalog.js"
 import { summaryFixture } from "../support/compaction.js"
 
 const mocks = vi.hoisted(() => ({
@@ -137,13 +137,17 @@ vi.mock("../../src/local/settings.js", () => ({
   loadLocalSettings: mocks.loadLocalSettings,
   saveSelectedModel: mocks.saveSelectedModel,
 }))
-vi.mock("../../src/skills/index.js", () => ({
+vi.mock("../../src/skills/catalog.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/skills/catalog.js")>()),
   loadSkillCatalog: mocks.loadSkillCatalog,
   readSkillResource: vi.fn(),
 }))
-vi.mock("../../src/storage/index.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../src/storage/index.js")>()),
+vi.mock("../../src/storage/session-lock.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/storage/session-lock.js")>()),
   acquireSessionLock: vi.fn(),
+}))
+vi.mock("../../src/storage/session.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/storage/session.js")>()),
   createSession: mocks.createSession,
   listSessions: mocks.listSessions,
   openSession: mocks.openSession,

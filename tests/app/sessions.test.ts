@@ -4,7 +4,8 @@ import { SessionCoordinator } from "../../src/app/sessions.js"
 import { SubagentTraces } from "../../src/app/subagents.js"
 import { TranscriptStore } from "../../src/app/transcript.js"
 import { compactionSummaryMessage } from "../../src/core/compaction.js"
-import { createSession, defaultSessionDirectory } from "../../src/storage/index.js"
+import { createSession } from "../../src/storage/session.js"
+import { defaultSessionDirectory } from "../../src/storage/session-files.js"
 import { useOtisHome } from "./support/otis-home.js"
 
 const isolate = useOtisHome()
@@ -124,7 +125,7 @@ describe("duplicate session ids across storage dirs", () => {
   async function sessionIn(dirName: string, sessionId: string, text: string) {
     const { appendFile, mkdir } = await import("node:fs/promises")
     const { join } = await import("node:path")
-    const { sessionRootDirectory } = await import("../../src/storage/index.js")
+    const { sessionRootDirectory } = await import("../../src/storage/session-files.js")
     const dir = join(sessionRootDirectory(), dirName)
     await mkdir(dir, { recursive: true })
     const line = (event: Record<string, unknown>) => `${JSON.stringify(event)}\n`
@@ -250,7 +251,7 @@ describe("relock reloads history", () => {
     // And the next append continues the reloaded sequence — no duplicated seq numbers.
     await sessions.current?.admitPrompt("after relock")
     const { readFile } = await import("node:fs/promises")
-    const { sessionFile } = await import("../../src/storage/index.js")
+    const { sessionFile } = await import("../../src/storage/session-files.js")
     const lines = (await readFile(sessionFile({ cwd: home }, own.id), "utf8")).trim().split("\n")
     const seqs = lines.map((line) => (JSON.parse(line) as { seq: number }).seq)
     expect(new Set(seqs).size).toBe(seqs.length)

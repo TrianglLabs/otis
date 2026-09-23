@@ -7,7 +7,7 @@ import { type AgentEvent, runAgent, SteeringInbox } from "../../src/core/agent.j
 import type { FireworksClient } from "../../src/inference/client.js"
 import { createDocumentAttachment } from "../../src/inference/documents.js"
 import { createPermissionPolicy, type PermissionRequest } from "../../src/permissions/policy.js"
-import { emptySkillCatalog } from "../../src/skills/index.js"
+import { emptySkillCatalog } from "../../src/skills/catalog.js"
 import { minimalDocx } from "../inference/support/document-fixtures.js"
 
 const streamAgentMock = vi.hoisted(() => vi.fn())

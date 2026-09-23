@@ -306,6 +306,20 @@
   font-size: 6px;
 }
 
+/* Inline list marker: the glyph and its label side by side at text height. */
+.fileTypeIcon-xs {
+  flex-direction: row;
+  width: auto;
+  height: auto;
+  gap: 4px;
+  color: var(--text-dim);
+}
+
+.fileTypeIcon-xs > span {
+  max-width: none;
+  font-size: 7px;
+}
+
 .artifactCard {
   display: flex;
   width: 100%;

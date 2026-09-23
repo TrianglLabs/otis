@@ -19,12 +19,12 @@ import type {
   PairCatalogModel,
 } from "../../../src/inference/types.js"
 import { loadLocalSettings, saveSelectedModel } from "../../../src/local/settings.js"
+import { sessionRootDirectory } from "../../../src/storage/session-files.js"
+import { acquireSessionLock } from "../../../src/storage/session-lock.js"
 import {
-  acquireSessionLock,
   readWorkspacePath,
   registerWorkspacePath,
-  sessionRootDirectory,
-} from "../../../src/storage/index.js"
+} from "../../../src/storage/workspace-registry.js"
 import { useOtisHome } from "../../app/support/otis-home.js"
 
 const mocks = vi.hoisted(() => ({

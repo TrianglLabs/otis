@@ -7,12 +7,9 @@ import type { DesktopEvent } from "../../../src/desktop/contracts.js"
 import { DesktopRuntime } from "../../../src/desktop/main/runtime.js"
 import type { ChatMessage, InferenceClient } from "../../../src/inference/types.js"
 import { loadLocalSettings } from "../../../src/local/settings.js"
-import {
-  acquireSessionLock,
-  createSession,
-  defaultSessionDirectory,
-  sessionFile,
-} from "../../../src/storage/index.js"
+import { createSession } from "../../../src/storage/session.js"
+import { defaultSessionDirectory, sessionFile } from "../../../src/storage/session-files.js"
+import { acquireSessionLock } from "../../../src/storage/session-lock.js"
 import { useOtisHome } from "../../app/support/otis-home.js"
 
 const mocks = vi.hoisted(() => ({ executeTurn: vi.fn() }))
@@ -258,7 +255,7 @@ describe("DesktopRuntime workspace switching", () => {
     await foreign.admitPrompt("old beta session")
     const { rm } = await import("node:fs/promises")
     const { sessionRootDirectory, defaultSessionDirectory } = await import(
-      "../../../src/storage/index.js"
+      "../../../src/storage/session-files.js"
     )
     const dirName = basename(defaultSessionDirectory(otherCwd))
     await rm(join(sessionRootDirectory(), dirName, "workspace.json"))
@@ -284,7 +281,9 @@ describe("DesktopRuntime workspace switching", () => {
   it("keeps storage identity for reopen and delete within the switched workspace", async () => {
     const { runtime, otherCwd } = await setup()
     const { appendFile, readFile } = await import("node:fs/promises")
-    const { sessionRootDirectory, sessionFile } = await import("../../../src/storage/index.js")
+    const { sessionRootDirectory, sessionFile } = await import(
+      "../../../src/storage/session-files.js"
+    )
     const legacyDirName = "oldstuff-0123456789ab"
     const legacyDir = join(sessionRootDirectory(), legacyDirName)
     await mkdir(legacyDir, { recursive: true })
@@ -394,7 +393,7 @@ describe("workspace switch failure safety", () => {
     const { runtime, otherCwd } = await setup()
     // Legacy history from a forgotten folder, still using the default id…
     const { appendFile } = await import("node:fs/promises")
-    const { sessionRootDirectory } = await import("../../../src/storage/index.js")
+    const { sessionRootDirectory } = await import("../../../src/storage/session-files.js")
     const legacyDir = join(sessionRootDirectory(), "oldstuff-0123456789ab")
     await mkdir(legacyDir, { recursive: true })
     const line = (event: Record<string, unknown>) => `${JSON.stringify(event)}\n`
@@ -435,6 +434,6 @@ describe("workspace switch failure safety", () => {
 })
 
 async function openSessionDefault(cwd: string) {
-  const { openSession } = await import("../../../src/storage/index.js")
+  const { openSession } = await import("../../../src/storage/session.js")
   return openSession({ cwd, sessionId: "default" })
 }

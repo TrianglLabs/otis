@@ -146,7 +146,6 @@ export const fr: Messages = {
   "composer.sendFollowUpTitle": "Envoyer le suivi (Entrée)",
   "composer.sendTitle": "Envoyer (Entrée)",
   "composer.followUp": "Suivi",
-  "home.modelStarting": "Le modèle sélectionné démarre…",
   "home.modelFailed": "Le modèle sélectionné n’a pas pu démarrer{{detail}}",
   "home.pickDifferent": "Choisissez un autre modèle dans le menu de l’éditeur.",
   "home.noModel": "Aucun modèle n’est encore configuré.",
@@ -285,4 +284,7 @@ export const fr: Messages = {
   "canvas.emptySource": "Le bloc Mermaid est vide.",
   "canvas.tooLarge":
     "Ce diagramme Mermaid est trop volumineux. La limite est de 50 000 caractères.",
+  "composer.tokensPerSecond": "{{rate}} tok/s",
+  "composer.prefill": "{{seconds}}s de prefill",
+  "composer.speedLabel": "Vitesse de génération",
 }

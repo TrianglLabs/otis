@@ -145,7 +145,6 @@ export const ja: Messages = {
   "composer.sendFollowUpTitle": "フォローアップを送信 (Enter)",
   "composer.sendTitle": "送信 (Enter)",
   "composer.followUp": "フォローアップ",
-  "home.modelStarting": "選択したモデルを起動中…",
   "home.modelFailed": "選択したモデルを起動できませんでした{{detail}}",
   "home.pickDifferent": "入力欄のモデルメニューから別のモデルを選択してください。",
   "home.noModel": "モデルがまだ設定されていません。",
@@ -276,4 +275,7 @@ export const ja: Messages = {
   "canvas.loadFailed": "Mermaid を読み込めませんでした。",
   "canvas.emptySource": "Mermaid ブロックが空です。",
   "canvas.tooLarge": "この Mermaid 図は大きすぎます。上限は 50,000 文字です。",
+  "composer.tokensPerSecond": "{{rate}} tok/s",
+  "composer.prefill": "プリフィル {{seconds}}秒",
+  "composer.speedLabel": "生成速度",
 }

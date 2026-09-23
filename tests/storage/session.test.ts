@@ -6,13 +6,12 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import type { ChatMessage } from "../../src/inference/types.js"
 import {
   createSession,
-  defaultSessionDirectory,
   deleteSession,
   listSessions,
   openSession,
-  readSessionEvents,
-  replaySessionMessages,
-} from "../../src/storage/index.js"
+} from "../../src/storage/session.js"
+import { readSessionEvents, replaySessionMessages } from "../../src/storage/session-events.js"
+import { defaultSessionDirectory } from "../../src/storage/session-files.js"
 
 const tempDirs: string[] = []
 const originalOtisHome = process.env.OTIS_HOME
@@ -649,3 +648,53 @@ async function trackedTempDir() {
   tempDirs.push(path)
   return path
 }
+
+describe("session state", () => {
+  it("marks a session pending, interrupted, or complete by how its last prompt ended", async () => {
+    const cwd = await trackedTempDir()
+    const directory = join(cwd, "sessions")
+    await mkdir(directory, { recursive: true })
+    const at = "2026-01-01T00:00:00.000Z"
+    const prompt = { role: "user", content: "go" }
+    const write = (id: string, events: object[]) =>
+      writeFile(
+        join(directory, `${id}.jsonl`),
+        `${events.map((event, index) => JSON.stringify({ seq: index + 1, sessionId: id, at, ...event })).join("\n")}\n`,
+      )
+    await write("done", [
+      { type: "session_started", version: 1 },
+      { type: "prompt_admitted", promptId: "p1", message: prompt },
+      { type: "turn_started", promptId: "p1" },
+      { type: "turn_completed", promptId: "p1", messages: [] },
+    ])
+    await write("stopped", [
+      { type: "session_started", version: 1 },
+      { type: "prompt_admitted", promptId: "p1", message: prompt },
+      { type: "turn_started", promptId: "p1" },
+      { type: "turn_interrupted", promptId: "p1", messages: [] },
+    ])
+    await write("waiting", [
+      { type: "session_started", version: 1 },
+      { type: "prompt_admitted", promptId: "p1", message: prompt },
+      { type: "turn_started", promptId: "p1" },
+    ])
+    // A later completed prompt supersedes an earlier interruption.
+    await write("recovered", [
+      { type: "session_started", version: 1 },
+      { type: "prompt_admitted", promptId: "p1", message: prompt },
+      { type: "turn_interrupted", promptId: "p1", messages: [] },
+      { type: "prompt_admitted", promptId: "p2", message: prompt },
+      { type: "turn_completed", promptId: "p2", messages: [] },
+    ])
+
+    const states = Object.fromEntries(
+      (await listSessions({ cwd, directory })).map((session) => [session.id, session.state]),
+    )
+    expect(states).toEqual({
+      done: "complete",
+      stopped: "interrupted",
+      waiting: "pending",
+      recovered: "complete",
+    })
+  })
+})

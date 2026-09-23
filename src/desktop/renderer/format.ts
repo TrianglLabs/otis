@@ -23,6 +23,23 @@ export function formatContextWindow(tokens: number): string {
 }
 
 /**
+ * The compact age a session row carries, for rows the renderer stamps itself. Mirrors
+ * formatSessionAge in src/app/sessions.ts, which stays out of the renderer bundle.
+ */
+export function formatAge(iso: string, locale: string, now = Date.now()): string {
+  const seconds = Math.max(0, Math.floor((now - Date.parse(iso)) / 1000))
+  const detail =
+    seconds < 60
+      ? "now"
+      : seconds < 3_600
+        ? `${Math.floor(seconds / 60)}m ago`
+        : seconds < 86_400
+          ? `${Math.floor(seconds / 3_600)}h ago`
+          : `${Math.floor(seconds / 86_400)}d ago`
+  return formatSessionDetail(detail, locale)
+}
+
+/**
  * Localizes the compact relative ages supplied by session metadata while preserving English's
  * established copy.
  */

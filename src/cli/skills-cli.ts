@@ -1,5 +1,5 @@
-import { type ManagedSkillSource, SkillManager } from "../skills/index.js"
-
+import type { ManagedSkillSource } from "../skills/catalog.js"
+import { SkillManager } from "../skills/manager.js"
 export async function runSkillsCommand(
   args: string[],
   options: { manager?: SkillManager; stdout?: { write(chunk: string): unknown } } = {},

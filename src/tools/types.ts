@@ -1,7 +1,7 @@
 import type { ArtifactPublisher } from "../artifacts/publisher.js"
 import type { FileArtifactReference } from "../artifacts/types.js"
 import type { AttachmentContentPart } from "../inference/types.js"
-import type { SkillCatalog } from "../skills/index.js"
+import type { SkillCatalog } from "../skills/catalog.js"
 import type { ParallelClient } from "../web/client.js"
 
 export const TOOL_NAMES = [

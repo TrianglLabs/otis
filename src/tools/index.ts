@@ -1,4 +1,4 @@
-import { readSkillResource } from "../skills/index.js"
+import { readSkillResource } from "../skills/catalog.js"
 import { runDocumentWorkflow } from "./document-workflow.js"
 import { editLocalDocument } from "./documents.js"
 import { editLocalFile, readLocalFile, writeLocalFile } from "./files.js"

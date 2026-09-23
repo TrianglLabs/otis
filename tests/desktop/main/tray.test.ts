@@ -97,6 +97,7 @@ function statusFixture(overrides: Partial<DesktopStatus> = {}): DesktopStatus {
   return {
     busy: false,
     phase: "idle",
+    speed: null,
     model: {
       id: "accounts/fireworks/models/kimi-k2",
       provider: "fireworks",
@@ -109,6 +110,7 @@ function statusFixture(overrides: Partial<DesktopStatus> = {}): DesktopStatus {
     artifact: null,
     needsWorkspace: false,
     sessions: [],
+    recentArtifacts: [],
     workspace: { label: "otis", path: "/Users/n/dev/otis" },
     contextTokens: 41_234,
     contextLimit: 200_000,

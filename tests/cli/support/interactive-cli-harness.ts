@@ -6,7 +6,7 @@ import type {
   UserChatMessage,
 } from "../../../src/inference/types.js"
 import type { ThemeName } from "../../../src/local/settings.js"
-import type { SkillCatalog } from "../../../src/skills/index.js"
+import type { SkillCatalog } from "../../../src/skills/catalog.js"
 import type { SessionReplay, SessionTranscriptReplay } from "../../../src/storage/session-events.js"
 
 const mocks = vi.hoisted(() => {
@@ -237,7 +237,8 @@ vi.mock("../../../src/core/agent.js", async (importOriginal) => ({
   runAgent: mocks.runAgent,
 }))
 vi.mock("../../../src/core/context.js", () => ({ loadProjectContext: mocks.loadProjectContext }))
-vi.mock("../../../src/skills/index.js", () => ({
+vi.mock("../../../src/skills/catalog.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../src/skills/catalog.js")>()),
   loadSkillCatalog: mocks.loadSkillCatalog,
 }))
 vi.mock("../../../src/inference/client.js", () => ({
@@ -278,9 +279,12 @@ vi.mock("../../../src/local/settings.js", async (importOriginal) => ({
   savePermissionMode: mocks.savePermissionMode,
 }))
 vi.mock("../../../src/local/stats.js", () => ({ calculateLocalStats: mocks.calculateLocalStats }))
-vi.mock("../../../src/storage/index.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../../src/storage/index.js")>()),
+vi.mock("../../../src/storage/session-lock.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../src/storage/session-lock.js")>()),
   acquireSessionLock: mocks.acquireSessionLock,
+}))
+vi.mock("../../../src/storage/session.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../src/storage/session.js")>()),
   createSession: mocks.createSession,
   deleteSession: mocks.deleteSession,
   listSessions: mocks.listSessions,

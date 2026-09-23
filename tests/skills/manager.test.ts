@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
 import { afterEach, describe, expect, it } from "vitest"
-import { SkillManager } from "../../src/skills/index.js"
+import { SkillManager } from "../../src/skills/manager.js"
 
 const executeFile = promisify(execFile)
 const temporaryDirectories: string[] = []

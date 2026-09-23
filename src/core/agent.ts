@@ -22,7 +22,7 @@ import {
   type PermissionPolicy,
   type PermissionRequest,
 } from "../permissions/policy.js"
-import { loadSkillCatalog, type SkillCatalog } from "../skills/index.js"
+import { loadSkillCatalog, type SkillCatalog } from "../skills/catalog.js"
 import {
   describeToolCall,
   executeToolCall,

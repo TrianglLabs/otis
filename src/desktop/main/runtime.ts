@@ -7,8 +7,9 @@ import {
   SELECTION_SUPERSEDED,
 } from "../../app/application.js"
 import {
+  type GlobalHistory,
   type GlobalSessionPickerItem,
-  listGlobalSessionPickerItems,
+  listGlobalHistory,
   searchGlobalSessionPickerItems,
 } from "../../app/global-sessions.js"
 import type { LocalServerInputs } from "../../app/local-servers.js"
@@ -48,11 +49,10 @@ import {
 import { calculateLocalStats } from "../../local/stats.js"
 import {
   defaultSessionDirectory,
-  readWorkspacePath,
-  registerWorkspacePath,
   sessionFile,
   sessionRootDirectory,
-} from "../../storage/index.js"
+} from "../../storage/session-files.js"
+import { readWorkspacePath, registerWorkspacePath } from "../../storage/workspace-registry.js"
 import type {
   ArtifactResult,
   DesktopAttachmentInput,
@@ -91,6 +91,9 @@ const MAX_PROMPT_CHARS = 200_000
 
 /** Streaming changes are batched so a fast token stream does not flood the IPC channel. */
 const FLUSH_INTERVAL_MS = 32
+
+/** Home-screen document rows. */
+const RECENT_ARTIFACTS = 3
 
 const RESTARTING = "Otis is restarting to finish an update."
 const SWITCHING = "Switching workspaces — try again in a moment."
@@ -136,7 +139,7 @@ export class DesktopRuntime {
   /**
    * Global session listing is disk-heavy; the shared promise coalesces concurrent status snapshots.
    */
-  #sessionsCache: Promise<GlobalSessionPickerItem[]> | undefined
+  #historyCache: Promise<GlobalHistory> | undefined
   #stats: DesktopStatus["stats"]
   #update: DesktopStatus["update"] = { status: "idle" }
   #queuedChanges: TranscriptChange[] = []
@@ -192,7 +195,7 @@ export class DesktopRuntime {
       if (event.type === "transcript") this.#onTranscriptChange(event.change)
       else if (event.type === "settled") void this.#refreshStats()
       else if (event.type === "busy" && !event.busy) {
-        this.#sessionsCache = undefined
+        this.#historyCache = undefined
         this.#markStateDirty()
         this.#flushNow()
       } else this.#markStateDirty()
@@ -388,7 +391,7 @@ export class DesktopRuntime {
           await this.app.sessions.releaseLock()
         }
       }
-      this.#sessionsCache = undefined
+      this.#historyCache = undefined
       this.#markStateDirty()
       return { ok: true }
     } finally {
@@ -404,7 +407,7 @@ export class DesktopRuntime {
    * The palette recomputes history when it opens, so sessions a TUI instance created get listed.
    */
   refreshSessions(): void {
-    this.#sessionsCache = undefined
+    this.#historyCache = undefined
     this.#markStateDirty()
   }
 
@@ -479,7 +482,7 @@ export class DesktopRuntime {
       this.#attach(next)
       this.#queuedChanges = []
       this.#pendingWorkspace = undefined // the destination workspace is real and present
-      this.#sessionsCache = undefined
+      this.#historyCache = undefined
       void this.#startSavedSelection()
       this.#onTranscriptChange({ op: "reset" })
       this.#markStateDirty()
@@ -540,7 +543,7 @@ export class DesktopRuntime {
         return { ok: false, reason: "That session is open in another Otis window." }
       }
       this.#pendingWorkspace = undefined
-      this.#sessionsCache = undefined
+      this.#historyCache = undefined
       this.#markStateDirty()
       return { ok: true }
     } finally {
@@ -557,11 +560,12 @@ export class DesktopRuntime {
     if (!(await pathExists(path)))
       return { ok: false, reason: "That folder is no longer available." }
     await registerWorkspacePath(directory, path)
-    this.#sessionsCache = undefined
+    this.#historyCache = undefined
     this.#markStateDirty()
     return { ok: true }
   }
 
+  /** The home screen's recent documents: published Canvas artifacts from every workspace. */
   /** The command palette's session search, across every workspace's stored sessions. */
   async searchSessions(query: string): Promise<GlobalSessionPickerItem[]> {
     return searchGlobalSessionPickerItems(query, {
@@ -578,7 +582,7 @@ export class DesktopRuntime {
     if (!this.app.sessions.startNew())
       return { ok: false, reason: "Finish the current work before starting over." }
     this.#pendingWorkspace = undefined
-    this.#sessionsCache = undefined
+    this.#historyCache = undefined
     this.#markStateDirty()
     return { ok: true }
   }
@@ -591,7 +595,7 @@ export class DesktopRuntime {
     const result = await this.app.sessions.delete(sessionId, this.#storageFor(dirName))
     if (result !== "deleted") return { ok: false, reason: SESSION_REASONS[result] }
     if (this.app.sessions.current === undefined) this.#pendingWorkspace = undefined
-    this.#sessionsCache = undefined
+    this.#historyCache = undefined
     void this.#refreshStats()
     this.#markStateDirty()
     return { ok: true }
@@ -930,15 +934,15 @@ export class DesktopRuntime {
     const app = this.app
     // The cached global session scan; invalidated by every operation that creates, opens, or
     // removes one.
-    if (this.#sessionsCache === undefined) {
-      const pending = listGlobalSessionPickerItems({
+    if (this.#historyCache === undefined) {
+      const pending = listGlobalHistory(RECENT_ARTIFACTS, {
         activeId: app.sessions.current?.id,
         activeDirName: app.sessions.currentDirName,
         seeds: [app.cwd],
       })
-      this.#sessionsCache = pending
+      this.#historyCache = pending
       void pending.catch(() => {
-        if (this.#sessionsCache === pending) this.#sessionsCache = undefined
+        if (this.#historyCache === pending) this.#historyCache = undefined
       })
     }
     const status = app.status()
@@ -975,7 +979,10 @@ export class DesktopRuntime {
       update: this.#update,
       // Capture all live fields before yielding so a slow history scan cannot mix two sessions'
       // metadata.
-      sessions: await this.#sessionsCache,
+      ...(await this.#historyCache.then(({ sessions, artifacts }) => ({
+        sessions,
+        recentArtifacts: artifacts,
+      }))),
     }
   }
 }

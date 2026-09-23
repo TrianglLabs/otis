@@ -112,7 +112,7 @@ function ThinkingSlider({ state, disabled }: { state: LocalThinkingState; disabl
       </button>
       {open ? (
         <span
-          className="thinkingControl-panel"
+          className="composer-popover thinkingControl-panel"
           role="dialog"
           aria-label={t("thinking.title")}
           style={{ "--thinking-fill": `${fillPercent}%` } as CSSProperties}

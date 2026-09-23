@@ -1,4 +1,4 @@
-import type { Skill } from "../skills/index.js"
+import type { Skill } from "../skills/catalog.js"
 import promptText from "./system-prompt.txt" with { type: "text" }
 import type { ContextFile, OutputCapabilities, ToolDefinition } from "./types.js"
 

@@ -1,3 +1,4 @@
+import type { RecentArtifact } from "../../../app/global-sessions.js"
 import type { TranscriptEntry } from "../../../app/transcript.js"
 import type {
   ArtifactMetadata,
@@ -222,6 +223,64 @@ const DEMO_SAVED_WORD = [
   }
 })
 const DEMO_LATEST_WORD = DEMO_SAVED_WORD[2]
+
+/** Published copies of the working-file fixtures, so home-screen document rows open in Canvas. */
+const DEMO_PUBLISHED = new Map<string, DemoArtifactFixture>()
+function demoPublished(
+  fixture: DemoArtifactFixture,
+  artifactId: string,
+  version: number,
+  sessionId: string,
+  workspace: string,
+  updatedAt: string,
+): RecentArtifact {
+  const reference: PublishedArtifactReference = {
+    source: "published",
+    artifactId,
+    version,
+    sha256: artifactId.replaceAll("-", "").slice(0, 8).repeat(8),
+    name: fixture.metadata.title,
+    kind: fixture.metadata.kind,
+    sourcePath: `/Users/dev/Projects/${workspace}/${fixture.metadata.title}`,
+  }
+  DEMO_PUBLISHED.set(artifactId, fixture)
+  return {
+    reference,
+    name: reference.name,
+    kind: reference.kind,
+    sessionId,
+    dirName: `${workspace}-demo`,
+    workspaceLabel: workspace,
+    updatedAt,
+  }
+}
+const DEMO_RECENT_ARTIFACTS: RecentArtifact[] = [
+  {
+    reference: DEMO_LATEST_WORD.metadata.publication.reference,
+    name: DEMO_LATEST_WORD.metadata.title,
+    kind: "docx",
+    sessionId: "session_versions",
+    dirName: "otis-demo",
+    workspaceLabel: "otis",
+    updatedAt: new Date(Date.now() - 25 * 60_000).toISOString(),
+  },
+  demoPublished(
+    DEMO_WEBPAGE,
+    "3b1f2c40-5d6e-4f70-8a91-b2c3d4e5f601",
+    2,
+    "session_webpage",
+    "otis",
+    new Date(Date.now() - 3 * 3_600_000).toISOString(),
+  ),
+  demoPublished(
+    DEMO_MARKDOWN,
+    "9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c62",
+    1,
+    "session_notes",
+    "notes",
+    new Date(Date.now() - 2 * 86_400_000).toISOString(),
+  ),
+]
 
 const DEMO_ARTIFACTS_BY_SESSION = new Map<string, DemoArtifactFixture>([
   ["session_versions", DEMO_LATEST_WORD],
@@ -469,6 +528,7 @@ class DemoRuntime implements DesktopApi {
   #state: DemoState = {
     busy: false,
     phase: "idle",
+    speed: null,
     model: {
       id: "accounts/fireworks/models/kimi-k2p5-turbo",
       provider: "fireworks",
@@ -490,7 +550,7 @@ class DemoRuntime implements DesktopApi {
       demoSession("session_docx", "Canvas preview · Word", "Demo"),
       demoSession("session_webpage", "Canvas preview · Webpage", "Demo"),
       demoSession("session_demo1", "Canvas preview · Markdown", "Demo"),
-      demoSession("session_demo2", "Fix flaky session lock test", "3h ago"),
+      { ...demoSession("session_demo2", "Fix flaky session lock test", "3h ago"), resumable: true },
       demoSession("session_demo3", "Refactor GGUF cache cleanup", "Yesterday"),
       demoSession("session_notes", "Reading list cleanup", "2d ago", "notes"),
       // An unregistered folder: no workspace path, so opening it goes through the locate flow.
@@ -507,6 +567,7 @@ class DemoRuntime implements DesktopApi {
     diffs: { added: 12, removed: 3 },
     permission: null,
     modelLoad: null,
+    recentArtifacts: DEMO_RECENT_ARTIFACTS,
     stats: {
       streak: 3,
       totalTokens: 24_909_600,
@@ -726,6 +787,16 @@ class DemoRuntime implements DesktopApi {
         (candidate) =>
           candidate.metadata.publication.reference.version === (version ?? DEMO_SAVED_WORD.length),
       )
+      const published = DEMO_PUBLISHED.get(reference.artifactId)
+      if (published) {
+        this.#state = {
+          ...this.#state,
+          artifact: { ...published.metadata, revision: ++this.#artifactRevision },
+          agentsPanelVisible: true,
+        }
+        this.#emitStatus()
+        return { ok: true }
+      }
       if (!known || !fixture)
         return { ok: false, reason: "That saved demo version is unavailable." }
       this.#state = {

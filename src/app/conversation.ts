@@ -2,6 +2,7 @@ import { SteeringInbox } from "../core/agent.js"
 import { compactConversation, NOTHING_TO_COMPACT } from "../core/compaction.js"
 import { reportedContextLengthIsServing } from "../inference/context-policy.js"
 import { errorMessage } from "../inference/errors.js"
+import { estimateTextTokens } from "../inference/messages.js"
 import type {
   ChatMessage,
   ContextFile,
@@ -9,8 +10,9 @@ import type {
   UserChatMessage,
 } from "../inference/types.js"
 import type { PermissionPolicy } from "../permissions/policy.js"
-import type { SkillCatalog } from "../skills/index.js"
-import type { JsonlSession, PromptAdmission, SessionTurnDetails } from "../storage/index.js"
+import type { SkillCatalog } from "../skills/catalog.js"
+import type { JsonlSession, PromptAdmission } from "../storage/session.js"
+import type { SessionTurnDetails } from "../storage/session-events.js"
 import { describeToolCall, type ToolActivityKind } from "../tools/activity.js"
 import { providerTools } from "../tools/index.js"
 import type { ParallelClient } from "../web/client.js"
@@ -28,6 +30,16 @@ export type ConversationTurnResult =
   | { status: "incomplete" }
 
 export type TurnPhase = "idle" | "thinking" | "working"
+
+/**
+ * Generation speed of the latest model request in a turn: time to the first streamed token, and
+ * output tokens per second over the streaming interval — estimated from streamed text until the
+ * provider's usage makes it exact.
+ */
+export type TurnSpeed = { prefillMs?: number; tokensPerSecond: number; exact: boolean }
+
+/** Streaming estimates are refreshed at most this often. */
+const SPEED_INTERVAL_MS = 500
 
 /** A tool call awaiting the user's approval, as the interface shows it. */
 export type PendingPermission = {
@@ -48,6 +60,7 @@ export type ConversationEvent =
   | { type: "indicator"; active: boolean }
   | { type: "phase"; phase: "thinking" | "working" }
   | { type: "context"; tokens: number }
+  | { type: "speed"; speed: TurnSpeed | null }
   | { type: "permission"; request: PendingPermission | null }
   | { type: "render"; scrollToBottom?: boolean }
   | { type: "subagents" }
@@ -94,6 +107,8 @@ export class Conversation {
   readonly #listeners = new Set<(event: ConversationEvent) => void>()
   /** What the active turn is doing; idle between turns. */
   phase: TurnPhase = "idle"
+  /** Generation speed of the latest model request; null until the current turn streams. */
+  speed: TurnSpeed | null = null
   /** Session-only debug mode; applies from the next turn. */
   debug = false
 
@@ -310,6 +325,11 @@ export class Conversation {
     this.#emit({ type: "phase", phase })
   }
 
+  #setSpeed(speed: TurnSpeed | null) {
+    this.speed = speed
+    this.#emit({ type: "speed", speed })
+  }
+
   async start(
     input: UserChatMessage | QueuedPrompt,
     onAdmitted?: () => void,
@@ -376,6 +396,26 @@ export class Conversation {
         }
         const aborted = () => this.options.isExiting() || signal.aborted
 
+        // Per model request: prefill runs from the request to its first token; streamed text is
+        // estimated until usage reports the exact completion count over the same interval. The
+        // first-token mark is consumed by that usage, so a delegated run's usage (which shares
+        // this callback) cannot restate it.
+        this.#setSpeed(null)
+        let requestAt = 0
+        let firstTokenAt = 0
+        let streamedTokens = 0
+        let speedAt = 0
+        const prefill = () => (requestAt ? { prefillMs: firstTokenAt - requestAt } : {})
+        const streamed = (text: string) => {
+          const now = Date.now()
+          if (!firstTokenAt) firstTokenAt = speedAt = now
+          streamedTokens += estimateTextTokens(text)
+          if (now - speedAt < SPEED_INTERVAL_MS) return
+          speedAt = now
+          const tokensPerSecond = (streamedTokens * 1000) / (now - firstTokenAt)
+          this.#setSpeed({ ...prefill(), tokensPerSecond, exact: false })
+        }
+
         let result: Exclude<ConversationTurnResult, { status: "incomplete" }>
         try {
           const turn = await executeTurn({
@@ -405,6 +445,12 @@ export class Conversation {
               attachments: () => artifacts.attachments,
               debug: this.debug,
               onUsage: async (usage) => {
+                if (firstTokenAt) {
+                  const seconds = Math.max(1, Date.now() - firstTokenAt) / 1000
+                  const tokensPerSecond = usage.completionTokens / seconds
+                  this.#setSpeed({ ...prefill(), tokensPerSecond, exact: true })
+                  firstTokenAt = 0
+                }
                 await session.recordUsage(usage, "agent", admission.promptId)
               },
               autoCompactAtTokens: models.autoCompactAtTokens,
@@ -465,6 +511,9 @@ export class Conversation {
                 return
               }
               if (event.type === "model") {
+                requestAt = Date.now()
+                firstTokenAt = 0
+                streamedTokens = 0
                 projector.apply(event)
                 this.#emit({ type: "indicator", active: true })
                 this.#setPhase("working")
@@ -488,6 +537,8 @@ export class Conversation {
               if (event.type === "reasoning" && event.phase === "start") this.#setPhase("thinking")
               if (event.type === "delta" || (event.type === "tool" && event.phase === "start"))
                 this.#setPhase("working")
+              if (event.type === "delta" || (event.type === "reasoning" && event.phase === "delta"))
+                streamed(event.text)
               if (event.type === "tool" && event.phase === "end") {
                 if (event.diff) {
                   const diff = countDiffLines(event.diff)
