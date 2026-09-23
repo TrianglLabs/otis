@@ -151,7 +151,6 @@ export const uk: Messages = {
   "composer.sendFollowUpTitle": "Надіслати як наступний запит (Enter)",
   "composer.sendTitle": "Надіслати (Enter)",
   "composer.followUp": "Наступний запит",
-  "home.modelStarting": "Вибрана модель запускається…",
   "home.modelFailed": "Не вдалося запустити вибрану модель{{detail}}",
   "home.pickDifferent": "Виберіть іншу модель у меню моделі в редакторі повідомлення.",
   "home.noModel": "Модель ще не налаштована.",
@@ -283,4 +282,7 @@ export const uk: Messages = {
   "canvas.loadFailed": "Не вдалося завантажити Mermaid.",
   "canvas.emptySource": "Блок Mermaid порожній.",
   "canvas.tooLarge": "Ця діаграма Mermaid завелика. Обмеження — 50 000 символів.",
+  "composer.tokensPerSecond": "{{rate}} ток/с",
+  "composer.prefill": "{{seconds}}с prefill",
+  "composer.speedLabel": "Швидкість генерації",
 }

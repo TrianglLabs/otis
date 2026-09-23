@@ -5,7 +5,7 @@ import {
   forToolCalls,
   type SessionSubagentRun,
   type SessionSubagentStatus,
-} from "../storage/index.js"
+} from "../storage/session-events.js"
 import { TranscriptProjector, TranscriptStore } from "./transcript.js"
 
 export type SubagentStatus = "running" | SessionSubagentStatus

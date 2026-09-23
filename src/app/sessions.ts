@@ -4,18 +4,17 @@ import type { InferenceClient } from "../inference/client.js"
 import { summarizeUserMessage, userMessageText } from "../inference/messages.js"
 import type { ChatMessage } from "../inference/types.js"
 import {
-  acquireSessionLock,
   createSession,
-  defaultSessionDirectory,
   deleteSession,
   type JsonlSession,
   listSessions,
   openSession,
-  type SessionLock,
   type SessionSummary,
-  type SessionToolActivity,
   searchSessions,
-} from "../storage/index.js"
+} from "../storage/session.js"
+import type { SessionToolActivity } from "../storage/session-events.js"
+import { defaultSessionDirectory } from "../storage/session-files.js"
+import { acquireSessionLock, type SessionLock } from "../storage/session-lock.js"
 import type { ConversationTurnResult } from "./conversation.js"
 import type { SubagentTraces } from "./subagents.js"
 import { countDiffLines, type TranscriptStore } from "./transcript.js"
@@ -389,6 +388,8 @@ export type SessionPickerItem = {
   active?: boolean
   /** First content match context; set only by search, when the match is not in the title. */
   snippet?: string
+  /** The last turn was interrupted or never answered, so the session invites picking up. */
+  resumable?: true
 }
 
 export function toSessionPickerItem(
@@ -400,6 +401,7 @@ export function toSessionPickerItem(
     title: summary.title,
     detail: formatSessionAge(summary.updatedAt),
     active: summary.id === activeSessionId,
+    ...(summary.state === "complete" ? {} : { resumable: true }),
   }
 }
 

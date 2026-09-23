@@ -21,11 +21,9 @@ vi.mock("../../../src/app/global-sessions.js", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../../src/app/global-sessions.js")>()
   return {
     ...original,
-    listGlobalSessionPickerItems: (...args: unknown[]) => {
+    listGlobalHistory: (...args: Parameters<typeof original.listGlobalHistory>) => {
       mocks.listGlobal()
-      return original.listGlobalSessionPickerItems(
-        args[0] as Parameters<typeof original.listGlobalSessionPickerItems>[0],
-      )
+      return original.listGlobalHistory(...args)
     },
   }
 })
@@ -69,7 +67,7 @@ describe("global session list caching", () => {
     const scansAfterWarm = mocks.listGlobal.mock.calls.length
 
     // A TUI instance creates a session in this workspace's store while the GUI keeps running.
-    const { createSession } = await import("../../../src/storage/index.js")
+    const { createSession } = await import("../../../src/storage/session.js")
     const external = await createSession({ cwd })
     await external.admitPrompt("from the terminal")
 

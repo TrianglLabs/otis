@@ -145,7 +145,6 @@ export const ptBR: Messages = {
   "composer.sendFollowUpTitle": "Enviar continuação (Enter)",
   "composer.sendTitle": "Enviar (Enter)",
   "composer.followUp": "Continuar",
-  "home.modelStarting": "O modelo selecionado está iniciando…",
   "home.modelFailed": "Não foi possível iniciar o modelo selecionado{{detail}}",
   "home.pickDifferent": "Escolha outro modelo no menu do editor.",
   "home.noModel": "Nenhum modelo foi configurado ainda.",
@@ -277,4 +276,7 @@ export const ptBR: Messages = {
   "canvas.loadFailed": "Não foi possível carregar o Mermaid.",
   "canvas.emptySource": "O bloco Mermaid está vazio.",
   "canvas.tooLarge": "Este diagrama Mermaid é grande demais. O limite é de 50.000 caracteres.",
+  "composer.tokensPerSecond": "{{rate}} tok/s",
+  "composer.prefill": "{{seconds}}s de prefill",
+  "composer.speedLabel": "Velocidade de geração",
 }

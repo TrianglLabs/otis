@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import { runSkillsCommand } from "../../src/cli/skills-cli.js"
-import type { SkillManager } from "../../src/skills/index.js"
+import type { SkillManager } from "../../src/skills/manager.js"
 
 describe("skills CLI", () => {
   it("prints help without initializing a manager operation", async () => {

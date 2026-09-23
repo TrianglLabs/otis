@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it } from "vitest"
 import { TranscriptStore } from "../../src/app/transcript.js"
 import { compactionSummaryMessage } from "../../src/core/compaction.js"
 import type { ChatMessage } from "../../src/inference/types.js"
-import { openSession, readSessionEvents } from "../../src/storage/index.js"
+import { openSession } from "../../src/storage/session.js"
+import { readSessionEvents } from "../../src/storage/session-events.js"
 
 const tempDirs: string[] = []
 

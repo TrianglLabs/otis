@@ -28,14 +28,8 @@ import {
   type PermissionMode,
   parsePermissionRuleString,
 } from "../permissions/policy.js"
-import {
-  acquireSessionLock,
-  createSession,
-  type JsonlSession,
-  listSessions,
-  openSession,
-  type SessionLock,
-} from "../storage/index.js"
+import { createSession, type JsonlSession, listSessions, openSession } from "../storage/session.js"
+import { acquireSessionLock, type SessionLock } from "../storage/session-lock.js"
 import { providerTools, TOOL_NAMES, type ToolName } from "../tools/index.js"
 import {
   addUsage,

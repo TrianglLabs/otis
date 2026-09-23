@@ -1,12 +1,8 @@
 import { appendFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
-import {
-  createSession,
-  listAllSessions,
-  searchAllSessions,
-  sessionRootDirectory,
-} from "../../src/storage/index.js"
+import { createSession, listAllSessions, searchAllSessions } from "../../src/storage/session.js"
+import { sessionRootDirectory } from "../../src/storage/session-files.js"
 import { useOtisHome } from "../app/support/otis-home.js"
 
 const isolate = useOtisHome()
@@ -99,7 +95,7 @@ describe("global session history", () => {
   it("still parses session files whose start event predates the cwd field", async () => {
     await isolate()
     const dir = await legacySession("ancient-dddddddddddd", "default", "old start")
-    const { openSession } = await import("../../src/storage/index.js")
+    const { openSession } = await import("../../src/storage/session.js")
     const session = await openSession({ cwd: "", directory: dir, sessionId: "default" })
     expect(session.events[0].type).toBe("session_started")
   })

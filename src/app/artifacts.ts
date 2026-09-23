@@ -35,7 +35,8 @@ import type {
   ImageContentPart,
   UserChatMessage,
 } from "../inference/types.js"
-import type { JsonlSession, SessionToolActivity } from "../storage/index.js"
+import type { JsonlSession } from "../storage/session.js"
+import type { SessionToolActivity } from "../storage/session-events.js"
 import { groupToolActivities } from "./transcript.js"
 
 type ActiveArtifact =

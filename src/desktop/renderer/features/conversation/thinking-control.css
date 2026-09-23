@@ -7,24 +7,11 @@
 }
 .thinkingControl-panel {
   --thinking-thumb-size: 12px;
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 0;
-  z-index: 30;
   display: flex;
   flex-direction: column;
   gap: 6px;
   width: 232px;
   max-width: calc(100vw - 48px);
-  padding: 10px 14px 12px;
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius);
-  background: var(--bg-elev);
-  color: var(--text);
-  box-shadow: var(--shadow-float);
-  font-family: var(--font-ui);
-  font-size: var(--text-ui);
-  white-space: normal;
 }
 .thinkingControl-header {
   position: relative;

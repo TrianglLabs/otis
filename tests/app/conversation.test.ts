@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ArtifactStore } from "../../src/app/artifacts.js"
-import { Conversation, type ConversationEvent } from "../../src/app/conversation.js"
+import { Conversation, type ConversationEvent, type TurnSpeed } from "../../src/app/conversation.js"
 import { ModelHost } from "../../src/app/models.js"
 import { SessionCoordinator } from "../../src/app/sessions.js"
 import { SubagentTraces } from "../../src/app/subagents.js"
@@ -477,3 +477,43 @@ function abort(signal: AbortSignal) {
     signal.addEventListener("abort", () => resolve(), { once: true })
   })
 }
+
+describe("Conversation speed", () => {
+  it("estimates output speed from streamed text, then reports the exact rate on usage", async () => {
+    const { conversation } = await setup()
+    const speeds: (TurnSpeed | null)[] = []
+    conversation.subscribe((event) => {
+      if (event.type === "speed") speeds.push(event.speed)
+    })
+    let now = 1_000
+    vi.spyOn(Date, "now").mockImplementation(() => now)
+    mocks.executeTurn.mockImplementation(
+      async (options: TurnRunnerOptions): Promise<TurnResult> => {
+        await options.onEvent?.({ type: "model", phase: "start" })
+        now += 300 // prompt processing
+        await options.onEvent?.({ type: "delta", text: "The first words of the answer arrive" })
+        now += 200 // inside the reporting interval: no estimate yet
+        await options.onEvent?.({ type: "delta", text: " and keep streaming steadily" })
+        now += 500 // past the interval: an estimate
+        await options.onEvent?.({ type: "delta", text: " until the server reports usage." })
+        now += 300
+        await options.agent.onUsage?.({
+          promptTokens: 40,
+          completionTokens: 65,
+          totalTokens: 105,
+        })
+        await options.onEvent?.({ type: "complete", messages: [] })
+        return { status: "complete", messages: [], details: {} }
+      },
+    )
+    await conversation.start(hi)
+
+    expect(speeds[0]).toBeNull()
+    const estimate = speeds[1]
+    expect(estimate).toMatchObject({ exact: false, prefillMs: 300 })
+    expect(estimate?.tokensPerSecond).toBeGreaterThan(0)
+    // 65 completion tokens over the 1.0 s since the first token.
+    expect(speeds[2]).toEqual({ exact: true, prefillMs: 300, tokensPerSecond: 65 })
+    expect(conversation.speed).toEqual(speeds[2])
+  })
+})

@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { compactionSummaryMessage } from "../../src/core/compaction.js"
 import type { ChatMessage } from "../../src/inference/types.js"
-import { createSession, openSession, searchSessions } from "../../src/storage/index.js"
+import { createSession, openSession, searchSessions } from "../../src/storage/session.js"
 
 const tempDirs: string[] = []
 

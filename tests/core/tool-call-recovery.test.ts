@@ -12,7 +12,7 @@ import type {
   StreamChatOptions,
 } from "../../src/inference/types.js"
 import { createPermissionPolicy } from "../../src/permissions/policy.js"
-import { emptySkillCatalog } from "../../src/skills/index.js"
+import { emptySkillCatalog } from "../../src/skills/catalog.js"
 
 const directories: string[] = []
 afterEach(async () => {

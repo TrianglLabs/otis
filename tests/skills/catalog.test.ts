@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { loadSkillCatalog, readSkillResource } from "../../src/skills/index.js"
+import { loadSkillCatalog, readSkillResource } from "../../src/skills/catalog.js"
 
 const temporaryDirectories: string[] = []
 

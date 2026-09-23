@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from "vitest"
 import { SessionCoordinator } from "../../src/app/sessions.js"
 import { SubagentTraces } from "../../src/app/subagents.js"
 import { TranscriptStore } from "../../src/app/transcript.js"
-import { acquireSessionLock, createSession } from "../../src/storage/index.js"
+import { createSession } from "../../src/storage/session.js"
+import { acquireSessionLock } from "../../src/storage/session-lock.js"
 import { useOtisHome } from "./support/otis-home.js"
 
 // A controllable gate inside the real deletion: lets the test prove the write lock is still held
@@ -13,8 +14,8 @@ const gate = vi.hoisted(() => ({
   release: () => {},
   failOpen: false,
 }))
-vi.mock("../../src/storage/index.js", async (importOriginal) => {
-  const original = await importOriginal<typeof import("../../src/storage/index.js")>()
+vi.mock("../../src/storage/session.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../../src/storage/session.js")>()
   return {
     ...original,
     deleteSession: async (options: Parameters<typeof original.deleteSession>[0]) => {

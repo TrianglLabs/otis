@@ -1,11 +1,8 @@
 import { mkdir, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
-import {
-  createSession,
-  defaultSessionDirectory,
-  sessionRootDirectory,
-} from "../../src/storage/index.js"
+import { createSession } from "../../src/storage/session.js"
+import { defaultSessionDirectory, sessionRootDirectory } from "../../src/storage/session-files.js"
 import {
   listWorkspaceSessionDirs,
   readWorkspacePath,

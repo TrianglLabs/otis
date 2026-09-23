@@ -145,7 +145,6 @@ export const ko: Messages = {
   "composer.sendFollowUpTitle": "후속 메시지 보내기 (Enter)",
   "composer.sendTitle": "보내기 (Enter)",
   "composer.followUp": "후속 메시지",
-  "home.modelStarting": "선택한 모델을 시작하는 중…",
   "home.modelFailed": "선택한 모델을 시작할 수 없습니다{{detail}}",
   "home.pickDifferent": "작성기의 모델 메뉴에서 다른 모델을 선택하세요.",
   "home.noModel": "아직 모델이 설정되지 않았습니다.",
@@ -275,4 +274,7 @@ export const ko: Messages = {
   "canvas.loadFailed": "Mermaid를 불러오지 못했습니다.",
   "canvas.emptySource": "Mermaid 블록이 비어 있습니다.",
   "canvas.tooLarge": "이 Mermaid 다이어그램이 너무 큽니다. 최대 50,000자까지 가능합니다.",
+  "composer.tokensPerSecond": "{{rate}} tok/s",
+  "composer.prefill": "프리필 {{seconds}}초",
+  "composer.speedLabel": "생성 속도",
 }

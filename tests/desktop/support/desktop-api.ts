@@ -8,6 +8,7 @@ import type { DesktopApi, DesktopSnapshot, DesktopStatus } from "../../../src/de
 export const STATUS: DesktopStatus = {
   busy: false,
   phase: "idle",
+  speed: null,
   model: null,
   modelState: "unconfigured",
   modelError: undefined,
@@ -15,6 +16,7 @@ export const STATUS: DesktopStatus = {
   artifact: null,
   needsWorkspace: false,
   sessions: [],
+  recentArtifacts: [],
   workspace: { label: "ws", path: "/ws" },
   contextTokens: undefined,
   contextLimit: 32_768,

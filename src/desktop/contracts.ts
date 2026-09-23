@@ -1,6 +1,6 @@
 import type { SubagentSummary } from "../app/application.js"
-import type { PendingPermission, TurnPhase } from "../app/conversation.js"
-import type { GlobalSessionPickerItem } from "../app/global-sessions.js"
+import type { PendingPermission, TurnPhase, TurnSpeed } from "../app/conversation.js"
+import type { GlobalSessionPickerItem, RecentArtifact } from "../app/global-sessions.js"
 import type { LocalServerInputs } from "../app/local-servers.js"
 import type { ModelState } from "../app/models.js"
 import type { TranscriptEntry } from "../app/transcript.js"
@@ -12,7 +12,8 @@ import type { ThemeName, UiLanguage } from "../local/settings.js"
 import type { PermissionMode } from "../permissions/policy.js"
 
 export type { SubagentSummary } from "../app/application.js"
-export type { PendingPermission, TurnPhase } from "../app/conversation.js"
+export type { PendingPermission, TurnPhase, TurnSpeed } from "../app/conversation.js"
+export type { RecentArtifact } from "../app/global-sessions.js"
 export type { ModelState } from "../app/models.js"
 export type { ThemeName, UiLanguage } from "../local/settings.js"
 export type { PermissionMode } from "../permissions/policy.js"
@@ -73,6 +74,8 @@ export type DesktopUpdateState =
 export type DesktopStatus = {
   busy: boolean
   phase: TurnPhase
+  /** Generation speed of the latest model request; null until the current turn streams. */
+  speed: TurnSpeed | null
   model: {
     id: string
     provider: ModelProvider
@@ -90,6 +93,8 @@ export type DesktopStatus = {
   needsWorkspace: boolean
   /** Global history: sessions from every registered workspace, recency-ordered. */
   sessions: GlobalSessionPickerItem[]
+  /** The newest Canvas documents across every workspace, scanned together with the sessions. */
+  recentArtifacts: RecentArtifact[]
   /** The workspace this window is working in. */
   workspace: { label: string; path: string }
   contextTokens: number | undefined
@@ -211,6 +216,7 @@ export type DesktopApi = {
    * sessions appear.
    */
   refreshSessions(): Promise<void>
+  /** The newest Canvas documents published across every workspace, for the home screen. */
   /**
    * Opens a session from global history, switching workspace first when it lives elsewhere.
    * dirName pins the session's storage identity so a relocated or duplicate id can't resolve to a

@@ -141,7 +141,6 @@ export const zhCN: Messages = {
   "composer.sendFollowUpTitle": "发送后续消息 (Enter)",
   "composer.sendTitle": "发送 (Enter)",
   "composer.followUp": "后续消息",
-  "home.modelStarting": "所选模型正在启动…",
   "home.modelFailed": "所选模型无法启动{{detail}}",
   "home.pickDifferent": "请从编辑器中的模型菜单选择其他模型。",
   "home.noModel": "尚未配置模型。",
@@ -266,4 +265,7 @@ export const zhCN: Messages = {
   "canvas.loadFailed": "Mermaid 加载失败。",
   "canvas.emptySource": "Mermaid 代码块为空。",
   "canvas.tooLarge": "此 Mermaid 图表过大，最多支持 50,000 个字符。",
+  "composer.tokensPerSecond": "{{rate}} tok/s",
+  "composer.prefill": "预填充 {{seconds}} 秒",
+  "composer.speedLabel": "生成速度",
 }

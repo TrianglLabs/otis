@@ -150,7 +150,6 @@ export const pl: Messages = {
   "composer.sendFollowUpTitle": "Wyślij jako kolejne polecenie (Enter)",
   "composer.sendTitle": "Wyślij (Enter)",
   "composer.followUp": "Kolejne polecenie",
-  "home.modelStarting": "Wybrany model jest uruchamiany…",
   "home.modelFailed": "Nie udało się uruchomić wybranego modelu{{detail}}",
   "home.pickDifferent": "Wybierz inny model z menu modelu w edytorze wiadomości.",
   "home.noModel": "Nie skonfigurowano jeszcze modelu.",
@@ -282,4 +281,7 @@ export const pl: Messages = {
   "canvas.loadFailed": "Nie udało się załadować Mermaid.",
   "canvas.emptySource": "Blok Mermaid jest pusty.",
   "canvas.tooLarge": "Ten diagram Mermaid jest za duży. Limit wynosi 50 000 znaków.",
+  "composer.tokensPerSecond": "{{rate}} tok/s",
+  "composer.prefill": "{{seconds}}s prefill",
+  "composer.speedLabel": "Szybkość generowania",
 }

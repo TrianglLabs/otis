@@ -1,4 +1,4 @@
-import { ArrowUp, ChevronDown, FolderOpen, Paperclip, Square, X, Zap } from "lucide-react"
+import { ArrowUp, ChevronDown, FolderOpen, Gauge, Paperclip, Square, X, Zap } from "lucide-react"
 import { memo, useEffect, useRef, useState } from "react"
 import {
   MAX_DOCUMENTS_PER_MESSAGE,
@@ -75,6 +75,7 @@ export const Composer = memo(function Composer({ installing = false }: { install
     "model",
     "fastServing",
     "workspace",
+    "speed",
   )
   const [draft, setDraft] = useState("")
   const [sendError, setSendError] = useState<string | null>(null)
@@ -105,6 +106,12 @@ export const Composer = memo(function Composer({ installing = false }: { install
   const boxDropClass = dragActive ? " composer-boxDrop" : ""
   const modelStateClass =
     modelState === "starting" || modelState === "failed" ? ` composer-model-${modelState}` : ""
+  // Hosted serving is not the user's hardware; only local providers get the speed readout.
+  const showSpeed = state?.model !== null && state?.model.provider !== "fireworks"
+  const speed = state?.speed ?? null
+  const rate = speed
+    ? t("composer.tokensPerSecond", { rate: Math.round(speed.tokensPerSecond) })
+    : ""
 
   const replacePendingAttachments = (attachments: PendingAttachment[]) => {
     pendingAttachmentsRef.current = attachments
@@ -438,6 +445,16 @@ export const Composer = memo(function Composer({ installing = false }: { install
                 <Icon icon={FolderOpen} size={11} />
                 {state.workspace.path.split("/").filter(Boolean).at(-1) ?? state.workspace.label}
               </button>
+            ) : null}
+            {showSpeed && speed ? (
+              <span className="composer-speed" title={t("composer.speedLabel")}>
+                <Icon icon={Gauge} size={12} />
+                {speed.exact
+                  ? speed.prefillMs === undefined
+                    ? rate
+                    : `${rate} · ${t("composer.prefill", { seconds: (speed.prefillMs / 1000).toFixed(1) })}`
+                  : `~${rate}`}
+              </span>
             ) : null}
           </span>
           <span className="composer-actions">

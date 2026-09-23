@@ -35,12 +35,19 @@ export type PromptAdmission = {
   message: UserChatMessage
 }
 
+/**
+ * How a session's last turn ended: `interrupted` when the model was stopped mid-answer, `pending`
+ * when a prompt was admitted and never answered, `complete` otherwise (including no prompts).
+ */
+export type SessionState = "complete" | "interrupted" | "pending"
+
 export type SessionSummary = {
   id: string
   title: string
   messageCount: number
   updatedAt: string
   mtimeMs: number
+  state: SessionState
 }
 
 type SessionSearchResult = SessionSummary & {
@@ -290,6 +297,7 @@ export async function listSessions(
         messageCount: replaySessionMessages(events).length,
         updatedAt: events.at(-1)?.at ?? new Date(0).toISOString(),
         mtimeMs: (await stat(filePath)).mtimeMs,
+        state: sessionState(events),
       })
     } catch (error) {
       if (isUnreadableSessionFile(error)) continue
@@ -416,6 +424,20 @@ function sessionTitle(events: readonly SessionEvent[]) {
   const cut = text.slice(0, FALLBACK_TITLE_MAX_LENGTH)
   const lastSpace = cut.lastIndexOf(" ")
   return `${(lastSpace > 0 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`
+}
+
+/** An admitted prompt without an ending event is pending; otherwise the last ending event decides. */
+function sessionState(events: readonly SessionEvent[]): SessionState {
+  const open = new Set<string>()
+  let interrupted = false
+  for (const event of events) {
+    if (event.type === "prompt_admitted") open.add(event.promptId)
+    else if (event.type === "turn_completed" || event.type === "turn_interrupted") {
+      open.delete(event.promptId)
+      interrupted = event.type === "turn_interrupted"
+    }
+  }
+  return open.size > 0 ? "pending" : interrupted ? "interrupted" : "complete"
 }
 
 /** Omits empty detail lists so persisted turns stay compact. */

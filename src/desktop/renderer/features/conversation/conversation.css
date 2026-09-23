@@ -824,6 +824,41 @@ button.composer-model-failed {
   pointer-events: none;
 }
 
+/* Floating panels anchored above a footer chip: the thinking slider and the speed readout. */
+.composer-popover {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 30;
+  padding: 10px 14px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  color: var(--text);
+  box-shadow: var(--shadow-float);
+  font-family: var(--font-ui);
+  font-size: var(--text-ui);
+  white-space: normal;
+}
+
+/* Generation speed for local models: a read-only chip on the model chip's metrics, including its
+   pull against the row gap so all three chips sit the same distance apart. */
+.composer-speed {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  margin-left: -4px;
+  padding: 0 8px;
+  flex-shrink: 0;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: var(--text-meta);
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
 .composer-hint {
   margin-top: 6px;
   text-align: center;
@@ -870,54 +905,125 @@ button.composer-model-failed {
   justify-content: center;
   gap: 28px;
   padding: 40px 28px;
+}
+
+/* The mark and any setup message, centered as one block with the gallery below. */
+.home-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 28px;
   text-align: center;
 }
 
-.home-recents {
+/* Recents: one gallery of uniform tiles above the composer, on its width. Sessions and documents
+   share the tile; only the glyph differs. */
+.home-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: 10px;
+  width: 100%;
+  /* The composer box's width: its content max less its side padding. */
+  max-width: calc(var(--content-max) - 56px);
+}
+
+.home-tile {
   display: flex;
   flex-direction: column;
-  gap: var(--row-gap);
-  width: min(360px, 100%);
-}
-
-.home-recentRow {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  padding: 8px 12px;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  /* Content sets the height; the grid stretches tiles to match their row. */
+  padding: 12px 12px 11px;
   border: none;
-  border-radius: var(--radius);
-  background: none;
+  border-radius: var(--radius-lg);
+  background: var(--bg-code);
   color: var(--text);
   font: inherit;
-  font-size: var(--text-ui);
   text-align: left;
   cursor: pointer;
+  transition: background var(--motion);
 }
 
-.home-recentRow:hover {
+.home-tile:hover {
   background: var(--bg-hover);
 }
 
-.home-recentTitle {
-  min-width: 0;
+/* Glyph left, age right; the row is as tall as the labeled file icon so names align. */
+.home-tileHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  height: 32px;
+}
+
+.home-tileAge {
+  flex-shrink: 0;
+  padding-top: 2px;
+  font-size: var(--text-micro);
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.home-tileIcon {
+  position: relative;
+  display: inline-flex;
+  align-items: flex-start;
+  flex-shrink: 0;
+  height: 32px;
+  color: var(--text-dim);
+}
+
+/* A session that ended mid-turn. */
+.home-tileDot {
+  position: absolute;
+  top: -2px;
+  right: -4px;
+  width: 5px;
+  height: 5px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-ink);
+}
+
+.home-tileName {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  flex-shrink: 0;
+  width: 100%;
+  max-width: 100%;
+  /* Always two lines, so a short name does not pull the workspace up. */
+  height: calc(2 * 1.3em);
   overflow: hidden;
+  font-size: var(--text-meta);
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+/* The workspace folder, on one clipped line under the name. */
+.home-tileWorkspace {
+  flex-shrink: 0;
+  width: 100%;
+  margin-top: -2px;
+  overflow: hidden;
+  font-size: var(--text-micro);
+  color: var(--text-dim);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.home-recentDetail {
-  margin-left: auto;
-  flex-shrink: 0;
-  font-size: var(--text-meta);
-  color: var(--text-dim);
-}
-
-.home-hint {
-  margin-top: 10px;
+.home-galleryFooter {
+  grid-column: 1 / -1;
+  padding-top: 4px;
   font-size: var(--text-meta);
   color: var(--text-dim);
   text-align: center;
+}
+
+.home-error {
+  color: var(--danger);
 }
 
 .home-logo {

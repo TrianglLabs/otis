@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from 
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { loadSkillCatalog, readSkillResource } from "../../src/skills/index.js"
+import { loadSkillCatalog, readSkillResource } from "../../src/skills/catalog.js"
 
 const directories: string[] = []
 afterEach(async () => {

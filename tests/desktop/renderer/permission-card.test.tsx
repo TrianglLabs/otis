@@ -36,6 +36,7 @@ const permission: PendingPermission = {
 const SNAPSHOT: DesktopSnapshot = {
   busy: true,
   phase: "working",
+  speed: null,
   model: { id: "m", provider: "fireworks", supportsImageInput: false },
   modelState: "ready",
   modelError: undefined,
@@ -43,6 +44,7 @@ const SNAPSHOT: DesktopSnapshot = {
   artifact: null,
   needsWorkspace: false,
   sessions: [],
+  recentArtifacts: [],
   contextTokens: undefined,
   contextLimit: 32_768,
   diffs: { added: 0, removed: 0 },

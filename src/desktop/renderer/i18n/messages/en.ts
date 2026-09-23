@@ -142,7 +142,6 @@ export const en = {
   "composer.sendFollowUpTitle": "Send as follow-up (Enter)",
   "composer.sendTitle": "Send (Enter)",
   "composer.followUp": "Follow up",
-  "home.modelStarting": "The selected model is starting…",
   "home.modelFailed": "The selected model could not start{{detail}}",
   "home.pickDifferent": "Pick a different model from the model menu in the composer.",
   "home.noModel": "No model is configured yet.",
@@ -270,6 +269,9 @@ export const en = {
   "canvas.loadFailed": "Mermaid failed to load.",
   "canvas.emptySource": "The Mermaid block is empty.",
   "canvas.tooLarge": "This Mermaid diagram is too large to render. The limit is 50,000 characters.",
+  "composer.tokensPerSecond": "{{rate}} tok/s",
+  "composer.prefill": "{{seconds}}s prefill",
+  "composer.speedLabel": "Generation speed",
 } as const
 
 export type MessageKey = keyof typeof en

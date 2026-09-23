@@ -13,7 +13,7 @@ import {
 import { MAX_PDF_PAGES } from "../../src/inference/document-constraints.js"
 import { createDocumentAttachment } from "../../src/inference/documents.js"
 import type { ChatMessage } from "../../src/inference/types.js"
-import type { SessionToolActivity } from "../../src/storage/index.js"
+import type { SessionToolActivity } from "../../src/storage/session-events.js"
 import { pdfFixture } from "../desktop/ui/pdf-fixture.js"
 import { minimalDocx, minimalPdf } from "../inference/support/document-fixtures.js"
 

@@ -1,5 +1,5 @@
 import { buildSystemPrompt } from "../../../src/inference/system-prompt.js"
-import { loadSkillCatalog, readSkillResource } from "../../../src/skills/index.js"
+import { loadSkillCatalog, readSkillResource } from "../../../src/skills/catalog.js"
 
 async function main() {
   const catalog = await loadSkillCatalog(process.cwd(), {

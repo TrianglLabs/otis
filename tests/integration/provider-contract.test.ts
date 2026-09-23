@@ -8,7 +8,7 @@ import { FireworksClient } from "../../src/inference/client.js"
 import { OpenAICompatibleClient } from "../../src/inference/openai-compat.js"
 import type { ChatMessage, InferenceClient, TokenUsage } from "../../src/inference/types.js"
 import { createPermissionPolicy } from "../../src/permissions/policy.js"
-import { emptySkillCatalog } from "../../src/skills/index.js"
+import { emptySkillCatalog } from "../../src/skills/catalog.js"
 import { TOOL_DEFINITIONS } from "../../src/tools/index.js"
 import { summaryFixture } from "../support/compaction.js"
 import {

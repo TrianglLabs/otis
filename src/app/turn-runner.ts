@@ -8,8 +8,7 @@ import {
   type SessionToolActivity,
   type SessionTurnDetails,
   type SessionTurnSegment,
-} from "../storage/index.js"
-
+} from "../storage/session-events.js"
 export type TurnResult =
   | { status: "complete" | "interrupted"; messages: ChatMessage[]; details: SessionTurnDetails }
   | { status: "error"; message: string; messages: ChatMessage[]; details: SessionTurnDetails }
