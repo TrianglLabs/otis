@@ -35,10 +35,13 @@ import {
 } from "../inference/serving-path.js"
 import type {
   CatalogModel,
+  ChatMessage,
+  CompleteOptions,
   FireworksModel,
   InferenceClient,
   ModelProvider,
   PairEngine,
+  StreamChatOptions,
 } from "../inference/types.js"
 import { isLocalCatalogModel, isPairCatalogModel } from "../inference/types.js"
 import type { LocalSettings } from "../local/settings.js"
@@ -48,6 +51,160 @@ type ActiveLocalModel = {
   fit: LocalModelFit
   hardware: HardwareProbe
   contextLength: number
+  /** Parallel sequences the serving endpoint accepts; the gate's capacity while it is active. */
+  slots: number
+}
+
+/** Held for exactly one model request; releasing twice is a no-op. */
+export type InferenceLease = { release(): void }
+
+type GateWaiter = {
+  owner: number
+  grant: (lease: InferenceLease) => void
+  abort: () => void
+}
+
+/**
+ * Admission of model requests to the serving endpoint: at most `capacity` stream at once and the
+ * rest wait in one FIFO queue across every owner. A managed llama-server has one slot per
+ * configured parallel sequence; hosted and user-managed servers do their own admission, so the
+ * gate stays unbounded for them.
+ */
+export class InferenceGate {
+  #capacity: number
+  readonly #active: { owner: number }[] = []
+  readonly #waiting: GateWaiter[] = []
+  readonly #listeners = new Set<() => void>()
+
+  constructor(capacity = Infinity) {
+    this.#capacity = capacity
+  }
+
+  get capacity() {
+    return this.#capacity
+  }
+
+  /** Raising grants waiters in order; lowering only affects future grants. */
+  setCapacity(capacity: number) {
+    this.#capacity = capacity
+    this.#grant()
+    this.#notify()
+  }
+
+  get active() {
+    return this.#active.length
+  }
+
+  get waiting() {
+    return this.#waiting.length
+  }
+
+  /** An owner has a request waiting behind another owner's slot. */
+  isWaiting(owner: number) {
+    return this.#waiting.some((waiter) => waiter.owner === owner)
+  }
+
+  /** Resolves with a lease once a slot is free; rejects with an AbortError while still waiting. */
+  acquire(owner: number, signal?: AbortSignal): Promise<InferenceLease> {
+    if (signal?.aborted) return Promise.reject(gateAbortError())
+    if (this.#waiting.length === 0 && this.#active.length < this.#capacity) {
+      const lease = this.#lease(owner)
+      this.#notify()
+      return Promise.resolve(lease)
+    }
+    return new Promise<InferenceLease>((resolve, reject) => {
+      const waiter: GateWaiter = {
+        owner,
+        grant: (lease) => {
+          signal?.removeEventListener("abort", waiter.abort)
+          resolve(lease)
+        },
+        abort: () => {
+          const index = this.#waiting.indexOf(waiter)
+          if (index === -1) return
+          this.#waiting.splice(index, 1)
+          reject(gateAbortError())
+          this.#notify()
+        },
+      }
+      this.#waiting.push(waiter)
+      signal?.addEventListener("abort", waiter.abort, { once: true })
+      this.#notify()
+    })
+  }
+
+  subscribe(listener: () => void) {
+    this.#listeners.add(listener)
+    return () => {
+      this.#listeners.delete(listener)
+    }
+  }
+
+  #lease(owner: number): InferenceLease {
+    const entry = { owner }
+    this.#active.push(entry)
+    return {
+      release: () => {
+        this.#active.splice(this.#active.indexOf(entry), 1)
+        this.#grant()
+        this.#notify()
+      },
+    }
+  }
+
+  #grant() {
+    while (this.#waiting.length > 0 && this.#active.length < this.#capacity) {
+      const waiter = this.#waiting.shift()
+      if (waiter) waiter.grant(this.#lease(waiter.owner))
+    }
+  }
+
+  #notify() {
+    for (const listener of this.#listeners) listener()
+  }
+}
+
+function gateAbortError() {
+  return new DOMException("The model request was cancelled while waiting for a slot.", "AbortError")
+}
+
+/**
+ * One owner's view of the shared client: every stream or completion holds a gate lease from the
+ * request to the end of its stream, so tool execution between requests never occupies a slot.
+ * Token counting runs ungated. Identity is stable while the inner client is.
+ */
+export class GatedInferenceClient implements InferenceClient {
+  countTokens?: (options: StreamChatOptions) => Promise<number>
+
+  constructor(
+    readonly inner: InferenceClient,
+    private readonly gate: InferenceGate,
+    readonly owner: number,
+  ) {
+    if (inner.countTokens) this.countTokens = inner.countTokens.bind(inner)
+  }
+
+  get model() {
+    return this.inner.model
+  }
+
+  async *streamChat(options: StreamChatOptions) {
+    const lease = await this.gate.acquire(this.owner, options.signal)
+    try {
+      yield* this.inner.streamChat(options)
+    } finally {
+      lease.release()
+    }
+  }
+
+  async complete(messages: ChatMessage[], options: CompleteOptions = {}) {
+    const lease = await this.gate.acquire(this.owner, options.signal)
+    try {
+      return await this.inner.complete(messages, options)
+    } finally {
+      lease.release()
+    }
+  }
 }
 
 /**
@@ -112,6 +269,7 @@ type ModelHostOptions = {
 
 export class ModelHost {
   readonly llama: LlamaCppRuntime
+  readonly gate = new InferenceGate()
   omlx: OmlxSettings | undefined
   selectedId: string | undefined
   selectedProvider: ModelProvider | undefined
@@ -129,6 +287,8 @@ export class ModelHost {
   /** The compaction window of the active selection, kept so a thinking change can re-budget. */
   #contextLength: number | undefined
   #client: InferenceClient | undefined
+  /** Per-owner gated views of #client; an entry is stale once its inner client is replaced. */
+  readonly #gated = new Map<number, GatedInferenceClient>()
   #state: Exclude<ModelState, "ready"> = "unconfigured"
   #error: string | undefined
   #selecting = 0
@@ -149,6 +309,17 @@ export class ModelHost {
   set client(client: InferenceClient | undefined) {
     this.#client = client
     this.#notify()
+  }
+
+  /** The gated client an owner (a session runtime) sends its requests through. */
+  clientFor(owner: number): GatedInferenceClient | undefined {
+    const client = this.#client
+    if (!client) return undefined
+    const memo = this.#gated.get(owner)
+    if (memo?.inner === client) return memo
+    const gated = new GatedInferenceClient(client, this.gate, owner)
+    this.#gated.set(owner, gated)
+    return gated
   }
 
   /** A live client is the ready state; the explicit states only describe its absence. */
@@ -376,6 +547,7 @@ export class ModelHost {
     this.#contextLength = compactionContextLength(model)
     this.refreshAutoCompact()
     if (model.provider !== "local") this.activeLocal = undefined
+    this.gate.setCapacity(this.activeLocal?.slots ?? Infinity)
     this.client = client
   }
 
@@ -443,6 +615,7 @@ export class ModelHost {
           fit,
           hardware,
           contextLength: serving.contextLength,
+          slots: serving.slots,
         }
         this.activate(activeModel, this.#localClient(selectedSpec.id, serving.inferenceURL))
       })
@@ -500,7 +673,9 @@ export class ModelHost {
       )
       signal?.throwIfAborted()
       previous.contextLength = serving.contextLength
+      previous.slots = serving.slots
       this.activeLocal = previous
+      this.gate.setCapacity(serving.slots)
       this.client = this.#localClient(previous.spec.id, serving.inferenceURL)
       this.selectedProvider = "local"
       if (this.selectedId === previous.spec.id) {
@@ -529,7 +704,13 @@ export class ModelHost {
         onNotice: (message) => this.onNotice?.(message),
       })
       const client = this.#localClient(selectedSpec.id, serving.inferenceURL)
-      this.activeLocal = { spec: selectedSpec, fit, hardware, contextLength: serving.contextLength }
+      this.activeLocal = {
+        spec: selectedSpec,
+        fit,
+        hardware,
+        contextLength: serving.contextLength,
+        slots: serving.slots,
+      }
       this.activate(catalogModelFromSpec(selectedSpec, serving.contextLength), client)
       return {
         client,

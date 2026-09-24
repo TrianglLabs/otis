@@ -8,7 +8,7 @@ import {
 import { listAllSessions, searchAllSessions } from "../storage/session.js"
 import { readSessionEvents, replaySessionTranscript } from "../storage/session-events.js"
 import { sessionRootDirectory } from "../storage/session-files.js"
-import { type SessionPickerItem, toSessionPickerItem } from "./sessions.js"
+import { type OpenSession, type SessionPickerItem, toSessionPickerItem } from "./sessions.js"
 
 /**
  * Global session history for the desktop palette: sessions from every workspace under the shared
@@ -24,11 +24,10 @@ export type GlobalSessionPickerItem = SessionPickerItem & {
 
 type GlobalOptions = {
   /**
-   * Full identity of the active session; ids repeat across storage dirs, so both parts must
-   * match.
+   * The sessions open in this process, by full (dirName, id) identity — ids repeat across storage
+   * dirs, so both parts must match. Focused rows read as `active`.
    */
-  activeId?: string
-  activeDirName?: string
+  open?: readonly OpenSession[]
   /** Workspace candidates for recovering pre-registration dirs (typically the current one). */
   seeds?: string[]
 }
@@ -57,10 +56,9 @@ function toGlobalItem(
   snippet?: string,
 ): GlobalSessionPickerItem {
   const { dirName, workspacePath } = summary
-  const active = options.activeId === summary.id && options.activeDirName === dirName
+  const open = options.open?.find((entry) => entry.id === summary.id && entry.dirName === dirName)
   return {
-    ...toSessionPickerItem(summary, undefined),
-    ...(active ? { active: true } : {}),
+    ...toSessionPickerItem(summary, open),
     ...(snippet !== undefined ? { snippet } : {}),
     dirName,
     workspaceLabel: workspaceLabel(dirName, workspacePath),

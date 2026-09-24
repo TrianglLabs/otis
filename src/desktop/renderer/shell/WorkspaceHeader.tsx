@@ -23,8 +23,8 @@ export function WorkspaceHeader({
     "diffs",
     "contextTokens",
     "contextLimit",
-    "busy",
     "session",
+    "panes",
     "subagents",
     "agentsPanelVisible",
   )
@@ -47,8 +47,7 @@ export function WorkspaceHeader({
             variant="ghost"
             icon={SquarePen}
             className="workspaceHeader-new noDrag"
-            disabled={state.busy}
-            title={state.busy ? t("header.finishBeforeStarting") : t("header.newSession")}
+            title={t("header.newSession")}
             onClick={() => void api.startNewSession()}
           >
             {t("header.freshStart")}
@@ -56,16 +55,18 @@ export function WorkspaceHeader({
         ) : null}
       </div>
 
-      {state.session ? <div className="workspaceHeader-title">{state.session.title}</div> : null}
+      {state.session && state.panes.length === 1 ? (
+        <div className="workspaceHeader-title">{state.session.title}</div>
+      ) : null}
 
       <div className="workspaceHeader-right">
-        {diffs.added + diffs.removed > 0 ? (
+        {diffs.added + diffs.removed > 0 && state.panes.length === 1 ? (
           <span className="headerDiff noDrag" title={t("header.linesChanged")}>
             <span className="headerDiff-add">+{diffs.added}</span>
             <span className="headerDiff-remove">−{diffs.removed}</span>
           </span>
         ) : null}
-        {hasEntries && contextTokens !== undefined ? (
+        {hasEntries && contextTokens !== undefined && state.panes.length === 1 ? (
           <span
             className="contextMeter noDrag"
             title={t("header.contextTokens", {

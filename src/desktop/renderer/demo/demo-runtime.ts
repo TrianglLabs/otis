@@ -13,18 +13,21 @@ import {
   validateLocalThinkingSelection,
 } from "../../../inference/local-thinking.js"
 import type { ModelPickerChoice, ModelPickerItem } from "../../../inference/picker-catalog.js"
-import type {
-  ArtifactResult,
-  DesktopApi,
-  DesktopAttachmentInput,
-  DesktopEvent,
-  DesktopSnapshot,
-  DesktopStatus,
-  ModelSelectResult,
-  SendPromptResult,
-  SessionOpResult,
-  ThemeName,
-  TranscriptPatchOp,
+import {
+  type ArtifactResult,
+  type DesktopApi,
+  type DesktopAttachmentInput,
+  type DesktopEvent,
+  type DesktopSnapshot,
+  type DesktopStatus,
+  MAX_PANES,
+  type ModelSelectResult,
+  type PaneOps,
+  type PaneSide,
+  type SendPromptResult,
+  type SessionOpResult,
+  type ThemeName,
+  type TranscriptPatchOp,
 } from "../../contracts.js"
 
 /**
@@ -39,7 +42,12 @@ export function createDemoRuntime(hostApi?: DemoHostApi): DesktopApi {
   return new DemoRuntime(hostApi)
 }
 
-type DemoState = DesktopStatus & { entries: TranscriptEntry[] }
+/** The demo keeps one Canvas document, reported as the first session's tab. */
+/** The demo's Canvas tabs all belong to its first session. */
+type DemoState = Omit<DesktopStatus, "artifacts"> & {
+  tabs: { artifact: ArtifactMetadata; activated: number }[]
+  entries: TranscriptEntry[]
+}
 
 const SAMPLE_DIFF = `--- a/src/desktop/renderer/shell/AppShell.tsx
 +++ b/src/desktop/renderer/shell/AppShell.tsx
@@ -503,7 +511,11 @@ class DemoRuntime implements DesktopApi {
 
   #listeners = new Set<(event: DesktopEvent) => void>()
   #revision = 0
+  /** The transcripts of the other sessions on screen, by runtime id. */
+  readonly #transcripts = new Map<number, TranscriptEntry[]>()
   #artifactRevision = 1
+  /** Activation stamps order tabs; ties never happen, as in the real store. */
+  #lastActivated = 0
   #nextId = 100
   #timer: ReturnType<typeof setTimeout> | undefined
   #generation = 0
@@ -538,7 +550,7 @@ class DemoRuntime implements DesktopApi {
     modelState: "ready",
     modelError: undefined,
     session: { id: "session_versions", title: "Canvas preview · Saved versions" },
-    artifact: DEMO_LATEST_WORD.metadata,
+    tabs: [{ artifact: DEMO_LATEST_WORD.metadata, activated: Date.now() }],
     needsWorkspace: false,
     workspace: { label: "~/Projects/otis", path: "/Users/dev/Projects/otis" },
     sessions: [
@@ -566,7 +578,63 @@ class DemoRuntime implements DesktopApi {
     contextLimit: 128_000,
     diffs: { added: 12, removed: 3 },
     permission: null,
+    permissionQueue: 0,
     modelLoad: null,
+    runtimes: [
+      {
+        runtime: 1,
+        session: {
+          id: "session_versions",
+          title: "Canvas preview · Saved versions",
+          dirName: "otis-demo",
+        },
+        focused: true,
+        busy: false,
+        unseen: false,
+        diffs: { added: 12, removed: 3 },
+        contextTokens: 18_420,
+      },
+      // More open sessions, one finished out of view: the strip lists them and each can be
+      // dragged onto a side of the conversation, up to a grid of four.
+      {
+        runtime: 2,
+        session: {
+          id: "session_demo2",
+          title: "Fix flaky session lock test",
+          dirName: "otis-demo",
+        },
+        focused: false,
+        busy: false,
+        unseen: true,
+        diffs: { added: 0, removed: 0 },
+        contextTokens: 4_200,
+      },
+      {
+        runtime: 3,
+        session: {
+          id: "session_demo3",
+          title: "Refactor GGUF cache cleanup",
+          dirName: "otis-demo",
+        },
+        focused: false,
+        busy: false,
+        unseen: false,
+        diffs: { added: 31, removed: 8 },
+        contextTokens: 22_900,
+      },
+      {
+        runtime: 4,
+        session: { id: "session_notes", title: "Reading list cleanup", dirName: "otis-demo" },
+        focused: false,
+        busy: false,
+        unseen: false,
+        diffs: { added: 0, removed: 0 },
+        contextTokens: 6_100,
+      },
+    ],
+    working: 0,
+    panes: [1],
+    paneAxis: "row",
     recentArtifacts: DEMO_RECENT_ARTIFACTS,
     stats: {
       streak: 3,
@@ -748,12 +816,13 @@ class DemoRuntime implements DesktopApi {
       version: "0.1.35",
       revision: this.#revision,
       entries: [...this.#state.entries],
+      transcripts: Object.fromEntries(this.#transcripts),
       ...this.#status(),
     }
   }
 
-  async getArtifact(revision: number): Promise<ArtifactResult> {
-    const artifact = this.#state.artifact
+  async getArtifact(_runtime: number, id: string, revision: number): Promise<ArtifactResult> {
+    const artifact = this.#state.tabs.find((tab) => tab.artifact.id === id)?.artifact
     if (!artifact || artifact.revision !== revision)
       return { ok: false, stale: true, reason: "This preview changed." }
     const fixture = artifact.publication
@@ -769,11 +838,37 @@ class DemoRuntime implements DesktopApi {
     return { ok: true, payload: { ...fixture.payload, ...artifact } as ArtifactPayload }
   }
 
-  async saveArtifact(_id: string, _revision: number): Promise<SessionOpResult> {
+  async saveArtifact(_runtime: number, _id: string, _revision: number): Promise<SessionOpResult> {
     return { ok: false, reason: "Demo previews do not contain original files to save." }
   }
 
-  async openArtifact(reference: ArtifactReference, version?: number): Promise<SessionOpResult> {
+  async closeArtifact(_runtime: number, id: string): Promise<void> {
+    const tabs = this.#state.tabs.filter((tab) => tab.artifact.id !== id)
+    if (tabs.length === this.#state.tabs.length) return
+    this.#state = { ...this.#state, tabs }
+    this.#emitStatus()
+  }
+
+  #stamp() {
+    this.#lastActivated = Math.max(Date.now(), this.#lastActivated + 1)
+    return this.#lastActivated
+  }
+
+  /** A document takes the view: its tab (new, or the one with its id) gets a fresh revision. */
+  #take(metadata: ArtifactMetadata) {
+    const artifact = { ...metadata, revision: ++this.#artifactRevision }
+    const tab = { artifact, activated: this.#stamp() }
+    const tabs = this.#state.tabs.some((entry) => entry.artifact.id === artifact.id)
+      ? this.#state.tabs.map((entry) => (entry.artifact.id === artifact.id ? tab : entry))
+      : [...this.#state.tabs, tab]
+    this.#state = { ...this.#state, tabs, agentsPanelVisible: true }
+  }
+
+  async openArtifact(
+    reference: ArtifactReference,
+    version?: number,
+    _runtime?: number,
+  ): Promise<SessionOpResult> {
     if (reference.source === "published") {
       const known = DEMO_SAVED_WORD.some((candidate) => {
         const saved = candidate.metadata.publication.reference
@@ -789,25 +884,16 @@ class DemoRuntime implements DesktopApi {
       )
       const published = DEMO_PUBLISHED.get(reference.artifactId)
       if (published) {
-        this.#state = {
-          ...this.#state,
-          artifact: { ...published.metadata, revision: ++this.#artifactRevision },
-          agentsPanelVisible: true,
-        }
+        this.#take(published.metadata)
         this.#emitStatus()
         return { ok: true }
       }
       if (!known || !fixture)
         return { ok: false, reason: "That saved demo version is unavailable." }
-      this.#state = {
-        ...this.#state,
-        artifact: {
-          ...fixture.metadata,
-          revision: ++this.#artifactRevision,
-          publication: { ...fixture.metadata.publication, followingLatest: version === undefined },
-        },
-        agentsPanelVisible: true,
-      }
+      this.#take({
+        ...fixture.metadata,
+        publication: { ...fixture.metadata.publication, followingLatest: version === undefined },
+      })
       this.#emitStatus()
       return { ok: true }
     }
@@ -818,11 +904,7 @@ class DemoRuntime implements DesktopApi {
         candidate.metadata.path === reference.path && candidate.metadata.kind === reference.kind,
     )
     if (!fixture) return { ok: false, reason: "That demo artifact is unavailable." }
-    this.#state = {
-      ...this.#state,
-      artifact: { ...fixture.metadata, revision: ++this.#artifactRevision },
-      agentsPanelVisible: true,
-    }
+    this.#take(fixture.metadata)
     this.#emitStatus()
     return { ok: true }
   }
@@ -905,6 +987,103 @@ class DemoRuntime implements DesktopApi {
 
   async refreshSessions(): Promise<void> {}
 
+  /** Showing another open session: the transcripts change places, as the renderer expects. */
+  async focusSession(runtime: number): Promise<void> {
+    if (!this.#focus(runtime)) return
+    this.#emitStatus()
+  }
+
+  /** Moves focus to a session on screen, trading its transcript with the focused one's. */
+  #focus(runtime: number) {
+    const focused = this.#state.runtimes.find((entry) => entry.focused)
+    const next = this.#state.runtimes.find((entry) => entry.runtime === runtime)
+    if (!focused || !next || focused === next || !this.#state.panes.includes(runtime)) return false
+    this.#transcripts.set(focused.runtime, this.#state.entries)
+    const entries = this.#transcripts.get(runtime) ?? []
+    this.#transcripts.delete(runtime)
+    this.#state = {
+      ...this.#state,
+      entries,
+      session: next.session && { id: next.session.id, title: next.session.title },
+      runtimes: this.#state.runtimes.map((entry) => ({
+        ...entry,
+        focused: entry === next,
+        unseen: entry === next ? false : entry.unseen,
+      })),
+    }
+    return true
+  }
+
+  async openPane(runtime: number, side: PaneSide): Promise<void> {
+    if (!this.#state.runtimes.some((entry) => entry.runtime === runtime)) return
+    const fresh = !this.#state.panes.includes(runtime)
+    if (fresh && this.#state.panes.length >= MAX_PANES) return
+    const others = this.#state.panes.filter((entry) => entry !== runtime)
+    const panes = side === "left" || side === "top" ? [runtime, ...others] : [...others, runtime]
+    const paneAxis =
+      panes.length === 2
+        ? side === "left" || side === "right"
+          ? "row"
+          : "column"
+        : this.#state.paneAxis
+    this.#state = { ...this.#state, panes, paneAxis }
+    if (fresh) this.#transcripts.set(runtime, runtime === 2 ? errorTranscript() : demoTranscript())
+    this.#emitStatus(
+      undefined,
+      fresh
+        ? [{ runtime, ops: [{ op: "reset", entries: this.#transcripts.get(runtime) ?? [] }] }]
+        : [],
+    )
+  }
+
+  async replacePane(target: number, runtime: number): Promise<void> {
+    const slot = this.#state.panes.indexOf(target)
+    if (slot < 0 || target === runtime) return
+    if (!this.#state.runtimes.some((entry) => entry.runtime === runtime)) return
+    const panes = [...this.#state.panes]
+    const shown = panes.indexOf(runtime)
+    if (shown >= 0) {
+      panes[shown] = target
+      panes[slot] = runtime
+      this.#state = { ...this.#state, panes }
+      this.#emitStatus()
+      return
+    }
+    panes[slot] = runtime
+    const fresh = runtime === 2 ? errorTranscript() : demoTranscript()
+    const focused = this.#state.runtimes.find((entry) => entry.focused)?.runtime === target
+    this.#transcripts.delete(target)
+    this.#transcripts.set(runtime, fresh)
+    this.#state = { ...this.#state, panes }
+    if (focused) {
+      this.#focus(runtime)
+      this.#transcripts.delete(target)
+      this.#emitStatus([{ op: "reset", entries: fresh }])
+      return
+    }
+    this.#transcripts.set(runtime, fresh)
+    this.#state = { ...this.#state, panes }
+    this.#emitStatus(undefined, [{ runtime, ops: [{ op: "reset", entries: fresh }] }])
+  }
+
+  async soloPane(runtime: number): Promise<void> {
+    if (!this.#state.panes.includes(runtime) || this.#state.panes.length === 1) return
+    this.#focus(runtime)
+    for (const other of this.#state.panes) if (other !== runtime) this.#transcripts.delete(other)
+    this.#state = { ...this.#state, panes: [runtime] }
+    this.#emitStatus()
+  }
+
+  async closePane(runtime: number): Promise<void> {
+    const index = this.#state.panes.indexOf(runtime)
+    if (index < 0 || this.#state.panes.length === 1) return
+    const panes = this.#state.panes.filter((entry) => entry !== runtime)
+    this.#state = { ...this.#state, panes }
+    this.#focus(panes[Math.min(index, panes.length - 1)] ?? panes[0] ?? runtime)
+    this.#transcripts.delete(runtime)
+    this.#emitStatus()
+  }
+
   async registerWorkspace(_dirName: string, _path: string): Promise<SessionOpResult> {
     return { ok: true }
   }
@@ -924,13 +1103,21 @@ class DemoRuntime implements DesktopApi {
             ? demoTranscript()
             : []
     const fixture = DEMO_ARTIFACTS_BY_SESSION.get(id)
-    const artifact = fixture ? { ...fixture.metadata, revision: ++this.#artifactRevision } : null
+    // A reload shows what that session last had in view.
+    const tabs = fixture
+      ? [
+          {
+            artifact: { ...fixture.metadata, revision: ++this.#artifactRevision },
+            activated: this.#stamp(),
+          },
+        ]
+      : []
     this.#state = {
       ...this.#state,
       entries,
       session: { id: target.id, title: target.title },
       sessions: this.#state.sessions.map((session) => ({ ...session, active: session.id === id })),
-      artifact,
+      tabs,
       subagents: DEMO_ARTIFACTS_BY_SESSION.has(id) ? [DEMO_SUBAGENT] : [],
     }
     this.#emitStatus([{ op: "reset", entries }])
@@ -945,7 +1132,7 @@ class DemoRuntime implements DesktopApi {
       ...this.#state,
       entries: [],
       session: null,
-      artifact: null,
+      tabs: [],
       diffs: { added: 0, removed: 0 },
       subagents: [],
     }
@@ -961,7 +1148,7 @@ class DemoRuntime implements DesktopApi {
     this.#state = {
       ...this.#state,
       sessions,
-      ...(deletingActive ? { session: null, artifact: null, entries: [] } : {}),
+      ...(deletingActive ? { session: null, tabs: [], entries: [] } : {}),
     }
     this.#emitStatus(deletingActive ? [{ op: "reset", entries: [] }] : undefined)
     return { ok: true }
@@ -1196,6 +1383,8 @@ class DemoRuntime implements DesktopApi {
               label: "Running command: bun test",
               kind: "shell",
               resources: ["bun test"],
+              runtime: 1,
+              sessionTitle: this.#state.session?.title ?? "Current session",
             },
           }
           this.#emitStatus()
@@ -1320,11 +1509,12 @@ class DemoRuntime implements DesktopApi {
   }
 
   #status(): DesktopStatus {
-    const { entries: _entries, ...status } = this.#state
+    const { entries: _entries, tabs, ...status } = this.#state
     const model = status.model
     const capability = model?.provider === "local" ? localThinkingCapability(model.id) : undefined
     return {
       ...status,
+      artifacts: tabs.map((tab) => ({ runtime: 1, ...tab })),
       localThinking:
         model && capability
           ? {
@@ -1340,12 +1530,13 @@ class DemoRuntime implements DesktopApi {
     this.#emit({ type: "transcript", revision: ++this.#revision, ops })
   }
 
-  #emitStatus(ops?: TranscriptPatchOp[]) {
+  #emitStatus(ops?: TranscriptPatchOp[], panes: PaneOps[] = []) {
     this.#emit({
       type: "status",
       revision: ++this.#revision,
       status: this.#status(),
       ...(ops ? { ops } : {}),
+      ...(panes.length > 0 ? { panes } : {}),
     })
   }
 

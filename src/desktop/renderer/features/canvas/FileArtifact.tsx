@@ -26,7 +26,14 @@ const WORD_PREVIEW_CSS = `
   @media (max-width: 520px) { body { padding: 0; } main { min-height: 100vh; padding: 28px 22px; box-shadow: none; } }
 `
 
-export function FileArtifact({ artifact }: { artifact: ArtifactMetadata }) {
+/** A session's open document; `runtime` names the session whose tab it is. */
+export function FileArtifact({
+  runtime,
+  artifact,
+}: {
+  runtime: number
+  artifact: ArtifactMetadata
+}) {
   const { api } = useDesktop()
   const { t } = useI18n()
   // The previous payload stays on screen while a new revision of the same artifact loads; a
@@ -38,7 +45,7 @@ export function FileArtifact({ artifact }: { artifact: ArtifactMetadata }) {
   useEffect(() => {
     let current = true
     const id = artifact.id
-    void api.getArtifact(artifact.revision).then(
+    void api.getArtifact(runtime, artifact.id, artifact.revision).then(
       (result) => {
         if (!current) return
         if (result.ok) setLoaded({ id, payload: result.payload })
@@ -55,7 +62,7 @@ export function FileArtifact({ artifact }: { artifact: ArtifactMetadata }) {
     return () => {
       current = false
     }
-  }, [api, artifact.id, artifact.revision])
+  }, [api, runtime, artifact.id, artifact.revision])
 
   return (
     <section className="canvas-artifact" aria-label={artifact.title}>
@@ -71,10 +78,15 @@ export function FileArtifact({ artifact }: { artifact: ArtifactMetadata }) {
           ) : null}
         </span>
         {artifact.publication && artifact.publication.versions.length > 1 ? (
-          <ArtifactVersions key={artifact.id} publication={artifact.publication} />
+          <ArtifactVersions
+            key={artifact.id}
+            runtime={runtime}
+            publication={artifact.publication}
+          />
         ) : null}
         <ArtifactSave
           key={`${artifact.id}:${artifact.revision}`}
+          runtime={runtime}
           id={artifact.id}
           revision={artifact.revision}
         />
@@ -106,7 +118,15 @@ export function FileArtifact({ artifact }: { artifact: ArtifactMetadata }) {
 }
 
 /** Export reads the original bytes of the selected reference, so it does not wait on the preview. */
-function ArtifactSave({ id, revision }: { id: string; revision: number }) {
+function ArtifactSave({
+  runtime,
+  id,
+  revision,
+}: {
+  runtime: number
+  id: string
+  revision: number
+}) {
   const { api } = useDesktop()
   const { t } = useI18n()
   const [saving, setSaving] = useState(false)
@@ -115,7 +135,7 @@ function ArtifactSave({ id, revision }: { id: string; revision: number }) {
     setSaving(true)
     setError(undefined)
     try {
-      const result = await api.saveArtifact(id, revision)
+      const result = await api.saveArtifact(runtime, id, revision)
       if (!result.ok) setError(result.reason)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : t("canvas.saveFailed"))
@@ -137,8 +157,10 @@ function ArtifactSave({ id, revision }: { id: string; revision: number }) {
 }
 
 function ArtifactVersions({
+  runtime,
   publication,
 }: {
+  runtime: number
   publication: NonNullable<ArtifactMetadata["publication"]>
 }) {
   const { api } = useDesktop()
@@ -152,6 +174,7 @@ function ArtifactVersions({
       const result = await api.openArtifact(
         publication.reference,
         value === "latest" ? undefined : Number(value),
+        runtime,
       )
       if (!result.ok) setError(result.reason)
     } catch (reason) {

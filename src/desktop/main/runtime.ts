@@ -5,6 +5,7 @@ import {
   formatWorkspaceLabel,
   NO_FAST_SERVING,
   SELECTION_SUPERSEDED,
+  type SessionRuntime,
 } from "../../app/application.js"
 import {
   type GlobalHistory,
@@ -53,16 +54,19 @@ import {
   sessionRootDirectory,
 } from "../../storage/session-files.js"
 import { readWorkspacePath, registerWorkspacePath } from "../../storage/workspace-registry.js"
-import type {
-  ArtifactResult,
-  DesktopAttachmentInput,
-  DesktopEvent,
-  DesktopSnapshot,
-  DesktopStatus,
-  ModelSelectResult,
-  SendPromptResult,
-  SessionOpResult,
-  TranscriptPatchOp,
+import {
+  type ArtifactResult,
+  type DesktopAttachmentInput,
+  type DesktopEvent,
+  type DesktopSnapshot,
+  type DesktopStatus,
+  MAX_PANES,
+  type ModelSelectResult,
+  type PaneAxis,
+  type PaneSide,
+  type SendPromptResult,
+  type SessionOpResult,
+  type TranscriptPatchOp,
 } from "../contracts.js"
 
 type DesktopRuntimeOptions = {
@@ -132,17 +136,18 @@ export class DesktopRuntime {
    */
   #switching = false
   /**
-   * Session opened in place whose working folder is unknown or gone; agent work is blocked until
-   * located.
-   */
-  #pendingWorkspace: { dirName: string; sessionId: string } | undefined
-  /**
    * Global session listing is disk-heavy; the shared promise coalesces concurrent status snapshots.
    */
   #historyCache: Promise<GlobalHistory> | undefined
   #stats: DesktopStatus["stats"]
   #update: DesktopStatus["update"] = { status: "idle" }
-  #queuedChanges: TranscriptChange[] = []
+  /** The focused runtime as of the last focus move the renderer was told about. */
+  #shown!: SessionRuntime
+  /** The sessions on screen in display order; the focused one is always among them. */
+  #panes: SessionRuntime[] = []
+  #paneAxis: PaneAxis = "row"
+  /** Store mutations not yet delivered, per session on screen. */
+  readonly #queued = new Map<SessionRuntime, TranscriptChange[]>()
   #stateDirty = false
   #flushTimer: ReturnType<typeof setTimeout> | undefined
   #flushing: Promise<void> | undefined
@@ -181,29 +186,78 @@ export class DesktopRuntime {
     return runtime
   }
 
+  /**
+   * The focused session opened in place with its working folder unknown or gone; agent work is
+   * blocked until located.
+   */
+  get #pendingWorkspace() {
+    return this.app.focused.readOnly
+  }
+
+  set #pendingWorkspace(value: { dirName: string; sessionId: string } | undefined) {
+    this.app.focused.readOnly = value
+  }
+
   /** Points the runtime at an application and its change stream. */
   #attach(app: Application) {
     this.#app = app
+    this.#shown = app.focused
+    this.#panes = [app.focused]
+    this.#paneAxis = "row"
+    this.#queued.clear()
     app.extraGate = () => this.#extraGate()
-    app.conversation.debug = this.#debug
+    app.debug = this.#debug
     // A backend fallback during a local model start reaches the transcript like a start failure.
     app.models.onNotice = (message) => {
       if (!this.#disposed) app.transcript.addAssistantMessage(message)
     }
-    // Transcript mutations reach the renderer as patch ops; everything else is status.
+    // The focused transcript's mutations reach the renderer as patch ops; everything else is
+    // status. Every open session's artifact store is subscribed (a subscription runs its file
+    // watchers), since each contributes Canvas tabs; the set follows the runtimes.
+    const stores = new Map<SessionRuntime, () => void>()
+    const syncStores = () => {
+      for (const runtime of app.runtimes)
+        if (!stores.has(runtime))
+          stores.set(
+            runtime,
+            runtime.artifacts.subscribe(() => this.#markStateDirty()),
+          )
+      for (const [runtime, stop] of stores)
+        if (!app.runtimes.includes(runtime)) {
+          stop()
+          stores.delete(runtime)
+        }
+    }
+    syncStores()
     const events = app.subscribe((event) => {
-      if (event.type === "transcript") this.#onTranscriptChange(event.change)
-      else if (event.type === "settled") void this.#refreshStats()
+      if (event.type === "transcript") {
+        const runtime = app.runtimes.find((entry) => entry.id === event.runtime)
+        if (!runtime) return
+        if (runtime === app.focused && runtime !== this.#shown) {
+          // Focus moved, which the application announces with a reset. A session already on
+          // screen keeps the transcript the renderer has, so that reset is not sent; one that was
+          // off screen takes the slot of the session focus left, and arrives whole.
+          const shown = this.#panes.includes(runtime)
+          if (!shown) this.#panes[this.#panes.indexOf(this.#shown)] = runtime
+          this.#shown = runtime
+          this.#conversationVersion += 1
+          this.#markStateDirty()
+          if (shown) return
+        }
+        if (this.#panes.includes(runtime)) this.#queue(runtime, event.change)
+      } else if (event.type === "settled") void this.#refreshStats()
       else if (event.type === "busy" && !event.busy) {
         this.#historyCache = undefined
         this.#markStateDirty()
         this.#flushNow()
-      } else this.#markStateDirty()
+      } else {
+        if (event.type === "status") syncStores()
+        this.#markStateDirty()
+      }
     })
-    const artifacts = app.artifacts.subscribe(() => this.#markStateDirty())
     this.#unsubscribe = () => {
       events()
-      artifacts()
+      for (const stop of stores.values()) stop()
     }
   }
 
@@ -212,14 +266,24 @@ export class DesktopRuntime {
       platform: this.options.platform,
       version: this.options.version,
       entries: [...this.app.transcript.entries],
+      transcripts: Object.fromEntries(
+        this.#panes
+          .filter((runtime) => runtime !== this.app.focused)
+          .map((runtime) => [runtime.id, [...runtime.transcript.entries]]),
+      ),
       revision: this.#revision,
       ...(await this.#status()),
     }
   }
 
-  async getArtifact(revision: number): Promise<ArtifactResult> {
+  /** The artifact store of an open session; undefined once the session closed. */
+  #storeOf(runtime: number) {
+    return this.app.runtimes.find((entry) => entry.id === runtime)?.artifacts
+  }
+
+  async getArtifact(runtime: number, id: string, revision: number): Promise<ArtifactResult> {
     try {
-      const payload = await this.app.artifacts.load(revision)
+      const payload = await this.#storeOf(runtime)?.load(id, revision)
       return payload
         ? { ok: true, payload }
         : { ok: false, stale: true, reason: "This preview changed." }
@@ -228,18 +292,25 @@ export class DesktopRuntime {
     }
   }
 
-  async getArtifactFile(id: string, revision: number) {
-    const app = this.app
-    if (app.artifacts.metadata?.id !== id) return undefined
-    const conversationVersion = this.#conversationVersion
-    const file = await app.artifacts.exportFile(revision)
-    return this.app === app && this.#conversationVersion === conversationVersion ? file : undefined
+  /** The store answers only while the tab still shows that revision, so a swap cannot leak. */
+  getArtifactFile(runtime: number, id: string, revision: number) {
+    return this.#storeOf(runtime)?.exportFile(id, revision)
   }
 
-  async openArtifact(reference: ArtifactReference, version?: number): Promise<SessionOpResult> {
-    if (!this.app.openArtifact(reference, version))
+  /** Opens a document as a Canvas tab of the focused session, or of the session given. */
+  async openArtifact(
+    reference: ArtifactReference,
+    version?: number,
+    runtime?: number,
+  ): Promise<SessionOpResult> {
+    const store = runtime === undefined ? this.app.artifacts : this.#storeOf(runtime)
+    if (!store?.open(reference, version))
       return { ok: false, reason: "This artifact is no longer available." }
     return { ok: true }
+  }
+
+  closeArtifact(runtime: number, id: string) {
+    this.#storeOf(runtime)?.close(id)
   }
 
   async sendPrompt(
@@ -309,7 +380,6 @@ export class DesktopRuntime {
     if (this.#disposed) return RESTARTING
     if (this.#rendererGone) return RENDERER_GONE
     if (this.#switching) return SWITCHING
-    if (this.#pendingWorkspace) return "Locate the working folder to continue this session."
     // A foreign session's read-only restriction is set after its async open; prompts must not slip
     // through first.
     if (this.#sessionSelecting > 0) return "Opening the session — try again in a moment."
@@ -321,7 +391,7 @@ export class DesktopRuntime {
   }
 
   respondToPermission(id: number, allow: boolean) {
-    this.app.conversation.respondToPermission(id, allow)
+    this.app.permissions.respond(id, allow)
   }
 
   /** Update state belongs to the main-process updater and survives Settings being closed. */
@@ -375,13 +445,17 @@ export class DesktopRuntime {
     // mid-load.
     this.#sessionSelecting += 1
     try {
-      const result = await this.app.sessions.select(sessionId, this.#storageFor(dirName))
-      if (result !== "loaded") return selectResult(result)
-      this.#pendingWorkspace = undefined
+      const result = await this.app.openSession(sessionId, this.#storageFor(dirName))
+      if (result === "locked") return { ok: false, reason: SESSION_REASONS.locked }
       const current = this.app.sessions.current
       const currentDir = this.app.sessions.currentDirName
       // The workspace's own store is home; any other dir must resolve to a present folder.
-      if (current && currentDir && currentDir !== basename(defaultSessionDirectory(this.app.cwd))) {
+      if (
+        result === "opened" &&
+        current &&
+        currentDir &&
+        currentDir !== basename(defaultSessionDirectory(this.app.cwd))
+      ) {
         const registered = await readWorkspacePath(join(sessionRootDirectory(), currentDir))
         if (!registered || !(await pathExists(registered))) {
           this.#pendingWorkspace = { dirName: currentDir, sessionId: current.id }
@@ -439,7 +513,7 @@ export class DesktopRuntime {
       return sessionId ? this.selectSession(sessionId, dirName) : { ok: true }
     if (this.#switching) return { ok: false, reason: "A workspace switch is already in progress." }
     if (
-      this.app.conversation.busy ||
+      this.app.anyBusy ||
       this.app.models.selecting ||
       this.app.models.load?.status.kind === "progress"
     ) {
@@ -480,11 +554,9 @@ export class DesktopRuntime {
       this.#unsubscribe()
       await this.app.shutdown()
       this.#attach(next)
-      this.#queuedChanges = []
-      this.#pendingWorkspace = undefined // the destination workspace is real and present
       this.#historyCache = undefined
       void this.#startSavedSelection()
-      this.#onTranscriptChange({ op: "reset" })
+      this.#queue(next.focused, { op: "reset" })
       this.#markStateDirty()
       await saveLastWorkspace(cwd)
       return { ok: true }
@@ -569,8 +641,7 @@ export class DesktopRuntime {
   /** The command palette's session search, across every workspace's stored sessions. */
   async searchSessions(query: string): Promise<GlobalSessionPickerItem[]> {
     return searchGlobalSessionPickerItems(query, {
-      activeId: this.app.sessions.current?.id,
-      activeDirName: this.app.sessions.currentDirName,
+      open: this.app.openSessions(),
       seeds: [this.app.cwd],
     })
   }
@@ -579,9 +650,7 @@ export class DesktopRuntime {
     if (this.#disposed) return { ok: false, reason: RESTARTING }
     if (this.#switching) return { ok: false, reason: SWITCHING }
     if (this.#locating) return { ok: false, reason: LOCATING }
-    if (!this.app.sessions.startNew())
-      return { ok: false, reason: "Finish the current work before starting over." }
-    this.#pendingWorkspace = undefined
+    this.app.openNew()
     this.#historyCache = undefined
     this.#markStateDirty()
     return { ok: true }
@@ -592,9 +661,10 @@ export class DesktopRuntime {
     if (this.#switching) return { ok: false, reason: SWITCHING }
     if (this.#locating) return { ok: false, reason: LOCATING }
     if (!sessionId) return { ok: false, reason: "Invalid session id." }
-    const result = await this.app.sessions.delete(sessionId, this.#storageFor(dirName))
+    const result = await this.app.deleteSession(sessionId, this.#storageFor(dirName))
     if (result !== "deleted") return { ok: false, reason: SESSION_REASONS[result] }
-    if (this.app.sessions.current === undefined) this.#pendingWorkspace = undefined
+    // Deleting a session on screen closed its runtime; its pane goes with it.
+    this.#panes = this.#panes.filter((runtime) => this.app.runtimes.includes(runtime))
     this.#historyCache = undefined
     void this.#refreshStats()
     this.#markStateDirty()
@@ -688,7 +758,8 @@ export class DesktopRuntime {
   }
 
   async setLocalThinking(model: string, level: string) {
-    if (this.app.conversation.draining || this.app.models.state !== "ready")
+    const draining = this.app.runtimes.some((runtime) => runtime.conversation.draining)
+    if (draining || this.app.models.state !== "ready")
       throw new Error("Wait until the local model is ready.")
     await this.app.setLocalThinking(model, level)
     this.#markStateDirty()
@@ -737,7 +808,7 @@ export class DesktopRuntime {
 
   /** Shares discovery, persistence, and active-client refresh with terminal setup. */
   async connectLocalServers(input: LocalServerInputs): Promise<ModelSelectResult> {
-    if (this.app.conversation.busy) {
+    if (this.app.anyBusy) {
       return { ok: false, reason: "Finish the current work before changing local servers." }
     }
     try {
@@ -768,7 +839,7 @@ export class DesktopRuntime {
   /** Session-only debug mode; applies from the next turn, matching the TUI. */
   setDebugMode(enabled: boolean) {
     this.#debug = enabled
-    this.app.conversation.debug = enabled
+    this.app.debug = enabled
     this.#markStateDirty()
   }
 
@@ -798,10 +869,88 @@ export class DesktopRuntime {
     this.#markStateDirty()
   }
 
-  /** The renderer process is gone: cancel active execution and deny any unanswered approval. */
+  /** The renderer process is gone: every session stops and any unanswered approval is denied. */
   handleRendererGone() {
     this.#rendererGone = true
-    this.app.conversation.stop()
+    for (const runtime of this.app.runtimes) runtime.conversation.stop()
+  }
+
+  /** The status bar item's session rows and the session strip: shows an open session. */
+  focusSession(id: number) {
+    const runtime = this.app.runtimes.find((runtime) => runtime.id === id)
+    if (!runtime) return
+    this.app.focus(runtime)
+    this.#historyCache = undefined
+    this.#markStateDirty()
+  }
+
+  /**
+   * Shows an open session on one side of the ones on screen: left and top put it first, right
+   * and bottom last, and two panes take the axis of that side. A session already on screen moves
+   * instead. Beyond MAX_PANES a new one is refused.
+   */
+  openPane(id: number, side: PaneSide) {
+    const runtime = this.app.runtimes.find((entry) => entry.id === id)
+    if (!runtime) return
+    const fresh = !this.#panes.includes(runtime)
+    if (fresh && this.#panes.length >= MAX_PANES) return
+    const others = this.#panes.filter((entry) => entry !== runtime)
+    this.#panes = side === "left" || side === "top" ? [runtime, ...others] : [...others, runtime]
+    if (this.#panes.length === 2)
+      this.#paneAxis = side === "left" || side === "right" ? "row" : "column"
+    if (fresh) this.#queue(runtime, { op: "reset" })
+    this.#markStateDirty()
+  }
+
+  /**
+   * Puts a session where another is on screen. One arriving from the strip takes the slot and
+   * the session there goes back to the strip; two already on screen trade places.
+   */
+  replacePane(targetId: number, id: number) {
+    const target = this.#panes.find((entry) => entry.id === targetId)
+    const runtime = this.app.runtimes.find((entry) => entry.id === id)
+    if (!target || !runtime || target === runtime) return
+    const slot = this.#panes.indexOf(target)
+    const shown = this.#panes.indexOf(runtime)
+    if (shown >= 0) {
+      this.#panes[shown] = target
+      this.#panes[slot] = runtime
+    } else {
+      this.#panes[slot] = runtime
+      this.#queued.delete(target)
+      this.#queue(runtime, { op: "reset" })
+      if (target === this.app.focused) {
+        this.app.focus(runtime)
+        this.#historyCache = undefined
+      }
+    }
+    this.#markStateDirty()
+  }
+
+  /** Keeps only one session on screen, as the active one; the others go back to the strip. */
+  soloPane(id: number) {
+    const runtime = this.#panes.find((entry) => entry.id === id)
+    if (!runtime || this.#panes.length === 1) return
+    for (const other of this.#panes) if (other !== runtime) this.#queued.delete(other)
+    this.#panes = [runtime]
+    if (runtime !== this.app.focused) {
+      this.app.focus(runtime)
+      this.#historyCache = undefined
+    }
+    this.#markStateDirty()
+  }
+
+  /** Takes a session off screen; closing the active one hands focus to its neighbor. */
+  closePane(id: number) {
+    const index = this.#panes.findIndex((entry) => entry.id === id)
+    if (index < 0 || this.#panes.length === 1) return
+    const [runtime] = this.#panes.splice(index, 1)
+    this.#queued.delete(runtime)
+    if (runtime === this.app.focused) {
+      this.app.focus(this.#panes[Math.min(index, this.#panes.length - 1)])
+      this.#historyCache = undefined
+    }
+    this.#markStateDirty()
   }
 
   async shutdown() {
@@ -847,9 +996,12 @@ export class DesktopRuntime {
     if (!this.#disposed) this.#markStateDirty()
   }
 
-  #onTranscriptChange(change: TranscriptChange) {
-    if (change.op === "reset") this.#conversationVersion += 1
-    this.#queuedChanges.push(change)
+  /** A focused session replaced in place invalidates a prompt whose attachments are being read. */
+  #queue(runtime: SessionRuntime, change: TranscriptChange) {
+    if (runtime === this.app.focused && change.op === "reset") this.#conversationVersion += 1
+    const changes = this.#queued.get(runtime)
+    if (changes) changes.push(change)
+    else this.#queued.set(runtime, [change])
     this.#scheduleFlush()
   }
 
@@ -873,61 +1025,53 @@ export class DesktopRuntime {
       this.#scheduleFlush()
       return
     }
-    const changes = this.#queuedChanges.splice(0)
+    const queued = [...this.#queued]
+    this.#queued.clear()
     const sendState = this.#stateDirty
     this.#stateDirty = false
-    if (changes.length === 0 && !sendState) return
-    this.#flushing = this.#deliver(changes, sendState).finally(() => {
+    if (queued.length === 0 && !sendState) return
+    this.#flushing = this.#deliver(queued, sendState).finally(() => {
       this.#flushing = undefined
-      if (this.#queuedChanges.length > 0 || this.#stateDirty) this.#scheduleFlush()
+      if (this.#queued.size > 0 || this.#stateDirty) this.#scheduleFlush()
     })
   }
 
   /**
-   * Compacts queued store mutations into renderer ops and sends them. A reset invalidates every
-   * change before it.
+   * Compacts queued store mutations into renderer ops and sends them. A session reset and its
+   * metadata are one display transaction: keeping the old view intact while history is scanned,
+   * where a standalone reset would show Home with the previous session's title and coworkers. The
+   * other panes' ops ride the same status when one is sent, so a pane appears with its content.
    */
-  async #deliver(changes: TranscriptChange[], sendState: boolean) {
-    let lastReset = -1
-    for (let index = changes.length - 1; index >= 0; index -= 1) {
-      if (changes[index].op === "reset") {
-        lastReset = index
-        break
-      }
-    }
-    const ops: TranscriptPatchOp[] = []
-    if (lastReset !== -1) ops.push({ op: "reset", entries: [...this.app.transcript.entries] })
-    const upserted = new Set<number>()
-    for (const change of changes.slice(lastReset + 1)) {
-      if (change.op === "upsert") {
-        const entry = this.app.transcript.entries.find((entry) => entry.id === change.id)
-        if (!entry || upserted.has(entry.id)) continue
-        upserted.add(entry.id)
-        ops.push({ op: "upsert", entry })
-      } else if (change.op === "remove") {
-        if (upserted.delete(change.id)) {
-          const index = ops.findIndex((op) => op.op === "upsert" && op.entry.id === change.id)
-          if (index !== -1) ops.splice(index, 1)
-        }
-        ops.push({ op: "remove", id: change.id })
-      }
-    }
-
-    // A session reset and its metadata are one display transaction. Keep the old view intact while
-    // history is scanned; a standalone reset would show Home with the previous session's title and
-    // coworkers.
-    if (lastReset !== -1) {
-      const revision = ++this.#revision
-      const status = await this.#status()
-      this.options.send({ type: "status", revision, status, ops })
+  async #deliver(queued: [SessionRuntime, TranscriptChange[]][], sendState: boolean) {
+    const { focused } = this.app
+    const ops = compactChanges(
+      queued.find(([runtime]) => runtime === focused)?.[1] ?? [],
+      focused.transcript.entries,
+    )
+    const panes = queued
+      .filter(([runtime]) => runtime !== focused && this.#panes.includes(runtime))
+      .map(([runtime, changes]) => ({
+        runtime: runtime.id,
+        ops: compactChanges(changes, runtime.transcript.entries),
+      }))
+      .filter((pane) => pane.ops.length > 0)
+    const reset = ops[0]?.op === "reset"
+    if (!reset && ops.length > 0)
+      this.options.send({ type: "transcript", revision: ++this.#revision, ops })
+    if (!reset && !sendState) {
+      if (panes.length > 0)
+        this.options.send({ type: "transcript", revision: ++this.#revision, panes })
       return
     }
-    if (ops.length > 0) this.options.send({ type: "transcript", revision: ++this.#revision, ops })
-    if (sendState) {
-      const revision = ++this.#revision
-      const status = await this.#status()
-      this.options.send({ type: "status", revision, status })
-    }
+    const revision = ++this.#revision
+    const status = await this.#status()
+    this.options.send({
+      type: "status",
+      revision,
+      status,
+      ...(reset ? { ops } : {}),
+      ...(panes.length > 0 ? { panes } : {}),
+    })
   }
 
   async #status(): Promise<DesktopStatus> {
@@ -936,8 +1080,7 @@ export class DesktopRuntime {
     // removes one.
     if (this.#historyCache === undefined) {
       const pending = listGlobalHistory(RECENT_ARTIFACTS, {
-        activeId: app.sessions.current?.id,
-        activeDirName: app.sessions.currentDirName,
+        open: app.openSessions(),
         seeds: [app.cwd],
       })
       this.#historyCache = pending
@@ -965,7 +1108,11 @@ export class DesktopRuntime {
     return {
       ...status,
       fastServing,
-      artifact: app.artifacts.metadata ?? null,
+      artifacts: app.runtimes.flatMap((runtime) =>
+        runtime.artifacts.tabs.map((tab) => ({ runtime: runtime.id, ...tab })),
+      ),
+      panes: this.#panes.map((runtime) => runtime.id),
+      paneAxis: this.#paneAxis,
       needsWorkspace: this.#pendingWorkspace !== undefined,
       workspace: { label: formatWorkspaceLabel(app.cwd), path: app.cwd },
       stats: this.#stats,
@@ -985,6 +1132,38 @@ export class DesktopRuntime {
       }))),
     }
   }
+}
+
+/**
+ * Store mutations as renderer ops against the store's current entries. A reset invalidates every
+ * change before it and comes first.
+ */
+function compactChanges(changes: TranscriptChange[], entries: readonly TranscriptEntry[]) {
+  let lastReset = -1
+  for (let index = changes.length - 1; index >= 0; index -= 1) {
+    if (changes[index].op === "reset") {
+      lastReset = index
+      break
+    }
+  }
+  const ops: TranscriptPatchOp[] = []
+  if (lastReset !== -1) ops.push({ op: "reset", entries: [...entries] })
+  const upserted = new Set<number>()
+  for (const change of changes.slice(lastReset + 1)) {
+    if (change.op === "upsert") {
+      const entry = entries.find((entry) => entry.id === change.id)
+      if (!entry || upserted.has(entry.id)) continue
+      upserted.add(entry.id)
+      ops.push({ op: "upsert", entry })
+    } else if (change.op === "remove") {
+      if (upserted.delete(change.id)) {
+        const index = ops.findIndex((op) => op.op === "upsert" && op.entry.id === change.id)
+        if (index !== -1) ops.splice(index, 1)
+      }
+      ops.push({ op: "remove", id: change.id })
+    }
+  }
+  return ops
 }
 
 /**

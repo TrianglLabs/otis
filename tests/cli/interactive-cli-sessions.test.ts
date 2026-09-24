@@ -502,7 +502,7 @@ describe("CLI session turn handling", () => {
     expect(mocks.ui.hideSessionPicker).toHaveBeenCalled()
   })
 
-  it("opens history during an active turn and defers switching sessions", async () => {
+  it("opens history during an active turn and switches sessions beside the working one", async () => {
     const activeSession = testSession({ hasTitle: vi.fn(() => true) })
     const savedSession = testSession({ id: "session_saved" })
     mocks.createSession.mockResolvedValue(activeSession)
@@ -540,13 +540,18 @@ describe("CLI session turn handling", () => {
     ])
     mocks.uiOptions?.onSelectSession?.("session_saved")
     await settle()
-    expect(mocks.openSession).not.toHaveBeenCalled()
-
-    releaseTurn()
-    await active
     expect(mocks.openSession).toHaveBeenCalledWith(
       expect.objectContaining({ sessionId: "session_saved" }),
     )
+    // The saved session is on screen and idle; the first one works on in the background.
+    expect(mocks.ui.setBusy).toHaveBeenLastCalledWith(false)
+    expect(mocks.ui.setBackgroundWorking).toHaveBeenLastCalledWith(1)
+
+    releaseTurn()
+    await active
+    await settle()
+    expect(mocks.ui.setBackgroundWorking).toHaveBeenLastCalledWith(0)
+    expect(mocks.ui.showTransientHint).toHaveBeenCalledWith(expect.stringMatching(/^ Done: /))
   })
 
   it("deletes a session and refreshes the picker", async () => {
@@ -656,7 +661,12 @@ describe("CLI session turn handling", () => {
 
   it("tells the user why a prompt typed during the saved model's startup cannot run yet", async () => {
     let finishStart:
-      | ((value: { model: string; inferenceURL: string; contextLength: number }) => void)
+      | ((value: {
+          model: string
+          inferenceURL: string
+          contextLength: number
+          slots: number
+        }) => void)
       | undefined
     mocks.ensureLocalServing.mockImplementationOnce(
       () =>
@@ -689,6 +699,7 @@ describe("CLI session turn handling", () => {
       model: "openai/gpt-oss-20b",
       inferenceURL: "http://127.0.0.1:18765/v1/chat/completions",
       contextLength: 32_768,
+      slots: 1,
     })
     await booting
     mocks.runAgent.mockImplementationOnce(async function* (input) {

@@ -1,3 +1,4 @@
+import type { TurnPhase } from "../../app/conversation.js"
 import type { LocalStats } from "../../local/stats.js"
 import type { PermissionMode } from "../../permissions/policy.js"
 import { colors } from "../theme.js"
@@ -10,7 +11,7 @@ export const RECOMMENDED_MODEL_MARK = "*"
 /** Some layers run on the CPU; shown after a local model name. */
 export const CPU_OFFLOAD_MODEL_MARK = "◐"
 
-export type AgentPhase = "thinking" | "working"
+export type AgentPhase = TurnPhase
 
 // Only phases listed here get a label overlaid on the wave; the rest show the wave alone.
 export const AGENT_PHASE_LABELS: Partial<Record<AgentPhase, string>> = {

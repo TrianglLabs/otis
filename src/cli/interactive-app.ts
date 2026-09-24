@@ -1,6 +1,11 @@
 import { createCliRenderer, getTreeSitterClient, type TreeSitterClient } from "@opentui/core"
-import { Application, type AppStatus, formatWorkspaceLabel } from "../app/application.js"
-import type { ConversationEvent } from "../app/conversation.js"
+import {
+  type AppEvent,
+  Application,
+  type AppStatus,
+  formatWorkspaceLabel,
+} from "../app/application.js"
+import type { PendingPermission } from "../app/conversation.js"
 import { SESSION_REASONS } from "../app/sessions.js"
 import { errorMessage } from "../inference/errors.js"
 import { listDownloadedLocalModels } from "../inference/gguf-cache.js"
@@ -84,10 +89,7 @@ export class InteractiveApp {
   }
 
   async #boot() {
-    this.#app = await Application.create({
-      isBusy: () => this.#busy,
-      isExiting: () => this.#exiting,
-    })
+    this.#app = await Application.create({ isExiting: () => this.#exiting })
     const settings = this.#app.settings
     const models = this.#app.models
     // A backend fallback during a local model start is told once, in the transcript.
@@ -357,8 +359,13 @@ export class InteractiveApp {
     await this.#drainPendingActions()
   }
 
+  /**
+   * Session opens and fresh starts wait only for a setup operation: during a turn they open beside
+   * the working session. Everything else waits for the turn too.
+   */
   async #runOrDefer(pending: PendingAction, hidePicker?: () => void) {
-    if (this.#isBusy()) {
+    const opensSession = pending.type === "session-selection" || pending.type === "new-session"
+    if (opensSession ? this.#busy : this.#isBusy()) {
       hidePicker?.()
       this.#pendingActions.push(pending)
       return
@@ -425,9 +432,9 @@ export class InteractiveApp {
         } else if (command.setting === "pair" || command.setting === "servers") {
           this.#setupFlow.configurePairInference()
         } else if (command.setting === "debug") {
-          const { conversation } = this.#app
-          conversation.debug = !conversation.debug
-          this.#ui.showTransientHint(` Debug mode ${conversation.debug ? "on" : "off"} `)
+          const app = this.#app
+          app.debug = !app.debug
+          this.#ui.showTransientHint(` Debug mode ${app.debug ? "on" : "off"} `)
           this.#ui.focusInput()
         } else if (command.setting === "subagents") {
           await this.#setPanelVisible("subagents", !this.#subagentPanelVisible)
@@ -456,7 +463,7 @@ export class InteractiveApp {
       case "history":
         this.#ui.clearInput()
         try {
-          this.#ui.showSessionPicker(await this.#app.sessions.listPickerItems())
+          this.#ui.showSessionPicker(await this.#listSessions())
         } catch (error) {
           this.#reportSessionError("Could not load sessions", error)
         }
@@ -506,11 +513,24 @@ export class InteractiveApp {
     }
   }
 
-  /** The conversation's stream, mapped onto the screen; status changes arrive separately. */
-  #onConversationEvent(event: ConversationEvent) {
+  /**
+   * The conversation streams, mapped onto the screen; status changes arrive separately. Only the
+   * focused session draws; another session's completion rings and is marked in the picker, and its
+   * approval request names it.
+   */
+  #onConversationEvent(event: Exclude<AppEvent, { type: "status" | "transcript" }>) {
     if (this.#exiting) return
     const ui = this.#ui
     const app = this.#app
+    if (event.runtime !== app.focused.id) {
+      if (event.type === "busy") this.#syncStatus()
+      else if (event.type === "settled") {
+        this.#terminal.notifyCompletion()
+        const title = app.runtimes.find((runtime) => runtime.id === event.runtime)
+        ui.showTransientHint(` Done: ${title?.sessions.activeLabel() ?? "session"} `)
+      } else if (event.type === "permission") this.#showPermission(event.request)
+      return
+    }
     switch (event.type) {
       case "busy":
         ui.setBusy(event.busy)
@@ -531,17 +551,9 @@ export class InteractiveApp {
         ui.setContextLabel(formatContextUsage(usage), contextUsageColor(usage.percent))
         return
       }
-      case "permission": {
-        const request = event.request
-        if (!request) {
-          ui.hidePermissionPrompt()
-          return
-        }
-        void ui
-          .showPermissionPrompt(request.label)
-          .then((allow) => app.conversation.respondToPermission(request.id, allow))
+      case "permission":
+        this.#showPermission(event.request)
         return
-      }
       case "render":
         ui.renderTranscript(
           app.transcript.entries,
@@ -568,10 +580,29 @@ export class InteractiveApp {
     }
   }
 
+  /** The broker's head, from any session; one from another session is prefixed with its title. */
+  #showPermission(request: PendingPermission | null) {
+    if (!request) {
+      this.#ui.hidePermissionPrompt()
+      return
+    }
+    const label =
+      request.runtime === this.#app.focused.id
+        ? request.label
+        : `[${request.sessionTitle}] ${request.label}`
+    void this.#ui
+      .showPermissionPrompt(label)
+      .then((allow) => this.#app.permissions.respond(request.id, allow))
+  }
+
   async #runCompaction(instructions?: string) {
-    if (this.#isBusy() || !this.#app.models.client) return
+    if (this.#busy || !this.#app.models.client) return
+    const refused = await this.#app.compact(instructions)
+    if (refused) {
+      this.#ui.showTransientHint(` ${refused} `)
+      return
+    }
     this.#ui.showChatLayout()
-    await this.#app.conversation.compact(instructions, this.#app.contextEstimator())
     this.#syncStatus()
     this.#updateContextIndicator()
   }
@@ -602,15 +633,18 @@ export class InteractiveApp {
     }
   }
 
+  #listSessions() {
+    return this.#app.sessions.listPickerItems(this.#app.openSessions())
+  }
+
+  /** Opens beside a working session, or focuses one already open; the screen follows either way. */
   async #selectSession(sessionId: string) {
     try {
-      const result = await this.#app.sessions.select(sessionId)
+      const result = await this.#app.openSession(sessionId)
       if (result === "locked") {
         this.#reportSessionError("Could not open session", new Error(SESSION_REASONS.locked))
-      } else if (result === "loaded") {
-        this.#reflectSession()
       } else {
-        this.#ui.focusInput()
+        this.#reflectSession()
       }
     } catch (error) {
       this.#reportSessionError("Could not open session", error)
@@ -620,36 +654,41 @@ export class InteractiveApp {
   async #deleteSession(sessionId: string) {
     const wasCurrent = this.#app.sessions.current?.id === sessionId
     try {
-      const result = await this.#app.sessions.delete(sessionId)
-      if (result === "locked") {
-        this.#reportSessionError("Could not delete session", new Error(SESSION_REASONS.locked))
-      } else if (result === "deleted" && wasCurrent) {
+      const result = await this.#app.deleteSession(sessionId)
+      if (result !== "deleted") {
+        this.#reportSessionError("Could not delete session", new Error(SESSION_REASONS[result]))
+      } else if (wasCurrent) {
         this.#reflectSession()
       }
     } catch (error) {
       this.#reportSessionError("Could not delete session", error)
     }
     try {
-      this.#ui.showSessionPicker(await this.#app.sessions.listPickerItems())
+      this.#ui.showSessionPicker(await this.#listSessions())
     } catch {
       // Keep the current picker state if disk re-sync fails after the primary action.
     }
   }
 
   #startNewSession() {
-    if (!this.#app.sessions.startNew()) return
+    if (this.#busy) return
+    this.#app.openNew()
     this.#ui.hideSessionPicker()
     this.#reflectSession()
     this.#ui.focusInput()
   }
 
+  /** Shows the focused session, whichever runtime it lives in and whether or not it is mid-turn. */
   #reflectSession() {
-    const sessions = this.#app.sessions
+    const { sessions, conversation } = this.#app
     const ui = this.#ui
     this.#syncStatus()
     ui.showChatLayout()
     ui.renderTranscript(sessions.transcript.entries, { scrollToBottom: true })
     ui.renderSubagents(sessions.subagents.all)
+    ui.setBusy(conversation.busy)
+    ui.setAgentPhase(conversation.phase)
+    if (!conversation.busy) ui.stopBusyIndicator()
     this.#updateContextIndicator()
     ui.focusInput()
   }
@@ -685,6 +724,7 @@ export class InteractiveApp {
       this.#updateContextIndicator()
     if (prev.permissionMode !== next.permissionMode)
       ui.setModeLabel(formatModeLabel(next.permissionMode))
+    if (prev.working !== next.working) ui.setBackgroundWorking(next.working)
   }
 
   #reportSessionError(prefix: string, error: unknown) {
@@ -729,7 +769,7 @@ export class InteractiveApp {
       },
       {
         name: "Debug mode",
-        description: this.#app.conversation.debug ? "On" : "Off",
+        description: this.#app.debug ? "On" : "Off",
         submission: "/settings debug",
       },
       {

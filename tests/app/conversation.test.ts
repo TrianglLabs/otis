@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ArtifactStore } from "../../src/app/artifacts.js"
-import { Conversation, type ConversationEvent, type TurnSpeed } from "../../src/app/conversation.js"
+import {
+  Conversation,
+  type ConversationEvent,
+  PermissionBroker,
+  type TurnSpeed,
+} from "../../src/app/conversation.js"
 import { ModelHost } from "../../src/app/models.js"
 import { SessionCoordinator } from "../../src/app/sessions.js"
 import { SubagentTraces } from "../../src/app/subagents.js"
@@ -8,8 +13,8 @@ import { TranscriptStore } from "../../src/app/transcript.js"
 import type { TurnResult, TurnRunnerOptions } from "../../src/app/turn-runner.js"
 import type { AgentEvent } from "../../src/core/agent.js"
 import { compactionSummaryMessage, isCompactionSummary } from "../../src/core/compaction.js"
-import type { ChatMessage, UserChatMessage } from "../../src/inference/types.js"
-import { createPermissionPolicy } from "../../src/permissions/policy.js"
+import type { ChatMessage, ChatStreamEvent, UserChatMessage } from "../../src/inference/types.js"
+import { createPermissionPolicy, type PermissionRequest } from "../../src/permissions/policy.js"
 import type { ParallelClient } from "../../src/web/client.js"
 import { summaryFixture } from "../support/compaction.js"
 import { useOtisHome } from "./support/otis-home.js"
@@ -41,11 +46,12 @@ function observe(conversation: Conversation) {
   }
 }
 
-async function setup() {
-  const cwd = await isolate("otis-conversation-")
+/** A conversation of its own; pass `shared` for a second one on the same model host and cwd. */
+async function setup(shared?: { models: ModelHost; cwd: string }) {
+  const cwd = shared?.cwd ?? (await isolate("otis-conversation-"))
   const transcript = new TranscriptStore()
   const subagents = new SubagentTraces()
-  const models = new ModelHost()
+  const models = shared?.models ?? new ModelHost()
   models.client = { model: "fake", streamChat: vi.fn(), complete: vi.fn() }
   models.selectedProvider = "fireworks"
   const artifacts = new ArtifactStore(cwd)
@@ -67,11 +73,12 @@ async function setup() {
     projectContext: () => [],
     skills: () => ({ skills: [], byName: new Map() }),
     permissionPolicy: () => createPermissionPolicy({ cwd, mode: "auto" }),
+    broker: new PermissionBroker(),
     isExiting: () => false,
     artifacts,
     gate: () => undefined,
   })
-  return { conversation, sessions, transcript, artifacts, models }
+  return { conversation, sessions, transcript, artifacts, models, cwd }
 }
 
 const reply = (text: string): ChatMessage => ({
@@ -455,6 +462,58 @@ describe("Conversation", () => {
     ])
   })
 
+  it("waits behind another conversation's stream on one slot and reads queued meanwhile", async () => {
+    const first = await setup()
+    const second = await setup(first)
+    const { models } = first
+    models.gate.setCapacity(1)
+    let opened = 0
+    let releaseFirst = () => {}
+    const held = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+    models.client = {
+      model: "fake",
+      async *streamChat(): AsyncGenerator<ChatStreamEvent> {
+        yield { type: "text_delta", text: "hi" }
+        if (opened++ === 0) await held
+        yield { type: "finish", reason: "stop" }
+      },
+      complete: vi.fn(),
+    }
+    mocks.executeTurn.mockImplementation(
+      async (options: TurnRunnerOptions): Promise<TurnResult> => {
+        await options.onEvent?.({ type: "model", phase: "start" })
+        for await (const event of options.agent.client.streamChat({ messages: [] })) {
+          if (event.type === "text_delta") await options.onEvent?.({ type: "delta", text: "hi" })
+        }
+        await options.onEvent?.({ type: "complete", messages: [] })
+        return { status: "complete", messages: [], details: {} }
+      },
+    )
+    const observer = observe(second.conversation)
+    const a = first.conversation.start(hi)
+    await vi.waitFor(() => expect(models.gate.active).toBe(1))
+    const b = second.conversation.start(hi)
+    await vi.waitFor(() => expect(second.conversation.phase).toBe("queued"))
+    expect(first.conversation.phase).toBe("working")
+    expect([models.gate.active, models.gate.waiting]).toEqual([1, 1])
+    expect(models.gate.isWaiting(second.conversation.id)).toBe(true)
+    // Each turn runs on its owner's gated view of the one raw client.
+    const clients = mocks.executeTurn.mock.calls.map(([options]) => options.agent.client)
+    expect(clients).toEqual([
+      models.clientFor(first.conversation.id),
+      models.clientFor(second.conversation.id),
+    ])
+    releaseFirst()
+    expect((await a).status).toBe("complete")
+    expect((await b).status).toBe("complete")
+    // Granted restores the interrupted phase; the delta that follows re-asserts it as usual.
+    expect(observer.phases).toEqual(["working", "queued", "working", "working"])
+    expect([models.gate.active, models.gate.waiting]).toEqual([0, 0])
+    expect(second.conversation.phase).toBe("idle")
+  })
+
   it("does not execute or announce a turn when its start cannot be recorded", async () => {
     const { conversation, sessions, transcript } = await setup()
     const session = await sessions.ensure()
@@ -515,5 +574,94 @@ describe("Conversation speed", () => {
     // 65 completion tokens over the 1.0 s since the first token.
     expect(speeds[2]).toEqual({ exact: true, prefillMs: 300, tokensPerSecond: 65 })
     expect(conversation.speed).toEqual(speeds[2])
+  })
+})
+
+describe("PermissionBroker", () => {
+  const ask = (command: string): PermissionRequest => ({
+    call: { name: "bash", input: { command } },
+    decision: { effect: "ask", resources: [command] },
+  })
+  const owner = (runtime: number, title = `session ${runtime}`) => ({ runtime, title: () => title })
+
+  it("serves two owners FIFO, attributes each request, and moves the head on respond", async () => {
+    const broker = new PermissionBroker()
+    const heads: (number | null)[] = []
+    broker.subscribe((head) => heads.push(head?.id ?? null))
+    const first = broker.request(owner(1, "Alpha"), ask("bun test"), new AbortController().signal)
+    const second = broker.request(owner(2, "Beta"), ask("ls"), new AbortController().signal)
+    expect(broker.current).toMatchObject({
+      label: "Running command: bun test",
+      kind: "shell",
+      resources: ["bun test"],
+      runtime: 1,
+      sessionTitle: "Alpha",
+    })
+    expect(broker.pending.map((request) => request.runtime)).toEqual([1, 2])
+    // Only a head change notifies: the second request queued behind the first silently.
+    expect(heads).toEqual([broker.pending[0]?.id])
+
+    // Responding to the second (non-head) request settles it without moving the head.
+    const [head, tail] = broker.pending
+    if (!head || !tail) throw new Error("expected two queued requests")
+    broker.respond(tail.id, true)
+    await expect(second).resolves.toBe(true)
+    expect(broker.current).toBe(head)
+    expect(heads).toEqual([head.id])
+
+    broker.respond(head.id, false)
+    await expect(first).resolves.toBe(false)
+    expect(broker.current).toBeNull()
+    expect(heads).toEqual([head.id, null])
+  })
+
+  it("ignores stale ids so a settled request stays as answered", async () => {
+    const broker = new PermissionBroker()
+    const request = broker.request(owner(1), ask("rm -rf build"), new AbortController().signal)
+    const id = broker.current?.id
+    if (id === undefined) throw new Error("expected a queued request")
+    broker.respond(id + 100, true)
+    expect(broker.current?.id).toBe(id)
+    broker.respond(id, false)
+    broker.respond(id, true)
+    await expect(request).resolves.toBe(false)
+    expect(broker.pending).toEqual([])
+  })
+
+  it("cancel(runtime) denies only that runtime's requests and promotes the other's", async () => {
+    const broker = new PermissionBroker()
+    const heads: (number | null)[] = []
+    const mine = broker.request(owner(1), ask("bun test"), new AbortController().signal)
+    const theirs = broker.request(owner(2), ask("ls"), new AbortController().signal)
+    const mineAgain = broker.request(owner(1), ask("git push"), new AbortController().signal)
+    broker.subscribe((head) => heads.push(head?.runtime ?? null))
+    broker.cancel(1)
+    await expect(mine).resolves.toBe(false)
+    await expect(mineAgain).resolves.toBe(false)
+    expect(broker.current).toMatchObject({ runtime: 2, label: "Inspecting files: ls" })
+    expect(broker.pending).toHaveLength(1)
+    expect(heads).toEqual([2])
+    // The survivor is still answerable; cancelling a runtime with nothing queued is a no-op.
+    broker.cancel(3)
+    broker.respond(broker.pending[0]?.id ?? 0, true)
+    await expect(theirs).resolves.toBe(true)
+    expect(broker.current).toBeNull()
+  })
+
+  it("denies a request when its owner's signal aborts, whether it is the head or queued", async () => {
+    const broker = new PermissionBroker()
+    const first = new AbortController()
+    const second = new AbortController()
+    const head = broker.request(owner(1), ask("bun test"), first.signal)
+    const queued = broker.request(owner(2), ask("ls"), second.signal)
+    second.abort()
+    await expect(queued).resolves.toBe(false)
+    expect(broker.pending.map((request) => request.runtime)).toEqual([1])
+    first.abort()
+    await expect(head).resolves.toBe(false)
+    expect(broker.current).toBeNull()
+    // An already-aborted owner is refused without ever entering the queue.
+    await expect(broker.request(owner(1), ask("ls"), first.signal)).resolves.toBe(false)
+    expect(broker.pending).toEqual([])
   })
 })

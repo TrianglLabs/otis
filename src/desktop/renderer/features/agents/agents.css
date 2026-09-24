@@ -159,7 +159,9 @@
   transform: translateX(-12px);
 }
 
+/* The document tabs stack over the document. */
 .workspaceRail-view-canvas {
+  flex-direction: column;
   transform: translateX(12px);
 }
 

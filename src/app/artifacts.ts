@@ -39,38 +39,53 @@ import type { JsonlSession } from "../storage/session.js"
 import type { SessionToolActivity } from "../storage/session-events.js"
 import { groupToolActivities } from "./transcript.js"
 
-type ActiveArtifact =
+type ArtifactView =
   | { source: "workspace"; reference: WorkspaceArtifactReference }
   | { source: "attachment"; document: DocumentContentPart }
   | { source: "published"; artifactId: string; version?: number }
 
+/** One Canvas tab: a view, its own revision, and when it last took the view. */
+type OpenArtifact = {
+  view: ArtifactView
+  revision: number
+  key?: string
+  digest?: string
+  activated: number
+  stopWatching?: () => void
+}
+
 /** The user's pinned revision, kept beside the session's published copies so reloads honor it. */
 const PIN_FILE = "pinned.json"
+
+/** Activation stamps order tabs across every store in the process; ties never happen. */
+let lastStamp = 0
+function stamp() {
+  lastStamp = Math.max(Date.now(), lastStamp + 1)
+  return lastStamp
+}
 
 /**
  * Session-scoped identities and selection. Adapters receive metadata, not document bytes.
  *
- * What Canvas shows: a newly produced canvas artifact (published or written this turn) takes the
- * view unless the user has pinned a specific version; attachments and background reads open only
- * when nothing is active. Replay applies the same rule in transcript order, then the persisted
- * pin, so a reload shows what the live session showed.
+ * What Canvas shows: every canvas artifact opened in the session is a tab, identified by its
+ * metadata id, so a second document joins the first instead of replacing it. A newly produced
+ * canvas artifact (published or written this turn) takes the view unless its own tab is pinned
+ * to a version; attachments and background reads open only when nothing is open. Replay applies
+ * the same rule in transcript order, then the persisted pin, and keeps only what was last in
+ * view: earlier documents reopen from their cards.
  */
 export class ArtifactStore {
-  #active: ActiveArtifact | undefined
-  #revision = 0
-  #key: string | undefined
-  #digest: string | undefined
+  #open: OpenArtifact[] = []
+  #active: OpenArtifact | undefined
   #attachments = new Map<string, DocumentContentPart>()
   #images = new Map<string, ImageContentPart>()
   #published = new Map<string, PublishedArtifactReference[]>()
   #listeners = new Set<() => void>()
-  #stopWatching: (() => void) | undefined
-  #watchedPath: string | undefined
 
   constructor(
     private readonly cwd: string,
     private directory?: string,
-    /** How often the selected working file is polled for external changes. */
+    /** How often an open working file is polled for external changes. */
     private readonly watchIntervalMs = 500,
   ) {}
 
@@ -79,32 +94,25 @@ export class ArtifactStore {
     return [...this.#attachments.values(), ...this.#images.values()]
   }
 
+  /** The tab that last took the view. */
   get metadata(): ArtifactMetadata | undefined {
-    const active = this.#active
-    if (!active) return undefined
-    if (active.source === "published") {
-      const reference = this.#selectedPublished(active)
-      if (!reference) return undefined
-      return {
-        ...publishedArtifactMetadata(reference, this.#revision),
-        publication: {
-          reference,
-          versions: (this.#published.get(active.artifactId) ?? []).map((item) => item.version),
-          followingLatest: active.version === undefined,
-        },
-      }
-    }
-    return active.source === "workspace"
-      ? workspaceArtifactMetadata(active.reference, this.#revision)
-      : attachmentArtifactMetadata(active.document, this.#revision)
+    return this.#active && this.#metadataOf(this.#active)
+  }
+
+  /** Every tab in opening order, each with the moment it last took the view. */
+  get tabs(): { artifact: ArtifactMetadata; activated: number }[] {
+    return this.#open.flatMap((tab) => {
+      const artifact = this.#metadataOf(tab)
+      return artifact ? [{ artifact, activated: tab.activated }] : []
+    })
   }
 
   setDirectory(directory: string) {
     if (this.directory === directory) return
     this.directory = directory
     this.#published.clear()
-    if (this.#active?.source === "published") this.#active = undefined
-    this.#changed()
+    for (const tab of this.#open.filter((tab) => tab.view.source === "published")) this.#drop(tab)
+    this.#notify()
   }
 
   /**
@@ -113,10 +121,10 @@ export class ArtifactStore {
    */
   subscribe(listener: () => void) {
     this.#listeners.add(listener)
-    this.#syncWatcher()
+    this.#syncWatchers()
     return () => {
       this.#listeners.delete(listener)
-      this.#syncWatcher()
+      this.#syncWatchers()
     }
   }
 
@@ -124,14 +132,13 @@ export class ArtifactStore {
     if (!isWorkspaceArtifactReference(reference))
       throw new Error("Invalid workspace artifact reference.")
     if (!isCanvasArtifact(reference.kind)) return
-    this.#active = { source: "workspace", reference }
-    this.#changed()
+    this.#take({ source: "workspace", reference })
   }
 
   /**
-   * Register a trusted tool result. A produced file (written or published) takes the view unless a
-   * pinned revision is showing; a background read (`produced` false) opens only when nothing is
-   * active.
+   * Register a trusted tool result. A produced file (written or published) takes the view unless
+   * its tab is pinned to a version; a background read (`produced` false) opens only when nothing
+   * is open.
    */
   observeFile(reference: FileArtifactReference, produced = true) {
     if (!isFileArtifactReference(reference)) throw new Error("Invalid file artifact reference.")
@@ -147,23 +154,21 @@ export class ArtifactStore {
           [...versions, reference].sort((a, b) => a.version - b.version),
         )
     }
-    const active = this.#active
-    const pinned = active?.source === "published" && active.version !== undefined
-    const takesView = isCanvasArtifact(reference.kind) && !pinned && (produced || !active)
-    if (takesView) {
-      this.#active =
-        reference.source === "workspace"
-          ? { source: "workspace", reference }
-          : { source: "published", artifactId: reference.artifactId }
-    }
-    if (takesView || reference.source === "published") this.#changed()
+    const view: ArtifactView =
+      reference.source === "workspace"
+        ? { source: "workspace", reference }
+        : { source: "published", artifactId: reference.artifactId }
+    const tab = this.#tab(viewId(view))
+    const pinned = tab?.view.source === "published" && tab.view.version !== undefined
+    if (isCanvasArtifact(reference.kind) && !pinned && (produced || this.#open.length === 0))
+      this.#take(view)
+    else if (tab && reference.source === "published") this.#changed(tab) // its version list grew
   }
 
   openAttachment(document: DocumentContentPart) {
     this.#attachments.set(attachmentKey(attachmentArtifactReference(document)), document)
     if (!isCanvasArtifact(attachmentArtifactReference(document).kind)) return
-    this.#active = { source: "attachment", document }
-    this.#changed()
+    this.#take({ source: "attachment", document })
   }
 
   observeMessage(message: UserChatMessage) {
@@ -183,16 +188,18 @@ export class ArtifactStore {
     const document = documents
       .filter((item) => isCanvasArtifact(attachmentArtifactReference(item).kind))
       .at(-1)
-    if (document && !this.#active) this.openAttachment(document)
+    if (document && this.#open.length === 0) this.openAttachment(document)
   }
 
   clear() {
+    for (const tab of this.#open) tab.stopWatching?.()
+    this.#open = []
     this.#active = undefined
     this.#attachments.clear()
     this.#images.clear()
     this.#published.clear()
     this.directory = undefined
-    this.#changed()
+    this.#notify()
   }
 
   /** Full scrollback owns artifact history, independent of compaction of model context. */
@@ -216,6 +223,8 @@ export class ArtifactStore {
     }
     const pin = this.#readPin()
     if (pin) this.open(pin.reference, pin.version)
+    for (const tab of this.#open.filter((tab) => tab !== this.#active)) this.#drop(tab)
+    this.#notify()
   }
 
   /** Card clicks follow latest; version navigation explicitly pins a saved revision. */
@@ -230,9 +239,8 @@ export class ArtifactStore {
       const versions = this.#published.get(reference.artifactId)
       if (!versions?.some((item) => samePublication(item, reference))) return false
       if (version !== undefined && !versions.some((item) => item.version === version)) return false
-      this.#active = { source: "published", artifactId: reference.artifactId, version }
+      this.#take({ source: "published", artifactId: reference.artifactId, version })
       this.#writePin(version === undefined ? undefined : { reference, version })
-      this.#changed()
       return true
     }
     if (reference.source === "workspace") {
@@ -245,49 +253,61 @@ export class ArtifactStore {
     return true
   }
 
-  /** The payload for a revision, or undefined once that revision is stale. */
-  async load(revision: number): Promise<ArtifactPayload | undefined> {
-    const active = this.#active
-    if (!active || revision !== this.#revision) return undefined
-    let payload: ArtifactPayload
-    if (active.source === "published") {
-      const reference = this.#selectedPublished(active)
-      if (!reference || !this.directory) return undefined
-      payload = await loadPublishedArtifact(reference, revision, this.directory)
-    } else if (active.source === "workspace") {
-      const reference = active.reference
-      const bytes = await readWorkspaceArtifactBytes(this.cwd, reference)
-      if (this.#active === active) this.#digest = digest(bytes)
-      payload = await payloadFromBytes(
-        bytes,
-        workspaceArtifactMetadata(reference, revision),
-        reference.path,
-      )
-    } else {
-      payload = await payloadFromBytes(
-        Buffer.from(active.document.data, "base64"),
-        attachmentArtifactMetadata(active.document, revision),
-        active.document.name,
-      )
-    }
-    return revision === this.#revision ? payload : undefined
+  /** Closes a tab; the one opened last is left in view. A pinned version closed is unpinned. */
+  close(id: string) {
+    const tab = this.#tab(id)
+    if (!tab) return
+    if (tab.view.source === "published" && tab.view.version !== undefined) this.#writePin(undefined)
+    this.#drop(tab)
+    this.#notify()
   }
 
-  async exportFile(revision: number): Promise<ArtifactFile | undefined> {
-    const active = this.#active
-    const metadata = this.metadata
-    if (!active || !metadata || revision !== this.#revision) return undefined
+  /** The payload for a tab's revision, or undefined once that revision is stale. */
+  async load(id: string, revision: number): Promise<ArtifactPayload | undefined> {
+    const tab = this.#tab(id)
+    if (!tab || revision !== tab.revision) return undefined
+    const { view } = tab
+    let payload: ArtifactPayload
+    if (view.source === "published") {
+      const reference = this.#selectedPublished(view)
+      if (!reference || !this.directory) return undefined
+      payload = await loadPublishedArtifact(reference, revision, this.directory)
+    } else if (view.source === "workspace") {
+      const bytes = await readWorkspaceArtifactBytes(this.cwd, view.reference)
+      if (this.#open.includes(tab)) tab.digest = digest(bytes)
+      payload = await payloadFromBytes(
+        bytes,
+        workspaceArtifactMetadata(view.reference, revision),
+        view.reference.path,
+      )
+    } else {
+      payload = await payloadFromBytes(
+        Buffer.from(view.document.data, "base64"),
+        attachmentArtifactMetadata(view.document, revision),
+        view.document.name,
+      )
+    }
+    return this.#open.includes(tab) && revision === tab.revision ? payload : undefined
+  }
+
+  async exportFile(id: string, revision: number): Promise<ArtifactFile | undefined> {
+    const tab = this.#tab(id)
+    const metadata = tab && this.#metadataOf(tab)
+    if (!tab || !metadata || revision !== tab.revision) return undefined
+    const { view } = tab
     let bytes: Buffer
-    if (active.source === "published") {
-      const reference = this.#selectedPublished(active)
+    if (view.source === "published") {
+      const reference = this.#selectedPublished(view)
       if (!reference || !this.directory) return undefined
       bytes = await readPublishedArtifactBytes(reference, this.directory)
-    } else if (active.source === "workspace") {
-      bytes = await readWorkspaceArtifactBytes(this.cwd, active.reference)
+    } else if (view.source === "workspace") {
+      bytes = await readWorkspaceArtifactBytes(this.cwd, view.reference)
     } else {
-      bytes = Buffer.from(active.document.data, "base64")
+      bytes = Buffer.from(view.document.data, "base64")
     }
-    return revision === this.#revision ? { name: metadata.title, bytes } : undefined
+    return this.#open.includes(tab) && revision === tab.revision
+      ? { name: metadata.title, bytes }
+      : undefined
   }
 
   dispose() {
@@ -295,55 +315,103 @@ export class ArtifactStore {
     this.clear()
   }
 
-  #selectedPublished(active: Extract<ActiveArtifact, { source: "published" }>) {
-    const versions = this.#published.get(active.artifactId)
-    return active.version === undefined
+  #tab(id: string) {
+    return this.#open.find((tab) => viewId(tab.view) === id)
+  }
+
+  #metadataOf(tab: OpenArtifact): ArtifactMetadata | undefined {
+    const { view, revision } = tab
+    if (view.source === "published") {
+      const reference = this.#selectedPublished(view)
+      if (!reference) return undefined
+      return {
+        ...publishedArtifactMetadata(reference, revision),
+        publication: {
+          reference,
+          versions: (this.#published.get(view.artifactId) ?? []).map((item) => item.version),
+          followingLatest: view.version === undefined,
+        },
+      }
+    }
+    return view.source === "workspace"
+      ? workspaceArtifactMetadata(view.reference, revision)
+      : attachmentArtifactMetadata(view.document, revision)
+  }
+
+  /** A view takes the Canvas: its tab (new, or the one with its id) is activated. */
+  #take(view: ArtifactView) {
+    let tab = this.#tab(viewId(view))
+    if (!tab) {
+      tab = { view, revision: 0, activated: 0 }
+      this.#open.push(tab)
+    }
+    tab.view = view
+    tab.activated = stamp()
+    this.#active = tab
+    this.#changed(tab)
+  }
+
+  #drop(tab: OpenArtifact) {
+    tab.stopWatching?.()
+    this.#open.splice(this.#open.indexOf(tab), 1)
+    if (this.#active === tab) this.#active = this.#open.at(-1)
+  }
+
+  #selectedPublished(view: Extract<ArtifactView, { source: "published" }>) {
+    const versions = this.#published.get(view.artifactId)
+    return view.version === undefined
       ? versions?.at(-1)
-      : versions?.find((item) => item.version === active.version)
+      : versions?.find((item) => item.version === view.version)
   }
 
   /**
-   * The revision advances only when the selected reference or its content changes, so listeners
+   * A tab's revision advances only when its selected reference or content changes, so listeners
    * can refresh metadata such as the version list without refetching an unchanged preview.
    */
-  #changed(contentChanged = false) {
-    const metadata = this.metadata
+  #changed(tab: OpenArtifact, contentChanged = false) {
+    const metadata = this.#metadataOf(tab)
     const key =
       metadata && JSON.stringify([metadata.id, metadata.path, metadata.publication?.reference])
-    if (contentChanged || key !== this.#key) this.#revision += 1
-    this.#key = key
-    this.#syncWatcher()
+    if (contentChanged || key !== tab.key) tab.revision += 1
+    tab.key = key
+    this.#notify()
+  }
+
+  #notify() {
+    this.#syncWatchers()
     for (const listener of this.#listeners) listener()
   }
 
-  #syncWatcher() {
-    const active = this.#active
-    const reference =
-      this.#listeners.size > 0 && active?.source === "workspace" ? active.reference : undefined
-    const path = reference && resolve(this.cwd, reference.path)
-    if (path === this.#watchedPath) return
-    this.#stopWatching?.()
-    this.#stopWatching = undefined
-    this.#watchedPath = path
-    this.#digest = undefined
-    if (!path || !reference) return
+  /** Every open working file is watched while a UI subscribes; nothing is watched otherwise. */
+  #syncWatchers() {
+    for (const tab of this.#open) {
+      if (this.#listeners.size === 0) {
+        tab.stopWatching?.()
+        tab.stopWatching = undefined
+      } else if (tab.view.source === "workspace" && !tab.stopWatching) this.#watch(tab)
+    }
+  }
+
+  #watch(tab: OpenArtifact) {
+    if (tab.view.source !== "workspace") return
+    const { reference } = tab.view
+    const path = resolve(this.cwd, reference.path)
     // A stat change with identical bytes (touch, chmod, a rewrite of the same text) is not a new
     // revision; a missing or unreadable file always is.
     const changed = async () => {
-      if (this.#watchedPath !== path) return
       const next = await readWorkspaceArtifactBytes(this.cwd, reference).then(
         digest,
         () => undefined,
       )
-      if (this.#watchedPath !== path || next === this.#digest) return
-      this.#digest = next
-      this.#changed(true)
+      if (!tab.stopWatching || next === tab.digest) return
+      tab.digest = next
+      this.#changed(tab, true)
     }
     const tick = () => void changed()
     // Node's stat watcher handles atomic replacement, deletion and recreation without watching
     // entire trees.
     watchFile(path, { persistent: false, interval: this.watchIntervalMs }, tick)
-    this.#stopWatching = () => unwatchFile(path, tick)
+    tab.stopWatching = () => unwatchFile(path, tick)
   }
 
   #readPin() {
@@ -370,6 +438,13 @@ export class ArtifactStore {
       pin ? writeFile(path, JSON.stringify(pin), { mode: 0o600 }) : rm(path, { force: true })
     ).catch(() => {})
   }
+}
+
+/** A tab's identity is its metadata id, so the same document always lands in the same tab. */
+function viewId(view: ArtifactView) {
+  if (view.source === "workspace") return `workspace:${view.reference.path}`
+  if (view.source === "published") return `published:${view.artifactId}`
+  return `attachment:${view.document.sha256}`
 }
 
 function digest(bytes: Buffer) {

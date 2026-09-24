@@ -1,4 +1,4 @@
-import { ChevronRight, ChevronsRight } from "lucide-react"
+import { ChevronRight, ChevronsRight, X } from "lucide-react"
 import {
   type CSSProperties,
   type KeyboardEvent,
@@ -18,7 +18,7 @@ import {
   agentSummary,
 } from "../features/agents/AgentTraceOverlay.js"
 import { CanvasPanel } from "../features/canvas/CanvasPanel.js"
-import { type CanvasArtifact, canvasArtifactKey } from "../features/canvas/canvas-context.js"
+import type { CanvasView } from "../features/canvas/canvas-context.js"
 import { useI18n } from "../i18n/index.js"
 import { useDesktop, useDesktopSelector } from "../runtime.js"
 
@@ -34,22 +34,27 @@ const PANEL_KEYBOARD_STEP = 16
  * The session's secondary workspace: delegated runs and the Mermaid block explicitly opened in
  * Canvas.
  */
-export function WorkspacePanel({ artifact }: { artifact: CanvasArtifact | undefined }) {
+export function WorkspacePanel({
+  views,
+  onCloseDiagram,
+}: {
+  views: CanvasView[]
+  onCloseDiagram: () => void
+}) {
   // Drags update the local width immediately; the saved width seeds it and survives relaunches.
   const [railWidth, setRailWidth] = useState<number>()
   const state = useDesktopSelector((snapshot) => ({
-    sessionId: snapshot?.session?.id,
     runs: snapshot?.subagents ?? EMPTY_RUNS,
     visible: snapshot?.agentsPanelVisible ?? true,
     theme: snapshot?.theme ?? "default",
     savedWidth: snapshot?.workspacePanelWidth,
   }))
-  const { sessionId, savedWidth, ...panel } = state
+  const { savedWidth, ...panel } = state
   return (
     <SessionWorkspacePanel
-      key={sessionId}
       {...panel}
-      artifact={artifact}
+      views={views}
+      onCloseDiagram={onCloseDiagram}
       railWidth={railWidth ?? savedWidth}
       onRailWidthChange={setRailWidth}
     />
@@ -58,14 +63,16 @@ export function WorkspacePanel({ artifact }: { artifact: CanvasArtifact | undefi
 
 function SessionWorkspacePanel({
   runs,
-  artifact,
+  views,
+  onCloseDiagram,
   visible,
   theme,
   railWidth,
   onRailWidthChange,
 }: {
   runs: SubagentSummary[]
-  artifact: CanvasArtifact | undefined
+  views: CanvasView[]
+  onCloseDiagram: () => void
   visible: boolean
   theme: ThemeName
   railWidth: number | undefined
@@ -73,8 +80,21 @@ function SessionWorkspacePanel({
 }) {
   const { api } = useDesktop()
   const { t } = useI18n()
-  const [activeTab, setActiveTab] = useState<PanelTab>(artifact ? "canvas" : "coworkers")
-  const [openTraceId, setOpenTraceId] = useState<string>()
+  const [activeTab, setActiveTab] = useState<PanelTab>(views.length > 0 ? "canvas" : "coworkers")
+  // The tab that last took the view shows, unless the user picked another one since.
+  const [chosen, setChosen] = useState<{ key: string; at: number }>()
+  const latest = views.reduce<CanvasView | undefined>(
+    (best, view) => (!best || view.activated > best.activated ? view : best),
+    undefined,
+  )
+  const selected =
+    (chosen && chosen.at >= (latest?.activated ?? 0) && views.find((v) => v.key === chosen.key)) ||
+    latest
+  // A trace belongs to the session whose runs are listed; focus moving elsewhere closes it.
+  const [chosenTraceId, setOpenTraceId] = useState<string>()
+  const openTraceId = runs.some((run) => run.toolCallId === chosenTraceId)
+    ? chosenTraceId
+    : undefined
   const [resizing, setResizing] = useState(false)
   const panelId = useId()
   const [contentMinWidth, setContentMinWidth] = useState(PANEL_MIN_WIDTH)
@@ -83,7 +103,7 @@ function SessionWorkspacePanel({
   const headerRef = useRef<HTMLDivElement>(null)
   const tabsRef = useRef<HTMLDivElement>(null)
   const stopResizeRef = useRef<() => void>(() => {})
-  const hasContent = runs.length > 0 || artifact !== undefined
+  const hasContent = runs.length > 0 || views.length > 0
 
   useEffect(() => () => stopResizeRef.current(), [])
   useEffect(() => {
@@ -136,15 +156,16 @@ function SessionWorkspacePanel({
     if (previous === false && hasRuns && !visible) void api.setAgentsPanelVisible(true)
   }, [runs.length, visible, api])
 
-  const artifactKey = canvasArtifactKey(artifact)
-  const previousArtifactId = useRef<string | undefined>(artifactKey)
+  // A document taking the view brings Canvas forward, and reopens a hidden rail.
+  const latestActivated = latest?.activated
+  const seenActivated = useRef(latestActivated)
   useEffect(() => {
-    const previous = previousArtifactId.current
-    previousArtifactId.current = artifactKey
-    if (!artifact || artifactKey === previous) return
+    const previous = seenActivated.current
+    seenActivated.current = latestActivated
+    if (latestActivated === undefined || latestActivated === previous) return
     setActiveTab("canvas")
     if (!visible) void api.setAgentsPanelVisible(true)
-  }, [artifact, artifactKey, visible, api])
+  }, [latestActivated, visible, api])
 
   const maxWidth = Math.max(
     contentMinWidth,
@@ -337,7 +358,42 @@ function SessionWorkspacePanel({
             )}
           </div>
           <div {...view("canvas")}>
-            <CanvasPanel artifact={artifact} theme={theme} />
+            {views.length > 1 ? (
+              <nav className="canvas-tabs" aria-label={t("canvas.tabs")}>
+                {views.map((entry) => {
+                  const title =
+                    entry.artifact.kind === "mermaid" ? t("canvas.diagram") : entry.artifact.title
+                  return (
+                    <div
+                      key={entry.key}
+                      className={`canvas-tab${entry === selected ? " canvas-tab-selected" : ""}`}
+                    >
+                      <button
+                        type="button"
+                        className="canvas-tabOpen"
+                        aria-pressed={entry === selected}
+                        onClick={() => setChosen({ key: entry.key, at: Date.now() })}
+                      >
+                        {title}
+                      </button>
+                      <button
+                        type="button"
+                        className="iconBtn canvas-tabClose"
+                        aria-label={t("canvas.closeTab", { title })}
+                        onClick={() =>
+                          entry.runtime === undefined
+                            ? onCloseDiagram()
+                            : void api.closeArtifact(entry.runtime, entry.artifact.id)
+                        }
+                      >
+                        <Icon icon={X} size={11} />
+                      </button>
+                    </div>
+                  )
+                })}
+              </nav>
+            ) : null}
+            <CanvasPanel view={selected} theme={theme} />
           </div>
         </div>
       </aside>

@@ -8,24 +8,32 @@ import { FileArtifact } from "../../../src/desktop/renderer/features/canvas/File
 import { DesktopProvider } from "../../../src/desktop/renderer/runtime.js"
 import { DesktopViewStore } from "../../../src/desktop/renderer/state.js"
 
+/** The Canvas tab in view: the one that last took it. */
+function shown(snapshot: { artifacts: { artifact: ArtifactMetadata; activated: number }[] }) {
+  return snapshot.artifacts.reduce<(typeof snapshot.artifacts)[number] | undefined>(
+    (best, tab) => (!best || tab.activated > best.activated ? tab : best),
+    undefined,
+  )?.artifact
+}
+
 afterEach(cleanup)
 
 it("saves the displayed revision, reports errors, and resets the action when the revision changes", async () => {
   const api = createDemoRuntime()
   const runtime = { api, store: new DesktopViewStore(api) }
-  const artifact = (await api.getSnapshot()).artifact
+  const artifact = shown(await api.getSnapshot())
   if (!artifact) throw new Error("Expected demo artifact")
   const save = vi
     .spyOn(api, "saveArtifact")
     .mockResolvedValue({ ok: false, reason: "The destination is read-only." })
   const view = render(
     <DesktopProvider value={runtime}>
-      <FileArtifact artifact={artifact} />
+      <FileArtifact runtime={1} artifact={artifact} />
     </DesktopProvider>,
   )
   await act(async () => {})
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "Save a copy" })))
-  expect(save).toHaveBeenCalledExactlyOnceWith(artifact.id, artifact.revision)
+  expect(save).toHaveBeenCalledExactlyOnceWith(1, artifact.id, artifact.revision)
   expect(screen.getByRole("alert").textContent).toBe("The destination is read-only.")
   const next = { ...artifact, revision: artifact.revision + 1 }
   vi.spyOn(api, "getArtifact").mockResolvedValue({
@@ -34,21 +42,21 @@ it("saves the displayed revision, reports errors, and resets the action when the
   })
   view.rerender(
     <DesktopProvider value={runtime}>
-      <FileArtifact artifact={next} />
+      <FileArtifact runtime={1} artifact={next} />
     </DesktopProvider>,
   )
   await act(async () => {})
   expect(screen.queryByRole("alert")).toBeNull()
   save.mockResolvedValue({ ok: true })
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "Save a copy" })))
-  expect(save).toHaveBeenLastCalledWith(next.id, next.revision)
+  expect(save).toHaveBeenLastCalledWith(1, next.id, next.revision)
 })
 
 it("hides the selector for a single saved version and shows it when another version arrives", async () => {
   const api = createDemoRuntime()
   const runtime = { api, store: new DesktopViewStore(api) }
   const snapshot = await api.getSnapshot()
-  const saved = snapshot.artifact
+  const saved = shown(snapshot)
   if (!saved?.publication) throw new Error("Expected a published demo artifact")
   const artifact: ArtifactMetadata = {
     ...saved,
@@ -60,7 +68,7 @@ it("hides the selector for a single saved version and shows it when another vers
   }
   const view = render(
     <DesktopProvider value={runtime}>
-      <FileArtifact artifact={artifact} />
+      <FileArtifact runtime={1} artifact={artifact} />
     </DesktopProvider>,
   )
   await act(async () => {})
@@ -69,7 +77,7 @@ it("hides the selector for a single saved version and shows it when another vers
 
   view.rerender(
     <DesktopProvider value={runtime}>
-      <FileArtifact artifact={saved} />
+      <FileArtifact runtime={1} artifact={saved} />
     </DesktopProvider>,
   )
   await act(async () => {})
@@ -107,7 +115,7 @@ it("shows saved revisions separately from working files and lets users pin a ver
   const open = vi.spyOn(api, "openArtifact").mockResolvedValue({ ok: true })
   const view = render(
     <DesktopProvider value={runtime}>
-      <FileArtifact artifact={artifact} />
+      <FileArtifact runtime={1} artifact={artifact} />
     </DesktopProvider>,
   )
   await act(async () => {})
@@ -115,7 +123,7 @@ it("shows saved revisions separately from working files and lets users pin a ver
   const versions = screen.getByRole("combobox", { name: "Artifact versions" }) as HTMLSelectElement
   expect(versions.value).toBe("latest")
   await act(async () => fireEvent.change(versions, { target: { value: "1" } }))
-  expect(open).toHaveBeenLastCalledWith(reference, 1)
+  expect(open).toHaveBeenLastCalledWith(reference, 1, 1)
   const pinned = {
     ...artifact,
     revision: 2,
@@ -127,19 +135,20 @@ it("shows saved revisions separately from working files and lets users pin a ver
   }
   view.rerender(
     <DesktopProvider value={runtime}>
-      <FileArtifact artifact={pinned} />
+      <FileArtifact runtime={1} artifact={pinned} />
     </DesktopProvider>,
   )
   await act(async () => {})
   expect(versions.value).toBe("1")
   await act(async () => fireEvent.change(versions, { target: { value: "latest" } }))
-  expect(open).toHaveBeenLastCalledWith(pinned.publication.reference, undefined)
+  expect(open).toHaveBeenLastCalledWith(pinned.publication.reference, undefined, 1)
   open.mockResolvedValueOnce({ ok: false, reason: "Session changed" })
   await act(async () => fireEvent.change(versions, { target: { value: "2" } }))
   expect(screen.getByRole("alert").textContent).toBe("Session changed")
   view.rerender(
     <DesktopProvider value={runtime}>
       <FileArtifact
+        runtime={1}
         artifact={{ ...artifact, source: "workspace", publication: undefined, revision: 3 }}
       />
     </DesktopProvider>,
@@ -164,14 +173,14 @@ it("keeps the current preview while a revision loads, ignores stale results, and
   }
   const pending = new Map<number, (result: Awaited<ReturnType<typeof api.getArtifact>>) => void>()
   vi.spyOn(api, "getArtifact").mockImplementation(
-    (revision) =>
+    (_runtime, _id, revision) =>
       new Promise((resolve) => {
         pending.set(revision, resolve)
       }),
   )
   const at = (revision: number, id = artifact.id) => (
     <DesktopProvider value={runtime}>
-      <FileArtifact artifact={{ ...artifact, id, revision }} />
+      <FileArtifact runtime={1} artifact={{ ...artifact, id, revision }} />
     </DesktopProvider>
   )
   const view = render(at(1))

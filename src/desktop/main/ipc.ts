@@ -17,11 +17,13 @@ import type { DesktopRuntime } from "./runtime.js"
  */
 export function registerDesktopIpc(runtime: DesktopRuntime) {
   handle(DESKTOP_CHANNELS.getSnapshot, () => runtime.snapshot())
-  handle(DESKTOP_CHANNELS.getArtifact, (revision) => {
+  handle(DESKTOP_CHANNELS.getArtifact, (target, id, revision) => {
+    if (typeof target !== "number") throw new Error("getArtifact expects a numeric runtime id")
+    if (typeof id !== "string" || !id) throw new Error("getArtifact expects an artifact id")
     if (typeof revision !== "number") throw new Error("getArtifact expects a numeric revision")
-    return runtime.getArtifact(revision)
+    return runtime.getArtifact(target, id, revision)
   })
-  handle(DESKTOP_CHANNELS.openArtifact, (reference, version) => {
+  handle(DESKTOP_CHANNELS.openArtifact, (reference, version, target) => {
     if (!isArtifactReference(reference))
       throw new Error("openArtifact expects a valid artifact reference")
     if (
@@ -29,18 +31,31 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
       (typeof version !== "number" || !Number.isSafeInteger(version) || version < 1)
     )
       throw new Error("openArtifact expects a positive integer version")
-    return runtime.openArtifact(reference, version)
+    if (target !== undefined && typeof target !== "number")
+      throw new Error("openArtifact expects a numeric runtime id")
+    return runtime.openArtifact(reference, version, target)
+  })
+  handle(DESKTOP_CHANNELS.closeArtifact, (target, id) => {
+    if (typeof target !== "number") throw new Error("closeArtifact expects a numeric runtime id")
+    if (typeof id !== "string" || !id) throw new Error("closeArtifact expects an artifact id")
+    runtime.closeArtifact(target, id)
   })
 
   // Saves the captured revision only to a destination chosen through the native Save dialog.
   ipcMain.handle(
     DESKTOP_CHANNELS.saveArtifact,
-    async (event: IpcMainInvokeEvent, id: unknown, revision: unknown): Promise<SessionOpResult> => {
+    async (
+      event: IpcMainInvokeEvent,
+      target: unknown,
+      id: unknown,
+      revision: unknown,
+    ): Promise<SessionOpResult> => {
       assertTrustedSender(event)
+      if (typeof target !== "number") throw new Error("saveArtifact expects a numeric runtime id")
       if (typeof id !== "string" || !id) throw new Error("saveArtifact expects an artifact id")
       if (typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 0)
         throw new Error("saveArtifact expects a numeric revision")
-      const file = await runtime.getArtifactFile(id, revision)
+      const file = await runtime.getArtifactFile(target, id, revision)
       if (!file)
         return { ok: false, reason: "This preview changed. Try saving the current version again." }
       try {
@@ -109,6 +124,30 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
     if (dirName !== undefined && typeof dirName !== "string")
       throw new Error("selectSession expects a dir name")
     return runtime.selectSession(id, dirName)
+  })
+
+  handle(DESKTOP_CHANNELS.focusSession, (id) => {
+    if (typeof id !== "number") throw new Error("focusSession expects a numeric runtime id")
+    runtime.focusSession(id)
+  })
+  handle(DESKTOP_CHANNELS.openPane, (id, side) => {
+    if (typeof id !== "number") throw new Error("openPane expects a numeric runtime id")
+    if (side !== "left" && side !== "right" && side !== "top" && side !== "bottom")
+      throw new Error("openPane expects a side")
+    runtime.openPane(id, side)
+  })
+  handle(DESKTOP_CHANNELS.closePane, (id) => {
+    if (typeof id !== "number") throw new Error("closePane expects a numeric runtime id")
+    runtime.closePane(id)
+  })
+  handle(DESKTOP_CHANNELS.soloPane, (id) => {
+    if (typeof id !== "number") throw new Error("soloPane expects a numeric runtime id")
+    runtime.soloPane(id)
+  })
+  handle(DESKTOP_CHANNELS.replacePane, (target, id) => {
+    if (typeof target !== "number" || typeof id !== "number")
+      throw new Error("replacePane expects numeric runtime ids")
+    runtime.replacePane(target, id)
   })
 
   handle(DESKTOP_CHANNELS.searchSessions, (query) => {

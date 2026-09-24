@@ -130,3 +130,10 @@ textarea {
     transform: rotate(360deg);
   }
 }
+
+/* A session working out of view: the marker breathes. */
+@keyframes pulse-dot {
+  50% {
+    opacity: 0.35;
+  }
+}

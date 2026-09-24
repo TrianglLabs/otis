@@ -106,7 +106,13 @@ export class SessionPicker {
           ]
         : this.#items.map((item, index) => ({
             title: truncatePickerLabel(item.title, 30),
-            meta: item.detail ? truncatePickerLabel(item.detail, 30) : undefined,
+            meta: item.working
+              ? "● working"
+              : item.unseen
+                ? "• done"
+                : item.detail
+                  ? truncatePickerLabel(item.detail, 30)
+                  : undefined,
             fg: item.active ? colors.accent : colors.text,
             selected: index === this.#selectedIndex,
           }))

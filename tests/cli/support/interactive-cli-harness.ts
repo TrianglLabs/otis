@@ -54,6 +54,7 @@ const mocks = vi.hoisted(() => {
     setModelLabel: vi.fn(),
     setModelPickerStatus: vi.fn(),
     setSessionLabel: vi.fn(),
+    setBackgroundWorking: vi.fn(),
     setStats: vi.fn(),
     setTheme: vi.fn(),
     setThinkingVisible: vi.fn(),
@@ -181,6 +182,7 @@ const mocks = vi.hoisted(() => {
           model: spec.id,
           inferenceURL: "http://127.0.0.1:18765/v1/chat/completions",
           contextLength: 32_768,
+          slots: 1,
         }
       },
     ),
@@ -369,6 +371,7 @@ beforeEach(() => {
         model: spec.id,
         inferenceURL: "http://127.0.0.1:18765/v1/chat/completions",
         contextLength: 32_768,
+        slots: 1,
       }
     },
   )

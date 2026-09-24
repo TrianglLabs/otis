@@ -194,7 +194,7 @@ async function runDesktopUiChecks() {
     ...(await api.getSnapshot()),
     entries: history,
     subagents: [],
-    artifact: null,
+    artifacts: [],
     busy: true,
     thinkingVisible: true,
   }
@@ -541,7 +541,7 @@ async function runDesktopUiChecks() {
   // rail.
   const completedRuns = store.getState()?.subagents ?? []
   for (const locale of LOCALES) {
-    status({ subagents: [], artifact: null })
+    status({ subagents: [], artifacts: [] })
     await until(() => !document.querySelector(".workspaceRail"), "Empty side panel did not unmount")
     renderLanguage(locale)
     await until(
@@ -1016,6 +1016,8 @@ async function runDesktopUiChecks() {
       label: "Running command: bun test",
       kind: "shell",
       resources: ["bun test"],
+      runtime: 1,
+      sessionTitle: "Expanded cards",
     },
   })
   await until(() => !!document.querySelector(".permissionCard"), "Permission card did not render")
@@ -1243,7 +1245,14 @@ async function runDesktopUiChecks() {
   )
   status({
     thinkingVisible: true,
-    permission: { id: 1, label: "Test approval", kind: "shell", resources: [] },
+    permission: {
+      id: 1,
+      label: "Test approval",
+      kind: "shell",
+      resources: [],
+      runtime: 1,
+      sessionTitle: "Expanded cards",
+    },
   })
   await until(
     () => !!document.querySelector('[data-entry-id="2"] .reasoning-header'),
@@ -1693,7 +1702,7 @@ async function runDesktopUiChecks() {
   })
   artifactRoot.render(
     <DesktopProvider value={{ api: artifactApi, store: new DesktopViewStore(artifactApi) }}>
-      <FileArtifact artifact={artifact} />
+      <FileArtifact runtime={1} artifact={artifact} />
     </DesktopProvider>,
   )
   await until(

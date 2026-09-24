@@ -81,7 +81,7 @@ describe("stable message rendering", () => {
     await act(async () =>
       fireEvent.click(screen.getByRole("button", { name: "Open in Canvas: final.html" })),
     )
-    expect(openArtifact).toHaveBeenCalledExactlyOnceWith(artifact)
+    expect(openArtifact).toHaveBeenCalledExactlyOnceWith(artifact, undefined, undefined)
   })
 
   it("keeps a pending artifact revision in the ordinary tool activity", async () => {

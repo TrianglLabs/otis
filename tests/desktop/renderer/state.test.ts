@@ -136,6 +136,60 @@ describe("DesktopViewStore", () => {
     expect(store.getState()?.revision).toBe(7)
   })
 
+  it("keeps each pane's transcript apart and follows focus without reloading", async () => {
+    const runtime = (id: number, focused: boolean) => ({
+      runtime: id,
+      session: null,
+      focused,
+      busy: false,
+      unseen: false,
+      diffs: { added: 0, removed: 0 },
+      contextTokens: 0,
+    })
+    const { api, emit } = fakeApi([entry(1, "focused")])
+    const store = new DesktopViewStore(api)
+    await store.start()
+    emit({
+      type: "status",
+      revision: 6,
+      status: { ...status, runtimes: [runtime(1, true), runtime(2, false)], panes: [1, 2] },
+      panes: [{ runtime: 2, ops: [{ op: "reset", entries: [entry(1, "beside")] }] }],
+    })
+    emit({ type: "transcript", revision: 7, ops: [{ op: "upsert", entry: entry(2, "more") }] })
+    emit({
+      type: "transcript",
+      revision: 8,
+      panes: [{ runtime: 2, ops: [{ op: "upsert", entry: entry(2, "beside too") }] }],
+    })
+    const before = store.getState()
+    expect(before).toMatchObject({
+      entries: [entry(1, "focused"), entry(2, "more")],
+      transcripts: { 2: [entry(1, "beside"), entry(2, "beside too")] },
+    })
+
+    // Focus moves to the other pane: the lists change places, the same arrays.
+    emit({
+      type: "status",
+      revision: 9,
+      status: { ...status, runtimes: [runtime(1, false), runtime(2, true)], panes: [1, 2] },
+    })
+    const after = store.getState()
+    expect(after?.entries).toBe(before?.transcripts[2])
+    expect(after?.transcripts[1]).toBe(before?.entries)
+    expect(after?.transcripts[2]).toBeUndefined()
+
+    // A pane taken off screen drops its list; focus moving to a session that was off screen
+    // starts from the reset the same event carries.
+    emit({
+      type: "status",
+      revision: 10,
+      status: { ...status, runtimes: [runtime(1, false), runtime(3, true)], panes: [3] },
+      ops: [{ op: "reset", entries: [entry(9, "fresh")] }],
+    })
+    expect(store.getState()).toMatchObject({ entries: [entry(9, "fresh")], transcripts: {} })
+    store.dispose()
+  })
+
   it("publishes a session reset and its metadata as one state change", async () => {
     const { api, emit } = fakeApi([entry(1, "from snapshot")])
     const store = new DesktopViewStore(api)
