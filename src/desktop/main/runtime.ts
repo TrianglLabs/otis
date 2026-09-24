@@ -20,7 +20,7 @@ import type { TranscriptChange, TranscriptEntry } from "../../app/transcript.js"
 import type { ArtifactReference } from "../../artifacts/types.js"
 import { createAttachment } from "../../inference/attachments.js"
 import type { listToolCapableModels } from "../../inference/catalog.js"
-import { errorMessage } from "../../inference/errors.js"
+import { describeError } from "../../inference/errors.js"
 import { findLocalModel } from "../../inference/local-catalog.js"
 import { discoverOmlxModels } from "../../inference/omlx.js"
 import { discoverPairModels, type PairDiscovery } from "../../inference/pair.js"
@@ -40,6 +40,7 @@ import {
 import {
   isThemeName,
   saveLastWorkspace,
+  saveNotifyOnCompletion,
   saveSelectedTheme,
   saveSubagentPanelVisible,
   saveThinkingVisible,
@@ -86,6 +87,8 @@ type DesktopRuntimeOptions = {
    */
   installUpdate?: () => Promise<void>
   checkForUpdates?: () => Promise<void>
+  /** Tells the user a session finished, when the window is not where they are looking. */
+  notify?: (notice: { runtime: number; title: string; failed: boolean }) => void
 }
 
 /**
@@ -230,6 +233,9 @@ export class DesktopRuntime {
     }
     syncStores()
     const events = app.subscribe((event) => {
+      // Streamed text reaches the renderer as transcript changes, and a delegate's through the
+      // trace overlay's own polling; neither moves anything in the status.
+      if (event.type === "render" || (event.type === "subagents" && event.streamed)) return
       if (event.type === "transcript") {
         const runtime = app.runtimes.find((entry) => entry.id === event.runtime)
         if (!runtime) return
@@ -238,20 +244,34 @@ export class DesktopRuntime {
           // screen keeps the transcript the renderer has, so that reset is not sent; one that was
           // off screen takes the slot of the session focus left, and arrives whole.
           const shown = this.#panes.includes(runtime)
-          if (!shown) this.#panes[this.#panes.indexOf(this.#shown)] = runtime
+          if (!shown) {
+            this.#panes[this.#panes.indexOf(this.#shown)] = runtime
+            app.closeIfEmpty(this.#shown)
+          }
           this.#shown = runtime
           this.#conversationVersion += 1
           this.#markStateDirty()
           if (shown) return
         }
         if (this.#panes.includes(runtime)) this.#queue(runtime, event.change)
-      } else if (event.type === "settled") void this.#refreshStats()
-      else if (event.type === "busy" && !event.busy) {
+      } else if (event.type === "settled") {
+        void this.#refreshStats()
+        const runtime = app.runtimes.find((entry) => entry.id === event.runtime)
+        if (runtime && app.settings.notifyOnCompletion !== false && this.options.notify)
+          this.options.notify({
+            runtime: runtime.id,
+            title: runtime.sessions.activeLabel(),
+            failed: event.result.status === "error",
+          })
+      } else if (event.type === "busy" && !event.busy) {
         this.#historyCache = undefined
         this.#markStateDirty()
         this.#flushNow()
       } else {
-        if (event.type === "status") syncStores()
+        if (event.type === "status") {
+          syncStores()
+          this.#panes = this.#panes.filter((runtime) => app.runtimes.includes(runtime))
+        }
         this.#markStateDirty()
       }
     })
@@ -288,7 +308,7 @@ export class DesktopRuntime {
         ? { ok: true, payload }
         : { ok: false, stale: true, reason: "This preview changed." }
     } catch (error) {
-      return { ok: false, reason: error instanceof Error ? error.message : String(error) }
+      return { ok: false, reason: describeError(error) }
     }
   }
 
@@ -347,7 +367,7 @@ export class DesktopRuntime {
       }
       message = await app.buildPrompt(text, attachments)
     } catch (error) {
-      return { accepted: false, reason: errorMessage(error) }
+      return { accepted: false, reason: describeError(error) }
     }
     // Parsing can yield while a session, workspace, model, or renderer changes. Admission must
     // still target the conversation and model for which the user submitted these attachments.
@@ -369,7 +389,7 @@ export class DesktopRuntime {
       this.#markStateDirty()
       return { accepted: true, delivery }
     } catch (error) {
-      return { accepted: false, reason: errorMessage(error) }
+      return { accepted: false, reason: describeError(error) }
     }
   }
 
@@ -386,8 +406,13 @@ export class DesktopRuntime {
     return undefined
   }
 
-  stop() {
-    this.app.conversation.stop()
+  /** Stops the focused session's turn, or a given session's from the status bar item. */
+  stop(runtime?: number) {
+    const target =
+      runtime === undefined
+        ? this.app.focused
+        : this.app.runtimes.find((entry) => entry.id === runtime)
+    target?.conversation.stop()
   }
 
   respondToPermission(id: number, allow: boolean) {
@@ -538,7 +563,7 @@ export class DesktopRuntime {
       try {
         next = await Application.create({ cwd, outputCapabilities: { mermaid: true } })
       } catch (error) {
-        return { ok: false, reason: `Could not open that folder: ${errorMessage(error)}` }
+        return { ok: false, reason: `Could not open that folder: ${describeError(error)}` }
       }
 
       // Open the destination session (write lock included) before committing: a refusal here must
@@ -650,7 +675,17 @@ export class DesktopRuntime {
     if (this.#disposed) return { ok: false, reason: RESTARTING }
     if (this.#switching) return { ok: false, reason: SWITCHING }
     if (this.#locating) return { ok: false, reason: LOCATING }
-    this.app.openNew()
+    // With several cards on screen the fresh session is a new runtime: an empty active card
+    // already is one; otherwise it joins them while there is room, else takes the active card,
+    // whose session keeps its work off screen.
+    const { focused } = this.app
+    if (this.#panes.length > 1) {
+      if (!focused.busy && !focused.sessions.current) return { ok: true }
+      const runtime = this.app.addRuntime()
+      if (this.#panes.length < MAX_PANES) this.#panes.push(runtime)
+      else this.#panes[this.#panes.indexOf(focused)] = runtime
+      this.app.focus(runtime)
+    } else this.app.openNew()
     this.#historyCache = undefined
     this.#markStateDirty()
     return { ok: true }
@@ -723,7 +758,7 @@ export class DesktopRuntime {
       try {
         item = (await this.listModels()).find(match)
       } catch (error) {
-        return { ok: false, reason: errorMessage(error) }
+        return { ok: false, reason: describeError(error) }
       }
       if (this.#disposed) return { ok: false, reason: SELECTION_SUPERSEDED }
       if (!item) return { ok: false, reason: "That model is no longer in the catalog." }
@@ -754,6 +789,12 @@ export class DesktopRuntime {
   async setThinkingVisible(visible: boolean) {
     await saveThinkingVisible(visible)
     this.app.settings.thinkingVisible = visible
+    this.#markStateDirty()
+  }
+
+  async setNotifyOnCompletion(enabled: boolean) {
+    await saveNotifyOnCompletion(enabled)
+    this.app.settings.notifyOnCompletion = enabled
     this.#markStateDirty()
   }
 
@@ -789,7 +830,7 @@ export class DesktopRuntime {
         const row = hostedRow(await this.listModels())
         if (row) catalog = [row]
       } catch (error) {
-        return { ok: false, reason: errorMessage(error) }
+        return { ok: false, reason: describeError(error) }
       }
     }
     return this.app.setFastServing(fast, { catalog })
@@ -802,7 +843,7 @@ export class DesktopRuntime {
       this.#markStateDirty()
       return { ok: true }
     } catch (error) {
-      return { ok: false, reason: errorMessage(error) }
+      return { ok: false, reason: describeError(error) }
     }
   }
 
@@ -820,7 +861,7 @@ export class DesktopRuntime {
       this.#markStateDirty()
       return { ok: true }
     } catch (error) {
-      return { ok: false, reason: errorMessage(error) }
+      return { ok: false, reason: describeError(error) }
     }
   }
 
@@ -829,7 +870,7 @@ export class DesktopRuntime {
     try {
       await this.app.deleteLocalModel(modelId)
     } catch (error) {
-      return { ok: false, reason: errorMessage(error) }
+      return { ok: false, reason: describeError(error) }
     }
     this.#lastPickerItems = undefined
     this.#markStateDirty()
@@ -923,6 +964,7 @@ export class DesktopRuntime {
         this.app.focus(runtime)
         this.#historyCache = undefined
       }
+      this.app.closeIfEmpty(target)
     }
     this.#markStateDirty()
   }
@@ -931,12 +973,14 @@ export class DesktopRuntime {
   soloPane(id: number) {
     const runtime = this.#panes.find((entry) => entry.id === id)
     if (!runtime || this.#panes.length === 1) return
-    for (const other of this.#panes) if (other !== runtime) this.#queued.delete(other)
+    const others = this.#panes.filter((other) => other !== runtime)
+    for (const other of others) this.#queued.delete(other)
     this.#panes = [runtime]
     if (runtime !== this.app.focused) {
       this.app.focus(runtime)
       this.#historyCache = undefined
     }
+    for (const other of others) this.app.closeIfEmpty(other)
     this.#markStateDirty()
   }
 
@@ -950,6 +994,7 @@ export class DesktopRuntime {
       this.app.focus(this.#panes[Math.min(index, this.#panes.length - 1)])
       this.#historyCache = undefined
     }
+    this.app.closeIfEmpty(runtime)
     this.#markStateDirty()
   }
 
@@ -980,7 +1025,7 @@ export class DesktopRuntime {
       if (this.#disposed || isAbortError(error)) return
       const selectedId = this.app.models.selectedId
       const name = (selectedId && findLocalModel(selectedId)?.displayName) ?? selectedId ?? "model"
-      this.app.transcript.addAssistantMessage(`Could not start ${name}: ${errorMessage(error)}`)
+      this.app.transcript.addAssistantMessage(`Could not start ${name}: ${describeError(error)}`)
     }
     this.#markStateDirty()
     this.#flushNow()
@@ -1121,6 +1166,7 @@ export class DesktopRuntime {
       theme: app.settings.theme ?? "default",
       language: app.settings.language ?? "system",
       thinkingVisible: app.settings.thinkingVisible ?? false,
+      notifyOnCompletion: app.settings.notifyOnCompletion ?? true,
       pairConfigured: Boolean(app.pairEndpoints.ollama || app.pairEndpoints.lmStudio),
       debug: this.#debug,
       update: this.#update,
@@ -1151,7 +1197,7 @@ function compactChanges(changes: TranscriptChange[], entries: readonly Transcrip
   const upserted = new Set<number>()
   for (const change of changes.slice(lastReset + 1)) {
     if (change.op === "upsert") {
-      const entry = entries.find((entry) => entry.id === change.id)
+      const entry = entries.findLast((entry) => entry.id === change.id)
       if (!entry || upserted.has(entry.id)) continue
       upserted.add(entry.id)
       ops.push({ op: "upsert", entry })

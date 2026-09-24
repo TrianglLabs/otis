@@ -24,6 +24,7 @@ import {
   type ModelSelectResult,
   type PaneOps,
   type PaneSide,
+  type RuntimeSummary,
   type SendPromptResult,
   type SessionOpResult,
   type ThemeName,
@@ -36,10 +37,13 @@ import {
  * is exercised honestly before it is connected to a workspace. Never used when the preload bridge
  * is present without `?demo`.
  */
-type DemoHostApi = Pick<DesktopApi, "getWindowState" | "subscribeWindowState" | "getSnapshot">
+type DemoHostApi = Pick<
+  DesktopApi,
+  "getWindowState" | "subscribeWindowState" | "getSnapshot" | "pickWorkspaceFolder"
+>
 
-export function createDemoRuntime(hostApi?: DemoHostApi): DesktopApi {
-  return new DemoRuntime(hostApi)
+export function createDemoRuntime(hostApi?: DemoHostApi, onboarding = false): DesktopApi {
+  return new DemoRuntime(hostApi, onboarding)
 }
 
 /** The demo keeps one Canvas document, reported as the first session's tab. */
@@ -390,12 +394,27 @@ const DEMO_MODELS: ModelPickerChoice[] = [
   {
     kind: "model",
     provider: "local",
+    id: "prism-ml/Ternary-Bonsai-2-27B-gguf",
+    displayName: "Bonsai 2 27B",
+    contextLength: 65_536,
+    supportsImageInput: false,
+    available: true,
+    recommended: true,
+    availabilityLabel: "Est. 64K · PQ2_0 · 7.2 GB",
+    hasDownloadedPacking: true,
+    cpuOffload: false,
+    downloaded: true,
+    active: false,
+  },
+  {
+    kind: "model",
+    provider: "local",
     id: "Qwen/Qwen3.8-27B",
     displayName: "Qwen3.8 27B",
     contextLength: 65_536,
     supportsImageInput: false,
     available: true,
-    recommended: true,
+    recommended: false,
     availabilityLabel: "Est. 64K · Q4_K_M · 19 GB",
     hasDownloadedPacking: true,
     cpuOffload: false,
@@ -405,13 +424,13 @@ const DEMO_MODELS: ModelPickerChoice[] = [
   {
     kind: "model",
     provider: "local",
-    id: "openai/gpt-oss-120b",
-    displayName: "gpt-oss 120B",
+    id: "google/gemma-4-31B-it",
+    displayName: "Gemma 4 31B",
     contextLength: 65_536,
-    supportsImageInput: false,
+    supportsImageInput: true,
     available: true,
     recommended: false,
-    availabilityLabel: "Est. 64K · MXFP4 · 63 GB",
+    availabilityLabel: "Est. 64K · Q4_K_M · 19 GB",
     hasDownloadedPacking: false,
     cpuOffload: false,
     downloaded: false,
@@ -450,32 +469,32 @@ const DEMO_MODELS: ModelPickerChoice[] = [
   },
   {
     kind: "model",
-    provider: "pair",
-    id: "qwen3:32b",
-    displayName: "qwen3:32b",
-    baseURL: "http://127.0.0.1:11434",
-    engine: "ollama",
+    provider: "omlx",
+    id: "mlx-community/Qwen3.8-27B-8bit",
+    displayName: "Qwen3.8 27B 8-bit",
+    baseURL: "http://127.0.0.1:8000",
+    contextLength: 131_072,
     supportsImageInput: false,
     available: true,
     active: false,
-    selectionKey: "ollama:qwen3:32b",
+    selectionKey: "omlx:mlx-community/Qwen3.8-27B-8bit",
   },
   {
     kind: "model",
     provider: "fireworks",
-    id: "accounts/fireworks/models/kimi-k2p5-turbo",
-    displayName: "Kimi K2.5 Turbo",
-    contextLength: 262_144,
-    supportsImageInput: true,
+    id: "accounts/fireworks/models/glm-5p3",
+    displayName: "GLM-5.3",
+    contextLength: 1_048_576,
+    supportsImageInput: false,
     available: true,
     active: true,
   },
   {
     kind: "model",
     provider: "fireworks",
-    id: "accounts/fireworks/models/glm-5p1",
-    displayName: "GLM 5.1",
-    contextLength: 202_752,
+    id: "accounts/fireworks/models/kimi-k3",
+    displayName: "Kimi K3",
+    contextLength: 262_144,
     supportsImageInput: false,
     available: true,
     active: false,
@@ -507,7 +526,16 @@ function demoSession(id: string, title: string, detail: string, workspace = "oti
 }
 
 class DemoRuntime implements DesktopApi {
-  constructor(private readonly hostApi?: DemoHostApi) {}
+  constructor(
+    private readonly hostApi?: DemoHostApi,
+    onboarding = false,
+  ) {
+    if (onboarding) {
+      this.#state.model = null
+      this.#state.modelState = "unconfigured"
+      this.#state.hostedConfigured = false
+    }
+  }
 
   #listeners = new Set<(event: DesktopEvent) => void>()
   #revision = 0
@@ -542,10 +570,10 @@ class DemoRuntime implements DesktopApi {
     phase: "idle",
     speed: null,
     model: {
-      id: "accounts/fireworks/models/kimi-k2p5-turbo",
+      id: "accounts/fireworks/models/glm-5p3",
       provider: "fireworks",
-      displayName: "Kimi K2.5 Turbo",
-      supportsImageInput: true,
+      displayName: "GLM-5.3",
+      supportsImageInput: false,
     },
     modelState: "ready",
     modelError: undefined,
@@ -631,6 +659,28 @@ class DemoRuntime implements DesktopApi {
         diffs: { added: 0, removed: 0 },
         contextTokens: 6_100,
       },
+      {
+        runtime: 5,
+        session: {
+          id: "session_store",
+          title: "Migrate the session store to per-runtime files",
+          dirName: "otis-demo",
+        },
+        focused: false,
+        busy: true,
+        unseen: false,
+        diffs: { added: 140, removed: 62 },
+        contextTokens: 61_300,
+      },
+      {
+        runtime: 6,
+        session: { id: "session_notes_022", title: "Release notes for 0.2.2", dirName: "notes" },
+        focused: false,
+        busy: false,
+        unseen: false,
+        diffs: { added: 9, removed: 0 },
+        contextTokens: 3_400,
+      },
     ],
     working: 0,
     panes: [1],
@@ -656,12 +706,13 @@ class DemoRuntime implements DesktopApi {
         }
       }),
     },
-    entries: savedVersionsTranscript(),
+    entries: sessionTranscript("session_versions"),
     agentsPanelVisible: true,
     workspacePanelWidth: undefined,
     theme: "default",
     language: "system",
     thinkingVisible: true,
+    notifyOnCompletion: true,
     localThinking: null,
     permissionMode: "auto",
     fastServing: { available: true, enabled: false },
@@ -685,6 +736,11 @@ class DemoRuntime implements DesktopApi {
 
   async setThinkingVisible(visible: boolean): Promise<void> {
     this.#state = { ...this.#state, thinkingVisible: visible }
+    this.#emitStatus()
+  }
+
+  async setNotifyOnCompletion(enabled: boolean): Promise<void> {
+    this.#state = { ...this.#state, notifyOnCompletion: enabled }
     this.#emitStatus()
   }
 
@@ -767,12 +823,10 @@ class DemoRuntime implements DesktopApi {
       modelState: "ready",
       fastServing: { available: true, enabled: fast },
       model: {
-        id: fast
-          ? "accounts/fireworks/routers/kimi-k2p5-turbo-fast"
-          : "accounts/fireworks/models/kimi-k2p5-turbo",
+        id: fast ? "accounts/fireworks/routers/glm-5p3-fast" : "accounts/fireworks/models/glm-5p3",
         provider: "fireworks",
-        displayName: "Kimi K2.5 Turbo",
-        supportsImageInput: true,
+        displayName: "GLM-5.3",
+        supportsImageInput: false,
       },
     }
     this.#emitStatus()
@@ -982,15 +1036,17 @@ class DemoRuntime implements DesktopApi {
   }
 
   async pickWorkspaceFolder(): Promise<string | undefined> {
-    return undefined
+    return this.hostApi?.pickWorkspaceFolder()
   }
 
   async refreshSessions(): Promise<void> {}
 
-  /** Showing another open session: the transcripts change places, as the renderer expects. */
+  /** A session off screen takes the focused card's slot, as the application does on focus. */
   async focusSession(runtime: number): Promise<void> {
-    if (!this.#focus(runtime)) return
-    this.#emitStatus()
+    const focused = this.#state.runtimes.find((entry) => entry.focused)
+    if (focused && !this.#state.panes.includes(runtime))
+      return this.replacePane(focused.runtime, runtime)
+    if (this.#focus(runtime)) this.#emitStatus()
   }
 
   /** Moves focus to a session on screen, trading its transcript with the focused one's. */
@@ -1027,12 +1083,18 @@ class DemoRuntime implements DesktopApi {
           : "column"
         : this.#state.paneAxis
     this.#state = { ...this.#state, panes, paneAxis }
-    if (fresh) this.#transcripts.set(runtime, runtime === 2 ? errorTranscript() : demoTranscript())
+    if (fresh) this.#transcripts.set(runtime, this.#transcriptOf(runtime))
     this.#emitStatus(
       undefined,
       fresh
         ? [{ runtime, ops: [{ op: "reset", entries: this.#transcripts.get(runtime) ?? [] }] }]
         : [],
+    )
+  }
+
+  #transcriptOf(runtime: number) {
+    return sessionTranscript(
+      this.#state.runtimes.find((entry) => entry.runtime === runtime)?.session?.id,
     )
   }
 
@@ -1050,7 +1112,7 @@ class DemoRuntime implements DesktopApi {
       return
     }
     panes[slot] = runtime
-    const fresh = runtime === 2 ? errorTranscript() : demoTranscript()
+    const fresh = this.#transcriptOf(runtime)
     const focused = this.#state.runtimes.find((entry) => entry.focused)?.runtime === target
     this.#transcripts.delete(target)
     this.#transcripts.set(runtime, fresh)
@@ -1094,14 +1156,7 @@ class DemoRuntime implements DesktopApi {
     const target = this.#state.sessions.find((session) => session.id === id)
     if (!target) return { ok: false, reason: "Unknown session." }
     this.#interrupt()
-    const entries =
-      id === "session_versions"
-        ? savedVersionsTranscript()
-        : id === "session_demo2"
-          ? errorTranscript()
-          : DEMO_ARTIFACTS_BY_SESSION.has(id)
-            ? demoTranscript()
-            : []
+    const entries = sessionTranscript(id)
     const fixture = DEMO_ARTIFACTS_BY_SESSION.get(id)
     // A reload shows what that session last had in view.
     const tabs = fixture
@@ -1128,6 +1183,31 @@ class DemoRuntime implements DesktopApi {
     if (this.#state.busy)
       return { ok: false, reason: "Finish the current work before starting over." }
     this.#interrupt()
+    const { panes, runtimes } = this.#state
+    const focused = runtimes.find((entry) => entry.focused)
+    if (panes.length > 1 && focused) {
+      if (!focused.session && this.#state.entries.length === 0) return { ok: true }
+      const fresh = {
+        ...focused,
+        runtime: Math.max(...runtimes.map((entry) => entry.runtime)) + 1,
+        session: null,
+        diffs: { added: 0, removed: 0 },
+        contextTokens: 0,
+      }
+      const room = panes.length < MAX_PANES
+      this.#transcripts.set(focused.runtime, this.#state.entries)
+      this.#state = {
+        ...this.#state,
+        entries: [],
+        session: null,
+        panes: room
+          ? [...panes, fresh.runtime]
+          : panes.map((entry) => (entry === focused.runtime ? fresh.runtime : entry)),
+        runtimes: [...runtimes.map((entry) => ({ ...entry, focused: false })), fresh],
+      }
+      this.#emitStatus()
+      return { ok: true }
+    }
     this.#state = {
       ...this.#state,
       entries: [],
@@ -1135,6 +1215,9 @@ class DemoRuntime implements DesktopApi {
       tabs: [],
       diffs: { added: 0, removed: 0 },
       subagents: [],
+      runtimes: runtimes.map((entry) =>
+        entry.focused ? { ...entry, session: null, diffs: { added: 0, removed: 0 } } : entry,
+      ),
     }
     this.#emitStatus([{ op: "reset", entries: [] }])
     return { ok: true }
@@ -1179,8 +1262,8 @@ class DemoRuntime implements DesktopApi {
           item.provider === "local" &&
           (item.available || !("downloaded" in item) || item.downloaded),
       ),
-      { kind: "header", id: "header-pair", displayName: "NVIDIA PAIR" },
-      ...rows.filter((item) => item.provider === "pair"),
+      { kind: "header", id: "header-omlx", displayName: "oMLX" },
+      ...rows.filter((item) => item.provider === "omlx"),
       { kind: "header", id: "header-hosted", displayName: "Hosted" },
       ...rows.filter((item) => item.provider === "fireworks"),
     ]
@@ -1531,6 +1614,16 @@ class DemoRuntime implements DesktopApi {
   }
 
   #emitStatus(ops?: TranscriptPatchOp[], panes: PaneOps[] = []) {
+    // A session off screen with no session and no transcript has nothing to keep.
+    const empty = (entry: RuntimeSummary) =>
+      !this.#state.panes.includes(entry.runtime) &&
+      entry.session === null &&
+      (this.#transcripts.get(entry.runtime)?.length ?? 0) === 0
+    for (const entry of this.#state.runtimes.filter(empty)) this.#transcripts.delete(entry.runtime)
+    this.#state = {
+      ...this.#state,
+      runtimes: this.#state.runtimes.filter((entry) => !empty(entry)),
+    }
     this.#emit({
       type: "status",
       revision: ++this.#revision,
@@ -1568,7 +1661,6 @@ const tool = (
   })
 
 function savedVersionsTranscript(): TranscriptEntry[] {
-  fixtureId = 1
   return [
     fixture({
       kind: "message",
@@ -1590,8 +1682,234 @@ function savedVersionsTranscript(): TranscriptEntry[] {
   ]
 }
 
-function demoTranscript(): TranscriptEntry[] {
+/** Each demo session's conversation matches its title; the Canvas showcase sessions share one. */
+function sessionTranscript(id: string | undefined): TranscriptEntry[] {
   fixtureId = 1
+  switch (id) {
+    case "session_versions":
+      return savedVersionsTranscript()
+    case "session_demo2":
+      return flakyLockTranscript()
+    case "session_demo3":
+      return ggufCleanupTranscript()
+    case "session_notes":
+      return readingListTranscript()
+    case "session_store":
+      return sessionStoreTranscript()
+    case "session_notes_022":
+      return releaseNotesTranscript()
+    default:
+      return id !== undefined && DEMO_ARTIFACTS_BY_SESSION.has(id) ? demoTranscript() : []
+  }
+}
+
+function ggufCleanupTranscript(): TranscriptEntry[] {
+  return [
+    fixture({
+      kind: "message",
+      speaker: "You",
+      text: "Refactor the GGUF cache cleanup so unpinned runtime bundles go in one pass",
+    }),
+    fixture({
+      kind: "reasoning",
+      speaker: "Thinking",
+      text: "removeUnpinnedRuntimeBundles lists the bin directory, filters, then loops. One loop with the pinned release tag as the guard does the same with less code.",
+      reasoningId: "r100",
+      startedAt: "2026-09-07T10:00:00Z",
+      endedAt: "2026-09-07T10:00:01Z",
+      durationMs: 900,
+    }),
+    fixture({ kind: "message", speaker: "Otis", text: "Reading the cache code first." }),
+    tool("Reading files: src/inference/gguf-cache.ts", "file_read", "g1"),
+    tool("Reading files: src/inference/llama-runtime.ts", "file_read", "g2"),
+    tool(
+      "Editing file: src/inference/gguf-cache.ts",
+      "file_edit",
+      "g3",
+      `--- a/src/inference/gguf-cache.ts
++++ b/src/inference/gguf-cache.ts
+@@ -211,9 +211,8 @@ export async function removeUnpinnedRuntimeBundles(root: string) {
+-  const entries = await readdir(root, { withFileTypes: true })
+-  const stale = entries.filter((entry) => entry.isDirectory() && entry.name !== LLAMA_CPP_RELEASE_TAG)
+-  for (const entry of stale) await rm(join(root, entry.name), { recursive: true, force: true })
++  for (const entry of await readdir(root, { withFileTypes: true }))
++    if (entry.isDirectory() && entry.name !== LLAMA_CPP_RELEASE_TAG)
++      await rm(join(root, entry.name), { recursive: true, force: true })
+ }`,
+    ),
+    tool("Running command: bun test tests/inference/gguf-cache.test.ts", "shell", "g4"),
+    fixture({
+      kind: "message",
+      speaker: "Otis",
+      text: `Cleanup is one pass now: every directory under \`bin\` except the pinned release tag is removed as it is found, so a partial failure leaves no half-filtered list behind.
+
+| Before | After |
+| --- | --- |
+| Read the directory, build a list, loop the list | One loop with the release tag as the guard |
+| 3 statements, 2 allocations | 1 statement |
+
+The cache tests pass: **18 tests, 0 failures**.`,
+    }),
+  ]
+}
+
+function flakyLockTranscript(): TranscriptEntry[] {
+  return [
+    fixture({
+      kind: "message",
+      speaker: "You",
+      text: "The session lock test is flaky on CI. Find out why and fix it.",
+    }),
+    fixture({
+      kind: "reasoning",
+      speaker: "Thinking",
+      text: "Every test in the file shares one home directory. A lock left by the previous test is younger than the 30 second stale window, so the next test sees the session as held.",
+      reasoningId: "r200",
+      startedAt: "2026-09-07T11:00:00Z",
+      endedAt: "2026-09-07T11:00:02Z",
+      durationMs: 1700,
+    }),
+    fixture({
+      kind: "message",
+      speaker: "Otis",
+      text: "Let me look at the lock and the test setup.",
+    }),
+    tool("Searching files: acquireSessionLock", "file_search", "l1"),
+    tool("Reading files: tests/app/sessions.test.ts", "file_read", "l2"),
+    tool(
+      "Editing file: tests/app/sessions.test.ts",
+      "file_edit",
+      "l3",
+      `--- a/tests/app/sessions.test.ts
++++ b/tests/app/sessions.test.ts
+@@ -11,8 +11,8 @@ import { useOtisHome } from "./support/otis-home.js"
+ const isolate = useOtisHome()
+-const home = await isolate("otis-sessions-")
+
+ async function coordinator() {
++  const home = await isolate("otis-sessions-")
+   const transcript = new TranscriptStore()`,
+    ),
+    tool("Running command: bun test tests/app/sessions.test.ts --repeat 20", "shell", "l4"),
+    fixture({
+      kind: "message",
+      speaker: "Otis",
+      text: "Each test now gets its own home directory, so a lock one test leaves behind can never look live to the next. Twenty runs in a row pass; before the change three of twenty failed.",
+    }),
+  ]
+}
+
+function readingListTranscript(): TranscriptEntry[] {
+  return [
+    fixture({
+      kind: "message",
+      speaker: "You",
+      text: "Group my reading list by theme and drop what I have already finished. It is in notes/reading.md.",
+    }),
+    tool("Reading files: notes/reading.md", "file_read", "n1"),
+    fixture({
+      kind: "message",
+      speaker: "Otis",
+      text: `Twelve entries, four already marked done. The rest group into three themes:
+
+### Systems
+- *A Philosophy of Software Design*, Ousterhout
+- *Designing Data-Intensive Applications*, Kleppmann
+
+### Writing
+- *Several Short Sentences About Writing*, Klinkenborg
+- *On Writing Well*, Zinsser
+
+### Local inference
+- The llama.cpp server README
+- "Fitting a model to a machine", notes from the PAIR docs
+
+Say the word and I will rewrite \`notes/reading.md\` in this order.`,
+    }),
+  ]
+}
+
+function sessionStoreTranscript(): TranscriptEntry[] {
+  return [
+    fixture({
+      kind: "message",
+      speaker: "You",
+      text: "Migrate the session store to one file per runtime, keeping old sessions readable",
+    }),
+    fixture({
+      kind: "reasoning",
+      speaker: "Thinking",
+      text: "The file layout is decided in session-files. If new sessions get a runtime segment and readers accept both layouts, nothing needs a migration step.",
+      reasoningId: "r400",
+      startedAt: "2026-09-07T12:00:00Z",
+      endedAt: "2026-09-07T12:00:02Z",
+      durationMs: 2100,
+    }),
+    fixture({
+      kind: "message",
+      speaker: "Otis",
+      text: "This touches storage and both adapters. I'll start with the file layout, then the readers.",
+    }),
+    tool("Reading files: src/storage/session-files.ts", "file_read", "s1"),
+    tool("Reading files: src/storage/session.ts", "file_read", "s2"),
+    tool(
+      "Editing file: src/storage/session-files.ts",
+      "file_edit",
+      "s3",
+      `--- a/src/storage/session-files.ts
++++ b/src/storage/session-files.ts
+@@ -28,6 +28,9 @@ export function sessionDirectory(options: SessionOptions) {
+ export function sessionFile(options: SessionOptions, sessionId: string) {
+-  return join(sessionDirectory(options), \`\${sessionId}.jsonl\`)
++  return join(sessionDirectory(options), runtimeSegment(options), \`\${sessionId}.jsonl\`)
+ }
++
++/** Older sessions sit in the directory itself; new ones under their runtime. */
++const runtimeSegment = (options: SessionOptions) => options.runtime ?? ""`,
+    ),
+    tool("Running command: bun run typecheck", "shell", "s4"),
+    tool("Running command: bun test tests/storage", "shell", "s5"),
+    fixture({
+      kind: "message",
+      speaker: "Otis",
+      text: "Typecheck is clean. Running the storage tests now, then the desktop reader gets the same",
+      streaming: true,
+    }),
+  ]
+}
+
+function releaseNotesTranscript(): TranscriptEntry[] {
+  return [
+    fixture({
+      kind: "message",
+      speaker: "You",
+      text: "Draft release notes for 0.2.2 from what merged since 0.2.1",
+    }),
+    tool("Running command: git log v0.2.1..HEAD --merges --format=%s", "shell", "v1"),
+    fixture({
+      kind: "message",
+      speaker: "Otis",
+      text: `## 0.2.2
+
+### Added
+- Sessions run side by side: drag a session chip onto an edge to open up to four at once.
+- Canvas keeps every open document as a tab.
+- A system notification when a session finishes out of view.
+
+### Changed
+- Session listings, search and the home screen read each session file once per version.
+- Network, disk and provider failures are reported in plain language.
+
+### Fixed
+- A session that could not be locked was reported as open in another window.
+- The trace overlay no longer refetches on every status update.
+
+Want this in \`CHANGELOG.md\` under the existing format?`,
+    }),
+  ]
+}
+
+function demoTranscript(): TranscriptEntry[] {
   return [
     fixture({
       kind: "message",
@@ -1689,19 +2007,6 @@ Working --> Idle: Complete
         { source: "workspace", path: "canvas-overview.html", kind: "html" },
         { source: "workspace", path: "canvas-demo.md", kind: "markdown" },
       ],
-    }),
-  ]
-}
-
-function errorTranscript(): TranscriptEntry[] {
-  fixtureId = 50
-  return [
-    fixture({ kind: "message", speaker: "You", text: "Why is the session lock test flaky on CI?" }),
-    tool("Searching files: acquireSessionLock", "file_search", "e1"),
-    fixture({
-      kind: "message",
-      speaker: "Otis",
-      text: "Error: Fireworks request failed with HTTP 429: rate limit exceeded. The turn was interrupted before I could finish.",
     }),
   ]
 }

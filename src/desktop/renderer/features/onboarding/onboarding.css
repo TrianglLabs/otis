@@ -144,7 +144,7 @@
   width: 100%;
 }
 
-/* Choices are real buttons: bordered panels with a chevron, like settings rows. */
+/* Choice surfaces use the same quiet fill and hairline as Settings. */
 .onboarding-card {
   display: grid;
   grid-column: 1 / -1;
@@ -152,9 +152,9 @@
   align-items: center;
   gap: 11px;
   padding: 12px 13px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--hairline);
   border-radius: var(--radius-lg);
-  background: var(--bg-panel);
+  background: var(--bg-surface);
   color: var(--text);
   font: inherit;
   text-align: left;
@@ -165,18 +165,18 @@
 }
 
 .onboarding-card:hover {
-  border-color: var(--accent);
-  background: var(--accent-soft);
+  border-color: var(--border);
+  background: var(--bg-hover);
 }
 
 .onboarding-cardChevron {
   margin-left: auto;
-  color: var(--text-faint);
+  color: var(--text-dim);
   transition: color var(--motion) ease;
 }
 
 .onboarding-card:hover .onboarding-cardChevron {
-  color: var(--accent);
+  color: var(--text);
 }
 
 .onboarding-cardIcon {
@@ -207,14 +207,14 @@
 .onboarding-providerMark {
   box-sizing: border-box;
   display: block;
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   object-fit: contain;
-  border-radius: 5px;
+  border-radius: 4px;
 }
 
 .onboarding-providerMarkOllama {
-  padding: 3px 5px;
+  padding: 2px 4px;
   background: #fff;
 }
 
@@ -281,10 +281,10 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 6px 6px 11px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--bg-panel);
+  padding: 4px 4px 4px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--bg-surface);
 }
 
 .onboarding-keyRow:focus-within {
@@ -292,7 +292,7 @@
 }
 
 .onboarding-keyIcon {
-  color: var(--text-faint);
+  color: var(--text-dim);
   flex-shrink: 0;
 }
 
@@ -308,7 +308,7 @@
 }
 
 .onboarding-input::placeholder {
-  color: var(--text-faint);
+  color: var(--text-dim);
 }
 
 .onboarding-hint {
@@ -341,21 +341,17 @@
 .onboarding-endpointMark {
   box-sizing: border-box;
   display: block;
-  width: 18px;
-  height: 18px;
+  width: 17px;
+  height: 17px;
   object-fit: contain;
   border-radius: 4px;
 }
 
-.onboarding-endpointMark.onboarding-providerMarkOllama {
-  padding: 2px 4px;
-}
-
 .onboarding-endpointInput {
   min-width: 0;
-  padding: 7px 9px;
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
+  padding: 6px 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--hairline);
   border-radius: var(--radius);
   color: var(--text);
   font: inherit;

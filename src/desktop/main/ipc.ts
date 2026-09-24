@@ -3,6 +3,7 @@ import { rename, rm, writeFile } from "node:fs/promises"
 import { dirname, extname, join } from "node:path"
 import { BrowserWindow, dialog, type IpcMainInvokeEvent, ipcMain, shell } from "electron"
 import { isArtifactReference } from "../../artifacts/types.js"
+import { describeError } from "../../inference/errors.js"
 import {
   DESKTOP_CHANNELS,
   type DesktopAttachmentInput,
@@ -83,7 +84,7 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
         }
         return { ok: true }
       } catch (error) {
-        return { ok: false, reason: error instanceof Error ? error.message : String(error) }
+        return { ok: false, reason: describeError(error) }
       }
     },
   )
@@ -232,6 +233,10 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
     if (typeof visible !== "boolean") throw new Error("Invalid visibility flag.")
     return runtime.setThinkingVisible(visible)
   })
+  handle(DESKTOP_CHANNELS.setNotifyOnCompletion, (enabled) => {
+    if (typeof enabled !== "boolean") throw new Error("Invalid notification flag.")
+    return runtime.setNotifyOnCompletion(enabled)
+  })
   handle(DESKTOP_CHANNELS.setLocalThinking, (model, level) => {
     if (typeof model !== "string" || typeof level !== "string")
       throw new Error("Invalid thinking effort.")
@@ -284,10 +289,15 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
   })
 }
 
+/** A handler's rejection reaches the renderer as the sentence it should show. */
 function handle<T extends unknown[]>(channel: string, handler: (...args: T) => unknown) {
-  ipcMain.handle(channel, (event: IpcMainInvokeEvent, ...args: unknown[]) => {
+  ipcMain.handle(channel, async (event: IpcMainInvokeEvent, ...args: unknown[]) => {
     assertTrustedSender(event)
-    return handler(...(args as T))
+    try {
+      return await handler(...(args as T))
+    } catch (error) {
+      throw new Error(describeError(error))
+    }
   })
 }
 

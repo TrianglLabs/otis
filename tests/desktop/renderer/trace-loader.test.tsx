@@ -3,7 +3,7 @@
 import { act, cleanup, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { TranscriptEntry } from "../../../src/app/transcript.js"
-import type { DesktopApi, DesktopEvent, DesktopSnapshot } from "../../../src/desktop/contracts.js"
+import type { DesktopApi, DesktopSnapshot } from "../../../src/desktop/contracts.js"
 import { createDemoRuntime } from "../../../src/desktop/renderer/demo/demo-runtime.js"
 import { AgentTraceOverlay } from "../../../src/desktop/renderer/features/agents/AgentTraceOverlay.js"
 import { DesktopProvider } from "../../../src/desktop/renderer/runtime.js"
@@ -20,7 +20,10 @@ vi.mock("react-virtuoso", () => ({
   }) => <div>{data.map((item, index) => itemContent(index, item, {}))}</div>,
 }))
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.useRealTimers()
+})
 
 /** A manually resolved promise, for controlling when a trace load settles. */
 function deferred<T>() {
@@ -45,14 +48,8 @@ const message = (id: number, text: string): TranscriptEntry => ({
  * promise.
  */
 async function mountTrace(status: "running" | "complete" = "running") {
+  vi.useFakeTimers()
   const api = createDemoRuntime()
-  const listeners = new Set<(event: DesktopEvent) => void>()
-  api.subscribe = (listener) => {
-    listeners.add(listener)
-    return () => {
-      listeners.delete(listener)
-    }
-  }
   const snapshot: DesktopSnapshot = {
     ...(await api.getSnapshot()),
     subagents: [{ toolCallId: "trace", title: "Test trace", status, tools: 0 }],
@@ -67,33 +64,23 @@ async function mountTrace(status: "running" | "complete" = "running") {
   api.getSubagentTrace = getTrace
   const store = new DesktopViewStore(api)
   await store.start()
-  let revision = snapshot.revision
   const view = render(
     <DesktopProvider value={{ api, store }}>
       <AgentTraceOverlay toolCallId="trace" onClose={() => {}} />
     </DesktopProvider>,
   )
   await act(async () => {})
-  return {
-    view,
-    loads,
-    getTrace,
-    statusEvent: () =>
-      act(async () => {
-        for (const listener of listeners)
-          listener({ type: "status", revision: ++revision, status: snapshot })
-      }),
-  }
+  return { view, loads, getTrace, poll: () => act(async () => vi.advanceTimersByTime(250)) }
 }
 
 describe("trace loader", () => {
   it("lets an in-flight load finish and coalesces refreshes into one follow-up", async () => {
     const trace = await mountTrace()
     expect(trace.getTrace).toHaveBeenCalledTimes(1)
-    await trace.statusEvent()
-    await trace.statusEvent()
-    await trace.statusEvent()
-    // Refreshes queue behind the in-flight load instead of discarding it.
+    await trace.poll()
+    await trace.poll()
+    await trace.poll()
+    // Polls queue behind the in-flight load instead of discarding it.
     expect(trace.getTrace).toHaveBeenCalledTimes(1)
 
     await act(async () => trace.loads[0].resolve([message(1, "First entry")]))
@@ -119,7 +106,7 @@ describe("trace loader", () => {
   it("recovers after a failed load", async () => {
     const trace = await mountTrace()
     await act(async () => trace.loads[0].reject(new Error("gone")))
-    await trace.statusEvent()
+    await trace.poll()
     expect(trace.getTrace).toHaveBeenCalledTimes(2)
     await act(async () => trace.loads[1].resolve([message(1, "Recovered entry")]))
     expect(screen.getByText("Recovered entry")).toBeTruthy()

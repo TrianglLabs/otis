@@ -1,4 +1,4 @@
-import { errorMessage, isRecord, positiveInteger } from "./errors.js"
+import { describeError, inferenceResponseError, isRecord, positiveInteger } from "./errors.js"
 import { OllamaClient } from "./ollama-client.js"
 import { normalizeLocalBaseURL, OpenAICompatibleClient } from "./openai-compat.js"
 import type { PairCatalogModel, PairEngine } from "./types.js"
@@ -114,21 +114,15 @@ async function loadPairModels(engine: PairEngine, baseURL: string, options: Pair
     )
   } catch (error) {
     options.signal?.throwIfAborted()
-    throw new Error(`Could not reach a model server at ${baseURL}: ${errorMessage(error)}`)
+    throw new Error(describeError(error))
   }
-  if (!response.ok) {
-    const preview = await response.text().then(
-      (text) => text.slice(0, 2000) || response.statusText,
-      () => response.statusText,
-    )
-    throw new Error(`Model server at ${baseURL} returned HTTP ${response.status}: ${preview}`)
-  }
+  if (!response.ok) throw await inferenceResponseError(response, `The model server at ${baseURL}`)
   let body: unknown
   try {
     body = await response.json()
   } catch (error) {
     throw new Error(
-      `Model server at ${baseURL} returned an invalid model list: ${errorMessage(error)}`,
+      `Model server at ${baseURL} returned an invalid model list: ${describeError(error)}`,
     )
   }
   const entries = isRecord(body) ? (engine === "ollama" ? body.models : body.data) : undefined

@@ -140,7 +140,7 @@ describe("FireworksClient", () => {
 
     await expect(
       collect(client.streamChat({ messages: [{ role: "user", content: "hello" }] })),
-    ).rejects.toThrow("Fireworks request failed with HTTP 400: invalid model")
+    ).rejects.toThrow("Fireworks rejected the request: invalid model")
     expect(fetchMock).toHaveBeenCalledOnce()
   })
 

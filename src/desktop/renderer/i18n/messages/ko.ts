@@ -251,6 +251,8 @@ export const ko: Messages = {
   "settings.behavior": "동작",
   "settings.thinkingTraces": "생각 추적",
   "settings.toggleThinking": "모델의 생각 추적 표시 또는 숨기기",
+  "settings.notifyOnCompletion": "세션 완료 시 알림",
+  "settings.toggleNotify": "Otis가 앞에 없을 때 세션이 끝나면 시스템 알림 표시",
   "settings.fastServing": "고속 추론",
   "settings.fastUnavailable": "이 모델에서는 고속 추론을 사용할 수 없습니다.",
   "settings.toggleFast": "고속 추론 전환",

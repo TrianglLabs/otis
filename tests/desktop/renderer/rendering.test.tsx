@@ -145,6 +145,24 @@ describe("stable message rendering", () => {
     expect(openCanvas).toHaveBeenCalledExactlyOnceWith("flowchart LR\n  A --> B")
   })
 
+  it("keeps settled paragraphs' elements while a message streams, then renders it whole", () => {
+    const view = render(<Markdown text={"First **bold** paragraph.\n\nSecond"} streaming />)
+    const first = view.container.querySelector("p")
+    view.rerender(<Markdown text={"First **bold** paragraph.\n\nSecond one grows"} streaming />)
+    expect(view.container.querySelector("p")).toBe(first)
+    expect(view.container.querySelectorAll("p")).toHaveLength(2)
+
+    const fenced = "```ts\nconst a = 1\n\nconst b = 2\n```\n\nAfter"
+    view.rerender(<Markdown text={fenced} streaming />)
+    expect(view.container.querySelectorAll(".codeBlock")).toHaveLength(1)
+    expect(view.container.querySelector("code")?.textContent).toBe("const a = 1\n\nconst b = 2")
+
+    view.rerender(<Markdown text={"- one\n\n- two"} streaming />)
+    expect(view.container.querySelectorAll("ul")).toHaveLength(2)
+    view.rerender(<Markdown text={"- one\n\n- two"} />)
+    expect(view.container.querySelectorAll("ul")).toHaveLength(1)
+  })
+
   it("preserves code/table elements, selection, horizontal scroll, and copy state while text grows", async () => {
     vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined)
     const view = render(<Markdown text={markdown} />)
@@ -316,7 +334,8 @@ describe("scoped desktop subscriptions", () => {
     runtime.store.dispose()
   })
 
-  it("refreshes a running trace on status events, and stops fetching once it finishes", async () => {
+  it("polls a running trace, and stops fetching once it finishes", async () => {
+    vi.useFakeTimers()
     const runtime = await testRuntime()
     let revision = runtime.snapshot.revision
     const run = { toolCallId: "trace", title: "Test trace", status: "running" as const, tools: 0 }
@@ -336,13 +355,7 @@ describe("scoped desktop subscriptions", () => {
     expect(getTrace).toHaveBeenCalledTimes(1)
     await act(async () => runtime.emit({ type: "transcript", revision: ++revision, ops: [] }))
     expect(getTrace).toHaveBeenCalledTimes(1)
-    await act(async () =>
-      runtime.emit({
-        type: "status",
-        revision: ++revision,
-        status: { ...runtime.snapshot, subagents: [run] },
-      }),
-    )
+    await act(async () => vi.advanceTimersByTime(250))
     expect(getTrace).toHaveBeenCalledTimes(2)
     await act(async () =>
       runtime.emit({
@@ -353,14 +366,9 @@ describe("scoped desktop subscriptions", () => {
     )
     const afterCompletion = getTrace.mock.calls.length
     expect(afterCompletion).toBeGreaterThan(2)
-    await act(async () =>
-      runtime.emit({
-        type: "status",
-        revision: ++revision,
-        status: { ...runtime.snapshot, subagents: [{ ...run, status: "complete" }] },
-      }),
-    )
+    await act(async () => vi.advanceTimersByTime(1000))
     expect(getTrace).toHaveBeenCalledTimes(afterCompletion)
+    vi.useRealTimers()
     runtime.store.dispose()
   })
 })

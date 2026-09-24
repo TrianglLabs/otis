@@ -31,8 +31,57 @@ async function settle<T>(operation: Promise<T>) {
   return operation
 }
 
+describe("demo runtime sessions", () => {
+  it("brings a session off screen into the focused card when its chip is clicked", async () => {
+    const api = createDemoRuntime()
+    const before = await api.getSnapshot()
+    const hidden = before.runtimes.find((entry) => !before.panes.includes(entry.runtime))
+    if (!hidden) throw new Error("The demo should list sessions off screen")
+    await api.focusSession(hidden.runtime)
+    const after = await api.getSnapshot()
+    expect(after.panes).toEqual([hidden.runtime])
+    expect(after.session?.id).toBe(hidden.session?.id)
+    expect(after.runtimes.find((entry) => entry.focused)?.runtime).toBe(hidden.runtime)
+  })
+})
+
 describe("demo runtime model lifecycle", () => {
   afterEach(() => vi.useRealTimers())
+
+  it("uses the native folder picker while keeping workspace changes inside the demo", async () => {
+    const snapshot = await createDemoRuntime().getSnapshot()
+    const pickWorkspaceFolder = vi.fn(async (): Promise<string | undefined> => "/picked/demo")
+    const api = createDemoRuntime({
+      getSnapshot: async () => snapshot,
+      getWindowState: async () => ({ fullscreen: false }),
+      subscribeWindowState: () => () => {},
+      pickWorkspaceFolder,
+    })
+    expect(await api.pickWorkspaceFolder()).toBe("/picked/demo")
+    expect(pickWorkspaceFolder).toHaveBeenCalledOnce()
+    expect(await api.openWorkspace("/picked/demo")).toEqual({ ok: true })
+    expect((await api.getSnapshot()).workspace.path).toBe("/picked/demo")
+    expect(snapshot.workspace.path).toBe("/Users/dev/Projects/otis")
+    pickWorkspaceFolder.mockResolvedValue(undefined)
+    expect(await api.pickWorkspaceFolder()).toBeUndefined()
+    expect((await api.getSnapshot()).workspace.path).toBe("/picked/demo")
+  })
+
+  it("can preview onboarding and complete setup without provider access", async () => {
+    vi.useFakeTimers()
+    const api = createDemoRuntime(undefined, true)
+    expect(await api.getSnapshot()).toMatchObject({
+      model: null,
+      modelState: "unconfigured",
+      hostedConfigured: false,
+    })
+    expect(await api.setFireworksApiKey("")).toMatchObject({ ok: false })
+    expect(await settle(api.setFireworksApiKey("demo-key"))).toEqual({ ok: true })
+    expect(await api.getSnapshot()).toMatchObject({ model: null, hostedConfigured: true })
+    const id = "accounts/fireworks/models/kimi-k3"
+    expect(await settle(api.selectModel(id))).toEqual({ ok: true })
+    expect(await api.getSnapshot()).toMatchObject({ model: { id }, modelState: "ready" })
+  })
 
   it("switches saved Word versions and reopens the latest independently of the working file", async () => {
     const api = createDemoRuntime()
@@ -183,7 +232,7 @@ describe("demo runtime model lifecycle", () => {
   it("marks a newly downloaded model as cached and deletable", async () => {
     vi.useFakeTimers()
     const api = createDemoRuntime()
-    const id = "openai/gpt-oss-120b"
+    const id = "google/gemma-4-31B-it"
     expect(await localRow(api, id)).toMatchObject({
       downloaded: false,
       hasDownloadedPacking: false,

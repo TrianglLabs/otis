@@ -3,8 +3,9 @@ import { mkdir } from "node:fs/promises"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
-import { app, BrowserWindow, dialog, shell } from "electron"
+import { app, BrowserWindow, dialog, Notification, shell } from "electron"
 import electronUpdater from "electron-updater"
+import { describeError } from "../../inference/errors.js"
 import { localConfigDirectory, localDataDirectory } from "../../local/paths.js"
 import { loadLocalSettings } from "../../local/settings.js"
 import { DESKTOP_CHANNELS } from "../contracts.js"
@@ -43,11 +44,10 @@ const crash = (error: unknown) => {
   process.off("uncaughtException", crash)
   process.off("unhandledRejection", crash)
   quitting = true
-  const detail = error instanceof Error ? (error.stack ?? error.message) : String(error)
   const exit = () => {
     console.error(error)
     try {
-      dialog.showErrorBox("A JavaScript error occurred in the main process", detail)
+      dialog.showErrorBox("Otis has to quit", describeError(error))
     } catch {
       // Not available before the app is ready.
     }
@@ -131,7 +131,7 @@ if (!app.requestSingleInstanceLock()) {
     try {
       await mkdir(cwd, { recursive: true })
     } catch (cause) {
-      cwd = await recoverWorkspaceCwd(cwd, cause, {
+      cwd = await recoverWorkspaceCwd(cause, {
         async choose(title, detail) {
           const { response } = await dialog.showMessageBox({
             type: "error",
@@ -159,6 +159,12 @@ if (!app.requestSingleInstanceLock()) {
       return
     }
 
+    const focusWindow = () => {
+      if (!mainWindow) return
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.show()
+      mainWindow.focus()
+    }
     const current = await DesktopRuntime.create({
       cwd,
       checkForUpdates: async () => updater?.check(),
@@ -171,6 +177,20 @@ if (!app.requestSingleInstanceLock()) {
       },
       version: app.getVersion(),
       platform: process.platform,
+      // A finished session is announced only when the window is not in front; clicking the
+      // notice shows that session.
+      notify: ({ runtime, title, failed }) => {
+        if (mainWindow?.isFocused() || !Notification.isSupported()) return
+        const notice = new Notification({
+          title,
+          body: failed ? "Stopped with an error" : "Finished",
+        })
+        notice.on("click", () => {
+          current.focusSession(runtime)
+          focusWindow()
+        })
+        notice.show()
+      },
       send: (event) => {
         if (mainWindow) sendToRenderer(mainWindow.webContents, DESKTOP_CHANNELS.event, event)
         // The status bar item rides the same ordered stream the renderer sees, so it can never
@@ -248,12 +268,17 @@ if (!app.requestSingleInstanceLock()) {
       window,
       devServerUrl ?? pathToFileURL(join(__dirname, "../renderer/index.html")).href,
     )
-    const demo = process.env.OTIS_DEMO === "1"
+    const demo =
+      process.env.OTIS_DEMO === "1"
+        ? "demo"
+        : process.env.OTIS_DEMO === "onboarding"
+          ? "demo=onboarding"
+          : undefined
     const loaded = devServerUrl
-      ? window.loadURL(demo ? `${devServerUrl}?demo` : devServerUrl)
+      ? window.loadURL(demo ? `${devServerUrl}?${demo}` : devServerUrl)
       : window.loadFile(
           join(__dirname, "../renderer/index.html"),
-          demo ? { search: "demo" } : undefined,
+          demo ? { search: demo } : undefined,
         )
     // did-fail-load owns the native recovery UI, including when the dev server has disappeared.
     void loaded.catch(() => {})
@@ -262,12 +287,6 @@ if (!app.requestSingleInstanceLock()) {
     // actions, seeded from a snapshot and kept current by the status stream. macOS-only for now;
     // tray.ts is platform-clean so a Linux app indicator can follow the same shape.
     if (process.platform !== "darwin") return
-    const focusWindow = () => {
-      if (!mainWindow) return
-      if (mainWindow.isMinimized()) mainWindow.restore()
-      mainWindow.show()
-      mainWindow.focus()
-    }
     const tray = createStatusTray({
       appName: app.getName(),
       iconDir: trayIconDir({
@@ -282,8 +301,9 @@ if (!app.requestSingleInstanceLock()) {
           focusWindow()
         },
         startNewSession: () => void current.startNewSession(),
-        stop: () => current.stop(),
+        stop: (runtime) => current.stop(runtime),
         installUpdate: () => void current.installUpdate(),
+        respondToPermission: (id, allow) => current.respondToPermission(id, allow),
       },
     })
     if (!tray) return

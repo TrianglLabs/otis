@@ -464,7 +464,7 @@ describe("llama.cpp runtime", () => {
       status: 200,
       contentLength: "100",
       attempts: 3,
-      message: "expected 7 bytes but received 100",
+      message: "Expected 7 bytes but received 100",
     },
     { status: 200, attempts: 3, message: "exceeded the pinned artifact size" },
   ])("closes rejected runtime responses before retrying ($message)", async ({
@@ -548,7 +548,7 @@ describe("llama.cpp runtime", () => {
 
     await expect(
       runtime.ensureServing(model, fitLocalModel(model, hardware), hardware),
-    ).rejects.toThrow("Could not download llama.cpp: the request timed out.")
+    ).rejects.toThrow("Could not download llama.cpp: The request timed out.")
     expect(fetchRuntime).toHaveBeenCalledTimes(2)
   })
 
@@ -598,7 +598,7 @@ describe("llama.cpp runtime", () => {
       const result =
         action === "cancel"
           ? expect(pending).rejects.toMatchObject({ name: "AbortError" })
-          : expect(pending).rejects.toThrow("Could not download llama.cpp: the request timed out.")
+          : expect(pending).rejects.toThrow("Could not download llama.cpp: The request timed out.")
       if (action === "cancel") {
         await readStarted
         abort.abort()
@@ -1459,9 +1459,15 @@ describe("llama.cpp runtime", () => {
       },
     })
 
-    await expect(
-      runtime.ensureServing(model, fitLocalModel(model, hardware), hardware),
-    ).rejects.toThrow(/FIRST-TAIL[\s\S]*FINAL/)
+    const error = await runtime.ensureServing(model, fitLocalModel(model, hardware), hardware).then(
+      () => undefined,
+      (error: Error & { output: string }) => error,
+    )
+    expect(error?.output).toMatch(/FIRST-TAIL[\s\S]*FINAL/)
+    // The message keeps the last line only; the log stays on the error for diagnostics.
+    expect(error?.message).toMatch(
+      /^The local model server stopped before it was ready \(code 1\): …z+FINAL$/,
+    )
   })
 
   it("rejects a llama.cpp archive whose checksum does not match the pin", async () => {
@@ -1820,7 +1826,7 @@ describe("CUDA runtime bundles", () => {
       spawn: spawnRuntime as unknown as LlamaCppRuntimeOptions["spawn"],
     })
     await expect(runtime.ensureServing(setup.model, setup.fit, setup.hardware)).rejects.toThrow(
-      diagnostic,
+      diagnostic.split("\n").at(-1),
     )
     expect(spawnRuntime).toHaveBeenCalledOnce()
     expect(setup.downloads).toHaveLength(2)

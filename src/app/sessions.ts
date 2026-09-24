@@ -14,7 +14,7 @@ import {
 } from "../storage/session.js"
 import type { SessionToolActivity } from "../storage/session-events.js"
 import { defaultSessionDirectory } from "../storage/session-files.js"
-import { acquireSessionLock, type SessionLock } from "../storage/session-lock.js"
+import { acquireSessionLock, SessionInUseError, type SessionLock } from "../storage/session-lock.js"
 import type { ConversationTurnResult } from "./conversation.js"
 import type { SubagentTraces } from "./subagents.js"
 import { countDiffLines, type TranscriptStore } from "./transcript.js"
@@ -158,7 +158,8 @@ export class SessionCoordinator {
     let lock: SessionLock
     try {
       lock = await acquireSessionLock({ ...where, sessionId })
-    } catch {
+    } catch (error) {
+      if (!(error instanceof SessionInUseError)) throw error
       return "locked"
     }
     let session: JsonlSession
@@ -199,7 +200,8 @@ export class SessionCoordinator {
     let lock: SessionLock
     try {
       lock = await acquireSessionLock({ ...where, sessionId })
-    } catch {
+    } catch (error) {
+      if (!(error instanceof SessionInUseError)) throw error
       return "locked" // open in another Otis process — writes must not interleave
     }
     let session: JsonlSession

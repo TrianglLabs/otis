@@ -85,14 +85,14 @@ export function renderBusyWave(
     for (let index = 0; index < length; index += 1) intensities[start + index] = 1
   }
 
+  const ramp = waveRamp(background, accent)
   const chunks = []
   let chunkStart = 0
   let level = colorStep(intensities[0])
   for (let index = 1; index <= safeWidth; index += 1) {
     const next = index < safeWidth ? colorStep(intensities[index]) : -1
     if (next === level) continue
-    const color = mixHex(background, accent, level / (WAVE_COLOR_STEPS - 1))
-    chunks.push(fg(color)(text.slice(chunkStart, index)))
+    chunks.push(fg(ramp[level])(text.slice(chunkStart, index)))
     chunkStart = index
     level = next
   }
@@ -136,6 +136,21 @@ export class SelectionPulse {
 
 function gaussian(distance: number, sigma: number) {
   return Math.exp(-(distance * distance) / (2 * sigma * sigma))
+}
+
+/** The wave's colour ramp per background and accent pair, mixed once rather than per frame. */
+const waveRamps = new Map<string, string[]>()
+
+function waveRamp(background: string, accent: string) {
+  const key = `${background} ${accent}`
+  let ramp = waveRamps.get(key)
+  if (!ramp) {
+    ramp = Array.from({ length: WAVE_COLOR_STEPS }, (_, step) =>
+      mixHex(background, accent, step / (WAVE_COLOR_STEPS - 1)),
+    )
+    waveRamps.set(key, ramp)
+  }
+  return ramp
 }
 
 function colorStep(intensity: number) {

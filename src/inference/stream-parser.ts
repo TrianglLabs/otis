@@ -1,4 +1,4 @@
-import { errorMessage, inferenceError, isRecord } from "./errors.js"
+import { describeError, inferenceError, isRecord } from "./errors.js"
 import type { ChatStreamEvent, OpenAICompatibleReasoningField } from "./types.js"
 
 const REASONING_FIELDS = [
@@ -60,7 +60,7 @@ export async function* parseChatCompletionStream(
         if (lines.length < 2) throw error
         chunks = lines.map((line) => JSON.parse(line))
       } catch (lineError) {
-        throw new Error(`Invalid inference stream event: ${errorMessage(lineError)}`)
+        throw new Error(`Invalid inference stream event: ${describeError(lineError)}`)
       }
     }
 

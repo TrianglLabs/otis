@@ -86,19 +86,22 @@ export function AppShell() {
   }, [theme])
 
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey)) return
-      if (event.key === "k") {
+    const onKeyDown = async (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return
+      const key = event.key.toLowerCase()
+      if (key === "k") {
         event.preventDefault()
         setPaletteOpen((value) => !value)
-      } else if (event.key === "n") {
+      } else if (key === "n" || key === "o") {
         event.preventDefault()
-        void api.startNewSession()
-      } else if (event.key === "o") {
-        event.preventDefault()
-        void api.pickWorkspaceFolder().then(async (path) => {
-          if (path) await api.openWorkspace(path)
-        })
+        if (key === "n") {
+          if (!(await api.startNewSession()).ok) return
+        } else {
+          const path = await api.pickWorkspaceFolder()
+          if (!path || !(await api.openWorkspace(path)).ok) return
+        }
+        setSettingsOpen(false)
+        setPaletteOpen(false)
       }
     }
     window.addEventListener("keydown", onKeyDown)

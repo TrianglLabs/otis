@@ -12,7 +12,7 @@ import {
   normalizedDocumentMimeType,
   PDF_MIME_TYPE,
 } from "./document-constraints.js"
-import { errorMessage } from "./errors.js"
+import { describeError } from "./errors.js"
 import { safeAttachmentName } from "./images.js"
 import type { DocumentContentPart, DocumentKind } from "./types.js"
 
@@ -147,7 +147,7 @@ export async function createDocumentAttachment(
       })
     } catch (error) {
       if (error instanceof Error && error.message.includes("PDF has ")) throw error
-      throw new Error(`Could not read PDF: ${errorMessage(error)}`)
+      throw new Error(`Could not read PDF: ${describeError(error)}`)
     } finally {
       await loadingTask.destroy()
     }
@@ -177,7 +177,7 @@ export async function createDocumentAttachment(
         truncated: normalized.length > MAX_EXTRACTED_DOCUMENT_CHARS,
       })
     } catch (error) {
-      throw new Error(`Could not read ${safeName}: ${errorMessage(error)}`)
+      throw new Error(`Could not read ${safeName}: ${describeError(error)}`)
     }
   }
 

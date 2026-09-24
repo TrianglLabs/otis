@@ -243,6 +243,8 @@ export const zhCN: Messages = {
   "settings.behavior": "行为",
   "settings.thinkingTraces": "思考轨迹",
   "settings.toggleThinking": "显示或隐藏模型思考轨迹",
+  "settings.notifyOnCompletion": "会话完成时通知",
+  "settings.toggleNotify": "当 Otis 不在前台而会话完成时显示系统通知",
   "settings.fastServing": "快速推理",
   "settings.fastUnavailable": "此模型不支持快速推理",
   "settings.toggleFast": "切换快速推理",

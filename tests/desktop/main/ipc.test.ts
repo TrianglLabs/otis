@@ -126,7 +126,7 @@ it("rejects calls from anything but our own renderer", async () => {
     .mocked(ipcMain.handle)
     .mock.calls.find(([name]) => name === DESKTOP_CHANNELS.stop)?.[1] as Handler
   for (const url of ["https://evil.example/index.html", "not a url", ""]) {
-    expect(() => stop({ sender: {}, senderFrame: { url } })).toThrow("untrusted sender")
+    await expect(stop({ sender: {}, senderFrame: { url } })).rejects.toThrow("untrusted sender")
   }
 })
 
@@ -137,6 +137,6 @@ it("validates and forwards the workspace panel width", async () => {
   await handler(undefined)
   expect(setWorkspacePanelWidth.mock.calls).toEqual([[420], [undefined]])
   for (const width of [0, -5, Number.NaN, "420", null]) {
-    expect(() => handler(width)).toThrow("Invalid panel width")
+    await expect(handler(width)).rejects.toThrow("Invalid panel width")
   }
 })

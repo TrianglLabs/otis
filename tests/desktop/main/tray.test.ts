@@ -134,6 +134,7 @@ function statusFixture(overrides: Partial<DesktopStatus> = {}): DesktopStatus {
     theme: "default",
     language: "system",
     thinkingVisible: true,
+    notifyOnCompletion: true,
     permissionMode: "ask",
     localThinking: null,
     fastServing: { available: false, enabled: false },
@@ -153,6 +154,7 @@ function actionsFixture(): TrayActions {
     stop: vi.fn(),
     installUpdate: vi.fn(),
     focusSession: vi.fn(),
+    respondToPermission: vi.fn(),
   }
 }
 
@@ -411,6 +413,10 @@ describe("tray menu", () => {
     expect(byLabel(items, "Write tests — working")).toMatchObject({ checked: false })
     click(byLabel(items, "Docs — done"))
     expect(mounted.actions.focusSession).toHaveBeenCalledExactlyOnceWith(3)
+    // Each working session stops on its own; the lone "Stop working" item is for a single one.
+    expect(byLabel(items, "Stop working")).toBeUndefined()
+    click(byLabel(items, "Stop Write tests"))
+    expect(mounted.actions.stop).toHaveBeenCalledExactlyOnceWith(2)
     // The lone-session name row is replaced by the rows.
     expect(byLabel(items, "Fix session lock behavior")).toBeUndefined()
     // Background work keeps the icon working and counts in the tooltip; the badge counts finishes.
@@ -444,6 +450,13 @@ describe("tray menu", () => {
     expect(isEnabled(approval)).toBe(true)
     click(approval)
     expect(mounted.actions.focusWindow).toHaveBeenCalledOnce()
+    // The answer itself is one click away, without switching apps.
+    click(byLabel(items, "Allow once"))
+    click(byLabel(items, "Deny"))
+    expect(vi.mocked(mounted.actions.respondToPermission).mock.calls).toEqual([
+      [4, true],
+      [4, false],
+    ])
   })
 
   it("reports model download progress while it is in flight", () => {

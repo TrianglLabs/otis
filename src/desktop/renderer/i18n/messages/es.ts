@@ -255,6 +255,9 @@ export const es: Messages = {
   "settings.behavior": "Comportamiento",
   "settings.thinkingTraces": "Trazas de razonamiento",
   "settings.toggleThinking": "Mostrar u ocultar las trazas de razonamiento del modelo",
+  "settings.notifyOnCompletion": "Avisar al terminar una sesión",
+  "settings.toggleNotify":
+    "Mostrar una notificación del sistema cuando una sesión termine mientras Otis no está delante",
   "settings.fastServing": "Inferencia rápida",
   "settings.fastUnavailable": "La inferencia rápida no está disponible para este modelo",
   "settings.toggleFast": "Alternar inferencia rápida",

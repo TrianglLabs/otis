@@ -1,7 +1,7 @@
 import { readdir } from "node:fs/promises"
 import { join } from "node:path"
-import { readSessionEvents, type SessionEvent } from "../storage/session-events.js"
 import { sessionRootDirectory } from "../storage/session-files.js"
+import { readSessionDigest, type SessionActivity } from "../storage/session-index.js"
 
 export type LocalStats = {
   streak: number
@@ -25,15 +25,6 @@ type LocalStatsOptions = {
   now?: Date
 }
 
-const ACTIVITY_EVENTS = new Set([
-  "prompt_admitted",
-  "prompt_steered",
-  "turn_started",
-  "usage_recorded",
-  "turn_completed",
-  "turn_interrupted",
-])
-
 export async function calculateLocalStats(options: LocalStatsOptions = {}): Promise<LocalStats> {
   const now = options.now ?? new Date()
   const root = options.sessionsRoot ?? sessionRootDirectory()
@@ -46,10 +37,6 @@ export async function calculateLocalStats(options: LocalStatsOptions = {}): Prom
       if (child.isFile() && child.name.endsWith(".jsonl")) files.push(join(path, child.name))
     }
   }
-  const sessions = await Promise.all(
-    files.map((path) => readSessionEvents(path).catch((): SessionEvent[] => [])),
-  )
-
   let totalTokens = 0
   let promptTokens = 0
   let completionTokens = 0
@@ -57,16 +44,22 @@ export async function calculateLocalStats(options: LocalStatsOptions = {}): Prom
   let sessionCount = 0
   const days = new Set<string>()
   const dailyTokens = new Map<string, number>()
-  for (const events of sessions) {
-    if (!events.some((event) => event.type === "prompt_admitted")) continue
+  for (const path of files) {
+    let activity: SessionActivity[]
+    try {
+      ;({ activity } = await readSessionDigest(path))
+    } catch {
+      continue
+    }
+    if (!activity.some((event) => event.type === "prompt_admitted")) continue
     sessionCount += 1
     // Older sessions only recorded admission. Keep those estimates readable, but prefer
     // actual starts so queued prompts do not contribute waiting time.
     const started = new Map<string, { start: number; exact: boolean }>()
     const intervals: { start: number; end: number; exact: boolean }[] = []
-    for (const event of events) {
+    for (const event of activity) {
       const at = timestamp(event.at)
-      if (at !== undefined && ACTIVITY_EVENTS.has(event.type)) days.add(localDateKey(new Date(at)))
+      if (at !== undefined) days.add(localDateKey(new Date(at)))
       if (event.type === "usage_recorded") {
         totalTokens += event.usage.totalTokens
         promptTokens += event.usage.promptTokens

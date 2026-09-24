@@ -1,6 +1,6 @@
-import { Check, Cpu, Download, Eye, Loader2, Star, Text, Trash2, X } from "lucide-react"
+import { Cpu, Download, Eye, Loader2, Star, Text, Trash2, X } from "lucide-react"
 import { Fragment, useCallback, useEffect, useRef, useState } from "react"
-import type { ModelPickerChoice, ModelPickerItem } from "../../../../inference/picker-catalog.js"
+import type { ModelPickerItem } from "../../../../inference/picker-catalog.js"
 import { Button, IconButton } from "../../components/Button.js"
 import { Icon } from "../../components/Icon.js"
 import { useI18n } from "../../i18n/index.js"
@@ -72,40 +72,6 @@ export function ModelPicker({ onClose }: { onClose: () => void }) {
     return () => window.removeEventListener("keydown", onKeyDown, true)
   }, [onClose, confirmingDeleteKey])
 
-  const select = async (item: ModelPickerChoice) => {
-    setActionError(undefined)
-    const result = await api.selectModel(pickerItemKey(item))
-    if (result.ok) {
-      onClose()
-      return
-    }
-    // Cancelled or superseded selections are the user's own doing; the row simply returns to
-    // normal.
-    if (
-      result.reason !== "The selection was cancelled." &&
-      result.reason !== "The selection was superseded."
-    ) {
-      setActionError(result.reason)
-    }
-  }
-
-  const deleteModel = async (item: ModelPickerChoice) => {
-    setConfirmingDeleteKey(undefined)
-    setActionError(undefined)
-    setDeletingKey(pickerItemKey(item))
-    try {
-      const result = await api.deleteLocalModel(item.id)
-      // Downloaded flags — and the active row, when the active model was deleted — change; refetch
-      // the catalog.
-      if (result.ok) void load()
-      else setActionError(result.reason)
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : String(error))
-    } finally {
-      setDeletingKey(undefined)
-    }
-  }
-
   const rows = mergeModelLoad(items ?? [], modelLoad)
 
   return (
@@ -122,11 +88,8 @@ export function ModelPicker({ onClose }: { onClose: () => void }) {
         aria-modal="true"
         aria-label={t("models.select")}
       >
-        {/* Borderless title bar like the coworker trace's header: label left, close button at
-            the edge. */}
         <div className="modelPicker-title">
-          <span className="modelPicker-titleText">{t("models.select")}</span>
-          <span className="modelPicker-titleSpace" />
+          <h2 className="modelPicker-titleText">{t("models.select")}</h2>
           <IconButton icon={X} label={t("models.close")} size={22} onClick={onClose} />
         </div>
         {listError ? (
@@ -191,7 +154,24 @@ export function ModelPicker({ onClose }: { onClose: () => void }) {
                     >
                       {t("palette.keep")}
                     </Button>
-                    <Button variant="danger" size="sm" onClick={() => void deleteModel(item)}>
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      onClick={async () => {
+                        setConfirmingDeleteKey(undefined)
+                        setActionError(undefined)
+                        setDeletingKey(key)
+                        try {
+                          const result = await api.deleteLocalModel(item.id)
+                          if (result.ok) void load()
+                          else setActionError(result.reason)
+                        } catch (error) {
+                          setActionError(error instanceof Error ? error.message : String(error))
+                        } finally {
+                          setDeletingKey(undefined)
+                        }
+                      }}
+                    >
                       {t("palette.delete")}
                     </Button>
                   </div>
@@ -201,11 +181,22 @@ export function ModelPicker({ onClose }: { onClose: () => void }) {
                       type="button"
                       className="modelPicker-select"
                       disabled={!selectable || loading || deletingKey !== undefined}
-                      onClick={() => void select(item)}
+                      onClick={async () => {
+                        setActionError(undefined)
+                        const result = await api.selectModel(key)
+                        if (result.ok) return onClose()
+                        // Cancellation and supersession simply return the row to normal.
+                        if (
+                          result.reason !== "The selection was cancelled." &&
+                          result.reason !== "The selection was superseded."
+                        ) {
+                          setActionError(result.reason)
+                        }
+                      }}
                     >
                       <span className="modelPicker-rowText">
                         <span className="modelPicker-name">
-                          {item.displayName}
+                          <span>{item.displayName}</span>
                           {"recommended" in item && item.recommended ? (
                             <span
                               className="modelPicker-recommended"
@@ -253,23 +244,9 @@ export function ModelPicker({ onClose }: { onClose: () => void }) {
                         </span>
                       </span>
                     </button>
-                    {/* Trailing marks share the icon buttons' box (see .modelPicker-mark) so the
-                        row's right rail — active check, cancel, delete, download hint — lines up
-                        across every row. */}
-                    {item.active ? (
-                      <span className="modelPicker-mark">
-                        <Icon icon={Check} size={13} />
-                      </span>
-                    ) : null}
-                    {loading ? (
-                      <IconButton
-                        icon={X}
-                        label={t("common.cancelModelLoad")}
-                        size={22}
-                        className="modelPicker-cancel"
-                        onClick={() => void api.cancelModelSelection()}
-                      />
-                    ) : null}
+                    {/* The active row is the highlighted one; its rail holds only the trash,
+                        shown on hover for a downloaded model. Cancel and the download hint have
+                        their own slots only while they apply. */}
                     {deletable ? (
                       <IconButton
                         icon={Trash2}
@@ -281,6 +258,15 @@ export function ModelPicker({ onClose }: { onClose: () => void }) {
                           setActionError(undefined)
                           setConfirmingDeleteKey(key)
                         }}
+                      />
+                    ) : null}
+                    {loading ? (
+                      <IconButton
+                        icon={X}
+                        label={t("common.cancelModelLoad")}
+                        size={22}
+                        className="modelPicker-cancel"
+                        onClick={() => void api.cancelModelSelection()}
                       />
                     ) : null}
                     {"downloaded" in item &&

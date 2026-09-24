@@ -53,6 +53,7 @@ export const DESKTOP_CHANNELS = {
   setTheme: "desktop:set-theme",
   setLanguage: "desktop:set-language",
   setThinkingVisible: "desktop:set-thinking-visible",
+  setNotifyOnCompletion: "desktop:set-notify-on-completion",
   setLocalThinking: "desktop:set-local-thinking",
   setPermissionMode: "desktop:set-permission-mode",
   setFastServing: "desktop:set-fast-serving",
@@ -144,6 +145,8 @@ export type DesktopStatus = {
    * settings.
    */
   thinkingVisible: boolean
+  /** A system notification when a session finishes while Otis is not the frontmost app. */
+  notifyOnCompletion: boolean
   localThinking: LocalThinkingState | null
   /** Permission behavior for mutating tools. Interactive controls offer ask and auto. */
   permissionMode: PermissionMode
@@ -325,6 +328,7 @@ export type DesktopApi = {
   setLanguage(language: UiLanguage): Promise<void>
   /** Shows thinking as trace cards or as plain muted text; persisted in local settings. */
   setThinkingVisible(visible: boolean): Promise<void>
+  setNotifyOnCompletion(enabled: boolean): Promise<void>
   setLocalThinking(model: string, level: LocalThinkingSelection): Promise<void>
   /** Persists the permission behavior used by subsequent tool calls. */
   setPermissionMode(mode: "ask" | "auto"): Promise<void>

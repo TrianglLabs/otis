@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { recoverWorkspaceCwd, resolveWorkspaceCwd } from "../../../src/desktop/main/workspace.js"
 
-type WorkspaceRecovery = Parameters<typeof recoverWorkspaceCwd>[2]
+type WorkspaceRecovery = Parameters<typeof recoverWorkspaceCwd>[1]
 
 describe("resolveWorkspaceCwd", () => {
   it("keeps the shell's cwd for terminal launches", () => {
@@ -36,7 +36,6 @@ describe("recoverWorkspaceCwd", () => {
   it("stops (undefined) when the user quits instead of picking — no scope change behind their back", async () => {
     let picked = false
     const result = await recoverWorkspaceCwd(
-      "/explicit/dir",
       new Error("EACCES"),
       recovery({
         choose: async () => "quit",
@@ -53,7 +52,6 @@ describe("recoverWorkspaceCwd", () => {
   it("uses the folder the user explicitly picked, creating it first", async () => {
     const made: string[] = []
     const result = await recoverWorkspaceCwd(
-      "/Users/nik/Otis",
       new Error("EEXIST: file already exists"),
       recovery({
         choose: async () => "pick" as const,
@@ -69,7 +67,6 @@ describe("recoverWorkspaceCwd", () => {
 
   it("stops when the folder picker is cancelled", async () => {
     const result = await recoverWorkspaceCwd(
-      "/Users/nik/Otis",
       new Error("EEXIST"),
       recovery({ choose: async () => "pick" as const }),
     )
@@ -79,13 +76,15 @@ describe("recoverWorkspaceCwd", () => {
   it("shows a final error and stops when the picked folder cannot be created either", async () => {
     let shown = ""
     const result = await recoverWorkspaceCwd(
-      "/Users/nik/Otis",
       new Error("EEXIST"),
       recovery({
         choose: async () => "pick" as const,
         pickFolder: async () => "/protected/dir",
         mkdir: async () => {
-          throw new Error("EPERM")
+          throw Object.assign(new Error("EPERM: operation not permitted, mkdir '/protected/dir'"), {
+            code: "EPERM",
+            path: "/protected/dir",
+          })
         },
         showError: (title, detail) => {
           shown = `${title} ${detail}`
@@ -93,7 +92,6 @@ describe("recoverWorkspaceCwd", () => {
       }),
     )
     expect(result).toBeUndefined()
-    expect(shown).toContain("/protected/dir")
-    expect(shown).toContain("EPERM")
+    expect(shown).toBe("Otis couldn't use that folder Permission denied for /protected/dir.")
   })
 })

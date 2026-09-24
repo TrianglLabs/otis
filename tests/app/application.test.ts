@@ -367,6 +367,27 @@ describe("Application prompt admission", () => {
   })
 })
 
+describe("Application runtime housekeeping", () => {
+  it("closes an empty idle runtime an interface no longer shows", async () => {
+    const app = await Application.create({ cwd: await isolate("otis-app-") })
+    try {
+      const spare = app.addRuntime()
+      const statuses: number[] = []
+      app.subscribe((event) => {
+        if (event.type === "status") statuses.push(app.runtimes.length)
+      })
+      app.closeIfEmpty(spare)
+      await vi.waitFor(() => expect(app.runtimes).toHaveLength(1))
+      expect(statuses).toContain(1)
+      // The focused runtime is never closed from under the interface this way.
+      app.closeIfEmpty(app.focused)
+      expect(app.runtimes).toHaveLength(1)
+    } finally {
+      await app.shutdown()
+    }
+  })
+})
+
 describe("Application permissions", () => {
   const ask = (command: string): PermissionRequest => ({
     call: { name: "bash", input: { command } },

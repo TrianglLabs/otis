@@ -7,14 +7,13 @@
   left: 50%;
   transform: translateX(-50%);
   z-index: var(--z-overlay);
-  width: 440px;
+  width: min(440px, calc(100vw - 32px));
   max-height: min(520px, 70vh);
   display: flex;
   flex-direction: column;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-float);
   overflow: hidden;
   animation: overlay-enter var(--motion);
 }
@@ -23,22 +22,20 @@
 .modelPicker-title {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
   padding: 10px 8px 8px 20px;
   flex-shrink: 0;
 }
 
 .modelPicker-titleText {
+  margin: 0;
   font-size: var(--text-ui);
   font-weight: 500;
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.modelPicker-titleSpace {
-  flex: 1;
 }
 
 .modelPicker-message {
@@ -133,6 +130,9 @@
   gap: 5px;
   font-size: var(--text-ui);
   font-weight: 500;
+}
+
+.modelPicker-name > span:first-child {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -143,6 +143,7 @@
 .modelPicker-recommended,
 .modelPicker-cpuOffload {
   display: inline-flex;
+  flex-shrink: 0;
   transform: translateY(-0.5px);
 }
 
@@ -204,7 +205,8 @@
   color: var(--text-dim);
 }
 
-.modelPicker-cancel {
+.modelPicker-cancel,
+.modelPicker-delete {
   align-self: center;
   flex-shrink: 0;
   margin-right: 6px;
@@ -212,15 +214,12 @@
 
 /* Destructive affordance stays out of sight until the row is hovered or focused via keyboard. */
 .modelPicker-delete {
-  align-self: center;
-  flex-shrink: 0;
-  margin-right: 6px;
   opacity: 0;
   transition: opacity 120ms ease;
 }
 
 .modelPicker-row:hover .modelPicker-delete,
-.modelPicker-delete:focus-visible {
+.modelPicker-row:focus-within .modelPicker-delete {
   opacity: 1;
 }
 

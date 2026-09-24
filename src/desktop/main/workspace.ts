@@ -1,4 +1,5 @@
 import { join, parse, resolve } from "node:path"
+import { describeError } from "../../inference/errors.js"
 
 /**
  * Where the desktop app works. A terminal launch keeps the shell's cwd; a Finder/Dock launch
@@ -33,14 +34,13 @@ type WorkspaceRecovery = {
  * or the app stops.
  */
 export async function recoverWorkspaceCwd(
-  cwd: string,
   cause: unknown,
   recovery: WorkspaceRecovery,
 ): Promise<string | undefined> {
-  const reason = cause instanceof Error ? cause.message : String(cause)
+  const reason = describeError(cause)
   const action = await recovery.choose(
     "Otis couldn't use its workspace",
-    `${cwd}: ${reason}\n\nPick a different folder, or quit and fix the path.`,
+    `${reason}\n\nPick a different folder, or quit and fix the path.`,
   )
   if (action === "quit") return undefined
   const picked = await recovery.pickFolder()
@@ -49,8 +49,8 @@ export async function recoverWorkspaceCwd(
     await recovery.mkdir(picked)
     return picked
   } catch (pickCause) {
-    const pickReason = pickCause instanceof Error ? pickCause.message : String(pickCause)
-    recovery.showError("Otis couldn't use that folder", `${picked}: ${pickReason}`)
+    const pickReason = describeError(pickCause)
+    recovery.showError("Otis couldn't use that folder", pickReason)
     return undefined
   }
 }

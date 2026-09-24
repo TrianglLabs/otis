@@ -280,7 +280,7 @@ export class TranscriptStore {
   }
 
   updateEntry(id: number, patch: Partial<Omit<TranscriptEntry, "id">>) {
-    const index = this.entries.findIndex((entry) => entry.id === id)
+    const index = this.entries.findLastIndex((entry) => entry.id === id)
     if (index === -1) return
     this.entries[index] = { ...this.entries[index], ...patch }
     this.emit({ op: "upsert", id })

@@ -52,7 +52,14 @@ const PAIR_DEFAULT_ENDPOINTS = {
   lmStudio: "http://127.0.0.1:1234",
 }
 
-type SettingsTab = "providers" | "appearance" | "general"
+const SETTINGS_TABS = {
+  providers: { label: "settings.inference", icon: Cpu },
+  appearance: { label: "settings.appearance", icon: Palette },
+  general: { label: "settings.general", icon: SlidersHorizontal },
+} as const
+
+type SettingsTab = keyof typeof SETTINGS_TABS
+const SETTINGS_TAB_IDS = Object.keys(SETTINGS_TABS) as SettingsTab[]
 
 /**
  * The settings page, opened from the header's gear button or the ⌘K palette. It takes over the
@@ -83,6 +90,7 @@ export function SettingsPage({
     "theme",
     "language",
     "thinkingVisible",
+    "notifyOnCompletion",
     "permissionMode",
     "model",
     "debug",
@@ -198,14 +206,16 @@ export function SettingsPage({
     }
   }
 
-  const tabs = [
-    { id: "providers", label: t("settings.inference"), icon: Cpu },
-    { id: "appearance", label: t("settings.appearance"), icon: Palette },
-    { id: "general", label: t("settings.general"), icon: SlidersHorizontal },
-  ] as const
-
   return (
-    <div className="settingsPage">
+    <div
+      className="settingsPage"
+      onPointerDownCapture={(event) => {
+        event.currentTarget.dataset.pointerInput = "true"
+      }}
+      onKeyDownCapture={(event) => {
+        delete event.currentTarget.dataset.pointerInput
+      }}
+    >
       <header className="workspaceHeader settingsPage-header">
         <div className="workspaceHeader-right">
           <IconButton icon={X} label={t("settings.close")} className="noDrag" onClick={onClose} />
@@ -215,40 +225,40 @@ export function SettingsPage({
       <div className="settingsPage-body">
         <nav className="settingsSidebar" aria-label={t("common.settings")}>
           <div className="settingsSidebar-tabs" role="tablist" aria-orientation="vertical">
-            {tabs.map((tab, index) => (
+            {SETTINGS_TAB_IDS.map((id, index) => (
               <button
-                key={tab.id}
+                key={id}
                 ref={(node) => {
-                  if (node) tabRefs.current.set(tab.id, node)
-                  else tabRefs.current.delete(tab.id)
+                  if (node) tabRefs.current.set(id, node)
+                  else tabRefs.current.delete(id)
                 }}
                 type="button"
                 role="tab"
-                id={`settings-tab-${tab.id}`}
-                aria-controls={`settings-panel-${tab.id}`}
-                aria-selected={activeTab === tab.id}
-                tabIndex={activeTab === tab.id ? 0 : -1}
+                id={`settings-tab-${id}`}
+                aria-controls={`settings-panel-${id}`}
+                aria-selected={activeTab === id}
+                tabIndex={activeTab === id ? 0 : -1}
                 className={`settingsSidebar-tab${
-                  activeTab === tab.id ? " settingsSidebar-tabActive" : ""
+                  activeTab === id ? " settingsSidebar-tabActive" : ""
                 }`}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => setActiveTab(id)}
                 onKeyDown={(event) => {
                   let nextIndex: number | undefined
                   if (event.key === "ArrowDown" || event.key === "ArrowRight")
-                    nextIndex = (index + 1) % tabs.length
+                    nextIndex = (index + 1) % SETTINGS_TAB_IDS.length
                   else if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
-                    nextIndex = (index - 1 + tabs.length) % tabs.length
+                    nextIndex = (index - 1 + SETTINGS_TAB_IDS.length) % SETTINGS_TAB_IDS.length
                   } else if (event.key === "Home") nextIndex = 0
-                  else if (event.key === "End") nextIndex = tabs.length - 1
+                  else if (event.key === "End") nextIndex = SETTINGS_TAB_IDS.length - 1
                   if (nextIndex === undefined) return
                   event.preventDefault()
-                  const nextTab = tabs[nextIndex].id
+                  const nextTab = SETTINGS_TAB_IDS[nextIndex]
                   setActiveTab(nextTab)
                   tabRefs.current.get(nextTab)?.focus()
                 }}
               >
-                <Icon icon={tab.icon} size={15} />
-                <span>{tab.label}</span>
+                <Icon icon={SETTINGS_TABS[id].icon} size={14} />
+                <span>{t(SETTINGS_TABS[id].label)}</span>
               </button>
             ))}
           </div>
@@ -262,12 +272,13 @@ export function SettingsPage({
           aria-labelledby={`settings-tab-${activeTab}`}
         >
           <div className="settingsPage-column">
+            <h1 className="settingsPage-title">{t(SETTINGS_TABS[activeTab].label)}</h1>
             {activeTab === "providers" ? (
               <>
                 <div className="settingsGroup">
-                  <div className="settings-section">{t("settings.providers")}</div>
-                  <div className="settingsProviderCards">
-                    <section className="settingsCard settingsCard-provider">
+                  <h2 className="settings-section">{t("settings.providers")}</h2>
+                  <div className="settingsSurface">
+                    <section className="settingsProvider">
                       <button
                         type="button"
                         className="settingsRow settingsRow-expand"
@@ -321,7 +332,7 @@ export function SettingsPage({
                       ) : null}
                     </section>
 
-                    <section className="settingsCard settingsCard-provider">
+                    <section className="settingsProvider">
                       <button
                         type="button"
                         className="settingsRow settingsRow-expand"
@@ -486,61 +497,74 @@ export function SettingsPage({
 
             {activeTab === "appearance" ? (
               <>
-                <div className="settingsGroup">
-                  <div className="settings-section">{t("settings.language")}</div>
-                  <section className="settingsCard">
-                    <div className="settingsRow">
-                      <span className="settingsRow-label">{t("settings.language")}</span>
-                      <select
-                        className="settingsSelect"
-                        aria-label={t("settings.language")}
-                        value={state.language}
-                        onChange={(event) => void api.setLanguage(event.target.value as UiLanguage)}
-                      >
-                        {LANGUAGE_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.value === "system"
-                              ? t("settings.systemLanguage", {
-                                  language:
-                                    LANGUAGE_OPTIONS.find(
-                                      (candidate) => candidate.value === systemLocale,
-                                    )?.label ?? "English",
-                                })
-                              : option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </section>
+                <div className="settingsRow settingsLanguage settingsSurface">
+                  <label className="settingsRow-label" htmlFor="settings-language">
+                    {t("settings.language")}
+                  </label>
+                  <select
+                    id="settings-language"
+                    className="settingsSelect"
+                    value={state.language}
+                    onChange={(event) => void api.setLanguage(event.target.value as UiLanguage)}
+                  >
+                    {LANGUAGE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.value === "system"
+                          ? t("settings.systemLanguage", {
+                              language:
+                                LANGUAGE_OPTIONS.find(
+                                  (candidate) => candidate.value === systemLocale,
+                                )?.label ?? "English",
+                            })
+                          : option.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div className="settingsGroup">
-                  <div className="settings-section">{t("settings.theme")}</div>
-                  <section className="settingsCard settingsCard-themes">
-                    {/* Each tile is a live swatch: the nested data-theme resolves its variables to
-                        that theme. */}
-                    <div className="themeGrid">
-                      {THEME_NAMES.map((theme) => (
-                        <button
-                          key={theme}
-                          type="button"
-                          className={`themeTile${theme === state.theme ? " themeTile-active" : ""}`}
-                          onClick={() => void api.setTheme(theme)}
-                          aria-pressed={theme === state.theme}
-                        >
-                          <span className="themeTile-preview" data-theme={theme}>
-                            <span className="themeTile-line themeTile-lineText" />
-                            <span className="themeTile-line themeTile-lineDim" />
-                            <span className="themeTile-dot" />
-                          </span>
-                          <span className="themeTile-name">
-                            {theme}
-                            {theme === state.theme ? <Icon icon={Check} size={11} /> : null}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  </section>
+                  <h2 className="settings-section">{t("settings.theme")}</h2>
+                  <div className="themeGrid settingsSurface">
+                    {THEME_NAMES.map((theme) => (
+                      <button
+                        key={theme}
+                        type="button"
+                        className={`themeTile${theme === state.theme ? " themeTile-active" : ""}`}
+                        onClick={() => void api.setTheme(theme)}
+                        aria-pressed={theme === state.theme}
+                      >
+                        <span className="themeTile-preview" data-theme={theme} aria-hidden="true">
+                          <svg
+                            width="100%"
+                            height="100%"
+                            viewBox="0 0 56 40"
+                            fill="none"
+                            aria-hidden="true"
+                          >
+                            <path fill="var(--bg-elev)" d="M0 0h13v40H0z" />
+                            <rect x="4" y="7" width="5" height="3" rx="1" fill="var(--accent)" />
+                            <path fill="var(--text-dim)" d="M4 14h5v2H4zm0 6h5v2H4z" />
+                            <rect x="21" y="6" width="28" height="9" rx="3" fill="var(--bg-user)" />
+                            <path fill="var(--text)" d="M26 10h18v2H26zM19 21h25v2H19z" />
+                            <path fill="var(--text-dim)" d="M19 25h17v2H19z" />
+                            <rect
+                              x="19"
+                              y="31"
+                              width="30"
+                              height="5"
+                              rx="2"
+                              fill="var(--bg-elev)"
+                            />
+                            <circle cx="45.5" cy="33.5" r="1.5" fill="var(--accent)" />
+                          </svg>
+                        </span>
+                        <span className="themeTile-name">
+                          {theme}
+                          {theme === state.theme ? <Icon icon={Check} size={11} /> : null}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </>
             ) : null}
@@ -548,8 +572,8 @@ export function SettingsPage({
             {activeTab === "general" ? (
               <>
                 <div className="settingsGroup">
-                  <div className="settings-section">{t("settings.security")}</div>
-                  <section className="settingsCard">
+                  <h2 className="settings-section">{t("settings.security")}</h2>
+                  <div className="settingsSurface">
                     <div className="settingsRow">
                       <span className="settingsRow-label">
                         {t("settings.permissionMode")}
@@ -579,18 +603,26 @@ export function SettingsPage({
                         <option value="auto">{t("settings.auto")}</option>
                       </select>
                     </div>
-                  </section>
+                  </div>
                 </div>
 
                 <div className="settingsGroup">
-                  <div className="settings-section">{t("settings.behavior")}</div>
-                  <section className="settingsCard">
+                  <h2 className="settings-section">{t("settings.behavior")}</h2>
+                  <div className="settingsSurface">
                     <div className="settingsRow">
                       <span className="settingsRow-label">{t("settings.thinkingTraces")}</span>
                       <Toggle
                         label={t("settings.toggleThinking")}
                         checked={state.thinkingVisible}
                         onChange={(visible) => void api.setThinkingVisible(visible)}
+                      />
+                    </div>
+                    <div className="settingsRow">
+                      <span className="settingsRow-label">{t("settings.notifyOnCompletion")}</span>
+                      <Toggle
+                        label={t("settings.toggleNotify")}
+                        checked={state.notifyOnCompletion}
+                        onChange={(enabled) => void api.setNotifyOnCompletion(enabled)}
                       />
                     </div>
                     <div
@@ -640,14 +672,14 @@ export function SettingsPage({
                     {fastError ? (
                       <div className="settings-message settings-error">{fastError}</div>
                     ) : null}
-                  </section>
+                  </div>
                 </div>
 
                 <div className="settingsGroup">
-                  <div className="settings-section">{t("updates.title")}</div>
-                  <section className="settingsCard">
+                  <h2 className="settings-section">{t("updates.title")}</h2>
+                  <div className="settingsSurface">
                     <SoftwareUpdates installing={installing} onInstall={onInstallUpdate} />
-                  </section>
+                  </div>
                 </div>
               </>
             ) : null}
@@ -711,19 +743,6 @@ function SoftwareUpdates({
     (requesting && !downloading && !ready && update.status !== "error")
   const failed = requestFailed || update.status === "error"
 
-  const check = async () => {
-    setRequesting(true)
-    setRequestFailed(false)
-    setHasChecked(true)
-    try {
-      await api.checkForUpdates()
-    } catch {
-      setRequestFailed(true)
-    } finally {
-      setRequesting(false)
-    }
-  }
-
   const message =
     checking || downloading || ready || installing
       ? undefined
@@ -750,7 +769,22 @@ function SoftwareUpdates({
       <Button
         size="sm"
         disabled={installing || checking || downloading || unavailable}
-        onClick={ready ? onInstall : () => void check()}
+        onClick={
+          ready
+            ? onInstall
+            : async () => {
+                setRequesting(true)
+                setRequestFailed(false)
+                setHasChecked(true)
+                try {
+                  await api.checkForUpdates()
+                } catch {
+                  setRequestFailed(true)
+                } finally {
+                  setRequesting(false)
+                }
+              }
+        }
         aria-live="polite"
         aria-busy={installing || checking || downloading}
         title={
@@ -785,8 +819,8 @@ function UsageStats({ stats }: { stats: LocalStats | undefined }) {
   if (!stats) {
     return (
       <div className="settingsGroup">
-        <div className="settings-section">{t("settings.usage")}</div>
-        <section className="settingsCard settingsUsage settingsUsage-loading" aria-busy="true">
+        <h2 className="settings-section">{t("settings.usage")}</h2>
+        <section className="settingsSurface settingsUsage settingsUsage-loading" aria-busy="true">
           {t("settings.usageLoading")}
         </section>
       </div>
@@ -805,8 +839,8 @@ function UsageStats({ stats }: { stats: LocalStats | undefined }) {
 
   return (
     <div className="settingsGroup">
-      <div className="settings-section">{t("settings.usage")}</div>
-      <section className="settingsCard settingsUsage" aria-label={t("settings.usage")}>
+      <h2 className="settings-section">{t("settings.usage")}</h2>
+      <section className="settingsSurface settingsUsage" aria-label={t("settings.usage")}>
         <div className="settingsUsage-hero">
           <div className="settingsUsage-total">
             <span className="settingsUsage-eyebrow">{t("settings.usageTotal")}</span>
@@ -822,10 +856,7 @@ function UsageStats({ stats }: { stats: LocalStats | undefined }) {
               data-empty={countedTokens === 0 ? "true" : undefined}
               style={{ "--usage-input-share": `${inputShare}%` } as CSSProperties}
               aria-hidden="true"
-            >
-              <span className="settingsUsage-mixInput" />
-              <span className="settingsUsage-mixOutput" />
-            </div>
+            />
             <div className="settingsUsage-mixValues">
               <span>
                 <i className="settingsUsage-mixDot settingsUsage-mixDotInput" />

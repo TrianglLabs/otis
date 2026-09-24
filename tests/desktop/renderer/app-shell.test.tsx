@@ -292,7 +292,7 @@ describe("AppShell settings navigation", () => {
     // Open Settings from the header gear: the page takes over the window…
     fireEvent.click(screen.getByRole("button", { name: "Settings" }))
     await act(async () => {}) // flush SettingsPage's mount effects
-    expect(screen.getByText("Inference")).toBeTruthy()
+    expect(screen.getByRole("heading", { name: "Inference", level: 1 })).toBeTruthy()
 
     // The hidden workspace retains the very same textarea node.
     expect(textarea.isConnected).toBe(true)
@@ -300,7 +300,9 @@ describe("AppShell settings navigation", () => {
     expect(workspace.classList.contains("workspaceView-hidden")).toBe(true)
     expect(workspace.inert).toBe(true)
     expect(textarea.value).toBe("refactor the view store")
-    const settings = screen.getByText("Inference").closest(".settingsLayer") as HTMLElement
+    const settings = screen
+      .getByRole("tab", { name: "Inference" })
+      .closest(".settingsLayer") as HTMLElement
     // Closing unmounts Settings immediately and restores the same conversation node.
     fireEvent.click(screen.getByRole("button", { name: /close settings/i }))
     const restored = screen.getByLabelText("Prompt") as HTMLTextAreaElement
@@ -584,8 +586,7 @@ describe("AppShell settings navigation", () => {
     // Open the catalog from the composer's model chip.
     fireEvent.click(screen.getByRole("button", { name: "gpt-oss 20B" }))
     await act(async () => {})
-    // The catalog opens with the same borderless title bar as the coworker trace overlay.
-    expect(screen.getByText("Select a model")).toBeTruthy()
+    expect(screen.getByRole("heading", { name: "Select a model" })).toBeTruthy()
 
     // Downloaded managed-local rows carry the delete affordance — including the over-budget cache,
     // which cannot run on this machine but can still be freed.
@@ -969,6 +970,40 @@ describe("AppShell settings navigation", () => {
     expect(startNewSession).toHaveBeenCalledOnce()
     expect(workspace.className).toBe("workspaceView")
     expect(screen.getByText("keep me")).toBeTruthy()
+  })
+
+  it.each([
+    "n",
+    "N",
+    "o",
+    "O",
+  ])("reveals the workspace after the Command-%s shortcut succeeds in Settings", async (key) => {
+    const api = fakeApi({ pickWorkspaceFolder: vi.fn(async () => "/picked/ws") })
+    await renderApp(api)
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }))
+    fireEvent.keyDown(window, { key, metaKey: true })
+    await act(async () => {})
+    expect(screen.queryByRole("button", { name: "Close settings (Esc)" })).toBeNull()
+    if (key.toLowerCase() === "n") expect(api.startNewSession).toHaveBeenCalledOnce()
+    else expect(api.openWorkspace).toHaveBeenCalledExactlyOnceWith("/picked/ws")
+  })
+
+  it.each([
+    "n",
+    "o",
+    "cancel",
+  ])("keeps Settings open when a workspace shortcut is rejected or cancelled (%s)", async (key) => {
+    const api = fakeApi({
+      pickWorkspaceFolder: vi.fn(async () => (key === "cancel" ? undefined : "/picked/ws")),
+      startNewSession: vi.fn(async () => ({ ok: false, reason: "Restarting" })),
+      openWorkspace: vi.fn(async () => ({ ok: false, reason: "Restarting" })),
+    })
+    await renderApp(api)
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }))
+    fireEvent.keyDown(window, { key: key === "n" ? "n" : "o", metaKey: true })
+    await act(async () => {})
+    expect(screen.getByRole("button", { name: "Close settings (Esc)" })).toBeTruthy()
+    if (key === "cancel") expect(api.openWorkspace).not.toHaveBeenCalled()
   })
 
   it("releases the macOS traffic-light inset while the window is fullscreen", async () => {

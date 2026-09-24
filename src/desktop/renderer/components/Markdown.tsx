@@ -29,20 +29,41 @@ const components: Components = {
 export const Markdown = memo(function Markdown({
   text,
   enableCanvas = true,
+  streaming = false,
 }: {
   text: string
   enableCanvas?: boolean
+  streaming?: boolean
 }) {
+  // A streaming message would parse whole on every token. The blocks before its last paragraph
+  // break are final, so they keep their tree and only the open tail parses again.
+  const settled = streaming ? settledBlocksEnd(text) : 0
   return (
     <CanvasBlockEnabledContext.Provider value={enableCanvas}>
       <div className="md">
-        <ReactMarkdown remarkPlugins={remarkPlugins} components={components}>
-          {text}
-        </ReactMarkdown>
+        {settled > 0 ? <Blocks text={text.slice(0, settled)} /> : null}
+        <Blocks text={text.slice(settled)} />
       </div>
     </CanvasBlockEnabledContext.Provider>
   )
 })
+
+const Blocks = memo(function Blocks({ text }: { text: string }) {
+  return (
+    <ReactMarkdown remarkPlugins={remarkPlugins} components={components}>
+      {text}
+    </ReactMarkdown>
+  )
+})
+
+/** The end of the last paragraph break outside a fenced code block, or 0. */
+function settledBlocksEnd(text: string) {
+  for (let end = text.lastIndexOf("\n\n"); end > 0; end = text.lastIndexOf("\n\n", end - 1)) {
+    const fences = text.slice(0, end).match(/^ {0,3}(```|~~~)/gm)?.length ?? 0
+    if (fences % 2 === 0) return end + 2
+  }
+  return 0
+}
 
 function CodeBlock({ children }: { children?: React.ReactNode }) {
   const { t } = useI18n()

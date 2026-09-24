@@ -7,7 +7,7 @@ import {
 } from "../app/application.js"
 import { isAbortError } from "../app/models.js"
 import { listToolCapableModels } from "../inference/client.js"
-import { errorMessage } from "../inference/errors.js"
+import { describeError } from "../inference/errors.js"
 import { isLocalModelId } from "../inference/local-catalog.js"
 import { discoverOmlxModels, OMLX_DEFAULT_ENDPOINT } from "../inference/omlx.js"
 import { discoverPairModels, PAIR_DEFAULT_ENDPOINTS, pairEngineLabel } from "../inference/pair.js"
@@ -172,7 +172,7 @@ export class SetupFlow {
         this.options.ui.focusInput()
       } catch (error) {
         if (!signal.aborted && !this.#closed && !isAbortError(error)) {
-          this.options.ui.showSetupError(errorMessage(error), "configured")
+          this.options.ui.showSetupError(describeError(error), "configured")
         }
       } finally {
         this.options.setBusy(false)
@@ -200,7 +200,7 @@ export class SetupFlow {
       } catch (error) {
         if (signal.aborted || this.#closed || isAbortError(error)) return
         this.options.ui.showPairSetupError(
-          errorMessage(error),
+          describeError(error),
           settings ? "configured" : "local",
           inputs,
         )
@@ -244,7 +244,7 @@ export class SetupFlow {
       } catch (error) {
         if (signal.aborted || this.#closed || isAbortError(error)) return
         if (!wasConfigured) {
-          this.options.ui.showSetupInferenceChoice(errorMessage(error))
+          this.options.ui.showSetupInferenceChoice(describeError(error))
           return
         }
         this.options.ui.showChatLayout()
@@ -387,7 +387,7 @@ export class SetupFlow {
         if (!signal.aborted && !this.#closed) this.finish()
       } catch (error) {
         if (!signal.aborted && !this.#closed && !isAbortError(error)) {
-          this.options.ui.showSetupError(errorMessage(error), "choice")
+          this.options.ui.showSetupError(describeError(error), "choice")
         }
       } finally {
         this.options.setBusy(false)

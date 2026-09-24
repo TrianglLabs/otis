@@ -7,7 +7,7 @@ import {
 } from "../app/application.js"
 import type { PendingPermission } from "../app/conversation.js"
 import { SESSION_REASONS } from "../app/sessions.js"
-import { errorMessage } from "../inference/errors.js"
+import { describeError } from "../inference/errors.js"
 import { listDownloadedLocalModels } from "../inference/gguf-cache.js"
 import {
   supportsLlamaCppTarget,
@@ -261,13 +261,13 @@ export class InteractiveApp {
         this.#configured = false
         if (provider === "omlx") {
           this.#app.transcript.addAssistantMessage(
-            `Could not connect to oMLX: ${errorMessage(error)}`,
+            `Could not connect to oMLX: ${describeError(error)}`,
           )
           this.#setupFlow.begin()
         } else {
           this.#ui.showChatLayout()
           this.#app.transcript.addAssistantMessage(
-            `Could not start ${name}: ${errorMessage(error)}`,
+            `Could not start ${name}: ${describeError(error)}`,
           )
           this.#ui.renderTranscript(this.#app.transcript.entries, { scrollToBottom: true })
         }
@@ -316,7 +316,7 @@ export class InteractiveApp {
     try {
       message = await this.#attachments.prompt(value)
     } catch (error) {
-      this.#attachments.showMessage(`Could not send attachments: ${errorMessage(error)}`)
+      this.#attachments.showMessage(`Could not send attachments: ${describeError(error)}`)
       return
     }
     await this.#submitPrompt(message, "send")
@@ -499,7 +499,7 @@ export class InteractiveApp {
           await this.#app.setLocalThinking(state.modelId, command.level)
           this.#ui.showTransientHint(` Thinking effort: ${command.level} `)
         } catch (error) {
-          this.#ui.showTransientHint(` ${errorMessage(error)} `)
+          this.#ui.showTransientHint(` ${describeError(error)} `)
         }
         this.#ui.focusInput()
         return
@@ -639,11 +639,13 @@ export class InteractiveApp {
 
   /** Opens beside a working session, or focuses one already open; the screen follows either way. */
   async #selectSession(sessionId: string) {
+    const previous = this.#app.focused
     try {
       const result = await this.#app.openSession(sessionId)
       if (result === "locked") {
         this.#reportSessionError("Could not open session", new Error(SESSION_REASONS.locked))
       } else {
+        if (this.#app.focused !== previous) this.#app.closeIfEmpty(previous)
         this.#reflectSession()
       }
     } catch (error) {
@@ -729,7 +731,7 @@ export class InteractiveApp {
 
   #reportSessionError(prefix: string, error: unknown) {
     this.#ui.showChatLayout()
-    this.#app.transcript.addAssistantMessage(`Error: ${prefix}: ${errorMessage(error)}`)
+    this.#app.transcript.addAssistantMessage(`Error: ${prefix}: ${describeError(error)}`)
     this.#ui.renderTranscript(this.#app.transcript.entries, { scrollToBottom: true })
     this.#ui.focusInput()
   }
@@ -828,7 +830,7 @@ export class InteractiveApp {
       deleted = await this.#app.deleteLocalModel(modelId)
     } catch (error) {
       if (!this.#exiting) {
-        this.#ui.showTransientHint(` ${errorMessage(error)} `)
+        this.#ui.showTransientHint(` ${describeError(error)} `)
         this.#ui.focusInput()
       }
       return
@@ -880,7 +882,7 @@ export class InteractiveApp {
       this.#ui.focusInput()
     } catch (error) {
       this.#previewTheme(this.#selectedTheme)
-      this.#showThemeMessage(`Could not save theme: ${errorMessage(error)}`)
+      this.#showThemeMessage(`Could not save theme: ${describeError(error)}`)
     }
   }
 
@@ -932,7 +934,7 @@ export class InteractiveApp {
     } catch (error) {
       apply(previous)
       const label = panel === "thinking" ? "thinking visibility" : "subagent panel visibility"
-      this.#app.transcript.addDebugMessage(`Could not save ${label}: ${errorMessage(error)}`)
+      this.#app.transcript.addAssistantMessage(`Could not save ${label}: ${describeError(error)}`)
       this.#ui.renderTranscript(this.#app.transcript.entries, { scrollToBottom: true })
     }
   }

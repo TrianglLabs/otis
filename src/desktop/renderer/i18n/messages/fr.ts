@@ -258,6 +258,9 @@ export const fr: Messages = {
   "settings.behavior": "Comportement",
   "settings.thinkingTraces": "Traces de réflexion",
   "settings.toggleThinking": "Afficher ou masquer les traces de réflexion du modèle",
+  "settings.notifyOnCompletion": "Prévenir à la fin d'une session",
+  "settings.toggleNotify":
+    "Afficher une notification système quand une session se termine alors qu'Otis n'est pas au premier plan",
   "settings.fastServing": "Inférence rapide",
   "settings.fastUnavailable": "L’inférence rapide n’est pas disponible pour ce modèle",
   "settings.toggleFast": "Activer ou désactiver l’inférence rapide",
