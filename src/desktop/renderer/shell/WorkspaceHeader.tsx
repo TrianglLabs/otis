@@ -40,9 +40,8 @@ export function WorkspaceHeader({
   return (
     <header className="workspaceHeader">
       <div className="workspaceHeader-left">
-        {/* Only once a conversation exists — on the empty home screen, you are already at a
-            fresh start. */}
-        {hasEntries ? (
+        {/* Hidden on the empty single-card home screen, where you already are at a fresh start. */}
+        {hasEntries || state.panes.length > 1 ? (
           <Button
             variant="ghost"
             icon={SquarePen}

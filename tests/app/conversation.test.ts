@@ -508,8 +508,8 @@ describe("Conversation", () => {
     releaseFirst()
     expect((await a).status).toBe("complete")
     expect((await b).status).toBe("complete")
-    // Granted restores the interrupted phase; the delta that follows re-asserts it as usual.
-    expect(observer.phases).toEqual(["working", "queued", "working", "working"])
+    // Granted restores the interrupted phase; the delta that follows finds it already set.
+    expect(observer.phases).toEqual(["working", "queued", "working"])
     expect([models.gate.active, models.gate.waiting]).toEqual([0, 0])
     expect(second.conversation.phase).toBe("idle")
   })

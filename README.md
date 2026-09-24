@@ -1,80 +1,133 @@
-<!-- LOGO -->
-
-<h1>
-<p align="center">
-  <img src="resources/icon.png" alt="Otis" width="128">
-  <br>Otis
+<h1 align="center">
+  <img src="resources/icon.png" alt="Otis" width="112"><br>
+  Otis
 </h1>
-  <p align="center">
-    Your personal AI agent, powered by open models.
-    <br />
-    <a href="#why-otis">About</a>
-    ·
-    <a href="#install">Download</a>
-    ·
-    <a href="#documentation">Documentation</a>
-    ·
-    <a href="CONTRIBUTING.md">Contributing</a>
-  </p>
+
+<p align="center">
+  <b>A personal AI agent to help you think, create, and get things done.</b><br>
+  Powered by open models, on your computer or in the cloud.
 </p>
 
 <p align="center">
-  <img src="docs/otis-gui.png" alt="Otis desktop interface" width="720">
+  <a href="https://triangllabs.ai/otis"><b>Download for macOS and Linux</b></a> ·
+  <a href="#install">Terminal install</a> ·
+  <a href="#a-session-start-to-finish">Tour</a> ·
+  <a href="#documentation">Docs</a>
 </p>
 
-Otis is an open-source personal AI agent with a native desktop app, an OpenTUI terminal interface, and a headless mode
-for scripts and CI. Use it for everyday work, from planning a trip and drafting an email to exploring a codebase and
-fixing a bug. Otis can inspect files, edit code, run commands, search the web, and delegate focused work to subagents.
+<p align="center">
+  <a href="https://github.com/TrianglLabs/otis/releases/latest"><img src="https://img.shields.io/github/v/release/TrianglLabs/otis?label=release&color=6b5cff" alt="Latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-6b5cff" alt="MIT license"></a>
+  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-6b5cff" alt="macOS and Linux">
+</p>
 
-Otis makes local models easy to run. During setup it recommends a model for your hardware, downloads it, and runs it
-through llama.cpp. With a local model, Otis works fully offline: there is no account, telemetry, hosted control plane,
-or cloud synchronization, and your configuration and history stay on disk.
+<p align="center">
+  <img src="docs/screens/hero.png" alt="Two Otis sessions working side by side, each showing its edits as diffs, with a Word document open in Canvas and more sessions waiting as chips" width="960">
+</p>
 
-If you have additional NVIDIA hardware on your network, Otis can connect to an
-[NVIDIA PAIR](https://github.com/NVIDIA/Personal-AI-Router) cluster. When you want a larger open-weight model, it can
-also connect directly to Fireworks with your own API key; Fireworks documents Zero Data Retention for open-model
-inference by default.
+Otis is an AI agent for research, writing, documents, and code. It sets up a local model for your hardware, or
+connects to the models you already run.
+
+- **Local models, without the setup work.** Otis recommends a model for your hardware, downloads it, and runs it
+  for you. No account, no telemetry, and it works offline.
+- **Local or hosted, your call.** Run local models without per-token fees, or use hosted open models with your own
+  Fireworks key. Pick the model. Keep the work.
+- **Shows its work.** Thinking, every command, every edit as a diff, and an approval before anything risky. Up to
+  four sessions side by side, with documents open beside the conversation.
+- **Your history stays yours.** Conversations and saved artifacts live on your disk. Hosted inference and web
+  search connect directly to their providers.
 
 ## Install
 
-Otis supports macOS and Linux on arm64 and x64.
+**Desktop app.** [triangllabs.ai/otis](https://triangllabs.ai/otis) or
+[GitHub Releases](https://github.com/TrianglLabs/otis/releases/latest). macOS and Linux, arm64 and x64.
 
-### Desktop app
-
-Download Otis for macOS or Linux from [triangllabs.ai/otis](https://triangllabs.ai/otis). Every desktop build is also
-available from [GitHub Releases](https://github.com/TrianglLabs/otis/releases/latest).
-
-### Terminal
+**Terminal.**
 
 ```sh
 curl -fsSL https://github.com/triangllabs/otis/releases/latest/download/install.sh | bash
 otis
 ```
 
-Update an existing CLI installation with:
+Update an existing CLI installation with `otis update`.
+
+## A session, start to finish
+
+<table>
+  <tr>
+    <td width="38%" valign="middle">
+      <b>1. Choose where Otis thinks</b><br><br>
+      First launch asks one question. <b>Local</b> recommends the best model for your machine, downloads it, and runs
+      it through an Otis-managed llama.cpp server, so Otis works offline. Or connect Ollama, LM Studio, oMLX, or an
+      NVIDIA PAIR cluster you already run. <b>Hosted</b> uses your own Fireworks key.
+    </td>
+    <td width="62%"><img src="docs/screens/onboarding.png" alt="First launch: choose Hosted or Local" width="100%"></td>
+  </tr>
+  <tr>
+    <td valign="middle">
+      <b>2. Pick up where you left off</b><br><br>
+      Home lists recent sessions and the documents they produced, across every workspace. Open one, or just start
+      typing. <code>⌘K</code> searches every session by title and content.
+    </td>
+    <td><img src="docs/screens/home.png" alt="Home: recent sessions and documents above the composer" width="100%"></td>
+  </tr>
+  <tr>
+    <td valign="middle">
+      <b>3. Ask, then watch it work</b><br><br>
+      Every step is visible: the model's thinking, each command, and each edit as a diff. Otis asks before running a
+      command or touching a file outside the workspace. Steer the turn or queue a follow-up while it works, and get
+      the summary, the diff stats, and the context meter when it ends.
+    </td>
+    <td><img src="docs/screens/done.png" alt="A finished turn: the diff, a summary table, and the test result" width="100%"></td>
+  </tr>
+  <tr>
+    <td valign="middle">
+      <b>4. Review your work in Canvas</b><br><br>
+      Preview documents beside your conversation, follow edits, and revisit saved versions. PDFs, Word files,
+      Markdown, webpages, and Mermaid diagrams each open as a tab, and nothing leaves your machine to render.
+    </td>
+    <td><img src="docs/screens/canvas.png" alt="Canvas with document tabs and a PDF preview" width="100%"></td>
+  </tr>
+  <tr>
+    <td valign="middle">
+      <b>5. Run several sessions at once</b><br><br>
+      Sessions keep working when you switch away. Chips above the composer show the ones off screen, with a dot for
+      the ones still working. Drag a chip onto an edge for up to four side by side, or onto a card to swap. Otis
+      notifies you when a background session finishes.
+    </td>
+    <td><img src="docs/screens/split.png" alt="Two sessions side by side with the others as chips" width="100%"></td>
+  </tr>
+  <tr>
+    <td valign="middle">
+      <b>6. Pick the model. Keep the work.</b><br><br>
+      One picker holds every model Otis can reach: managed local models with their memory needs, models on your own
+      servers, and hosted ones. The star marks the local model that fits this computer best.
+    </td>
+    <td><img src="docs/screens/picker.png" alt="The model picker with local, oMLX, and hosted sections" width="100%"></td>
+  </tr>
+  <tr>
+    <td valign="middle">
+      <b>7. Pick up in the terminal, or run it from scripts</b><br><br>
+      Work in the desktop app, pick up in the terminal, or run tasks from scripts with the same agent and local
+      sessions. <code>otis exec</code> runs a turn headlessly for scripts and CI, with plain, JSON, or streaming
+      JSONL output.
+    </td>
+    <td><img src="docs/otis-cli.png" alt="The Otis terminal interface showing an edit as a diff" width="100%"></td>
+  </tr>
+</table>
 
 ```sh
-otis update
+otis exec "Explain this repository"
+otis exec --continue --auto "Run the tests and fix the failure"
+otis exec --file requirements.pdf --file notes.docx "Compare these documents"
 ```
-
-## Why Otis
-
-- **Your machine, your state.** Configuration, sessions, tool activity, diffs, and usage statistics stay local.
-- **Your choice of open model.** Use an Otis-managed GGUF, let PAIR route across your computers, or use Fireworks
-  serverless when you want hosted performance.
-- **Desktop, terminal, or automation.** Use the native desktop app, the OpenTUI interface, or headless mode with the
-  same agent behavior and local sessions.
-- **Focused delegation.** Otis can hand off exploration and research to subagents whose work remains inspectable.
-- **Direct provider connections.** Hosted inference goes directly to Fireworks with your API key; web access goes
-  directly to Parallel's Search MCP.
-- **Inspectable history.** Append-only JSONL sessions preserve messages, tool cards, diffs, and provider-reported usage.
 
 ## How it works
 
 ```txt
 Desktop app / OpenTUI terminal / headless CLI
   └─ Otis shared application runtime
-      ├─ Conversation lifecycle, tools, permissions, and subagents
+      ├─ Conversation lifecycle, tools, permissions, and coworkers
       ├─ Private local configuration, sessions, diffs, and stats
       ├─ llama.cpp ── Otis-managed local GGUF inference
       ├─ NVIDIA PAIR ── routing across your local AI cluster
@@ -83,51 +136,27 @@ Desktop app / OpenTUI terminal / headless CLI
       └─ Parallel Search MCP ── web search and page reading
 ```
 
-## Get started
+## Models
 
-Open the desktop app or run `otis`, complete first-time setup, and choose where Otis thinks.
+**Managed local.** Setup opens a hardware-aware catalog, downloads a curated, checksum-verified GGUF, and runs it
+through an Otis-managed `llama-server` on `127.0.0.1`. For a good experience use Apple silicon with at least 24 GB
+of unified memory, or Linux with at least 24 GB of RAM; compatible NVIDIA GPUs use CUDA and other Linux GPUs use
+Vulkan. See [managed local inference](docs/local-inference.md).
 
-### Local inference
+**Local servers.** Connect Ollama or LM Studio through [NVIDIA PAIR](docs/nvidia-pair.md), which routes each request
+to an eligible computer in your cluster, or an [oMLX](docs/omlx.md) server on Apple silicon.
 
-Local inference offers managed models and connections to existing local servers:
-
-- **This machine** opens a hardware-aware catalog, downloads a curated and checksum-verified GGUF, and runs it through
-  an Otis-managed `llama-server` on `127.0.0.1`.
-- **NVIDIA PAIR** connects to PAIR's Ollama or LM Studio proxy on this computer. PAIR then routes each complete request
-  to an eligible computer in your cluster.
-- **oMLX** connects directly to an independently managed MLX server on loopback. Configure its endpoint and optional
-  API key in **Local servers**, then select one of its models. See [oMLX setup](docs/omlx.md).
-
-None of these paths requires a hosted inference API key. For a good managed-local experience, use Apple silicon with at least
-24 GB of unified memory, or Linux with at least 24 GB of RAM. Compatible NVIDIA GPUs use CUDA; other Linux GPUs use
-Vulkan. See [managed local inference](docs/local-inference.md) for compatibility and runtime requirements.
-
-PAIR is installed and managed separately. Otis pre-fills PAIR's standard loopback addresses; replace either one if the
-PAIR Endpoints window shows a custom port. At least one working endpoint is enough. See [NVIDIA PAIR](docs/nvidia-pair.md)
-for setup, routing, and model-metadata behavior.
-
-### Hosted inference
-
-Hosted inference uses your own Fireworks API key and has no local hardware requirement. Setup opens the key page and
-continues with a public serverless model that Fireworks marks as tool-capable.
-
-| Provider | Used for | Get a key |
-| --- | --- | --- |
-| Fireworks | Model discovery, inference, streaming, reasoning, and tool calling | [Fireworks API keys](https://app.fireworks.ai/api-keys) |
-
-You can enter the key during setup or provide it through the environment:
+**Hosted.** Fireworks with your own [API key](https://app.fireworks.ai/api-keys), entered during setup or from the
+environment:
 
 ```sh
 export FIREWORKS_API_KEY=fw_your_key
 otis
 ```
 
-Open `/model` at any time to switch between managed-local, configured local-server, and hosted models in one picker. The active
-model label identifies local models with `Local` and routed models with `NVIDIA PAIR`.
+`/model` in the terminal, or the model chip in the desktop composer, switches between all of them.
 
 ## Terminal commands
-
-The OpenTUI interface supports these commands and controls:
 
 | Command | Action |
 | --- | --- |
@@ -147,91 +176,28 @@ The OpenTUI interface supports these commands and controls:
 | `Esc` | Interrupt the active model turn |
 | `Ctrl+C` | Exit |
 
-Drag text files, PDFs, DOCX documents, or images into the terminal to attach them to the next message. Otis recognizes
-the shell-escaped paths emitted by common macOS and Linux terminals; terminals that expose binary clipboard data can
-also attach copied images directly. Numbered tokens appear in the composer, Backspace removes the last attachment when
-the input is empty, and attachments clear after the prompt enters the session. Only image attachments require a vision
-model.
+Drag text files, PDFs, DOCX documents, or images into the terminal or the desktop composer to attach them to the
+next message. Only image attachments need a vision model.
 
-In Otis Desktop, visual documents open in the session's Canvas. Markdown and self-contained HTML files
-refresh automatically when the agent reads, writes, or edits them; the workspace file remains the source of truth, so
-the editing behavior is identical in terminal and headless modes. PDF and DOCX files render from their preserved
-source bytes. The format-aware `edit_document` tool can replace exact text in workspace DOCX files without flattening
-their OOXML structure and fill interactive PDF forms. It creates a validated sibling copy by default. Replacing an
-original requires an explicit request and stores the previous version in Otis's private local backup directory. The
-plain-text editing tools continue to reject PDF, Word, and other binary files.
+## Documents and artifacts
 
-Code, configuration, and raw text attachments remain in the conversation and available to tools without opening
-Canvas. Canvas's **Save a copy** action exports the original document or selected saved revision through the native
-Save dialog. It never exports the HTML used to preview a Word document or converts a file by changing its extension.
-
-The bundled `documents` skill edits supported PDF text in its original font and paragraph space, verifies the saved
-text, and compares rendered pages to ensure surrounding artwork stays unchanged. It also provides local PDF/DOCX
-generation, Word-to-PDF conversion, and PDF page rendering. `save_attachment` gives tools a private workspace copy
-of the original upload, including after conversation compaction. No manual skill download is needed. The workflow
-defaults to preserving existing design and the requested format; generating a new layout needs the user's agreement.
-The structured `document` tool prepares and verifies pinned dependencies once in a private environment shared across
-workspaces, then validates outputs before delivery. Python 3.10+ must be installed; Word-to-PDF conversion also needs
-LibreOffice. See [Document workflows](docs/document-workflows.md)
-for capabilities and limits.
-
-For finished deliverables, `publish_artifact` saves a private, immutable preview copy and adds it to the conversation.
-This works for files generated or moved by shell commands too; shell output and Markdown links alone do not create
-artifact cards. Published copies survive later source edits, moves, or deletion and are restored with the session.
-Each new artifact receives an ID. Publish again with that `artifact_id` after editing or moving the same deliverable
-to add a revision; titles and file names are not used to guess identity. Cards open the latest revision. Canvas's
-version selector can pin an older revision or follow the latest one. Saved revisions and live working files are
-visibly distinguished. The selected working file refreshes after external or shell edits, including atomic replacement
-and deletion/recreation; a missing source is reported rather than silently showing an older copy.
-
-Publishing an external file asks for permission for that exact file (or follows an explicit permission rule), even in
-auto mode. It does not grant general filesystem access or edit permission. Terminal and headless runs use the same
-publication and permission logic; graphical previews are Desktop-only. Copies are stored in a private
-`<session>.jsonl.artifacts/` directory beside the owning session, deduplicated within that session. Deleting the session
-also removes its saved copies, without deleting source files or another session's copies. Ephemeral headless runs do
-not offer publication, since they have no owning session.
-Publication preserves one file, not its linked assets or JavaScript dependencies; webpage rendering policy is unchanged.
-
-## Headless execution
-
-Use `otis exec` in scripts, CI jobs, containers, or server workers. It runs the same agent turn engine without starting
-OpenTUI.
-
-```sh
-otis exec "Explain this repository"
-otis exec --continue --auto "Run the tests and fix the failure"
-otis exec --image screenshot.png "Explain this error"
-otis exec --file requirements.pdf --file notes.docx "Compare these documents"
-```
-
-Plain output reserves stdout for the final response. JSON and streaming JSONL are available for programmatic use.
-Headless mode never prompts and denies unmatched mutating calls, including document operations other than `check`, unless policy or
-`--auto` permits them.
-External artifact publication without an explicit allow rule requires interactive approval and is denied in headless
-mode, including with `--auto`.
-Run `otis exec --help` or read [Headless execution](docs/headless.md) for formats, sessions, limits, permissions, and
-file attachments.
+Otis reads PDF and Word files from their original bytes, edits DOCX text in place without flattening the document,
+fills PDF forms, and generates new PDF and Word files through the bundled `documents` skill. Finished deliverables
+are published as immutable, versioned copies that survive later edits and restore with the session. Publishing a
+file outside the workspace always asks for permission for that exact file. See
+[document workflows](docs/document-workflows.md) for capabilities and limits.
 
 ## Local data and privacy
 
-If a model response is cut off or contains malformed tool arguments, Otis skips that response's tool calls and
-automatically retries once with instructions to use smaller steps. Earlier completed actions are not replayed.
-The GUI and terminal keep the normal working indicator during recovery, without retry labels or raw parsing errors.
-Machine-readable JSONL output retains a retry event for diagnostics. Existing sessions with malformed
-tool arguments remain usable: outgoing requests omit the invalid argument text and include an explicit failure
-result, while the original local session record stays intact. Normal conversation context is still sent; retries
-do not append a duplicate copy of the conversation. If recovery fails again, Otis stops with a readable error.
+Otis writes private configuration and append-only sessions to standard platform user directories; set `OTIS_HOME`
+to keep everything under one location. Provider keys are never written to sessions, transcripts, tool results, or
+usage records. Managed inference stays on loopback, hosted prompts go directly to Fireworks (which documents Zero
+Data Retention for open-model inference by default), web requests go directly to Parallel, and PAIR owns traffic
+within your cluster.
 
-Otis writes private configuration and append-only sessions to standard platform user directories. Set `OTIS_HOME` to
-keep all state under one location. Provider keys are never written to sessions, transcripts, tool results, or usage
-records.
-
-Managed inference stays on loopback. Hosted prompts go directly to Fireworks, which documents Zero Data Retention for
-open-model inference by default unless the user opts in; service metadata such as token counts may still be recorded.
-Web requests go directly to Parallel, and PAIR owns traffic within the user's cluster.
-
-Read [Local data and privacy](docs/data-and-privacy.md) for paths and retention details, [the architecture guide](docs/architecture.md)
-for complete runtime boundaries, and [SECURITY.md](SECURITY.md) for private vulnerability reporting.
+Read [local data and privacy](docs/data-and-privacy.md) for paths and retention, the
+[architecture guide](docs/architecture.md) for runtime boundaries, and [SECURITY.md](SECURITY.md) for private
+vulnerability reporting.
 
 ## Documentation
 
@@ -240,6 +206,7 @@ for complete runtime boundaries, and [SECURITY.md](SECURITY.md) for private vuln
 - [oMLX](docs/omlx.md) — connect an MLX server, authentication, and model metadata
 - [NVIDIA PAIR](docs/nvidia-pair.md) — endpoint setup, routing, inventory, and metadata
 - [Headless execution](docs/headless.md) — output formats, limits, sessions, and attachments
+- [Document workflows](docs/document-workflows.md) — reading, editing, generating, and publishing documents
 - [Agent Skills](docs/agent-skills.md) — authoring, precedence, Git-backed collections, and trust
 - [Tool permissions](docs/tool-permissions.md) — modes, rule syntax, and policy precedence
 - [Local data and privacy](docs/data-and-privacy.md) — storage, secrets, sessions, and network boundaries
@@ -255,29 +222,18 @@ cd otis
 bun install --frozen-lockfile
 bun run dev          # OpenTUI terminal interface
 bun run dev:desktop  # Otis Dev, alongside the installed app
+bun run dev:demo     # the desktop app with simulated sessions, for UI work
 ```
 
-Desktop development uses a persistent, separate `otis-dev` profile in the platform's application-data directory
-(`~/Library/Application Support/otis-dev` on macOS). On first launch it imports your installed Otis configuration,
-including saved API keys, and reuses complete model downloads through copy-on-write filesystem clones where supported
-(otherwise local copies). Existing dev configuration and model files are never overwritten. Later settings changes,
-sessions, runtime processes, and model deletions are independent; deleting a dev model does not delete the installed
-app's copy or re-import it on the next launch. Workspace files are still the actual files you open.
-No commit or release is needed to test changes. `bun run dev:demo` uses simulated responses for UI work instead.
-
-`OTIS_DEV_USER_DATA` overrides the development profile location. An explicit `OTIS_HOME` overrides Otis's settings,
-sessions, and runtime location independently. Either override disables automatic import for isolated tests.
-
-If the desktop renderer crashes, Otis stops the active task and offers to reload the window from the current session;
-reloading does not restart interrupted work or queued prompts. `bun run test:desktop:lifecycle` checks this recovery
-in an isolated Electron process, including loss of the development launcher's output pipes.
-
-Read [CONTRIBUTING.md](CONTRIBUTING.md) for source boundaries, testing guidance, and the verification checklist.
+Desktop development uses a separate `otis-dev` profile that imports your installed configuration on first launch and
+reuses complete model downloads; later changes are independent. `OTIS_DEV_USER_DATA` overrides the profile location
+and `OTIS_HOME` overrides Otis's data location. Read [CONTRIBUTING.md](CONTRIBUTING.md) for source boundaries,
+testing guidance, and the verification checklist.
 
 ## License
 
 Otis is released under the [MIT License](LICENSE). Copyright © 2026 Triangl Labs.
 
-The terminal interface is built with [OpenTUI](https://github.com/anomalyco/opentui). Otis-managed local inference uses
-[llama.cpp](https://github.com/ggml-org/llama.cpp); PAIR remains a separately installed application. See
+The terminal interface is built with [OpenTUI](https://github.com/anomalyco/opentui). Otis-managed local inference
+uses [llama.cpp](https://github.com/ggml-org/llama.cpp); PAIR remains a separately installed application. See
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for bundled third-party license notices.

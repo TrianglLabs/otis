@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { unreportedContextLimitError } from "../inference/context-policy.js"
-import { ContextOverflowError } from "../inference/errors.js"
+import { ContextOverflowError, describeError } from "../inference/errors.js"
 import { lastAssistantText, userMessageAttachments } from "../inference/messages.js"
 import { hasObjectArguments } from "../inference/openai-compat.js"
 import { buildSystemPrompt } from "../inference/system-prompt.js"
@@ -114,6 +114,8 @@ const SUBAGENT_TOOLS: ReadonlySet<ToolName> = new Set([
   "skill",
 ])
 const MAX_TOOL_OUTPUT_CHARS = 16_000
+/** Past this share of the compaction threshold an estimate is too coarse to trust. */
+const RECOUNT_SHARE = 0.5
 
 export async function* runAgent(
   input: string | UserChatMessage,
@@ -222,7 +224,14 @@ export async function* runAgent(
         yield contextEvent()
       }
       options.signal?.throwIfAborted()
-      if (options.client.countTokens && recoveryBudget === undefined) {
+      // A serving tokenizer's count is a full-history request. The previous response's usage is
+      // exact for everything but the tool results since, so recount only until an exact base
+      // exists or once the estimate nears the threshold.
+      if (
+        options.client.countTokens &&
+        recoveryBudget === undefined &&
+        (!observed?.exact || contextTokens(messages) >= threshold * RECOUNT_SHARE)
+      ) {
         observed = { tokens: await count(messages), estimate: estimate(messages), exact: true }
         yield contextEvent()
       }
@@ -480,11 +489,7 @@ export async function* runAgent(
       yield { type: "interrupted", messages: messages.slice(turnStart) }
       return
     }
-    yield {
-      type: "error",
-      message: error instanceof Error ? error.message : String(error),
-      messages: messages.slice(turnStart),
-    }
+    yield { type: "error", message: describeError(error), messages: messages.slice(turnStart) }
   }
 }
 

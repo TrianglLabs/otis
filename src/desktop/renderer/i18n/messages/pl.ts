@@ -257,6 +257,9 @@ export const pl: Messages = {
   "settings.behavior": "Działanie",
   "settings.thinkingTraces": "Ślady rozumowania",
   "settings.toggleThinking": "Pokaż lub ukryj ślady rozumowania modelu",
+  "settings.notifyOnCompletion": "Powiadamiaj o zakończeniu sesji",
+  "settings.toggleNotify":
+    "Pokaż powiadomienie systemowe, gdy sesja zakończy się, a Otis nie jest na wierzchu",
   "settings.fastServing": "Szybka inferencja",
   "settings.fastUnavailable": "Szybka inferencja nie jest dostępna dla tego modelu",
   "settings.toggleFast": "Przełącz szybką inferencję",

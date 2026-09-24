@@ -74,6 +74,7 @@ const SNAPSHOT: DesktopSnapshot = {
   theme: "default",
   language: "system",
   thinkingVisible: false,
+  notifyOnCompletion: true,
   permissionMode: "ask",
   localThinking: null,
   fastServing: { available: false, enabled: false },

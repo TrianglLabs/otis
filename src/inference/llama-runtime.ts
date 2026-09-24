@@ -23,7 +23,7 @@ import {
   llamaServerRecordsDirectory,
 } from "../local/paths.js"
 import { LOCAL_MIN_CONTEXT_LENGTH } from "./context-policy.js"
-import { errorMessage, inferenceResponseError } from "./errors.js"
+import { describeError, inferenceResponseError } from "./errors.js"
 import {
   acquireDownloadLock,
   ensureLocalGguf,
@@ -136,7 +136,12 @@ class LlamaServerExitError extends Error {
     const termination = child.signalCode
       ? `signal ${child.signalCode}`
       : `code ${child.exitCode ?? "unknown"}`
-    super(`llama-server exited before becoming ready: ${output.trim() || termination}`)
+    const last = output.trim().split("\n").at(-1)?.trim() ?? ""
+    super(
+      `The local model server stopped before it was ready (${termination}): ${
+        last.length > 200 ? `…${last.slice(-200)}` : last || "no diagnostic output"
+      }`,
+    )
   }
 }
 
@@ -452,7 +457,7 @@ export class LlamaCppRuntime {
     } catch (error) {
       // Keep the abandoned backend's cause with whatever failed after it.
       if (!failures.length || signal.aborted) throw error
-      throw new Error(`${errorMessage(error)}\nEarlier: ${failures.join("; ")}.`, { cause: error })
+      throw new Error(`${describeError(error)}\nEarlier: ${failures.join("; ")}.`, { cause: error })
     }
   }
 
@@ -708,7 +713,7 @@ export class LlamaCppRuntime {
       }
     } catch (error) {
       // A driver can be installed while unavailable inside this process/container.
-      failure = errorMessage(error)
+      failure = describeError(error).replace(/\.$/, "")
     }
     signal.throwIfAborted()
     failures.push(`${label} failed (${failure})`)
@@ -815,7 +820,7 @@ export class LlamaCppRuntime {
       } catch (error) {
         signal.throwIfAborted()
         throw new Error(
-          `Could not read the context selected by llama-server: ${errorMessage(error)}`,
+          `Could not read the context selected by llama-server: ${describeError(error)}`,
         )
       }
       if (!response.ok) {
@@ -827,7 +832,7 @@ export class LlamaCppRuntime {
       try {
         body = await response.json()
       } catch (error) {
-        throw new Error(`llama-server returned invalid runtime properties: ${errorMessage(error)}`)
+        throw new Error(`llama-server returned invalid runtime properties: ${describeError(error)}`)
       }
       const settings = (body as { default_generation_settings?: { n_ctx?: unknown } } | null)
         ?.default_generation_settings
@@ -871,7 +876,7 @@ export class LlamaCppRuntime {
       let timeout: ReturnType<typeof setTimeout> | undefined
       const resetTimeout = () => {
         clearTimeout(timeout)
-        timeout = setTimeout(() => request.abort(retryable("the request timed out.")), timeoutMs)
+        timeout = setTimeout(() => request.abort(retryable("The request timed out.")), timeoutMs)
       }
       let response: Response | undefined
       let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
@@ -893,13 +898,13 @@ export class LlamaCppRuntime {
             })
           } catch (error) {
             requestSignal.throwIfAborted()
-            throw retryable(errorMessage(error))
+            throw retryable(describeError(error))
           }
           requestSignal.throwIfAborted()
           resetTimeout()
           if (response.status === 416) {
             discardPartial = true
-            throw retryable("the server rejected the resumed byte range.")
+            throw retryable("The server rejected the resumed byte range.")
           }
           if (!response.ok) {
             const message = `Could not download llama.cpp (HTTP ${response.status}).`
@@ -917,7 +922,7 @@ export class LlamaCppRuntime {
               Number.isFinite(ms) && ms >= 0 ? Math.min(ms, MAX_RETRY_AFTER_MS) : undefined
             throw new RetryableRuntimeDownloadError(message, retryAfterMs)
           }
-          if (!response.body) throw retryable("empty response body.")
+          if (!response.body) throw retryable("Empty response body.")
           const start = resumedBytes > 0 && response.status === 206 ? resumedBytes : 0
           if (start > 0) {
             const range = response.headers.get("content-range")?.match(/^bytes (\d+)-(\d+)\/(\d+)$/)
@@ -928,7 +933,7 @@ export class LlamaCppRuntime {
               Number(range[3]) !== asset.size
             ) {
               discardPartial = true
-              throw retryable("the server returned an invalid byte range.")
+              throw retryable("The server returned an invalid byte range.")
             }
           }
           const contentLengthHeader = response.headers.get("content-length")
@@ -938,10 +943,10 @@ export class LlamaCppRuntime {
             contentLength !== undefined &&
             (!Number.isSafeInteger(contentLength) || contentLength < 0)
           ) {
-            throw retryable("the server returned an invalid content length.")
+            throw retryable("The server returned an invalid content length.")
           }
           if (contentLength !== undefined && contentLength !== asset.size - start) {
-            throw retryable(`expected ${asset.size - start} bytes but received ${contentLength}.`)
+            throw retryable(`Expected ${asset.size - start} bytes but received ${contentLength}.`)
           }
           const hash = createHash("sha256")
           if (start > 0) await hashFile(partial, hash)
@@ -954,7 +959,7 @@ export class LlamaCppRuntime {
               chunk = await reader.read()
             } catch (error) {
               requestSignal.throwIfAborted()
-              throw retryable(errorMessage(error))
+              throw retryable(describeError(error))
             }
             requestSignal.throwIfAborted()
             const { done, value } = chunk
@@ -963,7 +968,7 @@ export class LlamaCppRuntime {
             resetTimeout()
             if (received + value.byteLength > asset.size) {
               discardPartial = true
-              throw retryable("the response exceeded the pinned artifact size.")
+              throw retryable("The response exceeded the pinned artifact size.")
             }
             await file.writeFile(value)
             hash.update(value)
@@ -972,7 +977,7 @@ export class LlamaCppRuntime {
           clearTimeout(timeout)
           signal?.throwIfAborted()
           if (received !== asset.size)
-            throw retryable(`expected ${asset.size} bytes but received ${received}.`)
+            throw retryable(`Expected ${asset.size} bytes but received ${received}.`)
           if (hash.digest("hex") !== asset.sha256) {
             discardPartial = true
             throw retryable("SHA-256 verification failed.")
@@ -1083,7 +1088,7 @@ async function checkLlamaGeneration(options: {
     if (timeout.aborted)
       throw new Error("The local model loaded, but its generation check timed out.")
     throw new Error(
-      `The local model loaded, but its generation check failed: ${errorMessage(error)}`,
+      `The local model loaded, but its generation check failed: ${describeError(error)}`,
     )
   } finally {
     await response?.body?.cancel().catch(() => {})

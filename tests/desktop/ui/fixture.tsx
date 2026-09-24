@@ -1,4 +1,4 @@
-import type { MouseInputEvent } from "electron"
+import type { KeyboardInputEvent, MouseInputEvent } from "electron"
 import { createRoot } from "react-dom/client"
 import type { TranscriptEntry } from "../../../src/app/transcript.js"
 import type { ArtifactMetadata, PublishedArtifactReference } from "../../../src/artifacts/types.js"
@@ -41,7 +41,8 @@ const LOCALES = LANGUAGE_OPTIONS.flatMap((option) =>
 let inputId = 0
 async function nativeInput(request: {
   size?: [number, number]
-  events?: MouseInputEvent[]
+  focus?: boolean
+  events?: (KeyboardInputEvent | MouseInputEvent)[]
   screenshot?: boolean
   screenshotName?: string
 }) {
@@ -350,16 +351,41 @@ async function runDesktopUiChecks() {
     "Inference is not the initial settings section",
   )
   assert(
-    element(".settingsProviderCards").previousElementSibling?.textContent === "Providers",
-    "Provider cards have no title",
+    element("#settings-panel-providers h2").textContent === "Providers",
+    "Provider section has no title",
   )
-  const providerCards = Array.from(document.querySelectorAll<HTMLElement>(".settingsCard-provider"))
-  assert(providerCards.length === 2, "Provider settings are not grouped into separate cards")
-  assert(
-    getComputedStyle(providerCards[0]).backgroundColor !== "rgba(0, 0, 0, 0)",
-    "Settings card has no background",
-  )
-  providerCards[1].querySelector("button")?.click()
+  const providers = Array.from(document.querySelectorAll<HTMLElement>(".settingsProvider"))
+  assert(providers.length === 2, "Provider settings are incomplete")
+  for (const provider of providers) {
+    const button = provider.querySelector("button")
+    assert(button, "Provider has no button")
+    const bounds = button.getBoundingClientRect()
+    await nativeInput({
+      events: [
+        { type: "mouseMove", x: Math.round(bounds.left + 20), y: Math.round(bounds.top + 20) },
+      ],
+    })
+    assert(
+      getComputedStyle(button).color === getComputedStyle(settingsShell).color,
+      "Provider text gains an accent on hover",
+    )
+  }
+  const usageDay = element(
+    '.settingsUsage-barSlot:not([data-empty="true"])',
+  ).getBoundingClientRect()
+  await nativeInput({
+    events: [
+      {
+        type: "mouseMove",
+        x: Math.round(usageDay.x + usageDay.width / 2),
+        y: Math.round(usageDay.y + usageDay.height / 2),
+      },
+    ],
+  })
+  await pause()
+  await nativeInput({ screenshot: true, screenshotName: "settings-usage-highlight" })
+  await nativeInput({ events: [{ type: "mouseMove", x: 500, y: 100 }] })
+  providers[1].querySelector("button")?.click()
   await until(
     () => !!document.querySelector("#settings-omlx-key"),
     "Local server settings did not open",
@@ -374,17 +400,19 @@ async function runDesktopUiChecks() {
   settingsTabs[1].click()
   await until(() => !!document.querySelector(".themeGrid"), "Appearance tab did not open")
   assert(
-    document.querySelectorAll(".settingsCard").length === 2,
-    "Appearance settings are not grouped into cards",
+    element(".settingsPage-title").textContent === "Appearance",
+    "Settings page does not identify the active section",
   )
   assert(
-    document.querySelectorAll(".settingsGroup > .settings-section").length === 2,
-    "Appearance section titles are not outside their cards",
+    document.querySelectorAll(".themeTile").length === 12,
+    "Appearance does not offer every theme",
   )
   assert(
     element('[role="tabpanel"]').getAttribute("aria-labelledby") === settingsTabs[1].id,
     "Settings panel is not labelled by its active tab",
   )
+  await pause()
+  await nativeInput({ screenshot: true, screenshotName: "settings-appearance" })
   element<HTMLButtonElement>('[aria-label="Close settings (Esc)"]').click()
   await until(() => !document.querySelector(".settingsLayer"), "Settings did not unmount on close")
   assert(element(".transcriptScroll") === scroll, "Settings replaced the conversation")
@@ -1484,6 +1512,41 @@ async function runDesktopUiChecks() {
   }
   status({ modelState: "ready", modelLoad: null })
 
+  // The catalog stays readable in both light and dark palettes and scrolls inside small windows.
+  for (const theme of ["default", "pearl"] as const) {
+    status({ theme })
+    element<HTMLButtonElement>(".composer-model").click()
+    await until(
+      () => !!document.querySelector(".modelPicker-row.active"),
+      "Selected model did not appear",
+    )
+    await pause(200)
+    await nativeInput({ screenshot: true, screenshotName: `model-picker-${theme}` })
+    const size: [number, number] = [window.innerWidth, window.innerHeight]
+    await nativeInput({ size: [500, 650] })
+    await pause()
+    const picker = element(".modelPicker")
+    const bounds = picker.getBoundingClientRect()
+    const list = element(".modelPicker-list")
+    assert(
+      bounds.left >= 0 && bounds.right <= window.innerWidth && bounds.bottom <= window.innerHeight,
+      "Model picker extends outside a small window",
+    )
+    assert(list.scrollWidth === list.clientWidth, "Model metadata overflows the catalog")
+    const lastRow = element(".modelPicker-row:last-child")
+    lastRow.scrollIntoView({ block: "nearest" })
+    await pause()
+    assert(
+      lastRow.getBoundingClientRect().bottom <= bounds.bottom,
+      "Last model cannot be reached by scrolling",
+    )
+    await nativeInput({ screenshot: true, screenshotName: `model-picker-${theme}-compact` })
+    element<HTMLButtonElement>(".modelPicker-title button").click()
+    await nativeInput({ size })
+    await pause()
+  }
+  status({ theme: "default" })
+
   // Select each new palette through the same controls users use, with the conversation still
   // mounted.
   api.setTheme = async (theme) => status({ theme })
@@ -1596,9 +1659,111 @@ async function runDesktopUiChecks() {
   status({ update: { status: "current" } })
   await nativeInput({ size: [1000, 850] })
 
+  await nativeInput({ focus: true })
+  for (const [section, value] of [
+    ["appearance", "en"],
+    ["general", "ask"],
+  ] as const) {
+    const tab = element<HTMLButtonElement>(`#settings-tab-${section}`)
+    tab.click()
+    await pause()
+    const select = element<HTMLSelectElement>(".settingsSelect")
+    const previous = select.value
+    tab.focus()
+    await nativeInput({
+      events: [
+        { type: "keyDown", keyCode: "Tab" },
+        { type: "keyUp", keyCode: "Tab" },
+      ],
+    })
+    assert(document.activeElement === select, "Tab did not reach the settings dropdown")
+    assert(
+      getComputedStyle(select).outlineStyle === "solid",
+      `Dropdown has no keyboard focus ring: ${JSON.stringify({
+        pageFocused: document.hasFocus(),
+        focused: select.matches(":focus"),
+        focusVisible: select.matches(":focus-visible"),
+        pointer: element(".settingsPage").dataset.pointerInput,
+        style: getComputedStyle(select).outline,
+      })}`,
+    )
+    select.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }))
+    select.value = value
+    select.dispatchEvent(new Event("change", { bubbles: true }))
+    await pause()
+    assert(getComputedStyle(select).outlineStyle === "none", "Pointer selection keeps a focus ring")
+    assert(document.activeElement === select, "Selection loses keyboard navigation position")
+    tab.focus()
+    await nativeInput({
+      events: [
+        { type: "keyDown", keyCode: "Tab" },
+        { type: "keyUp", keyCode: "Tab" },
+      ],
+    })
+    assert(document.activeElement === select, "Keyboard navigation did not return to the dropdown")
+    assert(getComputedStyle(select).outlineStyle === "solid", "Keyboard focus ring is missing")
+    select.value = previous
+    select.dispatchEvent(new Event("change", { bubbles: true }))
+    await pause()
+  }
+  await nativeInput({ focus: false })
+
   element<HTMLButtonElement>('[aria-label="Close settings (Esc)"]').click()
-  status({ model: null, modelState: "unconfigured" })
+  const newSession = api.startNewSession
+  const pickFolder = api.pickWorkspaceFolder
+  let shortcutSessions = 0
+  let shortcutFolders = 0
+  api.startNewSession = async () => {
+    shortcutSessions++
+    return { ok: true }
+  }
+  api.pickWorkspaceFolder = async () => {
+    shortcutFolders++
+    return undefined
+  }
+  await pause()
+  await nativeInput({ focus: true })
+  for (const selector of [".composer textarea", ".canvas-frame"]) {
+    const target = element(selector)
+    const bounds = target.getBoundingClientRect()
+    const point = { x: Math.round(bounds.left + 20), y: Math.round(bounds.top + 20) }
+    await nativeInput({
+      events: [
+        { type: "mouseDown", ...point, button: "left", clickCount: 1 },
+        { type: "mouseUp", ...point, button: "left", clickCount: 1 },
+      ],
+    })
+    assert(document.activeElement === target, `Shortcut test did not focus ${selector}`)
+    for (const keyCode of ["n", "o"]) {
+      await nativeInput({
+        events: [
+          { type: "keyDown", keyCode, modifiers: ["meta"] },
+          { type: "keyUp", keyCode, modifiers: ["meta"] },
+        ],
+      })
+    }
+    assert(shortcutSessions === 1, `New-session shortcut did not run once from ${selector}`)
+    assert(shortcutFolders === 1, `Open-folder shortcut did not run once from ${selector}`)
+    shortcutSessions = 0
+    shortcutFolders = 0
+  }
+  api.startNewSession = newSession
+  api.pickWorkspaceFolder = pickFolder
+  await nativeInput({ focus: false })
+  status({ model: null, modelState: "unconfigured", hostedConfigured: false })
   await until(() => !!document.querySelector(".onboarding"), "Onboarding did not open")
+  for (const theme of ["default", "pearl"] as const) {
+    status({ theme })
+    await pause(250)
+    await nativeInput({ screenshot: true, screenshotName: `onboarding-welcome-${theme}` })
+  }
+  status({ theme: "default" })
+  element<HTMLButtonElement>(".onboarding-cards button:first-child").click()
+  await until(() => !!document.querySelector(".onboarding-keyRow"), "Hosted setup did not open")
+  await pause(250)
+  await nativeInput({ screenshot: true, screenshotName: "onboarding-hosted" })
+  element<HTMLButtonElement>(".onboarding-topbar .btn").click()
+  await until(() => !!document.querySelector(".onboarding-cards"), "Onboarding did not go back")
   element<HTMLButtonElement>(".onboarding-cards button:last-child").click()
   await until(
     () => !!document.querySelector(".onboarding-providerMarks"),

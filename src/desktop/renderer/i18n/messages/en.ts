@@ -247,6 +247,9 @@ export const en = {
   "settings.behavior": "Behavior",
   "settings.thinkingTraces": "Thinking traces",
   "settings.toggleThinking": "Show or hide model thinking traces",
+  "settings.notifyOnCompletion": "Notify when a session finishes",
+  "settings.toggleNotify":
+    "Show a system notification when a session finishes while Otis is not in front",
   "settings.fastServing": "Fast serving",
   "settings.fastUnavailable": "Fast serving is not available for this model",
   "settings.toggleFast": "Toggle Fast serving",

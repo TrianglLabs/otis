@@ -299,7 +299,7 @@
   width: 38px;
   height: 42px;
   gap: 2px;
-  color: var(--text-muted);
+  color: var(--text-dim);
 }
 
 .fileTypeIcon > span {
@@ -347,7 +347,7 @@
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background: color-mix(in srgb, var(--bg-elev) 70%, var(--bg));
+  background: var(--bg-surface);
   text-align: left;
   transition: background-color var(--motion) ease;
 }

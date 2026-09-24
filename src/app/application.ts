@@ -5,7 +5,7 @@ import { loadProjectContext } from "../core/context.js"
 import { validateAttachments } from "../inference/attachments.js"
 import { FireworksClient, listToolCapableModels } from "../inference/client.js"
 import { requireLocalContextLength } from "../inference/context-policy.js"
-import { errorMessage } from "../inference/errors.js"
+import { describeError } from "../inference/errors.js"
 import { deleteLocalGguf, listDownloadedLocalModels } from "../inference/gguf-cache.js"
 import { validateImageAttachments } from "../inference/images.js"
 import { formatLocalLoadStatus } from "../inference/llama-runtime.js"
@@ -508,14 +508,20 @@ export class Application {
   /** A fresh session: the focused runtime resets in place when idle, else a new one takes focus. */
   openNew(): SessionRuntime {
     if (this.#focused.busy) {
-      const runtime = this.#createRuntime()
-      this.#runtimes.push(runtime)
+      const runtime = this.addRuntime()
       this.focus(runtime)
       return runtime
     }
     this.#focused.sessions.startNew()
     this.#focused.readOnly = undefined
     return this.#focused
+  }
+
+  /** A fresh, unfocused runtime; the caller places it and focuses it. */
+  addRuntime(): SessionRuntime {
+    const runtime = this.#createRuntime()
+    this.#runtimes.push(runtime)
+    return runtime
   }
 
   /** Shows a runtime: its transcript replaces the view and its completion is seen. */
@@ -527,6 +533,11 @@ export class Application {
     this.#notify({ type: "status" }, runtime.id)
   }
 
+  /** A runtime the interface no longer shows, with no session and no work, has nothing to keep. */
+  closeIfEmpty(runtime: SessionRuntime) {
+    if (!runtime.busy && !runtime.sessions.current) void this.closeRuntime(runtime)
+  }
+
   /** Refused while the runtime is mid-turn. Closing the last runtime leaves a fresh empty one. */
   async closeRuntime(runtime: SessionRuntime): Promise<"closed" | "working"> {
     if (runtime.busy) return "working"
@@ -536,6 +547,7 @@ export class Application {
     if (this.#runtimes.length === 0) this.#runtimes.push(this.#createRuntime())
     if (runtime === this.#focused)
       this.focus(this.#runtimes[Math.min(index, this.#runtimes.length - 1)])
+    else this.#notify({ type: "status" })
     await runtime.dispose()
     return "closed"
   }
@@ -773,7 +785,7 @@ export class Application {
     try {
       return await this.#connectLocalServers(input, options)
     } catch (error) {
-      if (models.selectedId && !models.client) models.setState("failed", errorMessage(error))
+      if (models.selectedId && !models.client) models.setState("failed", describeError(error))
       throw error
     }
   }
@@ -865,7 +877,7 @@ export class Application {
         if (queued.aborted) return "superseded" as const
         if (superseded() || isAbortError(error)) throw error
         models.setLoad(undefined)
-        models.setState("failed", errorMessage(error))
+        models.setState("failed", describeError(error))
         throw error
       }
       if (superseded()) return result
@@ -980,7 +992,7 @@ export class Application {
         })
       } catch (error) {
         if (signal.aborted || isAbortError(error)) return CANCELLED
-        return { ok: false, reason: errorMessage(error) }
+        return { ok: false, reason: describeError(error) }
       }
       if (options.fireworksApiKey) this.fireworksApiKey = options.fireworksApiKey
       this.#notify({ type: "status" })
@@ -1022,7 +1034,7 @@ export class Application {
           catalog = await listToolCapableModels(apiKey, { signal })
         }
       } catch (error) {
-        return { ok: false, reason: errorMessage(error) }
+        return { ok: false, reason: describeError(error) }
       }
       const model = findFireworksModel(catalog, selectedId)
       if (!model?.fastId) return { ok: false, reason: NO_FAST_SERVING }
@@ -1035,7 +1047,7 @@ export class Application {
         })
       } catch (error) {
         if (signal.aborted || isAbortError(error)) return CANCELLED
-        return { ok: false, reason: errorMessage(error) }
+        return { ok: false, reason: describeError(error) }
       }
       const enabled = new Set(this.settings.fastServingModels ?? [])
       if (fast) enabled.add(model.id)
@@ -1108,11 +1120,11 @@ export class Application {
             } catch (rollbackError) {
               failure = new AggregateError(
                 [error, rollbackError],
-                `${errorMessage(error)} The active local model could not be restored.`,
+                `${describeError(error)} The active local model could not be restored.`,
               )
             }
           }
-          throw new Error(`Could not delete ${spec.displayName}: ${errorMessage(failure)}`)
+          throw new Error(`Could not delete ${spec.displayName}: ${describeError(failure)}`)
         }
         if (active) models.clearActive()
         return { wasActive: active, remaining: await listDownloadedLocalModels() }

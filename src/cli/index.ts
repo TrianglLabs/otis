@@ -1,4 +1,5 @@
 import { Console } from "node:console"
+import { describeError } from "../inference/errors.js"
 import { runHeadlessCommand } from "./headless-cli.js"
 import { runSkillsCommand } from "./skills-cli.js"
 import { runUpdateCommand } from "./update.js"
@@ -46,6 +47,6 @@ try {
     }
   }
 } catch (error) {
-  console.error(`Error: ${error instanceof Error ? error.message : String(error)}`)
+  console.error(`Error: ${describeError(error)}`)
   process.exitCode = 1
 }

@@ -252,6 +252,9 @@ export const ptBR: Messages = {
   "settings.behavior": "Comportamento",
   "settings.thinkingTraces": "Rastreamentos de raciocínio",
   "settings.toggleThinking": "Mostrar ou ocultar os rastreamentos de raciocínio do modelo",
+  "settings.notifyOnCompletion": "Avisar ao terminar uma sessão",
+  "settings.toggleNotify":
+    "Mostrar uma notificação do sistema quando uma sessão terminar enquanto o Otis não está à frente",
   "settings.fastServing": "Inferência rápida",
   "settings.fastUnavailable": "A inferência rápida não está disponível para este modelo",
   "settings.toggleFast": "Alternar inferência rápida",

@@ -15,6 +15,7 @@
   --bg-elev: #262626;
   --bg-user: #1c1a2e;
   --bg-code: color-mix(in srgb, var(--bg-elev) 50%, var(--bg));
+  --bg-surface: color-mix(in srgb, var(--bg-elev) 70%, var(--bg));
   --bg-hover: color-mix(in srgb, var(--bg-elev) 94%, var(--text) 6%);
 
   /* Accent */

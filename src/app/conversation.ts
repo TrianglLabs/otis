@@ -1,7 +1,7 @@
 import { SteeringInbox } from "../core/agent.js"
 import { compactConversation, NOTHING_TO_COMPACT } from "../core/compaction.js"
 import { reportedContextLengthIsServing } from "../inference/context-policy.js"
-import { errorMessage } from "../inference/errors.js"
+import { describeError } from "../inference/errors.js"
 import { estimateTextTokens } from "../inference/messages.js"
 import type {
   ChatMessage,
@@ -151,7 +151,8 @@ export type ConversationEvent =
   | { type: "context"; tokens: number }
   | { type: "speed"; speed: TurnSpeed | null }
   | { type: "render"; scrollToBottom?: boolean }
-  | { type: "subagents" }
+  /** `streamed`: only a delegate's streamed text changed, none of the run summaries. */
+  | { type: "subagents"; streamed: boolean }
   | { type: "admitted"; message: UserChatMessage }
   | { type: "settled"; result: ConversationTurnResult }
 
@@ -275,7 +276,7 @@ export class Conversation {
       artifacts.observeMessage(message)
       return queued
     } catch (error) {
-      transcript.addDebugMessage(`Could not queue prompt: ${errorMessage(error)}`)
+      transcript.addDebugMessage(`Could not queue prompt: ${describeError(error)}`)
       throw error
     }
   }
@@ -301,7 +302,7 @@ export class Conversation {
       return "steered"
     } catch (error) {
       transcript.removeEntry(entry.id)
-      transcript.addDebugMessage(`Could not save steering message: ${errorMessage(error)}`)
+      transcript.addDebugMessage(`Could not save the steering message: ${describeError(error)}`)
       throw error
     }
   }
@@ -394,6 +395,7 @@ export class Conversation {
   }
 
   #setPhase(phase: TurnPhase) {
+    if (phase === this.phase) return
     this.phase = phase
     this.#emit({ type: "phase", phase })
   }
@@ -439,7 +441,7 @@ export class Conversation {
         session = queued?.session ?? (await this.options.sessions.ensure())
         admission = queued?.admission ?? (await session.admitPrompt(userMessage))
       } catch (error) {
-        transcript.addAssistantMessage(`Error: ${errorMessage(error)}`)
+        transcript.addAssistantMessage(`Error: ${describeError(error)}`)
         return { status: "error", messages: [], details: {} }
       }
 
@@ -573,7 +575,7 @@ export class Conversation {
                   this.#emit({ type: "indicator", active: true })
                 } else {
                   transcript.loadCompacted(event.summary, event.keptMessages)
-                  this.#emit({ type: "subagents" })
+                  this.#emit({ type: "subagents", streamed: false })
                   projector = new TranscriptProjector(transcript)
                   checkpointed = true
                 }
@@ -592,7 +594,13 @@ export class Conversation {
               }
               if (event.type === "subagent") {
                 subagents.apply(event)
-                this.#emit({ type: "subagents" })
+                const inner = event.event
+                this.#emit({
+                  type: "subagents",
+                  streamed:
+                    inner.type === "delta" ||
+                    (inner.type === "reasoning" && inner.phase === "delta"),
+                })
                 return
               }
               if (event.type === "context") {
@@ -638,7 +646,7 @@ export class Conversation {
           const messages = checkpointed ? [] : [admission.message]
           if (aborted()) result = interrupted(messages, {})
           else {
-            fail(errorMessage(error))
+            fail(describeError(error))
             result = { status: "error", messages, details: {} }
           }
         }
@@ -647,11 +655,11 @@ export class Conversation {
           await session[ended](admission, result.messages, result.details)
         } catch (error) {
           const what = result.status === "complete" ? "turn" : "interrupted turn"
-          transcript.addDebugMessage(`Could not save ${what}: ${errorMessage(error)}`)
+          transcript.addAssistantMessage(`Could not save the ${what}: ${describeError(error)}`)
         }
         return result
       } catch (error) {
-        transcript.addAssistantMessage(`Error: ${errorMessage(error)}`)
+        transcript.addAssistantMessage(`Error: ${describeError(error)}`)
         return { status: "error", messages: [], details: {} }
       } finally {
         unwatchGate()
@@ -659,7 +667,9 @@ export class Conversation {
         try {
           await steering.close()
         } catch (error) {
-          transcript.addDebugMessage(`Could not save steering message: ${errorMessage(error)}`)
+          transcript.addAssistantMessage(
+            `Could not save the steering message: ${describeError(error)}`,
+          )
         }
       }
     })
@@ -729,14 +739,14 @@ export class Conversation {
         transcript.loadCompacted(result.summary, kept)
       } catch (error) {
         if (signal.aborted) return
-        const message = errorMessage(error)
+        const message = describeError(error)
         transcript.addAssistantMessage(
           message === NOTHING_TO_COMPACT ? message : `Compaction failed: ${message}`,
         )
       } finally {
         unwatchGate()
         this.#emit({ type: "indicator", active: false })
-        this.#emit({ type: "subagents" })
+        this.#emit({ type: "subagents", streamed: false })
         this.#emit({ type: "render", scrollToBottom: true })
       }
     })

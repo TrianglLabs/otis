@@ -5,7 +5,7 @@ import {
   listToolCapableModels,
 } from "../inference/client.js"
 import { compactionContextLength, requireLocalContextLength } from "../inference/context-policy.js"
-import { errorMessage } from "../inference/errors.js"
+import { describeError } from "../inference/errors.js"
 import { detectHardware, type HardwareProbe } from "../inference/hardware.js"
 import {
   formatLocalLoadStatus,
@@ -501,7 +501,7 @@ export class ModelHost {
         } catch (rollbackError) {
           failure = new AggregateError(
             [error, rollbackError],
-            `${errorMessage(error)} The previous model could not be restored.`,
+            `${describeError(error)} The previous model could not be restored.`,
           )
         }
       }
@@ -509,7 +509,7 @@ export class ModelHost {
         this.setLoad(undefined)
         throw failure
       }
-      const message = errorMessage(failure)
+      const message = describeError(failure)
       if (!this.#client) this.setState("failed", message)
       this.setLoad({ modelId, status: { label: `Failed: ${message}`, kind: "error" } })
       throw failure
@@ -686,7 +686,7 @@ export class ModelHost {
       if (originalError === undefined) throw restoreError
       throw new AggregateError(
         [originalError, restoreError],
-        `${errorMessage(originalError)} The previous local model could not be restored.`,
+        `${describeError(originalError)} The previous local model could not be restored.`,
       )
     }
   }

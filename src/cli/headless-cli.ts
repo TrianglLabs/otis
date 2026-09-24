@@ -11,7 +11,7 @@ import {
   compactionContextLength,
   reportedContextLengthIsServing,
 } from "../inference/context-policy.js"
-import { errorMessage } from "../inference/errors.js"
+import { describeError } from "../inference/errors.js"
 import { loadImageFiles } from "../inference/images.js"
 import { findLocalModel, isLocalModelId } from "../inference/local-catalog.js"
 import {
@@ -58,7 +58,7 @@ export async function runHeadlessCommand(
   try {
     parsed = parseHeadlessArgs(argv)
   } catch (error) {
-    stderr.write(`Error: ${errorMessage(error)}\n\n${HEADLESS_HELP}\n`)
+    stderr.write(`Error: ${describeError(error)}\n\n${HEADLESS_HELP}\n`)
     return 2
   }
   if (parsed.help) {
@@ -324,7 +324,7 @@ export async function runHeadlessCommand(
         : 1
   } catch (error) {
     const interrupted = controller.signal.aborted
-    const message = interrupted ? interruption(controller.signal).message : errorMessage(error)
+    const message = interrupted ? interruption(controller.signal).message : describeError(error)
     await reporter.finish({
       status: interrupted ? "interrupted" : "error",
       output: "",

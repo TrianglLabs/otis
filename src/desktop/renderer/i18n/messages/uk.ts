@@ -258,6 +258,9 @@ export const uk: Messages = {
   "settings.behavior": "Поведінка",
   "settings.thinkingTraces": "Трасування міркувань",
   "settings.toggleThinking": "Показати або сховати трасування міркувань моделі",
+  "settings.notifyOnCompletion": "Сповіщати про завершення сеансу",
+  "settings.toggleNotify":
+    "Показувати системне сповіщення, коли сеанс завершується, а Otis не на передньому плані",
   "settings.fastServing": "Швидкий інференс",
   "settings.fastUnavailable": "Швидкий інференс недоступний для цієї моделі",
   "settings.toggleFast": "Перемкнути швидкий інференс",

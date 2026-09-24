@@ -1,4 +1,4 @@
-import { Check, CornerDownLeft, FilePlus2, FolderOpen, Trash2 } from "lucide-react"
+import { CornerDownLeft, FilePlus2, FolderOpen, Trash2 } from "lucide-react"
 import { Fragment, useEffect, useRef, useState } from "react"
 import type { GlobalSessionPickerItem } from "../../../../app/global-sessions.js"
 import { Button } from "../../components/Button.js"
@@ -350,8 +350,6 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
                               />
                             ) : row.item.unseen ? (
                               <span className="stateDot" title={t("session.finished")} />
-                            ) : row.item.active ? (
-                              <Icon icon={Check} size={12} />
                             ) : row.item.open ? (
                               <span className="stateDot stateDot-open" title={t("session.open")} />
                             ) : null}

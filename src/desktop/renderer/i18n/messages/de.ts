@@ -253,6 +253,9 @@ export const de: Messages = {
   "settings.behavior": "Verhalten",
   "settings.thinkingTraces": "Gedankengänge",
   "settings.toggleThinking": "Gedankengänge des Modells ein- oder ausblenden",
+  "settings.notifyOnCompletion": "Bei fertiger Sitzung benachrichtigen",
+  "settings.toggleNotify":
+    "Systembenachrichtigung zeigen, wenn eine Sitzung fertig wird, während Otis nicht im Vordergrund ist",
   "settings.fastServing": "Schnelle Inferenz",
   "settings.fastUnavailable": "Schnelle Inferenz ist für dieses Modell nicht verfügbar",
   "settings.toggleFast": "Schnelle Inferenz umschalten",

@@ -97,10 +97,12 @@ export function createStatusTray(options: {
   actions: {
     focusWindow(): void
     startNewSession(): void
-    stop(): void
+    /** Stops the active session's turn, or a given session's. */
+    stop(runtime?: number): void
     installUpdate(): void
     /** Shows an open session in the window. */
     focusSession(runtime: number): void
+    respondToPermission(id: number, allow: boolean): void
   }
   appName?: string
 }): StatusTray | undefined {
@@ -185,15 +187,26 @@ export function createStatusTray(options: {
       items.push({ label: `Coworkers: ${runningCoworkers} running`, enabled: false })
 
     items.push({ type: "separator" })
+    // An approval is answered here; opening the window shows what it asks for.
     if (status.permission) {
-      items.push({
-        label: `Needs approval: ${status.permission.label}`,
-        click: () => actions.focusWindow(),
-      })
+      const { id, label } = status.permission
+      items.push(
+        { label: `Needs approval: ${label}`, click: () => actions.focusWindow() },
+        { label: "Allow once", click: () => actions.respondToPermission(id, true) },
+        { label: "Deny", click: () => actions.respondToPermission(id, false) },
+        { type: "separator" },
+      )
     }
     // A fresh start mid-turn opens beside the working session, as the header button does.
     items.push({ label: "Fresh start", click: () => actions.startNewSession() })
-    if (status.busy) items.push({ label: "Stop working", click: () => actions.stop() })
+    // With several sessions open each working one stops on its own; alone, the active one does.
+    if (status.runtimes.length > 1) {
+      for (const runtime of status.runtimes.filter((entry) => entry.busy))
+        items.push({
+          label: `Stop ${runtime.session?.title ?? "new session"}`,
+          click: () => actions.stop(runtime.runtime),
+        })
+    } else if (status.busy) items.push({ label: "Stop working", click: () => actions.stop() })
     items.push({ label: `Show ${appName}`, click: () => actions.focusWindow() })
 
     if (status.update.status === "ready" || status.update.status === "downloading") {

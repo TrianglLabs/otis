@@ -647,6 +647,26 @@ describe("authoritative request counts and overflow recovery", () => {
     expect(client.streamChat).toHaveBeenCalledOnce()
   })
 
+  it("counts once per turn while the estimate stays under half the threshold", async () => {
+    let requests = 0
+    const client = summaryClient()
+    client.countTokens = vi.fn(async () => 100)
+    client.streamChat = vi.fn<InferenceClient["streamChat"]>(async function* () {
+      requests += 1
+      if (requests < 4)
+        yield { type: "tool_call", toolCall: { id: `a${requests}`, name: "read", arguments: "{}" } }
+      else yield { type: "text_delta", text: "Finished." }
+      yield { type: "usage", usage: { promptTokens: 100, completionTokens: 10, totalTokens: 110 } }
+    })
+    const events = await collect(
+      runAgent("task", [], { ...options, client, autoCompactAtTokens: 100_000 }),
+    )
+    expect(requests).toBe(4)
+    expect(client.countTokens).toHaveBeenCalledOnce()
+    expect(events.some((event) => event.type === "compaction")).toBe(false)
+    expect(events.at(-1)?.type).toBe("complete")
+  })
+
   it("does not silently fall back to estimates when a managed tokenizer fails", async () => {
     const client = summaryClient()
     client.countTokens = async () => {
@@ -949,7 +969,10 @@ it("bounds repeated context rejections even when there is still history to compa
     runAgent("next", history, { client, tools: [], skills: emptySkills, projectContext: [] }),
   )
   expect(requests).toBe(3)
-  expect(events.at(-1)).toMatchObject({ type: "error", message: "Still too large" })
+  expect(events.at(-1)).toMatchObject({
+    type: "error",
+    message: "The conversation no longer fits the model's context window.",
+  })
 })
 
 it("does not accept a summary whose serving token count exceeds the target", async () => {

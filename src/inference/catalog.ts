@@ -1,4 +1,4 @@
-import { isRecord } from "./errors.js"
+import { inferenceResponseError, isRecord } from "./errors.js"
 import { inferenceEndpointURL } from "./openai-compat.js"
 import { isFastFireworksModel, withFastServingPaths } from "./serving-path.js"
 import { type FireworksModel, fireworksModel } from "./types.js"
@@ -40,11 +40,7 @@ export async function listToolCapableModels(apiKey: string, options: ListModelsO
       url.searchParams.set("filter", TOOL_CAPABLE_SERVERLESS_FILTER)
       if (pageToken) url.searchParams.set("pageToken", pageToken)
       const response = await fetchImpl(url, init)
-      if (!response.ok) {
-        const text = await response.text().catch(() => "")
-        const detail = text.slice(0, 2000) || response.statusText
-        throw new Error(`Could not load Fireworks models (HTTP ${response.status}): ${detail}`)
-      }
+      if (!response.ok) throw await inferenceResponseError(response, "Fireworks")
       const body: unknown = await response.json()
       if (!isRecord(body) || !Array.isArray(body.models))
         throw new Error("Fireworks models response was invalid.")

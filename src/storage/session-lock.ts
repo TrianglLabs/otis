@@ -12,6 +12,9 @@ export type SessionLock = { release(): Promise<void> }
  */
 const heldTokens = new Set<string>()
 
+/** Another live Otis process holds the session; unlike an I/O failure, that is expected. */
+export class SessionInUseError extends Error {}
+
 /** Prevents multiple Otis processes from appending turns to the same session. */
 export async function acquireSessionLock(
   options: Omit<SessionOptions, "sessionId"> & { sessionId: string },
@@ -60,7 +63,9 @@ export async function acquireSessionLock(
             }
           }
           if (alive)
-            throw new Error(`Session ${options.sessionId} is already in use by process ${pid}.`)
+            throw new SessionInUseError(
+              `Session ${options.sessionId} is already in use by process ${pid}.`,
+            )
         } else {
           // Malformed or partial content is only stale once the file has stopped changing for a
           // while.
@@ -68,11 +73,10 @@ export async function acquireSessionLock(
             (info) => info.mtimeMs,
             () => 0,
           )
-          if (Date.now() - modifiedAt < 30_000) {
-            throw new Error(
+          if (Date.now() - modifiedAt < 30_000)
+            throw new SessionInUseError(
               `Session ${options.sessionId} is already being locked by another process.`,
             )
-          }
         }
         await rm(lockPath, { force: true })
       }

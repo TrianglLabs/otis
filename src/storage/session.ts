@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto"
-import { readdir, rm, stat } from "node:fs/promises"
+import { readdir, rm } from "node:fs/promises"
 import { join } from "node:path"
-import { isCompactionSummary } from "../core/compaction.js"
-import { createUserMessage, summarizeUserMessage, userMessageText } from "../inference/messages.js"
+import { createUserMessage } from "../inference/messages.js"
 import type { ChatMessage, TokenUsage, UserChatMessage } from "../inference/types.js"
 import {
   type BaseSessionEvent,
@@ -26,28 +25,22 @@ import {
   sessionDirectory,
   sessionFile,
 } from "./session-files.js"
+import {
+  forgetSessionDigest,
+  readSessionDigest,
+  type SessionDigest,
+  type SessionSummary,
+  sessionTitle,
+} from "./session-index.js"
 import { listWorkspaceSessionDirs, registerWorkspacePath } from "./workspace-registry.js"
+
+export type { SessionState, SessionSummary } from "./session-index.js"
 
 const DEFAULT_SESSION_ID = "default"
 
 export type PromptAdmission = {
   promptId: string
   message: UserChatMessage
-}
-
-/**
- * How a session's last turn ended: `interrupted` when the model was stopped mid-answer, `pending`
- * when a prompt was admitted and never answered, `complete` otherwise (including no prompts).
- */
-export type SessionState = "complete" | "interrupted" | "pending"
-
-export type SessionSummary = {
-  id: string
-  title: string
-  messageCount: number
-  updatedAt: string
-  mtimeMs: number
-  state: SessionState
 }
 
 type SessionSearchResult = SessionSummary & {
@@ -66,13 +59,6 @@ type GlobalSessionSummary = SessionSummary & {
 }
 
 type GlobalSessionSearchResult = GlobalSessionSummary & { snippet?: string }
-
-/**
- * Fallback titles derive from the first user message, which can be a pasted paragraph — cap them
- * so pickers and headers stay neat. Mirrors GENERATED_TITLE_MAX_LENGTH in src/app/sessions.ts
- * (storage can't import app).
- */
-const FALLBACK_TITLE_MAX_LENGTH = 60
 
 export class JsonlSession {
   private appendQueue: Promise<void> = Promise.resolve()
@@ -269,11 +255,38 @@ export async function deleteSession(options: SessionOptions) {
   // session.
   await rm(`${file}.artifacts`, { recursive: true, force: true })
   await rm(file, { force: true })
+  forgetSessionDigest(file)
 }
 
 export async function listSessions(
   options: Omit<SessionOptions, "sessionId">,
 ): Promise<SessionSummary[]> {
+  return (await digestSessions(options)).map((session) => session.summary)
+}
+
+export async function searchSessions(
+  options: Omit<SessionOptions, "sessionId">,
+  query: string,
+): Promise<SessionSearchResult[]> {
+  return matchSessions(await digestSessions(options), query)
+}
+
+/** Every workspace's sessions under the shared data root, merged and recency-ordered. */
+export async function listAllSessions(
+  options: { seeds?: string[] } = {},
+): Promise<GlobalSessionSummary[]> {
+  return (await digestAllSessions(options.seeds)).map((session) => session.summary)
+}
+
+export async function searchAllSessions(
+  query: string,
+  options: { seeds?: string[] } = {},
+): Promise<GlobalSessionSearchResult[]> {
+  return matchSessions(await digestAllSessions(options.seeds), query)
+}
+
+/** Every readable session in a dir with its digest, newest first; other errors surface. */
+async function digestSessions(options: Omit<SessionOptions, "sessionId">) {
   const directory = sessionDirectory(options)
   let fileNames: string[]
   try {
@@ -282,162 +295,73 @@ export async function listSessions(
     if (isNotFoundError(error)) return []
     throw error
   }
-
-  const summaries: SessionSummary[] = []
+  const sessions: (SessionDigest & { summary: SessionSummary })[] = []
   for (const fileName of fileNames) {
     if (!fileName.endsWith(".jsonl")) continue
     try {
       const id = fileName.slice(0, -".jsonl".length)
       assertSessionId(id)
-      const filePath = join(directory, fileName)
-      const events = await readSessionEvents(filePath)
-      summaries.push({
-        id,
-        title: sessionTitle(events),
-        messageCount: replaySessionMessages(events).length,
-        updatedAt: events.at(-1)?.at ?? new Date(0).toISOString(),
-        mtimeMs: (await stat(filePath)).mtimeMs,
-        state: sessionState(events),
-      })
+      const digest = await readSessionDigest(join(directory, fileName))
+      sessions.push({ ...digest, summary: { id, ...digest.summary } })
     } catch (error) {
       if (isUnreadableSessionFile(error)) continue
       throw error
     }
   }
-  return summaries.sort(byRecency)
+  return sessions.sort((left, right) => byRecency(left.summary, right.summary))
 }
 
-/**
- * Title-first substring search over sessions, recency-ordered. Title hits rank above content hits,
- * which carry a snippet from the first matching message. Compaction summaries are excluded from
- * the searchable text.
- */
-export async function searchSessions(
-  options: Omit<SessionOptions, "sessionId">,
-  query: string,
-): Promise<SessionSearchResult[]> {
-  const needle = query.trim().toLowerCase()
-  const summaries = await listSessions(options)
-  if (!needle) return summaries
-
-  const titleHits: SessionSearchResult[] = []
-  const contentHits: SessionSearchResult[] = []
-  for (const summary of summaries) {
-    if (summary.title.toLowerCase().includes(needle)) {
-      titleHits.push(summary)
-      continue
-    }
-    try {
-      const events = await readSessionEvents(join(sessionDirectory(options), `${summary.id}.jsonl`))
-      // Search the full transcript, not the model-context replay: compaction drops pre-compaction
-      // messages from the model's view, but the user's original text is still on disk and should
-      // stay searchable.
-      for (const message of replaySessionTranscript(events).messages) {
-        if (message.role === "tool" || isCompactionSummary(message)) continue
-        const text = (
-          message.role === "user"
-            ? userMessageText(message)
-            : message.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("")
-        )
-          .replace(/\s+/g, " ")
-          .trim()
-        const index = text.toLowerCase().indexOf(needle)
-        if (index === -1) continue
-        const from = Math.max(0, index - 40)
-        const to = Math.min(text.length, index + needle.length + 80)
-        const snippet = `${from > 0 ? "…" : ""}${text.slice(from, to)}${to < text.length ? "…" : ""}`
-        contentHits.push({ ...summary, snippet })
-        break
-      }
-    } catch (error) {
-      if (isUnreadableSessionFile(error)) continue
-      throw error
-    }
-  }
-  return [...titleHits, ...contentHits]
-}
-
-/** Every workspace's sessions under the shared data root, merged and recency-ordered. */
-export function listAllSessions(
-  options: { seeds?: string[] } = {},
-): Promise<GlobalSessionSummary[]> {
-  return acrossWorkspaces(options.seeds, listSessions)
-}
-
-/** Title-first search across every workspace's sessions, ranked like single-workspace search. */
-export async function searchAllSessions(
-  query: string,
-  options: { seeds?: string[] } = {},
-): Promise<GlobalSessionSearchResult[]> {
-  const hits = await acrossWorkspaces(options.seeds, (directory) =>
-    searchSessions(directory, query),
-  )
-  // Title hits before content hits within each dir's results; keep that ordering after the merge.
-  return hits.sort(
-    (left, right) => Number(left.snippet !== undefined) - Number(right.snippet !== undefined),
-  )
-}
-
-async function acrossWorkspaces<T extends SessionSummary>(
-  seeds: string[] | undefined,
-  list: (options: Omit<SessionOptions, "sessionId">) => Promise<T[]>,
-): Promise<(T & { dirName: string; workspacePath?: string })[]> {
+/** Every workspace's sessions with their digests, newest first across workspaces. */
+export async function digestAllSessions(seeds: string[] | undefined) {
   const dirs = await listWorkspaceSessionDirs(seeds)
   const grouped = await Promise.all(
     dirs.map(async ({ dir, dirName, workspacePath }) => {
       try {
-        const rows = await list({ cwd: "", directory: dir })
-        return rows.map((row) => ({ ...row, dirName, ...(workspacePath ? { workspacePath } : {}) }))
+        const sessions = await digestSessions({ cwd: "", directory: dir })
+        return sessions.map((session) => ({
+          ...session,
+          summary: { ...session.summary, dirName, ...(workspacePath ? { workspacePath } : {}) },
+        }))
       } catch {
         return [] // a corrupt or half-written dir must not sink the whole list
       }
     }),
   )
-  return grouped.flat().sort(byRecency)
+  return grouped.flat().sort((left, right) => byRecency(left.summary, right.summary))
+}
+
+/**
+ * Title-first substring search, recency-ordered within each group. Title hits rank above content
+ * hits, which carry a snippet from the first matching message.
+ */
+function matchSessions<T extends SessionSummary>(
+  sessions: readonly { summary: T; texts: string[] }[],
+  query: string,
+): (T & { snippet?: string })[] {
+  const needle = query.trim().toLowerCase()
+  if (!needle) return sessions.map((session) => session.summary)
+  const titleHits: T[] = []
+  const contentHits: (T & { snippet: string })[] = []
+  for (const { summary, texts } of sessions) {
+    if (summary.title.toLowerCase().includes(needle)) {
+      titleHits.push(summary)
+      continue
+    }
+    for (const text of texts) {
+      const index = text.toLowerCase().indexOf(needle)
+      if (index === -1) continue
+      const from = Math.max(0, index - 40)
+      const to = Math.min(text.length, index + needle.length + 80)
+      const snippet = `${from > 0 ? "…" : ""}${text.slice(from, to)}${to < text.length ? "…" : ""}`
+      contentHits.push({ ...summary, snippet })
+      break
+    }
+  }
+  return [...titleHits, ...contentHits]
 }
 
 function byRecency(left: SessionSummary, right: SessionSummary) {
   return Date.parse(right.updatedAt) - Date.parse(left.updatedAt) || right.mtimeMs - left.mtimeMs
-}
-
-/** Falls back to the first prompt in model history, or in scrollback when none was answered. */
-function sessionTitle(events: readonly SessionEvent[]) {
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    const event = events[index]
-    if (event.type === "title_renamed") return event.title
-  }
-  const firstPrompt = (messages: readonly ChatMessage[]) =>
-    messages.find(
-      (message): message is UserChatMessage =>
-        message.role === "user" && !isCompactionSummary(message),
-    )
-  const firstUser =
-    firstPrompt(replaySessionMessages(events)) ??
-    firstPrompt(replaySessionTranscript(events).messages)
-  if (!firstUser) return "Current session"
-  const text = (userMessageText(firstUser) || summarizeUserMessage(firstUser))
-    .trim()
-    .split("\n")[0]
-    .trim()
-  if (!text) return "Current session"
-  if (text.length <= FALLBACK_TITLE_MAX_LENGTH) return text
-  const cut = text.slice(0, FALLBACK_TITLE_MAX_LENGTH)
-  const lastSpace = cut.lastIndexOf(" ")
-  return `${(lastSpace > 0 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`
-}
-
-/** An admitted prompt without an ending event is pending; otherwise the last ending event decides. */
-function sessionState(events: readonly SessionEvent[]): SessionState {
-  const open = new Set<string>()
-  let interrupted = false
-  for (const event of events) {
-    if (event.type === "prompt_admitted") open.add(event.promptId)
-    else if (event.type === "turn_completed" || event.type === "turn_interrupted") {
-      open.delete(event.promptId)
-      interrupted = event.type === "turn_interrupted"
-    }
-  }
-  return open.size > 0 ? "pending" : interrupted ? "interrupted" : "complete"
 }
 
 /** Omits empty detail lists so persisted turns stay compact. */

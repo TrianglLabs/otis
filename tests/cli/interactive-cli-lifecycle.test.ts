@@ -258,12 +258,10 @@ describe("CLI agent status phases", () => {
     await submit("check the note")
     await settle()
 
+    // Text, tools and the next model round all mean working; only changes are announced.
     expect(mocks.ui.setAgentPhase.mock.calls.map(([phase]) => phase)).toEqual([
       "working",
       "thinking",
-      "working",
-      "working",
-      "working",
       "working",
     ])
     expect(mocks.ui.renderTranscript.mock.calls.at(-1)?.[0]).toEqual(

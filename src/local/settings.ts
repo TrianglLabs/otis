@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { dirname, join, resolve } from "node:path"
-import { errorMessage, isRecord } from "../inference/errors.js"
+import { describeError, isRecord } from "../inference/errors.js"
 import { isLocalModelId } from "../inference/local-catalog.js"
 import {
   type LocalThinkingPreferences,
@@ -32,6 +32,8 @@ export type LocalSettings = {
   language?: UiLanguage
   lastWorkspace?: string
   thinkingVisible?: boolean
+  /** A system notification when a session finishes while Otis is not the frontmost app. */
+  notifyOnCompletion?: boolean
   localThinking?: LocalThinkingPreferences
   /**
    * When false, the chat side panel that lists delegated runs stays hidden. Omitted means shown.
@@ -210,6 +212,13 @@ export async function saveThinkingVisible(
   await updateSettings(options, (saved) => ({ ...saved, thinkingVisible }))
 }
 
+export async function saveNotifyOnCompletion(
+  notifyOnCompletion: boolean,
+  options: SettingsFileOptions = {},
+) {
+  await updateSettings(options, (saved) => ({ ...saved, notifyOnCompletion }))
+}
+
 export async function saveLocalThinking(
   model: string,
   level: string,
@@ -273,7 +282,7 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
   try {
     value = JSON.parse(content)
   } catch (error) {
-    throw new Error(`Invalid Otis config: ${errorMessage(error)}`)
+    throw new Error(`Invalid Otis config: ${describeError(error)}`)
   }
   if (!isRecord(value)) throw new Error("Invalid Otis config: expected an object.")
   if (value.version !== 1) throw new Error("Invalid Otis config: unsupported version.")
@@ -335,6 +344,7 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
     }
   }
   const thinkingVisible = optionalBoolean(value.thinkingVisible, "thinkingVisible")
+  const notifyOnCompletion = optionalBoolean(value.notifyOnCompletion, "notifyOnCompletion")
   const subagentPanelVisible = optionalBoolean(value.subagentPanelVisible, "subagentPanelVisible")
   const workspacePanelWidth = value.workspacePanelWidth
   if (
@@ -381,6 +391,7 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
     lastWorkspace,
     localThinking,
     thinkingVisible,
+    notifyOnCompletion,
     subagentPanelVisible,
     workspacePanelWidth,
     fastMode,
@@ -444,6 +455,7 @@ function selectedModelSettings(settings: SettingsFile, model?: CatalogModel): Se
     lastWorkspace: settings.lastWorkspace,
     localThinking: settings.localThinking,
     thinkingVisible: settings.thinkingVisible,
+    notifyOnCompletion: settings.notifyOnCompletion,
     subagentPanelVisible: settings.subagentPanelVisible,
     workspacePanelWidth: settings.workspacePanelWidth,
     fastServingModels:
@@ -479,7 +491,7 @@ function persistedPairEndpoints(values: PairEndpoints | undefined): PairEndpoint
   try {
     return normalizePairEndpoints(values ?? {})
   } catch (error) {
-    throw new Error(`Invalid Otis config: ${errorMessage(error)}`)
+    throw new Error(`Invalid Otis config: ${describeError(error)}`)
   }
 }
 

@@ -1,13 +1,7 @@
-import { basename, join } from "node:path"
+import { basename } from "node:path"
 import { isCanvasArtifact } from "../artifacts/canvas.js"
-import {
-  type ArtifactKind,
-  isPublishedArtifactReference,
-  type PublishedArtifactReference,
-} from "../artifacts/types.js"
-import { listAllSessions, searchAllSessions } from "../storage/session.js"
-import { readSessionEvents, replaySessionTranscript } from "../storage/session-events.js"
-import { sessionRootDirectory } from "../storage/session-files.js"
+import type { ArtifactKind, PublishedArtifactReference } from "../artifacts/types.js"
+import { digestAllSessions, listAllSessions, searchAllSessions } from "../storage/session.js"
 import { type OpenSession, type SessionPickerItem, toSessionPickerItem } from "./sessions.js"
 
 /**
@@ -97,33 +91,12 @@ export async function listGlobalHistory(
   artifactLimit: number,
   options: GlobalOptions,
 ): Promise<GlobalHistory> {
-  const summaries = await listAllSessions({ seeds: options.seeds })
+  const sessions = await digestAllSessions(options.seeds)
+  const summaries = sessions.map((session) => session.summary)
   const latest = new Map<string, RecentArtifact>()
-  for (const summary of summaries) {
-    let events: Awaited<ReturnType<typeof readSessionEvents>>
-    try {
-      events = await readSessionEvents(
-        join(sessionRootDirectory(), summary.dirName, `${summary.id}.jsonl`),
-      )
-    } catch {
-      continue // listed a moment ago; a file that vanished or broke since is not a home-screen row
-    }
-    // Activities archived at a compaction checkpoint end with their prompt's turn event.
-    const endedAt = new Map<string, string>()
-    const archived = new Map<string, string[]>()
-    for (const event of events) {
-      if (event.type === "compacted" && event.promptId && event.turn?.toolActivities) {
-        const ids = event.turn.toolActivities.map((activity) => activity.toolCallId)
-        archived.set(event.promptId, [...(archived.get(event.promptId) ?? []), ...ids])
-      } else if (event.type === "turn_completed" || event.type === "turn_interrupted") {
-        const ids = (event.toolActivities ?? []).map((activity) => activity.toolCallId)
-        for (const id of [...(archived.get(event.promptId) ?? []), ...ids])
-          endedAt.set(id, event.at)
-      }
-    }
-    for (const activity of replaySessionTranscript(events).toolActivities) {
-      const reference = activity.artifact
-      if (!isPublishedArtifactReference(reference) || !isCanvasArtifact(reference.kind)) continue
+  for (const { summary, artifacts } of sessions)
+    for (const { reference, endedAt } of artifacts) {
+      if (!isCanvasArtifact(reference.kind)) continue
       const row: RecentArtifact = {
         reference,
         name: reference.name,
@@ -131,13 +104,12 @@ export async function listGlobalHistory(
         sessionId: summary.id,
         dirName: summary.dirName,
         workspaceLabel: workspaceLabel(summary.dirName, summary.workspacePath),
-        updatedAt: endedAt.get(activity.toolCallId) ?? summary.updatedAt,
+        updatedAt: endedAt ?? summary.updatedAt,
       }
       const known = latest.get(reference.artifactId)
       if (!known || known.reference.version < reference.version)
         latest.set(reference.artifactId, row)
     }
-  }
   return {
     sessions: summaries.map((summary) => toGlobalItem(summary, options)),
     artifacts: [...latest.values()]

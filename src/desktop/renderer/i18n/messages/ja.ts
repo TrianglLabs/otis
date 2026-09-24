@@ -252,6 +252,8 @@ export const ja: Messages = {
   "settings.behavior": "動作",
   "settings.thinkingTraces": "思考トレース",
   "settings.toggleThinking": "モデルの思考トレースを表示または非表示",
+  "settings.notifyOnCompletion": "セッション完了時に通知",
+  "settings.toggleNotify": "Otis が前面にないときにセッションが完了したらシステム通知を表示",
   "settings.fastServing": "高速推論",
   "settings.fastUnavailable": "このモデルでは高速推論を利用できません",
   "settings.toggleFast": "高速推論を切り替え",

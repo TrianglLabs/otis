@@ -4,7 +4,7 @@ import {
   parsePastedAttachmentPaths,
   validateAttachments,
 } from "../inference/attachments.js"
-import { errorMessage } from "../inference/errors.js"
+import { describeError } from "../inference/errors.js"
 import { createPastedImageAttachment } from "../inference/images.js"
 import type { AttachmentContentPart, UserChatMessage } from "../inference/types.js"
 import type { ChatUI } from "./ui/types.js"
@@ -34,7 +34,7 @@ export class AttachmentFlow {
       this.pending.add(attachment)
       this.#syncUi()
     } catch (error) {
-      this.showMessage(`Could not attach pasted image: ${errorMessage(error)}`)
+      this.showMessage(`Could not attach pasted image: ${describeError(error)}`)
     }
   }
 
@@ -97,7 +97,7 @@ export class AttachmentFlow {
       this.#syncUi()
     } catch (error) {
       if (generation === this.#generation)
-        this.showMessage(`Could not attach dropped files: ${errorMessage(error)}`)
+        this.showMessage(`Could not attach dropped files: ${describeError(error)}`)
     } finally {
       if (generation === this.#generation) this.#readingFiles -= 1
     }

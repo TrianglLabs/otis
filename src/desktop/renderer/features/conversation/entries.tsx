@@ -117,7 +117,9 @@ export const EntryView = memo(function EntryView({
   const isError = entry.text.startsWith("Error:") || entry.text.startsWith("Could not")
   return (
     <div className={`assistantMessage${isError ? " assistantMessage-error" : ""}`}>
-      {entry.text ? <Markdown text={entry.text} enableCanvas={!entry.streaming} /> : null}
+      {entry.text ? (
+        <Markdown text={entry.text} enableCanvas={!entry.streaming} streaming={entry.streaming} />
+      ) : null}
       {entry.artifacts?.length ? <MessageArtifacts artifacts={entry.artifacts} /> : null}
     </div>
   )

@@ -10,10 +10,13 @@ import { useDesktop, useDesktopState } from "../../runtime.js"
 import { reconcileTraceEntries } from "../../state.js"
 import { TranscriptList } from "../conversation/TranscriptList.js"
 
+/** How often a live run's entries are fetched while the overlay is open. */
+const TRACE_POLL_MS = 250
+
 /**
  * The full transcript of one delegated run, rendered with the same entry components as the main
- * transcript. While the run is live its entries refetch on each status event; the view closes when
- * the run leaves the session, mirroring the TUI's trace view.
+ * transcript. While the run is live its entries are polled; the view closes when the run leaves
+ * the session, mirroring the TUI's trace view.
  */
 export function AgentTraceOverlay({
   toolCallId,
@@ -29,11 +32,9 @@ export function AgentTraceOverlay({
   const [entries, setEntries] = useState<TranscriptEntry[]>([])
   const running = run?.status === "running"
 
-  // Status events stream live progress: each one can mean new trace entries. A refresh arriving
-  // while a load runs marks at most one follow-up load, which starts when the current one settles,
-  // so a burst of status events cannot starve the view by repeatedly discarding in-flight
-  // responses. Changing the selected trace (or a session change) disposes the loader, so a late
-  // response can never land in the wrong view.
+  // A refresh arriving while a load runs marks at most one follow-up load, which starts when the
+  // current one settles. Changing the selected trace (or a session change) disposes the loader,
+  // so a late response can never land in the wrong view.
   useEffect(() => {
     let inFlight = false
     let queued = false
@@ -59,13 +60,9 @@ export function AgentTraceOverlay({
         })
     }
     refresh()
-    const unsubscribe = running
-      ? api.subscribe((event) => {
-          if (event.type === "status") refresh()
-        })
-      : undefined
+    const timer = running ? setInterval(refresh, TRACE_POLL_MS) : undefined
     return () => {
-      unsubscribe?.()
+      clearInterval(timer)
       disposed = true
     }
   }, [api, toolCallId, running])

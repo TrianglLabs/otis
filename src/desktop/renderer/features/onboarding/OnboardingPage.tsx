@@ -207,7 +207,7 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                 className="onboarding-card"
                 onClick={() => navigate("cloud", "forward")}
               >
-                <Icon icon={Cloud} size={15} className="onboarding-cardIcon" />
+                <Icon icon={Cloud} size={14} className="onboarding-cardIcon" />
                 <span className="onboarding-cardText">
                   <span className="onboarding-cardTitle">{t("common.hosted")}</span>
                   <span className="onboarding-cardBody">{t("onboarding.hostedBody")}</span>
@@ -219,7 +219,7 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                 className="onboarding-card"
                 onClick={() => navigate("local", "forward")}
               >
-                <Icon icon={HardDrive} size={15} className="onboarding-cardIcon" />
+                <Icon icon={HardDrive} size={14} className="onboarding-cardIcon" />
                 <span className="onboarding-cardText">
                   <span className="onboarding-cardTitle">{t("common.local")}</span>
                   <span className="onboarding-cardBody">{t("onboarding.localBody")}</span>

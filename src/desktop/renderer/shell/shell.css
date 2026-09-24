@@ -176,7 +176,7 @@
   gap: 6px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: var(--bg-panel);
+  background: var(--bg-elev);
   color: var(--text-dim);
   font: inherit;
   font-size: var(--text-meta);

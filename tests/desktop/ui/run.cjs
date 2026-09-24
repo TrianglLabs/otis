@@ -38,6 +38,8 @@ app.whenReady().then(async () => {
     let error
     try {
       if (request.size) window.setContentSize(...request.size)
+      if (request.focus === true) window.webContents.focus()
+      else if (request.focus === false) window.blurWebView()
       for (const event of request.events ?? []) {
         window.webContents.sendInputEvent(event)
         await new Promise((resolve) => setTimeout(resolve, 30))

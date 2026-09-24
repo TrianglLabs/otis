@@ -319,6 +319,11 @@ describe("DesktopRuntime subagents", () => {
     expect((await runtime.snapshot()).thinkingVisible).toBe(true)
     expect((await loadLocalSettings()).thinkingVisible).toBe(true)
 
+    expect((await runtime.snapshot()).notifyOnCompletion).toBe(true)
+    await runtime.setNotifyOnCompletion(false)
+    expect((await runtime.snapshot()).notifyOnCompletion).toBe(false)
+    expect((await loadLocalSettings()).notifyOnCompletion).toBe(false)
+
     await runtime.setPermissionMode("ask")
     expect((await runtime.snapshot()).permissionMode).toBe("ask")
     expect((await loadLocalSettings()).permissions?.defaultMode).toBe("ask")
@@ -750,6 +755,34 @@ describe("DesktopRuntime conversation flow", () => {
     await runtime.shutdown()
   })
 
+  it("streams tokens as transcript changes without status snapshots", async () => {
+    const { runtime, sent } = await setup()
+    mocks.executeTurn.mockImplementation(async (options: TurnRunnerOptions) => {
+      for (let index = 0; index < 8; index += 1) {
+        await options.onEvent?.({ type: "delta", text: "token " })
+        await flush()
+      }
+      const messages: ChatMessage[] = [
+        { role: "assistant", content: [{ type: "text", text: "token ".repeat(8) }] },
+      ]
+      await options.onEvent?.({ type: "complete", messages })
+      return { status: "complete", messages, details: {} }
+    })
+
+    await runtime.sendPrompt("hi")
+    await vi.waitFor(async () => {
+      const snapshot = await runtime.snapshot()
+      expect(snapshot.entries.at(-1)).toMatchObject({ text: "token ".repeat(8), streaming: false })
+    })
+    await flush()
+    expect(sent.filter((event) => event.type === "transcript").length).toBeGreaterThanOrEqual(8)
+    // Busy, then the phase turning to working: no snapshot per token.
+    expect(
+      sent.filter((event) => event.type === "status" && event.status.busy).length,
+    ).toBeLessThanOrEqual(2)
+    await runtime.shutdown()
+  })
+
   it("validates and admits image-only prompts through the shared message pipeline", async () => {
     const { runtime, app } = await setup()
     app.models.supportsImageInput = true
@@ -1059,7 +1092,8 @@ describe("DesktopRuntime sessions", () => {
   })
 
   it("opens a fresh session beside a working one and marks the background completion", async () => {
-    const { runtime, app } = await setup()
+    const notify = vi.fn()
+    const { runtime, app } = await setup(true, { notify })
     try {
       let finish = () => {}
       mocks.executeTurn.mockImplementationOnce(async (options: TurnRunnerOptions) => {
@@ -1098,6 +1132,18 @@ describe("DesktopRuntime sessions", () => {
       await vi.waitFor(async () => expect((await runtime.snapshot()).working).toBe(0))
       snapshot = await runtime.snapshot()
       expect(snapshot.entries.some((entry) => entry.text === "first reply")).toBe(false)
+      // Every completion is announced with its session; the window decides whether to show it.
+      expect(notify).toHaveBeenCalledWith({
+        runtime: first.id,
+        title: first.sessions.activeLabel(),
+        failed: false,
+      })
+      notify.mockClear()
+      await runtime.setNotifyOnCompletion(false)
+      mocks.executeTurn.mockImplementationOnce(turnEvents("quiet reply"))
+      await runtime.sendPrompt("quietly")
+      await vi.waitFor(async () => expect((await runtime.snapshot()).busy).toBe(false))
+      expect(notify).not.toHaveBeenCalled()
       expect(snapshot.sessions.find((session) => session.unseen)?.id).toBe(
         first.sessions.current?.id,
       )
@@ -1209,7 +1255,8 @@ describe("DesktopRuntime sessions", () => {
     const { runtime, app } = await setup()
     let finish = () => {}
     try {
-      // A busy session is what makes each fresh start a new runtime.
+      // A busy session is what makes each fresh start a new runtime; each new session then
+      // takes a prompt, since an empty one closes as soon as focus leaves it.
       mocks.executeTurn.mockImplementationOnce(async (options: TurnRunnerOptions) => {
         await new Promise<void>((resolve) => {
           finish = resolve
@@ -1218,11 +1265,15 @@ describe("DesktopRuntime sessions", () => {
       })
       await runtime.sendPrompt("keep working")
       const busy = app.focused
-      const fresh = () => {
+      mocks.executeTurn.mockImplementation(turnEvents("ok"))
+      const fresh = async () => {
         runtime.focusSession(busy.id)
-        return app.openNew()
+        const created = app.openNew()
+        await runtime.sendPrompt("hello")
+        await vi.waitFor(() => expect(created.busy).toBe(false))
+        return created
       }
-      const others = [fresh(), fresh(), fresh(), fresh()]
+      const others = [await fresh(), await fresh(), await fresh(), await fresh()]
       await flush()
       for (const entry of others.slice(0, 3)) runtime.openPane(entry.id, "right")
       await flush()
@@ -1245,13 +1296,46 @@ describe("DesktopRuntime sessions", () => {
       await flush()
       expect((await runtime.snapshot()).panes).toEqual([d, b, c, busy.id])
 
-      // Showing only one keeps it as the active session and sends the rest back to the strip.
-      const solo = others[1]
-      if (!solo) throw new Error("expected a fourth session")
+      // With the grid full, a fresh start takes the active card; that session keeps its work off
+      // screen. With room, the fresh session joins the split as the active card.
+      runtime.focusSession(c ?? 0)
+      await flush()
+      const before = app.runtimes.length
+      expect(runtime.startNewSession()).toEqual({ ok: true })
+      await flush()
+      const full = await runtime.snapshot()
+      expect(full.panes.slice(0, 2)).toEqual([d, b])
+      expect(full.panes[2]).toBe(app.focused.id)
+      expect(full.panes[3]).toBe(busy.id)
+      expect(app.runtimes.length).toBe(before + 1)
+      expect(app.runtimes.some((entry) => entry.id === c)).toBe(true)
+      runtime.closePane(d ?? 0)
+      await flush()
+      runtime.focusSession(b ?? 0)
+      await flush()
+      expect(runtime.startNewSession()).toEqual({ ok: true })
+      await flush()
+      const joined = await runtime.snapshot()
+      expect(joined.panes).toHaveLength(4)
+      expect(joined.panes.at(-1)).toBe(app.focused.id)
+      expect(joined.session).toBeNull()
+      expect(joined.entries).toEqual([])
+      // Another fresh start on that empty card is nothing; nothing accumulates.
+      const settled = app.runtimes.length
+      expect(runtime.startNewSession()).toEqual({ ok: true })
+      await flush()
+      expect((await runtime.snapshot()).panes).toEqual(joined.panes)
+      expect(app.runtimes).toHaveLength(settled)
+
+      // Showing only one keeps it as the active session and sends the rest back to the strip;
+      // the two empty cards that leave the screen close for good.
+      const solo = others[0]
+      if (!solo) throw new Error("expected a second session")
       runtime.soloPane(solo.id)
       await flush()
       expect((await runtime.snapshot()).panes).toEqual([solo.id])
       expect(app.focused).toBe(solo)
+      await vi.waitFor(() => expect(app.runtimes).toHaveLength(settled - 2))
     } finally {
       finish()
       await runtime.shutdown()
