@@ -27,7 +27,7 @@
     "test:desktop:ui": "bun run scripts/test-desktop-ui.ts",
     "test:desktop:lifecycle": "bun run scripts/test-desktop-lifecycle.ts",
     "test:coverage": "vitest run --coverage --exclude='tests/cli/chat-ui-*.test.ts' && bunx --bun vitest run tests/cli/chat-ui-*.test.ts",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.desktop-renderer.json",
+    "typecheck": "bun run scripts/typecheck.ts",
     "verify": "bun run check && bun run typecheck && bun run test",
     "build:desktop:demo": "electron-vite build --mode demo"
   },

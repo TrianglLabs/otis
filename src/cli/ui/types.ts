@@ -112,6 +112,8 @@ export type ChatUI = {
   setCommands(commands: CommandSuggestion[]): void
   setConfigured(): void
   setSessionLabel(label: string): void
+  /** Open sessions mid-turn other than the one on screen; shown beside the session label. */
+  setBackgroundWorking(count: number): void
   setStats(stats: LocalStats): void
   setTheme(theme: ThemeName, previous: ThemeColors): void
   setThinkingVisible(visible: boolean): void

@@ -18,6 +18,67 @@
   white-space: nowrap;
 }
 
+/* Open documents across the sessions; the one in view is filled. Only for two or more. */
+.canvas-tabs {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 6px 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.canvas-tab {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  max-width: 200px;
+  height: 24px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  color: var(--text-dim);
+  transition:
+    background var(--motion),
+    border-color var(--motion),
+    color var(--motion);
+}
+
+.canvas-tab:hover {
+  border-color: var(--border);
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.canvas-tab-selected,
+.canvas-tab-selected:hover {
+  border-color: var(--border);
+  background: var(--bg-elev);
+  color: var(--text);
+}
+
+.canvas-tabOpen {
+  min-width: 0;
+  padding: 0 4px 0 8px;
+  border: none;
+  background: transparent;
+  font-family: var(--font-ui);
+  font-size: var(--text-meta);
+  color: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.canvas-tabClose {
+  width: 18px;
+  height: 18px;
+  margin-right: 3px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
 .canvas-artifact {
   flex: 1;
   min-width: 0;

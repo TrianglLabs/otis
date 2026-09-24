@@ -1,6 +1,5 @@
 import { homedir } from "node:os"
 import { isAbsolute, parse, relative, resolve, sep } from "node:path"
-import type { ArtifactReference } from "../artifacts/types.js"
 import { requestContextEstimator } from "../core/compaction.js"
 import { loadProjectContext } from "../core/context.js"
 import { validateAttachments } from "../inference/attachments.js"
@@ -73,6 +72,7 @@ import {
   Conversation,
   type ConversationEvent,
   type PendingPermission,
+  PermissionBroker,
   type TurnPhase,
   type TurnSpeed,
 } from "./conversation.js"
@@ -88,14 +88,13 @@ import {
   type ModelState,
   resolveFireworksServing,
 } from "./models.js"
-import { SessionCoordinator } from "./sessions.js"
+import { type OpenSession, SESSION_REASONS, SessionCoordinator } from "./sessions.js"
 import { type SubagentStatus, SubagentTraces } from "./subagents.js"
 import { type TranscriptChange, TranscriptStore } from "./transcript.js"
 
 type ApplicationOptions = {
   cwd?: string
   env?: NodeJS.ProcessEnv
-  isBusy?: () => boolean
   isExiting?: () => boolean
   outputCapabilities?: OutputCapabilities
 }
@@ -109,7 +108,21 @@ export type SubagentSummary = {
   tools: number
 }
 
-/** The mutable application state outside the transcript, shared by every interface. */
+/** One open session runtime as a tab strip or picker lists it. */
+export type RuntimeSummary = {
+  runtime: number
+  session: { id: string; title: string; dirName: string } | null
+  focused: boolean
+  busy: boolean
+  unseen: boolean
+  diffs: { added: number; removed: number }
+  contextTokens: number
+}
+
+/**
+ * The mutable application state outside the transcript, shared by every interface. Session
+ * fields describe the focused runtime; `runtimes` lists every open one.
+ */
 export type AppStatus = {
   busy: boolean
   phase: TurnPhase
@@ -128,7 +141,10 @@ export type AppStatus = {
   diffs: { added: number; removed: number }
   contextTokens: number
   contextLimit: number
+  /** The approval request at the head of the shared broker queue, from any runtime. */
   permission: PendingPermission | null
+  /** Approval requests waiting behind `permission`. */
+  permissionQueue: number
   localThinking: LocalThinkingState | null
   permissionMode: PermissionMode
   /** Fast serving for the selected hosted model: whether it has a fast path, and whether it is on. */
@@ -137,16 +153,23 @@ export type AppStatus = {
   pairEndpoints: PairEndpoints
   omlx: { baseURL: string; hasApiKey: boolean } | null
   subagents: SubagentSummary[]
+  runtimes: RuntimeSummary[]
+  /** Busy runtimes other than the focused one. */
+  working: number
 }
 
-/**
- * Status-affecting changes carry no payload: adapters diff `status()`. Transcript edits and
- * conversation events carry theirs.
- */
-export type AppEvent =
+type AppEventBody =
   | { type: "status" }
   | { type: "transcript"; change: TranscriptChange }
+  | { type: "permission"; request: PendingPermission | null }
   | ConversationEvent
+
+/**
+ * Status-affecting changes carry no payload: adapters diff `status()`. Transcript edits, the
+ * approval head, and conversation events carry theirs. Every event names the runtime it came
+ * from: app-wide changes (model, focus) carry the focused runtime, an approval head its asker's.
+ */
+export type AppEvent = AppEventBody & { runtime: number }
 
 /**
  * The outcome of a model transaction. A superseded or aborted request reports
@@ -191,15 +214,53 @@ function pickerKey(model: CatalogModel) {
   return model.provider === "pair" ? pairModelKey(model) : model.id
 }
 
+/**
+ * One open session: its own transcript, delegated runs, artifacts, session file and lock, and
+ * turn loop. Its id is the conversation's — the owner id at the inference gate and the permission
+ * broker.
+ */
+export class SessionRuntime {
+  /** An in-place open whose working folder is unknown or gone; prompts wait for a locate. */
+  readOnly: { dirName: string; sessionId: string } | undefined
+  /** Settled while not focused; cleared on focus. */
+  unseen = false
+  readonly #detach: () => void
+
+  constructor(
+    readonly transcript: TranscriptStore,
+    readonly subagents: SubagentTraces,
+    readonly artifacts: ArtifactStore,
+    readonly sessions: SessionCoordinator,
+    readonly conversation: Conversation,
+    attach: (runtime: SessionRuntime) => () => void,
+  ) {
+    this.#detach = attach(this)
+  }
+
+  get id() {
+    return this.conversation.id
+  }
+
+  get busy() {
+    return this.conversation.busy
+  }
+
+  /** Stops the turn, waits it out, and releases the session lock; the runtime is done after. */
+  async dispose() {
+    this.conversation.stop()
+    await this.conversation.wait()
+    this.#detach()
+    this.artifacts.dispose()
+    await this.sessions.releaseLock()
+  }
+}
+
 export class Application {
   readonly cwd: string
   readonly outputCapabilities: OutputCapabilities
-  readonly transcript = new TranscriptStore()
-  readonly artifacts: ArtifactStore
-  readonly subagents = new SubagentTraces()
   readonly models: ModelHost
-  readonly sessions: SessionCoordinator
-  readonly conversation: Conversation
+  /** The approval surface every runtime asks through; `status().permission` is its head. */
+  readonly permissions = new PermissionBroker()
   readonly webClient = new ParallelClient()
   settings: LocalSettings
   projectContext: ContextFile[] = []
@@ -214,6 +275,10 @@ export class Application {
    */
   extraGate: (() => string | undefined) | undefined
   readonly #listeners = new Set<(event: AppEvent) => void>()
+  readonly #isExiting: () => boolean
+  readonly #runtimes: SessionRuntime[] = []
+  #focused!: SessionRuntime
+  #debug = false
   /** A local-model deletion is in flight; other model transactions are refused until it settles. */
   #deleting = false
   /** One catalog lookup at a time resolves an unknown image capability for the selected model. */
@@ -237,9 +302,8 @@ export class Application {
   }
 
   private constructor(cwd: string, settings: LocalSettings, options: ApplicationOptions) {
-    const isExiting = options.isExiting ?? (() => false)
+    this.#isExiting = options.isExiting ?? (() => false)
     this.cwd = cwd
-    this.artifacts = new ArtifactStore(cwd)
     this.outputCapabilities = options.outputCapabilities ?? {}
     this.settings = settings
     this.fireworksApiKey = settings.fireworksApiKey
@@ -247,51 +311,146 @@ export class Application {
     this.permissionMode = settings.permissions?.defaultMode ?? DEFAULT_PERMISSION_MODE
     this.permissionRules = [...(settings.permissions?.rules ?? [])]
     this.models = new ModelHost({ env: options.env })
-    this.sessions = new SessionCoordinator({
-      cwd,
-      transcript: this.transcript,
-      subagents: this.subagents,
-      client: () => this.models.client,
-      isBusy: () => (options.isBusy?.() ?? false) || this.conversation.busy,
-      isExiting,
-      onReset: () => this.artifacts.clear(),
-      onReplay: (messages, activities, session) =>
-        this.artifacts.restore(messages, activities, session.artifactDirectory),
-    })
-    this.conversation = new Conversation({
-      sessions: this.sessions,
-      transcript: this.transcript,
-      subagents: this.subagents,
-      webClient: this.webClient,
-      cwd,
-      models: this.models,
-      projectContext: () => this.projectContext,
-      skills: () => this.skills,
-      permissionPolicy: () => this.createPermissionPolicy(),
-      isExiting,
-      outputCapabilities: this.outputCapabilities,
-      artifacts: this.artifacts,
-      gate: () => this.admissionGate(),
-    })
     this.models.subscribe(() => {
       this.#notify({ type: "status" })
       // Follow-ups parked by a model switch resume on the settled model, whether the switch
       // committed, failed, or was superseded.
-      if (!this.models.selecting) this.conversation.drain()
+      if (!this.models.selecting) for (const runtime of this.#runtimes) runtime.conversation.drain()
     })
-    this.sessions.subscribe(() => this.#notify({ type: "status" }))
-    this.transcript.subscribe((change) => this.#notify({ type: "transcript", change }))
-    this.conversation.subscribe((event) => this.#notify(event))
+    this.permissions.subscribe((request) =>
+      this.#notify({ type: "permission", request }, request?.runtime),
+    )
+    this.#focused = this.#createRuntime()
+    this.#runtimes.push(this.#focused)
+  }
+
+  /** A runtime with its own stores, coordinator, and turn loop, reporting events under its id. */
+  #createRuntime(): SessionRuntime {
+    const transcript = new TranscriptStore()
+    const subagents = new SubagentTraces()
+    const artifacts = new ArtifactStore(this.cwd)
+    let runtime!: SessionRuntime
+    const sessions = new SessionCoordinator({
+      cwd: this.cwd,
+      transcript,
+      subagents,
+      client: () => this.models.clientFor(runtime.id),
+      isBusy: () => runtime.busy,
+      isExiting: this.#isExiting,
+      onReset: () => artifacts.clear(),
+      onReplay: (messages, activities, session) =>
+        artifacts.restore(messages, activities, session.artifactDirectory),
+    })
+    const conversation = new Conversation({
+      sessions,
+      transcript,
+      subagents,
+      webClient: this.webClient,
+      cwd: this.cwd,
+      models: this.models,
+      projectContext: () => this.projectContext,
+      skills: () => this.skills,
+      permissionPolicy: () => this.createPermissionPolicy(),
+      broker: this.permissions,
+      isExiting: this.#isExiting,
+      outputCapabilities: this.outputCapabilities,
+      artifacts,
+      gate: () => this.admissionGate(runtime),
+    })
+    conversation.debug = this.#debug
+    runtime = new SessionRuntime(
+      transcript,
+      subagents,
+      artifacts,
+      sessions,
+      conversation,
+      (self) => {
+        const unsubscribe = [
+          sessions.subscribe(() => this.#notify({ type: "status" }, self.id)),
+          transcript.subscribe((change) => this.#notify({ type: "transcript", change }, self.id)),
+          conversation.subscribe((event) => {
+            if (event.type === "settled" && self !== this.#focused) self.unseen = true
+            this.#notify(event, self.id)
+          }),
+        ]
+        return () => {
+          for (const stop of unsubscribe) stop()
+        }
+      },
+    )
+    return runtime
+  }
+
+  /** The runtime whose session the interface shows; every session alias below reads it. */
+  get focused() {
+    return this.#focused
+  }
+
+  get runtimes(): readonly SessionRuntime[] {
+    return this.#runtimes
+  }
+
+  /** Any runtime mid-turn; model and server transactions would cut every one of them off. */
+  get anyBusy() {
+    return this.#runtimes.some((runtime) => runtime.busy)
+  }
+
+  get transcript() {
+    return this.#focused.transcript
+  }
+
+  get artifacts() {
+    return this.#focused.artifacts
+  }
+
+  get subagents() {
+    return this.#focused.subagents
+  }
+
+  get sessions() {
+    return this.#focused.sessions
+  }
+
+  get conversation() {
+    return this.#focused.conversation
+  }
+
+  /** Session-only debug mode for every runtime, open now or later; applies from the next turn. */
+  get debug() {
+    return this.#debug
+  }
+
+  set debug(enabled: boolean) {
+    this.#debug = enabled
+    for (const runtime of this.#runtimes) runtime.conversation.debug = enabled
+  }
+
+  /** The sessions open in this process, for marking picker rows. */
+  openSessions(): OpenSession[] {
+    return this.#runtimes.flatMap((runtime) => {
+      const { current, currentDirName } = runtime.sessions
+      if (!current || !currentDirName) return []
+      return [
+        {
+          id: current.id,
+          dirName: currentDirName,
+          focused: runtime === this.#focused,
+          working: runtime.busy,
+          unseen: runtime.unseen,
+        },
+      ]
+    })
   }
 
   /**
-   * Why a prompt cannot be admitted right now. Model switching and prompt admission are mutually
-   * exclusive: preparation may stop the server the prompt would run on, and the busy window alone
-   * does not cover the asynchronous selection span.
+   * Why a prompt cannot be admitted to a runtime right now. Model switching and prompt admission
+   * are mutually exclusive: preparation may stop the server the prompt would run on, and the busy
+   * window alone does not cover the asynchronous selection span.
    */
-  admissionGate(): string | undefined {
+  admissionGate(runtime = this.#focused): string | undefined {
     const extra = this.extraGate?.()
     if (extra) return extra
+    if (runtime.readOnly) return "Locate the working folder to continue this session."
     const { models } = this
     if (models.state === "starting") return MODEL_STARTING
     if (models.selecting) return MODEL_SWITCHING
@@ -310,8 +469,102 @@ export class Application {
     }
   }
 
-  #notify(event: AppEvent) {
-    for (const listener of this.#listeners) listener(event)
+  #notify(event: AppEventBody, runtime = this.#focused.id) {
+    for (const listener of this.#listeners) listener({ ...event, runtime })
+  }
+
+  /**
+   * Opens a session in this process: focuses the runtime that already has it, refuses one another
+   * process holds, and otherwise loads it — into the focused runtime when that one is idle, else
+   * into a new runtime that takes focus. Never refused for being busy.
+   */
+  async openSession(
+    sessionId: string,
+    storage?: { directory: string },
+  ): Promise<"focused" | "opened" | "locked"> {
+    const open = this.#runtimes.find((runtime) =>
+      runtime.sessions.isCurrent(sessionId, storage?.directory),
+    )
+    if (open) {
+      this.focus(open)
+      return "focused"
+    }
+    const runtime = this.#focused.busy ? this.#createRuntime() : this.#focused
+    let result: "noop" | "loaded" | "locked" | undefined
+    try {
+      result = await runtime.sessions.select(sessionId, storage)
+    } finally {
+      if (result !== "loaded" && runtime !== this.#focused) await runtime.dispose()
+    }
+    if (result !== "loaded") return result === "locked" ? "locked" : "focused"
+    runtime.readOnly = undefined
+    if (runtime !== this.#focused) {
+      this.#runtimes.push(runtime)
+      this.focus(runtime)
+    }
+    return "opened"
+  }
+
+  /** A fresh session: the focused runtime resets in place when idle, else a new one takes focus. */
+  openNew(): SessionRuntime {
+    if (this.#focused.busy) {
+      const runtime = this.#createRuntime()
+      this.#runtimes.push(runtime)
+      this.focus(runtime)
+      return runtime
+    }
+    this.#focused.sessions.startNew()
+    this.#focused.readOnly = undefined
+    return this.#focused
+  }
+
+  /** Shows a runtime: its transcript replaces the view and its completion is seen. */
+  focus(runtime: SessionRuntime) {
+    runtime.unseen = false
+    if (runtime === this.#focused) return
+    this.#focused = runtime
+    this.#notify({ type: "transcript", change: { op: "reset" } }, runtime.id)
+    this.#notify({ type: "status" }, runtime.id)
+  }
+
+  /** Refused while the runtime is mid-turn. Closing the last runtime leaves a fresh empty one. */
+  async closeRuntime(runtime: SessionRuntime): Promise<"closed" | "working"> {
+    if (runtime.busy) return "working"
+    const index = this.#runtimes.indexOf(runtime)
+    if (index < 0) throw new Error("That session runtime is not open.")
+    this.#runtimes.splice(index, 1)
+    if (this.#runtimes.length === 0) this.#runtimes.push(this.#createRuntime())
+    if (runtime === this.#focused)
+      this.focus(this.#runtimes[Math.min(index, this.#runtimes.length - 1)])
+    await runtime.dispose()
+    return "closed"
+  }
+
+  /**
+   * Deletes a stored session. Refused while a runtime holding it is mid-turn; an idle runtime
+   * holding it closes first (the focused one resets in place, as a fresh session).
+   */
+  async deleteSession(
+    sessionId: string,
+    storage?: { directory: string },
+  ): Promise<"deleted" | "working" | "locked"> {
+    const open = this.#runtimes.find((runtime) =>
+      runtime.sessions.isCurrent(sessionId, storage?.directory),
+    )
+    if (open?.busy) return "working"
+    if (open && open !== this.#focused) await this.closeRuntime(open)
+    const runtime = this.#focused
+    const result = await runtime.sessions.delete(sessionId, storage)
+    if (result === "busy") return "working"
+    if (result === "deleted" && !runtime.sessions.current) runtime.readOnly = undefined
+    return result
+  }
+
+  /** Compacts a runtime's context; returns the reason when it is mid-turn. */
+  async compact(instructions?: string, runtime = this.#focused): Promise<string | undefined> {
+    if (runtime.busy) return SESSION_REASONS.working
+    await runtime.conversation.compact(instructions, this.contextEstimator())
+    return undefined
   }
 
   status(): AppStatus {
@@ -344,7 +597,8 @@ export class Application {
       diffs: sessions.diffs,
       contextTokens: this.contextTokens(),
       contextLimit: models.autoCompactAtTokens,
-      permission: conversation.permission,
+      permission: this.permissions.current,
+      permissionQueue: Math.max(0, this.permissions.pending.length - 1),
       localThinking: models.thinkingState(),
       permissionMode: this.permissionMode,
       fastServing,
@@ -360,12 +614,31 @@ export class Application {
         ...(trace.durationMs === undefined ? {} : { durationMs: trace.durationMs }),
         tools: trace.transcript.entries.filter((entry) => entry.kind === "tool").length,
       })),
+      runtimes: this.#runtimes.map((runtime) => {
+        const { current, currentDirName } = runtime.sessions
+        return {
+          runtime: runtime.id,
+          session:
+            current && currentDirName
+              ? { id: current.id, title: runtime.sessions.activeLabel(), dirName: currentDirName }
+              : null,
+          focused: runtime === this.#focused,
+          busy: runtime.busy,
+          unseen: runtime.unseen,
+          diffs: runtime.sessions.diffs,
+          contextTokens: this.contextTokens(undefined, runtime),
+        }
+      }),
+      working: this.#runtimes.filter((runtime) => runtime !== this.#focused && runtime.busy).length,
     }
   }
 
+  #invalidateContext() {
+    for (const runtime of this.#runtimes) runtime.transcript.invalidateContext()
+  }
+
   async setLocalThinking(model: string, level: string) {
-    if (this.conversation.busy)
-      throw new Error("Finish the current work before changing thinking effort.")
+    if (this.anyBusy) throw new Error("Finish the current work before changing thinking effort.")
     if (this.models.selectedProvider !== "local" || this.models.selectedId !== model) {
       throw new Error("The selected local model has changed.")
     }
@@ -373,7 +646,7 @@ export class Application {
     this.settings.localThinking = preferences
     this.models.localThinking = preferences
     this.models.refreshAutoCompact()
-    this.transcript.invalidateContext()
+    this.#invalidateContext()
   }
 
   /** Applies and persists the permission behavior for subsequent tool calls. */
@@ -407,15 +680,11 @@ export class Application {
     })
   }
 
-  contextTokens(pendingInput?: UserChatMessage) {
+  contextTokens(pendingInput?: UserChatMessage, runtime = this.#focused) {
     const estimate = this.contextEstimator()
-    const tokens =
-      this.transcript.contextTokens(this.models.client) ?? estimate(this.transcript.history)
+    const { transcript } = runtime
+    const tokens = transcript.contextTokens(this.models.client) ?? estimate(transcript.history)
     return pendingInput ? tokens + estimate([pendingInput]) - estimate([]) : tokens
-  }
-
-  openArtifact(reference: ArtifactReference, version?: number) {
-    return this.artifacts.open(reference, version)
   }
 
   /**
@@ -499,8 +768,7 @@ export class Application {
    * endpoints. A selection whose server no longer answers is invalidated and reported as failed.
    */
   async connectLocalServers(input: LocalServerInputs, options: LocalServerDiscoveryOptions = {}) {
-    if (this.conversation.busy)
-      throw new Error("Wait for the current turn before changing local servers.")
+    if (this.anyBusy) throw new Error("Wait for the current turn before changing local servers.")
     const models = this.models
     try {
       return await this.#connectLocalServers(input, options)
@@ -532,7 +800,7 @@ export class Application {
           // server.
           if (omlxModel.baseURL === models.omlx?.baseURL) {
             models.client = undefined
-            this.transcript.invalidateContext()
+            this.#invalidateContext()
           }
           throw error
         }
@@ -562,7 +830,7 @@ export class Application {
           "The local model server for the selected model is no longer available. Reconnect or choose another model.",
         )
       }
-      this.transcript.invalidateContext()
+      this.#invalidateContext()
       return servers
     })
     if (!connection) throw new Error("The connection was cancelled.")
@@ -669,7 +937,7 @@ export class Application {
     target: ModelPickerChoice | CatalogModel,
     options: SelectModelOptions = {},
   ): Promise<SelectionResult> {
-    if (this.#deleting || this.conversation.busy)
+    if (this.#deleting || this.anyBusy)
       return { ok: false, reason: "Finish the current work before switching models." }
     const models = this.models
     const choice = "kind" in target ? target : undefined
@@ -688,7 +956,7 @@ export class Application {
       if (active && models.client && serving && target.provider !== "omlx") return { ok: true }
       // Defense in depth: no driver can start while a selection is open, so running work here
       // means a turn outlived the entry check. Parked follow-ups are safe until settle.
-      if (this.conversation.busy)
+      if (this.anyBusy)
         return { ok: false, reason: "Finish the current work before switching models." }
       const selected: CatalogModel = !choice
         ? target
@@ -734,7 +1002,7 @@ export class Application {
     fast: boolean,
     options: { catalog?: readonly FireworksModel[]; signal?: AbortSignal } = {},
   ): Promise<SelectionResult> {
-    if (this.#deleting || this.conversation.busy)
+    if (this.#deleting || this.anyBusy)
       return { ok: false, reason: "Finish the current work before changing Fast serving." }
     const models = this.models
     if (models.selectedProvider !== "fireworks" || !models.selectedId)
@@ -812,7 +1080,7 @@ export class Application {
     modelId: string,
   ): Promise<{ wasActive: boolean; remaining: LocalModelSpec[] }> {
     const models = this.models
-    if (this.#deleting || this.conversation.busy || models.selecting)
+    if (this.#deleting || this.anyBusy || models.selecting)
       throw new Error("Finish the current work before deleting a model.")
     const spec = findLocalModel(modelId)
     if (!spec) throw new Error("That model is not in the local catalog.")
@@ -856,13 +1124,16 @@ export class Application {
     }
   }
 
+  /** Disposes every runtime (turns stopped, locks released), then stops the models. */
   async shutdown() {
-    this.artifacts.dispose()
-    this.conversation.stop()
+    for (const runtime of this.#runtimes) runtime.conversation.stop()
+    for (const { id } of this.permissions.pending) this.permissions.respond(id, false)
     this.models.cancelPrepare()
     this.models.cancelSelection()
-    await Promise.allSettled([this.conversation.wait(), this.models.waitForSelection()])
-    await this.sessions.releaseLock()
+    await Promise.allSettled([
+      ...this.#runtimes.map((runtime) => runtime.dispose()),
+      this.models.waitForSelection(),
+    ])
     await this.models.stop()
   }
 }

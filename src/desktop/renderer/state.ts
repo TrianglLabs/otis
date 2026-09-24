@@ -1,5 +1,11 @@
 import type { TranscriptEntry } from "../../app/transcript.js"
-import type { DesktopApi, DesktopEvent, DesktopSnapshot, TranscriptPatchOp } from "../contracts.js"
+import type {
+  DesktopApi,
+  DesktopEvent,
+  DesktopSnapshot,
+  DesktopStatus,
+  TranscriptPatchOp,
+} from "../contracts.js"
 
 export type ViewState = DesktopSnapshot
 
@@ -49,18 +55,35 @@ export class DesktopViewStore {
   #apply(event: DesktopEvent) {
     const state = this.#state
     if (!state || event.revision <= state.revision) return
-    this.#state = {
-      ...state,
-      ...(event.type === "status" ? event.status : undefined),
-      revision: event.revision,
-      entries: event.ops ? applyTranscriptOps(state.entries, event.ops) : state.entries,
+    const status = event.type === "status" ? event.status : undefined
+    const before = focusedRuntime(state)
+    const after = focusedRuntime(status ?? state)
+    let { entries } = state
+    const transcripts = { ...state.transcripts }
+    // Focus moved: lists follow their sessions. A session that was not on screen starts empty
+    // and is reset by this same event's ops.
+    if (after !== before && after !== undefined) {
+      if (before !== undefined) transcripts[before] = entries
+      entries = transcripts[after] ?? []
+      delete transcripts[after]
     }
+    if (event.ops) entries = applyTranscriptOps(entries, event.ops)
+    for (const pane of event.panes ?? [])
+      transcripts[pane.runtime] = applyTranscriptOps(transcripts[pane.runtime] ?? [], pane.ops)
+    if (status)
+      for (const key of Object.keys(transcripts))
+        if (!status.panes.includes(Number(key))) delete transcripts[Number(key)]
+    this.#state = { ...state, ...status, revision: event.revision, entries, transcripts }
     this.#emit()
   }
 
   #emit() {
     for (const listener of this.#listeners) listener()
   }
+}
+
+function focusedRuntime(status: Pick<DesktopStatus, "runtimes">) {
+  return status.runtimes.find((runtime) => runtime.focused)?.runtime
 }
 
 function applyTranscriptOps(

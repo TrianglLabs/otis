@@ -343,7 +343,18 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
                         <span className="palette-rowText">
                           <span className="palette-rowTitle">
                             {row.item.title}
-                            {row.item.active ? <Icon icon={Check} size={12} /> : null}
+                            {row.item.working ? (
+                              <span
+                                className="stateDot stateDot-working"
+                                title={t("session.working")}
+                              />
+                            ) : row.item.unseen ? (
+                              <span className="stateDot" title={t("session.finished")} />
+                            ) : row.item.active ? (
+                              <Icon icon={Check} size={12} />
+                            ) : row.item.open ? (
+                              <span className="stateDot stateDot-open" title={t("session.open")} />
+                            ) : null}
                           </span>
                           <span className="palette-rowWorkspace">{row.item.workspaceLabel}</span>
                           <span className="palette-rowDetail">

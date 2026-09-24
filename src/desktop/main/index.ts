@@ -32,6 +32,10 @@ let quitting = false
 let statusTrayGate: ReturnType<typeof trayStatusGate> | undefined
 
 app.setName(app.isPackaged ? "Otis" : "Otis Dev")
+// Linux desktops match a window to its launcher entry and icon by app id. electron-builder names
+// the entry after package.json's desktopName; set it here too so the id never depends on the
+// packaged manifest, and so it holds when the entry is integrated later (AppImage tools).
+if (process.platform === "linux") app.setDesktopName("ai.triangllabs.otis.desktop")
 
 // A crash must not orphan a multi-gigabyte llama-server: stop it through the runtime's shutdown
 // path, then exit with the original error instead of Electron's default of staying open.
@@ -258,6 +262,12 @@ if (!app.requestSingleInstanceLock()) {
     // actions, seeded from a snapshot and kept current by the status stream. macOS-only for now;
     // tray.ts is platform-clean so a Linux app indicator can follow the same shape.
     if (process.platform !== "darwin") return
+    const focusWindow = () => {
+      if (!mainWindow) return
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.show()
+      mainWindow.focus()
+    }
     const tray = createStatusTray({
       appName: app.getName(),
       iconDir: trayIconDir({
@@ -266,11 +276,10 @@ if (!app.requestSingleInstanceLock()) {
         mainDir: __dirname,
       }),
       actions: {
-        focusWindow: () => {
-          if (!mainWindow) return
-          if (mainWindow.isMinimized()) mainWindow.restore()
-          mainWindow.show()
-          mainWindow.focus()
+        focusWindow,
+        focusSession: (runtime) => {
+          current.focusSession(runtime)
+          focusWindow()
         },
         startNewSession: () => void current.startNewSession(),
         stop: () => current.stop(),

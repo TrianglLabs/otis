@@ -1,4 +1,4 @@
-import type { SubagentSummary } from "../app/application.js"
+import type { RuntimeSummary, SubagentSummary } from "../app/application.js"
 import type { PendingPermission, TurnPhase, TurnSpeed } from "../app/conversation.js"
 import type { GlobalSessionPickerItem, RecentArtifact } from "../app/global-sessions.js"
 import type { LocalServerInputs } from "../app/local-servers.js"
@@ -11,7 +11,7 @@ import type { ModelProvider } from "../inference/types.js"
 import type { ThemeName, UiLanguage } from "../local/settings.js"
 import type { PermissionMode } from "../permissions/policy.js"
 
-export type { SubagentSummary } from "../app/application.js"
+export type { RuntimeSummary, SubagentSummary } from "../app/application.js"
 export type { PendingPermission, TurnPhase, TurnSpeed } from "../app/conversation.js"
 export type { RecentArtifact } from "../app/global-sessions.js"
 export type { ModelState } from "../app/models.js"
@@ -24,11 +24,17 @@ export const DESKTOP_CHANNELS = {
   getSnapshot: "desktop:get-snapshot",
   getArtifact: "desktop:get-artifact",
   openArtifact: "desktop:open-artifact",
+  closeArtifact: "desktop:close-artifact",
   saveArtifact: "desktop:save-artifact",
   sendPrompt: "desktop:send-prompt",
   stop: "desktop:stop",
   respondToPermission: "desktop:respond-to-permission",
   selectSession: "desktop:select-session",
+  focusSession: "desktop:focus-session",
+  openPane: "desktop:open-pane",
+  closePane: "desktop:close-pane",
+  soloPane: "desktop:solo-pane",
+  replacePane: "desktop:replace-pane",
   searchSessions: "desktop:search-sessions",
   startNewSession: "desktop:start-new-session",
   openSessionAt: "desktop:open-session-at",
@@ -85,8 +91,11 @@ export type DesktopStatus = {
   modelState: ModelState
   modelError: string | undefined
   session: { id: string; title: string } | null
-  /** The session's active document/web artifact. Contents are fetched once by revision. */
-  artifact: ArtifactMetadata | null
+  /**
+   * Every document open in Canvas across the open sessions, in opening order. Contents are
+   * fetched once per tab revision.
+   */
+  artifacts: CanvasTab[]
   /**
    * The active session's working folder is unknown or gone; locate it before agent work continues.
    */
@@ -100,7 +109,10 @@ export type DesktopStatus = {
   contextTokens: number | undefined
   contextLimit: number
   diffs: { added: number; removed: number }
+  /** The approval request at the head of the shared queue, from any open session. */
   permission: PendingPermission | null
+  /** Approval requests waiting behind `permission`. */
+  permissionQueue: number
   /** Local usage statistics; undefined until the first scan completes. */
   stats: LocalStats | undefined
   /**
@@ -111,6 +123,14 @@ export type DesktopStatus = {
   modelLoad: { modelId: string; status: ModelPickerStatus } | null
   /** The session's delegated runs, oldest first. */
   subagents: SubagentSummary[]
+  /** Every session open in this window; exactly one is focused and shown. */
+  runtimes: RuntimeSummary[]
+  /** Open sessions mid-turn other than the focused one. */
+  working: number
+  /** The open sessions on screen, in display order; the focused one is among them. */
+  panes: number[]
+  /** How two panes divide the column; three or four fill a grid. */
+  paneAxis: PaneAxis
   /** The delegated-runs rail preference; persisted as subagentPanelVisible in local settings. */
   agentsPanelVisible: boolean
   /** The workspace panel width the user last dragged to; undefined follows the responsive default. */
@@ -144,10 +164,21 @@ export type DesktopStatus = {
   update: DesktopUpdateState
 }
 
+/** The edge a session is dropped on: left and top put it first, right and bottom last. */
+export type PaneSide = "left" | "right" | "top" | "bottom"
+export type PaneAxis = "row" | "column"
+/** Sessions on screen at once; each is a live virtualized transcript. */
+export const MAX_PANES = 4
+
+/** One Canvas tab: a session's open document and the moment it last took the view. */
+export type CanvasTab = { runtime: number; artifact: ArtifactMetadata; activated: number }
+
 export type DesktopSnapshot = DesktopStatus & {
   platform: NodeJS.Platform
   version: string
   entries: TranscriptEntry[]
+  /** The transcripts of the other sessions on screen, by runtime id. */
+  transcripts: Record<number, TranscriptEntry[]>
   revision: number
 }
 
@@ -161,9 +192,23 @@ export type TranscriptPatchOp =
  * renderer that reloaded can discard anything it already received in its snapshot. Status events
  * can include transcript operations so session resets update content and metadata together.
  */
+/** Patch ops for one of the other sessions on screen. */
+export type PaneOps = { runtime: number; ops: TranscriptPatchOp[] }
+
+/**
+ * `ops` patch the focused session's transcript and `panes` the others on screen. When a status
+ * moves focus, lists follow their sessions first; a session not on screen before arrives whole in
+ * the same event's `ops`.
+ */
 export type DesktopEvent =
-  | { type: "transcript"; revision: number; ops: TranscriptPatchOp[] }
-  | { type: "status"; revision: number; status: DesktopStatus; ops?: TranscriptPatchOp[] }
+  | { type: "transcript"; revision: number; ops?: TranscriptPatchOp[]; panes?: PaneOps[] }
+  | {
+      type: "status"
+      revision: number
+      status: DesktopStatus
+      ops?: TranscriptPatchOp[]
+      panes?: PaneOps[]
+    }
 
 export type SendPromptResult =
   | { accepted: true; delivery: "started" | "steered" | "queued" }
@@ -196,9 +241,16 @@ export type DesktopWindowState = { fullscreen: boolean }
 /** The API surface exposed to the renderer through the preload bridge. */
 export type DesktopApi = {
   getSnapshot(): Promise<DesktopSnapshot>
-  getArtifact(revision: number): Promise<ArtifactResult>
-  openArtifact(reference: ArtifactReference, version?: number): Promise<SessionOpResult>
-  saveArtifact(id: string, revision: number): Promise<SessionOpResult>
+  /** A tab's payload at the given revision; stale once the tab moved on. */
+  getArtifact(runtime: number, id: string, revision: number): Promise<ArtifactResult>
+  /** Opens a document in Canvas as the given session's tab; the focused session by default. */
+  openArtifact(
+    reference: ArtifactReference,
+    version?: number,
+    runtime?: number,
+  ): Promise<SessionOpResult>
+  closeArtifact(runtime: number, id: string): Promise<void>
+  saveArtifact(runtime: number, id: string, revision: number): Promise<SessionOpResult>
   getWindowState(): Promise<DesktopWindowState>
   sendPrompt(
     text: string,
@@ -207,6 +259,16 @@ export type DesktopApi = {
   stop(): Promise<void>
   respondToPermission(id: number, allow: boolean): Promise<void>
   selectSession(id: string, dirName?: string): Promise<SessionOpResult>
+  /** Shows a session already open in this window, by its runtime id from `runtimes`. */
+  focusSession(runtime: number): Promise<void>
+  /** Shows an open session on that side of the ones on screen, up to MAX_PANES. */
+  openPane(runtime: number, side: PaneSide): Promise<void>
+  /** Takes a session off screen; the last one stays. */
+  closePane(runtime: number): Promise<void>
+  /** Keeps only that session on screen, and makes it the active one. */
+  soloPane(runtime: number): Promise<void>
+  /** Puts a session in another's place on screen; two already on screen trade places. */
+  replacePane(target: number, runtime: number): Promise<void>
   /** Title-first session search for the command palette; content matches carry a snippet. */
   searchSessions(query: string): Promise<GlobalSessionPickerItem[]>
   startNewSession(): Promise<SessionOpResult>

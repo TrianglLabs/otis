@@ -31,6 +31,8 @@ const permission: PendingPermission = {
   kind: "shell",
   label: "Running command: bun test",
   resources: ["bun test"],
+  runtime: 1,
+  sessionTitle: "Test session",
 }
 
 const SNAPSHOT: DesktopSnapshot = {
@@ -41,7 +43,7 @@ const SNAPSHOT: DesktopSnapshot = {
   modelState: "ready",
   modelError: undefined,
   session: { id: "session-1", title: "Test session" },
-  artifact: null,
+  artifacts: [],
   needsWorkspace: false,
   sessions: [],
   recentArtifacts: [],
@@ -49,6 +51,21 @@ const SNAPSHOT: DesktopSnapshot = {
   contextLimit: 32_768,
   diffs: { added: 0, removed: 0 },
   permission,
+  permissionQueue: 0,
+  runtimes: [
+    {
+      runtime: 1,
+      session: { id: "session-1", title: "Test session", dirName: "ws" },
+      focused: true,
+      busy: true,
+      unseen: false,
+      diffs: { added: 0, removed: 0 },
+      contextTokens: 0,
+    },
+  ],
+  working: 0,
+  panes: [1],
+  paneAxis: "row",
   stats: undefined,
   modelLoad: null,
   subagents: [],
@@ -69,6 +86,7 @@ const SNAPSHOT: DesktopSnapshot = {
   update: { status: "idle" },
   workspace: { label: "ws", path: "/ws" },
   entries: [],
+  transcripts: {},
   revision: 1,
 }
 
@@ -100,9 +118,13 @@ async function renderConversation(pending: PendingPermission) {
     ...view,
     respondToPermission,
     /** A newer request replaces the card, the way the main process supersedes a cancelled one. */
-    replace: (next: PendingPermission) =>
+    replace: (next: PendingPermission, status: Partial<DesktopSnapshot> = {}) =>
       act(() =>
-        listener?.({ type: "status", revision: 2, status: { ...SNAPSHOT, permission: next } }),
+        listener?.({
+          type: "status",
+          revision: 2,
+          status: { ...SNAPSHOT, ...status, permission: next },
+        }),
       ),
   }
 }
@@ -122,6 +144,28 @@ describe("PermissionCard", () => {
     expect(respondToPermission).not.toHaveBeenCalled()
     fireEvent.click(getByRole("button", { name }))
     expect(respondToPermission).toHaveBeenCalledExactlyOnceWith(8, allow)
+  })
+
+  it("names the asking session when it is not the one on screen, and counts the queue", async () => {
+    const focused = {
+      runtime: 2,
+      session: { id: "session-2", title: "On screen", dirName: "ws" },
+      focused: true,
+      busy: false,
+      unseen: false,
+      diffs: { added: 0, removed: 0 },
+      contextTokens: 0,
+    }
+    const { queryByText, replace } = await renderConversation(permission)
+    expect(queryByText("Test session")).toBeNull()
+    await act(() =>
+      replace(
+        { ...permission, runtime: 1 },
+        { runtimes: [focused], panes: [2], permissionQueue: 2 },
+      ),
+    )
+    expect(queryByText("Test session")).not.toBeNull()
+    expect(queryByText("+2 waiting")).not.toBeNull()
   })
 
   it("keeps complete multiline commands and paths readable as literal text", async () => {

@@ -29,6 +29,7 @@ const IMMEDIATE_TYPES = new Set<SlashCommand["type"]>([
   "history",
   "home",
   "model",
+  "new",
   "thinking",
   "theme",
 ])

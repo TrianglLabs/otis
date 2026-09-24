@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { type AppEvent, Application, formatWorkspaceLabel } from "../../src/app/application.js"
+import { SESSION_REASONS } from "../../src/app/sessions.js"
 import type { TurnResult, TurnRunnerOptions } from "../../src/app/turn-runner.js"
 import { findLocalModel } from "../../src/inference/local-catalog.js"
 import type {
@@ -10,6 +11,8 @@ import type {
 import type { ChatMessage, InferenceClient } from "../../src/inference/types.js"
 import { loadLocalSettings, saveSelectedModel } from "../../src/local/settings.js"
 import type { PermissionRequest } from "../../src/permissions/policy.js"
+import { createSession, listSessions } from "../../src/storage/session.js"
+import { acquireSessionLock } from "../../src/storage/session-lock.js"
 import { useOtisHome } from "./support/otis-home.js"
 
 const mocks = vi.hoisted(() => ({
@@ -330,19 +333,19 @@ describe("Application prompt admission", () => {
       if (event.type === "permission") requests.push(event.request)
     })
     await app.conversation.submit({ role: "user", content: "run the tests" })
-    await vi.waitFor(() => expect(app.conversation.permission).not.toBeNull())
+    await vi.waitFor(() => expect(app.permissions.current).not.toBeNull())
     expect(app.status().permission).toMatchObject({
       label: "Running command: bun test",
       kind: "shell",
       resources: ["bun test"],
     })
-    const pending = app.conversation.permission
+    const pending = app.permissions.current
     if (!pending) throw new Error("expected a pending permission request")
-    app.conversation.respondToPermission(999_999, true)
-    expect(app.conversation.permission).toBe(pending)
-    app.conversation.respondToPermission(pending.id, false)
+    app.permissions.respond(999_999, true)
+    expect(app.permissions.current).toBe(pending)
+    app.permissions.respond(pending.id, false)
     await app.conversation.idle()
-    expect(app.conversation.permission).toBeNull()
+    expect(app.permissions.current).toBeNull()
     expect(app.transcript.entries.some((entry) => entry.text === "denied")).toBe(true)
     expect(requests).toEqual([pending, null])
 
@@ -355,12 +358,76 @@ describe("Application prompt admission", () => {
       },
     )
     await app.conversation.submit({ role: "user", content: "clean the build" })
-    await vi.waitFor(() => expect(app.conversation.permission).not.toBeNull())
+    await vi.waitFor(() => expect(app.permissions.current).not.toBeNull())
     app.conversation.stop()
     await app.conversation.idle()
     expect(observed).toBe(false)
-    expect(app.conversation.permission).toBeNull()
+    expect(app.permissions.current).toBeNull()
     await app.shutdown()
+  })
+})
+
+describe("Application permissions", () => {
+  const ask = (command: string): PermissionRequest => ({
+    call: { name: "bash", input: { command } },
+    decision: { effect: "ask", resources: [command] },
+  })
+
+  it("shows the broker head with its session, counts the rest, and denies all on shutdown", async () => {
+    const app = await ready()
+    let allowed: boolean | undefined
+    mocks.executeTurn.mockImplementation(
+      async (options: TurnRunnerOptions): Promise<TurnResult> => {
+        allowed = await options.agent.onPermissionRequest?.(ask("bun test"))
+        return { status: "interrupted", messages: [], details: {} }
+      },
+    )
+    const heads: unknown[] = []
+    app.subscribe((event) => {
+      if (event.type === "permission") heads.push(event.request)
+    })
+    await app.conversation.submit({ role: "user", content: "run the tests" })
+    await vi.waitFor(() => expect(app.status().permission).not.toBeNull())
+    expect(app.status()).toMatchObject({
+      permission: {
+        label: "Running command: bun test",
+        runtime: app.conversation.id,
+        sessionTitle: app.sessions.activeLabel(),
+      },
+      permissionQueue: 0,
+    })
+
+    // Another runtime's request queues behind the head: counted, not shown, and not this
+    // conversation's.
+    const other = app.permissions.request(
+      { runtime: 999, title: () => "Other" },
+      ask("ls"),
+      new AbortController().signal,
+    )
+    expect(app.status()).toMatchObject({
+      permission: { runtime: app.conversation.id },
+      permissionQueue: 1,
+    })
+    expect(app.permissions.pending.map((request) => request.runtime)).toEqual([
+      app.conversation.id,
+      999,
+    ])
+    expect(heads).toEqual([app.permissions.current])
+
+    // Stopping the conversation denies its own request only; the other one becomes the head.
+    app.conversation.stop()
+    await app.conversation.idle()
+    expect(allowed).toBe(false)
+    expect(app.status()).toMatchObject({
+      permission: { runtime: 999, sessionTitle: "Other", label: "Inspecting files: ls" },
+      permissionQueue: 0,
+    })
+    expect(heads).toHaveLength(2)
+
+    await app.shutdown()
+    await expect(other).resolves.toBe(false)
+    expect(app.status()).toMatchObject({ permission: null, permissionQueue: 0 })
+    expect(heads.at(-1)).toBeNull()
   })
 })
 
@@ -390,6 +457,7 @@ describe("Application status", () => {
       diffs: { added: 0, removed: 0 },
       contextLimit: app.models.autoCompactAtTokens,
       permission: null,
+      permissionQueue: 0,
       localThinking: null,
       permissionMode: "auto",
       fastServing: { available: true, enabled: false },
@@ -758,6 +826,175 @@ describe("Application prompts with attachments", () => {
     app.transcript.loadMessages([{ role: "user", content: [png] }])
     await expect(app.buildPrompt("continue", [])).rejects.toThrow("does not support image input")
     await app.shutdown()
+  })
+})
+
+describe("Application session runtimes", () => {
+  /** A turn that waits for `hold`, or ends interrupted when its signal aborts first. */
+  function holding(hold: ReturnType<typeof gate>, text = "reply") {
+    return async (options: TurnRunnerOptions): Promise<TurnResult> => {
+      await options.agent.steering?.drainOrClose()
+      const { signal } = options.agent
+      await new Promise<void>((resolve) => {
+        signal?.addEventListener("abort", () => resolve(), { once: true })
+        void hold.promise.then(resolve)
+      })
+      if (signal?.aborted) return { status: "interrupted", messages: [], details: {} }
+      return turnEvents(text)(options)
+    }
+  }
+
+  async function stored(cwd: string, question: string, answer: string) {
+    const session = await createSession({ cwd })
+    const admission = await session.admitPrompt(question)
+    await session.completeTurn(admission, [
+      { role: "assistant", content: [{ type: "text", text: answer }] },
+    ])
+    return session
+  }
+
+  it("opens a second session while the first works: it keeps running, unfocused, then reads as done", async () => {
+    const app = await ready("otis-app-runtimes-")
+    const first = app.focused
+    const hold = gate()
+    mocks.executeTurn.mockImplementation(holding(hold, "first reply"))
+    await app.conversation.submit({ role: "user", content: "long task" })
+    const saved = await stored(app.cwd, "stored question", "stored answer")
+    const events: AppEvent[] = []
+    app.subscribe((event) => events.push(event))
+
+    expect(await app.openSession(saved.id)).toBe("opened")
+    const second = app.focused
+    expect(second).not.toBe(first)
+    expect(app.runtimes).toEqual([first, second])
+    expect([app.transcript, app.sessions, app.conversation, app.artifacts, app.subagents]).toEqual([
+      second.transcript,
+      second.sessions,
+      second.conversation,
+      second.artifacts,
+      second.subagents,
+    ])
+    expect(app.transcript.entries.map((entry) => entry.text)).toEqual([
+      "stored question",
+      "stored answer",
+    ])
+    expect(events).toContainEqual({
+      type: "transcript",
+      change: { op: "reset" },
+      runtime: second.id,
+    })
+    expect(app.status()).toMatchObject({
+      busy: false,
+      working: 1,
+      session: { id: saved.id },
+      runtimes: [
+        { runtime: first.id, focused: false, busy: true, unseen: false },
+        { runtime: second.id, focused: true, busy: false, session: { id: saved.id } },
+      ],
+    })
+    expect(app.anyBusy).toBe(true)
+    expect(app.openSessions()).toMatchObject([
+      { id: first.sessions.current?.id, focused: false, working: true },
+      { id: saved.id, focused: true, working: false, unseen: false },
+    ])
+    expect(await app.openSession(saved.id)).toBe("focused")
+    expect(app.runtimes).toHaveLength(2)
+
+    // Nothing that would cut the working runtime off is allowed.
+    expect(await app.closeRuntime(first)).toBe("working")
+    expect(await app.compact(undefined, first)).toBe(SESSION_REASONS.working)
+    expect(await app.deleteSession(first.sessions.current?.id ?? "")).toBe("working")
+    expect(await app.selectModel(localChoice)).toEqual({
+      ok: false,
+      reason: "Finish the current work before switching models.",
+    })
+
+    events.length = 0
+    hold.resolve()
+    await first.conversation.idle()
+    expect(events.find((event) => event.type === "settled")?.runtime).toBe(first.id)
+    expect(events.filter((event) => event.type === "transcript")).not.toHaveLength(0)
+    expect(events.every((event) => event.runtime === first.id)).toBe(true)
+    expect(first.transcript.entries.some((entry) => entry.text === "first reply")).toBe(true)
+    expect(app.transcript.entries.some((entry) => entry.text === "first reply")).toBe(false)
+    expect(first.unseen).toBe(true)
+    expect(app.status()).toMatchObject({
+      working: 0,
+      runtimes: [{ unseen: true, busy: false }, { unseen: false }],
+    })
+
+    app.focus(first)
+    expect(first.unseen).toBe(false)
+    expect(app.transcript).toBe(first.transcript)
+    expect(events.at(-1)).toEqual({ type: "status", runtime: first.id })
+    expect(await app.closeRuntime(second)).toBe("closed")
+    expect(app.runtimes).toEqual([first])
+    expect(app.focused).toBe(first)
+    await app.shutdown()
+  })
+
+  it("refuses a session another Otis holds, opens in place when idle, and deletes an idle open one by closing it", async () => {
+    const app = await ready("otis-app-locked-")
+    const other = await Application.create({ cwd: app.cwd, env: {} })
+    const held = await other.sessions.ensure()
+    expect(await app.openSession(held.id)).toBe("locked")
+    expect(app.runtimes).toHaveLength(1)
+    await other.shutdown()
+
+    // An idle focused runtime takes the session in place, as a single-session switch always did.
+    expect(await app.openSession(held.id)).toBe("opened")
+    expect(app.runtimes).toHaveLength(1)
+    expect(app.sessions.current?.id).toBe(held.id)
+
+    // Starting fresh while that session works leaves it open beside the new focus.
+    const hold = gate()
+    mocks.executeTurn.mockImplementation(holding(hold))
+    await app.conversation.submit({ role: "user", content: "work" })
+    const working = app.focused
+    const fresh = app.openNew()
+    expect(fresh).not.toBe(working)
+    expect(app.focused).toBe(fresh)
+    expect(app.sessions.current).toBeUndefined()
+    expect(await app.deleteSession(held.id)).toBe("working")
+
+    hold.resolve()
+    await working.conversation.idle()
+    expect(await app.deleteSession(held.id)).toBe("deleted")
+    expect(app.runtimes).toEqual([fresh])
+    expect((await listSessions({ cwd: app.cwd })).map((session) => session.id)).not.toContain(
+      held.id,
+    )
+    const lock = await acquireSessionLock({ cwd: app.cwd, sessionId: held.id })
+    await lock.release()
+
+    // Closing the last runtime leaves a fresh empty one.
+    expect(await app.closeRuntime(fresh)).toBe("closed")
+    expect(app.runtimes).toHaveLength(1)
+    expect(app.focused).not.toBe(fresh)
+    expect(app.sessions.current).toBeUndefined()
+    await app.shutdown()
+  })
+
+  it("shutdown stops every runtime and releases every lock", async () => {
+    const app = await ready("otis-app-shutdown-all-")
+    const hold = gate()
+    mocks.executeTurn.mockImplementation(holding(hold))
+    await app.conversation.submit({ role: "user", content: "first" })
+    const first = app.focused
+    const second = app.openNew()
+    await app.conversation.submit({ role: "user", content: "second" })
+    expect(app.focused).toBe(second)
+    expect(app.status()).toMatchObject({ busy: true, working: 1 })
+    const ids = [first, second].map((runtime) => runtime.sessions.current?.id ?? "")
+    expect(ids.every(Boolean)).toBe(true)
+
+    await app.shutdown()
+    expect(first.busy).toBe(false)
+    expect(second.busy).toBe(false)
+    for (const sessionId of ids) {
+      const lock = await acquireSessionLock({ cwd: app.cwd, sessionId })
+      await lock.release()
+    }
   })
 })
 

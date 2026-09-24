@@ -8,10 +8,13 @@ import {
 
 const api: DesktopApi = {
   getSnapshot: () => ipcRenderer.invoke(DESKTOP_CHANNELS.getSnapshot),
-  getArtifact: (revision) => ipcRenderer.invoke(DESKTOP_CHANNELS.getArtifact, revision),
-  openArtifact: (reference, version) =>
-    ipcRenderer.invoke(DESKTOP_CHANNELS.openArtifact, reference, version),
-  saveArtifact: (id, revision) => ipcRenderer.invoke(DESKTOP_CHANNELS.saveArtifact, id, revision),
+  getArtifact: (runtime, id, revision) =>
+    ipcRenderer.invoke(DESKTOP_CHANNELS.getArtifact, runtime, id, revision),
+  closeArtifact: (runtime, id) => ipcRenderer.invoke(DESKTOP_CHANNELS.closeArtifact, runtime, id),
+  openArtifact: (reference, version, runtime) =>
+    ipcRenderer.invoke(DESKTOP_CHANNELS.openArtifact, reference, version, runtime),
+  saveArtifact: (runtime, id, revision) =>
+    ipcRenderer.invoke(DESKTOP_CHANNELS.saveArtifact, runtime, id, revision),
   getWindowState: () => ipcRenderer.invoke(DESKTOP_CHANNELS.getWindowState),
   sendPrompt: (text, attachments) =>
     ipcRenderer.invoke(DESKTOP_CHANNELS.sendPrompt, text, attachments),
@@ -19,6 +22,12 @@ const api: DesktopApi = {
   respondToPermission: (id, allow) =>
     ipcRenderer.invoke(DESKTOP_CHANNELS.respondToPermission, id, allow),
   selectSession: (id, dirName) => ipcRenderer.invoke(DESKTOP_CHANNELS.selectSession, id, dirName),
+  focusSession: (runtime) => ipcRenderer.invoke(DESKTOP_CHANNELS.focusSession, runtime),
+  openPane: (runtime, side) => ipcRenderer.invoke(DESKTOP_CHANNELS.openPane, runtime, side),
+  closePane: (runtime) => ipcRenderer.invoke(DESKTOP_CHANNELS.closePane, runtime),
+  soloPane: (runtime) => ipcRenderer.invoke(DESKTOP_CHANNELS.soloPane, runtime),
+  replacePane: (target, runtime) =>
+    ipcRenderer.invoke(DESKTOP_CHANNELS.replacePane, target, runtime),
   searchSessions: (query) => ipcRenderer.invoke(DESKTOP_CHANNELS.searchSessions, query),
   startNewSession: () => ipcRenderer.invoke(DESKTOP_CHANNELS.startNewSession),
   openSessionAt: (workspacePath, sessionId, dirName) =>

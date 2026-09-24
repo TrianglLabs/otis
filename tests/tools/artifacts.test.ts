@@ -79,7 +79,9 @@ describe("artifact publication", () => {
         reference: { artifactId: first.artifactId, version: 2 },
       },
     })
-    await expect(store.load(store.metadata?.revision ?? 0)).resolves.toMatchObject({
+    await expect(
+      store.load(store.metadata?.id ?? "", store.metadata?.revision ?? 0),
+    ).resolves.toMatchObject({
       content: "Second",
     })
     expect(store.open(first, 1)).toBe(true)
@@ -94,26 +96,46 @@ describe("artifact publication", () => {
       title: "first.md",
       publication: { versions: [1, 2, 3], followingLatest: false, reference: { version: 1 } },
     })
-    await expect(store.load(store.metadata?.revision ?? 0)).resolves.toMatchObject({
+    await expect(
+      store.load(store.metadata?.id ?? "", store.metadata?.revision ?? 0),
+    ).resolves.toMatchObject({
       content: "First",
     })
-    await expect(store.exportFile(store.metadata?.revision ?? 0)).resolves.toEqual({
+    await expect(
+      store.exportFile(store.metadata?.id ?? "", store.metadata?.revision ?? 0),
+    ).resolves.toEqual({
       name: "first.md",
       bytes: Buffer.from("First"),
     })
     expect(store.open(first, 99)).toBe(false)
     expect(store.open(first)).toBe(true)
-    await expect(store.load(store.metadata?.revision ?? 0)).resolves.toMatchObject({
+    await expect(
+      store.load(store.metadata?.id ?? "", store.metadata?.revision ?? 0),
+    ).resolves.toMatchObject({
       content: "Third",
     })
-    // A newly published artifact takes the view while following latest, never while pinned.
+    // A newly published artifact opens as its own tab and takes the view; a pinned tab keeps its
+    // version through that, and through its own later publications.
     const unrelated = await publish(moved, context)
     expect(unrelated.artifactId).not.toBe(first.artifactId)
     store.observeFile(unrelated)
     expect(store.metadata?.id).toBe(`published:${unrelated.artifactId}`)
+    expect(store.tabs.map((tab) => tab.artifact.id)).toEqual([
+      id,
+      `published:${unrelated.artifactId}`,
+    ])
     expect(store.open(first, 1)).toBe(true)
     store.observeFile(unrelated)
-    expect(store.metadata).toMatchObject({ id, publication: { reference: { version: 1 } } })
+    expect(store.metadata?.id).toBe(`published:${unrelated.artifactId}`)
+    expect(store.tabs[0]?.artifact).toMatchObject({
+      id,
+      publication: { reference: { version: 1 } },
+    })
+    store.observeFile(await publish(moved, context, first.artifactId))
+    expect(store.tabs[0]?.artifact).toMatchObject({
+      id,
+      publication: { reference: { version: 1 }, versions: [1, 2, 3, 4] },
+    })
     await expect(publish(moved, context, "unknown-id")).rejects.toThrow("Unknown artifact_id")
     await expect(
       context.artifactPublisher.publish(
@@ -224,9 +246,9 @@ describe("artifact publication", () => {
       { name: "bash", input: { command: "mv staging.html ../final.html" } },
       context,
     )
-    await expect(artifacts.load(artifacts.metadata?.revision ?? 0)).rejects.toThrow(
-      "may have been moved or deleted",
-    )
+    await expect(
+      artifacts.load(artifacts.metadata?.id ?? "", artifacts.metadata?.revision ?? 0),
+    ).rejects.toThrow("may have been moved or deleted")
 
     const decision = await createPermissionPolicy({ cwd: context.cwd, mode: "auto" }).evaluate({
       name: "publish_artifact",
@@ -288,15 +310,21 @@ describe("artifact publication", () => {
       title: "final.html",
       editable: false,
     })
-    await expect(restored.load(restored.metadata?.revision ?? 0)).resolves.toMatchObject({
+    await expect(
+      restored.load(restored.metadata?.id ?? "", restored.metadata?.revision ?? 0),
+    ).resolves.toMatchObject({
       content: "<h1>Final</h1>",
     })
     expect(restored.open(first)).toBe(true)
-    await expect(restored.load(restored.metadata?.revision ?? 0)).resolves.toMatchObject({
+    await expect(
+      restored.load(restored.metadata?.id ?? "", restored.metadata?.revision ?? 0),
+    ).resolves.toMatchObject({
       content: "<h1>Final</h1>",
     })
     expect(restored.open(first, 1)).toBe(true)
-    await expect(restored.load(restored.metadata?.revision ?? 0)).resolves.toMatchObject({
+    await expect(
+      restored.load(restored.metadata?.id ?? "", restored.metadata?.revision ?? 0),
+    ).resolves.toMatchObject({
       content: "<h1>First</h1>",
     })
     expect(restored.open({ ...first, name: "unregistered.html" })).toBe(false)

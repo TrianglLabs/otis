@@ -1,7 +1,7 @@
 import type { ScrollBoxRenderable } from "@opentui/core"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ArtifactStore } from "../../src/app/artifacts.js"
-import { Conversation } from "../../src/app/conversation.js"
+import { Conversation, PermissionBroker } from "../../src/app/conversation.js"
 import { ModelHost } from "../../src/app/models.js"
 import { SessionCoordinator } from "../../src/app/sessions.js"
 import { SubagentTraces } from "../../src/app/subagents.js"
@@ -102,6 +102,7 @@ describe("conversation scrolling", () => {
       projectContext: () => [],
       skills: () => ({ skills: [], byName: new Map() }),
       permissionPolicy: () => createPermissionPolicy({ cwd, mode: "auto" }),
+      broker: new PermissionBroker(),
       isExiting: () => false,
       artifacts: new ArtifactStore(cwd),
       gate: () => undefined,

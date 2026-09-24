@@ -9,7 +9,7 @@ import type {
   OutputCapabilities,
   UserChatMessage,
 } from "../inference/types.js"
-import type { PermissionPolicy } from "../permissions/policy.js"
+import type { PermissionPolicy, PermissionRequest } from "../permissions/policy.js"
 import type { SkillCatalog } from "../skills/catalog.js"
 import type { JsonlSession, PromptAdmission } from "../storage/session.js"
 import type { SessionTurnDetails } from "../storage/session-events.js"
@@ -29,7 +29,10 @@ export type ConversationTurnResult =
   | { status: "error"; messages: ChatMessage[]; details: SessionTurnDetails }
   | { status: "incomplete" }
 
-export type TurnPhase = "idle" | "thinking" | "working"
+/** `queued` is a model request waiting for an inference slot held by another owner. */
+export type TurnPhase = "idle" | "thinking" | "working" | "queued"
+
+let conversationSeq = 0
 
 /**
  * Generation speed of the latest model request in a turn: time to the first streamed token, and
@@ -47,21 +50,106 @@ export type PendingPermission = {
   label: string
   kind: ToolActivityKind
   resources: string[]
+  /** The session runtime whose turn is asking, and its title for attribution. */
+  runtime: number
+  sessionTitle: string
+}
+
+type QueuedPermission = { request: PendingPermission; settle: (allow: boolean) => void }
+
+/**
+ * The one approval surface shared by every session runtime. Requests queue FIFO across runs (a
+ * single run already asks one at a time); the head is what both interfaces show. A request is
+ * denied when its owner's turn aborts, so a prompt never outlives the turn that asked.
+ */
+export class PermissionBroker {
+  #seq = 0
+  readonly #queue: QueuedPermission[] = []
+  readonly #listeners = new Set<(head: PendingPermission | null) => void>()
+
+  get current(): PendingPermission | null {
+    return this.#queue[0]?.request ?? null
+  }
+
+  get pending(): readonly PendingPermission[] {
+    return this.#queue.map((entry) => entry.request)
+  }
+
+  /** Notified whenever the head changes. Returns the unsubscribe function. */
+  subscribe(listener: (head: PendingPermission | null) => void) {
+    this.#listeners.add(listener)
+    return () => {
+      this.#listeners.delete(listener)
+    }
+  }
+
+  request(
+    owner: { runtime: number; title: () => string },
+    request: PermissionRequest,
+    signal: AbortSignal,
+  ): Promise<boolean> {
+    if (signal.aborted) return Promise.resolve(false)
+    const activity = describeToolCall(request.call)
+    const pending: PendingPermission = {
+      id: ++this.#seq,
+      label: activity.label,
+      kind: activity.kind,
+      resources: request.decision.resources,
+      runtime: owner.runtime,
+      sessionTitle: owner.title(),
+    }
+    return new Promise<boolean>((resolve) => {
+      const onAbort = () => this.#settle(pending.id, false)
+      this.#queue.push({
+        request: pending,
+        settle: (allow) => {
+          signal.removeEventListener("abort", onAbort)
+          resolve(allow)
+        },
+      })
+      signal.addEventListener("abort", onAbort, { once: true })
+      if (this.#queue.length === 1) this.#notify()
+    })
+  }
+
+  /** Stale or unknown ids are ignored, so a cancelled request stays denied. */
+  respond(id: number, allow: boolean) {
+    this.#settle(id, allow)
+  }
+
+  /** Denies every request of one runtime; the others keep their order. */
+  cancel(runtime: number) {
+    for (const { id, runtime: owner } of this.pending)
+      if (owner === runtime) this.#settle(id, false)
+  }
+
+  #settle(id: number, allow: boolean) {
+    const entry = this.#queue.find((entry) => entry.request.id === id)
+    if (!entry) return
+    const head = entry === this.#queue[0]
+    this.#queue.splice(this.#queue.indexOf(entry), 1)
+    entry.settle(allow)
+    if (head) this.#notify()
+  }
+
+  #notify() {
+    const head = this.current
+    for (const listener of this.#listeners) listener(head)
+  }
 }
 
 /**
  * What an interface needs to follow a conversation: the busy window of a turn or drain loop, the
- * streaming indicator and phase inside it, and the moments the transcript, delegated runs, or an
- * approval request changed. `admitted` fires once the prompt is durably recorded; `settled` after
- * every turn, whatever its outcome.
+ * streaming indicator and phase inside it, and the moments the transcript or delegated runs
+ * changed. `admitted` fires once the prompt is durably recorded; `settled` after every turn,
+ * whatever its outcome. Approval requests are the broker's events, not the conversation's.
  */
 export type ConversationEvent =
   | { type: "busy"; busy: boolean }
   | { type: "indicator"; active: boolean }
-  | { type: "phase"; phase: "thinking" | "working" }
+  | { type: "phase"; phase: TurnPhase }
   | { type: "context"; tokens: number }
   | { type: "speed"; speed: TurnSpeed | null }
-  | { type: "permission"; request: PendingPermission | null }
   | { type: "render"; scrollToBottom?: boolean }
   | { type: "subagents" }
   | { type: "admitted"; message: UserChatMessage }
@@ -83,6 +171,8 @@ type ConversationOptions = {
   projectContext: () => ContextFile[]
   skills: () => SkillCatalog
   permissionPolicy: () => PermissionPolicy
+  /** The approval surface shared across runtimes; this conversation asks as `id`. */
+  broker: PermissionBroker
   isExiting: () => boolean
   outputCapabilities?: OutputCapabilities
   artifacts: ArtifactStore
@@ -97,13 +187,13 @@ type ActiveWork = {
 }
 
 export class Conversation {
+  /** Owner id of this conversation's requests at the inference gate and the permission broker. */
+  readonly id = ++conversationSeq
   #active: ActiveWork | undefined
   #draining = false
   #wasBusy = false
   #idleWaiters: (() => void)[] = []
   readonly #queued: QueuedPrompt[] = []
-  #permissionSeq = 0
-  #pending: { request: PendingPermission; resolve: (allow: boolean) => void } | undefined
   readonly #listeners = new Set<(event: ConversationEvent) => void>()
   /** What the active turn is doing; idle between turns. */
   phase: TurnPhase = "idle"
@@ -121,10 +211,6 @@ export class Conversation {
 
   get draining() {
     return this.#draining
-  }
-
-  get permission() {
-    return this.#pending?.request ?? null
   }
 
   subscribe(listener: (event: ConversationEvent) => void) {
@@ -156,23 +242,10 @@ export class Conversation {
     this.#active?.controller.abort()
   }
 
-  /** Cancels the active work and denies any unanswered approval. */
+  /** Cancels the active work and denies any unanswered approval of this conversation. */
   stop() {
-    this.#settlePending(false)
+    this.options.broker.cancel(this.id)
     this.cancel()
-  }
-
-  /** Stale or unknown ids are ignored, so a cancelled request stays denied. */
-  respondToPermission(id: number, allow: boolean) {
-    if (this.#pending?.request.id === id) this.#settlePending(allow)
-  }
-
-  #settlePending(allow: boolean) {
-    const pending = this.#pending
-    if (!pending) return
-    this.#pending = undefined
-    pending.resolve(allow)
-    this.#emit({ type: "permission", request: null })
   }
 
   async wait() {
@@ -320,9 +393,24 @@ export class Conversation {
     }
   }
 
-  #setPhase(phase: "thinking" | "working") {
+  #setPhase(phase: TurnPhase) {
     this.phase = phase
     this.#emit({ type: "phase", phase })
+  }
+
+  /**
+   * Mirrors this conversation's wait for an inference slot as the `queued` phase, restoring the
+   * phase it interrupted once the request is granted. Returns the unsubscribe function.
+   */
+  #watchGate() {
+    const { gate } = this.options.models
+    let resume = this.phase
+    return gate.subscribe(() => {
+      const waiting = gate.isWaiting(this.id)
+      if (waiting === (this.phase === "queued")) return
+      if (waiting) resume = this.phase
+      this.#setPhase(waiting ? "queued" : resume)
+    })
   }
 
   #setSpeed(speed: TurnSpeed | null) {
@@ -340,9 +428,10 @@ export class Conversation {
       const { signal } = active.controller
       const queued = "admission" in input ? input : undefined
       const userMessage = "admission" in input ? input.admission.message : input
-      const client = models.client
+      const client = models.clientFor(this.id)
       const provider = models.selectedProvider
       if (!client || !provider) return { status: "incomplete" }
+      const unwatchGate = this.#watchGate()
 
       let admission: PromptAdmission
       let session: JsonlSession
@@ -455,7 +544,7 @@ export class Conversation {
               },
               autoCompactAtTokens: models.autoCompactAtTokens,
               trustReportedContextLength: reportedContextLengthIsServing(provider),
-              historyTokens: transcript.contextTokens(client),
+              historyTokens: transcript.contextTokens(client.inner),
               onCompactionUsage: async (usage) => {
                 await session.recordUsage(usage, "compaction", admission.promptId)
               },
@@ -464,32 +553,13 @@ export class Conversation {
               skills: this.options.skills(),
               tools: providerTools(provider),
               permissionPolicy: this.options.permissionPolicy(),
-              // A pending permission prompt must not outlive the turn: abort resolves it as denied.
-              // A previous request that never resolved (an interrupted turn) is denied before a new
-              // one is shown.
-              onPermissionRequest: (request) => {
-                if (signal.aborted) return Promise.resolve(false)
-                this.#settlePending(false)
-                const activity = describeToolCall(request.call)
-                const pending: PendingPermission = {
-                  id: ++this.#permissionSeq,
-                  label: activity.label,
-                  kind: activity.kind,
-                  resources: request.decision.resources,
-                }
-                return new Promise<boolean>((resolve) => {
-                  const onAbort = () => this.#settlePending(false)
-                  this.#pending = {
-                    request: pending,
-                    resolve: (allow) => {
-                      signal.removeEventListener("abort", onAbort)
-                      resolve(allow)
-                    },
-                  }
-                  signal.addEventListener("abort", onAbort, { once: true })
-                  this.#emit({ type: "permission", request: pending })
-                })
-              },
+              // The broker denies the request if this turn aborts while it is unanswered.
+              onPermissionRequest: (request) =>
+                this.options.broker.request(
+                  { runtime: this.id, title: () => this.options.sessions.activeLabel() },
+                  request,
+                  signal,
+                ),
               steering,
               outputCapabilities: this.options.outputCapabilities,
             },
@@ -526,7 +596,7 @@ export class Conversation {
                 return
               }
               if (event.type === "context") {
-                transcript.observeContext(client, event.tokens)
+                transcript.observeContext(client.inner, event.tokens)
                 this.#emit({ type: "context", tokens: event.tokens })
                 return
               }
@@ -584,6 +654,7 @@ export class Conversation {
         transcript.addAssistantMessage(`Error: ${errorMessage(error)}`)
         return { status: "error", messages: [], details: {} }
       } finally {
+        unwatchGate()
         this.phase = "idle"
         try {
           await steering.close()
@@ -600,9 +671,10 @@ export class Conversation {
   ) {
     if (this.#active) return
     const { models, transcript, subagents } = this.options
-    const client = models.client
+    const client = models.clientFor(this.id)
     if (!client) return
     await this.#run(async ({ controller: { signal } }) => {
+      const unwatchGate = this.#watchGate()
       transcript.addAssistantMessage("Compacting conversation…")
       this.#emit({ type: "indicator", active: true })
       this.#emit({ type: "render", scrollToBottom: true })
@@ -662,6 +734,7 @@ export class Conversation {
           message === NOTHING_TO_COMPACT ? message : `Compaction failed: ${message}`,
         )
       } finally {
+        unwatchGate()
         this.#emit({ type: "indicator", active: false })
         this.#emit({ type: "subagents" })
         this.#emit({ type: "render", scrollToBottom: true })

@@ -26,8 +26,17 @@ const DISPLAY_TITLE_MAX_LENGTH = 36
 export const SESSION_REASONS = {
   locked: "That session is open in another Otis window.",
   noop: "Finish the current work before switching sessions.",
-  busy: "Finish the current work before deleting sessions.",
+  working: "That session is still working. Stop it first.",
 } as const
+
+/** A session open in some runtime of this process, as the pickers mark it. */
+export type OpenSession = {
+  id: string
+  dirName: string
+  focused: boolean
+  working: boolean
+  unseen: boolean
+}
 
 type SessionCoordinatorOptions = {
   client: () => InferenceClient | undefined
@@ -83,7 +92,7 @@ export class SessionCoordinator {
    * Whether (sessionId, directory) is the active session — ids repeat across storage dirs
    * ("default").
    */
-  #isCurrent(sessionId: string, directory?: string): boolean {
+  isCurrent(sessionId: string, directory?: string): boolean {
     if (this.#session?.id !== sessionId) return false
     const active = this.#directory ?? defaultSessionDirectory(this.options.cwd)
     return active === resolve(directory ?? defaultSessionDirectory(this.options.cwd))
@@ -177,11 +186,12 @@ export class SessionCoordinator {
     this.#notify()
   }
 
+  /** Refused with "noop" while this runtime's own turn runs; another runtime's turn is not ours. */
   async select(
     sessionId: string,
     storage?: { directory: string },
   ): Promise<"noop" | "loaded" | "locked"> {
-    if (this.options.isBusy() || this.#isCurrent(sessionId, storage?.directory)) return "noop"
+    if (this.options.isBusy() || this.isCurrent(sessionId, storage?.directory)) return "noop"
     // A directory override opens the session by its storage identity (locate-workspace flow); the
     // cwd-derived default would silently resolve to a different conversation when folder and
     // history disagree.
@@ -211,11 +221,11 @@ export class SessionCoordinator {
     sessionId: string,
     storage?: { directory: string },
   ): Promise<"deleted" | "busy" | "locked"> {
-    if (this.options.isBusy()) return "busy"
     // Same storage identity as select: a located session must not delete the workspace-store file
-    // of the same id.
+    // of the same id. Only the session under this runtime's own turn is off limits.
     const where = { cwd: this.options.cwd, ...storage }
-    const deletingCurrent = this.#isCurrent(sessionId, storage?.directory)
+    const deletingCurrent = this.isCurrent(sessionId, storage?.directory)
+    if (deletingCurrent && this.options.isBusy()) return "busy"
     let guard: SessionLock | undefined
     // The current session skips the guard only while we provably hold its write lock. A read-only
     // preview (pending workspace locate) releases it, and another instance may own the session by
@@ -250,18 +260,27 @@ export class SessionCoordinator {
     return true
   }
 
-  async listPickerItems(): Promise<SessionPickerItem[]> {
+  /** Rows of this workspace's store, marked by the sessions open in this process. */
+  async listPickerItems(open: readonly OpenSession[]): Promise<SessionPickerItem[]> {
     const summaries = await listSessions({ cwd: this.options.cwd })
-    return summaries.map((summary) => toSessionPickerItem(summary, this.#session?.id))
+    return summaries.map((summary) => toSessionPickerItem(summary, this.#openState(open, summary)))
   }
 
   /** Title-first session search for the desktop command palette; content hits carry a snippet. */
-  async searchPickerItems(query: string): Promise<SessionPickerItem[]> {
+  async searchPickerItems(
+    query: string,
+    open: readonly OpenSession[],
+  ): Promise<SessionPickerItem[]> {
     const results = await searchSessions({ cwd: this.options.cwd }, query)
     return results.map((result) => ({
-      ...toSessionPickerItem(result, this.#session?.id),
+      ...toSessionPickerItem(result, this.#openState(open, result)),
       snippet: result.snippet,
     }))
+  }
+
+  #openState(open: readonly OpenSession[], summary: SessionSummary) {
+    const dirName = basename(defaultSessionDirectory(this.options.cwd))
+    return open.find((entry) => entry.id === summary.id && entry.dirName === dirName)
   }
 
   provisionalLabel(input: string) {
@@ -385,7 +404,14 @@ export type SessionPickerItem = {
   id: string
   title: string
   detail: string
+  /** The focused open session. */
   active?: boolean
+  /** Open in some runtime of this process, focused or not. */
+  open?: true
+  /** Open and mid-turn. */
+  working?: true
+  /** Open, settled while not focused, and not looked at since. */
+  unseen?: true
   /** First content match context; set only by search, when the match is not in the title. */
   snippet?: string
   /** The last turn was interrupted or never answered, so the session invites picking up. */
@@ -394,13 +420,16 @@ export type SessionPickerItem = {
 
 export function toSessionPickerItem(
   summary: SessionSummary,
-  activeSessionId?: string,
+  open?: OpenSession,
 ): SessionPickerItem {
   return {
     id: summary.id,
     title: summary.title,
     detail: formatSessionAge(summary.updatedAt),
-    active: summary.id === activeSessionId,
+    active: open?.focused === true,
+    ...(open ? { open: true } : {}),
+    ...(open?.working ? { working: true } : {}),
+    ...(open?.unseen ? { unseen: true } : {}),
     ...(summary.state === "complete" ? {} : { resumable: true }),
   }
 }

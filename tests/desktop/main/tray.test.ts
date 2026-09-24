@@ -27,6 +27,7 @@ vi.mock("electron", () => {
     image: unknown
     on = vi.fn()
     setToolTip = vi.fn()
+    setTitle = vi.fn()
     setIgnoreDoubleClickEvents = vi.fn()
     setImage = vi.fn()
     popUpContextMenu = vi.fn()
@@ -57,6 +58,7 @@ type MockTray = {
   image: unknown
   on: ReturnType<typeof vi.fn>
   setToolTip: ReturnType<typeof vi.fn>
+  setTitle: ReturnType<typeof vi.fn>
   setIgnoreDoubleClickEvents: ReturnType<typeof vi.fn>
   setImage: ReturnType<typeof vi.fn>
   popUpContextMenu: ReturnType<typeof vi.fn>
@@ -93,6 +95,9 @@ function installMockIcons(): MockImage[] {
   return images
 }
 
+/** A pending approval as the broker attributes it: the asking runtime and its session title. */
+const approval = { resources: [], runtime: 1, sessionTitle: "Refactor" }
+
 function statusFixture(overrides: Partial<DesktopStatus> = {}): DesktopStatus {
   return {
     busy: false,
@@ -107,7 +112,7 @@ function statusFixture(overrides: Partial<DesktopStatus> = {}): DesktopStatus {
     modelState: "ready",
     modelError: undefined,
     session: { id: "s1", title: "Fix session lock behavior" },
-    artifact: null,
+    artifacts: [],
     needsWorkspace: false,
     sessions: [],
     recentArtifacts: [],
@@ -116,6 +121,11 @@ function statusFixture(overrides: Partial<DesktopStatus> = {}): DesktopStatus {
     contextLimit: 200_000,
     diffs: { added: 12, removed: 3 },
     permission: null,
+    permissionQueue: 0,
+    runtimes: [],
+    working: 0,
+    panes: [],
+    paneAxis: "row",
     stats: undefined,
     modelLoad: null,
     subagents: [],
@@ -137,7 +147,13 @@ function statusFixture(overrides: Partial<DesktopStatus> = {}): DesktopStatus {
 }
 
 function actionsFixture(): TrayActions {
-  return { focusWindow: vi.fn(), startNewSession: vi.fn(), stop: vi.fn(), installUpdate: vi.fn() }
+  return {
+    focusWindow: vi.fn(),
+    startNewSession: vi.fn(),
+    stop: vi.fn(),
+    installUpdate: vi.fn(),
+    focusSession: vi.fn(),
+  }
 }
 
 const byLabel = (items: MenuItemConstructorOptions[], label: string) =>
@@ -253,6 +269,8 @@ describe("tray icon", () => {
           label: "Edit src/app/conversation.ts",
           kind: "file_edit",
           resources: [],
+          runtime: 1,
+          sessionTitle: "Refactor",
         },
       }),
     )
@@ -282,7 +300,7 @@ describe("tray tooltip", () => {
         "Otis — preparing a model",
       ],
       [
-        { permission: { id: 4, label: "Edit a file", kind: "file_edit", resources: [] } },
+        { permission: { ...approval, id: 4, label: "Edit a file", kind: "file_edit" } },
         "Otis — needs your approval",
       ],
     ]
@@ -340,7 +358,7 @@ describe("tray menu", () => {
     const mounted = mountTray()
     const items = mounted.menu(statusFixture())
     const fresh = byLabel(items, "Fresh start")
-    expect(fresh?.enabled).toBe(true)
+    expect(isEnabled(fresh)).toBe(true)
     click(fresh)
     expect(mounted.actions.startNewSession).toHaveBeenCalledOnce()
     click(byLabel(items, "Show Otis"))
@@ -353,15 +371,57 @@ describe("tray menu", () => {
     expect(items.at(-1)).toMatchObject({ role: "quit", label: "Quit Otis" })
   })
 
-  it("refuses a fresh start mid-turn and offers stop instead", () => {
+  it("keeps fresh start available mid-turn and offers stop", () => {
     const mounted = mountTray()
     const items = mounted.menu(statusFixture({ busy: true, phase: "working" }))
-    expect(byLabel(items, "Fresh start")?.enabled).toBe(false)
+    expect(isEnabled(byLabel(items, "Fresh start"))).toBe(true)
     const stop = byLabel(items, "Stop working")
     expect(isEnabled(stop)).toBe(true)
     click(stop)
     expect(mounted.actions.stop).toHaveBeenCalledOnce()
     expect(mounted.actions.startNewSession).not.toHaveBeenCalled()
+  })
+
+  it("lists every open session as a row that shows it, marking work and completions", () => {
+    const mounted = mountTray()
+    const runtime = (
+      runtime: number,
+      title: string,
+      extra: Partial<DesktopStatus["runtimes"][0]>,
+    ) => ({
+      runtime,
+      session: { id: `s${runtime}`, title, dirName: "ws" },
+      focused: false,
+      busy: false,
+      unseen: false,
+      diffs: { added: 0, removed: 0 },
+      contextTokens: 0,
+      ...extra,
+    })
+    const status = statusFixture({
+      runtimes: [
+        runtime(1, "Refactor", { focused: true }),
+        runtime(2, "Write tests", { busy: true }),
+        runtime(3, "Docs", { unseen: true }),
+      ],
+      working: 1,
+    })
+    const items = mounted.menu(status)
+    expect(byLabel(items, "Refactor")).toMatchObject({ type: "checkbox", checked: true })
+    expect(byLabel(items, "Write tests — working")).toMatchObject({ checked: false })
+    click(byLabel(items, "Docs — done"))
+    expect(mounted.actions.focusSession).toHaveBeenCalledExactlyOnceWith(3)
+    // The lone-session name row is replaced by the rows.
+    expect(byLabel(items, "Fix session lock behavior")).toBeUndefined()
+    // Background work keeps the icon working and counts in the tooltip; the badge counts finishes.
+    expect(mounted.icon()).toBe("working")
+    expect(mounted.tooltip()).toBe("Otis — working")
+    expect(mounted.tray.setTitle).toHaveBeenLastCalledWith("1")
+    mounted.statusTray.onStatus({ ...status, busy: true, phase: "working" })
+    expect(mounted.tooltip()).toBe("Otis — 2 working")
+    mounted.statusTray.onStatus(statusFixture())
+    expect(mounted.icon()).toBe("idle")
+    expect(mounted.tray.setTitle).toHaveBeenLastCalledWith("")
   })
 
   it("surfaces a pending permission as the action that needs the user", () => {
@@ -375,6 +435,8 @@ describe("tray menu", () => {
           label: "Edit src/app/conversation.ts",
           kind: "file_edit",
           resources: [],
+          runtime: 1,
+          sessionTitle: "Refactor",
         },
       }),
     )
@@ -608,7 +670,6 @@ describe("createStatusTray", () => {
       template: MenuItemConstructorOptions[]
     }
     expect(menu.template.map((item) => item.label)).toContain("Current session")
-    expect(byLabel(menu.template, "Fresh start")?.enabled).toBe(false)
     expect(byLabel(menu.template, "Stop working")).toBeDefined()
   })
 
@@ -633,6 +694,8 @@ describe("createStatusTray", () => {
           label: "Edit src/app/conversation.ts",
           kind: "file_edit",
           resources: [],
+          runtime: 1,
+          sessionTitle: "Refactor",
         },
       }),
     )
@@ -663,7 +726,7 @@ describe("trayStatusGate", () => {
     { live: "status", overrides: { phase: "thinking" }, icon: "working" },
     {
       live: "approval request",
-      overrides: { permission: { id: 4, label: "Edit a file", kind: "file_edit", resources: [] } },
+      overrides: { permission: { ...approval, id: 4, label: "Edit a file", kind: "file_edit" } },
       icon: "alert",
     },
   ]

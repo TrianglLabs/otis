@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight, ListEnd, ShipWheel } from "lucide-react"
-import { memo } from "react"
+import { memo, useContext } from "react"
 import type { TranscriptEntry } from "../../../../app/transcript.js"
 import { isCanvasArtifact } from "../../../../artifacts/canvas.js"
 import type { ArtifactReference } from "../../../../artifacts/types.js"
@@ -9,6 +9,7 @@ import { Markdown } from "../../components/Markdown.js"
 import { OtisMark } from "../../components/OtisMark.js"
 import { useI18n } from "../../i18n/index.js"
 import { useDesktop } from "../../runtime.js"
+import { PaneRuntimeContext } from "../canvas/canvas-context.js"
 import { ToolCard } from "./ToolCard.js"
 
 /** Renders one transcript entry. The same components render live turns and replayed sessions. */
@@ -125,6 +126,7 @@ export const EntryView = memo(function EntryView({
 function MessageArtifacts({ artifacts }: { artifacts: ArtifactReference[] }) {
   const { api } = useDesktop()
   const { t } = useI18n()
+  const runtime = useContext(PaneRuntimeContext)
   return (
     <div className="messageArtifacts">
       {artifacts.map((artifact) => {
@@ -143,7 +145,7 @@ function MessageArtifacts({ artifacts }: { artifacts: ArtifactReference[] }) {
             kind={artifact.kind}
             title={title}
             actionLabel={t("markdown.openCanvas")}
-            onOpen={() => api.openArtifact(artifact)}
+            onOpen={() => api.openArtifact(artifact, undefined, runtime)}
           />
         )
       })}

@@ -106,10 +106,15 @@ const SERVER_ENV_NAMES = new Set([
 ])
 const SERVER_ENV_PREFIXES = ["LC_", "LD_", "CUDA_", "NVIDIA_", "GGML_", "VK_", "MTL_", "XDG_"]
 
-type LocalServingEndpoint = {
+/** Otis-owned llama-server serves this many parallel sequences (`--parallel`); one today. */
+const LOCAL_SLOTS = 1
+
+export type LocalServingEndpoint = {
   model: string
   inferenceURL: string
   contextLength: number
+  /** Concurrent requests the server accepts before it queues them. */
+  slots: number
 }
 
 type ResolvedRuntime = {
@@ -515,7 +520,7 @@ export class LlamaCppRuntime {
       "--port",
       String(port),
       "--parallel",
-      "1",
+      String(LOCAL_SLOTS),
       "--fit",
       "on",
       "--fit-target",
@@ -569,7 +574,7 @@ export class LlamaCppRuntime {
       if (processHasTerminated(child)) throw new LlamaServerExitError(logs.value, child)
       if (this.#process !== child)
         throw new DOMException("Local model startup was superseded.", "AbortError")
-      this.#serving = { model: model.id, inferenceURL, contextLength }
+      this.#serving = { model: model.id, inferenceURL, contextLength, slots: LOCAL_SLOTS }
       this.#servingKey = key
       return this.#serving
     } catch (error) {

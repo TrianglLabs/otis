@@ -75,6 +75,7 @@ export function SettingsPage({
   const state = useDesktopState(
     "fastServing",
     "busy",
+    "working",
     "pairEndpoints",
     "omlx",
     "platform",
@@ -147,7 +148,7 @@ export function SettingsPage({
 
   if (!state) return null
   const { fastServing } = state
-  const fastDisabled = fastPending || !fastServing.available || state.busy
+  const fastDisabled = fastPending || !fastServing.available || state.busy || state.working > 0
 
   const toggleForm = (form: "hosted" | "pair") => {
     setHostedError(undefined)

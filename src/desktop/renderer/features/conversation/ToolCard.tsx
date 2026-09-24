@@ -11,7 +11,7 @@ import {
   Search,
   SquareTerminal,
 } from "lucide-react"
-import { memo, useMemo } from "react"
+import { memo, useContext, useMemo } from "react"
 import { Virtuoso } from "react-virtuoso"
 import type { TranscriptEntry } from "../../../../app/transcript.js"
 import { isCanvasArtifact } from "../../../../artifacts/canvas.js"
@@ -20,6 +20,7 @@ import { ArtifactCard } from "../../components/ArtifactCard.js"
 import { Icon } from "../../components/Icon.js"
 import { useI18n } from "../../i18n/index.js"
 import { useDesktop } from "../../runtime.js"
+import { PaneRuntimeContext } from "../canvas/canvas-context.js"
 import type { ToolRun } from "./TranscriptList.js"
 
 const KIND_ICONS: Record<ToolActivityKind, LucideIcon> = {
@@ -42,6 +43,7 @@ const KIND_ICONS: Record<ToolActivityKind, LucideIcon> = {
  */
 export function ToolCard({ entry, active }: { entry: TranscriptEntry; active: boolean }) {
   const { api } = useDesktop()
+  const runtime = useContext(PaneRuntimeContext)
   const { t } = useI18n()
   const artifact =
     entry.artifact &&
@@ -66,7 +68,7 @@ export function ToolCard({ entry, active }: { entry: TranscriptEntry; active: bo
           description={t(
             artifact.source === "published" ? "canvas.savedArtifact" : "canvas.workingFile",
           )}
-          onOpen={() => api.openArtifact(artifact)}
+          onOpen={() => api.openArtifact(artifact, undefined, runtime)}
         />
       ) : (
         <div className="toolCard-header" title={entry.text}>

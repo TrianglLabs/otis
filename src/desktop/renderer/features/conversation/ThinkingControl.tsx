@@ -10,13 +10,13 @@ import { useDesktop, useDesktopState } from "../../runtime.js"
 import "./thinking-control.css"
 
 export function ThinkingControl() {
-  const state = useDesktopState("localThinking", "busy", "modelState")
+  const state = useDesktopState("localThinking", "busy", "working", "modelState")
   if (!state?.localThinking) return null
   return (
     <ThinkingSlider
       key={state.localThinking.modelId}
       state={state.localThinking}
-      disabled={state.busy || state.modelState !== "ready"}
+      disabled={state.busy || state.working > 0 || state.modelState !== "ready"}
     />
   )
 }

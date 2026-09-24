@@ -41,12 +41,12 @@ export function trayIconDir(location: {
 
 /**
  * The glanceable state: a pending approval outranks activity, because an agent blocked on the user
- * is the one state that needs action. Model work (a turn, a local model booting, a download in
- * flight) reads as working.
+ * is the one state that needs action. Model work (a turn in any open session, a local model
+ * booting, a download in flight) reads as working.
  */
 function trayIconKey(status: DesktopStatus): TrayIconKey {
   if (status.permission) return "alert"
-  if (status.busy || status.phase !== "idle") return "working"
+  if (status.busy || status.working > 0 || status.phase !== "idle") return "working"
   if (status.modelState === "starting") return "working"
   if (status.modelLoad?.status.kind === "progress") return "working"
   return "idle"
@@ -94,7 +94,14 @@ export function trayStatusGate(tray: Pick<StatusTray, "onStatus">) {
  */
 export function createStatusTray(options: {
   iconDir: string
-  actions: { focusWindow(): void; startNewSession(): void; stop(): void; installUpdate(): void }
+  actions: {
+    focusWindow(): void
+    startNewSession(): void
+    stop(): void
+    installUpdate(): void
+    /** Shows an open session in the window. */
+    focusSession(runtime: number): void
+  }
   appName?: string
 }): StatusTray | undefined {
   const appName = options.appName ?? "Otis"
@@ -116,6 +123,8 @@ export function createStatusTray(options: {
   const tray = new Tray(icons.idle)
   let iconKey: TrayIconKey = "idle"
   let tooltip = `${appName} — ready`
+  // The count beside the icon: sessions that finished while another was on screen.
+  let badge = ""
   let latestStatus: DesktopStatus | undefined
   tray.setToolTip(tooltip)
   tray.setIgnoreDoubleClickEvents(true)
@@ -135,7 +144,19 @@ export function createStatusTray(options: {
       return
     }
     const items: MenuItemConstructorOptions[] = []
-    if (status.session) items.push({ label: status.session.title, enabled: false })
+    // Several open sessions list as rows that show them; a lone session is just named.
+    if (status.runtimes.length > 1) {
+      for (const runtime of status.runtimes) {
+        if (!runtime.session) continue
+        const state = runtime.busy ? " — working" : runtime.unseen ? " — done" : ""
+        items.push({
+          label: `${runtime.session.title}${state}`,
+          type: "checkbox",
+          checked: runtime.focused,
+          click: () => actions.focusSession(runtime.runtime),
+        })
+      }
+    } else if (status.session) items.push({ label: status.session.title, enabled: false })
     // Mirrors shortModelId in the renderer (main must not import renderer modules):
     // `accounts/.../x` → `x`.
     const model = status.model
@@ -170,12 +191,8 @@ export function createStatusTray(options: {
         click: () => actions.focusWindow(),
       })
     }
-    // Mirrors the header button: a fresh start is refused mid-turn, so it is disabled while busy.
-    items.push({
-      label: "Fresh start",
-      enabled: !status.busy,
-      click: () => actions.startNewSession(),
-    })
+    // A fresh start mid-turn opens beside the working session, as the header button does.
+    items.push({ label: "Fresh start", click: () => actions.startNewSession() })
     if (status.busy) items.push({ label: "Stop working", click: () => actions.stop() })
     items.push({ label: `Show ${appName}`, click: () => actions.focusWindow() })
 
@@ -202,6 +219,7 @@ export function createStatusTray(options: {
       const nextIconKey = trayIconKey(status)
       const preparing =
         status.modelLoad?.status.kind === "progress" || status.modelState === "starting"
+      const working = status.working + (status.busy ? 1 : 0)
       const nextTooltip =
         nextIconKey === "alert"
           ? `${appName} — needs your approval`
@@ -209,9 +227,11 @@ export function createStatusTray(options: {
             ? `${appName} — ready`
             : preparing
               ? `${appName} — preparing a model`
-              : status.phase === "thinking"
-                ? `${appName} — thinking`
-                : `${appName} — working`
+              : working > 1
+                ? `${appName} — ${working} working`
+                : status.phase === "thinking"
+                  ? `${appName} — thinking`
+                  : `${appName} — working`
       if (nextIconKey !== iconKey) {
         tray.setImage(icons[nextIconKey])
         iconKey = nextIconKey
@@ -219,6 +239,12 @@ export function createStatusTray(options: {
       if (nextTooltip !== tooltip) {
         tray.setToolTip(nextTooltip)
         tooltip = nextTooltip
+      }
+      const unseen = status.runtimes.filter((runtime) => runtime.unseen).length
+      const nextBadge = unseen > 0 ? String(unseen) : ""
+      if (nextBadge !== badge) {
+        tray.setTitle(nextBadge)
+        badge = nextBadge
       }
     },
     destroy() {

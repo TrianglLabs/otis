@@ -1,9 +1,8 @@
 import { Download, FolderOpen } from "lucide-react"
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
-import { isCanvasArtifact } from "../../../artifacts/canvas.js"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { Button } from "../components/Button.js"
 import { Icon } from "../components/Icon.js"
-import { type CanvasArtifact, CanvasOpenContext } from "../features/canvas/canvas-context.js"
+import { CanvasOpenContext, type CanvasView } from "../features/canvas/canvas-context.js"
 import { ConversationView } from "../features/conversation/Transcript.js"
 import { OnboardingPage } from "../features/onboarding/OnboardingPage.js"
 import { CommandPalette } from "../features/palette/CommandPalette.js"
@@ -29,42 +28,33 @@ export function AppShell() {
     "needsWorkspace",
     "update",
     "session",
-    "artifact",
+    "artifacts",
   )
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [windowFullscreen, setWindowFullscreen] = useState(false)
   const [installing, setInstalling] = useState(false)
   const [locateError, setLocateError] = useState<string | undefined>(undefined)
   const [paletteOpen, setPaletteOpen] = useState(false)
-  // An opened diagram yields to a different session artifact or session; a refreshed revision of
-  // the same artifact keeps the diagram in view.
-  const [openedCanvas, setOpenedCanvas] = useState<{
-    sessionId: string | undefined
-    artifact: CanvasArtifact
-    sharedArtifactId: string | undefined
-  }>()
+  // A diagram opened from a card is a Canvas tab of its own until it is closed.
+  const [openedCanvas, setOpenedCanvas] = useState<Extract<CanvasView, { runtime?: undefined }>>()
   const nextCanvasId = useRef(0)
-  const sessionId = state?.session?.id
-  const sessionIdRef = useRef(sessionId)
-  sessionIdRef.current = sessionId
-  const sharedArtifactIdRef = useRef(state?.artifact?.id)
-  sharedArtifactIdRef.current = state?.artifact?.id
   const openCanvas = useCallback((source: string) => {
+    const id = ++nextCanvasId.current
     setOpenedCanvas({
-      sessionId: sessionIdRef.current,
-      artifact: { kind: "mermaid", id: ++nextCanvasId.current, source },
-      sharedArtifactId: sharedArtifactIdRef.current,
+      key: `mermaid:${id}`,
+      artifact: { kind: "mermaid", id, source },
+      activated: Date.now(),
     })
   }, [])
-  const openedDiagram =
-    openedCanvas &&
-    openedCanvas.sessionId === sessionId &&
-    openedCanvas.sharedArtifactId === state?.artifact?.id
-      ? openedCanvas.artifact
-      : undefined
-  const canvasArtifact =
-    openedDiagram ??
-    (state?.artifact && isCanvasArtifact(state.artifact.kind) ? state.artifact : undefined)
+  const artifacts = state?.artifacts
+  const views = useMemo<CanvasView[]>(
+    () => [
+      ...(artifacts ?? []).map((tab) => ({ key: `${tab.runtime}:${tab.artifact.id}`, ...tab })),
+      ...(openedCanvas ? [openedCanvas] : []),
+    ],
+    [artifacts, openedCanvas],
+  )
+  const closeDiagram = useCallback(() => setOpenedCanvas(undefined), [])
   const openSettings = useCallback(() => setSettingsOpen(true), [])
   const closeSettings = useCallback(() => setSettingsOpen(false), [])
 
@@ -141,7 +131,7 @@ export function AppShell() {
             ) : (
               <>
                 <WorkspaceHeader
-                  hasCanvas={Boolean(canvasArtifact)}
+                  hasCanvas={views.length > 0}
                   onOpenPalette={() => setPaletteOpen(true)}
                   onOpenSettings={openSettings}
                 />
@@ -195,7 +185,9 @@ export function AppShell() {
               </button>
             ) : null}
           </div>
-          {state?.model === null ? null : <WorkspacePanel artifact={canvasArtifact} />}
+          {state?.model === null ? null : (
+            <WorkspacePanel views={views} onCloseDiagram={closeDiagram} />
+          )}
         </div>
         {settingsOpen ? (
           <div className="settingsLayer">

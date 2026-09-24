@@ -273,6 +273,23 @@
   line-height: 1.55;
   color: var(--text);
 }
+/* A session's state beside its name: working (breathing), finished out of view, or just open. */
+.stateDot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-ink);
+}
+
+.stateDot-working {
+  animation: pulse-dot 1.4s ease-in-out infinite;
+}
+
+.stateDot-open {
+  background: var(--text-dim);
+}
+
 .fileTypeIcon {
   display: inline-flex;
   flex: 0 0 auto;

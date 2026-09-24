@@ -1060,7 +1060,12 @@ describe("interactive CLI setup", () => {
   it("does not let a stale local load complete a newer selection", async () => {
     let firstSignal: AbortSignal | undefined
     let finishSecond:
-      | ((value: { model: string; inferenceURL: string; contextLength: number }) => void)
+      | ((value: {
+          model: string
+          inferenceURL: string
+          contextLength: number
+          slots: number
+        }) => void)
       | undefined
     mocks.ensureLocalServing
       .mockImplementationOnce(
@@ -1098,6 +1103,7 @@ describe("interactive CLI setup", () => {
       model: "Qwen/Qwen3.8-27B",
       inferenceURL: "http://127.0.0.1:18766/v1/chat/completions",
       contextLength: 32_768,
+      slots: 1,
     })
     await vi.waitFor(() => expect(mocks.ui.hideModelPicker).toHaveBeenCalledOnce())
     expect(mocks.saveSelectedModel).toHaveBeenCalledOnce()
@@ -1108,7 +1114,12 @@ describe("interactive CLI setup", () => {
 
   it("keeps /model available while a local model is downloading", async () => {
     let finish:
-      | ((value: { model: string; inferenceURL: string; contextLength: number }) => void)
+      | ((value: {
+          model: string
+          inferenceURL: string
+          contextLength: number
+          slots: number
+        }) => void)
       | undefined
     mocks.ensureLocalServing.mockImplementation(
       () =>
@@ -1135,6 +1146,7 @@ describe("interactive CLI setup", () => {
         model: "openai/gpt-oss-20b",
         inferenceURL: "http://127.0.0.1:18765/v1/chat/completions",
         contextLength: 32_768,
+        slots: 1,
       })
       await settle()
     }

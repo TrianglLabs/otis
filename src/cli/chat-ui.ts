@@ -7,6 +7,7 @@ import {
   type RGBA,
   rgbToHex,
   ScrollBoxRenderable,
+  StyledText,
   t,
 } from "@opentui/core"
 import type { SubagentTrace } from "../app/subagents.js"
@@ -42,6 +43,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
   let activeTheme: ThemeName = options.theme ?? "default"
   let selectedModelName = options.modelLabel
   let sessionTitle = options.sessionLabel
+  let backgroundWorking = 0
   let diffAdded = 0
   let diffRemoved = 0
   let subagentTraces: readonly SubagentTrace[] = []
@@ -556,10 +558,13 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
   }
 
   function renderSessionLabel() {
-    sessionLabel.content =
+    const label =
       diffAdded > 0 || diffRemoved > 0
         ? t`${sessionTitle}  ${fg(colors.green)(`+${diffAdded}`)} ${fg(colors.pink)(`−${diffRemoved}`)}`
-        : sessionTitle
+        : t`${sessionTitle}`
+    const working = t` ${fg(colors.muted)(`· ${backgroundWorking} working`)}`
+    sessionLabel.content =
+      backgroundWorking > 0 ? new StyledText([...label.chunks, ...working.chunks]) : label
     renderer.requestRender()
   }
 
@@ -676,6 +681,10 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     },
     setSessionLabel: (label) => {
       sessionTitle = label
+      renderSessionLabel()
+    },
+    setBackgroundWorking: (count) => {
+      backgroundWorking = count
       renderSessionLabel()
     },
     setStats: (stats) => homeStats.setStats(stats),

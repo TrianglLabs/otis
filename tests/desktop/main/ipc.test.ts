@@ -61,7 +61,7 @@ describe("saveArtifact", () => {
     const file = { name: "original.docx", bytes: new Uint8Array([0x50, 0x4b, 0, 255, 17]) }
     await writeFile(path, "previous copy")
     saveDialogChooses(path)
-    expect(await save(file)("artifact-1", 3)).toEqual({ ok: true })
+    expect(await save(file)(1, "artifact-1", 3)).toEqual({ ok: true })
     expect(dialog.showSaveDialog).toHaveBeenLastCalledWith(
       undefined,
       expect.objectContaining({
@@ -78,12 +78,12 @@ describe("saveArtifact", () => {
     const root = await setup()
     const file = { name: "report.pdf", bytes: Buffer.from("captured PDF") }
     saveDialogChooses(undefined)
-    expect(await save(file)("artifact-1", 3)).toEqual({ ok: true })
+    expect(await save(file)(1, "artifact-1", 3)).toEqual({ ok: true })
     expect(await readdir(root)).toEqual([])
     const path = join(root, "report.docx")
     await writeFile(path, "original Word file")
     saveDialogChooses(path)
-    expect(await save(file)("artifact-1", 3)).toMatchObject({
+    expect(await save(file)(1, "artifact-1", 3)).toMatchObject({
       ok: false,
       reason: expect.stringContaining("extension"),
     })
@@ -95,7 +95,7 @@ describe("saveArtifact", () => {
     const path = join(root, "directory.pdf")
     await mkdir(path)
     saveDialogChooses(path)
-    expect(await save({ name: "report.pdf", bytes: Buffer.from("PDF") })("a", 1)).toMatchObject({
+    expect(await save({ name: "report.pdf", bytes: Buffer.from("PDF") })(1, "a", 1)).toMatchObject({
       ok: false,
     })
     expect(await readdir(root)).toEqual(["directory.pdf"])
@@ -103,7 +103,7 @@ describe("saveArtifact", () => {
   })
 
   it("refuses a revision that no longer exists before opening any dialog", async () => {
-    expect(await save(undefined)("artifact-1", 3)).toEqual({
+    expect(await save(undefined)(1, "artifact-1", 3)).toEqual({
       ok: false,
       reason: "This preview changed. Try saving the current version again.",
     })
@@ -112,9 +112,10 @@ describe("saveArtifact", () => {
 
   it("validates the payload at the boundary", async () => {
     const file = { name: "report.pdf", bytes: Buffer.from("PDF") }
-    await expect(save(file)("", 3)).rejects.toThrow("artifact id")
-    await expect(save(file)("artifact-1", -1)).rejects.toThrow("numeric revision")
-    await expect(save(file)("artifact-1", 1.5)).rejects.toThrow("numeric revision")
+    await expect(save(file)("1", "artifact-1", 3)).rejects.toThrow("runtime id")
+    await expect(save(file)(1, "", 3)).rejects.toThrow("artifact id")
+    await expect(save(file)(1, "artifact-1", -1)).rejects.toThrow("numeric revision")
+    await expect(save(file)(1, "artifact-1", 1.5)).rejects.toThrow("numeric revision")
   })
 })
 

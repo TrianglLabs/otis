@@ -694,17 +694,18 @@ describe("DesktopRuntime subagents", () => {
     await writeFile(join(runtime.app.cwd, "notes.md"), "# Notes")
     app.artifacts.openWorkspace({ source: "workspace", kind: "markdown", path: "notes.md" })
     const revision = app.artifacts.metadata?.revision ?? 0
-    expect(await runtime.getArtifact(revision)).toMatchObject({
+    const id = "workspace:notes.md"
+    expect(await runtime.getArtifact(app.focused.id, id, revision)).toMatchObject({
       ok: true,
       payload: { content: "# Notes" },
     })
-    expect(await runtime.getArtifact(revision + 1)).toEqual({
+    expect(await runtime.getArtifact(app.focused.id, id, revision + 1)).toEqual({
       ok: false,
       stale: true,
       reason: "This preview changed.",
     })
     await rm(join(runtime.app.cwd, "notes.md"))
-    expect(await runtime.getArtifact(revision)).toEqual({
+    expect(await runtime.getArtifact(app.focused.id, id, revision)).toEqual({
       ok: false,
       reason: expect.stringContaining("no longer at notes.md"),
     })
@@ -838,7 +839,7 @@ describe("DesktopRuntime conversation flow", () => {
         expect.objectContaining({ source: "attachment", kind: "markdown", name: "notes.md" }),
       ],
     })
-    const artifact = (await runtime.snapshot()).artifact
+    const artifact = (await runtime.snapshot()).artifacts[0]?.artifact
     expect(artifact).toMatchObject({
       source: "attachment",
       kind: "markdown",
@@ -846,14 +847,16 @@ describe("DesktopRuntime conversation flow", () => {
       editable: false,
     })
     expect(JSON.stringify(artifact)).not.toContain("Desktop document text")
-    await expect(runtime.getArtifact(artifact?.revision ?? 0)).resolves.toMatchObject({
+    await expect(
+      runtime.getArtifact(app.focused.id, artifact?.id ?? "", artifact?.revision ?? 0),
+    ).resolves.toMatchObject({
       payload: { encoding: "utf8", content: "Desktop document text" },
     })
     app.transcript.loadCompacted("Attachment summary", [])
     const reference = userEntry?.artifacts?.[0]
     if (!reference) throw new Error("Document artifact reference is missing")
     expect(await runtime.openArtifact(reference)).toEqual({ ok: true })
-    expect((await runtime.snapshot()).artifact).toMatchObject({
+    expect((await runtime.snapshot()).artifacts[0]?.artifact).toMatchObject({
       title: "notes.md",
       kind: "markdown",
     })
@@ -862,21 +865,18 @@ describe("DesktopRuntime conversation flow", () => {
 
   it("rejects an export prepared for a previous conversation", async () => {
     const { runtime, app } = await setup()
-    const file = { name: "report.docx", bytes: Buffer.from("source") }
-    app.artifacts.openWorkspace({ source: "workspace", kind: "docx", path: file.name })
-    let finish: (value: typeof file) => void = () => {}
-    vi.spyOn(app.artifacts, "exportFile").mockReturnValue(
-      new Promise((resolve) => {
-        finish = resolve
-      }),
-    )
-    await expect(runtime.getArtifactFile("workspace:other.docx", 1)).resolves.toBeUndefined()
-    const pending = runtime.getArtifactFile(
-      "workspace:report.docx",
-      app.artifacts.metadata?.revision ?? 0,
-    )
+    await writeFile(join(runtime.app.cwd, "report.docx"), "source")
+    app.artifacts.openWorkspace({ source: "workspace", kind: "docx", path: "report.docx" })
+    const revision = app.artifacts.metadata?.revision ?? 0
+    await expect(
+      runtime.getArtifactFile(app.focused.id, "workspace:other.docx", 1),
+    ).resolves.toBeUndefined()
+    await expect(
+      runtime.getArtifactFile(app.focused.id, "workspace:report.docx", revision),
+    ).resolves.toEqual({ name: "report.docx", bytes: Buffer.from("source") })
+    // The read is in flight when the conversation resets; the tab it was for is gone by then.
+    const pending = runtime.getArtifactFile(app.focused.id, "workspace:report.docx", revision)
     expect(runtime.startNewSession()).toEqual({ ok: true })
-    finish(file)
     await expect(pending).resolves.toBeUndefined()
     await runtime.shutdown()
   })
@@ -1050,10 +1050,210 @@ describe("DesktopRuntime sessions", () => {
       })
       expect(
         sent.some(
-          (event) => event.type === "transcript" && event.ops.some((op) => op.op === "reset"),
+          (event) => event.type === "transcript" && event.ops?.some((op) => op.op === "reset"),
         ),
       ).toBe(false)
     } finally {
+      await runtime.shutdown()
+    }
+  })
+
+  it("opens a fresh session beside a working one and marks the background completion", async () => {
+    const { runtime, app } = await setup()
+    try {
+      let finish = () => {}
+      mocks.executeTurn.mockImplementationOnce(async (options: TurnRunnerOptions) => {
+        await new Promise<void>((resolve) => {
+          finish = resolve
+        })
+        return turnEvents("first reply")(options)
+      })
+      await runtime.sendPrompt("keep working")
+      const first = app.focused
+      await vi.waitFor(async () => expect((await runtime.snapshot()).busy).toBe(true))
+
+      // A fresh start while working opens beside it; the working session stays open and counted.
+      expect(runtime.startNewSession()).toEqual({ ok: true })
+      let snapshot = await runtime.snapshot()
+      expect(snapshot).toMatchObject({ busy: false, session: null, working: 1, entries: [] })
+      expect(snapshot.runtimes.map((entry) => [entry.focused, entry.busy])).toEqual([
+        [false, true],
+        [true, false],
+      ])
+      expect(snapshot.sessions.find((session) => session.working)?.id).toBe(
+        first.sessions.current?.id,
+      )
+
+      // The fresh session takes its own prompt; the first runtime's stream stays off the wire.
+      mocks.executeTurn.mockImplementationOnce(turnEvents("second reply"))
+      await runtime.sendPrompt("hello from the new one")
+      await vi.waitFor(async () => expect((await runtime.snapshot()).busy).toBe(false))
+      snapshot = await runtime.snapshot()
+      expect(snapshot.entries.map((entry) => entry.text)).toEqual([
+        "hello from the new one",
+        "second reply",
+      ])
+
+      finish()
+      await vi.waitFor(async () => expect((await runtime.snapshot()).working).toBe(0))
+      snapshot = await runtime.snapshot()
+      expect(snapshot.entries.some((entry) => entry.text === "first reply")).toBe(false)
+      expect(snapshot.sessions.find((session) => session.unseen)?.id).toBe(
+        first.sessions.current?.id,
+      )
+
+      // Selecting the finished session focuses its runtime and clears the mark.
+      const back = await runtime.selectSession(first.sessions.current?.id ?? "")
+      expect(back).toEqual({ ok: true })
+      await vi.waitFor(async () => {
+        const focused = await runtime.snapshot()
+        expect(focused.entries.some((entry) => entry.text === "first reply")).toBe(true)
+        expect(focused.sessions.some((session) => session.unseen)).toBe(false)
+      })
+    } finally {
+      await runtime.shutdown()
+    }
+  })
+
+  it("shows sessions side by side, each streaming its own pane, and moves focus without reloads", async () => {
+    const { runtime, app, sent } = await setup()
+    let finish = () => {}
+    try {
+      mocks.executeTurn.mockImplementation(turnEvents("first reply"))
+      await runtime.sendPrompt("first")
+      await vi.waitFor(async () => expect((await runtime.snapshot()).busy).toBe(false))
+      const first = app.focused
+      // The second session opens in a new runtime because the first is kept busy meanwhile.
+      mocks.executeTurn.mockImplementationOnce(async (options: TurnRunnerOptions) => {
+        await new Promise<void>((resolve) => {
+          finish = resolve
+        })
+        return turnEvents("first again")(options)
+      })
+      await runtime.sendPrompt("again")
+      expect(runtime.startNewSession()).toEqual({ ok: true })
+      const second = app.focused
+      expect(second).not.toBe(first)
+      await flush()
+
+      // Dropping the first on the left: it arrives whole with the status that shows it.
+      sent.length = 0
+      runtime.openPane(first.id, "left")
+      await flush()
+      expect(sent.find((event) => event.type === "status")).toMatchObject({
+        status: { panes: [first.id, second.id], paneAxis: "row" },
+        panes: [{ runtime: first.id, ops: [{ op: "reset", entries: expect.any(Array) }] }],
+      })
+      const snapshot = await runtime.snapshot()
+      expect(snapshot.transcripts[first.id]?.map((entry) => entry.text)).toEqual([
+        "first",
+        "first reply",
+        "again",
+      ])
+      expect(snapshot.entries).toHaveLength(0)
+
+      // The first keeps streaming as its own pane, on its own event or with a status.
+      sent.length = 0
+      finish()
+      await vi.waitFor(async () => expect((await runtime.snapshot()).working).toBe(0))
+      const paneOps = sent.flatMap((event) => event.panes ?? [])
+      expect(
+        paneOps.some(
+          (pane) =>
+            pane.runtime === first.id &&
+            pane.ops.some((op) => op.op === "upsert" && op.entry.text === "first again"),
+        ),
+      ).toBe(true)
+
+      // Activating the first moves focus without resending anything; the composer follows.
+      sent.length = 0
+      runtime.focusSession(first.id)
+      await flush()
+      const moved = sent.filter((event) => event.type === "status")
+      expect(moved).toHaveLength(1)
+      expect(moved[0]).not.toHaveProperty("ops")
+      expect(moved[0]).not.toHaveProperty("panes")
+      expect(sent.some((event) => event.type === "transcript")).toBe(false)
+      expect((await runtime.snapshot()).entries.at(-1)?.text).toBe("first again")
+      expect((await runtime.snapshot()).transcripts[second.id]).toEqual([])
+      mocks.executeTurn.mockImplementationOnce(turnEvents("first once more"))
+      expect(await runtime.sendPrompt("into the first")).toMatchObject({ accepted: true })
+      await vi.waitFor(async () =>
+        expect((await runtime.snapshot()).entries.at(-1)?.text).toBe("first once more"),
+      )
+
+      // A session already on screen moves to the side it is dropped on; two panes take its axis.
+      runtime.openPane(second.id, "top")
+      await flush()
+      expect(await runtime.snapshot()).toMatchObject({
+        panes: [second.id, first.id],
+        paneAxis: "column",
+      })
+
+      // Closing the active card hands focus to its neighbor, again without a reload.
+      sent.length = 0
+      runtime.closePane(first.id)
+      await flush()
+      expect(sent.find((event) => event.type === "status")).toMatchObject({
+        status: { panes: [second.id], session: null },
+      })
+      expect(app.focused).toBe(second)
+      expect(sent.some((event) => event.type === "transcript")).toBe(false)
+    } finally {
+      finish()
+      await runtime.shutdown()
+    }
+  })
+
+  it("fills a grid of four and refuses a fifth", async () => {
+    const { runtime, app } = await setup()
+    let finish = () => {}
+    try {
+      // A busy session is what makes each fresh start a new runtime.
+      mocks.executeTurn.mockImplementationOnce(async (options: TurnRunnerOptions) => {
+        await new Promise<void>((resolve) => {
+          finish = resolve
+        })
+        return turnEvents("done")(options)
+      })
+      await runtime.sendPrompt("keep working")
+      const busy = app.focused
+      const fresh = () => {
+        runtime.focusSession(busy.id)
+        return app.openNew()
+      }
+      const others = [fresh(), fresh(), fresh(), fresh()]
+      await flush()
+      for (const entry of others.slice(0, 3)) runtime.openPane(entry.id, "right")
+      await flush()
+      expect((await runtime.snapshot()).panes).toEqual([
+        others[3]?.id,
+        ...others.slice(0, 3).map((entry) => entry.id),
+      ])
+      runtime.openPane(busy.id, "right")
+      await flush()
+      expect((await runtime.snapshot()).panes).toHaveLength(4)
+      expect((await runtime.snapshot()).panes).not.toContain(busy.id)
+
+      // Dropped onto a card, a session from the strip takes that card's place; two on screen
+      // trade places.
+      const [a, b, c, d] = (await runtime.snapshot()).panes
+      runtime.replacePane(a ?? 0, busy.id)
+      await flush()
+      expect((await runtime.snapshot()).panes).toEqual([busy.id, b, c, d])
+      runtime.replacePane(busy.id, d ?? 0)
+      await flush()
+      expect((await runtime.snapshot()).panes).toEqual([d, b, c, busy.id])
+
+      // Showing only one keeps it as the active session and sends the rest back to the strip.
+      const solo = others[1]
+      if (!solo) throw new Error("expected a fourth session")
+      runtime.soloPane(solo.id)
+      await flush()
+      expect((await runtime.snapshot()).panes).toEqual([solo.id])
+      expect(app.focused).toBe(solo)
+    } finally {
+      finish()
       await runtime.shutdown()
     }
   })

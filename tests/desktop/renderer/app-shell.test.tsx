@@ -1440,7 +1440,7 @@ describe("AppShell settings navigation", () => {
     }
     const withDiagram: DesktopSnapshot = {
       ...SNAPSHOT,
-      artifact,
+      artifacts: [{ runtime: 1, artifact, activated: 1 }],
       entries: [
         {
           id: 1,
@@ -1453,7 +1453,7 @@ describe("AppShell settings navigation", () => {
     }
     const api = fakeApi({
       getSnapshot: vi.fn(async () => withDiagram),
-      getArtifact: vi.fn(async (revision: number) => ({
+      getArtifact: vi.fn(async (_runtime: number, _id: string, revision: number) => ({
         ok: true as const,
         payload: { ...artifact, revision, encoding: "utf8" as const, content: "# Resume" },
       })),
@@ -1468,26 +1468,43 @@ describe("AppShell settings navigation", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Open in Canvas:/ }))
     expect(within(panel).getByTitle("Mermaid diagram")).toBeTruthy()
     const { entries: _entries, revision: _revision, ...status } = withDiagram
+    // A refreshed revision of the same document does not take the view back from the diagram.
     act(() =>
       listener?.({
         type: "status",
         revision: 2,
-        status: { ...status, artifact: { ...artifact, revision: 2 } },
+        status: {
+          ...status,
+          artifacts: [{ runtime: 1, artifact: { ...artifact, revision: 2 }, activated: 1 }],
+        },
       }),
     )
     expect(within(panel).getByTitle("Mermaid diagram")).toBeTruthy()
+    // A newly produced document takes the view; the diagram stays open as a tab beside it.
+    const cover = { ...artifact, id: "workspace:cover.md", title: "cover.md", revision: 3 }
     act(() =>
       listener?.({
         type: "status",
         revision: 3,
         status: {
           ...status,
-          artifact: { ...artifact, id: "workspace:cover.md", title: "cover.md", revision: 3 },
+          artifacts: [
+            { runtime: 1, artifact: { ...artifact, revision: 2 }, activated: 1 },
+            { runtime: 1, artifact: cover, activated: Date.now() },
+          ],
         },
       }),
     )
     expect(within(panel).queryByTitle("Mermaid diagram")).toBeNull()
     expect(await within(panel).findByRole("heading", { name: "Resume" })).toBeTruthy()
+    const tabs = within(panel).getByLabelText("Open documents")
+    expect(
+      within(tabs)
+        .getAllByRole("button", { pressed: true })
+        .map((b) => b.textContent),
+    ).toEqual(["cover.md"])
+    fireEvent.click(within(tabs).getByRole("button", { name: "Mermaid diagram" }))
+    expect(within(panel).getByTitle("Mermaid diagram")).toBeTruthy()
   })
 
   it("opens workspace documents in Canvas and refreshes them on artifact revisions", async () => {
@@ -1502,7 +1519,7 @@ describe("AppShell settings navigation", () => {
       editable: true,
       path: "resume.md",
     }
-    const getArtifact = vi.fn(async (revision: number) => ({
+    const getArtifact = vi.fn(async (_runtime: number, _id: string, revision: number) => ({
       ok: true as const,
       payload: {
         ...artifact,
@@ -1511,7 +1528,10 @@ describe("AppShell settings navigation", () => {
         content: revision === 1 ? "# First draft" : "# Updated draft",
       },
     }))
-    const withArtifact: DesktopSnapshot = { ...SNAPSHOT, artifact }
+    const withArtifact: DesktopSnapshot = {
+      ...SNAPSHOT,
+      artifacts: [{ runtime: 1, artifact, activated: 1 }],
+    }
     const api = fakeApi({
       getSnapshot: vi.fn(async () => withArtifact),
       getArtifact,
@@ -1527,18 +1547,21 @@ describe("AppShell settings navigation", () => {
       "true",
     )
     expect(await within(panel).findByRole("heading", { name: "First draft" })).toBeTruthy()
-    expect(getArtifact).toHaveBeenCalledWith(1)
+    expect(getArtifact).toHaveBeenCalledWith(1, artifact.id, 1)
 
     const { entries: _entries, revision: _revision, ...status } = withArtifact
     act(() =>
       listener?.({
         type: "status",
         revision: 2,
-        status: { ...status, artifact: { ...artifact, revision: 2 } },
+        status: {
+          ...status,
+          artifacts: [{ runtime: 1, artifact: { ...artifact, revision: 2 }, activated: 2 }],
+        },
       }),
     )
     expect(await within(panel).findByRole("heading", { name: "Updated draft" })).toBeTruthy()
-    expect(getArtifact).toHaveBeenCalledWith(2)
+    expect(getArtifact).toHaveBeenCalledWith(1, artifact.id, 2)
   })
 
   it("renders document outputs and attachments as artifact cards that reopen in Canvas", async () => {
@@ -1591,8 +1614,8 @@ describe("AppShell settings navigation", () => {
     expect(cards).toHaveLength(2)
     fireEvent.click(cards[0] as HTMLElement)
     fireEvent.click(cards[1] as HTMLElement)
-    expect(openArtifact).toHaveBeenNthCalledWith(1, attachment)
-    expect(openArtifact).toHaveBeenNthCalledWith(2, workspace)
+    expect(openArtifact).toHaveBeenNthCalledWith(1, attachment, undefined, 1)
+    expect(openArtifact).toHaveBeenNthCalledWith(2, workspace, undefined, 1)
   })
 
   it("renders HTML artifacts in a script-capable but network-blocked sandbox", async () => {
@@ -1608,7 +1631,10 @@ describe("AppShell settings navigation", () => {
     }
     await renderApp(
       fakeApi({
-        getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, artifact })),
+        getSnapshot: vi.fn(async () => ({
+          ...SNAPSHOT,
+          artifacts: [{ runtime: 1, artifact, activated: 1 }],
+        })),
         getArtifact: vi.fn(async () => ({
           ok: true as const,
           payload: {
@@ -1670,7 +1696,10 @@ describe("AppShell settings navigation", () => {
     }
     await renderApp(
       fakeApi({
-        getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, artifact })),
+        getSnapshot: vi.fn(async () => ({
+          ...SNAPSHOT,
+          artifacts: [{ runtime: 1, artifact, activated: 1 }],
+        })),
         getArtifact: vi.fn(async () => ({
           ok: true as const,
           payload: {

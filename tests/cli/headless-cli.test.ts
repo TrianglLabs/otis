@@ -57,11 +57,12 @@ const mocks = vi.hoisted(() => ({
       fit?: unknown,
       hardware?: unknown,
       options?: { signal?: AbortSignal },
-    ) => Promise<{ model: string; inferenceURL: string; contextLength: number }>
+    ) => Promise<{ model: string; inferenceURL: string; contextLength: number; slots: number }>
   >(async (spec) => ({
     model: spec.id,
     inferenceURL: "http://127.0.0.1:18765/v1/chat/completions",
     contextLength: 32_768,
+    slots: 1,
   })),
   stopLocalRuntime: vi.fn(async () => undefined),
   createPairClient: vi.fn(function createPairClient(config: { model: string }) {
@@ -179,6 +180,7 @@ beforeEach(() => {
     model: spec.id,
     inferenceURL: "http://127.0.0.1:18765/v1/chat/completions",
     contextLength: 32_768,
+    slots: 1,
   }))
   mocks.stopLocalRuntime.mockResolvedValue(undefined)
 })
