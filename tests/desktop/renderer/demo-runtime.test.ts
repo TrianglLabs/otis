@@ -43,6 +43,130 @@ describe("demo runtime sessions", () => {
     expect(after.session?.id).toBe(hidden.session?.id)
     expect(after.runtimes.find((entry) => entry.focused)?.runtime).toBe(hidden.runtime)
   })
+
+  it("drops a history session on a side, or in a card's place", async () => {
+    const api = createDemoRuntime()
+    expect(await api.selectSession("session_notes", undefined, { side: "right" })).toEqual({
+      ok: true,
+    })
+    const split = await api.getSnapshot()
+    const shown = (snapshot: typeof split, pane: number | undefined) =>
+      snapshot.runtimes.find((entry) => entry.runtime === pane)?.session?.id
+    expect(split.panes).toHaveLength(2)
+    expect(shown(split, split.panes[1])).toBe("session_notes")
+
+    const card = split.panes[1] ?? 0
+    expect(await api.selectSession("session_pdf", undefined, { replace: card })).toEqual({
+      ok: true,
+    })
+    const replaced = await api.getSnapshot()
+    expect(replaced.panes).toEqual(split.panes)
+    expect(shown(replaced, card)).toBe("session_pdf")
+
+    // Picked from history without company, a session takes the screen.
+    expect(await api.selectSession("session_notes")).toEqual({ ok: true })
+    const alone = await api.getSnapshot()
+    expect(alone.panes).toHaveLength(1)
+    expect(shown(alone, alone.panes[0])).toBe("session_notes")
+  })
+
+  it("brings a session back with its company, and a fresh start takes the screen alone", async () => {
+    const api = createDemoRuntime()
+    expect(await api.selectSession("session_demo2")).toEqual({ ok: true })
+    const paired = await api.getSnapshot()
+    const onScreen = paired.panes.map(
+      (pane) => paired.runtimes.find((entry) => entry.runtime === pane)?.session?.id,
+    )
+    expect(onScreen).toEqual(["session_demo2", "session_demo3"])
+    expect(paired.paneAxis).toBe("row")
+    expect(paired.session?.id).toBe("session_demo2")
+    expect(paired.sessions.filter((item) => item.active).map((item) => item.id)).toEqual([
+      "session_demo2",
+      "session_demo3",
+    ])
+
+    expect(await api.startNewSession()).toEqual({ ok: true })
+    const fresh = await api.getSnapshot()
+    expect(fresh.panes).toHaveLength(1)
+    expect(fresh.session).toBeNull()
+    expect(fresh.runtimes.map((entry) => entry.session?.id)).toEqual(
+      expect.arrayContaining(["session_demo2", "session_demo3"]),
+    )
+  })
+
+  it("opens a session from an unregistered folder with its history and the locate banner", async () => {
+    const api = createDemoRuntime()
+    expect(await api.selectSession("session_old", "oldstuff-demo")).toEqual({ ok: true })
+    const opened = await api.getSnapshot()
+    expect(opened.session?.id).toBe("session_old")
+    expect(opened.entries.length).toBeGreaterThan(0)
+    expect(opened.needsWorkspace).toBe(true)
+
+    expect(await api.locateWorkspace("/Users/dev/Projects/oldstuff")).toEqual({ ok: true })
+    const located = await api.getSnapshot()
+    expect(located.needsWorkspace).toBe(false)
+    expect(located.sessions.find((item) => item.id === "session_old")?.workspacePath).toBe(
+      "/Users/dev/Projects/oldstuff",
+    )
+  })
+
+  it("grows a group by a drop, and dissolves it for a session closed out of it", async () => {
+    const api = createDemoRuntime()
+    await api.selectSession("session_demo2")
+    expect(await api.selectSession("session_old", undefined, { side: "right" })).toEqual({
+      ok: true,
+    })
+    const trio = await api.getSnapshot()
+    expect(trio.panes).toHaveLength(3)
+    const viewOf = (snapshot: typeof trio, id: string) =>
+      snapshot.sessions.find((entry) => entry.id === id)?.view?.members.map((m) => m.id)
+    const ids = ["session_demo2", "session_demo3", "session_old"]
+    for (const id of ids) expect(viewOf(trio, id)).toEqual(ids)
+
+    await api.closePane(trio.panes[2] ?? 0)
+    const closed = await api.getSnapshot()
+    expect(viewOf(closed, "session_old")).toBeUndefined()
+    expect(viewOf(closed, "session_demo2")).toEqual(["session_demo2", "session_demo3"])
+    await api.selectSession("session_old")
+    expect((await api.getSnapshot()).panes).toHaveLength(1)
+  })
+})
+
+describe("demo runtime skills", () => {
+  it("lists bundled, project and collection skills, and installs or removes a collection", async () => {
+    const api = createDemoRuntime()
+    const before = await api.listSkills()
+    expect(before.sources.map((source) => source.id)).toEqual(["superpowers", "gstack", "pstack"])
+    const origin = (name: string) => before.skills.find((skill) => skill.name === name)?.origin
+    expect(origin("documents")).toBe("bundled")
+    expect(origin("release-notes")).toBe("project")
+    expect(origin("brainstorming")).toEqual({ collection: "superpowers" })
+    expect(origin("poteto-mode")).toEqual({ collection: "pstack" })
+    expect(before.skills.map((skill) => skill.name)).toEqual(
+      [...before.skills.map((skill) => skill.name)].sort(),
+    )
+
+    expect(await api.installSkills("https://github.com/acme/skills.git")).toEqual({ ok: true })
+    expect(await api.installSkills("https://github.com/acme/skills")).toEqual({
+      ok: false,
+      reason: "A source named skills is already installed.",
+    })
+    const installed = await api.listSkills()
+    expect(installed.sources.map((source) => source.id)).toEqual([
+      "superpowers",
+      "gstack",
+      "pstack",
+      "skills",
+    ])
+    const from = (skill: (typeof before.skills)[number]) =>
+      typeof skill.origin === "object" ? skill.origin.collection : undefined
+    expect(installed.skills.some((skill) => from(skill) === "skills")).toBe(true)
+
+    expect(await api.removeSkills("superpowers")).toEqual({ ok: true })
+    const removed = await api.listSkills()
+    expect(removed.sources.map((source) => source.id)).toEqual(["gstack", "pstack", "skills"])
+    expect(removed.skills.some((skill) => from(skill) === "superpowers")).toBe(false)
+  })
 })
 
 describe("demo runtime model lifecycle", () => {

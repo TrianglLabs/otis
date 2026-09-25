@@ -7,6 +7,8 @@ import { describeError } from "../../inference/errors.js"
 import {
   DESKTOP_CHANNELS,
   type DesktopAttachmentInput,
+  type PaneDrop,
+  type PaneSide,
   type SessionOpResult,
 } from "../contracts.js"
 import type { DesktopRuntime } from "./runtime.js"
@@ -120,11 +122,12 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
     runtime.respondToPermission(id, allow)
   })
 
-  handle(DESKTOP_CHANNELS.selectSession, (id, dirName) => {
+  handle(DESKTOP_CHANNELS.selectSession, (id, dirName, at) => {
     if (typeof id !== "string") throw new Error("selectSession expects a string id")
     if (dirName !== undefined && typeof dirName !== "string")
       throw new Error("selectSession expects a dir name")
-    return runtime.selectSession(id, dirName)
+    if (at !== undefined && !isPaneDrop(at)) throw new Error("selectSession expects a drop target")
+    return runtime.selectSession(id, dirName, at)
   })
 
   handle(DESKTOP_CHANNELS.focusSession, (id) => {
@@ -133,8 +136,7 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
   })
   handle(DESKTOP_CHANNELS.openPane, (id, side) => {
     if (typeof id !== "number") throw new Error("openPane expects a numeric runtime id")
-    if (side !== "left" && side !== "right" && side !== "top" && side !== "bottom")
-      throw new Error("openPane expects a side")
+    if (!isPaneSide(side)) throw new Error("openPane expects a side")
     runtime.openPane(id, side)
   })
   handle(DESKTOP_CHANNELS.closePane, (id) => {
@@ -277,6 +279,19 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
     if (typeof id !== "string") throw new Error("Invalid model id.")
     return runtime.deleteLocalModel(id)
   })
+  handle(DESKTOP_CHANNELS.listSkills, () => runtime.listSkills())
+  handle(DESKTOP_CHANNELS.installSkills, (url) => {
+    if (typeof url !== "string") throw new Error("installSkills expects a Git URL")
+    return runtime.installSkills(url)
+  })
+  handle(DESKTOP_CHANNELS.updateSkills, (id) => {
+    if (typeof id !== "string") throw new Error("updateSkills expects an id")
+    return runtime.updateSkills(id)
+  })
+  handle(DESKTOP_CHANNELS.removeSkills, (id) => {
+    if (typeof id !== "string") throw new Error("removeSkills expects an id")
+    return runtime.removeSkills(id)
+  })
   handle(DESKTOP_CHANNELS.checkForUpdates, () => runtime.checkForUpdates())
   handle(DESKTOP_CHANNELS.installUpdate, () => runtime.installUpdate())
   handle(DESKTOP_CHANNELS.setDebugMode, (enabled) => {
@@ -287,6 +302,18 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
     if (typeof toolCallId !== "string" || !toolCallId) throw new Error("Invalid tool call id.")
     return runtime.getSubagentTrace(toolCallId)
   })
+}
+
+function isPaneSide(value: unknown): value is PaneSide {
+  return value === "left" || value === "right" || value === "top" || value === "bottom"
+}
+
+function isPaneDrop(value: unknown): value is PaneDrop {
+  if (typeof value !== "object" || value === null) return false
+  return (
+    ("side" in value && isPaneSide(value.side)) ||
+    ("replace" in value && typeof value.replace === "number")
+  )
 }
 
 /** A handler's rejection reaches the renderer as the sentence it should show. */

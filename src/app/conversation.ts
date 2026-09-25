@@ -6,6 +6,7 @@ import { estimateTextTokens } from "../inference/messages.js"
 import type {
   ChatMessage,
   ContextFile,
+  ModelProvider,
   OutputCapabilities,
   UserChatMessage,
 } from "../inference/types.js"
@@ -17,7 +18,7 @@ import { describeToolCall, type ToolActivityKind } from "../tools/activity.js"
 import { providerTools } from "../tools/index.js"
 import type { ParallelClient } from "../web/client.js"
 import { type ArtifactStore, sessionArtifactPublisher } from "./artifacts.js"
-import type { ModelHost } from "./models.js"
+import type { GatedInferenceClient, InferenceGate } from "./models.js"
 import type { SessionCoordinator } from "./sessions.js"
 import type { SubagentTraces } from "./subagents.js"
 import { countDiffLines, TranscriptProjector, type TranscriptStore } from "./transcript.js"
@@ -168,7 +169,10 @@ type ConversationOptions = {
   subagents: SubagentTraces
   webClient: ParallelClient
   cwd: string
-  models: ModelHost
+  /** The runtime's model as it stands: its gated client, provider, and compaction trigger. */
+  serving: () =>
+    | { client: GatedInferenceClient; provider: ModelProvider; autoCompactAtTokens: number }
+    | undefined
   projectContext: () => ContextFile[]
   skills: () => SkillCatalog
   permissionPolicy: () => PermissionPolicy
@@ -404,8 +408,7 @@ export class Conversation {
    * Mirrors this conversation's wait for an inference slot as the `queued` phase, restoring the
    * phase it interrupted once the request is granted. Returns the unsubscribe function.
    */
-  #watchGate() {
-    const { gate } = this.options.models
+  #watchGate(gate: InferenceGate) {
     let resume = this.phase
     return gate.subscribe(() => {
       const waiting = gate.isWaiting(this.id)
@@ -425,15 +428,15 @@ export class Conversation {
     onAdmitted?: () => void,
   ): Promise<ConversationTurnResult> {
     if (this.#active) return { status: "incomplete" }
-    const { models, transcript, subagents, artifacts } = this.options
+    const { transcript, subagents, artifacts } = this.options
     return this.#run(async (active) => {
       const { signal } = active.controller
       const queued = "admission" in input ? input : undefined
       const userMessage = "admission" in input ? input.admission.message : input
-      const client = models.clientFor(this.id)
-      const provider = models.selectedProvider
-      if (!client || !provider) return { status: "incomplete" }
-      const unwatchGate = this.#watchGate()
+      const serving = this.options.serving()
+      if (!serving) return { status: "incomplete" }
+      const { client, provider } = serving
+      const unwatchGate = this.#watchGate(client.gate)
 
       let admission: PromptAdmission
       let session: JsonlSession
@@ -544,7 +547,7 @@ export class Conversation {
                 }
                 await session.recordUsage(usage, "agent", admission.promptId)
               },
-              autoCompactAtTokens: models.autoCompactAtTokens,
+              autoCompactAtTokens: serving.autoCompactAtTokens,
               trustReportedContextLength: reportedContextLengthIsServing(provider),
               historyTokens: transcript.contextTokens(client.inner),
               onCompactionUsage: async (usage) => {
@@ -680,18 +683,19 @@ export class Conversation {
     countContextTokens: (messages: ChatMessage[]) => number,
   ) {
     if (this.#active) return
-    const { models, transcript, subagents } = this.options
-    const client = models.clientFor(this.id)
-    if (!client) return
+    const { transcript, subagents } = this.options
+    const serving = this.options.serving()
+    if (!serving) return
+    const { client } = serving
     await this.#run(async ({ controller: { signal } }) => {
-      const unwatchGate = this.#watchGate()
+      const unwatchGate = this.#watchGate(client.gate)
       transcript.addAssistantMessage("Compacting conversation…")
       this.#emit({ type: "indicator", active: true })
       this.#emit({ type: "render", scrollToBottom: true })
       try {
         const session = await this.options.sessions.ensure()
         const skills = this.options.skills()
-        const tools = providerTools(models.selectedProvider ?? "fireworks").filter(
+        const tools = providerTools(serving.provider).filter(
           (tool) => tool.name !== "skill" || skills.skills.length > 0,
         )
         // The checkpoint covers history only; a prompt admitted but not yet started stays a
@@ -711,7 +715,7 @@ export class Conversation {
         const result = await compactConversation(transcript.history, {
           client,
           instructions,
-          contextBudget: models.autoCompactAtTokens,
+          contextBudget: serving.autoCompactAtTokens,
           countContextTokens: (messages) =>
             client.countTokens?.({
               messages,

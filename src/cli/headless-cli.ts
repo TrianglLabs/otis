@@ -142,25 +142,25 @@ export async function runHeadlessCommand(
       const spec = findLocalModel(model)
       if (!spec) throw new Error(`Unknown local model: ${model}`)
       modelSupportsImageInput = spec.supportsImageInput
-      const connected = await app.models.connect({
+      const connected = await app.connectModel({
         provider: "local",
         modelId: model,
         signal: controller.signal,
       })
       client = connected.client
-      model = connected.modelId
-      modelContextLength = connected.contextLength
+      model = connected.model.id
+      modelContextLength = compactionContextLength(connected.model)
     } else if (modelProvider === "omlx") {
-      const connected = await app.models.connect({
+      const connected = await app.connectModel({
         provider: "omlx",
         modelId: model,
         signal: controller.signal,
       })
       modelSupportsImageInput = connected.supportsImageInput
       client = connected.client
-      modelContextLength = connected.contextLength
+      modelContextLength = compactionContextLength(connected.model)
     } else if (modelProvider === "pair") {
-      const connected = await app.models.connect({
+      const connected = await app.connectModel({
         provider: "pair",
         modelId: model,
         pairEndpoint: pairEndpointForEngine(settings.pairEndpoints ?? {}, settings.pairEngine),
@@ -169,13 +169,12 @@ export async function runHeadlessCommand(
         signal: controller.signal,
       })
       client = connected.client
-      modelContextLength = connected.contextLength
     } else {
       const fireworksApiKey = settings.fireworksApiKey
       if (!fireworksApiKey) throw new Error("Fireworks API key is not configured.")
       if (parsed.model || (hasImages && modelSupportsImageInput === undefined))
         await resolveServing(fireworksApiKey)
-      const connected = await app.models.connect({
+      const connected = await app.connectModel({
         provider: "fireworks",
         modelId: model,
         fireworksApiKey,
@@ -216,9 +215,6 @@ export async function runHeadlessCommand(
 
     const replay = session?.replay()
     const history = replay?.messages ?? []
-    // Images a PAIR server did not vouch for count as unsupported, like the interactive app.
-    if (modelProvider !== "fireworks")
-      app.models.supportsImageInput = modelSupportsImageInput === true
     const userMessage = await app.buildPrompt(prompt, attachments, {
       history,
       signal: controller.signal,

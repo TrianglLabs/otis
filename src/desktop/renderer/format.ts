@@ -1,5 +1,7 @@
 /** Display formatting helpers shared across renderer features. */
 
+import type { GlobalSessionPickerItem } from "../../app/global-sessions.js"
+
 export function formatTokenCount(tokens: number): string {
   if (tokens >= 1_000_000_000) return `${(tokens / 1_000_000_000).toFixed(1)}B`
   if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`
@@ -54,4 +56,15 @@ export function formatSessionDetail(detail: string, locale: string): string {
   const unit =
     match[2] === "m" ? "minute" : match[2] === "h" ? "hour" : match[2] === "d" ? "day" : "week"
   return relative.format(-count, unit)
+}
+
+/** Whether opening `anchor` brings `session` back on screen beside it. */
+export function inView(
+  anchor: GlobalSessionPickerItem | undefined,
+  session: GlobalSessionPickerItem,
+) {
+  return (
+    anchor !== session &&
+    anchor?.view?.members.some((m) => m.id === session.id && m.dirName === session.dirName)
+  )
 }

@@ -58,6 +58,28 @@ describe("SessionCoordinator", () => {
     expect(sessions.diffs).toEqual({ added: 0, removed: 0 })
   })
 
+  it("lists the company a session was last on screen with", async () => {
+    const { cwd, sessions } = await coordinator()
+    const stored = await createSession({ cwd })
+    const admission = await stored.admitPrompt("hello from disk")
+    await stored.completeTurn(admission, [
+      { role: "assistant", content: [{ type: "text", text: "hi" }] },
+    ])
+    const view = {
+      members: [
+        { id: stored.id, dirName: "ws" },
+        { id: "other", dirName: "ws" },
+      ],
+      axis: "row" as const,
+    }
+    await stored.arrangeView(view)
+
+    expect(await sessions.select(stored.id)).toBe("loaded")
+    expect(sessions.current?.view()).toEqual(view)
+    const items = await sessions.listPickerItems([])
+    expect(items.find((item) => item.id === stored.id)?.view).toEqual(view)
+  })
+
   it("reopens pre-compaction scrollback while keeping only compacted context for inference", async () => {
     const { cwd, sessions, transcript } = await coordinator()
     const stored = await createSession({ cwd })

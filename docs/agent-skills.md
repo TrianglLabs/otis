@@ -60,14 +60,21 @@ otis skills update superpowers
 otis skills remove superpowers
 ```
 
-An installed repository may contain one skill at its root, a `skills/*` collection, an `.agents/skills/*` collection,
-or a combination of those layouts. Use `--name <source-name>` when the repository name is not the desired local source
-name.
+An installed repository may contain one skill at its root, skill directories at its root, a `skills/*` collection, an
+`.agents/skills/*` collection, or a combination of those layouts; a directory in a collection that is not a valid
+skill is skipped. A folder link such as `https://github.com/cursor/plugins/tree/main/pstack` installs only that
+folder of the repository, so suites such as [gstack](https://github.com/garrytan/gstack) and
+[pstack](https://github.com/cursor/plugins/tree/main/pstack) install as they are published. Use
+`--name <source-name>` when the repository name is not the desired local source name.
 
 Otis keeps an isolated Git checkout in its private data directory and activates discovered skills with links under
 `~/.agents/skills`. Installation never replaces an existing skill. Updates are fast-forward-only and transactional;
-removal touches only links still owned by Otis. Restart a running Otis process after installing, updating, or removing
-a source.
+removal touches only links still owned by Otis. Restart a running terminal session after installing, updating, or
+removing a source from the command line.
+
+In the desktop app, Settings → Extensions lists every loaded skill with where it comes from, and installs, updates, or
+removes Git collections; in the terminal, `/skills` does the same. Both reread the skills on disk, so a skill you add
+by hand is available from the next turn without a restart.
 
 ## Trust and confinement
 

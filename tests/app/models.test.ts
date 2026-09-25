@@ -38,12 +38,6 @@ describe("ModelHost", () => {
   ])("rejects an oMLX serving limit of %i before stopping or persisting the previous model", async (contextLength) => {
     const llama = fakeLlama()
     const host = new ModelHost({ llama })
-    host.applySavedSelection({
-      model: hosted.id,
-      modelProvider: "fireworks",
-      fireworksApiKey: "test-key",
-    })
-    const previous = host.client
     host.omlx = { baseURL: "http://127.0.0.1:8000" }
     const model: OmlxCatalogModel = {
       provider: "omlx",
@@ -59,8 +53,6 @@ describe("ModelHost", () => {
     ).rejects.toThrow("at least 65,536 tokens (64K)")
     expect(llama.stop).not.toHaveBeenCalled()
     expect(persist).not.toHaveBeenCalled()
-    expect(host.client).toBe(previous)
-    expect(host.selectedId).toBe(hosted.id)
   })
 
   it.each([
@@ -79,8 +71,13 @@ describe("ModelHost", () => {
       ...(contextLength ? { contextLength } : {}),
     }
     const persist = vi.fn()
-    await host.persistSelection(model, { signal: new AbortController().signal, persist })
-    expect(host.autoCompactAtTokens).toBe(autoCompactThreshold(contextLength ?? 65536))
+    const selection = await host.persistSelection(model, {
+      signal: new AbortController().signal,
+      persist,
+    })
+    expect(host.autoCompactAtTokens(selection.model)).toBe(
+      autoCompactThreshold(contextLength ?? 65536),
+    )
     expect(persist).toHaveBeenCalledWith(model)
     // The fallback remains policy only; it is not invented server metadata.
     if (contextLength === undefined)
@@ -94,15 +91,15 @@ describe("ModelHost", () => {
     const llama = fakeLlama()
     const host = new ModelHost({ llama })
     const endpoint = engine === "ollama" ? "http://127.0.0.1:11434" : "http://127.0.0.1:1234"
-    host.applySavedSelection({
+    const saved = host.savedSelection({
       model: "chat",
       modelProvider: "pair",
       pairEngine: engine,
       modelContextLength: 262144,
       pairEndpoints: engine === "ollama" ? { ollama: endpoint } : { lmStudio: endpoint },
     })
-    expect(host.autoCompactAtTokens).toBe(autoCompactThreshold(65_536))
-    expect(host.client?.model).toBe("chat")
+    expect(host.autoCompactAtTokens(saved?.model)).toBe(autoCompactThreshold(65_536))
+    expect(saved?.client?.model).toBe("chat")
     const connected = await host.connect({
       provider: "pair",
       modelId: "chat",
@@ -110,8 +107,8 @@ describe("ModelHost", () => {
       pairEndpoint: endpoint,
       contextLength: 262144,
     })
-    expect(connected.contextLength).toBe(65_536)
-    expect(host.autoCompactAtTokens).toBe(autoCompactThreshold(65_536))
+    expect(compactionContextLength(connected.model)).toBe(65_536)
+    expect(host.autoCompactAtTokens(connected.model)).toBe(autoCompactThreshold(65_536))
     expect(llama.stop).toHaveBeenCalledOnce()
   })
   it("restores a hosted Fireworks selection without starting llama.cpp", () => {
@@ -124,13 +121,13 @@ describe("ModelHost", () => {
       modelSupportsImageInput: true,
     }
 
-    host.applySavedSelection(settings)
+    const selection = host.savedSelection(settings)
 
-    expect(host.selectedId).toBe(settings.model)
-    expect(host.selectedProvider).toBe("fireworks")
-    expect(host.supportsImageInput).toBe(true)
-    expect(host.client?.model).toBe(settings.model)
-    expect(host.autoCompactAtTokens).toBe(
+    expect(selection?.model.id).toBe(settings.model)
+    expect(selection?.model.provider).toBe("fireworks")
+    expect(selection?.supportsImageInput).toBe(true)
+    expect(selection?.client?.model).toBe(settings.model)
+    expect(host.autoCompactAtTokens(selection?.model)).toBe(
       autoCompactThreshold(
         compactionContextLength({ provider: "fireworks", contextLength: 128_000 }),
       ),
@@ -146,17 +143,17 @@ describe("ModelHost", () => {
       modelId: hosted.id,
       fireworksApiKey: "fw_test",
     })
-    expect(connected.contextLength).toBe(131_072)
-    expect(host.autoCompactAtTokens).toBe(autoCompactThreshold(131_072))
+    expect((connected.model as FireworksModel).contextLength).toBe(131_072)
+    expect(host.autoCompactAtTokens(connected.model)).toBe(autoCompactThreshold(131_072))
     expect(mocks.listToolCapableModels).toHaveBeenCalledOnce()
 
-    await host.connect({
+    const again = await host.connect({
       provider: "fireworks",
       modelId: hosted.id,
       fireworksApiKey: "fw_test",
       contextLength: 65_536,
     })
-    expect(host.autoCompactAtTokens).toBe(autoCompactThreshold(65_536))
+    expect(host.autoCompactAtTokens(again.model)).toBe(autoCompactThreshold(65_536))
     expect(mocks.listToolCapableModels).toHaveBeenCalledOnce()
   })
 
@@ -170,59 +167,64 @@ describe("ModelHost", () => {
       modelId: hosted.id,
       fireworksApiKey: "fw_test",
     })
-    expect(connected.contextLength).toBeUndefined()
-    expect(host.autoCompactAtTokens).toBe(autoCompactThreshold(131_072))
+    expect((connected.model as FireworksModel).contextLength).toBeUndefined()
+    expect(host.autoCompactAtTokens(connected.model)).toBe(autoCompactThreshold(131_072))
   })
 
   it("reserves more output for a high thinking effort at 64K and nothing extra at 128K", () => {
     const host = new ModelHost({ llama: fakeLlama() })
-    host.applySavedSelection({
+    const saved = (settings: LocalSettings) => host.savedSelection(settings)?.model
+    const local = saved({
       model: "Qwen/Qwen3.8-27B",
       modelProvider: "local",
       modelContextLength: 65_536,
     })
-    expect(host.autoCompactAtTokens).toBe(49_152)
+    expect(host.autoCompactAtTokens(local)).toBe(49_152)
     host.localThinking = { "Qwen/Qwen3.8-27B": "low" }
-    host.refreshAutoCompact()
-    expect(host.autoCompactAtTokens).toBe(52_428)
+    expect(host.autoCompactAtTokens(local)).toBe(52_428)
     host.localThinking = { "Qwen/Qwen3.8-27B": "xhigh" }
-    host.refreshAutoCompact()
-    expect(host.autoCompactAtTokens).toBe(49_152)
+    expect(host.autoCompactAtTokens(local)).toBe(49_152)
 
-    host.applySavedSelection({
-      model: "Qwen/Qwen3.8-27B",
-      modelProvider: "local",
-      modelContextLength: 131_072,
-    })
-    expect(host.autoCompactAtTokens).toBe(104_857)
+    expect(
+      host.autoCompactAtTokens(
+        saved({ model: "Qwen/Qwen3.8-27B", modelProvider: "local", modelContextLength: 131_072 }),
+      ),
+    ).toBe(104_857)
 
-    host.applySavedSelection({
-      fireworksApiKey: "fw_test",
-      model: "accounts/fireworks/models/deepseek-v4",
-      modelProvider: "fireworks",
-      modelContextLength: 65_536,
-    })
-    expect(host.autoCompactAtTokens).toBe(49_152)
-    host.applySavedSelection({
-      fireworksApiKey: "fw_test",
-      model: "accounts/fireworks/models/llama-v3p1-70b-instruct",
-      modelProvider: "fireworks",
-      modelContextLength: 65_536,
-    })
-    expect(host.autoCompactAtTokens).toBe(52_428)
+    expect(
+      host.autoCompactAtTokens(
+        saved({
+          fireworksApiKey: "fw_test",
+          model: "accounts/fireworks/models/deepseek-v4",
+          modelProvider: "fireworks",
+          modelContextLength: 65_536,
+        }),
+      ),
+    ).toBe(49_152)
+    expect(
+      host.autoCompactAtTokens(
+        saved({
+          fireworksApiKey: "fw_test",
+          model: "accounts/fireworks/models/llama-v3p1-70b-instruct",
+          modelProvider: "fireworks",
+          modelContextLength: 65_536,
+        }),
+      ),
+    ).toBe(52_428)
   })
 
   it("records a local selection without creating a client until serving starts", () => {
     const host = new ModelHost()
-    host.applySavedSelection({
-      model: "local/qwen",
+    const selection = host.savedSelection({
+      model: "Qwen/Qwen3.8-27B",
       modelProvider: "local",
       modelContextLength: 65_536,
     })
 
-    expect(host.selectedProvider).toBe("local")
-    expect(host.client).toBeUndefined()
-    expect(host.autoCompactAtTokens).toBe(autoCompactThreshold(65_536))
+    expect(selection?.model.provider).toBe("local")
+    expect(selection?.client).toBeUndefined()
+    // The model's default thinking effort reserves 16K of the 64K window for output.
+    expect(host.autoCompactAtTokens(selection?.model)).toBe(autoCompactThreshold(65_536, 16_384))
   })
 
   it.each([
@@ -261,7 +263,7 @@ describe("ModelHost", () => {
       prepared.commit()
     } else await host.connect({ provider: "local", modelId: model.id })
     expect(notices).toEqual(["CUDA failed (no device); running on Vulkan."])
-    expect(host.selectedId).toBe(model.id)
+    expect(host.activeLocal?.spec.id).toBe(model.id)
   })
 
   it("drops a notice from a superseded prepare", async () => {
@@ -304,17 +306,16 @@ describe("ModelHost", () => {
   it("persists then commits a prepared selection", async () => {
     const host = new ModelHost({ llama: fakeLlama() })
     const order: string[] = []
-    await host.persistSelection(hosted, {
+    const selection = await host.persistSelection(hosted, {
       signal: new AbortController().signal,
       fireworksApiKey: "fw_test",
       persist: async () => {
-        expect(host.selectedId).toBeUndefined()
         order.push("persist")
       },
     })
     expect(order).toEqual(["persist"])
-    expect(host.selectedId).toBe(hosted.id)
-    expect(host.client?.model).toBe(hosted.id)
+    expect(selection.model.id).toBe(hosted.id)
+    expect(selection.client?.model).toBe(hosted.id)
   })
 
   it("rolls back when persistence fails", async () => {
@@ -328,8 +329,8 @@ describe("ModelHost", () => {
         },
       }),
     ).rejects.toThrow("config is read-only")
-    expect(host.selectedId).toBeUndefined()
-    expect(host.client).toBeUndefined()
+    expect(host.activeLocal).toBeUndefined()
+    expect(host.state).toBe("failed")
   })
 
   it("keeps a failed selection on its picker row until the next attempt", async () => {
@@ -409,23 +410,23 @@ describe("ModelHost", () => {
     expect(second).toBe("second")
   })
 
-  it("hands each owner one gated view of the raw client until the raw client changes", () => {
+  it("hands each owner one gated view of its selection until the raw client changes", () => {
     const host = new ModelHost({ llama: fakeLlama() })
-    expect(host.clientFor(1)).toBeUndefined()
+    expect(host.clientFor(1, undefined)).toBeUndefined()
     const raw = { model: "fake", streamChat: vi.fn(), complete: vi.fn() }
-    host.client = raw
-    const gated = host.clientFor(1)
+    const selection = { model: hosted, supportsImageInput: false, client: raw }
+    const gated = host.clientFor(1, selection)
     expect(gated).toBeInstanceOf(GatedInferenceClient)
-    expect(gated).toBe(host.clientFor(1))
+    expect(gated).toBe(host.clientFor(1, selection))
     expect(gated?.inner).toBe(raw)
     expect(gated?.model).toBe("fake")
-    expect(host.clientFor(2)).not.toBe(gated)
-    expect(host.client).toBe(raw)
-    const next = { ...raw }
-    host.client = next
-    expect(host.clientFor(1)).not.toBe(gated)
-    expect(host.clientFor(1)?.inner).toBe(next)
-    expect(host.clientFor(1)).toBe(host.clientFor(1))
+    expect(host.clientFor(2, selection)).not.toBe(gated)
+    const next = { ...selection, client: { ...raw } }
+    expect(host.clientFor(1, next)).not.toBe(gated)
+    expect(host.clientFor(1, next)?.inner).toBe(next.client)
+    expect(host.clientFor(1, next)).toBe(host.clientFor(1, next))
+    // Hosted requests never wait behind the managed server's slots.
+    expect(gated?.gate).not.toBe(host.gate)
   })
 
   it("sizes the gate to the local server's slots and leaves hosted providers unbounded", async () => {

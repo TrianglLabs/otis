@@ -95,6 +95,12 @@
   scrollbar-gutter: stable;
 }
 
+/* A settings page can run many screens long; its scrollbar shows where you are without a hover. */
+.settingsPage-content::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--border) 80%, transparent);
+  background-clip: content-box;
+}
+
 .settingsPage-column {
   display: flex;
   flex-direction: column;
@@ -658,4 +664,35 @@
     grid-template-columns: 1fr;
     gap: 18px;
   }
+}
+
+/* Every skill row is one line of name and one of description; the full text is the tooltip. */
+.settingsSkill {
+  flex: 1;
+}
+
+.settingsSkill-description {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settingsSkill-origin {
+  flex-shrink: 0;
+}
+
+.settingsSkills-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+.settingsSkills-note {
+  margin: 12px 0 0;
+}
+
+.settingsSkills-install {
+  padding-top: 12px;
+  border-top: 1px solid var(--hairline);
 }

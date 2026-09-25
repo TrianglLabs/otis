@@ -1233,7 +1233,9 @@ button.composer-model-failed {
   transition: background var(--motion);
 }
 
-.home-tile:hover {
+/* The hover shade also marks the sessions that come back with the hovered one. */
+.home-tile:hover,
+.home-tile-grouped {
   background: var(--bg-hover);
 }
 
@@ -1343,4 +1345,17 @@ button.composer-model-failed {
   padding: 1px 6px;
   color: var(--accent-ink);
   border-radius: var(--radius-sm);
+}
+
+/* A chip or card header lifted off the page: a bordered pill the browser paints on its own. It
+   sits under body, and this outranks the chip's and header's own colours. */
+body > .dragGhost {
+  position: fixed;
+  top: -1000px;
+  left: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elev);
+  color: var(--text);
+  box-shadow: var(--shadow-soft);
 }

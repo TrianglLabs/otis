@@ -32,9 +32,11 @@ import {
   type ThemeName,
 } from "../local/settings.js"
 import { calculateLocalStats } from "../local/stats.js"
+import { SkillManager } from "../skills/manager.js"
 import { AttachmentFlow } from "./attachment-flow.js"
 import { createChatUI } from "./chat-ui.js"
 import { SetupFlow } from "./setup-flow.js"
+import { formatSource, skillCount } from "./skills-cli.js"
 import {
   parseSlashCommand,
   type SlashCommand,
@@ -68,6 +70,7 @@ export class InteractiveApp {
   #renderer!: Renderer
   #ui!: ChatUI
   #setupFlow!: SetupFlow
+  readonly #skills = new SkillManager()
   #terminal!: TerminalController
   #busy = false
   #exiting = false
@@ -136,13 +139,13 @@ export class InteractiveApp {
       contextLabel: formatContextUsage(
         contextUsage(
           this.#app.contextEstimator()(this.#app.transcript.history),
-          models.autoCompactAtTokens,
+          models.autoCompactAtTokens(this.#app.selection?.model),
         ),
       ),
       modelLabel: modelLabel(
-        models.selectedProvider,
-        models.displayName ?? models.selectedId,
-        models.selectedId ?? "",
+        this.#app.selection?.model.provider,
+        this.#app.selection?.model.displayName,
+        this.#app.selection?.model.id ?? "",
       ),
       modeLabel: formatModeLabel(this.#app.permissionMode),
       sessionLabel: "Current session",
@@ -251,9 +254,10 @@ export class InteractiveApp {
     if (this.#configured) void this.#refreshLocalStats()
     // A saved local or oMLX model still needs its server; the start joins the selection queue, so
     // a model picked meanwhile supersedes it instead of racing it.
-    if (models.selectedId && !models.client) {
-      const provider = models.selectedProvider
-      const name = (provider === "local" && findLocalModel(models.selectedId)?.displayName) || ""
+    const saved = this.#app.selection?.model
+    if (saved && !this.#app.focused.client) {
+      const provider = saved.provider
+      const name = (provider === "local" && findLocalModel(saved.id)?.displayName) || ""
       try {
         await this.#app.startSavedSelection({ isExiting: () => this.#exiting })
       } catch (error) {
@@ -276,8 +280,8 @@ export class InteractiveApp {
     if (
       !this.#configured &&
       this.#app.fireworksApiKey &&
-      models.selectedProvider !== "local" &&
-      models.selectedProvider !== "omlx"
+      saved?.provider !== "local" &&
+      saved?.provider !== "omlx"
     ) {
       this.#setupFlow.begin()
     }
@@ -482,8 +486,12 @@ export class InteractiveApp {
       case "thinking":
         await this.#setPanelVisible("thinking", !this.#thinkingVisible)
         return
+      case "skills":
+        this.#ui.clearInput()
+        await this.#runSkillsCommand(command)
+        return
       case "effort": {
-        const state = this.#app.models.thinkingState()
+        const state = this.#app.models.thinkingState(this.#app.selection?.model)
         this.#ui.clearInput()
         if (!state) {
           this.#ui.showTransientHint(" Thinking effort is unavailable for this model ")
@@ -547,7 +555,10 @@ export class InteractiveApp {
         ui.setAgentPhase(event.phase)
         return
       case "context": {
-        const usage = contextUsage(event.tokens, app.models.autoCompactAtTokens)
+        const usage = contextUsage(
+          event.tokens,
+          app.models.autoCompactAtTokens(app.selection?.model),
+        )
         ui.setContextLabel(formatContextUsage(usage), contextUsageColor(usage.percent))
         return
       }
@@ -596,7 +607,7 @@ export class InteractiveApp {
   }
 
   async #runCompaction(instructions?: string) {
-    if (this.#busy || !this.#app.models.client) return
+    if (this.#busy || !this.#app.focused.client) return
     const refused = await this.#app.compact(instructions)
     if (refused) {
       this.#ui.showTransientHint(` ${refused} `)
@@ -730,10 +741,15 @@ export class InteractiveApp {
   }
 
   #reportSessionError(prefix: string, error: unknown) {
-    this.#ui.showChatLayout()
-    this.#app.transcript.addAssistantMessage(`Error: ${prefix}: ${describeError(error)}`)
-    this.#ui.renderTranscript(this.#app.transcript.entries, { scrollToBottom: true })
+    this.#say(`Error: ${prefix}: ${describeError(error)}`)
     this.#ui.focusInput()
+  }
+
+  /** A note from Otis itself, shown in the transcript wherever the user is. */
+  #say(text: string) {
+    this.#ui.showChatLayout()
+    this.#app.transcript.addAssistantMessage(text)
+    this.#ui.renderTranscript(this.#app.transcript.entries, { scrollToBottom: true })
   }
 
   async #openSettingsMenu() {
@@ -784,6 +800,87 @@ export class InteractiveApp {
     this.#ui.focusInput()
   }
 
+  /**
+   * `/skills` lists the collections Otis manages with a row to install more; a collection opens
+   * its own Update and Remove rows. The loaded skills print to the transcript, where a long list
+   * reads better than a menu.
+   */
+  async #runSkillsCommand(command: Extract<SlashCommand, { type: "skills" }>) {
+    if (
+      command.action === "install" ||
+      command.action === "update" ||
+      command.action === "remove"
+    ) {
+      const { action, target } = command
+      let text: string
+      try {
+        if (action === "install")
+          text = `Installed ${formatSource(await this.#skills.install(target))}.`
+        else if (action === "update") {
+          const [source] = await this.#skills.update(target)
+          text = `Updated ${formatSource(source)}.`
+        } else {
+          const source = await this.#skills.remove(target)
+          text = `Removed ${source.id} and ${skillCount(source.skills.length)}.`
+        }
+        await this.#app.reloadSkills()
+      } catch (error) {
+        this.#ui.showTransientHint(` ${describeError(error)} `)
+        this.#ui.focusInput()
+        return
+      }
+      this.#say(text)
+      return
+    }
+    const summary = await this.#app.listSkills(this.#skills)
+    if (this.#exiting) return
+    if (command.action === "list") {
+      const rows = summary.skills.map((skill) => {
+        const origin = typeof skill.origin === "string" ? skill.origin : skill.origin.collection
+        return `- **${skill.name}** (${origin}): ${skill.description}`
+      })
+      this.#say(rows.length > 0 ? rows.join("\n") : "No skills are loaded.")
+      return
+    }
+    const source =
+      command.action === "source" && summary.sources.find((entry) => entry.id === command.target)
+    if (source) {
+      this.#ui.showCommandSubmenu(
+        [
+          { name: "Update", description: source.url, submission: `/skills update ${source.id}` },
+          {
+            name: "Remove",
+            description: skillCount(source.skills.length),
+            submission: `/skills remove ${source.id}`,
+          },
+        ],
+        { onBack: () => void this.#runSkillsCommand({ type: "skills" }) },
+      )
+    } else {
+      this.#ui.showCommandSubmenu(
+        [
+          {
+            name: "Install",
+            description: "Paste a Git link after the command",
+            draft: "/skills install ",
+          },
+          {
+            name: "Loaded skills",
+            description: skillCount(summary.skills.length),
+            submission: "/skills list",
+          },
+          ...summary.sources.map((entry) => ({
+            name: entry.id,
+            description: `${skillCount(entry.skills.length)} · ${entry.url}`,
+            submission: `/skills source ${entry.id}`,
+          })),
+        ],
+        { onBack: () => this.#ui.showSlashCommandMenu() },
+      )
+    }
+    this.#ui.focusInput()
+  }
+
   #openThemeMenu() {
     this.#ui.clearInput()
     this.#ui.showCommandSubmenu(
@@ -798,10 +895,10 @@ export class InteractiveApp {
   }
 
   #showLocalModelDeleteMenu(models: readonly LocalModelSpec[]) {
-    const { selectedProvider, selectedId } = this.#app.models
+    const selected = this.#app.selection?.model
     this.#ui.showCommandSubmenu(
       models.map((model) => {
-        const active = selectedProvider === "local" && model.id === selectedId ? "Active · " : ""
+        const active = selected?.provider === "local" && model.id === selected.id ? "Active · " : ""
         const size = formatMemoryLabel(localModelWeightBytes(model))
         return {
           name: model.displayName,
@@ -863,7 +960,7 @@ export class InteractiveApp {
       this.#app.contextTokens(
         pendingInput || this.#attachments.pending.items.length > 0 ? pendingMessage : undefined,
       ),
-      this.#app.models.autoCompactAtTokens,
+      this.#app.models.autoCompactAtTokens(this.#app.selection?.model),
     )
     this.#ui.setContextLabel(formatContextUsage(usage), contextUsageColor(usage.percent))
   }
@@ -892,7 +989,7 @@ export class InteractiveApp {
   }
 
   async #toggleFastServing() {
-    if (!this.#configured || !this.#app.fireworksApiKey || !this.#app.models.selectedId) {
+    if (!this.#configured || !this.#app.fireworksApiKey || !this.#app.selection) {
       this.#setupFlow.begin()
       return
     }
@@ -940,10 +1037,8 @@ export class InteractiveApp {
   }
 
   #showThemeMessage(message: string) {
-    this.#ui.showChatLayout()
-    this.#app.transcript.addAssistantMessage(message)
     this.#ui.clearInput()
-    this.#ui.renderTranscript(this.#app.transcript.entries)
+    this.#say(message)
     this.#ui.focusInput()
   }
 }

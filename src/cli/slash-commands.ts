@@ -17,6 +17,8 @@ export type SlashCommand =
   | { type: "effort"; level?: string }
   | { type: "queue"; prompt?: string }
   | { type: "compact"; instructions?: string }
+  | { type: "skills"; action?: "list" }
+  | { type: "skills"; action: "source" | "install" | "update" | "remove"; target: string }
 
 type CatalogCommand = {
   type: Exclude<SlashCommand["type"], "theme">
@@ -41,6 +43,7 @@ const CATALOG: readonly CatalogCommand[] = [
   { type: "history", name: "/history", description: "Open session history" },
   { type: "model", name: "/model", description: "Choose a model" },
   { type: "settings", name: "/settings", description: "Configure Otis" },
+  { type: "skills", name: "/skills", description: "List and install Agent Skills" },
   { type: "fast", name: "/fast", description: "Toggle Fast serving" },
   { type: "queue", name: "/queue", description: "Queue a separate follow-up" },
   { type: "compact", name: "/compact", description: "Summarize old conversation to free context" },
@@ -72,6 +75,17 @@ export function parseSlashCommand(value: string): SlashCommand | undefined {
   if (name === "/compact") return { type: "compact", instructions: argument }
   if (name === "/effort") return { type: "effort", level: argument }
   if (name === "/queue") return { type: "queue", ...(argument ? { prompt: argument } : {}) }
+  if (name === "/skills") {
+    const [action, ...rest] = argument.split(/\s+/u)
+    const target = rest.join(" ")
+    if (action === "list" && !target) return { type: "skills", action }
+    if (
+      target &&
+      (action === "source" || action === "install" || action === "update" || action === "remove")
+    )
+      return { type: "skills", action, target }
+    return undefined
+  }
   if (name !== "/settings") return undefined
   const setting = SETTINGS.find((candidate) => candidate === argument)
   if (setting) return { type: "settings", setting }
@@ -85,6 +99,11 @@ export function parseSlashCommand(value: string): SlashCommand | undefined {
 }
 
 export function slashCommandRunsImmediately(command: SlashCommand) {
+  // Skills actions that change files wait for the turn; the rest only show something.
+  if (command.type === "skills")
+    return (
+      command.action !== "install" && command.action !== "update" && command.action !== "remove"
+    )
   if (command.type !== "settings") return IMMEDIATE_TYPES.has(command.type)
   return (
     command.setting === undefined ||

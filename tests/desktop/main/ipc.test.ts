@@ -140,3 +140,20 @@ it("validates and forwards the workspace panel width", async () => {
     await expect(handler(width)).rejects.toThrow("Invalid panel width")
   }
 })
+
+it("validates the skill collection calls", async () => {
+  const installSkills = vi.fn(async () => ({ ok: true as const }))
+  const install = handlerFor(DESKTOP_CHANNELS.installSkills, { installSkills })
+  await install("https://github.com/obra/superpowers")
+  expect(installSkills).toHaveBeenCalledWith("https://github.com/obra/superpowers")
+  await expect(install(42)).rejects.toThrow("Git URL")
+  const updateSkills = vi.fn(async () => ({ ok: true as const }))
+  const update = handlerFor(DESKTOP_CHANNELS.updateSkills, { updateSkills })
+  await update("superpowers")
+  expect(updateSkills).toHaveBeenCalledWith("superpowers")
+  await expect(update(undefined)).rejects.toThrow("id")
+  const remove = handlerFor(DESKTOP_CHANNELS.removeSkills, {
+    removeSkills: async () => ({ ok: true }),
+  })
+  await expect(remove(null)).rejects.toThrow("id")
+})

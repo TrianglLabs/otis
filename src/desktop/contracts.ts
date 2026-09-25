@@ -10,6 +10,7 @@ import type { ModelPickerItem, ModelPickerStatus } from "../inference/picker-cat
 import type { ModelProvider } from "../inference/types.js"
 import type { ThemeName, UiLanguage } from "../local/settings.js"
 import type { PermissionMode } from "../permissions/policy.js"
+import type { SkillsSummary } from "../skills/catalog.js"
 
 export type { RuntimeSummary, SubagentSummary } from "../app/application.js"
 export type { PendingPermission, TurnPhase, TurnSpeed } from "../app/conversation.js"
@@ -61,6 +62,10 @@ export const DESKTOP_CHANNELS = {
   setFireworksApiKey: "desktop:set-fireworks-api-key",
   connectLocalServers: "desktop:connect-local-servers",
   deleteLocalModel: "desktop:delete-local-model",
+  listSkills: "desktop:list-skills",
+  installSkills: "desktop:install-skills",
+  updateSkills: "desktop:update-skills",
+  removeSkills: "desktop:remove-skills",
   setDebugMode: "desktop:set-debug-mode",
   checkForUpdates: "desktop:check-for-updates",
   installUpdate: "desktop:install-update",
@@ -124,7 +129,7 @@ export type DesktopStatus = {
   modelLoad: { modelId: string; status: ModelPickerStatus } | null
   /** The session's delegated runs, oldest first. */
   subagents: SubagentSummary[]
-  /** Every session open in this window; exactly one is focused and shown. */
+  /** Every session open in this window; exactly one is focused. */
   runtimes: RuntimeSummary[]
   /** Open sessions mid-turn other than the focused one. */
   working: number
@@ -169,6 +174,8 @@ export type DesktopStatus = {
 
 /** The edge a session is dropped on: left and top put it first, right and bottom last. */
 export type PaneSide = "left" | "right" | "top" | "bottom"
+/** Where a dropped session lands: a side of the ones on screen, or a card's place. */
+export type PaneDrop = { side: PaneSide } | { replace: number }
 export type PaneAxis = "row" | "column"
 /** Sessions on screen at once; each is a live virtualized transcript. */
 export const MAX_PANES = 4
@@ -229,6 +236,8 @@ export type DesktopAttachmentInput = {
 
 export type SessionOpResult = { ok: true } | { ok: false; reason: string }
 
+export type { SkillSummary, SkillsSummary } from "../skills/catalog.js"
+
 /**
  * A preview fetch: the payload for a live revision, a stale marker the renderer ignores, or a
  * reason shown verbatim.
@@ -261,7 +270,8 @@ export type DesktopApi = {
   ): Promise<SendPromptResult>
   stop(): Promise<void>
   respondToPermission(id: number, allow: boolean): Promise<void>
-  selectSession(id: string, dirName?: string): Promise<SessionOpResult>
+  /** Opens a session in place, or where it was dropped. */
+  selectSession(id: string, dirName?: string, at?: PaneDrop): Promise<SessionOpResult>
   /** Shows a session already open in this window, by its runtime id from `runtimes`. */
   focusSession(runtime: number): Promise<void>
   /** Shows an open session on that side of the ones on screen, up to MAX_PANES. */
@@ -348,6 +358,14 @@ export type DesktopApi = {
    * is active.
    */
   deleteLocalModel(id: string): Promise<ModelSelectResult>
+  /** Rereads the skills on disk and lists them with the Git collections Otis manages. */
+  listSkills(): Promise<SkillsSummary>
+  /** Installs a Git collection's skills; the agent has them from its next turn. */
+  installSkills(url: string): Promise<SessionOpResult>
+  /** Fast-forwards a collection. */
+  updateSkills(id: string): Promise<SessionOpResult>
+  /** Removes a collection and the skills it activated. */
+  removeSkills(id: string): Promise<SessionOpResult>
   /** Session-only debug mode; applies from the next turn. */
   setDebugMode(enabled: boolean): Promise<void>
   /** Checks the release feed; progress and results arrive through the status stream. */

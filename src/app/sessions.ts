@@ -12,7 +12,7 @@ import {
   type SessionSummary,
   searchSessions,
 } from "../storage/session.js"
-import type { SessionToolActivity } from "../storage/session-events.js"
+import type { SessionToolActivity, SessionView } from "../storage/session-events.js"
 import { defaultSessionDirectory } from "../storage/session-files.js"
 import { acquireSessionLock, SessionInUseError, type SessionLock } from "../storage/session-lock.js"
 import type { ConversationTurnResult } from "./conversation.js"
@@ -25,6 +25,7 @@ const DISPLAY_TITLE_MAX_LENGTH = 36
 /** Why a session operation was refused, worded once for every interface. */
 export const SESSION_REASONS = {
   locked: "That session is open in another Otis window.",
+  gone: "That session no longer exists.",
   noop: "Finish the current work before switching sessions.",
   working: "That session is still working. Stop it first.",
 } as const
@@ -33,7 +34,8 @@ export const SESSION_REASONS = {
 export type OpenSession = {
   id: string
   dirName: string
-  focused: boolean
+  /** On screen: the focused session, or any card of a split. */
+  shown: boolean
   working: boolean
   unseen: boolean
 }
@@ -406,18 +408,20 @@ export type SessionPickerItem = {
   id: string
   title: string
   detail: string
-  /** The focused open session. */
+  /** Open and on screen. */
   active?: boolean
-  /** Open in some runtime of this process, focused or not. */
+  /** Open in some runtime of this process, on screen or not. */
   open?: true
   /** Open and mid-turn. */
   working?: true
-  /** Open, settled while not focused, and not looked at since. */
+  /** Open, settled while off screen, and not looked at since. */
   unseen?: true
   /** First content match context; set only by search, when the match is not in the title. */
   snippet?: string
   /** The last turn was interrupted or never answered, so the session invites picking up. */
   resumable?: true
+  /** The sessions this one was last on screen with; opening it brings them along. */
+  view?: SessionView
 }
 
 export function toSessionPickerItem(
@@ -428,11 +432,12 @@ export function toSessionPickerItem(
     id: summary.id,
     title: summary.title,
     detail: formatSessionAge(summary.updatedAt),
-    active: open?.focused === true,
+    active: open?.shown === true,
     ...(open ? { open: true } : {}),
     ...(open?.working ? { working: true } : {}),
     ...(open?.unseen ? { unseen: true } : {}),
     ...(summary.state === "complete" ? {} : { resumable: true }),
+    ...(summary.view ? { view: summary.view } : {}),
   }
 }
 

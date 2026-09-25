@@ -146,17 +146,17 @@ function SessionWorkspacePanel({
     return () => observer.disconnect()
   }, [hasContent, activeTab, t, theme, visible])
 
-  // The first coworker reopens a hidden rail. Additional coworkers do not interrupt the active tab,
-  // and remounting Settings with existing work does not override the user's visibility choice.
-  const hadRuns = useRef<boolean | undefined>(undefined)
+  // A coworker starting brings Coworkers forward and a document taking the view brings Canvas
+  // forward; either reopens a hidden rail. Remounting with existing work changes nothing.
+  const seenRuns = useRef(runs.length)
   useEffect(() => {
-    const hasRuns = runs.length > 0
-    const previous = hadRuns.current
-    hadRuns.current = hasRuns
-    if (previous === false && hasRuns && !visible) void api.setAgentsPanelVisible(true)
+    const previous = seenRuns.current
+    seenRuns.current = runs.length
+    if (runs.length <= previous) return
+    setActiveTab("coworkers")
+    if (!visible) void api.setAgentsPanelVisible(true)
   }, [runs.length, visible, api])
 
-  // A document taking the view brings Canvas forward, and reopens a hidden rail.
   const latestActivated = latest?.activated
   const seenActivated = useRef(latestActivated)
   useEffect(() => {

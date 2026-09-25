@@ -1,4 +1,4 @@
-import type { RecentArtifact } from "../../../app/global-sessions.js"
+import type { GlobalSessionPickerItem, RecentArtifact } from "../../../app/global-sessions.js"
 import type { TranscriptEntry } from "../../../app/transcript.js"
 import type {
   ArtifactMetadata,
@@ -13,6 +13,7 @@ import {
   validateLocalThinkingSelection,
 } from "../../../inference/local-thinking.js"
 import type { ModelPickerChoice, ModelPickerItem } from "../../../inference/picker-catalog.js"
+import type { ManagedSkillSource } from "../../../skills/catalog.js"
 import {
   type ArtifactResult,
   type DesktopApi,
@@ -22,11 +23,14 @@ import {
   type DesktopStatus,
   MAX_PANES,
   type ModelSelectResult,
+  type PaneDrop,
   type PaneOps,
   type PaneSide,
   type RuntimeSummary,
   type SendPromptResult,
   type SessionOpResult,
+  type SkillSummary,
+  type SkillsSummary,
   type ThemeName,
   type TranscriptPatchOp,
 } from "../../contracts.js"
@@ -48,7 +52,7 @@ export function createDemoRuntime(hostApi?: DemoHostApi, onboarding = false): De
 
 /** The demo keeps one Canvas document, reported as the first session's tab. */
 /** The demo's Canvas tabs all belong to its first session. */
-type DemoState = Omit<DesktopStatus, "artifacts"> & {
+type DemoState = Omit<DesktopStatus, "artifacts" | "needsWorkspace"> & {
   tabs: { artifact: ArtifactMetadata; activated: number }[]
   entries: TranscriptEntry[]
 }
@@ -514,6 +518,122 @@ const DEMO_SUBAGENT = {
   durationMs: 1_900,
 }
 
+const DEMO_VIEW = {
+  members: [
+    { id: "session_demo2", dirName: "otis-demo" },
+    { id: "session_demo3", dirName: "otis-demo" },
+  ],
+  axis: "row" as const,
+}
+
+/** The first sentence of each demo collection skill's own description. */
+const DEMO_SKILL_DESCRIPTIONS: Record<string, string> = {
+  architect:
+    "Sketch types, signatures, and module structure before code, then stay in the loop while…",
+  arena: "Spawn N parallel candidates at the same task, pick a base, graft the strongest parts of…",
+  "automate-me": 'Use for "automate me", "create/update/refresh my -mode skill", "turn/capture my…',
+  autoplan:
+    "Auto-review pipeline — reads the full CEO, design, eng, and DX review skills from disk…",
+  benchmark: "Performance regression detection using the browse daemon.",
+  "benchmark-models": "Cross-model benchmark for gstack skills.",
+  "blast-radius":
+    "Find what a change could break somewhere else before it ships, beyond the diff, and…",
+  brainstorming: "Explore requirements and alternatives with the user before any code is written.",
+  bro: "Restate the last message in plain human language, with no jargon.",
+  browse: "Fast headless browser for QA testing and site dogfooding.",
+  canary: "Post-deploy canary monitoring.",
+  careful: "Safety guardrails for destructive commands.",
+  codex: "OpenAI Codex CLI wrapper — three modes.",
+  "context-restore": "Restore working context saved earlier by /context-save.",
+  "context-save": "Save working context.",
+  cso: "Chief Security Officer mode.",
+  "design-consultation":
+    "Design consultation: understands your product, researches the landscape, proposes a…",
+  "design-html": "Design finalization: generates production-quality Pretext-native HTML/CSS.",
+  "design-review":
+    "Designer's eye QA: finds visual inconsistency, spacing issues, hierarchy problems, AI…",
+  "design-shotgun":
+    "Design shotgun: generate multiple AI design variants, open a comparison board, collect…",
+  "devex-review": "Live developer experience audit.",
+  diagram:
+    "Turn an English description (or mermaid source) into a diagram triplet: the source, an…",
+  "document-generate":
+    "Generate missing documentation from scratch for a feature, module, or entire project.",
+  "document-release": "Post-ship documentation update.",
+  "executing-plans": "Work a plan step by step, checking each result before the next.",
+  "figure-it-out":
+    "Design an auditable playbook when no narrower one fits: a large migration, an ambitious…",
+  freeze: "Restrict file edits to a specific directory for the session.",
+  "gstack-upgrade": "Upgrade gstack to the latest version.",
+  guard: "Full safety mode: destructive command warnings + directory-scoped edits.",
+  health: "Code quality dashboard.",
+  how: 'Use for "how does X work", code walkthroughs before changing something, and placement…',
+  interrogate: 'Use for "interrogate", "adversarial review", "multi-model review", "challenge…',
+  investigate: "Systematic debugging with root cause investigation.",
+  "ios-clean": "Remove the DebugBridge SPM package and all #if DEBUG wiring from an iOS app.",
+  "ios-design-review": "Visual design audit for iOS apps on real hardware.",
+  "ios-fix": "Autonomous iOS bug fixer.",
+  "ios-qa": "Live-device iOS QA for SwiftUI apps.",
+  "ios-sync": "Regenerate the iOS debug bridge against the latest upstream gstack templates.",
+  "land-and-deploy": "Land and deploy workflow.",
+  "landing-report": "Read-only queue dashboard for workspace-aware ship.",
+  learn: "Manage project learnings.",
+  "make-bot-ui": ">-.",
+  "make-pdf": "Turn any markdown file into a publication-quality PDF.",
+  "no-comments":
+    "Spawn Comment Sicko, fix accepted findings, and offer encodings for claimed constraints.",
+  "office-hours": "YC Office Hours — two modes.",
+  "open-gstack-browser":
+    "Launch GStack Browser — AI-controlled Chromium with the sidebar extension baked in.",
+  "pair-agent": "Pair a remote AI agent with your browser.",
+  "plan-ceo-review": "CEO/founder-mode plan review.",
+  "plan-design-review": "Designer's eye plan review — interactive, like CEO and Eng review.",
+  "plan-devex-review": "Interactive developer experience plan review.",
+  "plan-eng-review": "Eng manager-mode plan review.",
+  "plan-tune":
+    "Self-tuning question sensitivity + developer psychographic for gstack (v1: observational).",
+  "poteto-mode":
+    "poteto's agent style for concise, detailed responses, deliberate subagents, unslopped…",
+  qa: "Systematically QA test a web application and fix bugs found.",
+  "qa-only": "Report-only QA testing.",
+  recall:
+    "Reconstruct your recent working context from your own chat history, live state, and the…",
+  "receiving-code-review": "Take review feedback as evidence, not as instruction to obey.",
+  reflect: "Spawn three parallel review subagents over the active transcript, surface learnings…",
+  "requesting-code-review": "Ask for review with the context a reviewer needs.",
+  retro: "Weekly engineering retrospective.",
+  review: "Pre-landing PR review.",
+  scrape: "Pull data from a web page.",
+  "setup-browser-cookies":
+    "Import cookies from your real Chromium browser into the headless browse session.",
+  "setup-deploy": "Configure deployment settings for /land-and-deploy.",
+  "setup-gbrain":
+    "Set up gbrain for this coding agent: install the CLI, initialize a local PGLite or…",
+  "setup-pstack": "Configure which models pstack uses per role and at what reasoning budget.",
+  ship: "Ship workflow: detect + merge base branch, run tests, review diff, bump VERSION…",
+  "show-me-your-work":
+    "Keep a reviewable decision trail for long-running or unattended work: a TSV log with…",
+  skillify:
+    "Codify the most recent successful /scrape flow into a permanent browser-skill on disk.",
+  spec: "Turn vague intent into a precise, executable spec in five phases.",
+  "subagent-driven-development": "Delegate bounded tasks to subagents and review what comes back.",
+  swarm: "Fan out N parallel workers, drain them, and return one report.",
+  "sync-gbrain":
+    "Keep gbrain current with this repo's code and refresh agent search guidance in CLAUDE.md.",
+  "systematic-debugging": "Find the root cause with evidence before changing anything.",
+  tdd: "Use only when the user explicitly asks for TDD, a failing test, or a regression test…",
+  teach: "Explain a body of work plainly so a person actually understands it.",
+  "technical-writing":
+    "Layered technical-writing standard: Diátaxis structure, Google developer style…",
+  "test-driven-development":
+    "Write the failing test first, then the smallest change that makes it pass.",
+  unfreeze: "Clear the freeze boundary set by /freeze, allowing edits to all directories again.",
+  unslop: "Cut AI tells from any writing.",
+  "using-git-worktrees": "Isolate a task in its own worktree so parallel work never collides.",
+  why: "Use for 'why does X work this way', 'why we picked Y', design rationale, regressions…",
+  "writing-plans": "Turn an agreed design into a plan with verifiable steps.",
+}
+
 function demoSession(id: string, title: string, detail: string, workspace = "otis") {
   return {
     id,
@@ -579,19 +699,23 @@ class DemoRuntime implements DesktopApi {
     modelError: undefined,
     session: { id: "session_versions", title: "Canvas preview · Saved versions" },
     tabs: [{ artifact: DEMO_LATEST_WORD.metadata, activated: Date.now() }],
-    needsWorkspace: false,
     workspace: { label: "~/Projects/otis", path: "/Users/dev/Projects/otis" },
     sessions: [
+      demoSession("session_versions", "Canvas preview · Saved versions", "now"),
+      // These two were last on screen together; opening either brings back the pair.
       {
-        ...demoSession("session_versions", "Canvas preview · Saved versions", "Open now"),
-        active: true,
+        ...demoSession("session_demo2", "Fix flaky session lock test", "3h ago"),
+        resumable: true,
+        view: DEMO_VIEW,
+      },
+      {
+        ...demoSession("session_demo3", "Refactor GGUF cache cleanup", "Yesterday"),
+        view: DEMO_VIEW,
       },
       demoSession("session_pdf", "Canvas preview · PDF", "Demo"),
       demoSession("session_docx", "Canvas preview · Word", "Demo"),
       demoSession("session_webpage", "Canvas preview · Webpage", "Demo"),
       demoSession("session_demo1", "Canvas preview · Markdown", "Demo"),
-      { ...demoSession("session_demo2", "Fix flaky session lock test", "3h ago"), resumable: true },
-      demoSession("session_demo3", "Refactor GGUF cache cleanup", "Yesterday"),
       demoSession("session_notes", "Reading list cleanup", "2d ago", "notes"),
       // An unregistered folder: no workspace path, so opening it goes through the locate flow.
       {
@@ -745,6 +869,218 @@ class DemoRuntime implements DesktopApi {
   }
 
   #localThinking: LocalThinkingPreferences = {}
+  #skillSources: ManagedSkillSource[] = [
+    {
+      id: "superpowers",
+      url: "https://github.com/obra/superpowers",
+      skills: [
+        { name: "brainstorming", relativePath: "skills/brainstorming" },
+        { name: "test-driven-development", relativePath: "skills/test-driven-development" },
+        { name: "systematic-debugging", relativePath: "skills/systematic-debugging" },
+        {
+          name: "verification-before-completion",
+          relativePath: "skills/verification-before-completion",
+        },
+        { name: "writing-plans", relativePath: "skills/writing-plans" },
+        { name: "executing-plans", relativePath: "skills/executing-plans" },
+        { name: "subagent-driven-development", relativePath: "skills/subagent-driven-development" },
+        { name: "using-git-worktrees", relativePath: "skills/using-git-worktrees" },
+        { name: "requesting-code-review", relativePath: "skills/requesting-code-review" },
+        { name: "receiving-code-review", relativePath: "skills/receiving-code-review" },
+      ],
+    },
+    {
+      id: "gstack",
+      url: "https://github.com/garrytan/gstack",
+      skills: [
+        { name: "autoplan", relativePath: "autoplan" },
+        { name: "benchmark", relativePath: "benchmark" },
+        { name: "benchmark-models", relativePath: "benchmark-models" },
+        { name: "browse", relativePath: "browse" },
+        { name: "canary", relativePath: "canary" },
+        { name: "careful", relativePath: "careful" },
+        { name: "codex", relativePath: "codex" },
+        { name: "context-restore", relativePath: "context-restore" },
+        { name: "context-save", relativePath: "context-save" },
+        { name: "cso", relativePath: "cso" },
+        { name: "design-consultation", relativePath: "design-consultation" },
+        { name: "design-html", relativePath: "design-html" },
+        { name: "design-review", relativePath: "design-review" },
+        { name: "design-shotgun", relativePath: "design-shotgun" },
+        { name: "devex-review", relativePath: "devex-review" },
+        { name: "diagram", relativePath: "diagram" },
+        { name: "document-generate", relativePath: "document-generate" },
+        { name: "document-release", relativePath: "document-release" },
+        { name: "freeze", relativePath: "freeze" },
+        { name: "gstack-upgrade", relativePath: "gstack-upgrade" },
+        { name: "guard", relativePath: "guard" },
+        { name: "health", relativePath: "health" },
+        { name: "investigate", relativePath: "investigate" },
+        { name: "ios-clean", relativePath: "ios-clean" },
+        { name: "ios-design-review", relativePath: "ios-design-review" },
+        { name: "ios-fix", relativePath: "ios-fix" },
+        { name: "ios-qa", relativePath: "ios-qa" },
+        { name: "ios-sync", relativePath: "ios-sync" },
+        { name: "land-and-deploy", relativePath: "land-and-deploy" },
+        { name: "landing-report", relativePath: "landing-report" },
+        { name: "learn", relativePath: "learn" },
+        { name: "make-pdf", relativePath: "make-pdf" },
+        { name: "office-hours", relativePath: "office-hours" },
+        { name: "open-gstack-browser", relativePath: "open-gstack-browser" },
+        { name: "pair-agent", relativePath: "pair-agent" },
+        { name: "plan-ceo-review", relativePath: "plan-ceo-review" },
+        { name: "plan-design-review", relativePath: "plan-design-review" },
+        { name: "plan-devex-review", relativePath: "plan-devex-review" },
+        { name: "plan-eng-review", relativePath: "plan-eng-review" },
+        { name: "plan-tune", relativePath: "plan-tune" },
+        { name: "qa", relativePath: "qa" },
+        { name: "qa-only", relativePath: "qa-only" },
+        { name: "retro", relativePath: "retro" },
+        { name: "review", relativePath: "review" },
+        { name: "scrape", relativePath: "scrape" },
+        { name: "setup-browser-cookies", relativePath: "setup-browser-cookies" },
+        { name: "setup-deploy", relativePath: "setup-deploy" },
+        { name: "setup-gbrain", relativePath: "setup-gbrain" },
+        { name: "ship", relativePath: "ship" },
+        { name: "skillify", relativePath: "skillify" },
+        { name: "spec", relativePath: "spec" },
+        { name: "sync-gbrain", relativePath: "sync-gbrain" },
+        { name: "unfreeze", relativePath: "unfreeze" },
+      ],
+    },
+    {
+      id: "pstack",
+      url: "https://github.com/cursor/plugins/tree/main/pstack",
+      path: "pstack",
+      skills: [
+        { name: "architect", relativePath: "pstack/skills/architect" },
+        { name: "arena", relativePath: "pstack/skills/arena" },
+        { name: "automate-me", relativePath: "pstack/skills/automate-me" },
+        { name: "blast-radius", relativePath: "pstack/skills/blast-radius" },
+        { name: "bro", relativePath: "pstack/skills/bro" },
+        {
+          name: "create-verification-skill",
+          relativePath: "pstack/skills/create-verification-skill",
+        },
+        { name: "figure-it-out", relativePath: "pstack/skills/figure-it-out" },
+        { name: "how", relativePath: "pstack/skills/how" },
+        { name: "interrogate", relativePath: "pstack/skills/interrogate" },
+        {
+          name: "maintain-verification-skill",
+          relativePath: "pstack/skills/maintain-verification-skill",
+        },
+        { name: "make-bot-ui", relativePath: "pstack/skills/make-bot-ui" },
+        { name: "no-comments", relativePath: "pstack/skills/no-comments" },
+        { name: "poteto-mode", relativePath: "pstack/skills/poteto-mode" },
+        {
+          name: "principle-attack-the-premise",
+          relativePath: "pstack/skills/principle-attack-the-premise",
+        },
+        {
+          name: "principle-boundary-discipline",
+          relativePath: "pstack/skills/principle-boundary-discipline",
+        },
+        {
+          name: "principle-build-the-lever",
+          relativePath: "pstack/skills/principle-build-the-lever",
+        },
+        {
+          name: "principle-encode-lessons-in-structure",
+          relativePath: "pstack/skills/principle-encode-lessons-in-structure",
+        },
+        {
+          name: "principle-exhaust-the-design-space",
+          relativePath: "pstack/skills/principle-exhaust-the-design-space",
+        },
+        {
+          name: "principle-experience-first",
+          relativePath: "pstack/skills/principle-experience-first",
+        },
+        {
+          name: "principle-fix-root-causes",
+          relativePath: "pstack/skills/principle-fix-root-causes",
+        },
+        {
+          name: "principle-foundational-thinking",
+          relativePath: "pstack/skills/principle-foundational-thinking",
+        },
+        {
+          name: "principle-guard-the-context-window",
+          relativePath: "pstack/skills/principle-guard-the-context-window",
+        },
+        {
+          name: "principle-laziness-protocol",
+          relativePath: "pstack/skills/principle-laziness-protocol",
+        },
+        {
+          name: "principle-make-operations-idempotent",
+          relativePath: "pstack/skills/principle-make-operations-idempotent",
+        },
+        {
+          name: "principle-migrate-callers-then-delete-legacy-apis",
+          relativePath: "pstack/skills/principle-migrate-callers-then-delete-legacy-apis",
+        },
+        {
+          name: "principle-minimize-reader-load",
+          relativePath: "pstack/skills/principle-minimize-reader-load",
+        },
+        {
+          name: "principle-model-the-domain",
+          relativePath: "pstack/skills/principle-model-the-domain",
+        },
+        {
+          name: "principle-never-block-on-the-human",
+          relativePath: "pstack/skills/principle-never-block-on-the-human",
+        },
+        {
+          name: "principle-outcome-oriented-execution",
+          relativePath: "pstack/skills/principle-outcome-oriented-execution",
+        },
+        {
+          name: "principle-prove-it-works",
+          relativePath: "pstack/skills/principle-prove-it-works",
+        },
+        {
+          name: "principle-redesign-from-first-principles",
+          relativePath: "pstack/skills/principle-redesign-from-first-principles",
+        },
+        {
+          name: "principle-separate-before-serializing-shared-state",
+          relativePath: "pstack/skills/principle-separate-before-serializing-shared-state",
+        },
+        {
+          name: "principle-sequence-verifiable-units",
+          relativePath: "pstack/skills/principle-sequence-verifiable-units",
+        },
+        {
+          name: "principle-subtract-before-you-add",
+          relativePath: "pstack/skills/principle-subtract-before-you-add",
+        },
+        {
+          name: "principle-test-behavior-not-implementation",
+          relativePath: "pstack/skills/principle-test-behavior-not-implementation",
+        },
+        {
+          name: "principle-type-system-discipline",
+          relativePath: "pstack/skills/principle-type-system-discipline",
+        },
+        { name: "recall", relativePath: "pstack/skills/recall" },
+        { name: "reflect", relativePath: "pstack/skills/reflect" },
+        { name: "setup-pstack", relativePath: "pstack/skills/setup-pstack" },
+        { name: "show-me-your-work", relativePath: "pstack/skills/show-me-your-work" },
+        { name: "swarm", relativePath: "pstack/skills/swarm" },
+        { name: "tdd", relativePath: "pstack/skills/tdd" },
+        { name: "teach", relativePath: "pstack/skills/teach" },
+        { name: "technical-writing", relativePath: "pstack/skills/technical-writing" },
+        {
+          name: "typescript-best-practices",
+          relativePath: "pstack/skills/typescript-best-practices",
+        },
+        { name: "unslop", relativePath: "pstack/skills/unslop" },
+        { name: "why", relativePath: "pstack/skills/why" },
+      ],
+    },
+  ]
 
   async setLocalThinking(model: string, level: LocalThinkingSelection): Promise<void> {
     validateLocalThinkingSelection(model, level)
@@ -1009,8 +1345,21 @@ class DemoRuntime implements DesktopApi {
 
   async searchSessions(query: string) {
     const needle = query.trim().toLowerCase()
-    if (!needle) return this.#state.sessions
-    return this.#state.sessions.filter((session) => session.title.toLowerCase().includes(needle))
+    return this.#sessions().filter((session) => session.title.toLowerCase().includes(needle))
+  }
+
+  /** History as the app marks it: open when a runtime holds the session, active when on screen. */
+  #sessions(): GlobalSessionPickerItem[] {
+    return this.#state.sessions.map((session) => {
+      const runtime = this.#state.runtimes.find((entry) => entry.session?.id === session.id)
+      return {
+        ...session,
+        active: runtime !== undefined && this.#state.panes.includes(runtime.runtime),
+        ...(runtime ? { open: true } : {}),
+        ...(runtime?.busy ? { working: true } : {}),
+        ...(runtime?.unseen ? { unseen: true } : {}),
+      }
+    })
   }
 
   async openSessionAt(workspacePath: string, sessionId: string): Promise<SessionOpResult> {
@@ -1027,7 +1376,18 @@ class DemoRuntime implements DesktopApi {
     return result
   }
 
-  async locateWorkspace(_path: string): Promise<SessionOpResult> {
+  /** Demo: the located folder registers the active session's store, and the banner goes. */
+  async locateWorkspace(path: string): Promise<SessionOpResult> {
+    const focused = this.#state.runtimes.find((entry) => entry.focused)?.session
+    this.#state = {
+      ...this.#state,
+      sessions: this.#state.sessions.map((session) =>
+        session.id === focused?.id
+          ? { ...session, workspacePath: path, workspaceLabel: path.split("/").pop() ?? path }
+          : session,
+      ),
+    }
+    this.#emitStatus()
     return { ok: true }
   }
 
@@ -1083,6 +1443,7 @@ class DemoRuntime implements DesktopApi {
           : "column"
         : this.#state.paneAxis
     this.#state = { ...this.#state, panes, paneAxis }
+    this.#recordView()
     if (fresh) this.#transcripts.set(runtime, this.#transcriptOf(runtime))
     this.#emitStatus(
       undefined,
@@ -1090,6 +1451,12 @@ class DemoRuntime implements DesktopApi {
         ? [{ runtime, ops: [{ op: "reset", entries: this.#transcripts.get(runtime) ?? [] }] }]
         : [],
     )
+  }
+
+  /** Whether the active card holds neither a session nor a word: a fresh session already. */
+  get #emptyCard() {
+    const focused = this.#state.runtimes.find((entry) => entry.focused)
+    return !focused?.session && this.#state.entries.length === 0
   }
 
   #transcriptOf(runtime: number) {
@@ -1108,6 +1475,7 @@ class DemoRuntime implements DesktopApi {
       panes[shown] = target
       panes[slot] = runtime
       this.#state = { ...this.#state, panes }
+      this.#recordView()
       this.#emitStatus()
       return
     }
@@ -1117,6 +1485,7 @@ class DemoRuntime implements DesktopApi {
     this.#transcripts.delete(target)
     this.#transcripts.set(runtime, fresh)
     this.#state = { ...this.#state, panes }
+    this.#recordView([target])
     if (focused) {
       this.#focus(runtime)
       this.#transcripts.delete(target)
@@ -1131,8 +1500,10 @@ class DemoRuntime implements DesktopApi {
   async soloPane(runtime: number): Promise<void> {
     if (!this.#state.panes.includes(runtime) || this.#state.panes.length === 1) return
     this.#focus(runtime)
-    for (const other of this.#state.panes) if (other !== runtime) this.#transcripts.delete(other)
+    const others = this.#state.panes.filter((other) => other !== runtime)
+    for (const other of others) this.#transcripts.delete(other)
     this.#state = { ...this.#state, panes: [runtime] }
+    this.#recordView(others)
     this.#emitStatus()
   }
 
@@ -1143,39 +1514,122 @@ class DemoRuntime implements DesktopApi {
     this.#state = { ...this.#state, panes }
     this.#focus(panes[Math.min(index, panes.length - 1)] ?? panes[0] ?? runtime)
     this.#transcripts.delete(runtime)
+    this.#recordView([runtime])
     this.#emitStatus()
+  }
+
+  /**
+   * Mirrors the desktop runtime: sessions on screen share the arrangement, and one the user just
+   * took off screen is alone again.
+   */
+  #recordView(left: number[] = []) {
+    const { panes, runtimes, paneAxis } = this.#state
+    const sessionOf = (pane: number) => runtimes.find((entry) => entry.runtime === pane)?.session
+    const members = panes.flatMap((pane) => {
+      const session = sessionOf(pane)
+      return session ? [{ id: session.id, dirName: session.dirName }] : []
+    })
+    const alone = new Set(left.map((pane) => sessionOf(pane)?.id))
+    const shown = new Set(members.map((member) => member.id))
+    this.#state = {
+      ...this.#state,
+      sessions: this.#state.sessions.map((entry) =>
+        alone.has(entry.id)
+          ? { ...entry, view: undefined }
+          : shown.has(entry.id)
+            ? { ...entry, view: members.length > 1 ? { members, axis: paneAxis } : undefined }
+            : entry,
+      ),
+    }
   }
 
   async registerWorkspace(_dirName: string, _path: string): Promise<SessionOpResult> {
     return { ok: true }
   }
 
-  async selectSession(id: string): Promise<SessionOpResult> {
+  async selectSession(id: string, _dirName?: string, at?: PaneDrop): Promise<SessionOpResult> {
     if (this.#state.busy)
       return { ok: false, reason: "Finish the current work before switching sessions." }
     const target = this.#state.sessions.find((session) => session.id === id)
     if (!target) return { ok: false, reason: "Unknown session." }
-    this.#interrupt()
-    const entries = sessionTranscript(id)
-    const fixture = DEMO_ARTIFACTS_BY_SESSION.get(id)
-    // A reload shows what that session last had in view.
-    const tabs = fixture
-      ? [
-          {
-            artifact: { ...fixture.metadata, revision: ++this.#artifactRevision },
-            activated: this.#stamp(),
-          },
-        ]
-      : []
-    this.#state = {
-      ...this.#state,
-      entries,
-      session: { id: target.id, title: target.title },
-      sessions: this.#state.sessions.map((session) => ({ ...session, active: session.id === id })),
-      tabs,
-      subagents: DEMO_ARTIFACTS_BY_SESSION.has(id) ? [DEMO_SUBAGENT] : [],
+    const session = { id: target.id, title: target.title, dirName: target.dirName }
+    const { panes, runtimes } = this.#state
+    const holder = runtimes.find((entry) => entry.session?.id === id)
+    // Dropped on a side, the session joins the ones on screen; an empty card alone is no company.
+    if (at && "side" in at && !(panes.length === 1 && this.#emptyCard)) {
+      const runtime = holder ?? {
+        runtime: Math.max(...runtimes.map((entry) => entry.runtime)) + 1,
+        session,
+        focused: false,
+        busy: false,
+        unseen: false,
+        diffs: { added: 0, removed: 0 },
+        contextTokens: 0,
+      }
+      if (!holder) this.#state = { ...this.#state, runtimes: [...runtimes, runtime] }
+      await this.openPane(runtime.runtime, at.side)
+      return { ok: true }
     }
-    this.#emitStatus([{ op: "reset", entries }])
+    // Dropped on a card, it takes that card's place; one already on screen trades places.
+    if (at && "replace" in at) {
+      if (holder) {
+        await this.replacePane(at.replace, holder.runtime)
+        return { ok: true }
+      }
+      await this.focusSession(at.replace)
+    }
+    if (holder) await this.focusSession(holder.runtime)
+    else {
+      // The session in the active card leaves the screen when another takes the card.
+      const shown = this.#state.runtimes.find((entry) => entry.focused)
+      this.#recordView(shown ? [shown.runtime] : [])
+      this.#interrupt()
+      const entries = sessionTranscript(id)
+      const fixture = DEMO_ARTIFACTS_BY_SESSION.get(id)
+      // A reload shows what that session last had in view.
+      const tabs = fixture
+        ? [
+            {
+              artifact: { ...fixture.metadata, revision: ++this.#artifactRevision },
+              activated: this.#stamp(),
+            },
+          ]
+        : []
+      this.#state = {
+        ...this.#state,
+        entries,
+        session,
+        tabs,
+        subagents: DEMO_ARTIFACTS_BY_SESSION.has(id) ? [DEMO_SUBAGENT] : [],
+        runtimes: this.#state.runtimes.map((entry) =>
+          entry.focused ? { ...entry, session } : entry,
+        ),
+      }
+      this.#emitStatus([{ op: "reset", entries }])
+    }
+    // A drop places the session itself. Opened from history, a session takes the screen unless
+    // the sessions it was last on screen with come back beside it, as they were placed.
+    if (at) return { ok: true }
+    const { view } = target
+    const members = (view?.members ?? []).flatMap((member) => {
+      const runtime = this.#state.runtimes.find((entry) => entry.session?.id === member.id)
+      return runtime ? [runtime.runtime] : []
+    })
+    if (!view || members.length < 2) {
+      await this.soloPane(this.#state.runtimes.find((entry) => entry.focused)?.runtime ?? 0)
+      return { ok: true }
+    }
+    const fresh = members.filter((runtime) => !this.#state.panes.includes(runtime))
+    for (const runtime of fresh) this.#transcripts.set(runtime, this.#transcriptOf(runtime))
+    this.#state = { ...this.#state, panes: members, paneAxis: view.axis }
+    this.#recordView()
+    this.#emitStatus(
+      undefined,
+      fresh.map((runtime) => ({
+        runtime,
+        ops: [{ op: "reset", entries: this.#transcripts.get(runtime) ?? [] }],
+      })),
+    )
     return { ok: true }
   }
 
@@ -1186,24 +1640,29 @@ class DemoRuntime implements DesktopApi {
     const { panes, runtimes } = this.#state
     const focused = runtimes.find((entry) => entry.focused)
     if (panes.length > 1 && focused) {
-      if (!focused.session && this.#state.entries.length === 0) return { ok: true }
-      const fresh = {
-        ...focused,
-        runtime: Math.max(...runtimes.map((entry) => entry.runtime)) + 1,
-        session: null,
-        diffs: { added: 0, removed: 0 },
-        contextTokens: 0,
-      }
-      const room = panes.length < MAX_PANES
-      this.#transcripts.set(focused.runtime, this.#state.entries)
+      // The fresh session takes the screen; the others drop to the strip, still working. An
+      // empty active card is already a fresh session and simply stays.
+      const empty = this.#emptyCard
+      const fresh = empty
+        ? focused
+        : {
+            ...focused,
+            runtime: Math.max(...runtimes.map((entry) => entry.runtime)) + 1,
+            session: null,
+            diffs: { added: 0, removed: 0 },
+            contextTokens: 0,
+          }
+      if (!empty) this.#transcripts.set(focused.runtime, this.#state.entries)
       this.#state = {
         ...this.#state,
         entries: [],
         session: null,
-        panes: room
-          ? [...panes, fresh.runtime]
-          : panes.map((entry) => (entry === focused.runtime ? fresh.runtime : entry)),
-        runtimes: [...runtimes.map((entry) => ({ ...entry, focused: false })), fresh],
+        tabs: [],
+        subagents: [],
+        panes: [fresh.runtime],
+        runtimes: empty
+          ? runtimes
+          : [...runtimes.map((entry) => ({ ...entry, focused: false })), fresh],
       }
       this.#emitStatus()
       return { ok: true }
@@ -1234,6 +1693,58 @@ class DemoRuntime implements DesktopApi {
       ...(deletingActive ? { session: null, tabs: [], entries: [] } : {}),
     }
     this.#emitStatus(deletingActive ? [{ op: "reset", entries: [] }] : undefined)
+    return { ok: true }
+  }
+
+  async listSkills(): Promise<SkillsSummary> {
+    const managed = this.#skillSources.flatMap((source) =>
+      source.skills.map((skill) => ({
+        name: skill.name,
+        description: DEMO_SKILL_DESCRIPTIONS[skill.name] ?? `From ${source.id}.`,
+        origin: { collection: source.id },
+      })),
+    )
+    const skills: SkillSummary[] = [
+      {
+        name: "documents",
+        description: "Read, edit, and generate PDF and Word documents.",
+        origin: "bundled",
+      },
+      {
+        name: "release-notes",
+        description: "Prepare release notes from shipped changes.",
+        origin: "project",
+      },
+      ...managed,
+    ]
+    return {
+      skills: skills.sort((left, right) => left.name.localeCompare(right.name)),
+      sources: this.#skillSources,
+    }
+  }
+
+  async installSkills(url: string): Promise<SessionOpResult> {
+    const id =
+      url
+        .split("/")
+        .filter(Boolean)
+        .at(-1)
+        ?.replace(/\.git$/u, "") ?? url
+    if (this.#skillSources.some((source) => source.id === id))
+      return { ok: false, reason: `A source named ${id} is already installed.` }
+    this.#skillSources = [
+      ...this.#skillSources,
+      { id, url, skills: [{ name: `${id}-guide`, relativePath: "SKILL.md" }] },
+    ]
+    return { ok: true }
+  }
+
+  async updateSkills(): Promise<SessionOpResult> {
+    return { ok: true }
+  }
+
+  async removeSkills(id: string): Promise<SessionOpResult> {
+    this.#skillSources = this.#skillSources.filter((source) => source.id !== id)
     return { ok: true }
   }
 
@@ -1595,8 +2106,14 @@ class DemoRuntime implements DesktopApi {
     const { entries: _entries, tabs, ...status } = this.#state
     const model = status.model
     const capability = model?.provider === "local" ? localThinkingCapability(model.id) : undefined
+    const focused = status.runtimes.find((entry) => entry.focused)?.session
     return {
       ...status,
+      sessions: this.#sessions(),
+      // A session from a folder no workspace registered is read until its folder is located.
+      needsWorkspace:
+        focused !== null &&
+        status.sessions.some((session) => session.id === focused?.id && !session.workspacePath),
       artifacts: tabs.map((tab) => ({ runtime: 1, ...tab })),
       localThinking:
         model && capability
@@ -1698,6 +2215,8 @@ function sessionTranscript(id: string | undefined): TranscriptEntry[] {
       return sessionStoreTranscript()
     case "session_notes_022":
       return releaseNotesTranscript()
+    case "session_old":
+      return legacyImportTranscript()
     default:
       return id !== undefined && DEMO_ARTIFACTS_BY_SESSION.has(id) ? demoTranscript() : []
   }
@@ -1825,6 +2344,29 @@ function readingListTranscript(): TranscriptEntry[] {
 - "Fitting a model to a machine", notes from the PAIR docs
 
 Say the word and I will rewrite \`notes/reading.md\` in this order.`,
+    }),
+  ]
+}
+
+function legacyImportTranscript(): TranscriptEntry[] {
+  return [
+    fixture({
+      kind: "message",
+      speaker: "You",
+      text: "Dry-run the legacy import against the 2019 export and tell me what would break.",
+    }),
+    tool("Reading files: import/legacy.ts, exports/2019.csv", "file_read", "l1"),
+    tool("Running command: bun run import -- --dry-run exports/2019.csv", "shell", "l2"),
+    fixture({
+      kind: "message",
+      speaker: "Otis",
+      text: `The dry run reads all 4,812 rows and would reject 37:
+
+- 29 rows have dates in \`DD/MM/YYYY\` while the importer expects ISO.
+- 8 rows reference customer ids that no longer exist.
+
+Nothing is written in dry-run mode. Say the word and I will add a date normalizer and skip
+the orphaned rows with a report.`,
     }),
   ]
 }

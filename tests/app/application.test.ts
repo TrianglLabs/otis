@@ -1,5 +1,8 @@
+import { mkdir, writeFile } from "node:fs/promises"
+import { join } from "node:path"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { type AppEvent, Application, formatWorkspaceLabel } from "../../src/app/application.js"
+import type { ModelSelection } from "../../src/app/models.js"
 import { SESSION_REASONS } from "../../src/app/sessions.js"
 import type { TurnResult, TurnRunnerOptions } from "../../src/app/turn-runner.js"
 import { findLocalModel } from "../../src/inference/local-catalog.js"
@@ -8,7 +11,13 @@ import type {
   LocalPickerChoice,
   PairPickerChoice,
 } from "../../src/inference/picker-catalog.js"
-import type { ChatMessage, InferenceClient } from "../../src/inference/types.js"
+import type {
+  CatalogModel,
+  ChatMessage,
+  FireworksModel,
+  InferenceClient,
+  LocalCatalogModel,
+} from "../../src/inference/types.js"
 import { loadLocalSettings, saveSelectedModel } from "../../src/local/settings.js"
 import type { PermissionRequest } from "../../src/permissions/policy.js"
 import { createSession, listSessions } from "../../src/storage/session.js"
@@ -38,6 +47,28 @@ vi.mock("../../src/inference/gguf-cache.js", async (importOriginal) => {
 
 const isolate = useOtisHome()
 const fakeClient: InferenceClient = { model: "fake", streamChat: vi.fn(), complete: vi.fn() }
+const fakeModel: FireworksModel = {
+  provider: "fireworks",
+  id: "accounts/fireworks/models/fake",
+  displayName: "accounts/fireworks/models/fake",
+  supportsImageInput: false,
+}
+const gptOss: LocalCatalogModel = {
+  provider: "local",
+  id: "openai/gpt-oss-20b",
+  displayName: "gpt-oss 20B",
+  contextLength: 32_768,
+  supportsImageInput: false,
+}
+
+/** Puts the focused session on `model` with `client`, the way a committed selection would. */
+function serve(
+  app: Application,
+  client: InferenceClient | undefined,
+  model: CatalogModel = fakeModel,
+) {
+  app.focused.selection = { model, supportsImageInput: model.supportsImageInput, client }
+}
 
 beforeEach(() => {
   mocks.executeTurn.mockReset()
@@ -55,9 +86,7 @@ function turnEvents(text: string) {
 /** A real application with a live fake client, the way the desktop suites build one. */
 async function ready(prefix = "otis-app-ready-") {
   const app = await Application.create({ cwd: await isolate(prefix), env: {} })
-  app.models.client = fakeClient
-  app.models.selectedId = "accounts/fireworks/models/fake"
-  app.models.selectedProvider = "fireworks"
+  serve(app, fakeClient)
   return app
 }
 
@@ -69,13 +98,23 @@ function gate() {
   return { promise, resolve }
 }
 
-/** Stands in for model preparation: the selection commits by activating the fake client. */
-function preparing(app: Application, during?: (signal: AbortSignal) => Promise<void>) {
+/** Stands in for model preparation: the selection commits by serving the fake client. */
+function preparing(
+  app: Application,
+  during?: (signal: AbortSignal, model: CatalogModel) => Promise<void>,
+) {
   return vi.spyOn(app.models, "prepare").mockImplementation(async (model, options) => {
-    await during?.(options.signal)
-    return {
+    await during?.(options.signal, model)
+    const selection: ModelSelection = {
       model,
-      commit: () => app.models.activate(model, fakeClient),
+      supportsImageInput: model.supportsImageInput,
+      client: undefined,
+    }
+    return {
+      selection,
+      commit: () => {
+        selection.client = fakeClient
+      },
       rollback: async () => {},
     }
   })
@@ -114,16 +153,16 @@ describe("Application", () => {
     const home = await isolate("otis-app-context-")
     const app = await Application.create({ cwd: home, env: {} })
     const client = { model: "fake", streamChat: vi.fn(), complete: vi.fn() }
-    app.models.client = client
+    serve(app, client)
     const pending = { role: "user" as const, content: "next prompt" }
     app.transcript.observeContext(client, 90_000)
     expect(app.contextTokens()).toBe(90_000)
     expect(app.contextTokens(pending)).toBe(
       90_000 + app.contextEstimator()([pending]) - app.contextEstimator()([]),
     )
-    app.models.client = { ...client }
+    serve(app, { ...client })
     expect(app.contextTokens()).toBe(app.contextEstimator()([]))
-    app.models.client = client
+    serve(app, client)
     app.transcript.loadCompacted("Summary.", [])
     expect(app.contextTokens()).toBe(app.contextEstimator()(app.transcript.history))
     app.transcript.observeContext(client, 90_000)
@@ -158,8 +197,7 @@ describe("Application", () => {
       cwd: home,
       env: { FIREWORKS_API_KEY: "fw_test" },
     })
-    app.models.client = { model: "fake", streamChat: vi.fn(), complete: vi.fn() }
-    app.models.selectedProvider = "fireworks"
+    serve(app, fakeClient)
 
     mocks.executeTurn.mockImplementation(
       async (options: TurnRunnerOptions): Promise<TurnResult> => {
@@ -261,7 +299,7 @@ describe("Application prompt admission", () => {
   it("tells the caller why a prompt cannot run instead of dropping it", async () => {
     const app = await ready()
     const { models, conversation } = app
-    models.client = undefined
+    serve(app, undefined)
     models.setState("starting")
     await expect(conversation.submit({ role: "user", content: "x" })).rejects.toThrow(
       "The model is still starting. Try again in a moment.",
@@ -274,7 +312,9 @@ describe("Application prompt admission", () => {
     await expect(conversation.submit({ role: "user", content: "x" })).rejects.toThrow(
       "No model is configured. Set up inference with the Otis CLI first.",
     )
-    models.client = fakeClient
+    // A switch may restart the managed server, so a local session waits it out; a hosted one
+    // with its client is unaffected.
+    serve(app, fakeClient, gptOss)
     let release!: () => void
     const selecting = models.enqueueSelection(
       () =>
@@ -299,7 +339,7 @@ describe("Application prompt admission", () => {
   it("keeps queued work parked while no model can serve it and resumes once one settles", async () => {
     const app = await ready()
     mocks.executeTurn.mockImplementation(turnEvents("ran"))
-    app.models.client = undefined
+    serve(app, undefined)
     app.models.setState("failed", "model failed to load")
     // Admitted to the session, waiting for a driver: never lost, never run into the void.
     await app.conversation.queue({ role: "user", content: "hold this" })
@@ -308,7 +348,7 @@ describe("Application prompt admission", () => {
     expect(app.conversation.peekQueued()).toBeTruthy()
 
     // A selection settling with a client re-drives the backlog.
-    app.models.client = fakeClient
+    await app.models.enqueueSelection(async () => serve(app, fakeClient))
     await vi.waitFor(() => expect(mocks.executeTurn).toHaveBeenCalledOnce())
     expect(JSON.stringify(mocks.executeTurn.mock.calls[0]?.[0])).toContain("hold this")
     await app.conversation.idle()
@@ -476,7 +516,7 @@ describe("Application status", () => {
       modelLoad: null,
       session: null,
       diffs: { added: 0, removed: 0 },
-      contextLimit: app.models.autoCompactAtTokens,
+      contextLimit: app.models.autoCompactAtTokens(kimi),
       permission: null,
       permissionQueue: 0,
       localThinking: null,
@@ -490,10 +530,10 @@ describe("Application status", () => {
     expect(status.contextTokens).toBe(app.contextTokens())
 
     // Losing the client exposes the explicit state; a live client always reads as ready.
-    app.models.client = undefined
+    serve(app, undefined, kimi)
     app.models.setState("failed", "server went away")
     expect(app.status()).toMatchObject({ modelState: "failed", modelError: "server went away" })
-    app.models.client = { model: "fake", streamChat: vi.fn(), complete: vi.fn() }
+    serve(app, fakeClient, kimi)
     expect(app.status()).toMatchObject({ modelState: "ready", modelError: undefined })
     await app.shutdown()
   })
@@ -523,8 +563,7 @@ describe("Application status", () => {
     })
 
     const unconfigured = await Application.create({ cwd: home, env: {} })
-    unconfigured.models.selectedId = undefined
-    unconfigured.models.selectedProvider = undefined
+    unconfigured.focused.selection = undefined
     expect(await unconfigured.startSavedSelection()).toBe("unconfigured")
     expect(unconfigured.status().modelState).toBe("unconfigured")
     await app.shutdown()
@@ -565,8 +604,8 @@ describe("Application model transactions", () => {
     const app = await Application.create({ cwd: home, env: { FIREWORKS_API_KEY: "fw" } })
     // The saved model's startup is slow like a long download; a real prepare rejects when
     // aborted. If nothing aborts it, it commits late, over any selection made in the meantime.
-    const prepare = preparing(app, async (signal) => {
-      if (app.models.selectedProvider !== "local") return
+    const prepare = preparing(app, async (signal, model) => {
+      if (model.provider !== "local") return
       await new Promise<void>((resolve, reject) => {
         const timer = setTimeout(resolve, 100)
         signal.addEventListener("abort", () => {
@@ -582,7 +621,7 @@ describe("Application model transactions", () => {
     expect(await app.selectModel(kimiChoice)).toEqual({ ok: true })
     expect(await booting).toBe("superseded")
     await new Promise((resolve) => setTimeout(resolve, 150))
-    expect(app.models.selectedId).toBe(kimiChoice.id)
+    expect(app.selection?.model.id).toBe(kimiChoice.id)
     expect(app.status()).toMatchObject({ modelState: "ready", modelLoad: null })
     expect((await loadLocalSettings()).model).toBe(kimiChoice.id)
     await app.shutdown()
@@ -591,9 +630,9 @@ describe("Application model transactions", () => {
   it("selects a picker row: shortcuts an active live row, refuses unavailable ones, keeps failures on the row", async () => {
     const app = await ready("otis-app-select-")
     const prepare = preparing(app)
-    expect(
-      await app.selectModel({ ...kimiChoice, id: app.models.selectedId ?? "", active: true }),
-    ).toEqual({ ok: true })
+    expect(await app.selectModel({ ...kimiChoice, id: fakeModel.id, active: true })).toEqual({
+      ok: true,
+    })
     expect(prepare).not.toHaveBeenCalled()
     expect(
       await app.selectModel({ ...localChoice, available: false, availabilityLabel: "Needs 48 GB" }),
@@ -611,7 +650,7 @@ describe("Application model transactions", () => {
     })
 
     expect(await app.selectModel(localChoice)).toEqual({ ok: true })
-    expect(app.models.selectedId).toBe(localChoice.id)
+    expect(app.selection?.model.id).toBe(localChoice.id)
     expect((await loadLocalSettings()).modelProvider).toBe("local")
     await app.shutdown()
   })
@@ -620,7 +659,9 @@ describe("Application model transactions", () => {
     const app = await Application.create({ cwd: await isolate("otis-app-first-"), env: {} })
     vi.spyOn(app.models, "prepare").mockRejectedValue(new Error("out of memory"))
     expect(await app.selectModel(localChoice)).toEqual({ ok: false, reason: "out of memory" })
+    // The session never got a selection, so it stays unconfigured; the host keeps the failure.
     expect(app.status()).toMatchObject({ modelState: "failed", modelError: "out of memory" })
+    expect(app.models.state).toBe("failed")
     const pairItem: PairPickerChoice = {
       kind: "model",
       provider: "pair",
@@ -658,6 +699,8 @@ describe("Application model transactions", () => {
     first.resolve()
     await app.conversation.idle()
 
+    // A session on the managed server waits out a switch, which may restart that server.
+    serve(app, fakeClient, gptOss)
     let release!: () => void
     preparing(app, () => new Promise<void>((resolve) => (release = resolve)))
     const switching = app.selectModel(localChoice)
@@ -699,18 +742,16 @@ describe("Application model transactions", () => {
     expect(app.fireworksApiKey).toBe("good")
     expect((await loadLocalSettings()).fireworksApiKey).toBe("good")
     expect(app.status()).toMatchObject({ modelState: "ready", hostedConfigured: true })
-    expect(app.models.client?.model).toBe(kimiChoice.id)
+    expect(app.focused.client?.model).toBe(kimiChoice.id)
     await app.shutdown()
   })
 
   it("deletes the active local model, clears the selection, and restores it when removal fails", async () => {
     const home = await isolate("otis-app-delete-")
     const spec = findLocalModel("openai/gpt-oss-20b")
-    await saveSelectedModel({ ...savedLocal, id: "openai/gpt-oss-20b", displayName: "gpt-oss 20B" })
+    await saveSelectedModel(gptOss)
     const app = await Application.create({ cwd: home, env: {} })
-    app.models.client = fakeClient
-    app.models.selectedId = "openai/gpt-oss-20b"
-    app.models.selectedProvider = "local"
+    serve(app, fakeClient, gptOss)
     app.models.activeLocal = { spec, contextLength: 32_768 } as never
     const stop = vi.spyOn(app.models.llama, "stop").mockResolvedValue(undefined)
     const restore = vi.spyOn(app.models, "restorePrevious").mockResolvedValue(undefined)
@@ -722,7 +763,7 @@ describe("Application model transactions", () => {
     )
     expect((await loadLocalSettings()).model).toBe("openai/gpt-oss-20b")
     expect(restore).toHaveBeenCalled()
-    expect(app.models.selectedId).toBe("openai/gpt-oss-20b")
+    expect(app.selection?.model.id).toBe("openai/gpt-oss-20b")
 
     mocks.listDownloaded.mockResolvedValueOnce([spec]).mockResolvedValueOnce([])
     expect(await app.deleteLocalModel("openai/gpt-oss-20b")).toEqual({
@@ -730,7 +771,7 @@ describe("Application model transactions", () => {
       remaining: [],
     })
     expect(stop).toHaveBeenCalled()
-    expect(app.models.client).toBeUndefined()
+    expect(app.focused.client).toBeUndefined()
     expect(app.status()).toMatchObject({ model: null, modelState: "unconfigured" })
     expect((await loadLocalSettings()).model).toBeUndefined()
     await expect(app.deleteLocalModel("nope/nope")).rejects.toThrow("not in the local catalog")
@@ -798,7 +839,7 @@ describe("Application prompts with attachments", () => {
       supportsImageInput: undefined,
     } as never)
     const app = await Application.create({ cwd: home, env: { FIREWORKS_API_KEY: "fw" } })
-    expect(app.models.supportsImageInput).toBeUndefined()
+    expect(app.selection?.supportsImageInput).toBeUndefined()
     mocks.listToolCapableModels.mockResolvedValue([
       { ...kimiChoice, kind: undefined, supportsImageInput: true, contextLength: 128_000 },
     ])
@@ -813,7 +854,7 @@ describe("Application prompts with attachments", () => {
     })
     expect(second.role).toBe("user")
     expect(mocks.listToolCapableModels).toHaveBeenCalledOnce()
-    expect(app.models.supportsImageInput).toBe(true)
+    expect(app.selection?.supportsImageInput).toBe(true)
     expect(await loadLocalSettings()).toMatchObject({
       modelSupportsImageInput: true,
       modelContextLength: 128_000,
@@ -827,21 +868,18 @@ describe("Application prompts with attachments", () => {
 
   it("refuses images for a model without vision, by catalog spec for local models", async () => {
     const app = await ready("otis-app-novision-")
-    app.models.supportsImageInput = undefined
+    app.focused.selection = { model: fakeModel, supportsImageInput: undefined, client: fakeClient }
     app.fireworksApiKey = undefined
     await expect(app.buildPrompt("see", [png])).rejects.toThrow(
       "accounts/fireworks/models/fake does not support image input. Choose a vision model.",
     )
     expect(mocks.listToolCapableModels).not.toHaveBeenCalled()
 
-    app.models.selectedId = "openai/gpt-oss-20b"
-    app.models.selectedProvider = "local"
-    app.models.displayName = "gpt-oss 20B"
-    app.models.supportsImageInput = undefined
+    app.focused.selection = { model: gptOss, supportsImageInput: undefined, client: fakeClient }
     await expect(app.buildPrompt("see", [png])).rejects.toThrow(
       "gpt-oss 20B does not support image input. Choose a vision model.",
     )
-    expect(app.models.supportsImageInput).toBe(false)
+    expect(app.selection?.supportsImageInput).toBe(false)
     expect(await app.buildPrompt("plain text", [])).toEqual({ role: "user", content: "plain text" })
     // Images already in the conversation count too, even for a text-only prompt.
     app.transcript.loadMessages([{ role: "user", content: [png] }])
@@ -877,6 +915,8 @@ describe("Application session runtimes", () => {
   it("opens a second session while the first works: it keeps running, unfocused, then reads as done", async () => {
     const app = await ready("otis-app-runtimes-")
     const first = app.focused
+    // The first session runs on the managed server, so a server switch would cut it off.
+    serve(app, fakeClient, gptOss)
     const hold = gate()
     mocks.executeTurn.mockImplementation(holding(hold, "first reply"))
     await app.conversation.submit({ role: "user", content: "long task" })
@@ -915,8 +955,8 @@ describe("Application session runtimes", () => {
     })
     expect(app.anyBusy).toBe(true)
     expect(app.openSessions()).toMatchObject([
-      { id: first.sessions.current?.id, focused: false, working: true },
-      { id: saved.id, focused: true, working: false, unseen: false },
+      { id: first.sessions.current?.id, shown: false, working: true },
+      { id: saved.id, shown: true, working: false, unseen: false },
     ])
     expect(await app.openSession(saved.id)).toBe("focused")
     expect(app.runtimes).toHaveLength(2)
@@ -1036,5 +1076,42 @@ describe("workspace label", () => {
 
   it("does not treat a sibling path as part of the home directory", () => {
     expect(formatWorkspaceLabel("/Users/test-other/work/otis", "/Users/test")).toBe("/…/work/otis")
+  })
+})
+
+describe("Application session views", () => {
+  it("opens a session beside the focused one, reusing the runtime already showing it", async () => {
+    const app = await ready()
+    const stored = await createSession({ cwd: app.cwd })
+    const admission = await stored.admitPrompt("hello")
+    await stored.completeTurn(admission, [
+      { role: "assistant", content: [{ type: "text", text: "hi" }] },
+    ])
+
+    const beside = await app.openBeside(stored.id)
+    if (typeof beside !== "object") throw new Error("expected a runtime")
+    expect(beside).not.toBe(app.focused)
+    expect(beside.sessions.current?.id).toBe(stored.id)
+    expect(app.runtimes).toContain(beside)
+    expect(await app.openBeside(stored.id)).toBe(beside)
+    expect(await app.openBeside("missing")).toBeUndefined()
+    expect(app.runtimes).toHaveLength(2)
+    await app.shutdown()
+  })
+})
+
+describe("Application skills", () => {
+  it("rereads the skills on disk so a new one is available without a restart", async () => {
+    const app = await ready()
+    expect(app.skills.byName.has("release-notes")).toBe(false)
+    const skill = join(app.cwd, ".agents", "skills", "release-notes")
+    await mkdir(skill, { recursive: true })
+    await writeFile(
+      join(skill, "SKILL.md"),
+      "---\nname: release-notes\ndescription: Prepare release notes.\n---\n\n# Notes\n",
+    )
+    await app.reloadSkills()
+    expect(app.skills.byName.get("release-notes")?.description).toBe("Prepare release notes.")
+    await app.shutdown()
   })
 })

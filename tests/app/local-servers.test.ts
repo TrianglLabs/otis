@@ -29,6 +29,15 @@ const model: OmlxCatalogModel = {
 const discoverPair = vi.fn(async () => ({ errors: [] }))
 const discoverOmlx = vi.fn(async () => [model])
 
+/** Puts the focused session on the oMLX model with a live client, as a committed selection. */
+function serve(app: Application) {
+  app.focused.selection = {
+    model,
+    supportsImageInput: model.supportsImageInput,
+    client: app.models.omlxClient(model.id, model.baseURL),
+  }
+}
+
 describe("local server coordination", () => {
   it("saves oMLX privately, selects without inference, and exposes no key to the renderer", async () => {
     const cwd = await isolate("otis-omlx-")
@@ -62,7 +71,7 @@ describe("local server coordination", () => {
     expect(await runtime.selectModel("omlx:chat")).toEqual({ ok: true })
     expect(stop).toHaveBeenCalled()
     expect(network).not.toHaveBeenCalled()
-    expect(app.models.autoCompactAtTokens).toBe(autoCompactThreshold(131072))
+    expect(app.models.autoCompactAtTokens(app.selection?.model)).toBe(autoCompactThreshold(131072))
     expect(providerTools("omlx").some((tool) => tool.name === "agent")).toBe(true)
     const snapshot = await runtime.snapshot()
     expect(snapshot.omlx).toEqual({ baseURL: model.baseURL, hasApiKey: true })
@@ -88,14 +97,14 @@ describe("local server coordination", () => {
       { omlx: model.baseURL, omlxApiKey: "key-one" },
       { discoverPair, discoverOmlx },
     )
-    app.models.activate(model, app.models.omlxClient(model.id, model.baseURL))
-    const previous = app.models.client
+    serve(app)
+    const previous = app.focused.selection?.client
     await app.connectLocalServers(
       { omlx: model.baseURL, omlxApiKey: "" },
       { discoverPair, discoverOmlx },
     )
     expect(app.models.omlx?.apiKey).toBe("key-one")
-    expect(app.models.client).not.toBe(previous)
+    expect(app.focused.selection?.client).not.toBe(previous)
     const beforeFailure = await readFile(join(localConfigDirectory(), "config.json"), "utf8")
     await expect(
       app.connectLocalServers(
@@ -115,7 +124,7 @@ describe("local server coordination", () => {
       { discoverPair, discoverOmlx: async () => [changed] },
     )
     expect(app.models.omlx).toEqual({ baseURL: changed.baseURL })
-    expect(app.models.autoCompactAtTokens).toBe(autoCompactThreshold(65536))
+    expect(app.models.autoCompactAtTokens(app.selection?.model)).toBe(autoCompactThreshold(65536))
     await app.connectLocalServers(
       { ollama: "http://127.0.0.1:11434" },
       {
@@ -135,7 +144,7 @@ describe("local server coordination", () => {
       },
     )
     expect(app.models.omlx).toBeUndefined()
-    expect(app.models.client).toBeUndefined()
+    expect(app.focused.client).toBeUndefined()
     expect(app.hasConfiguredSelection()).toBe(false)
     await app.shutdown()
   })
@@ -157,11 +166,13 @@ describe("local server coordination", () => {
     const restored = await Application.create({ cwd, env: {} })
     if (contextLength < 65536) {
       await expect(restored.startSavedSelection()).rejects.toThrow("at least 65,536 tokens (64K)")
-      expect(restored.models.client).toBeUndefined()
+      expect(restored.focused.client).toBeUndefined()
     } else {
       expect(await restored.startSavedSelection()).toBe("ready")
-      expect(restored.models.autoCompactAtTokens).toBe(autoCompactThreshold(contextLength))
-      expect(restored.models.supportsImageInput).toBe(false)
+      expect(restored.models.autoCompactAtTokens(restored.selection?.model)).toBe(
+        autoCompactThreshold(contextLength),
+      )
+      expect(restored.selection?.supportsImageInput).toBe(false)
     }
     expect(fetch).toHaveBeenCalledTimes(2)
     await restored.shutdown()
@@ -174,8 +185,8 @@ describe("local server coordination", () => {
     const cwd = await isolate("otis-omlx-minimum-")
     const app = await Application.create({ cwd, env: {} })
     await app.connectLocalServers({ omlx: model.baseURL }, { discoverPair, discoverOmlx })
-    app.models.activate(model, app.models.omlxClient(model.id, model.baseURL))
-    const previous = app.models.client
+    serve(app)
+    const previous = app.focused.selection?.client
     const before = await readFile(join(localConfigDirectory(), "config.json"), "utf8")
     const undersized = {
       ...model,
@@ -195,7 +206,7 @@ describe("local server coordination", () => {
       reason: expect.stringContaining("at least 65,536 tokens (64K)"),
     })
     expect(await readFile(join(localConfigDirectory(), "config.json"), "utf8")).toBe(before)
-    expect(app.models.client).toBe(destination === "same" ? undefined : previous)
+    expect(app.focused.selection?.client).toBe(destination === "same" ? undefined : previous)
     if (destination === "same") {
       const snapshot = await runtime.snapshot()
       expect(snapshot.modelState).toBe("failed")

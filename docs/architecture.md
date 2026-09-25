@@ -63,6 +63,14 @@ OpenAI-compatible streaming endpoint and retain text, reasoning content, structu
 token usage. Verified display-name and context-window metadata are saved with the selection so the context meter and
 auto-compaction threshold remain safe for smaller tool-capable models.
 
+The selection is per session. Each `SessionRuntime` owns a `ModelSelection`: the catalog model, its image capability,
+and its inference client once the model serves; a new session starts on the focused session's selection, and the
+last selection is also saved as the default for the next launch. `ModelHost` keeps only what sessions share: the
+managed `llama-server` and its admission gate, the configured local-server endpoints, thinking preferences, and the
+one selection queue. The managed server serves one local model at a time and every session on it follows a switch,
+so switching the local model is refused while any of those sessions is mid-turn; switching one session to a hosted
+model leaves the server running for the others and stops it only when no session still needs it.
+
 Attachments are represented as provider-neutral ordered user-content parts. Image loading validates the actual
 signature, enforces Fireworks' per-request count and base64-size limits, and places images before text for portability
 across supported vision model families. The Fireworks adapter alone converts images to `image_url` data URLs.

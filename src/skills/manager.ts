@@ -84,6 +84,10 @@ export class SkillManager {
   async install(url: string, requestedId?: string): Promise<ManagedSkillSource> {
     const cleanURL = requiredString(url, "Git URL")
     if (cleanURL.startsWith("-")) throw new Error("Git URL must not start with a hyphen.")
+    // A folder of a repository, as GitHub and GitLab link to one: the repository is cloned at
+    // that ref and only the folder is read for skills.
+    const tree = /^(.+?)\/(?:-\/)?tree\/([^/]+)\/(.+?)\/*$/u.exec(cleanURL)
+    const [repository, ref, path] = tree ? tree.slice(1) : [cleanURL]
     let id: string
     if (requestedId) {
       id = validSourceId(requestedId)
@@ -115,8 +119,14 @@ export class SkillManager {
 
       try {
         await mkdir(temporaryContainer, { mode: 0o700 })
-        await this.#git(["clone", "--", cleanURL, temporarySource])
-        const skills = await discoverManagedSkills(temporarySource)
+        await this.#git([
+          "clone",
+          ...(ref ? ["--branch", ref] : []),
+          "--",
+          repository,
+          temporarySource,
+        ])
+        const skills = await discoverManagedSkills(temporarySource, path)
         if (skills.length === 0) throw new Error(`No Agent Skills were found in ${cleanURL}.`)
         await ensurePrivateDirectory(this.activationDirectory)
         for (const skill of skills) {
@@ -136,7 +146,7 @@ export class SkillManager {
           createdLinks.push(destination)
         }
 
-        const source = { id, url: cleanURL, skills }
+        const source = { id, url: cleanURL, path, skills }
         await writeManifest(this.rootDirectory, {
           version: 1,
           sources: sortedSources([...manifest.sources, source]),
@@ -178,7 +188,7 @@ export class SkillManager {
         try {
           await this.#git(["pull", "--ff-only"], { cwd: sourceDirectory })
           pulled = true
-          const skills = await discoverManagedSkills(sourceDirectory)
+          const skills = await discoverManagedSkills(sourceDirectory, source.path)
           if (skills.length === 0)
             throw new Error(`Updated source contains no Agent Skills: ${source.id}`)
           const previousByName = new Map(source.skills.map((skill) => [skill.name, skill]))
@@ -391,6 +401,13 @@ async function readManifest(root: string): Promise<SkillManagerManifest> {
       throw new Error(`Invalid managed skills manifest: duplicate source ${id}.`)
     sourceIds.add(id)
     const url = requiredString(rawSource.url, `sources[${sourceIndex}].url`)
+    const path =
+      rawSource.path === undefined
+        ? undefined
+        : requiredString(rawSource.path, `sources[${sourceIndex}].path`)
+    if (path !== undefined && (isAbsolute(path) || path.split(/[\\/]/u).includes(".."))) {
+      throw new Error(`Invalid managed skills manifest: unsafe source path ${path}.`)
+    }
     if (!Array.isArray(rawSource.skills)) {
       throw new Error(
         `Invalid managed skills manifest: sources[${sourceIndex}].skills must be an array.`,
@@ -417,7 +434,12 @@ async function readManifest(root: string): Promise<SkillManagerManifest> {
       }
       return { name, relativePath }
     })
-    return { id, url, skills: skills.sort((left, right) => left.name.localeCompare(right.name)) }
+    return {
+      id,
+      url,
+      path,
+      skills: skills.sort((left, right) => left.name.localeCompare(right.name)),
+    }
   })
   return { version: 1, sources: sortedSources(sources) }
 }
@@ -442,26 +464,36 @@ function sortedSources(sources: ManagedSkillSource[]) {
   return [...sources].sort((left, right) => left.id.localeCompare(right.id))
 }
 
-async function discoverManagedSkills(sourceDirectory: string): Promise<ManagedSkill[]> {
+/**
+ * A repository is one skill at its root, or a collection of skill directories at its root, under
+ * `skills/`, or under `.agents/skills/`, in any combination. A directory in a collection that is
+ * not a valid skill is left out rather than failing the whole source: suites such as gstack keep
+ * helpers and mismatched packages beside their skills.
+ */
+async function discoverManagedSkills(
+  sourceDirectory: string,
+  path?: string,
+): Promise<ManagedSkill[]> {
   const canonicalSource = await realpath(sourceDirectory)
-  const candidates = [sourceDirectory]
-  for (const collection of [
-    join(sourceDirectory, "skills"),
-    join(sourceDirectory, ".agents", "skills"),
-  ]) {
+  const root = path ? join(sourceDirectory, path) : sourceDirectory
+  const candidates: { path: string; collection: boolean }[] = [{ path: root, collection: false }]
+  for (const collection of [root, join(root, "skills"), join(root, ".agents", "skills")]) {
     const entries = await readdir(collection, { withFileTypes: true }).catch((error) => {
       if (isNodeError(error) && error.code === "ENOENT") return []
       throw error
     })
     for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
       if (entry.isDirectory() || entry.isSymbolicLink())
-        candidates.push(join(collection, entry.name))
+        candidates.push({ path: join(collection, entry.name), collection: true })
     }
   }
 
   const skills = new Map<string, ManagedSkill>()
   for (const candidate of candidates) {
-    const skill = await loadSkillPackage(candidate)
+    const skill = await loadSkillPackage(candidate.path).catch((error) => {
+      if (candidate.collection) return undefined
+      throw error
+    })
     if (!skill) continue
     assertInside(
       canonicalSource,

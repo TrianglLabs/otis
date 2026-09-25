@@ -33,7 +33,7 @@ describe("global picker items", () => {
     await sessionWithText("beta-bbbbbbbbbbbb", "default", "beta default")
 
     const open = (dirName: string) => [
-      { id: "default", dirName, focused: true, working: false, unseen: false },
+      { id: "default", dirName, shown: true, working: false, unseen: false },
     ]
     const items = await listGlobalSessionPickerItems({ open: open("beta-bbbbbbbbbbbb") })
     expect(items).toHaveLength(2)

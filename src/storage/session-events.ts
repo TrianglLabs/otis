@@ -88,8 +88,18 @@ export type NewSessionEvent =
     } & SessionTurnDetails)
   | { type: "usage_recorded"; purpose: UsagePurpose; promptId?: string; usage: TokenUsage }
   | { type: "title_renamed"; title: string }
+  | ({ type: "view_arranged" } & SessionView)
 
 export type SessionEvent = BaseSessionEvent & NewSessionEvent
+
+/**
+ * The sessions this one was last on screen with, in their order, and how two of them split. A
+ * session alone lists only itself. Identity is (dirName, id), as everywhere sessions are named.
+ */
+export type SessionView = {
+  members: { id: string; dirName: string }[]
+  axis: "row" | "column"
+}
 
 const IMAGE_MIME_TYPES: readonly string[] = [
   "image/png",
@@ -445,6 +455,29 @@ function parseSessionEvent(value: unknown, line: number): SessionEvent {
       throw invalidEvent(line, "title must be a non-empty string")
     }
     return { ...base, type, title: value.title.trim() }
+  }
+  if (type === "view_arranged") {
+    const { members, axis } = value
+    if (
+      !Array.isArray(members) ||
+      members.length === 0 ||
+      !members.every(
+        (member) =>
+          isRecord(member) &&
+          typeof member.id === "string" &&
+          member.id &&
+          typeof member.dirName === "string" &&
+          member.dirName,
+      )
+    )
+      throw invalidEvent(line, "members must name at least one session")
+    if (axis !== "row" && axis !== "column") throw invalidEvent(line, "axis must be row or column")
+    return {
+      ...base,
+      type,
+      members: members.map((member) => ({ id: member.id, dirName: member.dirName })),
+      axis,
+    }
   }
   throw invalidEvent(line, "unknown event type")
 }

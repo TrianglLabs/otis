@@ -178,7 +178,7 @@ export class GatedInferenceClient implements InferenceClient {
 
   constructor(
     readonly inner: InferenceClient,
-    private readonly gate: InferenceGate,
+    readonly gate: InferenceGate,
     readonly owner: number,
   ) {
     if (inner.countTokens) this.countTokens = inner.countTokens.bind(inner)
@@ -221,8 +221,8 @@ export type ModelState = "unconfigured" | "starting" | "ready" | "failed"
 export type ModelLoad = { modelId: string; status: ModelPickerStatus }
 
 type PreparedModelSelection = {
-  /** The exact serving model resolved during preparation, including its runtime context. */
-  model: CatalogModel
+  /** The exact serving model resolved during preparation; its client arrives with commit. */
+  selection: ModelSelection
   /** Commit must synchronously activate the already-prepared model and must not fail. */
   commit: () => void
   rollback: (options: { restorePrevious: boolean }) => Promise<void>
@@ -239,18 +239,12 @@ type ConnectModelOptions = {
   signal?: AbortSignal
 }
 
-type ConnectedModel = {
-  client: InferenceClient
-  modelId: string
-  provider: ModelProvider
-  contextLength?: number
-  supportsImageInput?: boolean
-}
-
 type PrepareModelOptions = {
   fireworksApiKey?: string
   signal: AbortSignal
   isExiting?: () => boolean
+  /** Other sessions still run on the managed server: a hosted selection leaves it serving. */
+  keepLocal?: boolean
   onLocalProgress?: (progress: LocalLoadProgress) => void
 }
 
@@ -267,27 +261,34 @@ type ModelHostOptions = {
   env?: NodeJS.ProcessEnv
 }
 
+/** What one session runs on: a model, and its client once that model serves. */
+export type ModelSelection = {
+  model: CatalogModel
+  /** Undefined until the capability is known; a saved hosted selection may predate it. */
+  supportsImageInput: boolean | undefined
+  client: InferenceClient | undefined
+}
+
+/** Hosted and user-managed servers do their own admission; their requests never wait here. */
+const OPEN_GATE = new InferenceGate()
+
+/**
+ * The shared side of model serving: the managed llama-server and its admission gate, the
+ * configured endpoints, thinking preferences, and the selection queue. Which model a session runs
+ * on is the session's own; the host only reports which local model serves, or none.
+ */
 export class ModelHost {
   readonly llama: LlamaCppRuntime
   readonly gate = new InferenceGate()
   omlx: OmlxSettings | undefined
-  selectedId: string | undefined
-  selectedProvider: ModelProvider | undefined
-  /** Display metadata of the selection, from settings at launch and the catalog on activation. */
-  displayName: string | undefined
-  fastId: string | undefined
-  pairEngine: PairEngine | undefined
-  supportsImageInput: boolean | undefined
-  autoCompactAtTokens = autoCompactThreshold()
   activeLocal: ActiveLocalModel | undefined
   localThinking: LocalThinkingPreferences = {}
   load: ModelLoad | undefined
   /** Adapters set this to show one-time serving notices, such as a backend fallback. */
   onNotice: ((message: string) => void) | undefined
-  /** The compaction window of the active selection, kept so a thinking change can re-budget. */
-  #contextLength: number | undefined
-  #client: InferenceClient | undefined
-  /** Per-owner gated views of #client; an entry is stale once its inner client is replaced. */
+  /** The application points every local session at what the server serves, or at nothing. */
+  onLocal: ((selection: ModelSelection | undefined) => void) | undefined
+  /** Per-owner gated views; an entry is stale once its inner client is replaced. */
   readonly #gated = new Map<number, GatedInferenceClient>()
   #state: Exclude<ModelState, "ready"> = "unconfigured"
   #error: string | undefined
@@ -302,33 +303,31 @@ export class ModelHost {
     this.llama = options.llama ?? new LlamaCppRuntime({ env: options.env })
   }
 
-  get client() {
-    return this.#client
-  }
-
-  set client(client: InferenceClient | undefined) {
-    this.#client = client
-    this.#notify()
-  }
-
-  /** The gated client an owner (a session runtime) sends its requests through. */
-  clientFor(owner: number): GatedInferenceClient | undefined {
-    const client = this.#client
+  /**
+   * The gated view an owner sends its selection's requests through; none until the model
+   * serves.
+   */
+  clientFor(
+    owner: number,
+    selection: ModelSelection | undefined,
+  ): GatedInferenceClient | undefined {
+    const client = selection?.client
     if (!client) return undefined
     const memo = this.#gated.get(owner)
     if (memo?.inner === client) return memo
-    const gated = new GatedInferenceClient(client, this.gate, owner)
+    const gate = selection.model.provider === "local" ? this.gate : OPEN_GATE
+    const gated = new GatedInferenceClient(client, gate, owner)
     this.#gated.set(owner, gated)
     return gated
   }
 
-  /** A live client is the ready state; the explicit states only describe its absence. */
-  get state(): ModelState {
-    return this.#client ? "ready" : this.#state
+  /** The state behind a selection without a client: its server starting, failed, or unset. */
+  get state() {
+    return this.#state
   }
 
   get error() {
-    return this.#client ? undefined : this.#error
+    return this.#error
   }
 
   /** A selection request is open: from enqueue until it commits, fails, or is superseded. */
@@ -347,7 +346,7 @@ export class ModelHost {
     this.#notify()
   }
 
-  /** Notifies about every change of client, state, load, or selection activity. */
+  /** Notifies about every change of serving, state, load, or selection activity. */
   subscribe(listener: () => void) {
     this.#listeners.add(listener)
     return () => {
@@ -359,37 +358,51 @@ export class ModelHost {
     for (const listener of this.#listeners) listener()
   }
 
-  applySavedSelection(settings: LocalSettings) {
+  applySettings(settings: LocalSettings) {
     this.omlx = settings.omlx
     this.localThinking = { ...settings.localThinking }
-    this.selectedId = settings.model
-    this.selectedProvider =
-      settings.modelProvider ??
-      (settings.model ? (isLocalModelId(settings.model) ? "local" : "fireworks") : undefined)
-    this.displayName = settings.modelDisplayName
-    this.fastId = settings.modelFastId
-    this.pairEngine = settings.pairEngine
-    this.supportsImageInput = settings.modelSupportsImageInput
-    this.#contextLength = compactionContextLength({
-      provider: this.selectedProvider,
-      contextLength: settings.modelContextLength,
-    })
-    this.refreshAutoCompact()
+  }
 
-    if (settings.fireworksApiKey && this.selectedId && this.selectedProvider === "fireworks") {
-      this.client = new FireworksClient({
-        apiKey: settings.fireworksApiKey,
-        model: this.selectedId,
-      })
+  /**
+   * The saved model as the first session's selection, with a client when settings can build one
+   * outright: Fireworks with a key, PAIR with its endpoint. Local and oMLX models get theirs once
+   * their server answers.
+   */
+  savedSelection(settings: LocalSettings): ModelSelection | undefined {
+    const id = settings.model
+    if (!id) return undefined
+    const provider = settings.modelProvider ?? (isLocalModelId(id) ? "local" : "fireworks")
+    if (provider === "local") {
+      const spec = findLocalModel(id)
+      if (!spec) return undefined
+      const model = catalogModelFromSpec(spec, settings.modelContextLength)
+      return { model, supportsImageInput: spec.supportsImageInput, client: undefined }
     }
-    const pairEndpoint = pairEndpointForEngine(settings.pairEndpoints ?? {}, this.pairEngine)
-    if (pairEndpoint && this.pairEngine && this.selectedId && this.selectedProvider === "pair") {
-      this.client = createPairClient({
-        baseURL: pairEndpoint,
-        model: this.selectedId,
-        engine: this.pairEngine,
-      })
+    const supportsImageInput = settings.modelSupportsImageInput
+    const shared = {
+      id,
+      displayName: settings.modelDisplayName ?? id,
+      contextLength: settings.modelContextLength,
+      supportsImageInput: supportsImageInput === true,
     }
+    // A server selection whose endpoint is gone stays selected without a client, so setup can ask
+    // for the endpoint again instead of forgetting the model.
+    if (provider === "omlx") {
+      const model: CatalogModel = { provider, ...shared, baseURL: this.omlx?.baseURL ?? "" }
+      return { model, supportsImageInput, client: undefined }
+    }
+    if (provider === "pair") {
+      const engine = settings.pairEngine ?? "ollama"
+      const baseURL = pairEndpointForEngine(settings.pairEndpoints ?? {}, engine) ?? ""
+      const model: CatalogModel = { provider, ...shared, baseURL, engine }
+      const client = baseURL ? createPairClient({ baseURL, model: id, engine }) : undefined
+      return { model, supportsImageInput, client }
+    }
+    const model: CatalogModel = { provider, ...shared, fastId: settings.modelFastId }
+    const client = settings.fireworksApiKey
+      ? new FireworksClient({ apiKey: settings.fireworksApiKey, model: id })
+      : undefined
+    return { model, supportsImageInput, client }
   }
 
   cancelPrepare() {
@@ -397,29 +410,29 @@ export class ModelHost {
   }
 
   /**
-   * Re-derives the compaction trigger from the active window and the output one turn may need:
-   * a high thinking effort can spend 16K tokens reasoning, a lower one about half that.
+   * The compaction trigger for a model: its window less the output one turn may need. A high
+   * thinking effort can spend 16K tokens reasoning, a lower one about half that.
    */
-  refreshAutoCompact() {
-    let effort: string | undefined
-    if (this.selectedProvider === "local" && this.selectedId) {
-      const capability = localThinkingCapability(this.selectedId)
-      effort = this.localThinking[this.selectedId] ?? capability?.defaultLevel
-    } else if (this.selectedProvider === "fireworks" && this.selectedId) {
-      effort = fireworksReasoningEffort(this.selectedId)
-    }
+  autoCompactAtTokens(model: CatalogModel | undefined) {
+    if (!model) return autoCompactThreshold()
+    const effort =
+      model.provider === "local"
+        ? (this.localThinking[model.id] ?? localThinkingCapability(model.id)?.defaultLevel)
+        : model.provider === "fireworks"
+          ? fireworksReasoningEffort(model.id)
+          : undefined
     const reserve = effort === "high" || effort === "xhigh" || effort === "max" ? 16_384 : 8_192
-    this.autoCompactAtTokens = autoCompactThreshold(this.#contextLength, reserve)
+    return autoCompactThreshold(compactionContextLength(model), reserve)
   }
 
-  thinkingState(): LocalThinkingState | null {
-    if (this.selectedProvider !== "local" || !this.selectedId) return null
-    const capability = localThinkingCapability(this.selectedId)
+  thinkingState(model: CatalogModel | undefined): LocalThinkingState | null {
+    if (model?.provider !== "local") return null
+    const capability = localThinkingCapability(model.id)
     if (!capability) return null
     return {
       ...capability,
-      modelId: this.selectedId,
-      selected: this.localThinking[this.selectedId] ?? "default",
+      modelId: model.id,
+      selected: this.localThinking[model.id] ?? "default",
     }
   }
 
@@ -430,6 +443,23 @@ export class ModelHost {
       thinkingLevel: () => this.localThinking[model],
       assertServing: () => this.llama.assertServing(),
     })
+  }
+
+  /** The managed server now serves `active`; every local session follows. */
+  #serve(
+    active: ActiveLocalModel,
+    inferenceURL: string,
+  ): ModelSelection & { client: InferenceClient } {
+    this.activeLocal = active
+    this.gate.setCapacity(active.slots)
+    const selection = {
+      model: catalogModelFromSpec(active.spec, active.contextLength),
+      supportsImageInput: active.spec.supportsImageInput,
+      client: this.#localClient(active.spec.id, inferenceURL),
+    }
+    this.onLocal?.(selection)
+    this.#notify()
+    return selection
   }
 
   cancelSelection() {
@@ -473,7 +503,7 @@ export class ModelHost {
   async persistSelection(
     selected: CatalogModel,
     options: PersistSelectionOptions,
-  ): Promise<CatalogModel> {
+  ): Promise<ModelSelection> {
     const modelId = options.loadKey ?? selected.id
     this.setLoad(undefined)
     let prepared: PreparedModelSelection | undefined
@@ -490,7 +520,7 @@ export class ModelHost {
       })
       if (options.wrap) prepared = options.wrap(prepared)
       options.signal.throwIfAborted()
-      await options.persist(prepared.model)
+      await options.persist(prepared.selection.model)
     } catch (error) {
       let failure = error
       if (prepared) {
@@ -510,7 +540,7 @@ export class ModelHost {
         throw failure
       }
       const message = describeError(failure)
-      if (!this.#client) this.setState("failed", message)
+      if (!this.activeLocal) this.setState("failed", message)
       this.setLoad({ modelId, status: { label: `Failed: ${message}`, kind: "error" } })
       throw failure
     }
@@ -519,36 +549,7 @@ export class ModelHost {
     // as one selection before another queued request can supersede it.
     prepared.commit()
     this.setLoad(undefined)
-    return prepared.model
-  }
-
-  /** Forgets the active selection entirely, as after deleting the model that served it. */
-  clearActive() {
-    this.cancelPrepare()
-    this.activeLocal = undefined
-    this.selectedId = undefined
-    this.selectedProvider = undefined
-    this.displayName = undefined
-    this.fastId = undefined
-    this.pairEngine = undefined
-    this.supportsImageInput = undefined
-    this.autoCompactAtTokens = autoCompactThreshold()
-    this.#client = undefined
-    this.setState("unconfigured")
-  }
-
-  activate(model: CatalogModel, client: InferenceClient) {
-    this.selectedId = model.id
-    this.selectedProvider = model.provider
-    this.displayName = model.displayName
-    this.fastId = model.provider === "fireworks" ? model.fastId : undefined
-    this.pairEngine = model.provider === "pair" ? model.engine : undefined
-    this.supportsImageInput = model.supportsImageInput
-    this.#contextLength = compactionContextLength(model)
-    this.refreshAutoCompact()
-    if (model.provider !== "local") this.activeLocal = undefined
-    this.gate.setCapacity(this.activeLocal?.slots ?? Infinity)
-    this.client = client
+    return prepared.selection
   }
 
   async prepare(
@@ -571,10 +572,13 @@ export class ModelHost {
         throw error
       }
     }
-    const selection = (model: CatalogModel, commit: () => void): PreparedModelSelection => {
+    const prepared = (
+      selection: ModelSelection,
+      commit: () => void = () => {},
+    ): PreparedModelSelection => {
       let finalized = false
       return {
-        model,
+        selection,
         commit: () => {
           if (finalized) return
           finalized = true
@@ -608,17 +612,21 @@ export class ModelHost {
           },
         }),
       )
-      const activeModel = { ...model, contextLength: serving.contextLength }
-      return selection(activeModel, () => {
-        this.activeLocal = {
-          spec: selectedSpec,
-          fit,
-          hardware,
-          contextLength: serving.contextLength,
-          slots: serving.slots,
-        }
-        this.activate(activeModel, this.#localClient(selectedSpec.id, serving.inferenceURL))
-      })
+      const active = {
+        spec: selectedSpec,
+        fit,
+        hardware,
+        contextLength: serving.contextLength,
+        slots: serving.slots,
+      }
+      const selection: ModelSelection = {
+        model: catalogModelFromSpec(selectedSpec, serving.contextLength),
+        supportsImageInput: selectedSpec.supportsImageInput,
+        client: undefined,
+      }
+      return prepared(selection, () =>
+        Object.assign(selection, this.#serve(active, serving.inferenceURL)),
+      )
     }
 
     let client: InferenceClient
@@ -631,8 +639,9 @@ export class ModelHost {
       if (!options.fireworksApiKey) throw new Error("Fireworks API key is required.")
       client = new FireworksClient({ apiKey: options.fireworksApiKey, model: model.id })
     }
-    await guarded(() => this.llama.stop())
-    return selection(model, () => this.activate(model, client))
+    // The server keeps serving the sessions that still run on it.
+    if (!options.keepLocal) await guarded(() => this.stopLocal())
+    return prepared({ model, supportsImageInput: model.supportsImageInput, client })
   }
 
   /**
@@ -662,7 +671,7 @@ export class ModelHost {
   ) {
     try {
       if (!previous) {
-        await this.llama.stop()
+        await this.stopLocal()
         return
       }
       const serving = await this.llama.ensureServing(
@@ -674,14 +683,7 @@ export class ModelHost {
       signal?.throwIfAborted()
       previous.contextLength = serving.contextLength
       previous.slots = serving.slots
-      this.activeLocal = previous
-      this.gate.setCapacity(serving.slots)
-      this.client = this.#localClient(previous.spec.id, serving.inferenceURL)
-      this.selectedProvider = "local"
-      if (this.selectedId === previous.spec.id) {
-        this.#contextLength = serving.contextLength
-        this.refreshAutoCompact()
-      }
+      this.#serve(previous, serving.inferenceURL)
     } catch (restoreError) {
       if (originalError === undefined) throw restoreError
       throw new AggregateError(
@@ -691,7 +693,10 @@ export class ModelHost {
     }
   }
 
-  async connect(options: ConnectModelOptions): Promise<ConnectedModel> {
+  /** Connects a model outright, outside the selection queue, as the headless CLI does. */
+  async connect(
+    options: ConnectModelOptions,
+  ): Promise<ModelSelection & { client: InferenceClient }> {
     const { provider, modelId } = options
     if (provider === "local") {
       const spec = findLocalModel(modelId)
@@ -703,22 +708,14 @@ export class ModelHost {
         signal: options.signal,
         onNotice: (message) => this.onNotice?.(message),
       })
-      const client = this.#localClient(selectedSpec.id, serving.inferenceURL)
-      this.activeLocal = {
+      const active = {
         spec: selectedSpec,
         fit,
         hardware,
         contextLength: serving.contextLength,
         slots: serving.slots,
       }
-      this.activate(catalogModelFromSpec(selectedSpec, serving.contextLength), client)
-      return {
-        client,
-        modelId: selectedSpec.id,
-        provider,
-        contextLength: serving.contextLength,
-        supportsImageInput: selectedSpec.supportsImageInput,
-      }
+      return this.#serve(active, serving.inferenceURL)
     }
     if (provider === "omlx") {
       if (!this.omlx) throw new Error("oMLX is not configured. Connect it in Local servers.")
@@ -727,56 +724,48 @@ export class ModelHost {
       if (!model) throw new Error(`oMLX model is no longer available: ${modelId}`)
       requireLocalContextLength(model.contextLength, "oMLX")
       const client = this.omlxClient(model.id, model.baseURL)
-      await this.llama.stop()
+      await this.stopLocal()
       options.signal?.throwIfAborted()
-      this.activate(model, client)
-      return {
-        client,
-        modelId: model.id,
-        provider,
-        contextLength: compactionContextLength(model),
-        supportsImageInput: model.supportsImageInput,
-      }
+      return { model, supportsImageInput: model.supportsImageInput, client }
     }
     const supportsImageInput = options.supportsImageInput ?? false
-    let client: InferenceClient
-    let contextLength: number | undefined
+    await this.stopLocal()
     if (provider === "pair") {
       const baseURL = options.pairEndpoint
       if (!baseURL)
         throw new Error("Local model server endpoint is not configured for the selected engine.")
       const engine = options.pairEngine ?? "ollama"
-      client = createPairClient({ baseURL, model: modelId, engine })
-      contextLength = compactionContextLength({ provider })
-      await this.llama.stop()
-      this.activate(
-        { provider, id: modelId, displayName: modelId, baseURL, engine, supportsImageInput },
-        client,
-      )
-    } else {
-      if (!options.fireworksApiKey) throw new Error("Fireworks API key is not configured.")
-      client = new FireworksClient({ apiKey: options.fireworksApiKey, model: modelId })
-      let model: FireworksModel = {
-        provider,
-        id: modelId,
-        displayName: modelId,
-        contextLength: options.contextLength,
+      return {
+        model: { provider, id: modelId, displayName: modelId, baseURL, engine, supportsImageInput },
         supportsImageInput,
+        client: createPairClient({ baseURL, model: modelId, engine }),
       }
-      if (model.contextLength === undefined) {
-        model = await this.fireworksContextLength(options.fireworksApiKey, model, options.signal)
-      }
-      contextLength = model.contextLength
-      await this.llama.stop()
-      this.activate(model, client)
     }
-    return {
-      client,
-      modelId,
+    if (!options.fireworksApiKey) throw new Error("Fireworks API key is not configured.")
+    let model: FireworksModel = {
       provider,
-      contextLength,
-      supportsImageInput: options.supportsImageInput,
+      id: modelId,
+      displayName: modelId,
+      contextLength: options.contextLength,
+      supportsImageInput,
     }
+    if (model.contextLength === undefined)
+      model = await this.fireworksContextLength(options.fireworksApiKey, model, options.signal)
+    return {
+      model,
+      supportsImageInput: options.supportsImageInput,
+      client: new FireworksClient({ apiKey: options.fireworksApiKey, model: modelId }),
+    }
+  }
+
+  /** Stops the managed server; local sessions keep their model but lose the client. */
+  async stopLocal() {
+    await this.llama.stop()
+    if (!this.activeLocal) return
+    this.activeLocal = undefined
+    this.gate.setCapacity(Infinity)
+    this.onLocal?.(undefined)
+    this.#notify()
   }
 
   async stop() {
