@@ -54,6 +54,20 @@ describe("skill catalog", () => {
     })
   })
 
+  it("names a skill by its directory when the frontmatter titles it", async () => {
+    const home = await temporaryDirectory()
+    const project = await temporaryDirectory()
+    const directory = join(project, ".agents", "skills", "poteto-mode")
+    await mkdir(directory, { recursive: true })
+    await writeFile(
+      join(directory, "SKILL.md"),
+      "---\nname: Poteto Mode\ndescription: Go deep first.\n---\nBody\n",
+    )
+
+    const catalog = await loadSkillCatalog(project, { home })
+    expect(catalog.byName.get("poteto-mode")?.description).toBe("Go deep first.")
+  })
+
   it("rejects malformed manifests instead of silently advertising incorrect skills", async () => {
     const home = await temporaryDirectory()
     const project = await temporaryDirectory()

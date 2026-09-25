@@ -69,18 +69,20 @@ export async function runSkillsCommand(
       throw new Error(`Usage: otis skills ${command} <source-name>`)
     }
     const source = await manager.remove(commandArgs[0])
-    const count = source.skills.length
-    stdout.write(`Removed ${source.id} and ${count} managed skill${count === 1 ? "" : "s"}.\n`)
+    stdout.write(`Removed ${source.id} and ${skillCount(source.skills.length)}.\n`)
     return
   }
 
   throw new Error(`Unknown skills command: ${command}\n\n${SKILLS_HELP}`)
 }
 
-function formatSource(source: ManagedSkillSource) {
+export function formatSource(source: ManagedSkillSource) {
   const names = source.skills.map((skill) => skill.name).join(", ")
-  const count = source.skills.length
-  return `${source.id} (${count} skill${count === 1 ? "" : "s"}: ${names})`
+  return `${source.id} (${skillCount(source.skills.length)}: ${names})`
+}
+
+export function skillCount(count: number) {
+  return `${count} skill${count === 1 ? "" : "s"}`
 }
 
 const SKILLS_HELP = `Usage: otis skills <command>
@@ -88,7 +90,8 @@ const SKILLS_HELP = `Usage: otis skills <command>
 Manage Git-backed Agent Skills without starting OpenTUI.
 
 Commands:
-  install <git-url> [--name NAME]  Install and activate skills from a Git repository
+  install <git-url> [--name NAME]  Install and activate skills from a Git repository, or from
+                                    one folder of it (…/tree/<branch>/<folder>)
   list                              List sources managed by Otis
   update [source-name]              Fast-forward one source, or all installed sources
   remove <source-name>              Remove a source and its Otis-managed activations

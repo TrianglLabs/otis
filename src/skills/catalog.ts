@@ -76,12 +76,12 @@ export async function loadSkillPackage(directory: string): Promise<Skill | undef
   const value = document.toJS() as unknown
   if (!isRecord(value)) throw new Error(`Invalid skill ${path}: frontmatter must be an object.`)
   const { name, description } = value
-  if (typeof name !== "string" || name.length > 64 || !SKILL_NAME.test(name)) {
-    throw new Error(
-      `Invalid skill ${path}: name must be 1-64 lowercase letters, numbers, or hyphens.`,
-    )
+  // Cursor's suites title their skills ("Poteto Mode"); the directory's slug is the name.
+  const slug = typeof name === "string" ? name.trim().toLowerCase().replace(/\s+/gu, "-") : ""
+  if (slug.length > 64 || !SKILL_NAME.test(slug)) {
+    throw new Error(`Invalid skill ${path}: name must be 1-64 letters, numbers, or hyphens.`)
   }
-  if (name !== basename(directory)) {
+  if (slug !== basename(directory)) {
     throw new Error(
       `Invalid skill ${path}: name must match its parent directory (${basename(directory)}).`,
     )
@@ -95,7 +95,7 @@ export async function loadSkillPackage(directory: string): Promise<Skill | undef
       `Invalid skill ${path}: description must be 1-${MAX_DESCRIPTION_LENGTH} characters.`,
     )
   }
-  return { name, description: description.trim(), root, instructionsPath: path }
+  return { name: slug, description: description.trim(), root, instructionsPath: path }
 }
 
 export function assertInside(root: string, target: string, message: string) {
@@ -170,5 +170,20 @@ export type SkillCatalog = {
 }
 
 export type ManagedSkill = { name: string; relativePath: string }
-export type ManagedSkillSource = { id: string; url: string; skills: ManagedSkill[] }
+/** A skill the agent can load, and where it comes from: a Git collection Otis manages, or files. */
+export type SkillSummary = {
+  name: string
+  description: string
+  origin: "bundled" | "personal" | "project" | { collection: string }
+}
+
+export type SkillsSummary = { skills: SkillSummary[]; sources: ManagedSkillSource[] }
+
+export type ManagedSkillSource = {
+  id: string
+  url: string
+  /** The folder of a repository that holds the skills, from a `…/tree/<ref>/<folder>` URL. */
+  path?: string
+  skills: ManagedSkill[]
+}
 export type SkillManagerManifest = { version: 1; sources: ManagedSkillSource[] }

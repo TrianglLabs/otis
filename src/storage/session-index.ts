@@ -11,6 +11,7 @@ import {
   replaySessionMessages,
   replaySessionTranscript,
   type SessionEvent,
+  type SessionView,
 } from "./session-events.js"
 
 /**
@@ -26,6 +27,8 @@ export type SessionSummary = {
   updatedAt: string
   mtimeMs: number
   state: SessionState
+  /** Present when the session was last on screen with others. */
+  view?: SessionView
 }
 
 /** The events usage stats derive from, without their payloads. */
@@ -79,6 +82,7 @@ export function forgetSessionDigest(filePath: string) {
 }
 
 function digestEvents(events: readonly SessionEvent[], mtimeMs: number): SessionDigest {
+  const view = sessionView(events)
   const messages = replaySessionMessages(events)
   const transcript = replaySessionTranscript(events)
   // Activities archived at a compaction checkpoint end with their prompt's turn event.
@@ -111,6 +115,7 @@ function digestEvents(events: readonly SessionEvent[], mtimeMs: number): Session
       updatedAt: events.at(-1)?.at ?? new Date(0).toISOString(),
       mtimeMs,
       state: sessionState(events),
+      ...(view && view.members.length > 1 ? { view } : {}),
     },
     // The full transcript, not the model-context replay: compaction drops pre-compaction messages
     // from the model's view, but the user's original text is still on disk and stays searchable.
@@ -158,6 +163,12 @@ export function sessionTitle(events: readonly SessionEvent[]) {
   const cut = text.slice(0, FALLBACK_TITLE_MAX_LENGTH)
   const lastSpace = cut.lastIndexOf(" ")
   return `${(lastSpace > 0 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`
+}
+
+/** The last arrangement on file. */
+export function sessionView(events: readonly SessionEvent[]): SessionView | undefined {
+  const event = events.findLast((event) => event.type === "view_arranged")
+  return event && { members: event.members, axis: event.axis }
 }
 
 /** An admitted prompt without an ending event is pending; otherwise the last ending event decides. */

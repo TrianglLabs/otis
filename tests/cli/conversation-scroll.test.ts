@@ -2,14 +2,14 @@ import type { ScrollBoxRenderable } from "@opentui/core"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ArtifactStore } from "../../src/app/artifacts.js"
 import { Conversation, PermissionBroker } from "../../src/app/conversation.js"
-import { ModelHost } from "../../src/app/models.js"
+import { GatedInferenceClient, InferenceGate } from "../../src/app/models.js"
 import { SessionCoordinator } from "../../src/app/sessions.js"
 import { SubagentTraces } from "../../src/app/subagents.js"
 import { TranscriptStore } from "../../src/app/transcript.js"
 import type { TurnResult, TurnRunnerOptions } from "../../src/app/turn-runner.js"
 import type { ChatUI } from "../../src/cli/ui/types.js"
 import type { AgentEvent } from "../../src/core/agent.js"
-import type { ChatMessage } from "../../src/inference/types.js"
+import type { ChatMessage, InferenceClient } from "../../src/inference/types.js"
 import { createPermissionPolicy } from "../../src/permissions/policy.js"
 import type { ParallelClient } from "../../src/web/client.js"
 import { useOtisHome } from "../app/support/otis-home.js"
@@ -81,24 +81,27 @@ describe("conversation scrolling", () => {
     subagents: SubagentTraces,
   ) {
     const cwd = await isolate("otis-scroll-")
-    const models = new ModelHost()
-    models.client = { model: "fake", streamChat: vi.fn(), complete: vi.fn() }
-    models.selectedProvider = "fireworks"
+    const client: InferenceClient = { model: "fake", streamChat: vi.fn(), complete: vi.fn() }
+    const gate = new InferenceGate()
     const sessions = new SessionCoordinator({
-      client: () => models.client,
+      client: () => client,
       cwd,
       transcript,
       subagents,
       isBusy: () => false,
       isExiting: () => false,
     })
-    const conversation = new Conversation({
+    const conversation: Conversation = new Conversation({
       sessions,
       transcript,
       subagents,
       webClient: {} as ParallelClient,
       cwd,
-      models,
+      serving: () => ({
+        client: new GatedInferenceClient(client, gate, conversation.id),
+        provider: "fireworks",
+        autoCompactAtTokens: 100_000,
+      }),
       projectContext: () => [],
       skills: () => ({ skills: [], byName: new Map() }),
       permissionPolicy: () => createPermissionPolicy({ cwd, mode: "auto" }),

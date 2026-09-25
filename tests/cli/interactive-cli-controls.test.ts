@@ -251,6 +251,73 @@ describe("CLI settings", () => {
   })
 })
 
+describe("CLI skills", () => {
+  it("lists collections with an install row, opens one for update or remove, and installs", async () => {
+    mocks.skills.list.mockResolvedValue([
+      {
+        id: "pstack",
+        url: "https://github.com/cursor/plugins/tree/main/pstack",
+        path: "pstack",
+        skills: [{ name: "why", relativePath: "pstack/skills/why" }],
+      },
+    ])
+    mocks.loadSkillCatalog.mockResolvedValue({
+      skills: [
+        {
+          name: "why",
+          description: "Ask why.",
+          root: "/managed/pstack/pstack/skills/why",
+          instructionsPath: "/managed/pstack/pstack/skills/why/SKILL.md",
+        },
+      ],
+      byName: new Map(),
+    })
+    await loadCli()
+
+    await submit("/skills")
+    expect(mocks.ui.showCommandSubmenu).toHaveBeenLastCalledWith(
+      [
+        {
+          name: "Install",
+          description: "Paste a Git link after the command",
+          draft: "/skills install ",
+        },
+        { name: "Loaded skills", description: "1 skill", submission: "/skills list" },
+        {
+          name: "pstack",
+          description: "1 skill · https://github.com/cursor/plugins/tree/main/pstack",
+          submission: "/skills source pstack",
+        },
+      ],
+      { onBack: expect.any(Function) },
+    )
+
+    await submit("/skills source pstack")
+    expect(
+      mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[0].map((row: { name: string }) => row.name),
+    ).toEqual(["Update", "Remove"])
+
+    mocks.skills.install.mockResolvedValueOnce({
+      id: "superpowers",
+      url: "https://github.com/obra/superpowers",
+      skills: [{ name: "brainstorming", relativePath: "skills/brainstorming" }],
+    })
+    await submit("/skills install https://github.com/obra/superpowers")
+    expect(mocks.skills.install).toHaveBeenCalledWith("https://github.com/obra/superpowers")
+    // The catalog is reread, so the agent has the new skills from its next turn, and the note is
+    // on screen even from the home screen.
+    expect(mocks.loadSkillCatalog.mock.calls.length).toBeGreaterThan(1)
+    expect(mocks.ui.showChatLayout).toHaveBeenCalled()
+    expect(mocks.ui.renderTranscript.mock.calls.at(-1)?.[0].at(-1)?.text).toBe(
+      "Installed superpowers (1 skill: brainstorming).",
+    )
+
+    mocks.skills.remove.mockRejectedValueOnce(new Error("pstack is not installed."))
+    await submit("/skills remove pstack")
+    expect(mocks.ui.showTransientHint).toHaveBeenLastCalledWith(" pstack is not installed. ")
+  })
+})
+
 describe("CLI themes", () => {
   it("opens the theme picker from settings and persists a selected theme", async () => {
     await loadCli()

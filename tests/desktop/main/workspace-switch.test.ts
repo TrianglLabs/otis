@@ -5,7 +5,7 @@ import { Application } from "../../../src/app/application.js"
 import type { TurnResult, TurnRunnerOptions } from "../../../src/app/turn-runner.js"
 import type { DesktopEvent } from "../../../src/desktop/contracts.js"
 import { DesktopRuntime } from "../../../src/desktop/main/runtime.js"
-import type { ChatMessage, InferenceClient } from "../../../src/inference/types.js"
+import type { CatalogModel, ChatMessage, InferenceClient } from "../../../src/inference/types.js"
 import { loadLocalSettings } from "../../../src/local/settings.js"
 import { createSession } from "../../../src/storage/session.js"
 import { defaultSessionDirectory, sessionFile } from "../../../src/storage/session-files.js"
@@ -25,6 +25,12 @@ vi.mock("../../../src/inference/gguf-cache.js", async (importOriginal) => {
 
 const isolate = useOtisHome()
 const fakeClient: InferenceClient = { model: "fake", streamChat: vi.fn(), complete: vi.fn() }
+const fakeModel: CatalogModel = {
+  provider: "fireworks",
+  id: "accounts/fireworks/models/fake",
+  displayName: "accounts/fireworks/models/fake",
+  supportsImageInput: false,
+}
 
 function turnEvents(text: string) {
   return async (options: TurnRunnerOptions): Promise<TurnResult> => {
@@ -42,9 +48,7 @@ async function setup() {
   await mkdir(cwd, { recursive: true })
   await mkdir(otherCwd, { recursive: true })
   const app = await Application.create({ cwd })
-  app.models.client = fakeClient
-  app.models.selectedId = "accounts/fireworks/models/fake"
-  app.models.selectedProvider = "fireworks"
+  app.focused.selection = { model: fakeModel, supportsImageInput: false, client: fakeClient }
   const sent: DesktopEvent[] = []
   const runtime = DesktopRuntime.forApplication(app, {
     cwd,
@@ -178,9 +182,12 @@ describe("DesktopRuntime workspace switching", () => {
     const { runtime, sent, otherCwd } = await setup()
     mocks.executeTurn.mockImplementation(turnEvents("alpha reply"))
     await runtime.sendPrompt("hello alpha")
-    await vi.waitFor(async () =>
-      expect((await runtime.snapshot()).entries.some((e) => e.text === "alpha reply")).toBe(true),
-    )
+    // The switch is refused while the turn runs, so wait for it to settle, not just to answer.
+    await vi.waitFor(async () => {
+      const snapshot = await runtime.snapshot()
+      expect(snapshot.entries.some((e) => e.text === "alpha reply")).toBe(true)
+      expect(snapshot.busy).toBe(false)
+    })
     const foreign = await createSession({ cwd: otherCwd })
     await foreign.admitPrompt("beta earlier work")
 

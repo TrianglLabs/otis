@@ -393,6 +393,7 @@ describe("tray menu", () => {
     ) => ({
       runtime,
       session: { id: `s${runtime}`, title, dirName: "ws" },
+      model: null,
       focused: false,
       busy: false,
       unseen: false,

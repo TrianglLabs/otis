@@ -6,6 +6,7 @@ import {
   LoaderCircle,
   Palette,
   Plug,
+  Puzzle,
   SlidersHorizontal,
   X,
 } from "lucide-react"
@@ -13,7 +14,7 @@ import { type CSSProperties, useEffect, useRef, useState } from "react"
 import type { OmlxPickerChoice, PairPickerChoice } from "../../../../inference/picker-catalog.js"
 import { localServerNames, supportsOmlx } from "../../../../inference/types.js"
 import type { LocalStats } from "../../../../local/stats.js"
-import type { ThemeName, UiLanguage } from "../../../contracts.js"
+import type { SessionOpResult, SkillsSummary, ThemeName, UiLanguage } from "../../../contracts.js"
 import lmStudioIcon from "../../assets/lm-studio.svg"
 import ollamaIcon from "../../assets/ollama.svg"
 import omlxIcon from "../../assets/omlx.svg"
@@ -54,11 +55,21 @@ const PAIR_DEFAULT_ENDPOINTS = {
 
 const SETTINGS_TABS = {
   providers: { label: "settings.inference", icon: Cpu },
+  extensions: { label: "settings.extensions", icon: Puzzle },
   appearance: { label: "settings.appearance", icon: Palette },
   general: { label: "settings.general", icon: SlidersHorizontal },
 } as const
 
 type SettingsTab = keyof typeof SETTINGS_TABS
+
+/** Skills list in pages of this many; a suite can bring a hundred. */
+const SKILLS_PAGE = 10
+
+const SKILL_ORIGINS = {
+  bundled: "settings.skillBundled",
+  personal: "settings.skillPersonal",
+  project: "settings.skillProject",
+} as const
 const SETTINGS_TAB_IDS = Object.keys(SETTINGS_TABS) as SettingsTab[]
 
 /**
@@ -495,6 +506,7 @@ export function SettingsPage({
               </>
             ) : null}
 
+            {activeTab === "extensions" ? <SkillsSettings /> : null}
             {activeTab === "appearance" ? (
               <>
                 <div className="settingsRow settingsLanguage settingsSurface">
@@ -969,4 +981,145 @@ function formatLongDate(date: string, locale: string) {
 
 function localDate(date: string) {
   return new Date(`${date}T12:00:00`)
+}
+
+/**
+ * The skills the agent can load, reread from disk each time the tab opens, and the Git collections
+ * Otis manages: install by URL, fast-forward, remove. Personal and project skills are files the
+ * user places; the note says where.
+ */
+function SkillsSettings() {
+  const { api } = useDesktop()
+  const { t } = useI18n()
+  const [summary, setSummary] = useState<SkillsSummary>()
+  const [url, setUrl] = useState("")
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string>()
+  const [limit, setLimit] = useState(SKILLS_PAGE)
+  useEffect(() => {
+    void api.listSkills().then(setSummary)
+  }, [api])
+  const change = async (operation: () => Promise<SessionOpResult>) => {
+    setPending(true)
+    setError(undefined)
+    const result = await operation()
+    setPending(false)
+    if (result.ok) setSummary(await api.listSkills())
+    else setError(result.reason)
+    return result.ok
+  }
+  const install = async () => {
+    const target = url.trim()
+    if (target && (await change(() => api.installSkills(target)))) setUrl("")
+  }
+  return (
+    <>
+      <div className="settingsGroup">
+        <h2 className="settings-section">{t("settings.skillsInstalled")}</h2>
+        <div className="settingsSurface">
+          {summary?.sources.length === 0 ? (
+            <div className="settingsRow settings-message">{t("settings.noSkillsInstalled")}</div>
+          ) : null}
+          {summary?.sources.map((source) => (
+            <div className="settingsRow" key={source.id}>
+              <span className="settingsRow-label">
+                <span>{source.id}</span>
+                <span className="settingsRow-meta">
+                  {t("settings.skillCollectionSkills", { count: source.skills.length })} ·{" "}
+                  {source.url}
+                </span>
+              </span>
+              <span className="settingsSkills-actions">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={pending}
+                  onClick={() => void change(() => api.updateSkills(source.id))}
+                >
+                  {t("settings.skillUpdate")}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={pending}
+                  onClick={() => void change(() => api.removeSkills(source.id))}
+                >
+                  {t("settings.skillRemove")}
+                </Button>
+              </span>
+            </div>
+          ))}
+          <div className="settingsForm settingsSkills-install">
+            <label className="settingsForm-label" htmlFor="settings-skill-url">
+              {t("settings.skillUrl")}
+            </label>
+            <input
+              id="settings-skill-url"
+              className="settingsForm-input"
+              value={url}
+              onChange={(event) => setUrl(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void install()
+              }}
+              placeholder="https://github.com/…"
+              spellCheck={false}
+              autoComplete="off"
+            />
+            <div className="settingsForm-actions">
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={pending || !url.trim()}
+                onClick={() => void install()}
+              >
+                {t("settings.skillInstall")}
+              </Button>
+            </div>
+            {pending ? <div className="settings-message">{t("settings.skillsWorking")}</div> : null}
+            {error ? <div className="settings-message settings-error">{error}</div> : null}
+          </div>
+        </div>
+      </div>
+      <div className="settingsGroup">
+        <h2 className="settings-section">{t("settings.skillsAll")}</h2>
+        <div className="settingsSurface">
+          {summary === undefined ? (
+            <div className="settingsRow settings-message">{t("settings.skillsLoading")}</div>
+          ) : null}
+          {summary?.skills.length === 0 ? (
+            <div className="settingsRow settings-message">{t("settings.noSkills")}</div>
+          ) : null}
+          {summary?.skills.slice(0, limit).map((skill) => (
+            <div className="settingsRow" key={skill.name}>
+              <span className="settingsRow-label settingsSkill">
+                <span>{skill.name}</span>
+                <span
+                  className="settingsRow-meta settingsSkill-description"
+                  title={skill.description}
+                >
+                  {skill.description}
+                </span>
+              </span>
+              <span className="settingsRow-meta settingsSkill-origin">
+                {typeof skill.origin === "string"
+                  ? t(SKILL_ORIGINS[skill.origin])
+                  : skill.origin.collection}
+              </span>
+            </div>
+          ))}
+          {summary && summary.skills.length > limit ? (
+            <div className="settingsRow">
+              <span className="settingsRow-meta">
+                {t("settings.skillsShown", { shown: limit, total: summary.skills.length })}
+              </span>
+              <Button variant="ghost" size="sm" onClick={() => setLimit(limit + SKILLS_PAGE)}>
+                {t("settings.skillsMore")}
+              </Button>
+            </div>
+          ) : null}
+        </div>
+        <p className="settingsForm-note settingsSkills-note">{t("settings.skillsNote")}</p>
+      </div>
+    </>
+  )
 }

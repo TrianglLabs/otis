@@ -82,8 +82,10 @@ export class SetupFlow {
   begin() {
     if (this.#closed || this.options.isBusy()) return
     this.#credentialPurpose = "onboarding"
-    const { selectedId, selectedProvider } = this.#app.models
-    if (selectedProvider === "pair" || selectedProvider === "omlx") {
+    const selected = this.#app.selection?.model
+    const provider = selected?.provider
+    const selectedId = selected?.id
+    if (provider === "pair" || provider === "omlx") {
       this.requestPairEndpoints("Reconnect to your local server, then choose a model.")
       return
     }
@@ -96,7 +98,7 @@ export class SetupFlow {
       void this.selectDefaultModel(apiKey)
       return
     }
-    if (selectedProvider === "local" || isLocalModelId(selectedId)) {
+    if (provider === "local" || isLocalModelId(selectedId)) {
       void this.openModelPicker(false)
       return
     }
@@ -287,11 +289,11 @@ export class SetupFlow {
   }
 
   async toggleFastServing(): Promise<"on" | "off" | "unavailable" | "error"> {
-    const { selectedId, selectedProvider } = this.#app.models
-    if (this.#closed || this.options.isBusy() || !this.#app.fireworksApiKey || !selectedId)
+    const model = this.#app.selection?.model
+    if (this.#closed || this.options.isBusy() || !this.#app.fireworksApiKey || !model)
       return "unavailable"
-    if (selectedProvider !== "fireworks") return "unavailable"
-    const fast = !selectedId.includes("/routers/")
+    if (model.provider !== "fireworks") return "unavailable"
+    const fast = !model.id.includes("/routers/")
     this.options.setBusy(true)
     try {
       const result = await this.#app.setFastServing(fast, { catalog: this.#models })
@@ -353,11 +355,12 @@ export class SetupFlow {
     signal: AbortSignal,
   ) {
     const { models } = this.#app
+    const model = this.#app.selection?.model
     return listModelPickerItems({
       fireworksApiKey,
-      currentModel: models.selectedId,
-      currentProvider: models.selectedProvider,
-      currentPairEngine: models.pairEngine,
+      currentModel: model?.id,
+      currentProvider: model?.provider,
+      currentPairEngine: model?.provider === "pair" ? model.engine : undefined,
       pairModels,
       omlxModels: this.#omlxModels,
       listFireworks: (key, options) => this.loadVerifiedModels(key, options?.signal),

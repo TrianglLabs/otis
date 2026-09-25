@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest"
 import { Application } from "../../../src/app/application.js"
 import type { TurnResult, TurnRunnerOptions } from "../../../src/app/turn-runner.js"
 import { DesktopRuntime } from "../../../src/desktop/main/runtime.js"
-import type { InferenceClient } from "../../../src/inference/types.js"
+import type { CatalogModel, InferenceClient } from "../../../src/inference/types.js"
 import { useOtisHome } from "../../app/support/otis-home.js"
 
 const mocks = vi.hoisted(() => ({ executeTurn: vi.fn(), listGlobal: vi.fn() }))
@@ -30,6 +30,12 @@ vi.mock("../../../src/app/global-sessions.js", async (importOriginal) => {
 
 const isolate = useOtisHome()
 const fakeClient: InferenceClient = { model: "fake", streamChat: vi.fn(), complete: vi.fn() }
+const fakeModel: CatalogModel = {
+  provider: "fireworks",
+  id: "accounts/fireworks/models/fake",
+  displayName: "accounts/fireworks/models/fake",
+  supportsImageInput: false,
+}
 
 describe("global session list caching", () => {
   it("coalesces concurrent snapshots into one history scan", async () => {
@@ -86,9 +92,7 @@ describe("global session list caching", () => {
     const cwd = join(home, "workspace")
     await mkdir(cwd, { recursive: true })
     const app = await Application.create({ cwd })
-    app.models.client = fakeClient
-    app.models.selectedId = "accounts/fireworks/models/fake"
-    app.models.selectedProvider = "fireworks"
+    app.focused.selection = { model: fakeModel, supportsImageInput: false, client: fakeClient }
     const runtime = DesktopRuntime.forApplication(app, {
       cwd,
       version: "test",
@@ -96,10 +100,16 @@ describe("global session list caching", () => {
       send: () => {},
     })
 
+    // The turn streams, then waits to be released, so "during streaming" is not a race.
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
     mocks.executeTurn.mockImplementation(
       async (options: TurnRunnerOptions): Promise<TurnResult> => {
         for (let i = 0; i < 5; i += 1)
           await options.onEvent?.({ type: "delta", text: `chunk ${i}` })
+        await held
         await options.onEvent?.({
           type: "complete",
           messages: [{ role: "assistant", content: [{ type: "text", text: "done" }] }],
@@ -114,19 +124,24 @@ describe("global session list caching", () => {
         true,
       ),
     )
+    // Status flushes while streaming reuse the one scan the prompt's admission caused.
     const scansDuringStreaming = mocks.listGlobal.mock.calls.length
-    await vi.waitFor(async () => expect((await runtime.snapshot()).busy).toBe(false))
+    await runtime.snapshot()
+    await runtime.snapshot()
+    expect(mocks.listGlobal.mock.calls.length).toBe(scansDuringStreaming)
 
-    // More status flushes after streaming must not rescan; the settled turn invalidated once, so
-    // allow one more.
+    // The settled turn invalidates once; flushes after that reuse it.
+    release()
+    await vi.waitFor(async () => expect((await runtime.snapshot()).busy).toBe(false))
+    const scansAfterTurn = mocks.listGlobal.mock.calls.length
     await runtime.snapshot()
     await runtime.snapshot()
-    expect(mocks.listGlobal.mock.calls.length).toBeLessThanOrEqual(scansDuringStreaming + 1)
+    expect(mocks.listGlobal.mock.calls.length).toBe(scansAfterTurn)
 
     // A session operation invalidates: the next status recomputes.
     runtime.startNewSession()
     await runtime.snapshot()
-    expect(mocks.listGlobal.mock.calls.length).toBeGreaterThan(scansDuringStreaming)
+    expect(mocks.listGlobal.mock.calls.length).toBeGreaterThan(scansAfterTurn)
     await runtime.shutdown()
   })
 })

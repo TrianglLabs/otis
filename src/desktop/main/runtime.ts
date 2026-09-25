@@ -21,7 +21,6 @@ import type { ArtifactReference } from "../../artifacts/types.js"
 import { createAttachment } from "../../inference/attachments.js"
 import type { listToolCapableModels } from "../../inference/catalog.js"
 import { describeError } from "../../inference/errors.js"
-import { findLocalModel } from "../../inference/local-catalog.js"
 import { discoverOmlxModels } from "../../inference/omlx.js"
 import { discoverPairModels, type PairDiscovery } from "../../inference/pair.js"
 import {
@@ -49,6 +48,7 @@ import {
   UI_LANGUAGES,
 } from "../../local/settings.js"
 import { calculateLocalStats } from "../../local/stats.js"
+import { SkillManager } from "../../skills/manager.js"
 import {
   defaultSessionDirectory,
   sessionFile,
@@ -64,9 +64,11 @@ import {
   MAX_PANES,
   type ModelSelectResult,
   type PaneAxis,
+  type PaneDrop,
   type PaneSide,
   type SendPromptResult,
   type SessionOpResult,
+  type SkillsSummary,
   type TranscriptPatchOp,
 } from "../contracts.js"
 
@@ -82,6 +84,8 @@ type DesktopRuntimeOptions = {
   discoverOmlx?: typeof discoverOmlxModels
   /** Test seam for verifying a Fireworks key against the hosted catalog. */
   listToolCapableModels?: typeof listToolCapableModels
+  /** Test seam for the Git collections of skills; production manages the real checkouts. */
+  skills?: SkillManager
   /**
    * Quits and installs the downloaded update; provided by the main process once a release is ready.
    */
@@ -161,10 +165,13 @@ export class DesktopRuntime {
    */
   #rendererGone = false
 
+  readonly #skills: SkillManager
+
   private constructor(
     app: Application,
     private readonly options: DesktopRuntimeOptions,
   ) {
+    this.#skills = options.skills ?? new SkillManager()
     this.#attach(app)
   }
 
@@ -179,7 +186,7 @@ export class DesktopRuntime {
   /**
    * Builds a runtime around an existing application and starts its saved selection. A saved local
    * model needs its managed server started before any prompt can run, exactly as the TUI does at
-   * launch; Fireworks and PAIR selections already have their client from applySavedSelection. This
+   * launch; Fireworks and PAIR selections already have their client from `savedSelection`. This
    * is the test seam for DesktopRuntime.
    */
   static forApplication(app: Application, options: DesktopRuntimeOptions) {
@@ -342,7 +349,7 @@ export class DesktopRuntime {
     const rejection = this.app.admissionGate()
     if (rejection) return { accepted: false, reason: rejection }
     const app = this.app
-    const client = app.models.client
+    const client = app.focused.selection?.client
     const conversationVersion = this.#conversationVersion
     if (!text.trim() && inputs.length === 0)
       return { accepted: false, reason: "The prompt is empty." }
@@ -377,7 +384,7 @@ export class DesktopRuntime {
       this.#rendererGone ||
       this.app !== app ||
       this.#conversationVersion !== conversationVersion ||
-      app.models.client !== client
+      app.focused.selection?.client !== client
     ) {
       return {
         accepted: false,
@@ -435,7 +442,11 @@ export class DesktopRuntime {
     await this.options.installUpdate?.()
   }
 
-  async selectSession(sessionId: string, dirName?: string): Promise<SessionOpResult> {
+  async selectSession(
+    sessionId: string,
+    dirName?: string,
+    at?: PaneDrop,
+  ): Promise<SessionOpResult> {
     if (this.#disposed) return { ok: false, reason: RESTARTING }
     if (this.#switching) return { ok: false, reason: SWITCHING }
     if (this.#locating) return { ok: false, reason: LOCATING }
@@ -447,13 +458,13 @@ export class DesktopRuntime {
       // The palette row may be stale: another instance can register the dir's workspace after the
       // list loaded. Re-resolve now — a known, present, different folder means this session belongs
       // to a workspace switch.
-      if (dirName !== undefined && dirName !== basename(defaultSessionDirectory(this.app.cwd))) {
+      if (dirName !== undefined && dirName !== this.#home) {
         const registered = await readWorkspacePath(sessionDir(dirName))
         if (registered && resolve(registered) !== this.app.cwd && (await pathExists(registered))) {
           return await this.switchWorkspace(registered, sessionId, dirName)
         }
       }
-      return await this.#selectInPlace(sessionId, dirName)
+      return await this.#selectInPlace(sessionId, dirName, at)
     } finally {
       this.#sessionSelecting -= 1
     }
@@ -465,22 +476,48 @@ export class DesktopRuntime {
    * blocked until the user locates the folder (file tools would otherwise run in the wrong place);
    * the locate flow follows from the banner.
    */
-  async #selectInPlace(sessionId: string, dirName: string | undefined): Promise<SessionOpResult> {
+  async #selectInPlace(
+    sessionId: string,
+    dirName: string | undefined,
+    at?: PaneDrop,
+  ): Promise<SessionOpResult> {
     // Held through the load, also as defense in depth under #switching: no prompt slips in
     // mid-load.
     this.#sessionSelecting += 1
     try {
-      const result = await this.app.openSession(sessionId, this.#storageFor(dirName))
+      const { focused } = this.app
+      // Dropped on a side, a session of this workspace's store joins the ones on screen. An empty
+      // card alone is no company: the session takes its place instead.
+      const empty = this.#panes.length === 1 && !focused.busy && !focused.sessions.current
+      if (at && "side" in at && !empty && (dirName ?? this.#home) === this.#home) {
+        const runtime = await this.app.openBeside(sessionId)
+        if (typeof runtime !== "object")
+          return { ok: false, reason: SESSION_REASONS[runtime === "locked" ? "locked" : "gone"] }
+        this.openPane(runtime.id, at.side)
+        this.#historyCache = undefined
+        return { ok: true }
+      }
+      const storage = this.#storageFor(dirName)
+      const open = this.app.runtimes.find((runtime) =>
+        runtime.sessions.isCurrent(sessionId, storage?.directory),
+      )
+      // Dropped on a card, it takes that card's place; one already on screen trades places.
+      if (at && "replace" in at) {
+        if (open) {
+          this.replacePane(at.replace, open.id)
+          return { ok: true }
+        }
+        const card = this.#panes.find((entry) => entry.id === at.replace)
+        if (card) this.app.focus(card)
+      }
+      // The session in the active card leaves the screen when another takes the card.
+      if (!open || !this.#panes.includes(open)) this.#recordView([this.app.focused])
+      const result = await this.app.openSession(sessionId, storage)
       if (result === "locked") return { ok: false, reason: SESSION_REASONS.locked }
       const current = this.app.sessions.current
       const currentDir = this.app.sessions.currentDirName
       // The workspace's own store is home; any other dir must resolve to a present folder.
-      if (
-        result === "opened" &&
-        current &&
-        currentDir &&
-        currentDir !== basename(defaultSessionDirectory(this.app.cwd))
-      ) {
+      if (result === "opened" && current && currentDir && currentDir !== this.#home) {
         const registered = await readWorkspacePath(join(sessionRootDirectory(), currentDir))
         if (!registered || !(await pathExists(registered))) {
           this.#pendingWorkspace = { dirName: currentDir, sessionId: current.id }
@@ -489,6 +526,29 @@ export class DesktopRuntime {
           // the workspace is real.
           await this.app.sessions.releaseLock()
         }
+      }
+      // A drop places the session itself. Opened from history, a session takes the screen unless
+      // the sessions it was last on screen with come back beside it, in their order; members of
+      // other stores are skipped.
+      if (at) this.#recordView()
+      else {
+        const shown = this.app.focused
+        const view = this.#pendingWorkspace ? undefined : shown.sessions.current?.view()
+        const panes: SessionRuntime[] = []
+        for (const member of view?.members ?? []) {
+          if (panes.length >= MAX_PANES || member.dirName !== this.#home) continue
+          const runtime = await this.app.openBeside(member.id)
+          if (typeof runtime === "object") panes.push(runtime)
+        }
+        if (view && panes.length >= 2) {
+          const displaced = this.#panes.filter((other) => !panes.includes(other))
+          for (const runtime of panes)
+            if (!this.#panes.includes(runtime)) this.#queue(runtime, { op: "reset" })
+          for (const other of displaced) this.app.closeIfEmpty(other)
+          this.#panes = panes
+          this.#paneAxis = view.axis
+          this.#recordView(displaced)
+        } else this.soloPane(shown.id)
       }
       this.#historyCache = undefined
       this.#markStateDirty()
@@ -500,6 +560,11 @@ export class DesktopRuntime {
 
   #storageFor(dirName: string | undefined): { directory: string } | undefined {
     return dirName === undefined ? undefined : { directory: sessionDir(dirName) }
+  }
+
+  /** The name of this workspace's own session store. */
+  get #home() {
+    return basename(defaultSessionDirectory(this.app.cwd))
   }
 
   /**
@@ -666,7 +731,7 @@ export class DesktopRuntime {
   /** The command palette's session search, across every workspace's stored sessions. */
   async searchSessions(query: string): Promise<GlobalSessionPickerItem[]> {
     return searchGlobalSessionPickerItems(query, {
-      open: this.app.openSessions(),
+      open: this.app.openSessions(this.#panes),
       seeds: [this.app.cwd],
     })
   }
@@ -675,16 +740,15 @@ export class DesktopRuntime {
     if (this.#disposed) return { ok: false, reason: RESTARTING }
     if (this.#switching) return { ok: false, reason: SWITCHING }
     if (this.#locating) return { ok: false, reason: LOCATING }
-    // With several cards on screen the fresh session is a new runtime: an empty active card
-    // already is one; otherwise it joins them while there is room, else takes the active card,
-    // whose session keeps its work off screen.
     const { focused } = this.app
     if (this.#panes.length > 1) {
-      if (!focused.busy && !focused.sessions.current) return { ok: true }
-      const runtime = this.app.addRuntime()
-      if (this.#panes.length < MAX_PANES) this.#panes.push(runtime)
-      else this.#panes[this.#panes.indexOf(focused)] = runtime
+      // The fresh session takes the screen; the others drop to the strip, still working. An
+      // empty active card is already a fresh session and simply stays.
+      const runtime = focused.busy || focused.sessions.current ? this.app.addRuntime() : focused
+      const others = this.#panes.filter((entry) => entry !== runtime)
+      this.#panes = [runtime]
       this.app.focus(runtime)
+      for (const other of others) this.app.closeIfEmpty(other)
     } else this.app.openNew()
     this.#historyCache = undefined
     this.#markStateDirty()
@@ -700,6 +764,7 @@ export class DesktopRuntime {
     if (result !== "deleted") return { ok: false, reason: SESSION_REASONS[result] }
     // Deleting a session on screen closed its runtime; its pane goes with it.
     this.#panes = this.#panes.filter((runtime) => this.app.runtimes.includes(runtime))
+    this.#recordView()
     this.#historyCache = undefined
     void this.#refreshStats()
     this.#markStateDirty()
@@ -723,11 +788,12 @@ export class DesktopRuntime {
         )
       : []
     const activeLocal = this.app.models.activeLocal
+    const model = this.app.selection?.model
     const items = await (this.options.listPickerItems ?? listModelPickerItems)({
       fireworksApiKey: this.app.fireworksApiKey,
-      currentModel: this.app.models.selectedId,
-      currentProvider: this.app.models.selectedProvider,
-      currentPairEngine: this.app.models.pairEngine,
+      currentModel: model?.id,
+      currentProvider: model?.provider,
+      currentPairEngine: model?.provider === "pair" ? model.engine : undefined,
       pairModels: [...(discovery.ollama ?? []), ...(discovery.lmStudio ?? [])],
       omlxModels,
       loadStatus: this.app.models.load,
@@ -800,7 +866,7 @@ export class DesktopRuntime {
 
   async setLocalThinking(model: string, level: string) {
     const draining = this.app.runtimes.some((runtime) => runtime.conversation.draining)
-    if (draining || this.app.models.state !== "ready")
+    if (draining || this.app.focused.modelState !== "ready")
       throw new Error("Wait until the local model is ready.")
     await this.app.setLocalThinking(model, level)
     this.#markStateDirty()
@@ -813,10 +879,9 @@ export class DesktopRuntime {
 
   /** Toggles Fast serving for the selected hosted model; the last listing spares a catalog fetch. */
   async setFastServing(fast: boolean): Promise<ModelSelectResult> {
-    const { selectedId, selectedProvider } = this.app.models
-    if (selectedProvider !== "fireworks" || !selectedId)
-      return { ok: false, reason: NO_FAST_SERVING }
-    const baseId = baseFireworksModelId(selectedId) ?? selectedId
+    const model = this.app.selection?.model
+    if (model?.provider !== "fireworks") return { ok: false, reason: NO_FAST_SERVING }
+    const baseId = baseFireworksModelId(model.id) ?? model.id
     const hostedRow = (items: ModelPickerItem[]) =>
       items.find(
         (entry): entry is FireworksPickerChoice =>
@@ -877,6 +942,33 @@ export class DesktopRuntime {
     return { ok: true }
   }
 
+  listSkills(): Promise<SkillsSummary> {
+    return this.app.listSkills(this.#skills)
+  }
+
+  installSkills(url: string) {
+    return this.#manageSkills(() => this.#skills.install(url))
+  }
+
+  updateSkills(id: string) {
+    return this.#manageSkills(() => this.#skills.update(id))
+  }
+
+  removeSkills(id: string) {
+    return this.#manageSkills(() => this.#skills.remove(id))
+  }
+
+  /** Git's complaint is the reason; the catalog is reread so the next turn has the change. */
+  async #manageSkills(change: () => Promise<unknown>): Promise<SessionOpResult> {
+    try {
+      await change()
+    } catch (error) {
+      return { ok: false, reason: describeError(error) }
+    }
+    await this.app.reloadSkills()
+    return { ok: true }
+  }
+
   /** Session-only debug mode; applies from the next turn, matching the TUI. */
   setDebugMode(enabled: boolean) {
     this.#debug = enabled
@@ -920,7 +1012,10 @@ export class DesktopRuntime {
   focusSession(id: number) {
     const runtime = this.app.runtimes.find((runtime) => runtime.id === id)
     if (!runtime) return
+    // One off screen takes the active card's place; the session there leaves the screen.
+    const left = this.#panes.includes(runtime) ? undefined : this.app.focused
     this.app.focus(runtime)
+    if (left) this.#recordView([left])
     this.#historyCache = undefined
     this.#markStateDirty()
   }
@@ -940,6 +1035,7 @@ export class DesktopRuntime {
     if (this.#panes.length === 2)
       this.#paneAxis = side === "left" || side === "right" ? "row" : "column"
     if (fresh) this.#queue(runtime, { op: "reset" })
+    this.#recordView()
     this.#markStateDirty()
   }
 
@@ -966,6 +1062,7 @@ export class DesktopRuntime {
       }
       this.app.closeIfEmpty(target)
     }
+    this.#recordView(shown >= 0 ? [] : [target])
     this.#markStateDirty()
   }
 
@@ -981,6 +1078,7 @@ export class DesktopRuntime {
       this.#historyCache = undefined
     }
     for (const other of others) this.app.closeIfEmpty(other)
+    this.#recordView(others)
     this.#markStateDirty()
   }
 
@@ -995,7 +1093,25 @@ export class DesktopRuntime {
       this.#historyCache = undefined
     }
     this.app.closeIfEmpty(runtime)
+    this.#recordView([runtime])
     this.#markStateDirty()
+  }
+
+  /**
+   * Each session on screen remembers this arrangement, and one the user just took off screen is
+   * alone again. Sessions a fresh start pushes off screen together keep theirs.
+   */
+  #recordView(left: readonly SessionRuntime[] = []) {
+    const member = (runtime: SessionRuntime) => {
+      const { current, currentDirName } = runtime.sessions
+      return current && currentDirName ? [{ id: current.id, dirName: currentDirName }] : []
+    }
+    const members = this.#panes.flatMap(member)
+    for (const runtime of this.#panes)
+      if (!left.includes(runtime))
+        void runtime.sessions.current?.arrangeView({ members, axis: this.#paneAxis })
+    for (const runtime of left)
+      void runtime.sessions.current?.arrangeView({ members: member(runtime), axis: this.#paneAxis })
   }
 
   async shutdown() {
@@ -1018,13 +1134,11 @@ export class DesktopRuntime {
 
   /** Starts the saved selection; a failure that was not superseded is told in the transcript. */
   async #startSavedSelection() {
-    if (this.app.models.client || !this.app.models.selectedId) return
     try {
       await this.app.startSavedSelection({ isExiting: () => this.#disposed })
     } catch (error) {
       if (this.#disposed || isAbortError(error)) return
-      const selectedId = this.app.models.selectedId
-      const name = (selectedId && findLocalModel(selectedId)?.displayName) ?? selectedId ?? "model"
+      const name = this.app.selection?.model.displayName ?? "model"
       this.app.transcript.addAssistantMessage(`Could not start ${name}: ${describeError(error)}`)
     }
     this.#markStateDirty()
@@ -1125,7 +1239,7 @@ export class DesktopRuntime {
     // removes one.
     if (this.#historyCache === undefined) {
       const pending = listGlobalHistory(RECENT_ARTIFACTS, {
-        open: app.openSessions(),
+        open: app.openSessions(this.#panes),
         seeds: [app.cwd],
       })
       this.#historyCache = pending
@@ -1135,13 +1249,13 @@ export class DesktopRuntime {
     }
     const status = app.status()
     // The last picker listing also knows Fast availability, without a catalog fetch per status.
-    const { selectedId } = app.models
+    const selectedId = status.model?.id
     const baseId = selectedId && (baseFireworksModelId(selectedId) ?? selectedId)
     const fastServing = {
       ...status.fastServing,
       available:
         status.fastServing.available ||
-        (app.models.selectedProvider === "fireworks" &&
+        (status.model?.provider === "fireworks" &&
           this.#lastPickerItems?.some(
             (entry) =>
               entry.kind === "model" &&

@@ -15,6 +15,7 @@ import {
   type SessionEvent,
   type SessionTurnDetails,
   type SessionTurnSegment,
+  type SessionView,
   type UsagePurpose,
 } from "./session-events.js"
 import {
@@ -31,6 +32,7 @@ import {
   type SessionDigest,
   type SessionSummary,
   sessionTitle,
+  sessionView,
 } from "./session-index.js"
 import { listWorkspaceSessionDirs, registerWorkspacePath } from "./workspace-registry.js"
 
@@ -181,6 +183,26 @@ export class JsonlSession {
 
   renameTitle(title: string) {
     return this.append({ type: "title_renamed", title })
+  }
+
+  /** The arrangement this session was last on screen in, or none recorded. */
+  view(): SessionView | undefined {
+    return sessionView(this.events)
+  }
+
+  /** Records a changed arrangement; one already on file is not repeated. */
+  async arrangeView(view: SessionView) {
+    const current = this.view()
+    const same =
+      current?.axis === view.axis &&
+      current.members.length === view.members.length &&
+      current.members.every(
+        (member, index) =>
+          member.id === view.members[index].id && member.dirName === view.members[index].dirName,
+      )
+    // A session never arranged is alone, which a view of one merely restates.
+    if (same || (!current && view.members.length === 1)) return
+    await this.append({ type: "view_arranged", ...view })
   }
 
   hasTitle() {

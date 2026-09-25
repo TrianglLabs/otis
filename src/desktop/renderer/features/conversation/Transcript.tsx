@@ -1,12 +1,12 @@
 import { Maximize2, MessagesSquare, Shield, X } from "lucide-react"
 import { type DragEvent, memo, useId, useMemo, useState } from "react"
 import type { TranscriptEntry } from "../../../../app/transcript.js"
-import type { PaneSide, PendingPermission, SessionOpResult } from "../../../contracts.js"
+import type { PaneDrop, PaneSide, PendingPermission, SessionOpResult } from "../../../contracts.js"
 import { Button } from "../../components/Button.js"
 import { FileTypeIcon } from "../../components/FileTypeIcon.js"
 import { Icon } from "../../components/Icon.js"
 import { OtisMark } from "../../components/OtisMark.js"
-import { formatAge, formatSessionDetail, formatTokenCount } from "../../format.js"
+import { formatAge, formatSessionDetail, formatTokenCount, inView } from "../../format.js"
 import { useI18n } from "../../i18n/index.js"
 import { useDesktop, useDesktopSelector, useDesktopState } from "../../runtime.js"
 import { PaneRuntimeContext } from "../canvas/canvas-context.js"
@@ -18,8 +18,24 @@ const emptyPanes: number[] = []
 /** The fraction of the conversation's width or height, from each edge, that inserts a session. */
 const DROP_BAND = 0.18
 
+/**
+ * The drag ghost is a styled clone rather than the browser's snapshot, which paints whatever
+ * surrounds the element inside its box: the card behind a header, the drop ring under the pointer.
+ */
+export function liftGhost(event: DragEvent<HTMLElement>) {
+  const source = event.currentTarget
+  const ghost = source.cloneNode(true) as HTMLElement
+  ghost.classList.add("dragGhost")
+  ghost.style.width = `${source.offsetWidth}px`
+  document.body.append(ghost)
+  event.dataTransfer.setDragImage(ghost, event.nativeEvent.offsetX, event.nativeEvent.offsetY)
+  requestAnimationFrame(() => ghost.remove())
+}
+
 /** The drag payload of a session chip or card header: its runtime id, dropped onto a half. */
 export const RUNTIME_DRAG_TYPE = "application/x-otis-runtime"
+/** The drag payload of a palette row: the session's id and store, dropped like a chip. */
+export const SESSION_DRAG_TYPE = "application/x-otis-session"
 
 /**
  * The active session's pane, and beside it a second one when a session chip was dropped onto a
@@ -44,8 +60,10 @@ export const ConversationView = memo(function ConversationView({
   }))
   // A drop lands in an edge band of the conversation, which puts the session on that side, or on
   // a card, which puts it in that card's place.
-  const [drop, setDrop] = useState<{ side: PaneSide } | { replace: number }>()
-  const dropOf = (event: DragEvent<HTMLDivElement>): { side: PaneSide } | { replace: number } => {
+  const [drop, setDrop] = useState<PaneDrop>()
+  // Why the last dropped palette row was refused, until the next drop.
+  const [refused, setRefused] = useState<string>()
+  const dropOf = (event: DragEvent<HTMLDivElement>): PaneDrop => {
     const { left, top, width, height } = event.currentTarget.getBoundingClientRect()
     const x = (event.clientX - left) / width
     const y = (event.clientY - top) / height
@@ -72,7 +90,8 @@ export const ConversationView = memo(function ConversationView({
     <div
       className="conversationArea"
       onDragOver={(event) => {
-        if (!event.dataTransfer.types.includes(RUNTIME_DRAG_TYPE)) return
+        const { types } = event.dataTransfer
+        if (!types.includes(RUNTIME_DRAG_TYPE) && !types.includes(SESSION_DRAG_TYPE)) return
         event.preventDefault()
         event.dataTransfer.dropEffect = "move"
         setDrop(dropOf(event))
@@ -83,10 +102,16 @@ export const ConversationView = memo(function ConversationView({
       onDrop={(event) => {
         setDrop(undefined)
         const runtime = Number(event.dataTransfer.getData(RUNTIME_DRAG_TYPE))
-        if (!runtime) return
+        const session = event.dataTransfer.getData(SESSION_DRAG_TYPE)
+        if (!runtime && !session) return
         event.preventDefault()
         const target = dropOf(event)
-        if ("side" in target) void api.openPane(runtime, target.side)
+        if (session) {
+          const { id, dirName } = JSON.parse(session)
+          void api
+            .selectSession(id, dirName, target)
+            .then((result) => setRefused(result.ok ? undefined : result.reason))
+        } else if ("side" in target) void api.openPane(runtime, target.side)
         else void api.replacePane(target.replace, runtime)
       }}
     >
@@ -105,6 +130,13 @@ export const ConversationView = memo(function ConversationView({
         ) : null}
       </div>
       <div className="composerWrap">
+        {refused ? (
+          <div className="composer-hint">
+            <span className="composer-error" role="alert">
+              {refused}
+            </span>
+          </div>
+        ) : null}
         {home ? null : <SessionStrip />}
         <Composer installing={installing} />
       </div>
@@ -187,6 +219,7 @@ const ConversationPane = memo(function ConversationPane({
           onDragStart={(event) => {
             event.dataTransfer.setData(RUNTIME_DRAG_TYPE, String(runtime))
             event.dataTransfer.effectAllowed = "move"
+            liftGhost(event)
           }}
         >
           <span className="paneHead-lead">
@@ -287,6 +320,7 @@ export const SessionStrip = memo(function SessionStrip() {
           onDragStart={(event) => {
             event.dataTransfer.setData(RUNTIME_DRAG_TYPE, String(runtime.runtime))
             event.dataTransfer.effectAllowed = "move"
+            liftGhost(event)
           }}
           onClick={() => void api.focusSession(runtime.runtime)}
         >
@@ -318,6 +352,8 @@ function EmptyState() {
   const documents = state.recentArtifacts
 
   const recents = state.sessions.filter((session) => !session.active).slice(0, RECENT_SESSIONS)
+  // Hovering a session lights the others it was last on screen with; opening it brings them.
+  const [hovered, setHovered] = useState<(typeof recents)[number]>()
   const open = async (run: () => Promise<SessionOpResult>) => {
     setError(undefined)
     const result = await run()
@@ -349,8 +385,10 @@ function EmptyState() {
             <button
               key={`${session.dirName}:${session.id}`}
               type="button"
-              className="home-tile"
+              className={`home-tile${inView(hovered, session) ? " home-tile-grouped" : ""}`}
               title={session.title}
+              onMouseEnter={() => setHovered(session)}
+              onMouseLeave={() => setHovered(undefined)}
               onClick={() => void open(() => api.selectSession(session.id, session.dirName))}
             >
               <span className="home-tileHead">

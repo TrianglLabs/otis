@@ -219,6 +219,94 @@ describe("Dashboard session navigation", () => {
   })
 })
 
+describe("session views in history", () => {
+  it("shades the sessions that come back with the one under the pointer", async () => {
+    const alpha = sessionItem({ id: "alpha", title: "Alpha work", detail: "1h ago" })
+    const beta = sessionItem({ id: "beta", title: "Beta work", detail: "2h ago" })
+    const gamma = sessionItem({ id: "gamma", title: "Gamma work", detail: "3h ago" })
+    const view = {
+      members: [
+        { id: "alpha", dirName: alpha.dirName },
+        { id: "beta", dirName: beta.dirName },
+      ],
+      axis: "row" as const,
+    }
+    const sessions = [{ ...alpha, view }, { ...beta, view }, gamma]
+    const api = fakeApi({ getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, sessions })) })
+    await renderApp(api)
+
+    const tile = (title: string) => screen.getByRole("button", { name: new RegExp(title) })
+    const grouped = (title: string) => tile(title).classList.contains("home-tile-grouped")
+    fireEvent.mouseEnter(tile("Alpha work"))
+    expect([grouped("Alpha work"), grouped("Beta work"), grouped("Gamma work")]).toEqual([
+      false,
+      true,
+      false,
+    ])
+    fireEvent.mouseLeave(tile("Alpha work"))
+    expect(grouped("Beta work")).toBe(false)
+    expect(tile("Alpha work").hasAttribute("draggable")).toBe(false)
+
+    // The palette's selected row shades them the same way.
+    fireEvent.keyDown(window, { key: "k", metaKey: true })
+    const palette = within(screen.getByRole("dialog"))
+    const row = (title: string) => palette.getByText(title).closest(".palette-row")
+    const lit = (title: string) => row(title)?.classList.contains("palette-row-grouped")
+    fireEvent.mouseEnter(palette.getByText("Beta work"))
+    expect([lit("Alpha work"), lit("Beta work"), lit("Gamma work")]).toEqual([true, false, false])
+  })
+
+  it("drags a palette row onto the conversation, the palette stepping aside until the drop", async () => {
+    const item = sessionItem({ id: "alpha", title: "Alpha work", detail: "1h ago" })
+    const selectSession = vi.fn(async () => ({
+      ok: false as const,
+      reason: "That session is open elsewhere.",
+    }))
+    const api = fakeApi({
+      getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, sessions: [item] })),
+      selectSession,
+    })
+    await renderApp(api)
+    const data = new Map<string, string>()
+    const dataTransfer = {
+      setData: (type: string, value: string) => data.set(type, value),
+      getData: (type: string) => data.get(type) ?? "",
+      get types() {
+        return [...data.keys()]
+      },
+      setDragImage: () => {},
+      effectAllowed: "none",
+      dropEffect: "none",
+    }
+    fireEvent.keyDown(window, { key: "k", metaKey: true })
+    const palette = screen.getByRole("dialog")
+    const row = within(palette).getByText("Alpha work")
+
+    fireEvent.dragStart(row, { dataTransfer })
+    expect(JSON.parse(data.get("application/x-otis-session") ?? "")).toEqual({
+      id: "alpha",
+      dirName: item.dirName,
+    })
+    expect(palette.classList.contains("lifted")).toBe(true)
+    expect(row.closest(".palette-rowMain")?.classList.contains("lifted")).toBe(true)
+    const area = document.querySelector(".conversationArea")
+    if (!area) throw new Error("expected the conversation area")
+    fireEvent.drop(area, { dataTransfer })
+    expect(selectSession).toHaveBeenCalledWith("alpha", item.dirName, { side: "left" })
+    fireEvent.dragEnd(row, { dataTransfer: { ...dataTransfer, dropEffect: "move" } })
+    expect(screen.queryByRole("dialog")).toBeNull()
+    // A refused drop says why, where the composer reports its own refusals.
+    expect((await screen.findByRole("alert")).textContent).toBe("That session is open elsewhere.")
+
+    // A drag that lands nowhere brings the palette back.
+    fireEvent.keyDown(window, { key: "k", metaKey: true })
+    const again = screen.getByRole("dialog")
+    fireEvent.dragStart(within(again).getByText("Alpha work"), { dataTransfer })
+    fireEvent.dragEnd(within(again).getByText("Alpha work"), { dataTransfer })
+    expect(again.classList.contains("lifted")).toBe(false)
+  })
+})
+
 describe("AppShell settings navigation", () => {
   it("switches settings sections from an accessible vertical tab list", async () => {
     await renderApp(fakeApi())
@@ -226,12 +314,21 @@ describe("AppShell settings navigation", () => {
     await act(async () => {})
 
     const tabs = screen.getAllByRole("tab")
-    expect(tabs.map((tab) => tab.textContent)).toEqual(["Inference", "Appearance", "General"])
+    expect(tabs.map((tab) => tab.textContent)).toEqual([
+      "Inference",
+      "Extensions",
+      "Appearance",
+      "General",
+    ])
     expect(tabs[0].getAttribute("aria-selected")).toBe("true")
     expect(screen.getByRole("tabpanel", { name: "Inference" })).toBeTruthy()
     expect(screen.getByText("Providers")).toBeTruthy()
 
     fireEvent.keyDown(tabs[0], { key: "ArrowDown" })
+    expect(screen.getByRole("tabpanel", { name: "Extensions" })).toBeTruthy()
+    expect(screen.getByText("Installed skills")).toBeTruthy()
+
+    fireEvent.keyDown(screen.getByRole("tab", { name: "Extensions" }), { key: "ArrowDown" })
     expect(screen.getByRole("tab", { name: "Appearance" }).getAttribute("aria-selected")).toBe(
       "true",
     )
@@ -243,6 +340,92 @@ describe("AppShell settings navigation", () => {
     expect(screen.getByText("Security")).toBeTruthy()
     expect(screen.getByText("Behavior")).toBeTruthy()
     expect(screen.getByText("Updates")).toBeTruthy()
+  })
+
+  it("lists skills with their origins and manages installed skills from the Extensions tab", async () => {
+    const listSkills = vi.fn(async () => ({
+      skills: [
+        {
+          name: "documents",
+          description: "PDF and Word deliverables.",
+          origin: "bundled" as const,
+        },
+        {
+          name: "brainstorming",
+          description: "Explore before building.",
+          origin: { collection: "superpowers" },
+        },
+        { name: "release-notes", description: "Changelogs.", origin: "project" as const },
+      ],
+      sources: [
+        {
+          id: "superpowers",
+          url: "https://github.com/obra/superpowers",
+          skills: [{ name: "brainstorming", relativePath: "skills/brainstorming" }],
+        },
+      ],
+    }))
+    const installSkills = vi.fn(async () => ({ ok: false as const, reason: "Git said no." }))
+    const api = fakeApi({ listSkills, installSkills })
+    await renderApp(api)
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }))
+    fireEvent.click(screen.getByRole("tab", { name: "Extensions" }))
+    await act(async () => {})
+
+    const panel = within(screen.getByRole("tabpanel", { name: "Extensions" }))
+    expect(panel.getByText("documents").parentElement?.parentElement?.textContent).toContain(
+      "Bundled",
+    )
+    expect(panel.getByText("brainstorming").parentElement?.parentElement?.textContent).toContain(
+      "superpowers",
+    )
+    expect(panel.getByText("release-notes").parentElement?.parentElement?.textContent).toContain(
+      "Project",
+    )
+    expect(panel.getByText("1 skill · https://github.com/obra/superpowers")).toBeTruthy()
+
+    fireEvent.change(panel.getByLabelText("Git URL"), {
+      target: { value: " https://github.com/acme/skills " },
+    })
+    fireEvent.click(panel.getByRole("button", { name: "Install" }))
+    await act(async () => {})
+    expect(installSkills).toHaveBeenCalledWith("https://github.com/acme/skills")
+    expect(panel.getByText("Git said no.")).toBeTruthy()
+    expect(listSkills).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(panel.getByRole("button", { name: "Remove" }))
+    await act(async () => {})
+    expect(api.removeSkills).toHaveBeenCalledWith("superpowers")
+    expect(listSkills).toHaveBeenCalledTimes(2)
+  })
+
+  it("pages a long skills list", async () => {
+    const skills = Array.from({ length: 60 }, (_, index) => ({
+      name: `skill-${String(index).padStart(2, "0")}`,
+      description: "One of many.",
+      origin: "project" as const,
+    }))
+    const api = fakeApi({ listSkills: vi.fn(async () => ({ skills, sources: [] })) })
+    await renderApp(api)
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }))
+    fireEvent.click(screen.getByRole("tab", { name: "Extensions" }))
+    await act(async () => {})
+
+    const panel = within(screen.getByRole("tabpanel", { name: "Extensions" }))
+    expect(panel.getByText("skill-09")).toBeTruthy()
+    expect(panel.queryByText("skill-10")).toBeNull()
+    expect(panel.getByText("10 of 60 skills")).toBeTruthy()
+    fireEvent.click(panel.getByRole("button", { name: "Show more" }))
+    expect(panel.getByText("skill-19")).toBeTruthy()
+    expect(panel.getByText("20 of 60 skills")).toBeTruthy()
+    for (let page = 2; page < 6; page += 1)
+      fireEvent.click(panel.getByRole("button", { name: "Show more" }))
+    expect(panel.getByText("skill-59")).toBeTruthy()
+    expect(panel.queryByRole("button", { name: "Show more" })).toBeNull()
+
+    // Collections and their installer come before the skills list.
+    const sections = panel.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)
+    expect(sections).toEqual(["Installed skills", "All skills"])
   })
 
   it("shows locally recorded usage in provider settings", async () => {
@@ -1319,6 +1502,40 @@ describe("AppShell settings navigation", () => {
     expect(api.setWorkspacePanelWidth).toHaveBeenCalledTimes(2)
   })
 
+  it("brings Coworkers forward when a coworker starts, even while Canvas is showing", async () => {
+    let emit!: (event: DesktopEvent) => void
+    const run = (id: string) => ({
+      toolCallId: id,
+      title: `Coworker ${id}`,
+      status: "running" as const,
+      tools: 0,
+    })
+    const status = { ...SNAPSHOT, subagents: [run("one")] }
+    const api = fakeApi({
+      getSnapshot: async () => status,
+      subscribe: vi.fn((listener) => {
+        emit = listener
+        return () => {}
+      }),
+    })
+    await renderApp(api)
+    const coworkers = screen.getByRole("tab", { name: "Coworkers" })
+    const canvas = screen.getByRole("tab", { name: "Canvas" })
+    fireEvent.click(canvas)
+    expect(canvas.getAttribute("aria-selected")).toBe("true")
+
+    act(() =>
+      emit({
+        type: "status",
+        revision: 2,
+        status: { ...status, subagents: [run("one"), run("two")] },
+      }),
+    )
+    expect(coworkers.getAttribute("aria-selected")).toBe("true")
+    // Both tabs keep their width whichever is selected, so neither moves.
+    expect(getComputedStyle(coworkers).paddingInline).toBe(getComputedStyle(canvas).paddingInline)
+  })
+
   it("starts from the saved panel width and exposes accessible, keyboard-driven tabs", async () => {
     const api = fakeApi({
       getSnapshot: async () => ({
@@ -1424,9 +1641,10 @@ describe("AppShell settings navigation", () => {
         },
       }),
     )
-    expect(within(panel).getByRole("tab", { name: "Canvas" }).getAttribute("aria-selected")).toBe(
-      "true",
-    )
+    // The coworker brings its tab forward; the diagram stays mounted behind it and keeps its theme.
+    expect(
+      within(panel).getByRole("tab", { name: "Coworkers" }).getAttribute("aria-selected"),
+    ).toBe("true")
     expect(postMessage.mock.calls.at(-1)?.[0]).toMatchObject({ colors: { text: "#654321" } })
 
     act(() => window.dispatchEvent(new Event("otis:canvas-reload")))

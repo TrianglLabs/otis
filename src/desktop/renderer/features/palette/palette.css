@@ -78,6 +78,18 @@
   background: var(--bg-elev);
 }
 
+/* The selected shade also marks the sessions that come back with the selected one. */
+.palette-row-grouped {
+  background: var(--bg-hover);
+}
+
+/* A row picked up to drop on the conversation: the palette steps aside until the drop lands. */
+.overlayBackdrop.lifted,
+.palette.lifted {
+  opacity: 0;
+  pointer-events: none;
+}
+
 .palette-rowMain {
   flex: 1;
   min-width: 0;
@@ -88,6 +100,11 @@
   font: inherit;
   text-align: left;
   cursor: pointer;
+}
+
+/* Chromium cancels a drag whose source stops being hit-testable: that row stays, unseen. */
+.palette-rowMain.lifted {
+  pointer-events: auto;
 }
 
 /* Right-click context menu for destructive session actions. */

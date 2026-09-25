@@ -6,14 +6,19 @@ import {
   PermissionBroker,
   type TurnSpeed,
 } from "../../src/app/conversation.js"
-import { ModelHost } from "../../src/app/models.js"
+import { GatedInferenceClient, InferenceGate } from "../../src/app/models.js"
 import { SessionCoordinator } from "../../src/app/sessions.js"
 import { SubagentTraces } from "../../src/app/subagents.js"
 import { TranscriptStore } from "../../src/app/transcript.js"
 import type { TurnResult, TurnRunnerOptions } from "../../src/app/turn-runner.js"
 import type { AgentEvent } from "../../src/core/agent.js"
 import { compactionSummaryMessage, isCompactionSummary } from "../../src/core/compaction.js"
-import type { ChatMessage, ChatStreamEvent, UserChatMessage } from "../../src/inference/types.js"
+import type {
+  ChatMessage,
+  ChatStreamEvent,
+  InferenceClient,
+  UserChatMessage,
+} from "../../src/inference/types.js"
 import { createPermissionPolicy, type PermissionRequest } from "../../src/permissions/policy.js"
 import type { ParallelClient } from "../../src/web/client.js"
 import { summaryFixture } from "../support/compaction.js"
@@ -46,30 +51,39 @@ function observe(conversation: Conversation) {
   }
 }
 
-/** A conversation of its own; pass `shared` for a second one on the same model host and cwd. */
-async function setup(shared?: { models: ModelHost; cwd: string }) {
+/** The raw client a test's conversations run on, and the gate their requests queue at. */
+type Serving = { client: InferenceClient | undefined; gate: InferenceGate }
+
+/** A conversation of its own; pass `shared` for a second one on the same serving and cwd. */
+async function setup(shared?: { serving: Serving; cwd: string }) {
   const cwd = shared?.cwd ?? (await isolate("otis-conversation-"))
   const transcript = new TranscriptStore()
   const subagents = new SubagentTraces()
-  const models = shared?.models ?? new ModelHost()
-  models.client = { model: "fake", streamChat: vi.fn(), complete: vi.fn() }
-  models.selectedProvider = "fireworks"
+  const serving: Serving = shared?.serving ?? {
+    client: { model: "fake", streamChat: vi.fn(), complete: vi.fn() },
+    gate: new InferenceGate(),
+  }
   const artifacts = new ArtifactStore(cwd)
   const sessions = new SessionCoordinator({
-    client: () => models.client,
+    client: () => serving.client,
     cwd,
     transcript,
     subagents,
     isBusy: () => false,
     isExiting: () => false,
   })
-  const conversation = new Conversation({
+  const conversation: Conversation = new Conversation({
     sessions,
     transcript,
     subagents,
     webClient: {} as ParallelClient,
     cwd,
-    models,
+    serving: () =>
+      serving.client && {
+        client: new GatedInferenceClient(serving.client, serving.gate, conversation.id),
+        provider: "fireworks",
+        autoCompactAtTokens: 100_000,
+      },
     projectContext: () => [],
     skills: () => ({ skills: [], byName: new Map() }),
     permissionPolicy: () => createPermissionPolicy({ cwd, mode: "auto" }),
@@ -78,7 +92,7 @@ async function setup(shared?: { models: ModelHost; cwd: string }) {
     artifacts,
     gate: () => undefined,
   })
-  return { conversation, sessions, transcript, artifacts, models, cwd }
+  return { conversation, sessions, transcript, artifacts, serving, cwd }
 }
 
 const reply = (text: string): ChatMessage => ({
@@ -343,7 +357,7 @@ describe("Conversation", () => {
   })
 
   it("keeps a failed prompt out of model history so later prompts and compaction still work", async () => {
-    const { conversation, transcript, sessions, models } = await setup()
+    const { conversation, transcript, sessions, serving } = await setup()
     const huge: UserChatMessage = { role: "user", content: "x".repeat(50_000) }
     const message =
       "The latest input and fixed context leave no room for a compaction summary. Increase the server context or reduce the input or project context."
@@ -383,8 +397,8 @@ describe("Conversation", () => {
     expect(session.replayMessages()).toEqual(transcript.history)
     expect(session.replayTranscript().messages).toEqual([huge, ...transcript.history])
 
-    if (!models.client) throw new Error("Expected a client")
-    models.client.streamChat = vi.fn(async function* () {
+    if (!serving.client) throw new Error("Expected a client")
+    serving.client.streamChat = vi.fn(async function* () {
       yield { type: "text_delta" as const, text: summaryFixture("Earlier detail summarized.") }
     })
     await conversation.compact(undefined, estimate)
@@ -396,7 +410,7 @@ describe("Conversation", () => {
   })
 
   it("says nothing to compact for a single exchange instead of failing", async () => {
-    const { conversation, transcript, models } = await setup()
+    const { conversation, transcript, serving } = await setup()
     mocks.executeTurn.mockImplementationOnce(
       async (): Promise<TurnResult> => ({
         status: "complete",
@@ -405,11 +419,11 @@ describe("Conversation", () => {
       }),
     )
     await conversation.start(hi)
-    if (!models.client) throw new Error("Expected a client")
+    if (!serving.client) throw new Error("Expected a client")
     const streamChat = vi.fn(async function* () {
       yield { type: "text_delta" as const, text: summaryFixture() }
     })
-    models.client.streamChat = streamChat
+    serving.client.streamChat = streamChat
     await conversation.compact(undefined, estimate)
     expect(transcript.entries.at(-1)?.text).toBe("Nothing to compact yet.")
     expect(streamChat).not.toHaveBeenCalled()
@@ -417,7 +431,7 @@ describe("Conversation", () => {
   })
 
   it("checkpoints /compact before a queued prompt so that prompt survives a reload", async () => {
-    const { conversation, transcript, sessions, models } = await setup()
+    const { conversation, transcript, sessions, serving } = await setup()
     const long = reply("detail ".repeat(2_000))
     mocks.executeTurn.mockImplementationOnce(
       async (): Promise<TurnResult> => ({ status: "complete", messages: [hi, long], details: {} }),
@@ -433,11 +447,11 @@ describe("Conversation", () => {
     await conversation.start({ role: "user", content: "again" })
     const queued = await conversation.queue({ role: "user", content: "later" })
     const session = sessions.current
-    if (!session || !models.client) throw new Error("Expected a session and a client")
+    if (!session || !serving.client) throw new Error("Expected a session and a client")
     const admittedSeq = session.events.find(
       (event) => event.type === "prompt_admitted" && event.promptId === queued.admission.promptId,
     )?.seq
-    models.client.streamChat = vi.fn(async function* () {
+    serving.client.streamChat = vi.fn(async function* () {
       yield { type: "text_delta" as const, text: summaryFixture("First turn summarized.") }
     })
     await conversation.compact(undefined, estimate)
@@ -465,14 +479,14 @@ describe("Conversation", () => {
   it("waits behind another conversation's stream on one slot and reads queued meanwhile", async () => {
     const first = await setup()
     const second = await setup(first)
-    const { models } = first
-    models.gate.setCapacity(1)
+    const { serving } = first
+    serving.gate.setCapacity(1)
     let opened = 0
     let releaseFirst = () => {}
     const held = new Promise<void>((resolve) => {
       releaseFirst = resolve
     })
-    models.client = {
+    serving.client = {
       model: "fake",
       async *streamChat(): AsyncGenerator<ChatStreamEvent> {
         yield { type: "text_delta", text: "hi" }
@@ -493,24 +507,24 @@ describe("Conversation", () => {
     )
     const observer = observe(second.conversation)
     const a = first.conversation.start(hi)
-    await vi.waitFor(() => expect(models.gate.active).toBe(1))
+    await vi.waitFor(() => expect(serving.gate.active).toBe(1))
     const b = second.conversation.start(hi)
     await vi.waitFor(() => expect(second.conversation.phase).toBe("queued"))
     expect(first.conversation.phase).toBe("working")
-    expect([models.gate.active, models.gate.waiting]).toEqual([1, 1])
-    expect(models.gate.isWaiting(second.conversation.id)).toBe(true)
+    expect([serving.gate.active, serving.gate.waiting]).toEqual([1, 1])
+    expect(serving.gate.isWaiting(second.conversation.id)).toBe(true)
     // Each turn runs on its owner's gated view of the one raw client.
     const clients = mocks.executeTurn.mock.calls.map(([options]) => options.agent.client)
-    expect(clients).toEqual([
-      models.clientFor(first.conversation.id),
-      models.clientFor(second.conversation.id),
+    expect(clients).toMatchObject([
+      { inner: serving.client, owner: first.conversation.id, gate: serving.gate },
+      { inner: serving.client, owner: second.conversation.id, gate: serving.gate },
     ])
     releaseFirst()
     expect((await a).status).toBe("complete")
     expect((await b).status).toBe("complete")
     // Granted restores the interrupted phase; the delta that follows finds it already set.
     expect(observer.phases).toEqual(["working", "queued", "working"])
-    expect([models.gate.active, models.gate.waiting]).toEqual([0, 0])
+    expect([serving.gate.active, serving.gate.waiting]).toEqual([0, 0])
     expect(second.conversation.phase).toBe("idle")
   })
 

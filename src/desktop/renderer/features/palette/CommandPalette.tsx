@@ -3,9 +3,10 @@ import { Fragment, useEffect, useRef, useState } from "react"
 import type { GlobalSessionPickerItem } from "../../../../app/global-sessions.js"
 import { Button } from "../../components/Button.js"
 import { Icon } from "../../components/Icon.js"
-import { formatSessionDetail } from "../../format.js"
+import { formatSessionDetail, inView } from "../../format.js"
 import { useI18n } from "../../i18n/index.js"
 import { useDesktop, useDesktopState, useScrollbarFlash } from "../../runtime.js"
+import { liftGhost, SESSION_DRAG_TYPE } from "../conversation/Transcript.js"
 
 type PaletteRow =
   | {
@@ -38,6 +39,8 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
   const [selected, setSelected] = useState(0)
   const [confirmingDeleteKey, setConfirmingDeleteKey] = useState<string>()
   const [menu, setMenu] = useState<{ key: string; x: number; y: number }>()
+  // The key of the row picked up to drop on the conversation.
+  const [lifted, setLifted] = useState<string>()
   const [actionError, setActionError] = useState<string>()
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
@@ -173,6 +176,9 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
     ...sessions.map((item): PaletteRow => ({ kind: "session", item })),
   ]
   const selectedRow = rows[Math.min(selected, Math.max(0, rows.length - 1))]
+  // The selected row's view lights the sessions that open beside it.
+  const grouped = (item: GlobalSessionPickerItem) =>
+    selectedRow?.kind === "session" && inView(selectedRow.item, item)
 
   const activate = async (row: PaletteRow | undefined) => {
     if (!row) return
@@ -246,12 +252,12 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
     <>
       <button
         type="button"
-        className="overlayBackdrop"
+        className={`overlayBackdrop${lifted ? " lifted" : ""}`}
         aria-label={t("palette.close")}
         onClick={onClose}
       />
       <div
-        className="palette noDrag"
+        className={`palette noDrag${lifted ? " lifted" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-label={t("palette.dialog")}
@@ -308,7 +314,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
                   <div
                     className={`palette-row${
                       row.item.active ? " palette-row-active" : ""
-                    }${selectedClass}`}
+                    }${selectedClass}${grouped(row.item) ? " palette-row-grouped" : ""}`}
                   >
                     {confirmingDeleteKey === key ? (
                       <div className="palette-confirm">
@@ -331,7 +337,23 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
                     ) : (
                       <button
                         type="button"
-                        className="palette-rowMain"
+                        className={`palette-rowMain${lifted === key ? " lifted" : ""}`}
+                        draggable
+                        onDragStart={(event) => {
+                          const { id, dirName } = row.item
+                          event.dataTransfer.setData(
+                            SESSION_DRAG_TYPE,
+                            JSON.stringify({ id, dirName }),
+                          )
+                          event.dataTransfer.effectAllowed = "move"
+                          liftGhost(event)
+                          setLifted(key)
+                        }}
+                        onDragEnd={(event) =>
+                          event.dataTransfer.dropEffect === "none"
+                            ? setLifted(undefined)
+                            : onClose()
+                        }
                         onMouseEnter={() => setSelected(index)}
                         onClick={() => void activate(row)}
                         onContextMenu={(event) => {

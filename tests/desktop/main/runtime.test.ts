@@ -1,7 +1,8 @@
 import { appendFile, mkdir, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { Application } from "../../../src/app/application.js"
+import { Application, type SessionRuntime } from "../../../src/app/application.js"
+import type { ModelSelection } from "../../../src/app/models.js"
 import type { TurnResult, TurnRunnerOptions } from "../../../src/app/turn-runner.js"
 import type { DesktopEvent } from "../../../src/desktop/contracts.js"
 import { DesktopRuntime } from "../../../src/desktop/main/runtime.js"
@@ -14,11 +15,15 @@ import type {
   ModelPickerItem,
 } from "../../../src/inference/picker-catalog.js"
 import type {
+  CatalogModel,
   ChatMessage,
+  FireworksModel,
   InferenceClient,
+  LocalCatalogModel,
   PairCatalogModel,
 } from "../../../src/inference/types.js"
 import { loadLocalSettings, saveSelectedModel } from "../../../src/local/settings.js"
+import { createSession } from "../../../src/storage/session.js"
 import { sessionRootDirectory } from "../../../src/storage/session-files.js"
 import { acquireSessionLock } from "../../../src/storage/session-lock.js"
 import {
@@ -46,6 +51,26 @@ vi.mock("../../../src/inference/gguf-cache.js", async (importOriginal) => {
 const isolate = useOtisHome()
 
 const fakeClient: InferenceClient = { model: "fake", streamChat: vi.fn(), complete: vi.fn() }
+const FAKE_MODEL = "accounts/fireworks/models/fake"
+
+/** A session's selection of `model`, served by the fake client unless told otherwise. */
+function served(model: CatalogModel, client: InferenceClient | undefined = fakeClient) {
+  return { model, supportsImageInput: model.supportsImageInput, client } satisfies ModelSelection
+}
+
+function hosted(id: string, supportsImageInput = false): FireworksModel {
+  return { provider: "fireworks", id, displayName: id, supportsImageInput }
+}
+
+function local(id: string): LocalCatalogModel {
+  return {
+    provider: "local",
+    id,
+    displayName: id,
+    contextLength: 32_768,
+    supportsImageInput: false,
+  }
+}
 
 function turnEvents(text: string) {
   return async (options: TurnRunnerOptions): Promise<TurnResult> => {
@@ -61,11 +86,7 @@ async function setup(configureClient = true, extra: Record<string, unknown> = {}
   const cwd = join(home, "workspace")
   await mkdir(cwd, { recursive: true })
   const app = await Application.create({ cwd })
-  if (configureClient) {
-    app.models.client = fakeClient
-    app.models.selectedId = "accounts/fireworks/models/fake"
-    app.models.selectedProvider = "fireworks"
-  }
+  if (configureClient) app.focused.selection = served(hosted(FAKE_MODEL))
   const sent: DesktopEvent[] = []
   const runtime = DesktopRuntime.forApplication(app, {
     cwd,
@@ -90,9 +111,13 @@ function preparing(
 ) {
   return vi.spyOn(app.models, "prepare").mockImplementation(async (model, options) => {
     await during?.(options as never)
+    const selection = served(model, undefined)
     return {
-      model,
-      commit: () => app.models.activate(model, fakeClient),
+      selection,
+      commit: () => {
+        selection.client = fakeClient
+        app.models.onLocal?.(selection)
+      },
       rollback: async () => {},
     }
   })
@@ -136,12 +161,8 @@ describe("DesktopRuntime model startup", () => {
     })
 
     const app = await Application.create({ cwd })
-    expect(app.models.client).toBeUndefined()
-    const prepare = vi.spyOn(app.models, "prepare").mockImplementation(async (model) => ({
-      model,
-      commit: () => app.models.activate(model, fakeClient),
-      rollback: async () => {},
-    }))
+    expect(app.selection?.client).toBeUndefined()
+    const prepare = preparing(app)
 
     const runtime = DesktopRuntime.forApplication(app, {
       cwd,
@@ -150,7 +171,7 @@ describe("DesktopRuntime model startup", () => {
       send: () => {},
     })
 
-    await vi.waitFor(() => expect(app.models.client).toBe(fakeClient))
+    await vi.waitFor(() => expect(app.selection?.client).toBe(fakeClient))
     expect(prepare).toHaveBeenCalledOnce()
     const snapshot = await runtime.snapshot()
     expect(snapshot.modelState).toBe("ready")
@@ -204,14 +225,14 @@ describe("DesktopRuntime model startup", () => {
       discoverPair: async () => ({ errors: [] }),
     })
     await vi.waitFor(async () => expect((await runtime.snapshot()).modelState).toBe("failed"))
-    expect(app.models.client).toBeUndefined()
+    expect(app.selection?.client).toBeUndefined()
 
     const prepare = preparing(app)
     const result = await runtime.selectModel(activeRow.id)
     expect(result).toEqual({ ok: true })
     // The failed startup and the retry: the active row is not a dead shortcut.
     expect(prepare).toHaveBeenCalledTimes(2)
-    expect(app.models.client).toBe(fakeClient)
+    expect(app.selection?.client).toBe(fakeClient)
     expect((await runtime.snapshot()).modelState).toBe("ready")
     await runtime.shutdown()
   })
@@ -343,8 +364,7 @@ describe("DesktopRuntime subagents", () => {
   it("persists local effort, rejects stale or unsupported selections, and invalidates counted context", async () => {
     const { app, runtime } = await setup()
     const model = "Qwen/Qwen3.8-27B"
-    app.models.selectedId = model
-    app.models.selectedProvider = "local"
+    app.focused.selection = served(local(model))
     app.transcript.observeContext(fakeClient, 900)
     await runtime.setLocalThinking(model, "medium")
     expect((await runtime.snapshot()).localThinking?.selected).toBe("medium")
@@ -352,7 +372,14 @@ describe("DesktopRuntime subagents", () => {
     expect(app.transcript.contextTokens(fakeClient)).toBeUndefined()
     await expect(runtime.setLocalThinking(model, "high")).rejects.toThrow("does not support")
     await expect(runtime.setLocalThinking("openai/gpt-oss-20b", "low")).rejects.toThrow("changed")
-    app.models.selectedProvider = "pair"
+    app.focused.selection = served({
+      provider: "pair",
+      id: model,
+      displayName: model,
+      baseURL: "http://127.0.0.1:11434",
+      engine: "ollama",
+      supportsImageInput: false,
+    })
     expect((await runtime.snapshot()).localThinking).toBeNull()
     await expect(runtime.setLocalThinking(model, "low")).rejects.toThrow("changed")
     await runtime.shutdown()
@@ -363,9 +390,7 @@ describe("DesktopRuntime subagents", () => {
     const cwd = join(home, "workspace")
     await mkdir(cwd, { recursive: true })
     const app = await Application.create({ cwd })
-    app.models.client = fakeClient
-    app.models.selectedId = "openai/gpt-oss-20b"
-    app.models.selectedProvider = "local"
+    app.focused.selection = served(local("openai/gpt-oss-20b"))
     const runtime = DesktopRuntime.forApplication(app, {
       cwd,
       version: "test",
@@ -384,14 +409,8 @@ describe("DesktopRuntime subagents", () => {
     const cwd = join(home, "workspace")
     await mkdir(cwd, { recursive: true })
     const app = await Application.create({ cwd })
-    app.models.client = fakeClient
-    app.models.selectedId = "accounts/fireworks/models/kimi"
-    app.models.selectedProvider = "fireworks"
-    vi.spyOn(app.models, "prepare").mockImplementation(async (model) => ({
-      model,
-      commit: () => app.models.activate(model, fakeClient),
-      rollback: async () => {},
-    }))
+    app.focused.selection = served(hosted("accounts/fireworks/models/kimi"))
+    preparing(app)
     const fireworksChoice: FireworksPickerChoice = {
       kind: "model",
       provider: "fireworks",
@@ -412,7 +431,7 @@ describe("DesktopRuntime subagents", () => {
 
     const on = await runtime.setFastServing(true)
     expect(on).toEqual({ ok: true })
-    expect(app.models.selectedId).toBe("accounts/fireworks/routers/kimi-fast")
+    expect(app.selection?.model.id).toBe("accounts/fireworks/routers/kimi-fast")
     let snapshot = await runtime.snapshot()
     expect(snapshot.fastServing).toEqual({ available: true, enabled: true })
     let saved = await loadLocalSettings()
@@ -421,7 +440,7 @@ describe("DesktopRuntime subagents", () => {
 
     const off = await runtime.setFastServing(false)
     expect(off).toEqual({ ok: true })
-    expect(app.models.selectedId).toBe("accounts/fireworks/models/kimi")
+    expect(app.selection?.model.id).toBe("accounts/fireworks/models/kimi")
     snapshot = await runtime.snapshot()
     expect(snapshot.fastServing).toEqual({ available: true, enabled: false })
     saved = await loadLocalSettings()
@@ -501,9 +520,7 @@ describe("DesktopRuntime subagents", () => {
       supportsImageInput: false,
     })
     const app = await Application.create({ cwd })
-    app.models.client = fakeClient
-    app.models.selectedId = "openai/gpt-oss-20b"
-    app.models.selectedProvider = "local"
+    app.focused.selection = served(local("openai/gpt-oss-20b"))
     app.models.activeLocal = { spec: { id: "openai/gpt-oss-20b" }, contextLength: 32_768 } as never
     vi.spyOn(app.models.llama, "stop").mockResolvedValue(undefined)
     mocks.listDownloaded.mockResolvedValue([findLocalModel("openai/gpt-oss-20b")])
@@ -546,7 +563,7 @@ describe("DesktopRuntime subagents", () => {
 
     releaseDelete()
     expect(await pending).toEqual({ ok: true })
-    expect(app.models.selectedId).toBeUndefined()
+    expect(app.selection).toBeUndefined()
     await runtime.shutdown()
   })
 
@@ -562,7 +579,7 @@ describe("DesktopRuntime subagents", () => {
       supportsImageInput: false,
     })
     const app = await Application.create({ cwd }) // no API key: the selection cannot start
-    expect(app.models.client).toBeUndefined()
+    expect(app.selection?.client).toBeUndefined()
     const runtime = DesktopRuntime.forApplication(app, {
       cwd,
       version: "test",
@@ -576,7 +593,7 @@ describe("DesktopRuntime subagents", () => {
     const snapshot = await runtime.snapshot()
     expect(snapshot.modelState).toBe("ready")
     expect(snapshot.model?.displayName).toBe("Kimi")
-    expect(app.models.client?.model).toBe("accounts/fireworks/models/kimi")
+    expect(app.selection?.client?.model).toBe("accounts/fireworks/models/kimi")
     await runtime.shutdown()
   })
 
@@ -593,8 +610,8 @@ describe("DesktopRuntime subagents", () => {
       supportsImageInput: false,
     } as never)
     const app = await Application.create({ cwd })
-    expect(app.models.selectedProvider).toBe("pair")
-    const oldClient = app.models.client
+    expect(app.selection?.model.provider).toBe("pair")
+    const oldClient = app.selection?.client
     expect(oldClient).toBeDefined()
     const pairModel = {
       provider: "pair" as const,
@@ -625,8 +642,8 @@ describe("DesktopRuntime subagents", () => {
     expect(await runtime.connectLocalServers({ ollama: "http://127.0.0.1:11435" })).toEqual({
       ok: true,
     })
-    expect(app.models.client).not.toBe(oldClient)
-    expect(app.models.autoCompactAtTokens).toBe(Math.floor(65_536 * 0.8))
+    expect(app.selection?.client).not.toBe(oldClient)
+    expect(app.status().contextLimit).toBe(Math.floor(65_536 * 0.8))
     expect((await runtime.snapshot()).modelState).toBe("ready")
 
     // Reconnect with only the other engine responding: the orphaned selection is invalidated.
@@ -634,7 +651,7 @@ describe("DesktopRuntime subagents", () => {
     expect(await runtime.connectLocalServers({ lmStudio: "http://127.0.0.1:1234" })).toEqual({
       ok: true,
     })
-    expect(app.models.client).toBeUndefined()
+    expect(app.selection?.client).toBeUndefined()
     const snapshot = await runtime.snapshot()
     expect(snapshot.modelState).toBe("failed")
     expect(snapshot.modelError).toContain("no longer available")
@@ -785,7 +802,7 @@ describe("DesktopRuntime conversation flow", () => {
 
   it("validates and admits image-only prompts through the shared message pipeline", async () => {
     const { runtime, app } = await setup()
-    app.models.supportsImageInput = true
+    app.focused.selection = served(hosted(FAKE_MODEL, true))
     mocks.executeTurn.mockImplementation(turnEvents("I can see the image"))
     const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 
@@ -829,7 +846,7 @@ describe("DesktopRuntime conversation flow", () => {
       reason: expect.stringContaining("does not support"),
     })
 
-    app.models.supportsImageInput = true
+    app.focused.selection = served(hosted(FAKE_MODEL, true))
     const invalidFile = await runtime.sendPrompt("describe this", [
       { name: "fake.png", mimeType: "image/png", bytes: new Uint8Array([1, 2, 3]) },
     ])
@@ -930,7 +947,8 @@ describe("DesktopRuntime conversation flow", () => {
     ])
     // Even text decoding yields at the async attachment boundary; no sleeps or timing assumptions.
     if (change === "new-session") expect(runtime.startNewSession()).toEqual({ ok: true })
-    if (change === "model") app.models.client = { ...fakeClient, model: "replacement" }
+    if (change === "model")
+      app.focused.selection = served(hosted(FAKE_MODEL), { ...fakeClient, model: "replacement" })
     if (change === "shutdown") await runtime.shutdown()
     if (change === "renderer-gone") runtime.handleRendererGone()
 
@@ -1296,48 +1314,212 @@ describe("DesktopRuntime sessions", () => {
       await flush()
       expect((await runtime.snapshot()).panes).toEqual([d, b, c, busy.id])
 
-      // With the grid full, a fresh start takes the active card; that session keeps its work off
-      // screen. With room, the fresh session joins the split as the active card.
+      // A fresh start takes the screen alone; the sessions on screen keep their work in the strip.
       runtime.focusSession(c ?? 0)
       await flush()
       const before = app.runtimes.length
       expect(runtime.startNewSession()).toEqual({ ok: true })
       await flush()
-      const full = await runtime.snapshot()
-      expect(full.panes.slice(0, 2)).toEqual([d, b])
-      expect(full.panes[2]).toBe(app.focused.id)
-      expect(full.panes[3]).toBe(busy.id)
+      const alone = await runtime.snapshot()
+      expect(alone.panes).toEqual([app.focused.id])
+      expect(alone.session).toBeNull()
+      expect(alone.entries).toEqual([])
       expect(app.runtimes.length).toBe(before + 1)
-      expect(app.runtimes.some((entry) => entry.id === c)).toBe(true)
-      runtime.closePane(d ?? 0)
-      await flush()
-      runtime.focusSession(b ?? 0)
-      await flush()
-      expect(runtime.startNewSession()).toEqual({ ok: true })
-      await flush()
-      const joined = await runtime.snapshot()
-      expect(joined.panes).toHaveLength(4)
-      expect(joined.panes.at(-1)).toBe(app.focused.id)
-      expect(joined.session).toBeNull()
-      expect(joined.entries).toEqual([])
+      expect(app.runtimes.map((entry) => entry.id)).toEqual(
+        expect.arrayContaining([b, c, d, busy.id]),
+      )
       // Another fresh start on that empty card is nothing; nothing accumulates.
       const settled = app.runtimes.length
       expect(runtime.startNewSession()).toEqual({ ok: true })
       await flush()
-      expect((await runtime.snapshot()).panes).toEqual(joined.panes)
+      expect((await runtime.snapshot()).panes).toEqual(alone.panes)
       expect(app.runtimes).toHaveLength(settled)
 
       // Showing only one keeps it as the active session and sends the rest back to the strip;
-      // the two empty cards that leave the screen close for good.
+      // the empty card that leaves the screen closes for good.
       const solo = others[0]
       if (!solo) throw new Error("expected a second session")
+      runtime.openPane(solo.id, "right")
+      await flush()
+      expect((await runtime.snapshot()).panes).toEqual([...alone.panes, solo.id])
       runtime.soloPane(solo.id)
       await flush()
       expect((await runtime.snapshot()).panes).toEqual([solo.id])
       expect(app.focused).toBe(solo)
-      await vi.waitFor(() => expect(app.runtimes).toHaveLength(settled - 2))
+      await vi.waitFor(() => expect(app.runtimes).toHaveLength(settled - 1))
     } finally {
       finish()
+      await runtime.shutdown()
+    }
+  })
+
+  it("records how sessions sit on screen and brings them back together", async () => {
+    const { runtime, app, cwd } = await setup()
+    try {
+      mocks.executeTurn.mockImplementation(turnEvents("ok"))
+      await runtime.sendPrompt("first")
+      const first = app.focused
+      const second = app.openNew()
+      await runtime.sendPrompt("second")
+      await vi.waitFor(() => expect(second.busy).toBe(false))
+      await flush()
+      const ids = (entry: SessionRuntime) =>
+        entry.sessions.current?.view()?.members.map((m) => m.id)
+
+      runtime.openPane(first.id, "left")
+      await flush()
+      expect((await runtime.snapshot()).panes).toEqual([first.id, second.id])
+      const pair = [first.sessions.current?.id, second.sessions.current?.id]
+      await vi.waitFor(() => expect(ids(first)).toEqual(pair))
+      expect(second.sessions.current?.view()).toEqual(first.sessions.current?.view())
+      expect(first.sessions.current?.view()?.axis).toBe("row")
+
+      // A fresh start takes the screen alone; the pair stays recorded on both.
+      expect(runtime.startNewSession()).toEqual({ ok: true })
+      await flush()
+      expect((await runtime.snapshot()).panes).toEqual([app.focused.id])
+      expect(ids(first)).toEqual(pair)
+
+      // Picking either from history brings the other back beside it, as they were placed.
+      expect(await runtime.selectSession(pair[1] ?? "")).toEqual({ ok: true })
+      await flush()
+      const restored = await runtime.snapshot()
+      expect(restored.panes).toEqual([first.id, second.id])
+      expect(restored.paneAxis).toBe("row")
+      // Every session on screen is marked in history, not only the focused one.
+      expect(restored.sessions.filter((item) => item.active).map((item) => item.id)).toEqual(
+        expect.arrayContaining(pair),
+      )
+      expect(
+        restored.sessions.find((item) => item.id === pair[0])?.view?.members.map((m) => m.id),
+      ).toEqual(pair)
+
+      // Alone on screen again is recorded too, so the next open brings nobody.
+      runtime.soloPane(second.id)
+      await flush()
+      await vi.waitFor(() => expect(ids(second)).toEqual([pair[1]]))
+
+      // Closing one out of a pair dissolves it: both are alone again, and open alone.
+      runtime.openPane(first.id, "left")
+      await flush()
+      runtime.closePane(first.id)
+      await flush()
+      await vi.waitFor(() => expect(ids(first)).toEqual([pair[0]]))
+      expect(ids(second)).toEqual([pair[1]])
+      expect(await runtime.selectSession(pair[0] ?? "")).toEqual({ ok: true })
+      await flush()
+      expect((await runtime.snapshot()).panes).toEqual([first.id])
+
+      // Opened from history without company, a session takes the screen from a split.
+      runtime.openPane(second.id, "right")
+      await flush()
+      expect((await runtime.snapshot()).panes).toHaveLength(2)
+      const lone = await createSession({ cwd })
+      const admission = await lone.admitPrompt("alone")
+      await lone.completeTurn(admission, [
+        { role: "assistant", content: [{ type: "text", text: "hi" }] },
+      ])
+      expect(await runtime.selectSession(lone.id)).toEqual({ ok: true })
+      await flush()
+      expect((await runtime.snapshot()).panes).toEqual([app.focused.id])
+      expect(app.focused.sessions.current?.id).toBe(lone.id)
+    } finally {
+      await runtime.shutdown()
+    }
+  })
+
+  it("opens a dropped session on a side, in a card's place, or in place on an empty screen", async () => {
+    const { runtime, app, cwd } = await setup()
+    try {
+      const stored = async () => {
+        const session = await createSession({ cwd })
+        const admission = await session.admitPrompt("from disk")
+        await session.completeTurn(admission, [
+          { role: "assistant", content: [{ type: "text", text: "hi" }] },
+        ])
+        return session.id
+      }
+      const [one, two] = [await stored(), await stored()]
+      mocks.executeTurn.mockImplementation(turnEvents("ok"))
+      await runtime.sendPrompt("first")
+      await flush()
+      const first = app.focused
+
+      expect(await runtime.selectSession(one, undefined, { side: "right" })).toEqual({ ok: true })
+      await flush()
+      const beside = app.runtimes.find((entry) => entry !== first)
+      expect((await runtime.snapshot()).panes).toEqual([first.id, beside?.id])
+      expect(beside?.sessions.current?.id).toBe(one)
+
+      // Dropped on a card, it takes that card's place; one already on screen trades places.
+      expect(await runtime.selectSession(two, undefined, { replace: first.id })).toEqual({
+        ok: true,
+      })
+      await flush()
+      expect(first.sessions.current?.id).toBe(two)
+      expect(await runtime.selectSession(one, undefined, { replace: first.id })).toEqual({
+        ok: true,
+      })
+      await flush()
+      expect((await runtime.snapshot()).panes).toEqual([beside?.id, first.id])
+
+      // An empty card alone is no company: the drop opens the session in its place.
+      expect(runtime.startNewSession()).toEqual({ ok: true })
+      await flush()
+      expect(await runtime.selectSession(two, undefined, { side: "left" })).toEqual({ ok: true })
+      await flush()
+      expect((await runtime.snapshot()).panes).toEqual([first.id])
+      expect(app.focused).toBe(first)
+    } finally {
+      await runtime.shutdown()
+    }
+  })
+
+  it("lists skills by origin and reloads the catalog after a collection changes", async () => {
+    const sources = [
+      {
+        id: "acme",
+        url: "https://github.com/acme/skills",
+        skills: [{ name: "release-notes", relativePath: "release-notes" }],
+      },
+    ]
+    const install = vi.fn(async () => sources[0])
+    const remove = vi.fn(async () => {
+      throw new Error("acme is not installed.")
+    })
+    const skills = {
+      activationDirectory: "/nowhere",
+      list: async () => sources,
+      install,
+      update: async () => sources,
+      remove,
+    }
+    const { runtime, app, cwd } = await setup(true, { skills })
+    try {
+      const skill = join(cwd, ".agents", "skills", "release-notes")
+      await mkdir(skill, { recursive: true })
+      await writeFile(
+        join(skill, "SKILL.md"),
+        "---\nname: release-notes\ndescription: Prepare release notes.\n---\n\n# Notes\n",
+      )
+      expect(app.skills.byName.has("release-notes")).toBe(false)
+
+      const listed = await runtime.listSkills()
+      expect(listed.sources).toBe(sources)
+      expect(listed.skills).toContainEqual({
+        name: "release-notes",
+        description: "Prepare release notes.",
+        origin: { collection: "acme" },
+      })
+      expect(listed.skills.find((entry) => entry.name === "documents")?.origin).toBe("bundled")
+
+      expect(await runtime.installSkills("https://github.com/acme/skills")).toEqual({ ok: true })
+      expect(install).toHaveBeenCalledWith("https://github.com/acme/skills")
+      expect(await runtime.removeSkills("acme")).toEqual({
+        ok: false,
+        reason: "acme is not installed.",
+      })
+    } finally {
       await runtime.shutdown()
     }
   })
@@ -1416,11 +1598,7 @@ describe("DesktopRuntime model selection", () => {
     const cwd = join(home, "workspace")
     await mkdir(cwd, { recursive: true })
     const app = await Application.create({ cwd })
-    if (configureClient) {
-      app.models.client = fakeClient
-      app.models.selectedId = "accounts/fireworks/models/fake"
-      app.models.selectedProvider = "fireworks"
-    }
+    if (configureClient) app.focused.selection = served(hosted(FAKE_MODEL))
     app.fireworksApiKey = "fw-key"
     if (pairEndpoints) app.pairEndpoints = pairEndpoints
     const sent: DesktopEvent[] = []
@@ -1534,6 +1712,8 @@ describe("DesktopRuntime model selection", () => {
     mocks.executeTurn.mockReset()
     mocks.executeTurn.mockImplementation(turnEvents("after the switch"))
     const { runtime, app } = await setupWithCatalog([localChoice])
+    // A switch may stop the managed server, so a session on it waits; a hosted one keeps going.
+    app.focused.selection = served(local("openai/gpt-oss-20b"))
     let persistStarted!: () => void
     let releasePersist!: () => void
     const started = new Promise<void>((resolve) => {
@@ -1588,6 +1768,7 @@ describe("DesktopRuntime model selection", () => {
   it("defers a follow-up admitted during a model switch until the switch settles", async () => {
     mocks.executeTurn.mockReset()
     const { runtime, app } = await setupWithCatalog([localChoice])
+    app.focused.selection = served(local("openai/gpt-oss-20b"))
 
     const turnModels: (string | undefined)[] = []
     let releaseFirst!: () => void
@@ -1595,7 +1776,7 @@ describe("DesktopRuntime model selection", () => {
     mocks.executeTurn.mockImplementation(
       async (options: TurnRunnerOptions): Promise<TurnResult> => {
         calls += 1
-        turnModels.push(app.models.selectedId)
+        turnModels.push(app.selection?.model.id)
         if (calls === 1) {
           await new Promise<void>((resolve) => {
             releaseFirst = resolve
@@ -1652,7 +1833,7 @@ describe("DesktopRuntime model selection", () => {
     releasePersist()
     expect(await selection).toEqual({ ok: true })
     await vi.waitFor(() => expect(calls).toBe(2))
-    expect(turnModels).toEqual(["accounts/fireworks/models/fake", localChoice.id])
+    expect(turnModels).toEqual(["openai/gpt-oss-20b", localChoice.id])
     await runtime.shutdown()
   })
 
@@ -1681,7 +1862,7 @@ describe("DesktopRuntime model selection", () => {
     const second = runtime.selectModel(newer.id)
     expect(await first).toEqual({ ok: false, reason: "The selection was superseded." })
     expect(await second).toEqual({ ok: true })
-    expect(app.models.selectedId).toBe(newer.id)
+    expect(app.selection?.model.id).toBe(newer.id)
     expect(listPickerItems).toHaveBeenCalledOnce()
     await runtime.shutdown()
   })

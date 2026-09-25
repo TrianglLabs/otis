@@ -15,9 +15,16 @@ const isolate = useOtisHome()
 
 async function setup(supportsImageInput: boolean | undefined = true) {
   const app = await Application.create({ cwd: await isolate("otis-attachments-"), env: {} })
-  app.models.selectedId = "accounts/fireworks/models/vision"
-  app.models.selectedProvider = "fireworks"
-  app.models.supportsImageInput = supportsImageInput
+  app.focused.selection = {
+    model: {
+      provider: "fireworks",
+      id: "accounts/fireworks/models/vision",
+      displayName: "accounts/fireworks/models/vision",
+      supportsImageInput: supportsImageInput === true,
+    },
+    supportsImageInput,
+    client: undefined,
+  }
   const ui = {
     setAttachmentCounts: vi.fn(),
     focusInput: vi.fn(),

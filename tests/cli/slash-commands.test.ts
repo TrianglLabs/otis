@@ -13,6 +13,24 @@ describe("slash commands", () => {
     expect(parseSlashCommand("/fast")).toEqual({ type: "fast" })
     expect(parseSlashCommand("/effort")).toEqual({ type: "effort" })
     expect(parseSlashCommand("/effort medium")).toEqual({ type: "effort", level: "medium" })
+    expect(parseSlashCommand("/skills")).toEqual({ type: "skills" })
+    expect(parseSlashCommand("/skills list")).toEqual({ type: "skills", action: "list" })
+    expect(parseSlashCommand("/skills install https://github.com/obra/superpowers")).toEqual({
+      type: "skills",
+      action: "install",
+      target: "https://github.com/obra/superpowers",
+    })
+    expect(parseSlashCommand("/skills remove pstack")).toEqual({
+      type: "skills",
+      action: "remove",
+      target: "pstack",
+    })
+    expect(parseSlashCommand("/skills install")).toBeUndefined()
+    expect(slashCommandRunsImmediately({ type: "skills" })).toBe(true)
+    expect(slashCommandRunsImmediately({ type: "skills", action: "list" })).toBe(true)
+    expect(slashCommandRunsImmediately({ type: "skills", action: "install", target: "x" })).toBe(
+      false,
+    )
     expect(parseSlashCommand("/delete-model")).toEqual({
       type: "settings",
       setting: "delete-model",
@@ -90,6 +108,7 @@ describe("slash commands", () => {
       "/history",
       "/model",
       "/settings",
+      "/skills",
       "/fast",
       "/queue",
       "/compact",

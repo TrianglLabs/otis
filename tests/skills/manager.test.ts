@@ -140,6 +140,57 @@ describe("managed skills", () => {
     await expect(stat(join(paths.rootDirectory, "sources", "workflows"))).resolves.toBeDefined()
   })
 
+  it("installs skill directories at a repository's root, skipping ones that are not skills", async () => {
+    const repository = await gitRepository()
+    for (const name of ["review", "ship"]) {
+      await mkdir(join(repository, name), { recursive: true })
+      await writeFile(
+        join(repository, name, "SKILL.md"),
+        `---\nname: ${name}\ndescription: ${name} workflow.\n---\n\nDo ${name}.\n`,
+      )
+    }
+    // A helper directory, and a package whose name disagrees with its directory.
+    await mkdir(join(repository, "bin"), { recursive: true })
+    await writeFile(join(repository, "bin", "run.sh"), "echo hi\n")
+    await mkdir(join(repository, "connect"), { recursive: true })
+    await writeFile(
+      join(repository, "connect", "SKILL.md"),
+      "---\nname: open-browser\ndescription: Mismatched.\n---\n",
+    )
+    await commit(repository, "add root collection")
+    const manager = new SkillManager(await managerPaths())
+
+    const installed = await manager.install(repository, "suite")
+
+    expect(installed.skills).toEqual([
+      { name: "review", relativePath: "review" },
+      { name: "ship", relativePath: "ship" },
+    ])
+  })
+
+  it("installs one folder of a repository from its tree link", async () => {
+    const repository = await gitRepository()
+    await writeSkill(repository, "elsewhere", "Not part of the folder.")
+    const folder = join(repository, "plugins", "pstack", "skills", "why")
+    await mkdir(folder, { recursive: true })
+    await writeFile(
+      join(folder, "SKILL.md"),
+      "---\nname: why\ndescription: Ask why.\n---\n\nAsk why.\n",
+    )
+    await commit(repository, "add a plugin folder")
+    const manager = new SkillManager(await managerPaths())
+
+    const installed = await manager.install(`${repository}/tree/main/plugins/pstack/`)
+
+    expect(installed).toEqual({
+      id: "pstack",
+      url: `${repository}/tree/main/plugins/pstack/`,
+      path: "plugins/pstack",
+      skills: [{ name: "why", relativePath: "plugins/pstack/skills/why" }],
+    })
+    expect(await manager.update("pstack")).toEqual([installed])
+  })
+
   it("installs a repository whose root is a single skill", async () => {
     const repository = await gitRepository()
     await writeFile(

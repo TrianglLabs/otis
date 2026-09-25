@@ -6,7 +6,7 @@ import type {
   UserChatMessage,
 } from "../../../src/inference/types.js"
 import type { ThemeName } from "../../../src/local/settings.js"
-import type { SkillCatalog } from "../../../src/skills/catalog.js"
+import type { ManagedSkill, ManagedSkillSource, SkillCatalog } from "../../../src/skills/catalog.js"
 import type { SessionReplay, SessionTranscriptReplay } from "../../../src/storage/session-events.js"
 
 const mocks = vi.hoisted(() => {
@@ -143,6 +143,17 @@ const mocks = vi.hoisted(() => {
       skills: [],
       byName: new Map(),
     })),
+    skills: {
+      activationDirectory: "/home/otis/.agents/skills",
+      list: vi.fn(async () => [] as ManagedSkillSource[]),
+      install: vi.fn(async (url: string) => ({
+        id: "installed",
+        url,
+        skills: [] as ManagedSkill[],
+      })),
+      update: vi.fn(async () => [] as ManagedSkillSource[]),
+      remove: vi.fn(async (id: string) => ({ id, url: "", skills: [] as ManagedSkill[] })),
+    },
     openSession: vi.fn(),
     openFireworksKeyPage: vi.fn(async () => true),
     saveFireworksApiKey: vi.fn(async () => undefined),
@@ -239,6 +250,12 @@ vi.mock("../../../src/core/agent.js", async (importOriginal) => ({
   runAgent: mocks.runAgent,
 }))
 vi.mock("../../../src/core/context.js", () => ({ loadProjectContext: mocks.loadProjectContext }))
+vi.mock("../../../src/skills/manager.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../src/skills/manager.js")>()),
+  SkillManager: vi.fn(function SkillManager() {
+    return mocks.skills
+  }),
+}))
 vi.mock("../../../src/skills/catalog.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../src/skills/catalog.js")>()),
   loadSkillCatalog: mocks.loadSkillCatalog,

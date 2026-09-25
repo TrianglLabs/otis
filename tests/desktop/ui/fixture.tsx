@@ -299,7 +299,7 @@ async function runDesktopUiChecks() {
   const settingsTabs = Array.from(
     document.querySelectorAll<HTMLButtonElement>('.settingsSidebar [role="tab"]'),
   )
-  assert(settingsTabs.length === 3, "Settings sidebar does not list every section")
+  assert(settingsTabs.length === 4, "Settings sidebar does not list every section")
   assert(!document.querySelector(".settingsPage-header h1"), "Settings still has a title wordmark")
   assert(settingsSidebar.width >= 160, "Settings sidebar is too narrow")
   assert(
@@ -398,6 +398,8 @@ async function runDesktopUiChecks() {
     "Provider usage activity is incomplete",
   )
   settingsTabs[1].click()
+  await until(() => !!document.querySelector("#settings-skill-url"), "Extensions tab did not open")
+  settingsTabs[2].click()
   await until(() => !!document.querySelector(".themeGrid"), "Appearance tab did not open")
   assert(
     element(".settingsPage-title").textContent === "Appearance",
@@ -408,7 +410,7 @@ async function runDesktopUiChecks() {
     "Appearance does not offer every theme",
   )
   assert(
-    element('[role="tabpanel"]').getAttribute("aria-labelledby") === settingsTabs[1].id,
+    element('[role="tabpanel"]').getAttribute("aria-labelledby") === settingsTabs[2].id,
     "Settings panel is not labelled by its active tab",
   )
   await pause()

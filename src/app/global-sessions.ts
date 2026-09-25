@@ -19,7 +19,7 @@ export type GlobalSessionPickerItem = SessionPickerItem & {
 type GlobalOptions = {
   /**
    * The sessions open in this process, by full (dirName, id) identity — ids repeat across storage
-   * dirs, so both parts must match. Focused rows read as `active`.
+   * dirs, so both parts must match. Shown rows read as `active`.
    */
   open?: readonly OpenSession[]
   /** Workspace candidates for recovering pre-registration dirs (typically the current one). */

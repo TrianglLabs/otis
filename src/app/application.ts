@@ -1,5 +1,6 @@
+import { stat } from "node:fs/promises"
 import { homedir } from "node:os"
-import { isAbsolute, parse, relative, resolve, sep } from "node:path"
+import { dirname, isAbsolute, parse, relative, resolve, sep } from "node:path"
 import { requestContextEstimator } from "../core/compaction.js"
 import { loadProjectContext } from "../core/context.js"
 import { validateAttachments } from "../inference/attachments.js"
@@ -64,7 +65,9 @@ import {
   type PermissionMode,
   type PermissionRule,
 } from "../permissions/policy.js"
-import { loadSkillCatalog, type SkillCatalog } from "../skills/catalog.js"
+import { loadSkillCatalog, type SkillCatalog, type SkillsSummary } from "../skills/catalog.js"
+import type { SkillManager } from "../skills/manager.js"
+import { sessionFile } from "../storage/session-files.js"
 import { providerTools } from "../tools/index.js"
 import { ParallelClient } from "../web/client.js"
 import { ArtifactStore } from "./artifacts.js"
@@ -85,6 +88,7 @@ import {
   isAbortError,
   ModelHost,
   type ModelLoad,
+  type ModelSelection,
   type ModelState,
   resolveFireworksServing,
 } from "./models.js"
@@ -220,6 +224,8 @@ function pickerKey(model: CatalogModel) {
  * broker.
  */
 export class SessionRuntime {
+  /** The model this session runs on; a new runtime starts on the focused one's. */
+  selection: ModelSelection | undefined
   /** An in-place open whose working folder is unknown or gone; prompts wait for a locate. */
   readOnly: { dirName: string; sessionId: string } | undefined
   /** Settled while not focused; cleared on focus. */
@@ -227,6 +233,8 @@ export class SessionRuntime {
   readonly #detach: () => void
 
   constructor(
+    readonly models: ModelHost,
+    selection: ModelSelection | undefined,
     readonly transcript: TranscriptStore,
     readonly subagents: SubagentTraces,
     readonly artifacts: ArtifactStore,
@@ -234,6 +242,7 @@ export class SessionRuntime {
     readonly conversation: Conversation,
     attach: (runtime: SessionRuntime) => () => void,
   ) {
+    this.selection = selection
     this.#detach = attach(this)
   }
 
@@ -243,6 +252,23 @@ export class SessionRuntime {
 
   get busy() {
     return this.conversation.busy
+  }
+
+  /** The gated client this session's requests go through; none until its model serves. */
+  get client() {
+    return this.models.clientFor(this.id, this.selection)
+  }
+
+  /** A live client is the ready state; without one, the host says why, and a failed start is a
+   * failure even before any selection took. */
+  get modelState(): ModelState {
+    if (this.client) return "ready"
+    if (this.models.state === "failed") return "failed"
+    return this.selection ? this.models.state : "unconfigured"
+  }
+
+  get modelError() {
+    return this.client ? undefined : this.models.error
   }
 
   /** Stops the turn, waits it out, and releases the session lock; the runtime is done after. */
@@ -281,6 +307,8 @@ export class Application {
   #debug = false
   /** A local-model deletion is in flight; other model transactions are refused until it settles. */
   #deleting = false
+  /** Sessions whose own selection is in flight; their prompts wait for it to settle. */
+  readonly #switching = new Set<SessionRuntime>()
   /** One catalog lookup at a time resolves an unknown image capability for the selected model. */
   #imageSupport: { modelId: string; promise: Promise<void> } | undefined
 
@@ -288,12 +316,13 @@ export class Application {
     const cwd = resolve(options.cwd ?? process.cwd())
     const settings = await loadLocalSettings({ env: options.env })
     const app = new Application(cwd, settings, options)
-    app.models.applySavedSelection(settings)
+    app.models.applySettings(settings)
+    app.#focused.selection = app.models.savedSelection(settings)
     // A saved selection without a client still needs its server (local, oMLX) or its key.
-    if (!app.models.client)
+    if (!app.#focused.client)
       app.models.setState(app.hasConfiguredSelection() ? "starting" : "unconfigured")
     app.projectContext = loadProjectContext(cwd)
-    app.skills = await loadSkillCatalog(cwd)
+    await app.reloadSkills()
     app.permissionRules = [
       ...(settings.permissions?.rules ?? []),
       ...(await loadProjectPermissionRules(cwd)),
@@ -311,6 +340,13 @@ export class Application {
     this.permissionMode = settings.permissions?.defaultMode ?? DEFAULT_PERMISSION_MODE
     this.permissionRules = [...(settings.permissions?.rules ?? [])]
     this.models = new ModelHost({ env: options.env })
+    this.models.onLocal = (selection) => {
+      for (const runtime of this.#runtimes)
+        if (runtime.selection?.model.provider === "local")
+          runtime.selection = selection
+            ? { ...selection }
+            : { ...runtime.selection, client: undefined }
+    }
     this.models.subscribe(() => {
       this.#notify({ type: "status" })
       // Follow-ups parked by a model switch resume on the settled model, whether the switch
@@ -326,6 +362,7 @@ export class Application {
 
   /** A runtime with its own stores, coordinator, and turn loop, reporting events under its id. */
   #createRuntime(): SessionRuntime {
+    const selection = this.#focused?.selection && { ...this.#focused.selection }
     const transcript = new TranscriptStore()
     const subagents = new SubagentTraces()
     const artifacts = new ArtifactStore(this.cwd)
@@ -334,7 +371,7 @@ export class Application {
       cwd: this.cwd,
       transcript,
       subagents,
-      client: () => this.models.clientFor(runtime.id),
+      client: () => runtime.client,
       isBusy: () => runtime.busy,
       isExiting: this.#isExiting,
       onReset: () => artifacts.clear(),
@@ -347,7 +384,16 @@ export class Application {
       subagents,
       webClient: this.webClient,
       cwd: this.cwd,
-      models: this.models,
+      serving: () => {
+        const client = runtime.client
+        const model = runtime.selection?.model
+        if (!client || !model) return undefined
+        return {
+          client,
+          provider: model.provider,
+          autoCompactAtTokens: this.models.autoCompactAtTokens(model),
+        }
+      },
       projectContext: () => this.projectContext,
       skills: () => this.skills,
       permissionPolicy: () => this.createPermissionPolicy(),
@@ -359,6 +405,8 @@ export class Application {
     })
     conversation.debug = this.#debug
     runtime = new SessionRuntime(
+      this.models,
+      selection,
       transcript,
       subagents,
       artifacts,
@@ -425,8 +473,39 @@ export class Application {
     for (const runtime of this.#runtimes) runtime.conversation.debug = enabled
   }
 
-  /** The sessions open in this process, for marking picker rows. */
-  openSessions(): OpenSession[] {
+  /** Rereads the skills on disk; conversations pick the catalog up from their next turn. */
+  async reloadSkills() {
+    this.skills = await loadSkillCatalog(this.cwd)
+  }
+
+  /** The skills reread from disk as the pickers list them, each with where it comes from. */
+  async listSkills(manager: SkillManager): Promise<SkillsSummary> {
+    await this.reloadSkills()
+    const sources = await manager.list()
+    const managed = new Map(
+      sources.flatMap((source) => source.skills.map((skill) => [skill.name, source.id] as const)),
+    )
+    return {
+      skills: this.skills.skills.map((skill) => {
+        const collection = managed.get(skill.name)
+        return {
+          name: skill.name,
+          description: skill.description,
+          origin: collection
+            ? { collection }
+            : skill.bundled
+              ? "bundled"
+              : dirname(skill.root) === manager.activationDirectory
+                ? "personal"
+                : "project",
+        }
+      }),
+      sources,
+    }
+  }
+
+  /** The sessions open in this process; `shown` are on screen, the focused one alone by default. */
+  openSessions(shown: readonly SessionRuntime[] = [this.#focused]): OpenSession[] {
     return this.#runtimes.flatMap((runtime) => {
       const { current, currentDirName } = runtime.sessions
       if (!current || !currentDirName) return []
@@ -434,7 +513,7 @@ export class Application {
         {
           id: current.id,
           dirName: currentDirName,
-          focused: runtime === this.#focused,
+          shown: shown.includes(runtime),
           working: runtime.busy,
           unseen: runtime.unseen,
         },
@@ -451,11 +530,14 @@ export class Application {
     const extra = this.extraGate?.()
     if (extra) return extra
     if (runtime.readOnly) return "Locate the working folder to continue this session."
-    const { models } = this
-    if (models.state === "starting") return MODEL_STARTING
-    if (models.selecting) return MODEL_SWITCHING
-    if (models.client) return undefined
-    return models.error ?? NO_MODEL
+    if (runtime.modelState === "starting") return MODEL_STARTING
+    // A switch may stop the managed server or reconnect a user-managed one, and always changes
+    // the session that asked for it; a hosted session with its client is otherwise unaffected.
+    const hosted = runtime.selection?.model.provider === "fireworks"
+    if (this.models.selecting && (!hosted || !runtime.client || this.#switching.has(runtime)))
+      return MODEL_SWITCHING
+    if (runtime.client) return undefined
+    return runtime.modelError ?? NO_MODEL
   }
 
   /**
@@ -503,6 +585,26 @@ export class Application {
       this.focus(runtime)
     }
     return "opened"
+  }
+
+  /**
+   * Opens a session in a runtime that does not take focus, for placing beside the focused one:
+   * the runtime already holding it, else a new one. Refused sessions leave nothing behind.
+   */
+  async openBeside(sessionId: string): Promise<SessionRuntime | "locked" | undefined> {
+    const open = this.#runtimes.find((runtime) => runtime.sessions.isCurrent(sessionId))
+    if (open) return open
+    // Opening creates what is missing; a session deleted since is not brought back empty.
+    if (!(await stat(sessionFile({ cwd: this.cwd }, sessionId)).catch(() => undefined)))
+      return undefined
+    const runtime = this.#createRuntime()
+    if ((await runtime.sessions.select(sessionId)) !== "loaded") {
+      await runtime.dispose()
+      return "locked"
+    }
+    this.#runtimes.push(runtime)
+    this.#notify({ type: "status" })
+    return runtime
   }
 
   /** A fresh session: the focused runtime resets in place when idle, else a new one takes focus. */
@@ -575,43 +677,44 @@ export class Application {
   /** Compacts a runtime's context; returns the reason when it is mid-turn. */
   async compact(instructions?: string, runtime = this.#focused): Promise<string | undefined> {
     if (runtime.busy) return SESSION_REASONS.working
-    await runtime.conversation.compact(instructions, this.contextEstimator())
+    await runtime.conversation.compact(instructions, this.contextEstimator(runtime))
     return undefined
   }
 
   status(): AppStatus {
     const { models, sessions, conversation } = this
-    const { selectedId } = models
+    const selection = this.#focused.selection
+    const model = selection?.model
     const fastServing = { available: false, enabled: false }
-    if (models.selectedProvider === "fireworks" && selectedId) {
-      fastServing.enabled = isFastFireworksModel(selectedId)
+    if (model?.provider === "fireworks") {
+      fastServing.enabled = isFastFireworksModel(model.id)
       fastServing.available =
         fastServing.enabled ||
-        models.fastId !== undefined ||
-        this.settings.fastServingModels?.includes(baseFireworksModelId(selectedId)) === true
+        model.fastId !== undefined ||
+        this.settings.fastServingModels?.includes(baseFireworksModelId(model.id)) === true
     }
     return {
       busy: conversation.busy,
       phase: conversation.phase,
       speed: conversation.speed,
-      model: selectedId
+      model: model
         ? {
-            id: selectedId,
-            provider: models.selectedProvider ?? "fireworks",
-            supportsImageInput: models.supportsImageInput === true,
-            ...(models.displayName ? { displayName: models.displayName } : {}),
+            id: model.id,
+            provider: model.provider,
+            supportsImageInput: selection?.supportsImageInput === true,
+            displayName: model.displayName,
           }
         : null,
-      modelState: models.state,
-      modelError: models.error,
+      modelState: this.#focused.modelState,
+      modelError: this.#focused.modelError,
       modelLoad: models.load ?? null,
       session: sessions.current ? { id: sessions.current.id, title: sessions.activeLabel() } : null,
       diffs: sessions.diffs,
       contextTokens: this.contextTokens(),
-      contextLimit: models.autoCompactAtTokens,
+      contextLimit: models.autoCompactAtTokens(model),
       permission: this.permissions.current,
       permissionQueue: Math.max(0, this.permissions.pending.length - 1),
-      localThinking: models.thinkingState(),
+      localThinking: models.thinkingState(model),
       permissionMode: this.permissionMode,
       fastServing,
       hostedConfigured: Boolean(this.fireworksApiKey),
@@ -645,20 +748,17 @@ export class Application {
     }
   }
 
-  #invalidateContext() {
-    for (const runtime of this.#runtimes) runtime.transcript.invalidateContext()
-  }
-
+  /** Thinking effort is per local model, so every session on it changes together. */
   async setLocalThinking(model: string, level: string) {
-    if (this.anyBusy) throw new Error("Finish the current work before changing thinking effort.")
-    if (this.models.selectedProvider !== "local" || this.models.selectedId !== model) {
+    const local = this.#runtimes.filter((runtime) => runtime.selection?.model.provider === "local")
+    if (local.some((runtime) => runtime.busy))
+      throw new Error("Finish the current work before changing thinking effort.")
+    if (!local.some((runtime) => runtime.selection?.model.id === model))
       throw new Error("The selected local model has changed.")
-    }
     const preferences = await saveLocalThinking(model, level)
     this.settings.localThinking = preferences
     this.models.localThinking = preferences
-    this.models.refreshAutoCompact()
-    this.#invalidateContext()
+    for (const runtime of local) runtime.transcript.invalidateContext()
   }
 
   /** Applies and persists the permission behavior for subsequent tool calls. */
@@ -680,8 +780,8 @@ export class Application {
     })
   }
 
-  contextEstimator() {
-    const tools = providerTools(this.models.selectedProvider ?? "fireworks").filter(
+  contextEstimator(runtime = this.#focused) {
+    const tools = providerTools(runtime.selection?.model.provider ?? "fireworks").filter(
       (tool) => tool.name !== "skill" || this.skills.skills.length > 0,
     )
     return requestContextEstimator({
@@ -693,9 +793,10 @@ export class Application {
   }
 
   contextTokens(pendingInput?: UserChatMessage, runtime = this.#focused) {
-    const estimate = this.contextEstimator()
+    const estimate = this.contextEstimator(runtime)
     const { transcript } = runtime
-    const tokens = transcript.contextTokens(this.models.client) ?? estimate(transcript.history)
+    const tokens =
+      transcript.contextTokens(runtime.selection?.client) ?? estimate(transcript.history)
     return pendingInput ? tokens + estimate([pendingInput]) - estimate([]) : tokens
   }
 
@@ -727,52 +828,63 @@ export class Application {
    * serving entry persisted. Server-discovered models (PAIR, oMLX) answer from their discovery.
    */
   async ensureImageSupport(signal?: AbortSignal): Promise<void> {
-    const models = this.models
-    if (models.supportsImageInput === true) return
-    const modelId = models.selectedId
-    if (!modelId) throw new Error("Select a model first.")
+    const runtime = this.#focused
+    const selection = runtime.selection
+    if (!selection) throw new Error("Select a model first.")
+    if (selection.supportsImageInput === true) return
+    const { model } = selection
     const unsupported = () =>
-      new Error(
-        `${models.displayName ?? modelId} does not support image input. Choose a vision model.`,
-      )
-    if (models.supportsImageInput === false) throw unsupported()
+      new Error(`${model.displayName} does not support image input. Choose a vision model.`)
+    if (selection.supportsImageInput === false) throw unsupported()
     const apiKey = this.fireworksApiKey
-    if (models.selectedProvider !== "fireworks" || !apiKey) {
-      models.supportsImageInput =
-        models.selectedProvider === "local" && findLocalModel(modelId)?.supportsImageInput === true
+    if (model.provider !== "fireworks" || !apiKey) {
+      selection.supportsImageInput =
+        model.provider === "local" && findLocalModel(model.id)?.supportsImageInput === true
       this.#notify({ type: "status" })
-      if (!models.supportsImageInput) throw unsupported()
+      if (!selection.supportsImageInput) throw unsupported()
       return
     }
-    if (this.#imageSupport?.modelId !== modelId) {
+    if (this.#imageSupport?.modelId !== model.id) {
       const promise = (async () => {
-        const { serving } = await resolveFireworksServing(apiKey, modelId, {
-          fast: isFastFireworksModel(modelId),
+        const { serving } = await resolveFireworksServing(apiKey, model.id, {
+          fast: isFastFireworksModel(model.id),
           signal,
         })
-        if (models.selectedId !== modelId)
+        if (runtime.selection !== selection)
           throw new Error("The selected model changed while checking image support.")
-        models.supportsImageInput = serving.supportsImageInput
+        selection.supportsImageInput = serving.supportsImageInput
         await saveSelectedModel(serving)
         this.#notify({ type: "status" })
       })().finally(() => {
         if (this.#imageSupport?.promise === promise) this.#imageSupport = undefined
       })
-      this.#imageSupport = { modelId, promise }
+      this.#imageSupport = { modelId: model.id, promise }
     }
     await this.#imageSupport.promise
-    if (!models.supportsImageInput) throw unsupported()
+    if (!selection.supportsImageInput) throw unsupported()
   }
 
   hasConfiguredSelection() {
-    const { selectedId, selectedProvider, omlx, pairEngine } = this.models
+    const model = this.#focused.selection?.model
     return Boolean(
-      selectedId &&
-        ((selectedProvider === "fireworks" && this.fireworksApiKey) ||
-          selectedProvider === "local" ||
-          (selectedProvider === "omlx" && omlx) ||
-          (selectedProvider === "pair" && pairEndpointForEngine(this.pairEndpoints, pairEngine))),
+      model &&
+        ((model.provider === "fireworks" && this.fireworksApiKey) ||
+          model.provider === "local" ||
+          (model.provider === "omlx" && this.models.omlx) ||
+          (model.provider === "pair" && pairEndpointForEngine(this.pairEndpoints, model.engine))),
     )
+  }
+
+  /** The focused session's model, for adapters that show one. */
+  get selection() {
+    return this.#focused.selection
+  }
+
+  /** Connects a model outright for the focused session, outside the selection queue. */
+  async connectModel(options: Parameters<ModelHost["connect"]>[0]) {
+    const selection = await this.models.connect(options)
+    this.#focused.selection = selection
+    return selection
   }
 
   /**
@@ -781,11 +893,11 @@ export class Application {
    */
   async connectLocalServers(input: LocalServerInputs, options: LocalServerDiscoveryOptions = {}) {
     if (this.anyBusy) throw new Error("Wait for the current turn before changing local servers.")
-    const models = this.models
     try {
       return await this.#connectLocalServers(input, options)
     } catch (error) {
-      if (models.selectedId && !models.client) models.setState("failed", describeError(error))
+      if (this.#runtimes.some((runtime) => runtime.selection && !runtime.client))
+        this.models.setState("failed", describeError(error))
       throw error
     }
   }
@@ -799,20 +911,27 @@ export class Application {
         signal: combined,
       })
       combined.throwIfAborted()
-      const id = models.selectedId
-      const omlxModel =
-        id &&
-        models.selectedProvider === "omlx" &&
-        servers.omlxModels.find((entry) => entry.id === id)
-      if (omlxModel) {
+      // The sessions on a user-managed server follow its refreshed endpoints and models.
+      const served = this.#runtimes.flatMap((runtime) => {
+        const selection = runtime.selection
+        const provider = selection?.model.provider
+        return selection && (provider === "pair" || provider === "omlx")
+          ? [{ runtime, selection }]
+          : []
+      })
+      for (const { runtime, selection } of served) {
+        const { model } = selection
+        const omlxModel =
+          model.provider === "omlx" && servers.omlxModels.find((entry) => entry.id === model.id)
+        if (!omlxModel) continue
         try {
           requireLocalContextLength(omlxModel.contextLength, "oMLX")
         } catch (error) {
           // A refreshed limit invalidates the existing client only when it describes the same
           // server.
           if (omlxModel.baseURL === models.omlx?.baseURL) {
-            models.client = undefined
-            this.#invalidateContext()
+            runtime.selection = { ...selection, client: undefined }
+            runtime.transcript.invalidateContext()
           }
           throw error
         }
@@ -820,29 +939,37 @@ export class Application {
       await saveLocalServers(servers)
       this.pairEndpoints = servers.pairEndpoints
       models.omlx = servers.omlx
-      if (id && models.selectedProvider === "pair") {
-        const model = servers.pairModels.find(
-          (entry) => entry.id === id && entry.engine === models.pairEngine,
-        )
-        if (model)
-          models.activate(
-            model,
-            createPairClient({ baseURL: model.baseURL, model: id, engine: model.engine }),
-          )
-        else models.client = undefined
+      for (const { runtime, selection } of served) {
+        const { model } = selection
+        const refreshed =
+          model.provider === "pair"
+            ? servers.pairModels.find(
+                (entry) => entry.id === model.id && entry.engine === model.engine,
+              )
+            : servers.omlxModels.find((entry) => entry.id === model.id)
+        const client =
+          refreshed?.provider === "pair"
+            ? createPairClient({
+                baseURL: refreshed.baseURL,
+                model: model.id,
+                engine: refreshed.engine,
+              })
+            : refreshed
+              ? models.omlxClient(model.id, refreshed.baseURL)
+              : undefined
+        runtime.selection = {
+          model: refreshed ?? model,
+          supportsImageInput: refreshed?.supportsImageInput ?? selection.supportsImageInput,
+          client,
+        }
       }
-      if (id && models.selectedProvider === "omlx") {
-        if (omlxModel) models.activate(omlxModel, models.omlxClient(id, omlxModel.baseURL))
-        else models.client = undefined
-      }
-      const provider = models.selectedProvider
-      if (id && !models.client && (provider === "pair" || provider === "omlx")) {
+      if (served.some(({ runtime }) => !runtime.client)) {
         models.setState(
           "failed",
           "The local model server for the selected model is no longer available. Reconnect or choose another model.",
         )
       }
-      this.#invalidateContext()
+      for (const runtime of this.#runtimes) runtime.transcript.invalidateContext()
       return servers
     })
     if (!connection) throw new Error("The connection was cancelled.")
@@ -852,71 +979,67 @@ export class Application {
   /**
    * Activates the saved selection through the selection queue: a model picked while the saved one
    * is still loading supersedes startup, so its late commit can never reactivate the old model
-   * over the new one. Fireworks and PAIR clients already exist after `applySavedSelection`; a
+   * over the new one. Fireworks and PAIR clients already exist from `savedSelection`; a
    * saved local model still needs its managed llama-server started before any conversation can
    * run, and a saved oMLX model its server reached. Throws with the serving error when startup
-   * fails and marks the host failed; a superseded, cancelled, or exiting startup leaves model state
-   * to whoever took over. The previous selection is left untouched either way.
+   * fails and marks the host failed. Once startup is over, however it went, the host no longer
+   * reads as starting; a failure keeps its message. The previous selection is left untouched.
    */
   async startSavedSelection(
     options: { signal?: AbortSignal; isExiting?: () => boolean } = {},
   ): Promise<"ready" | "unconfigured" | "superseded"> {
     const models = this.models
-    if (models.client) return "ready"
-    if (!models.selectedId || !models.selectedProvider) {
-      models.setState("unconfigured")
-      return "unconfigured"
+    const runtime = this.#focused
+    try {
+      if (runtime.client) return "ready"
+      if (!runtime.selection) return "unconfigured"
+      const result = await models.enqueueSelection(async (queued) => {
+        const signal = options.signal ? AbortSignal.any([queued, options.signal]) : queued
+        const superseded = () => signal.aborted || options.isExiting?.() === true
+        let result: "ready" | "unconfigured"
+        try {
+          result = await this.#startSavedSelection(runtime, signal, options.isExiting)
+        } catch (error) {
+          if (queued.aborted) return "superseded" as const
+          if (superseded() || isAbortError(error)) throw error
+          models.setLoad(undefined)
+          models.setState("failed", describeError(error))
+          throw error
+        }
+        if (!superseded()) models.setLoad(undefined)
+        return result
+      })
+      return result ?? "superseded"
+    } finally {
+      if (models.state === "starting") models.setState("unconfigured")
     }
-    const result = await models.enqueueSelection(async (queued) => {
-      const signal = options.signal ? AbortSignal.any([queued, options.signal]) : queued
-      const superseded = () => signal.aborted || options.isExiting?.() === true
-      let result: "ready" | "unconfigured"
-      try {
-        result = await this.#startSavedSelection(signal, options.isExiting)
-      } catch (error) {
-        if (queued.aborted) return "superseded" as const
-        if (superseded() || isAbortError(error)) throw error
-        models.setLoad(undefined)
-        models.setState("failed", describeError(error))
-        throw error
-      }
-      if (superseded()) return result
-      models.setLoad(undefined)
-      if (!models.client) models.setState("unconfigured")
-      return result
-    })
-    return result ?? "superseded"
   }
 
   async #startSavedSelection(
+    runtime: SessionRuntime,
     signal: AbortSignal,
     isExiting?: () => boolean,
   ): Promise<"ready" | "unconfigured"> {
     const models = this.models
-    if (models.client) return "ready"
-    if (!models.selectedId || !models.selectedProvider) return "unconfigured"
-    if (models.selectedProvider === "omlx") {
-      await models.connect({ provider: "omlx", modelId: models.selectedId, signal })
+    if (runtime.client) return "ready"
+    const model = runtime.selection?.model
+    if (!model) return "unconfigured"
+    if (model.provider === "omlx") {
+      runtime.selection = await models.connect({ provider: "omlx", modelId: model.id, signal })
       return "ready"
     }
-    if (models.selectedProvider !== "local") return "unconfigured"
-    const modelId = models.selectedId
-    const spec = findLocalModel(modelId)
-    if (!spec) throw new Error(`Unknown local model: ${modelId}`)
-    const prepared = await models.prepare(
-      catalogModelFromSpec(spec, this.settings.modelContextLength),
-      {
-        fireworksApiKey: this.fireworksApiKey,
-        signal,
-        isExiting,
-        onLocalProgress: (progress) => {
-          models.setLoad({
-            modelId,
-            status: { label: formatLocalLoadStatus(progress), kind: "progress" },
-          })
-        },
+    if (model.provider !== "local") return "unconfigured"
+    const prepared = await models.prepare(model, {
+      fireworksApiKey: this.fireworksApiKey,
+      signal,
+      isExiting,
+      onLocalProgress: (progress) => {
+        models.setLoad({
+          modelId: model.id,
+          status: { label: formatLocalLoadStatus(progress), kind: "progress" },
+        })
       },
-    )
+    })
     if (signal.aborted) {
       await prepared.rollback({ restorePrevious: false })
       signal.throwIfAborted()
@@ -949,56 +1072,87 @@ export class Application {
     target: ModelPickerChoice | CatalogModel,
     options: SelectModelOptions = {},
   ): Promise<SelectionResult> {
-    if (this.#deleting || this.anyBusy)
-      return { ok: false, reason: "Finish the current work before switching models." }
+    const runtime = this.#focused
+    const refusal = this.#switchRefusal(runtime, target.provider)
+    if (refusal) return refusal
     const models = this.models
     const choice = "kind" in target ? target : undefined
     if (choice && !isSelectablePickerItem(choice)) {
       const label = "availabilityLabel" in choice ? choice.availabilityLabel : undefined
       return { ok: false, reason: label ?? "This model is not available on this machine." }
     }
-    const selection = await models.enqueueSelection(async (queued): Promise<SelectionResult> => {
-      const signal = options.signal ? AbortSignal.any([queued, options.signal]) : queued
-      if (signal.aborted) return SUPERSEDED
-      const active = choice
-        ? choice.active
-        : models.selectedId === target.id && models.selectedProvider === target.provider
-      // A managed server that died since it was ready must be restarted, not shortcut.
-      const serving = target.provider !== "local" || models.llama.alive
-      if (active && models.client && serving && target.provider !== "omlx") return { ok: true }
-      // Defense in depth: no driver can start while a selection is open, so running work here
-      // means a turn outlived the entry check. Parked follow-ups are safe until settle.
-      if (this.anyBusy)
-        return { ok: false, reason: "Finish the current work before switching models." }
-      const selected: CatalogModel = !choice
-        ? target
-        : choice.provider === "local"
-          ? toLocalCatalogModel(choice)
-          : choice.provider === "pair"
-            ? toPairCatalogModel(choice)
-            : choice.provider === "omlx"
-              ? toOmlxCatalogModel(choice)
-              : fireworksServingModel(
-                  fireworksCatalogModel(choice),
-                  this.fastServingEnabled(choice.id),
-                )
-      const fireworksApiKey = options.fireworksApiKey ?? this.fireworksApiKey
-      try {
-        await models.persistSelection(selected, {
-          signal,
-          fireworksApiKey,
-          persist: options.persist ?? ((serving) => saveSelectedModel(serving)),
-          loadKey: pickerKey(selected),
-        })
-      } catch (error) {
-        if (signal.aborted || isAbortError(error)) return CANCELLED
-        return { ok: false, reason: describeError(error) }
-      }
-      if (options.fireworksApiKey) this.fireworksApiKey = options.fireworksApiKey
-      this.#notify({ type: "status" })
-      return { ok: true }
-    })
+    this.#switching.add(runtime)
+    const selection = await models
+      .enqueueSelection(async (queued): Promise<SelectionResult> => {
+        const signal = options.signal ? AbortSignal.any([queued, options.signal]) : queued
+        if (signal.aborted) return SUPERSEDED
+        const current = runtime.selection?.model
+        const active = choice
+          ? choice.active
+          : current?.id === target.id && current.provider === target.provider
+        // A managed server that died since it was ready must be restarted, not shortcut.
+        const serving = target.provider !== "local" || models.llama.alive
+        if (active && runtime.client && serving && target.provider !== "omlx") return { ok: true }
+        // Defense in depth: no session a switch affects can start a turn while one is queued, so
+        // running work here means a turn outlived the entry check.
+        const refusal = this.#switchRefusal(runtime, target.provider)
+        if (refusal) return refusal
+        const selected: CatalogModel = !choice
+          ? target
+          : choice.provider === "local"
+            ? toLocalCatalogModel(choice)
+            : choice.provider === "pair"
+              ? toPairCatalogModel(choice)
+              : choice.provider === "omlx"
+                ? toOmlxCatalogModel(choice)
+                : fireworksServingModel(
+                    fireworksCatalogModel(choice),
+                    this.fastServingEnabled(choice.id),
+                  )
+        const fireworksApiKey = options.fireworksApiKey ?? this.fireworksApiKey
+        try {
+          runtime.selection = await models.persistSelection(selected, {
+            signal,
+            fireworksApiKey,
+            keepLocal: this.#localElsewhere(runtime),
+            persist: options.persist ?? ((serving) => saveSelectedModel(serving)),
+            loadKey: pickerKey(selected),
+          })
+        } catch (error) {
+          if (signal.aborted || isAbortError(error)) return CANCELLED
+          return { ok: false, reason: describeError(error) }
+        }
+        if (options.fireworksApiKey) this.fireworksApiKey = options.fireworksApiKey
+        this.#notify({ type: "status" })
+        return { ok: true }
+      })
+      .finally(() => this.#switching.delete(runtime))
     return selection ?? SUPERSEDED
+  }
+
+  /** Sessions other than `runtime` that run on the managed server. */
+  #localElsewhere(runtime: SessionRuntime) {
+    return this.#runtimes.some(
+      (other) => other !== runtime && other.selection?.model.provider === "local",
+    )
+  }
+
+  /**
+   * A switch is refused while its session works, and a switch of the managed server while any
+   * session on it works, since the server restart would cut those turns off.
+   */
+  #switchRefusal(runtime: SessionRuntime, provider: ModelProvider): SelectionResult | undefined {
+    const restartsServer =
+      provider === "local" ||
+      (runtime.selection?.model.provider === "local" && !this.#localElsewhere(runtime))
+    const affected = restartsServer
+      ? this.#runtimes.filter(
+          (other) => other === runtime || other.selection?.model.provider === "local",
+        )
+      : [runtime]
+    if (this.#deleting || affected.some((other) => other.busy))
+      return { ok: false, reason: "Finish the current work before switching models." }
+    return undefined
   }
 
   fastServingEnabled(modelId: string) {
@@ -1014,48 +1168,53 @@ export class Application {
     fast: boolean,
     options: { catalog?: readonly FireworksModel[]; signal?: AbortSignal } = {},
   ): Promise<SelectionResult> {
-    if (this.#deleting || this.anyBusy)
+    const runtime = this.#focused
+    if (this.#deleting || runtime.busy)
       return { ok: false, reason: "Finish the current work before changing Fast serving." }
     const models = this.models
-    if (models.selectedProvider !== "fireworks" || !models.selectedId)
+    if (runtime.selection?.model.provider !== "fireworks")
       return { ok: false, reason: NO_FAST_SERVING }
-    const selection = await models.enqueueSelection(async (queued): Promise<SelectionResult> => {
-      const signal = options.signal ? AbortSignal.any([queued, options.signal]) : queued
-      const selectedId = models.selectedId
-      const apiKey = this.fireworksApiKey
-      if (!selectedId || models.selectedProvider !== "fireworks")
-        return { ok: false, reason: NO_FAST_SERVING }
-      if (isFastFireworksModel(selectedId) === fast) return { ok: true }
-      if (signal.aborted) return SUPERSEDED
-      let catalog = options.catalog
-      try {
-        if (!catalog?.length) {
-          if (!apiKey) return { ok: false, reason: NO_FAST_SERVING }
-          catalog = await listToolCapableModels(apiKey, { signal })
+    this.#switching.add(runtime)
+    const selection = await models
+      .enqueueSelection(async (queued): Promise<SelectionResult> => {
+        const signal = options.signal ? AbortSignal.any([queued, options.signal]) : queued
+        const current = runtime.selection?.model
+        const apiKey = this.fireworksApiKey
+        if (current?.provider !== "fireworks") return { ok: false, reason: NO_FAST_SERVING }
+        const selectedId = current.id
+        if (isFastFireworksModel(selectedId) === fast) return { ok: true }
+        if (signal.aborted) return SUPERSEDED
+        let catalog = options.catalog
+        try {
+          if (!catalog?.length) {
+            if (!apiKey) return { ok: false, reason: NO_FAST_SERVING }
+            catalog = await listToolCapableModels(apiKey, { signal })
+          }
+        } catch (error) {
+          return { ok: false, reason: describeError(error) }
         }
-      } catch (error) {
-        return { ok: false, reason: describeError(error) }
-      }
-      const model = findFireworksModel(catalog, selectedId)
-      if (!model?.fastId) return { ok: false, reason: NO_FAST_SERVING }
-      const serving = fireworksServingModel(model, fast)
-      try {
-        await models.persistSelection(serving, {
-          signal,
-          fireworksApiKey: apiKey,
-          persist: (saved) => saveFastServingSelection(saved as FireworksModel, fast),
-        })
-      } catch (error) {
-        if (signal.aborted || isAbortError(error)) return CANCELLED
-        return { ok: false, reason: describeError(error) }
-      }
-      const enabled = new Set(this.settings.fastServingModels ?? [])
-      if (fast) enabled.add(model.id)
-      else enabled.delete(model.id)
-      this.settings.fastServingModels = [...enabled].sort()
-      this.#notify({ type: "status" })
-      return { ok: true }
-    })
+        const model = findFireworksModel(catalog, selectedId)
+        if (!model?.fastId) return { ok: false, reason: NO_FAST_SERVING }
+        const serving = fireworksServingModel(model, fast)
+        try {
+          runtime.selection = await models.persistSelection(serving, {
+            signal,
+            fireworksApiKey: apiKey,
+            keepLocal: this.#localElsewhere(runtime),
+            persist: (saved) => saveFastServingSelection(saved as FireworksModel, fast),
+          })
+        } catch (error) {
+          if (signal.aborted || isAbortError(error)) return CANCELLED
+          return { ok: false, reason: describeError(error) }
+        }
+        const enabled = new Set(this.settings.fastServingModels ?? [])
+        if (fast) enabled.add(model.id)
+        else enabled.delete(model.id)
+        this.settings.fastServingModels = [...enabled].sort()
+        this.#notify({ type: "status" })
+        return { ok: true }
+      })
+      .finally(() => this.#switching.delete(runtime))
     return selection ?? SUPERSEDED
   }
 
@@ -1075,9 +1234,14 @@ export class Application {
     if (catalog.length === 0) throw new Error(NO_TOOL_MODELS)
     await saveFireworksApiKey(key)
     this.fireworksApiKey = key
-    const { models } = this
-    if (models.selectedProvider === "fireworks" && models.selectedId)
-      models.client = new FireworksClient({ apiKey: key, model: models.selectedId })
+    for (const runtime of this.#runtimes) {
+      const selection = runtime.selection
+      if (selection?.model.provider === "fireworks")
+        runtime.selection = {
+          ...selection,
+          client: new FireworksClient({ apiKey: key, model: selection.model.id }),
+        }
+    }
     this.#notify({ type: "status" })
     return catalog
   }
@@ -1099,17 +1263,21 @@ export class Application {
     this.#deleting = true
     try {
       const deleted = await models.enqueueSelection(async () => {
-        const active = models.selectedProvider === "local" && models.selectedId === spec.id
+        const users = this.#runtimes.filter(
+          (runtime) =>
+            runtime.selection?.model.provider === "local" && runtime.selection.model.id === spec.id,
+        )
+        const active = users.length > 0
         const previousActive = models.activeLocal
         let settingsCleared = false
         try {
           const downloaded = await listDownloadedLocalModels()
           const deletingLast = downloaded.length === 1 && downloaded[0]?.id === spec.id
-          if (active) {
+          if ((await loadLocalSettings()).model === spec.id) {
             await clearSelectedModel()
             settingsCleared = true
           }
-          if (active || deletingLast) await models.llama.stop()
+          if (active || deletingLast) await models.stopLocal()
           await deleteLocalGguf(spec)
         } catch (error) {
           let failure = error
@@ -1126,7 +1294,11 @@ export class Application {
           }
           throw new Error(`Could not delete ${spec.displayName}: ${describeError(failure)}`)
         }
-        if (active) models.clearActive()
+        for (const runtime of users) runtime.selection = undefined
+        if (active) {
+          models.cancelPrepare()
+          models.setState("unconfigured")
+        }
         return { wasActive: active, remaining: await listDownloadedLocalModels() }
       })
       if (!deleted) throw new Error(SELECTION_CANCELLED)

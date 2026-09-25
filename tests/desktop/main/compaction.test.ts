@@ -59,10 +59,12 @@ describe("desktop compaction through the shared runtime", () => {
         }
       },
     }
-    app.models.client = client
-    app.models.selectedId = "fake"
-    app.models.selectedProvider = "fireworks"
-    app.models.autoCompactAtTokens = 20_000
+    app.focused.selection = {
+      model: { provider: "fireworks", id: "fake", displayName: "fake", supportsImageInput: false },
+      supportsImageInput: false,
+      client,
+    }
+    vi.spyOn(app.models, "autoCompactAtTokens").mockReturnValue(20_000)
     const sent: DesktopEvent[] = []
     const runtime = DesktopRuntime.forApplication(app, {
       cwd,

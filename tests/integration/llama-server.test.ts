@@ -65,10 +65,10 @@ describe.skipIf(reason)(`real llama-server through the Application (${cached?.sp
 
   /** The model's row as the pickers list it for this application's current selection. */
   async function pickerRow(application: Application) {
-    const { models } = application
+    const { models, selection } = application
     const items = await listModelPickerItems({
-      currentModel: models.selectedId,
-      currentProvider: models.selectedProvider,
+      currentModel: selection?.model.id,
+      currentProvider: selection?.model.provider,
       loadStatus: models.load,
       loadedLocalModel: models.activeLocal
         ? { model: models.activeLocal.spec.id, contextLength: models.activeLocal.contextLength }

@@ -92,8 +92,9 @@ Update an existing CLI installation with `otis update`.
     <td valign="middle">
       <b>5. Run several sessions at once</b><br><br>
       Sessions keep working when you switch away. Chips above the composer show the ones off screen, with a dot for
-      the ones still working. Drag a chip onto an edge for up to four side by side, or onto a card to swap. Otis
-      notifies you when a background session finishes.
+      the ones still working. Drag a chip, or a session from <code>⌘K</code>, onto an edge for up to four side by
+      side, or onto a card to swap. Open a session from history later and the ones it shared the screen with come
+      back beside it, as you placed them. Otis notifies you when a background session finishes.
     </td>
     <td><img src="docs/screens/split.png" alt="Two sessions side by side with the others as chips" width="100%"></td>
   </tr>
@@ -165,6 +166,7 @@ otis
 | `/history` | Browse, open, or delete local sessions |
 | `/model` | Choose a managed-local, local-server, or hosted model |
 | `/settings` | Configure Fireworks or local servers, delete local models, or toggle debug mode |
+| `/skills` | List loaded Agent Skills; install, update, or remove Git collections |
 | `/fast` | Toggle Fast serving when the current model supports it |
 | `/compact [instructions]` | Summarize older conversation and free context |
 | `/thinking` | Toggle model-provided thinking traces |
