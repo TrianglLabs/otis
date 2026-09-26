@@ -39,10 +39,10 @@ describe("ReasoningCard", () => {
       />,
     )
     const status = getByRole("status")
-    const cube = status.querySelector("svg")
+    const orb = status.querySelector("canvas")
     const label = status.querySelector(".thinking-label")
     expect(status.textContent).toBe("Thinking…")
-    expect(cube?.getAttribute("aria-hidden")).toBe("true")
+    expect(orb?.getAttribute("aria-hidden")).toBe("true")
 
     rerender(
       <TestEntry
@@ -55,7 +55,7 @@ describe("ReasoningCard", () => {
       />,
     )
     expect(getByRole("status")).toBe(status)
-    expect(status.querySelector("svg")).toBe(cube)
+    expect(status.querySelector("canvas")).toBe(orb)
     expect(status.querySelector(".thinking-label")).toBe(label)
     if (!thinkingVisible) expect(container.textContent).not.toContain("Considering")
   })
@@ -78,9 +78,10 @@ describe("ReasoningCard", () => {
     )
     expect(queryByRole("status")).toBeNull()
     expect(container.querySelector(".thinking-label")).toBeNull()
-    expect(
-      getByRole("button", { name: "Thought for 2.3s" }).querySelector(".reasoning-cube"),
-    ).toBeTruthy()
+    // Only the chevron: no mark or orb on a settled thought.
+    expect(getByRole("button", { name: "Thought for 2.3s" }).querySelectorAll("svg")).toHaveLength(
+      1,
+    )
     expect(container.querySelector(".reasoning-body")).toBeNull()
   })
 
@@ -96,7 +97,11 @@ describe("ReasoningCard", () => {
       />,
     )
     const preview = container.querySelector(".reasoning-preview")
-    expect(preview?.textContent).toBe("second thought\nthird thought\nfourth thought")
+    expect(preview?.textContent).toBe(
+      "first thought\nsecond thought\nthird thought\nfourth thought",
+    )
+    // Every word is its own span so new ones fade in; the viewport glides to the freshest lines.
+    expect(preview?.querySelectorAll(".streamWord")).toHaveLength(8)
   })
 
   it("keeps finished thinking collapsed until the row is clicked", () => {

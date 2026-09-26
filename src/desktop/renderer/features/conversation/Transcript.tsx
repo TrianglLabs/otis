@@ -5,6 +5,7 @@ import type { PaneDrop, PaneSide, PendingPermission, SessionOpResult } from "../
 import { Button } from "../../components/Button.js"
 import { FileTypeIcon } from "../../components/FileTypeIcon.js"
 import { Icon } from "../../components/Icon.js"
+import { MatrixLoader } from "../../components/MatrixLoader.js"
 import { OtisMark } from "../../components/OtisMark.js"
 import { formatAge, formatSessionDetail, formatTokenCount, inView } from "../../format.js"
 import { useI18n } from "../../i18n/index.js"
@@ -225,7 +226,7 @@ const ConversationPane = memo(function ConversationPane({
           <span className="paneHead-lead">
             <Icon icon={MessagesSquare} size={13} className="paneHead-glyph" />
             {state.busy ? (
-              <span className="stateDot stateDot-working" title={t("session.working")} />
+              <MatrixLoader title={t("session.working")} />
             ) : state.unseen ? (
               <span className="stateDot" title={t("session.finished")} />
             ) : null}
@@ -325,7 +326,7 @@ export const SessionStrip = memo(function SessionStrip() {
           onClick={() => void api.focusSession(runtime.runtime)}
         >
           {runtime.busy ? (
-            <span className="stateDot stateDot-working" title={t("session.working")} />
+            <MatrixLoader title={t("session.working")} />
           ) : runtime.unseen ? (
             <span className="stateDot" title={t("session.finished")} />
           ) : null}
@@ -339,9 +340,9 @@ export const SessionStrip = memo(function SessionStrip() {
 const RECENT_SESSIONS = 4
 
 /**
- * A quiet home screen centered on the brand mark: the current setup in one line, sessions to pick
- * up first, then recent sessions by workspace and recent Canvas documents. First run — no history
- * anywhere — shows only the mark and any setup guidance.
+ * A quiet home screen: the mark and any setup guidance, then one list on the composer's width of
+ * recent sessions and recent Canvas documents. First run — no history anywhere — shows only the
+ * mark and any setup guidance.
  */
 function EmptyState() {
   const { api } = useDesktop()
@@ -380,37 +381,40 @@ function EmptyState() {
         ) : null}
       </div>
       {firstRun ? null : (
-        <div className="home-gallery">
+        <div className="home-recents">
+          <span className="home-eyebrow">
+            {t("home.recent")}
+            <span>{t("home.searchSessions")}</span>
+          </span>
           {recents.map((session) => (
             <button
               key={`${session.dirName}:${session.id}`}
               type="button"
-              className={`home-tile${inView(hovered, session) ? " home-tile-grouped" : ""}`}
+              className={`home-row${inView(hovered, session) ? " home-row-grouped" : ""}`}
               title={session.title}
               onMouseEnter={() => setHovered(session)}
               onMouseLeave={() => setHovered(undefined)}
               onClick={() => void open(() => api.selectSession(session.id, session.dirName))}
             >
-              <span className="home-tileHead">
-                <span className="home-tileIcon">
-                  <Icon icon={MessagesSquare} size={16} />
-                  {session.working ? (
-                    <span className="stateDot stateDot-working home-tileDot" />
-                  ) : session.unseen || session.resumable ? (
-                    <span className="stateDot home-tileDot" />
-                  ) : null}
-                </span>
-                <span className="home-tileAge">{formatSessionDetail(session.detail, locale)}</span>
+              <span className="home-rowIcon">
+                {session.working ? <MatrixLoader /> : <Icon icon={MessagesSquare} size={15} />}
+                {!session.working && (session.unseen || session.resumable) ? (
+                  <span className="stateDot home-rowDot" />
+                ) : null}
               </span>
-              <span className="home-tileName">{session.title}</span>
-              <span className="home-tileWorkspace">{session.workspaceLabel}</span>
+              <span className="home-rowTitle">
+                <span>{session.title}</span>
+                <span className="home-rowWorkspace">{session.workspaceLabel}</span>
+              </span>
+              <span className="home-rowAge">{formatSessionDetail(session.detail, locale)}</span>
             </button>
           ))}
+          {documents.length ? <span className="home-eyebrow">{t("home.documents")}</span> : null}
           {documents.map((document) => (
             <button
               key={document.reference.artifactId}
               type="button"
-              className="home-tile"
+              className="home-row"
               title={document.name}
               onClick={() =>
                 void open(async () => {
@@ -419,25 +423,21 @@ function EmptyState() {
                 })
               }
             >
-              <span className="home-tileHead">
-                <span className="home-tileIcon">
-                  <FileTypeIcon kind={document.kind} name={document.name} size="sm" />
-                </span>
-                <span className="home-tileAge">{formatAge(document.updatedAt, locale)}</span>
+              <span className="home-rowIcon">
+                <FileTypeIcon kind={document.kind} name={document.name} size="sm" />
               </span>
-              <span className="home-tileName">{document.name}</span>
-              <span className="home-tileWorkspace">{document.workspaceLabel}</span>
+              <span className="home-rowTitle">
+                <span>{document.name}</span>
+                <span className="home-rowWorkspace">{document.workspaceLabel}</span>
+              </span>
+              <span className="home-rowAge">{formatAge(document.updatedAt, locale)}</span>
             </button>
           ))}
-          <span className="home-galleryFooter">
-            {error ? (
-              <span className="home-error" role="alert">
-                {error}
-              </span>
-            ) : (
-              t("home.searchSessions")
-            )}
-          </span>
+          {error ? (
+            <span className="home-error" role="alert">
+              {error}
+            </span>
+          ) : null}
         </div>
       )}
     </div>

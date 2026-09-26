@@ -129,7 +129,7 @@
 .workspaceRail-tabs button[aria-selected="true"],
 .workspaceRail-tabs button[aria-selected="true"]:hover {
   color: var(--text);
-  background: var(--bg-elev);
+  background: var(--bg-selected);
 }
 
 .workspaceRail-views {
@@ -216,7 +216,7 @@
 
 .agentsRow-open,
 .agentsRow-open:hover {
-  background: var(--bg-elev);
+  background: var(--bg-selected);
 }
 
 .agentsRow-status {
@@ -225,23 +225,12 @@
   color: var(--text-dim);
 }
 
-.agentsRow-running {
-  color: var(--accent);
-  animation: agentsRow-spin 1s linear infinite;
-}
-
 .agentsRow-complete {
   color: var(--success);
 }
 
 .agentsRow-failed {
   color: var(--danger);
-}
-
-@keyframes agentsRow-spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 .agentsRow-text {
@@ -276,7 +265,7 @@
   position: fixed;
   top: 10vh;
   left: 50%;
-  transform: translateX(-50%);
+  translate: -50% 0;
   z-index: var(--z-overlay);
   width: 640px;
   max-width: calc(100vw - 64px);

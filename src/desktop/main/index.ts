@@ -266,11 +266,12 @@ if (!app.requestSingleInstanceLock()) {
       window,
       devServerUrl ?? pathToFileURL(join(__dirname, "../renderer/index.html")).href,
     )
+    // OTIS_DEMO=1 opens the fixture home screen; "onboarding" or a fixture session id opens there.
     const demo =
       process.env.OTIS_DEMO === "1"
         ? "demo"
-        : process.env.OTIS_DEMO === "onboarding"
-          ? "demo=onboarding"
+        : process.env.OTIS_DEMO
+          ? `demo=${process.env.OTIS_DEMO}`
           : undefined
     const loaded = devServerUrl
       ? window.loadURL(demo ? `${devServerUrl}?${demo}` : devServerUrl)

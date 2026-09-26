@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import type { ArtifactMetadata } from "../../../src/artifacts/types.js"
 import { createDemoRuntime } from "../../../src/desktop/renderer/demo/demo-runtime.js"
 import type { LocalPickerChoice } from "../../../src/inference/picker-catalog.js"
+import { TOOL_ACTIONS, TOOL_ACTIVITY_KINDS } from "../../../src/tools/activity.js"
 
 /** The Canvas tab in view: the one that last took it. */
 function shown(snapshot: { artifacts: { artifact: ArtifactMetadata; activated: number }[] }) {
@@ -95,6 +96,17 @@ describe("demo runtime sessions", () => {
     expect(fresh.runtimes.map((entry) => entry.session?.id)).toEqual(
       expect.arrayContaining(["session_demo2", "session_demo3"]),
     )
+  })
+
+  it("shows every tool label and activity kind the runtime can produce", async () => {
+    const api = createDemoRuntime()
+    expect(await api.selectSession("session_tools")).toEqual({ ok: true })
+    const tools = (await api.getSnapshot()).entries.filter((entry) => entry.kind === "tool")
+    expect(new Set(tools.map((entry) => entry.activityAction))).toEqual(
+      new Set(Object.keys(TOOL_ACTIONS)),
+    )
+    expect(new Set(tools.map((entry) => entry.activityKind))).toEqual(new Set(TOOL_ACTIVITY_KINDS))
+    expect(tools.some((entry) => entry.diff)).toBe(true)
   })
 
   it("opens a session from an unregistered folder with its history and the locate banner", async () => {
@@ -196,7 +208,7 @@ describe("demo runtime model lifecycle", () => {
 
   it("can preview onboarding and complete setup without provider access", async () => {
     vi.useFakeTimers()
-    const api = createDemoRuntime(undefined, true)
+    const api = createDemoRuntime(undefined, "onboarding")
     expect(await api.getSnapshot()).toMatchObject({
       model: null,
       modelState: "unconfigured",

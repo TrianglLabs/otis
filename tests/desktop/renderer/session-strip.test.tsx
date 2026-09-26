@@ -53,7 +53,7 @@ describe("SessionStrip", () => {
     ])
     const chips = getAllByRole("button")
     expect(chips.map((chip) => chip.textContent)).toEqual(["Refactor", "Docs"])
-    expect(chips[0]?.querySelector(".stateDot-working")).not.toBeNull()
+    expect(chips[0]?.querySelector(".matrix")).not.toBeNull()
     expect(chips[1]?.querySelector(".stateDot")).not.toBeNull()
     fireEvent.click(getByRole("button", { name: "Refactor" }))
     expect(api.focusSession).toHaveBeenCalledExactlyOnceWith(1)

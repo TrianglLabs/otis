@@ -1,11 +1,11 @@
 import {
   Box,
-  ChevronDown,
   ChevronRight,
   FileText,
   FolderSearch,
   GitBranch,
   Globe,
+  ListChecks,
   type LucideIcon,
   Pencil,
   Search,
@@ -15,10 +15,11 @@ import { memo, useContext, useMemo } from "react"
 import { Virtuoso } from "react-virtuoso"
 import type { TranscriptEntry } from "../../../../app/transcript.js"
 import { isCanvasArtifact } from "../../../../artifacts/canvas.js"
-import type { ToolActivityKind } from "../../../../tools/activity.js"
+import { splitSubject, type ToolAction, type ToolActivityKind } from "../../../../tools/activity.js"
 import { ArtifactCard } from "../../components/ArtifactCard.js"
 import { Icon } from "../../components/Icon.js"
 import { useI18n } from "../../i18n/index.js"
+import type { MessageKey, Translate } from "../../i18n/messages/en.js"
 import { useDesktop } from "../../runtime.js"
 import { PaneRuntimeContext } from "../canvas/canvas-context.js"
 import type { ToolRun } from "./TranscriptList.js"
@@ -34,6 +35,60 @@ const KIND_ICONS: Record<ToolActivityKind, LucideIcon> = {
   git: GitBranch,
   shell: SquareTerminal,
   agent: Box,
+}
+
+/** Subjects that are sentences rather than code: a delegation's brief, a web query. */
+const PROSE_ACTIONS = new Set<ToolAction>(["agent", "web_search"])
+
+/** What a finished run did, counted by what each kind of action amounts to for the reader. */
+const RUN_COUNTS: Record<ToolActivityKind, MessageKey> = {
+  file_read: "toolRun.filesRead",
+  web_read: "toolRun.pagesRead",
+  file_search: "toolRun.searches",
+  web_search: "toolRun.searches",
+  file_write: "toolRun.changes",
+  file_edit: "toolRun.changes",
+  file_inspect: "toolRun.checks",
+  git: "toolRun.checks",
+  shell: "toolRun.commands",
+  agent: "toolRun.delegations",
+}
+
+/**
+ * The verb and subject of one action, present tense while it runs and past once done. Entries from
+ * sessions recorded before actions were noted fall back to their label.
+ */
+function ActivityText({
+  entry,
+  done,
+  className = "toolCard-label",
+}: {
+  entry: TranscriptEntry
+  done: boolean
+  className?: string
+}) {
+  const { t } = useI18n()
+  const { activityAction: action, activitySubject: subject } = entry
+  if (!action || subject === undefined) return <span className={className}>{entry.text}</span>
+  const [name, folder] = splitSubject(action, subject)
+  return (
+    <span className={className}>
+      <span className="toolCard-verb">{t(`tool.${action}.${done ? "done" : "doing"}`)}</span>
+      <span className={PROSE_ACTIONS.has(action) ? "toolCard-prose" : "toolCard-subject"}>
+        {name}
+      </span>
+      {folder === undefined ? null : <span className="toolCard-dir">· {folder}/</span>}
+    </span>
+  )
+}
+
+function runSummary(run: ToolRun, t: Translate) {
+  const counts = new Map<MessageKey, number>()
+  for (const entry of run.entries) {
+    const key = RUN_COUNTS[entry.activityKind ?? "shell"]
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+  return [...counts].map(([key, count]) => t(key, { count })).join(" · ")
 }
 
 /**
@@ -75,7 +130,7 @@ export function ToolCard({ entry, active }: { entry: TranscriptEntry; active: bo
           <span className="toolCard-icon">
             <Icon icon={KIND_ICONS[entry.activityKind ?? "shell"]} size={13} />
           </span>
-          <span className="toolCard-label">{entry.text}</span>
+          <ActivityText entry={entry} done={!active} />
         </div>
       )}
       {entry.diff ? <DiffView diff={entry.diff} /> : null}
@@ -84,11 +139,12 @@ export function ToolCard({ entry, active }: { entry: TranscriptEntry; active: bo
 }
 
 /**
- * The row for a run of consecutive tool activity. The label is keyed by the latest action, so each
- * new action replaces it with a short rise-and-fade (see activity-status-in) — a live burst reads
- * as one status line in motion instead of a stack of cards. The row never renders its actions
- * itself: expanding flattens them into the virtualized transcript (see flattenExpandedRuns),
- * keeping long runs windowed.
+ * The row for a run of consecutive tool activity. While the run is live the label is keyed by the
+ * latest action, so each new action replaces it with a short rise-and-fade (see
+ * activity-status-in) — a burst reads as one status line in motion instead of a stack of cards.
+ * Once settled the row sums up what the run did. It never renders its actions itself: expanding
+ * flattens them into the virtualized transcript (see flattenExpandedRuns), keeping long runs
+ * windowed.
  */
 export function ToolRunCard({
   run,
@@ -112,18 +168,21 @@ export function ToolRunCard({
         aria-expanded={expanded}
         aria-label={t("transcript.toolActions", { count: run.entries.length, latest: latest.text })}
       >
-        <span className="toolCard-icon toolRun-icon" key={`icon-${latest.id}`}>
-          <Icon icon={KIND_ICONS[latest.activityKind ?? "shell"]} size={13} />
+        <span className="toolCard-icon toolRun-icon" key={active ? `icon-${latest.id}` : "settled"}>
+          <Icon icon={active ? KIND_ICONS[latest.activityKind ?? "shell"] : ListChecks} size={13} />
         </span>
-        <span className="toolCard-label toolRun-label" key={latest.id}>
-          {latest.text}
-        </span>
-        <span className="toolRun-chevron">
-          {expanded ? (
-            <ChevronDown size={13} aria-hidden />
-          ) : (
-            <ChevronRight size={13} aria-hidden />
-          )}
+        {active ? (
+          <ActivityText
+            key={latest.id}
+            entry={latest}
+            done={false}
+            className="toolCard-label toolRun-label"
+          />
+        ) : (
+          <span className="toolCard-label">{runSummary(run, t)}</span>
+        )}
+        <span className="chevron">
+          <ChevronRight size={13} aria-hidden />
         </span>
       </button>
     </div>

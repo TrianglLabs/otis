@@ -5,7 +5,7 @@
   position: fixed;
   top: 15vh;
   left: 50%;
-  transform: translateX(-50%);
+  translate: -50% 0;
   z-index: var(--z-overlay);
   width: min(440px, calc(100vw - 32px));
   max-height: min(520px, 70vh);
@@ -94,7 +94,7 @@
 
 .modelPicker-row.active,
 .modelPicker-row.active:hover {
-  background: var(--bg-elev);
+  background: var(--bg-selected);
 }
 
 .modelPicker-select {

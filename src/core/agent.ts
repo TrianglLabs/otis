@@ -28,6 +28,7 @@ import {
   executeToolCall,
   parseSerializedToolCall,
   TOOL_DEFINITIONS,
+  type ToolAction,
   type ToolActivityKind,
   type ToolCall,
   type ToolContext,
@@ -59,6 +60,8 @@ export type AgentEvent =
       toolCallId: string
       name: ToolCall["name"]
       activityKind: ToolActivityKind
+      action: ToolAction
+      subject: string
       label: string
       diff?: string
       artifact?: ToolResult["artifact"]
@@ -555,6 +558,8 @@ async function* executeSingleToolCall(
     toolCallId: rawCall.id,
     name: call.name,
     activityKind: activity.kind,
+    action: activity.action,
+    subject: activity.subject,
     label: activity.label,
   }
   yield { type: "tool", phase: "start", ...toolEvent }

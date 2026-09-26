@@ -13,7 +13,7 @@ import type { SubagentSummary, ThemeName } from "../../contracts.js"
 import { IconButton } from "../components/Button.js"
 import { Icon } from "../components/Icon.js"
 import {
-  AGENT_STATUS_ICONS,
+  AgentStatus,
   AgentTraceOverlay,
   agentSummary,
 } from "../features/agents/AgentTraceOverlay.js"
@@ -172,7 +172,7 @@ function SessionWorkspacePanel({
     Math.min(PANEL_MAX_WIDTH, viewportWidth - MAIN_MIN_WIDTH),
   )
   const defaultWidth =
-    activeTab === "coworkers" ? 240 : Math.min(560, Math.max(280, Math.round(viewportWidth * 0.38)))
+    activeTab === "coworkers" ? 320 : Math.min(560, Math.max(280, Math.round(viewportWidth * 0.38)))
   const clampWidth = (width: number) =>
     Math.min(maxWidth, Math.max(contentMinWidth, Math.round(width)))
   const effectiveWidth = clampWidth(railWidth ?? defaultWidth)
@@ -342,7 +342,7 @@ function SessionWorkspacePanel({
                       title={t("panel.viewTrace", { title: run.title })}
                     >
                       <span className={`agentsRow-status agentsRow-${run.status}`}>
-                        <Icon icon={AGENT_STATUS_ICONS[run.status]} size={12} />
+                        <AgentStatus status={run.status} />
                       </span>
                       <span className="agentsRow-text">
                         <span className="agentsRow-title">{run.title}</span>

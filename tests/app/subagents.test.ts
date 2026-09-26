@@ -52,6 +52,8 @@ describe("SubagentTraces", () => {
         toolCallId: "read_1",
         name: "read",
         activityKind: "file_read",
+        action: "read",
+        subject: "a.ts",
         label: "Reading files: a.ts",
       }),
     )

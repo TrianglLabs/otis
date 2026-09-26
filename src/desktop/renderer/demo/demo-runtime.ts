@@ -14,6 +14,7 @@ import {
 } from "../../../inference/local-thinking.js"
 import type { ModelPickerChoice, ModelPickerItem } from "../../../inference/picker-catalog.js"
 import type { ManagedSkillSource } from "../../../skills/catalog.js"
+import { describeToolAction, type ToolAction } from "../../../tools/activity.js"
 import {
   type ArtifactResult,
   type DesktopApi,
@@ -46,8 +47,9 @@ type DemoHostApi = Pick<
   "getWindowState" | "subscribeWindowState" | "getSnapshot" | "pickWorkspaceFolder"
 >
 
-export function createDemoRuntime(hostApi?: DemoHostApi, onboarding = false): DesktopApi {
-  return new DemoRuntime(hostApi, onboarding)
+/** `start` is the demo query value: "onboarding", a fixture session id to show, or nothing. */
+export function createDemoRuntime(hostApi?: DemoHostApi, start = ""): DesktopApi {
+  return new DemoRuntime(hostApi, start)
 }
 
 /** The demo keeps one Canvas document, reported as the first session's tab. */
@@ -648,12 +650,16 @@ function demoSession(id: string, title: string, detail: string, workspace = "oti
 class DemoRuntime implements DesktopApi {
   constructor(
     private readonly hostApi?: DemoHostApi,
-    onboarding = false,
+    start = "",
   ) {
-    if (onboarding) {
+    if (start === "onboarding") {
       this.#state.model = null
       this.#state.modelState = "unconfigured"
       this.#state.hostedConfigured = false
+    } else if (start) {
+      // A session running in another pane is focused; anything else is opened from the list.
+      const running = this.#state.runtimes.find((entry) => entry.session?.id === start)
+      void (running ? this.focusSession(running.runtime) : this.selectSession(start))
     }
   }
 
@@ -702,6 +708,8 @@ class DemoRuntime implements DesktopApi {
     workspace: { label: "~/Projects/otis", path: "/Users/dev/Projects/otis" },
     sessions: [
       demoSession("session_versions", "Canvas preview · Saved versions", "now"),
+      // Held by a busy runtime off screen, so the home and palette show it working.
+      demoSession("session_store", "Migrate the session store to per-runtime files", "now"),
       // These two were last on screen together; opening either brings back the pair.
       {
         ...demoSession("session_demo2", "Fix flaky session lock test", "3h ago"),
@@ -716,6 +724,7 @@ class DemoRuntime implements DesktopApi {
       demoSession("session_docx", "Canvas preview · Word", "Demo"),
       demoSession("session_webpage", "Canvas preview · Webpage", "Demo"),
       demoSession("session_demo1", "Canvas preview · Markdown", "Demo"),
+      demoSession("session_tools", "Tool activity · every label", "Demo"),
       demoSession("session_notes", "Reading list cleanup", "2d ago", "notes"),
       // An unregistered folder: no workspace path, so opening it goes through the locate flow.
       {
@@ -1179,14 +1188,18 @@ class DemoRuntime implements DesktopApi {
         speaker: "Tool",
         text: "Searching files: session lock",
         activityKind: "file_search",
+        activityAction: "grep",
+        activitySubject: "session lock",
         toolCallId: `${toolCallId}_t1`,
       },
       {
         id: id++,
         kind: "tool",
         speaker: "Tool",
-        text: "Reading file: src/app/sessions.ts",
+        text: "Reading files: src/app/sessions.ts",
         activityKind: "file_read",
+        activityAction: "read",
+        activitySubject: "src/app/sessions.ts",
         toolCallId: `${toolCallId}_t2`,
       },
       {
@@ -1877,12 +1890,13 @@ class DemoRuntime implements DesktopApi {
     this.#emitStatus()
 
     const reply: CannedReply = {
-      reasoning: `The user wants: “${prompt.slice(0, 80)}”. I should find the keyboard handling, make the change, and run the tests before reporting back.`,
+      reasoning: `The user wants: “${prompt.slice(0, 80)}”. The keyboard handling lives in the shell, where the shortcuts register on mount and unregister on unmount. If I move the listener to the window, the sidebar toggle still works while an input has focus, and the existing cleanup path stays the same. I should make that change, run the desktop tests, and report back with the diff.`,
       intro: "I'll find the keyboard handling first, then make the change.",
       denied: "Understood — I won't run the tests.",
       final: FINAL_ANSWER,
     }
     this.#after(generation, 450, () => {
+      const thoughtAt = Date.now()
       const reasoning = this.#push({
         id: this.#nextId++,
         kind: "reasoning",
@@ -1896,7 +1910,7 @@ class DemoRuntime implements DesktopApi {
         this.#patch(reasoning.id, {
           streaming: false,
           endedAt: new Date().toISOString(),
-          durationMs: 1200,
+          durationMs: Date.now() - thoughtAt,
         })
         this.#after(generation, 250, () => {
           this.#streamText(this.#pushAssistant("", true).id, reply.intro, generation, () => {
@@ -1946,22 +1960,25 @@ class DemoRuntime implements DesktopApi {
         this.#emitStatus()
       })
     })
-    const tools = [
-      [400, "Searching files: keydown", "file_search"],
-      [450, "Reading files: src/desktop/renderer/shell/AppShell.tsx", "file_read"],
-      [450, "Running command: bun run typecheck", "shell"],
-      [500, "Editing file: src/desktop/renderer/shell/AppShell.tsx", "file_edit"],
-    ] as const
+    const tools: [number, ToolAction, string][] = [
+      [400, "grep", "keydown"],
+      [450, "read", "src/desktop/renderer/shell/AppShell.tsx"],
+      [450, "command", "bun run typecheck"],
+      [500, "edit", "src/desktop/renderer/shell/AppShell.tsx"],
+    ]
     const runTool = (index: number) => {
-      const [delay, text, activityKind] = tools[index]
+      const [delay, action, subject] = tools[index]
       const last = index === tools.length - 1
       this.#after(generation, delay, () => {
+        const { kind, label } = describeToolAction(action, subject)
         this.#push({
           id: this.#nextId++,
           kind: "tool",
           speaker: "Tool",
-          text,
-          activityKind,
+          text: label,
+          activityKind: kind,
+          activityAction: action,
+          activitySubject: subject,
           toolCallId: `call_${generation}_${index + 1}`,
           ...(last ? { diff: SAMPLE_DIFF } : {}),
         })
@@ -1989,12 +2006,15 @@ class DemoRuntime implements DesktopApi {
           }).then((allow) => {
             if (generation !== this.#generation) return
             if (!allow) return this.#finishTurn(generation, `${reply.denied}\n\n${reply.final}`)
+            const { kind, label } = describeToolAction("command", "bun test")
             this.#push({
               id: this.#nextId++,
               kind: "tool",
               speaker: "Tool",
-              text: "Running command: bun test",
-              activityKind: "shell",
+              text: label,
+              activityKind: kind,
+              activityAction: "command",
+              activitySubject: "bun test",
               toolCallId: `call_${generation}_5`,
             })
             this.#after(generation, 700, () => this.#finishTurn(generation, reply.final))
@@ -2164,20 +2184,19 @@ const fixture = (entry: Omit<TranscriptEntry, "id">): TranscriptEntry => ({
   id: fixtureId++,
   ...entry,
 })
-const tool = (
-  text: string,
-  activityKind: TranscriptEntry["activityKind"],
-  toolCallId: string,
-  diff?: string,
-) =>
-  fixture({
+const tool = (action: ToolAction, subject: string, toolCallId: string, diff?: string) => {
+  const { kind, label } = describeToolAction(action, subject)
+  return fixture({
     kind: "tool",
     speaker: "Tool",
-    text,
-    activityKind,
+    text: label,
+    activityKind: kind,
+    activityAction: action,
+    activitySubject: subject,
     toolCallId,
     ...(diff ? { diff } : {}),
   })
+}
 
 function savedVersionsTranscript(): TranscriptEntry[] {
   return [
@@ -2209,6 +2228,8 @@ function sessionTranscript(id: string | undefined): TranscriptEntry[] {
       return savedVersionsTranscript()
     case "session_demo2":
       return flakyLockTranscript()
+    case "session_tools":
+      return toolActivityTranscript()
     case "session_demo3":
       return ggufCleanupTranscript()
     case "session_notes":
@@ -2222,6 +2243,69 @@ function sessionTranscript(id: string | undefined): TranscriptEntry[] {
     default:
       return id !== undefined && DEMO_ARTIFACTS_BY_SESSION.has(id) ? demoTranscript() : []
   }
+}
+
+/**
+ * Every label describeToolCall can produce, once each, so the transcript shows how each card
+ * reads. Consecutive actions collapse into a run; a card between messages stands alone.
+ */
+function toolActivityTranscript(): TranscriptEntry[] {
+  return [
+    fixture({
+      kind: "message",
+      speaker: "You",
+      text: "Show me one of every tool activity you report, then a long run of them.",
+    }),
+    fixture({ kind: "message", speaker: "Otis", text: "Web and skills, as a run:" }),
+    tool("web_search", "llama.cpp b11057 release notes", "t1"),
+    tool("web_read", "https://github.com/ggml-org/llama.cpp/releases/tag/b11057", "t2"),
+    tool("skill", "documents", "t3"),
+    fixture({
+      kind: "message",
+      speaker: "Otis",
+      text: "Finding, searching, and inspecting files:",
+    }),
+    tool("glob", "src/**/*.ts", "t4"),
+    tool("grep", "describeToolCall", "t5"),
+    tool("read", "src/tools/activity.ts", "t6"),
+    tool("inspect_command", "ls -la src/tools", "t7"),
+    tool("git_command", "git status --short", "t8"),
+    fixture({ kind: "message", speaker: "Otis", text: "A single card between messages:" }),
+    tool("command", "bun test tests/tools", "t9"),
+    fixture({ kind: "message", speaker: "Otis", text: "An edit shows its diff inline:" }),
+    tool("edit", "src/desktop/renderer/shell/AppShell.tsx", "t10", SAMPLE_DIFF),
+    fixture({ kind: "message", speaker: "Otis", text: "Writes and documents:" }),
+    tool("write", "docs/tool-activity.md", "t11"),
+    tool("save_attachment", "attachments/brief.pdf", "t12"),
+    tool("edit_document", "launch-plan.docx", "t13"),
+    tool("document_check", "launch-plan.docx", "d1"),
+    tool("document_inspect_pdf", "product-brief.pdf", "d2"),
+    tool("document_create", "launch-plan.docx", "d3"),
+    tool("document_edit_pdf", "product-brief.pdf", "d4"),
+    tool("document_convert", "launch-plan.docx", "d5"),
+    tool("document_render", "product-brief.pdf", "d6"),
+    tool("publish_artifact", "docs/tool-activity.md", "t16"),
+    fixture({ kind: "message", speaker: "Otis", text: "Delegating to a coworker:" }),
+    tool("agent", "Audit every tool label for consistency", "t17"),
+    fixture({
+      kind: "message",
+      speaker: "Otis",
+      text: "And a long run, collapsed until expanded:",
+    }),
+    tool("search_command", "rg TOOL_ACTIVITY_KINDS src", "t18"),
+    tool("read", "src/tools/activity.ts", "t19"),
+    tool("read", "src/desktop/renderer/features/conversation/ToolCard.tsx", "t20"),
+    tool("glob", "tests/desktop/renderer/*.tsx", "t21"),
+    tool("read", "tests/desktop/renderer/rendering.test.tsx", "t22"),
+    tool("git_command", "git log --oneline -5", "t23"),
+    tool("command", "bun run typecheck", "t24"),
+    tool("command", "bun test tests/desktop/renderer", "t25"),
+    fixture({
+      kind: "message",
+      speaker: "Otis",
+      text: "That is every label the runtime produces. Click a run to expand its actions.",
+    }),
+  ]
 }
 
 function ggufCleanupTranscript(): TranscriptEntry[] {
@@ -2241,11 +2325,11 @@ function ggufCleanupTranscript(): TranscriptEntry[] {
       durationMs: 900,
     }),
     fixture({ kind: "message", speaker: "Otis", text: "Reading the cache code first." }),
-    tool("Reading files: src/inference/gguf-cache.ts", "file_read", "g1"),
-    tool("Reading files: src/inference/llama-runtime.ts", "file_read", "g2"),
+    tool("read", "src/inference/gguf-cache.ts", "g1"),
+    tool("read", "src/inference/llama-runtime.ts", "g2"),
     tool(
-      "Editing file: src/inference/gguf-cache.ts",
-      "file_edit",
+      "edit",
+      "src/inference/gguf-cache.ts",
       "g3",
       `--- a/src/inference/gguf-cache.ts
 +++ b/src/inference/gguf-cache.ts
@@ -2258,7 +2342,7 @@ function ggufCleanupTranscript(): TranscriptEntry[] {
 +      await rm(join(root, entry.name), { recursive: true, force: true })
  }`,
     ),
-    tool("Running command: bun test tests/inference/gguf-cache.test.ts", "shell", "g4"),
+    tool("command", "bun test tests/inference/gguf-cache.test.ts", "g4"),
     fixture({
       kind: "message",
       speaker: "Otis",
@@ -2295,11 +2379,11 @@ function flakyLockTranscript(): TranscriptEntry[] {
       speaker: "Otis",
       text: "Let me look at the lock and the test setup.",
     }),
-    tool("Searching files: acquireSessionLock", "file_search", "l1"),
-    tool("Reading files: tests/app/sessions.test.ts", "file_read", "l2"),
+    tool("grep", "acquireSessionLock", "l1"),
+    tool("read", "tests/app/sessions.test.ts", "l2"),
     tool(
-      "Editing file: tests/app/sessions.test.ts",
-      "file_edit",
+      "edit",
+      "tests/app/sessions.test.ts",
       "l3",
       `--- a/tests/app/sessions.test.ts
 +++ b/tests/app/sessions.test.ts
@@ -2311,7 +2395,7 @@ function flakyLockTranscript(): TranscriptEntry[] {
 +  const home = await isolate("otis-sessions-")
    const transcript = new TranscriptStore()`,
     ),
-    tool("Running command: bun test tests/app/sessions.test.ts --repeat 20", "shell", "l4"),
+    tool("command", "bun test tests/app/sessions.test.ts --repeat 20", "l4"),
     fixture({
       kind: "message",
       speaker: "Otis",
@@ -2327,7 +2411,7 @@ function readingListTranscript(): TranscriptEntry[] {
       speaker: "You",
       text: "Group my reading list by theme and drop what I have already finished. It is in notes/reading.md.",
     }),
-    tool("Reading files: notes/reading.md", "file_read", "n1"),
+    tool("read", "notes/reading.md", "n1"),
     fixture({
       kind: "message",
       speaker: "Otis",
@@ -2357,8 +2441,8 @@ function legacyImportTranscript(): TranscriptEntry[] {
       speaker: "You",
       text: "Dry-run the legacy import against the 2019 export and tell me what would break.",
     }),
-    tool("Reading files: import/legacy.ts, exports/2019.csv", "file_read", "l1"),
-    tool("Running command: bun run import -- --dry-run exports/2019.csv", "shell", "l2"),
+    tool("read", "import/legacy.ts, exports/2019.csv", "l1"),
+    tool("command", "bun run import -- --dry-run exports/2019.csv", "l2"),
     fixture({
       kind: "message",
       speaker: "Otis",
@@ -2394,11 +2478,11 @@ function sessionStoreTranscript(): TranscriptEntry[] {
       speaker: "Otis",
       text: "This touches storage and both adapters. I'll start with the file layout, then the readers.",
     }),
-    tool("Reading files: src/storage/session-files.ts", "file_read", "s1"),
-    tool("Reading files: src/storage/session.ts", "file_read", "s2"),
+    tool("read", "src/storage/session-files.ts", "s1"),
+    tool("read", "src/storage/session.ts", "s2"),
     tool(
-      "Editing file: src/storage/session-files.ts",
-      "file_edit",
+      "edit",
+      "src/storage/session-files.ts",
       "s3",
       `--- a/src/storage/session-files.ts
 +++ b/src/storage/session-files.ts
@@ -2411,13 +2495,20 @@ function sessionStoreTranscript(): TranscriptEntry[] {
 +/** Older sessions sit in the directory itself; new ones under their runtime. */
 +const runtimeSegment = (options: SessionOptions) => options.runtime ?? ""`,
     ),
-    tool("Running command: bun run typecheck", "shell", "s4"),
-    tool("Running command: bun test tests/storage", "shell", "s5"),
+    tool("command", "bun run typecheck", "s4"),
+    tool("command", "bun test tests/storage", "s5"),
     fixture({
       kind: "message",
       speaker: "Otis",
-      text: "Typecheck is clean. Running the storage tests now, then the desktop reader gets the same",
+      text: "Typecheck is clean and the storage tests pass.",
+    }),
+    // Mid-thought: the busy session shows the live thinking status.
+    fixture({
+      kind: "reasoning",
+      speaker: "Thinking",
+      text: "The desktop reader indexes by runtime too, so its cache key has to include the segment.",
       streaming: true,
+      reasoningId: "store-live",
     }),
   ]
 }
@@ -2429,7 +2520,7 @@ function releaseNotesTranscript(): TranscriptEntry[] {
       speaker: "You",
       text: "Draft release notes for 0.2.2 from what merged since 0.2.1",
     }),
-    tool("Running command: git log v0.2.1..HEAD --merges --format=%s", "shell", "v1"),
+    tool("command", "git log v0.2.1..HEAD --merges --format=%s", "v1"),
     fixture({
       kind: "message",
       speaker: "Otis",
@@ -2474,10 +2565,10 @@ function demoTranscript(): TranscriptEntry[] {
       speaker: "Otis",
       text: "Let me look at the shell's keyboard handling first.",
     }),
-    tool("Searching files: keydown", "file_search", "c1"),
-    tool("Reading files: src/desktop/renderer/shell/AppShell.tsx", "file_read", "c2"),
-    tool("Editing file: src/desktop/renderer/shell/AppShell.tsx", "file_edit", "c3", SAMPLE_DIFF),
-    tool("Running command: bun test tests/desktop", "shell", "c4"),
+    tool("grep", "keydown", "c1"),
+    tool("read", "src/desktop/renderer/shell/AppShell.tsx", "c2"),
+    tool("edit", "src/desktop/renderer/shell/AppShell.tsx", "c3", SAMPLE_DIFF),
+    tool("command", "bun test tests/desktop", "c4"),
     fixture({
       kind: "message",
       speaker: "Otis",

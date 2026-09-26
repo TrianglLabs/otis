@@ -28,6 +28,8 @@ function toolEvent(
     toolCallId,
     name: "read",
     activityKind: "file_read",
+    action: "read",
+    subject: "x",
     label,
     ...extra,
   }
@@ -76,7 +78,13 @@ describe("executeTurn", () => {
       {
         toolActivities: [
           { toolCallId: "old_kept", activityKind: "file_read", label: "Old kept" },
-          { toolCallId: "current_kept", activityKind: "file_read", label: "Kept" },
+          {
+            toolCallId: "current_kept",
+            activityKind: "file_read",
+            action: "read",
+            subject: "x",
+            label: "Kept",
+          },
         ],
         subagents: [],
       },
@@ -84,20 +92,43 @@ describe("executeTurn", () => {
       {
         messages: segment,
         toolActivities: [
-          { toolCallId: "current_dropped", activityKind: "file_read", label: "Dropped" },
-          { toolCallId: "current_kept", activityKind: "file_read", label: "Kept" },
+          {
+            toolCallId: "current_dropped",
+            activityKind: "file_read",
+            action: "read",
+            subject: "x",
+            label: "Dropped",
+          },
+          {
+            toolCallId: "current_kept",
+            activityKind: "file_read",
+            action: "read",
+            subject: "x",
+            label: "Kept",
+          },
         ],
         subagents: [],
       },
     )
     expect(result.details.toolActivities).toEqual([
-      { toolCallId: "new_call", activityKind: "file_read", label: "New" },
+      {
+        toolCallId: "new_call",
+        activityKind: "file_read",
+        action: "read",
+        subject: "x",
+        label: "New",
+      },
     ])
   })
 
   it("records the turn's tool cards and each delegated run's trace for persistence", async () => {
     const script: AgentEvent[] = [
-      toolEvent("start", "call_agent", "Delegating: Map", { name: "agent", activityKind: "agent" }),
+      toolEvent("start", "call_agent", "Delegating: Map", {
+        name: "agent",
+        activityKind: "agent",
+        action: "agent",
+        subject: "Map",
+      }),
       child("call_agent", { type: "model", phase: "start" }),
       child("call_agent", toolEvent("start", "read_1", "Reading files: a.ts")),
       child(
@@ -106,14 +137,23 @@ describe("executeTurn", () => {
       ),
       child("call_agent", { type: "delta", text: "Report." }),
       child("call_agent", { type: "complete", messages: childMessages }),
-      toolEvent("end", "call_agent", "Delegating: Map", { name: "agent", activityKind: "agent" }),
+      toolEvent("end", "call_agent", "Delegating: Map", {
+        name: "agent",
+        activityKind: "agent",
+        action: "agent",
+        subject: "Map",
+      }),
       toolEvent("start", "call_edit", "Editing file: b.ts", {
         name: "edit",
         activityKind: "file_edit",
+        action: "edit",
+        subject: "b.ts",
       }),
       toolEvent("end", "call_edit", "Editing file: b.ts", {
         name: "edit",
         activityKind: "file_edit",
+        action: "agent",
+        subject: "x",
         diff: "--- b.ts\n+++ b.ts\n-old\n+new",
         artifact: { source: "workspace", path: "notes.md", kind: "markdown" },
         outcome: "completed",
@@ -138,10 +178,18 @@ describe("executeTurn", () => {
       messages: [],
       details: {
         toolActivities: [
-          { toolCallId: "call_agent", activityKind: "agent", label: "Delegating: Map" },
+          {
+            toolCallId: "call_agent",
+            activityKind: "agent",
+            action: "agent",
+            subject: "Map",
+            label: "Delegating: Map",
+          },
           {
             toolCallId: "call_edit",
             activityKind: "file_edit",
+            action: "edit",
+            subject: "b.ts",
             label: "Editing file: b.ts",
             diff: "--- b.ts\n+++ b.ts\n-old\n+new",
             artifact: { source: "workspace", path: "notes.md", kind: "markdown" },
@@ -154,7 +202,13 @@ describe("executeTurn", () => {
             status: "complete",
             messages: childMessages,
             toolActivities: [
-              { toolCallId: "read_1", activityKind: "file_read", label: "Reading files: a.ts" },
+              {
+                toolCallId: "read_1",
+                activityKind: "file_read",
+                action: "read",
+                subject: "x",
+                label: "Reading files: a.ts",
+              },
             ],
             durationMs: expect.any(Number),
           },

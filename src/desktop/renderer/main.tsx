@@ -36,7 +36,7 @@ async function bootstrap() {
   const demo = new URLSearchParams(location.search).get("demo")
   if (demo !== null && (import.meta.env.DEV || import.meta.env.MODE === "demo")) {
     const { createDemoRuntime } = await import("./demo/demo-runtime.js")
-    const api = createDemoRuntime(window.otis, demo === "onboarding")
+    const api = createDemoRuntime(window.otis, demo)
     // The demo fixture resolves its snapshot in one tick, so the boot screen never paints. Hold the
     // first snapshot briefly to keep "Loading workspace…" reviewable; the real bridge shows it
     // exactly as long as startup takes.

@@ -1,9 +1,10 @@
-import { Check, CircleSlash, Loader2, X } from "lucide-react"
+import { Check, CircleSlash, X } from "lucide-react"
 import { useEffect, useState } from "react"
 import type { TranscriptEntry } from "../../../../app/transcript.js"
 import type { SubagentSummary } from "../../../contracts.js"
 import { IconButton } from "../../components/Button.js"
 import { Icon } from "../../components/Icon.js"
+import { MatrixLoader } from "../../components/MatrixLoader.js"
 import { englishT, useI18n } from "../../i18n/index.js"
 import type { Translate } from "../../i18n/messages/en.js"
 import { useDesktop, useDesktopState } from "../../runtime.js"
@@ -99,7 +100,7 @@ export function AgentTraceOverlay({
         <div className="agentTrace-title">
           {run ? (
             <span className={`agentsRow-status agentsRow-${run.status}`}>
-              <Icon icon={AGENT_STATUS_ICONS[run.status]} size={12} />
+              <AgentStatus status={run.status} />
             </span>
           ) : null}
           <span className="agentTrace-name">{run?.title ?? t("trace.coworker")}</span>
@@ -119,9 +120,12 @@ export function AgentTraceOverlay({
   )
 }
 
-/** Status glyphs for run rows and the trace view's title bar. */
-export const AGENT_STATUS_ICONS: Record<SubagentSummary["status"], typeof Check> = {
-  running: Loader2,
+/** A run's status for its row and the trace title bar: the loader while it runs, else an icon. */
+export function AgentStatus({ status }: { status: SubagentSummary["status"] }) {
+  return status === "running" ? <MatrixLoader /> : <Icon icon={STOPPED_ICONS[status]} size={12} />
+}
+
+const STOPPED_ICONS: Record<Exclude<SubagentSummary["status"], "running">, typeof Check> = {
   complete: Check,
   failed: X,
   interrupted: CircleSlash,

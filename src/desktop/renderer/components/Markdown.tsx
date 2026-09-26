@@ -1,3 +1,4 @@
+import type { Element, ElementContent, Root, Text } from "hast"
 import { Check, Copy } from "lucide-react"
 import { createContext, isValidElement, memo, useContext, useEffect, useRef, useState } from "react"
 import ReactMarkdown, { type Components } from "react-markdown"
@@ -42,19 +43,52 @@ export const Markdown = memo(function Markdown({
     <CanvasBlockEnabledContext.Provider value={enableCanvas}>
       <div className="md">
         {settled > 0 ? <Blocks text={text.slice(0, settled)} /> : null}
-        <Blocks text={text.slice(settled)} />
+        <Blocks text={text.slice(settled)} streaming={streaming} />
       </div>
     </CanvasBlockEnabledContext.Provider>
   )
 })
 
-const Blocks = memo(function Blocks({ text }: { text: string }) {
+const Blocks = memo(function Blocks({ text, streaming }: { text: string; streaming?: boolean }) {
   return (
-    <ReactMarkdown remarkPlugins={remarkPlugins} components={components}>
+    <ReactMarkdown
+      remarkPlugins={remarkPlugins}
+      rehypePlugins={streaming ? streamPlugins : undefined}
+      components={components}
+    >
       {text}
     </ReactMarkdown>
   )
 })
+
+/**
+ * Wraps each word of a streaming tail so it fades in as it arrives. Positions stay stable while
+ * words append, so React keeps the earlier spans and only the new ones animate. Code stays whole.
+ */
+const streamPlugins = [() => (tree: Root) => splitWords(tree)]
+
+function splitWords(node: Root | Element) {
+  node.children = (node.children as ElementContent[]).flatMap((child): ElementContent[] => {
+    if (child.type === "element") {
+      if (child.tagName !== "code") splitWords(child)
+      return [child]
+    }
+    if (child.type !== "text") return [child]
+    return child.value
+      .split(/(\s+)/)
+      .filter(Boolean)
+      .map((part): Element | Text =>
+        /^\s+$/.test(part)
+          ? { type: "text", value: part }
+          : {
+              type: "element",
+              tagName: "span",
+              properties: { className: ["streamWord"] },
+              children: [{ type: "text", value: part }],
+            },
+      )
+  })
+}
 
 /** The end of the last paragraph break outside a fenced code block, or 0. */
 function settledBlocksEnd(text: string) {

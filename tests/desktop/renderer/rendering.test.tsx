@@ -10,7 +10,10 @@ import { createDemoRuntime } from "../../../src/desktop/renderer/demo/demo-runti
 import { AgentTraceOverlay } from "../../../src/desktop/renderer/features/agents/AgentTraceOverlay.js"
 import { CanvasOpenContext } from "../../../src/desktop/renderer/features/canvas/canvas-context.js"
 import { EntryView } from "../../../src/desktop/renderer/features/conversation/entries.js"
-import { ToolCard } from "../../../src/desktop/renderer/features/conversation/ToolCard.js"
+import {
+  ToolCard,
+  ToolRunCard,
+} from "../../../src/desktop/renderer/features/conversation/ToolCard.js"
 import { DesktopProvider, useDesktopState } from "../../../src/desktop/renderer/runtime.js"
 import { DesktopViewStore } from "../../../src/desktop/renderer/state.js"
 
@@ -82,6 +85,113 @@ describe("stable message rendering", () => {
       fireEvent.click(screen.getByRole("button", { name: "Open in Canvas: final.html" })),
     )
     expect(openArtifact).toHaveBeenCalledExactlyOnceWith(artifact, undefined, undefined)
+  })
+
+  it("reads a path action as verb, file name, and dimmed directory, in the tense of its state", async () => {
+    const runtime = await testRuntime()
+    const entry = {
+      id: 1,
+      kind: "tool" as const,
+      speaker: "Tool" as const,
+      text: "Editing file: src/desktop/renderer/shell/AppShell.tsx",
+      activityKind: "file_edit" as const,
+      activityAction: "edit" as const,
+      activitySubject: "src/desktop/renderer/shell/AppShell.tsx",
+    }
+    const view = render(
+      <DesktopProvider value={runtime}>
+        <ToolCard entry={entry} active={true} />
+      </DesktopProvider>,
+    )
+    expect(view.container.querySelector(".toolCard-verb")?.textContent).toBe("Editing")
+    expect(view.container.querySelector(".toolCard-subject")?.textContent).toBe("AppShell.tsx")
+    expect(view.container.querySelector(".toolCard-dir")?.textContent).toBe(
+      "· src/desktop/renderer/shell/",
+    )
+    // The full label stays on hover.
+    expect(view.container.querySelector(".toolCard-header")?.getAttribute("title")).toBe(entry.text)
+
+    view.rerender(
+      <DesktopProvider value={runtime}>
+        <ToolCard entry={entry} active={false} />
+      </DesktopProvider>,
+    )
+    expect(view.container.querySelector(".toolCard-verb")?.textContent).toBe("Edited")
+  })
+
+  it("keeps a command whole and a label-only entry from an old session as it was", async () => {
+    const runtime = await testRuntime()
+    const view = render(
+      <DesktopProvider value={runtime}>
+        <ToolCard
+          entry={{
+            id: 1,
+            kind: "tool",
+            speaker: "Tool",
+            text: "Running command: bun test tests/desktop",
+            activityKind: "shell",
+            activityAction: "command",
+            activitySubject: "bun test tests/desktop",
+          }}
+          active={false}
+        />
+        <ToolCard
+          entry={{
+            id: 2,
+            kind: "tool",
+            speaker: "Tool",
+            text: "Reading files: notes.md",
+            activityKind: "file_read",
+          }}
+          active={false}
+        />
+      </DesktopProvider>,
+    )
+    const [command, legacy] = Array.from(view.container.querySelectorAll(".toolCard-label"))
+    expect(command?.querySelector(".toolCard-verb")?.textContent).toBe("Ran")
+    expect(command?.querySelector(".toolCard-subject")?.textContent).toBe("bun test tests/desktop")
+    expect(command?.querySelector(".toolCard-dir")).toBeNull()
+    expect(legacy?.textContent).toBe("Reading files: notes.md")
+  })
+
+  it("sums up a settled run by what it did and shows the live action while it runs", async () => {
+    const runtime = await testRuntime()
+    const entry = (
+      id: number,
+      activityKind: "file_read" | "file_edit" | "shell",
+      action: "read" | "edit" | "command",
+      subject: string,
+    ) => ({
+      id,
+      kind: "tool" as const,
+      speaker: "Tool" as const,
+      text: `${action}: ${subject}`,
+      activityKind,
+      activityAction: action,
+      activitySubject: subject,
+    })
+    const run = {
+      kind: "toolRun" as const,
+      id: 7,
+      entries: [
+        entry(1, "file_read", "read", "a.ts"),
+        entry(2, "file_read", "read", "b.ts"),
+        entry(3, "file_edit", "edit", "a.ts"),
+        entry(4, "shell", "command", "bun test"),
+      ],
+    }
+    const card = (active: boolean) => (
+      <DesktopProvider value={runtime}>
+        <ToolRunCard run={run} active={active} expanded={false} onExpandedChange={() => {}} />
+      </DesktopProvider>
+    )
+    const view = render(card(false))
+    expect(view.container.querySelector(".toolCard-label")?.textContent).toBe(
+      "2 files read · 1 change · 1 command",
+    )
+    view.rerender(card(true))
+    expect(view.container.querySelector(".toolCard-verb")?.textContent).toBe("Running")
+    expect(view.container.querySelector(".toolCard-subject")?.textContent).toBe("bun test")
   })
 
   it("keeps a pending artifact revision in the ordinary tool activity", async () => {

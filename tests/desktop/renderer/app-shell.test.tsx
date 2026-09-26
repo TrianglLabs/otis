@@ -236,7 +236,7 @@ describe("session views in history", () => {
     await renderApp(api)
 
     const tile = (title: string) => screen.getByRole("button", { name: new RegExp(title) })
-    const grouped = (title: string) => tile(title).classList.contains("home-tile-grouped")
+    const grouped = (title: string) => tile(title).classList.contains("home-row-grouped")
     fireEvent.mouseEnter(tile("Alpha work"))
     expect([grouped("Alpha work"), grouped("Beta work"), grouped("Gamma work")]).toEqual([
       false,
@@ -1389,16 +1389,21 @@ describe("AppShell settings navigation", () => {
     await renderApp(fakeApi({ getSnapshot: vi.fn(async () => withRun) }))
 
     const panel = screen.getByLabelText("Workspace panel") as HTMLElement
+    // A running agent gets the loader: the corners are gone and the centre holds steady.
+    const dots = [...panel.querySelectorAll(".matrix i")] as HTMLElement[]
+    expect(dots).toHaveLength(16)
+    expect(dots.filter((dot) => dot.style.visibility === "hidden")).toHaveLength(4)
+    expect(dots.filter((dot) => dot.style.animation === "none")).toHaveLength(4)
     const resize = within(panel).getByRole("separator", { name: "Resize side panel" })
-    expect(resize.getAttribute("aria-valuenow")).toBe("240")
+    expect(resize.getAttribute("aria-valuenow")).toBe("320")
 
     fireEvent.keyDown(resize, { key: "ArrowLeft" })
-    expect(panel.style.getPropertyValue("--workspace-rail-width")).toBe("256px")
+    expect(panel.style.getPropertyValue("--workspace-rail-width")).toBe("336px")
     fireEvent.keyDown(resize, { key: "Home" })
     expect(panel.style.getPropertyValue("--workspace-rail-width")).toBe("240px")
 
     fireEvent.doubleClick(resize)
-    expect(panel.style.getPropertyValue("--workspace-rail-width")).toBe("240px")
+    expect(panel.style.getPropertyValue("--workspace-rail-width")).toBe("320px")
     const capture = vi.fn()
     const release = vi.fn()
     Object.assign(resize, {
@@ -1410,14 +1415,14 @@ describe("AppShell settings navigation", () => {
     expect(capture).toHaveBeenCalledWith(1)
     expect(document.activeElement).toBe(resize)
     fireEvent.pointerMove(window, { clientX: 460, pointerId: 2 })
-    expect(panel.style.getPropertyValue("--workspace-rail-width")).toBe("240px")
+    expect(panel.style.getPropertyValue("--workspace-rail-width")).toBe("320px")
     fireEvent.pointerMove(window, { clientX: 460, pointerId: 1 })
-    expect(panel.style.getPropertyValue("--workspace-rail-width")).toBe("280px")
+    expect(panel.style.getPropertyValue("--workspace-rail-width")).toBe("360px")
     fireEvent.pointerUp(window, { clientX: 460, pointerId: 1 })
     expect(release).toHaveBeenCalledWith(1)
     expect(panel.classList.contains("workspaceRail-resizing")).toBe(false)
     fireEvent.pointerMove(window, { clientX: 400, pointerId: 1 })
-    expect(panel.style.getPropertyValue("--workspace-rail-width")).toBe("280px")
+    expect(panel.style.getPropertyValue("--workspace-rail-width")).toBe("360px")
 
     for (const reason of ["pointercancel", "lostpointercapture", "blur"]) {
       fireEvent.pointerDown(resize, { button: 0, clientX: 500, pointerId: 1 })
@@ -2060,16 +2065,12 @@ describe("AppShell settings navigation", () => {
 
   it("rings the composer while the agent is working, and only then", async () => {
     await renderApp(fakeApi())
-    expect(document.querySelector(".composer-box")?.classList.contains("composer-boxWorking")).toBe(
-      false,
-    )
+    expect(document.querySelector(".composer-beam")?.hasAttribute("data-active")).toBe(false)
     cleanup()
 
     const working: DesktopSnapshot = { ...SNAPSHOT, busy: true }
     await renderApp(fakeApi({ getSnapshot: vi.fn(async () => working) }))
-    expect(document.querySelector(".composer-box")?.classList.contains("composer-boxWorking")).toBe(
-      true,
-    )
+    expect(document.querySelector(".composer-beam")?.hasAttribute("data-active")).toBe(true)
     const upload = screen.getByRole("button", { name: "Add files" })
     const stop = screen.getByRole("button", { name: "Stop" })
     expect(upload.compareDocumentPosition(stop) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
@@ -2402,6 +2403,8 @@ describe("tool run condensing", () => {
     const run = screen.getByRole("button", {
       name: "3 tool actions, latest: Running command: bun test",
     })
+    // A settled run sums up what it did instead of naming its last action.
+    expect(run.textContent).toBe("1 search · 1 file read · 1 command")
     expect(screen.queryByText("Searching files: keydown")).toBeNull()
     expect(screen.queryByText("Reading files: AppShell.tsx")).toBeNull()
 
@@ -2415,8 +2418,8 @@ describe("tool run condensing", () => {
     expect(document.querySelectorAll(".transcriptEntry-inRun")).toHaveLength(3)
     expect(screen.getByText("Searching files: keydown")).toBeTruthy()
     expect(screen.getByText("Reading files: AppShell.tsx")).toBeTruthy()
-    // The row keeps the latest-action label; the flattened action adds its own row.
-    expect(screen.getAllByText("Running command: bun test")).toHaveLength(2)
+    // The flattened action is the only place the last action is named.
+    expect(screen.getAllByText("Running command: bun test")).toHaveLength(1)
 
     fireEvent.click(run)
     expect(document.querySelectorAll(".transcriptEntry")).toHaveLength(4)

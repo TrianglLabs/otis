@@ -40,6 +40,8 @@ class ToolActivityRecorder {
       this.activities.push({
         toolCallId: event.toolCallId,
         activityKind: event.activityKind,
+        action: event.action,
+        subject: event.subject,
         label: event.label,
       })
       return

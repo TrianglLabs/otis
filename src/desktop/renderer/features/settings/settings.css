@@ -65,6 +65,7 @@
   font-weight: 520;
   text-align: left;
   white-space: nowrap;
+  border-radius: var(--radius);
   transition:
     color var(--motion),
     background var(--motion);
@@ -78,11 +79,11 @@
 .settingsSidebar-tabActive,
 .settingsSidebar-tabActive:hover {
   color: var(--text);
-  background: var(--bg-elev);
+  background: var(--bg-selected);
 }
 
 .settingsSidebar-tabActive .lucide {
-  color: var(--accent-ink);
+  color: var(--text);
 }
 
 .settingsPage-content {
@@ -543,9 +544,11 @@
   height: 13px;
   border-radius: var(--radius-pill);
   background: var(--text);
+  translate: 0 0;
+  /* A spring-like curve: the knob overshoots a hair and settles. */
   transition:
-    transform var(--motion) ease-out,
-    background var(--motion) ease-out;
+    translate 350ms cubic-bezier(0.34, 1.35, 0.64, 1),
+    background var(--motion);
 }
 
 .toggle-on {
@@ -553,7 +556,7 @@
 }
 
 .toggle-on .toggle-knob {
-  transform: translateX(13px);
+  translate: 13px 0;
   background: var(--on-accent);
 }
 

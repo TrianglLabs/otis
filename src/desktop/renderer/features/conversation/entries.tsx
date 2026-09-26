@@ -1,12 +1,12 @@
-import { ChevronDown, ChevronRight, ListEnd, ShipWheel } from "lucide-react"
-import { memo, useContext } from "react"
+import { ChevronRight, ListEnd, ShipWheel } from "lucide-react"
+import { memo, useContext, useLayoutEffect, useRef } from "react"
+import { ThinkingOrb } from "thinking-orbs"
 import type { TranscriptEntry } from "../../../../app/transcript.js"
 import { isCanvasArtifact } from "../../../../artifacts/canvas.js"
 import type { ArtifactReference } from "../../../../artifacts/types.js"
 import { ArtifactCard } from "../../components/ArtifactCard.js"
 import { Icon } from "../../components/Icon.js"
 import { Markdown } from "../../components/Markdown.js"
-import { OtisMark } from "../../components/OtisMark.js"
 import { useI18n } from "../../i18n/index.js"
 import { useDesktop } from "../../runtime.js"
 import { PaneRuntimeContext } from "../canvas/canvas-context.js"
@@ -41,13 +41,13 @@ export const EntryView = memo(function EntryView({
     }
     if (entry.streaming) {
       // Live thinking streams openly: a muted preview of the freshest lines, not interactive.
-      const preview = entry.text.trimEnd().split("\n").slice(-3).join("\n")
+      const preview = entry.text.trimEnd()
       return (
         <div className="reasoning">
           <div className="reasoning-header reasoning-headerLive">
             <ThinkingStatus />
           </div>
-          {preview ? <div className="reasoning-body reasoning-preview">{preview}</div> : null}
+          {preview ? <ReasoningPreview text={preview} /> : null}
         </div>
       )
     }
@@ -67,13 +67,10 @@ export const EntryView = memo(function EntryView({
           onClick={() => onExpandedChange(entry.id, !expanded)}
           aria-expanded={expanded}
         >
-          <OtisMark className="reasoning-cube" decorative />
           <span className="reasoning-label">{label}</span>
-          {expanded ? (
-            <ChevronDown size={13} aria-hidden />
-          ) : (
+          <span className="chevron">
             <ChevronRight size={13} aria-hidden />
-          )}
+          </span>
         </button>
         {expanded && entry.text ? <div className="reasoning-body">{entry.text}</div> : null}
       </div>
@@ -155,12 +152,42 @@ function MessageArtifacts({ artifacts }: { artifacts: ArtifactReference[] }) {
   )
 }
 
+/**
+ * The whole live trace in a three-line viewport that glides up as lines arrive, so the freshest
+ * ones stay in view and each new word condenses into place.
+ */
+function ReasoningPreview({ text }: { text: string }) {
+  const viewport = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    if (viewport.current) viewport.current.scrollTop = viewport.current.scrollHeight
+  })
+  let offset = 0
+  return (
+    <div className="reasoning-body reasoning-preview" ref={viewport}>
+      {text.split(/(\s+)/).map((part) => {
+        const key = offset
+        offset += part.length
+        return /\S/.test(part) ? (
+          <span key={key} className="streamWord">
+            {part}
+          </span>
+        ) : (
+          part
+        )
+      })}
+    </div>
+  )
+}
+
 function ThinkingStatus() {
   const { t } = useI18n()
+  // The orb picks its ink from the document's light or dark class, which AppShell keeps current.
   return (
     <span className="thinkingStatus" role="status">
-      <OtisMark className="reasoning-cube" decorative />
-      <span className="thinking-label">{t("transcript.thinking")}</span>
+      <ThinkingOrb state="composing" size={20} className="thinkingOrb" aria-hidden />
+      <span className="thinking-label" data-text={t("transcript.thinking")}>
+        {t("transcript.thinking")}
+      </span>
     </span>
   )
 }

@@ -46,6 +46,8 @@ function startedTraces() {
       toolCallId: "read_1",
       name: "read",
       activityKind: "file_read",
+      action: "read",
+      subject: "note.txt",
       label: "Reading files: note.txt",
     }),
   )
@@ -133,7 +135,8 @@ describe("chat UI subagents", () => {
     expect(harness.text(subagentRowId("call_a"))).toBe("› ◇ Map the notes")
     expect(harness.text("subagent-panel-footer")).toBe("[esc] back to chat")
     const frame = harness.captureCharFrame()
-    expect(frame).toContain("Reading files: note.txt")
+    // The child has moved on to its report, so the read has settled into the past tense.
+    expect(frame).toContain("Read note.txt")
     expect(frame).toContain("Report: two notes.")
     expect(frame).not.toContain("Delegating: Map the notes")
 

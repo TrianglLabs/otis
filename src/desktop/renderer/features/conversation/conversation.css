@@ -67,20 +67,19 @@
 .pane-card-active {
   border-color: var(--border);
   background: var(--bg-elev);
-  box-shadow: var(--shadow-soft);
   opacity: 1;
 }
 
 /* A card that just opened grows in from its edge and settles. */
 .pane-card-enter {
-  animation: pane-enter 280ms cubic-bezier(0.2, 0.7, 0.3, 1);
+  animation: pane-enter var(--motion);
 }
 
 @keyframes pane-enter {
   from {
     flex-grow: 0;
     opacity: 0;
-    transform: scale(0.98);
+    transform: scale(0.96);
   }
 }
 
@@ -448,13 +447,6 @@ button.reasoning-header:hover {
   font-style: italic;
 }
 
-.reasoning-cube {
-  display: block;
-  flex-shrink: 0;
-  width: 18px;
-  height: 20.4px;
-}
-
 .thinkingStatus {
   display: inline-flex;
   align-items: center;
@@ -462,41 +454,39 @@ button.reasoning-header:hover {
   animation: activity-status-in var(--motion);
 }
 
+/* The orb carries the motion (and honors reduced motion itself); the label stays still. */
+.thinkingOrb {
+  flex-shrink: 0;
+}
+
+/* The label shimmers: a copy of the text from data-text carries a band of full text colour
+   that sweeps across the glyphs. */
 .thinking-label {
-  background: linear-gradient(
-    105deg,
-    var(--text-dim) 30%,
-    var(--accent-ink) 45%,
-    var(--text) 50%,
-    var(--accent-ink) 55%,
-    var(--text-dim) 70%
-  );
-  background-size: 250% 100%;
+  position: relative;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.thinking-label::before {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(90deg, transparent 40%, var(--text) 50%, transparent 60%);
+  background-size: 400% 100%;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  font-style: italic;
-  animation: thinking-shimmer 3.6s ease-in-out infinite;
+  animation: shimmer 2s linear infinite;
 }
 
-@keyframes thinking-shimmer {
-  0%,
-  15% {
+@keyframes shimmer {
+  from {
     background-position: 100% 0;
   }
-  85%,
-  100% {
+  to {
     background-position: 0% 0;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .thinking-label {
-    animation: none;
-  }
-
-  .thinking-label {
-    background: none;
-    color: var(--text-dim);
   }
 }
 
@@ -512,14 +502,12 @@ button.reasoning-header:hover {
   overflow-wrap: break-word;
 }
 
-/* The live preview shows the freshest three lines; a mask fades the oldest so it reads as a scrolling tail.
-   Bottom-anchored: wrapped lines still overflow at the top, so the newest text is always visible. */
+/* Three lines of the live trace, the oldest fading under a mask; ReasoningPreview keeps it scrolled
+   to the freshest ones. */
 .reasoning-preview {
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
   max-height: calc(1.55em * 3 + 6px);
   overflow: hidden;
+  scroll-behavior: smooth;
   -webkit-mask-image: linear-gradient(to bottom, transparent, #000 40%);
   mask-image: linear-gradient(to bottom, transparent, #000 40%);
 }
@@ -550,17 +538,34 @@ button.reasoning-header:hover {
 }
 
 .toolCard-active .toolCard-icon {
-  color: var(--accent-ink);
+  color: var(--text);
 }
 
 .toolCard-label {
-  font-family: var(--font-mono);
   font-size: var(--text-meta);
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   flex: 1;
+  min-width: 0;
+}
+
+/* Verb in the reading face, subject in code unless it is prose; a path's directory trails its file
+   name, dimmed. */
+.toolCard-verb {
+  color: var(--text-dim);
+  margin-right: 6px;
+}
+
+.toolCard-subject,
+.toolCard-dir {
+  font-family: var(--font-mono);
+}
+
+.toolCard-dir {
+  color: var(--text-dim);
+  margin-left: 6px;
 }
 
 /* Tool runs: consecutive activity condensed behind one row */
@@ -589,19 +594,27 @@ button.reasoning-header:hover {
 @keyframes activity-status-in {
   from {
     opacity: 0;
-    transform: translateY(-2px);
+    transform: translateY(4px);
+    filter: blur(2px);
   }
 }
 
-.toolRun-chevron {
+/* A disclosure chevron turns to point down when its header is open. */
+.chevron {
   display: inline-flex;
   flex-shrink: 0;
   color: var(--text-dim);
-  transition: color var(--motion) ease;
+  transition:
+    color var(--motion),
+    transform var(--motion);
+}
+
+[aria-expanded="true"] > .chevron {
+  transform: rotate(90deg);
 }
 
 .toolRun-header:hover .toolCard-label,
-.toolRun-header:hover .toolRun-chevron {
+.toolRun-header:hover .chevron {
   color: var(--text);
 }
 
@@ -723,7 +736,7 @@ button.reasoning-header:hover {
 
 .permissionCard {
   min-width: 0;
-  border: 1px solid var(--border);
+  border: 1px solid var(--hairline);
   border-radius: var(--radius-lg);
   background: var(--bg-elev);
   padding: 14px;
@@ -832,6 +845,7 @@ button.reasoning-header:hover {
   padding: 8px 10px;
   margin-bottom: 8px;
   border-radius: var(--radius-lg);
+  animation: rise-in var(--motion);
 }
 
 .composer-box {
@@ -839,57 +853,12 @@ button.reasoning-header:hover {
   min-width: 0;
   margin: 0;
   padding: 0;
-  border: 1px solid var(--border);
+  border: 1px solid var(--hairline);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-soft);
   background: var(--bg-elev);
   transition:
     border-color var(--motion),
     box-shadow var(--motion);
-}
-
-/* While the agent works, a soft accent highlight orbits the composer's border. The ring is a masked
-   pseudo-element (center cut out), so it never affects layout or stacking; it fades in and out gently. */
-@property --composer-angle {
-  syntax: "<angle>";
-  initial-value: 0deg;
-  inherits: false;
-}
-
-.composer-box::before {
-  content: "";
-  position: absolute;
-  inset: -1px;
-  border-radius: calc(var(--radius-lg) + 1px);
-  padding: 1.5px;
-  background: conic-gradient(
-    from var(--composer-angle),
-    transparent 0deg,
-    color-mix(in srgb, var(--accent) 75%, transparent) 50deg,
-    transparent 140deg,
-    transparent 180deg,
-    color-mix(in srgb, var(--accent) 30%, transparent) 250deg,
-    transparent 320deg
-  );
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  opacity: 0;
-  transition: opacity 500ms ease;
-  pointer-events: none;
-}
-
-.composer-boxWorking::before {
-  opacity: 1;
-  animation: composer-orbit 3.2s linear infinite;
-}
-
-@keyframes composer-orbit {
-  to {
-    --composer-angle: 360deg;
-  }
 }
 
 .composer-box:focus-within {
@@ -903,9 +872,7 @@ button.reasoning-header:hover {
 
 .composer-boxDrop {
   border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
-  box-shadow:
-    var(--shadow-soft),
-    0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .composer-dropOverlay {
@@ -973,11 +940,10 @@ button.reasoning-header:hover {
   border: 1px solid var(--border);
   border-radius: var(--radius-pill);
   background: var(--bg-elev);
-  box-shadow: var(--shadow-soft);
 }
 
 .composer-attachment button:hover:not(:disabled) {
-  background: var(--bg-hover);
+  background-image: linear-gradient(var(--bg-hover), var(--bg-hover));
 }
 
 .composer-box textarea {
@@ -1163,7 +1129,7 @@ button.composer-model-failed {
 .jumpToLatest {
   position: absolute;
   left: 50%;
-  transform: translateX(-50%);
+  translate: -50% 0;
   bottom: 16px;
   border-radius: var(--radius-pill);
   display: inline-flex;
@@ -1176,10 +1142,11 @@ button.composer-model-failed {
   background: var(--bg-elev);
   border: 1px solid var(--border);
   box-shadow: var(--shadow-float);
+  animation: rise-in var(--motion);
 }
 
 .jumpToLatest:hover {
-  background: var(--bg-hover);
+  background-image: linear-gradient(var(--bg-hover), var(--bg-hover));
 }
 
 /* Home screen */
@@ -1195,37 +1162,58 @@ button.composer-model-failed {
   padding: 40px 28px;
 }
 
-/* The mark and any setup message, centered as one block with the gallery below. */
+/* The mark and any setup message, centered as one block above the recents. */
 .home-center {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 28px;
+  gap: 14px;
   text-align: center;
 }
 
-/* Recents: one gallery of uniform tiles above the composer, on its width. Sessions and documents
-   share the tile; only the glyph differs. */
-.home-gallery {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
-  gap: 10px;
+/* Recents: one list on the composer's width, sessions then documents, each under a mono eyebrow. */
+.home-recents {
+  display: flex;
+  flex-direction: column;
   width: 100%;
   /* The composer box's width: its content max less its side padding. */
   max-width: calc(var(--content-max) - 56px);
 }
 
-.home-tile {
+.home-eyebrow {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
-  min-width: 0;
-  /* Content sets the height; the grid stretches tiles to match their row. */
-  padding: 12px 12px 11px;
+  justify-content: space-between;
+  margin-top: 20px;
+  padding: 0 10px 8px;
+  border-bottom: 1px solid var(--hairline);
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.home-eyebrow:first-child {
+  margin-top: 0;
+}
+
+/* The search hint keeps its case; it is a shortcut, not a heading. */
+.home-eyebrow > span {
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.home-row {
+  display: grid;
+  grid-template-columns: 15px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  height: 36px;
+  margin-top: var(--row-gap);
+  padding: 0 10px;
   border: none;
-  border-radius: var(--radius-lg);
-  background: var(--bg-code);
+  border-radius: var(--radius);
+  background: transparent;
   color: var(--text);
   font: inherit;
   text-align: left;
@@ -1233,96 +1221,81 @@ button.composer-model-failed {
   transition: background var(--motion);
 }
 
+.home-eyebrow + .home-row {
+  margin-top: 6px;
+}
+
 /* The hover shade also marks the sessions that come back with the hovered one. */
-.home-tile:hover,
-.home-tile-grouped {
+.home-row:hover,
+.home-row-grouped {
   background: var(--bg-hover);
 }
 
-/* Glyph left, age right; the row is as tall as the labeled file icon so names align. */
-.home-tileHead {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
-  width: 100%;
-  height: 32px;
-}
-
-.home-tileAge {
-  flex-shrink: 0;
-  padding-top: 2px;
-  font-size: var(--text-micro);
-  color: var(--text-dim);
-  white-space: nowrap;
-}
-
-.home-tileIcon {
+.home-rowIcon {
   position: relative;
   display: inline-flex;
-  align-items: flex-start;
-  flex-shrink: 0;
-  height: 32px;
+  justify-content: center;
   color: var(--text-dim);
 }
 
-/* A document glyph starts at the same corner as the chat glyph, its label centered under it. */
-.home-tileIcon .fileTypeIcon-sm {
-  width: 16px;
+.home-rowIcon .fileTypeIcon-sm {
+  width: 15px;
   height: auto;
 }
 
 /* A session that ended mid-turn, is working, or finished while another was on screen. */
-.home-tileDot {
+.home-rowDot {
   position: absolute;
-  top: -2px;
+  top: -3px;
   right: -4px;
   width: 5px;
   height: 5px;
 }
 
-.home-tileName {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  flex-shrink: 0;
-  width: 100%;
-  max-width: 100%;
-  /* Always two lines, so a short name does not pull the workspace up. */
-  height: calc(2 * 1.3em);
-  overflow: hidden;
-  font-size: var(--text-meta);
-  line-height: 1.3;
-  overflow-wrap: anywhere;
+.home-rowTitle {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  font-size: var(--text-body);
 }
 
-/* The workspace folder, on one clipped line under the name. */
-.home-tileWorkspace {
-  flex-shrink: 0;
-  width: 100%;
-  margin-top: -2px;
+.home-rowTitle > span {
   overflow: hidden;
-  font-size: var(--text-micro);
-  color: var(--text-dim);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.home-galleryFooter {
-  grid-column: 1 / -1;
-  padding-top: 4px;
+/* The folder follows the name, as the palette shows it. */
+.home-rowWorkspace {
+  flex-shrink: 0;
+  max-width: 180px;
   font-size: var(--text-meta);
   color: var(--text-dim);
-  text-align: center;
+}
+
+/* Mono capitals sit high beside lowercase UI text; a pixel of top padding centres them. */
+.home-rowAge {
+  min-width: 64px;
+  padding-top: 1px;
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  text-align: right;
+  white-space: nowrap;
 }
 
 .home-error {
+  margin-top: 10px;
+  padding: 0 10px;
   color: var(--danger);
 }
 
 .home-logo {
   display: block;
-  width: 128px;
+  width: 64px;
   height: auto;
   color: var(--text-dim);
   user-select: none;

@@ -35,6 +35,9 @@ export function useDesktopSelector<T>(selector: (state: ViewState | undefined) =
   )
 }
 
+/** The themes whose surfaces are light. Mirrors the light blocks in styles/themes.css. */
+export const LIGHT_THEMES: ReadonlySet<string> = new Set(["pearl", "sage", "bright", "beige"])
+
 /** A field selection stays unchanged when unrelated transcript/status events arrive. */
 export function useDesktopState<K extends keyof ViewState>(
   ...keys: [K, ...K[]]

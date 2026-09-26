@@ -654,6 +654,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     renderSubagents,
     setBusy: (value) => {
       busy = value
+      transcriptView.setBusy(value)
       if (!value) status.clearInterrupt()
     },
     setContextLabel,
