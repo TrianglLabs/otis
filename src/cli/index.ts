@@ -42,6 +42,14 @@ try {
       console.log(`otis ${process.env.OTIS_VERSION ?? "dev"}`)
       break
     default: {
+      // A desktop launcher or a pipe has no terminal: the TUI would draw into nothing and wait
+      // forever. Refuse before any settings, sessions or managed runtimes load.
+      if (!process.stdin.isTTY || !process.stdout.isTTY) {
+        throw new Error(
+          "otis needs an interactive terminal. Run it from a terminal, or use `otis exec` " +
+            "for scripts.",
+        )
+      }
       const { InteractiveApp } = await import("./interactive-app.js")
       await InteractiveApp.start()
     }

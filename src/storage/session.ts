@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto"
 import { readdir, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { createUserMessage } from "../inference/messages.js"
-import type { ChatMessage, TokenUsage, UserChatMessage } from "../inference/types.js"
+import type { ChatMessage, ModelProvider, TokenUsage, UserChatMessage } from "../inference/types.js"
 import {
   type BaseSessionEvent,
   isNotFoundError,
@@ -172,11 +172,23 @@ export class JsonlSession {
     })
   }
 
-  recordUsage(usage: TokenUsage, purpose: UsagePurpose, promptId?: string) {
+  recordUsage(
+    usage: TokenUsage,
+    purpose: UsagePurpose,
+    {
+      promptId,
+      provider,
+      model,
+      modelName,
+    }: { promptId?: string; provider?: ModelProvider; model?: string; modelName?: string } = {},
+  ) {
     return this.append({
       type: "usage_recorded",
       purpose,
       ...(promptId ? { promptId } : {}),
+      ...(provider ? { provider } : {}),
+      ...(model ? { model } : {}),
+      ...(modelName ? { modelName } : {}),
       usage,
     })
   }

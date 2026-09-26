@@ -100,6 +100,8 @@ describe("conversation scrolling", () => {
       serving: () => ({
         client: new GatedInferenceClient(client, gate, conversation.id),
         provider: "fireworks",
+        model: "fake",
+        modelName: "Fake",
         autoCompactAtTokens: 100_000,
       }),
       projectContext: () => [],

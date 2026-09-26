@@ -112,6 +112,8 @@ export async function runHeadlessCommand(
     })
     const settings = app.settings
     model = parsed.model ?? settings.model ?? ""
+    // The picker name travels with recorded usage; an ad hoc --model only has its id.
+    let modelName = parsed.model ? undefined : settings.modelDisplayName
     const modelProvider =
       parsed.model && parsed.model !== settings.model
         ? isLocalModelId(parsed.model)
@@ -131,6 +133,7 @@ export async function runHeadlessCommand(
         signal: controller.signal,
       })
       model = resolved.serving.id
+      modelName = resolved.serving.displayName
       modelContextLength = resolved.serving.contextLength
       modelSupportsImageInput = resolved.serving.supportsImageInput
       if (!parsed.model && settings.model === resolved.selected.id)
@@ -273,14 +276,24 @@ export async function runHeadlessCommand(
           usage = addUsage(usage, nextUsage)
           await reporter.usage(nextUsage)
           if (session && admission)
-            await session.recordUsage(nextUsage, "compaction", admission.promptId)
+            await session.recordUsage(nextUsage, "compaction", {
+              promptId: admission.promptId,
+              provider: modelProvider,
+              model,
+              modelName,
+            })
         },
         permissionPolicy,
         onUsage: async (nextUsage) => {
           usage = addUsage(usage, nextUsage)
           await reporter.usage(nextUsage)
           if (session && admission)
-            await session.recordUsage(nextUsage, "agent", admission.promptId)
+            await session.recordUsage(nextUsage, "agent", {
+              promptId: admission.promptId,
+              provider: modelProvider,
+              model,
+              modelName,
+            })
         },
       },
       onEvent: (event) => reporter.event(event),
@@ -295,6 +308,7 @@ export async function runHeadlessCommand(
       else if (result.status === "interrupted" || result.status === "error") {
         await session.interruptTurn(admission, result.messages, result.details)
       }
+      await app.publishUsage()
     }
 
     const interrupted = result.status === "interrupted"

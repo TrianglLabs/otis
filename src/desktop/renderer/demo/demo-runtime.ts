@@ -1658,6 +1658,8 @@ class DemoRuntime implements DesktopApi {
         entries: [],
         session: null,
         tabs: [],
+        diffs: { added: 0, removed: 0 },
+        contextTokens: 0,
         subagents: [],
         panes: [fresh.runtime],
         runtimes: empty

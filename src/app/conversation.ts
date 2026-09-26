@@ -171,7 +171,13 @@ type ConversationOptions = {
   cwd: string
   /** The runtime's model as it stands: its gated client, provider, and compaction trigger. */
   serving: () =>
-    | { client: GatedInferenceClient; provider: ModelProvider; autoCompactAtTokens: number }
+    | {
+        client: GatedInferenceClient
+        provider: ModelProvider
+        model: string
+        modelName: string
+        autoCompactAtTokens: number
+      }
     | undefined
   projectContext: () => ContextFile[]
   skills: () => SkillCatalog
@@ -545,13 +551,23 @@ export class Conversation {
                   this.#setSpeed({ ...prefill(), tokensPerSecond, exact: true })
                   firstTokenAt = 0
                 }
-                await session.recordUsage(usage, "agent", admission.promptId)
+                await session.recordUsage(usage, "agent", {
+                  promptId: admission.promptId,
+                  provider: serving.provider,
+                  model: serving.model,
+                  modelName: serving.modelName,
+                })
               },
               autoCompactAtTokens: serving.autoCompactAtTokens,
               trustReportedContextLength: reportedContextLengthIsServing(provider),
               historyTokens: transcript.contextTokens(client.inner),
               onCompactionUsage: async (usage) => {
-                await session.recordUsage(usage, "compaction", admission.promptId)
+                await session.recordUsage(usage, "compaction", {
+                  promptId: admission.promptId,
+                  provider: serving.provider,
+                  model: serving.model,
+                  modelName: serving.modelName,
+                })
               },
               signal,
               projectContext: this.options.projectContext(),
@@ -726,7 +742,11 @@ export class Conversation {
               signal,
             }) ?? countContextTokens(messages),
           onUsage: async (usage) => {
-            await session.recordUsage(usage, "compaction")
+            await session.recordUsage(usage, "compaction", {
+              provider: serving.provider,
+              model: serving.model,
+              modelName: serving.modelName,
+            })
           },
           signal,
         })

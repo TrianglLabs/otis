@@ -65,6 +65,17 @@ try {
   execFileSync("iconutil", ["-c", "icns", iconset, "-o", icns], { stdio: "inherit" })
   await copyFile(icns, join(resources, "icon.icns"))
   await copyFile(join(iconset, "icon_512x512@2x.png"), join(resources, "icon.png"))
+  // The Linux icon set: electron-builder installs each NxN.png into the hicolor theme.
+  for (const [size, rendition] of [
+    [16, "icon_16x16.png"],
+    [32, "icon_32x32.png"],
+    [64, "icon_32x32@2x.png"],
+    [128, "icon_128x128.png"],
+    [256, "icon_256x256.png"],
+    [512, "icon_512x512.png"],
+  ] as const) {
+    await copyFile(join(iconset, rendition), join(resources, "icons", `${size}x${size}.png`))
+  }
   console.log("Generated desktop fallback icons from resources/Otis.icon.")
 } finally {
   await rm(temporary, { recursive: true, force: true })

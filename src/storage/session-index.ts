@@ -5,7 +5,7 @@ import {
 } from "../artifacts/types.js"
 import { isCompactionSummary } from "../core/compaction.js"
 import { summarizeUserMessage, userMessageText } from "../inference/messages.js"
-import type { ChatMessage, TokenUsage, UserChatMessage } from "../inference/types.js"
+import type { ChatMessage, ModelProvider, TokenUsage, UserChatMessage } from "../inference/types.js"
 import {
   readSessionEvents,
   replaySessionMessages,
@@ -43,7 +43,14 @@ export type SessionActivity =
       at: string
       promptId: string
     }
-  | { type: "usage_recorded"; at: string; usage: TokenUsage }
+  | {
+      type: "usage_recorded"
+      at: string
+      provider?: ModelProvider
+      model?: string
+      modelName?: string
+      usage: TokenUsage
+    }
 
 /**
  * What listings, search, the home screen and usage stats each need from a session on disk. One
@@ -98,7 +105,14 @@ function digestEvents(events: readonly SessionEvent[], mtimeMs: number): Session
       for (const id of [...(archived.get(event.promptId) ?? []), ...ids]) endedAt.set(id, event.at)
     }
     if (event.type === "usage_recorded")
-      activity.push({ type: event.type, at: event.at, usage: event.usage })
+      activity.push({
+        type: event.type,
+        at: event.at,
+        ...(event.provider === undefined ? {} : { provider: event.provider }),
+        ...(event.model === undefined ? {} : { model: event.model }),
+        ...(event.modelName === undefined ? {} : { modelName: event.modelName }),
+        usage: event.usage,
+      })
     else if (
       event.type === "prompt_admitted" ||
       event.type === "prompt_steered" ||

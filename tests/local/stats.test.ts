@@ -1,8 +1,8 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { calculateLocalStats } from "../../src/local/stats.js"
+import { calculateLocalStats, publishOmarchyUsage } from "../../src/local/stats.js"
 
 const tempDirectories: string[] = []
 
@@ -27,6 +27,8 @@ describe("calculateLocalStats", () => {
       event(3, "session-a", "usage_recorded", localISO(now, 1), {
         purpose: "agent",
         promptId: "prompt-a",
+        model: "accounts/fireworks/models/glm",
+        modelName: "GLM-5.3",
         usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
       }),
       event(4, "session-a", "turn_completed", localISO(now, 120), {
@@ -61,6 +63,20 @@ describe("calculateLocalStats", () => {
       activeDays: 2,
       promptTokens: 140,
       completionTokens: 60,
+      promptCount: 2,
+      todayPrompts: 1,
+      todaySessions: 1,
+      todayTokens: 150,
+      activeDates: [localDateKey(yesterday), localDateKey(now)],
+      // Yesterday's title usage predates model notes, so only today's turn has a model.
+      modelUsage: {
+        "accounts/fireworks/models/glm": {
+          name: "GLM-5.3",
+          promptTokens: 100,
+          completionTokens: 50,
+        },
+      },
+      todayTokensByModel: { "accounts/fireworks/models/glm": 150 },
     })
     expect(stats.recentActivity).toHaveLength(28)
     expect(stats.recentActivity?.filter((day) => day.tokens > 0)).toEqual([
@@ -117,6 +133,14 @@ describe("calculateLocalStats", () => {
       activeDays: 0,
       promptTokens: 0,
       completionTokens: 0,
+      promptCount: 0,
+      todayPrompts: 0,
+      todaySessions: 0,
+      todayTokens: 0,
+      activeDates: [],
+      providers: [],
+      modelUsage: {},
+      todayTokensByModel: {},
     })
     expect(stats.recentActivity).toHaveLength(28)
     expect(stats.recentActivity?.every((day) => day.tokens === 0)).toBe(true)
@@ -269,6 +293,117 @@ async function writeTimeline(
     ),
   )
 }
+
+describe.runIf(process.platform === "linux")("publishOmarchyUsage", () => {
+  const original = process.env.XDG_STATE_HOME
+  afterEach(() => {
+    if (original === undefined) delete process.env.XDG_STATE_HOME
+    else process.env.XDG_STATE_HOME = original
+  })
+
+  it("writes Otis' record for the agents bar panel in the shape the panel reads", async () => {
+    const state = await tempDirectory()
+    process.env.XDG_STATE_HOME = state
+    await mkdir(join(state, "omarchy"))
+    const root = await tempDirectory()
+    const now = new Date(2026, 6, 16, 12, 0, 0)
+    await writeSession(root, "project-a", "session-a", [
+      event(1, "session-a", "session_started", localISO(now, -10), { version: 1 }),
+      event(2, "session-a", "prompt_admitted", localISO(now, 0), {
+        promptId: "prompt-a",
+        message: { role: "user", content: "hello" },
+      }),
+      event(3, "session-a", "usage_recorded", localISO(now, 1), {
+        purpose: "agent",
+        promptId: "prompt-a",
+        provider: "local",
+        model: "openai/gpt-oss-20b",
+        modelName: "gpt-oss 20B",
+        usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
+      }),
+      event(4, "session-a", "turn_completed", localISO(now, 120), {
+        promptId: "prompt-a",
+        messages: [{ role: "assistant", content: [{ type: "text", text: "hi" }] }],
+      }),
+    ])
+
+    // The label follows what served usage, not the current selection.
+    const file = await publishOmarchyUsage("fireworks", { sessionsRoot: root, now })
+    expect(file).toBe(join(state, "omarchy", "agents", "usage", "otis.json"))
+    expect((await stat(file as string)).mode & 0o777).toBe(0o600)
+    const record = JSON.parse(await readFile(file as string, "utf8"))
+    expect(record).toMatchObject({
+      id: "otis",
+      name: "Otis",
+      ready: true,
+      tierLabel: "Local",
+      scope: "device",
+      limits: [],
+      todayPrompts: 1,
+      todaySessions: 1,
+      todayTotalTokens: 150,
+      // Rows show the picker name; the panel prints its keys as given.
+      todayTokensByModel: { "gpt-oss 20B": 150 },
+      totalPrompts: 1,
+      totalSessions: 1,
+      activeDays: 1,
+      activeDates: [localDateKey(now)],
+      modelUsage: { "gpt-oss 20B": { inputTokens: 100, outputTokens: 50 } },
+    })
+    expect(record.recentDays).toHaveLength(7)
+    expect(record.recentDays.at(-1)).toEqual({ date: localDateKey(now), messageCount: 150 })
+
+    await writeSession(root, "project-a", "session-b", [
+      event(1, "session-b", "session_started", localISO(now, -10), { version: 1 }),
+      event(2, "session-b", "prompt_admitted", localISO(now, 0), {
+        promptId: "prompt-b",
+        message: { role: "user", content: "hello" },
+      }),
+      event(3, "session-b", "usage_recorded", localISO(now, 1), {
+        purpose: "agent",
+        promptId: "prompt-b",
+        provider: "fireworks",
+        model: "accounts/fireworks/models/glm",
+        modelName: "GLM-5.3",
+        usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+      }),
+    ])
+    // The same picker name on another server adds up under one row.
+    await writeSession(root, "project-a", "session-c", [
+      event(1, "session-c", "session_started", localISO(now, -10), { version: 1 }),
+      event(2, "session-c", "prompt_admitted", localISO(now, 0), {
+        promptId: "prompt-c",
+        message: { role: "user", content: "hello" },
+      }),
+      event(3, "session-c", "usage_recorded", localISO(now, 1), {
+        purpose: "agent",
+        promptId: "prompt-c",
+        provider: "omlx",
+        model: "mlx-community/gpt-oss-20b",
+        modelName: "gpt-oss 20B",
+        usage: { promptTokens: 20, completionTokens: 10, totalTokens: 30 },
+      }),
+    ])
+    await publishOmarchyUsage(undefined, { sessionsRoot: root, now })
+    expect(JSON.parse(await readFile(file as string, "utf8"))).toMatchObject({
+      tierLabel: "Local + Hosted",
+      todayTokensByModel: { "gpt-oss 20B": 180, "GLM-5.3": 15 },
+      modelUsage: {
+        "gpt-oss 20B": { inputTokens: 120, outputTokens: 60 },
+        "GLM-5.3": { inputTokens: 10, outputTokens: 5 },
+      },
+    })
+  })
+
+  it("writes nothing on a machine without Omarchy", async () => {
+    const state = await tempDirectory()
+    process.env.XDG_STATE_HOME = state
+    await expect(
+      publishOmarchyUsage("fireworks", { sessionsRoot: await tempDirectory() }),
+    ).resolves.toBeUndefined()
+    await expect(stat(join(state, "omarchy"))).rejects.toThrow()
+  })
+})
 
 function event(
   seq: number,

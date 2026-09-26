@@ -223,8 +223,6 @@ if (!app.requestSingleInstanceLock()) {
     const window = new BrowserWindow({
       width: 1280,
       height: 832,
-      minWidth: 960,
-      minHeight: 600,
       title: app.getName(),
       icon: appIcon,
       backgroundColor: "#1A1A1A",

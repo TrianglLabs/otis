@@ -1,5 +1,8 @@
-import { readdir } from "node:fs/promises"
+import { existsSync } from "node:fs"
+import { mkdir, readdir, rename, writeFile } from "node:fs/promises"
+import { homedir } from "node:os"
 import { join } from "node:path"
+import type { ModelProvider } from "../inference/types.js"
 import { sessionRootDirectory } from "../storage/session-files.js"
 import { readSessionDigest, type SessionActivity } from "../storage/session-index.js"
 
@@ -15,6 +18,23 @@ export type LocalStats = {
   recentActivity: LocalUsageDay[]
 }
 
+/** What Omarchy's agents panel shows beyond the home screen, from the same pass. */
+type LocalUsage = {
+  promptCount: number
+  todayPrompts: number
+  todaySessions: number
+  todayTokens: number
+  activeDates: string[]
+  /** Every provider that served recorded usage. */
+  providers: ModelProvider[]
+  /**
+   * Tokens by serving model id, under the picker name it was recorded with. Usage recorded before
+   * models were noted is left out.
+   */
+  modelUsage: Record<string, { name: string; promptTokens: number; completionTokens: number }>
+  todayTokensByModel: Record<string, number>
+}
+
 type LocalUsageDay = {
   date: string
   tokens: number
@@ -25,7 +45,9 @@ type LocalStatsOptions = {
   now?: Date
 }
 
-export async function calculateLocalStats(options: LocalStatsOptions = {}): Promise<LocalStats> {
+export async function calculateLocalStats(
+  options: LocalStatsOptions = {},
+): Promise<LocalStats & LocalUsage> {
   const now = options.now ?? new Date()
   const root = options.sessionsRoot ?? sessionRootDirectory()
   const files: string[] = []
@@ -42,8 +64,16 @@ export async function calculateLocalStats(options: LocalStatsOptions = {}): Prom
   let completionTokens = 0
   let totalDurationSeconds = 0
   let sessionCount = 0
+  let promptCount = 0
+  let todayPrompts = 0
+  let todaySessions = 0
+  let todayTokens = 0
+  const today = localDateKey(now)
   const days = new Set<string>()
   const dailyTokens = new Map<string, number>()
+  const modelUsage: LocalUsage["modelUsage"] = {}
+  const providers = new Set<ModelProvider>()
+  const todayTokensByModel: Record<string, number> = {}
   for (const path of files) {
     let activity: SessionActivity[]
     try {
@@ -53,6 +83,7 @@ export async function calculateLocalStats(options: LocalStatsOptions = {}): Prom
     }
     if (!activity.some((event) => event.type === "prompt_admitted")) continue
     sessionCount += 1
+    let activeToday = false
     // Older sessions only recorded admission. Keep those estimates readable, but prefer
     // actual starts so queued prompts do not contribute waiting time.
     const started = new Map<string, { start: number; exact: boolean }>()
@@ -64,10 +95,33 @@ export async function calculateLocalStats(options: LocalStatsOptions = {}): Prom
         totalTokens += event.usage.totalTokens
         promptTokens += event.usage.promptTokens
         completionTokens += event.usage.completionTokens
+        if (event.provider) providers.add(event.provider)
+        if (event.model) {
+          const bucket = modelUsage[event.model] ?? {
+            name: event.modelName ?? event.model,
+            promptTokens: 0,
+            completionTokens: 0,
+          }
+          bucket.promptTokens += event.usage.promptTokens
+          bucket.completionTokens += event.usage.completionTokens
+          modelUsage[event.model] = bucket
+        }
         if (at === undefined) continue
         const key = localDateKey(new Date(at))
         dailyTokens.set(key, (dailyTokens.get(key) ?? 0) + event.usage.totalTokens)
+        if (key !== today) continue
+        todayTokens += event.usage.totalTokens
+        if (event.model)
+          todayTokensByModel[event.model] =
+            (todayTokensByModel[event.model] ?? 0) + event.usage.totalTokens
       } else if (event.type === "prompt_admitted" || event.type === "turn_started") {
+        if (event.type === "prompt_admitted") {
+          promptCount += 1
+          if (at !== undefined && localDateKey(new Date(at)) === today) {
+            todayPrompts += 1
+            activeToday = true
+          }
+        }
         if (at !== undefined)
           started.set(event.promptId, { start: at, exact: event.type === "turn_started" })
       } else if (event.type === "turn_completed" || event.type === "turn_interrupted") {
@@ -93,6 +147,7 @@ export async function calculateLocalStats(options: LocalStatsOptions = {}): Prom
         days.add(localDateKey(cursor))
     }
     totalDurationSeconds += milliseconds / 1000
+    if (activeToday) todaySessions += 1
   }
 
   const cursor = new Date(now.getFullYear(), now.getMonth(), now.getDate())
@@ -116,7 +171,85 @@ export async function calculateLocalStats(options: LocalStatsOptions = {}): Prom
     promptTokens,
     completionTokens,
     recentActivity,
+    promptCount,
+    todayPrompts,
+    todaySessions,
+    todayTokens,
+    activeDates: [...days].sort(),
+    providers: [...providers].sort(),
+    modelUsage,
+    todayTokensByModel,
   }
+}
+
+/**
+ * Omarchy's agents bar panel draws any record in its usage directory, whoever wrote it, but its
+ * refresh only runs Omarchy's bundled collectors. Otis writes its own entry after every turn.
+ * Returns the record's path, or undefined off Omarchy.
+ */
+export async function publishOmarchyUsage(
+  provider: ModelProvider | undefined,
+  options: LocalStatsOptions = {},
+) {
+  if (process.platform !== "linux") return undefined
+  const state = process.env.XDG_STATE_HOME || join(homedir(), ".local", "state")
+  const directory = join(state, "omarchy", "agents", "usage")
+  if (!existsSync(join(state, "omarchy"))) return undefined
+  const stats = await calculateLocalStats(options)
+  // The panel's plan line; Otis has no plan, so it says where its models ran. Fireworks is the
+  // hosted provider; everything else runs on the user's machine or local network. The current
+  // selection stands in until any usage is attributed.
+  const served = new Set<string>(
+    (stats.providers.length ? stats.providers : [provider]).map((entry) =>
+      entry === "fireworks" ? "Hosted" : entry ? "Local" : "",
+    ),
+  )
+  // Rows show the picker name; ids that share one (a fast-serving variant, the same model on two
+  // local servers) add up under it.
+  const modelUsage: Record<string, { inputTokens: number; outputTokens: number }> = {}
+  const todayTokensByModel: Record<string, number> = {}
+  for (const [model, { name, promptTokens, completionTokens }] of Object.entries(
+    stats.modelUsage,
+  )) {
+    const row = modelUsage[name] ?? { inputTokens: 0, outputTokens: 0 }
+    row.inputTokens += promptTokens
+    row.outputTokens += completionTokens
+    modelUsage[name] = row
+    const today = stats.todayTokensByModel[model]
+    if (today) todayTokensByModel[name] = (todayTokensByModel[name] ?? 0) + today
+  }
+  const record = {
+    id: "otis",
+    name: "Otis",
+    ready: stats.promptCount > 0,
+    tierLabel: ["Local", "Hosted"].filter((entry) => served.has(entry)).join(" + "),
+    scope: "device",
+    hasLocalStats: true,
+    hasPromptStats: true,
+    limits: [],
+    usageStatusText: "",
+    authHelpText: "",
+    todayPrompts: stats.todayPrompts,
+    todaySessions: stats.todaySessions,
+    todayTotalTokens: stats.todayTokens,
+    todayTokensByModel,
+    // The panel's day rows read their token total from messageCount.
+    recentDays: stats.recentActivity
+      .slice(-7)
+      .map(({ date, tokens }) => ({ date, messageCount: tokens })),
+    totalPrompts: stats.promptCount,
+    totalSessions: stats.sessionCount,
+    activeDays: stats.activeDays,
+    activeDates: stats.activeDates,
+    modelUsage,
+  }
+  await mkdir(directory, { recursive: true })
+  const file = join(directory, "otis.json")
+  // The panel watches the file; a rename lands the whole record at once.
+  const temporary = join(directory, `.otis.${process.pid}.json`)
+  await writeFile(temporary, `${JSON.stringify(record)}\n`, { mode: 0o600 })
+  await rename(temporary, file)
+  return file
 }
 
 async function readDirectory(path: string) {

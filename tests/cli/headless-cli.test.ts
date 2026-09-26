@@ -292,7 +292,7 @@ describe("runHeadlessCommand", () => {
       expect(session.recordUsage).toHaveBeenCalledWith(
         { promptTokens: 100, completionTokens: 10, totalTokens: 110 },
         "compaction",
-        "prompt_test",
+        { promptId: "prompt_test", provider: "fireworks", model: "test" },
       )
       expect(session.completeTurn).toHaveBeenCalledWith(
         expect.anything(),

@@ -18,6 +18,7 @@ import {
   type ImageContentPart,
   MAX_BASE64_IMAGE_BYTES,
   MAX_IMAGES_PER_REQUEST,
+  type ModelProvider,
   type TokenUsage,
   type UserChatMessage,
   type UserContentPart,
@@ -86,7 +87,16 @@ export type NewSessionEvent =
       steeringCount?: number
       turn?: SessionTurnSegment
     } & SessionTurnDetails)
-  | { type: "usage_recorded"; purpose: UsagePurpose; promptId?: string; usage: TokenUsage }
+  | {
+      type: "usage_recorded"
+      purpose: UsagePurpose
+      promptId?: string
+      /** The serving model, when the caller knew it: provider, id, and picker name. */
+      provider?: ModelProvider
+      model?: string
+      modelName?: string
+      usage: TokenUsage
+    }
   | { type: "title_renamed"; title: string }
   | ({ type: "view_arranged" } & SessionView)
 
@@ -432,6 +442,22 @@ function parseSessionEvent(value: unknown, line: number): SessionEvent {
     if (promptId !== undefined && (typeof promptId !== "string" || !promptId)) {
       throw invalidEvent(line, "usage promptId must be a non-empty string")
     }
+    const { provider, model, modelName } = value
+    if (
+      provider !== undefined &&
+      provider !== "fireworks" &&
+      provider !== "local" &&
+      provider !== "pair" &&
+      provider !== "omlx"
+    ) {
+      throw invalidEvent(line, "usage provider was invalid")
+    }
+    if (model !== undefined && (typeof model !== "string" || !model)) {
+      throw invalidEvent(line, "usage model must be a non-empty string")
+    }
+    if (modelName !== undefined && (typeof modelName !== "string" || !modelName)) {
+      throw invalidEvent(line, "usage modelName must be a non-empty string")
+    }
     if (!isRecord(usage)) throw invalidEvent(line, "usage must be an object")
     const promptTokens = nonNegativeInteger(usage.promptTokens)
     const completionTokens = nonNegativeInteger(usage.completionTokens)
@@ -447,6 +473,9 @@ function parseSessionEvent(value: unknown, line: number): SessionEvent {
       type,
       purpose,
       ...(promptId === undefined ? {} : { promptId }),
+      ...(provider === undefined ? {} : { provider }),
+      ...(model === undefined ? {} : { model }),
+      ...(modelName === undefined ? {} : { modelName }),
       usage: { promptTokens, completionTokens, totalTokens },
     }
   }
