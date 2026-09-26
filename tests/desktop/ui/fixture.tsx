@@ -1725,6 +1725,18 @@ async function runDesktopUiChecks() {
   }
   await pause()
   await nativeInput({ focus: true })
+  // The fresh start above dropped the diagram with its conversation; the shortcuts must also work
+  // with a Canvas iframe focused, so open one again.
+  patch({
+    op: "upsert",
+    entry: row(HISTORY_ID_BASE + 1700, "```mermaid\nflowchart LR\n  Keys --> Canvas\n```"),
+  })
+  await until(
+    () => document.querySelectorAll('[aria-label^="Open in Canvas:"]').length > 0,
+    "Shortcut test found no diagram to open",
+  )
+  element<HTMLButtonElement>('[aria-label^="Open in Canvas:"]').click()
+  await until(() => !!document.querySelector(".canvas-frame"), "Shortcut test has no Canvas")
   for (const selector of [".composer textarea", ".canvas-frame"]) {
     const target = element(selector)
     const bounds = target.getBoundingClientRect()

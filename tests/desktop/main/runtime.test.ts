@@ -913,6 +913,38 @@ describe("DesktopRuntime conversation flow", () => {
     await runtime.shutdown()
   })
 
+  it("shows in Canvas only the documents of the sessions on screen", async () => {
+    const { runtime, app, cwd } = await setup()
+    let finish = () => {}
+    try {
+      mocks.executeTurn.mockImplementationOnce(async (options: TurnRunnerOptions) => {
+        await new Promise<void>((resolve) => {
+          finish = resolve
+        })
+        return turnEvents("done")(options)
+      })
+      await runtime.sendPrompt("keep working")
+      const busy = app.focused
+      await writeFile(join(cwd, "notes.md"), "# Notes")
+      app.artifacts.openWorkspace({ source: "workspace", kind: "markdown", path: "notes.md" })
+      expect((await runtime.snapshot()).artifacts).toHaveLength(1)
+
+      // A fresh start over a busy session leaves it in the strip, and its documents go with it.
+      expect(runtime.startNewSession()).toEqual({ ok: true })
+      await flush()
+      expect(app.focused).not.toBe(busy)
+      expect((await runtime.snapshot()).artifacts).toEqual([])
+
+      // Back on screen, the documents return.
+      runtime.focusSession(busy.id)
+      await flush()
+      expect((await runtime.snapshot()).artifacts).toHaveLength(1)
+    } finally {
+      finish()
+      await runtime.shutdown()
+    }
+  })
+
   it("rejects an export prepared for a previous conversation", async () => {
     const { runtime, app } = await setup()
     await writeFile(join(runtime.app.cwd, "report.docx"), "source")

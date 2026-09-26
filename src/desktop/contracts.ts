@@ -98,8 +98,8 @@ export type DesktopStatus = {
   modelError: string | undefined
   session: { id: string; title: string } | null
   /**
-   * Every document open in Canvas across the open sessions, in opening order. Contents are
-   * fetched once per tab revision.
+   * Every document open in Canvas across the sessions on screen, in opening order; a session's
+   * documents leave with it and return with it. Contents are fetched once per tab revision.
    */
   artifacts: CanvasTab[]
   /**

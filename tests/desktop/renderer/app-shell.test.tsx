@@ -1580,6 +1580,43 @@ describe("AppShell settings navigation", () => {
     expect(panel.getAttribute("aria-label")).toBe("Workspace panel")
   })
 
+  it("drops a diagram opened from a card when the session changes", async () => {
+    let listener: ((event: DesktopEvent) => void) | undefined
+    const withDiagram: DesktopSnapshot = {
+      ...SNAPSHOT,
+      session: { id: "first", title: "First" },
+      entries: [
+        {
+          id: 1,
+          kind: "message",
+          speaker: "Otis",
+          text: "```mermaid\nflowchart LR\n  A --> B\n```",
+          streaming: false,
+        },
+      ],
+    }
+    const api = fakeApi({
+      getSnapshot: vi.fn(async () => withDiagram),
+      subscribe: vi.fn((fn: (event: DesktopEvent) => void) => {
+        listener = fn
+        return () => {}
+      }),
+    })
+    await renderApp(api)
+    fireEvent.click(screen.getByRole("button", { name: /^Open in Canvas:/ }))
+    expect(screen.getByLabelText("Workspace panel")).toBeTruthy()
+
+    const { entries: _entries, revision: _revision, ...status } = withDiagram
+    act(() =>
+      listener?.({
+        type: "status",
+        revision: 2,
+        status: { ...status, session: null },
+      }),
+    )
+    expect(screen.queryByLabelText("Workspace panel")).toBeNull()
+  })
+
   it("opens only the requested completed Mermaid block in one sandboxed Canvas renderer", async () => {
     let listener: ((event: DesktopEvent) => void) | undefined
     const source = "sequenceDiagram\n  Alice->>Bob: Hello"

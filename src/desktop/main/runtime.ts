@@ -1267,7 +1267,7 @@ export class DesktopRuntime {
     return {
       ...status,
       fastServing,
-      artifacts: app.runtimes.flatMap((runtime) =>
+      artifacts: this.#panes.flatMap((runtime) =>
         runtime.artifacts.tabs.map((tab) => ({ runtime: runtime.id, ...tab })),
       ),
       panes: this.#panes.map((runtime) => runtime.id),
