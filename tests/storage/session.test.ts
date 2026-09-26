@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -23,6 +23,43 @@ afterEach(async () => {
 })
 
 describe("JsonlSession", () => {
+  it("keeps the serving model on recorded usage and rejects a blank one", async () => {
+    const cwd = await trackedTempDir()
+    const options = { cwd, directory: join(cwd, "sessions") }
+    const session = await openSession(options)
+    const admission = await session.admitPrompt("count tokens")
+    const usage = { promptTokens: 3, completionTokens: 2, totalTokens: 5 }
+    await session.recordUsage(usage, "agent", {
+      promptId: admission.promptId,
+      provider: "local",
+      model: "openai/gpt-oss-20b",
+      modelName: "gpt-oss 20B",
+    })
+    await session.recordUsage(usage, "title")
+    const reopened = await openSession(options)
+    expect(reopened.events.slice(2)).toMatchObject([
+      {
+        type: "usage_recorded",
+        promptId: admission.promptId,
+        provider: "local",
+        model: "openai/gpt-oss-20b",
+        modelName: "gpt-oss 20B",
+        usage,
+      },
+      { type: "usage_recorded", purpose: "title", usage },
+    ])
+    expect(reopened.events[3]).not.toHaveProperty("model")
+    expect(reopened.events[3]).not.toHaveProperty("modelName")
+
+    const file = join(options.directory, `${session.id}.jsonl`)
+    const blank = { seq: 5, sessionId: session.id, at: new Date().toISOString() }
+    await appendFile(
+      file,
+      `${JSON.stringify({ ...blank, type: "usage_recorded", purpose: "agent", model: "", usage })}\n`,
+    )
+    await expect(readSessionEvents(file)).rejects.toThrow("usage model must be a non-empty string")
+  })
+
   it("persists execution starts separately from admission and keeps an unanswered prompt out of model history", async () => {
     const cwd = await trackedTempDir()
     const options = { cwd, directory: join(cwd, "sessions") }

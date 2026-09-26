@@ -77,7 +77,12 @@ describe("CLI session turn handling", () => {
     expect(session.recordUsage).toHaveBeenCalledWith(
       { promptTokens: 10, completionTokens: 2, totalTokens: 12 },
       "compaction",
-      "prompt_task",
+      {
+        promptId: "prompt_task",
+        provider: "fireworks",
+        model: "accounts/fireworks/models/test-model",
+        modelName: "Test Model",
+      },
     )
     expect(histories).toEqual([
       [

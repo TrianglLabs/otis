@@ -297,7 +297,10 @@ vi.mock("../../../src/local/settings.js", async (importOriginal) => ({
   saveFastServingSelection: mocks.saveFastServingSelection,
   savePermissionMode: mocks.savePermissionMode,
 }))
-vi.mock("../../../src/local/stats.js", () => ({ calculateLocalStats: mocks.calculateLocalStats }))
+vi.mock("../../../src/local/stats.js", () => ({
+  calculateLocalStats: mocks.calculateLocalStats,
+  publishOmarchyUsage: vi.fn(async () => undefined),
+}))
 vi.mock("../../../src/storage/session-lock.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../src/storage/session-lock.js")>()),
   acquireSessionLock: mocks.acquireSessionLock,
@@ -349,6 +352,10 @@ afterEach(async () => {
 beforeEach(() => {
   vi.resetModules()
   vi.clearAllMocks()
+  // The entry point only starts the TUI on a terminal; vitest's stdio is a pipe.
+  for (const stream of [process.stdin, process.stdout]) {
+    Object.defineProperty(stream, "isTTY", { value: true, configurable: true, writable: true })
+  }
   mocks.uiOptions = undefined
   mocks.rendererHandlers.clear()
   mocks.acquireSessionLock.mockResolvedValue({ release: async () => {} })

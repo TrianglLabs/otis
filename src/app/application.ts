@@ -58,6 +58,7 @@ import {
   savePermissionMode,
   saveSelectedModel,
 } from "../local/settings.js"
+import { publishOmarchyUsage } from "../local/stats.js"
 import {
   createPermissionPolicy,
   DEFAULT_PERMISSION_MODE,
@@ -327,7 +328,13 @@ export class Application {
       ...(settings.permissions?.rules ?? []),
       ...(await loadProjectPermissionRules(cwd)),
     ]
+    void app.publishUsage()
     return app
+  }
+
+  /** Otis' entry in Omarchy's agents bar panel; best effort, from the sessions on disk. */
+  publishUsage() {
+    return publishOmarchyUsage(this.#focused.selection?.model.provider).catch(() => undefined)
   }
 
   private constructor(cwd: string, settings: LocalSettings, options: ApplicationOptions) {
@@ -391,6 +398,8 @@ export class Application {
         return {
           client,
           provider: model.provider,
+          model: model.id,
+          modelName: model.displayName,
           autoCompactAtTokens: this.models.autoCompactAtTokens(model),
         }
       },
@@ -417,7 +426,10 @@ export class Application {
           sessions.subscribe(() => this.#notify({ type: "status" }, self.id)),
           transcript.subscribe((change) => this.#notify({ type: "transcript", change }, self.id)),
           conversation.subscribe((event) => {
-            if (event.type === "settled" && self !== this.#focused) self.unseen = true
+            if (event.type === "settled") {
+              if (self !== this.#focused) self.unseen = true
+              void this.publishUsage()
+            }
             this.#notify(event, self.id)
           }),
         ]

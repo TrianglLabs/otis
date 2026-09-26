@@ -6,9 +6,11 @@ setting, which is separate from system Dark Mode. Otis themes do not change the 
 builds compile the file into `Assets.car` and a legacy ICNS using electron-builder and Xcode 26 or later.
 
 After saving changes in Icon Composer, run `bun run build:desktop:icons` on a Mac with Xcode 26 or later and commit
-the `.icon` package together with the generated `icon.icns` and `icon.png`. These exports use Apple's legacy
-rendition, including its mask and padding. The ICNS is the DMG volume icon; the PNG is used on Linux and in Electron
-development builds. Native Liquid Glass and system appearance selection require a packaged macOS app.
+the `.icon` package together with the generated `icon.icns`, `icon.png`, and `icons/`. These exports use Apple's
+legacy rendition, including its mask and padding. The ICNS is the DMG volume icon; the PNG is the window icon on Linux
+and in Electron development builds; `icons/` holds the 16 to 512 pixel renditions that Linux packages install into the
+hicolor icon theme, which is how launchers and docks find the app icon. Native Liquid Glass and system appearance
+selection require a packaged macOS app.
 
 ## macOS status bar icons
 

@@ -41,6 +41,8 @@ connects to the models you already run.
 
 **Desktop app.** [triangllabs.ai/otis](https://triangllabs.ai/otis) or
 [GitHub Releases](https://github.com/TrianglLabs/otis/releases/latest). macOS and Linux, arm64 and x64.
+On Linux, mark the AppImage executable and keep it apart from the terminal command, for example at
+`~/.local/bin/otis-desktop`; its launcher entry should point there.
 
 **Terminal.**
 

@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { app, type NativeImage, nativeImage } from "electron"
@@ -67,6 +67,21 @@ describe("configureAppIcon", () => {
       expect(warn).toHaveBeenCalledOnce()
     } finally {
       warn.mockRestore()
+    }
+  })
+})
+
+// Linux desktops resolve the launcher's icon name through the hicolor theme, which only indexes
+// sizes up to 512. The packaged set must cover those sizes, or every launcher shows a placeholder.
+describe("Linux icon set", () => {
+  it("ships each hicolor size that electron-builder installs", () => {
+    expect(readFileSync(join(repoRoot, "electron-builder.yml"), "utf8")).toMatch(
+      /^linux:(?:\n {2}.*)*\n {2}icon: resources\/icons$/m,
+    )
+    for (const size of [16, 32, 64, 128, 256, 512]) {
+      const png = readFileSync(join(repoRoot, "resources", "icons", `${size}x${size}.png`))
+      expect(png.subarray(1, 4).toString()).toBe("PNG")
+      expect([png.readUInt32BE(16), png.readUInt32BE(20)], `${size}x${size}`).toEqual([size, size])
     }
   })
 })

@@ -89,6 +89,9 @@ describe("demo runtime sessions", () => {
     const fresh = await api.getSnapshot()
     expect(fresh.panes).toHaveLength(1)
     expect(fresh.session).toBeNull()
+    // The header reads the top-level counters, not the pane's.
+    expect(fresh.diffs).toEqual({ added: 0, removed: 0 })
+    expect(fresh.contextTokens).toBe(0)
     expect(fresh.runtimes.map((entry) => entry.session?.id)).toEqual(
       expect.arrayContaining(["session_demo2", "session_demo3"]),
     )

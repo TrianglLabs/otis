@@ -77,6 +77,15 @@ case "$(uname -m)" in
     ;;
 esac
 
+# The desktop AppImage is often integrated under the same name. Overwriting it would leave the
+# launcher entry starting the terminal command with no terminal, which shows nothing.
+if [ -f "$install_dir/otis" ] && [ "$(head -c 10 "$install_dir/otis" | tail -c 2)" = "AI" ]; then
+  printf '%s/otis is the Otis desktop AppImage, not the terminal command.\n' "$install_dir" >&2
+  printf 'Move it to %s/otis-desktop and point its launcher entry there, ' "$install_dir" >&2
+  printf 'or pass --install-dir.\n' >&2
+  exit 1
+fi
+
 if [ -z "$version" ]; then
   version="$(curl -fsSL "$base_url/latest/download/latest.txt" | tr -d '[:space:]')"
 fi

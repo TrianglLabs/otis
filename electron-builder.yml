@@ -39,7 +39,8 @@ dmg:
 linux:
   # Keep the GUI launcher distinct from the otis terminal command.
   executableName: otis-desktop
-  icon: resources/icon.png
+  # A sized set: desktops look icons up by size in the hicolor theme, which lists 16 to 512.
+  icon: resources/icons
   category: Development
   syncDesktopName: true
   target:

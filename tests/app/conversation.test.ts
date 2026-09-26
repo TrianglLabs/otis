@@ -82,6 +82,8 @@ async function setup(shared?: { serving: Serving; cwd: string }) {
       serving.client && {
         client: new GatedInferenceClient(serving.client, serving.gate, conversation.id),
         provider: "fireworks",
+        model: "fake",
+        modelName: "Fake",
         autoCompactAtTokens: 100_000,
       },
     projectContext: () => [],

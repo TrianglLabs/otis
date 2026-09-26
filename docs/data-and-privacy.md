@@ -20,6 +20,12 @@ directory.
 Configuration is written atomically. On macOS and Linux, its directory uses mode `0700` and `config.json` uses mode
 `0600`. State lives outside the executable and survives `otis update`.
 
+On Omarchy, Otis also keeps one record for the desktop's agents bar panel at
+`~/.local/state/omarchy/agents/usage/otis.json` (under `XDG_STATE_HOME` when set). It holds prompt and session
+counts, token totals by day and by model name, and whether models ran locally, hosted, or both, derived from local
+sessions after each turn. It contains no conversation content or keys and is written only when the `omarchy` state
+directory exists.
+
 ## Sessions and secrets
 
 Sessions are append-only JSONL event streams. They retain messages, tool cards, diffs, titles, provider-reported token

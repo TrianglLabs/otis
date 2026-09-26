@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises"
+import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { type AppEvent, Application, formatWorkspaceLabel } from "../../src/app/application.js"
@@ -404,6 +404,30 @@ describe("Application prompt admission", () => {
     expect(observed).toBe(false)
     expect(app.permissions.current).toBeNull()
     await app.shutdown()
+  })
+})
+
+describe.runIf(process.platform === "linux")("Application Omarchy usage", () => {
+  it("refreshes Otis' agents-panel record when a turn settles", async () => {
+    const app = await ready()
+    // The state root is the isolated home; Omarchy's directory marks the machine as Omarchy.
+    const state = join(process.env.XDG_STATE_HOME as string, "omarchy")
+    await mkdir(state)
+    mocks.executeTurn.mockImplementation(turnEvents("done"))
+    await app.conversation.submit({ role: "user", content: "hello" })
+    await app.conversation.idle()
+
+    const file = join(state, "agents", "usage", "otis.json")
+    const record = await vi.waitFor(async () => JSON.parse(await readFile(file, "utf8")))
+    expect(record).toMatchObject({
+      id: "otis",
+      name: "Otis",
+      // No attributed usage yet, so the current hosted selection stands in.
+      tierLabel: "Hosted",
+      totalPrompts: 1,
+      totalSessions: 1,
+      todayPrompts: 1,
+    })
   })
 })
 
