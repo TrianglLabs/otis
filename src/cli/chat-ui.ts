@@ -308,7 +308,6 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
   function showChatLayout() {
     if (!showingWelcome) return
     refreshInputHint(false)
-    root.live = false
     Object.assign(inputBox, { width: "100%", maxWidth: undefined, minWidth: 1 })
     inputArea.backgroundColor = colors.background
     inputArea.marginTop = 1
@@ -331,7 +330,6 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     dismissModelPicker()
     status.hideForHome()
     refreshInputHint(true)
-    root.live = true
     Object.assign(inputBox, { width: "100%", maxWidth: undefined, minWidth: 24 })
     inputArea.marginTop = 0
     inputArea.paddingRight = 0
