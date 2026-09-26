@@ -3,6 +3,7 @@ import { Fragment, useEffect, useRef, useState } from "react"
 import type { GlobalSessionPickerItem } from "../../../../app/global-sessions.js"
 import { Button } from "../../components/Button.js"
 import { Icon } from "../../components/Icon.js"
+import { MatrixLoader } from "../../components/MatrixLoader.js"
 import { formatSessionDetail, inView } from "../../format.js"
 import { useI18n } from "../../i18n/index.js"
 import { useDesktop, useDesktopState, useScrollbarFlash } from "../../runtime.js"
@@ -366,10 +367,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
                           <span className="palette-rowTitle">
                             {row.item.title}
                             {row.item.working ? (
-                              <span
-                                className="stateDot stateDot-working"
-                                title={t("session.working")}
-                              />
+                              <MatrixLoader title={t("session.working")} />
                             ) : row.item.unseen ? (
                               <span className="stateDot" title={t("session.finished")} />
                             ) : row.item.open ? (

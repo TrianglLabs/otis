@@ -157,6 +157,8 @@ describe("TranscriptStore", () => {
         speaker: "Tool",
         text: "Reading files: a.txt",
         activityKind: "file_read",
+        activityAction: "read",
+        activitySubject: "a.txt",
         toolCallId: "call_1",
       },
       { id: 4, kind: "message", speaker: "Otis", text: "Done." },
@@ -551,6 +553,8 @@ describe("TranscriptProjector", () => {
         toolCallId: "call_1",
         name: "read",
         activityKind: "file_read",
+        action: "read",
+        subject: "Reading",
         label: "Reading",
       },
       {
@@ -559,6 +563,8 @@ describe("TranscriptProjector", () => {
         toolCallId: "call_1",
         name: "read",
         activityKind: "file_read",
+        action: "read",
+        subject: "Reading",
         label: "Reading",
         outcome: "completed",
       },
@@ -605,6 +611,8 @@ describe("TranscriptProjector", () => {
       toolCallId: "call_edit",
       name: "edit",
       activityKind: "file_edit",
+      action: "edit",
+      subject: "Editing a.ts",
       label: "Editing a.ts",
     })
     projector.apply({ type: "debug", message: "one\ntwo" })
@@ -614,6 +622,8 @@ describe("TranscriptProjector", () => {
       toolCallId: "call_edit",
       name: "edit",
       activityKind: "file_edit",
+      action: "edit",
+      subject: "Editing a.ts",
       label: "Editing a.ts",
       diff: "--- a.ts\n+++ a.ts",
       outcome: "completed",
@@ -638,6 +648,8 @@ describe("TranscriptProjector", () => {
         toolCallId,
         name: "write",
         activityKind: "file_write",
+        action: "write",
+        subject: "Writing brief.md",
         label: "Writing brief.md",
       })
       projector.apply({
@@ -646,6 +658,8 @@ describe("TranscriptProjector", () => {
         toolCallId,
         name: "write",
         activityKind: "file_write",
+        action: "write",
+        subject: "Writing brief.md",
         label: "Writing brief.md",
         artifact,
         outcome: "completed",
@@ -701,6 +715,8 @@ describe("TranscriptProjector", () => {
         toolCallId: `publish_${version}`,
         name: "publish_artifact" as const,
         activityKind: "file_read" as const,
+        action: "publish_artifact" as const,
+        subject: "brief.md",
         label: "Publishing brief.md",
       }
       projector.apply({ ...tool, phase: "start" })

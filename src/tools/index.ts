@@ -7,9 +7,14 @@ import { runBash } from "./shell.js"
 import type { ToolCall, ToolContext, ToolResult } from "./types.js"
 
 export {
+  describeToolAction,
   describeToolCall,
+  isToolAction,
   isToolActivityKind,
+  splitSubject,
+  TOOL_ACTIONS,
   TOOL_ACTIVITY_KINDS,
+  type ToolAction,
   type ToolActivity,
   type ToolActivityKind,
 } from "./activity.js"

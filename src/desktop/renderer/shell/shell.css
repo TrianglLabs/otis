@@ -151,7 +151,7 @@
 .contextMeter-fill {
   display: block;
   height: 100%;
-  background: var(--accent);
+  background: var(--text-dim);
   border-radius: var(--radius-pill);
 }
 
@@ -188,6 +188,7 @@
     border-color var(--motion) ease,
     color var(--motion) ease,
     background var(--motion) ease;
+  animation: rise-in var(--motion);
 }
 
 .updateFab:hover {
@@ -213,6 +214,7 @@
   color: var(--text-dim);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  animation: rise-in var(--motion);
 }
 
 .workspaceBanner-error {

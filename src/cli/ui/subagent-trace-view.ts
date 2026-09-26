@@ -102,6 +102,7 @@ export class SubagentTraceView {
   private paint(trace: SubagentTrace, options: { scrollToBottom?: boolean } = {}) {
     const glyph = fg(subagentGlyphColor(trace.status))(subagentGlyph(trace.status))
     this.#header.content = t`${glyph} ${fg(colors.text)(trace.title)} ${fg(colors.muted)(`· ${subagentSummary(trace)}`)}`
+    this.#view.setBusy(trace.status === "running")
     this.#view.render(trace.transcript.entries, options)
   }
 }

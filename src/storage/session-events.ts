@@ -23,7 +23,12 @@ import {
   type UserChatMessage,
   type UserContentPart,
 } from "../inference/types.js"
-import { isToolActivityKind, type ToolActivityKind } from "../tools/activity.js"
+import {
+  isToolAction,
+  isToolActivityKind,
+  type ToolAction,
+  type ToolActivityKind,
+} from "../tools/activity.js"
 
 export type BaseSessionEvent = {
   seq: number
@@ -34,6 +39,9 @@ export type BaseSessionEvent = {
 export type SessionToolActivity = {
   toolCallId: string
   activityKind: ToolActivityKind
+  /** Sessions recorded before actions were noted carry only the label. */
+  action?: ToolAction
+  subject?: string
   label: string
   diff?: string
   artifact?: FileArtifactReference
@@ -573,12 +581,16 @@ function parseToolActivities(
   const remainingCalls = toolCallCounts(messages)
   return value.map((activity): SessionToolActivity => {
     if (!isRecord(activity)) throw invalidEvent(line, "toolActivities entries must be objects")
-    const { toolCallId, activityKind, label, diff, artifact } = activity
+    const { toolCallId, activityKind, action, subject, label, diff, artifact } = activity
     if (typeof toolCallId !== "string" || !toolCallId) {
       throw invalidEvent(line, "tool activity toolCallId must be a non-empty string")
     }
     if (!isToolActivityKind(activityKind))
       throw invalidEvent(line, "tool activity activityKind was invalid")
+    if (action !== undefined && !isToolAction(action))
+      throw invalidEvent(line, "tool activity action was invalid")
+    if (subject !== undefined && typeof subject !== "string")
+      throw invalidEvent(line, "tool activity subject must be a string")
     if (typeof label !== "string" || !label.trim()) {
       throw invalidEvent(line, "tool activity label must be a non-empty string")
     }
@@ -593,6 +605,8 @@ function parseToolActivities(
     return {
       toolCallId,
       activityKind,
+      ...(action === undefined ? {} : { action }),
+      ...(subject === undefined ? {} : { subject }),
       label,
       ...(diff === undefined ? {} : { diff }),
       ...(artifact === undefined ? {} : { artifact }),

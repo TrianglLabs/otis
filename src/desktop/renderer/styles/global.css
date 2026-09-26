@@ -95,6 +95,8 @@ textarea {
     animation-iteration-count: 1 !important;
     /* biome-ignore lint/complexity/noImportantStyles: the reduced-motion reset must override component animations */
     transition-duration: 0.01ms !important;
+    /* biome-ignore lint/complexity/noImportantStyles: the reduced-motion reset must override component animations */
+    scroll-behavior: auto !important;
   }
 }
 
@@ -131,9 +133,11 @@ textarea {
   }
 }
 
-/* A session working out of view: the marker breathes. */
-@keyframes pulse-dot {
-  50% {
-    opacity: 0.35;
+/* Banners and floating pills arrive from just below, settling as they sharpen. */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+    filter: blur(2px);
   }
 }

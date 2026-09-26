@@ -12,6 +12,46 @@
   animation: overlay-fade var(--motion);
 }
 
+/* The matrix loader: 2px dots the pulse orbits. */
+.matrix {
+  display: inline-grid;
+  grid-template-columns: repeat(4, 2px);
+  grid-auto-rows: 2px;
+  gap: 1px;
+  flex-shrink: 0;
+}
+
+/* Resting dots are a faint tint of the text; the pulse brings one up to full text colour, so
+   the contrast is the same on light and dark themes. */
+.matrix i {
+  display: block;
+  background: color-mix(in srgb, var(--text) 30%, transparent);
+  animation: matrix-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes matrix-pulse {
+  0%,
+  45%,
+  100% {
+    background: color-mix(in srgb, var(--text) 30%, transparent);
+  }
+  15% {
+    background: var(--text);
+  }
+}
+
+/* Streamed words condense into place as they arrive. */
+.streamWord {
+  animation: word-in 350ms var(--ease) both;
+}
+
+@keyframes word-in {
+  from {
+    opacity: 0;
+    filter: blur(1px);
+  }
+}
+
 @keyframes overlay-fade {
   from {
     opacity: 0;
@@ -21,7 +61,7 @@
 @keyframes overlay-enter {
   from {
     opacity: 0;
-    transform: translateX(-50%) translateY(-6px);
+    transform: scale(0.96);
   }
 }
 
@@ -193,7 +233,7 @@
 }
 
 .md blockquote {
-  border-left: 2px solid var(--accent-line);
+  border-left: 2px solid var(--border);
   padding-left: 12px;
   color: var(--text-dim);
 }
@@ -279,11 +319,7 @@
   width: 6px;
   height: 6px;
   border-radius: var(--radius-pill);
-  background: var(--accent-ink);
-}
-
-.stateDot-working {
-  animation: pulse-dot 1.4s ease-in-out infinite;
+  background: var(--text);
 }
 
 .stateDot-open {
@@ -345,15 +381,14 @@
   gap: 11px;
   padding: 10px 11px;
   color: var(--text);
-  border: 1px solid var(--border);
+  border: 1px solid var(--hairline);
   border-radius: var(--radius-lg);
-  background: var(--bg-surface);
+  background: transparent;
   text-align: left;
-  transition: background-color var(--motion) ease;
 }
 
 .artifactCard:hover {
-  background: var(--bg-hover);
+  background-image: linear-gradient(var(--bg-hover), var(--bg-hover));
 }
 
 .md .artifactCard {

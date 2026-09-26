@@ -8,7 +8,7 @@ import { OnboardingPage } from "../features/onboarding/OnboardingPage.js"
 import { CommandPalette } from "../features/palette/CommandPalette.js"
 import { SettingsPage } from "../features/settings/SettingsPage.js"
 import { useI18n } from "../i18n/index.js"
-import { rememberTheme, useDesktop, useDesktopState } from "../runtime.js"
+import { LIGHT_THEMES, rememberTheme, useDesktop, useDesktopState } from "../runtime.js"
 import { WorkspaceHeader } from "./WorkspaceHeader.js"
 import { WorkspacePanel } from "./WorkspacePanel.js"
 
@@ -84,6 +84,10 @@ export function AppShell() {
   const theme = state?.theme ?? "default"
   useLayoutEffect(() => {
     document.documentElement.dataset.theme = theme
+    // Components that draw their own pixels, such as the thinking orb, read light or dark here.
+    const light = LIGHT_THEMES.has(theme)
+    document.documentElement.classList.toggle("light", light)
+    document.documentElement.classList.toggle("dark", !light)
   }, [theme])
   useEffect(() => {
     rememberTheme(theme)

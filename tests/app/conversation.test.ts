@@ -202,6 +202,8 @@ describe("Conversation turns", () => {
         toolCallId: "read_1",
         name: "read",
         activityKind: "file_read",
+        action: "read",
+        subject: "resume.md",
         label: "Reading file: resume.md",
       })
       await turn.onEvent?.({
@@ -210,6 +212,8 @@ describe("Conversation turns", () => {
         toolCallId: "read_1",
         name: "read",
         activityKind: "file_read",
+        action: "read",
+        subject: "resume.md",
         label: "Reading file: resume.md",
         artifact: { source: "workspace", path: "resume.md", kind: "markdown" },
         outcome: "completed",
@@ -246,6 +250,8 @@ describe("Conversation turns", () => {
           toolCallId,
           name: "write" as const,
           activityKind: "file_write" as const,
+          action: "write" as const,
+          subject: "brief.md",
           label: "Writing brief.md",
         }
         await turn.onEvent?.({ ...tool, phase: "start" })

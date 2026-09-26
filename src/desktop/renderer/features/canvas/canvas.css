@@ -52,7 +52,7 @@
 .canvas-tab-selected,
 .canvas-tab-selected:hover {
   border-color: var(--border);
-  background: var(--bg-elev);
+  background: var(--bg-selected);
   color: var(--text);
 }
 

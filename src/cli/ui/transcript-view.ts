@@ -1,15 +1,17 @@
 import {
   BoxRenderable,
   DiffRenderable,
+  fg,
   MarkdownRenderable,
   MouseButton,
   RenderableEvents,
   type ScrollBoxRenderable,
   TextRenderable,
   type TreeSitterClient,
+  t,
 } from "@opentui/core"
 import type { TranscriptEntry } from "../../app/transcript.js"
-import type { ToolActivityKind } from "../../tools/index.js"
+import { splitSubject, TOOL_ACTIONS, type ToolActivityKind } from "../../tools/index.js"
 import {
   colors,
   createCodeSyntaxStyle,
@@ -21,6 +23,20 @@ import { formatElapsed } from "./format.js"
 import type { Renderer } from "./types.js"
 
 const FALLBACK_TOOL_ICON = "›"
+
+/**
+ * Verb, file name, and dimmed folder, present tense while the action runs and past once done.
+ * Entries from sessions recorded before actions were noted keep their label.
+ */
+function toolLine(entry: TranscriptEntry, live: boolean) {
+  const { activityAction: action, activitySubject: subject } = entry
+  if (!action || subject === undefined) return entry.text || " "
+  const verb = fg(colors.muted)(TOOL_ACTIONS[action][live ? 2 : 3])
+  const [name, folder] = splitSubject(action, subject)
+  return folder === undefined
+    ? t`${verb} ${name}`
+    : t`${verb} ${name} ${fg(colors.muted)(`· ${folder}/`)}`
+}
 const TOOL_ICONS: Record<ToolActivityKind, string> = {
   web_search: "⌕",
   web_read: "→",
@@ -65,12 +81,15 @@ type TranscriptRenderable = (MessageCard | ReasoningCard | ToolCard) & {
   entry?: TranscriptEntry
   previousKind?: TranscriptEntry["kind"]
   width?: number
+  live?: boolean
 }
 
 export class TranscriptView {
   readonly #renderables = new Map<number, TranscriptRenderable>()
   readonly #expandedReasoningIDs = new Set<string>()
   #entries: readonly TranscriptEntry[] = []
+  #busy = false
+  #liveToolId: number | undefined
 
   constructor(
     private readonly renderer: Renderer,
@@ -78,6 +97,13 @@ export class TranscriptView {
     private readonly treeSitterClient?: TreeSitterClient,
     private thinkingVisible = false,
   ) {}
+
+  /** The turn is running; its last tool card, if any, reads in the present tense. */
+  setBusy(busy: boolean) {
+    if (this.#busy === busy) return
+    this.#busy = busy
+    this.render(this.#entries)
+  }
 
   render(entries: readonly TranscriptEntry[], options: { scrollToBottom?: boolean } = {}) {
     this.#entries = entries
@@ -88,11 +114,11 @@ export class TranscriptView {
       if (!reasoningIDs.has(reasoningId)) this.#expandedReasoningIDs.delete(reasoningId)
     }
     const visible = entries.filter((entry) => entry.kind !== "reasoning" || this.thinkingVisible)
-    const visibleEntries = [
-      ...visible.filter((entry) => !entry.delivery),
-      ...visible.filter((entry) => entry.delivery),
-    ]
+    const settled = visible.filter((entry) => !entry.delivery)
+    const visibleEntries = [...settled, ...visible.filter((entry) => entry.delivery)]
     const entryIDs = new Set(visibleEntries.map((entry) => entry.id))
+    const last = settled[settled.length - 1]
+    this.#liveToolId = this.#busy && last?.kind === "tool" ? last.id : undefined
 
     for (const [id, renderable] of this.#renderables) {
       if (entryIDs.has(id)) continue
@@ -125,7 +151,8 @@ export class TranscriptView {
       } else if (
         existing.entry !== entry ||
         existing.previousKind !== previousEntry?.kind ||
-        existing.width !== this.renderer.terminalWidth
+        existing.width !== this.renderer.terminalWidth ||
+        existing.live !== (entry.id === this.#liveToolId)
       ) {
         this.update(existing, entry, previousEntry)
       }
@@ -169,6 +196,7 @@ export class TranscriptView {
     renderable.entry = entry
     renderable.previousKind = previousEntry?.kind
     renderable.width = this.renderer.terminalWidth
+    renderable.live = entry.id === this.#liveToolId
     // Consecutive tool cards pack together; every other card gets a blank line above it.
     if (entry.kind === "tool") renderable.root.marginTop = previousEntry?.kind === "tool" ? 0 : 1
     else renderable.root.marginTop = entry.kind === "message" || entry.kind === "reasoning" ? 1 : 0
@@ -176,7 +204,7 @@ export class TranscriptView {
     if (renderable.kind === "tool") {
       renderable.icon.content =
         useRichToolIcons && entry.activityKind ? TOOL_ICONS[entry.activityKind] : FALLBACK_TOOL_ICON
-      renderable.label.content = entry.text || " "
+      renderable.label.content = toolLine(entry, renderable.live === true)
       if (entry.diff) this.addDiff(renderable, entry, entry.diff)
       return
     }

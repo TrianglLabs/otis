@@ -7,6 +7,34 @@ The `src/desktop/renderer/assets/omlx.svg` asset is the light app icon from
 License 2.0, with an accessible title added and the outer margin and shadow removed to match the other provider icons.
 The complete license text is reproduced in the Mermaid component notices below.
 
+## Thinking Orbs and Border Beam
+
+The desktop app's thinking indicator is [`thinking-orbs`](https://github.com/Jakubantalik/Libraries.dev) and the
+glow that rides the composer while the agent works is [`border-beam`](https://github.com/Jakubantalik/Libraries.dev),
+both by Jakub Antalik and distributed under the MIT License:
+
+MIT License
+
+Copyright (c) 2026 Jakub Antalik
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
 ## OpenTUI
 
 Otis uses `@opentui/core`, and the reference material under `.agents/skills/opentui` is sourced from

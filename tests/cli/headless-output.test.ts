@@ -57,6 +57,8 @@ describe("HeadlessReporter", () => {
         toolCallId: "call_agent",
         name: "agent" as const,
         activityKind: "agent" as const,
+        action: "agent" as const,
+        subject: "Map the notes",
         label: "Delegating: Map the notes",
       },
       {
@@ -69,6 +71,8 @@ describe("HeadlessReporter", () => {
           toolCallId: "call_read",
           name: "read" as const,
           activityKind: "file_read" as const,
+          action: "read" as const,
+          subject: "note.txt",
           label: "Reading files: note.txt",
         },
       },

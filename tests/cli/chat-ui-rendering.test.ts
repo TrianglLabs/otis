@@ -104,6 +104,44 @@ describe("chat UI rendering", () => {
     expect(contentUpdates.mock.calls.length).toBe(0)
   })
 
+  it("reads a tool card as verb, file name, and folder, live in the present tense", async () => {
+    const harness = await setup()
+    const transcript = new TranscriptStore()
+    const edit = transcript.addToolMessage(
+      "Editing file: src/cli/ui/transcript-view.ts",
+      "file_edit",
+      {
+        toolCallId: "edit_1",
+        activityAction: "edit",
+        activitySubject: "src/cli/ui/transcript-view.ts",
+      },
+    )
+    const legacy = transcript.addToolMessage("Reading files: notes.md", "file_read", {
+      toolCallId: "read_1",
+    })
+    harness.ui.showChatLayout()
+    harness.ui.setBusy(true)
+    harness.ui.renderTranscript(transcript.entries)
+
+    // A card without recorded parts keeps its label; the last card runs while the turn is busy.
+    const label = harness.get<TextRenderable>(`message-${edit.id}-tool-label`)
+    expect(label.plainText).toBe("Edited transcript-view.ts · src/cli/ui/")
+    expect(harness.get<TextRenderable>(`message-${legacy.id}-tool-label`).plainText).toBe(
+      "Reading files: notes.md",
+    )
+
+    const run = transcript.addToolMessage("Running command: bun test", "shell", {
+      toolCallId: "run_1",
+      activityAction: "command",
+      activitySubject: "bun test",
+    })
+    harness.ui.renderTranscript(transcript.entries)
+    const runLabel = harness.get<TextRenderable>(`message-${run.id}-tool-label`)
+    expect(runLabel.plainText).toBe("Running bun test")
+    harness.ui.setBusy(false)
+    expect(runLabel.plainText).toBe("Ran bun test")
+  })
+
   it("updates streaming assistant markdown in place", async () => {
     const harness = await setup()
     const transcript = new TranscriptStore()

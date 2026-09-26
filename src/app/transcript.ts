@@ -13,7 +13,7 @@ import {
 } from "../inference/messages.js"
 import type { ChatMessage, InferenceClient, UserChatMessage } from "../inference/types.js"
 import type { SessionToolActivity, SessionTurnSegment } from "../storage/session-events.js"
-import { describeToolCall, type ToolActivityKind } from "../tools/activity.js"
+import { describeToolCall, type ToolAction, type ToolActivityKind } from "../tools/activity.js"
 import { parseSerializedToolCall } from "../tools/schema.js"
 
 type TranscriptKind = "message" | "reasoning" | "tool" | "debug"
@@ -36,6 +36,9 @@ export type TranscriptEntry = {
   speaker: TranscriptSpeaker
   text: string
   activityKind?: ToolActivityKind
+  /** The action and its subject, for surfaces that render tool activity with structure. */
+  activityAction?: ToolAction
+  activitySubject?: string
   toolCallId?: string
   reasoningId?: string
   startedAt?: string
@@ -228,7 +231,13 @@ export class TranscriptStore {
   addToolMessage(
     text: string,
     activityKind: ToolActivityKind,
-    details: { toolCallId?: string; diff?: string; artifact?: FileArtifactReference } = {},
+    details: {
+      toolCallId?: string
+      activityAction?: ToolAction
+      activitySubject?: string
+      diff?: string
+      artifact?: FileArtifactReference
+    } = {},
   ) {
     const entry = {
       id: this.nextMessageID++,
@@ -331,13 +340,15 @@ export class TranscriptStore {
     const activities: SessionToolActivity[] = []
     for (let index = this.entries.length - 1; index >= 0; index -= 1) {
       const entry = this.entries[index]
-      const { toolCallId, activityKind } = entry
+      const { toolCallId, activityKind, activityAction, activitySubject } = entry
       if (entry.kind !== "tool" || !toolCallId || !activityKind) continue
       const count = remaining.get(toolCallId) ?? 0
       if (count === 0) continue
       activities.push({
         toolCallId,
         activityKind,
+        ...(activityAction === undefined ? {} : { action: activityAction }),
+        ...(activitySubject === undefined ? {} : { subject: activitySubject }),
         label: entry.text,
         ...(entry.diff !== undefined ? { diff: entry.diff } : {}),
         ...(entry.artifact !== undefined ? { artifact: entry.artifact } : {}),
@@ -378,6 +389,8 @@ export class TranscriptStore {
             activity = {
               toolCallId: part.toolCall.id,
               activityKind: described.kind,
+              action: described.action,
+              subject: described.subject,
               label: described.label,
             }
           } catch {
@@ -386,6 +399,8 @@ export class TranscriptStore {
         }
         const entry = this.addToolMessage(activity.label, activity.activityKind, {
           toolCallId: activity.toolCallId,
+          ...(activity.action === undefined ? {} : { activityAction: activity.action }),
+          ...(activity.subject === undefined ? {} : { activitySubject: activity.subject }),
           ...(activity.diff !== undefined ? { diff: activity.diff } : {}),
         })
         if (activity.artifact !== undefined) this.stageArtifact(entry.id, activity.artifact)
@@ -484,6 +499,8 @@ export class TranscriptProjector {
       this.#closeAssistantEntry()
       const entry = transcript.addToolMessage(event.label, event.activityKind, {
         toolCallId: event.toolCallId,
+        activityAction: event.action,
+        activitySubject: event.subject,
       })
       this.#tools.set(event.toolCallId, entry.id)
       return true

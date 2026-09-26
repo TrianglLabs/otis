@@ -1,3 +1,4 @@
+import { BorderBeam } from "border-beam"
 import { ArrowUp, ChevronDown, FolderOpen, Gauge, Paperclip, Square, X, Zap } from "lucide-react"
 import { memo, useEffect, useRef, useState } from "react"
 import {
@@ -19,7 +20,7 @@ import { Button } from "../../components/Button.js"
 import { FileTypeIcon } from "../../components/FileTypeIcon.js"
 import { Icon } from "../../components/Icon.js"
 import { useI18n } from "../../i18n/index.js"
-import { useDesktop, useDesktopState } from "../../runtime.js"
+import { LIGHT_THEMES, useDesktop, useDesktopState } from "../../runtime.js"
 import { ModelPicker } from "../models/ModelPicker.js"
 import { ThinkingControl } from "./ThinkingControl.js"
 
@@ -60,6 +61,41 @@ function fileExtension(name: string) {
 }
 
 /**
+ * The beam's three layers repainted in the theme's accent: the library breathes a grey palette,
+ * so the glows here ride its oscillators instead, corners on their opacity, edges on size and
+ * drift. Each layer keeps the library's mask. The ring keeps only the fade-in for opacity, since
+ * the accent carries its own alpha and the theme presets would dim it to 12% on light.
+ */
+const ACCENT_BEAM_CSS = `
+[data-beam="{id}"] {
+  --beam-glow-{id}:
+    radial-gradient(ellipse 45% 80% at 0% 0%, color-mix(in srgb, var(--accent) calc(75% * var(--bop-tl-{id}, 1)), transparent), transparent 70%),
+    radial-gradient(ellipse 45% 80% at 100% 0%, color-mix(in srgb, var(--accent) calc(75% * var(--bop-tr-{id}, 1)), transparent), transparent 70%),
+    radial-gradient(ellipse 45% 80% at 0% 100%, color-mix(in srgb, var(--accent) calc(75% * var(--bop-bl-{id}, 1)), transparent), transparent 70%),
+    radial-gradient(ellipse 45% 80% at 100% 100%, color-mix(in srgb, var(--accent) calc(75% * var(--bop-br-{id}, 1)), transparent), transparent 70%),
+    radial-gradient(ellipse calc(40% * var(--bw1-{id}, 1)) 70% at calc(40% + var(--bx1-{id}, 0px)) 0%, color-mix(in srgb, var(--accent) 60%, transparent), transparent 70%),
+    radial-gradient(ellipse calc(40% * var(--bw2-{id}, 1)) 70% at calc(65% + var(--bx2-{id}, 0px)) 100%, color-mix(in srgb, var(--accent) 60%, transparent), transparent 70%),
+    radial-gradient(ellipse 30% calc(60% * var(--bh3-{id}, 1)) at 0% calc(55% + var(--by3-{id}, 0px)), color-mix(in srgb, var(--accent) 60%, transparent), transparent 70%),
+    radial-gradient(ellipse 30% calc(60% * var(--bh1-{id}, 1)) at 100% calc(40% + var(--by1-{id}, 0px)), color-mix(in srgb, var(--accent) 60%, transparent), transparent 70%);
+}
+[data-beam="{id}"][data-active]::after,
+[data-beam="{id}"][data-fading]::after,
+[data-beam="{id}"][data-active]::before,
+[data-beam="{id}"][data-fading]::before,
+[data-beam="{id}"] [data-beam-bloom] {
+  background: var(--beam-glow-{id});
+}
+[data-beam="{id}"][data-active]::after,
+[data-beam="{id}"][data-fading]::after {
+  opacity: var(--beam-opacity-{id});
+}
+[data-beam="{id}"][data-active]::before,
+[data-beam="{id}"][data-fading]::before {
+  opacity: calc(var(--beam-opacity-{id}) * 0.4);
+}
+`
+
+/**
  * The prompt composer. Enter sends, Shift+Enter inserts a newline, Escape stops active work. The
  * draft is only cleared after the application accepts the prompt (recorded in the session); on
  * rejection the text stays put and the reason is shown.
@@ -69,6 +105,7 @@ export const Composer = memo(function Composer({ installing = false }: { install
   const { t } = useI18n()
   const state = useDesktopState(
     "busy",
+    "theme",
     "modelState",
     "needsWorkspace",
     "modelError",
@@ -101,7 +138,6 @@ export const Composer = memo(function Composer({ installing = false }: { install
     modelState === "ready" && !sending && !addingAttachments && !installing && !needsWorkspace
   const canSubmit = canAttach && (draft.trim().length > 0 || pendingAttachments.length > 0)
   const canSend = canSubmit && (!hasPendingImage || supportsImages)
-  const boxWorkingClass = busy ? " composer-boxWorking" : ""
   const boxDisabledClass = modelState !== "ready" && !busy ? " composer-boxDisabled" : ""
   const boxDropClass = dragActive ? " composer-boxDrop" : ""
   const modelStateClass =
@@ -301,209 +337,224 @@ export const Composer = memo(function Composer({ installing = false }: { install
           {t("composer.modelFailed", { error: state.modelError })}
         </div>
       ) : null}
-      <form
-        aria-label={t("composer.label")}
-        className={`composer-box${boxWorkingClass}${boxDisabledClass}${boxDropClass}`}
-        onSubmit={(event) => {
-          event.preventDefault()
-          void submit()
-        }}
-        onDragEnter={(event) => {
-          if (!event.dataTransfer.types.includes("Files")) return
-          event.preventDefault()
-          dragDepth.current += 1
-          setDragActive(true)
-        }}
-        onDragOver={(event) => {
-          if (!event.dataTransfer.types.includes("Files")) return
-          event.preventDefault()
-          event.dataTransfer.dropEffect = "copy"
-        }}
-        onDragLeave={(event) => {
-          if (!event.dataTransfer.types.includes("Files")) return
-          event.preventDefault()
-          dragDepth.current = Math.max(0, dragDepth.current - 1)
-          if (dragDepth.current === 0) setDragActive(false)
-        }}
-        onDrop={(event) => {
-          event.preventDefault()
-          dragDepth.current = 0
-          setDragActive(false)
-          void addFiles(Array.from(event.dataTransfer.files))
-        }}
+      {/* While the agent works, a soft beam rides the box's border. */}
+      <BorderBeam
+        className="composer-beam"
+        size="pulse-inner"
+        colorVariant="mono"
+        staticColors
+        theme={state?.theme && LIGHT_THEMES.has(state.theme) ? "light" : "dark"}
+        duration={3.2}
+        active={busy}
+        css={ACCENT_BEAM_CSS}
       >
-        {dragActive ? <div className="composer-dropOverlay">{t("composer.dropFiles")}</div> : null}
-        {pendingAttachments.length > 0 ? (
-          <ul className="composer-attachments" aria-label={t("composer.attachedFiles")}>
-            {pendingAttachments.map((attachment) => (
-              <li
-                className={`composer-attachment${
-                  attachment.kind === "document" ? " composer-attachmentDocument" : ""
-                }`}
-                key={attachment.id}
-                title={attachment.name}
-              >
-                {attachment.previewUrl ? (
-                  <img src={attachment.previewUrl} alt="" />
-                ) : (
-                  <span className="composer-documentPreview">
-                    <FileTypeIcon name={attachment.name} />
-                  </span>
-                )}
-                <button
-                  type="button"
-                  aria-label={t("composer.removeAttachment", { name: attachment.name })}
-                  disabled={sending}
-                  onClick={() => {
-                    if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl)
-                    replacePendingAttachments(
-                      pendingAttachmentsRef.current.filter((other) => other.id !== attachment.id),
-                    )
-                    setSendError(null)
-                  }}
-                >
-                  <Icon icon={X} size={11} />
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-        <textarea
-          ref={textareaRef}
-          value={draft}
-          rows={1}
-          placeholder={placeholder}
-          disabled={modelState !== "ready"}
-          aria-label={t("composer.prompt")}
-          onChange={(event) => {
-            setDraft(event.target.value)
-            setSendError(null)
+        <form
+          aria-label={t("composer.label")}
+          className={`composer-box${boxDisabledClass}${boxDropClass}`}
+          onSubmit={(event) => {
+            event.preventDefault()
+            void submit()
           }}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-              event.preventDefault()
-              void submit()
-            } else if (event.key === "Escape" && busy) {
-              event.preventDefault()
-              void api.stop()
-            }
+          onDragEnter={(event) => {
+            if (!event.dataTransfer.types.includes("Files")) return
+            event.preventDefault()
+            dragDepth.current += 1
+            setDragActive(true)
           }}
-        />
-        <div className="composer-footer">
-          <span className="composer-context">
-            {state?.model ? (
-              <>
-                <button
-                  type="button"
-                  className={`composer-model${modelStateClass}`}
-                  onClick={() => setPickerOpen((open) => !open)}
-                  title={t("composer.modelTitle", {
-                    id: state.model.id,
-                    provider:
-                      state.model.provider === "fireworks"
-                        ? "Fireworks"
-                        : state.model.provider === "omlx"
-                          ? "oMLX"
-                          : t(
-                              state.model.provider === "local"
-                                ? "models.local"
-                                : "models.localServers",
-                            ),
-                    fast: state.fastServing.enabled ? ` · ${t("composer.fastServing")}` : "",
-                  })}
-                  aria-haspopup="dialog"
-                  aria-expanded={pickerOpen}
+          onDragOver={(event) => {
+            if (!event.dataTransfer.types.includes("Files")) return
+            event.preventDefault()
+            event.dataTransfer.dropEffect = "copy"
+          }}
+          onDragLeave={(event) => {
+            if (!event.dataTransfer.types.includes("Files")) return
+            event.preventDefault()
+            dragDepth.current = Math.max(0, dragDepth.current - 1)
+            if (dragDepth.current === 0) setDragActive(false)
+          }}
+          onDrop={(event) => {
+            event.preventDefault()
+            dragDepth.current = 0
+            setDragActive(false)
+            void addFiles(Array.from(event.dataTransfer.files))
+          }}
+        >
+          {dragActive ? (
+            <div className="composer-dropOverlay">{t("composer.dropFiles")}</div>
+          ) : null}
+          {pendingAttachments.length > 0 ? (
+            <ul className="composer-attachments" aria-label={t("composer.attachedFiles")}>
+              {pendingAttachments.map((attachment) => (
+                <li
+                  className={`composer-attachment${
+                    attachment.kind === "document" ? " composer-attachmentDocument" : ""
+                  }`}
+                  key={attachment.id}
+                  title={attachment.name}
                 >
-                  {state.fastServing.enabled ? (
-                    <Icon icon={Zap} size={11} className="composer-fast" />
-                  ) : null}
-                  {/* The short model id is the last path segment; mirrored in
+                  {attachment.previewUrl ? (
+                    <img src={attachment.previewUrl} alt="" />
+                  ) : (
+                    <span className="composer-documentPreview">
+                      <FileTypeIcon name={attachment.name} />
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    aria-label={t("composer.removeAttachment", { name: attachment.name })}
+                    disabled={sending}
+                    onClick={() => {
+                      if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl)
+                      replacePendingAttachments(
+                        pendingAttachmentsRef.current.filter((other) => other.id !== attachment.id),
+                      )
+                      setSendError(null)
+                    }}
+                  >
+                    <Icon icon={X} size={11} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <textarea
+            ref={textareaRef}
+            value={draft}
+            rows={1}
+            placeholder={placeholder}
+            disabled={modelState !== "ready"}
+            aria-label={t("composer.prompt")}
+            onChange={(event) => {
+              setDraft(event.target.value)
+              setSendError(null)
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                event.preventDefault()
+                void submit()
+              } else if (event.key === "Escape" && busy) {
+                event.preventDefault()
+                void api.stop()
+              }
+            }}
+          />
+          <div className="composer-footer">
+            <span className="composer-context">
+              {state?.model ? (
+                <>
+                  <button
+                    type="button"
+                    className={`composer-model${modelStateClass}`}
+                    onClick={() => setPickerOpen((open) => !open)}
+                    title={t("composer.modelTitle", {
+                      id: state.model.id,
+                      provider:
+                        state.model.provider === "fireworks"
+                          ? "Fireworks"
+                          : state.model.provider === "omlx"
+                            ? "oMLX"
+                            : t(
+                                state.model.provider === "local"
+                                  ? "models.local"
+                                  : "models.localServers",
+                              ),
+                      fast: state.fastServing.enabled ? ` · ${t("composer.fastServing")}` : "",
+                    })}
+                    aria-haspopup="dialog"
+                    aria-expanded={pickerOpen}
+                  >
+                    {state.fastServing.enabled ? (
+                      <Icon icon={Zap} size={11} className="composer-fast" />
+                    ) : null}
+                    {/* The short model id is the last path segment; mirrored in
                       src/desktop/main/tray.ts. */}
-                  {state.model.displayName ?? state.model.id.split("/").at(-1)}
-                  <Icon icon={ChevronDown} size={11} />
+                    {state.model.displayName ?? state.model.id.split("/").at(-1)}
+                    <Icon icon={ChevronDown} size={11} />
+                  </button>
+                  <ThinkingControl />
+                </>
+              ) : null}
+              {state ? (
+                // The chip shows just the folder name; the full path stays in the tooltip.
+                <button
+                  type="button"
+                  className="composer-workspace noDrag"
+                  title={
+                    workspaceError ??
+                    `${state.workspace.path} — ${t("composer.openDifferentFolder")}`
+                  }
+                  onClick={() =>
+                    void api.pickWorkspaceFolder().then(async (path) => {
+                      if (!path) return
+                      setWorkspaceError(undefined)
+                      const result = await api.openWorkspace(path)
+                      if (!result.ok) setWorkspaceError(result.reason)
+                    })
+                  }
+                >
+                  <Icon icon={FolderOpen} size={11} />
+                  {state.workspace.path.split("/").filter(Boolean).at(-1) ?? state.workspace.label}
                 </button>
-                <ThinkingControl />
-              </>
-            ) : null}
-            {state ? (
-              // The chip shows just the folder name; the full path stays in the tooltip.
-              <button
-                type="button"
-                className="composer-workspace noDrag"
-                title={
-                  workspaceError ?? `${state.workspace.path} — ${t("composer.openDifferentFolder")}`
-                }
-                onClick={() =>
-                  void api.pickWorkspaceFolder().then(async (path) => {
-                    if (!path) return
-                    setWorkspaceError(undefined)
-                    const result = await api.openWorkspace(path)
-                    if (!result.ok) setWorkspaceError(result.reason)
-                  })
-                }
-              >
-                <Icon icon={FolderOpen} size={11} />
-                {state.workspace.path.split("/").filter(Boolean).at(-1) ?? state.workspace.label}
-              </button>
-            ) : null}
-            {showSpeed && speed ? (
-              <span className="composer-speed" title={t("composer.speedLabel")}>
-                <Icon icon={Gauge} size={12} />
-                {speed.exact
-                  ? speed.prefillMs === undefined
-                    ? rate
-                    : `${rate} · ${t("composer.prefill", { seconds: (speed.prefillMs / 1000).toFixed(1) })}`
-                  : `~${rate}`}
-              </span>
-            ) : null}
-          </span>
-          <span className="composer-actions">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept={FILE_ACCEPT}
-              multiple
-              hidden
-              onChange={(event) => {
-                void addFiles(Array.from(event.target.files ?? []))
-                event.target.value = ""
-              }}
-            />
-            <span className="composer-uploadWrap" title={t("composer.addFiles")}>
-              <button
-                type="button"
-                className="composer-upload iconBtn"
-                aria-label={t("composer.addFiles")}
-                disabled={!canAttach}
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <Icon icon={Paperclip} size={14} />
-              </button>
+              ) : null}
+              {showSpeed && speed ? (
+                <span className="composer-speed" title={t("composer.speedLabel")}>
+                  <Icon icon={Gauge} size={12} />
+                  {speed.exact
+                    ? speed.prefillMs === undefined
+                      ? rate
+                      : `${rate} · ${t("composer.prefill", { seconds: (speed.prefillMs / 1000).toFixed(1) })}`
+                    : `~${rate}`}
+                </span>
+              ) : null}
             </span>
-            {busy ? (
+            <span className="composer-actions">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept={FILE_ACCEPT}
+                multiple
+                hidden
+                onChange={(event) => {
+                  void addFiles(Array.from(event.target.files ?? []))
+                  event.target.value = ""
+                }}
+              />
+              <span className="composer-uploadWrap" title={t("composer.addFiles")}>
+                <button
+                  type="button"
+                  className="composer-upload iconBtn"
+                  aria-label={t("composer.addFiles")}
+                  disabled={!canAttach}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Icon icon={Paperclip} size={14} />
+                </button>
+              </span>
+              {busy ? (
+                <Button
+                  variant="danger"
+                  size="sm"
+                  icon={Square}
+                  onClick={() => void api.stop()}
+                  title={t("composer.stopTitle")}
+                >
+                  {t("composer.stop")}
+                </Button>
+              ) : null}
               <Button
-                variant="danger"
+                type="submit"
+                variant="primary"
                 size="sm"
-                icon={Square}
-                onClick={() => void api.stop()}
-                title={t("composer.stopTitle")}
+                iconAfter={ArrowUp}
+                disabled={!canSend}
+                title={busy ? t("composer.sendFollowUpTitle") : t("composer.sendTitle")}
               >
-                {t("composer.stop")}
+                {busy ? t("composer.followUp") : t("composer.send")}
               </Button>
-            ) : null}
-            <Button
-              type="submit"
-              variant="primary"
-              size="sm"
-              iconAfter={ArrowUp}
-              disabled={!canSend}
-              title={busy ? t("composer.sendFollowUpTitle") : t("composer.sendTitle")}
-            >
-              {busy ? t("composer.followUp") : t("composer.send")}
-            </Button>
-          </span>
-        </div>
-      </form>
+            </span>
+          </div>
+        </form>
+      </BorderBeam>
       {/* The disabled form is translucent while loading; its model picker must remain opaque. */}
       {state?.model && pickerOpen ? <ModelPicker onClose={() => setPickerOpen(false)} /> : null}
       {sendError ? (

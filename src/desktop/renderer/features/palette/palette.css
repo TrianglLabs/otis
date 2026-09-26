@@ -5,7 +5,7 @@
   position: fixed;
   top: 15vh;
   left: 50%;
-  transform: translateX(-50%);
+  translate: -50% 0;
   z-index: var(--z-overlay);
   width: 520px;
   max-height: min(480px, 65vh);
@@ -26,7 +26,7 @@
   color: var(--text);
   background: none;
   border: none;
-  border-bottom: var(--hairline);
+  border-bottom: 1px solid var(--hairline);
   outline: none;
   flex-shrink: 0;
 }
@@ -75,7 +75,7 @@
 
 .palette-row-active,
 .palette-row-active:hover {
-  background: var(--bg-elev);
+  background: var(--bg-selected);
 }
 
 /* The selected shade also marks the sessions that come back with the selected one. */
@@ -225,7 +225,7 @@
   align-items: center;
   gap: 5px;
   padding: 7px 16px;
-  border-top: var(--hairline);
+  border-top: 1px solid var(--hairline);
   font-size: var(--text-meta);
   color: var(--text-dim);
   flex-shrink: 0;
