@@ -46,6 +46,10 @@ export function AppShell() {
       activated: Date.now(),
     })
   }, [])
+  // A diagram belongs to the conversation it was opened from; another session, or a fresh one,
+  // drops it.
+  const sessionId = state?.session?.id
+  useEffect(() => setOpenedCanvas(undefined), [sessionId])
   const artifacts = state?.artifacts
   const views = useMemo<CanvasView[]>(
     () => [
