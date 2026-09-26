@@ -587,7 +587,6 @@ export function createUILayout(
     width: "100%",
     height: "100%",
     backgroundColor: colors.background,
-    live: true,
     paddingTop: 1,
     paddingBottom: 1,
     paddingLeft: 1,
