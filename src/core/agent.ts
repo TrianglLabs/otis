@@ -115,6 +115,7 @@ const SUBAGENT_TOOLS: ReadonlySet<ToolName> = new Set([
   "web_search",
   "web_read",
   "skill",
+  "recall",
 ])
 const MAX_TOOL_OUTPUT_CHARS = 16_000
 /** Past this share of the compaction threshold an estimate is too coarse to trust. */

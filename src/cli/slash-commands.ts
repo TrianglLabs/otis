@@ -19,6 +19,8 @@ export type SlashCommand =
   | { type: "compact"; instructions?: string }
   | { type: "skills"; action?: "list" }
   | { type: "skills"; action: "source" | "install" | "update" | "remove"; target: string }
+  | { type: "memory"; action?: "list" }
+  | { type: "memory"; action: "remember" | "forget"; target: string }
 
 type CatalogCommand = {
   type: Exclude<SlashCommand["type"], "theme">
@@ -44,6 +46,7 @@ const CATALOG: readonly CatalogCommand[] = [
   { type: "model", name: "/model", description: "Choose a model" },
   { type: "settings", name: "/settings", description: "Configure Otis" },
   { type: "skills", name: "/skills", description: "List and install Agent Skills" },
+  { type: "memory", name: "/memory", description: "See, add, or forget remembered facts" },
   { type: "fast", name: "/fast", description: "Toggle Fast serving" },
   { type: "queue", name: "/queue", description: "Queue a separate follow-up" },
   { type: "compact", name: "/compact", description: "Summarize old conversation to free context" },
@@ -86,6 +89,14 @@ export function parseSlashCommand(value: string): SlashCommand | undefined {
       return { type: "skills", action, target }
     return undefined
   }
+  if (name === "/memory") {
+    const [action, ...rest] = argument.split(/\s+/u)
+    const target = rest.join(" ")
+    if (action === "list" && !target) return { type: "memory", action }
+    if (target && (action === "remember" || action === "forget"))
+      return { type: "memory", action, target }
+    return undefined
+  }
   if (name !== "/settings") return undefined
   const setting = SETTINGS.find((candidate) => candidate === argument)
   if (setting) return { type: "settings", setting }
@@ -99,11 +110,12 @@ export function parseSlashCommand(value: string): SlashCommand | undefined {
 }
 
 export function slashCommandRunsImmediately(command: SlashCommand) {
-  // Skills actions that change files wait for the turn; the rest only show something.
+  // Skills and memory actions that change files wait for the turn; the rest only show something.
   if (command.type === "skills")
     return (
       command.action !== "install" && command.action !== "update" && command.action !== "remove"
     )
+  if (command.type === "memory") return command.action !== "remember" && command.action !== "forget"
   if (command.type !== "settings") return IMMEDIATE_TYPES.has(command.type)
   return (
     command.setting === undefined ||

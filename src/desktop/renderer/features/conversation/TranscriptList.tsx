@@ -145,16 +145,21 @@ export const TranscriptList = memo(function TranscriptList({
   )
   const scroll = useTranscriptScroll()
   // Disclosure state belongs to the transcript, so scrolling a row out of the viewport doesn't
-  // collapse it.
+  // collapse it. Opening one is reading, not following: the rows unfold under a header that
+  // stays put instead of the tail pulling the view down.
   const [expanded, setExpanded] = useState<ReadonlySet<number>>(() => new Set())
-  const setEntryExpanded = useCallback((id: number, open: boolean) => {
-    setExpanded((previous) => {
-      const next = new Set(previous)
-      if (open) next.add(id)
-      else next.delete(id)
-      return next
-    })
-  }, [])
+  const setEntryExpanded = useCallback(
+    (id: number, open: boolean) => {
+      if (open) scroll.pauseFollowing()
+      setExpanded((previous) => {
+        const next = new Set(previous)
+        if (open) next.add(id)
+        else next.delete(id)
+        return next
+      })
+    },
+    [scroll.pauseFollowing],
+  )
   // Expanded runs flatten into ordinary rows, so a long run stays windowed like the rest of the
   // transcript.
   const { items, expandedEntries } = useMemo(

@@ -56,17 +56,19 @@ export function startAutoUpdates(deps: {
 
   const check = (): Promise<void> => {
     if (pending) return pending
-    if (installing || state.status === "ready") return Promise.resolve()
-    report({ status: "checking" })
+    if (installing) return Promise.resolve()
+    // A download waiting for its restart keeps its row while the check looks for something newer;
+    // an app left running for days must not offer the version it fetched on its first day.
+    if (state.status !== "ready") report({ status: "checking" })
     pending = autoUpdater
       .checkForUpdates()
       .then(async (result) => {
         // A cached download can emit update-downloaded before the check promise resolves.
-        if (state.status !== "ready" && state.status !== "error") {
-          if (!result) report({ status: "unavailable" })
-          else if (result.isUpdateAvailable)
+        const downloaded = state.status === "ready" ? state.version : undefined
+        if (state.status !== "error") {
+          if (result?.isUpdateAvailable && result.updateInfo.version !== downloaded)
             report({ status: "downloading", version: result.updateInfo.version })
-          else report({ status: "current" })
+          else if (!downloaded) report(result ? { status: "current" } : { status: "unavailable" })
         }
         await result?.downloadPromise
       })

@@ -427,7 +427,7 @@ describe("AppShell settings navigation", () => {
 
     // Collections and their installer come before the skills list.
     const sections = panel.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)
-    expect(sections).toEqual(["Installed skills", "All skills"])
+    expect(sections).toEqual(["Installed skills", "All skills", "Memory"])
   })
 
   it("shows locally recorded usage in provider settings", async () => {
@@ -583,6 +583,39 @@ describe("AppShell settings navigation", () => {
     )
     expect(document.querySelectorAll(".unlockCard")).toHaveLength(1)
     expect(document.querySelector(".unlockCard-title")?.textContent).toBe("Extended")
+  })
+
+  it("lists remembered facts on the Extensions tab and adds or forgets them", async () => {
+    const entries = [
+      { scope: "workspace" as const, date: "2026-09-12", text: "Deploys go through CI." },
+      { scope: "global" as const, text: "Prefer bun over npm." },
+    ]
+    const api = fakeApi({
+      listMemory: vi.fn(async () => entries),
+      rememberFact: vi.fn(async () => ({ ok: true as const })),
+      forgetFact: vi.fn(async () => ({ ok: false as const, reason: "Nothing matches." })),
+    })
+    await renderApp(api)
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }))
+    await act(async () => {})
+    fireEvent.click(screen.getByRole("tab", { name: "Extensions" }))
+    await act(async () => {})
+    const memory = screen.getByRole("heading", { name: "Memory" }).parentElement as HTMLElement
+    expect(within(memory).getByText("Deploys go through CI.")).toBeTruthy()
+    expect(within(memory).getByText("This workspace · Sep 12")).toBeTruthy()
+    expect(within(memory).getByText("Everywhere")).toBeTruthy()
+
+    const input = within(memory).getByLabelText("Remember for this workspace") as HTMLInputElement
+    fireEvent.change(input, { target: { value: "Tests run with bun test." } })
+    fireEvent.keyDown(input, { key: "Enter" })
+    await act(async () => {})
+    expect(api.rememberFact).toHaveBeenCalledWith("workspace", "Tests run with bun test.")
+    expect(input.value).toBe("")
+
+    fireEvent.click(within(memory).getAllByRole("button", { name: "Forget" })[1])
+    await act(async () => {})
+    expect(api.forgetFact).toHaveBeenCalledWith("global", "Prefer bun over npm.")
+    expect(within(memory).getByText("Nothing matches.")).toBeTruthy()
   })
 
   it("keeps the composer's unsent draft when settings is opened and closed", async () => {

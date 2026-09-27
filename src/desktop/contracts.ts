@@ -9,6 +9,7 @@ import type { LocalThinkingSelection, LocalThinkingState } from "../inference/lo
 import type { ModelPickerItem, ModelPickerStatus } from "../inference/picker-catalog.js"
 import type { ModelProvider } from "../inference/types.js"
 import type { ThemeName, UiLanguage } from "../local/settings.js"
+import type { MemoryEntry, MemoryScope } from "../memory/memory.js"
 import type { PermissionMode } from "../permissions/policy.js"
 import type { SkillsSummary } from "../skills/catalog.js"
 
@@ -67,6 +68,9 @@ export const DESKTOP_CHANNELS = {
   installSkills: "desktop:install-skills",
   updateSkills: "desktop:update-skills",
   removeSkills: "desktop:remove-skills",
+  listMemory: "desktop:list-memory",
+  rememberFact: "desktop:remember-fact",
+  forgetFact: "desktop:forget-fact",
   setDebugMode: "desktop:set-debug-mode",
   checkForUpdates: "desktop:check-for-updates",
   installUpdate: "desktop:install-update",
@@ -239,6 +243,7 @@ export type DesktopAttachmentInput = {
 
 export type SessionOpResult = { ok: true } | { ok: false; reason: string }
 
+export type { MemoryEntry, MemoryScope } from "../memory/memory.js"
 export type { SkillSummary, SkillsSummary } from "../skills/catalog.js"
 
 /**
@@ -371,6 +376,10 @@ export type DesktopApi = {
   updateSkills(id: string): Promise<SessionOpResult>
   /** Removes a collection and the skills it activated. */
   removeSkills(id: string): Promise<SessionOpResult>
+  /** What Otis remembers for this workspace and everywhere, in file order. */
+  listMemory(): Promise<MemoryEntry[]>
+  rememberFact(scope: MemoryScope, fact: string): Promise<SessionOpResult>
+  forgetFact(scope: MemoryScope, fact: string): Promise<SessionOpResult>
   /** Session-only debug mode; applies from the next turn. */
   setDebugMode(enabled: boolean): Promise<void>
   /** Checks the release feed; progress and results arrive through the status stream. */

@@ -39,6 +39,9 @@ export type LocalGgufFile = {
 type LocalModelPacking = {
   ggufFiles: readonly [LocalGgufFile, ...LocalGgufFile[]]
   quant: string
+  /** Set when this packing lives in another repository than the model's. */
+  ggufRepo?: string
+  ggufRevision?: string
   /**
    * Backends with kernels for this packing in the pinned runtime. Omitted means all supported
    * backends.
@@ -96,6 +99,27 @@ const BONSAI_PQ2: LocalModelPacking = {
       name: "Ternary-Bonsai-2-27B-PQ2_0.gguf",
       sha256: "3907dc1658db1f78a9826bf8d5bcb8dc65db0d466388937af57f2294fae62ec1",
       size: 7_206_168_928,
+    },
+  ],
+}
+
+const FLASH_NEXT_IQ3: LocalModelPacking = {
+  quant: "UD-IQ3_XXS",
+  ggufFiles: [
+    {
+      name: "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00001-of-00003.gguf",
+      sha256: "268f81fdedf3149a538f252308927a4d5d1f6e062c178568a51e3b519744f8a8",
+      size: 10_946_624,
+    },
+    {
+      name: "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00002-of-00003.gguf",
+      sha256: "cfe600b236b88c7fad1613a5ca5e83b9f2beb63cbd44c32b2be50a44747c695f",
+      size: 49_567_921_344,
+    },
+    {
+      name: "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00003-of-00003.gguf",
+      sha256: "f1912ba34c79427d2295a58dcb2b732b5931af5bef7a373c60557a57d9ee7250",
+      size: 32_382_955_968,
     },
   ],
 }
@@ -243,28 +267,40 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     displayName: "Qwen3.8 Flash Next",
     sourceModel: "Qwen/Qwen3.8-Flash-Next",
     runtime: "upstream",
-    // Qwen's ggml-org conversion is Q8 only; this smaller conversion is from the official
-    // checkpoint.
+    // Qwen's ggml-org conversion is Q8 only, 163 GB; the smaller conversion of the official
+    // checkpoint serves every machine that cannot hold it, which is most of them.
     ggufRepo: "unsloth/Qwen3.8-Flash-Next-GGUF",
     ggufRevision: "c8b5954a88c2775c546b92593eda40ea041d3176",
-    ggufFiles: [
+    ggufFiles: FLASH_NEXT_IQ3.ggufFiles,
+    quant: FLASH_NEXT_IQ3.quant,
+    packings: [
       {
-        name: "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00001-of-00003.gguf",
-        sha256: "268f81fdedf3149a538f252308927a4d5d1f6e062c178568a51e3b519744f8a8",
-        size: 10_946_624,
+        ...FLASH_NEXT_IQ3,
+        // Q8 needs about 156 GiB of working set: a 256 GiB Mac has it, a 192 GiB one does not.
+        useWhen: {
+          maximumDedicatedGpuMemoryBytes: 192 * GIBIBYTE,
+          maximumSystemMemoryBytes: 192 * GIBIBYTE,
+          maximumUnifiedMemoryBytes: 192 * GIBIBYTE,
+        },
       },
       {
-        name: "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00002-of-00003.gguf",
-        sha256: "cfe600b236b88c7fad1613a5ca5e83b9f2beb63cbd44c32b2be50a44747c695f",
-        size: 49_567_921_344,
-      },
-      {
-        name: "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00003-of-00003.gguf",
-        sha256: "f1912ba34c79427d2295a58dcb2b732b5931af5bef7a373c60557a57d9ee7250",
-        size: 32_382_955_968,
+        quant: "Q8_0",
+        ggufRepo: "ggml-org/Qwen3.8-Flash-Next-GGUF",
+        ggufRevision: "01534bc2e1877d5de995b73d247d4459d273e688",
+        ggufFiles: [
+          {
+            name: "Qwen3.8-Flash-Next-Q8_0-00001-of-00002.gguf",
+            sha256: "8fd89b06896d2b80eec0ca024bff557f2c96b450c31e8238e2cb67ff6450e489",
+            size: 10_945_312,
+          },
+          {
+            name: "Qwen3.8-Flash-Next-Q8_0-00002-of-00002.gguf",
+            sha256: "aab73e5619b2448224cbfd15d4ee260fe8fedb686be51ac42304685cdd787d44",
+            size: 162_613_881_344,
+          },
+        ],
       },
     ],
-    quant: "UD-IQ3_XXS",
     nativeContextLength: 262_144,
     // The checkpoint is multimodal, but local image input also requires the separate mmproj
     // artifact.
@@ -450,16 +486,21 @@ export function localModelForHardware(
     }) ?? compatible.at(-1)
   if (!packing)
     throw new Error(`${model.displayName} has no packing for the ${hardware.backend} backend.`)
-  return { ...model, ggufFiles: packing.ggufFiles, quant: packing.quant }
+  return packed(model, packing)
 }
 
 export function localModelPackings(model: LocalModelSpec): readonly LocalModelSpec[] {
-  if (!model.packings) return [model]
-  return model.packings.map((packing) => ({
+  return model.packings?.map((packing) => packed(model, packing)) ?? [model]
+}
+
+function packed(model: LocalModelSpec, packing: LocalModelPacking): LocalModelSpec {
+  return {
     ...model,
     ggufFiles: packing.ggufFiles,
     quant: packing.quant,
-  }))
+    ggufRepo: packing.ggufRepo ?? model.ggufRepo,
+    ggufRevision: packing.ggufRevision ?? model.ggufRevision,
+  }
 }
 
 export function findLocalModel(modelId: string) {

@@ -7,6 +7,7 @@ import {
   Globe,
   ListChecks,
   type LucideIcon,
+  NotebookPen,
   Pencil,
   Search,
   SquareTerminal,
@@ -35,10 +36,11 @@ const KIND_ICONS: Record<ToolActivityKind, LucideIcon> = {
   git: GitBranch,
   shell: SquareTerminal,
   agent: Box,
+  memory: NotebookPen,
 }
 
-/** Subjects that are sentences rather than code: a delegation's brief, a web query. */
-const PROSE_ACTIONS = new Set<ToolAction>(["agent", "web_search"])
+/** Subjects that are sentences rather than code: a delegation's brief, a web query, a fact. */
+const PROSE_ACTIONS = new Set<ToolAction>(["agent", "web_search", "recall", "remember", "forget"])
 
 /** What a finished run did, counted by what each kind of action amounts to for the reader. */
 const RUN_COUNTS: Record<ToolActivityKind, MessageKey> = {
@@ -52,6 +54,7 @@ const RUN_COUNTS: Record<ToolActivityKind, MessageKey> = {
   git: "toolRun.checks",
   shell: "toolRun.commands",
   agent: "toolRun.delegations",
+  memory: "toolRun.memories",
 }
 
 /**

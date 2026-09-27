@@ -66,6 +66,15 @@ describe("permission policy", () => {
       "allow",
     )
     expect((await ask.evaluate({ name: "skill", input: { skill: "review" } })).effect).toBe("allow")
+    expect((await ask.evaluate({ name: "recall", input: { query: "limiter" } })).effect).toBe(
+      "allow",
+    )
+    expect(
+      await ask.evaluate({ name: "remember", input: { fact: "x", scope: "global" } }),
+    ).toMatchObject({ effect: "ask", resources: ["global"] })
+    expect(
+      (await auto.evaluate({ name: "forget", input: { fact: "x", scope: "workspace" } })).effect,
+    ).toBe("allow")
     expect((await ask.evaluate({ name: "bash", input: { command: "bun test" } })).effect).toBe(
       "ask",
     )

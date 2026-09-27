@@ -1,3 +1,4 @@
+import { isMemoryScope } from "../memory/memory.js"
 import {
   DOCUMENT_OPERATIONS,
   type DocumentOperation,
@@ -55,6 +56,47 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         ),
       },
       ["skill"],
+    ),
+  },
+  {
+    name: "recall",
+    description:
+      "Search what Otis remembers about this workspace and the user, plus excerpts from past sessions in every workspace. Call it before working in a workspace you have not seen this session and when the user refers to earlier work. The current repository and the user's instructions win when they disagree.",
+    parameters: objectSchema(
+      { query: stringSchema("A short phrase: the topic, file, decision, or session to look up.") },
+      ["query"],
+    ),
+  },
+  {
+    name: "remember",
+    description:
+      "Save one durable fact for later sessions: a decision, convention, gotcha, or where something lives, as one specific sentence. Memory holds facts about the project and the user's tooling, never about people: no names, contact details, credentials, or anything personal, and nothing the code and docs already state. Defaults to this workspace; use global for the user's setup.",
+    parameters: objectSchema(
+      {
+        fact: stringSchema("The fact, as one sentence."),
+        scope: {
+          type: "string",
+          enum: ["workspace", "global"],
+          description: "Where it applies. Defaults to workspace.",
+        },
+      },
+      ["fact"],
+    ),
+  },
+  {
+    name: "forget",
+    description:
+      "Remove a remembered fact that is wrong or outdated. Pass its text as recall showed it.",
+    parameters: objectSchema(
+      {
+        fact: stringSchema("The remembered text, or enough of it to be unambiguous."),
+        scope: {
+          type: "string",
+          enum: ["workspace", "global"],
+          description: "Where it was saved. Defaults to workspace.",
+        },
+      },
+      ["fact"],
     ),
   },
   {
@@ -431,6 +473,19 @@ export function parseStructuredToolCall(name: string, input: unknown): ToolCall 
       if (!description || !prompt)
         throw new Error('agent requires non-empty strings "description" and "prompt"')
       return { name, input: { description, prompt } }
+    }
+    case "recall": {
+      const query = text("query")
+      if (!query) throw new Error('recall requires a non-empty string "query"')
+      return { name, input: { query } }
+    }
+    case "remember":
+    case "forget": {
+      const fact = text("fact")
+      if (!fact) throw new Error(`${name} requires a non-empty string "fact"`)
+      const scope = text("scope") ?? "workspace"
+      if (!isMemoryScope(scope)) throw new Error(`${name} scope must be "workspace" or "global"`)
+      return { name, input: { fact, scope } }
     }
     case "save_attachment": {
       const attachment = text("attachment")

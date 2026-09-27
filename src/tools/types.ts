@@ -1,6 +1,7 @@
 import type { ArtifactPublisher } from "../artifacts/publisher.js"
 import type { FileArtifactReference } from "../artifacts/types.js"
 import type { AttachmentContentPart } from "../inference/types.js"
+import type { MemoryScope } from "../memory/memory.js"
 import type { SkillCatalog } from "../skills/catalog.js"
 import type { ParallelClient } from "../web/client.js"
 
@@ -19,6 +20,9 @@ export const TOOL_NAMES = [
   "publish_artifact",
   "bash",
   "agent",
+  "recall",
+  "remember",
+  "forget",
 ] as const
 
 export type ToolName = (typeof TOOL_NAMES)[number]
@@ -74,6 +78,9 @@ export type ToolCall =
   | { name: "publish_artifact"; input: { path: string; artifactId?: string } }
   | { name: "bash"; input: { command: string; timeoutMs?: number } }
   | { name: "agent"; input: { description: string; prompt: string } }
+  | { name: "recall"; input: { query: string } }
+  | { name: "remember"; input: { fact: string; scope: MemoryScope } }
+  | { name: "forget"; input: { fact: string; scope: MemoryScope } }
 
 export type ToolResult = {
   title: string
@@ -102,4 +109,9 @@ export type ToolContext = {
   webClientModel?: string
   webSession?: { id?: string }
   skills?: SkillCatalog
+  /**
+   * The saved session running the turn, which stamps what it remembers. Not `webSession.id`: the
+   * web client overwrites that with its own id.
+   */
+  sessionId?: string
 }

@@ -48,6 +48,7 @@ const TOOL_ICONS: Record<ToolActivityKind, string> = {
   git: "⚙",
   shell: "⚙",
   agent: "◇",
+  memory: "✦",
 }
 const useRichToolIcons = supportsRichToolIcons()
 const REASONING_PREVIEW_HEIGHT = 3

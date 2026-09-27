@@ -194,9 +194,12 @@ describe("tool runs", () => {
     const view = renderList([a, b])
     const header = () => view.container.querySelector(".toolRun-header") as HTMLButtonElement
     expect(header().getAttribute("aria-expanded")).toBe("false")
+    expect(view.container.querySelector(".jumpToLatest")).toBeNull()
     fireEvent.click(header())
     expect(header().getAttribute("aria-expanded")).toBe("true")
     expect(rows(view.container)).toEqual([`run:${a.id}`, String(a.id), String(b.id)])
+    // Opening a run stops the tail from pulling the view down; Latest offers the way back.
+    expect(view.container.querySelector(".jumpToLatest")).not.toBeNull()
     const inRun = view.container.querySelectorAll(".transcriptEntry-inRun")
     expect(Array.from(inRun, (row) => (row as HTMLElement).dataset.entryId)).toEqual(
       [a, b].map((item) => String(item.id)),

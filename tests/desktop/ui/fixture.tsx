@@ -417,6 +417,10 @@ async function runDesktopUiChecks() {
   )
   settingsTabs[1].click()
   await until(() => !!document.querySelector("#settings-skill-url"), "Extensions tab did not open")
+  await until(
+    () => document.querySelectorAll(".settingsMemory-fact").length === 3,
+    "Extensions tab does not list remembered facts",
+  )
   settingsTabs[2].click()
   await until(() => !!document.querySelector(".themeGrid"), "Appearance tab did not open")
   assert(

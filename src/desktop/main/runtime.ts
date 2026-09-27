@@ -49,6 +49,7 @@ import {
   UI_LANGUAGES,
 } from "../../local/settings.js"
 import { type AchievementId, calculateLocalStats } from "../../local/stats.js"
+import { forget, listMemory, type MemoryScope, remember } from "../../memory/memory.js"
 import { SkillManager } from "../../skills/manager.js"
 import {
   defaultSessionDirectory,
@@ -903,14 +904,11 @@ export class DesktopRuntime {
   }
 
   /** Validates a Fireworks API key against the hosted catalog, then persists and activates it. */
-  async setFireworksApiKey(apiKey: string): Promise<ModelSelectResult> {
-    try {
+  setFireworksApiKey(apiKey: string): Promise<ModelSelectResult> {
+    return attempt(async () => {
       await this.app.setFireworksApiKey(apiKey, { list: this.options.listToolCapableModels })
       this.#markStateDirty()
-      return { ok: true }
-    } catch (error) {
-      return { ok: false, reason: describeError(error) }
-    }
+    })
   }
 
   /** Shares discovery, persistence, and active-client refresh with terminal setup. */
@@ -918,29 +916,23 @@ export class DesktopRuntime {
     if (this.app.anyBusy) {
       return { ok: false, reason: "Finish the current work before changing local servers." }
     }
-    try {
+    return attempt(async () => {
       await this.app.connectLocalServers(input, {
         discoverPair: this.options.discoverPair,
         discoverOmlx: this.options.discoverOmlx,
       })
       this.#lastPickerItems = undefined
       this.#markStateDirty()
-      return { ok: true }
-    } catch (error) {
-      return { ok: false, reason: describeError(error) }
-    }
+    })
   }
 
   /** Deletes a downloaded local model, clearing the selection first when it is active. */
-  async deleteLocalModel(modelId: string): Promise<ModelSelectResult> {
-    try {
+  deleteLocalModel(modelId: string): Promise<ModelSelectResult> {
+    return attempt(async () => {
       await this.app.deleteLocalModel(modelId)
-    } catch (error) {
-      return { ok: false, reason: describeError(error) }
-    }
-    this.#lastPickerItems = undefined
-    this.#markStateDirty()
-    return { ok: true }
+      this.#lastPickerItems = undefined
+      this.#markStateDirty()
+    })
   }
 
   listSkills(): Promise<SkillsSummary> {
@@ -959,15 +951,24 @@ export class DesktopRuntime {
     return this.#manageSkills(() => this.#skills.remove(id))
   }
 
-  /** Git's complaint is the reason; the catalog is reread so the next turn has the change. */
-  async #manageSkills(change: () => Promise<unknown>): Promise<SessionOpResult> {
-    try {
+  listMemory() {
+    return listMemory(this.app.cwd)
+  }
+
+  rememberFact(scope: MemoryScope, fact: string) {
+    return attempt(() => remember(scope, fact, this.app.cwd))
+  }
+
+  forgetFact(scope: MemoryScope, fact: string) {
+    return attempt(() => forget(scope, fact, this.app.cwd))
+  }
+
+  /** The catalog is reread so the next turn has the change. */
+  #manageSkills(change: () => Promise<unknown>) {
+    return attempt(async () => {
       await change()
-    } catch (error) {
-      return { ok: false, reason: describeError(error) }
-    }
-    await this.app.reloadSkills()
-    return { ok: true }
+      await this.app.reloadSkills()
+    })
   }
 
   /** Session-only debug mode; applies from the next turn, matching the TUI. */
@@ -1360,4 +1361,14 @@ async function pathExists(path: string) {
   } catch {
     return false
   }
+}
+
+/** The change's complaint is the reason a settings action shows. */
+async function attempt(change: () => Promise<unknown>): Promise<SessionOpResult> {
+  try {
+    await change()
+  } catch (error) {
+    return { ok: false, reason: describeError(error) }
+  }
+  return { ok: true }
 }

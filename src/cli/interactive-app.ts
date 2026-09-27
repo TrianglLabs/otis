@@ -32,6 +32,7 @@ import {
   type ThemeName,
 } from "../local/settings.js"
 import { calculateLocalStats } from "../local/stats.js"
+import { forget, listMemory, remember } from "../memory/memory.js"
 import { SkillManager } from "../skills/manager.js"
 import { AttachmentFlow } from "./attachment-flow.js"
 import { createChatUI } from "./chat-ui.js"
@@ -490,6 +491,10 @@ export class InteractiveApp {
         this.#ui.clearInput()
         await this.#runSkillsCommand(command)
         return
+      case "memory":
+        this.#ui.clearInput()
+        await this.#runMemoryCommand(command)
+        return
       case "effort": {
         const state = this.#app.models.thinkingState(this.#app.selection?.model)
         this.#ui.clearInput()
@@ -878,6 +883,56 @@ export class InteractiveApp {
         { onBack: () => this.#ui.showSlashCommandMenu() },
       )
     }
+    this.#ui.focusInput()
+  }
+
+  async #runMemoryCommand(command: Extract<SlashCommand, { type: "memory" }>) {
+    if (command.action === "remember" || command.action === "forget") {
+      const cwd = this.#app.cwd
+      try {
+        // Forgetting looks in this workspace first, then in what holds everywhere.
+        const entry =
+          command.action === "remember"
+            ? await remember("workspace", command.target, cwd)
+            : await forget("workspace", command.target, cwd).catch(() =>
+                forget("global", command.target, cwd),
+              )
+        this.#say(`${command.action === "remember" ? "Remembered" : "Forgot"}: ${entry.text}`)
+      } catch (error) {
+        this.#ui.showTransientHint(` ${describeError(error)} `)
+        this.#ui.focusInput()
+      }
+      return
+    }
+    const entries = await listMemory(this.#app.cwd)
+    if (this.#exiting) return
+    if (command.action === "list") {
+      const rows = entries.map(
+        (entry) => `- ${entry.scope === "global" ? "everywhere" : "workspace"}: ${entry.text}`,
+      )
+      this.#say(rows.length > 0 ? rows.join("\n") : "Nothing remembered yet.")
+      return
+    }
+    this.#ui.showCommandSubmenu(
+      [
+        {
+          name: "Remembered facts",
+          description: `${entries.length} in this workspace and everywhere`,
+          submission: "/memory list",
+        },
+        {
+          name: "Remember",
+          description: "Type a fact after the command",
+          draft: "/memory remember ",
+        },
+        {
+          name: "Forget",
+          description: "Type the fact's text after the command",
+          draft: "/memory forget ",
+        },
+      ],
+      { onBack: () => this.#ui.showSlashCommandMenu() },
+    )
     this.#ui.focusInput()
   }
 

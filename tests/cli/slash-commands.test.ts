@@ -26,6 +26,18 @@ describe("slash commands", () => {
       target: "pstack",
     })
     expect(parseSlashCommand("/skills install")).toBeUndefined()
+    expect(parseSlashCommand("/memory")).toEqual({ type: "memory" })
+    expect(parseSlashCommand("/memory list")).toEqual({ type: "memory", action: "list" })
+    expect(parseSlashCommand("/memory remember Deploys go through CI")).toEqual({
+      type: "memory",
+      action: "remember",
+      target: "Deploys go through CI",
+    })
+    expect(parseSlashCommand("/memory forget")).toBeUndefined()
+    expect(slashCommandRunsImmediately({ type: "memory" })).toBe(true)
+    expect(slashCommandRunsImmediately({ type: "memory", action: "forget", target: "x" })).toBe(
+      false,
+    )
     expect(slashCommandRunsImmediately({ type: "skills" })).toBe(true)
     expect(slashCommandRunsImmediately({ type: "skills", action: "list" })).toBe(true)
     expect(slashCommandRunsImmediately({ type: "skills", action: "install", target: "x" })).toBe(
@@ -109,6 +121,7 @@ describe("slash commands", () => {
       "/model",
       "/settings",
       "/skills",
+      "/memory",
       "/fast",
       "/queue",
       "/compact",

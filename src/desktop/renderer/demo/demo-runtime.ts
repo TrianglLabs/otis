@@ -23,6 +23,8 @@ import {
   type DesktopSnapshot,
   type DesktopStatus,
   MAX_PANES,
+  type MemoryEntry,
+  type MemoryScope,
   type ModelSelectResult,
   type PaneDrop,
   type PaneOps,
@@ -677,6 +679,19 @@ class DemoRuntime implements DesktopApi {
   #permissionResolve: ((allow: boolean) => void) | undefined
   #modelTimer: ReturnType<typeof setTimeout> | undefined
   #modelSeq = 0
+  #memory: MemoryEntry[] = [
+    {
+      scope: "workspace",
+      date: "2026-09-12",
+      text: "Session locks live in src/storage/session-lock.ts; the flaky test was timing.",
+    },
+    {
+      scope: "workspace",
+      date: "2026-09-20",
+      text: "Release notes go in CHANGELOG.md under the version heading before tagging.",
+    },
+    { scope: "global", date: "2026-08-03", text: "Prefer bun over npm for scripts and installs." },
+  ]
   #downloadedLocalIds = new Set(
     DEMO_MODELS.filter((item) => item.provider === "local" && item.downloaded).map(
       (item) => item.id,
@@ -1806,6 +1821,22 @@ class DemoRuntime implements DesktopApi {
     return { ok: true }
   }
 
+  async listMemory(): Promise<MemoryEntry[]> {
+    return this.#memory
+  }
+
+  async rememberFact(scope: MemoryScope, fact: string): Promise<SessionOpResult> {
+    const text = fact.trim()
+    if (!text) return { ok: false, reason: "There is nothing to remember." }
+    this.#memory = [...this.#memory, { scope, date: new Date().toISOString().slice(0, 10), text }]
+    return { ok: true }
+  }
+
+  async forgetFact(scope: MemoryScope, fact: string): Promise<SessionOpResult> {
+    this.#memory = this.#memory.filter((entry) => entry.scope !== scope || entry.text !== fact)
+    return { ok: true }
+  }
+
   async listModels(): Promise<ModelPickerItem[]> {
     const current = this.#state.model
     const load = this.#state.modelLoad
@@ -2344,6 +2375,10 @@ function toolActivityTranscript(): TranscriptEntry[] {
     tool("git_command", "git log --oneline -5", "t23"),
     tool("command", "bun run typecheck", "t24"),
     tool("command", "bun test tests/desktop/renderer", "t25"),
+    fixture({ kind: "message", speaker: "Otis", text: "Memory across sessions:" }),
+    tool("recall", "session lock flakiness", "t26"),
+    tool("remember", "Session locks live in src/storage/session-lock.ts.", "t27"),
+    tool("forget", "The lock test is flaky.", "t28"),
     fixture({
       kind: "message",
       speaker: "Otis",

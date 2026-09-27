@@ -169,6 +169,7 @@ otis
 | `/model` | Choose a managed-local, local-server, or hosted model |
 | `/settings` | Configure Fireworks or local servers, delete local models, or toggle debug mode |
 | `/skills` | List loaded Agent Skills; install, update, or remove Git collections |
+| `/memory` | See what Otis remembers for this workspace; add or forget a fact |
 | `/fast` | Toggle Fast serving when the current model supports it |
 | `/compact [instructions]` | Summarize older conversation and free context |
 | `/thinking` | Toggle model-provided thinking traces |
@@ -198,6 +199,14 @@ to keep everything under one location. Provider keys are never written to sessio
 usage records. Managed inference stays on loopback, hosted prompts go directly to Fireworks (which documents Zero
 Data Retention for open-model inference by default), web requests go directly to Parallel, and PAIR owns traffic
 within your cluster.
+
+Otis keeps a small memory it never puts in the prompt: facts the agent or you save with `remember` land in
+`.otis/memory.md` of the working folder, or in `memory.md` of Otis' data folder when they hold everywhere. The
+agent reads them only when it calls `recall`, which also searches your past sessions in every workspace. Memory is
+for the project and your tooling, not for people: the agent is told not to save personal details, and credentials,
+email addresses, phone, card and national-id numbers are stripped from anything saved or recalled. Both files are
+plain Markdown you can edit; the Extensions settings tab lists and edits them too. What `recall` returns goes to
+whichever model is answering, so with a hosted model it leaves your machine like the rest of the conversation.
 
 Read [local data and privacy](docs/data-and-privacy.md) for paths and retention, the
 [architecture guide](docs/architecture.md) for runtime boundaries, and [SECURITY.md](SECURITY.md) for private

@@ -1,3 +1,4 @@
+import { forget, recall, remember } from "../memory/memory.js"
 import { readSkillResource } from "../skills/catalog.js"
 import { runDocumentWorkflow } from "./document-workflow.js"
 import { editLocalDocument } from "./documents.js"
@@ -87,6 +88,21 @@ export async function executeToolCall(
       return runBash(call.input.command, call.input.timeoutMs, context)
     case "publish_artifact":
       return publishArtifact(call.input.path, call.input.artifactId, context)
+    case "recall":
+      return {
+        title: `Recall: ${call.input.query}`,
+        output: await recall(call.input.query, context.cwd ?? process.cwd(), context.sessionId),
+      }
+    case "remember": {
+      const { scope, fact } = call.input
+      const entry = await remember(scope, fact, context.cwd ?? process.cwd(), context.sessionId)
+      return { title: `Remembered (${scope})`, output: entry.text }
+    }
+    case "forget": {
+      const { scope, fact } = call.input
+      const entry = await forget(scope, fact, context.cwd ?? process.cwd())
+      return { title: `Forgot (${scope})`, output: entry.text }
+    }
   }
 }
 

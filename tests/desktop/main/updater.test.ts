@@ -136,9 +136,11 @@ describe("startAutoUpdates", () => {
     finish(["fake-update.zip"])
     await pending
     expect(updater.states.at(-1)).toEqual({ status: "ready", version: "9.9.9" })
+    // Later checks keep looking for newer releases; the same one leaves the ready row alone.
     await updater.check()
     await vi.advanceTimersByTimeAsync(60 * 60 * 1000)
-    expect(checkFeed).toHaveBeenCalledOnce()
+    expect(checkFeed).toHaveBeenCalledTimes(3)
+    expect(updater.states.at(-1)).toEqual({ status: "ready", version: "9.9.9" })
     updater.install()
     updater.install()
     expect(autoUpdater.quitAndInstall).toHaveBeenCalledOnce()
@@ -153,6 +155,42 @@ describe("startAutoUpdates", () => {
     const updater = start()
     await updater.check()
     expect(updater.states).toEqual([{ status: "checking" }, { status: "ready", version: "9.9.9" }])
+  })
+
+  it("keeps looking for newer versions while a downloaded update waits for its restart", async () => {
+    checkFeed.mockImplementationOnce(async () => {
+      autoUpdater.emit("update-downloaded", downloadedEvent)
+      return result(true, Promise.resolve(["cached.zip"]))
+    })
+    const updater = start()
+    await updater.check()
+    // The same release again: the ready row stays and nothing flickers through "checking".
+    checkFeed.mockResolvedValueOnce(result(true, Promise.resolve(["cached.zip"])))
+    await updater.check()
+    expect(updater.states).toEqual([{ status: "checking" }, { status: "ready", version: "9.9.9" }])
+    // A newer release replaces the waiting one.
+    const newer = { ...updateInfo, version: "9.9.10" }
+    let finish!: (files: string[]) => void
+    checkFeed.mockResolvedValueOnce({
+      ...result(
+        true,
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+      ),
+      updateInfo: newer,
+      versionInfo: newer,
+    })
+    const pending = updater.check()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(updater.states.at(-1)).toEqual({ status: "downloading", version: "9.9.10" })
+    autoUpdater.emit("update-downloaded", { ...newer, downloadedFile: "/preview/new.zip" })
+    finish(["new.zip"])
+    await pending
+    expect(updater.states.slice(2)).toEqual([
+      { status: "downloading", version: "9.9.10" },
+      { status: "ready", version: "9.9.10" },
+    ])
   })
 
   it("reports a failed check without rejecting and lets the user retry", async () => {
