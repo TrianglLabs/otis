@@ -252,7 +252,7 @@ describe("agent tool", () => {
 
     await collect(runAgent("delegate", [], { client, skills: emptySkillCatalog() }))
 
-    expect(childTools).toEqual(["web_search", "web_read", "read", "grep", "glob"])
+    expect(childTools).toEqual(["web_search", "web_read", "recall", "read", "grep", "glob"])
   })
 
   it("runs adjacent agent calls concurrently and returns their results in the model's order", async () => {

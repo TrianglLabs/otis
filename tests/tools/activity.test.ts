@@ -25,6 +25,32 @@ describe("describeToolCall", () => {
       subject: "https://example.com/docs",
       label: "Reading web: https://example.com/docs",
     })
+    expect(describeToolCall({ name: "recall", input: { query: "limiter design" } })).toEqual({
+      kind: "memory",
+      action: "recall",
+      subject: "limiter design",
+      label: "Recalling: limiter design",
+    })
+    expect(
+      describeToolCall({
+        name: "remember",
+        input: { fact: "Deploys go through CI.", scope: "workspace" },
+      }),
+    ).toMatchObject({
+      kind: "memory",
+      action: "remember",
+      label: "Remembering: Deploys go through CI.",
+    })
+    expect(
+      describeToolCall({
+        name: "forget",
+        input: { fact: "Deploys go through CI.", scope: "global" },
+      }),
+    ).toMatchObject({
+      kind: "memory",
+      action: "forget",
+      label: "Forgetting: Deploys go through CI.",
+    })
     expect(describeToolCall({ name: "read", input: { path: "README.md" } })).toEqual({
       kind: "file_read",
       action: "read",

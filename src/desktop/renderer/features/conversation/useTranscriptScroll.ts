@@ -168,6 +168,7 @@ export function useTranscriptScroll() {
     onTouchStartCapture,
     onTouchMoveCapture,
     totalListHeightChanged: setListHeight,
+    pauseFollowing,
     jumpToLatest,
     isScrolling: setScrolling,
   }

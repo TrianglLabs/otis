@@ -1,4 +1,4 @@
-import { appendFile, mkdir, rm, writeFile } from "node:fs/promises"
+import { appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { Application, type SessionRuntime } from "../../../src/app/application.js"
@@ -710,6 +710,23 @@ describe("DesktopRuntime subagents", () => {
     await runtime.setWorkspacePanelWidth(undefined)
     expect((await runtime.snapshot()).workspacePanelWidth).toBeUndefined()
     expect((await loadLocalSettings()).workspacePanelWidth).toBeUndefined()
+    await runtime.shutdown()
+  })
+
+  it("lists, remembers and forgets facts for the open workspace", async () => {
+    const { runtime, cwd } = await setup()
+    expect(await runtime.listMemory()).toEqual([])
+    expect(await runtime.rememberFact("workspace", "Deploys go through CI.")).toEqual({ ok: true })
+    expect(await runtime.rememberFact("global", "  ")).toMatchObject({ ok: false })
+    expect(await runtime.listMemory()).toMatchObject([
+      { scope: "workspace", text: "Deploys go through CI." },
+    ])
+    expect(await readFile(join(cwd, ".otis", "memory.md"), "utf8")).toMatch(
+      /^- \d{4}-\d{2}-\d{2}: Deploys/,
+    )
+    expect(await runtime.forgetFact("workspace", "deploys")).toEqual({ ok: true })
+    expect(await runtime.forgetFact("workspace", "deploys")).toMatchObject({ ok: false })
+    expect(await runtime.listMemory()).toEqual([])
     await runtime.shutdown()
   })
 

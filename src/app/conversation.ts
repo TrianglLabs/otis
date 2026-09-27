@@ -540,6 +540,7 @@ export class Conversation {
               webClient: this.options.webClient,
               webClientModel: client.model,
               webSession: { id: session.id },
+              sessionId: session.id,
               cwd: this.options.cwd,
               artifactPublisher: sessionArtifactPublisher(session),
               attachments: () => artifacts.attachments,

@@ -533,10 +533,10 @@ button.reasoning-header:hover {
   min-width: 0;
 }
 
-/* Lowercase text sits above its box centre; a pixel up puts the icon on the letters' centre. */
+/* Lowercase text sits a hair above its box centre; half a pixel up meets the letters' centre. */
 .toolCard-icon {
   position: relative;
-  top: -1px;
+  top: -0.5px;
   color: var(--text-dim);
   display: inline-flex;
   flex-shrink: 0;

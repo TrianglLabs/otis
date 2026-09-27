@@ -4,6 +4,7 @@ import { dirname, extname, join } from "node:path"
 import { BrowserWindow, dialog, type IpcMainInvokeEvent, ipcMain, shell } from "electron"
 import { isArtifactReference } from "../../artifacts/types.js"
 import { describeError } from "../../inference/errors.js"
+import { isMemoryScope } from "../../memory/memory.js"
 import {
   DESKTOP_CHANNELS,
   type DesktopAttachmentInput,
@@ -292,6 +293,15 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
   handle(DESKTOP_CHANNELS.removeSkills, (id) => {
     if (typeof id !== "string") throw new Error("removeSkills expects an id")
     return runtime.removeSkills(id)
+  })
+  handle(DESKTOP_CHANNELS.listMemory, () => runtime.listMemory())
+  handle(DESKTOP_CHANNELS.rememberFact, (scope, fact) => {
+    if (!isMemoryScope(scope) || typeof fact !== "string") throw new Error("Invalid memory fact.")
+    return runtime.rememberFact(scope, fact)
+  })
+  handle(DESKTOP_CHANNELS.forgetFact, (scope, fact) => {
+    if (!isMemoryScope(scope) || typeof fact !== "string") throw new Error("Invalid memory fact.")
+    return runtime.forgetFact(scope, fact)
   })
   handle(DESKTOP_CHANNELS.checkForUpdates, () => runtime.checkForUpdates())
   handle(DESKTOP_CHANNELS.installUpdate, () => runtime.installUpdate())

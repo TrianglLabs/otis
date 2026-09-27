@@ -147,6 +147,18 @@ it("forwards marking achievements as seen", async () => {
   expect(markAchievementsSeen).toHaveBeenCalledOnce()
 })
 
+it("validates the memory calls", async () => {
+  const rememberFact = vi.fn(async () => ({ ok: true as const }))
+  const handler = handlerFor(DESKTOP_CHANNELS.rememberFact, { rememberFact })
+  await handler("global", "Prefer bun.")
+  expect(rememberFact).toHaveBeenCalledWith("global", "Prefer bun.")
+  await expect(handler("elsewhere", "x")).rejects.toThrow("Invalid memory fact")
+  await expect(handler("workspace", 4)).rejects.toThrow("Invalid memory fact")
+  const forgetFact = vi.fn(async () => ({ ok: true as const }))
+  await handlerFor(DESKTOP_CHANNELS.forgetFact, { forgetFact })("workspace", "Prefer bun.")
+  expect(forgetFact).toHaveBeenCalledWith("workspace", "Prefer bun.")
+})
+
 it("validates the skill collection calls", async () => {
   const installSkills = vi.fn(async () => ({ ok: true as const }))
   const install = handlerFor(DESKTOP_CHANNELS.installSkills, { installSkills })

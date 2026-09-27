@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest"
-import { findLocalModel, localModelWeightBytes } from "../../src/inference/local-catalog.js"
+import {
+  findLocalModel,
+  localModelPackings,
+  localModelWeightBytes,
+} from "../../src/inference/local-catalog.js"
 
 describe("local model catalog", () => {
   it("does not offer Qwen Coder as a managed local model", () => {
@@ -101,7 +105,7 @@ describe("local model catalog", () => {
     })
   })
 
-  it("pins a split Qwen3.8 Flash Next conversion of the official checkpoint", () => {
+  it("pins both Qwen3.8 Flash Next packings, Qwen's own Q8 from its separate repository", () => {
     const model = findLocalModel("Qwen/Qwen3.8-Flash-Next")
     expect(model).toMatchObject({
       sourceModel: "Qwen/Qwen3.8-Flash-Next",
@@ -113,6 +117,18 @@ describe("local model catalog", () => {
     })
     expect(model?.ggufFiles).toHaveLength(3)
     expect(model && localModelWeightBytes(model)).toBe(81_961_823_936)
+    const [compact, official] = model ? localModelPackings(model) : []
+    expect(compact).toMatchObject({
+      quant: "UD-IQ3_XXS",
+      ggufRepo: "unsloth/Qwen3.8-Flash-Next-GGUF",
+    })
+    expect(official).toMatchObject({
+      quant: "Q8_0",
+      ggufRepo: "ggml-org/Qwen3.8-Flash-Next-GGUF",
+      ggufRevision: "01534bc2e1877d5de995b73d247d4459d273e688",
+    })
+    expect(official?.ggufFiles).toHaveLength(2)
+    expect(official && localModelWeightBytes(official)).toBe(162_624_826_656)
   })
 
   it("pins a split GLM-5.3 conversion of the official checkpoint", () => {

@@ -17,7 +17,7 @@ import { type CSSProperties, useEffect, useRef, useState } from "react"
 import type { OmlxPickerChoice, PairPickerChoice } from "../../../../inference/picker-catalog.js"
 import { localServerNames, supportsOmlx } from "../../../../inference/types.js"
 import type { LocalStats } from "../../../../local/stats.js"
-import type { SessionOpResult, SkillsSummary, ThemeName, UiLanguage } from "../../../contracts.js"
+import type { DesktopApi, SessionOpResult, ThemeName, UiLanguage } from "../../../contracts.js"
 import lmStudioIcon from "../../assets/lm-studio.svg"
 import ollamaIcon from "../../assets/ollama.svg"
 import omlxIcon from "../../assets/omlx.svg"
@@ -520,7 +520,12 @@ export function SettingsPage({
               </>
             ) : null}
 
-            {activeTab === "extensions" ? <SkillsSettings /> : null}
+            {activeTab === "extensions" ? (
+              <>
+                <SkillsSettings />
+                <MemorySettings />
+              </>
+            ) : null}
             {activeTab === "appearance" ? (
               <>
                 <div className="settingsRow settingsLanguage settingsSurface">
@@ -1044,8 +1049,11 @@ function UsageMetric({ label, value }: { label: string; value: string }) {
   )
 }
 
+/** Month and day, with the year once it is not this one. */
 function formatShortDate(date: string, locale: string) {
-  return new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" }).format(localDate(date))
+  const day = localDate(date)
+  const year = day.getFullYear() === new Date().getFullYear() ? {} : { year: "numeric" as const }
+  return new Intl.DateTimeFormat(locale, { month: "short", day: "numeric", ...year }).format(day)
 }
 
 function formatLongDate(date: string, locale: string) {
@@ -1066,23 +1074,9 @@ function localDate(date: string) {
 function SkillsSettings() {
   const { api } = useDesktop()
   const { t } = useI18n()
-  const [summary, setSummary] = useState<SkillsSummary>()
   const [url, setUrl] = useState("")
-  const [pending, setPending] = useState(false)
-  const [error, setError] = useState<string>()
   const [limit, setLimit] = useState(SKILLS_PAGE)
-  useEffect(() => {
-    void api.listSkills().then(setSummary)
-  }, [api])
-  const change = async (operation: () => Promise<SessionOpResult>) => {
-    setPending(true)
-    setError(undefined)
-    const result = await operation()
-    setPending(false)
-    if (result.ok) setSummary(await api.listSkills())
-    else setError(result.reason)
-    return result.ok
-  }
+  const { value: summary, pending, error, change } = useSettingsList(listSkills)
   const install = async () => {
     const target = url.trim()
     if (target && (await change(() => api.installSkills(target)))) setUrl("")
@@ -1124,7 +1118,7 @@ function SkillsSettings() {
               </span>
             </div>
           ))}
-          <div className="settingsForm settingsSkills-install">
+          <div className="settingsForm settingsSurface-form">
             <label className="settingsForm-label" htmlFor="settings-skill-url">
               {t("settings.skillUrl")}
             </label>
@@ -1193,8 +1187,104 @@ function SkillsSettings() {
             </div>
           ) : null}
         </div>
-        <p className="settingsForm-note settingsSkills-note">{t("settings.skillsNote")}</p>
+        <p className="settingsForm-note settingsGroup-note">{t("settings.skillsNote")}</p>
       </div>
     </>
+  )
+}
+
+const listMemory = (api: DesktopApi) => api.listMemory()
+const listSkills = (api: DesktopApi) => api.listSkills()
+
+/**
+ * A settings list read from the API and reread after each change: the change runs alone, its
+ * failure shows as the reason, and success rereads the list.
+ */
+function useSettingsList<T>(list: (api: DesktopApi) => Promise<T>) {
+  const { api } = useDesktop()
+  const [value, setValue] = useState<T>()
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string>()
+  useEffect(() => {
+    void list(api).then(setValue)
+  }, [api, list])
+  const change = async (operation: () => Promise<SessionOpResult>) => {
+    setPending(true)
+    setError(undefined)
+    const result = await operation()
+    setPending(false)
+    if (result.ok) setValue(await list(api))
+    else setError(result.reason)
+    return result.ok
+  }
+  return { value, pending, error, change }
+}
+
+/** What Otis remembers, in file order; added for this workspace, forgotten one by one. */
+function MemorySettings() {
+  const { api } = useDesktop()
+  const { locale, t } = useI18n()
+  const [fact, setFact] = useState("")
+  const { value: entries, pending, error, change } = useSettingsList(listMemory)
+  const rememberFact = async () => {
+    const text = fact.trim()
+    if (text && (await change(() => api.rememberFact("workspace", text)))) setFact("")
+  }
+  return (
+    <div className="settingsGroup">
+      <h2 className="settings-section">{t("settings.memory")}</h2>
+      <div className="settingsSurface">
+        {entries?.length === 0 ? (
+          <div className="settingsRow settings-message">{t("settings.memoryEmpty")}</div>
+        ) : null}
+        {entries?.map((entry, index) => (
+          <div className="settingsRow" key={index}>
+            <span className="settingsRow-label settingsMemory-fact">
+              <span>{entry.text}</span>
+              <span className="settingsRow-meta">
+                {t(entry.scope === "global" ? "settings.memoryGlobal" : "settings.memoryWorkspace")}
+                {entry.date ? ` · ${formatShortDate(entry.date, locale)}` : ""}
+              </span>
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={pending}
+              onClick={() => void change(() => api.forgetFact(entry.scope, entry.text))}
+            >
+              {t("settings.memoryForget")}
+            </Button>
+          </div>
+        ))}
+        <div className="settingsForm settingsSurface-form">
+          <label className="settingsForm-label" htmlFor="settings-memory-fact">
+            {t("settings.memoryFact")}
+          </label>
+          <input
+            id="settings-memory-fact"
+            className="settingsForm-input"
+            value={fact}
+            onChange={(event) => setFact(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") void rememberFact()
+            }}
+            spellCheck={false}
+            autoComplete="off"
+          />
+          <div className="settingsForm-actions">
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={pending || !fact.trim()}
+              onClick={rememberFact}
+            >
+              {t("settings.memoryRemember")}
+            </Button>
+          </div>
+          {error ? <div className="settings-message settings-error">{error}</div> : null}
+        </div>
+      </div>
+      <p className="settingsForm-note settingsGroup-note">{t("settings.memoryNote")}</p>
+    </div>
   )
 }

@@ -120,6 +120,10 @@ Examples with a dedicated GPU:
 | 80–256 GiB | Qwen3.8 Flash Next |
 | 384 GiB and above | GLM-5.3 |
 
+Qwen3.8 Flash Next comes in two packings: an 82 GB IQ3 conversion of the official checkpoint, and Qwen's own Q8
+conversion at 163 GB. Otis downloads the Q8 one when the applicable memory, dedicated VRAM, unified memory, or host
+RAM on a CPU-only host, exceeds 192 GiB, so a 256 GiB Mac gets it and a 192 GiB one keeps the IQ3 packing.
+
 On Apple silicon, Metal can wire at most the GPU working set (`recommendedMaxWorkingSetSize`). macOS 15 and earlier
 report about two thirds of unified memory up to 36 GiB and three quarters above; macOS 26 and later report 78% (an
 M2 Max with 32 GiB and an M4 Max with 36 GiB both measure 78%, rounded up to a 16 KiB page), which Otis applies from

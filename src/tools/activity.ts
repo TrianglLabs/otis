@@ -11,6 +11,7 @@ export const TOOL_ACTIVITY_KINDS = [
   "git",
   "shell",
   "agent",
+  "memory",
 ] as const
 
 export type ToolActivityKind = (typeof TOOL_ACTIVITY_KINDS)[number]
@@ -47,6 +48,9 @@ export const TOOL_ACTIONS = {
   inspect_command: ["file_inspect", "Inspecting files", "Inspecting files", "Inspected files"],
   git_command: ["git", "Inspecting git", "Checking git", "Checked git"],
   command: ["shell", "Running command", "Running", "Ran"],
+  recall: ["memory", "Recalling", "Recalling", "Recalled"],
+  remember: ["memory", "Remembering", "Remembering", "Remembered"],
+  forget: ["memory", "Forgetting", "Forgetting", "Forgot"],
 } as const satisfies Record<string, readonly [ToolActivityKind, string, string, string]>
 
 export type ToolAction = keyof typeof TOOL_ACTIONS
@@ -92,6 +96,9 @@ export function describeToolCall(call: ToolCall): ToolActivity {
   if (call.name === "publish_artifact")
     return describeToolAction("publish_artifact", call.input.path)
   if (call.name === "agent") return describeToolAction("agent", call.input.description)
+  if (call.name === "recall") return describeToolAction("recall", call.input.query)
+  if (call.name === "remember" || call.name === "forget")
+    return describeToolAction(call.name, call.input.fact)
 
   const command = call.input.command
   if (/\b(rg|grep|find)\b/.test(command)) return describeToolAction("search_command", command)

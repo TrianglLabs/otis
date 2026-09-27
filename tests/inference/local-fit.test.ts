@@ -380,6 +380,13 @@ describe("local model fit", () => {
       available: true,
       requiresCpuOffload: true,
     })
+    // Qwen's own Q8 packing takes over once the machine can hold it whole.
+    expect(fitLocalModel(qwen, appleHardware(192)).model.quant).toBe("UD-IQ3_XXS")
+    expect(fitLocalModel(qwen, appleHardware(256))).toMatchObject({
+      available: true,
+      requiresCpuOffload: false,
+      model: { quant: "Q8_0", ggufRepo: "ggml-org/Qwen3.8-Flash-Next-GGUF" },
+    })
     expect(fitLocalModel(glm, appleHardware(384))).toMatchObject({
       available: true,
       requiresCpuOffload: true,
