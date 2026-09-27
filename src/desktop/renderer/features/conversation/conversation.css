@@ -502,14 +502,16 @@ button.reasoning-header:hover {
   overflow-wrap: break-word;
 }
 
-/* Three lines of the live trace, the oldest fading under a mask; ReasoningPreview keeps it scrolled
-   to the freshest ones. */
+/* Three lines of the live trace, gliding up as ReasoningPreview scrolls it to the freshest one.
+   The glide trails the newest line by up to a line, so the box is a little taller than three
+   lines and fades at both edges: the oldest line sinks out at the top, the arriving one emerges
+   through the fade at the bottom instead of being cut. */
 .reasoning-preview {
-  max-height: calc(1.55em * 3 + 6px);
+  max-height: calc(1.55em * 3.6 + 6px);
   overflow: hidden;
   scroll-behavior: smooth;
-  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 40%);
-  mask-image: linear-gradient(to bottom, transparent, #000 40%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 30%, #000 80%, transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 30%, #000 80%, transparent);
 }
 
 /* Debug lines */

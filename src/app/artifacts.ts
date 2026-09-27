@@ -70,7 +70,8 @@ function stamp() {
  * What Canvas shows: every canvas artifact opened in the session is a tab, identified by its
  * metadata id, so a second document joins the first instead of replacing it. A newly produced
  * canvas artifact (published or written this turn) takes the view unless its own tab is pinned
- * to a version; attachments and background reads open only when nothing is open. Replay applies
+ * to a version, and a publication takes over the tab of the working file it was saved from;
+ * attachments and background reads open only when nothing is open. Replay applies
  * the same rule in transcript order, then the persisted pin, and keeps only what was last in
  * view: earlier documents reopen from their cards.
  */
@@ -160,9 +161,18 @@ export class ArtifactStore {
         : { source: "published", artifactId: reference.artifactId }
     const tab = this.#tab(viewId(view))
     const pinned = tab?.view.source === "published" && tab.view.version !== undefined
-    if (isCanvasArtifact(reference.kind) && !pinned && (produced || this.#open.length === 0))
+    if (isCanvasArtifact(reference.kind) && !pinned && (produced || this.#open.length === 0)) {
+      // The saved copy is the document now; the working file it came from leaves the tabs.
+      if (reference.source === "published") {
+        const working = this.#open.find(
+          (open) =>
+            open.view.source === "workspace" &&
+            resolve(this.cwd, open.view.reference.path) === reference.sourcePath,
+        )
+        if (working) this.#drop(working)
+      }
       this.#take(view)
-    else if (tab && reference.source === "published") this.#changed(tab) // its version list grew
+    } else if (tab && reference.source === "published") this.#changed(tab) // its version list grew
   }
 
   openAttachment(document: DocumentContentPart) {

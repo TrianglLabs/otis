@@ -104,6 +104,31 @@ describe("ReasoningCard", () => {
     expect(preview?.querySelectorAll(".streamWord")).toHaveLength(8)
   })
 
+  it("renders only the tail of a long trace, so each token costs the same", () => {
+    const text = Array.from({ length: 2000 }, (_, i) => `word${i}`).join(" ")
+    const { container, rerender } = render(
+      <TestEntry
+        entry={reasoningEntry({ streaming: true, text })}
+        active={false}
+        thinkingVisible={true}
+      />,
+    )
+    const preview = () => container.querySelector(".reasoning-preview")
+    const words = preview()?.querySelectorAll(".streamWord")
+    expect(words?.length).toBeLessThan(120)
+    expect(preview()?.textContent?.endsWith("word1999")).toBe(true)
+    // A word that stays in the tail keeps its element as more arrives.
+    const kept = words?.[words.length - 1]
+    rerender(
+      <TestEntry
+        entry={reasoningEntry({ streaming: true, text: `${text} word2000` })}
+        active={false}
+        thinkingVisible={true}
+      />,
+    )
+    expect(preview()?.contains(kept ?? null)).toBe(true)
+  })
+
   it("keeps finished thinking collapsed until the row is clicked", () => {
     const { container } = render(
       <TestEntry
