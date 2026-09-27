@@ -223,6 +223,7 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
       throw new Error("Invalid panel width.")
     return runtime.setWorkspacePanelWidth(width)
   })
+  handle(DESKTOP_CHANNELS.markAchievementsSeen, () => runtime.markAchievementsSeen())
   handle(DESKTOP_CHANNELS.setTheme, (theme) => {
     if (typeof theme !== "string") throw new Error("Invalid theme.")
     return runtime.setTheme(theme)

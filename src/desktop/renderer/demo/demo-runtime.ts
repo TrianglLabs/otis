@@ -829,6 +829,16 @@ class DemoRuntime implements DesktopApi {
       promptTokens: 19_909_600,
       completionTokens: 5_000_000,
       todayTokens: 412_300,
+      achievements: {
+        "first-session": { at: "2026-07-02T14:10:00.000Z", count: 1 },
+        "local-model": { at: "2026-07-02T14:12:00.000Z", count: 1 },
+        "hosted-model": { at: "2026-07-09T09:30:00.000Z", count: 1 },
+        coworker: { at: "2026-07-14T16:02:00.000Z", count: 1 },
+        document: { at: "2026-07-21T11:45:00.000Z", count: 1 },
+        skill: { at: "2026-08-03T08:20:00.000Z", count: 1 },
+        "deep-work": { at: "2026-08-18T15:00:00.000Z", count: 12 },
+        "week-streak": { at: "2026-09-12T12:00:00.000Z", count: 3 },
+      },
       modelUsage: {
         "GLM-5.3": { hosted: true, promptTokens: 10_240_000, completionTokens: 2_410_000 },
         "Qwen3.8 27B": { hosted: false, promptTokens: 5_380_000, completionTokens: 1_420_000 },
@@ -849,6 +859,7 @@ class DemoRuntime implements DesktopApi {
       }),
     },
     entries: sessionTranscript("session_versions"),
+    freshAchievements: ["deep-work", "week-streak"],
     agentsPanelVisible: true,
     workspacePanelWidth: undefined,
     theme: "default",
@@ -874,6 +885,29 @@ class DemoRuntime implements DesktopApi {
   async setWorkspacePanelWidth(width: number | undefined): Promise<void> {
     this.#state = { ...this.#state, workspacePanelWidth: width }
     this.#emitStatus()
+  }
+
+  async markAchievementsSeen(): Promise<void> {
+    this.#state = { ...this.#state, freshAchievements: [] }
+    this.#emitStatus()
+  }
+
+  /** Demo: each finished reply earns the next locked achievement, so the banner can be seen. */
+  #earnNext() {
+    const stats = this.#state.stats
+    if (!stats) return
+    const next = (["night-owl", "early-bird", "ten-workspaces"] as const).find(
+      (id) => !stats.achievements[id],
+    )
+    if (!next) return
+    this.#state = {
+      ...this.#state,
+      stats: {
+        ...stats,
+        achievements: { ...stats.achievements, [next]: { at: new Date().toISOString(), count: 1 } },
+      },
+      freshAchievements: [...this.#state.freshAchievements, next],
+    }
   }
 
   async setThinkingVisible(visible: boolean): Promise<void> {
@@ -2042,6 +2076,7 @@ class DemoRuntime implements DesktopApi {
         phase: "idle",
         contextTokens: (this.#state.contextTokens ?? 0) + 3_800,
       }
+      this.#earnNext()
       this.#emitStatus()
       const queued = this.#queued.shift()
       if (queued) this.#activateQueued(queued)

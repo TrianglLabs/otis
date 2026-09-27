@@ -27,6 +27,7 @@ export function WorkspaceHeader({
     "panes",
     "subagents",
     "agentsPanelVisible",
+    "freshAchievements",
   )
   const hasEntries = useDesktopSelector((snapshot) => (snapshot?.entries.length ?? 0) > 0)
   if (!state) return <header className="workspaceHeader" />
@@ -90,7 +91,7 @@ export function WorkspaceHeader({
             icon={Settings}
             label={t("common.settings")}
             onClick={onOpenSettings}
-            className="noDrag"
+            className={`noDrag${state.freshAchievements.length ? " iconBtn-dot" : ""}`}
           />
           {/* Rightmost: it opens the rail that slides in from the right edge. */}
           {(state.subagents.length > 0 || hasCanvas) && !state.agentsPanelVisible ? (

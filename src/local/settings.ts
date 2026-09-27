@@ -17,6 +17,7 @@ import {
   parsePermissionConfig,
 } from "../permissions/policy.js"
 import { localConfigDirectory } from "./paths.js"
+import { type AchievementId, isAchievementId } from "./stats.js"
 
 export type LocalSettings = {
   omlx?: OmlxSettings
@@ -41,6 +42,8 @@ export type LocalSettings = {
   subagentPanelVisible?: boolean
   /** The desktop workspace panel width in CSS pixels; omitted follows the responsive default. */
   workspacePanelWidth?: number
+  /** Achievements the user has looked at on the Achievements tab. */
+  achievementsSeen?: AchievementId[]
   fastServingModels?: string[]
   modelFastId?: string
   permissions?: PermissionConfig
@@ -205,6 +208,13 @@ export async function saveLastWorkspace(lastWorkspace: string, options: Settings
   await updateSettings(options, (saved) => ({ ...saved, lastWorkspace }))
 }
 
+export async function saveAchievementsSeen(
+  achievementsSeen: AchievementId[],
+  options: SettingsFileOptions = {},
+) {
+  await updateSettings(options, (saved) => ({ ...saved, achievementsSeen }))
+}
+
 export async function saveThinkingVisible(
   thinkingVisible: boolean,
   options: SettingsFileOptions = {},
@@ -354,6 +364,10 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
       workspacePanelWidth <= 0)
   )
     throw new Error("Invalid Otis config: workspacePanelWidth must be a positive number.")
+  if (value.achievementsSeen !== undefined && !Array.isArray(value.achievementsSeen)) {
+    throw new Error("Invalid Otis config: achievementsSeen must be an array.")
+  }
+  const achievementsSeen = value.achievementsSeen?.filter(isAchievementId)
   const fastMode = optionalBoolean(value.fastMode, "fastMode")
   if (value.fastServingModels !== undefined && !Array.isArray(value.fastServingModels)) {
     throw new Error("Invalid Otis config: fastServingModels must be an array of strings.")
@@ -394,6 +408,7 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
     notifyOnCompletion,
     subagentPanelVisible,
     workspacePanelWidth,
+    achievementsSeen,
     fastMode,
     fastServingModels,
     modelFastId,

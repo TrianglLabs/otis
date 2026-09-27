@@ -34,14 +34,16 @@ export type SessionSummary = {
 /** The events usage stats derive from, without their payloads. */
 export type SessionActivity =
   | {
-      type:
-        | "prompt_admitted"
-        | "prompt_steered"
-        | "turn_started"
-        | "turn_completed"
-        | "turn_interrupted"
+      type: "prompt_admitted" | "prompt_steered" | "turn_started"
       at: string
       promptId: string
+    }
+  | {
+      type: "turn_completed" | "turn_interrupted"
+      at: string
+      promptId: string
+      /** Delegated runs the turn made, counting those archived at a compaction. */
+      subagents: number
     }
   | {
       type: "usage_recorded"
@@ -94,15 +96,28 @@ function digestEvents(events: readonly SessionEvent[], mtimeMs: number): Session
   const transcript = replaySessionTranscript(events)
   // Activities archived at a compaction checkpoint end with their prompt's turn event.
   const endedAt = new Map<string, string>()
-  const archived = new Map<string, string[]>()
+  const archived = new Map<string, { toolCallIds: string[]; subagents: number }>()
   const activity: SessionActivity[] = []
   for (const event of events) {
-    if (event.type === "compacted" && event.promptId && event.turn?.toolActivities) {
-      const ids = event.turn.toolActivities.map((activity) => activity.toolCallId)
-      archived.set(event.promptId, [...(archived.get(event.promptId) ?? []), ...ids])
+    if (event.type === "compacted" && event.promptId && event.turn) {
+      const previous = archived.get(event.promptId) ?? { toolCallIds: [], subagents: 0 }
+      archived.set(event.promptId, {
+        toolCallIds: [
+          ...previous.toolCallIds,
+          ...(event.turn.toolActivities ?? []).map((activity) => activity.toolCallId),
+        ],
+        subagents: previous.subagents + (event.turn.subagents?.length ?? 0),
+      })
     } else if (event.type === "turn_completed" || event.type === "turn_interrupted") {
+      const earlier = archived.get(event.promptId) ?? { toolCallIds: [], subagents: 0 }
       const ids = (event.toolActivities ?? []).map((activity) => activity.toolCallId)
-      for (const id of [...(archived.get(event.promptId) ?? []), ...ids]) endedAt.set(id, event.at)
+      for (const id of [...earlier.toolCallIds, ...ids]) endedAt.set(id, event.at)
+      activity.push({
+        type: event.type,
+        at: event.at,
+        promptId: event.promptId,
+        subagents: earlier.subagents + (event.subagents?.length ?? 0),
+      })
     }
     if (event.type === "usage_recorded")
       activity.push({
@@ -116,9 +131,7 @@ function digestEvents(events: readonly SessionEvent[], mtimeMs: number): Session
     else if (
       event.type === "prompt_admitted" ||
       event.type === "prompt_steered" ||
-      event.type === "turn_started" ||
-      event.type === "turn_completed" ||
-      event.type === "turn_interrupted"
+      event.type === "turn_started"
     )
       activity.push({ type: event.type, at: event.at, promptId: event.promptId })
   }

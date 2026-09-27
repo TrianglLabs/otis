@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { GlobalSessionPickerItem } from "../../../src/app/global-sessions.js"
 import type { TranscriptEntry } from "../../../src/app/transcript.js"
 import type { ModelPickerItem } from "../../../src/inference/picker-catalog.js"
+import type { AchievementId } from "../../../src/local/stats.js"
 
 const WS = "/ws"
 
@@ -319,6 +320,7 @@ describe("AppShell settings navigation", () => {
       "Extensions",
       "Appearance",
       "General",
+      "Achievements",
     ])
     expect(tabs[0].getAttribute("aria-selected")).toBe("true")
     expect(screen.getByRole("tabpanel", { name: "Inference" })).toBeTruthy()
@@ -451,6 +453,7 @@ describe("AppShell settings navigation", () => {
               "Qwen3.8 27B": { hosted: false, promptTokens: 300_000, completionTokens: 100_000 },
               "GLM-5.3": { hosted: true, promptTokens: 819_400, completionTokens: 262_900 },
             },
+            achievements: {},
           },
         })),
       }),
@@ -477,6 +480,109 @@ describe("AppShell settings navigation", () => {
     expect(within(usage).getByText("September 18, 2026: 12,000 tokens")).toBeTruthy()
     fireEvent.pointerLeave(activityBars[0])
     expect(within(usage).queryByText("September 18, 2026: 12,000 tokens")).toBeNull()
+  })
+
+  it("shows achievements with fresh marks and dots, and announces later unlocks", async () => {
+    let emit!: (event: DesktopEvent) => void
+    const fresh: AchievementId[] = ["night-owl"]
+    const stats = {
+      streak: 1,
+      totalTokens: 10,
+      sessionCount: 1,
+      avgTokensPerSession: 10,
+      avgSessionSeconds: 5,
+      activeDays: 1,
+      promptTokens: 6,
+      completionTokens: 4,
+      todayTokens: 10,
+      recentActivity: [],
+      modelUsage: {},
+      achievements: {
+        "first-session": { at: "2026-09-01T10:00:00.000Z", count: 1 },
+        "night-owl": { at: "2026-09-02T01:00:00.000Z", count: 2 },
+      },
+    }
+    const api = fakeApi({
+      getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, stats, freshAchievements: fresh })),
+      subscribe: vi.fn((listener) => {
+        emit = listener
+        return () => {}
+      }),
+    })
+    await renderApp(api)
+    const gear = screen.getByRole("button", { name: "Settings" })
+    expect(gear.className).toContain("iconBtn-dot")
+    fireEvent.click(gear)
+    await act(async () => {})
+    expect(
+      screen.getByRole("tab", { name: "Achievements" }).querySelector(".settingsSidebar-dot"),
+    ).toBeTruthy()
+    fireEvent.click(screen.getByRole("tab", { name: "Achievements" }))
+    // Earned secrets show themselves; the other secret stays hidden. Fresh ones are marked new.
+    expect(screen.getByText("Night owl")).toBeTruthy()
+    expect(screen.getByText("×2")).toBeTruthy()
+    expect(screen.getAllByText("Hidden")).toHaveLength(1)
+    expect(document.querySelectorAll('.achievement[data-new="true"]')).toHaveLength(1)
+    expect(screen.getAllByText("Locked")).toHaveLength(10)
+    expect(api.markAchievementsSeen).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole("tab", { name: "General" }))
+    expect(api.markAchievementsSeen).toHaveBeenCalledOnce()
+
+    // What the first snapshot listed is history; an id appearing later earns a banner.
+    expect(document.querySelector(".unlockCard")).toBeNull()
+    act(() =>
+      emit({
+        type: "status",
+        revision: 2,
+        status: { ...SNAPSHOT, stats, freshAchievements: [...fresh, "coworker"] },
+      }),
+    )
+    expect(document.querySelector(".unlockCard-title")?.textContent).toBe("Delegator")
+    expect(document.querySelector(".unlockCard-eyebrow")?.textContent).toBe("Achievement unlocked")
+  })
+
+  it("never announces the history that arrives with the first stats", async () => {
+    let emit!: (event: DesktopEvent) => void
+    const api = fakeApi({
+      getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, stats: undefined, freshAchievements: [] })),
+      subscribe: vi.fn((listener) => {
+        emit = listener
+        return () => {}
+      }),
+    })
+    await renderApp(api)
+    const stats = {
+      streak: 0,
+      totalTokens: 0,
+      sessionCount: 0,
+      avgTokensPerSession: 0,
+      avgSessionSeconds: 0,
+      activeDays: 0,
+      promptTokens: 0,
+      completionTokens: 0,
+      todayTokens: 0,
+      recentActivity: [],
+      modelUsage: {},
+      achievements: {},
+    }
+    // The stats scan lands after the snapshot, carrying everything unseen from earlier launches.
+    act(() =>
+      emit({
+        type: "status",
+        revision: 2,
+        status: { ...SNAPSHOT, stats, freshAchievements: ["first-session", "coworker"] },
+      }),
+    )
+    expect(document.querySelector(".unlockCard")).toBeNull()
+    act(() =>
+      emit({
+        type: "status",
+        revision: 3,
+        status: { ...SNAPSHOT, stats, freshAchievements: ["first-session", "coworker", "skill"] },
+      }),
+    )
+    expect(document.querySelectorAll(".unlockCard")).toHaveLength(1)
+    expect(document.querySelector(".unlockCard-title")?.textContent).toBe("Extended")
   })
 
   it("keeps the composer's unsent draft when settings is opened and closed", async () => {

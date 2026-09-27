@@ -29,6 +29,7 @@ const ZERO_STATS: LocalStats = {
   todayTokens: 0,
   recentActivity: [],
   modelUsage: {},
+  achievements: {},
 }
 const sampleStats = {
   ...ZERO_STATS,

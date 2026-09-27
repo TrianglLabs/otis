@@ -49,6 +49,7 @@ const api: DesktopApi = {
   getSubagentTrace: (toolCallId) => invoke(DESKTOP_CHANNELS.getSubagentTrace, toolCallId),
   setAgentsPanelVisible: (visible) => invoke(DESKTOP_CHANNELS.setAgentsPanelVisible, visible),
   setWorkspacePanelWidth: (width) => invoke(DESKTOP_CHANNELS.setWorkspacePanelWidth, width),
+  markAchievementsSeen: () => invoke(DESKTOP_CHANNELS.markAchievementsSeen),
   setTheme: (theme) => invoke(DESKTOP_CHANNELS.setTheme, theme),
   setLanguage: (language) => invoke(DESKTOP_CHANNELS.setLanguage, language),
   setThinkingVisible: (visible) => invoke(DESKTOP_CHANNELS.setThinkingVisible, visible),

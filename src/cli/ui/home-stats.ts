@@ -19,6 +19,7 @@ const ZERO_STATS: LocalStats = {
   todayTokens: 0,
   recentActivity: [],
   modelUsage: {},
+  achievements: {},
 }
 
 type HomeStatsOptions = {

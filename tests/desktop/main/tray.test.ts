@@ -129,6 +129,7 @@ function statusFixture(overrides: Partial<DesktopStatus> = {}): DesktopStatus {
     stats: undefined,
     modelLoad: null,
     subagents: [],
+    freshAchievements: [],
     agentsPanelVisible: true,
     workspacePanelWidth: undefined,
     theme: "default",

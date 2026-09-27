@@ -73,6 +73,11 @@ describe("calculateLocalStats", () => {
       modelUsage: { "GLM-5.3": { hosted: true, promptTokens: 100, completionTokens: 50 } },
       todayTokensByModel: { "GLM-5.3": 150 },
     })
+    // Firsts date from the earliest session; noon prompts earn no owl or bird.
+    expect(stats.achievements).toEqual({
+      "first-session": { at: localISO(yesterday, 0), count: 1 },
+      "hosted-model": { at: localISO(now, 1), count: 1 },
+    })
     expect(stats.recentActivity).toHaveLength(28)
     expect(stats.recentActivity?.filter((day) => day.tokens > 0)).toEqual([
       { date: localDateKey(yesterday), tokens: 50 },
@@ -272,6 +277,123 @@ describe("calculateLocalStats", () => {
       activeDays: 2,
       streak: 1,
     })
+  })
+})
+
+describe("achievements", () => {
+  it("earns firsts once and repeatable ones each time, from sessions and the skill install", async () => {
+    const root = await tempDirectory()
+    const now = new Date(2026, 6, 16, 12, 0, 0)
+    const at = (day: number, hour: number, minute = 0) =>
+      new Date(2026, 6, day, hour, minute).toISOString()
+    const document = {
+      source: "published",
+      artifactId: "0f9c2b7e-4c1d-4f2a-9b3e-1a2b3c4d5e6f",
+      version: 1,
+      sha256: "a".repeat(64),
+      name: "plan.docx",
+      kind: "docx",
+      sourcePath: "/tmp/plan.docx",
+    }
+    // A night prompt whose turn ran ninety minutes and delegated, then published a document.
+    await writeSession(root, "project-a", "night", [
+      event(1, "night", "session_started", at(1, 1, 50), { version: 1 }),
+      event(2, "night", "prompt_admitted", at(1, 2), {
+        promptId: "p1",
+        message: { role: "user", content: "hello" },
+      }),
+      event(3, "night", "turn_started", at(1, 2, 1), { promptId: "p1" }),
+      event(4, "night", "usage_recorded", at(1, 2, 5), {
+        purpose: "agent",
+        promptId: "p1",
+        provider: "local",
+        model: "qwen",
+        modelName: "Qwen",
+        usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+      }),
+      event(5, "night", "turn_completed", at(1, 3, 31), {
+        promptId: "p1",
+        messages: [
+          {
+            role: "assistant",
+            content: [
+              { type: "tool_call", toolCall: { id: "call_1", name: "agent", arguments: "{}" } },
+              { type: "tool_call", toolCall: { id: "call_2", name: "write", arguments: "{}" } },
+            ],
+          },
+          { role: "tool", toolCallId: "call_1", content: "agent: Survey\n\nDone." },
+          { role: "tool", toolCallId: "call_2", content: "written" },
+          { role: "assistant", content: [{ type: "text", text: "hi" }] },
+        ],
+        subagents: [{ toolCallId: "call_1", title: "Survey", status: "complete", messages: [] }],
+        toolActivities: [
+          {
+            toolCallId: "call_2",
+            activityKind: "file_edit",
+            label: "plan.docx",
+            artifact: document,
+          },
+        ],
+      }),
+    ])
+    // Early mornings from day 2: with day 1's night, a run of eight, a gap, then a run of seven.
+    for (let day = 2; day <= 16; day += 1) {
+      if (day === 9) continue
+      await writeSession(root, "project-b", `dawn-${day}`, [
+        event(1, `dawn-${day}`, "session_started", at(day, 4, 55), { version: 1 }),
+        event(2, `dawn-${day}`, "prompt_admitted", at(day, 5), {
+          promptId: "p",
+          message: { role: "user", content: "morning" },
+        }),
+        event(3, `dawn-${day}`, "turn_completed", at(day, 5, 1), {
+          promptId: "p",
+          messages: [{ role: "assistant", content: [{ type: "text", text: "hi" }] }],
+        }),
+      ])
+    }
+
+    const stats = await calculateLocalStats({
+      sessionsRoot: root,
+      now,
+      skillInstalledAt: at(3, 9),
+    })
+    expect(stats.achievements).toEqual({
+      "first-session": { at: at(1, 2), count: 1 },
+      "local-model": { at: at(1, 2, 5), count: 1 },
+      coworker: { at: at(1, 3, 31), count: 1 },
+      document: { at: at(1, 3, 31), count: 1 },
+      skill: { at: at(3, 9), count: 1 },
+      "deep-work": { at: at(1, 3, 31), count: 1 },
+      "night-owl": { at: at(1, 2), count: 1 },
+      "early-bird": { at: at(2, 5), count: 14 },
+      "week-streak": { at: new Date(2026, 6, 7).toISOString(), count: 2 },
+    })
+  })
+
+  it("earns the workspace and active-day thresholds on the day they are crossed", async () => {
+    const root = await tempDirectory()
+    const now = new Date(2026, 8, 1, 12, 0, 0)
+    for (let index = 0; index < 30; index += 1) {
+      const day = new Date(2026, 6, 1 + index, 12, 0, 0)
+      await writeSession(root, `project-${index % 11}`, `s${index}`, [
+        event(1, `s${index}`, "session_started", localISO(day, -5), { version: 1 }),
+        event(2, `s${index}`, "prompt_admitted", localISO(day, 0), {
+          promptId: "p",
+          message: { role: "user", content: "hi" },
+        }),
+      ])
+    }
+    const { achievements } = await calculateLocalStats({ sessionsRoot: root, now })
+    // The tenth distinct workspace opens on the tenth day; the thirtieth active day is the last.
+    expect(achievements["ten-workspaces"]).toEqual({
+      at: localISO(new Date(2026, 6, 10), 0),
+      count: 1,
+    })
+    expect(achievements["thirty-days"]).toEqual({
+      at: new Date(2026, 6, 30).toISOString(),
+      count: 1,
+    })
+    expect(achievements["week-streak"]?.count).toBe(4)
   })
 })
 

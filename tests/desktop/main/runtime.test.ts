@@ -713,6 +713,24 @@ describe("DesktopRuntime subagents", () => {
     await runtime.shutdown()
   })
 
+  it("keeps earned achievements fresh until the tab has been looked at", async () => {
+    const { runtime } = await setup()
+    expect((await runtime.snapshot()).freshAchievements).toEqual([])
+    mocks.executeTurn.mockImplementation(async () => ({
+      status: "complete",
+      messages: [{ role: "assistant", content: [{ type: "text", text: "hi" }] }],
+      details: {},
+    }))
+    expect(await runtime.sendPrompt("hello")).toMatchObject({ accepted: true })
+    await vi.waitFor(async () => {
+      expect((await runtime.snapshot()).freshAchievements).toEqual(["first-session"])
+    })
+    await runtime.markAchievementsSeen()
+    expect((await runtime.snapshot()).freshAchievements).toEqual([])
+    expect((await loadLocalSettings()).achievementsSeen).toEqual(["first-session"])
+    await runtime.shutdown()
+  })
+
   it("answers preview fetches with a result instead of an invoke error", async () => {
     const { runtime, app } = await setup()
     await writeFile(join(runtime.app.cwd, "notes.md"), "# Notes")

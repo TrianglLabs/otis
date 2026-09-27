@@ -71,6 +71,7 @@ const SNAPSHOT: DesktopSnapshot = {
   subagents: [],
   agentsPanelVisible: true,
   workspacePanelWidth: undefined,
+  freshAchievements: [],
   theme: "default",
   language: "system",
   thinkingVisible: false,
