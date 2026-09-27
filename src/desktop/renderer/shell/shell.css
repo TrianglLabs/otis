@@ -51,6 +51,7 @@
    the side tracks floor at their content width (minmax(max-content, 1fr)), so under pressure it's the title
    column that shrinks and ellipsizes — never the controls. */
 .workspaceHeader {
+  container-type: inline-size;
   display: grid;
   grid-template-columns: minmax(max-content, 1fr) minmax(0, max-content) minmax(max-content, 1fr);
   align-items: center;
@@ -153,6 +154,13 @@
   height: 100%;
   background: var(--text-dim);
   border-radius: var(--radius-pill);
+}
+
+/* A narrow header shortens the bar, so the title keeps its room. */
+@container (max-width: 960px) {
+  .contextMeter-track {
+    width: 28px;
+  }
 }
 
 .contextMeter-text {

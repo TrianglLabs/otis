@@ -419,6 +419,29 @@ describe("ArtifactStore", () => {
     })
   })
 
+  it("lets a publication take over the tab of the working file it was saved from", async () => {
+    const cwd = await trackedTempDir()
+    const directory = join(await trackedTempDir(), "artifacts")
+    await writeFile(join(cwd, "tower.html"), "<html></html>")
+    const working: FileArtifactReference = { source: "workspace", path: "tower.html", kind: "html" }
+    const store = new ArtifactStore(cwd, directory)
+    store.observeFile(working)
+    const other: FileArtifactReference = { source: "workspace", path: "notes.md", kind: "markdown" }
+    await writeFile(join(cwd, "notes.md"), "notes")
+    store.observeFile(other)
+    const published = await new ArtifactPublisher(directory).publish(Buffer.from("<html></html>"), {
+      name: "tower.html",
+      kind: "html",
+      path: join(cwd, "tower.html"),
+    })
+    store.observeFile(published)
+    expect(store.tabs.map((tab) => tab.artifact.id)).toEqual([
+      "workspace:notes.md",
+      `published:${published.artifactId}`,
+    ])
+    expect(store.metadata?.id).toBe(`published:${published.artifactId}`)
+  })
+
   it("previews Markdown up to 512 KB while the store and export keep the 2 MB cap", async () => {
     // Renders a 600 KB document three ways and hashes it for publication; slow CI disks need room.
     const cwd = await trackedTempDir()

@@ -152,29 +152,39 @@ function MessageArtifacts({ artifacts }: { artifacts: ArtifactReference[] }) {
   )
 }
 
+/** How much of a live trace the preview holds: a few lines beyond the three in view. */
+const PREVIEW_CHARS = 600
+
 /**
- * The whole live trace in a three-line viewport that glides up as lines arrive, so the freshest
- * ones stay in view and each new word condenses into place.
+ * The tail of the live trace in a three-line viewport that glides up as lines arrive, so the
+ * freshest ones stay in view and each new word condenses into place. Only the tail is rendered:
+ * a long trace streams thousands of words, and one span per word for all of them would make every
+ * token reconcile the whole trace. Keys are offsets into the full text, so the spans that stay in
+ * the tail keep their identity as it slides; the cut lands above the viewport, so a split word is
+ * never seen.
  */
 function ReasoningPreview({ text }: { text: string }) {
   const viewport = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
     if (viewport.current) viewport.current.scrollTop = viewport.current.scrollHeight
   })
-  let offset = 0
+  let offset = Math.max(0, text.length - PREVIEW_CHARS)
   return (
     <div className="reasoning-body reasoning-preview" ref={viewport}>
-      {text.split(/(\s+)/).map((part) => {
-        const key = offset
-        offset += part.length
-        return /\S/.test(part) ? (
-          <span key={key} className="streamWord">
-            {part}
-          </span>
-        ) : (
-          part
-        )
-      })}
+      {text
+        .slice(offset)
+        .split(/(\s+)/)
+        .map((part) => {
+          const key = offset
+          offset += part.length
+          return /\S/.test(part) ? (
+            <span key={key} className="streamWord">
+              {part}
+            </span>
+          ) : (
+            part
+          )
+        })}
     </div>
   )
 }
