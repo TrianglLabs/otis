@@ -35,6 +35,32 @@ describe("readSessionDigest", () => {
     expect(next.summary).toMatchObject({ messageCount: 2, state: "complete" })
     expect(next.texts).toEqual(["first question", "an answer here"])
     expect(next.activity.map((event) => event.type)).toEqual(["prompt_admitted", "turn_completed"])
+    expect(next.activity[1]).toMatchObject({ subagents: 0 })
+
+    // Delegated runs count on the turn that ends them, including runs archived at a compaction.
+    const second = await session.admitPrompt("delegate")
+    const delegation = (toolCallId: string) => ({
+      messages: [
+        {
+          role: "assistant" as const,
+          content: [
+            {
+              type: "tool_call" as const,
+              toolCall: { id: toolCallId, name: "agent", arguments: "{}" },
+            },
+          ],
+        },
+        { role: "tool" as const, toolCallId, content: "agent: Survey\n\nDone." },
+      ],
+      subagents: [{ toolCallId, title: "Survey", status: "complete" as const, messages: [] }],
+    })
+    await session.compactTurn(second, "summary", [], {}, 1, delegation("call_1"))
+    const later = delegation("call_2")
+    await session.completeTurn(second, later.messages, { subagents: later.subagents })
+    expect((await readSessionDigest(file)).activity.at(-1)).toMatchObject({
+      type: "turn_completed",
+      subagents: 2,
+    })
   })
 })
 

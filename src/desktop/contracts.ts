@@ -19,7 +19,7 @@ export type { ModelState } from "../app/models.js"
 export type { ThemeName, UiLanguage } from "../local/settings.js"
 export type { PermissionMode } from "../permissions/policy.js"
 
-import type { LocalStats } from "../local/stats.js"
+import type { AchievementId, LocalStats } from "../local/stats.js"
 
 export const DESKTOP_CHANNELS = {
   getSnapshot: "desktop:get-snapshot",
@@ -51,6 +51,7 @@ export const DESKTOP_CHANNELS = {
   getSubagentTrace: "desktop:subagent-trace",
   setAgentsPanelVisible: "desktop:set-agents-panel-visible",
   setWorkspacePanelWidth: "desktop:set-workspace-panel-width",
+  markAchievementsSeen: "desktop:mark-achievements-seen",
   setTheme: "desktop:set-theme",
   setLanguage: "desktop:set-language",
   setThinkingVisible: "desktop:set-thinking-visible",
@@ -121,6 +122,8 @@ export type DesktopStatus = {
   permissionQueue: number
   /** Local usage statistics; undefined until the first scan completes. */
   stats: LocalStats | undefined
+  /** Earned achievements not yet looked at on the Achievements tab. */
+  freshAchievements: AchievementId[]
   /**
    * Progress or terminal error of a model load in flight, keyed by picker item id. Progress entries
    * clear when the load completes; error entries stay until the next selection attempt so an open
@@ -332,6 +335,8 @@ export type DesktopApi = {
   setAgentsPanelVisible(visible: boolean): Promise<void>
   /** Remembers the dragged workspace panel width; undefined restores the responsive default. */
   setWorkspacePanelWidth(width: number | undefined): Promise<void>
+  /** Records that every earned achievement has been looked at. */
+  markAchievementsSeen(): Promise<void>
   /** Applies and persists a color theme. Unknown theme names are ignored. */
   setTheme(theme: ThemeName): Promise<void>
   /** Applies and persists the desktop interface language. */

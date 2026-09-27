@@ -299,7 +299,7 @@ async function runDesktopUiChecks() {
   const settingsTabs = Array.from(
     document.querySelectorAll<HTMLButtonElement>('.settingsSidebar [role="tab"]'),
   )
-  assert(settingsTabs.length === 4, "Settings sidebar does not list every section")
+  assert(settingsTabs.length === 5, "Settings sidebar does not list every section")
   assert(!document.querySelector(".settingsPage-header h1"), "Settings still has a title wordmark")
   assert(settingsSidebar.width >= 160, "Settings sidebar is too narrow")
   assert(
@@ -406,6 +406,15 @@ async function runDesktopUiChecks() {
     () => document.querySelectorAll(".settingsUsage-model").length === 6,
     "Show more did not reveal the remaining models",
   )
+  settingsTabs[4].click()
+  await until(
+    () => document.querySelectorAll(".achievement").length === 12,
+    "Achievements tab did not list every medal",
+  )
+  assert(
+    document.querySelectorAll('.achievement[data-new="true"]').length === 2,
+    "Fresh achievements are not marked new",
+  )
   settingsTabs[1].click()
   await until(() => !!document.querySelector("#settings-skill-url"), "Extensions tab did not open")
   settingsTabs[2].click()
@@ -419,7 +428,8 @@ async function runDesktopUiChecks() {
     "Appearance does not offer every theme",
   )
   assert(
-    element('[role="tabpanel"]').getAttribute("aria-labelledby") === settingsTabs[2].id,
+    element('.settingsPage [role="tabpanel"]').getAttribute("aria-labelledby") ===
+      settingsTabs[2].id,
     "Settings panel is not labelled by its active tab",
   )
   await pause()

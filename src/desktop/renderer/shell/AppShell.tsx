@@ -2,11 +2,12 @@ import { Download, FolderOpen } from "lucide-react"
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { Button } from "../components/Button.js"
 import { Icon } from "../components/Icon.js"
+import { UnlockBanners } from "../features/achievements/Achievements.js"
 import { CanvasOpenContext, type CanvasView } from "../features/canvas/canvas-context.js"
 import { ConversationView } from "../features/conversation/Transcript.js"
 import { OnboardingPage } from "../features/onboarding/OnboardingPage.js"
 import { CommandPalette } from "../features/palette/CommandPalette.js"
-import { SettingsPage } from "../features/settings/SettingsPage.js"
+import { SettingsPage, type SettingsTab } from "../features/settings/SettingsPage.js"
 import { useI18n } from "../i18n/index.js"
 import { LIGHT_THEMES, rememberTheme, useDesktop, useDesktopState } from "../runtime.js"
 import { WorkspaceHeader } from "./WorkspaceHeader.js"
@@ -31,6 +32,7 @@ export function AppShell() {
     "artifacts",
   )
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>()
   const [windowFullscreen, setWindowFullscreen] = useState(false)
   const [installing, setInstalling] = useState(false)
   const [locateError, setLocateError] = useState<string | undefined>(undefined)
@@ -59,7 +61,11 @@ export function AppShell() {
     [artifacts, openedCanvas],
   )
   const closeDiagram = useCallback(() => setOpenedCanvas(undefined), [])
-  const openSettings = useCallback(() => setSettingsOpen(true), [])
+  const openSettingsTab = useCallback((tab: SettingsTab | undefined) => {
+    setSettingsTab(tab)
+    setSettingsOpen(true)
+  }, [])
+  const openSettings = useCallback(() => openSettingsTab(undefined), [openSettingsTab])
   const closeSettings = useCallback(() => setSettingsOpen(false), [])
 
   useEffect(() => {
@@ -195,6 +201,7 @@ export function AppShell() {
                 </span>
               </button>
             ) : null}
+            <UnlockBanners onOpen={() => openSettingsTab("achievements")} />
           </div>
           {state?.model === null ? null : (
             <WorkspacePanel views={views} onCloseDiagram={closeDiagram} />
@@ -206,6 +213,7 @@ export function AppShell() {
               onClose={closeSettings}
               installing={installing}
               onInstallUpdate={installUpdate}
+              initialTab={settingsTab}
             />
           </div>
         ) : null}

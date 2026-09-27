@@ -186,6 +186,7 @@ describe("managed skills", () => {
       id: "pstack",
       url: `${repository}/tree/main/plugins/pstack/`,
       path: "plugins/pstack",
+      installedAt: expect.any(String),
       skills: [{ name: "why", relativePath: "plugins/pstack/skills/why" }],
     })
     expect(await manager.update("pstack")).toEqual([installed])

@@ -1,10 +1,40 @@
 import { existsSync } from "node:fs"
 import { mkdir, readdir, rename, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import type { ModelProvider } from "../inference/types.js"
 import { sessionRootDirectory } from "../storage/session-files.js"
-import { readSessionDigest, type SessionActivity } from "../storage/session-index.js"
+import {
+  readSessionDigest,
+  type SessionActivity,
+  type SessionDigest,
+} from "../storage/session-index.js"
+
+const ACHIEVEMENT_IDS = [
+  "first-session",
+  "local-model",
+  "hosted-model",
+  "coworker",
+  "document",
+  "skill",
+  "deep-work",
+  "week-streak",
+  "night-owl",
+  "early-bird",
+  "ten-workspaces",
+  "thirty-days",
+] as const
+
+export type AchievementId = (typeof ACHIEVEMENT_IDS)[number]
+
+export function isAchievementId(value: unknown): value is AchievementId {
+  return (ACHIEVEMENT_IDS as readonly unknown[]).includes(value)
+}
+
+/** When it was first earned, and how many times for the ones that repeat. */
+export type Achievement = { at: string; count: number }
+
+const HOUR_MS = 3_600_000
 
 export type LocalStats = {
   streak: number
@@ -19,6 +49,8 @@ export type LocalStats = {
   recentActivity: LocalUsageDay[]
   /** By picker name; usage recorded before models were noted is left out. */
   modelUsage: Record<string, { hosted: boolean; promptTokens: number; completionTokens: number }>
+  /** Earned achievements only; the rest are locked. */
+  achievements: Partial<Record<AchievementId, Achievement>>
 }
 
 /** What Omarchy's agents panel shows beyond the home screen, from the same pass. */
@@ -40,6 +72,8 @@ type LocalUsageDay = {
 type LocalStatsOptions = {
   sessionsRoot?: string
   now?: Date
+  /** When the first skill collection was installed, for the achievement. */
+  skillInstalledAt?: string
 }
 
 export async function calculateLocalStats(
@@ -71,16 +105,31 @@ export async function calculateLocalStats(
   const modelUsage: LocalStats["modelUsage"] = {}
   const providers = new Set<ModelProvider>()
   const todayTokensByModel: Record<string, number> = {}
+  const earnedAt = new Map<AchievementId, number>()
+  const tallies = new Map<AchievementId, number>()
+  const reach = (id: AchievementId, at: number | undefined) => {
+    if (at !== undefined && at < (earnedAt.get(id) ?? Infinity)) earnedAt.set(id, at)
+  }
+  const earn = (id: AchievementId, at: number) => {
+    tallies.set(id, (tallies.get(id) ?? 0) + 1)
+    reach(id, at)
+  }
+  const workspaceFirstPrompt = new Map<string, number>()
+  reach("skill", timestamp(options.skillInstalledAt))
   for (const path of files) {
     let activity: SessionActivity[]
+    let artifacts: SessionDigest["artifacts"]
     try {
-      ;({ activity } = await readSessionDigest(path))
+      ;({ activity, artifacts } = await readSessionDigest(path))
     } catch {
       continue
     }
     if (!activity.some((event) => event.type === "prompt_admitted")) continue
     sessionCount += 1
     let activeToday = false
+    let nightOwlAt: number | undefined
+    let earlyBirdAt: number | undefined
+    for (const { endedAt } of artifacts) reach("document", timestamp(endedAt))
     // Older sessions only recorded admission. Keep those estimates readable, but prefer
     // actual starts so queued prompts do not contribute waiting time.
     const started = new Map<string, { start: number; exact: boolean }>()
@@ -92,7 +141,10 @@ export async function calculateLocalStats(
         totalTokens += event.usage.totalTokens
         promptTokens += event.usage.promptTokens
         completionTokens += event.usage.completionTokens
-        if (event.provider) providers.add(event.provider)
+        if (event.provider) {
+          providers.add(event.provider)
+          reach(event.provider === "fireworks" ? "hosted-model" : "local-model", at)
+        }
         const name = event.modelName ?? event.model
         if (name) {
           modelUsage[name] ??= {
@@ -113,26 +165,39 @@ export async function calculateLocalStats(
       } else if (event.type === "prompt_admitted" || event.type === "turn_started") {
         if (event.type === "prompt_admitted") {
           promptCount += 1
-          if (at !== undefined && localDateKey(new Date(at)) === today) {
-            todayPrompts += 1
-            activeToday = true
+          if (at !== undefined) {
+            const workspace = dirname(path)
+            if (at < (workspaceFirstPrompt.get(workspace) ?? Infinity))
+              workspaceFirstPrompt.set(workspace, at)
+            const hour = new Date(at).getHours()
+            if (hour < 4) nightOwlAt ??= at
+            else if (hour < 6) earlyBirdAt ??= at
+            if (localDateKey(new Date(at)) === today) {
+              todayPrompts += 1
+              activeToday = true
+            }
           }
         }
         if (at !== undefined)
           started.set(event.promptId, { start: at, exact: event.type === "turn_started" })
       } else if (event.type === "turn_completed" || event.type === "turn_interrupted") {
+        if (event.subagents > 0) reach("coworker", at)
         const turn = started.get(event.promptId)
         started.delete(event.promptId)
         if (turn !== undefined && at !== undefined && at >= turn.start)
           intervals.push({ ...turn, end: at })
       }
     }
+    if (nightOwlAt) earn("night-owl", nightOwlAt)
+    if (earlyBirdAt) earn("early-bird", earlyBirdAt)
     // Merge overlapping intervals in a session, including old queued admissions, so
     // the same wall-clock time is never counted twice. Idle gaps stay excluded.
     let through = -Infinity
     let milliseconds = 0
     for (const { start, end, exact } of intervals.sort((a, b) => a.start - b.start)) {
+      const before = milliseconds
       milliseconds += Math.max(0, end - Math.max(start, through))
+      if (before < HOUR_MS && milliseconds >= HOUR_MS) earn("deep-work", end)
       through = Math.max(through, end)
       // Count every local calendar day touched by a recorded run, including midnight
       // crossings with no intermediate usage report. Never fill gaps from estimated starts.
@@ -150,6 +215,23 @@ export async function calculateLocalStats(
   if (!days.has(localDateKey(cursor))) cursor.setDate(cursor.getDate() - 1)
   let streak = 0
   for (; days.has(localDateKey(cursor)); cursor.setDate(cursor.getDate() - 1)) streak += 1
+
+  const firsts = [...workspaceFirstPrompt.values()].sort((a, b) => a - b)
+  reach("first-session", firsts[0])
+  reach("ten-workspaces", firsts[9])
+  // Active days in order: the thirtieth earns "thirty days", and every seventh day of an unbroken
+  // run earns "a week straight" again.
+  const activeDates = [...days].sort()
+  const activeDays = activeDates.map((key) => localDate(key).getTime())
+  reach("thirty-days", activeDays[29])
+  let run = 0
+  for (const [index, day] of activeDays.entries()) {
+    run = index > 0 && day - activeDays[index - 1] <= 25 * HOUR_MS ? run + 1 : 1
+    if (run % 7 === 0) earn("week-streak", day)
+  }
+  const achievements: LocalStats["achievements"] = {}
+  for (const [id, at] of earnedAt)
+    achievements[id] = { at: new Date(at).toISOString(), count: tallies.get(id) ?? 1 }
 
   const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 27)
   const recentActivity = Array.from({ length: 28 }, () => {
@@ -169,10 +251,11 @@ export async function calculateLocalStats(
     todayTokens,
     recentActivity,
     modelUsage,
+    achievements,
     promptCount,
     todayPrompts,
     todaySessions,
-    activeDates: [...days].sort(),
+    activeDates,
     providers: [...providers].sort(),
     todayTokensByModel,
   }
@@ -247,6 +330,11 @@ async function readDirectory(path: string) {
       return []
     throw error
   }
+}
+
+function localDate(key: string) {
+  const [year, month, day] = key.split("-").map(Number)
+  return new Date(year, month - 1, day)
 }
 
 function localDateKey(value: Date) {

@@ -38,6 +38,7 @@ import {
 } from "../../inference/types.js"
 import {
   isThemeName,
+  saveAchievementsSeen,
   saveLastWorkspace,
   saveNotifyOnCompletion,
   saveSelectedTheme,
@@ -47,7 +48,7 @@ import {
   saveWorkspacePanelWidth,
   UI_LANGUAGES,
 } from "../../local/settings.js"
-import { calculateLocalStats } from "../../local/stats.js"
+import { type AchievementId, calculateLocalStats } from "../../local/stats.js"
 import { SkillManager } from "../../skills/manager.js"
 import {
   defaultSessionDirectory,
@@ -1002,6 +1003,13 @@ export class DesktopRuntime {
     this.#markStateDirty()
   }
 
+  async markAchievementsSeen() {
+    const seen = Object.keys(this.#stats?.achievements ?? {}) as AchievementId[]
+    this.app.settings.achievementsSeen = seen
+    await saveAchievementsSeen(seen)
+    this.#markStateDirty()
+  }
+
   /** The renderer process is gone: every session stops and any unanswered approval is denied. */
   handleRendererGone() {
     this.#rendererGone = true
@@ -1146,8 +1154,11 @@ export class DesktopRuntime {
   }
 
   async #refreshStats() {
+    // A damaged skills manifest costs the skill achievement, not the whole usage panel.
+    const sources = await this.#skills.list().catch(() => [])
+    const installs = sources.flatMap((source) => source.installedAt ?? [])
     try {
-      this.#stats = await calculateLocalStats()
+      this.#stats = await calculateLocalStats({ skillInstalledAt: installs.sort()[0] })
     } catch {
       // Stats are informational; a read failure must not surface as an app error.
       return
@@ -1275,6 +1286,9 @@ export class DesktopRuntime {
       needsWorkspace: this.#pendingWorkspace !== undefined,
       workspace: { label: formatWorkspaceLabel(app.cwd), path: app.cwd },
       stats: this.#stats,
+      freshAchievements: (Object.keys(this.#stats?.achievements ?? {}) as AchievementId[]).filter(
+        (id) => !app.settings.achievementsSeen?.includes(id),
+      ),
       agentsPanelVisible: app.settings.subagentPanelVisible ?? true,
       workspacePanelWidth: app.settings.workspacePanelWidth,
       theme: app.settings.theme ?? "default",

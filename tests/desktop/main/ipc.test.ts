@@ -141,6 +141,12 @@ it("validates and forwards the workspace panel width", async () => {
   }
 })
 
+it("forwards marking achievements as seen", async () => {
+  const markAchievementsSeen = vi.fn(async () => {})
+  await handlerFor(DESKTOP_CHANNELS.markAchievementsSeen, { markAchievementsSeen })()
+  expect(markAchievementsSeen).toHaveBeenCalledOnce()
+})
+
 it("validates the skill collection calls", async () => {
   const installSkills = vi.fn(async () => ({ ok: true as const }))
   const install = handlerFor(DESKTOP_CHANNELS.installSkills, { installSkills })

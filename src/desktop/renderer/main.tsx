@@ -15,6 +15,7 @@ import "./features/palette/palette.css"
 import "./features/agents/agents.css"
 import "./features/canvas/canvas.css"
 import "./features/settings/settings.css"
+import "./features/achievements/achievements.css"
 import "./features/onboarding/onboarding.css"
 
 const container = document.getElementById("root")

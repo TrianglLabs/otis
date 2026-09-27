@@ -184,6 +184,8 @@ export type ManagedSkillSource = {
   url: string
   /** The folder of a repository that holds the skills, from a `…/tree/<ref>/<folder>` URL. */
   path?: string
+  /** Absent on collections installed before it was recorded. */
+  installedAt?: string
   skills: ManagedSkill[]
 }
 export type SkillManagerManifest = { version: 1; sources: ManagedSkillSource[] }

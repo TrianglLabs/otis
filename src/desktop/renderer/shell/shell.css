@@ -199,6 +199,23 @@
   animation: rise-in var(--motion);
 }
 
+/* A dot on the gear: an earned achievement waits on the Achievements tab. */
+.iconBtn-dot {
+  position: relative;
+}
+
+.iconBtn-dot::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--bg);
+}
+
 .updateFab:hover {
   border-color: var(--accent);
   background: var(--accent-soft);

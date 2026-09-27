@@ -146,7 +146,7 @@ export class SkillManager {
           createdLinks.push(destination)
         }
 
-        const source = { id, url: cleanURL, path, skills }
+        const source = { id, url: cleanURL, path, installedAt: new Date().toISOString(), skills }
         await writeManifest(this.rootDirectory, {
           version: 1,
           sources: sortedSources([...manifest.sources, source]),
@@ -408,6 +408,10 @@ async function readManifest(root: string): Promise<SkillManagerManifest> {
     if (path !== undefined && (isAbsolute(path) || path.split(/[\\/]/u).includes(".."))) {
       throw new Error(`Invalid managed skills manifest: unsafe source path ${path}.`)
     }
+    const installedAt =
+      rawSource.installedAt === undefined
+        ? undefined
+        : requiredString(rawSource.installedAt, `sources[${sourceIndex}].installedAt`)
     if (!Array.isArray(rawSource.skills)) {
       throw new Error(
         `Invalid managed skills manifest: sources[${sourceIndex}].skills must be an array.`,
@@ -438,6 +442,7 @@ async function readManifest(root: string): Promise<SkillManagerManifest> {
       id,
       url,
       path,
+      installedAt,
       skills: skills.sort((left, right) => left.name.localeCompare(right.name)),
     }
   })

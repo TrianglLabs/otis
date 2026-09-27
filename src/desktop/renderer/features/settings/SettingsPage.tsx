@@ -1,4 +1,5 @@
 import {
+  Award,
   Check,
   ChevronDown,
   ChevronRight,
@@ -25,6 +26,7 @@ import { Icon } from "../../components/Icon.js"
 import { formatTokenCount } from "../../format.js"
 import { LANGUAGE_OPTIONS, useI18n } from "../../i18n/index.js"
 import { useDesktop, useDesktopState } from "../../runtime.js"
+import { AchievementsTab } from "../achievements/Achievements.js"
 import { pickerDetailLabel } from "../models/model-list.js"
 
 /**
@@ -60,9 +62,10 @@ const SETTINGS_TABS = {
   extensions: { label: "settings.extensions", icon: Puzzle },
   appearance: { label: "settings.appearance", icon: Palette },
   general: { label: "settings.general", icon: SlidersHorizontal },
+  achievements: { label: "settings.achievements", icon: Award },
 } as const
 
-type SettingsTab = keyof typeof SETTINGS_TABS
+export type SettingsTab = keyof typeof SETTINGS_TABS
 
 /** Skills list in pages of this many; a suite can bring a hundred. */
 const SKILLS_PAGE = 10
@@ -86,14 +89,17 @@ export function SettingsPage({
   onClose,
   installing,
   onInstallUpdate,
+  initialTab = "providers",
 }: {
   onClose: () => void
   installing: boolean
   onInstallUpdate: () => void
+  initialTab?: SettingsTab
 }) {
   const { api } = useDesktop()
   const { locale, systemLocale, t } = useI18n()
   const state = useDesktopState(
+    "freshAchievements",
     "fastServing",
     "busy",
     "working",
@@ -114,7 +120,9 @@ export function SettingsPage({
   const servers = new Intl.ListFormat(locale, { type: "disjunction" }).format(
     localServerNames(state?.platform),
   )
-  const [activeTab, setActiveTab] = useState<SettingsTab>("providers")
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab)
+  // An unlock banner clicked while settings is already open still lands on its tab.
+  useEffect(() => setActiveTab(initialTab), [initialTab])
   const [openForm, setOpenForm] = useState<"hosted" | "pair">()
   const tabRefs = useRef(new Map<SettingsTab, HTMLButtonElement>())
 
@@ -273,6 +281,9 @@ export function SettingsPage({
               >
                 <Icon icon={SETTINGS_TABS[id].icon} size={14} />
                 <span>{t(SETTINGS_TABS[id].label)}</span>
+                {id === "achievements" && activeTab !== id && state?.freshAchievements.length ? (
+                  <i className="settingsSidebar-dot" />
+                ) : null}
               </button>
             ))}
           </div>
@@ -584,6 +595,7 @@ export function SettingsPage({
               </>
             ) : null}
 
+            {activeTab === "achievements" ? <AchievementsTab /> : null}
             {activeTab === "general" ? (
               <>
                 <div className="settingsGroup">

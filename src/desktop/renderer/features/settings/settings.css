@@ -52,6 +52,14 @@
   gap: var(--row-gap);
 }
 
+.settingsSidebar-dot {
+  width: 6px;
+  height: 6px;
+  margin-left: auto;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
 .settingsSidebar-tab {
   display: flex;
   align-items: center;
