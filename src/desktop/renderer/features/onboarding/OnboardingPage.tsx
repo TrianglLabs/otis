@@ -4,8 +4,8 @@ import {
   ChevronRight,
   Cloud,
   Cpu,
-  HardDrive,
   KeyRound,
+  Laptop,
   Loader2,
   Plug,
   Settings,
@@ -219,7 +219,7 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                 className="onboarding-card"
                 onClick={() => navigate("local", "forward")}
               >
-                <Icon icon={HardDrive} size={14} className="onboarding-cardIcon" />
+                <Icon icon={Laptop} size={14} className="onboarding-cardIcon" />
                 <span className="onboarding-cardText">
                   <span className="onboarding-cardTitle">{t("common.local")}</span>
                   <span className="onboarding-cardBody">{t("onboarding.localBody")}</span>

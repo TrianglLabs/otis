@@ -533,7 +533,10 @@ button.reasoning-header:hover {
   min-width: 0;
 }
 
+/* Lowercase text sits above its box centre; a pixel up puts the icon on the letters' centre. */
 .toolCard-icon {
+  position: relative;
+  top: -1px;
   color: var(--text-dim);
   display: inline-flex;
   flex-shrink: 0;
@@ -1153,15 +1156,17 @@ button.composer-model-failed {
 
 /* Home screen */
 
+/* Centred while it fits; once the window is too short it scrolls from the top like onboarding. */
 .home {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: safe center;
   gap: 28px;
   padding: 40px 28px;
+  overflow-y: auto;
 }
 
 /* The mark and any setup message, centered as one block above the recents. */
@@ -1173,7 +1178,7 @@ button.composer-model-failed {
   text-align: center;
 }
 
-/* Recents: one list on the composer's width, sessions then documents, each under a mono eyebrow. */
+/* Recents: one list on the composer's width, sessions then documents, each under an eyebrow. */
 .home-recents {
   display: flex;
   flex-direction: column;
@@ -1188,10 +1193,8 @@ button.composer-model-failed {
   margin-top: 20px;
   padding: 0 10px 8px;
   border-bottom: 1px solid var(--hairline);
-  font-family: var(--font-mono);
-  font-size: var(--text-micro);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: var(--text-meta);
+  font-weight: 500;
   color: var(--text-dim);
 }
 
@@ -1199,10 +1202,9 @@ button.composer-model-failed {
   margin-top: 0;
 }
 
-/* The search hint keeps its case; it is a shortcut, not a heading. */
+/* The ⌘K hint beside the label is a hint, not a heading. */
 .home-eyebrow > span {
-  letter-spacing: 0.02em;
-  text-transform: none;
+  font-weight: 400;
 }
 
 .home-row {
@@ -1276,14 +1278,9 @@ button.composer-model-failed {
   color: var(--text-dim);
 }
 
-/* Mono capitals sit high beside lowercase UI text; a pixel of top padding centres them. */
 .home-rowAge {
   min-width: 64px;
-  padding-top: 1px;
-  font-family: var(--font-mono);
-  font-size: var(--text-micro);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: var(--text-meta);
   color: var(--text-dim);
   text-align: right;
   white-space: nowrap;
@@ -1297,7 +1294,7 @@ button.composer-model-failed {
 
 .home-logo {
   display: block;
-  width: 64px;
+  width: 88px;
   height: auto;
   color: var(--text-dim);
   user-select: none;

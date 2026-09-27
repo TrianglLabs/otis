@@ -15,7 +15,10 @@ export type LocalStats = {
   activeDays: number
   promptTokens: number
   completionTokens: number
+  todayTokens: number
   recentActivity: LocalUsageDay[]
+  /** By picker name; usage recorded before models were noted is left out. */
+  modelUsage: Record<string, { hosted: boolean; promptTokens: number; completionTokens: number }>
 }
 
 /** What Omarchy's agents panel shows beyond the home screen, from the same pass. */
@@ -23,15 +26,9 @@ type LocalUsage = {
   promptCount: number
   todayPrompts: number
   todaySessions: number
-  todayTokens: number
   activeDates: string[]
   /** Every provider that served recorded usage. */
   providers: ModelProvider[]
-  /**
-   * Tokens by serving model id, under the picker name it was recorded with. Usage recorded before
-   * models were noted is left out.
-   */
-  modelUsage: Record<string, { name: string; promptTokens: number; completionTokens: number }>
   todayTokensByModel: Record<string, number>
 }
 
@@ -71,7 +68,7 @@ export async function calculateLocalStats(
   const today = localDateKey(now)
   const days = new Set<string>()
   const dailyTokens = new Map<string, number>()
-  const modelUsage: LocalUsage["modelUsage"] = {}
+  const modelUsage: LocalStats["modelUsage"] = {}
   const providers = new Set<ModelProvider>()
   const todayTokensByModel: Record<string, number> = {}
   for (const path of files) {
@@ -96,24 +93,23 @@ export async function calculateLocalStats(
         promptTokens += event.usage.promptTokens
         completionTokens += event.usage.completionTokens
         if (event.provider) providers.add(event.provider)
-        if (event.model) {
-          const bucket = modelUsage[event.model] ?? {
-            name: event.modelName ?? event.model,
+        const name = event.modelName ?? event.model
+        if (name) {
+          modelUsage[name] ??= {
+            hosted: event.provider === "fireworks",
             promptTokens: 0,
             completionTokens: 0,
           }
-          bucket.promptTokens += event.usage.promptTokens
-          bucket.completionTokens += event.usage.completionTokens
-          modelUsage[event.model] = bucket
+          modelUsage[name].promptTokens += event.usage.promptTokens
+          modelUsage[name].completionTokens += event.usage.completionTokens
         }
         if (at === undefined) continue
         const key = localDateKey(new Date(at))
         dailyTokens.set(key, (dailyTokens.get(key) ?? 0) + event.usage.totalTokens)
         if (key !== today) continue
         todayTokens += event.usage.totalTokens
-        if (event.model)
-          todayTokensByModel[event.model] =
-            (todayTokensByModel[event.model] ?? 0) + event.usage.totalTokens
+        if (name)
+          todayTokensByModel[name] = (todayTokensByModel[name] ?? 0) + event.usage.totalTokens
       } else if (event.type === "prompt_admitted" || event.type === "turn_started") {
         if (event.type === "prompt_admitted") {
           promptCount += 1
@@ -170,14 +166,14 @@ export async function calculateLocalStats(
     activeDays: days.size,
     promptTokens,
     completionTokens,
+    todayTokens,
     recentActivity,
+    modelUsage,
     promptCount,
     todayPrompts,
     todaySessions,
-    todayTokens,
     activeDates: [...days].sort(),
     providers: [...providers].sort(),
-    modelUsage,
     todayTokensByModel,
   }
 }
@@ -204,20 +200,6 @@ export async function publishOmarchyUsage(
       entry === "fireworks" ? "Hosted" : entry ? "Local" : "",
     ),
   )
-  // Rows show the picker name; ids that share one (a fast-serving variant, the same model on two
-  // local servers) add up under it.
-  const modelUsage: Record<string, { inputTokens: number; outputTokens: number }> = {}
-  const todayTokensByModel: Record<string, number> = {}
-  for (const [model, { name, promptTokens, completionTokens }] of Object.entries(
-    stats.modelUsage,
-  )) {
-    const row = modelUsage[name] ?? { inputTokens: 0, outputTokens: 0 }
-    row.inputTokens += promptTokens
-    row.outputTokens += completionTokens
-    modelUsage[name] = row
-    const today = stats.todayTokensByModel[model]
-    if (today) todayTokensByModel[name] = (todayTokensByModel[name] ?? 0) + today
-  }
   const record = {
     id: "otis",
     name: "Otis",
@@ -232,7 +214,7 @@ export async function publishOmarchyUsage(
     todayPrompts: stats.todayPrompts,
     todaySessions: stats.todaySessions,
     todayTotalTokens: stats.todayTokens,
-    todayTokensByModel,
+    todayTokensByModel: stats.todayTokensByModel,
     // The panel's day rows read their token total from messageCount.
     recentDays: stats.recentActivity
       .slice(-7)
@@ -241,7 +223,12 @@ export async function publishOmarchyUsage(
     totalSessions: stats.sessionCount,
     activeDays: stats.activeDays,
     activeDates: stats.activeDates,
-    modelUsage,
+    modelUsage: Object.fromEntries(
+      Object.entries(stats.modelUsage).map(([name, { promptTokens, completionTokens }]) => [
+        name,
+        { inputTokens: promptTokens, outputTokens: completionTokens },
+      ]),
+    ),
   }
   await mkdir(directory, { recursive: true })
   const file = join(directory, "otis.json")

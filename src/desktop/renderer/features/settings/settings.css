@@ -171,10 +171,15 @@
 .settingsUsage-metric span,
 .settingsUsage-mixTitle,
 .settingsUsage-mixValues,
+.settingsUsage-modelSplit,
 .settingsUsage-activityHeader,
 .settingsUsage-average {
   color: var(--text-dim);
   font-size: var(--text-meta);
+}
+
+.settingsUsage-eyebrow {
+  font-weight: 500;
 }
 
 .settingsUsage-total > strong {
@@ -274,8 +279,59 @@
 
 .settingsUsage-metrics {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   padding: 0 20px 20px;
+}
+
+.settingsUsage-models {
+  padding: 16px 20px;
+  border-top: 1px solid var(--hairline);
+}
+
+.settingsUsage-model {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) auto 1fr auto;
+  align-items: center;
+  column-gap: 12px;
+  padding-top: 12px;
+  font-size: var(--text-ui);
+}
+
+/* The mark trails the name; the split takes the slack so the row still ends on the total. */
+.settingsUsage-modelWhere {
+  display: inline-flex;
+  margin-left: -6px;
+  color: var(--text-dim);
+}
+
+.settingsUsage-modelName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settingsUsage-modelSplit {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.settingsUsage-model strong {
+  min-width: 48px;
+  text-align: right;
+  font-weight: 520;
+  font-variant-numeric: tabular-nums;
+}
+
+.settingsUsage-modelBar {
+  grid-column: 1 / -1;
+  height: 4px;
+  margin-top: 6px;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(to right, var(--accent) var(--usage-share), var(--border) 0);
+}
+
+.settingsUsage-more {
+  margin-top: 12px;
 }
 
 .settingsUsage-activity {
@@ -666,6 +722,16 @@
   .settingsUsage-hero {
     grid-template-columns: 1fr;
     gap: 18px;
+  }
+
+  .settingsUsage-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 16px;
+  }
+
+  .settingsUsage-metric:nth-child(odd) {
+    padding-left: 0;
+    border-left: 0;
   }
 }
 

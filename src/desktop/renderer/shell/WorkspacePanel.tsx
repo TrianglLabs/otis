@@ -1,4 +1,4 @@
-import { ChevronRight, ChevronsRight, X } from "lucide-react"
+import { Box, ChevronRight, ChevronsRight, Frame, type LucideIcon, X } from "lucide-react"
 import {
   type CSSProperties,
   type KeyboardEvent,
@@ -42,7 +42,8 @@ export function WorkspacePanel({
   onCloseDiagram: () => void
 }) {
   // Drags update the local width immediately; the saved width seeds it and survives relaunches.
-  const [railWidth, setRailWidth] = useState<number>()
+  // The wrapper tells a double-click reset (width undefined) apart from "never touched".
+  const [local, setLocal] = useState<{ width: number | undefined }>()
   const state = useDesktopSelector((snapshot) => ({
     runs: snapshot?.subagents ?? EMPTY_RUNS,
     visible: snapshot?.agentsPanelVisible ?? true,
@@ -55,8 +56,8 @@ export function WorkspacePanel({
       {...panel}
       views={views}
       onCloseDiagram={onCloseDiagram}
-      railWidth={railWidth ?? savedWidth}
-      onRailWidthChange={setRailWidth}
+      railWidth={local ? local.width : savedWidth}
+      onRailWidthChange={(width) => setLocal({ width })}
     />
   )
 }
@@ -257,7 +258,7 @@ function SessionWorkspacePanel({
     const active = activeTab === tab ? " workspaceRail-view-active" : ""
     return `workspaceRail-view workspaceRail-view-${tab}${active}`
   }
-  const tab = (name: PanelTab, label: string) => (
+  const tab = (name: PanelTab, icon: LucideIcon, label: string) => (
     <button
       type="button"
       role="tab"
@@ -267,6 +268,7 @@ function SessionWorkspacePanel({
       tabIndex={activeTab === name ? 0 : -1}
       onClick={() => setActiveTab(name)}
     >
+      <Icon icon={icon} size={13} />
       {label}
     </button>
   )
@@ -317,8 +319,8 @@ function SessionWorkspacePanel({
             aria-label={t("panel.workspaceViews")}
             onKeyDown={selectTabWithKeyboard}
           >
-            {tab("coworkers", t("panel.coworkers"))}
-            {tab("canvas", t("panel.canvas"))}
+            {tab("coworkers", Box, t("panel.coworkers"))}
+            {tab("canvas", Frame, t("panel.canvas"))}
           </div>
           <IconButton
             icon={ChevronsRight}

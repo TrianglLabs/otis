@@ -27,6 +27,7 @@ describe("calculateLocalStats", () => {
       event(3, "session-a", "usage_recorded", localISO(now, 1), {
         purpose: "agent",
         promptId: "prompt-a",
+        provider: "fireworks",
         model: "accounts/fireworks/models/glm",
         modelName: "GLM-5.3",
         usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
@@ -69,14 +70,8 @@ describe("calculateLocalStats", () => {
       todayTokens: 150,
       activeDates: [localDateKey(yesterday), localDateKey(now)],
       // Yesterday's title usage predates model notes, so only today's turn has a model.
-      modelUsage: {
-        "accounts/fireworks/models/glm": {
-          name: "GLM-5.3",
-          promptTokens: 100,
-          completionTokens: 50,
-        },
-      },
-      todayTokensByModel: { "accounts/fireworks/models/glm": 150 },
+      modelUsage: { "GLM-5.3": { hosted: true, promptTokens: 100, completionTokens: 50 } },
+      todayTokensByModel: { "GLM-5.3": 150 },
     })
     expect(stats.recentActivity).toHaveLength(28)
     expect(stats.recentActivity?.filter((day) => day.tokens > 0)).toEqual([
