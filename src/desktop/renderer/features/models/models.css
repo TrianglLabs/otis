@@ -31,7 +31,7 @@
 .modelPicker-titleText {
   margin: 0;
   font-size: var(--text-ui);
-  font-weight: 500;
+  font-weight: 600;
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
@@ -67,10 +67,8 @@
 /* Section label treatment shared across overlays and pages. */
 .modelPicker-header {
   padding: 10px 10px 6px;
-  font-size: var(--text-micro);
-  font-weight: 700;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
+  font-size: var(--text-meta);
+  font-weight: 500;
   color: var(--text-dim);
 }
 

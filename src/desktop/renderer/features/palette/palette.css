@@ -43,10 +43,8 @@
 
 .palette-section {
   padding: 8px 10px 4px;
-  font-size: var(--text-micro);
-  font-weight: 600;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
+  font-size: var(--text-meta);
+  font-weight: 500;
   color: var(--text-dim);
 }
 

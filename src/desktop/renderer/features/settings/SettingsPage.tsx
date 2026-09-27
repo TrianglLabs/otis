@@ -2,7 +2,9 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Cloud,
   Cpu,
+  Laptop,
   LoaderCircle,
   Palette,
   Plug,
@@ -64,6 +66,7 @@ type SettingsTab = keyof typeof SETTINGS_TABS
 
 /** Skills list in pages of this many; a suite can bring a hundred. */
 const SKILLS_PAGE = 10
+const MODELS_SHOWN = 5
 
 const SKILL_ORIGINS = {
   bundled: "settings.skillBundled",
@@ -827,6 +830,7 @@ function SoftwareUpdates({
 function UsageStats({ stats }: { stats: LocalStats | undefined }) {
   const { locale, t } = useI18n()
   const [activeDate, setActiveDate] = useState<string>()
+  const [allModels, setAllModels] = useState(false)
 
   if (!stats) {
     return (
@@ -848,6 +852,14 @@ function UsageStats({ stats }: { stats: LocalStats | undefined }) {
   const { promptTokens, completionTokens } = stats
   const countedTokens = promptTokens + completionTokens
   const inputShare = countedTokens === 0 ? 0 : (promptTokens / countedTokens) * 100
+  // Each bar is relative to the leader.
+  const models = Object.entries(stats.modelUsage)
+    .map(([name, usage]) => ({
+      name,
+      ...usage,
+      total: usage.promptTokens + usage.completionTokens,
+    }))
+    .sort((a, b) => b.total - a.total)
 
   return (
     <div className="settingsGroup">
@@ -894,7 +906,58 @@ function UsageStats({ stats }: { stats: LocalStats | undefined }) {
             value={number.format(stats.activeDays)}
           />
           <UsageMetric label={t("settings.usageStreak")} value={number.format(stats.streak)} />
+          <UsageMetric
+            label={t("settings.usageToday")}
+            value={formatTokenCount(stats.todayTokens)}
+          />
         </div>
+
+        {models.length ? (
+          <div className="settingsUsage-models">
+            <div className="settingsUsage-activityHeader">
+              <span>{t("settings.usageByModel")}</span>
+            </div>
+            {models
+              .slice(0, allModels ? undefined : MODELS_SHOWN)
+              .map(({ name, hosted, promptTokens, completionTokens, total }) => (
+                <div
+                  key={name}
+                  className="settingsUsage-model"
+                  style={
+                    { "--usage-share": `${(total / models[0].total) * 100}%` } as CSSProperties
+                  }
+                >
+                  <span className="settingsUsage-modelName" title={name}>
+                    {name}
+                  </span>
+                  <span
+                    className="settingsUsage-modelWhere"
+                    title={t(hosted ? "common.hosted" : "common.local")}
+                  >
+                    <Icon icon={hosted ? Cloud : Laptop} size={13} />
+                  </span>
+                  <span className="settingsUsage-modelSplit">
+                    {t("settings.usageModelSplit", {
+                      input: formatTokenCount(promptTokens),
+                      output: formatTokenCount(completionTokens),
+                    })}
+                  </span>
+                  <strong title={number.format(total)}>{formatTokenCount(total)}</strong>
+                  <i className="settingsUsage-modelBar" aria-hidden="true" />
+                </div>
+              ))}
+            {models.length > MODELS_SHOWN && !allModels ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="settingsUsage-more"
+                onClick={() => setAllModels(true)}
+              >
+                {t("settings.skillsMore")}
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="settingsUsage-activity">
           <div className="settingsUsage-activityHeader">

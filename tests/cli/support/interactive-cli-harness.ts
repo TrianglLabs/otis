@@ -93,7 +93,9 @@ const mocks = vi.hoisted(() => {
       activeDays: 0,
       promptTokens: 0,
       completionTokens: 0,
+      todayTokens: 0,
       recentActivity: [],
+      modelUsage: {},
     })),
     clearSelectedModel: vi.fn(async () => undefined),
     createChatUI: vi.fn((_renderer, options) => {

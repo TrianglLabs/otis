@@ -442,10 +442,15 @@ describe("AppShell settings navigation", () => {
             activeDays: 11,
             promptTokens: 1_119_400,
             completionTokens: 362_900,
+            todayTokens: 44_000,
             recentActivity: [
               { date: "2026-09-18", tokens: 12_000 },
               { date: "2026-09-19", tokens: 44_000 },
             ],
+            modelUsage: {
+              "Qwen3.8 27B": { hosted: false, promptTokens: 300_000, completionTokens: 100_000 },
+              "GLM-5.3": { hosted: true, promptTokens: 819_400, completionTokens: 262_900 },
+            },
           },
         })),
       }),
@@ -457,6 +462,15 @@ describe("AppShell settings navigation", () => {
     expect(within(usage).getByText("1.5M")).toBeTruthy()
     expect(within(usage).getByText("24")).toBeTruthy()
     expect(within(usage).getByText("11")).toBeTruthy()
+    expect(within(usage).getByText("44.0k")).toBeTruthy()
+    // Models list biggest first, with their input and output split.
+    const models = [...usage.querySelectorAll(".settingsUsage-modelName")].map((e) => e.textContent)
+    expect(models).toEqual(["GLM-5.3", "Qwen3.8 27B"])
+    const where = [...usage.querySelectorAll<HTMLElement>(".settingsUsage-modelWhere")].map(
+      (e) => e.title,
+    )
+    expect(where).toEqual(["Hosted", "Local"])
+    expect(within(usage).getByText("300.0k in · 100.0k out")).toBeTruthy()
     expect(usage.querySelectorAll(".settingsUsage-bar")).toHaveLength(2)
     const activityBars = within(usage).getAllByRole("button")
     fireEvent.pointerEnter(activityBars[0])

@@ -397,6 +397,15 @@ async function runDesktopUiChecks() {
     document.querySelectorAll(".settingsUsage-bar").length === 28,
     "Provider usage activity is incomplete",
   )
+  assert(
+    document.querySelectorAll(".settingsUsage-model").length === 5,
+    "Usage does not cap its per-model rows",
+  )
+  element<HTMLButtonElement>(".settingsUsage-more").click()
+  await until(
+    () => document.querySelectorAll(".settingsUsage-model").length === 6,
+    "Show more did not reveal the remaining models",
+  )
   settingsTabs[1].click()
   await until(() => !!document.querySelector("#settings-skill-url"), "Extensions tab did not open")
   settingsTabs[2].click()
@@ -658,7 +667,7 @@ async function runDesktopUiChecks() {
   )
   resizer.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }))
   await until(
-    () => Math.abs(element(".workspaceRail").getBoundingClientRect().width - 240) < 1,
+    () => Math.abs(element(".workspaceRail").getBoundingClientRect().width - 320) < 1,
     "Double-clicking the side-panel divider did not restore its default width",
   )
 
@@ -1495,10 +1504,10 @@ async function runDesktopUiChecks() {
       () => !!document.querySelector(".modelPicker-spinner"),
       "Loading model picker did not open",
     )
-    await pause(200)
+    const picker = element(".modelPicker")
+    await Promise.all(picker.getAnimations().map((animation) => animation.finished))
     if (attempt === 0)
       await nativeInput({ screenshot: true, screenshotName: "model-picker-loading" })
-    const picker = element(".modelPicker")
     assert(
       getComputedStyle(picker).backgroundColor === getComputedStyle(document.body).backgroundColor,
       "Picker lost its opaque background",
