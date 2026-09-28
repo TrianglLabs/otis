@@ -14,7 +14,14 @@ import {
   Rocket,
   Sunrise,
 } from "lucide-react"
-import { type CSSProperties, type PointerEvent, useEffect, useRef, useState } from "react"
+import {
+  type CSSProperties,
+  type PointerEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react"
 import type { AchievementId } from "../../../../local/stats.js"
 import { Icon } from "../../components/Icon.js"
 import { useI18n } from "../../i18n/index.js"
@@ -113,9 +120,9 @@ export function AchievementsTab() {
 }
 
 /**
- * Banners for achievements earned while the app runs, stacked three deep with the newest in front.
- * The first status that carries stats is history and never announced; each id appearing after it
- * gets a banner.
+ * Banners for achievements earned while the app runs, shown one at a time in the order earned;
+ * the ones waiting peek out behind the front card. The first status that carries stats is history
+ * and never announced; each id appearing after it gets a banner.
  */
 export function UnlockBanners({ onOpen }: { onOpen: () => void }) {
   const state = useDesktopState("stats", "freshAchievements")
@@ -127,14 +134,20 @@ export function UnlockBanners({ onOpen }: { onOpen: () => void }) {
     known.current = state.freshAchievements
     if (!seen) return
     const added = state.freshAchievements.filter((id) => !seen.includes(id))
-    if (added.length) setUnlocks((list) => [...added.reverse(), ...list].slice(0, 3))
+    if (added.length) setUnlocks((list) => [...list, ...added])
   }, [state])
+  // Only the front card retires itself, so the queue's head is always the one leaving.
+  const dismiss = useCallback(() => setUnlocks((list) => list.slice(1)), [])
+  // The tab shows everything, so opening it retires the whole queue.
+  const open = () => {
+    setUnlocks([])
+    onOpen()
+  }
   if (unlocks.length === 0) return null
-  const dismiss = (id: AchievementId) => setUnlocks((list) => list.filter((e) => e !== id))
   return (
     <div className="unlockStack">
-      {unlocks.map((id, depth) => (
-        <UnlockBanner key={id} id={id} depth={depth} onDone={dismiss} onOpen={onOpen} />
+      {unlocks.slice(0, 3).map((id, depth) => (
+        <UnlockBanner key={id} id={id} depth={depth} onDone={dismiss} onOpen={open} />
       ))}
     </div>
   )
@@ -148,31 +161,29 @@ function UnlockBanner({
 }: {
   id: AchievementId
   depth: number
-  onDone: (id: AchievementId) => void
+  onDone: () => void
   onOpen: () => void
 }) {
   const { t } = useI18n()
   const { icon, secret } = ACHIEVEMENTS[id]
   const [leaving, setLeaving] = useState(false)
+  // Only the front card is on the clock; the 300ms between them is its opacity transition.
   useEffect(() => {
-    // The 300ms between them is the card's opacity transition.
+    if (depth !== 0) return
     const fade = setTimeout(() => setLeaving(true), 3700)
-    const gone = setTimeout(() => onDone(id), 4000)
+    const gone = setTimeout(onDone, 4000)
     return () => {
       clearTimeout(fade)
       clearTimeout(gone)
     }
-  }, [id, onDone])
+  }, [depth, onDone])
   return (
     <button
       type="button"
       className="unlockCard noDrag"
       data-leaving={leaving ? "true" : undefined}
       style={{ "--depth": depth } as CSSProperties}
-      onClick={() => {
-        onDone(id)
-        onOpen()
-      }}
+      onClick={onOpen}
     >
       <span className="unlockCard-medal">
         <svg className="unlockCard-ring" viewBox="0 0 64 64" role="presentation">

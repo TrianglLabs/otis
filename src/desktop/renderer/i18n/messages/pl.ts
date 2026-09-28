@@ -390,7 +390,7 @@ export const pl: Messages = {
   "settings.memoryRemember": "Zapamiętaj",
   "settings.memoryForget": "Zapomnij",
   "settings.memoryNote":
-    "Fakty leżą w .otis/memory.md folderu roboczego albo w memory.md w folderze danych Otisa, gdy obowiązują wszędzie. Otis czyta je tylko wtedy, gdy wywołuje recall.",
+    "Fakty leżą w folderze danych Otisa: jeden memory.md na folder roboczy i jeden dla tych, które obowiązują wszędzie. Do projektu nic nie jest zapisywane. Otis czyta je tylko wtedy, gdy wywołuje recall.",
   "settings.skillBundled": "Dołączona",
   "settings.skillPersonal": "Osobista",
   "settings.skillProject": "Projekt",

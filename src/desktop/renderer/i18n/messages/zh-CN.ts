@@ -336,7 +336,7 @@ export const zhCN: Messages = {
   "settings.memoryRemember": "记住",
   "settings.memoryForget": "忘记",
   "settings.memoryNote":
-    "事实保存在工作文件夹的 .otis/memory.md 中；适用于所有位置的则保存在 Otis 数据文件夹的 memory.md 中。Otis 只在调用 recall 时读取它们。",
+    "事实保存在 Otis 数据文件夹中：每个工作文件夹一个 memory.md，适用于所有位置的另有一个。不会向项目写入任何内容。Otis 只在调用 recall 时读取它们。",
   "settings.skillBundled": "内置",
   "settings.skillPersonal": "个人",
   "settings.skillProject": "项目",

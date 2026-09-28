@@ -344,7 +344,7 @@ export const ptBR: Messages = {
   "settings.memoryRemember": "Lembrar",
   "settings.memoryForget": "Esquecer",
   "settings.memoryNote":
-    "Os fatos ficam em .otis/memory.md da pasta de trabalho, ou em memory.md da pasta de dados do Otis quando valem em todo lugar. O Otis só os lê quando chama recall.",
+    "Os fatos ficam na pasta de dados do Otis: uma memory.md por pasta de trabalho e outra para os que valem em todo lugar. Nada é escrito no projeto. O Otis só os lê quando chama recall.",
   "settings.skillBundled": "Incluído",
   "settings.skillPersonal": "Pessoal",
   "settings.skillProject": "Projeto",

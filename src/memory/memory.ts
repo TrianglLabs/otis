@@ -1,7 +1,8 @@
-import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises"
+import { appendFile, mkdir, readFile, rm, rmdir, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { localDataDirectory } from "../local/paths.js"
 import { searchAllSessions } from "../storage/session.js"
+import { defaultSessionDirectory } from "../storage/session-files.js"
 
 export type MemoryScope = "workspace" | "global"
 
@@ -47,16 +48,25 @@ export function redactPrivate(text: string) {
   )
 }
 
-function memoryFile(scope: MemoryScope, cwd: string) {
-  return scope === "workspace"
-    ? join(cwd, ".otis", "memory.md")
-    : join(localDataDirectory(), "memory.md")
+async function memoryFile(scope: MemoryScope, cwd: string) {
+  if (scope === "global") return join(localDataDirectory(), "memory.md")
+  const file = join(defaultSessionDirectory(cwd), "memory.md")
+  // 0.2.6 kept workspace memory in the project's `.otis/memory.md`, where it ended up in commits;
+  // it moves to the data folder on first use.
+  const legacy = join(cwd, ".otis", "memory.md")
+  const old = await readFile(legacy, "utf8").catch(() => undefined)
+  if (old === undefined) return file
+  await mkdir(dirname(file), { recursive: true, mode: 0o700 })
+  await writeFile(file, old, { flag: "wx", mode: 0o600 }).catch(() => {})
+  await rm(legacy)
+  await rmdir(dirname(legacy)).catch(() => {})
+  return file
 }
 
 export async function listMemory(cwd: string): Promise<MemoryEntry[]> {
   const entries = await Promise.all(
     SCOPES.map(async (scope) =>
-      (await readLines(memoryFile(scope, cwd))).flatMap((line) => {
+      (await readLines(await memoryFile(scope, cwd))).flatMap((line) => {
         const match = ENTRY.exec(line)
         return match ? [entry(scope, match)] : []
       }),
@@ -74,7 +84,7 @@ export async function remember(
   const text = redactPrivate(fact.trim().replace(/\s+/gu, " "))
   if (!text) throw new Error("There is nothing to remember.")
   const date = new Date().toISOString().slice(0, 10)
-  const file = memoryFile(scope, cwd)
+  const file = await memoryFile(scope, cwd)
   const content = await readFile(file, "utf8").catch(() => "")
   await mkdir(dirname(file), { recursive: true, mode: 0o700 })
   // Appending keeps a fact another session saves at the same moment.
@@ -87,7 +97,7 @@ export async function remember(
 /** Removes the entry whose text matches, or the one entry containing the given text. */
 export async function forget(scope: MemoryScope, fact: string, cwd: string): Promise<MemoryEntry> {
   const needle = fact.trim().toLowerCase()
-  const file = memoryFile(scope, cwd)
+  const file = await memoryFile(scope, cwd)
   const lines = await readLines(file)
   const matches = lines.map((line) => ENTRY.exec(line))
   const indexes = (test: (text: string) => boolean) =>
