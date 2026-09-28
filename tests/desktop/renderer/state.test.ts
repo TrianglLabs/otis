@@ -85,6 +85,18 @@ describe("transcript patches", () => {
     expect(base.map((item) => item.text)).toEqual(["a", "b"])
   })
 
+  it("appends grown text onto the entry it already holds", async () => {
+    const base = [entry(1, "a"), entry(2, "hel")]
+    const next = await patched(base, [
+      { op: "append", id: 2, at: 3, text: "lo" },
+      // Seeded from a newer snapshot that already held the growth: the offset keeps it single.
+      { op: "append", id: 2, at: 3, text: "lo" },
+      { op: "append", id: 9, at: 0, text: "nobody" },
+    ])
+    expect(next.map((row) => row.text)).toEqual(["a", "hello"])
+    expect(next[0]).toBe(base[0])
+  })
+
   it("reset replaces the list and later ops apply on top", async () => {
     const base = [entry(1, "a"), entry(2, "b")]
     const next = await patched(base, [

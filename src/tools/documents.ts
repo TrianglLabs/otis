@@ -12,12 +12,10 @@ import {
   writeFile,
 } from "node:fs/promises"
 import { basename, dirname, extname, join, relative, resolve } from "node:path"
-import {
-  DOMParser,
-  XMLSerializer,
-  type Document as XmlDocument,
-  type Element as XmlElement,
-  type Node as XmlNode,
+import type {
+  Document as XmlDocument,
+  Element as XmlElement,
+  Node as XmlNode,
 } from "@xmldom/xmldom"
 import { createPatch } from "diff"
 import JSZip from "jszip"
@@ -151,6 +149,7 @@ export async function inspectPdfForm(bytes: Uint8Array) {
 }
 
 async function editDocx(source: Buffer, replacements: DocumentTextReplacement[], name: string) {
+  const { DOMParser, XMLSerializer } = await import("@xmldom/xmldom")
   const before = await createDocumentAttachment(source, "source.docx", DOCX_MIME_TYPE)
   const zip = await JSZip.loadAsync(source)
   const parts = Object.keys(zip.files)

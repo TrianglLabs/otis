@@ -1,7 +1,6 @@
 import { constants } from "node:fs"
 import { open, realpath } from "node:fs/promises"
 import { basename, isAbsolute, relative, resolve, sep } from "node:path"
-import mammoth from "mammoth"
 import { MAX_PDF_PAGES } from "../inference/document-constraints.js"
 import {
   createDocumentAttachment,
@@ -146,6 +145,7 @@ export async function payloadFromBytes(
   if (kind === "docx") {
     if (bytes[0] !== 0x50 || bytes[1] !== 0x4b) throw new Error(`${name} is not a DOCX file.`)
     await validateDocxArchive(bytes)
+    const { default: mammoth } = await import("mammoth")
     const result = await mammoth.convertToHtml({ buffer: bytes })
     if (result.value.length > MAX_RENDERED_DOCX_CHARS)
       throw new Error("This Word document is too large to preview.")

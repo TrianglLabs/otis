@@ -99,6 +99,9 @@ function applyTranscriptOps(
       for (const entry of op.entries) next.set(entry.id, entry)
     } else if (op.op === "upsert") {
       if (!shallowEqual(next.get(op.entry.id), op.entry)) next.set(op.entry.id, op.entry)
+    } else if (op.op === "append") {
+      const entry = next.get(op.id)
+      if (entry) next.set(op.id, { ...entry, text: entry.text.slice(0, op.at) + op.text })
     } else {
       next.delete(op.id)
     }

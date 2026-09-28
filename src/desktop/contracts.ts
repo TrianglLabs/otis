@@ -202,6 +202,11 @@ export type DesktopSnapshot = DesktopStatus & {
 export type TranscriptPatchOp =
   | { op: "reset"; entries: TranscriptEntry[] }
   | { op: "upsert"; entry: TranscriptEntry }
+  /**
+   * Text that grew on an entry the renderer already has; everything else on it is unchanged. `at`
+   * is where the growth starts, so a renderer seeded from a newer snapshot applies it unchanged.
+   */
+  | { op: "append"; id: number; at: number; text: string }
   | { op: "remove"; id: number }
 
 /**

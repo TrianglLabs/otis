@@ -148,6 +148,8 @@ export class DesktopRuntime {
    * Global session listing is disk-heavy; the shared promise coalesces concurrent status snapshots.
    */
   #historyCache: Promise<GlobalHistory> | undefined
+  /** Per session, the entry objects the renderer last received, so flushes can ship only growth. */
+  readonly #shipped = new WeakMap<SessionRuntime, Map<number, TranscriptEntry>>()
   #stats: DesktopStatus["stats"]
   #update: DesktopStatus["update"] = { status: "idle" }
   /** The focused runtime as of the last focus move the renderer was told about. */
@@ -1176,6 +1178,15 @@ export class DesktopRuntime {
     this.#scheduleFlush()
   }
 
+  #shippedFor(runtime: SessionRuntime) {
+    let shipped = this.#shipped.get(runtime)
+    if (!shipped) {
+      shipped = new Map()
+      this.#shipped.set(runtime, shipped)
+    }
+    return shipped
+  }
+
   #markStateDirty() {
     this.#stateDirty = true
     this.#scheduleFlush()
@@ -1218,12 +1229,13 @@ export class DesktopRuntime {
     const ops = compactChanges(
       queued.find(([runtime]) => runtime === focused)?.[1] ?? [],
       focused.transcript.entries,
+      this.#shippedFor(focused),
     )
     const panes = queued
       .filter(([runtime]) => runtime !== focused && this.#panes.includes(runtime))
       .map(([runtime, changes]) => ({
         runtime: runtime.id,
-        ops: compactChanges(changes, runtime.transcript.entries),
+        ops: compactChanges(changes, runtime.transcript.entries, this.#shippedFor(runtime)),
       }))
       .filter((pane) => pane.ops.length > 0)
     const reset = ops[0]?.op === "reset"
@@ -1310,29 +1322,55 @@ export class DesktopRuntime {
 }
 
 /**
- * Store mutations as renderer ops against the store's current entries. A reset invalidates every
- * change before it and comes first.
+ * Compacts queued store mutations into renderer ops. `shipped` is what the renderer holds per
+ * entry; a streaming message whose text merely grew ships the new tail, not the whole text again.
  */
-function compactChanges(changes: TranscriptChange[], entries: readonly TranscriptEntry[]) {
-  let lastReset = -1
-  for (let index = changes.length - 1; index >= 0; index -= 1) {
-    if (changes[index].op === "reset") {
-      lastReset = index
-      break
-    }
+function compactChanges(
+  changes: TranscriptChange[],
+  entries: readonly TranscriptEntry[],
+  shipped: Map<number, TranscriptEntry>,
+) {
+  // A reset carries the store's current state, which every change in the batch already reflects.
+  if (changes.some((change) => change.op === "reset")) {
+    shipped.clear()
+    for (const entry of entries) shipped.set(entry.id, entry)
+    return [{ op: "reset", entries: [...entries] }] as TranscriptPatchOp[]
   }
   const ops: TranscriptPatchOp[] = []
-  if (lastReset !== -1) ops.push({ op: "reset", entries: [...entries] })
   const upserted = new Set<number>()
-  for (const change of changes.slice(lastReset + 1)) {
+  for (const change of changes) {
     if (change.op === "upsert") {
       const entry = entries.findLast((entry) => entry.id === change.id)
       if (!entry || upserted.has(entry.id)) continue
       upserted.add(entry.id)
-      ops.push({ op: "upsert", entry })
+      const previous = shipped.get(entry.id)
+      shipped.set(entry.id, entry)
+      const keys = [
+        ...Object.keys(entry),
+        ...Object.keys(previous ?? {}),
+      ] as (keyof TranscriptEntry)[]
+      const grew =
+        previous &&
+        entry.text.startsWith(previous.text) &&
+        keys.every((key) => key === "text" || previous[key] === entry[key])
+      ops.push(
+        grew
+          ? {
+              op: "append",
+              id: entry.id,
+              at: previous.text.length,
+              text: entry.text.slice(previous.text.length),
+            }
+          : { op: "upsert", entry },
+      )
     } else if (change.op === "remove") {
+      shipped.delete(change.id)
       if (upserted.delete(change.id)) {
-        const index = ops.findIndex((op) => op.op === "upsert" && op.entry.id === change.id)
+        const index = ops.findIndex(
+          (op) =>
+            (op.op === "upsert" && op.entry.id === change.id) ||
+            (op.op === "append" && op.id === change.id),
+        )
         if (index !== -1) ops.splice(index, 1)
       }
       ops.push({ op: "remove", id: change.id })
