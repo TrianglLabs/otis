@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto"
 import { extname } from "node:path"
-import mammoth from "mammoth"
 import {
   DOCX_MIME_TYPE,
   MAX_DOCUMENTS_PER_MESSAGE,
@@ -166,6 +165,7 @@ export async function createDocumentAttachment(
     if (!zip) throw new Error(`${safeName} is not a valid DOCX file.`)
     try {
       await validateDocxArchive(source)
+      const { default: mammoth } = await import("mammoth")
       const normalized = normalizedExtractedText(
         (await mammoth.extractRawText({ buffer: source })).value,
       )

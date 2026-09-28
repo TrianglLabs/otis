@@ -731,6 +731,9 @@ describe("DesktopRuntime subagents", () => {
   })
 
   it("keeps earned achievements fresh until the tab has been looked at", async () => {
+    // Midday, so the prompt earns nothing that depends on the hour it ran at.
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date(2026, 8, 15, 12))
     const { runtime } = await setup()
     expect((await runtime.snapshot()).freshAchievements).toEqual([])
     mocks.executeTurn.mockImplementation(async () => ({
@@ -746,6 +749,7 @@ describe("DesktopRuntime subagents", () => {
     expect((await runtime.snapshot()).freshAchievements).toEqual([])
     expect((await loadLocalSettings()).achievementsSeen).toEqual(["first-session"])
     await runtime.shutdown()
+    vi.useRealTimers()
   })
 
   it("answers preview fetches with a result instead of an invoke error", async () => {
@@ -809,15 +813,16 @@ describe("DesktopRuntime conversation flow", () => {
     await runtime.shutdown()
   })
 
-  it("streams tokens as transcript changes without status snapshots", async () => {
+  it("streams tokens as transcript growth without status snapshots", async () => {
     const { runtime, sent } = await setup()
+    const token = "token ".repeat(300)
     mocks.executeTurn.mockImplementation(async (options: TurnRunnerOptions) => {
       for (let index = 0; index < 8; index += 1) {
-        await options.onEvent?.({ type: "delta", text: "token " })
+        await options.onEvent?.({ type: "delta", text: token })
         await flush()
       }
       const messages: ChatMessage[] = [
-        { role: "assistant", content: [{ type: "text", text: "token ".repeat(8) }] },
+        { role: "assistant", content: [{ type: "text", text: token.repeat(8) }] },
       ]
       await options.onEvent?.({ type: "complete", messages })
       return { status: "complete", messages, details: {} }
@@ -826,10 +831,19 @@ describe("DesktopRuntime conversation flow", () => {
     await runtime.sendPrompt("hi")
     await vi.waitFor(async () => {
       const snapshot = await runtime.snapshot()
-      expect(snapshot.entries.at(-1)).toMatchObject({ text: "token ".repeat(8), streaming: false })
+      expect(snapshot.entries.at(-1)).toMatchObject({ text: token.repeat(8), streaming: false })
     })
     await flush()
+    const ops = sent.flatMap((event) => (event.type === "transcript" ? (event.ops ?? []) : []))
     expect(sent.filter((event) => event.type === "transcript").length).toBeGreaterThanOrEqual(8)
+    // Growth rides append ops and the settled message is upserted whole once, so the wire carries
+    // about two copies of the text rather than one per flush.
+    expect(ops.some((op) => op.op === "append")).toBe(true)
+    const shipped = ops.reduce((total, op) => {
+      if (op.op === "upsert") return total + op.entry.text.length
+      return op.op === "append" ? total + op.text.length : total
+    }, 0)
+    expect(shipped).toBeLessThan(token.length * 8 * 3)
     // Busy, then the phase turning to working: no snapshot per token.
     expect(
       sent.filter((event) => event.type === "status" && event.status.busy).length,
