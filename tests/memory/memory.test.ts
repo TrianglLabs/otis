@@ -1,7 +1,8 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import { forget, listMemory, recall, redactPrivate, remember } from "../../src/memory/memory.js"
+import { defaultSessionDirectory } from "../../src/storage/session-files.js"
 import { executeToolCall } from "../../src/tools/index.js"
 import { useOtisHome } from "../app/support/otis-home.js"
 
@@ -13,7 +14,7 @@ describe("memory", () => {
     await remember("workspace", "  The limiter lives   in src/net/limiter.ts.  ", cwd, "session-1")
     await remember("global", "Prefer bun over npm.", cwd)
     const today = new Date().toISOString().slice(0, 10)
-    expect(await readFile(join(cwd, ".otis", "memory.md"), "utf8")).toBe(
+    expect(await readFile(join(defaultSessionDirectory(cwd), "memory.md"), "utf8")).toBe(
       `- ${today} [session-1]: The limiter lives in src/net/limiter.ts.\n`,
     )
     expect(await listMemory(cwd)).toEqual([
@@ -44,9 +45,23 @@ describe("memory", () => {
 
     // Forgetting the last entry leaves an empty file, not a blank line.
     await forget("workspace", "limiter", cwd)
-    expect(await readFile(join(cwd, ".otis", "memory.md"), "utf8")).toBe("")
+    expect(await readFile(join(defaultSessionDirectory(cwd), "memory.md"), "utf8")).toBe("")
     await remember("workspace", "Again.", cwd)
-    expect(await readFile(join(cwd, ".otis", "memory.md"), "utf8")).toBe(`- ${today}: Again.\n`)
+    expect(await readFile(join(defaultSessionDirectory(cwd), "memory.md"), "utf8")).toBe(
+      `- ${today}: Again.\n`,
+    )
+  })
+
+  it("moves memory that 0.2.6 left in the project out of it on first use", async () => {
+    const { cwd } = await scratch()
+    await mkdir(join(cwd, ".otis"))
+    await writeFile(join(cwd, ".otis", "memory.md"), "- Old fact.\n")
+    expect((await listMemory(cwd)).map((entry) => entry.text)).toEqual(["Old fact."])
+    expect(await readFile(join(defaultSessionDirectory(cwd), "memory.md"), "utf8")).toBe(
+      "- Old fact.\n",
+    )
+    await expect(readFile(join(cwd, ".otis", "memory.md"))).rejects.toThrow()
+    await expect(readdir(cwd)).resolves.not.toContain(".otis")
   })
 
   it("redacts credentials and personal details before they are written or shown", async () => {
@@ -128,7 +143,9 @@ describe("memory", () => {
         context,
       ),
     ).resolves.toEqual({ title: "Remembered (workspace)", output: "Tests run with bun test." })
-    expect(await readFile(join(cwd, ".otis", "memory.md"), "utf8")).toContain("[s-9]: Tests run")
+    expect(await readFile(join(defaultSessionDirectory(cwd), "memory.md"), "utf8")).toContain(
+      "[s-9]: Tests run",
+    )
     const recalled = await executeToolCall({ name: "recall", input: { query: "bun" } }, context)
     expect(recalled.title).toBe("Recall: bun")
     expect(recalled.output).toContain("Tests run with bun test.")

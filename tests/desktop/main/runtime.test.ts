@@ -1,6 +1,6 @@
 import { appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { Application, type SessionRuntime } from "../../../src/app/application.js"
 import type { ModelSelection } from "../../../src/app/models.js"
 import type { TurnResult, TurnRunnerOptions } from "../../../src/app/turn-runner.js"
@@ -24,7 +24,10 @@ import type {
 } from "../../../src/inference/types.js"
 import { loadLocalSettings, saveSelectedModel } from "../../../src/local/settings.js"
 import { createSession } from "../../../src/storage/session.js"
-import { sessionRootDirectory } from "../../../src/storage/session-files.js"
+import {
+  defaultSessionDirectory,
+  sessionRootDirectory,
+} from "../../../src/storage/session-files.js"
 import { acquireSessionLock } from "../../../src/storage/session-lock.js"
 import {
   readWorkspacePath,
@@ -49,6 +52,7 @@ vi.mock("../../../src/inference/gguf-cache.js", async (importOriginal) => {
 })
 
 const isolate = useOtisHome()
+afterEach(() => vi.useRealTimers())
 
 const fakeClient: InferenceClient = { model: "fake", streamChat: vi.fn(), complete: vi.fn() }
 const FAKE_MODEL = "accounts/fireworks/models/fake"
@@ -721,7 +725,7 @@ describe("DesktopRuntime subagents", () => {
     expect(await runtime.listMemory()).toMatchObject([
       { scope: "workspace", text: "Deploys go through CI." },
     ])
-    expect(await readFile(join(cwd, ".otis", "memory.md"), "utf8")).toMatch(
+    expect(await readFile(join(defaultSessionDirectory(cwd), "memory.md"), "utf8")).toMatch(
       /^- \d{4}-\d{2}-\d{2}: Deploys/,
     )
     expect(await runtime.forgetFact("workspace", "deploys")).toEqual({ ok: true })
@@ -749,7 +753,6 @@ describe("DesktopRuntime subagents", () => {
     expect((await runtime.snapshot()).freshAchievements).toEqual([])
     expect((await loadLocalSettings()).achievementsSeen).toEqual(["first-session"])
     await runtime.shutdown()
-    vi.useRealTimers()
   })
 
   it("answers preview fetches with a result instead of an invoke error", async () => {

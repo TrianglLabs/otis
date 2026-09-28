@@ -345,7 +345,7 @@ export const ja: Messages = {
   "settings.memoryRemember": "記憶する",
   "settings.memoryForget": "忘れる",
   "settings.memoryNote":
-    "事実は作業フォルダの .otis/memory.md に、すべての場所で有効なものは Otis のデータフォルダの memory.md に保存されます。Otis は recall を呼び出したときだけ読み込みます。",
+    "事実は Otis のデータフォルダに保存されます。作業フォルダごとに memory.md が 1 つ、すべての場所で有効なものにも 1 つあります。プロジェクトには何も書き込みません。Otis は recall を呼び出したときだけ読み込みます。",
   "settings.skillBundled": "同梱",
   "settings.skillPersonal": "個人",
   "settings.skillProject": "プロジェクト",

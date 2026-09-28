@@ -346,7 +346,7 @@ export const es: Messages = {
   "settings.memoryRemember": "Recordar",
   "settings.memoryForget": "Olvidar",
   "settings.memoryNote":
-    "Los hechos viven en .otis/memory.md de la carpeta de trabajo, o en memory.md de la carpeta de datos de Otis cuando valen en todas partes. Otis solo los lee cuando llama a recall.",
+    "Los hechos viven en la carpeta de datos de Otis: una memory.md por carpeta de trabajo y otra para los que valen en todas partes. No se escribe nada en el proyecto. Otis solo los lee cuando llama a recall.",
   "settings.skillBundled": "Incluido",
   "settings.skillPersonal": "Personal",
   "settings.skillProject": "Proyecto",

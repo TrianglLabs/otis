@@ -14,7 +14,7 @@ By default, Otis uses the platform's standard user directories:
 | Sessions and usage | `~/Library/Application Support/otis/` | `~/.local/share/otis/` |
 | Managed skill sources | `~/Library/Application Support/otis/skills/` | `~/.local/share/otis/skills/` |
 | Memory that holds everywhere | `~/Library/Application Support/otis/memory.md` | `~/.local/share/otis/memory.md` |
-| Memory for one workspace | `.otis/memory.md` in the working folder | `.otis/memory.md` in the working folder |
+| Memory for one workspace | `~/Library/Application Support/otis/sessions/<workspace>/memory.md` | `~/.local/share/otis/sessions/<workspace>/memory.md` |
 
 `XDG_CONFIG_HOME` and `XDG_DATA_HOME` are respected on Linux. Set `OTIS_HOME` to keep all Otis state in one specific
 directory.

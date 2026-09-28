@@ -122,6 +122,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.useRealTimers()
   cleanup()
   vi.unstubAllGlobals()
   happyDOM.settings.fetch.interceptor = null
@@ -574,6 +575,7 @@ describe("AppShell settings navigation", () => {
       }),
     )
     expect(document.querySelector(".unlockCard")).toBeNull()
+    vi.useFakeTimers()
     act(() =>
       emit({
         type: "status",
@@ -583,6 +585,28 @@ describe("AppShell settings navigation", () => {
     )
     expect(document.querySelectorAll(".unlockCard")).toHaveLength(1)
     expect(document.querySelector(".unlockCard-title")?.textContent).toBe("Extended")
+
+    // Two at once queue in earned order: the front card takes its time, then the next steps up.
+    act(() =>
+      emit({
+        type: "status",
+        revision: 4,
+        status: {
+          ...SNAPSHOT,
+          stats,
+          freshAchievements: ["first-session", "coworker", "skill", "document", "deep-work"],
+        },
+      }),
+    )
+    const titles = () =>
+      [...document.querySelectorAll(".unlockCard-title")].map((node) => node.textContent)
+    expect(titles()).toEqual(["Extended", "Author", "Deep work"])
+    act(() => vi.advanceTimersByTime(4000))
+    expect(titles()).toEqual(["Author", "Deep work"])
+    act(() => vi.advanceTimersByTime(4000))
+    expect(titles()).toEqual(["Deep work"])
+    act(() => vi.advanceTimersByTime(4000))
+    expect(titles()).toEqual([])
   })
 
   it("lists remembered facts on the Extensions tab and adds or forgets them", async () => {

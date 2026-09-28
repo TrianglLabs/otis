@@ -344,7 +344,7 @@ export const ko: Messages = {
   "settings.memoryRemember": "기억",
   "settings.memoryForget": "잊기",
   "settings.memoryNote":
-    "사실은 작업 폴더의 .otis/memory.md에, 모든 곳에 적용되는 것은 Otis 데이터 폴더의 memory.md에 저장됩니다. Otis는 recall을 호출할 때만 읽습니다.",
+    "사실은 Otis 데이터 폴더에 저장됩니다. 작업 폴더마다 memory.md 하나, 모든 곳에 적용되는 것에도 하나입니다. 프로젝트에는 아무것도 쓰지 않습니다. Otis는 recall을 호출할 때만 읽습니다.",
   "settings.skillBundled": "기본 제공",
   "settings.skillPersonal": "개인",
   "settings.skillProject": "프로젝트",

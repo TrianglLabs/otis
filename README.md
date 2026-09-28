@@ -200,13 +200,14 @@ usage records. Managed inference stays on loopback, hosted prompts go directly t
 Data Retention for open-model inference by default), web requests go directly to Parallel, and PAIR owns traffic
 within your cluster.
 
-Otis keeps a small memory it never puts in the prompt: facts the agent or you save with `remember` land in
-`.otis/memory.md` of the working folder, or in `memory.md` of Otis' data folder when they hold everywhere. The
-agent reads them only when it calls `recall`, which also searches your past sessions in every workspace. Memory is
-for the project and your tooling, not for people: the agent is told not to save personal details, and credentials,
-email addresses, phone, card and national-id numbers are stripped from anything saved or recalled. Both files are
-plain Markdown you can edit; the Extensions settings tab lists and edits them too. What `recall` returns goes to
-whichever model is answering, so with a hosted model it leaves your machine like the rest of the conversation.
+Otis keeps a small memory it never puts in the prompt: facts the agent or you save with `remember` land in Otis' data
+folder, in a `memory.md` beside the working folder's sessions or in one for everything that holds everywhere; nothing
+is written into your project. The agent reads them only when it calls `recall`, which also searches your past
+sessions in every workspace. Memory is for the project and your tooling, not for people: the agent is told not to
+save personal details, and credentials, email addresses, phone, card and national-id numbers are stripped from
+anything saved or recalled. Both files are plain Markdown you can edit; the Extensions settings tab lists and edits
+them too. What `recall` returns goes to whichever model is answering, so with a hosted model it leaves your machine
+like the rest of the conversation.
 
 Read [local data and privacy](docs/data-and-privacy.md) for paths and retention, the
 [architecture guide](docs/architecture.md) for runtime boundaries, and [SECURITY.md](SECURITY.md) for private
