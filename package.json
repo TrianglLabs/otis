@@ -29,7 +29,8 @@
     "test:coverage": "vitest run --coverage --exclude='tests/cli/chat-ui-*.test.ts' && bunx --bun vitest run tests/cli/chat-ui-*.test.ts",
     "typecheck": "bun run scripts/typecheck.ts",
     "verify": "bun run check && bun run typecheck && bun run test",
-    "build:desktop:demo": "electron-vite build --mode demo"
+    "build:desktop:demo": "electron-vite build --mode demo",
+    "postinstall": "chmod +x node_modules/node-pty/prebuilds/*/spawn-helper 2>/dev/null || true"
   },
   "keywords": [
     "ai",
@@ -73,8 +74,10 @@
     "@xmldom/xmldom": "0.9.12",
     "border-beam": "^1.4.1",
     "electron-updater": "^6.8.9",
+    "ghostty-web": "^0.4.0",
     "lucide-react": "^1.42.0",
     "mammoth": "^1.12.3",
+    "node-pty": "^1.1.0",
     "pdf-lib": "1.17.1",
     "pdfjs-dist": "^6.3.289",
     "react": "^19.2.8",

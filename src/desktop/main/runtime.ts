@@ -73,6 +73,7 @@ import {
   type SkillsSummary,
   type TranscriptPatchOp,
 } from "../contracts.js"
+import { type SpawnPty, WorkspaceTerminal } from "./terminal.js"
 
 type DesktopRuntimeOptions = {
   cwd: string
@@ -80,6 +81,10 @@ type DesktopRuntimeOptions = {
   platform: NodeJS.Platform
   /** Delivers the ordered event stream to the renderer. */
   send: (event: DesktopEvent) => void
+  /** Delivers the workspace shell's output; not state, so it rides its own channel. */
+  sendTerminal: (data: string) => void
+  /** node-pty, from wherever the build put it. */
+  spawnPty: () => SpawnPty
   /** Test seam for the picker catalog; production uses the real implementations. */
   listPickerItems?: typeof listModelPickerItems
   discoverPair?: typeof discoverPairModels
@@ -148,6 +153,7 @@ export class DesktopRuntime {
    * Global session listing is disk-heavy; the shared promise coalesces concurrent status snapshots.
    */
   #historyCache: Promise<GlobalHistory> | undefined
+  #terminal: WorkspaceTerminal | undefined
   /** Per session, the entry objects the renderer last received, so flushes can ship only growth. */
   readonly #shipped = new WeakMap<SessionRuntime, Map<number, TranscriptEntry>>()
   #stats: DesktopStatus["stats"]
@@ -647,6 +653,7 @@ export class DesktopRuntime {
 
       this.#unsubscribe()
       await this.app.shutdown()
+      this.#terminal?.kill()
       this.#attach(next)
       this.#historyCache = undefined
       void this.#startSavedSelection()
@@ -754,6 +761,9 @@ export class DesktopRuntime {
       this.app.focus(runtime)
       for (const other of others) this.app.closeIfEmpty(other)
     } else this.app.openNew()
+    // A fresh session starts on a clean screen: the rail hides rather than staying for the shell
+    // alone, which keeps running for ⌃` and the chevron.
+    if (this.#terminal) void this.setAgentsPanelVisible(false)
     this.#historyCache = undefined
     this.#markStateDirty()
     return { ok: true }
@@ -1006,6 +1016,37 @@ export class DesktopRuntime {
     this.#markStateDirty()
   }
 
+  /**
+   * Starts the workspace shell unless one runs, and returns what it has printed so far. The shell
+   * outlives the renderer: a reload attaches to it again.
+   */
+  openTerminal() {
+    if (this.#terminal) return this.#terminal.history
+    this.#terminal = new WorkspaceTerminal(
+      this.options.spawnPty(),
+      this.app.cwd,
+      this.options.sendTerminal,
+      () => {
+        this.#terminal = undefined
+        this.#markStateDirty()
+      },
+    )
+    this.#markStateDirty()
+    return ""
+  }
+
+  writeTerminal(data: string) {
+    this.#terminal?.write(data)
+  }
+
+  resizeTerminal(cols: number, rows: number) {
+    this.#terminal?.resize(cols, rows)
+  }
+
+  closeTerminal() {
+    this.#terminal?.kill()
+  }
+
   async markAchievementsSeen() {
     const seen = Object.keys(this.#stats?.achievements ?? {}) as AchievementId[]
     this.app.settings.achievementsSeen = seen
@@ -1130,6 +1171,7 @@ export class DesktopRuntime {
     if (this.#flushTimer) clearTimeout(this.#flushTimer)
     this.app.models.cancelSelection()
     this.app.conversation.stop()
+    this.#terminal?.kill()
     this.#unsubscribe()
     await this.#flushing
     await this.app.shutdown()
@@ -1303,6 +1345,7 @@ export class DesktopRuntime {
         (id) => !app.settings.achievementsSeen?.includes(id),
       ),
       agentsPanelVisible: app.settings.subagentPanelVisible ?? true,
+      terminal: this.#terminal !== undefined,
       workspacePanelWidth: app.settings.workspacePanelWidth,
       theme: app.settings.theme ?? "default",
       language: app.settings.language ?? "system",

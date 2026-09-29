@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto"
 import { chmod, mkdir, open, rename, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { payloadFromBytes, readArtifactBytes, validateArtifactBytes } from "./files.js"
+import { documentExcerpt } from "./preview.js"
 import {
   type ArtifactMetadata,
   artifactMimeType,
@@ -40,6 +41,7 @@ export class ArtifactPublisher {
     if (previous && previous.kind !== source.kind)
       throw new Error("A different file type must be published as a new artifact.")
     const sha256 = artifactDigest(bytes)
+    const text = await validateArtifactBytes(bytes, source.kind, source.name)
     const unchanged =
       previous &&
       previous.sha256 === sha256 &&
@@ -55,10 +57,10 @@ export class ArtifactPublisher {
           name: source.name,
           kind: source.kind,
           sourcePath: source.path,
+          excerpt: documentExcerpt(source.kind === "html" ? "html" : "text", text),
         }
     if (!isPublishedArtifactReference(reference))
       throw new Error("Invalid published artifact reference.")
-    await validateArtifactBytes(bytes, reference.kind, reference.name)
     await mkdir(this.directory, { recursive: true, mode: 0o700 })
     if (process.platform !== "win32") await chmod(this.directory, 0o700)
     // Re-publishing unchanged content also repairs a missing or damaged copy, without inventing

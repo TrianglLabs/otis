@@ -87,6 +87,7 @@ Update an existing CLI installation with `otis update`.
       <b>4. Review your work in Canvas</b><br><br>
       Preview documents beside your conversation, follow edits, and revisit saved versions. PDFs, Word files,
       Markdown, webpages, and Mermaid diagrams each open as a tab, and nothing leaves your machine to render.
+      A Terminal tab (<code>⌃`</code>) opens your shell in the working folder beside them.
     </td>
     <td><img src="docs/screens/canvas.png" alt="Canvas with document tabs and a PDF preview" width="100%"></td>
   </tr>

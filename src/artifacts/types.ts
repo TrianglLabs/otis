@@ -39,6 +39,8 @@ export type PublishedArtifactReference = {
   kind: ArtifactKind
   /** Provenance only. Preview reads always use the session-owned copy, never this path. */
   sourcePath: string
+  /** The opening words as plain text, for the home screen's thumbnail; absent on older copies. */
+  excerpt?: string
 }
 
 export type FileArtifactReference = WorkspaceArtifactReference | PublishedArtifactReference
@@ -167,6 +169,7 @@ export function isPublishedArtifactReference(value: unknown): value is Published
     !value.sourcePath.includes("\0") &&
     typeof value.sha256 === "string" &&
     /^[a-f\d]{64}$/.test(value.sha256) &&
+    (value.excerpt === undefined || typeof value.excerpt === "string") &&
     typeof value.name === "string" &&
     !/[/\\\0]/.test(value.name) &&
     artifactKindForPath(value.name) !== undefined &&

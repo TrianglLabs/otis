@@ -48,6 +48,10 @@ describe("global session list caching", () => {
       version: "test",
       platform: "darwin",
       send: () => {},
+      sendTerminal: () => {},
+      spawnPty: () => {
+        throw new Error("The tests run no shell.")
+      },
     })
     const scansBefore = mocks.listGlobal.mock.calls.length
 
@@ -67,6 +71,10 @@ describe("global session list caching", () => {
       version: "test",
       platform: "darwin",
       send: () => {},
+      sendTerminal: () => {},
+      spawnPty: () => {
+        throw new Error("The tests run no shell.")
+      },
     })
 
     await runtime.snapshot() // warms the cache
@@ -98,6 +106,10 @@ describe("global session list caching", () => {
       version: "test",
       platform: "darwin",
       send: () => {},
+      sendTerminal: () => {},
+      spawnPty: () => {
+        throw new Error("The tests run no shell.")
+      },
     })
 
     // The turn streams, then waits to be released, so "during streaming" is not a race.

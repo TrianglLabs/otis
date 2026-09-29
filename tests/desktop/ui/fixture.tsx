@@ -33,6 +33,8 @@ import "../../../src/desktop/renderer/features/palette/palette.css"
 import "../../../src/desktop/renderer/features/agents/agents.css"
 import "../../../src/desktop/renderer/features/canvas/canvas.css"
 import "../../../src/desktop/renderer/features/settings/settings.css"
+import "../../../src/desktop/renderer/features/achievements/achievements.css"
+import "../../../src/desktop/renderer/features/terminal/terminal.css"
 
 const pause = (ms = 80) => new Promise((resolve) => setTimeout(resolve, ms))
 const LOCALES = LANGUAGE_OPTIONS.flatMap((option) =>
@@ -587,6 +589,48 @@ async function runDesktopUiChecks() {
     () => !document.querySelector(".agentTrace"),
     "Completed coworker trace did not close",
   )
+  // The workspace shell: the header button opens it as a rail tab where Ghostty mounts and the
+  // demo prompt is replayed, typing reaches it, and closing the tab takes it away again.
+  element<HTMLButtonElement>(
+    `.workspaceHeader-actions button[aria-label="${translate()("header.openTerminal")}"]`,
+  ).click()
+  await until(
+    () => !!document.querySelector(".workspaceRail-view-terminal .terminal canvas"),
+    "Terminal did not open in the side panel",
+  )
+  assert(
+    element('.workspaceRail-tabs [role="tab"][aria-selected="true"]').textContent ===
+      translate()("panel.terminal"),
+    "Terminal tab is not the selected one",
+  )
+  // Once attached, the view reports its grid; from then on a keystroke reaches the shell through
+  // the terminal's own encoder.
+  let attached = false
+  const resizeTerminal = api.resizeTerminal.bind(api)
+  api.resizeTerminal = async (cols, rows) => {
+    attached = true
+    return resizeTerminal(cols, rows)
+  }
+  const typed: string[] = []
+  const writeTerminal = api.writeTerminal.bind(api)
+  api.writeTerminal = async (data) => {
+    typed.push(data)
+    return writeTerminal(data)
+  }
+  await until(() => attached, "Terminal did not attach to the shell")
+  await pause(100)
+  element(".terminal textarea").dispatchEvent(
+    new KeyboardEvent("keydown", { key: "l", code: "KeyL", bubbles: true }),
+  )
+  await until(() => typed.includes("l"), "Typing did not reach the shell")
+  await pause(200)
+  await nativeInput({ screenshot: true, screenshotName: "terminal" })
+  element<HTMLButtonElement>(".workspaceRail-tabClose").click()
+  await until(
+    () => !document.querySelector(".workspaceRail-view-terminal"),
+    "Terminal did not close with its tab",
+  )
+
   revision = demoRevision
 
   // Measure the coworker header on first appearance with real translated labels: the collapse

@@ -34,6 +34,7 @@ import {
   registerWorkspacePath,
 } from "../../../src/storage/workspace-registry.js"
 import { useOtisHome } from "../../app/support/otis-home.js"
+import { fakePty } from "../support/pty.js"
 
 const mocks = vi.hoisted(() => ({
   executeTurn: vi.fn(),
@@ -97,6 +98,10 @@ async function setup(configureClient = true, extra: Record<string, unknown> = {}
     version: "test",
     platform: "darwin",
     send: (event) => sent.push(event),
+    sendTerminal: () => {},
+    spawnPty: () => {
+      throw new Error("The tests run no shell.")
+    },
     ...extra,
   })
   return { app, runtime, sent, cwd }
@@ -173,6 +178,10 @@ describe("DesktopRuntime model startup", () => {
       version: "test",
       platform: "darwin",
       send: () => {},
+      sendTerminal: () => {},
+      spawnPty: () => {
+        throw new Error("The tests run no shell.")
+      },
     })
 
     await vi.waitFor(() => expect(app.selection?.client).toBe(fakeClient))
@@ -225,6 +234,10 @@ describe("DesktopRuntime model startup", () => {
       version: "test",
       platform: "darwin",
       send: () => {},
+      sendTerminal: () => {},
+      spawnPty: () => {
+        throw new Error("The tests run no shell.")
+      },
       listPickerItems: async () => [activeRow],
       discoverPair: async () => ({ errors: [] }),
     })
@@ -402,6 +415,10 @@ describe("DesktopRuntime subagents", () => {
       version: "test",
       platform: "darwin",
       send: () => {},
+      sendTerminal: () => {},
+      spawnPty: () => {
+        throw new Error("The tests run no shell.")
+      },
     })
 
     const result = await runtime.setFastServing(true)
@@ -432,6 +449,10 @@ describe("DesktopRuntime subagents", () => {
       version: "test",
       platform: "darwin",
       send: () => {},
+      sendTerminal: () => {},
+      spawnPty: () => {
+        throw new Error("The tests run no shell.")
+      },
       listPickerItems: async () => [fireworksChoice],
     })
 
@@ -476,6 +497,10 @@ describe("DesktopRuntime subagents", () => {
       version: "test",
       platform: "darwin",
       send: () => {},
+      sendTerminal: () => {},
+      spawnPty: () => {
+        throw new Error("The tests run no shell.")
+      },
       discoverPair: discoverPair as never,
     })
 
@@ -551,6 +576,10 @@ describe("DesktopRuntime subagents", () => {
       version: "test",
       platform: "darwin",
       send: () => {},
+      sendTerminal: () => {},
+      spawnPty: () => {
+        throw new Error("The tests run no shell.")
+      },
       listPickerItems: async () => [fireworksChoice],
     })
 
@@ -591,6 +620,10 @@ describe("DesktopRuntime subagents", () => {
       version: "test",
       platform: "darwin",
       send: () => {},
+      sendTerminal: () => {},
+      spawnPty: () => {
+        throw new Error("The tests run no shell.")
+      },
       listToolCapableModels: (async () => [{ id: "kimi" }]) as never,
     })
     expect((await runtime.snapshot()).modelState).not.toBe("ready")
@@ -641,6 +674,10 @@ describe("DesktopRuntime subagents", () => {
       version: "test",
       platform: "darwin",
       send: () => {},
+      sendTerminal: () => {},
+      spawnPty: () => {
+        throw new Error("The tests run no shell.")
+      },
       discoverPair: discoverPair as never,
     })
 
@@ -682,6 +719,10 @@ describe("DesktopRuntime subagents", () => {
       version: "test",
       platform: "darwin",
       send: () => {},
+      sendTerminal: () => {},
+      spawnPty: () => {
+        throw new Error("The tests run no shell.")
+      },
     })
 
     // No picker fetch has happened; the persisted fast id alone makes the toggle available.
@@ -732,6 +773,39 @@ describe("DesktopRuntime subagents", () => {
     expect(await runtime.forgetFact("workspace", "deploys")).toMatchObject({ ok: false })
     expect(await runtime.listMemory()).toEqual([])
     await runtime.shutdown()
+  })
+
+  it("keeps one shell per workspace that a returning renderer attaches to", async () => {
+    const shell = fakePty()
+    const printed: string[] = []
+    const { runtime, cwd } = await setup(true, {
+      spawnPty: () => shell.spawn,
+      sendTerminal: (data: string) => printed.push(data),
+    })
+    expect((await runtime.snapshot()).terminal).toBe(false)
+    expect(runtime.openTerminal()).toBe("")
+    expect(shell.spawn.mock.calls[0]?.[2]).toMatchObject({ cwd })
+    expect((await runtime.snapshot()).terminal).toBe(true)
+    shell.print("$ ")
+    await flush()
+    expect(printed).toEqual(["$ "])
+    // A fresh session starts on a clean screen; the shell keeps running behind the hidden rail.
+    expect(runtime.startNewSession()).toEqual({ ok: true })
+    await flush()
+    expect(await runtime.snapshot()).toMatchObject({ agentsPanelVisible: false, terminal: true })
+    // Attaching again, as after a reload, hands back what the shell printed.
+    expect(runtime.openTerminal()).toBe("$ ")
+    expect(shell.spawn).toHaveBeenCalledOnce()
+    runtime.resizeTerminal(100, 40)
+    runtime.writeTerminal("pwd\r")
+    expect(shell.pty.resize).toHaveBeenCalledWith(100, 40)
+    expect(shell.pty.write).toHaveBeenCalledWith("pwd\r")
+    shell.exit()
+    expect((await runtime.snapshot()).terminal).toBe(false)
+    runtime.openTerminal()
+    expect(shell.spawn).toHaveBeenCalledTimes(2)
+    await runtime.shutdown()
+    expect(shell.pty.kill).toHaveBeenCalledOnce()
   })
 
   it("keeps earned achievements fresh until the tab has been looked at", async () => {
@@ -1695,6 +1769,10 @@ describe("DesktopRuntime model selection", () => {
       version: "test",
       platform: "darwin",
       send: (event) => sent.push(event),
+      sendTerminal: () => {},
+      spawnPty: () => {
+        throw new Error("The tests run no shell.")
+      },
       listPickerItems,
       discoverPair,
     })

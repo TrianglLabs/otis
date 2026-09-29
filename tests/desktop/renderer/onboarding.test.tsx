@@ -184,6 +184,7 @@ describe("OnboardingPage", () => {
           },
         ],
         agentsPanelVisible: true,
+        terminal: false,
       })),
     })
     await renderApp(api)

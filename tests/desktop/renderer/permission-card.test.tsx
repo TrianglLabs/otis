@@ -70,6 +70,7 @@ const SNAPSHOT: DesktopSnapshot = {
   modelLoad: null,
   subagents: [],
   agentsPanelVisible: true,
+  terminal: false,
   workspacePanelWidth: undefined,
   freshAchievements: [],
   theme: "default",

@@ -119,6 +119,14 @@
   gap: 2px;
 }
 
+/* Cap-height digits have no descender, so their box centre sits half a pixel above their ink;
+   the nudge puts them on the row's optical centre beside the text and icons. */
+.headerDiff,
+.contextMeter-text {
+  position: relative;
+  top: 0.5px;
+}
+
 .headerDiff {
   display: inline-flex;
   gap: 6px;

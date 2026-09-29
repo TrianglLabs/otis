@@ -55,6 +55,10 @@ async function setup() {
     version: "test",
     platform: "darwin",
     send: (event) => sent.push(event),
+    sendTerminal: () => {},
+    spawnPty: () => {
+      throw new Error("The tests run no shell.")
+    },
   })
   return { app, runtime, sent, cwd, otherCwd }
 }

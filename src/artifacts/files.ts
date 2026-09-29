@@ -158,13 +158,11 @@ export async function payloadFromBytes(
   return { ...metadata, kind, encoding: "utf8", content: decodeArtifactText(bytes, name) }
 }
 
-/** Full validation before a publication is persisted or advertised as successful. */
+/** Full validation before a publication is persisted or advertised as successful; yields the text. */
 export async function validateArtifactBytes(bytes: Buffer, kind: ArtifactKind, name: string) {
-  if (kind === "pdf" || kind === "docx") {
-    await createDocumentAttachment(bytes, name, artifactMimeType(kind))
-    return
-  }
-  decodeArtifactText(bytes, name)
+  if (kind === "pdf" || kind === "docx")
+    return (await createDocumentAttachment(bytes, name, artifactMimeType(kind))).extractedText
+  return decodeArtifactText(bytes, name)
 }
 
 function decodeArtifactText(bytes: Buffer, name: string) {

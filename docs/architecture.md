@@ -532,3 +532,12 @@ identity/timing metadata were introduced.
 GitHub Actions verifies and cross-compiles the four supported targets. Versioned archives, checksums, the manifest, and
 installer are published as GitHub Release assets. `otis update` resolves the latest or requested release there and
 verifies the archive checksum before replacing the installed binary.
+
+The Terminal tab's shell runs in the main process behind `node-pty` and keeps the last million characters it printed,
+so a renderer reload attaches to the same shell and replays them. The renderer draws it with `ghostty-web`, Ghostty's
+terminal core compiled to WebAssembly, loaded on first use. node-pty is the one dependency outside the bundle: its
+native binding and spawn helper are real files the kernel must load and exec, so electron-builder rebuilds the
+package for the target Electron and architecture and copies it beside the app's resources rather than into the
+asar; the main process requires it from there when packaged and from `node_modules` in development. node-pty ships
+no prebuilt binaries for Linux, so a Linux checkout needs `python3`, `make` and a C++ compiler for that rebuild, and
+Bun's install drops the execute bit on the macOS prebuilt spawn helper, which `postinstall` restores for development.

@@ -77,6 +77,11 @@ export const DESKTOP_CHANNELS = {
   getWindowState: "desktop:get-window-state",
   windowState: "desktop:window-state",
   event: "desktop:event",
+  openTerminal: "desktop:open-terminal",
+  writeTerminal: "desktop:write-terminal",
+  resizeTerminal: "desktop:resize-terminal",
+  closeTerminal: "desktop:close-terminal",
+  terminal: "desktop:terminal",
 } as const
 
 /** Update lifecycle shared by automatic checks, Settings, and the restart affordance. */
@@ -146,6 +151,8 @@ export type DesktopStatus = {
   paneAxis: PaneAxis
   /** The delegated-runs rail preference; persisted as subagentPanelVisible in local settings. */
   agentsPanelVisible: boolean
+  /** A shell runs in the working folder; it outlives the renderer. */
+  terminal: boolean
   /** The workspace panel width the user last dragged to; undefined follows the responsive default. */
   workspacePanelWidth: number | undefined
   /** The active color theme; persisted in local settings. */
@@ -391,6 +398,18 @@ export type DesktopApi = {
   checkForUpdates(): Promise<void>
   /** Restarts into the downloaded update. No-op when no update is ready. */
   installUpdate(): Promise<void>
+  /**
+   * Starts a login shell in the working folder unless one runs, and returns what it has printed so
+   * far; what follows arrives through subscribeTerminal.
+   */
+  openTerminal(): Promise<string>
+  /** Keystrokes and pastes, as the terminal emulator encodes them. */
+  writeTerminal(data: string): Promise<void>
+  resizeTerminal(cols: number, rows: number): Promise<void>
+  /** Ends the shell; `terminal` in the status turns false once it has gone. */
+  closeTerminal(): Promise<void>
+  /** Live output only; what the shell printed before is openTerminal's return value. */
+  subscribeTerminal(listener: (data: string) => void): () => void
   subscribeWindowState(listener: (state: DesktopWindowState) => void): () => void
   subscribe(listener: (event: DesktopEvent) => void): () => void
 }

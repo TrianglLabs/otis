@@ -7,7 +7,7 @@
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  background: color-mix(in srgb, var(--bg-elev) 45%, var(--bg));
+  background: var(--bg-rail);
   border-left: 1px solid var(--hairline);
   user-select: none;
   min-height: 0;
@@ -155,10 +155,55 @@
   transform: translateX(-12px);
 }
 
+.workspaceRail-view-canvas,
+.workspaceRail-view-terminal {
+  transform: translateX(12px);
+}
+
 /* The document tabs stack over the document. */
 .workspaceRail-view-canvas {
   flex-direction: column;
-  transform: translateX(12px);
+}
+
+/* The terminal tab carries its close: the pair is one pill, hovered and selected together. */
+.workspaceRail-tab {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius);
+  transition: background-color var(--motion);
+}
+
+.workspaceRail-tab:hover {
+  background: var(--bg-hover);
+}
+
+.workspaceRail-tab[data-selected="true"] {
+  background: var(--bg-selected);
+}
+
+/* The pill carries the colour; the tab inside stays clear in every state, or the two would
+   stack. */
+.workspaceRail-tabs .workspaceRail-tab > [role="tab"],
+.workspaceRail-tabs .workspaceRail-tab > [role="tab"]:hover,
+.workspaceRail-tabs .workspaceRail-tab > [role="tab"][aria-selected="true"],
+.workspaceRail-tabs .workspaceRail-tab > [role="tab"][aria-selected="true"]:hover {
+  background: transparent;
+}
+
+/* Selected, the tab shows its close, so its own right padding gives way to the button. */
+.workspaceRail-tabs .workspaceRail-tab > [role="tab"][aria-selected="true"] {
+  padding-right: 3px;
+}
+
+.workspaceRail-tabs .workspaceRail-tabClose {
+  padding: 0;
+  margin-right: 3px;
+}
+
+/* Inside the pill the close only brightens; a second box on a selected tab reads as a glitch. */
+.workspaceRail-tabs .workspaceRail-tabClose:hover {
+  background: transparent;
+  color: var(--text);
 }
 
 .workspaceRail-view-active {

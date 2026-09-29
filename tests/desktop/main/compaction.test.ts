@@ -71,6 +71,10 @@ describe("desktop compaction through the shared runtime", () => {
       version: "test",
       platform: "darwin",
       send: (event) => sent.push(event),
+      sendTerminal: () => {},
+      spawnPty: () => {
+        throw new Error("The tests run no shell.")
+      },
     })
     try {
       expect(await runtime.sendPrompt("Continue")).toEqual({ accepted: true, delivery: "started" })
