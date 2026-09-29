@@ -337,7 +337,7 @@ export const SessionStrip = memo(function SessionStrip() {
   )
 })
 
-const RECENT_SESSIONS = 6
+const RECENT_SESSIONS = 4
 
 /**
  * A quiet home screen: the mark and any setup guidance, then cards on the composer's width for
@@ -429,14 +429,16 @@ function EmptyState() {
                       })
                     }
                   >
-                    <span className="home-page" aria-hidden="true">
-                      {document.reference.excerpt}
+                    <span
+                      className={`home-page${document.reference.excerpt ? "" : " home-page-blank"}`}
+                      aria-hidden="true"
+                    >
+                      {document.reference.excerpt || (
+                        <FileTypeIcon kind={document.kind} name={document.name} />
+                      )}
                     </span>
                     <span className="home-cardText">
-                      <span className="home-cardTitle">
-                        <FileTypeIcon kind={document.kind} name={document.name} size="sm" />
-                        {document.name}
-                      </span>
+                      <span className="home-cardTitle">{document.name}</span>
                       <span className="home-cardMeta">
                         {document.workspaceLabel} · {formatAge(document.updatedAt, locale)}
                       </span>
