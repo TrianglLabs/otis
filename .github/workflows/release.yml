@@ -98,7 +98,7 @@ jobs:
             --repo "$GITHUB_REPOSITORY"
 
   desktop:
-    name: Desktop (${{ matrix.os }} ${{ matrix.arch }})
+    name: Desktop (${{ matrix.os }} ${{ matrix.label }})
     runs-on: ${{ matrix.runner }}
     needs: release
     env:
@@ -106,17 +106,21 @@ jobs:
     strategy:
       fail-fast: false
       # node-pty compiles natively for each target, so Linux builds run on a runner of their own
-      # architecture; macOS cross-compiles both from one.
+      # architecture, each naming its targets on the command line since a bare --x64/--arm64 does
+      # not override the architectures listed in electron-builder.yml. macOS cross-compiles both.
       matrix:
         include:
           - os: macOS
-            arch: ""
+            label: ""
+            targets: ""
             runner: macos-latest
           - os: Linux
-            arch: --x64
+            label: x64
+            targets: --linux AppImage:x64 deb:x64
             runner: ubuntu-latest
           - os: Linux
-            arch: --arm64
+            label: arm64
+            targets: --linux AppImage:arm64 deb:arm64
             runner: ubuntu-24.04-arm
 
     steps:
@@ -155,10 +159,10 @@ jobs:
               chmod 600 "$key_file"
               export APPLE_API_KEY="$key_file"
             fi
-            bunx electron-builder --publish never ${{ matrix.arch }}
+            bunx electron-builder --publish never ${{ matrix.targets }}
           else
             echo "No signing secrets configured; building unsigned." >&2
-            bunx electron-builder --publish never -c.mac.identity=null -c.mac.notarize=false ${{ matrix.arch }}
+            bunx electron-builder --publish never -c.mac.identity=null -c.mac.notarize=false ${{ matrix.targets }}
           fi
 
       - name: Attach macOS Artifacts
