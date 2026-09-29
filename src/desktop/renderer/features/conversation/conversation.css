@@ -1164,8 +1164,8 @@ button.composer-model-failed {
   flex-direction: column;
   align-items: center;
   justify-content: safe center;
-  gap: 28px;
-  padding: 40px 28px;
+  gap: 22px;
+  padding: 28px 28px 24px;
   overflow-y: auto;
 }
 
@@ -1192,7 +1192,7 @@ button.composer-model-failed {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  margin: 28px 4px 10px;
+  margin: 22px 4px 10px;
   font-size: var(--text-ui);
   font-weight: 600;
 }
@@ -1275,21 +1275,11 @@ button.composer-model-failed {
 }
 
 .home-cardTitle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
   overflow: hidden;
   font-size: var(--text-body);
   font-weight: 500;
   white-space: nowrap;
   text-overflow: ellipsis;
-}
-
-.home-cardTitle .fileTypeIcon-sm {
-  flex-shrink: 0;
-  width: 15px;
-  height: auto;
-  color: var(--text-dim);
 }
 
 .home-cardMeta {
@@ -1313,7 +1303,7 @@ button.composer-model-failed {
 
 /* The document's opening on a small page, in the page colour under the card's, fading out below. */
 .home-page {
-  aspect-ratio: 16 / 10;
+  aspect-ratio: 16 / 9;
   padding: 10px 12px;
   border-radius: 8px;
   background: var(--bg);
@@ -1325,6 +1315,12 @@ button.composer-model-failed {
   overflow-wrap: anywhere;
   mask-image: linear-gradient(#000 60%, transparent);
   user-select: none;
+}
+
+.home-page-blank {
+  display: grid;
+  place-items: center;
+  mask-image: none;
 }
 
 .home-error {
@@ -1358,6 +1354,40 @@ button.composer-model-failed {
   padding: 1px 6px;
   color: var(--accent-ink);
   border-radius: var(--radius-sm);
+}
+
+/* Short windows keep the whole home in view without scrolling. */
+@media (max-height: 720px) {
+  .home-page {
+    aspect-ratio: 16 / 6;
+  }
+}
+
+@media (max-height: 600px) {
+  .home {
+    gap: 14px;
+    padding: 16px 28px;
+  }
+
+  .home-logo {
+    width: 44px;
+  }
+
+  .home-heading {
+    margin-top: 14px;
+  }
+
+  .home-page {
+    display: none;
+  }
+
+  .home-card-document {
+    padding: 12px 14px;
+  }
+
+  .home-card-document .home-cardText {
+    padding: 0;
+  }
 }
 
 /* A chip or card header lifted off the page: a bordered pill the browser paints on its own. It

@@ -107,8 +107,9 @@ export function WorkspaceHeader({
             onClick={onOpenSettings}
             className={`noDrag${state.freshAchievements.length ? " iconBtn-dot" : ""}`}
           />
-          {/* Rightmost: it opens the rail that slides in from the right edge. */}
-          {(state.subagents.length > 0 || hasViews) && !state.agentsPanelVisible ? (
+          {/* Rightmost: it opens the rail that slides in from the right edge; not on the home
+              screen. */}
+          {conversation && (state.subagents.length > 0 || hasViews) && !state.agentsPanelVisible ? (
             <IconButton
               icon={ChevronsLeft}
               label={t("header.showSidePanel")}
