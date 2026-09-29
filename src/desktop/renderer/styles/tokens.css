@@ -13,6 +13,8 @@
   /* Surfaces */
   --bg: #1a1a1a;
   --bg-elev: #262626;
+  /* The workspace rail, a shade above the page; the terminal paints its cells on it too. */
+  --bg-rail: #1f1f1f;
   /* Accent */
   --accent: #8b7cff;
   --on-accent: #fff;

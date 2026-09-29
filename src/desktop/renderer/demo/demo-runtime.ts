@@ -1,5 +1,6 @@
 import type { GlobalSessionPickerItem, RecentArtifact } from "../../../app/global-sessions.js"
 import type { TranscriptEntry } from "../../../app/transcript.js"
+import { documentExcerpt } from "../../../artifacts/preview.js"
 import type {
   ArtifactMetadata,
   ArtifactPayload,
@@ -48,6 +49,15 @@ type DemoHostApi = Pick<
   DesktopApi,
   "getWindowState" | "subscribeWindowState" | "getSnapshot" | "pickWorkspaceFolder"
 >
+
+const DEMO_PROMPT = "\x1b[1;32motis\x1b[0m \x1b[34m~/Projects/otis\x1b[0m % "
+/** What the demo shell answers; anything else is not found. */
+const DEMO_SHELL: Record<string, string> = {
+  ls: "AGENTS.md    README.md    docs    package.json    src    tests\r\n",
+  pwd: "/Users/you/Projects/otis\r\n",
+  "git status": "On branch main\r\nnothing to commit, working tree clean\r\n",
+  "bun test": " 1814 pass\r\n 0 fail\r\nRan 1814 tests across 127 files. [4.21s]\r\n",
+}
 
 /** `start` is the demo query value: "onboarding", a fixture session id to show, or nothing. */
 export function createDemoRuntime(hostApi?: DemoHostApi, start = ""): DesktopApi {
@@ -208,6 +218,13 @@ const DEMO_SAVED_WORD = [
   },
 ].map((draft, index): DemoSavedArtifactFixture => {
   const version = index + 1
+  const content = `<h1>Otis Canvas launch plan</h1>
+<p><strong>Version ${version} · ${draft.status}</strong></p>
+<p>A sample Word document with three saved revisions. Use the version selector above to compare the launch date, audience, and next step.</p>
+<h2>Launch details</h2>
+<table><thead><tr><th>Milestone</th><th>Plan</th></tr></thead><tbody><tr><td>Launch date</td><td>${draft.date}</td></tr><tr><td>Audience</td><td>${draft.audience}</td></tr><tr><td>Status</td><td>${draft.status}</td></tr></tbody></table>
+<h2>Next step</h2><p>${draft.next}</p>
+<h2>Revision history</h2><p>This is the saved content for version ${version}. Selecting an older version leaves the latest version unchanged.</p>`
   const reference: PublishedArtifactReference = {
     source: "published",
     artifactId: "e786fe9e-e8bc-46c8-9d28-5f148538ab15",
@@ -216,6 +233,7 @@ const DEMO_SAVED_WORD = [
     name: "launch-plan.docx",
     kind: "docx",
     sourcePath: "/Users/dev/Projects/otis/launch-plan.docx",
+    excerpt: documentExcerpt("html", content),
   }
   const metadata: DemoSavedArtifactFixture["metadata"] = {
     id: `published:${reference.artifactId}`,
@@ -229,17 +247,7 @@ const DEMO_SAVED_WORD = [
   }
   return {
     metadata,
-    payload: {
-      ...metadata,
-      encoding: "html",
-      content: `<h1>Otis Canvas launch plan</h1>
-<p><strong>Version ${version} · ${draft.status}</strong></p>
-<p>A sample Word document with three saved revisions. Use the version selector above to compare the launch date, audience, and next step.</p>
-<h2>Launch details</h2>
-<table><thead><tr><th>Milestone</th><th>Plan</th></tr></thead><tbody><tr><td>Launch date</td><td>${draft.date}</td></tr><tr><td>Audience</td><td>${draft.audience}</td></tr><tr><td>Status</td><td>${draft.status}</td></tr></tbody></table>
-<h2>Next step</h2><p>${draft.next}</p>
-<h2>Revision history</h2><p>This is the saved content for version ${version}. Selecting an older version leaves the latest version unchanged.</p>`,
-    } as ArtifactPayload,
+    payload: { ...metadata, encoding: "html", content } as ArtifactPayload,
   }
 })
 const DEMO_LATEST_WORD = DEMO_SAVED_WORD[2]
@@ -262,6 +270,13 @@ function demoPublished(
     name: fixture.metadata.title,
     kind: fixture.metadata.kind,
     sourcePath: `/Users/dev/Projects/${workspace}/${fixture.metadata.title}`,
+    excerpt:
+      typeof fixture.payload.content === "string"
+        ? documentExcerpt(
+            fixture.metadata.kind === "html" ? "html" : "text",
+            fixture.payload.content,
+          )
+        : "OTIS / CANVAS\nDocuments stay in view.\nA native PDF preview rendered locally from the original bytes.",
   }
   DEMO_PUBLISHED.set(artifactId, fixture)
   return {
@@ -702,6 +717,68 @@ class DemoRuntime implements DesktopApi {
     return this.hostApi?.getWindowState() ?? { fullscreen: false }
   }
 
+  #terminalListeners = new Set<(data: string) => void>()
+  #terminalHistory = ""
+  #typed = ""
+
+  async openTerminal(): Promise<string> {
+    if (!this.#state.terminal) {
+      this.#terminalHistory = ""
+      this.#typed = ""
+      this.#state = { ...this.#state, terminal: true }
+      this.#emitStatus()
+      this.#print(`Last login: Mon Sep 28 09:14:02 on ttys004\r\n${DEMO_PROMPT}`)
+    }
+    return this.#terminalHistory
+  }
+
+  /** Demo: a line editor that answers a few commands, so the terminal can be tried. */
+  async writeTerminal(data: string): Promise<void> {
+    for (const char of data) {
+      if (char === "\r") {
+        const command = this.#typed.trim()
+        this.#typed = ""
+        if (command === "exit") return this.closeTerminal()
+        const reply =
+          DEMO_SHELL[command] ?? (command ? `zsh: command not found: ${command}\r\n` : "")
+        this.#print(`\r\n${reply}${DEMO_PROMPT}`)
+      } else if (char === "\u007f") {
+        if (this.#typed) {
+          this.#typed = this.#typed.slice(0, -1)
+          this.#print("\b \b")
+        }
+      } else if (char === "\u0003") {
+        this.#typed = ""
+        this.#print(`^C\r\n${DEMO_PROMPT}`)
+      } else {
+        this.#typed += char
+        this.#print(char)
+      }
+    }
+  }
+
+  /** Demo: like a shell on SIGWINCH, the prompt line is drawn again for the new width. */
+  async resizeTerminal(): Promise<void> {
+    if (this.#state.terminal) this.#print(`\r\x1b[K${DEMO_PROMPT}${this.#typed}`)
+  }
+
+  async closeTerminal(): Promise<void> {
+    this.#state = { ...this.#state, terminal: false }
+    this.#emitStatus()
+  }
+
+  subscribeTerminal(listener: (data: string) => void) {
+    this.#terminalListeners.add(listener)
+    return () => {
+      this.#terminalListeners.delete(listener)
+    }
+  }
+
+  #print(text: string) {
+    this.#terminalHistory += text
+    for (const listener of this.#terminalListeners) listener(text)
+  }
+
   subscribeWindowState(listener: Parameters<DesktopApi["subscribeWindowState"]>[0]) {
     return this.hostApi?.subscribeWindowState(listener) ?? (() => {})
   }
@@ -876,6 +953,7 @@ class DemoRuntime implements DesktopApi {
     entries: sessionTranscript("session_versions"),
     freshAchievements: ["deep-work", "week-streak"],
     agentsPanelVisible: true,
+    terminal: false,
     workspacePanelWidth: undefined,
     theme: "default",
     language: "system",
@@ -1709,6 +1787,7 @@ class DemoRuntime implements DesktopApi {
       return { ok: false, reason: "Finish the current work before starting over." }
     this.#interrupt()
     const { panes, runtimes } = this.#state
+    const agentsPanelVisible = this.#state.agentsPanelVisible && !this.#state.terminal
     const focused = runtimes.find((entry) => entry.focused)
     if (panes.length > 1 && focused) {
       // The fresh session takes the screen; the others drop to the strip, still working. An
@@ -1732,6 +1811,7 @@ class DemoRuntime implements DesktopApi {
         diffs: { added: 0, removed: 0 },
         contextTokens: 0,
         subagents: [],
+        agentsPanelVisible,
         panes: [fresh.runtime],
         runtimes: empty
           ? runtimes
@@ -1747,6 +1827,7 @@ class DemoRuntime implements DesktopApi {
       tabs: [],
       diffs: { added: 0, removed: 0 },
       subagents: [],
+      agentsPanelVisible,
       runtimes: runtimes.map((entry) =>
         entry.focused ? { ...entry, session: null, diffs: { added: 0, removed: 0 } } : entry,
       ),

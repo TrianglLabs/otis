@@ -1,10 +1,5 @@
 import { contextBridge, type IpcRendererEvent, ipcRenderer } from "electron"
-import {
-  DESKTOP_CHANNELS,
-  type DesktopApi,
-  type DesktopEvent,
-  type DesktopWindowState,
-} from "../contracts.js"
+import { DESKTOP_CHANNELS, type DesktopApi } from "../contracts.js"
 
 /** Electron reports a rejection as "Error invoking remote method '…': Error: <reason>". */
 const invoke = (channel: string, ...args: unknown[]) =>
@@ -13,6 +8,13 @@ const invoke = (channel: string, ...args: unknown[]) =>
       error.message.replace(/^Error invoking remote method '[^']*': (?:Error: )?/, ""),
     )
   })
+
+/** A main-to-renderer stream as a subscription that returns its unsubscribe. */
+function listen<T>(channel: string, listener: (payload: T) => void) {
+  const wrapped = (_event: IpcRendererEvent, payload: T) => listener(payload)
+  ipcRenderer.on(channel, wrapped)
+  return () => ipcRenderer.removeListener(channel, wrapped)
+}
 
 const api: DesktopApi = {
   getSnapshot: () => invoke(DESKTOP_CHANNELS.getSnapshot),
@@ -71,16 +73,13 @@ const api: DesktopApi = {
   setDebugMode: (enabled) => invoke(DESKTOP_CHANNELS.setDebugMode, enabled),
   checkForUpdates: () => invoke(DESKTOP_CHANNELS.checkForUpdates),
   installUpdate: () => invoke(DESKTOP_CHANNELS.installUpdate),
-  subscribeWindowState: (listener) => {
-    const wrapped = (_event: IpcRendererEvent, state: DesktopWindowState) => listener(state)
-    ipcRenderer.on(DESKTOP_CHANNELS.windowState, wrapped)
-    return () => ipcRenderer.removeListener(DESKTOP_CHANNELS.windowState, wrapped)
-  },
-  subscribe: (listener) => {
-    const wrapped = (_event: IpcRendererEvent, payload: DesktopEvent) => listener(payload)
-    ipcRenderer.on(DESKTOP_CHANNELS.event, wrapped)
-    return () => ipcRenderer.removeListener(DESKTOP_CHANNELS.event, wrapped)
-  },
+  openTerminal: () => invoke(DESKTOP_CHANNELS.openTerminal),
+  writeTerminal: (data) => invoke(DESKTOP_CHANNELS.writeTerminal, data),
+  resizeTerminal: (cols, rows) => invoke(DESKTOP_CHANNELS.resizeTerminal, cols, rows),
+  closeTerminal: () => invoke(DESKTOP_CHANNELS.closeTerminal),
+  subscribeTerminal: (listener) => listen(DESKTOP_CHANNELS.terminal, listener),
+  subscribeWindowState: (listener) => listen(DESKTOP_CHANNELS.windowState, listener),
+  subscribe: (listener) => listen(DESKTOP_CHANNELS.event, listener),
 }
 
 contextBridge.exposeInMainWorld("otis", api)

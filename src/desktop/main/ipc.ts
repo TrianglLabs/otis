@@ -116,6 +116,18 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
 
   handle(DESKTOP_CHANNELS.stop, () => runtime.stop())
 
+  handle(DESKTOP_CHANNELS.openTerminal, () => runtime.openTerminal())
+  handle(DESKTOP_CHANNELS.writeTerminal, (data) => {
+    if (typeof data !== "string") throw new Error("writeTerminal expects a string")
+    return runtime.writeTerminal(data)
+  })
+  handle(DESKTOP_CHANNELS.resizeTerminal, (cols, rows) => {
+    if (![cols, rows].every((v) => typeof v === "number" && Number.isSafeInteger(v) && v > 0))
+      throw new Error("resizeTerminal expects a size in cells")
+    return runtime.resizeTerminal(cols as number, rows as number)
+  })
+  handle(DESKTOP_CHANNELS.closeTerminal, () => runtime.closeTerminal())
+
   handle(DESKTOP_CHANNELS.respondToPermission, (id, allow) => {
     if (typeof id !== "number" || typeof allow !== "boolean") {
       throw new Error("respondToPermission expects a numeric id and a boolean decision")

@@ -1,0 +1,10 @@
+/* The workspace shell fills its rail view on the rail's own colour, which its palette also uses. */
+.terminal {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  padding: 8px 0 8px 10px;
+  background: var(--bg-rail);
+  /* Ghostty makes its host editable for input; the terminal draws the only cursor. */
+  caret-color: transparent;
+}

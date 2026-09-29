@@ -10,6 +10,7 @@ import { CommandPalette } from "../features/palette/CommandPalette.js"
 import { SettingsPage, type SettingsTab } from "../features/settings/SettingsPage.js"
 import { useI18n } from "../i18n/index.js"
 import { LIGHT_THEMES, rememberTheme, useDesktop, useDesktopState } from "../runtime.js"
+import { APP_SHORTCUTS } from "./shortcuts.js"
 import { WorkspaceHeader } from "./WorkspaceHeader.js"
 import { WorkspacePanel } from "./WorkspacePanel.js"
 
@@ -30,6 +31,7 @@ export function AppShell() {
     "update",
     "session",
     "artifacts",
+    "terminal",
   )
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsTab, setSettingsTab] = useState<SettingsTab>()
@@ -61,6 +63,13 @@ export function AppShell() {
     [artifacts, openedCanvas],
   )
   const closeDiagram = useCallback(() => setOpenedCanvas(undefined), [])
+  // The shell runs in the main process and outlives the renderer; the stamp is when it was last
+  // asked for here, so asking again brings its tab forward and focuses it.
+  const [terminalFocus, setTerminalFocus] = useState<number>()
+  const openTerminal = useCallback(() => {
+    void api.openTerminal()
+    setTerminalFocus(Date.now())
+  }, [api])
   const openSettingsTab = useCallback((tab: SettingsTab | undefined) => {
     setSettingsTab(tab)
     setSettingsOpen(true)
@@ -103,11 +112,11 @@ export function AppShell() {
     const onKeyDown = async (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return
       const key = event.key.toLowerCase()
-      if (key === "k") {
-        event.preventDefault()
-        setPaletteOpen((value) => !value)
-      } else if (key === "n" || key === "o") {
-        event.preventDefault()
+      if (!APP_SHORTCUTS.has(key)) return
+      event.preventDefault()
+      if (key === "k") setPaletteOpen((value) => !value)
+      else if (key === "`") openTerminal()
+      else {
         if (key === "n") {
           if (!(await api.startNewSession()).ok) return
         } else {
@@ -120,7 +129,7 @@ export function AppShell() {
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
-  }, [api])
+  }, [api, openTerminal])
 
   const readyUpdate = state?.update.status === "ready" ? state.update : undefined
   const platformClass = state?.platform === "darwin" ? "platform-darwin" : "platform-linux"
@@ -148,9 +157,10 @@ export function AppShell() {
             ) : (
               <>
                 <WorkspaceHeader
-                  hasCanvas={views.length > 0}
+                  hasViews={views.length > 0 || Boolean(state?.terminal)}
                   onOpenPalette={() => setPaletteOpen(true)}
                   onOpenSettings={openSettings}
+                  onOpenTerminal={openTerminal}
                 />
                 {state?.needsWorkspace ? (
                   <div className="workspaceBanner">
@@ -204,7 +214,11 @@ export function AppShell() {
             <UnlockBanners onOpen={() => openSettingsTab("achievements")} />
           </div>
           {state?.model === null ? null : (
-            <WorkspacePanel views={views} onCloseDiagram={closeDiagram} />
+            <WorkspacePanel
+              views={views}
+              onCloseDiagram={closeDiagram}
+              terminalFocus={terminalFocus}
+            />
           )}
         </div>
         {settingsOpen ? (

@@ -1,5 +1,6 @@
 import { mkdirSync } from "node:fs"
 import { mkdir } from "node:fs/promises"
+import { createRequire } from "node:module"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -197,6 +198,16 @@ if (!app.requestSingleInstanceLock()) {
         // drift.
         if (event.type === "status") statusTrayGate?.applyLive(event.status)
       },
+      sendTerminal: (data) => {
+        if (mainWindow) sendToRenderer(mainWindow.webContents, DESKTOP_CHANNELS.terminal, data)
+      },
+      // Packaged builds keep node-pty beside the resources; see electron-builder.yml.
+      spawnPty: () =>
+        (
+          createRequire(__filename)(
+            app.isPackaged ? join(process.resourcesPath, "node-pty") : "node-pty",
+          ) as typeof import("node-pty")
+        ).spawn,
     })
     runtime = current
     registerDesktopIpc(current)

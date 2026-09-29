@@ -1,4 +1,12 @@
-import { Box, ChevronRight, ChevronsRight, Frame, type LucideIcon, X } from "lucide-react"
+import {
+  Box,
+  ChevronRight,
+  ChevronsRight,
+  Frame,
+  type LucideIcon,
+  SquareTerminal,
+  X,
+} from "lucide-react"
 import {
   type CSSProperties,
   type KeyboardEvent,
@@ -19,11 +27,11 @@ import {
 } from "../features/agents/AgentTraceOverlay.js"
 import { CanvasPanel } from "../features/canvas/CanvasPanel.js"
 import type { CanvasView } from "../features/canvas/canvas-context.js"
+import { TerminalView } from "../features/terminal/TerminalView.js"
 import { useI18n } from "../i18n/index.js"
 import { useDesktop, useDesktopSelector } from "../runtime.js"
 
-type PanelTab = "coworkers" | "canvas"
-const PANEL_TABS: readonly PanelTab[] = ["coworkers", "canvas"]
+type PanelTab = "coworkers" | "canvas" | "terminal"
 const EMPTY_RUNS: SubagentSummary[] = []
 const PANEL_MIN_WIDTH = 240
 const PANEL_MAX_WIDTH = 720
@@ -31,15 +39,18 @@ const MAIN_MIN_WIDTH = 480
 const PANEL_KEYBOARD_STEP = 16
 
 /**
- * The session's secondary workspace: delegated runs and the Mermaid block explicitly opened in
- * Canvas.
+ * The session's secondary workspace: delegated runs, the Mermaid block explicitly opened in Canvas,
+ * and the workspace shell while one is open.
  */
 export function WorkspacePanel({
   views,
   onCloseDiagram,
+  terminalFocus,
 }: {
   views: CanvasView[]
   onCloseDiagram: () => void
+  /** When the shell was last asked for from this window; a change brings its tab forward. */
+  terminalFocus: number | undefined
 }) {
   // Drags update the local width immediately; the saved width seeds it and survives relaunches.
   // The wrapper tells a double-click reset (width undefined) apart from "never touched".
@@ -48,6 +59,7 @@ export function WorkspacePanel({
     runs: snapshot?.subagents ?? EMPTY_RUNS,
     visible: snapshot?.agentsPanelVisible ?? true,
     theme: snapshot?.theme ?? "default",
+    terminal: snapshot?.terminal ?? false,
     savedWidth: snapshot?.workspacePanelWidth,
   }))
   const { savedWidth, ...panel } = state
@@ -56,6 +68,7 @@ export function WorkspacePanel({
       {...panel}
       views={views}
       onCloseDiagram={onCloseDiagram}
+      terminalFocus={terminalFocus}
       railWidth={local ? local.width : savedWidth}
       onRailWidthChange={(width) => setLocal({ width })}
     />
@@ -66,6 +79,8 @@ function SessionWorkspacePanel({
   runs,
   views,
   onCloseDiagram,
+  terminal,
+  terminalFocus,
   visible,
   theme,
   railWidth,
@@ -74,6 +89,8 @@ function SessionWorkspacePanel({
   runs: SubagentSummary[]
   views: CanvasView[]
   onCloseDiagram: () => void
+  terminal: boolean
+  terminalFocus: number | undefined
   visible: boolean
   theme: ThemeName
   railWidth: number | undefined
@@ -81,7 +98,11 @@ function SessionWorkspacePanel({
 }) {
   const { api } = useDesktop()
   const { t } = useI18n()
-  const [activeTab, setActiveTab] = useState<PanelTab>(views.length > 0 ? "canvas" : "coworkers")
+  const [pickedTab, setPickedTab] = useState<PanelTab>(views.length > 0 ? "canvas" : "coworkers")
+  const openTabs: readonly PanelTab[] = terminal
+    ? ["coworkers", "canvas", "terminal"]
+    : ["coworkers", "canvas"]
+  const activeTab = openTabs.includes(pickedTab) ? pickedTab : "coworkers"
   // The tab that last took the view shows, unless the user picked another one since.
   const [chosen, setChosen] = useState<{ key: string; at: number }>()
   const latest = views.reduce<CanvasView | undefined>(
@@ -104,7 +125,7 @@ function SessionWorkspacePanel({
   const headerRef = useRef<HTMLDivElement>(null)
   const tabsRef = useRef<HTMLDivElement>(null)
   const stopResizeRef = useRef<() => void>(() => {})
-  const hasContent = runs.length > 0 || views.length > 0
+  const hasContent = runs.length > 0 || views.length > 0 || terminal
 
   useEffect(() => () => stopResizeRef.current(), [])
   useEffect(() => {
@@ -154,7 +175,7 @@ function SessionWorkspacePanel({
     const previous = seenRuns.current
     seenRuns.current = runs.length
     if (runs.length <= previous) return
-    setActiveTab("coworkers")
+    setPickedTab("coworkers")
     if (!visible) void api.setAgentsPanelVisible(true)
   }, [runs.length, visible, api])
 
@@ -164,9 +185,19 @@ function SessionWorkspacePanel({
     const previous = seenActivated.current
     seenActivated.current = latestActivated
     if (latestActivated === undefined || latestActivated === previous) return
-    setActiveTab("canvas")
+    setPickedTab("canvas")
     if (!visible) void api.setAgentsPanelVisible(true)
   }, [latestActivated, visible, api])
+
+  // Asking for the shell brings its tab forward the same way.
+  const seenTerminalFocus = useRef(terminalFocus)
+  useEffect(() => {
+    const previous = seenTerminalFocus.current
+    seenTerminalFocus.current = terminalFocus
+    if (terminalFocus === undefined || terminalFocus === previous) return
+    setPickedTab("terminal")
+    if (!visible) void api.setAgentsPanelVisible(true)
+  }, [terminalFocus, visible, api])
 
   const maxWidth = Math.max(
     contentMinWidth,
@@ -227,15 +258,15 @@ function SessionWorkspacePanel({
   }, [railWidth, resizing, api])
 
   const selectTabWithKeyboard = (event: KeyboardEvent<HTMLDivElement>) => {
-    const index = PANEL_TABS.indexOf(activeTab)
+    const index = openTabs.indexOf(activeTab)
     let next: number
-    if (event.key === "ArrowRight") next = (index + 1) % PANEL_TABS.length
-    else if (event.key === "ArrowLeft") next = (index + PANEL_TABS.length - 1) % PANEL_TABS.length
+    if (event.key === "ArrowRight") next = (index + 1) % openTabs.length
+    else if (event.key === "ArrowLeft") next = (index + openTabs.length - 1) % openTabs.length
     else if (event.key === "Home") next = 0
-    else if (event.key === "End") next = PANEL_TABS.length - 1
+    else if (event.key === "End") next = openTabs.length - 1
     else return
     event.preventDefault()
-    setActiveTab(PANEL_TABS[next])
+    setPickedTab(openTabs[next])
     tabsRef.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus()
   }
 
@@ -266,7 +297,7 @@ function SessionWorkspacePanel({
       aria-selected={activeTab === name}
       aria-controls={`${panelId}-view-${name}`}
       tabIndex={activeTab === name ? 0 : -1}
-      onClick={() => setActiveTab(name)}
+      onClick={() => setPickedTab(name)}
     >
       <Icon icon={icon} size={13} />
       {label}
@@ -321,6 +352,20 @@ function SessionWorkspacePanel({
           >
             {tab("coworkers", Box, t("panel.coworkers"))}
             {tab("canvas", Frame, t("panel.canvas"))}
+            {terminal ? (
+              <div className="workspaceRail-tab" data-selected={activeTab === "terminal"}>
+                {tab("terminal", SquareTerminal, t("panel.terminal"))}
+                {activeTab === "terminal" ? (
+                  <IconButton
+                    icon={X}
+                    label={t("panel.closeTerminal")}
+                    size={18}
+                    className="workspaceRail-tabClose"
+                    onClick={() => void api.closeTerminal()}
+                  />
+                ) : null}
+              </div>
+            ) : null}
           </div>
           <IconButton
             icon={ChevronsRight}
@@ -397,6 +442,11 @@ function SessionWorkspacePanel({
             ) : null}
             <CanvasPanel view={selected} theme={theme} />
           </div>
+          {terminal ? (
+            <div {...view("terminal")}>
+              <TerminalView key={theme} activated={terminalFocus} />
+            </div>
+          ) : null}
         </div>
       </aside>
       {openTraceId ? (

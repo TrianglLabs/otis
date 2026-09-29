@@ -337,24 +337,24 @@ export const SessionStrip = memo(function SessionStrip() {
   )
 })
 
-const RECENT_SESSIONS = 4
+const RECENT_SESSIONS = 6
 
 /**
- * A quiet home screen: the mark and any setup guidance, then one list on the composer's width of
- * recent sessions and recent Canvas documents. First run — no history anywhere — shows only the
- * mark and any setup guidance.
+ * A quiet home screen: the mark and any setup guidance, then cards on the composer's width for
+ * recent sessions and recent Canvas documents, each document with its opening set on a page.
+ * First run — no history anywhere — shows only the mark and any setup guidance.
  */
 function EmptyState() {
   const { api } = useDesktop()
   const { locale, t } = useI18n()
   const state = useDesktopState("sessions", "recentArtifacts", "modelState", "modelError")
   const [error, setError] = useState<string>()
+  // Hovering a session lights the others it was last on screen with; opening it brings them.
+  const [hovered, setHovered] = useState<NonNullable<typeof state>["sessions"][number]>()
   if (!state) return null
   const documents = state.recentArtifacts
 
   const recents = state.sessions.filter((session) => !session.active).slice(0, RECENT_SESSIONS)
-  // Hovering a session lights the others it was last on screen with; opening it brings them.
-  const [hovered, setHovered] = useState<(typeof recents)[number]>()
   const open = async (run: () => Promise<SessionOpResult>) => {
     setError(undefined)
     const result = await run()
@@ -382,57 +382,70 @@ function EmptyState() {
       </div>
       {firstRun ? null : (
         <div className="home-recents">
-          <span className="home-eyebrow">
+          <span className="home-heading">
             {t("home.recent")}
             <span>{t("home.searchSessions")}</span>
           </span>
-          {recents.map((session) => (
-            <button
-              key={`${session.dirName}:${session.id}`}
-              type="button"
-              className={`home-row${inView(hovered, session) ? " home-row-grouped" : ""}`}
-              title={session.title}
-              onMouseEnter={() => setHovered(session)}
-              onMouseLeave={() => setHovered(undefined)}
-              onClick={() => void open(() => api.selectSession(session.id, session.dirName))}
-            >
-              <span className="home-rowIcon">
-                {session.working ? <MatrixLoader /> : <Icon icon={MessagesSquare} size={15} />}
-                {!session.working && (session.unseen || session.resumable) ? (
-                  <span className="stateDot home-rowDot" />
-                ) : null}
-              </span>
-              <span className="home-rowTitle">
-                <span>{session.title}</span>
-                <span className="home-rowWorkspace">{session.workspaceLabel}</span>
-              </span>
-              <span className="home-rowAge">{formatSessionDetail(session.detail, locale)}</span>
-            </button>
-          ))}
-          {documents.length ? <span className="home-eyebrow">{t("home.documents")}</span> : null}
-          {documents.map((document) => (
-            <button
-              key={document.reference.artifactId}
-              type="button"
-              className="home-row"
-              title={document.name}
-              onClick={() =>
-                void open(async () => {
-                  const opened = await api.selectSession(document.sessionId, document.dirName)
-                  return opened.ok ? api.openArtifact(document.reference) : opened
-                })
-              }
-            >
-              <span className="home-rowIcon">
-                <FileTypeIcon kind={document.kind} name={document.name} size="sm" />
-              </span>
-              <span className="home-rowTitle">
-                <span>{document.name}</span>
-                <span className="home-rowWorkspace">{document.workspaceLabel}</span>
-              </span>
-              <span className="home-rowAge">{formatAge(document.updatedAt, locale)}</span>
-            </button>
-          ))}
+          <div className="home-grid home-grid-sessions">
+            {recents.map((session) => (
+              <button
+                key={`${session.dirName}:${session.id}`}
+                type="button"
+                className={`home-card${inView(hovered, session) ? " home-card-grouped" : ""}`}
+                title={session.title}
+                onMouseEnter={() => setHovered(session)}
+                onMouseLeave={() => setHovered(undefined)}
+                onClick={() => void open(() => api.selectSession(session.id, session.dirName))}
+              >
+                <span className="home-cardTile">
+                  {session.working ? <MatrixLoader /> : <Icon icon={MessagesSquare} size={15} />}
+                  {!session.working && (session.unseen || session.resumable) ? (
+                    <span className="stateDot home-cardDot" />
+                  ) : null}
+                </span>
+                <span className="home-cardText">
+                  <span className="home-cardTitle">{session.title}</span>
+                  <span className="home-cardMeta">
+                    {session.workspaceLabel} · {formatSessionDetail(session.detail, locale)}
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
+          {documents.length ? (
+            <>
+              <span className="home-heading">{t("home.documents")}</span>
+              <div className="home-grid">
+                {documents.map((document) => (
+                  <button
+                    key={document.reference.artifactId}
+                    type="button"
+                    className="home-card home-card-document"
+                    title={document.name}
+                    onClick={() =>
+                      void open(async () => {
+                        const opened = await api.selectSession(document.sessionId, document.dirName)
+                        return opened.ok ? api.openArtifact(document.reference) : opened
+                      })
+                    }
+                  >
+                    <span className="home-page" aria-hidden="true">
+                      {document.reference.excerpt}
+                    </span>
+                    <span className="home-cardText">
+                      <span className="home-cardTitle">
+                        <FileTypeIcon kind={document.kind} name={document.name} size="sm" />
+                        {document.name}
+                      </span>
+                      <span className="home-cardMeta">
+                        {document.workspaceLabel} · {formatAge(document.updatedAt, locale)}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : null}
           {error ? (
             <span className="home-error" role="alert">
               {error}

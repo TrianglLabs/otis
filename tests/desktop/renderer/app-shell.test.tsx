@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import type { DetachedWindowAPI } from "happy-dom"
 import type { ReactNode } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -64,6 +64,11 @@ import { App } from "../../../src/desktop/renderer/App.js"
 import { DesktopProvider } from "../../../src/desktop/renderer/runtime.js"
 import { DesktopViewStore } from "../../../src/desktop/renderer/state.js"
 import { fakeApi as fakeDesktopApi, snapshotFixture } from "../support/desktop-api.js"
+
+// Ghostty paints to a canvas; the shell tests care about the tab around it.
+vi.mock("../../../src/desktop/renderer/features/terminal/TerminalView.js", () => ({
+  TerminalView: () => <div className="terminal" />,
+}))
 
 /**
  * The shell regression: routing to Settings must not unmount the conversation column, or the
@@ -238,7 +243,7 @@ describe("session views in history", () => {
     await renderApp(api)
 
     const tile = (title: string) => screen.getByRole("button", { name: new RegExp(title) })
-    const grouped = (title: string) => tile(title).classList.contains("home-row-grouped")
+    const grouped = (title: string) => tile(title).classList.contains("home-card-grouped")
     fireEvent.mouseEnter(tile("Alpha work"))
     expect([grouped("Alpha work"), grouped("Beta work"), grouped("Gamma work")]).toEqual([
       false,
@@ -256,6 +261,35 @@ describe("session views in history", () => {
     const lit = (title: string) => row(title)?.classList.contains("palette-row-grouped")
     fireEvent.mouseEnter(palette.getByText("Beta work"))
     expect([lit("Alpha work"), lit("Beta work"), lit("Gamma work")]).toEqual([true, false, false])
+  })
+
+  it("sets each recent document's opening on its card", async () => {
+    const document = {
+      reference: {
+        source: "published" as const,
+        artifactId: "doc-1",
+        version: 2,
+        sha256: "a".repeat(64),
+        name: "plan.md",
+        kind: "markdown" as const,
+        sourcePath: "/ws/plan.md",
+        excerpt: "Plan\nShip it",
+      },
+      name: "plan.md",
+      kind: "markdown" as const,
+      sessionId: "s1",
+      dirName: "ws-abc",
+      workspaceLabel: "ws",
+      updatedAt: new Date().toISOString(),
+    }
+    const api = fakeApi({
+      getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, recentArtifacts: [document] })),
+    })
+    await renderApp(api)
+    const card = screen.getByRole("button", { name: /plan\.md/ })
+    expect(card.querySelector(".home-page")?.textContent).toBe("Plan\nShip it")
+    fireEvent.click(card)
+    await waitFor(() => expect(api.selectSession).toHaveBeenCalledWith("s1", "ws-abc"))
   })
 
   it("drags a palette row onto the conversation, the palette stepping aside until the drop", async () => {
@@ -540,6 +574,46 @@ describe("AppShell settings navigation", () => {
     )
     expect(document.querySelector(".unlockCard-title")?.textContent).toBe("Delegator")
     expect(document.querySelector(".unlockCard-eyebrow")?.textContent).toBe("Achievement unlocked")
+  })
+
+  it("shows the workspace shell as a rail tab while one runs", async () => {
+    let emit!: (event: DesktopEvent) => void
+    // A conversation is on screen: the home screen keeps the header's terminal button away.
+    const conversation: DesktopSnapshot = {
+      ...SNAPSHOT,
+      entries: [{ id: 1, kind: "message", speaker: "You", text: "hi" }],
+    }
+    const api = fakeDesktopApi(conversation, {
+      subscribe: vi.fn((listener) => {
+        emit = listener
+        return () => {}
+      }),
+    })
+    await renderApp(api)
+    expect(document.querySelector(".workspaceRail")).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Terminal (⌃`)" }))
+    expect(api.openTerminal).toHaveBeenCalledOnce()
+    act(() => emit({ type: "status", revision: 2, status: { ...conversation, terminal: true } }))
+    expect(screen.getByRole("tab", { name: "Terminal" }).getAttribute("aria-selected")).toBe("true")
+    expect(document.querySelector(".workspaceRail-view-terminal .terminal")).toBeTruthy()
+    // The tab is the way in now; the header button waits for the shell to go.
+    expect(screen.queryByRole("button", { name: "Terminal (⌃`)" })).toBeNull()
+    // Ghostty bakes its palette in at creation, so a theme change gets a fresh view.
+    const before = document.querySelector(".workspaceRail-view-terminal .terminal")
+    act(() =>
+      emit({
+        type: "status",
+        revision: 3,
+        status: { ...SNAPSHOT, terminal: true, theme: "pearl" },
+      }),
+    )
+    expect(document.querySelector(".workspaceRail-view-terminal .terminal")).not.toBe(before)
+    fireEvent.click(screen.getByRole("button", { name: "Close terminal" }))
+    expect(api.closeTerminal).toHaveBeenCalledOnce()
+    act(() => emit({ type: "status", revision: 4, status: { ...conversation, terminal: false } }))
+    expect(screen.queryByRole("tab", { name: "Terminal" })).toBeNull()
+    expect(document.querySelector(".workspaceRail")).toBeNull()
+    expect(screen.getByRole("button", { name: "Terminal (⌃`)" })).toBeTruthy()
   })
 
   it("never announces the history that arrives with the first stats", async () => {

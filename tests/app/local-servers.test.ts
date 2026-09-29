@@ -47,6 +47,10 @@ describe("local server coordination", () => {
       version: "test",
       platform: "darwin",
       send: () => {},
+      sendTerminal: () => {},
+      spawnPty: () => {
+        throw new Error("The tests run no shell.")
+      },
       discoverPair,
       discoverOmlx,
     })
@@ -198,6 +202,10 @@ describe("local server coordination", () => {
       version: "test",
       platform: "darwin",
       send: () => {},
+      sendTerminal: () => {},
+      spawnPty: () => {
+        throw new Error("The tests run no shell.")
+      },
       discoverPair,
       discoverOmlx: async () => [undersized],
     })

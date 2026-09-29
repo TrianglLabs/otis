@@ -1,4 +1,4 @@
-import { ChevronsLeft, Search, Settings, SquarePen } from "lucide-react"
+import { ChevronsLeft, Search, Settings, SquarePen, SquareTerminal } from "lucide-react"
 import { Button, IconButton } from "../components/Button.js"
 import { formatTokenCount } from "../format.js"
 import { useI18n } from "../i18n/index.js"
@@ -9,13 +9,16 @@ import { useDesktop, useDesktopSelector, useDesktopState } from "../runtime.js"
  * plus search and settings on the right. Session navigation lives in the ⌘K palette.
  */
 export function WorkspaceHeader({
-  hasCanvas,
+  hasViews,
   onOpenPalette,
   onOpenSettings,
+  onOpenTerminal,
 }: {
-  hasCanvas: boolean
+  /** Canvas has a tab or the shell is open: the rail has something to show besides coworkers. */
+  hasViews: boolean
   onOpenPalette: () => void
   onOpenSettings: () => void
+  onOpenTerminal: () => void
 }) {
   const { api } = useDesktop()
   const { locale, t } = useI18n()
@@ -28,11 +31,13 @@ export function WorkspaceHeader({
     "subagents",
     "agentsPanelVisible",
     "freshAchievements",
+    "terminal",
   )
   const hasEntries = useDesktopSelector((snapshot) => (snapshot?.entries.length ?? 0) > 0)
   if (!state) return <header className="workspaceHeader" />
 
   const { diffs, contextTokens, contextLimit } = state
+  const conversation = hasEntries || state.panes.length > 1
   const contextPercent =
     contextTokens === undefined
       ? 0
@@ -42,7 +47,7 @@ export function WorkspaceHeader({
     <header className="workspaceHeader">
       <div className="workspaceHeader-left">
         {/* Hidden on the empty single-card home screen, where you already are at a fresh start. */}
-        {hasEntries || state.panes.length > 1 ? (
+        {conversation ? (
           <Button
             variant="ghost"
             icon={SquarePen}
@@ -81,6 +86,15 @@ export function WorkspaceHeader({
           </span>
         ) : null}
         <div className="workspaceHeader-actions">
+          {/* Only with a conversation, and only until the shell runs. */}
+          {conversation && !state.terminal ? (
+            <IconButton
+              icon={SquareTerminal}
+              label={t("header.openTerminal")}
+              onClick={onOpenTerminal}
+              className="noDrag"
+            />
+          ) : null}
           <IconButton
             icon={Search}
             label={t("header.searchSessions")}
@@ -94,7 +108,7 @@ export function WorkspaceHeader({
             className={`noDrag${state.freshAchievements.length ? " iconBtn-dot" : ""}`}
           />
           {/* Rightmost: it opens the rail that slides in from the right edge. */}
-          {(state.subagents.length > 0 || hasCanvas) && !state.agentsPanelVisible ? (
+          {(state.subagents.length > 0 || hasViews) && !state.agentsPanelVisible ? (
             <IconButton
               icon={ChevronsLeft}
               label={t("header.showSidePanel")}

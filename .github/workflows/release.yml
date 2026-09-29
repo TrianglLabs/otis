@@ -98,19 +98,26 @@ jobs:
             --repo "$GITHUB_REPOSITORY"
 
   desktop:
-    name: Desktop (${{ matrix.os }})
+    name: Desktop (${{ matrix.os }} ${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     needs: release
     env:
       VERSION: ${{ inputs.version }}
     strategy:
       fail-fast: false
+      # node-pty compiles natively for each target, so Linux builds run on a runner of their own
+      # architecture; macOS cross-compiles both from one.
       matrix:
         include:
           - os: macOS
+            arch: ""
             runner: macos-latest
           - os: Linux
+            arch: --x64
             runner: ubuntu-latest
+          - os: Linux
+            arch: --arm64
+            runner: ubuntu-24.04-arm
 
     steps:
       - name: Checkout
@@ -148,10 +155,10 @@ jobs:
               chmod 600 "$key_file"
               export APPLE_API_KEY="$key_file"
             fi
-            bunx electron-builder --publish never
+            bunx electron-builder --publish never ${{ matrix.arch }}
           else
             echo "No signing secrets configured; building unsigned." >&2
-            bunx electron-builder --publish never -c.mac.identity=null -c.mac.notarize=false
+            bunx electron-builder --publish never -c.mac.identity=null -c.mac.notarize=false ${{ matrix.arch }}
           fi
 
       - name: Attach macOS Artifacts
@@ -166,4 +173,4 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         working-directory: dist/desktop
-        run: gh release upload "v$VERSION" ./*.AppImage ./*.deb ./latest-linux.yml ./latest-linux-arm64.yml --clobber --repo "$GITHUB_REPOSITORY"
+        run: gh release upload "v$VERSION" ./*.AppImage ./*.deb ./latest-linux*.yml --clobber --repo "$GITHUB_REPOSITORY"
