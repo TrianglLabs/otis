@@ -7,6 +7,11 @@ on:
         description: "Version to publish (e.g. 0.1.1)"
         required: true
         type: string
+      desktop_only:
+        description: "Rebuild and re-attach the desktop apps for a version already released"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -18,6 +23,7 @@ concurrency:
 jobs:
   release:
     name: Build and Publish
+    if: ${{ !inputs.desktop_only }}
     runs-on: ubuntu-latest
     env:
       VERSION: ${{ inputs.version }}
@@ -101,6 +107,8 @@ jobs:
     name: Desktop (${{ matrix.os }} ${{ matrix.label }})
     runs-on: ${{ matrix.runner }}
     needs: release
+    # The tag it builds from already exists when only the desktop apps are being redone.
+    if: ${{ always() && needs.release.result != 'failure' && needs.release.result != 'cancelled' }}
     env:
       VERSION: ${{ inputs.version }}
     strategy:
