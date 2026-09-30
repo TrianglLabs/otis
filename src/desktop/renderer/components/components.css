@@ -490,3 +490,9 @@
 .hljs-strong {
   font-weight: 600;
 }
+
+/* A wide matrix scrolls within its own line instead of spilling over the document. */
+.katex-display {
+  overflow: auto hidden;
+  padding: 2px 0;
+}

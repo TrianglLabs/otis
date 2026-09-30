@@ -80,7 +80,7 @@ export function buildSystemPrompt(
   )
   sections.push(
     outputCapabilities.math
-      ? "- Markdown files opened in Canvas render TeX math: `$…$` or `\\(…\\)` inline, `$$…$$` or `\\[…\\]` on its own lines. Use it for formulas in documents; chat replies show the markup as plain text."
+      ? "- Markdown files opened in Canvas render TeX math: `$…$` or `\\(…\\)` inline, `$$…$$` or `\\[…\\]` as a block. A block's `$$` fences go on their own lines with nothing else on them, like code fences. Use math for formulas in documents; chat replies show the markup as plain text."
       : "- Avoid TeX math markup such as `$…$`; this interface shows it as plain text.",
   )
 
