@@ -180,7 +180,7 @@
   overflow-wrap: anywhere;
 }
 
-.canvas-document-markdown > .md {
+.canvas-document-markdown .md {
   width: min(720px, 100%);
   margin: 0 auto;
   font-size: 14px;

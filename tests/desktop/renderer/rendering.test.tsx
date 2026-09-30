@@ -287,6 +287,19 @@ describe("stable message rendering", () => {
     expect(plain?.textContent).toBe("plain")
   })
 
+  it("reads a paragraph that is only $$…$$ as display math, even inside a quote", () => {
+    const text = "$$\\frac{a}{b}$$\n\n> $$c$$\n\nInline $$x$$ in text.\n\n$$\n\\frac{d}{e}\n$$"
+    const { container } = render(
+      <Markdown text={text} document={{ runtime: 1, id: "doc.md", revision: 1 }} />,
+    )
+    expect(container.querySelectorAll(".katex-display")).toHaveLength(3)
+    expect(container.querySelector("blockquote .katex-display")).toBeTruthy()
+    expect(container.querySelectorAll(".katex")).toHaveLength(4)
+    expect(container.querySelector("p .katex:not(.katex-display .katex)")?.textContent).toContain(
+      "x",
+    )
+  })
+
   it("renders a document's Mermaid inline and its relative images from the workspace", async () => {
     const runtime = await testRuntime()
     const asset = vi.spyOn(runtime.api, "getArtifactAsset").mockResolvedValue({

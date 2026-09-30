@@ -1,5 +1,6 @@
 import type { Element, ElementContent, Root, Text } from "hast"
 import { Check, Copy } from "lucide-react"
+import type { Parent as MdastParent, Root as MdastRoot } from "mdast"
 import { createContext, isValidElement, memo, useContext, useEffect, useRef, useState } from "react"
 import ReactMarkdown, { type Components } from "react-markdown"
 import rehypeHighlight from "rehype-highlight"
@@ -23,7 +24,7 @@ export type DocumentSource = { runtime: number; id: string; revision: number }
 const remarkPlugins = [remarkGfm]
 // Documents opt into TeX math in dollar and `\(…\)` / `\[…\]` form; chat stays literal so
 // prices are not equations.
-const documentRemarkPlugins = [remarkGfm, remarkMath]
+const documentRemarkPlugins = [remarkGfm, remarkMath, displayMathParagraphs]
 const rehypePlugins = [trimCodeNewline, rehypeHighlight]
 const documentRehypePlugins = [trimCodeNewline, rehypeHighlight, rehypeKatex]
 const DocumentContext = createContext<DocumentSource | undefined>(undefined)
@@ -118,6 +119,44 @@ function splitWords(node: Root | Element) {
             },
       )
   })
+}
+
+/**
+ * A paragraph that is nothing but `$$…$$` is display math, as Pandoc and GitHub read it. The
+ * parser alone sets it inline, since block math wants its fences on their own lines.
+ */
+function displayMathParagraphs() {
+  return (tree: MdastRoot, file: { value: unknown }) => {
+    const source = String(file.value)
+    const visit = (parent: MdastParent) => {
+      parent.children = parent.children.map((node) => {
+        if ("children" in node) visit(node)
+        if (node.type !== "paragraph" || node.children.length !== 1) return node
+        const [math] = node.children
+        const offset = math?.position?.start.offset
+        if (math?.type !== "inlineMath" || offset === undefined || !source.startsWith("$$", offset))
+          return node
+        // The same hast hints the parser gives block math, which rehype-katex reads as display.
+        return {
+          type: "math",
+          value: math.value,
+          position: node.position,
+          data: {
+            hName: "pre",
+            hChildren: [
+              {
+                type: "element",
+                tagName: "code",
+                properties: { className: ["language-math", "math-display"] },
+                children: [{ type: "text", value: math.value }],
+              },
+            ],
+          },
+        }
+      })
+    }
+    visit(tree)
+  }
 }
 
 /** Markdown gives fenced code a trailing newline, which would render as a blank last line. */
