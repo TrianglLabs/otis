@@ -79,9 +79,7 @@ describe("ReasoningCard", () => {
     expect(queryByRole("status")).toBeNull()
     expect(container.querySelector(".thinking-label")).toBeNull()
     // Only the chevron: no mark or orb on a settled thought.
-    expect(getByRole("button", { name: "Thought for 2.3s" }).querySelectorAll("svg")).toHaveLength(
-      1,
-    )
+    expect(getByRole("button", { name: "Thought for 2s" }).querySelectorAll("svg")).toHaveLength(1)
     expect(container.querySelector(".reasoning-body")).toBeNull()
   })
 

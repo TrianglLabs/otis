@@ -19,27 +19,69 @@
       // This separately loaded, opaque-origin document owns the preview policy. Its srcdoc child
       // inherits that policy, which source HTML cannot relax or hide inside a comment or script.
       // The frame cannot navigate or open windows, so link clicks are relayed up to the app,
-      // which opens http(s) targets in the system browser.
+      // which opens http(s) targets in the system browser. The same agent answers the app's
+      // find and zoom requests from inside the page and relays its shortcuts back out.
       const frame = document.getElementById("preview")
-      const linkRelay =
-        "<script>document.addEventListener('click', (event) => {" +
+      const agent =
+        "<style>::highlight(otis-find){background:#ffd54a80}::highlight(otis-find-current){background:#ff9800c0}</style>" +
+        "<script>(() => {" +
+        "document.addEventListener('click', (event) => {" +
         "const anchor = event.target instanceof Element ? event.target.closest('a[href]') : null;" +
         "if (!anchor || !/^https?:\\/\\//i.test(anchor.href)) return;" +
         "event.preventDefault();" +
-        "parent.postMessage({ type: 'otis-webpage-link', url: anchor.href }, '*');" +
-        "}, true)<" +
+        "parent.postMessage({ type: 'otis-frame-link', url: anchor.href }, '*');" +
+        "}, true);" +
+        "document.addEventListener('keydown', (event) => {" +
+        "if (!(event.ctrlKey || event.metaKey) || !['f', '=', '+', '-', '0'].includes(event.key)) return;" +
+        "event.preventDefault();" +
+        "parent.postMessage({ type: 'otis-frame-key', key: event.key }, '*');" +
+        "}, true);" +
+        "const find = (query, index) => {" +
+        "const ranges = [];" +
+        "if (query) {" +
+        "const needle = query.toLowerCase();" +
+        "const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, (node) =>" +
+        "node.parentElement?.closest('script, style, template, [hidden]') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT);" +
+        "for (let node = walker.nextNode(); node; node = walker.nextNode()) {" +
+        "const text = node.textContent.toLowerCase();" +
+        "for (let at = text.indexOf(needle); at >= 0; at = text.indexOf(needle, at + 1)) {" +
+        "const range = new Range(); range.setStart(node, at); range.setEnd(node, at + needle.length); ranges.push(range);" +
+        "}}}" +
+        "const current = ranges[index];" +
+        "if (CSS.highlights) {" +
+        "CSS.highlights.set('otis-find', new Highlight(...ranges));" +
+        "CSS.highlights.set('otis-find-current', new Highlight(...(current ? [current] : [])));" +
+        "}" +
+        "current?.startContainer.parentElement?.scrollIntoView({ block: 'center' });" +
+        "parent.postMessage({ type: 'otis-frame-matches', count: ranges.length }, '*');" +
+        "};" +
+        "window.addEventListener('message', (event) => {" +
+        "if (event.source !== parent) return;" +
+        "const data = event.data;" +
+        "if (data?.type === 'otis-frame-zoom' && typeof data.zoom === 'number') document.documentElement.style.zoom = String(data.zoom);" +
+        "if (data?.type === 'otis-frame-find' && typeof data.query === 'string' && typeof data.index === 'number') find(data.query, data.index);" +
+        "});" +
+        "parent.postMessage({ type: 'otis-frame-ready' }, '*');" +
+        "})()<" +
         "/script>"
       window.addEventListener("message", (event) => {
+        const type = event.data?.type
+        if (typeof type !== "string") return
+        // The page speaks only through its agent's messages, which are handed up as they are.
         if (event.source === frame.contentWindow) {
-          if (event.data?.type === "otis-webpage-link" && typeof event.data.url === "string")
-            parent.postMessage({ type: "otis-webpage-link", url: event.data.url }, "*")
+          if (type.startsWith("otis-frame-")) parent.postMessage(event.data, "*")
           return
         }
-        if (event.source !== parent || event.data?.type !== "otis-webpage-source") return
+        if (event.source !== parent) return
+        if (type.startsWith("otis-frame-")) {
+          frame.contentWindow?.postMessage(event.data, "*")
+          return
+        }
+        if (type !== "otis-webpage-source") return
         const { source, title } = event.data
         if (typeof source !== "string" || typeof title !== "string") return
         frame.title = title
-        frame.srcdoc = source + linkRelay
+        frame.srcdoc = source + agent
       })
     </script>
   </body>

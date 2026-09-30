@@ -212,7 +212,7 @@ describe("chat UI rendering", () => {
       "one\ntwo\nthree\nfour\nfive",
     )
     expect(harness.text(`message-${reasoning.id}-reasoning-header`)).toBe(
-      "Thought for 1.3s · click to expand",
+      "Thought for 1s · click to expand",
     )
     expect(harness.childIds(`message-${reasoning.id}`)).toEqual([
       `message-${reasoning.id}-reasoning-preview`,
@@ -288,7 +288,7 @@ describe("chat UI rendering", () => {
     expect(harness.get(`message-${reasoning.id}-reasoning-content`)).toBe(markdown)
     expect(markdown.content).toContain("one\ntwo\nthree\nfour\nfive")
     expect(harness.text(`message-${reasoning.id}-reasoning-header`)).toBe(
-      "Thought for 800ms · click to collapse",
+      "Thought for 1s · click to collapse",
     )
     expect(harness.childIds(`message-${reasoning.id}`)).toEqual([
       `message-${reasoning.id}-reasoning-preview`,

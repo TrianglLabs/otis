@@ -249,6 +249,4 @@ testing guidance, and the verification checklist.
 
 Otis is released under the [MIT License](LICENSE). Copyright © 2026 Triangl Labs.
 
-The terminal interface is built with [OpenTUI](https://github.com/anomalyco/opentui). Otis-managed local inference
-uses [llama.cpp](https://github.com/ggml-org/llama.cpp); PAIR remains a separately installed application. See
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for bundled third-party license notices.
+See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for bundled third-party license notices.

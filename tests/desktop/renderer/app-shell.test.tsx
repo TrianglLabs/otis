@@ -2046,10 +2046,10 @@ describe("AppShell settings navigation", () => {
     const tabs = within(panel).getByLabelText("Open documents")
     expect(
       within(tabs)
-        .getAllByRole("button", { pressed: true })
+        .getAllByRole("tab", { selected: true })
         .map((b) => b.textContent),
     ).toEqual(["cover.md"])
-    fireEvent.click(within(tabs).getByRole("button", { name: "Mermaid diagram" }))
+    fireEvent.click(within(tabs).getByRole("tab", { name: "Mermaid diagram" }))
     expect(within(panel).getByTitle("Mermaid diagram")).toBeTruthy()
   })
 
@@ -2217,7 +2217,7 @@ describe("AppShell settings navigation", () => {
     const relay = (source: Window | null, url: unknown) =>
       act(async () => {
         window.dispatchEvent(
-          new MessageEvent("message", { data: { type: "otis-webpage-link", url }, source }),
+          new MessageEvent("message", { data: { type: "otis-frame-link", url }, source }),
         )
       })
     const current = () => (frame as HTMLIFrameElement).contentWindow
@@ -2262,9 +2262,23 @@ describe("AppShell settings navigation", () => {
     const frame = document.querySelector('iframe[title="plan.docx"]')
     expect(frame).toBeTruthy()
     if (!frame) throw new Error("Word Canvas frame is missing")
-    expect(frame.getAttribute("sandbox")).toBe("")
-    expect(frame.getAttribute("srcdoc")).toContain("<h1>Launch plan</h1>")
-    expect(frame.getAttribute("srcdoc")).toContain("border-collapse: collapse")
+    // The converted document goes through the same policy-owning host as source HTML.
+    expect(frame.getAttribute("sandbox")).toBe("allow-scripts")
+    expect(frame.getAttribute("srcdoc")).toBeNull()
+    expect(frame.getAttribute("src")).toMatch(/webpage\.html$/)
+    const frameWindow = (frame as HTMLIFrameElement).contentWindow
+    if (!frameWindow) throw new Error("Webpage preview window is missing")
+    const postMessage = vi.spyOn(frameWindow, "postMessage")
+    fireEvent.load(frame)
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "otis-webpage-source",
+        source: expect.stringMatching(
+          /<h1>Launch plan<\/h1>[\s\S]*border-collapse: collapse|border-collapse: collapse[\s\S]*<h1>Launch plan<\/h1>/,
+        ),
+      }),
+      "*",
+    )
   })
 
   it("does not offer an incomplete streaming Mermaid block to Canvas", async () => {

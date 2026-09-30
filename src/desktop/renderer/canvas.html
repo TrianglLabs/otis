@@ -93,6 +93,30 @@
         color: var(--canvas-muted, #808080);
         font-size: 10px;
       }
+      /* Inline in a document: the drawing sets the frame's height and the page scrolls. */
+      html.inline,
+      html.inline body {
+        height: auto;
+        overflow: hidden;
+      }
+      html.inline #viewport {
+        position: static;
+        overflow: visible;
+        cursor: default;
+      }
+      html.inline #diagram {
+        width: 100%;
+        max-width: none;
+        margin: 0;
+        transition: none;
+        will-change: auto;
+      }
+      html.inline #error {
+        margin: 0;
+      }
+      html.inline #controls {
+        display: none;
+      }
     </style>
     <title>Canvas</title>
   </head>

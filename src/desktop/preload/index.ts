@@ -20,6 +20,8 @@ const api: DesktopApi = {
   getSnapshot: () => invoke(DESKTOP_CHANNELS.getSnapshot),
   getArtifact: (runtime, id, revision) =>
     invoke(DESKTOP_CHANNELS.getArtifact, runtime, id, revision),
+  getArtifactAsset: (runtime, id, revision, src) =>
+    invoke(DESKTOP_CHANNELS.getArtifactAsset, runtime, id, revision, src),
   closeArtifact: (runtime, id) => invoke(DESKTOP_CHANNELS.closeArtifact, runtime, id),
   openArtifact: (reference, version, runtime) =>
     invoke(DESKTOP_CHANNELS.openArtifact, reference, version, runtime),

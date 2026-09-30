@@ -68,3 +68,15 @@ export function inView(
     anchor?.view?.members.some((m) => m.id === session.id && m.dirName === session.dirName)
   )
 }
+
+/**
+ * A wall-clock span in whole units: `1s`, `34s`, `2m 5s`, `1h 12m`. Sub-second rounds up to `1s`.
+ * Duplicates src/cli/ui/format.ts to keep the CLI module out of the renderer bundle.
+ */
+export function formatElapsed(durationMs: number): string {
+  const total = Math.max(1, Math.round(durationMs / 1_000))
+  if (total < 60) return `${total}s`
+  const minutes = Math.floor(total / 60)
+  if (minutes < 60) return `${minutes}m ${total % 60}s`
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
+}

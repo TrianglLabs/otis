@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { DesktopEvent } from "../../../src/desktop/contracts.js"
 import { ArtifactCard } from "../../../src/desktop/renderer/components/ArtifactCard.js"
@@ -255,6 +255,93 @@ describe("stable message rendering", () => {
     expect(openCanvas).toHaveBeenCalledExactlyOnceWith("flowchart LR\n  A --> B")
   })
 
+  it("renders TeX math only for documents, leaving chat dollar signs literal", () => {
+    const text =
+      "Costs $5.\n\nInline $E = mc^2$ or \\(a^2\\) and display\n\n$$\n\\int_0^1 x\\,dx\n$$\n\n\\[\\sum_i i\\]"
+    const chat = render(<Markdown text={text} />)
+    expect(chat.container.querySelector(".katex")).toBeNull()
+    expect(chat.container.textContent).toContain("Costs $5.")
+    expect(chat.container.textContent).toContain("$E = mc^2$")
+    // CommonMark reads `\(` as an escaped parenthesis in chat.
+    expect(chat.container.textContent).toContain("or (a^2) and")
+    chat.unmount()
+
+    const doc = render(
+      <Markdown text={text} document={{ runtime: 1, id: "doc.md", revision: 1 }} />,
+    )
+    expect(doc.container.querySelectorAll(".katex")).toHaveLength(4)
+    expect(doc.container.querySelectorAll(".katex-display")).toHaveLength(2)
+    expect(doc.container.textContent).toContain("Costs $5.")
+    expect(doc.container.textContent).not.toContain("$E = mc^2$")
+    expect(doc.container.querySelector(".katex-error")).toBeNull()
+  })
+
+  it("colors fenced code by language and drops the fence's trailing newline", () => {
+    const { container } = render(
+      <Markdown text={"```ts\nconst answer = 42\n```\n\n- item\n\n  ```\n  plain\n  ```"} />,
+    )
+    const [typed, plain] = Array.from(container.querySelectorAll("pre code"))
+    expect(typed?.querySelector(".hljs-keyword")?.textContent).toBe("const")
+    expect(typed?.textContent).toBe("const answer = 42")
+    expect(plain?.querySelector("[class^=hljs-]")).toBeNull()
+    expect(plain?.textContent).toBe("plain")
+  })
+
+  it("renders a document's Mermaid inline and its relative images from the workspace", async () => {
+    const runtime = await testRuntime()
+    const asset = vi.spyOn(runtime.api, "getArtifactAsset").mockResolvedValue({
+      ok: true,
+      asset: { bytes: new Uint8Array([1, 2, 3]), mimeType: "image/png" },
+    })
+    const objectUrl = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:otis/logo")
+    const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {})
+    const text =
+      "```mermaid\nflowchart LR\n  A --> B\n```\n\n![Logo](img/logo.png) ![Remote](https://x.test/a.png)"
+    const view = render(
+      <DesktopProvider value={runtime}>
+        <Markdown text={text} document={{ runtime: 1, id: "workspace:doc.md", revision: 4 }} />
+      </DesktopProvider>,
+    )
+    await act(async () => {})
+    const frame = view.container.querySelector("iframe.canvas-frame-inline") as HTMLIFrameElement
+    expect(frame.getAttribute("src")).toMatch(/canvas\.html$/)
+    expect(frame.getAttribute("sandbox")).toBe("allow-scripts")
+    expect(view.container.querySelector(".codeBlock")).toBeNull()
+    expect(asset).toHaveBeenCalledExactlyOnceWith(1, "workspace:doc.md", 4, "img/logo.png")
+    expect(objectUrl).toHaveBeenCalledOnce()
+    expect((screen.getByAltText("Logo") as HTMLImageElement).getAttribute("src")).toBe(
+      "blob:otis/logo",
+    )
+    expect((screen.getByAltText("Remote") as HTMLImageElement).getAttribute("src")).toBe(
+      "https://x.test/a.png",
+    )
+    view.unmount()
+    expect(revoke).toHaveBeenCalledWith("blob:otis/logo")
+  })
+
+  it("names an image the workspace refuses instead of leaving a broken picture", async () => {
+    const runtime = await testRuntime()
+    vi.spyOn(runtime.api, "getArtifactAsset").mockResolvedValue({
+      ok: false,
+      reason: "Image is outside the workspace: ../secret.png",
+    })
+    render(
+      <DesktopProvider value={runtime}>
+        <Markdown
+          text="![Secret](../secret.png)"
+          document={{ runtime: 1, id: "workspace:doc.md", revision: 1 }}
+        />
+      </DesktopProvider>,
+    )
+    const missing = await waitFor(() => {
+      const element = document.querySelector(".md-imageMissing")
+      if (!element) throw new Error("still loading")
+      return element
+    })
+    expect(missing.getAttribute("aria-label")).toBe("Secret")
+    expect(missing.getAttribute("title")).toContain("outside the workspace")
+  })
+
   it("keeps settled paragraphs' elements while a message streams, then renders it whole", () => {
     const view = render(<Markdown text={"First **bold** paragraph.\n\nSecond"} streaming />)
     const first = view.container.querySelector("p")
@@ -279,7 +366,10 @@ describe("stable message rendering", () => {
     const table = view.container.querySelector(".md-tableWrap") as HTMLElement
     const code = view.container.querySelector(".codeBlock") as HTMLElement
     table.scrollLeft = 70
-    const textNode = code.querySelector("code")?.firstChild
+    // Highlighting nests the first token in a span; select the text inside it.
+    const textNode = document
+      .createTreeWalker(code.querySelector("code") as Node, NodeFilter.SHOW_TEXT)
+      .nextNode()
     if (!textNode) throw new Error("Code text is missing")
     const range = document.createRange()
     range.setStart(textNode, 0)

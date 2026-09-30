@@ -28,18 +28,19 @@ it("relays link clicks from the preview to the app and only from its own frame",
   })
   expect(frame.title).toBe("T")
   expect(frame.srcdoc).toContain("<a href='https://x.test/'>x</a>")
-  expect(frame.srcdoc).toContain("otis-webpage-link")
+  expect(frame.srcdoc).toContain("otis-frame-link")
+  expect(frame.srcdoc).toContain("otis-frame-find")
   expect(frame.srcdoc).toMatch(/<\/script>$/)
   receive({
     source: frame.contentWindow,
-    data: { type: "otis-webpage-link", url: "https://x.test/" },
+    data: { type: "otis-frame-link", url: "https://x.test/" },
   })
   expect(notify).toHaveBeenCalledExactlyOnceWith(
-    { type: "otis-webpage-link", url: "https://x.test/" },
+    { type: "otis-frame-link", url: "https://x.test/" },
     "*",
   )
-  receive({ source: {}, data: { type: "otis-webpage-link", url: "https://evil.test/" } })
-  receive({ source: frame.contentWindow, data: { type: "otis-webpage-link", url: 7 } })
+  receive({ source: {}, data: { type: "otis-frame-link", url: "https://evil.test/" } })
+  receive({ source: {}, data: { type: "otis-frame-find", query: "x", index: 0 } })
   receive({
     source: frame.contentWindow,
     data: { type: "otis-webpage-source", source: "<p>no</p>", title: "N" },
@@ -48,5 +49,33 @@ it("relays link clicks from the preview to the app and only from its own frame",
   expect(frame.srcdoc).not.toContain("<p>no</p>")
   window.removeEventListener("message", receive)
   notify.mockRestore()
+  document.body.innerHTML = ""
+})
+
+it("relays view requests down to the page and its agent's answers back up, nothing else", async () => {
+  const { frame, receive } = await loadWebpageHost()
+  const notify = vi.spyOn(window.parent, "postMessage").mockImplementation(() => {})
+  const inner = vi.spyOn(frame.contentWindow, "postMessage").mockImplementation(() => {})
+  receive({ source: window.parent, data: { type: "otis-frame-find", query: "a", index: 0 } })
+  receive({ source: window.parent, data: { type: "otis-frame-zoom", zoom: 1.5 } })
+  receive({ source: window.parent, data: { type: "otis-other", zoom: 1.5 } })
+  expect(inner.mock.calls.map(([data]) => data.type)).toEqual([
+    "otis-frame-find",
+    "otis-frame-zoom",
+  ])
+  receive({ source: frame.contentWindow, data: { type: "otis-frame-matches", count: 3 } })
+  receive({ source: frame.contentWindow, data: { type: "otis-frame-ready" } })
+  receive({
+    source: frame.contentWindow,
+    data: { type: "otis-webpage-source", source: "x", title: "y" },
+  })
+  expect(notify.mock.calls.map(([data]) => data.type)).toEqual([
+    "otis-frame-matches",
+    "otis-frame-ready",
+  ])
+  expect(frame.srcdoc).toBe("")
+  window.removeEventListener("message", receive)
+  notify.mockRestore()
+  inner.mockRestore()
   document.body.innerHTML = ""
 })

@@ -73,6 +73,9 @@ export type ArtifactPayload = ArtifactMetadata &
     | { kind: Exclude<ArtifactKind, "pdf">; encoding: "utf8" | "html"; content: string }
   )
 
+/** An image a Markdown document references by a workspace-relative path. */
+export type ArtifactAsset = { bytes: Uint8Array; mimeType: string }
+
 const FILE_KINDS = new Map<string, ArtifactKind>([
   [".md", "markdown"],
   [".markdown", "markdown"],

@@ -5,6 +5,7 @@ import type { SubagentSummary } from "../../../contracts.js"
 import { IconButton } from "../../components/Button.js"
 import { Icon } from "../../components/Icon.js"
 import { MatrixLoader } from "../../components/MatrixLoader.js"
+import { formatElapsed } from "../../format.js"
 import { englishT, useI18n } from "../../i18n/index.js"
 import type { Translate } from "../../i18n/messages/en.js"
 import { useDesktop, useDesktopState } from "../../runtime.js"
@@ -134,8 +135,7 @@ const STOPPED_ICONS: Record<Exclude<SubagentSummary["status"], "running">, typeo
 /**
  * Progress line for a delegated run, mirroring subagentSummary in the TUI's subagent panel
  * (src/cli/ui/subagent-panel.ts) exactly: tool count, then "running" or the wall-clock time, then a
- * terminal lifecycle word for failed or interrupted runs. The elapsed format duplicates
- * src/cli/ui/format.ts to keep the CLI module out of the renderer bundle.
+ * terminal lifecycle word for failed or interrupted runs.
  */
 export function agentSummary(
   run: Pick<SubagentSummary, "status" | "tools" | "durationMs">,
@@ -143,14 +143,7 @@ export function agentSummary(
 ): string {
   const parts = [t("panel.toolCount", { count: run.tools })]
   if (run.status === "running") parts.push(t("panel.running"))
-  else if (run.durationMs !== undefined) {
-    const seconds = run.durationMs / 1_000
-    parts.push(
-      run.durationMs < 1_000
-        ? `${Math.round(run.durationMs)}ms`
-        : `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)}s`,
-    )
-  }
+  else if (run.durationMs !== undefined) parts.push(formatElapsed(run.durationMs))
   if (run.status === "failed") parts.push(t("panel.failed"))
   if (run.status === "interrupted") parts.push(t("panel.interrupted"))
   return parts.join(" · ")

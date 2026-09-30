@@ -174,9 +174,11 @@ export type InferenceClient = {
   complete(messages: ChatMessage[], options?: CompleteOptions): Promise<string>
 }
 
+/** Presentation formats the active adapter can render natively. */
 export type OutputCapabilities = {
-  /** Presentation formats the active adapter can render natively. */
   mermaid?: boolean
+  /** TeX math in Markdown documents opened in Canvas. */
+  math?: boolean
 }
 
 export type StreamChatOptions = {

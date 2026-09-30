@@ -58,6 +58,7 @@ import {
 } from "../../storage/session-files.js"
 import { readWorkspacePath, registerWorkspacePath } from "../../storage/workspace-registry.js"
 import {
+  type ArtifactAssetResult,
   type ArtifactResult,
   type DesktopAttachmentInput,
   type DesktopEvent,
@@ -115,6 +116,8 @@ const RECENT_ARTIFACTS = 3
 
 const RESTARTING = "Otis is restarting to finish an update."
 const SWITCHING = "Switching workspaces — try again in a moment."
+/** What the desktop renders that the model may lean on. */
+const CANVAS = { mermaid: true, math: true }
 const LOCATING = "Locating the working folder — try again in a moment."
 /** Never shown: a live renderer resets the flag before it submits. Parks the queue meanwhile. */
 const RENDERER_GONE = "The window is reloading."
@@ -188,7 +191,7 @@ export class DesktopRuntime {
   static async create(options: DesktopRuntimeOptions) {
     const app = await Application.create({
       cwd: options.cwd,
-      outputCapabilities: { mermaid: true },
+      outputCapabilities: CANVAS,
     })
     return DesktopRuntime.forApplication(app, options)
   }
@@ -323,6 +326,22 @@ export class DesktopRuntime {
       const payload = await this.#storeOf(runtime)?.load(id, revision)
       return payload
         ? { ok: true, payload }
+        : { ok: false, stale: true, reason: "This preview changed." }
+    } catch (error) {
+      return { ok: false, reason: describeError(error) }
+    }
+  }
+
+  async getArtifactAsset(
+    runtime: number,
+    id: string,
+    revision: number,
+    src: string,
+  ): Promise<ArtifactAssetResult> {
+    try {
+      const asset = await this.#storeOf(runtime)?.loadAsset(id, revision, src)
+      return asset
+        ? { ok: true, asset }
         : { ok: false, stale: true, reason: "This preview changed." }
     } catch (error) {
       return { ok: false, reason: describeError(error) }
@@ -636,7 +655,7 @@ export class DesktopRuntime {
 
       let next: Application
       try {
-        next = await Application.create({ cwd, outputCapabilities: { mermaid: true } })
+        next = await Application.create({ cwd, outputCapabilities: CANVAS })
       } catch (error) {
         return { ok: false, reason: `Could not open that folder: ${describeError(error)}` }
       }

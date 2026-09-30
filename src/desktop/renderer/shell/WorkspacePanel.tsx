@@ -406,7 +406,7 @@ function SessionWorkspacePanel({
           </div>
           <div {...view("canvas")}>
             {views.length > 1 ? (
-              <nav className="canvas-tabs" aria-label={t("canvas.tabs")}>
+              <div className="canvas-tabs" role="tablist" aria-label={t("canvas.tabs")}>
                 {views.map((entry) => {
                   const title =
                     entry.artifact.kind === "mermaid" ? t("canvas.diagram") : entry.artifact.title
@@ -417,8 +417,9 @@ function SessionWorkspacePanel({
                     >
                       <button
                         type="button"
+                        role="tab"
                         className="canvas-tabOpen"
-                        aria-pressed={entry === selected}
+                        aria-selected={entry === selected}
                         onClick={() => setChosen({ key: entry.key, at: Date.now() })}
                       >
                         {title}
@@ -438,9 +439,9 @@ function SessionWorkspacePanel({
                     </div>
                   )
                 })}
-              </nav>
+              </div>
             ) : null}
-            <CanvasPanel view={selected} theme={theme} />
+            <CanvasPanel view={selected} />
           </div>
           {terminal ? (
             <div {...view("terminal")}>

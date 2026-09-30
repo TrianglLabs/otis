@@ -134,9 +134,20 @@ restrictions while inline interactions remain available. The preview frame canno
 process allows subframes to load only the empty frame, their srcdoc body, and the bundled canvas and webpage
 documents, and the preview relays http(s) link clicks to the app, which opens them in the system browser. Markdown
 previews render relative image references as-is; only data: URIs and bundled assets resolve, since the renderer has
-no workspace file access. Markdown previews stop at 512 KB while the 2 MB store cap still applies to export.
+no workspace file access, except that a Markdown working file's relative image paths are served through the
+artifact store: only image types, only from inside the workspace, and only while the tab still shows that revision.
+Saved copies and attachments resolve no images. Markdown previews render TeX math (`$…$`, `$$…$$`, `\(…\)`,
+`\[…\]`) with KaTeX and Mermaid blocks inline in the sandboxed canvas frame; chat Markdown stays literal so prices
+are not parsed as equations and offers diagrams as cards, and the system prompt advertises math and Mermaid only to
+adapters that report them as output capabilities. Code blocks everywhere are colored by highlight.js grammars with
+the theme palette. Markdown previews stop at 512 KB while the 2 MB store cap still applies to export.
+Every document kind shares one find bar and zoom control: Markdown and PDF matches are painted with the CSS Custom
+Highlight API in this window, while HTML and Word previews answer through an agent injected beside the source in the
+sandboxed frame, which also relays link clicks and shortcuts out. Word previews are Mammoth HTML in that same frame.
 PDF previews use a dedicated worker and virtualized pages with bounded bitmap sizes, disposing rendering tasks and
-worker resources when closed; page bitmaps re-render once the panel width settles and scale in CSS meanwhile.
+worker resources when closed; page bitmaps re-render once the panel width settles and scale in CSS meanwhile. Each
+page carries a PDF.js text layer, so text selects and copies, and find reads page text in order to report matches
+early on long documents.
 Preview-time validation checks the PDF header and page count and the DOCX archive bounds; publication keeps the full
 document validation. PDF bytes cross the renderer boundary as typed arrays rather than base64 text.
 Canvas eligibility is a shared, browser-safe policy in `src/artifacts/canvas.ts`. Code and raw text remain available
