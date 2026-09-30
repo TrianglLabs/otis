@@ -14,6 +14,11 @@ const mocks = vi.hoisted(() => ({
 vi.mock("pdfjs-dist/legacy/build/pdf.mjs", () => ({
   getDocument: mocks.getDocument,
   PDFWorker: { create: mocks.createWorker },
+  TextLayer: class {
+    textDivs: HTMLElement[] = []
+    render = vi.fn(async () => {})
+    cancel = vi.fn()
+  },
 }))
 vi.mock("pdfjs-dist/legacy/build/pdf.worker.mjs?worker", () => ({
   default: class {
@@ -146,24 +151,61 @@ describe("PDF preview lifecycle", () => {
     })
     render(<PdfPreview data={pdfBytes()} />)
     const canvas = (await screen.findByLabelText("Page 1")) as HTMLCanvasElement
+    const surface = canvas.parentElement as HTMLElement
     await waitFor(() => expect(page.render).toHaveBeenCalledOnce())
     expect(canvas.style.width).toBe("528px")
+    expect(surface.style.transform).toBe("scale(1)")
+    // The bitmap and its text layer keep their size; the surface scales until re-rendered.
     clientWidth = 400
     act(() => {
       for (const notify of observers) notify()
     })
-    expect(canvas.style.width).toBe("368px")
+    expect(canvas.style.width).toBe("528px")
+    expect(surface.style.transform).toBe(`scale(${368 / 528})`)
     clientWidth = 420
     act(() => {
       for (const notify of observers) notify()
     })
-    expect(canvas.style.width).toBe("388px")
+    expect(surface.style.transform).toBe(`scale(${388 / 528})`)
     expect(page.render).toHaveBeenCalledOnce()
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 180))
     })
     await waitFor(() => expect(page.render).toHaveBeenCalledTimes(2))
     expect(page.getViewport).toHaveBeenLastCalledWith({ scale: 388 / 612 })
+    expect(canvas.style.width).toBe("388px")
+    expect(surface.style.transform).toBe("scale(1)")
+  })
+
+  it("lays a text layer over each page and reports find matches from the page text", async () => {
+    const page = fakePage()
+    page.getTextContent.mockResolvedValue({
+      items: [
+        { str: "Otis keeps ", hasEOL: false },
+        { type: "beginMarkedContent" },
+        { str: "notes", hasEOL: true },
+        { str: "otis again", hasEOL: false },
+      ],
+    })
+    const onMatches = vi.fn()
+    mocks.getDocument.mockReturnValue({
+      promise: Promise.resolve({ numPages: 1, getPage: vi.fn(async () => page) }),
+      destroy: vi.fn(async () => {}),
+    })
+    const view = render(
+      <PdfPreview data={pdfBytes()} find={{ query: "otis", index: 0 }} onMatches={onMatches} />,
+    )
+    const canvas = (await screen.findByLabelText("Page 1")) as HTMLCanvasElement
+    await waitFor(() => expect(page.render).toHaveBeenCalled())
+    expect(page.streamTextContent).toHaveBeenCalledOnce()
+    const layer = canvas.parentElement?.querySelector(".textLayer") as HTMLElement
+    expect(layer.style.getPropertyValue("--total-scale-factor")).toBe(String(528 / 612))
+    await waitFor(() => expect(onMatches).toHaveBeenLastCalledWith(2))
+    view.rerender(
+      <PdfPreview data={pdfBytes()} find={{ query: "", index: 0 }} onMatches={onMatches} />,
+    )
+    await waitFor(() => expect(onMatches).toHaveBeenLastCalledWith(0))
+    expect(page.getTextContent).toHaveBeenCalledOnce()
   })
 
   it("limits bitmap memory for oversized pages", async () => {
@@ -186,11 +228,15 @@ function pdfBytes(text = "document") {
 
 function fakePage(height = 792) {
   return {
+    userUnit: 1,
     getViewport: vi.fn(({ scale }: { scale: number }) => ({
+      scale,
       width: 612 * scale,
       height: height * scale,
     })),
     render: vi.fn(() => ({ promise: Promise.resolve(), cancel: vi.fn() })),
+    streamTextContent: vi.fn(() => ({})),
+    getTextContent: vi.fn(async (): Promise<{ items: object[] }> => ({ items: [] })),
     cleanup: vi.fn(),
   }
 }

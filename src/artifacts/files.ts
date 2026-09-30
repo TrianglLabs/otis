@@ -1,6 +1,6 @@
 import { constants } from "node:fs"
 import { open, realpath } from "node:fs/promises"
-import { basename, isAbsolute, relative, resolve, sep } from "node:path"
+import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from "node:path"
 import { MAX_PDF_PAGES } from "../inference/document-constraints.js"
 import {
   createDocumentAttachment,
@@ -10,6 +10,7 @@ import {
 import type { DocumentContentPart } from "../inference/types.js"
 import { isCanvasArtifact } from "./canvas.js"
 import {
+  type ArtifactAsset,
   type ArtifactKind,
   type ArtifactMetadata,
   type ArtifactPayload,
@@ -20,6 +21,16 @@ import {
 } from "./types.js"
 
 const MAX_RENDERED_DOCX_CHARS = 4_000_000
+const IMAGE_TYPES = new Map([
+  [".png", "image/png"],
+  [".jpg", "image/jpeg"],
+  [".jpeg", "image/jpeg"],
+  [".gif", "image/gif"],
+  [".webp", "image/webp"],
+  [".avif", "image/avif"],
+  [".bmp", "image/bmp"],
+  [".svg", "image/svg+xml"],
+])
 /** The store and export cap for text artifacts; Markdown previews render a smaller subset. */
 const MAX_TEXT_ARTIFACT_BYTES = 2_000_000
 export const MAX_MARKDOWN_PREVIEW_BYTES = 512 * 1024
@@ -115,6 +126,26 @@ export async function readWorkspaceArtifactBytes(
     }
     throw error
   }
+}
+
+/**
+ * An image a Markdown working file references relative to itself. Only image types are served,
+ * only from inside the workspace, and never through a symlink that leaves it.
+ */
+export async function readWorkspaceImage(
+  cwd: string,
+  document: WorkspaceArtifactReference,
+  src: string,
+): Promise<ArtifactAsset> {
+  const mimeType = IMAGE_TYPES.get(extname(src).toLowerCase())
+  if (!mimeType) throw new Error(`Not an image file: ${src}`)
+  const root = await realpath(resolve(cwd))
+  const requested = resolve(root, dirname(document.path), src)
+  if (!isNestedPath(relative(root, requested)))
+    throw new Error(`Image is outside the workspace: ${src}`)
+  const path = await realpath(requested)
+  if (!isNestedPath(relative(root, path))) throw new Error(`Image is outside the workspace: ${src}`)
+  return { bytes: new Uint8Array(await readArtifactBytes(path)), mimeType }
 }
 
 function isNestedPath(path: string) {

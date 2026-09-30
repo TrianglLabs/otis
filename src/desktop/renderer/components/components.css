@@ -426,3 +426,67 @@
   color: var(--danger);
   font-size: var(--text-meta);
 }
+
+/* Syntax colors from the theme palette, so highlighted code reads the same in every theme. */
+.hljs-comment,
+.hljs-quote,
+.hljs-meta {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-doctag,
+.hljs-tag,
+.hljs-name,
+.hljs-built_in {
+  color: var(--pink);
+}
+
+.hljs-string,
+.hljs-regexp,
+.hljs-addition,
+.hljs-template-tag,
+.hljs-attr {
+  color: var(--green);
+}
+
+.hljs-number,
+.hljs-literal,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-link {
+  color: var(--orange);
+}
+
+.hljs-title,
+.hljs-section,
+.hljs-function,
+.hljs-class,
+.hljs-type {
+  color: var(--cyan);
+}
+
+.hljs-variable,
+.hljs-template-variable,
+.hljs-attribute,
+.hljs-selector-attr,
+.hljs-selector-pseudo,
+.hljs-selector-class,
+.hljs-selector-id,
+.hljs-params {
+  color: var(--yellow);
+}
+
+.hljs-deletion {
+  color: var(--pink);
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: 600;
+}

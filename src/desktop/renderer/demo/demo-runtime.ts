@@ -17,6 +17,7 @@ import type { ModelPickerChoice, ModelPickerItem } from "../../../inference/pick
 import type { ManagedSkillSource } from "../../../skills/catalog.js"
 import { describeToolAction, type ToolAction } from "../../../tools/activity.js"
 import {
+  type ArtifactAssetResult,
   type ArtifactResult,
   type DesktopApi,
   type DesktopAttachmentInput,
@@ -106,6 +107,29 @@ Otis now keeps editable documents beside the conversation while it works.
 - **PDF and Word** open from their original local bytes without sending source files to a provider.
 
 When Otis writes or edits this file, Canvas refreshes from the workspace automatically—no copy-and-paste loop and no horizontally scrolling document.
+
+## Math
+
+Documents render TeX math, inline like $E = mc^2$ or on its own lines:
+
+$$
+\\int_0^1 x^2 \\, dx = \\frac{1}{3}
+$$
+
+## Code and diagrams
+
+Fenced code is colored by language, and Mermaid blocks draw inline:
+
+\`\`\`ts
+export function fit(width: number, zoom = 1) {
+  return Math.round(width * zoom) // whole pixels only
+}
+\`\`\`
+
+\`\`\`mermaid
+flowchart LR
+  File[Working file] --> Store[Artifact store] --> Canvas
+\`\`\`
 
 > The workspace file remains the source of truth, so the same tool behavior works in the CLI and headless modes.`
 
@@ -1375,6 +1399,10 @@ class DemoRuntime implements DesktopApi {
         )
     if (!fixture) return { ok: false, reason: "That demo artifact is unavailable." }
     return { ok: true, payload: { ...fixture.payload, ...artifact } as ArtifactPayload }
+  }
+
+  async getArtifactAsset(): Promise<ArtifactAssetResult> {
+    return { ok: false, reason: "Demo documents have no workspace images." }
   }
 
   async saveArtifact(_runtime: number, _id: string, _revision: number): Promise<SessionOpResult> {

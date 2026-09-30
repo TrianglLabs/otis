@@ -22,11 +22,13 @@ export function formatContextLabel(label: string) {
   return ` ${label} `
 }
 
-/** A short wall-clock span for cards and panels, e.g. `850ms`, `3.2s`, `34s`. */
+/** A wall-clock span in whole units: `1s`, `34s`, `2m 5s`, `1h 12m`. Sub-second rounds up to `1s`. */
 export function formatElapsed(durationMs: number) {
-  if (durationMs < 1_000) return `${durationMs}ms`
-  const seconds = durationMs / 1_000
-  return `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)}s`
+  const total = Math.max(1, Math.round(durationMs / 1_000))
+  if (total < 60) return `${total}s`
+  const minutes = Math.floor(total / 60)
+  if (minutes < 60) return `${minutes}m ${total % 60}s`
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
 }
 
 export function formatStats(stats: LocalStats) {

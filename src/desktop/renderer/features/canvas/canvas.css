@@ -254,3 +254,179 @@
   font-size: var(--text-ui);
   text-align: center;
 }
+
+/* Find and zoom, shared by every document kind. */
+.canvas-viewControls {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.canvas-zoomLevel {
+  min-width: 42px;
+  height: 22px;
+  padding: 0 4px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+  cursor: pointer;
+}
+
+.canvas-zoomLevel:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.canvas-findBar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+/* Like the palette's search field: bare text on the bar, no box of its own. */
+.canvas-findInput {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 4px;
+  border: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-ui);
+  outline: none;
+}
+
+.canvas-findInput::placeholder {
+  color: var(--text-dim);
+}
+
+.canvas-findCount {
+  flex-shrink: 0;
+  min-width: 56px;
+  color: var(--text-dim);
+  font-size: var(--text-meta);
+  text-align: right;
+  white-space: nowrap;
+}
+
+::highlight(otis-find) {
+  background: color-mix(in srgb, var(--yellow) 35%, transparent);
+}
+
+::highlight(otis-find-current) {
+  background: color-mix(in srgb, var(--orange) 60%, transparent);
+}
+
+.canvas-artifactBody:focus {
+  outline: none;
+}
+
+/* A Mermaid drawing inside a Markdown document: the frame is as tall as the drawing. */
+.canvas-frame-inline {
+  flex: none;
+  height: auto;
+  min-height: 0;
+}
+
+.md-diagram {
+  margin: 10px 0;
+}
+
+.md-imageMissing {
+  display: inline-block;
+  padding: 2px 6px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  font-size: var(--text-meta);
+}
+
+.canvas-document img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Pages wider than the panel scroll sideways once zoomed in. */
+.canvas-pdfPages {
+  overflow-x: auto;
+}
+
+.canvas-pdfItem {
+  min-width: 100%;
+}
+
+.canvas-pdfSurface {
+  position: relative;
+  transform-origin: 0 0;
+  background: white;
+  box-shadow: 0 4px 18px #0006;
+}
+
+.canvas-pdfSurface[hidden] {
+  display: none;
+}
+
+.canvas-pdfPage {
+  box-shadow: none;
+}
+
+/* The PDF.js text layer: invisible runs laid over the bitmap so text selects and finds. */
+.textLayer {
+  --scale-round-x: 1px;
+  --scale-round-y: 1px;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  line-height: 1;
+  text-align: initial;
+  letter-spacing: normal;
+  word-spacing: normal;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  color-scheme: only light;
+}
+
+.textLayer :is(span, br) {
+  position: absolute;
+  color: transparent;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  user-select: text;
+}
+
+.textLayer > :not(.markedContent),
+.textLayer .markedContent span:not(.markedContent) {
+  --font-height: 0;
+  --scale-x: 1;
+  --rotate: 0deg;
+  z-index: 1;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+
+.textLayer .markedContent {
+  display: contents;
+}
+
+.textLayer span[role="img"] {
+  user-select: none;
+  cursor: default;
+}
+
+.textLayer ::selection {
+  background: color-mix(in srgb, AccentColor, transparent 50%);
+  color: transparent;
+}

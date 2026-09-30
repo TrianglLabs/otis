@@ -27,13 +27,15 @@ let panY = 0
 let drag
 let latestRequest = 0
 let lastSource
+// Inline, the diagram sits in a document: no pan or zoom, and the frame reports its height.
+let inline = false
 
 zoomOut.addEventListener("click", () => setZoom(scale / 1.2))
 zoomIn.addEventListener("click", () => setZoom(scale * 1.2))
 resetButton.addEventListener("click", resetView)
 
 viewport.addEventListener("pointerdown", (event) => {
-  if (event.button !== 0) return
+  if (event.button !== 0 || inline) return
   event.preventDefault()
   viewport.focus()
   viewport.setPointerCapture(event.pointerId)
@@ -51,6 +53,7 @@ viewport.addEventListener("pointercancel", endDrag)
 viewport.addEventListener(
   "wheel",
   (event) => {
+    if (inline) return
     event.preventDefault()
     if (event.ctrlKey || event.metaKey) setZoom(scale * Math.exp(-event.deltaY * 0.002))
     else {
@@ -62,6 +65,7 @@ viewport.addEventListener(
   { passive: false },
 )
 viewport.addEventListener("keydown", (event) => {
+  if (inline) return
   const distance = event.shiftKey ? 60 : 24
   if (event.key === "+" || event.key === "=") setZoom(scale * 1.2)
   else if (event.key === "-") setZoom(scale / 1.2)
@@ -114,6 +118,9 @@ window.addEventListener("message", (event) => {
   // A re-render of the same diagram (a theme or language change) keeps the user's zoom and pan.
   const keepView = request.source === lastSource
   lastSource = request.source
+  inline = request.inline === true
+  document.documentElement.classList.toggle("inline", inline)
+  viewport.tabIndex = inline ? -1 : 0
   document.body.style.color = colors.text
   document.documentElement.style.setProperty("--canvas-surface", colors.surface)
   document.documentElement.style.setProperty("--canvas-border", colors.border)
@@ -176,7 +183,7 @@ async function render(source, colors, requestId, keepView) {
     if (svg) {
       const viewBoxWidth = Number(svg.getAttribute("viewBox")?.split(/\s+/)[2])
       const naturalWidth = Number.isFinite(viewBoxWidth) && viewBoxWidth > 0 ? viewBoxWidth : 480
-      svg.style.width = `min(100%, ${Math.min(naturalWidth, 480)}px)`
+      svg.style.width = `min(100%, ${Math.min(naturalWidth, inline ? 720 : 480)}px)`
       svg.style.maxWidth = "100%"
       svg.style.height = "auto"
       svg.style.margin = "0 auto"
@@ -189,7 +196,8 @@ async function render(source, colors, requestId, keepView) {
         width: svg?.getBoundingClientRect().width,
         diagramTop: svg?.getBoundingClientRect().top,
         controlsBottom: controls.getBoundingClientRect().bottom,
-        controls: true,
+        controls: !inline,
+        height: inline ? root.getBoundingClientRect().bottom : undefined,
       },
       "*",
     )
@@ -234,10 +242,20 @@ function showError(message, requestId) {
       type: "otis-canvas-render",
       ok: false,
       message: Object.hasOwn(labels, message) ? labels[message] : message,
+      height: inline ? errorView.getBoundingClientRect().bottom : undefined,
     },
     "*",
   )
 }
+
+// A document's width follows the panel, so an inline drawing's height changes with it.
+window.addEventListener("resize", () => {
+  if (!inline || root.hidden) return
+  parent.postMessage(
+    { type: "otis-canvas-render", ok: true, height: root.getBoundingClientRect().bottom },
+    "*",
+  )
+})
 
 function renderError() {
   const detail = Object.hasOwn(labels, lastError) ? labels[lastError] : lastError

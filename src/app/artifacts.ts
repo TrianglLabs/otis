@@ -7,6 +7,7 @@ import {
   attachmentArtifactMetadata,
   payloadFromBytes,
   readWorkspaceArtifactBytes,
+  readWorkspaceImage,
   workspaceArtifactMetadata,
 } from "../artifacts/files.js"
 import {
@@ -298,6 +299,17 @@ export class ArtifactStore {
       )
     }
     return this.#open.includes(tab) && revision === tab.revision ? payload : undefined
+  }
+
+  /**
+   * An image a Markdown working file references relative to itself, or undefined once the tab's
+   * revision is stale. Saved copies and attachments resolve nothing: their preview never reads the
+   * workspace.
+   */
+  async loadAsset(id: string, revision: number, src: string) {
+    const tab = this.#tab(id)
+    if (!tab || revision !== tab.revision || tab.view.source !== "workspace") return undefined
+    return readWorkspaceImage(this.cwd, tab.view.reference, src)
   }
 
   async exportFile(id: string, revision: number): Promise<ArtifactFile | undefined> {

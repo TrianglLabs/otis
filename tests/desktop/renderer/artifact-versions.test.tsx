@@ -38,7 +38,12 @@ it("saves the displayed revision, reports errors, and resets the action when the
   const next = { ...artifact, revision: artifact.revision + 1 }
   vi.spyOn(api, "getArtifact").mockResolvedValue({
     ok: true,
-    payload: { ...next, kind: "docx", encoding: "html", content: "<p>Another revision</p>" },
+    payload: {
+      ...next,
+      kind: "docx",
+      encoding: "html",
+      content: "<p>Another revision</p>",
+    },
   })
   view.rerender(
     <DesktopProvider value={runtime}>

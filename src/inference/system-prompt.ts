@@ -78,6 +78,11 @@ export function buildSystemPrompt(
         ].join("\n")
       : "- Avoid mermaid diagrams; this interface cannot render them.",
   )
+  sections.push(
+    outputCapabilities.math
+      ? "- Markdown files opened in Canvas render TeX math: `$…$` or `\\(…\\)` inline, `$$…$$` or `\\[…\\]` on its own lines. Use it for formulas in documents; chat replies show the markup as plain text."
+      : "- Avoid TeX math markup such as `$…$`; this interface shows it as plain text.",
+  )
 
   if (projectContext.length > MAX_CONTEXT_FILES) {
     throw new Error(`Project context must not exceed ${MAX_CONTEXT_FILES} files.`)

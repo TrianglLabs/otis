@@ -59,6 +59,19 @@ describe("system prompt", () => {
     expect(prompt).not.toContain("Avoid mermaid diagrams")
   })
 
+  it("advertises TeX math only to interfaces whose Canvas renders it", () => {
+    const plain = buildSystemPrompt([], new Date("2026-07-16T12:00:00Z"))
+    expect(plain).toContain("Avoid TeX math markup")
+
+    const canvas = buildSystemPrompt([], new Date("2026-07-16T12:00:00Z"), [], [], {
+      mermaid: true,
+      math: true,
+    })
+    expect(canvas).toContain("Markdown files opened in Canvas render TeX math")
+    expect(canvas).toContain("chat replies show the markup as plain text")
+    expect(canvas).not.toContain("Avoid TeX math markup")
+  })
+
   it("names the web tools the runtime actually exposes", () => {
     const prompt = buildSystemPrompt([], new Date("2026-07-16T12:00:00Z"))
 

@@ -109,11 +109,11 @@ describe("chat UI subagents", () => {
     harness.ui.renderSubagents(traces.all)
 
     expect(harness.text(subagentRowId("call_a"))).toBe("  ✓ Map the notes")
-    expect(harness.text(`${subagentRowId("call_a")}-meta`)).toBe("   1 tool · 1.5s")
+    expect(harness.text(`${subagentRowId("call_a")}-meta`)).toBe("   1 tool · 2s")
     // A settled title is one uniformly colored chunk instead of per-letter shimmer.
     expect(row.chunks.at(-1)?.text).toBe("Map the notes")
     expect(harness.text(subagentRowId("call_b"))).toBe("  ✗ Check the docs")
-    expect(harness.text(`${subagentRowId("call_b")}-meta`)).toBe("   0 tools · 1.5s · failed")
+    expect(harness.text(`${subagentRowId("call_b")}-meta`)).toBe("   0 tools · 2s · failed")
   })
 
   it("opens a run's full trace in place of the conversation and returns on escape", async () => {
@@ -143,7 +143,7 @@ describe("chat UI subagents", () => {
     // Live progress keeps flowing into the open trace.
     traces.apply(envelope("call_a", "Map the notes", { type: "complete", messages: childMessages }))
     harness.ui.renderSubagents(traces.all)
-    expect(harness.text("subagent-trace-header")).toMatch(/^✓ Map the notes · 1 tool · \d+ms$/)
+    expect(harness.text("subagent-trace-header")).toMatch(/^✓ Map the notes · 1 tool · \d+s$/)
 
     const traceCard = harness.get<BoxRenderable>("message-2")
     harness.press("escape")

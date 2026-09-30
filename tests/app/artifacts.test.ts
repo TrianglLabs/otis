@@ -1,4 +1,4 @@
-import { mkdtemp, rename, rm, stat, symlink, utimes, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rename, rm, stat, symlink, utimes, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -525,3 +525,56 @@ async function trackedTempDir() {
   tempDirs.push(path)
   return path
 }
+
+describe("Markdown document images", () => {
+  it("serves a working file's relative images from inside the workspace only, while the revision holds", async () => {
+    const cwd = await trackedTempDir()
+    const outside = await trackedTempDir()
+    await writeFile(join(cwd, "docs.md"), "![](img/logo.png)")
+    await mkdir(join(cwd, "img"))
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0, 0, 0])
+    await writeFile(join(cwd, "img", "logo.png"), png)
+    await writeFile(join(outside, "secret.png"), png)
+    await symlink(join(outside, "secret.png"), join(cwd, "img", "escape.png"))
+    await writeFile(join(cwd, "img", "notes.txt"), "text")
+    const store = new ArtifactStore(cwd, undefined, 50)
+    try {
+      store.openWorkspace({ source: "workspace", path: "docs.md", kind: "markdown" })
+      const id = store.metadata?.id ?? ""
+      const revision = store.metadata?.revision ?? 0
+      const asset = await store.loadAsset(id, revision, "img/logo.png")
+      expect(asset?.mimeType).toBe("image/png")
+      expect(Buffer.from(asset?.bytes ?? [])).toEqual(png)
+      await expect(store.loadAsset(id, revision, "../outside.png")).rejects.toThrow(
+        "outside the workspace",
+      )
+      await expect(store.loadAsset(id, revision, "img/escape.png")).rejects.toThrow(
+        "outside the workspace",
+      )
+      await expect(store.loadAsset(id, revision, "img/notes.txt")).rejects.toThrow("Not an image")
+      expect(await store.loadAsset(id, revision + 1, "img/logo.png")).toBeUndefined()
+    } finally {
+      store.dispose()
+    }
+  })
+
+  it("resolves no images for saved copies, whose preview never reads the workspace", async () => {
+    const cwd = await trackedTempDir()
+    const directory = await trackedTempDir()
+    await writeFile(join(cwd, "report.md"), "![](chart.png)")
+    const publisher = new ArtifactPublisher(directory)
+    const reference = await publisher.publish(Buffer.from("![](chart.png)"), {
+      name: "report.md",
+      kind: "markdown",
+      path: join(cwd, "report.md"),
+    })
+    const store = new ArtifactStore(cwd, directory, 50)
+    try {
+      store.observeFile(reference)
+      const id = store.metadata?.id ?? ""
+      expect(await store.loadAsset(id, store.metadata?.revision ?? 0, "chart.png")).toBeUndefined()
+    } finally {
+      store.dispose()
+    }
+  })
+})

@@ -27,6 +27,14 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
     if (typeof revision !== "number") throw new Error("getArtifact expects a numeric revision")
     return runtime.getArtifact(target, id, revision)
   })
+  handle(DESKTOP_CHANNELS.getArtifactAsset, (target, id, revision, src) => {
+    if (typeof target !== "number") throw new Error("getArtifactAsset expects a numeric runtime id")
+    if (typeof id !== "string" || !id) throw new Error("getArtifactAsset expects an artifact id")
+    if (typeof revision !== "number") throw new Error("getArtifactAsset expects a numeric revision")
+    if (typeof src !== "string" || !src || src.length > 1024)
+      throw new Error("getArtifactAsset expects a relative image path")
+    return runtime.getArtifactAsset(target, id, revision, src)
+  })
   handle(DESKTOP_CHANNELS.openArtifact, (reference, version, target) => {
     if (!isArtifactReference(reference))
       throw new Error("openArtifact expects a valid artifact reference")

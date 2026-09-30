@@ -7,6 +7,7 @@ import type { ArtifactReference } from "../../../../artifacts/types.js"
 import { ArtifactCard } from "../../components/ArtifactCard.js"
 import { Icon } from "../../components/Icon.js"
 import { Markdown } from "../../components/Markdown.js"
+import { formatElapsed } from "../../format.js"
 import { useI18n } from "../../i18n/index.js"
 import { useDesktop } from "../../runtime.js"
 import { PaneRuntimeContext } from "../canvas/canvas-context.js"
@@ -52,13 +53,10 @@ export const EntryView = memo(function EntryView({
       )
     }
     // Finished thinking is collapsed behind a quiet summary row.
-    const ms = entry.durationMs
     const label =
-      ms === undefined
+      entry.durationMs === undefined
         ? t("transcript.thought")
-        : t("transcript.thoughtFor", {
-            duration: ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`,
-          })
+        : t("transcript.thoughtFor", { duration: formatElapsed(entry.durationMs) })
     return (
       <div className="reasoning">
         <button
@@ -114,9 +112,7 @@ export const EntryView = memo(function EntryView({
   const isError = entry.text.startsWith("Error:") || entry.text.startsWith("Could not")
   return (
     <div className={`assistantMessage${isError ? " assistantMessage-error" : ""}`}>
-      {entry.text ? (
-        <Markdown text={entry.text} enableCanvas={!entry.streaming} streaming={entry.streaming} />
-      ) : null}
+      {entry.text ? <Markdown text={entry.text} streaming={entry.streaming} /> : null}
       {entry.artifacts?.length ? <MessageArtifacts artifacts={entry.artifacts} /> : null}
     </div>
   )

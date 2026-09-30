@@ -4,7 +4,12 @@ import type { GlobalSessionPickerItem, RecentArtifact } from "../app/global-sess
 import type { LocalServerInputs } from "../app/local-servers.js"
 import type { ModelState } from "../app/models.js"
 import type { TranscriptEntry } from "../app/transcript.js"
-import type { ArtifactMetadata, ArtifactPayload, ArtifactReference } from "../artifacts/types.js"
+import type {
+  ArtifactAsset,
+  ArtifactMetadata,
+  ArtifactPayload,
+  ArtifactReference,
+} from "../artifacts/types.js"
 import type { LocalThinkingSelection, LocalThinkingState } from "../inference/local-thinking.js"
 import type { ModelPickerItem, ModelPickerStatus } from "../inference/picker-catalog.js"
 import type { ModelProvider } from "../inference/types.js"
@@ -25,6 +30,7 @@ import type { AchievementId, LocalStats } from "../local/stats.js"
 export const DESKTOP_CHANNELS = {
   getSnapshot: "desktop:get-snapshot",
   getArtifact: "desktop:get-artifact",
+  getArtifactAsset: "desktop:get-artifact-asset",
   openArtifact: "desktop:open-artifact",
   closeArtifact: "desktop:close-artifact",
   saveArtifact: "desktop:save-artifact",
@@ -266,6 +272,10 @@ export type ArtifactResult =
   | { ok: true; payload: ArtifactPayload }
   | { ok: false; reason: string; stale?: boolean }
 
+export type ArtifactAssetResult =
+  | { ok: true; asset: ArtifactAsset }
+  | { ok: false; reason: string; stale?: boolean }
+
 export type ModelSelectResult = { ok: true } | { ok: false; reason: string }
 
 export type DesktopWindowState = { fullscreen: boolean }
@@ -275,6 +285,13 @@ export type DesktopApi = {
   getSnapshot(): Promise<DesktopSnapshot>
   /** A tab's payload at the given revision; stale once the tab moved on. */
   getArtifact(runtime: number, id: string, revision: number): Promise<ArtifactResult>
+  /** An image a Markdown working file references relative to itself, at the given revision. */
+  getArtifactAsset(
+    runtime: number,
+    id: string,
+    revision: number,
+    src: string,
+  ): Promise<ArtifactAssetResult>
   /** Opens a document in Canvas as the given session's tab; the focused session by default. */
   openArtifact(
     reference: ArtifactReference,
