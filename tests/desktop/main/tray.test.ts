@@ -793,11 +793,13 @@ const iconName = (case_: (typeof iconCases)[number]) =>
   `otis${case_.variant.charAt(0).toUpperCase()}${case_.variant.slice(1)}Template${case_.suffix}.png`
 
 describe("committed tray icons", () => {
-  it.each(iconCases)("otis $variant ($label) matches the generator byte-for-byte", (case_) => {
-    const committed = readFileSync(join(repoRoot, "resources", "tray", iconName(case_)))
-    expect(committed.equals(renderTrayIcon(case_.size, case_.variant))).toBe(true)
-    expect(committed.readUInt32BE(16)).toBe(case_.size.width)
-    expect(committed.readUInt32BE(20)).toBe(case_.size.height)
+  // Pixels, not bytes: the deflate stream differs between zlib implementations, the artwork must
+  // not.
+  it.each(iconCases)("otis $variant ($label) matches the generator pixel-for-pixel", (case_) => {
+    const committed = decodePng(readFileSync(join(repoRoot, "resources", "tray", iconName(case_))))
+    expect(committed).toEqual(decodePng(renderTrayIcon(case_.size, case_.variant)))
+    expect(committed.width).toBe(case_.size.width)
+    expect(committed.height).toBe(case_.size.height)
   })
 
   it.each(
