@@ -434,7 +434,11 @@ async function writeSettingsFile(settings: SettingsFile, options: SettingsFileOp
   }
 }
 
-/** The settings with the model fields replaced by `model`, or cleared when no model is given. */
+/**
+ * The settings with the model fields replaced by `model`, or cleared when no model is given.
+ * Every other field is carried through untouched; the legacy `fastMode` flag is folded into
+ * `fastServingModels`.
+ */
 function selectedModelSettings(settings: SettingsFile, model?: CatalogModel): SettingsFile {
   const contextLength = model && model.provider !== "pair" ? model.contextLength : undefined
   if (contextLength !== undefined && (!Number.isSafeInteger(contextLength) || contextLength <= 0)) {
@@ -449,10 +453,19 @@ function selectedModelSettings(settings: SettingsFile, model?: CatalogModel): Se
         }
       : settings.pairEndpoints,
   )
+  const {
+    fastMode,
+    pairEngine: _pairEngine,
+    model: _model,
+    modelDisplayName: _modelDisplayName,
+    modelProvider: _modelProvider,
+    modelContextLength: _modelContextLength,
+    modelSupportsImageInput: _modelSupportsImageInput,
+    modelFastId: _modelFastId,
+    ...rest
+  } = settings
   return defined({
-    version: 1 as const,
-    omlx: settings.omlx,
-    fireworksApiKey: settings.fireworksApiKey,
+    ...rest,
     pairEndpoints: hasPairEndpoints(pairEndpoints) ? pairEndpoints : undefined,
     ...(model
       ? {
@@ -465,21 +478,12 @@ function selectedModelSettings(settings: SettingsFile, model?: CatalogModel): Se
           modelFastId: model.provider === "fireworks" && model.fastId ? model.fastId : undefined,
         }
       : {}),
-    theme: settings.theme,
-    language: settings.language,
-    lastWorkspace: settings.lastWorkspace,
-    localThinking: settings.localThinking,
-    thinkingVisible: settings.thinkingVisible,
-    notifyOnCompletion: settings.notifyOnCompletion,
-    subagentPanelVisible: settings.subagentPanelVisible,
-    workspacePanelWidth: settings.workspacePanelWidth,
     fastServingModels:
       fastServingModels.length > 0 ||
       settings.fastServingModels !== undefined ||
-      settings.fastMode !== undefined
+      fastMode !== undefined
         ? fastServingModels
         : undefined,
-    permissions: settings.permissions,
   })
 }
 
