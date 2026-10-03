@@ -133,11 +133,8 @@ export type ChatUI = {
   ): void
   showSetupInferenceChoice(message?: string): void
   showSetupLocalInferenceChoice(message?: string): void
-  /** The hosted provider list; `configured` marks the ones with a saved key. */
-  showSetupHostedChoice(
-    configured: Record<HostedProvider, boolean>,
-    cancelTarget: SetupInputCancelTarget,
-  ): void
+  /** Onboarding's hosted provider list; `configured` marks the ones with a saved key. */
+  showSetupHostedChoice(configured: Record<HostedProvider, boolean>): void
   /** The key form for `provider`. */
   showSetupInput(
     message: string,

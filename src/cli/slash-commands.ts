@@ -19,8 +19,8 @@ export type SlashCommand =
         | "theme"
       modelId?: string
       /**
-       * `/settings hosted <provider>` skips the provider choice; `/settings toggle-model
-       * <provider>:<id>` flips that hosted model's picker visibility.
+       * `/settings hosted <provider>` opens that provider's key form, `/settings models <provider>`
+       * its model list, and `/settings toggle-model <provider>:<id>` flips a model's visibility.
        */
       provider?: HostedProvider
     }
@@ -115,11 +115,10 @@ export function parseSlashCommand(value: string): SlashCommand | undefined {
   if (name !== "/settings") return undefined
   const setting = SETTINGS.find((candidate) => candidate === argument)
   if (setting) return { type: "settings", setting }
-  if (argument.startsWith("hosted ")) {
-    const provider = argument.slice("hosted".length).trim()
-    return isHostedProvider(provider)
-      ? { type: "settings", setting: "hosted", provider }
-      : undefined
+  for (const setting of ["hosted", "models"] as const) {
+    if (!argument.startsWith(`${setting} `)) continue
+    const provider = argument.slice(setting.length).trim()
+    return isHostedProvider(provider) ? { type: "settings", setting, provider } : undefined
   }
   if (argument.startsWith("toggle-model ")) {
     const key = argument.slice("toggle-model".length).trim()

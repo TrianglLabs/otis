@@ -716,8 +716,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     showSetupInferenceChoice: (message) => inputController.showSetupInferenceChoice(message),
     showSetupLocalInferenceChoice: (message) =>
       inputController.showSetupLocalInferenceChoice(message),
-    showSetupHostedChoice: (configured, cancelTarget) =>
-      inputController.showSetupHostedChoice(configured, cancelTarget),
+    showSetupHostedChoice: (configured) => inputController.showSetupHostedChoice(configured),
     showSetupInput: (message, cancelTarget, provider) =>
       inputController.showSetup(message, cancelTarget, provider),
     showPairSetup: (message, cancelTarget, endpoints) =>

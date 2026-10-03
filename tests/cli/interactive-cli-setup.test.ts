@@ -48,10 +48,12 @@ describe("interactive CLI setup", () => {
     expect(mocks.openHostedKeyPage).not.toHaveBeenCalled()
 
     mocks.uiOptions?.onSetupInferenceChoice?.("hosted")
-    expect(mocks.ui.showSetupHostedChoice).toHaveBeenCalledExactlyOnceWith(
-      { fireworks: false, together: false, baseten: false, primeintellect: false },
-      "choice",
-    )
+    expect(mocks.ui.showSetupHostedChoice).toHaveBeenCalledExactlyOnceWith({
+      fireworks: false,
+      together: false,
+      baseten: false,
+      primeintellect: false,
+    })
     expect(mocks.ui.showSetupInput).not.toHaveBeenCalled()
     mocks.uiOptions?.onSetupHostedChoice?.("fireworks")
     expect(mocks.ui.showSetupInput).toHaveBeenCalledExactlyOnceWith("", "hosted", "fireworks")
@@ -373,6 +375,16 @@ describe("interactive CLI setup", () => {
     await submit("/settings")
     expect(mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[0]).toEqual(
       expect.arrayContaining([
+        { name: "Hosted inference", description: "Add an API key", submission: "/settings hosted" },
+      ]),
+    )
+    expect(mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[0]).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "Hosted models" })]),
+    )
+
+    await submit("/settings hosted")
+    expect(mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[0]).toEqual(
+      expect.arrayContaining([
         {
           name: "Fireworks",
           description: "Add API key",
@@ -452,10 +464,12 @@ describe("interactive CLI setup", () => {
 
     mocks.uiOptions?.onSetup?.()
     mocks.uiOptions?.onSetupInferenceChoice?.("hosted")
-    expect(mocks.ui.showSetupHostedChoice).toHaveBeenLastCalledWith(
-      { fireworks: false, together: false, baseten: false, primeintellect: false },
-      "choice",
-    )
+    expect(mocks.ui.showSetupHostedChoice).toHaveBeenLastCalledWith({
+      fireworks: false,
+      together: false,
+      baseten: false,
+      primeintellect: false,
+    })
     mocks.uiOptions?.onSetupHostedChoice?.("together")
     expect(mocks.ui.showSetupInput).toHaveBeenLastCalledWith("", "hosted", "together")
     // Returning to the list and picking the same provider does not reopen its key page.
@@ -533,6 +547,16 @@ describe("interactive CLI setup", () => {
     expect(mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[0]).toEqual(
       expect.arrayContaining([
         {
+          name: "Hosted inference",
+          description: "Fireworks, Baseten",
+          submission: "/settings hosted",
+        },
+      ]),
+    )
+    await submit("/settings hosted")
+    expect(mocks.ui.showCommandSubmenu).toHaveBeenLastCalledWith(
+      [
+        {
           name: "Fireworks",
           description: "Replace API key",
           submission: "/settings hosted fireworks",
@@ -548,7 +572,8 @@ describe("interactive CLI setup", () => {
           description: "Add API key",
           submission: "/settings hosted primeintellect",
         },
-      ]),
+      ],
+      { onBack: expect.any(Function) },
     )
 
     mocks.ui.showModelPicker.mockClear()
@@ -564,18 +589,46 @@ describe("interactive CLI setup", () => {
     expect(picker.some((item) => item.id === "header-together")).toBe(false)
   })
 
-  it("lists hosted providers from /settings hosted with the configured cancel target", async () => {
+  it("lists hosted providers from /settings hosted as a submenu that backs out to settings", async () => {
     await loadCli()
 
     await submit("/settings hosted")
-    expect(mocks.ui.showSetupHostedChoice).toHaveBeenCalledExactlyOnceWith(
-      { fireworks: true, together: false, baseten: false, primeintellect: false },
-      "configured",
-    )
+    expect(mocks.ui.showSetupHostedChoice).not.toHaveBeenCalled()
     expect(mocks.ui.showSetupInput).not.toHaveBeenCalled()
     expect(mocks.openHostedKeyPage).not.toHaveBeenCalled()
+    expect(mocks.ui.showCommandSubmenu).toHaveBeenCalledExactlyOnceWith(
+      [
+        {
+          name: "Fireworks",
+          description: "Replace API key",
+          submission: "/settings hosted fireworks",
+        },
+        {
+          name: "Together AI",
+          description: "Add API key",
+          submission: "/settings hosted together",
+        },
+        { name: "Baseten", description: "Add API key", submission: "/settings hosted baseten" },
+        {
+          name: "Prime Intellect",
+          description: "Add API key",
+          submission: "/settings hosted primeintellect",
+        },
+      ],
+      { onBack: expect.any(Function) },
+    )
+    expect(mocks.ui.focusInput).toHaveBeenCalled()
 
-    mocks.uiOptions?.onSetupHostedChoice?.("primeintellect")
+    mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[1]?.onBack?.()
+    await settle()
+    expect(mocks.ui.showCommandSubmenu).toHaveBeenLastCalledWith(
+      expect.arrayContaining([
+        { name: "Hosted inference", description: "Fireworks", submission: "/settings hosted" },
+      ]),
+      { onBack: expect.any(Function) },
+    )
+
+    await submit("/settings hosted primeintellect")
     expect(mocks.ui.showSetupInput).toHaveBeenCalledExactlyOnceWith(
       "",
       "configured",
@@ -852,7 +905,7 @@ describe("interactive CLI setup", () => {
     await settle()
     expect(mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[0]).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ name: "Fireworks" }),
+        expect.objectContaining({ name: "Hosted inference" }),
         expect.objectContaining({ name: "Delete local model" }),
         expect.objectContaining({ name: "Debug mode" }),
       ]),

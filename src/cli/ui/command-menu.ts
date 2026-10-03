@@ -3,6 +3,9 @@ import { colors } from "../theme.js"
 import { type PickerRow, type PickerRowSpec, syncPickerRows } from "./picker-row.js"
 import { type CommandSuggestion, type Renderer, stopKey, type UIKey } from "./types.js"
 
+/** Rows shown at once; longer lists scroll under the selection. */
+const MAX_VISIBLE_ROWS = 12
+
 type MenuActions = {
   close: (restoreThemePreview?: boolean) => void
   select: (command: CommandSuggestion) => void
@@ -96,16 +99,31 @@ export class CommandMenu {
   }
 
   private render() {
+    // A window of rows that slides to keep the selection in view, so a long catalog never
+    // outgrows the screen.
+    const start = Math.min(
+      Math.max(0, this.#selectedIndex - MAX_VISIBLE_ROWS + 1),
+      Math.max(0, this.#items.length - MAX_VISIBLE_ROWS),
+    )
+    const visible = this.#items.slice(start, start + MAX_VISIBLE_ROWS)
+    const below = this.#items.length - start - visible.length
     const specs: PickerRowSpec[] =
       this.#items.length === 0
         ? [{ title: "No matching commands", fg: colors.muted, selected: false }]
-        : this.#items.map((command, index) => ({
+        : visible.map((command, index) => ({
             title: command.name.startsWith("/theme ")
               ? command.name.slice("/theme ".length)
               : command.name,
-            meta: command.description || undefined,
+            meta:
+              [
+                command.description || undefined,
+                index === 0 && start ? `↑ ${start} more` : undefined,
+                index === visible.length - 1 && below ? `↓ ${below} more` : undefined,
+              ]
+                .filter(Boolean)
+                .join(" · ") || undefined,
             fg: colors.text,
-            selected: index === this.#selectedIndex,
+            selected: start + index === this.#selectedIndex,
           }))
     syncPickerRows(this.renderer, this.container, this.#rows, specs, "command-row", () => ({
       bg: "background",
