@@ -20,6 +20,7 @@ export const TOOL_NAMES = [
   "publish_artifact",
   "bash",
   "agent",
+  "wait_coworkers",
   "recall",
   "remember",
   "forget",
@@ -78,6 +79,7 @@ export type ToolCall =
   | { name: "publish_artifact"; input: { path: string; artifactId?: string } }
   | { name: "bash"; input: { command: string; timeoutMs?: number } }
   | { name: "agent"; input: { description: string; prompt: string } }
+  | { name: "wait_coworkers"; input: Record<string, never> }
   | { name: "recall"; input: { query: string } }
   | { name: "remember"; input: { fact: string; scope: MemoryScope } }
   | { name: "forget"; input: { fact: string; scope: MemoryScope } }

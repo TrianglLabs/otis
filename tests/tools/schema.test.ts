@@ -21,6 +21,7 @@ describe("parseStructuredToolCall", () => {
       "publish_artifact",
       "bash",
       "agent",
+      "wait_coworkers",
     ])
   })
 

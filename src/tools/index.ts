@@ -55,7 +55,8 @@ export async function executeToolCall(
 ): Promise<ToolResult> {
   switch (call.name) {
     case "agent":
-      throw new Error("The agent tool runs inside the agent loop, not as a standalone tool.")
+    case "wait_coworkers":
+      throw new Error(`The ${call.name} tool runs inside the agent loop, not as a standalone tool.`)
     case "web_search":
     case "web_read":
       return executeWebTool(call, context)
@@ -159,10 +160,12 @@ function withWarnings(sections: string[], warnings: string[]) {
 /**
  * The tool catalog a top-level turn exposes for the selected model's provider. Delegation issues
  * several long model runs at once. Otis' managed llama-server serves a single slot, so only hosted
- * Fireworks models, NVIDIA PAIR clusters, and oMLX's batched server offer the agent tool.
+ * models, NVIDIA PAIR clusters, and oMLX's batched server offer the agent tool and its wait.
  */
 export function providerTools(provider: ModelProvider): ToolDefinition[] {
-  return TOOL_DEFINITIONS.filter((tool) => tool.name !== "agent" || provider !== "local")
+  return TOOL_DEFINITIONS.filter(
+    (tool) => provider !== "local" || (tool.name !== "agent" && tool.name !== "wait_coworkers"),
+  )
 }
 
 async function publishArtifact(

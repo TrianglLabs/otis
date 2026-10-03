@@ -271,7 +271,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: "agent",
     description:
-      "Delegate a read-only exploration or research subtask to a subagent that works with its own context and returns only a final report. Use it for broad codebase exploration or multi-source research that would otherwise flood this conversation with tool output. Several agent calls in one response run in parallel. The subagent cannot see this conversation, so the prompt must contain everything it needs and state exactly what to report back.",
+      "Start a coworker: a read-only exploration or research subagent with its own context that works in the background and returns only a final report. This call returns at once; the report is delivered to you as a message when the coworker finishes, and the turn does not end while coworkers are still working. Use it for broad codebase exploration or multi-source research that would otherwise flood this conversation with tool output. The coworker cannot see this conversation, so the prompt must contain everything it needs and state exactly what to report back.",
     parameters: objectSchema(
       {
         description: stringSchema("Short label for the subtask, 3-7 words."),
@@ -279,6 +279,12 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       },
       ["description", "prompt"],
     ),
+  },
+  {
+    name: "wait_coworkers",
+    description:
+      "Wait until every running coworker has finished and return their reports. Call it only when your next step needs those reports; otherwise keep working and the reports arrive on their own.",
+    parameters: objectSchema({}, []),
   },
 ]
 
@@ -474,6 +480,8 @@ export function parseStructuredToolCall(name: string, input: unknown): ToolCall 
         throw new Error('agent requires non-empty strings "description" and "prompt"')
       return { name, input: { description, prompt } }
     }
+    case "wait_coworkers":
+      return { name, input: {} }
     case "recall": {
       const query = text("query")
       if (!query) throw new Error('recall requires a non-empty string "query"')

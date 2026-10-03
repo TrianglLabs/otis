@@ -165,6 +165,7 @@ async function permissionResources(call: ToolCall, cwd: string): Promise<string[
   if (call.name === "web_read") return [call.input.url]
   if (call.name === "web_search") return call.input.searchQueries
   if (call.name === "agent") return [call.input.description]
+  if (call.name === "wait_coworkers") return ["coworkers"]
   if (call.name === "recall") return [call.input.query]
   if (call.name === "remember" || call.name === "forget") return [call.input.scope]
   const paths =

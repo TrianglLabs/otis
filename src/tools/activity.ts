@@ -44,6 +44,7 @@ export const TOOL_ACTIONS = {
   document_render: ["file_write", "Rendering document", "Rendering document", "Rendered document"],
   publish_artifact: ["file_read", "Publishing artifact", "Publishing", "Published"],
   agent: ["agent", "Delegating", "Delegating", "Delegated"],
+  wait_coworkers: ["agent", "Waiting for coworkers", "Waiting for", "Received"],
   search_command: ["file_search", "Searching files", "Searching files", "Searched files"],
   inspect_command: ["file_inspect", "Inspecting files", "Inspecting files", "Inspected files"],
   git_command: ["git", "Inspecting git", "Checking git", "Checked git"],
@@ -96,6 +97,8 @@ export function describeToolCall(call: ToolCall): ToolActivity {
   if (call.name === "publish_artifact")
     return describeToolAction("publish_artifact", call.input.path)
   if (call.name === "agent") return describeToolAction("agent", call.input.description)
+  if (call.name === "wait_coworkers")
+    return describeToolAction("wait_coworkers", "coworker reports")
   if (call.name === "recall") return describeToolAction("recall", call.input.query)
   if (call.name === "remember" || call.name === "forget")
     return describeToolAction(call.name, call.input.fact)
