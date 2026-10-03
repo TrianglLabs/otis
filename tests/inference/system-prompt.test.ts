@@ -92,7 +92,7 @@ describe("system prompt", () => {
     )
 
     expect(withAgent).toContain("Delegation:")
-    expect(withAgent).toContain("they run in parallel")
+    expect(withAgent).toContain("call wait_coworkers")
     expect(withAgent).toContain("coworkers")
     expect(withoutAgent).not.toContain("Delegation:")
     expect(withoutAgent).not.toContain("Use agent")

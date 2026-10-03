@@ -6,7 +6,7 @@ import {
   isCompactionSummary,
   NOTHING_TO_COMPACT,
 } from "../../src/core/compaction.js"
-import type { FireworksClient } from "../../src/inference/client.js"
+import type { HostedClient } from "../../src/inference/client.js"
 import type { ChatMessage, StreamChatOptions } from "../../src/inference/types.js"
 import { summaryFixture } from "../support/compaction.js"
 
@@ -17,7 +17,7 @@ const filler = " detail".repeat(2_500)
 const client = {
   model: "accounts/fireworks/models/test",
   streamChat: streamAgentMock,
-} as unknown as FireworksClient
+} as unknown as HostedClient
 
 describe("autoCompactThreshold", () => {
   it("reserves model context and retains the default cap for large models", () => {

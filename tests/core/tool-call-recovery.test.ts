@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { type AgentEvent, runAgent } from "../../src/core/agent.js"
-import { FireworksClient } from "../../src/inference/client.js"
+import { HostedClient } from "../../src/inference/client.js"
 import { openaiChatCompletionRequest } from "../../src/inference/openai-compat.js"
 import type {
   ChatMessage,
@@ -193,7 +193,8 @@ describe("tool-call recovery", () => {
         `${chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("")}data: [DONE]\n\n`,
       )
     })
-    const client = new FireworksClient({
+    const client = new HostedClient({
+      provider: "fireworks",
       model: "fake",
       apiKey: "fake-test-key",
       fetch: fetchMock as typeof fetch,

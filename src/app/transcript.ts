@@ -3,7 +3,7 @@ import {
   attachmentArtifactReference,
   type FileArtifactReference,
 } from "../artifacts/types.js"
-import type { AgentEvent } from "../core/agent.js"
+import { type AgentEvent, isCoworkerReport } from "../core/agent.js"
 import { compactionSummaryMessage, isCompactionSummary } from "../core/compaction.js"
 import {
   displayUserMessage,
@@ -361,7 +361,8 @@ export class TranscriptStore {
   private loadEntries(messages: ChatMessage[], toolActivities: SessionToolActivity[]) {
     const activities = groupToolActivities(toolActivities)
     for (const message of messages) {
-      if (message.role === "user" && !isCompactionSummary(message)) this.addUserMessage(message)
+      if (message.role === "user" && !isCompactionSummary(message) && !isCoworkerReport(message))
+        this.addUserMessage(message)
       if (message.role !== "assistant") continue
       for (const part of message.content) {
         if (part.type === "text" && part.text) this.addAssistantMessage(part.text)

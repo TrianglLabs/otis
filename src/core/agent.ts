@@ -120,6 +120,134 @@ const SUBAGENT_TOOLS: ReadonlySet<ToolName> = new Set([
 const MAX_TOOL_OUTPUT_CHARS = 16_000
 /** Past this share of the compaction threshold an estimate is too coarse to trust. */
 const RECOUNT_SHARE = 0.5
+const COWORKER_REPORT_PREFIX = "[Coworker report: "
+const COWORKER_FAILURE_PREFIX = "[Coworker failed: "
+
+/** A delivered coworker report is model context, not something the user typed. */
+export function isCoworkerReport(message: ChatMessage): boolean {
+  if (message.role !== "user" || typeof message.content !== "string") return false
+  return (
+    message.content.startsWith(COWORKER_REPORT_PREFIX) ||
+    message.content.startsWith(COWORKER_FAILURE_PREFIX)
+  )
+}
+
+type Coworker = {
+  toolCallId: string
+  title: string
+  /** Child events not yet forwarded into the parent's stream. */
+  events: AgentEvent[]
+  /** Working, then holding the message for the model, then delivered. */
+  state: "working" | { report: string } | "delivered"
+}
+
+/**
+ * The delegated runs of one turn. Each child runs in the background from the moment its `agent`
+ * call returns; its events surface through the parent's stream whenever the parent waits on
+ * anything, and its report is handed to the model before the next request, or through
+ * `wait_coworkers`. The turn does not end while a coworker is still working or unreported.
+ */
+class Coworkers {
+  readonly #runs: Coworker[] = []
+  readonly #controller = new AbortController()
+  readonly signal: AbortSignal
+  #wake = () => {}
+  #woken = new Promise<void>((resolve) => {
+    this.#wake = resolve
+  })
+
+  constructor(parent: AbortSignal | undefined) {
+    this.signal = parent
+      ? AbortSignal.any([parent, this.#controller.signal])
+      : this.#controller.signal
+  }
+
+  start(toolCallId: string, title: string, run: AsyncGenerator<AgentEvent>) {
+    const coworker: Coworker = { toolCallId, title, events: [], state: "working" }
+    this.#runs.push(coworker)
+    const settle = (prefix: string, body: string) => {
+      coworker.state = { report: `${prefix}${title}]\n\n${body}` }
+    }
+    void (async () => {
+      for await (const event of run) {
+        coworker.events.push(event)
+        if (event.type === "complete")
+          settle(COWORKER_REPORT_PREFIX, lastAssistantText(event.messages))
+        if (event.type === "error") settle(COWORKER_FAILURE_PREFIX, event.message)
+        if (event.type === "interrupted") settle(COWORKER_FAILURE_PREFIX, "Interrupted.")
+        this.#wake()
+        this.#woken = new Promise((resolve) => {
+          this.#wake = resolve
+        })
+      }
+      // Every run ends with a terminal event; nothing else settles a coworker.
+      if (coworker.state === "working") throw new Error("Coworker ended without a report.")
+    })()
+  }
+
+  /** Resolves once a child has an event to forward. */
+  #next() {
+    return this.#runs.some((run) => run.events.length > 0) ? Promise.resolve() : this.#woken
+  }
+
+  *flush(): Generator<AgentEvent> {
+    for (const run of this.#runs) {
+      for (const event of run.events.splice(0))
+        yield { type: "subagent", toolCallId: run.toolCallId, title: run.title, event }
+    }
+  }
+
+  /** Any child still working or whose report the model has not received. */
+  get pending() {
+    return this.#runs.some((run) => run.state !== "delivered")
+  }
+
+  get reportReady() {
+    return this.#runs.some((run) => typeof run.state === "object")
+  }
+
+  get allSettled() {
+    return this.#runs.every((run) => run.state !== "working")
+  }
+
+  /** The reports ready for delivery, each delivered once. */
+  takeReports() {
+    return this.#runs.flatMap((run) => {
+      if (typeof run.state !== "object") return []
+      const { report } = run.state
+      run.state = "delivered"
+      return [report]
+    })
+  }
+
+  /** Awaits `promise`, forwarding child events as they arrive. */
+  async *during<T>(promise: Promise<T>): AsyncGenerator<AgentEvent, T> {
+    while (true) {
+      const settled = await Promise.race([promise.then(() => true), this.#next().then(() => false)])
+      yield* this.flush()
+      if (settled) return await promise
+    }
+  }
+
+  /** Forwards child events until `ready()` holds, then whatever arrived while forwarding. */
+  async *until(ready: () => boolean): AsyncGenerator<AgentEvent> {
+    while (!ready()) {
+      await this.#next()
+      yield* this.flush()
+    }
+    yield* this.flush()
+  }
+
+  cancel() {
+    this.#controller.abort()
+  }
+
+  /** Cancels what still runs and forwards every remaining child event, so no trace stays open. */
+  async *finish() {
+    this.cancel()
+    yield* this.until(() => this.allSettled)
+  }
+}
 
 export async function* runAgent(
   input: string | UserChatMessage,
@@ -156,6 +284,7 @@ export async function* runAgent(
     reasoning = undefined
     return [event]
   }
+  const coworkers = new Coworkers(options.signal)
   try {
     const cwd = options.cwd ?? process.cwd()
     const projectContext = options.projectContext ?? loadProjectContext(cwd)
@@ -193,6 +322,10 @@ export async function* runAgent(
       contentChars: messagesContentChars(messages),
       tokens: contextTokens(messages),
     })
+    // The approval surface handles one request at a time, so the parent and its coworkers take
+    // turns asking.
+    const approve = options.onPermissionRequest
+    let approvals: Promise<unknown> = Promise.resolve()
     const toolContext = {
       ...options,
       projectContext,
@@ -202,13 +335,6 @@ export async function* runAgent(
       permissionPolicy:
         options.permissionPolicy ?? createPermissionPolicy({ cwd, mode: DEFAULT_PERMISSION_MODE }),
       webSession: { id: options.webSession?.id },
-    }
-    // The approval surface handles one request at a time, so concurrent children must take
-    // turns asking.
-    const approve = options.onPermissionRequest
-    let approvals: Promise<unknown> = Promise.resolve()
-    const concurrentContext = {
-      ...toolContext,
       onPermissionRequest:
         approve &&
         ((request: PermissionRequest) => {
@@ -216,6 +342,7 @@ export async function* runAgent(
           approvals = approval.catch(() => undefined)
           return approval
         }),
+      coworkers,
     }
     yield contextEvent()
 
@@ -225,6 +352,12 @@ export async function* runAgent(
         steeringCount += steered.length
         messages.push(...steered)
         attachments.push(...steered.flatMap(userMessageAttachments))
+        yield contextEvent()
+      }
+      yield* coworkers.flush()
+      const reports = coworkers.takeReports()
+      if (reports.length) {
+        messages.push(...reports.map((content): ChatMessage => ({ role: "user", content })))
         yield contextEvent()
       }
       options.signal?.throwIfAborted()
@@ -244,14 +377,16 @@ export async function* runAgent(
         const summaryBudget = recoveryBudget === undefined ? undefined : Math.floor(budget / 2)
         recoveryBudget = undefined
         yield { type: "compaction", phase: "start" }
-        const result = await compactConversation(messages, {
-          client: options.client,
-          signal: options.signal,
-          onUsage: options.onCompactionUsage ?? options.onUsage,
-          contextBudget: budget,
-          maxInputTokens: summaryBudget,
-          countContextTokens: count,
-        })
+        const result = yield* coworkers.during(
+          compactConversation(messages, {
+            client: options.client,
+            signal: options.signal,
+            onUsage: options.onCompactionUsage ?? options.onUsage,
+            contextBudget: budget,
+            maxInputTokens: summaryBudget,
+            countContextTokens: count,
+          }),
+        )
         // Persist the checkpoint before committing it to live context or sending another request.
         const segment = messages.slice(turnStart)
         await options.onCompaction?.(result, steeringCount, segment)
@@ -272,7 +407,7 @@ export async function* runAgent(
       let usage: TokenUsage | undefined
       let finishReason: string | undefined
       try {
-        for await (const event of options.client.streamChat({
+        const stream = options.client.streamChat({
           messages,
           tools,
           systemPrompt,
@@ -280,7 +415,11 @@ export async function* runAgent(
           skills: modelSkills,
           outputCapabilities: options.outputCapabilities,
           signal: options.signal,
-        })) {
+        })
+        while (true) {
+          const step = yield* coworkers.during(stream.next())
+          if (step.done) break
+          const event = step.value
           if (event.type === "text_delta") {
             yield* endReasoning()
             const previous = content.at(-1)
@@ -372,6 +511,7 @@ export async function* runAgent(
           ...(await closeSteering(options.steering)),
         )
         yield contextEvent()
+        yield* coworkers.finish()
         yield { type: "interrupted", messages: messages.slice(turnStart) }
         return
       }
@@ -382,7 +522,7 @@ export async function* runAgent(
         finishReason === "length" ||
         toolCalls.some((call) => !hasObjectArguments(call.arguments))
       ) {
-        // No call in this response has run yet. Earlier successful tool batches remain intact.
+        // No call in this response has run yet. Earlier completed tool calls remain intact.
         const notice =
           "This response was incomplete or contained invalid tool arguments. None of its tool calls were executed. " +
           "Continue using smaller tool calls and shorter output; do not repeat earlier successful actions."
@@ -397,6 +537,7 @@ export async function* runAgent(
         }
         if (recoveryAttempts >= 1) {
           messages.push(...(await closeSteering(options.steering)))
+          yield* coworkers.finish()
           yield {
             type: "error",
             message:
@@ -411,7 +552,10 @@ export async function* runAgent(
       }
 
       if (toolCalls.length === 0) {
-        const steered = await options.steering?.drainOrClose()
+        // Steering stays open while coworkers work: the model continues once they report.
+        const steered = coworkers.pending
+          ? await options.steering?.drain()
+          : await options.steering?.drainOrClose()
         if (steered?.length) {
           steeringCount += steered.length
           messages.push(...steered)
@@ -419,6 +563,11 @@ export async function* runAgent(
           yield contextEvent()
           continue
         }
+        if (coworkers.pending) {
+          yield* coworkers.until(() => coworkers.reportReady)
+          continue
+        }
+        // Every coworker has reported, and its trace was forwarded while that request streamed.
         if (!response.some((part) => part.type === "text" && part.text.trim().length > 0)) {
           yield {
             type: "error",
@@ -431,42 +580,17 @@ export async function* runAgent(
         return
       }
 
-      // Adjacent `agent` calls run concurrently because each delegates read-only work to an
-      // isolated child; every other call runs one at a time so workspace mutations stay ordered.
+      // Calls run one at a time so workspace mutations stay ordered; an `agent` call only starts
+      // its coworker, so several in one response still explore at once.
       let index = 0
       let aborted = false
       while (index < toolCalls.length && !aborted) {
         aborted = options.signal?.aborted ?? false
         if (aborted) break
-        let end = index + 1
-        if (toolCalls[index].name === "agent") {
-          while (end < toolCalls.length && toolCalls[end].name === "agent") end += 1
-        }
-        const batch = toolCalls.slice(index, end)
-        const outcomes: ToolCallOutcome[] = []
-        if (batch.length === 1) outcomes.push(yield* executeSingleToolCall(batch[0], toolContext))
-        else {
-          const runs = batch.map((call) => executeSingleToolCall(call, concurrentContext))
-          const pending = new Map(
-            runs.map((run, i) => [i, run.next().then((step) => ({ i, step }))] as const),
-          )
-          while (pending.size > 0) {
-            const { i, step } = await Promise.race(pending.values())
-            if (step.done) {
-              pending.delete(i)
-              outcomes[i] = step.value
-            } else {
-              pending.set(
-                i,
-                runs[i].next().then((step) => ({ i, step })),
-              )
-              yield step.value
-            }
-          }
-        }
-        messages.push(...outcomes.map((outcome) => outcome.message))
-        index = end
-        aborted = outcomes.some((outcome) => outcome.interrupted)
+        const outcome = yield* executeSingleToolCall(toolCalls[index], toolContext)
+        messages.push(outcome.message)
+        index += 1
+        aborted = outcome.interrupted
       }
       if (aborted) {
         messages.push(
@@ -474,6 +598,7 @@ export async function* runAgent(
           ...(await closeSteering(options.steering)),
         )
         yield contextEvent()
+        yield* coworkers.finish()
         yield { type: "interrupted", messages: messages.slice(turnStart) }
         return
       }
@@ -489,11 +614,14 @@ export async function* runAgent(
       ...(await closeSteering(options.steering)),
     )
     if (contextEvent) yield contextEvent()
+    yield* coworkers.finish()
     if (options.signal?.aborted) {
       yield { type: "interrupted", messages: messages.slice(turnStart) }
       return
     }
     yield { type: "error", message: describeError(error), messages: messages.slice(turnStart) }
+  } finally {
+    coworkers.cancel()
   }
 }
 
@@ -531,8 +659,9 @@ type ToolCallOutcome = { message: ChatMessage; interrupted: boolean }
 
 async function* executeSingleToolCall(
   rawCall: ChatToolCall,
-  context: RunAgentOptions & { tools: ToolDefinition[] },
+  context: RunAgentOptions & { tools: ToolDefinition[]; coworkers: Coworkers },
 ): AsyncGenerator<AgentEvent, ToolCallOutcome> {
+  const { coworkers } = context
   const toolMessage = (content: string): ToolCallOutcome => ({
     message: { role: "tool", toolCallId: rawCall.id, content },
     interrupted: false,
@@ -583,7 +712,9 @@ async function* executeSingleToolCall(
         outcome = "denied"
         return toolMessage("Permission approval required, but no approval handler is available.")
       }
-      const approved = await context.onPermissionRequest({ call, decision: permission })
+      const approved = yield* coworkers.during(
+        context.onPermissionRequest({ call, decision: permission }),
+      )
       if (context.signal?.aborted) return interrupted()
       if (!approved) {
         outcome = "denied"
@@ -591,12 +722,19 @@ async function* executeSingleToolCall(
       }
     }
 
-    if (call.name === "agent") {
-      // The child shares the parent's client, workspace, permission policy, approval handler,
-      // usage sink, and abort signal, but starts with a fresh history, receives no steering, and
-      // works from the read-only subset of the parent's tools. Every child event surfaces wrapped
-      // in a `subagent` envelope so the caller can render the full trace; the parent's own
-      // conversation only receives the child's final report.
+    if (call.name === "wait_coworkers") {
+      yield* coworkers.until(() => coworkers.allSettled)
+      const reports = coworkers.takeReports()
+      result = reports.length
+        ? { title: `${reports.length} coworker report(s)`, output: reports.join("\n\n") }
+        : { title: "No coworkers are working.", output: "" }
+    } else if (call.name === "agent") {
+      // The child shares the parent's client, workspace, permission policy, approval handler, and
+      // usage sink, and stops with the parent's turn, but starts with a fresh history, receives
+      // no steering, and works from the read-only subset of the parent's tools. It runs in the
+      // background: every child event surfaces wrapped in a `subagent` envelope so the caller can
+      // render the full trace, and only its final report reaches the parent's conversation, as a
+      // message before the parent's next request or through `wait_coworkers`.
       const title = call.input.description
       const brief = [
         "You are an Otis subagent. The main agent delegated the task below and cannot see your work, only your final reply.",
@@ -607,25 +745,29 @@ async function* executeSingleToolCall(
         "Task:",
         call.input.prompt,
       ].join("\n")
-      const child = runAgent(brief, [], {
-        ...context,
-        tools: context.tools.filter((tool) => SUBAGENT_TOOLS.has(tool.name)),
-        steering: undefined,
-        onCompaction: undefined,
-        historyTokens: undefined,
-      })
-      for await (const event of child) {
-        yield { type: "subagent", toolCallId: rawCall.id, title, event }
-        if (event.type === "complete") result = { title, output: lastAssistantText(event.messages) }
-        if (event.type === "interrupted") throw new Error("Subagent interrupted.")
-        if (event.type === "error") throw new Error(`Subagent failed: ${event.message}`)
+      coworkers.start(
+        rawCall.id,
+        title,
+        runAgent(brief, [], {
+          ...context,
+          signal: coworkers.signal,
+          tools: context.tools.filter((tool) => SUBAGENT_TOOLS.has(tool.name)),
+          steering: undefined,
+          onCompaction: undefined,
+          historyTokens: undefined,
+        }),
+      )
+      result = {
+        title,
+        output:
+          "Coworker started in the background. Its report arrives as a message when it " +
+          "finishes; keep working on anything that does not depend on it, or call " +
+          "wait_coworkers when you need it.",
       }
-      if (!result) throw new Error("Subagent ended without a result.")
     } else {
-      result = await executeToolCall(call, {
-        ...context,
-        authorizedArtifactPath: permission?.artifactPath,
-      })
+      result = yield* coworkers.during(
+        executeToolCall(call, { ...context, authorizedArtifactPath: permission?.artifactPath }),
+      )
     }
     const output =
       result.output.length <= MAX_TOOL_OUTPUT_CHARS
