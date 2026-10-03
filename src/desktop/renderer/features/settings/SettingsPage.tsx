@@ -1,5 +1,6 @@
 import {
   Award,
+  ChartNoAxesColumnDecreasing,
   Check,
   ChevronDown,
   ChevronRight,
@@ -15,7 +16,15 @@ import {
 } from "lucide-react"
 import { type CSSProperties, useEffect, useRef, useState } from "react"
 import type { OmlxPickerChoice, PairPickerChoice } from "../../../../inference/picker-catalog.js"
-import { localServerNames, supportsOmlx } from "../../../../inference/types.js"
+import { hiddenModelKey } from "../../../../inference/picker-filter.js"
+import {
+  HOSTED_PROVIDER_INFO,
+  HOSTED_PROVIDERS,
+  type HostedModel,
+  type HostedProvider,
+  localServerNames,
+  supportsOmlx,
+} from "../../../../inference/types.js"
 import type { LocalStats } from "../../../../local/stats.js"
 import type { DesktopApi, SessionOpResult, ThemeName, UiLanguage } from "../../../contracts.js"
 import lmStudioIcon from "../../assets/lm-studio.svg"
@@ -27,7 +36,7 @@ import { formatTokenCount } from "../../format.js"
 import { LANGUAGE_OPTIONS, useI18n } from "../../i18n/index.js"
 import { useDesktop, useDesktopState } from "../../runtime.js"
 import { AchievementsTab } from "../achievements/Achievements.js"
-import { pickerDetailLabel } from "../models/model-list.js"
+import { ModelDetail } from "../models/ModelPicker.js"
 
 /**
  * Mirrors THEME_NAMES in src/local/settings.ts; that module reads the filesystem and cannot be
@@ -62,6 +71,7 @@ const SETTINGS_TABS = {
   extensions: { label: "settings.extensions", icon: Puzzle },
   appearance: { label: "settings.appearance", icon: Palette },
   general: { label: "settings.general", icon: SlidersHorizontal },
+  usage: { label: "settings.usage", icon: ChartNoAxesColumnDecreasing },
   achievements: { label: "settings.achievements", icon: Award },
 } as const
 
@@ -80,7 +90,7 @@ const SETTINGS_TAB_IDS = Object.keys(SETTINGS_TABS) as SettingsTab[]
 
 /**
  * The settings page, opened from the header's gear button or the ⌘K palette. It takes over the
- * whole window. Mirrors the TUI's /settings submenu: hosted API key, local model-server endpoints,
+ * whole window. Mirrors the TUI's /settings submenu: hosted API keys, local model-server endpoints,
  * theme, plus /thinking and /fast toggles; the /debug toggle is development-only and never renders
  * in production builds. Model selection and local-model deletion live in the composer's model
  * picker. Every control writes through the main process; status events update the UI.
@@ -107,6 +117,8 @@ export function SettingsPage({
     "omlx",
     "platform",
     "pairConfigured",
+    "hostedConfigured",
+    "hiddenModels",
     "theme",
     "language",
     "thinkingVisible",
@@ -123,12 +135,9 @@ export function SettingsPage({
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab)
   // An unlock banner clicked while settings is already open still lands on its tab.
   useEffect(() => setActiveTab(initialTab), [initialTab])
-  const [openForm, setOpenForm] = useState<"hosted" | "pair">()
+  const [openForm, setOpenForm] = useState<"pair" | HostedProvider>()
+  const [hostedOpen, setHostedOpen] = useState(false)
   const tabRefs = useRef(new Map<SettingsTab, HTMLButtonElement>())
-
-  const [apiKey, setApiKey] = useState("")
-  const [hostedPending, setHostedPending] = useState(false)
-  const [hostedError, setHostedError] = useState<string>()
 
   const [ollama, setOllama] = useState("")
   const [lmStudio, setLmStudio] = useState("")
@@ -180,8 +189,7 @@ export function SettingsPage({
   const { fastServing } = state
   const fastDisabled = fastPending || !fastServing.available || state.busy || state.working > 0
 
-  const toggleForm = (form: "hosted" | "pair") => {
-    setHostedError(undefined)
+  const toggleForm = (form: "pair" | HostedProvider) => {
     setPairError(undefined)
     if (form === "pair" && openForm !== "pair") {
       setOllama(state.pairEndpoints.ollama ?? PAIR_DEFAULT_ENDPOINTS.ollama)
@@ -190,22 +198,6 @@ export function SettingsPage({
       setOmlxApiKey("")
     }
     setOpenForm(openForm === form ? undefined : form)
-  }
-
-  const submitHosted = async () => {
-    setHostedError(undefined)
-    setHostedPending(true)
-    try {
-      const result = await api.setFireworksApiKey(apiKey)
-      if (result.ok) {
-        setApiKey("")
-        setOpenForm(undefined)
-      } else {
-        setHostedError(result.reason)
-      }
-    } finally {
-      setHostedPending(false)
-    }
   }
 
   const submitPair = async () => {
@@ -307,52 +299,27 @@ export function SettingsPage({
                       <button
                         type="button"
                         className="settingsRow settingsRow-expand"
-                        aria-expanded={openForm === "hosted"}
-                        onClick={() => toggleForm("hosted")}
+                        aria-expanded={hostedOpen}
+                        onClick={() => {
+                          // Collapsing the group takes its open key editor with it.
+                          if (hostedOpen && openForm !== "pair") setOpenForm(undefined)
+                          setHostedOpen(!hostedOpen)
+                        }}
                       >
                         <span className="settingsRow-label">{t("settings.hostedInference")}</span>
-                        <Icon icon={openForm === "hosted" ? ChevronDown : ChevronRight} size={12} />
+                        <Icon icon={hostedOpen ? ChevronDown : ChevronRight} size={12} />
                       </button>
-                      {openForm === "hosted" ? (
-                        <div className="settingsForm">
-                          <label className="settingsForm-label" htmlFor="settings-api-key">
-                            {t("settings.fireworksKey")}
-                          </label>
-                          <input
-                            id="settings-api-key"
-                            type="password"
-                            className="settingsForm-input"
-                            value={apiKey}
-                            onChange={(event) => setApiKey(event.target.value)}
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter") void submitHosted()
-                            }}
-                            spellCheck={false}
-                            autoComplete="off"
-                          />
-                          <div className="settingsForm-actions">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => void api.openFireworksKeyPage()}
-                            >
-                              {t("settings.getKey")}
-                            </Button>
-                            <Button
-                              variant="primary"
-                              size="sm"
-                              disabled={hostedPending}
-                              onClick={() => void submitHosted()}
-                            >
-                              {t("common.continue")}
-                            </Button>
-                          </div>
-                          {hostedPending ? (
-                            <div className="settings-message">{t("settings.checkingHosted")}</div>
-                          ) : null}
-                          {hostedError ? (
-                            <div className="settings-message settings-error">{hostedError}</div>
-                          ) : null}
+                      {hostedOpen ? (
+                        <div className="settingsProvider-list">
+                          {HOSTED_PROVIDERS.map((provider) => (
+                            <HostedProviderRow
+                              key={provider}
+                              provider={provider}
+                              configured={state.hostedConfigured[provider]}
+                              open={openForm === provider}
+                              onToggle={() => toggleForm(provider)}
+                            />
+                          ))}
                         </div>
                       ) : null}
                     </section>
@@ -501,8 +468,8 @@ export function SettingsPage({
                                 >
                                   <span className="settingsRow-label">
                                     {item.displayName}
-                                    <span className="settingsRow-meta">
-                                      {pickerDetailLabel(item, t)}
+                                    <span className="settingsRow-meta settingsRow-detail">
+                                      <ModelDetail item={item} />
                                     </span>
                                   </span>
                                   {item.active ? <Icon icon={Check} size={13} /> : null}
@@ -516,9 +483,14 @@ export function SettingsPage({
                   </div>
                 </div>
 
-                <UsageStats stats={state.stats} />
+                <HostedModelsSettings
+                  configured={state.hostedConfigured}
+                  hiddenModels={state.hiddenModels}
+                />
               </>
             ) : null}
+
+            {activeTab === "usage" ? <UsageStats stats={state.stats} /> : null}
 
             {activeTab === "extensions" ? (
               <>
@@ -722,6 +694,191 @@ export function SettingsPage({
   )
 }
 
+/**
+ * One hosted provider as a settings row: its name and connection state, with an Add or Replace
+ * key button that opens a single inline key field beneath the row. The main process verifies the
+ * key against the provider's catalog and never sends it back; a saved key closes the editor.
+ */
+function HostedProviderRow({
+  provider,
+  configured,
+  open,
+  onToggle,
+}: {
+  provider: HostedProvider
+  configured: boolean
+  open: boolean
+  onToggle: () => void
+}) {
+  const { api } = useDesktop()
+  const { t } = useI18n()
+  const [apiKey, setApiKey] = useState("")
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string>()
+  const name = HOSTED_PROVIDER_INFO[provider].name
+  const submit = async () => {
+    setError(undefined)
+    setPending(true)
+    try {
+      const result = await api.setHostedApiKey(provider, apiKey)
+      if (!result.ok) return setError(result.reason)
+      setApiKey("")
+      onToggle()
+    } finally {
+      setPending(false)
+    }
+  }
+  return (
+    <div className="settingsProvider">
+      <div className="settingsRow">
+        <span className="settingsRow-label">
+          {name}
+          <span className={`settingsRow-meta${configured ? " settingsProvider-connected" : ""}`}>
+            {configured ? t("settings.providerConnected") : t("settings.providerNotConnected")}
+          </span>
+        </span>
+        <Button variant="ghost" size="sm" aria-expanded={open} onClick={onToggle}>
+          {open ? t("common.cancel") : configured ? t("settings.replaceKey") : t("settings.addKey")}
+        </Button>
+      </div>
+      {open ? (
+        <div className="settingsProvider-editor">
+          <input
+            type="password"
+            className="settingsForm-input settingsProvider-key"
+            aria-label={t("settings.hostedKey", { provider: name })}
+            placeholder={t("settings.hostedKey", { provider: name })}
+            value={apiKey}
+            onChange={(event) => setApiKey(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") void submit()
+              if (event.key === "Escape") onToggle()
+            }}
+            // biome-ignore lint/a11y/noAutofocus: the row was just opened to type the key
+            autoFocus
+            spellCheck={false}
+            autoComplete="off"
+          />
+          <Button variant="ghost" size="sm" onClick={() => void api.openHostedKeyPage(provider)}>
+            {t("settings.getKey")}
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            disabled={pending || !apiKey.trim()}
+            onClick={() => void submit()}
+          >
+            {t("common.save")}
+          </Button>
+          {pending ? (
+            <div className="settings-message settingsProvider-message">
+              {t("settings.checkingHosted")}
+            </div>
+          ) : null}
+          {error ? (
+            <div className="settings-message settings-error settingsProvider-message">{error}</div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * Every keyed hosted provider's catalog, one provider at a time behind a tab strip, with a
+ * visibility switch per model. The catalogs load when the tab opens and again when a key is added
+ * or removed; the switches follow the status stream, so a toggle lands when the main process has
+ * persisted it.
+ */
+function HostedModelsSettings({
+  configured,
+  hiddenModels,
+}: {
+  configured: Record<HostedProvider, boolean>
+  hiddenModels: string[]
+}) {
+  const { api } = useDesktop()
+  const { t } = useI18n()
+  const [catalogs, setCatalogs] = useState<Partial<Record<HostedProvider, HostedModel[]>>>()
+  const [failed, setFailed] = useState(false)
+  const [chosen, setChosen] = useState<HostedProvider>()
+  const providers = HOSTED_PROVIDERS.filter((provider) => configured[provider])
+  const keyed = providers.join(" ")
+  // A provider whose key was removed falls back to the first keyed one.
+  const provider = chosen && providers.includes(chosen) ? chosen : providers[0]
+  useEffect(() => {
+    if (!keyed) return
+    let cancelled = false
+    setCatalogs(undefined)
+    setFailed(false)
+    void api.listHostedCatalogs().then(
+      (result) => {
+        if (!cancelled) setCatalogs(result)
+      },
+      () => {
+        if (!cancelled) setFailed(true)
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [api, keyed])
+  if (!provider) return null
+  const name = HOSTED_PROVIDER_INFO[provider].name
+  const models = catalogs?.[provider] ?? []
+  return (
+    <div className="settingsGroup">
+      <h2 className="settings-section">{t("settings.hostedModels")}</h2>
+      <div className="settingsSurface">
+        <div className="tabStrip settingsModels-tabs" role="tablist">
+          {providers.map((entry) => (
+            <button
+              key={entry}
+              type="button"
+              role="tab"
+              className={`tabStrip-tab${entry === provider ? " tabStrip-tab-selected" : ""}`}
+              aria-selected={entry === provider}
+              onClick={() => setChosen(entry)}
+            >
+              {HOSTED_PROVIDER_INFO[entry].name}
+            </button>
+          ))}
+        </div>
+        <section role="tabpanel" aria-label={name}>
+          {failed ? (
+            <div className="settingsRow settings-message settings-error">
+              {t("settings.hostedModelsFailed")}
+            </div>
+          ) : catalogs === undefined ? (
+            <div className="settingsRow settings-message">{t("common.loadingModels")}</div>
+          ) : models.length ? (
+            models.map((model) => (
+              <div className="settingsRow" key={model.id}>
+                <span className="settingsRow-label">
+                  {model.displayName}
+                  <span className="settingsRow-meta settingsRow-detail">
+                    <ModelDetail
+                      item={{ kind: "model", ...model, available: true, active: false }}
+                    />
+                  </span>
+                </span>
+                <Toggle
+                  label={t("settings.showModel", { name: model.displayName })}
+                  checked={!hiddenModels.includes(hiddenModelKey(provider, model.id))}
+                  onChange={(shown) => void api.setModelHidden(provider, model.id, !shown)}
+                />
+              </div>
+            ))
+          ) : (
+            <div className="settingsRow settings-message">{t("settings.noHostedModels")}</div>
+          )}
+        </section>
+      </div>
+      <p className="settingsForm-note settingsGroup-note">{t("settings.hostedModelsNote")}</p>
+    </div>
+  )
+}
+
 /** A pill switch, in keeping with the app's soft geometry. */
 function Toggle({
   label,
@@ -851,12 +1008,9 @@ function UsageStats({ stats }: { stats: LocalStats | undefined }) {
 
   if (!stats) {
     return (
-      <div className="settingsGroup">
-        <h2 className="settings-section">{t("settings.usage")}</h2>
-        <section className="settingsSurface settingsUsage settingsUsage-loading" aria-busy="true">
-          {t("settings.usageLoading")}
-        </section>
-      </div>
+      <section className="settingsSurface settingsUsage settingsUsage-loading" aria-busy="true">
+        {t("settings.usageLoading")}
+      </section>
     )
   }
 
@@ -879,164 +1033,156 @@ function UsageStats({ stats }: { stats: LocalStats | undefined }) {
     .sort((a, b) => b.total - a.total)
 
   return (
-    <div className="settingsGroup">
-      <h2 className="settings-section">{t("settings.usage")}</h2>
-      <section className="settingsSurface settingsUsage" aria-label={t("settings.usage")}>
-        <div className="settingsUsage-hero">
-          <div className="settingsUsage-total">
-            <span className="settingsUsage-eyebrow">{t("settings.usageTotal")}</span>
-            <strong title={number.format(stats.totalTokens)}>
-              {formatTokenCount(stats.totalTokens)}
-            </strong>
-            <span className="settingsUsage-note">{t("settings.usagePrivate")}</span>
-          </div>
-          <div className="settingsUsage-mix">
-            <span className="settingsUsage-mixTitle">{t("settings.usageTokenMix")}</span>
-            <div
-              className="settingsUsage-mixTrack"
-              data-empty={countedTokens === 0 ? "true" : undefined}
-              style={{ "--usage-input-share": `${inputShare}%` } as CSSProperties}
-              aria-hidden="true"
-            />
-            <div className="settingsUsage-mixValues">
-              <span>
-                <i className="settingsUsage-mixDot settingsUsage-mixDotInput" />
-                {t("settings.usageInput")}
-                <strong>{formatTokenCount(promptTokens)}</strong>
-              </span>
-              <span>
-                <i className="settingsUsage-mixDot settingsUsage-mixDotOutput" />
-                {t("settings.usageOutput")}
-                <strong>{formatTokenCount(completionTokens)}</strong>
-              </span>
-            </div>
+    <section className="settingsSurface settingsUsage" aria-label={t("settings.usage")}>
+      <div className="settingsUsage-hero">
+        <div className="settingsUsage-total">
+          <span className="settingsUsage-eyebrow">{t("settings.usageTotal")}</span>
+          <strong title={number.format(stats.totalTokens)}>
+            {formatTokenCount(stats.totalTokens)}
+          </strong>
+          <span className="settingsUsage-note">{t("settings.usagePrivate")}</span>
+        </div>
+        <div className="settingsUsage-mix">
+          <span className="settingsUsage-mixTitle">{t("settings.usageTokenMix")}</span>
+          <div
+            className="settingsUsage-mixTrack"
+            data-empty={countedTokens === 0 ? "true" : undefined}
+            style={{ "--usage-input-share": `${inputShare}%` } as CSSProperties}
+            aria-hidden="true"
+          />
+          <div className="settingsUsage-mixValues">
+            <span>
+              <i className="settingsUsage-mixDot settingsUsage-mixDotInput" />
+              {t("settings.usageInput")}
+              <strong>{formatTokenCount(promptTokens)}</strong>
+            </span>
+            <span>
+              <i className="settingsUsage-mixDot settingsUsage-mixDotOutput" />
+              {t("settings.usageOutput")}
+              <strong>{formatTokenCount(completionTokens)}</strong>
+            </span>
           </div>
         </div>
+      </div>
 
-        <div className="settingsUsage-metrics">
-          <UsageMetric
-            label={t("settings.usageSessions")}
-            value={number.format(stats.sessionCount)}
-          />
-          <UsageMetric
-            label={t("settings.usageActiveDays")}
-            value={number.format(stats.activeDays)}
-          />
-          <UsageMetric label={t("settings.usageStreak")} value={number.format(stats.streak)} />
-          <UsageMetric
-            label={t("settings.usageToday")}
-            value={formatTokenCount(stats.todayTokens)}
-          />
-        </div>
+      <div className="settingsUsage-metrics">
+        <UsageMetric
+          label={t("settings.usageSessions")}
+          value={number.format(stats.sessionCount)}
+        />
+        <UsageMetric
+          label={t("settings.usageActiveDays")}
+          value={number.format(stats.activeDays)}
+        />
+        <UsageMetric label={t("settings.usageStreak")} value={number.format(stats.streak)} />
+        <UsageMetric label={t("settings.usageToday")} value={formatTokenCount(stats.todayTokens)} />
+      </div>
 
-        {models.length ? (
-          <div className="settingsUsage-models">
-            <div className="settingsUsage-activityHeader">
-              <span>{t("settings.usageByModel")}</span>
-            </div>
-            {models
-              .slice(0, allModels ? undefined : MODELS_SHOWN)
-              .map(({ name, hosted, promptTokens, completionTokens, total }) => (
-                <div
-                  key={name}
-                  className="settingsUsage-model"
-                  style={
-                    { "--usage-share": `${(total / models[0].total) * 100}%` } as CSSProperties
-                  }
-                >
-                  <span className="settingsUsage-modelName" title={name}>
-                    {name}
-                  </span>
-                  <span
-                    className="settingsUsage-modelWhere"
-                    title={t(hosted ? "common.hosted" : "common.local")}
-                  >
-                    <Icon icon={hosted ? Cloud : Laptop} size={13} />
-                  </span>
-                  <span className="settingsUsage-modelSplit">
-                    {t("settings.usageModelSplit", {
-                      input: formatTokenCount(promptTokens),
-                      output: formatTokenCount(completionTokens),
-                    })}
-                  </span>
-                  <strong title={number.format(total)}>{formatTokenCount(total)}</strong>
-                  <i className="settingsUsage-modelBar" aria-hidden="true" />
-                </div>
-              ))}
-            {models.length > MODELS_SHOWN && !allModels ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="settingsUsage-more"
-                onClick={() => setAllModels(true)}
-              >
-                {t("settings.skillsMore")}
-              </Button>
-            ) : null}
-          </div>
-        ) : null}
-
-        <div className="settingsUsage-activity">
+      {models.length ? (
+        <div className="settingsUsage-models">
           <div className="settingsUsage-activityHeader">
-            <span>{t("settings.usageRecent")}</span>
-            {activeDay ? (
-              <span className="settingsUsage-activeDay">
-                {t("settings.usageDay", {
-                  date: formatLongDate(activeDay.date, locale),
-                  tokens: number.format(activeDay.tokens),
-                })}
-              </span>
-            ) : firstDay && lastDay ? (
-              <span>
-                {formatShortDate(firstDay.date, locale)}–{formatShortDate(lastDay.date, locale)}
-              </span>
-            ) : null}
+            <span>{t("settings.usageByModel")}</span>
           </div>
-          <div className="settingsUsage-chart">
-            {recentActivity.map((day) => {
-              const percent = Math.round((day.tokens / maxDailyTokens) * 100)
-              const label = t("settings.usageDay", {
-                date: formatLongDate(day.date, locale),
-                tokens: number.format(day.tokens),
-              })
-              return (
-                <button
-                  type="button"
-                  key={day.date}
-                  className="settingsUsage-barSlot"
-                  data-empty={day.tokens === 0 ? "true" : undefined}
-                  style={{ "--usage-level": `${percent}%` } as CSSProperties}
-                  aria-label={label}
-                  onPointerEnter={() => setActiveDate(day.date)}
-                  onPointerLeave={() => setActiveDate(undefined)}
-                  onFocus={() => setActiveDate(day.date)}
-                  onBlur={() => setActiveDate(undefined)}
+          {models
+            .slice(0, allModels ? undefined : MODELS_SHOWN)
+            .map(({ name, hosted, promptTokens, completionTokens, total }) => (
+              <div
+                key={name}
+                className="settingsUsage-model"
+                style={{ "--usage-share": `${(total / models[0].total) * 100}%` } as CSSProperties}
+              >
+                <span className="settingsUsage-modelName" title={name}>
+                  {name}
+                </span>
+                <span
+                  className="settingsUsage-modelWhere"
+                  title={t(hosted ? "common.hosted" : "common.local")}
                 >
-                  <span className="settingsUsage-bar" />
-                </button>
-              )
-            })}
-          </div>
-          <div className="settingsUsage-average">
-            <span>
-              {t("settings.usageAverageTokens", {
-                tokens: formatTokenCount(Math.round(stats.avgTokensPerSession)),
-              })}
-            </span>
-            <span>
-              {t("settings.usageAverageTime", {
-                duration:
-                  stats.avgSessionSeconds >= 3_600
-                    ? `${(stats.avgSessionSeconds / 3_600).toFixed(1)}h`
-                    : stats.avgSessionSeconds >= 60
-                      ? `${Math.round(stats.avgSessionSeconds / 60)}m`
-                      : `${Math.round(stats.avgSessionSeconds)}s`,
-              })}
-            </span>
-          </div>
+                  <Icon icon={hosted ? Cloud : Laptop} size={13} />
+                </span>
+                <span className="settingsUsage-modelSplit">
+                  {t("settings.usageModelSplit", {
+                    input: formatTokenCount(promptTokens),
+                    output: formatTokenCount(completionTokens),
+                  })}
+                </span>
+                <strong title={number.format(total)}>{formatTokenCount(total)}</strong>
+                <i className="settingsUsage-modelBar" aria-hidden="true" />
+              </div>
+            ))}
+          {models.length > MODELS_SHOWN && !allModels ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="settingsUsage-more"
+              onClick={() => setAllModels(true)}
+            >
+              {t("settings.skillsMore")}
+            </Button>
+          ) : null}
         </div>
-      </section>
-    </div>
+      ) : null}
+
+      <div className="settingsUsage-activity">
+        <div className="settingsUsage-activityHeader">
+          <span>{t("settings.usageRecent")}</span>
+          {activeDay ? (
+            <span className="settingsUsage-activeDay">
+              {t("settings.usageDay", {
+                date: formatLongDate(activeDay.date, locale),
+                tokens: number.format(activeDay.tokens),
+              })}
+            </span>
+          ) : firstDay && lastDay ? (
+            <span>
+              {formatShortDate(firstDay.date, locale)}–{formatShortDate(lastDay.date, locale)}
+            </span>
+          ) : null}
+        </div>
+        <div className="settingsUsage-chart">
+          {recentActivity.map((day) => {
+            const percent = Math.round((day.tokens / maxDailyTokens) * 100)
+            const label = t("settings.usageDay", {
+              date: formatLongDate(day.date, locale),
+              tokens: number.format(day.tokens),
+            })
+            return (
+              <button
+                type="button"
+                key={day.date}
+                className="settingsUsage-barSlot"
+                data-empty={day.tokens === 0 ? "true" : undefined}
+                style={{ "--usage-level": `${percent}%` } as CSSProperties}
+                aria-label={label}
+                onPointerEnter={() => setActiveDate(day.date)}
+                onPointerLeave={() => setActiveDate(undefined)}
+                onFocus={() => setActiveDate(day.date)}
+                onBlur={() => setActiveDate(undefined)}
+              >
+                <span className="settingsUsage-bar" />
+              </button>
+            )
+          })}
+        </div>
+        <div className="settingsUsage-average">
+          <span>
+            {t("settings.usageAverageTokens", {
+              tokens: formatTokenCount(Math.round(stats.avgTokensPerSession)),
+            })}
+          </span>
+          <span>
+            {t("settings.usageAverageTime", {
+              duration:
+                stats.avgSessionSeconds >= 3_600
+                  ? `${(stats.avgSessionSeconds / 3_600).toFixed(1)}h`
+                  : stats.avgSessionSeconds >= 60
+                    ? `${Math.round(stats.avgSessionSeconds / 60)}m`
+                    : `${Math.round(stats.avgSessionSeconds)}s`,
+            })}
+          </span>
+        </div>
+      </div>
+    </section>
   )
 }
 
@@ -1162,10 +1308,7 @@ function SkillsSettings() {
             <div className="settingsRow" key={skill.name}>
               <span className="settingsRow-label settingsSkill">
                 <span>{skill.name}</span>
-                <span
-                  className="settingsRow-meta settingsSkill-description"
-                  title={skill.description}
-                >
+                <span className="settingsRow-meta settingsRow-truncate" title={skill.description}>
                   {skill.description}
                 </span>
               </span>
@@ -1239,8 +1382,10 @@ function MemorySettings() {
         ) : null}
         {entries?.map((entry, index) => (
           <div className="settingsRow" key={index}>
-            <span className="settingsRow-label settingsMemory-fact">
-              <span>{entry.text}</span>
+            <span className="settingsRow-label">
+              <span className="settingsRow-truncate" title={entry.text}>
+                {entry.text}
+              </span>
               <span className="settingsRow-meta">
                 {t(entry.scope === "global" ? "settings.memoryGlobal" : "settings.memoryWorkspace")}
                 {entry.date ? ` · ${formatShortDate(entry.date, locale)}` : ""}

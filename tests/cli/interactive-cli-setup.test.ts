@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import { findLocalModel } from "../../src/inference/local-catalog.js"
 import type { LocalPickerChoice, ModelPickerItem } from "../../src/inference/picker-catalog.js"
-import { fireworksChoice } from "./support/chat-ui-harness.js"
+import { hostedChoice } from "./support/chat-ui-harness.js"
 import {
   getMocks,
   loadCli,
@@ -28,7 +28,7 @@ describe("interactive CLI setup", () => {
       id: "accounts/fireworks/models/muse-glimmer-30b",
       displayName: "Muse Glimmer 30B",
     })
-    mocks.listToolCapableModels.mockResolvedValue([fallback, inkling, muse])
+    mocks.listHostedModels.mockResolvedValue([fallback, inkling, muse])
     mocks.loadLocalSettings.mockResolvedValue(
       localSettings({
         fireworksApiKey: undefined,
@@ -45,25 +45,32 @@ describe("interactive CLI setup", () => {
     mocks.uiOptions?.onSetup?.()
     expect(mocks.ui.showSetupInferenceChoice).toHaveBeenCalledOnce()
     expect(mocks.ui.showSetupInput).not.toHaveBeenCalled()
-    expect(mocks.openFireworksKeyPage).not.toHaveBeenCalled()
+    expect(mocks.openHostedKeyPage).not.toHaveBeenCalled()
 
     mocks.uiOptions?.onSetupInferenceChoice?.("hosted")
-    expect(mocks.ui.showSetupInput).toHaveBeenCalledOnce()
-    expect(mocks.openFireworksKeyPage).toHaveBeenCalledOnce()
+    expect(mocks.ui.showSetupHostedChoice).toHaveBeenCalledExactlyOnceWith(
+      { fireworks: false, together: false, baseten: false, primeintellect: false },
+      "choice",
+    )
+    expect(mocks.ui.showSetupInput).not.toHaveBeenCalled()
+    mocks.uiOptions?.onSetupHostedChoice?.("fireworks")
+    expect(mocks.ui.showSetupInput).toHaveBeenCalledExactlyOnceWith("", "hosted", "fireworks")
+    expect(mocks.openHostedKeyPage).toHaveBeenCalledExactlyOnceWith("fireworks")
 
     mocks.uiOptions?.onSetupSubmit?.(" ")
     expect(mocks.ui.showSetupError).toHaveBeenLastCalledWith(
       "Fireworks API key is required.",
-      "choice",
+      "hosted",
+      "fireworks",
     )
 
     mocks.uiOptions?.onSetupSubmit?.("fw_new_key")
     await settle()
-    expect(mocks.listToolCapableModels).toHaveBeenCalledWith("fw_new_key", {
+    expect(mocks.listHostedModels).toHaveBeenCalledWith("fireworks", "fw_new_key", {
       signal: expect.any(AbortSignal),
     })
     expect(mocks.ui.showModelPicker).not.toHaveBeenCalled()
-    expect(mocks.saveFireworksSetup).toHaveBeenCalledWith("fw_new_key", muse)
+    expect(mocks.saveHostedApiKey).toHaveBeenCalledWith("fireworks", "fw_new_key", muse)
     expect(mocks.ui.setModelLabel).toHaveBeenLastCalledWith("Muse Glimmer 30B")
     expect(mocks.ui.setConfigured).toHaveBeenCalledOnce()
     expect(mocks.ParallelClient).toHaveBeenCalledOnce()
@@ -87,8 +94,8 @@ describe("interactive CLI setup", () => {
     await vi.waitFor(() => expect(mocks.ui.showModelPicker).toHaveBeenCalledOnce())
 
     expect(mocks.ui.showSetupStatus).toHaveBeenCalledOnce()
-    expect(mocks.listToolCapableModels).not.toHaveBeenCalled()
-    expect(mocks.openFireworksKeyPage).not.toHaveBeenCalled()
+    expect(mocks.listHostedModels).not.toHaveBeenCalled()
+    expect(mocks.openHostedKeyPage).not.toHaveBeenCalled()
     expect(mocks.ui.showSetupInput).not.toHaveBeenCalled()
     const picker = (mocks.ui.showModelPicker.mock.calls[0]?.[0] ?? []) as ModelPickerItem[]
     expect(picker[0]).toMatchObject({ kind: "header", displayName: "Local" })
@@ -350,7 +357,7 @@ describe("interactive CLI setup", () => {
     const local = findLocalModel("openai/gpt-oss-20b")
     if (!local) throw new Error("missing local model")
     const hosted = testModel({ displayName: "Hosted Model" })
-    mocks.listToolCapableModels.mockResolvedValue([hosted])
+    mocks.listHostedModels.mockResolvedValue([hosted])
     mocks.loadLocalSettings.mockResolvedValue(
       localSettings({
         fireworksApiKey: undefined,
@@ -366,51 +373,241 @@ describe("interactive CLI setup", () => {
     await submit("/settings")
     expect(mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[0]).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ name: "Hosted inference", description: "Add API key" }),
+        {
+          name: "Fireworks",
+          description: "Add API key",
+          submission: "/settings hosted fireworks",
+        },
+        { name: "Baseten", description: "Add API key", submission: "/settings hosted baseten" },
       ]),
     )
 
-    await submit("/settings hosted")
-    expect(mocks.ui.showSetupInput).toHaveBeenLastCalledWith("", "configured")
-    expect(mocks.openFireworksKeyPage).toHaveBeenCalledOnce()
+    await submit("/settings hosted fireworks")
+    expect(mocks.ui.showSetupHostedChoice).not.toHaveBeenCalled()
+    expect(mocks.ui.showSetupInput).toHaveBeenLastCalledWith("", "configured", "fireworks")
+    expect(mocks.openHostedKeyPage).toHaveBeenCalledExactlyOnceWith("fireworks")
 
     mocks.uiOptions?.onSetupSubmit?.("fw_added_key")
-    await vi.waitFor(() => expect(mocks.saveFireworksApiKey).toHaveBeenCalledWith("fw_added_key"))
+    await vi.waitFor(() =>
+      expect(mocks.saveHostedApiKey).toHaveBeenCalledWith("fireworks", "fw_added_key"),
+    )
 
-    expect(mocks.listToolCapableModels).toHaveBeenCalledWith("fw_added_key", {
+    expect(mocks.listHostedModels).toHaveBeenCalledWith("fireworks", "fw_added_key", {
       signal: expect.any(AbortSignal),
     })
     expect(mocks.saveSelectedModel).not.toHaveBeenCalled()
-    expect(mocks.saveFireworksSetup).not.toHaveBeenCalled()
-    expect(mocks.ui.showTransientHint).toHaveBeenLastCalledWith(" Hosted inference configured ")
+    expect(mocks.saveHostedApiKey).toHaveBeenCalledOnce()
+    expect(mocks.ui.showTransientHint).toHaveBeenLastCalledWith(" Fireworks configured ")
 
     mocks.ui.showModelPicker.mockClear()
     await submit("/model")
     const picker = (mocks.ui.showModelPicker.mock.calls[0]?.[0] ?? []) as ModelPickerItem[]
     expect(picker).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ kind: "header", displayName: "Hosted" }),
+        expect.objectContaining({
+          kind: "header",
+          id: "header-fireworks",
+          displayName: "Fireworks",
+        }),
         expect.objectContaining({ id: hosted.id, provider: "fireworks" }),
       ]),
     )
   })
 
   it("keeps hosted key settings open when validation fails", async () => {
-    mocks.listToolCapableModels.mockRejectedValue(new Error("invalid API key"))
+    mocks.listHostedModels.mockRejectedValue(new Error("invalid API key"))
+    await loadCli()
+
+    await submit("/settings hosted fireworks")
+    mocks.uiOptions?.onSetupSubmit?.("fw_invalid")
+    await vi.waitFor(() =>
+      expect(mocks.ui.showSetupError).toHaveBeenCalledWith(
+        "invalid API key",
+        "configured",
+        "fireworks",
+      ),
+    )
+
+    expect(mocks.saveHostedApiKey).not.toHaveBeenCalled()
+  })
+
+  it("onboards with Together AI and saves its key with the first listed model", async () => {
+    const kimi = testModel({
+      provider: "together",
+      id: "moonshotai/Kimi-K3",
+      displayName: "Kimi K3",
+      contextLength: 262_144,
+    })
+    const qwen = testModel({ provider: "together", id: "Qwen/Qwen3.8", displayName: "Qwen 3.8" })
+    mocks.listHostedModels.mockResolvedValue([kimi, qwen])
+    mocks.loadLocalSettings.mockResolvedValue(
+      localSettings({
+        fireworksApiKey: undefined,
+        model: undefined,
+        modelDisplayName: undefined,
+        modelContextLength: undefined,
+      }),
+    )
+    await loadCli()
+
+    mocks.uiOptions?.onSetup?.()
+    mocks.uiOptions?.onSetupInferenceChoice?.("hosted")
+    expect(mocks.ui.showSetupHostedChoice).toHaveBeenLastCalledWith(
+      { fireworks: false, together: false, baseten: false, primeintellect: false },
+      "choice",
+    )
+    mocks.uiOptions?.onSetupHostedChoice?.("together")
+    expect(mocks.ui.showSetupInput).toHaveBeenLastCalledWith("", "hosted", "together")
+    // Returning to the list and picking the same provider does not reopen its key page.
+    mocks.uiOptions?.onSetupHostedChoice?.("together")
+    expect(mocks.ui.showSetupInput).toHaveBeenCalledTimes(2)
+    expect(mocks.openHostedKeyPage).toHaveBeenCalledExactlyOnceWith("together")
+
+    mocks.uiOptions?.onSetupSubmit?.("  ")
+    expect(mocks.ui.showSetupError).toHaveBeenLastCalledWith(
+      "Together AI API key is required.",
+      "hosted",
+      "together",
+    )
+
+    mocks.uiOptions?.onSetupSubmit?.("tg_new_key")
+    await settle()
+    expect(mocks.listHostedModels).toHaveBeenCalledWith("together", "tg_new_key", {
+      signal: expect.any(AbortSignal),
+    })
+    expect(mocks.listHostedModels).not.toHaveBeenCalledWith(
+      "fireworks",
+      expect.anything(),
+      expect.anything(),
+    )
+    expect(mocks.ui.showModelPicker).not.toHaveBeenCalled()
+    expect(mocks.saveHostedApiKey).toHaveBeenCalledExactlyOnceWith("together", "tg_new_key", kimi)
+    expect(mocks.saveSelectedModel).not.toHaveBeenCalled()
+    expect(mocks.HostedClient).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: "together", apiKey: "tg_new_key", model: kimi.id }),
+    )
+    expect(mocks.ui.setModelLabel).toHaveBeenLastCalledWith("Kimi K3 · Together AI")
+    expect(mocks.ui.setConfigured).toHaveBeenCalledOnce()
+    expect(mocks.ui.setCommands).not.toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ name: "/fast" })]),
+    )
+  })
+
+  it("opens the Baseten key input directly from /settings hosted baseten", async () => {
+    const baseten = testModel({
+      provider: "baseten",
+      id: "deepseek-ai/DeepSeek-V4",
+      displayName: "DeepSeek V4",
+    })
+    mocks.listHostedModels.mockImplementation(async (provider) =>
+      provider === "baseten" ? [baseten] : [testModel()],
+    )
+    await loadCli()
+    mocks.saveSelectedModel.mockClear()
+
+    await submit("/settings hosted baseten")
+    expect(mocks.ui.showSetupHostedChoice).not.toHaveBeenCalled()
+    expect(mocks.ui.showSetupInput).toHaveBeenCalledExactlyOnceWith("", "configured", "baseten")
+    expect(mocks.openHostedKeyPage).toHaveBeenCalledExactlyOnceWith("baseten")
+
+    mocks.uiOptions?.onSetupSubmit?.("")
+    expect(mocks.ui.showSetupError).toHaveBeenLastCalledWith(
+      "Baseten API key is required.",
+      "configured",
+      "baseten",
+    )
+
+    mocks.uiOptions?.onSetupSubmit?.("bt_key")
+    await vi.waitFor(() =>
+      expect(mocks.saveHostedApiKey).toHaveBeenCalledExactlyOnceWith("baseten", "bt_key"),
+    )
+    expect(mocks.listHostedModels).toHaveBeenCalledWith("baseten", "bt_key", {
+      signal: expect.any(AbortSignal),
+    })
+    expect(mocks.ui.showTransientHint).toHaveBeenLastCalledWith(" Baseten configured ")
+    // The active Fireworks model stays selected; only the Baseten key was added.
+    expect(mocks.saveSelectedModel).not.toHaveBeenCalled()
+    expect(mocks.ui.setModelLabel).not.toHaveBeenCalled()
+
+    await submit("/settings")
+    expect(mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[0]).toEqual(
+      expect.arrayContaining([
+        {
+          name: "Fireworks",
+          description: "Replace API key",
+          submission: "/settings hosted fireworks",
+        },
+        {
+          name: "Together AI",
+          description: "Add API key",
+          submission: "/settings hosted together",
+        },
+        { name: "Baseten", description: "Replace API key", submission: "/settings hosted baseten" },
+        {
+          name: "Prime Intellect",
+          description: "Add API key",
+          submission: "/settings hosted primeintellect",
+        },
+      ]),
+    )
+
+    mocks.ui.showModelPicker.mockClear()
+    await submit("/model")
+    const picker = (mocks.ui.showModelPicker.mock.calls[0]?.[0] ?? []) as ModelPickerItem[]
+    const fireworksHeader = picker.findIndex((item) => item.id === "header-fireworks")
+    const basetenHeader = picker.findIndex((item) => item.id === "header-baseten")
+    expect(fireworksHeader).toBeGreaterThanOrEqual(0)
+    expect(basetenHeader).toBeGreaterThan(fireworksHeader)
+    expect(picker[basetenHeader]).toMatchObject({ kind: "header", displayName: "Baseten" })
+    expect(picker[basetenHeader + 1]).toMatchObject({ ...baseten, active: false, available: true })
+    expect(picker[fireworksHeader + 1]).toMatchObject({ provider: "fireworks", active: true })
+    expect(picker.some((item) => item.id === "header-together")).toBe(false)
+  })
+
+  it("lists hosted providers from /settings hosted with the configured cancel target", async () => {
     await loadCli()
 
     await submit("/settings hosted")
-    mocks.uiOptions?.onSetupSubmit?.("fw_invalid")
-    await vi.waitFor(() =>
-      expect(mocks.ui.showSetupError).toHaveBeenCalledWith("invalid API key", "configured"),
+    expect(mocks.ui.showSetupHostedChoice).toHaveBeenCalledExactlyOnceWith(
+      { fireworks: true, together: false, baseten: false, primeintellect: false },
+      "configured",
     )
+    expect(mocks.ui.showSetupInput).not.toHaveBeenCalled()
+    expect(mocks.openHostedKeyPage).not.toHaveBeenCalled()
 
-    expect(mocks.saveFireworksApiKey).not.toHaveBeenCalled()
+    mocks.uiOptions?.onSetupHostedChoice?.("primeintellect")
+    expect(mocks.ui.showSetupInput).toHaveBeenCalledExactlyOnceWith(
+      "",
+      "configured",
+      "primeintellect",
+    )
+    expect(mocks.openHostedKeyPage).toHaveBeenCalledExactlyOnceWith("primeintellect")
+  })
+
+  it("asks for the missing provider key when the saved model is hosted elsewhere", async () => {
+    mocks.loadLocalSettings.mockResolvedValue(
+      localSettings({
+        model: "moonshotai/Kimi-K3",
+        modelDisplayName: "Kimi K3",
+        modelContextLength: 262_144,
+        modelProvider: "together",
+      }),
+    )
+    await loadCli()
+    await settle()
+
+    expect(mocks.uiOptions?.configured).toBe(false)
+    expect(mocks.uiOptions?.modelLabel).toBe("Kimi K3 · Together AI")
+    expect(mocks.ui.showSetupInferenceChoice).not.toHaveBeenCalled()
+    expect(mocks.ui.showSetupHostedChoice).not.toHaveBeenCalled()
+    expect(mocks.ui.showSetupInput).toHaveBeenCalledExactlyOnceWith("", "hosted", "together")
+    expect(mocks.openHostedKeyPage).toHaveBeenCalledExactlyOnceWith("together")
+    expect(mocks.listHostedModels).not.toHaveBeenCalled()
   })
 
   it("discards a rejected hosted key draft when onboarding switches to local", async () => {
     const hosted = testModel({ displayName: "Hosted Model" })
-    mocks.listToolCapableModels.mockImplementation(async (apiKey) => {
+    mocks.listHostedModels.mockImplementation(async (_provider, apiKey) => {
       if (apiKey === "fw_rejected") throw new Error("invalid API key")
       return [hosted]
     })
@@ -426,9 +623,14 @@ describe("interactive CLI setup", () => {
 
     mocks.uiOptions?.onSetup?.()
     mocks.uiOptions?.onSetupInferenceChoice?.("hosted")
+    mocks.uiOptions?.onSetupHostedChoice?.("fireworks")
     mocks.uiOptions?.onSetupSubmit?.("fw_rejected")
     await vi.waitFor(() =>
-      expect(mocks.ui.showSetupError).toHaveBeenCalledWith("invalid API key", "choice"),
+      expect(mocks.ui.showSetupError).toHaveBeenCalledWith(
+        "invalid API key",
+        "hosted",
+        "fireworks",
+      ),
     )
 
     mocks.uiOptions?.onSetupInferenceChoice?.("local")
@@ -442,9 +644,11 @@ describe("interactive CLI setup", () => {
     mocks.uiOptions?.onSelectModel?.(local)
     await vi.waitFor(() => expect(mocks.ui.setConfigured).toHaveBeenCalled())
 
-    await submit("/settings hosted")
+    await submit("/settings hosted fireworks")
     mocks.uiOptions?.onSetupSubmit?.("fw_valid")
-    await vi.waitFor(() => expect(mocks.saveFireworksApiKey).toHaveBeenCalledWith("fw_valid"))
+    await vi.waitFor(() =>
+      expect(mocks.saveHostedApiKey).toHaveBeenCalledWith("fireworks", "fw_valid"),
+    )
 
     mocks.ui.showModelPicker.mockClear()
     mocks.saveSelectedModel.mockClear()
@@ -457,7 +661,7 @@ describe("interactive CLI setup", () => {
     mocks.uiOptions?.onSelectModel?.(hostedChoice)
     await settle()
 
-    expect(mocks.saveFireworksSetup).not.toHaveBeenCalled()
+    expect(mocks.saveHostedApiKey).toHaveBeenCalledOnce()
     expect(mocks.saveSelectedModel).toHaveBeenCalledWith(hosted)
   })
 
@@ -470,7 +674,7 @@ describe("interactive CLI setup", () => {
       id: "accounts/fireworks/models/inkling",
       displayName: "Inkling",
     })
-    mocks.listToolCapableModels.mockResolvedValue([fallback, inkling])
+    mocks.listHostedModels.mockResolvedValue([fallback, inkling])
     mocks.loadLocalSettings.mockResolvedValue(
       localSettings({
         fireworksApiKey: "fw_env_key",
@@ -482,12 +686,12 @@ describe("interactive CLI setup", () => {
     await loadCli()
     await settle()
 
-    expect(mocks.listToolCapableModels).toHaveBeenCalledWith("fw_env_key", {
+    expect(mocks.listHostedModels).toHaveBeenCalledWith("fireworks", "fw_env_key", {
       signal: expect.any(AbortSignal),
     })
     expect(mocks.ui.showModelPicker).not.toHaveBeenCalled()
     expect(mocks.saveSelectedModel).toHaveBeenCalledWith(inkling)
-    expect(mocks.saveFireworksSetup).not.toHaveBeenCalled()
+    expect(mocks.saveHostedApiKey).not.toHaveBeenCalled()
     expect(mocks.ui.setConfigured).toHaveBeenCalledOnce()
     expect(mocks.ParallelClient).toHaveBeenCalledOnce()
   })
@@ -497,7 +701,7 @@ describe("interactive CLI setup", () => {
       id: "accounts/fireworks/models/first-verified",
       displayName: "First Verified",
     })
-    mocks.listToolCapableModels.mockResolvedValue([first, testModel()])
+    mocks.listHostedModels.mockResolvedValue([first, testModel()])
     mocks.loadLocalSettings.mockResolvedValue(
       localSettings({
         fireworksApiKey: "fw_env_key",
@@ -515,7 +719,7 @@ describe("interactive CLI setup", () => {
   })
 
   it("keeps setup disabled when Fireworks has no verified tool-capable model", async () => {
-    mocks.listToolCapableModels.mockResolvedValue([])
+    mocks.listHostedModels.mockResolvedValue([])
     mocks.loadLocalSettings.mockResolvedValue(
       localSettings({
         fireworksApiKey: undefined,
@@ -528,19 +732,21 @@ describe("interactive CLI setup", () => {
 
     mocks.uiOptions?.onSetup?.()
     mocks.uiOptions?.onSetupInferenceChoice?.("hosted")
+    mocks.uiOptions?.onSetupHostedChoice?.("fireworks")
     mocks.uiOptions?.onSetupSubmit?.("fw_new_key")
     await settle()
 
-    expect(mocks.saveFireworksSetup).not.toHaveBeenCalled()
+    expect(mocks.saveHostedApiKey).not.toHaveBeenCalled()
     expect(mocks.ui.showSetupError).toHaveBeenCalledWith(
       "The hosted provider returned no public models with tool support.",
-      "choice",
+      "hosted",
+      "fireworks",
     )
     expect(mocks.ui.setConfigured).not.toHaveBeenCalled()
   })
 
   it("does not enable chat when saving the automatic model selection fails", async () => {
-    mocks.saveFireworksSetup.mockRejectedValueOnce(new Error("Could not save Fireworks setup."))
+    mocks.saveHostedApiKey.mockRejectedValueOnce(new Error("Could not save Fireworks setup."))
     mocks.loadLocalSettings.mockResolvedValue(
       localSettings({
         fireworksApiKey: undefined,
@@ -553,12 +759,14 @@ describe("interactive CLI setup", () => {
 
     mocks.uiOptions?.onSetup?.()
     mocks.uiOptions?.onSetupInferenceChoice?.("hosted")
+    mocks.uiOptions?.onSetupHostedChoice?.("fireworks")
     mocks.uiOptions?.onSetupSubmit?.("fw_new_key")
     await settle()
 
     expect(mocks.ui.showSetupError).toHaveBeenCalledWith(
       "Could not save Fireworks setup.",
-      "choice",
+      "hosted",
+      "fireworks",
     )
     expect(mocks.ui.setConfigured).not.toHaveBeenCalled()
   })
@@ -644,7 +852,7 @@ describe("interactive CLI setup", () => {
     await settle()
     expect(mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[0]).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ name: "Hosted inference" }),
+        expect.objectContaining({ name: "Fireworks" }),
         expect.objectContaining({ name: "Delete local model" }),
         expect.objectContaining({ name: "Debug mode" }),
       ]),
@@ -656,7 +864,7 @@ describe("interactive CLI setup", () => {
       id: "accounts/fireworks/models/replacement",
       displayName: "Replacement",
     })
-    mocks.listToolCapableModels.mockResolvedValue([replacement])
+    mocks.listHostedModels.mockResolvedValue([replacement])
     await loadCli()
 
     mocks.ui.showSetupStatus.mockClear()
@@ -721,7 +929,7 @@ describe("interactive CLI setup", () => {
   })
 
   it("still shows local models when Fireworks catalog discovery fails", async () => {
-    mocks.listToolCapableModels.mockRejectedValue(new Error("invalid API key"))
+    mocks.listHostedModels.mockRejectedValue(new Error("invalid API key"))
     await loadCli()
 
     await submit("/model")
@@ -746,7 +954,7 @@ describe("interactive CLI setup", () => {
       fastId: "accounts/fireworks/routers/kimi-k3-fast",
       supportsImageInput: true,
     })
-    mocks.listToolCapableModels.mockResolvedValue([kimi])
+    mocks.listHostedModels.mockResolvedValue([kimi])
     mocks.loadLocalSettings.mockResolvedValue(
       localSettings({
         fireworksApiKey: "fw_env_key",
@@ -761,7 +969,7 @@ describe("interactive CLI setup", () => {
 
     expect(mocks.saveSelectedModel).toHaveBeenCalledWith(kimi)
     expect(mocks.ui.setModelLabel).toHaveBeenLastCalledWith("Kimi K3")
-    expect(mocks.FireworksClient).toHaveBeenCalledWith(
+    expect(mocks.HostedClient).toHaveBeenCalledWith(
       expect.objectContaining({ model: "accounts/fireworks/models/kimi-k3" }),
     )
   })
@@ -772,7 +980,7 @@ describe("interactive CLI setup", () => {
       displayName: "Kimi K3",
       fastId: "accounts/fireworks/routers/kimi-k3-fast",
     })
-    mocks.listToolCapableModels.mockResolvedValue([kimi])
+    mocks.listHostedModels.mockResolvedValue([kimi])
     mocks.loadLocalSettings.mockResolvedValue(
       localSettings({
         model: kimi.fastId,
@@ -813,12 +1021,12 @@ describe("interactive CLI setup", () => {
       displayName: "Kimi K3",
       fastId: "accounts/fireworks/routers/kimi-k3-fast",
     })
-    mocks.listToolCapableModels.mockResolvedValue([kimi])
+    mocks.listHostedModels.mockResolvedValue([kimi])
     mocks.loadLocalSettings.mockResolvedValue(localSettings({ fastServingModels }))
     await loadCli()
     await submit("/model")
 
-    mocks.uiOptions?.onSelectModel?.(fireworksChoice(kimi))
+    mocks.uiOptions?.onSelectModel?.(hostedChoice("fireworks", kimi))
     await settle()
 
     expect(mocks.saveSelectedModel).toHaveBeenCalledWith({ ...kimi, id })

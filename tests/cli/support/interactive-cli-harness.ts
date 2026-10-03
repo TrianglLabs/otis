@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, vi } from "vitest"
 import type { LocalModelSpec } from "../../../src/inference/local-catalog.js"
 import type {
-  FireworksModel,
+  HostedModel,
+  HostedProvider,
   PairCatalogModel,
   UserChatMessage,
 } from "../../../src/inference/types.js"
@@ -69,6 +70,7 @@ const mocks = vi.hoisted(() => {
     showSetupError: vi.fn(),
     showSetupInferenceChoice: vi.fn(),
     showSetupLocalInferenceChoice: vi.fn(),
+    showSetupHostedChoice: vi.fn(),
     showSetupInput: vi.fn(),
     showPairSetup: vi.fn(),
     showPairSetupError: vi.fn(),
@@ -109,7 +111,7 @@ const mocks = vi.hoisted(() => {
     deleteSession: vi.fn(async () => undefined),
     deleteLocalGguf: vi.fn(async () => undefined),
     describeToolCall: vi.fn(() => ({ kind: "shell", label: "Running tool" })),
-    FireworksClient: vi.fn(function FireworksClient(config: { model: string }) {
+    HostedClient: vi.fn(function HostedClient(config: { model: string }) {
       return { model: config.model, streamChat, complete: generateCompletion }
     }),
     ParallelClient: vi.fn(function ParallelClient() {
@@ -137,8 +139,12 @@ const mocks = vi.hoisted(() => {
       async () => [],
     ),
     listSessions: vi.fn<(_options?: unknown) => Promise<unknown[]>>(async () => []),
-    listToolCapableModels: vi.fn<
-      (_apiKey?: string, _options?: { signal?: AbortSignal }) => Promise<FireworksModel[]>
+    listHostedModels: vi.fn<
+      (
+        _provider: HostedProvider,
+        _apiKey: string,
+        _options?: { signal?: AbortSignal },
+      ) => Promise<HostedModel[]>
     >(async () => [testModel()]),
     loadLocalSettings: vi.fn(async () => localSettings()),
     loadProjectContext: vi.fn<(_cwd: string) => Array<{ path: string; content: string }>>(() => []),
@@ -158,9 +164,9 @@ const mocks = vi.hoisted(() => {
       remove: vi.fn(async (id: string) => ({ id, url: "", skills: [] as ManagedSkill[] })),
     },
     openSession: vi.fn(),
-    openFireworksKeyPage: vi.fn(async () => true),
-    saveFireworksApiKey: vi.fn(async () => undefined),
-    saveFireworksSetup: vi.fn(async () => undefined),
+    openHostedKeyPage: vi.fn(async () => true),
+    saveHostedApiKey: vi.fn(async () => undefined),
+    saveHiddenModels: vi.fn(async () => undefined),
     saveLocalServers: vi.fn(async () => undefined),
     saveSelectedModel: vi.fn(async () => undefined),
     saveSelectedTheme: vi.fn(async () => undefined),
@@ -233,6 +239,7 @@ const mocks = vi.hoisted(() => {
           onSetup?(): void
           onSetupInferenceChoice?(choice: "local" | "hosted"): void
           onSetupLocalInferenceChoice?(choice: "managed" | "pair"): void
+          onSetupHostedChoice?(provider: HostedProvider): void
           onSetupSubmit?(apiKey: string): void
           onPairSetupSubmit?(endpoints: { ollama: string; lmStudio: string }): void
           onSubmit(value: string): void | Promise<void>
@@ -264,8 +271,8 @@ vi.mock("../../../src/skills/catalog.js", async (importOriginal) => ({
   loadSkillCatalog: mocks.loadSkillCatalog,
 }))
 vi.mock("../../../src/inference/client.js", () => ({
-  FireworksClient: mocks.FireworksClient,
-  listToolCapableModels: mocks.listToolCapableModels,
+  HostedClient: mocks.HostedClient,
+  listHostedModels: mocks.listHostedModels,
   fireworksReasoningEffort: () => undefined,
 }))
 vi.mock("../../../src/inference/pair.js", async (importOriginal) => {
@@ -289,8 +296,8 @@ vi.mock("../../../src/local/settings.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../src/local/settings.js")>()),
   clearSelectedModel: mocks.clearSelectedModel,
   loadLocalSettings: mocks.loadLocalSettings,
-  saveFireworksApiKey: mocks.saveFireworksApiKey,
-  saveFireworksSetup: mocks.saveFireworksSetup,
+  saveHostedApiKey: mocks.saveHostedApiKey,
+  saveHiddenModels: mocks.saveHiddenModels,
   saveLocalServers: mocks.saveLocalServers,
   saveSelectedModel: mocks.saveSelectedModel,
   saveSelectedTheme: mocks.saveSelectedTheme,
@@ -337,7 +344,7 @@ vi.mock("../../../src/inference/llama-runtime.js", async (importOriginal) => {
 vi.mock("../../../src/cli/chat-ui.js", () => ({ createChatUI: mocks.createChatUI }))
 vi.mock("../../../src/cli/provider-links.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../../src/cli/provider-links.js")>()
-  return { ...actual, openFireworksKeyPage: mocks.openFireworksKeyPage }
+  return { ...actual, openHostedKeyPage: mocks.openHostedKeyPage }
 })
 vi.mock("../../../src/cli/update.js", () => ({
   checkForUpdate: mocks.checkForUpdate,
@@ -365,7 +372,7 @@ beforeEach(() => {
   mocks.createSession.mockResolvedValue(testSession())
   mocks.listDownloadedLocalModels.mockResolvedValue([])
   mocks.listSessions.mockResolvedValue([])
-  mocks.listToolCapableModels.mockResolvedValue([testModel()])
+  mocks.listHostedModels.mockResolvedValue([testModel()])
   mocks.discoverPairModels.mockResolvedValue({
     ollama: [testPairModel()],
     errors: [],
@@ -466,7 +473,7 @@ export function localSettings(overrides: Record<string, unknown> = {}) {
   }
 }
 
-export function testModel(overrides: Partial<FireworksModel> = {}): FireworksModel {
+export function testModel(overrides: Partial<HostedModel> = {}): HostedModel {
   return {
     provider: "fireworks",
     id: "accounts/fireworks/models/test-model",

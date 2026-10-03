@@ -11,18 +11,19 @@ import type { LlamaCppRuntime } from "../../src/inference/llama-runtime.js"
 import type {
   ChatStreamEvent,
   FireworksModel,
+  HostedModel,
   OmlxCatalogModel,
   StreamChatOptions,
 } from "../../src/inference/types.js"
 import type { LocalSettings } from "../../src/local/settings.js"
 
-const mocks = vi.hoisted(() => ({ listToolCapableModels: vi.fn() }))
+const mocks = vi.hoisted(() => ({ listHostedModels: vi.fn() }))
 vi.mock("../../src/inference/client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/inference/client.js")>()),
-  listToolCapableModels: mocks.listToolCapableModels,
+  listHostedModels: mocks.listHostedModels,
 }))
 beforeEach(() => {
-  mocks.listToolCapableModels.mockReset()
+  mocks.listHostedModels.mockReset()
 })
 
 const hosted: FireworksModel = {
@@ -136,39 +137,143 @@ describe("ModelHost", () => {
   })
 
   it("refreshes a saved Fireworks window from the catalog only when the selection lacks it", async () => {
-    mocks.listToolCapableModels.mockResolvedValue([{ ...hosted, contextLength: 131_072 }])
+    mocks.listHostedModels.mockResolvedValue([{ ...hosted, contextLength: 131_072 }])
     const host = new ModelHost({ llama: fakeLlama() })
     const connected = await host.connect({
       provider: "fireworks",
       modelId: hosted.id,
-      fireworksApiKey: "fw_test",
+      hostedApiKey: "fw_test",
     })
     expect((connected.model as FireworksModel).contextLength).toBe(131_072)
     expect(host.autoCompactAtTokens(connected.model)).toBe(autoCompactThreshold(131_072))
-    expect(mocks.listToolCapableModels).toHaveBeenCalledOnce()
+    expect(mocks.listHostedModels).toHaveBeenCalledOnce()
 
     const again = await host.connect({
       provider: "fireworks",
       modelId: hosted.id,
-      fireworksApiKey: "fw_test",
+      hostedApiKey: "fw_test",
       contextLength: 65_536,
     })
     expect(host.autoCompactAtTokens(again.model)).toBe(autoCompactThreshold(65_536))
-    expect(mocks.listToolCapableModels).toHaveBeenCalledOnce()
+    expect(mocks.listHostedModels).toHaveBeenCalledOnce()
   })
 
   it("budgets an unreachable catalog like a 128K model instead of failing the connection", async () => {
-    mocks.listToolCapableModels.mockImplementation(async () => {
+    mocks.listHostedModels.mockImplementation(async () => {
       throw new Error("offline")
     })
     const host = new ModelHost({ llama: fakeLlama() })
     const connected = await host.connect({
       provider: "fireworks",
       modelId: hosted.id,
-      fireworksApiKey: "fw_test",
+      hostedApiKey: "fw_test",
     })
     expect((connected.model as FireworksModel).contextLength).toBeUndefined()
     expect(host.autoCompactAtTokens(connected.model)).toBe(autoCompactThreshold(131_072))
+  })
+
+  it("connects a Together AI model with its own key and catalog, never Fireworks' tiers", async () => {
+    mocks.listHostedModels.mockResolvedValue([
+      {
+        provider: "together",
+        id: "moonshotai/Kimi-K3",
+        displayName: "Kimi K3",
+        contextLength: 262_144,
+        supportsImageInput: true,
+      },
+    ])
+    const llama = fakeLlama()
+    const host = new ModelHost({ llama })
+    const connected = await host.connect({
+      provider: "together",
+      modelId: "moonshotai/Kimi-K3",
+      hostedApiKey: "tg_test",
+      supportsImageInput: true,
+    })
+    expect(mocks.listHostedModels).toHaveBeenCalledWith("together", "tg_test", {
+      signal: undefined,
+    })
+    expect(connected.model).toEqual({
+      provider: "together",
+      id: "moonshotai/Kimi-K3",
+      displayName: "moonshotai/Kimi-K3",
+      contextLength: 262_144,
+      supportsImageInput: true,
+    })
+    expect(connected.client).toMatchObject({ provider: "together", model: "moonshotai/Kimi-K3" })
+    expect(host.autoCompactAtTokens(connected.model)).toBe(autoCompactThreshold(262_144, 8_192))
+    expect(llama.stop).toHaveBeenCalledOnce()
+    expect(host.activeLocal).toBeUndefined()
+
+    // A saved id the catalog no longer serves keeps the 128K budget rather than failing.
+    mocks.listHostedModels.mockResolvedValue([])
+    const missing = await host.connect({
+      provider: "baseten",
+      modelId: "zai-org/GLM-5",
+      hostedApiKey: "bt_test",
+    })
+    expect((missing.model as HostedModel).contextLength).toBeUndefined()
+    expect(missing.client).toMatchObject({ provider: "baseten", model: "zai-org/GLM-5" })
+    expect(host.autoCompactAtTokens(missing.model)).toBe(autoCompactThreshold(131_072))
+  })
+
+  it.each([
+    "together",
+    "baseten",
+    "primeintellect",
+  ] as const)("refuses a %s selection without that provider's key", async (provider) => {
+    const names = { together: "Together AI", baseten: "Baseten", primeintellect: "Prime Intellect" }
+    const llama = fakeLlama()
+    const host = new ModelHost({ llama })
+    const model: HostedModel = {
+      provider,
+      id: "org/model",
+      displayName: "M",
+      supportsImageInput: false,
+    }
+    await expect(
+      host.prepare(model, {
+        signal: new AbortController().signal,
+        hostedApiKeys: { fireworks: "fw_test" },
+      }),
+    ).rejects.toThrow(`${names[provider]} API key is required.`)
+    expect(llama.stop).not.toHaveBeenCalled()
+    await expect(host.connect({ provider, modelId: "org/model" })).rejects.toThrow(
+      `${names[provider]} API key is not configured.`,
+    )
+    expect(mocks.listHostedModels).not.toHaveBeenCalled()
+
+    const prepared = await host.prepare(model, {
+      signal: new AbortController().signal,
+      hostedApiKeys: { [provider]: "key" },
+    })
+    expect(prepared.selection.client).toMatchObject({ provider, model: "org/model" })
+  })
+
+  it("restores a saved non-Fireworks selection with that provider's key only", () => {
+    const host = new ModelHost()
+    const settings: LocalSettings = {
+      fireworksApiKey: "fw_test",
+      model: "org/model",
+      modelDisplayName: "Model",
+      modelProvider: "primeintellect",
+      modelContextLength: 200_000,
+      modelSupportsImageInput: false,
+    }
+    const withoutKey = host.savedSelection(settings)
+    expect(withoutKey?.model).toEqual({
+      provider: "primeintellect",
+      id: "org/model",
+      displayName: "Model",
+      contextLength: 200_000,
+      supportsImageInput: false,
+      fastId: undefined,
+    })
+    expect(withoutKey?.client).toBeUndefined()
+
+    const withKey = host.savedSelection({ ...settings, primeintellectApiKey: "pi_test" })
+    expect(withKey?.client).toMatchObject({ provider: "primeintellect", model: "org/model" })
+    expect(host.autoCompactAtTokens(withKey?.model)).toBe(autoCompactThreshold(200_000, 8_192))
   })
 
   it("reserves more output for a high thinking effort at 64K and nothing extra at 128K", () => {
@@ -308,7 +413,7 @@ describe("ModelHost", () => {
     const order: string[] = []
     const selection = await host.persistSelection(hosted, {
       signal: new AbortController().signal,
-      fireworksApiKey: "fw_test",
+      hostedApiKeys: { fireworks: "fw_test" },
       persist: async () => {
         order.push("persist")
       },
@@ -323,7 +428,7 @@ describe("ModelHost", () => {
     await expect(
       host.persistSelection(hosted, {
         signal: new AbortController().signal,
-        fireworksApiKey: "fw_test",
+        hostedApiKeys: { fireworks: "fw_test" },
         persist: async () => {
           throw new Error("config is read-only")
         },
@@ -444,7 +549,7 @@ describe("ModelHost", () => {
     expect(host.activeLocal?.slots).toBe(2)
     await host.persistSelection(hosted, {
       signal: new AbortController().signal,
-      fireworksApiKey: "fw_test",
+      hostedApiKeys: { fireworks: "fw_test" },
       persist: async () => undefined,
     })
     expect(host.gate.capacity).toBe(Number.POSITIVE_INFINITY)

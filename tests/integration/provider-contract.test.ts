@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { type AgentEvent, type RunAgentOptions, runAgent } from "../../src/core/agent.js"
 import { autoCompactThreshold, isCompactionSummary } from "../../src/core/compaction.js"
-import { FireworksClient } from "../../src/inference/client.js"
+import { HostedClient } from "../../src/inference/client.js"
 import { OpenAICompatibleClient } from "../../src/inference/openai-compat.js"
 import type { ChatMessage, InferenceClient, TokenUsage } from "../../src/inference/types.js"
 import { createPermissionPolicy } from "../../src/permissions/policy.js"
@@ -25,13 +25,27 @@ import {
  */
 const transports = [
   {
-    name: "FireworksClient",
+    name: "HostedClient (Fireworks)",
     label: "Fireworks",
     bearer: "Bearer fw_test_key",
     create: (url: string, idleTimeoutMs: number): InferenceClient =>
-      new FireworksClient({
+      new HostedClient({
+        provider: "fireworks",
         apiKey: "fw_test_key",
         model: "accounts/fireworks/models/kimi-k3",
+        inferenceURL: url,
+        idleTimeoutMs,
+      }),
+  },
+  {
+    name: "HostedClient (Together AI)",
+    label: "Together AI",
+    bearer: "Bearer tg_test_key",
+    create: (url: string, idleTimeoutMs: number): InferenceClient =>
+      new HostedClient({
+        provider: "together",
+        apiKey: "tg_test_key",
+        model: "moonshotai/Kimi-K3",
         inferenceURL: url,
         idleTimeoutMs,
       }),

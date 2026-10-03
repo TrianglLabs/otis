@@ -4,9 +4,9 @@ import { afterEach, vi } from "vitest"
 import { createChatUI } from "../../../src/cli/chat-ui.js"
 import { contextUsage, formatContextUsage } from "../../../src/cli/ui/format.js"
 import type { ChatUI, ChatUIOptions } from "../../../src/cli/ui/types.js"
-import type { FireworksPickerChoice } from "../../../src/inference/picker-catalog.js"
-import { matchesFireworksModel } from "../../../src/inference/serving-path.js"
-import type { FireworksModel } from "../../../src/inference/types.js"
+import type { HostedPickerChoice } from "../../../src/inference/picker-catalog.js"
+import { matchesHostedModel } from "../../../src/inference/serving-path.js"
+import type { HostedModel, HostedProvider } from "../../../src/inference/types.js"
 
 export type ChatUIHarness = TestRendererSetup & {
   ui: ChatUI
@@ -117,16 +117,17 @@ function press(testRenderer: TestRendererSetup, name: string) {
   }
 }
 
-/** A Fireworks picker row as the catalog lists it; `currentModel` marks it active. */
-export function fireworksChoice(
-  model: FireworksModel,
+/** A hosted picker row as the catalog lists it under `provider`; `currentModel` marks it active. */
+export function hostedChoice(
+  provider: HostedProvider,
+  model: Omit<HostedModel, "provider"> & { provider?: HostedProvider },
   currentModel?: string,
-): FireworksPickerChoice {
+): HostedPickerChoice {
+  const hosted: HostedModel = { ...model, provider }
   return {
     kind: "model",
-    ...model,
-    provider: "fireworks",
+    ...hosted,
     available: true,
-    active: currentModel ? matchesFireworksModel(model, currentModel) : false,
+    active: currentModel ? matchesHostedModel(hosted, currentModel) : false,
   }
 }

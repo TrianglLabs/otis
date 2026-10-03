@@ -6,7 +6,7 @@ import {
   type SelectionResult,
 } from "../app/application.js"
 import { isAbortError } from "../app/models.js"
-import { listToolCapableModels } from "../inference/client.js"
+import { listHostedModels } from "../inference/client.js"
 import { describeError } from "../inference/errors.js"
 import { isLocalModelId } from "../inference/local-catalog.js"
 import { discoverOmlxModels, OMLX_DEFAULT_ENDPOINT } from "../inference/omlx.js"
@@ -20,13 +20,19 @@ import {
 import { selectDefaultFireworksModel } from "../inference/serving-path.js"
 import {
   type CatalogModel,
-  type FireworksModel,
+  HOSTED_PROVIDER_INFO,
+  HOSTED_PROVIDERS,
+  type HostedApiKeys,
+  type HostedModel,
+  type HostedProvider,
+  isHostedModel,
+  isHostedProvider,
   type OmlxCatalogModel,
   type PairCatalogModel,
   supportsOmlx,
 } from "../inference/types.js"
-import { saveFireworksSetup, saveSelectedModel } from "../local/settings.js"
-import { openFireworksKeyPage } from "./provider-links.js"
+import { saveHostedApiKey, saveSelectedModel } from "../local/settings.js"
+import { openHostedKeyPage } from "./provider-links.js"
 import type {
   ChatUI,
   PairEndpointInputs,
@@ -57,14 +63,17 @@ type ModelPickerOpenOptions = {
  */
 export class SetupFlow {
   /** A hosted key entered during onboarding, saved together with the first model it selects. */
-  #candidateKey: string | undefined
+  #candidate: { provider: HostedProvider; apiKey: string } | undefined
+  /** The provider whose key the setup input asks for. */
+  #hostedProvider: HostedProvider = "fireworks"
   #pairModels: PairCatalogModel[] = []
   #omlxModels: OmlxCatalogModel[] = []
-  #models: FireworksModel[] = []
+  /** The verified Fireworks catalog, which the Fast toggle consults. */
+  #fireworksModels: HostedModel[] = []
   #credentialPurpose: "onboarding" | "settings" = "onboarding"
   #modelPickerBackTarget: "choice" | "local" = "choice"
   #wasConfigured = false
-  #openedFireworksKeyPage = false
+  #openedKeyPage: HostedProvider | undefined
   #catalogController: AbortController | undefined
   #catalogTask: Promise<void> | undefined
   #closed = false
@@ -75,8 +84,17 @@ export class SetupFlow {
     return this.options.app
   }
 
-  get #fireworksApiKey() {
-    return this.#candidateKey ?? this.#app.fireworksApiKey
+  get #hostedApiKeys(): HostedApiKeys {
+    const candidate = this.#candidate
+    return {
+      ...this.#app.hostedApiKeys,
+      ...(candidate ? { [candidate.provider]: candidate.apiKey } : {}),
+    }
+  }
+
+  /** Where Escape leaves the key form: settings return to chat, onboarding to the provider list. */
+  get #keyFormCancelTarget() {
+    return this.#credentialPurpose === "settings" ? "configured" : "hosted"
   }
 
   begin() {
@@ -89,27 +107,37 @@ export class SetupFlow {
       this.requestPairEndpoints("Reconnect to your local server, then choose a model.")
       return
     }
-    const apiKey = this.#fireworksApiKey
-    if (!apiKey) {
-      this.options.ui.showSetupInferenceChoice()
+    const keys = this.#hostedApiKeys
+    // A saved hosted model whose key is gone asks for that key instead of forgetting the model.
+    if (isHostedProvider(provider) && !keys[provider]) {
+      this.#hostedProvider = provider
+      this.requestHostedKey()
       return
     }
-    if (!selectedId) {
-      void this.selectDefaultModel(apiKey)
+    // The first keyed provider decides: its default model when none is saved, else the saved one.
+    for (const candidate of HOSTED_PROVIDERS) {
+      const apiKey = keys[candidate]
+      if (!apiKey) continue
+      this.#hostedProvider = candidate
+      if (!selectedId) void this.selectDefaultModel(candidate, apiKey)
+      else if (provider === "local" || isLocalModelId(selectedId)) void this.openModelPicker(false)
+      else this.finish()
       return
     }
-    if (provider === "local" || isLocalModelId(selectedId)) {
-      void this.openModelPicker(false)
-      return
-    }
-    this.finish()
+    this.options.ui.showSetupInferenceChoice()
   }
 
   selectInference(choice: SetupInferenceChoice) {
     if (this.#closed || this.options.isBusy()) return
     this.#credentialPurpose = "onboarding"
     if (choice === "local") this.options.ui.showSetupLocalInferenceChoice()
-    else this.requestFireworksKey()
+    else this.options.ui.showSetupHostedChoice(this.#app.hostedConfigured(), "choice")
+  }
+
+  selectHostedProvider(provider: HostedProvider) {
+    if (this.#closed || this.options.isBusy()) return
+    this.#hostedProvider = provider
+    this.requestHostedKey()
   }
 
   selectLocalInference(choice: SetupLocalInferenceChoice) {
@@ -124,18 +152,24 @@ export class SetupFlow {
       return
     }
     // A rejected hosted key draft does not follow the user into local setup.
-    this.#candidateKey = undefined
-    this.#models = []
-    this.#openedFireworksKeyPage = false
+    this.#candidate = undefined
+    this.#fireworksModels = []
+    this.#openedKeyPage = undefined
     this.#modelPickerBackTarget = "local"
     void this.openModelPicker(false, { sources: "managed" })
   }
 
-  configureHostedInference() {
+  /** Settings: the key form for `provider`, or the provider list when none is named. */
+  configureHostedInference(provider?: HostedProvider) {
     if (this.#closed || this.options.isBusy()) return
     this.#credentialPurpose = "settings"
-    this.#openedFireworksKeyPage = false
-    this.requestFireworksKey()
+    this.#openedKeyPage = undefined
+    if (!provider) {
+      this.options.ui.showSetupHostedChoice(this.#app.hostedConfigured(), "configured")
+      return
+    }
+    this.#hostedProvider = provider
+    this.requestHostedKey()
   }
 
   configurePairInference() {
@@ -146,35 +180,36 @@ export class SetupFlow {
 
   async submitCredential(value: string) {
     if (this.#closed) return
+    const provider = this.#hostedProvider
+    const { name } = HOSTED_PROVIDER_INFO[provider]
     const apiKey = value.trim()
     if (!apiKey) {
-      this.options.ui.showSetupError(
-        "Fireworks API key is required.",
-        this.#credentialPurpose === "settings" ? "configured" : "choice",
-      )
+      const message = `${name} API key is required.`
+      this.options.ui.showSetupError(message, this.#keyFormCancelTarget, provider)
       return
     }
 
     if (this.#credentialPurpose !== "settings") {
-      this.#candidateKey = apiKey
-      await this.selectDefaultModel(apiKey)
+      this.#candidate = { provider, apiKey }
+      await this.selectDefaultModel(provider, apiKey)
       return
     }
 
     await this.runCatalogOperation(async (signal) => {
       if (this.#closed || this.options.isBusy()) return
       this.options.setBusy(true)
-      this.options.ui.showSetupStatus("Checking hosted inference...")
+      this.options.ui.showSetupStatus(`Checking ${name}...`)
       try {
-        this.#models = await this.#app.setFireworksApiKey(apiKey, { signal })
+        const models = await this.#app.setHostedApiKey(provider, apiKey, { signal })
+        if (provider === "fireworks") this.#fireworksModels = models
         if (this.#closed) return
         this.options.onCredentialsChanged()
         this.options.ui.setConfigured()
-        this.options.ui.showTransientHint(" Hosted inference configured ")
+        this.options.ui.showTransientHint(` ${name} configured `)
         this.options.ui.focusInput()
       } catch (error) {
         if (!signal.aborted && !this.#closed && !isAbortError(error)) {
-          this.options.ui.showSetupError(describeError(error), "configured")
+          this.options.ui.showSetupError(describeError(error), "configured", provider)
         }
       } finally {
         this.options.setBusy(false)
@@ -196,7 +231,7 @@ export class SetupFlow {
         this.#modelPickerBackTarget = settings ? "choice" : "local"
         this.#wasConfigured = settings
         if (this.#closed) return
-        const items = await this.listPickerItems(this.#fireworksApiKey, this.#pairModels, signal)
+        const items = await this.listPickerItems(this.#hostedApiKeys, this.#pairModels, signal)
         signal.throwIfAborted()
         this.options.ui.showModelPicker(items)
       } catch (error) {
@@ -237,7 +272,7 @@ export class SetupFlow {
             ? await discoverOmlxModels(models.omlx, { signal }).catch(() => [])
             : []
         const items = await this.listPickerItems(
-          managed ? undefined : this.#fireworksApiKey,
+          managed ? undefined : this.#hostedApiKeys,
           managed ? [] : this.#pairModels,
           signal,
         )
@@ -273,7 +308,7 @@ export class SetupFlow {
         !this.#closed &&
         !result.ok &&
         !isSelectionCancelled(result) &&
-        item.provider === "fireworks"
+        isHostedProvider(item.provider)
       )
         this.options.ui.showTransientHint(` Could not select model: ${result.reason} `)
       return
@@ -290,13 +325,13 @@ export class SetupFlow {
 
   async toggleFastServing(): Promise<"on" | "off" | "unavailable" | "error"> {
     const model = this.#app.selection?.model
-    if (this.#closed || this.options.isBusy() || !this.#app.fireworksApiKey || !model)
+    if (this.#closed || this.options.isBusy() || !this.#app.hostedApiKeys.fireworks || !model)
       return "unavailable"
     if (model.provider !== "fireworks") return "unavailable"
     const fast = !model.id.includes("/routers/")
     this.options.setBusy(true)
     try {
-      const result = await this.#app.setFastServing(fast, { catalog: this.#models })
+      const result = await this.#app.setFastServing(fast, { catalog: this.#fireworksModels })
       if (result.ok) return fast ? "on" : "off"
       if (isSelectionCancelled(result) || result.reason === NO_FAST_SERVING) return "unavailable"
       if (!this.#closed) {
@@ -327,14 +362,13 @@ export class SetupFlow {
     await this.#catalogTask
   }
 
-  private requestFireworksKey() {
-    this.options.ui.showSetupInput(
-      "",
-      this.#credentialPurpose === "settings" ? "configured" : "choice",
-    )
-    if (this.#openedFireworksKeyPage) return
-    this.#openedFireworksKeyPage = true
-    void openFireworksKeyPage()
+  /** The key form for the chosen provider; its key page opens once per provider per flow. */
+  private requestHostedKey() {
+    const provider = this.#hostedProvider
+    this.options.ui.showSetupInput("", this.#keyFormCancelTarget, provider)
+    if (this.#openedKeyPage === provider) return
+    this.#openedKeyPage = provider
+    void openHostedKeyPage(provider)
   }
 
   private requestPairEndpoints(message = "") {
@@ -350,20 +384,22 @@ export class SetupFlow {
   }
 
   private listPickerItems(
-    fireworksApiKey: string | undefined,
+    hostedApiKeys: HostedApiKeys | undefined,
     pairModels: readonly PairCatalogModel[],
     signal: AbortSignal,
   ) {
     const { models } = this.#app
     const model = this.#app.selection?.model
     return listModelPickerItems({
-      fireworksApiKey,
+      hostedApiKeys,
+      hiddenModels: new Set(this.#app.settings.hiddenModels),
       currentModel: model?.id,
       currentProvider: model?.provider,
       currentPairEngine: model?.provider === "pair" ? model.engine : undefined,
       pairModels,
       omlxModels: this.#omlxModels,
-      listFireworks: (key, options) => this.loadVerifiedModels(key, options?.signal),
+      listHosted: (provider, key, options) =>
+        this.loadVerifiedModels(provider, key, options?.signal),
       loadStatus: models.load,
       loadedLocalModel: models.activeLocal
         ? { model: models.activeLocal.spec.id, contextLength: models.activeLocal.contextLength }
@@ -373,14 +409,15 @@ export class SetupFlow {
   }
 
   /** Onboarding: the first hosted model is chosen for the user and saved with the new key. */
-  private async selectDefaultModel(apiKey: string) {
+  private async selectDefaultModel(provider: HostedProvider, apiKey: string) {
     await this.runCatalogOperation(async (signal) => {
       if (this.#closed || this.options.isBusy()) return
       this.options.setBusy(true)
       this.options.ui.showSetupStatus()
 
       try {
-        const selected = selectDefaultFireworksModel(await this.loadVerifiedModels(apiKey, signal))
+        const models = await this.loadVerifiedModels(provider, apiKey, signal)
+        const selected = provider === "fireworks" ? selectDefaultFireworksModel(models) : models[0]
         if (!selected) throw new Error(NO_TOOL_MODELS)
         const result = await this.selectCatalogModel(selected, signal)
         if (!result.ok) {
@@ -390,7 +427,8 @@ export class SetupFlow {
         if (!signal.aborted && !this.#closed) this.finish()
       } catch (error) {
         if (!signal.aborted && !this.#closed && !isAbortError(error)) {
-          this.options.ui.showSetupError(describeError(error), "choice")
+          const message = describeError(error)
+          this.options.ui.showSetupError(message, this.#keyFormCancelTarget, provider)
         }
       } finally {
         this.options.setBusy(false)
@@ -398,10 +436,10 @@ export class SetupFlow {
     })
   }
 
-  private async loadVerifiedModels(apiKey: string, signal?: AbortSignal) {
-    const models = await listToolCapableModels(apiKey, { signal })
+  private async loadVerifiedModels(provider: HostedProvider, apiKey: string, signal?: AbortSignal) {
+    const models = await listHostedModels(provider, apiKey, { signal })
     if (models.length === 0) throw new Error(NO_TOOL_MODELS)
-    this.#models = models
+    if (provider === "fireworks") this.#fireworksModels = models
     return models
   }
 
@@ -413,19 +451,19 @@ export class SetupFlow {
     target: ModelPickerChoice | CatalogModel,
     signal?: AbortSignal,
   ): Promise<SelectionResult> {
-    if (target.provider !== "fireworks" || !this.#candidateKey)
+    const candidate = this.#candidate
+    if (!candidate || target.provider !== candidate.provider)
       return this.#app.selectModel(target, { signal })
-    const apiKey = this.#candidateKey
     const result = await this.#app.selectModel(target, {
       signal,
-      fireworksApiKey: apiKey,
+      hostedApiKey: candidate.apiKey,
       persist: (serving) =>
-        serving.provider === "fireworks"
-          ? saveFireworksSetup(apiKey, serving)
+        isHostedModel(serving) && serving.provider === candidate.provider
+          ? saveHostedApiKey(candidate.provider, candidate.apiKey, serving)
           : saveSelectedModel(serving),
     })
     if (result.ok) {
-      this.#candidateKey = undefined
+      this.#candidate = undefined
       this.options.onCredentialsChanged()
     }
     return result

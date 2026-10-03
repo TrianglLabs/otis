@@ -7,7 +7,7 @@ import {
   resolveDevData,
   shouldInitializeDevProfile,
 } from "../../../src/desktop/main/dev-data.js"
-import { loadLocalSettings, saveFireworksApiKey } from "../../../src/local/settings.js"
+import { loadLocalSettings, saveHostedApiKey } from "../../../src/local/settings.js"
 
 const directories: string[] = []
 afterEach(async () => {
@@ -54,7 +54,7 @@ describe("development profile import", () => {
       { code: "ENOENT" },
     )
     await rm(source)
-    await saveFireworksApiKey("fw_fake_retry_key", { file: source })
+    await saveHostedApiKey("fireworks", "fw_fake_retry_key", undefined, { file: source })
     await initializeDevProfile(options)
     expect(
       (await loadLocalSettings({ file: join(options.otisHome, "config.json"), env: {} }))
@@ -77,7 +77,7 @@ describe("development profile import", () => {
     const otisHome = join(root, "dev")
     const source = join(sourceConfigDirectory, "config.json")
     const file = join(otisHome, "config.json")
-    await saveFireworksApiKey("fw_fake_installed_key", { file: source })
+    await saveHostedApiKey("fireworks", "fw_fake_installed_key", undefined, { file: source })
     await writeFile(join(sourceConfigDirectory, "session.jsonl"), "private conversation")
     const original = await readFile(source, "utf8")
 

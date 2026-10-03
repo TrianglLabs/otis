@@ -9,14 +9,23 @@ afterEach(() => {
 })
 
 describe("childProcessEnvironment", () => {
-  it("does not expose provider credentials to child commands", () => {
+  it("does not expose any hosted provider credential to child commands", () => {
     const source = {
       PATH: "/usr/bin",
       FIREWORKS_API_KEY: "fw_secret",
+      TOGETHER_API_KEY: "tg_secret",
+      BASETEN_API_KEY: "bt_secret",
+      PRIME_API_KEY: "pi_secret",
+      HF_TOKEN: "hf_token",
     }
 
-    expect(childProcessEnvironment(source)).toEqual({ PATH: "/usr/bin" })
-    expect(source.FIREWORKS_API_KEY).toBe("fw_secret")
+    expect(childProcessEnvironment(source)).toEqual({ PATH: "/usr/bin", HF_TOKEN: "hf_token" })
+    expect(source).toMatchObject({
+      FIREWORKS_API_KEY: "fw_secret",
+      TOGETHER_API_KEY: "tg_secret",
+      BASETEN_API_KEY: "bt_secret",
+      PRIME_API_KEY: "pi_secret",
+    })
   })
 })
 

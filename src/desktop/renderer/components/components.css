@@ -133,6 +133,45 @@
   opacity: 0.45;
 }
 
+/* The tab strip onboarding and settings share, styled like the canvas tabs: squared, hairline, selected fill. */
+.tabStrip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.tabStrip-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: var(--text-meta);
+  cursor: pointer;
+  transition:
+    background var(--motion),
+    border-color var(--motion),
+    color var(--motion);
+}
+
+.tabStrip-tab:hover {
+  border-color: var(--border);
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.tabStrip-tab-selected,
+.tabStrip-tab-selected:hover {
+  border-color: var(--border);
+  background: var(--bg-selected);
+  color: var(--text);
+}
+
 .iconBtn {
   display: inline-flex;
   align-items: center;

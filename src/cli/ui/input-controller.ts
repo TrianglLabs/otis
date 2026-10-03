@@ -5,9 +5,15 @@ import {
   MouseButton,
   TextRenderable,
 } from "@opentui/core"
+import {
+  HOSTED_PROVIDER_INFO,
+  HOSTED_PROVIDERS,
+  type HostedProvider,
+} from "../../inference/types.js"
 import { colors } from "../theme.js"
 import { colorPulseAmount, SelectionPulse, selectionOutline } from "./color-pulse.js"
 import type { UILayout } from "./layout.js"
+import { type PickerRow, syncPickerRows } from "./picker-row.js"
 import {
   type InputMode,
   type PairEndpointInputs,
@@ -29,6 +35,7 @@ type InputControllerOptions = {
   onSetup?: () => void
   onSetupInferenceChoice?: (choice: SetupInferenceChoice) => void
   onSetupLocalInferenceChoice?: (choice: SetupLocalInferenceChoice) => void
+  onSetupHostedChoice?: (provider: HostedProvider) => void
   onSetupSubmit?: (value: string) => void
   onPairSetupSubmit?: (endpoints: PairEndpointInputs) => void
 }
@@ -41,7 +48,13 @@ export class InputController {
   mode: InputMode
   #setupInferenceChoice: SetupInferenceChoice = "local"
   #setupLocalInferenceChoice: SetupLocalInferenceChoice = "managed"
+  #setupHostedChoice: HostedProvider = "fireworks"
+  /** The provider list as last shown, which a key form's Escape returns to. */
+  #setupHostedList:
+    | { configured: Record<HostedProvider, boolean>; cancelTarget: SetupInputCancelTarget }
+    | undefined
   #setupInputCancelTarget: SetupInputCancelTarget = "choice"
+  readonly #hostedRows: PickerRow[] = []
   readonly #setupChoicePulse: SelectionPulse
   readonly #layout: UILayout
   readonly #pairInputs: InputRenderable[]
@@ -63,6 +76,7 @@ export class InputController {
       layout.setupButtonBox,
       layout.setupChoiceBox,
       layout.setupLocalChoiceBox,
+      layout.setupHostedChoiceBox,
       layout.setupForm,
       layout.setupPairForm,
       layout.setupStatusBox,
@@ -96,6 +110,31 @@ export class InputController {
       stopKey(key)
       if (this.#setupInputCancelTarget === "configured") this.setConfigured()
       else if (this.#setupInputCancelTarget === "local") this.showSetupLocalInferenceChoice()
+      else if (this.#setupInputCancelTarget === "hosted" && this.#setupHostedList)
+        this.showSetupHostedChoice(
+          this.#setupHostedList.configured,
+          this.#setupHostedList.cancelTarget,
+        )
+      else this.showSetupInferenceChoice()
+      return true
+    }
+    if (this.mode === "setupHostedChoice" && (key.name === "up" || key.name === "down")) {
+      stopKey(key)
+      const index = HOSTED_PROVIDERS.indexOf(this.#setupHostedChoice)
+      const count = HOSTED_PROVIDERS.length
+      this.#setupHostedChoice =
+        HOSTED_PROVIDERS[(index + (key.name === "up" ? -1 : 1) + count) % count]
+      this.#renderHostedRows()
+      return true
+    }
+    if (this.mode === "setupHostedChoice" && enter) {
+      stopKey(key)
+      this.options.onSetupHostedChoice?.(this.#setupHostedChoice)
+      return true
+    }
+    if (this.mode === "setupHostedChoice" && key.name === "escape") {
+      stopKey(key)
+      if (this.#setupHostedList?.cancelTarget === "configured") this.setConfigured()
       else this.showSetupInferenceChoice()
       return true
     }
@@ -197,11 +236,29 @@ export class InputController {
     this.#setupChoicePulse.start()
   }
 
-  showSetup(message = "", cancelTarget: SetupInputCancelTarget = "choice", error = false) {
+  showSetupHostedChoice(
+    configured: Record<HostedProvider, boolean>,
+    cancelTarget: SetupInputCancelTarget,
+  ) {
+    this.#clearSetupInput()
+    this.mode = "setupHostedChoice"
+    this.#setupHostedList = { configured, cancelTarget }
+    this.#layout.welcomeQuit.content = " "
+    this.#renderHostedRows()
+    this.#setPrimary(this.#layout.setupHostedChoiceBox)
+    this.#setupChoicePulse.start()
+  }
+
+  showSetup(
+    message: string,
+    cancelTarget: SetupInputCancelTarget,
+    provider: HostedProvider,
+    error = false,
+  ) {
     this.#clearSetupInput()
     this.#setupInputCancelTarget = cancelTarget
     this.mode = "setupInput"
-    this.#layout.setupInputLabel.content = "Fireworks API key"
+    this.#layout.setupInputLabel.content = `${HOSTED_PROVIDER_INFO[provider].name} API key`
     this.#layout.welcomeQuit.content = " "
     this.#setMessage(this.#layout.setupForm, this.#layout.setupMessage, message, 1, error)
     this.#setPrimary(this.#layout.setupForm)
@@ -240,6 +297,24 @@ export class InputController {
     if (this.mode !== "setupStatus") return
     this.mode = "inactive"
     this.#layout.inputArea.remove(this.#layout.setupStatusBox.id)
+    this.options.renderer.requestRender()
+  }
+
+  #renderHostedRows(elapsedMs = this.#setupChoicePulse.elapsed()) {
+    syncPickerRows(
+      this.options.renderer,
+      this.#layout.setupHostedChoiceRows,
+      this.#hostedRows,
+      HOSTED_PROVIDERS.map((provider) => ({
+        title: HOSTED_PROVIDER_INFO[provider].name,
+        meta: this.#setupHostedList?.configured[provider] ? "API key saved" : undefined,
+        fg: colors.text,
+        selected: provider === this.#setupHostedChoice,
+      })),
+      "setup-hosted-row",
+      () => ({ bg: "background", outline: true }),
+      elapsedMs,
+    )
     this.options.renderer.requestRender()
   }
 
@@ -307,9 +382,10 @@ export class InputController {
 
   /**
    * Pulses the selected card's outline; only the mounted choice box is visible, so painting all
-   * four is harmless.
+   * four is harmless. The hosted provider rows pulse the same way.
    */
   #paintChoiceCards(elapsedMs = this.#setupChoicePulse.elapsed()) {
+    if (this.mode === "setupHostedChoice") this.#renderHostedRows(elapsedMs)
     const outline = selectionOutline(colorPulseAmount(elapsedMs))
     const { setupLocalCard, setupHostedCard, setupManagedLocalCard, setupPairCard } = this.#layout
     setupLocalCard.borderColor = this.#setupInferenceChoice === "local" ? outline : colors.border

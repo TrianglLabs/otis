@@ -108,8 +108,58 @@ export type ContextFile = {
   content: string
 }
 
-export type ModelProvider = "fireworks" | "local" | "pair" | "omlx"
+export const HOSTED_PROVIDERS = ["fireworks", "together", "baseten", "primeintellect"] as const
+export type HostedProvider = (typeof HOSTED_PROVIDERS)[number]
+export type ModelProvider = HostedProvider | "local" | "pair" | "omlx"
 export type PairEngine = "ollama" | "lmstudio"
+
+/** One saved key per hosted provider; a missing entry means that provider is not set up. */
+export type HostedApiKeys = Partial<Record<HostedProvider, string>>
+
+/** What a hosted provider is called and where its key and OpenAI-compatible endpoint live. */
+export const HOSTED_PROVIDER_INFO: Record<
+  HostedProvider,
+  { name: string; keyEnv: string; keyURL: string; inferenceURL: string; modelsURL: string }
+> = {
+  fireworks: {
+    name: "Fireworks",
+    keyEnv: "FIREWORKS_API_KEY",
+    keyURL: "https://app.fireworks.ai/api-keys",
+    inferenceURL: "https://api.fireworks.ai/inference/v1/chat/completions",
+    modelsURL: "https://api.fireworks.ai/v1/accounts/fireworks/models",
+  },
+  together: {
+    name: "Together AI",
+    keyEnv: "TOGETHER_API_KEY",
+    keyURL: "https://api.together.ai/settings/projects/~current/api-keys",
+    inferenceURL: "https://api.together.xyz/v1/chat/completions",
+    modelsURL: "https://api.together.xyz/v1/models",
+  },
+  baseten: {
+    name: "Baseten",
+    keyEnv: "BASETEN_API_KEY",
+    keyURL: "https://app.baseten.co/settings/api_keys",
+    inferenceURL: "https://inference.baseten.co/v1/chat/completions",
+    modelsURL: "https://inference.baseten.co/v1/models",
+  },
+  primeintellect: {
+    name: "Prime Intellect",
+    keyEnv: "PRIME_API_KEY",
+    keyURL: "https://app.primeintellect.ai/dashboard/tokens",
+    inferenceURL: "https://api.pinference.ai/api/v1/chat/completions",
+    modelsURL: "https://api.pinference.ai/api/v1/models",
+  },
+}
+
+const MODEL_PROVIDERS = [...HOSTED_PROVIDERS, "local", "pair", "omlx"] as const
+
+export function isModelProvider(value: unknown): value is ModelProvider {
+  return MODEL_PROVIDERS.some((provider) => provider === value)
+}
+
+export function isHostedProvider(value: unknown): value is HostedProvider {
+  return HOSTED_PROVIDERS.some((provider) => provider === value)
+}
 
 type SharedModelFields = {
   id: string
@@ -118,11 +168,13 @@ type SharedModelFields = {
   supportsImageInput: boolean
 }
 
-export type FireworksModel = SharedModelFields & {
-  provider: "fireworks"
-  /** Fast serving-path ID when Fireworks publishes one for this model. */
+export type HostedModel = SharedModelFields & {
+  provider: HostedProvider
+  /** Fast serving-path ID when Fireworks publishes one for this model; Fireworks only. */
   fastId?: string
 }
+
+export type FireworksModel = HostedModel & { provider: "fireworks" }
 
 export type LocalCatalogModel = {
   provider: "local"
@@ -149,10 +201,10 @@ export type OmlxCatalogModel = SharedModelFields & {
   baseURL: string
 }
 
-export type CatalogModel = FireworksModel | LocalCatalogModel | PairCatalogModel | OmlxCatalogModel
+export type CatalogModel = HostedModel | LocalCatalogModel | PairCatalogModel | OmlxCatalogModel
 
-export function fireworksModel(fields: Omit<FireworksModel, "provider">): FireworksModel {
-  return { provider: "fireworks", ...fields }
+export function isHostedModel(model: CatalogModel): model is HostedModel {
+  return isHostedProvider(model.provider)
 }
 
 export function isLocalCatalogModel(model: CatalogModel): model is LocalCatalogModel {
@@ -201,7 +253,8 @@ export type CompleteOptions = {
   onUsage?: (usage: TokenUsage) => void | Promise<void>
 }
 
-export type FireworksClientConfig = {
+export type HostedClientConfig = {
+  provider: HostedProvider
   apiKey: string
   model: string
   fetch?: typeof fetch

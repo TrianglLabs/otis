@@ -13,7 +13,18 @@ import {
   localThinkingCapability,
   validateLocalThinkingSelection,
 } from "../../../inference/local-thinking.js"
-import type { ModelPickerChoice, ModelPickerItem } from "../../../inference/picker-catalog.js"
+import type {
+  HostedPickerChoice,
+  ModelPickerChoice,
+  ModelPickerItem,
+} from "../../../inference/picker-catalog.js"
+import { hiddenModelKey } from "../../../inference/picker-filter.js"
+import {
+  HOSTED_PROVIDER_INFO,
+  HOSTED_PROVIDERS,
+  type HostedModel,
+  type HostedProvider,
+} from "../../../inference/types.js"
 import type { ManagedSkillSource } from "../../../skills/catalog.js"
 import { describeToolAction, type ToolAction } from "../../../tools/activity.js"
 import {
@@ -70,6 +81,13 @@ export function createDemoRuntime(hostApi?: DemoHostApi, start = ""): DesktopApi
 type DemoState = Omit<DesktopStatus, "artifacts" | "needsWorkspace"> & {
   tabs: { artifact: ArtifactMetadata; activated: number }[]
   entries: TranscriptEntry[]
+}
+
+const NO_HOSTED_KEYS: DesktopStatus["hostedConfigured"] = {
+  fireworks: false,
+  together: false,
+  baseten: false,
+  primeintellect: false,
 }
 
 const SAMPLE_DIFF = `--- a/src/desktop/renderer/shell/AppShell.tsx
@@ -546,6 +564,46 @@ const DEMO_MODELS: ModelPickerChoice[] = [
     available: true,
     active: false,
   },
+  {
+    kind: "model",
+    provider: "together",
+    id: "moonshotai/Kimi-K3",
+    displayName: "Kimi K3",
+    contextLength: 1_048_576,
+    supportsImageInput: true,
+    available: true,
+    active: false,
+  },
+  {
+    kind: "model",
+    provider: "together",
+    id: "deepseek-ai/DeepSeek-V4.1-Flash",
+    displayName: "DeepSeek V4.1 Flash",
+    contextLength: 1_048_576,
+    supportsImageInput: true,
+    available: true,
+    active: false,
+  },
+  {
+    kind: "model",
+    provider: "baseten",
+    id: "zai-org/GLM-5.3-Flash",
+    displayName: "GLM 5.3 Flash",
+    contextLength: 1_048_576,
+    supportsImageInput: true,
+    available: true,
+    active: false,
+  },
+  {
+    kind: "model",
+    provider: "baseten",
+    id: "deepseek-ai/DeepSeek-V4-Pro-0813",
+    displayName: "DeepSeek V4 Pro 0813",
+    contextLength: 1_048_576,
+    supportsImageInput: false,
+    available: true,
+    active: false,
+  },
 ]
 
 const DEMO_ACTIVITY_TOKENS = [
@@ -696,7 +754,7 @@ class DemoRuntime implements DesktopApi {
     if (start === "onboarding") {
       this.#state.model = null
       this.#state.modelState = "unconfigured"
-      this.#state.hostedConfigured = false
+      this.#state.hostedConfigured = NO_HOSTED_KEYS
     } else if (start) {
       // A session running in another pane is focused; anything else is opened from the list.
       const running = this.#state.runtimes.find((entry) => entry.session?.id === start)
@@ -986,7 +1044,8 @@ class DemoRuntime implements DesktopApi {
     localThinking: null,
     permissionMode: "auto",
     fastServing: { available: true, enabled: false },
-    hostedConfigured: true,
+    hostedConfigured: { ...NO_HOSTED_KEYS, fireworks: true, together: true, baseten: true },
+    hiddenModels: [],
     pairConfigured: false,
     pairEndpoints: {},
     debug: false,
@@ -1273,14 +1332,19 @@ class DemoRuntime implements DesktopApi {
     this.#emitStatus()
   }
 
-  async openFireworksKeyPage(): Promise<void> {}
+  async openHostedKeyPage(_provider: HostedProvider): Promise<void> {}
 
-  async setFireworksApiKey(apiKey: string): Promise<ModelSelectResult> {
-    if (!apiKey.trim()) return { ok: false, reason: "Fireworks API key is required." }
+  async setHostedApiKey(provider: HostedProvider, apiKey: string): Promise<ModelSelectResult> {
+    if (!apiKey.trim())
+      return { ok: false, reason: `${HOSTED_PROVIDER_INFO[provider].name} API key is required.` }
     this.#state = { ...this.#state, modelState: "starting" }
     this.#emitStatus()
     await new Promise((resolve) => setTimeout(resolve, 700))
-    this.#state = { ...this.#state, modelState: "ready", hostedConfigured: true }
+    this.#state = {
+      ...this.#state,
+      modelState: "ready",
+      hostedConfigured: { ...this.#state.hostedConfigured, [provider]: true },
+    }
     this.#emitStatus()
     return { ok: true }
   }
@@ -1973,9 +2037,45 @@ class DemoRuntime implements DesktopApi {
       ),
       { kind: "header", id: "header-omlx", displayName: "oMLX" },
       ...rows.filter((item) => item.provider === "omlx"),
-      { kind: "header", id: "header-hosted", displayName: "Hosted" },
-      ...rows.filter((item) => item.provider === "fireworks"),
+      // One section per keyed provider; hidden rows leave the picker, except the active one, like
+      // the real catalog.
+      ...HOSTED_PROVIDERS.flatMap((provider): ModelPickerItem[] => {
+        if (!this.#state.hostedConfigured[provider]) return []
+        const hosted = rows.filter(
+          (item) =>
+            item.provider === provider &&
+            (item.active || !this.#state.hiddenModels.includes(hiddenModelKey(provider, item.id))),
+        )
+        if (!hosted.length) return []
+        return [
+          {
+            kind: "header",
+            id: `header-${provider}`,
+            displayName: HOSTED_PROVIDER_INFO[provider].name,
+          },
+          ...hosted,
+        ]
+      }),
     ]
+  }
+
+  async listHostedCatalogs(): Promise<Partial<Record<HostedProvider, HostedModel[]>>> {
+    return Object.fromEntries(
+      HOSTED_PROVIDERS.filter((provider) => this.#state.hostedConfigured[provider]).map(
+        (provider) => [
+          provider,
+          DEMO_MODELS.filter((item): item is HostedPickerChoice => item.provider === provider),
+        ],
+      ),
+    )
+  }
+
+  async setModelHidden(provider: HostedProvider, id: string, hidden: boolean): Promise<void> {
+    const key = hiddenModelKey(provider, id)
+    const hiddenModels = this.#state.hiddenModels.filter((entry) => entry !== key)
+    if (hidden) hiddenModels.push(key)
+    this.#state = { ...this.#state, hiddenModels }
+    this.#emitStatus()
   }
 
   async selectModel(id: string): Promise<ModelSelectResult> {
@@ -2471,6 +2571,7 @@ function toolActivityTranscript(): TranscriptEntry[] {
     tool("publish_artifact", "docs/tool-activity.md", "t16"),
     fixture({ kind: "message", speaker: "Otis", text: "Delegating to a coworker:" }),
     tool("agent", "Audit every tool label for consistency", "t17"),
+    tool("wait_coworkers", "coworker reports", "t18"),
     fixture({
       kind: "message",
       speaker: "Otis",

@@ -60,6 +60,35 @@ describe("JsonlSession", () => {
     await expect(readSessionEvents(file)).rejects.toThrow("usage model must be a non-empty string")
   })
 
+  it("accepts every hosted provider on recorded usage and rejects an unknown one", async () => {
+    const cwd = await trackedTempDir()
+    const options = { cwd, directory: join(cwd, "sessions") }
+    const session = await openSession(options)
+    const usage = { promptTokens: 3, completionTokens: 2, totalTokens: 5 }
+    const providers = [
+      "fireworks",
+      "together",
+      "baseten",
+      "primeintellect",
+      "pair",
+      "omlx",
+    ] as const
+    for (const provider of providers)
+      await session.recordUsage(usage, "agent", { provider, model: `${provider}/model` })
+    const reopened = await openSession(options)
+    expect(
+      reopened.events.flatMap((event) => (event.type === "usage_recorded" ? [event.provider] : [])),
+    ).toEqual([...providers])
+
+    const file = join(options.directory, `${session.id}.jsonl`)
+    const blank = { seq: 99, sessionId: session.id, at: new Date().toISOString() }
+    await appendFile(
+      file,
+      `${JSON.stringify({ ...blank, type: "usage_recorded", purpose: "agent", provider: "openai", usage })}\n`,
+    )
+    await expect(readSessionEvents(file)).rejects.toThrow("usage provider was invalid")
+  })
+
   it("persists execution starts separately from admission and keeps an unanswered prompt out of model history", async () => {
     const cwd = await trackedTempDir()
     const options = { cwd, directory: join(cwd, "sessions") }

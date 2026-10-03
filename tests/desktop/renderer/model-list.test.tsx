@@ -5,7 +5,7 @@ import {
   pickerItemKey,
 } from "../../../src/desktop/renderer/features/models/model-list.js"
 import type {
-  FireworksPickerChoice,
+  HostedPickerChoice,
   LocalPickerChoice,
   ModelPickerItem,
   PairPickerChoice,
@@ -99,7 +99,7 @@ describe("pickerDetailLabel", () => {
   })
 
   it("shows exact hosted context without Est., plus modality and fast mode", () => {
-    const hosted: FireworksPickerChoice = {
+    const hosted: HostedPickerChoice = {
       kind: "model",
       provider: "fireworks",
       id: "accounts/fireworks/models/kimi-k2p5-turbo",
@@ -115,6 +115,21 @@ describe("pickerDetailLabel", () => {
       pickerDetailLabel({ ...hosted, fastId: "accounts/fireworks/models/kimi-k2p5-turbo-fast" }),
     ).toBe("256K · Text · Fast mode")
     expect(pickerDetailLabel({ ...hosted, contextLength: undefined })).toBe("Text")
+  })
+
+  it("never shows Fast mode for a hosted provider other than Fireworks", () => {
+    const together: HostedPickerChoice = {
+      kind: "model",
+      provider: "together",
+      id: "moonshotai/Kimi-K2.5",
+      displayName: "Kimi K2.5",
+      supportsImageInput: false,
+      available: true,
+      active: false,
+      contextLength: 262_144,
+      fastId: "never-published",
+    }
+    expect(pickerDetailLabel(together)).toBe("256K · Text")
   })
 })
 

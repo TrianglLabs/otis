@@ -1,6 +1,7 @@
 import {
   ArrowLeft,
   ArrowRight,
+  Check,
   ChevronRight,
   Cloud,
   Cpu,
@@ -14,7 +15,13 @@ import {
 } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
 import type { ModelPickerChoice, ModelPickerItem } from "../../../../inference/picker-catalog.js"
-import { localServerNames, supportsOmlx } from "../../../../inference/types.js"
+import {
+  HOSTED_PROVIDER_INFO,
+  HOSTED_PROVIDERS,
+  type HostedProvider,
+  localServerNames,
+  supportsOmlx,
+} from "../../../../inference/types.js"
 import lmStudioIcon from "../../assets/lm-studio.svg"
 import ollamaIcon from "../../assets/ollama.svg"
 import omlxIcon from "../../assets/omlx.svg"
@@ -40,9 +47,9 @@ type OnboardingDirection = "forward" | "back"
 
 /**
  * First-run onboarding, rendered in place of the conversation until a model is configured. Hosted
- * inference uses Fireworks; local inference can either be managed by Otis or connect to an existing
- * Ollama, oMLX, LM Studio, or NVIDIA PAIR endpoint. A successful selection sets `model` and the
- * shell swaps this page for the workspace.
+ * inference takes one hosted provider's key (Fireworks by default); local inference can either be
+ * managed by Otis or connect to an existing Ollama, oMLX, LM Studio, or NVIDIA PAIR endpoint. A
+ * successful selection sets `model` and the shell swaps this page for the workspace.
  */
 export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void }) {
   const { api } = useDesktop()
@@ -60,6 +67,7 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
   const serverList = new Intl.ListFormat(locale, { type: "disjunction" })
   const [path, setPath] = useState<OnboardingPath>("welcome")
   const [direction, setDirection] = useState<OnboardingDirection>("forward")
+  const [hostedProvider, setHostedProvider] = useState<HostedProvider>("fireworks")
   const [apiKey, setApiKey] = useState("")
   const [ollama, setOllama] = useState("")
   const [lmStudio, setLmStudio] = useState("")
@@ -80,7 +88,8 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
     }
   }, [api])
 
-  const hostedConfigured = state?.hostedConfigured === true
+  const hostedConfigured = state?.hostedConfigured[hostedProvider] === true
+  const hostedName = HOSTED_PROVIDER_INFO[hostedProvider].name
 
   const pairConfigured = state?.pairConfigured === true || Boolean(state?.omlx)
 
@@ -97,7 +106,7 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
   const modelLoad = state?.modelLoad ?? null
   const rowProvider =
     path === "cloud"
-      ? "fireworks"
+      ? hostedProvider
       : path === "managed"
         ? "local"
         : path === "serverModels"
@@ -262,6 +271,32 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
           <>
             <OtisMark className="onboarding-logo" />
             <p className="onboarding-panelTitle">{t("onboarding.setupHosted")}</p>
+            <fieldset className="onboarding-providers">
+              <legend className="onboarding-providersLegend">
+                {t("onboarding.chooseProvider")}
+              </legend>
+              <div className="tabStrip onboarding-providerTabs" role="tablist">
+                {HOSTED_PROVIDERS.map((provider) => (
+                  <button
+                    key={provider}
+                    type="button"
+                    role="tab"
+                    className={`tabStrip-tab${
+                      provider === hostedProvider ? " tabStrip-tab-selected" : ""
+                    }`}
+                    aria-selected={provider === hostedProvider}
+                    onClick={() => {
+                      setError(undefined)
+                      setApiKey("")
+                      setHostedProvider(provider)
+                    }}
+                  >
+                    {HOSTED_PROVIDER_INFO[provider].name}
+                    {state?.hostedConfigured[provider] ? <Icon icon={Check} size={11} /> : null}
+                  </button>
+                ))}
+              </div>
+            </fieldset>
           </>
         ) : null}
 
@@ -327,11 +362,11 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
         {path === "cloud" && !hostedConfigured ? (
           <>
             <p className="onboarding-hint">
-              {t("onboarding.hostedHintBefore")}{" "}
+              {t("onboarding.hostedHintBefore", { provider: hostedName })}{" "}
               <button
                 type="button"
                 className="onboarding-link"
-                onClick={() => void api.openFireworksKeyPage()}
+                onClick={() => void api.openHostedKeyPage(hostedProvider)}
               >
                 {t("onboarding.getKey")}
               </button>{" "}
@@ -343,7 +378,7 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                 className="onboarding-input"
                 type="password"
                 placeholder={t("onboarding.pasteKey")}
-                aria-label={t("onboarding.fireworksKey")}
+                aria-label={t("onboarding.hostedKey", { provider: hostedName })}
                 value={apiKey}
                 autoComplete="off"
                 onChange={(event) => setApiKey(event.target.value)}
@@ -354,7 +389,7 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                 disabled={!apiKey.trim()}
                 onClick={() => {
                   setError(undefined)
-                  void api.setFireworksApiKey(apiKey.trim()).then((result) => {
+                  void api.setHostedApiKey(hostedProvider, apiKey.trim()).then((result) => {
                     if (!result.ok) setError(result.reason)
                   })
                 }}

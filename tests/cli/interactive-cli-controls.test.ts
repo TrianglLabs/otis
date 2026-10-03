@@ -147,6 +147,40 @@ describe("CLI mode toggle", () => {
 })
 
 describe("CLI settings", () => {
+  it("lists hosted models under /settings and toggles their picker visibility", async () => {
+    await loadCli()
+    mocks.listHostedModels.mockResolvedValue([
+      testModel({ id: "accounts/fireworks/models/kimi-k3", displayName: "Kimi K3" }),
+    ])
+    await submit("/settings models")
+    expect(mocks.listHostedModels).toHaveBeenLastCalledWith("fireworks", "fw_test_key")
+    const key = "fireworks:accounts/fireworks/models/kimi-k3"
+    expect(mocks.ui.showCommandSubmenu).toHaveBeenLastCalledWith(
+      [
+        {
+          name: "Kimi K3 · Fireworks",
+          description: "Shown",
+          submission: `/settings toggle-model ${key}`,
+        },
+      ],
+      expect.anything(),
+    )
+
+    // A row flips the model and the menu stays open with the new state.
+    await submit(`/settings toggle-model ${key}`)
+    expect(mocks.saveHiddenModels).toHaveBeenLastCalledWith([key])
+    expect(mocks.ui.showCommandSubmenu).toHaveBeenLastCalledWith(
+      [expect.objectContaining({ name: "Kimi K3 · Fireworks", description: "Hidden" })],
+      expect.anything(),
+    )
+    await submit(`/settings toggle-model ${key}`)
+    expect(mocks.saveHiddenModels).toHaveBeenLastCalledWith([])
+    expect(mocks.ui.showCommandSubmenu).toHaveBeenLastCalledWith(
+      [expect.objectContaining({ description: "Shown" })],
+      expect.anything(),
+    )
+  })
+
   it("moves debug mode into the settings submenu", async () => {
     await loadCli()
 
@@ -162,14 +196,34 @@ describe("CLI settings", () => {
     expect(mocks.ui.showCommandSubmenu).toHaveBeenLastCalledWith(
       [
         {
-          name: "Hosted inference",
+          name: "Fireworks",
           description: "Replace API key",
-          submission: "/settings hosted",
+          submission: "/settings hosted fireworks",
+        },
+        {
+          name: "Together AI",
+          description: "Add API key",
+          submission: "/settings hosted together",
+        },
+        {
+          name: "Baseten",
+          description: "Add API key",
+          submission: "/settings hosted baseten",
+        },
+        {
+          name: "Prime Intellect",
+          description: "Add API key",
+          submission: "/settings hosted primeintellect",
         },
         {
           name: "Local servers",
           description: "Connect a local model server",
           submission: "/settings servers",
+        },
+        {
+          name: "Hosted models",
+          description: "Show or hide models in the picker",
+          submission: "/settings models",
         },
         {
           name: "Theme",
@@ -204,7 +258,7 @@ describe("CLI settings", () => {
 
   it("opens model browsing immediately and defers the selected model until the turn finishes", async () => {
     const other = testModel({ id: "accounts/fireworks/models/other", displayName: "Other" })
-    mocks.listToolCapableModels.mockResolvedValue([testModel(), other])
+    mocks.listHostedModels.mockResolvedValue([testModel(), other])
     let releaseTurn = () => {}
     const turnReleased = new Promise<void>((resolve) => {
       releaseTurn = resolve
@@ -229,13 +283,13 @@ describe("CLI settings", () => {
     }>
     expect(settings).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ name: "Hosted inference" }),
+        expect.objectContaining({ name: "Fireworks" }),
         expect.objectContaining({ name: "Debug mode" }),
       ]),
     )
 
     await submit("/model")
-    expect(mocks.listToolCapableModels).toHaveBeenCalled()
+    expect(mocks.listHostedModels).toHaveBeenCalled()
     expect(mocks.ui.showModelPicker).toHaveBeenCalled()
     const model = mocks.ui.showModelPicker.mock.calls
       .at(-1)?.[0]
@@ -425,7 +479,7 @@ describe("CLI Fast serving", () => {
       displayName: "Kimi K3",
       fastId: "accounts/fireworks/routers/kimi-k3-fast",
     })
-    mocks.listToolCapableModels.mockResolvedValue([kimi])
+    mocks.listHostedModels.mockResolvedValue([kimi])
     mocks.loadLocalSettings.mockResolvedValue(
       localSettings({
         model: kimi.fastId,
@@ -474,7 +528,7 @@ describe("CLI Fast serving", () => {
       displayName: "Beta",
       fastId: "accounts/fireworks/routers/beta-fast",
     })
-    mocks.listToolCapableModels.mockResolvedValue([alpha, beta])
+    mocks.listHostedModels.mockResolvedValue([alpha, beta])
     mocks.loadLocalSettings.mockResolvedValue(
       localSettings({
         model: alpha.fastId,

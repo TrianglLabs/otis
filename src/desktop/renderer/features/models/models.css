@@ -18,24 +18,22 @@
   animation: overlay-enter var(--motion);
 }
 
-/* Borderless title bar like the trace overlay's header — label left, close button flush right. */
-.modelPicker-title {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 10px 8px 8px 20px;
+/* The search box heads the popover and filters the catalog as you type; it shares the rows' inset. */
+.modelPicker-search {
   flex-shrink: 0;
+  width: 100%;
+  padding: 12px 16px;
+  font: inherit;
+  font-size: var(--text-body);
+  color: var(--text);
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--hairline);
+  outline: none;
 }
 
-.modelPicker-titleText {
-  margin: 0;
-  font-size: var(--text-ui);
-  font-weight: 600;
-  color: var(--text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.modelPicker-search::placeholder {
+  color: var(--text-dim);
 }
 
 .modelPicker-message {
@@ -53,20 +51,16 @@
   min-height: 0; /* let the list shrink inside the max-height dialog so lower rows scroll into view */
   /* Even inset: the 10px left padding mirrors the 10px scrollbar gutter on the right. */
   scrollbar-gutter: stable;
-  /* No top padding: the title bar (or a message row) above already ends in 8px of breathing room, so the
-     first section label sits as close to the title as the trace overlay's content does. */
-  padding: 0 0 6px 10px;
+  /* The same 6px breathing room under the search field as the ⌘K palette's list. */
+  padding: 6px 0 6px 10px;
 }
 
-/* Section labels separate provider groups mid-list; the first one follows the title bar directly, so it
-   skips the group-separation padding and lets the title's own bottom padding be the gap. */
-.modelPicker-list .modelPicker-header:first-child {
-  padding-top: 0;
-}
-
+/* Section labels separate provider groups mid-list; the first one follows the search field directly,
+   so it skips the group-separation padding and lets the list's own top padding be the gap. */
 /* Section label treatment shared across overlays and pages. */
+/* Section labels spaced like the palette's, so the gap under the search field matches. */
 .modelPicker-header {
-  padding: 10px 10px 6px;
+  padding: 8px 10px 4px;
   font-size: var(--text-meta);
   font-weight: 500;
   color: var(--text-dim);

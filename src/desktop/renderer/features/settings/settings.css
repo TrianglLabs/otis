@@ -518,6 +518,13 @@
   color: var(--text-dim);
 }
 
+/* A model's detail parts with their modality icons, laid out like the picker's detail line. */
+.settingsRow-detail {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
 .settingsUpdate > .settingsRow-label,
 .settingsUpdate > .btn {
   flex-shrink: 0;
@@ -646,6 +653,43 @@
   padding: 0 0 16px;
 }
 
+/* The providers nested under the hosted row, indented like a disclosure's children. */
+.settingsProvider-list {
+  padding: 0 0 4px 16px;
+}
+
+.settingsProvider-list > .settingsProvider + .settingsProvider {
+  border-top: 1px solid var(--hairline);
+}
+
+/* A hosted provider row's inline key editor: one field, its key page, and save. */
+.settingsProvider-editor {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 0 0 12px;
+}
+
+.settingsProvider-key {
+  flex: 1 1 220px;
+  width: auto;
+}
+
+.settingsProvider-message {
+  flex-basis: 100%;
+  padding: 0;
+}
+
+.settingsProvider-connected {
+  color: var(--success);
+}
+
+/* The provider tabs above one provider's catalog. */
+.settingsModels-tabs {
+  padding: 12px 0 4px;
+}
+
 .settingsForm-note {
   margin: 0 0 12px;
   font-size: var(--text-meta);
@@ -748,7 +792,8 @@
   flex: 1;
 }
 
-.settingsSkill-description {
+/* One line with an ellipsis, so a long skill description or memory keeps rows even. */
+.settingsRow-truncate {
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;

@@ -4,7 +4,7 @@ import {
   fireworksServiceTier,
   fireworksServingModel,
   isFastFireworksModel,
-  matchesFireworksModel,
+  matchesHostedModel,
   selectDefaultFireworksModel,
   useFastServingPath,
   withFastServingPaths,
@@ -69,8 +69,8 @@ describe("Fireworks serving paths", () => {
     expect(fireworksServingModel(fast, false)).toEqual(fast)
     expect(fireworksServingModel({ ...fast, id: fast.fastId }, false)).toEqual(fast)
     expect(fireworksServingModel(kimi, true)).toBe(kimi)
-    expect(matchesFireworksModel(fast, kimi.id)).toBe(true)
-    expect(matchesFireworksModel(fast, fast.fastId ?? "")).toBe(true)
+    expect(matchesHostedModel(fast, kimi.id)).toBe(true)
+    expect(matchesHostedModel(fast, fast.fastId ?? "")).toBe(true)
   })
 })
 

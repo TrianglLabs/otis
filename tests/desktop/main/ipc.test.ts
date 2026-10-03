@@ -141,6 +141,20 @@ it("validates and forwards the workspace panel width", async () => {
   }
 })
 
+it("validates the model visibility call and forwards the catalog listing", async () => {
+  const setModelHidden = vi.fn(async () => {})
+  const handler = handlerFor(DESKTOP_CHANNELS.setModelHidden, { setModelHidden })
+  await handler("fireworks", "accounts/fireworks/models/kimi", true)
+  expect(setModelHidden).toHaveBeenCalledWith("fireworks", "accounts/fireworks/models/kimi", true)
+  await expect(handler("openai", "gpt", true)).rejects.toThrow("Invalid hosted provider")
+  await expect(handler("fireworks", "", true)).rejects.toThrow("Invalid model id")
+  await expect(handler("fireworks", "kimi", "yes")).rejects.toThrow("Invalid visibility flag")
+  const listHostedCatalogs = vi.fn(async () => ({ fireworks: [] }))
+  expect(await handlerFor(DESKTOP_CHANNELS.listHostedCatalogs, { listHostedCatalogs })()).toEqual({
+    fireworks: [],
+  })
+})
+
 it("forwards marking achievements as seen", async () => {
   const markAchievementsSeen = vi.fn(async () => {})
   await handlerFor(DESKTOP_CHANNELS.markAchievementsSeen, { markAchievementsSeen })()

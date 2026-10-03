@@ -9,7 +9,7 @@ import { DesktopRuntime } from "../../../src/desktop/main/runtime.js"
 import { findLocalModel } from "../../../src/inference/local-catalog.js"
 import type { discoverPairModels, PairEndpoints } from "../../../src/inference/pair.js"
 import type {
-  FireworksPickerChoice,
+  HostedPickerChoice,
   LocalPickerChoice,
   listModelPickerItems,
   ModelPickerItem,
@@ -17,7 +17,7 @@ import type {
 import type {
   CatalogModel,
   ChatMessage,
-  FireworksModel,
+  HostedModel,
   InferenceClient,
   LocalCatalogModel,
   PairCatalogModel,
@@ -63,7 +63,7 @@ function served(model: CatalogModel, client: InferenceClient | undefined = fakeC
   return { model, supportsImageInput: model.supportsImageInput, client } satisfies ModelSelection
 }
 
-function hosted(id: string, supportsImageInput = false): FireworksModel {
+function hosted(id: string, supportsImageInput = false): HostedModel {
   return { provider: "fireworks", id, displayName: id, supportsImageInput }
 }
 
@@ -434,7 +434,7 @@ describe("DesktopRuntime subagents", () => {
     const app = await Application.create({ cwd })
     app.focused.selection = served(hosted("accounts/fireworks/models/kimi"))
     preparing(app)
-    const fireworksChoice: FireworksPickerChoice = {
+    const fireworksChoice: HostedPickerChoice = {
       kind: "model",
       provider: "fireworks",
       id: "accounts/fireworks/models/kimi",
@@ -562,7 +562,7 @@ describe("DesktopRuntime subagents", () => {
           releaseDelete = resolve
         }),
     )
-    const fireworksChoice: FireworksPickerChoice = {
+    const fireworksChoice: HostedPickerChoice = {
       kind: "model",
       provider: "fireworks",
       id: "accounts/fireworks/models/kimi",
@@ -624,15 +624,123 @@ describe("DesktopRuntime subagents", () => {
       spawnPty: () => {
         throw new Error("The tests run no shell.")
       },
-      listToolCapableModels: (async () => [{ id: "kimi" }]) as never,
+      listHostedModels: (async () => [{ id: "kimi" }]) as never,
     })
     expect((await runtime.snapshot()).modelState).not.toBe("ready")
+    expect((await runtime.snapshot()).hostedConfigured).toEqual({
+      fireworks: false,
+      together: false,
+      baseten: false,
+      primeintellect: false,
+    })
 
-    expect(await runtime.setFireworksApiKey("good-key")).toEqual({ ok: true })
+    expect(await runtime.setHostedApiKey("fireworks", "good-key")).toEqual({ ok: true })
     const snapshot = await runtime.snapshot()
     expect(snapshot.modelState).toBe("ready")
     expect(snapshot.model?.displayName).toBe("Kimi")
+    expect(snapshot.hostedConfigured.fireworks).toBe(true)
+    expect(snapshot.hostedConfigured.together).toBe(false)
     expect(app.selection?.client?.model).toBe("accounts/fireworks/models/kimi")
+    await runtime.shutdown()
+  })
+
+  it("lists each keyed hosted provider's catalog under its own header", async () => {
+    const home = await isolate("otis-desktop-")
+    const cwd = join(home, "workspace")
+    await mkdir(cwd, { recursive: true })
+    const app = await Application.create({ cwd })
+    app.hostedApiKeys.fireworks = "fw-key"
+    app.hostedApiKeys.together = "tg-key"
+    const listHostedModels = vi.fn(
+      async (provider: string): Promise<HostedModel[]> =>
+        provider === "fireworks"
+          ? [hosted("accounts/fireworks/models/kimi")]
+          : provider === "together"
+            ? [
+                {
+                  provider: "together",
+                  id: "moonshotai/Kimi-K2.5",
+                  displayName: "Kimi K2.5",
+                  supportsImageInput: false,
+                },
+              ]
+            : [],
+    )
+    const runtime = DesktopRuntime.forApplication(app, {
+      cwd,
+      version: "test",
+      platform: "darwin",
+      send: () => {},
+      sendTerminal: () => {},
+      spawnPty: () => {
+        throw new Error("The tests run no shell.")
+      },
+      listHostedModels: listHostedModels as never,
+    })
+    const items = await runtime.listModels()
+    const hostedRows = items.filter(
+      (item) => item.kind === "header" || !["local", "pair", "omlx"].includes(item.provider),
+    )
+    expect(hostedRows.map((item) => [item.kind, item.id])).toEqual(
+      expect.arrayContaining([
+        ["header", "header-fireworks"],
+        ["model", "accounts/fireworks/models/kimi"],
+        ["header", "header-together"],
+        ["model", "moonshotai/Kimi-K2.5"],
+      ]),
+    )
+    expect(items.find((item) => item.id === "header-fireworks")?.displayName).toBe("Fireworks")
+    expect(items.find((item) => item.id === "header-together")?.displayName).toBe("Together AI")
+    expect(items.some((item) => item.id === "header-baseten")).toBe(false)
+    // Only keyed providers are fetched; the keys never pass through the picker row.
+    expect(listHostedModels.mock.calls.map(([provider]) => provider)).toEqual([
+      "fireworks",
+      "together",
+    ])
+    expect(JSON.stringify(items)).not.toContain("tg-key")
+    await runtime.shutdown()
+  })
+
+  it("hides hosted models from the picker but keeps the active one, and lists the full catalogs for the switches", async () => {
+    const kimi = hosted("accounts/fireworks/models/kimi")
+    const glm = hosted("accounts/fireworks/models/glm")
+    const { app, runtime, sent } = await setup(true, {
+      listHostedModels: vi.fn(async (provider: string): Promise<HostedModel[]> => {
+        if (provider === "fireworks") return [kimi, glm, hosted(FAKE_MODEL)]
+        throw new Error("Together AI is down.")
+      }),
+    })
+    app.hostedApiKeys.fireworks = "fw-key"
+    app.hostedApiKeys.together = "tg-key"
+    const hostedIds = async () =>
+      (await runtime.listModels())
+        .filter((item) => item.kind === "model" && item.provider === "fireworks")
+        .map((item) => item.id)
+
+    expect(await hostedIds()).toEqual([kimi.id, glm.id, FAKE_MODEL])
+    await runtime.setModelHidden("fireworks", glm.id, true)
+    await runtime.setModelHidden("fireworks", FAKE_MODEL, true)
+    expect((await loadLocalSettings()).hiddenModels).toEqual([
+      `fireworks:${glm.id}`,
+      `fireworks:${FAKE_MODEL}`,
+    ])
+    // The hidden row is gone; the active model stays listed however it is marked.
+    expect(await hostedIds()).toEqual([kimi.id, FAKE_MODEL])
+    await flush()
+    expect((await runtime.snapshot()).hiddenModels).toEqual([
+      `fireworks:${glm.id}`,
+      `fireworks:${FAKE_MODEL}`,
+    ])
+    expect(sent.some((event) => event.type === "status")).toBe(true)
+    await runtime.setModelHidden("fireworks", glm.id, false)
+    expect(await hostedIds()).toEqual([kimi.id, glm.id, FAKE_MODEL])
+
+    // The switches see every model, hidden ones included; a failing provider lists as empty and
+    // one without a key is not asked.
+    expect(await runtime.listHostedCatalogs()).toEqual({
+      fireworks: [kimi, glm, hosted(FAKE_MODEL)],
+      together: [],
+    })
     await runtime.shutdown()
   })
 
@@ -1759,7 +1867,7 @@ describe("DesktopRuntime model selection", () => {
     await mkdir(cwd, { recursive: true })
     const app = await Application.create({ cwd })
     if (configureClient) app.focused.selection = served(hosted(FAKE_MODEL))
-    app.fireworksApiKey = "fw-key"
+    app.hostedApiKeys.fireworks = "fw-key"
     if (pairEndpoints) app.pairEndpoints = pairEndpoints
     const sent: DesktopEvent[] = []
     const listPickerItems = vi.fn<typeof listModelPickerItems>(async () => items)
@@ -1784,7 +1892,7 @@ describe("DesktopRuntime model selection", () => {
     await runtime.listModels()
     expect(listPickerItems).toHaveBeenCalledOnce()
     expect(listPickerItems.mock.calls[0]?.[0]).toMatchObject({
-      fireworksApiKey: "fw-key",
+      hostedApiKeys: { fireworks: "fw-key" },
       currentModel: "accounts/fireworks/models/fake",
       currentProvider: "fireworks",
       loadStatus: undefined,
@@ -1849,7 +1957,7 @@ describe("DesktopRuntime model selection", () => {
     if (!call) throw new Error("prepare was not called")
     const [preparedModel, prepareOptions] = call
     expect(preparedModel).toMatchObject({ provider: "local", id: localChoice.id })
-    expect(prepareOptions.fireworksApiKey).toBe("fw-key")
+    expect(prepareOptions.hostedApiKeys?.fireworks).toBe("fw-key")
     // The selection was persisted through the provided hook before commit.
     const saved = await loadLocalSettings()
     expect(saved.model).toBe(localChoice.id)
@@ -2002,7 +2110,7 @@ describe("DesktopRuntime model selection", () => {
   })
 
   it("orders selections by click: a newer click supersedes the older one in flight", async () => {
-    const older: FireworksPickerChoice = {
+    const older: HostedPickerChoice = {
       kind: "model",
       provider: "fireworks",
       id: "accounts/fireworks/models/older",
@@ -2011,7 +2119,7 @@ describe("DesktopRuntime model selection", () => {
       available: true,
       active: false,
     }
-    const newer: FireworksPickerChoice = {
+    const newer: HostedPickerChoice = {
       ...older,
       id: "accounts/fireworks/models/newer",
       displayName: "Newer",

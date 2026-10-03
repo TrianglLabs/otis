@@ -3,6 +3,7 @@ import type { SessionPickerItem } from "../../app/sessions.js"
 import type { SubagentTrace } from "../../app/subagents.js"
 import type { TranscriptEntry } from "../../app/transcript.js"
 import type { ModelPickerItem, ModelPickerStatus } from "../../inference/picker-catalog.js"
+import type { HostedProvider } from "../../inference/types.js"
 import type { ThemeName } from "../../local/settings.js"
 import type { LocalStats } from "../../local/stats.js"
 import type { ThemeColors } from "../theme.js"
@@ -12,7 +13,7 @@ export type Renderer = Awaited<ReturnType<typeof import("@opentui/core").createC
 
 export type SetupInferenceChoice = "local" | "hosted"
 export type SetupLocalInferenceChoice = "managed" | "pair"
-export type SetupInputCancelTarget = "choice" | "local" | "configured"
+export type SetupInputCancelTarget = "choice" | "local" | "hosted" | "configured"
 export type PairEndpointInputs = {
   ollama: string
   lmStudio: string
@@ -26,6 +27,7 @@ export type InputMode =
   | "setupButton"
   | "setupChoice"
   | "setupLocalChoice"
+  | "setupHostedChoice"
   | "setupInput"
   | "setupPairInput"
   | "setupStatus"
@@ -79,6 +81,7 @@ export type ChatUIOptions = {
   onSetup?: () => void
   onSetupInferenceChoice?: (choice: SetupInferenceChoice) => void
   onSetupLocalInferenceChoice?: (choice: SetupLocalInferenceChoice) => void
+  onSetupHostedChoice?: (provider: HostedProvider) => void
   onSetupSubmit?: (value: string) => void
   onPairSetupSubmit?: (endpoints: PairEndpointInputs) => void
   onCloseModelPicker?: () => void
@@ -123,10 +126,24 @@ export type ChatUI = {
   showCommandSubmenu(items: CommandSuggestion[], options?: { onBack?: () => void }): void
   showSlashCommandMenu(): void
   showModelPicker(items: ModelPickerItem[]): void
-  showSetupError(message: string, cancelTarget: SetupInputCancelTarget): void
+  showSetupError(
+    message: string,
+    cancelTarget: SetupInputCancelTarget,
+    provider: HostedProvider,
+  ): void
   showSetupInferenceChoice(message?: string): void
   showSetupLocalInferenceChoice(message?: string): void
-  showSetupInput(message?: string, cancelTarget?: SetupInputCancelTarget): void
+  /** The hosted provider list; `configured` marks the ones with a saved key. */
+  showSetupHostedChoice(
+    configured: Record<HostedProvider, boolean>,
+    cancelTarget: SetupInputCancelTarget,
+  ): void
+  /** The key form for `provider`. */
+  showSetupInput(
+    message: string,
+    cancelTarget: SetupInputCancelTarget,
+    provider: HostedProvider,
+  ): void
   showPairSetup(
     message: string,
     cancelTarget: SetupInputCancelTarget,

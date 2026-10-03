@@ -1,3 +1,4 @@
+import { type HostedProvider, isHostedProvider } from "../inference/types.js"
 import type { CommandSuggestion } from "./ui/types.js"
 
 export type SlashCommand =
@@ -6,8 +7,22 @@ export type SlashCommand =
   | { type: "model" }
   | {
       type: "settings"
-      setting?: "hosted" | "servers" | "pair" | "debug" | "subagents" | "delete-model" | "theme"
+      setting?:
+        | "hosted"
+        | "servers"
+        | "pair"
+        | "debug"
+        | "subagents"
+        | "delete-model"
+        | "models"
+        | "toggle-model"
+        | "theme"
       modelId?: string
+      /**
+       * `/settings hosted <provider>` skips the provider choice; `/settings toggle-model
+       * <provider>:<id>` flips that hosted model's picker visibility.
+       */
+      provider?: HostedProvider
     }
   | { type: "fast" }
   | { type: "history" }
@@ -37,7 +52,7 @@ const IMMEDIATE_TYPES = new Set<SlashCommand["type"]>([
   "thinking",
   "theme",
 ])
-const SETTINGS = ["hosted", "pair", "servers", "debug", "subagents", "theme"] as const
+const SETTINGS = ["hosted", "pair", "servers", "debug", "subagents", "models", "theme"] as const
 
 const CATALOG: readonly CatalogCommand[] = [
   { type: "home", name: "/home", description: "Return to home screen" },
@@ -100,6 +115,20 @@ export function parseSlashCommand(value: string): SlashCommand | undefined {
   if (name !== "/settings") return undefined
   const setting = SETTINGS.find((candidate) => candidate === argument)
   if (setting) return { type: "settings", setting }
+  if (argument.startsWith("hosted ")) {
+    const provider = argument.slice("hosted".length).trim()
+    return isHostedProvider(provider)
+      ? { type: "settings", setting: "hosted", provider }
+      : undefined
+  }
+  if (argument.startsWith("toggle-model ")) {
+    const key = argument.slice("toggle-model".length).trim()
+    const provider = key.slice(0, key.indexOf(":"))
+    const modelId = key.slice(provider.length + 1)
+    return isHostedProvider(provider) && modelId
+      ? { type: "settings", setting: "toggle-model", provider, modelId }
+      : undefined
+  }
   if (argument === "delete-model" || argument.startsWith("delete-model ")) {
     const modelId = argument.slice("delete-model".length).trim()
     return { type: "settings", setting: "delete-model", ...(modelId ? { modelId } : {}) }

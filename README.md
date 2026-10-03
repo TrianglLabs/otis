@@ -30,8 +30,8 @@ connects to the models you already run.
 
 - **Local models, without the setup work.** Otis recommends a model for your hardware, downloads it, and runs it
   for you. No account, no telemetry, and it works offline.
-- **Local or hosted, your call.** Run local models without per-token fees, or use hosted open models with your own
-  Fireworks key. Pick the model. Keep the work.
+- **Local or hosted, your call.** Run local models without per-token fees, or use hosted models with your own
+  Fireworks, Together AI, Baseten, or Prime Intellect key. Pick the model. Keep the work.
 - **Shows its work.** Thinking, every command, every edit as a diff, and an approval before anything risky. Up to
   four sessions side by side, with documents open beside the conversation.
 - **Your history stays yours.** Conversations and saved artifacts live on your disk. Hosted inference and web
@@ -61,7 +61,8 @@ Update an existing CLI installation with `otis update`.
       <b>1. Choose where Otis thinks</b><br><br>
       First launch asks one question. <b>Local</b> recommends the best model for your machine, downloads it, and runs
       it through an Otis-managed llama.cpp server, so Otis works offline. Or connect Ollama, LM Studio, oMLX, or an
-      NVIDIA PAIR cluster you already run. <b>Hosted</b> uses your own Fireworks key.
+      NVIDIA PAIR cluster you already run. <b>Hosted</b> uses your own Fireworks, Together AI, Baseten, or Prime
+      Intellect key.
     </td>
     <td width="62%"><img src="docs/screens/onboarding.png" alt="First launch: choose Hosted or Local" width="100%"></td>
   </tr>
@@ -136,7 +137,7 @@ Desktop app / OpenTUI terminal / headless CLI
       ├─ llama.cpp ── Otis-managed local GGUF inference
       ├─ NVIDIA PAIR ── routing across your local AI cluster
       ├─ oMLX ── user-managed MLX inference on Apple Silicon
-      ├─ Fireworks API ── hosted inference and model discovery
+      ├─ Fireworks · Together AI · Baseten · Prime Intellect ── hosted inference and model discovery
       └─ Parallel Search MCP ── web search and page reading
 ```
 
@@ -150,13 +151,16 @@ Vulkan. See [managed local inference](docs/local-inference.md).
 **Local servers.** Connect Ollama or LM Studio through [NVIDIA PAIR](docs/nvidia-pair.md), which routes each request
 to an eligible computer in your cluster, or an [oMLX](docs/omlx.md) server on Apple silicon.
 
-**Hosted.** Fireworks with your own [API key](https://app.fireworks.ai/api-keys), entered during setup or from the
-environment:
+**Hosted.** [Fireworks](https://app.fireworks.ai/api-keys), [Together AI](https://api.together.ai/settings/projects/~current/api-keys),
+[Baseten](https://app.baseten.co/settings/api_keys), or [Prime Intellect](https://app.primeintellect.ai/dashboard/tokens)
+with your own API key, entered during setup, from `/settings`, or from the environment:
 
 ```sh
-export FIREWORKS_API_KEY=fw_your_key
+export FIREWORKS_API_KEY=fw_your_key   # or TOGETHER_API_KEY, BASETEN_API_KEY, PRIME_API_KEY
 otis
 ```
+
+Each provider you add gets its own section in `/model`; type to search the list.
 
 `/model` in the terminal, or the model chip in the desktop composer, switches between all of them.
 
@@ -168,7 +172,10 @@ otis
 | `/new` | Start a new session |
 | `/history` | Browse, open, or delete local sessions |
 | `/model` | Choose a managed-local, local-server, or hosted model |
-| `/settings` | Configure Fireworks or local servers, delete local models, or toggle debug mode |
+| `/settings` | Add hosted provider keys, hide hosted models from the picker, configure local servers, delete local models, or toggle debug mode |
+
+The desktop app has the same under Settings → Inference (a switch per hosted model), and Settings → Usage shows token
+usage by day and model.
 | `/skills` | List loaded Agent Skills; install, update, or remove Git collections |
 | `/memory` | See what Otis remembers for this workspace; add or forget a fact |
 | `/fast` | Toggle Fast serving when the current model supports it |
@@ -197,9 +204,9 @@ file outside the workspace always asks for permission for that exact file. See
 
 Otis writes private configuration and append-only sessions to standard platform user directories; set `OTIS_HOME`
 to keep everything under one location. Provider keys are never written to sessions, transcripts, tool results, or
-usage records. Managed inference stays on loopback, hosted prompts go directly to Fireworks (which documents Zero
-Data Retention for open-model inference by default), web requests go directly to Parallel, and PAIR owns traffic
-within your cluster.
+usage records. Managed inference stays on loopback, hosted prompts go directly to the provider you selected (Fireworks
+documents Zero Data Retention for open-model inference by default; check the others' data policies), web requests go
+directly to Parallel, and PAIR owns traffic within your cluster.
 
 Otis keeps a small memory it never puts in the prompt: facts the agent or you save with `remember` land in Otis' data
 folder, in a `memory.md` beside the working folder's sessions or in one for everything that holds everywhere; nothing

@@ -10,7 +10,8 @@ raw text files stay in the main conversation; reading or editing them must not o
 the original file bytes and selected revision, independently of the preview renderer.
 
 Otis is locally controlled. It has no user accounts, invite codes, hosted control plane, remote profile, cloud usage
-database, or cloud synchronization dependency. Hosted inference goes directly to Fireworks with a user-owned API key.
+database, or cloud synchronization dependency. Hosted inference goes directly to the chosen provider (Fireworks,
+Together AI, Baseten, or Prime Intellect) with a user-owned API key for that provider.
 Local inference runs Otis-managed `llama-server` or connects to a user-managed oMLX server or NVIDIA PAIR proxy on loopback;
 PAIR owns its cluster and routes requests across the user's local network. Web search and extraction go directly to
 Parallel's Search MCP.
@@ -20,12 +21,14 @@ Parallel's Search MCP.
 - Frontend: OpenTUI CLI, with shared application behavior in `src/app` for the terminal, headless, and future adapters.
   `src/app` owns conversation lifecycle and model-selection transactions; adapters own screens and rendering.
 - Runtime and package manager: TypeScript on Bun.
-- Inference: Fireworks' OpenAI-compatible API, called directly from the local runtime; local models via either
-  Otis-managed llama.cpp `llama-server`, user-managed oMLX, or an NVIDIA PAIR endpoint on loopback.
+- Inference: the hosted providers' OpenAI-compatible chat completions (Fireworks, Together AI, Baseten, Prime
+  Intellect), called directly from the local runtime; local models via either Otis-managed llama.cpp
+  `llama-server`, user-managed oMLX, or an NVIDIA PAIR endpoint on loopback.
 - Web access: Parallel Search MCP, called directly from the local runtime.
 - Models: curated official Hugging Face checkpoints for managed local GGUF, live user-managed oMLX and PAIR endpoint inventory,
-  plus user-selectable public serverless Fireworks models that explicitly support tool calling.
-- Configuration: private local file, with `FIREWORKS_API_KEY` as an environment override.
+  plus user-selectable hosted models that are known to support tool calling (see the model policy).
+- Configuration: private local file, with `FIREWORKS_API_KEY`, `TOGETHER_API_KEY`, `BASETEN_API_KEY`, and
+  `PRIME_API_KEY` as environment overrides.
 - Sessions and usage: append-only local JSONL events.
 - Tools: local structured tools plus direct Parallel-backed `web_search` and `web_read`.
 - Distribution: GitHub Actions and GitHub Releases.
@@ -35,7 +38,10 @@ proxy, or other Otis-owned runtime service without an explicit product decision.
 
 ## Model policy
 
-Never offer a hosted model that the Fireworks public serverless catalog does not mark as tool-capable. Managed-local
+Never offer a hosted model whose tool support is not established: Fireworks' public serverless catalog and Prime
+Intellect's `/v1/models` mark it per model; every Baseten Model API supports tools; Together's catalog carries no such
+flag, so Otis offers only the serverless chat models Together's function-calling documentation names, and only while
+Together's live `/v1/models` still lists them (`TOGETHER_TOOL_MODELS` in `src/inference/catalog.ts`). Managed-local
 catalog entries must use official Hugging Face checkpoints; GGUF files come from the model author when they publish
 GGUF, otherwise from ggml-org or a conversion of those official weights. Keep requests portable across supported models.
 PAIR models are not part of Otis' curated GGUF catalog; discover them only from PAIR's cluster-aggregated `/api/tags`
@@ -43,7 +49,8 @@ and `/v1/models` routes and do not send a preflight inference request before sel
 PAIR, its engines, or its cluster. Treat PAIR inventory context as a model-architecture maximum for display only. Never
 persist it or use metadata from a route forwarded to one node as cluster-wide model or compaction state.
 Otis defaults to the highest reasoning tier Fireworks documents for each known model family; keep that compatibility
-policy centralized, and use the provider default when Fireworks has not documented a safe effort value. Avoid other
+policy centralized, and use the provider default when Fireworks has not documented a safe effort value. The other
+hosted providers get no `reasoning_effort` or `service_tier` (their defaults apply). Avoid other
 model-specific reasoning, sampling, or token settings without an explicit capability model. Do not enable llama.cpp
 built-in `--tools`; Otis tools stay in the local runtime.
 
@@ -55,7 +62,7 @@ Preserve provider-native reasoning and tool-call history when sending later turn
 
 ## Privacy and secrets
 
-- Never log, persist in sessions, or place Fireworks or oMLX API keys in model content. Hugging Face tokens, if present in the
+- Never log, persist in sessions, or place hosted-provider or oMLX API keys in model content. Hugging Face tokens, if present in the
   process environment for Hub downloads, are not written to sessions.
 - Keep saved configuration and session files private on supported platforms.
 - Do not add telemetry or remote usage reporting.

@@ -4,6 +4,7 @@ import { dirname, extname, join } from "node:path"
 import { BrowserWindow, dialog, type IpcMainInvokeEvent, ipcMain, shell } from "electron"
 import { isArtifactReference } from "../../artifacts/types.js"
 import { describeError } from "../../inference/errors.js"
+import { HOSTED_PROVIDER_INFO, isHostedProvider } from "../../inference/types.js"
 import { isMemoryScope } from "../../memory/memory.js"
 import {
   DESKTOP_CHANNELS,
@@ -228,6 +229,13 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
   })
 
   handle(DESKTOP_CHANNELS.listModels, () => runtime.listModels())
+  handle(DESKTOP_CHANNELS.listHostedCatalogs, () => runtime.listHostedCatalogs())
+  handle(DESKTOP_CHANNELS.setModelHidden, (provider, id, hidden) => {
+    if (!isHostedProvider(provider)) throw new Error("Invalid hosted provider.")
+    if (typeof id !== "string" || !id) throw new Error("Invalid model id.")
+    if (typeof hidden !== "boolean") throw new Error("Invalid visibility flag.")
+    return runtime.setModelHidden(provider, id, hidden)
+  })
 
   handle(DESKTOP_CHANNELS.selectModel, (id) => {
     if (typeof id !== "string") throw new Error("selectModel expects a string id")
@@ -274,14 +282,15 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
     if (typeof fast !== "boolean") throw new Error("Invalid Fast serving flag.")
     return runtime.setFastServing(fast)
   })
-  // Mirrors FIREWORKS_KEY_URL in src/cli/provider-links.ts; the CLI module spawns open/xdg-open,
-  // the desktop main uses Electron's shell instead.
-  handle(DESKTOP_CHANNELS.openFireworksKeyPage, () =>
-    shell.openExternal("https://app.fireworks.ai/api-keys"),
-  )
-  handle(DESKTOP_CHANNELS.setFireworksApiKey, (apiKey) => {
+  // The CLI spawns open/xdg-open for the same provider pages; the desktop main uses Electron's shell.
+  handle(DESKTOP_CHANNELS.openHostedKeyPage, (provider) => {
+    if (!isHostedProvider(provider)) throw new Error("Invalid hosted provider.")
+    return shell.openExternal(HOSTED_PROVIDER_INFO[provider].keyURL)
+  })
+  handle(DESKTOP_CHANNELS.setHostedApiKey, (provider, apiKey) => {
+    if (!isHostedProvider(provider)) throw new Error("Invalid hosted provider.")
     if (typeof apiKey !== "string") throw new Error("Invalid API key.")
-    return runtime.setFireworksApiKey(apiKey)
+    return runtime.setHostedApiKey(provider, apiKey)
   })
   handle(DESKTOP_CHANNELS.connectLocalServers, (endpoints) => {
     if (

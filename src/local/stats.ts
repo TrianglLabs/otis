@@ -2,7 +2,7 @@ import { existsSync } from "node:fs"
 import { mkdir, readdir, rename, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
-import type { ModelProvider } from "../inference/types.js"
+import { isHostedProvider, type ModelProvider } from "../inference/types.js"
 import { sessionRootDirectory } from "../storage/session-files.js"
 import {
   readSessionDigest,
@@ -143,12 +143,12 @@ export async function calculateLocalStats(
         completionTokens += event.usage.completionTokens
         if (event.provider) {
           providers.add(event.provider)
-          reach(event.provider === "fireworks" ? "hosted-model" : "local-model", at)
+          reach(isHostedProvider(event.provider) ? "hosted-model" : "local-model", at)
         }
         const name = event.modelName ?? event.model
         if (name) {
           modelUsage[name] ??= {
-            hosted: event.provider === "fireworks",
+            hosted: isHostedProvider(event.provider),
             promptTokens: 0,
             completionTokens: 0,
           }
@@ -275,12 +275,12 @@ export async function publishOmarchyUsage(
   const directory = join(state, "omarchy", "agents", "usage")
   if (!existsSync(join(state, "omarchy"))) return undefined
   const stats = await calculateLocalStats(options)
-  // The panel's plan line; Otis has no plan, so it says where its models ran. Fireworks is the
-  // hosted provider; everything else runs on the user's machine or local network. The current
-  // selection stands in until any usage is attributed.
+  // The panel's plan line; Otis has no plan, so it says where its models ran: a hosted provider,
+  // or the user's machine or local network. The current selection stands in until any usage is
+  // attributed.
   const served = new Set<string>(
     (stats.providers.length ? stats.providers : [provider]).map((entry) =>
-      entry === "fireworks" ? "Hosted" : entry ? "Local" : "",
+      isHostedProvider(entry) ? "Hosted" : entry ? "Local" : "",
     ),
   )
   const record = {

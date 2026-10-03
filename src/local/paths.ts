@@ -1,5 +1,6 @@
 import { homedir } from "node:os"
 import { join, resolve } from "node:path"
+import { HOSTED_PROVIDER_INFO, HOSTED_PROVIDERS } from "../inference/types.js"
 
 export function localConfigDirectory() {
   return platformDirectory("XDG_CONFIG_HOME", ".config")
@@ -35,6 +36,6 @@ function platformDirectory(xdgVariable: string, ...fallback: string[]) {
 
 export function childProcessEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const childEnv = { ...env }
-  delete childEnv.FIREWORKS_API_KEY
+  for (const provider of HOSTED_PROVIDERS) delete childEnv[HOSTED_PROVIDER_INFO[provider].keyEnv]
   return childEnv
 }

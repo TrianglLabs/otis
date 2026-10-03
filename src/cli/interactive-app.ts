@@ -7,6 +7,7 @@ import {
 } from "../app/application.js"
 import type { PendingPermission } from "../app/conversation.js"
 import { SESSION_REASONS } from "../app/sessions.js"
+import { listHostedModels } from "../inference/client.js"
 import { describeError } from "../inference/errors.js"
 import { listDownloadedLocalModels } from "../inference/gguf-cache.js"
 import {
@@ -21,8 +22,15 @@ import {
 import { formatMemoryLabel } from "../inference/local-fit.js"
 import { createUserMessage } from "../inference/messages.js"
 import type { ModelPickerItem } from "../inference/picker-catalog.js"
+import { hiddenModelKey } from "../inference/picker-filter.js"
 import { isFastFireworksModel } from "../inference/serving-path.js"
-import type { ModelProvider, UserChatMessage } from "../inference/types.js"
+import {
+  HOSTED_PROVIDER_INFO,
+  HOSTED_PROVIDERS,
+  isHostedProvider,
+  type ModelProvider,
+  type UserChatMessage,
+} from "../inference/types.js"
 import {
   isThemeName,
   saveSelectedTheme,
@@ -164,6 +172,7 @@ export class InteractiveApp {
       onSetup: () => this.#setupFlow.begin(),
       onSetupInferenceChoice: (choice) => this.#setupFlow.selectInference(choice),
       onSetupLocalInferenceChoice: (choice) => this.#setupFlow.selectLocalInference(choice),
+      onSetupHostedChoice: (provider) => this.#setupFlow.selectHostedProvider(provider),
       onSetupSubmit: (apiKey) => {
         void this.#setupFlow.submitCredential(apiKey)
       },
@@ -280,7 +289,7 @@ export class InteractiveApp {
     }
     if (
       !this.#configured &&
-      this.#app.fireworksApiKey &&
+      HOSTED_PROVIDERS.some((provider) => this.#app.hostedApiKeys[provider]) &&
       saved?.provider !== "local" &&
       saved?.provider !== "omlx"
     ) {
@@ -433,7 +442,7 @@ export class InteractiveApp {
       case "settings": {
         this.#ui.clearInput()
         if (command.setting === "hosted") {
-          this.#setupFlow.configureHostedInference()
+          this.#setupFlow.configureHostedInference(command.provider)
         } else if (command.setting === "pair" || command.setting === "servers") {
           this.#setupFlow.configurePairInference()
         } else if (command.setting === "debug") {
@@ -445,6 +454,13 @@ export class InteractiveApp {
           await this.#setPanelVisible("subagents", !this.#subagentPanelVisible)
         } else if (command.setting === "theme") {
           this.#openThemeMenu()
+        } else if (command.setting === "models") {
+          await this.#openHostedModelsMenu()
+        } else if (command.setting === "toggle-model" && command.provider && command.modelId) {
+          const key = hiddenModelKey(command.provider, command.modelId)
+          const hidden = !this.#app.settings.hiddenModels?.includes(key)
+          await this.#app.setModelHidden(command.provider, command.modelId, hidden)
+          await this.#openHostedModelsMenu()
         } else if (command.setting === "delete-model") {
           if (command.modelId) {
             void this.#deleteLocalModel(command.modelId)
@@ -761,11 +777,11 @@ export class InteractiveApp {
     const downloaded = (await listDownloadedLocalModels()).length > 0
     if (this.#exiting) return
     const items = [
-      {
-        name: "Hosted inference",
-        description: this.#app.fireworksApiKey ? "Replace API key" : "Add API key",
-        submission: "/settings hosted",
-      },
+      ...HOSTED_PROVIDERS.map((provider) => ({
+        name: HOSTED_PROVIDER_INFO[provider].name,
+        description: this.#app.hostedApiKeys[provider] ? "Replace API key" : "Add API key",
+        submission: `/settings hosted ${provider}`,
+      })),
       {
         name: "Local servers",
         description:
@@ -782,6 +798,15 @@ export class InteractiveApp {
               name: "Delete local model",
               description: "Choose a downloaded model",
               submission: "/settings delete-model",
+            },
+          ]
+        : []),
+      ...(HOSTED_PROVIDERS.some((provider) => this.#app.hostedApiKeys[provider])
+        ? [
+            {
+              name: "Hosted models",
+              description: "Show or hide models in the picker",
+              submission: "/settings models",
             },
           ]
         : []),
@@ -949,6 +974,44 @@ export class InteractiveApp {
     this.#ui.focusInput()
   }
 
+  /**
+   * `/settings models`: every keyed provider's catalog with each model's picker visibility; a row
+   * flips it and the menu stays open for the next one.
+   */
+  async #openHostedModelsMenu() {
+    this.#ui.showTransientHint(" Loading models… ")
+    const catalogs = await Promise.all(
+      HOSTED_PROVIDERS.map(async (provider) => {
+        const apiKey = this.#app.hostedApiKeys[provider]
+        const models = apiKey ? await listHostedModels(provider, apiKey).catch(() => []) : []
+        return { provider, models }
+      }),
+    )
+    if (this.#exiting) return
+    const hidden = new Set(this.#app.settings.hiddenModels)
+    const selected = this.#app.selection?.model
+    const items = catalogs.flatMap(({ provider, models }) =>
+      models.map((model) => {
+        const key = hiddenModelKey(provider, model.id)
+        const active =
+          selected?.provider === provider && selected.id === model.id ? "Active · " : ""
+        return {
+          name: `${model.displayName} · ${HOSTED_PROVIDER_INFO[provider].name}`,
+          description: `${active}${hidden.has(key) ? "Hidden" : "Shown"}`,
+          submission: `/settings toggle-model ${key}`,
+        }
+      }),
+    )
+    if (items.length === 0) {
+      this.#ui.showTransientHint(" No hosted models to list. ")
+      this.#ui.focusInput()
+      return
+    }
+    this.#ui.clearInput()
+    this.#ui.showCommandSubmenu(items, { onBack: () => void this.#openSettingsMenu() })
+    this.#ui.focusInput()
+  }
+
   #showLocalModelDeleteMenu(models: readonly LocalModelSpec[]) {
     const selected = this.#app.selection?.model
     this.#ui.showCommandSubmenu(
@@ -1044,7 +1107,7 @@ export class InteractiveApp {
   }
 
   async #toggleFastServing() {
-    if (!this.#configured || !this.#app.fireworksApiKey || !this.#app.selection) {
+    if (!this.#configured || !this.#app.hostedApiKeys.fireworks || !this.#app.selection) {
       this.#setupFlow.begin()
       return
     }
@@ -1107,7 +1170,8 @@ function modelLabel(
   if (provider === "omlx") return `${name} · oMLX`
   if (provider === "pair") return `${name} · NVIDIA PAIR`
   if (provider === "local") return `${name} · Local`
-  return withFastModelMark(name, isFastFireworksModel(id))
+  if (provider === "fireworks") return withFastModelMark(name, isFastFireworksModel(id))
+  return isHostedProvider(provider) ? `${name} · ${HOSTED_PROVIDER_INFO[provider].name}` : name
 }
 
 const WAKE_CHECK_INTERVAL_MS = 5_000

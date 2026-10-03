@@ -51,7 +51,8 @@ export const STATUS: DesktopStatus = {
   permissionMode: "auto",
   localThinking: null,
   fastServing: { available: false, enabled: false },
-  hostedConfigured: false,
+  hostedConfigured: { fireworks: false, together: false, baseten: false, primeintellect: false },
+  hiddenModels: [],
   pairConfigured: false,
   pairEndpoints: {},
   debug: false,
@@ -60,6 +61,15 @@ export const STATUS: DesktopStatus = {
 
 export function statusFixture(overrides: Partial<DesktopStatus> = {}): DesktopStatus {
   return { ...STATUS, ...overrides }
+}
+
+/** The hosted-key record with only the named providers configured. */
+export function hostedConfigured(
+  ...providers: (keyof DesktopStatus["hostedConfigured"])[]
+): DesktopStatus["hostedConfigured"] {
+  const record = { ...STATUS.hostedConfigured }
+  for (const provider of providers) record[provider] = true
+  return record
 }
 
 export function snapshotFixture(overrides: Partial<DesktopSnapshot> = {}): DesktopSnapshot {
@@ -106,6 +116,8 @@ export function fakeApi(
     registerWorkspace: vi.fn(async () => ({ ok: true as const })),
     refreshSessions: vi.fn(async () => {}),
     listModels: vi.fn(async () => []),
+    listHostedCatalogs: vi.fn(async () => ({})),
+    setModelHidden: vi.fn(async () => {}),
     selectModel: vi.fn(async () => ({ ok: true as const })),
     cancelModelSelection: vi.fn(async () => {}),
     getSubagentTrace: vi.fn(async () => []),
@@ -119,8 +131,8 @@ export function fakeApi(
     setLocalThinking: vi.fn(async () => {}),
     setPermissionMode: vi.fn(async () => {}),
     setFastServing: vi.fn(async () => ({ ok: true as const })),
-    openFireworksKeyPage: vi.fn(async () => {}),
-    setFireworksApiKey: vi.fn(async () => ({ ok: true as const })),
+    openHostedKeyPage: vi.fn(async () => {}),
+    setHostedApiKey: vi.fn(async () => ({ ok: true as const })),
     connectLocalServers: vi.fn(async () => ({ ok: true as const })),
     deleteLocalModel: vi.fn(async () => ({ ok: true as const })),
     listSkills: vi.fn(async () => ({ skills: [], sources: [] })),
