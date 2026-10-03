@@ -653,8 +653,12 @@ describe("authoritative request counts and overflow recovery", () => {
     client.countTokens = vi.fn(async () => 100)
     client.streamChat = vi.fn<InferenceClient["streamChat"]>(async function* () {
       requests += 1
+      // Distinct arguments each time: identical failing calls would trip the repeat breaker.
       if (requests < 4)
-        yield { type: "tool_call", toolCall: { id: `a${requests}`, name: "read", arguments: "{}" } }
+        yield {
+          type: "tool_call",
+          toolCall: { id: `a${requests}`, name: "read", arguments: `{"path":"m${requests}.txt"}` },
+        }
       else yield { type: "text_delta", text: "Finished." }
       yield { type: "usage", usage: { promptTokens: 100, completionTokens: 10, totalTokens: 110 } }
     })

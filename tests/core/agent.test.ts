@@ -143,6 +143,67 @@ describe("runAgent", () => {
     expect(events.some((event) => event.type === "tool")).toBe(false)
   })
 
+  it("warns on a repeated failing tool call and ends the turn on the third identical attempt", async () => {
+    // `read` without a path never parses; a model that keeps resending it is not converging.
+    const badRead = async function* () {
+      yield { type: "tool_call", toolCall: { id: "call_bad", name: "read", arguments: "{}" } }
+    }
+    const requests: string[][] = []
+    streamAgentMock.mockImplementation(async function* (request) {
+      requests.push(
+        request.messages
+          .filter((m: { role: string }) => m.role === "tool")
+          .map((m: { content: string }) => m.content),
+      )
+      yield* badRead()
+    })
+
+    const events = await collect(runAgent("read it", [], { client, skills: emptySkillCatalog() }))
+
+    const error = events.find((event) => event.type === "error")
+    expect(error).toMatchObject({ message: expect.stringContaining("three times") })
+    // Three model requests ran; the second failure carried the warning, the third stopped the turn.
+    expect(requests).toHaveLength(3)
+    expect(requests[1]?.at(-1)).toContain("Invalid tool call")
+    expect(requests[1]?.at(-1)).not.toContain("failed twice")
+    expect(requests[2]?.at(-1)).toContain("failed twice")
+    expect(streamAgentMock).toHaveBeenCalledTimes(3)
+    // Every call the turn issued is answered, so the history carries no dangling tool call.
+    const final = (error as { messages: { role: string; toolCallId?: string }[] }).messages
+    expect(final.filter((m) => m.role === "tool")).toHaveLength(3)
+  })
+
+  it("resets the repeated-failure count once a call changes or succeeds", async () => {
+    const cwd = await trackedTempDir()
+    await writeFile(join(cwd, "note.txt"), "note", "utf8")
+    streamAgentMock
+      .mockImplementationOnce(async function* () {
+        yield { type: "tool_call", toolCall: { id: "c1", name: "read", arguments: "{}" } }
+      })
+      .mockImplementationOnce(async function* () {
+        yield { type: "tool_call", toolCall: { id: "c2", name: "read", arguments: "{}" } }
+      })
+      .mockImplementationOnce(async function* () {
+        yield {
+          type: "tool_call",
+          toolCall: { id: "c3", name: "read", arguments: '{"path":"note.txt"}' },
+        }
+      })
+      .mockImplementationOnce(async function* () {
+        yield { type: "tool_call", toolCall: { id: "c4", name: "read", arguments: "{}" } }
+      })
+      .mockImplementationOnce(async function* () {
+        yield { type: "text_delta", text: "Done." }
+      })
+
+    const events = await collect(
+      runAgent("read it", [], { client, cwd, skills: emptySkillCatalog() }),
+    )
+
+    expect(events.at(-1)?.type).toBe("complete")
+    expect(streamAgentMock).toHaveBeenCalledTimes(5)
+  })
+
   it("preserves pre-tool streamed text and tool calls as assistant parts", async () => {
     const cwd = await trackedTempDir()
     await writeFile(join(cwd, "note.txt"), "tool result", "utf8")

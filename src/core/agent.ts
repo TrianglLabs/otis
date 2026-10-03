@@ -120,6 +120,8 @@ const SUBAGENT_TOOLS: ReadonlySet<ToolName> = new Set([
 const MAX_TOOL_OUTPUT_CHARS = 16_000
 /** Past this share of the compaction threshold an estimate is too coarse to trust. */
 const RECOUNT_SHARE = 0.5
+const REPEATED_FAILURE_NOTICE =
+  "\n\nThis exact call has now failed twice with the same error. Change the arguments or take a different step; a third identical attempt ends the turn."
 const COWORKER_REPORT_PREFIX = "[Coworker report: "
 const COWORKER_FAILURE_PREFIX = "[Coworker failed: "
 
@@ -263,6 +265,8 @@ export async function* runAgent(
   let turnStart = history.length
   let steeringCount = 0
   let recoveryAttempts = 0
+  /** Consecutive responses whose tool calls all failed and matched the previous response's. */
+  let repeatedFailure = { key: "", count: 0 }
   let retrying = false
   let overflowAttempts = 0
   let recoveryBudget: number | undefined
@@ -584,13 +588,37 @@ export async function* runAgent(
       // its coworker, so several in one response still explore at once.
       let index = 0
       let aborted = false
+      let failedAll = true
       while (index < toolCalls.length && !aborted) {
         aborted = options.signal?.aborted ?? false
         if (aborted) break
         const outcome = yield* executeSingleToolCall(toolCalls[index], toolContext)
         messages.push(outcome.message)
+        failedAll &&= outcome.failed
         index += 1
         aborted = outcome.interrupted
+      }
+      // A model that reissues the exact calls that just failed is not converging: the second
+      // repeat is told so, the third ends the turn instead of burning the context on retries.
+      const callKey = toolCalls.map((call) => `${call.name} ${call.arguments}`).join("\n")
+      repeatedFailure =
+        failedAll && !aborted
+          ? { key: callKey, count: callKey === repeatedFailure.key ? repeatedFailure.count + 1 : 1 }
+          : { key: "", count: 0 }
+      if (repeatedFailure.count === 2) {
+        const last = messages.at(-1)
+        if (last?.role === "tool") last.content += REPEATED_FAILURE_NOTICE
+      } else if (repeatedFailure.count === 3) {
+        messages.push(...(await closeSteering(options.steering)))
+        yield contextEvent()
+        yield* coworkers.finish()
+        yield {
+          type: "error",
+          message:
+            "The model repeated the same failing tool call three times without changing it. Otis stopped the turn; earlier completed work is preserved.",
+          messages: messages.slice(turnStart),
+        }
+        return
       }
       if (aborted) {
         messages.push(
@@ -655,18 +683,24 @@ async function closeSteering(steering: SteeringSource | undefined) {
   }
 }
 
-type ToolCallOutcome = { message: ChatMessage; interrupted: boolean }
+type ToolCallOutcome = { message: ChatMessage; interrupted: boolean; failed: boolean }
 
 async function* executeSingleToolCall(
   rawCall: ChatToolCall,
   context: RunAgentOptions & { tools: ToolDefinition[]; coworkers: Coworkers },
 ): AsyncGenerator<AgentEvent, ToolCallOutcome> {
   const { coworkers } = context
-  const toolMessage = (content: string): ToolCallOutcome => ({
+  // Every result but the tool's own output is a failure, which the repeat breaker counts.
+  const toolMessage = (content: string, failed = true): ToolCallOutcome => ({
     message: { role: "tool", toolCallId: rawCall.id, content },
     interrupted: false,
+    failed,
   })
-  const interrupted = () => ({ message: interruptedToolMessage(rawCall), interrupted: true })
+  const interrupted = () => ({
+    message: interruptedToolMessage(rawCall),
+    interrupted: true,
+    failed: false,
+  })
 
   let call: ToolCall
   try {
@@ -773,7 +807,7 @@ async function* executeSingleToolCall(
       result.output.length <= MAX_TOOL_OUTPUT_CHARS
         ? result.output
         : `${result.output.slice(0, MAX_TOOL_OUTPUT_CHARS)}\n\n[Tool output truncated to ${MAX_TOOL_OUTPUT_CHARS} characters.]`
-    return toolMessage(`${call.name}: ${result.title}\n\n${output}`)
+    return toolMessage(`${call.name}: ${result.title}\n\n${output}`, false)
   } catch (error) {
     outcome = "failed"
     if (context.signal?.aborted) return interrupted()

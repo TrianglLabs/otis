@@ -44,11 +44,15 @@ describe("parseStructuredToolCall", () => {
       name: "publish_artifact",
       input: { path: "moved.md", artifactId: "original-id" },
     })
-    for (const artifact_id of ["", " ", 42]) {
-      expect(() =>
+    // An empty id means a new artifact, as models often send "" rather than omitting the field.
+    for (const artifact_id of ["", " ", null]) {
+      expect(
         parseStructuredToolCall("publish_artifact", { path: "moved.md", artifact_id }),
-      ).toThrow("artifact_id")
+      ).toEqual({ name: "publish_artifact", input: { path: "moved.md" } })
     }
+    expect(() =>
+      parseStructuredToolCall("publish_artifact", { path: "moved.md", artifact_id: 42 }),
+    ).toThrow("artifact_id")
   })
 
   it("requires a source attachment identity and a destination", () => {
