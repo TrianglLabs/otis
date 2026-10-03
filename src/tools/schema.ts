@@ -251,7 +251,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       {
         path: stringSchema("Current relative or absolute path to the finished file."),
         artifact_id: stringSchema(
-          "For a revision, the artifact_id returned by the original publication. Keep it when moving or renaming the same deliverable. Omit for a new artifact.",
+          "For a revision, the artifact_id returned by the original publication. Keep it when moving or renaming the same deliverable. Omit it (or leave it empty) for a new artifact.",
         ),
       },
       ["path"],
@@ -505,9 +505,10 @@ export function parseStructuredToolCall(name: string, input: unknown): ToolCall 
     case "publish_artifact": {
       const path = text("path")
       if (!path) throw new Error('publish_artifact requires a non-empty string "path"')
+      if (fields.artifact_id != null && typeof fields.artifact_id !== "string")
+        throw new Error('publish_artifact "artifact_id" must be a string')
+      // Models often send "" or null rather than omitting the field; all mean a new artifact.
       const artifactId = text("artifact_id")
-      if (fields.artifact_id !== undefined && !artifactId)
-        throw new Error('publish_artifact "artifact_id" must be a non-empty string')
       return { name, input: { path, ...(artifactId ? { artifactId } : {}) } }
     }
     case "bash": {
