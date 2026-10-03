@@ -368,6 +368,30 @@ describe("HostedClient for Fireworks", () => {
 
 const OTHER_PROVIDERS = HOSTED_PROVIDERS.filter((provider) => provider !== "fireworks")
 
+describe("HostedClient team billing", () => {
+  it("names the Prime Intellect team on each request only when one is set", async () => {
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response("data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } }),
+    )
+    const request = (teamId: string | undefined) =>
+      new HostedClient({
+        provider: "primeintellect",
+        apiKey: "pi_test",
+        model: "z-ai/glm-5.3",
+        fetch: fetchMock as typeof fetch,
+        teamId,
+      }).streamChat({ messages: [{ role: "user", content: "hi" }] })
+    for await (const _ of request("team_123")) {
+    }
+    for await (const _ of request(undefined)) {
+    }
+    const [[, withTeam], [, without]] = fetchMock.mock.calls
+    expect(withTeam?.headers).toMatchObject({ "x-prime-team-id": "team_123" })
+    expect(without?.headers).not.toHaveProperty("x-prime-team-id")
+  })
+})
+
 describe.each(OTHER_PROVIDERS)("HostedClient for %s", (provider) => {
   const { name, inferenceURL } = HOSTED_PROVIDER_INFO[provider]
 

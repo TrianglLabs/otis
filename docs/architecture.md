@@ -57,8 +57,11 @@ Keep network transport, persistence, and tool execution outside the UI layer. Ke
 Otis knows four hosted providers — Fireworks, Together AI, Baseten, and Prime Intellect — described by one table
 (`HOSTED_PROVIDER_INFO`: name, key environment variable, key page, chat completions and model-list URLs). The user
 supplies a key per provider. Otis sends each key only to its own provider in a bearer header and never writes it to a
-session or transcript. One `HostedClient` serves all four through OpenAI-compatible streaming chat completions; only
-Fireworks gets its documented `reasoning_effort` tiers and `service_tier`, the others keep provider defaults.
+session or transcript. Prime Intellect bills the key owner's personal wallet unless a request names a team, so an
+optional team id (`primeintellectTeamId`, env `PRIME_TEAM_ID`, settable in Settings and onboarding) is sent as
+`X-Prime-Team-ID` on Prime inference requests. One `HostedClient` serves all four through OpenAI-compatible
+streaming chat completions; only Fireworks gets its documented `reasoning_effort` tiers and `service_tier`, the
+others keep provider defaults.
 
 Model selection comes from each provider's live model list, filtered to tool-capable models: Fireworks' serverless
 catalog flags `supportsTools`; Prime Intellect lists `tools` among a model's `supported_parameters`; every Baseten Model

@@ -277,6 +277,9 @@ export const en = {
   "settings.inference": "Inference",
   "settings.hostedInference": "Hosted inference",
   "settings.hostedKey": "{{provider}} API key",
+  "settings.primeTeamId": "Team ID (optional)",
+  "settings.primeTeamIdNote":
+    "Prime Intellect bills requests to this team's wallet instead of your personal balance.",
   "settings.providerConnected": "Connected",
   "settings.providerNotConnected": "Not connected",
   "settings.addKey": "Add key",

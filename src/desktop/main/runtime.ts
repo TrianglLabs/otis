@@ -870,6 +870,10 @@ export class DesktopRuntime {
     this.#lastPickerItems = undefined
   }
 
+  setPrimeTeamId(teamId: string) {
+    return this.app.setPrimeTeamId(teamId)
+  }
+
   /**
    * Switches the selected model. `id` is the picker item id, or the selectionKey for PAIR entries
    * whose plain ids collide across engines; the row comes from the last listing, refreshed only

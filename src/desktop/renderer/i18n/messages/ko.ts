@@ -281,6 +281,9 @@ export const ko: Messages = {
   "settings.inference": "추론",
   "settings.hostedInference": "호스팅 추론",
   "settings.hostedKey": "{{provider}} API 키",
+  "settings.primeTeamId": "팀 ID (선택)",
+  "settings.primeTeamIdNote":
+    "Prime Intellect가 요청 비용을 개인 잔액 대신 이 팀의 지갑에 청구합니다.",
   "settings.providerConnected": "연결됨",
   "settings.providerNotConnected": "연결 안 됨",
   "settings.addKey": "키 추가",

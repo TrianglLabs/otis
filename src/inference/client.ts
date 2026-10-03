@@ -34,6 +34,7 @@ export class HostedClient implements InferenceClient {
   readonly #fetch: typeof fetch
   readonly #inferenceURL: string
   readonly #idleTimeoutMs: number
+  readonly #teamId: string | undefined
 
   constructor(config: HostedClientConfig) {
     const { name, inferenceURL } = HOSTED_PROVIDER_INFO[config.provider]
@@ -46,6 +47,7 @@ export class HostedClient implements InferenceClient {
       `${name} inference URL`,
     )
     this.#idleTimeoutMs = config.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS
+    this.#teamId = config.teamId
   }
 
   async *streamChat(options: StreamChatOptions) {
@@ -60,6 +62,7 @@ export class HostedClient implements InferenceClient {
           accept: "text/event-stream",
           authorization: `Bearer ${this.#apiKey}`,
           "content-type": "application/json",
+          ...(this.#teamId ? { "x-prime-team-id": this.#teamId } : {}),
         },
         body: JSON.stringify(
           openaiChatCompletionRequest(

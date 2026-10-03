@@ -677,6 +677,18 @@ describe("OnboardingPage", () => {
     // Cancel closes the editor without saving.
     fireEvent.click(panel.getByRole("button", { name: "Cancel" }))
     expect(screen.queryByLabelText("Baseten API key")).toBeNull()
+
+    // Only Prime Intellect offers a team to bill; saving just the team needs no key.
+    fireEvent.click(panel.getAllByRole("button", { name: "Add key" })[2])
+    expect(screen.getByLabelText("Prime Intellect API key")).toBeTruthy()
+    const team = screen.getByLabelText("Team ID (optional)") as HTMLInputElement
+    expect(team.value).toBe("")
+    fireEvent.change(team, { target: { value: "team_abc" } })
+    fireEvent.click(panel.getByRole("button", { name: "Save" }))
+    await act(async () => {})
+    expect(api.setPrimeTeamId).toHaveBeenCalledWith("team_abc")
+    expect(api.setHostedApiKey).not.toHaveBeenCalledWith("primeintellect", expect.anything())
+    expect(screen.queryByLabelText("Prime Intellect API key")).toBeNull()
   })
 
   it("back returns to the path cards", async () => {

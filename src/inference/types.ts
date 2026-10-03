@@ -257,6 +257,8 @@ export type HostedClientConfig = {
   provider: HostedProvider
   apiKey: string
   model: string
+  /** Sent as `X-Prime-Team-ID`: Prime Intellect bills this team's wallet, not the key owner's. */
+  teamId?: string
   fetch?: typeof fetch
   inferenceURL?: string
   /** Abandon a request whose response stays silent this long; every chunk restarts the clock. */

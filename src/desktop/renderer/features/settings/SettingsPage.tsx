@@ -14,7 +14,13 @@ import {
   SlidersHorizontal,
   X,
 } from "lucide-react"
-import { type CSSProperties, useEffect, useRef, useState } from "react"
+import {
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  useEffect,
+  useRef,
+  useState,
+} from "react"
 import type { OmlxPickerChoice, PairPickerChoice } from "../../../../inference/picker-catalog.js"
 import { hiddenModelKey } from "../../../../inference/picker-filter.js"
 import {
@@ -127,6 +133,7 @@ export function SettingsPage({
     "model",
     "debug",
     "stats",
+    "primeTeamId",
   )
   const showOmlx = supportsOmlx(state?.platform)
   const servers = new Intl.ListFormat(locale, { type: "disjunction" }).format(
@@ -316,6 +323,7 @@ export function SettingsPage({
                               key={provider}
                               provider={provider}
                               configured={state.hostedConfigured[provider]}
+                              teamId={state.primeTeamId}
                               open={openForm === provider}
                               onToggle={() => toggleForm(provider)}
                             />
@@ -702,26 +710,39 @@ export function SettingsPage({
 function HostedProviderRow({
   provider,
   configured,
+  teamId,
   open,
   onToggle,
 }: {
   provider: HostedProvider
   configured: boolean
+  /** The Prime Intellect team billed for inference (null: personal wallet); its row edits it. */
+  teamId: string | null
   open: boolean
   onToggle: () => void
 }) {
   const { api } = useDesktop()
   const { t } = useI18n()
   const [apiKey, setApiKey] = useState("")
+  const [team, setTeam] = useState(teamId ?? "")
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string>()
   const name = HOSTED_PROVIDER_INFO[provider].name
+  const billsTeam = provider === "primeintellect"
+  const teamChanged = billsTeam && team.trim() !== (teamId ?? "")
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter") void submit()
+    if (event.key === "Escape") onToggle()
+  }
   const submit = async () => {
     setError(undefined)
     setPending(true)
     try {
-      const result = await api.setHostedApiKey(provider, apiKey)
-      if (!result.ok) return setError(result.reason)
+      if (teamChanged) await api.setPrimeTeamId(team)
+      if (apiKey.trim()) {
+        const result = await api.setHostedApiKey(provider, apiKey)
+        if (!result.ok) return setError(result.reason)
+      }
       setApiKey("")
       onToggle()
     } finally {
@@ -750,10 +771,7 @@ function HostedProviderRow({
             placeholder={t("settings.hostedKey", { provider: name })}
             value={apiKey}
             onChange={(event) => setApiKey(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") void submit()
-              if (event.key === "Escape") onToggle()
-            }}
+            onKeyDown={onKeyDown}
             // biome-ignore lint/a11y/noAutofocus: the row was just opened to type the key
             autoFocus
             spellCheck={false}
@@ -765,11 +783,28 @@ function HostedProviderRow({
           <Button
             variant="primary"
             size="sm"
-            disabled={pending || !apiKey.trim()}
+            disabled={pending || !(apiKey.trim() || teamChanged)}
             onClick={() => void submit()}
           >
             {t("common.save")}
           </Button>
+          {billsTeam ? (
+            <>
+              <input
+                className="settingsForm-input settingsProvider-key"
+                aria-label={t("settings.primeTeamId")}
+                placeholder={t("settings.primeTeamId")}
+                value={team}
+                onChange={(event) => setTeam(event.target.value)}
+                onKeyDown={onKeyDown}
+                spellCheck={false}
+                autoComplete="off"
+              />
+              <p className="settingsForm-note settingsProvider-message">
+                {t("settings.primeTeamIdNote")}
+              </p>
+            </>
+          ) : null}
           {pending ? (
             <div className="settings-message settingsProvider-message">
               {t("settings.checkingHosted")}

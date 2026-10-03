@@ -1046,6 +1046,7 @@ class DemoRuntime implements DesktopApi {
     fastServing: { available: true, enabled: false },
     hostedConfigured: { ...NO_HOSTED_KEYS, fireworks: true, together: true, baseten: true },
     hiddenModels: [],
+    primeTeamId: null,
     pairConfigured: false,
     pairEndpoints: {},
     debug: false,
@@ -2068,6 +2069,11 @@ class DemoRuntime implements DesktopApi {
         ],
       ),
     )
+  }
+
+  async setPrimeTeamId(teamId: string): Promise<void> {
+    this.#state = { ...this.#state, primeTeamId: teamId.trim() || null }
+    this.#emitStatus()
   }
 
   async setModelHidden(provider: HostedProvider, id: string, hidden: boolean): Promise<void> {

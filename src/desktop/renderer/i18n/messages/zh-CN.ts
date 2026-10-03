@@ -273,6 +273,8 @@ export const zhCN: Messages = {
   "settings.inference": "推理",
   "settings.hostedInference": "云端推理",
   "settings.hostedKey": "{{provider}} API 密钥",
+  "settings.primeTeamId": "团队 ID（可选）",
+  "settings.primeTeamIdNote": "Prime Intellect 会从该团队的钱包而非你的个人余额中扣费。",
   "settings.providerConnected": "已连接",
   "settings.providerNotConnected": "未连接",
   "settings.addKey": "添加密钥",

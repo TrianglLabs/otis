@@ -284,6 +284,9 @@ export const es: Messages = {
   "settings.inference": "Inferencia",
   "settings.hostedInference": "Inferencia en la nube",
   "settings.hostedKey": "Clave API de {{provider}}",
+  "settings.primeTeamId": "ID de equipo (opcional)",
+  "settings.primeTeamIdNote":
+    "Prime Intellect cobra las solicitudes a la cartera de este equipo en lugar de a tu saldo personal.",
   "settings.providerConnected": "Conectado",
   "settings.providerNotConnected": "No conectado",
   "settings.addKey": "Añadir clave",

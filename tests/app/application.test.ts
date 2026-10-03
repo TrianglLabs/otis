@@ -685,6 +685,28 @@ describe("Application model transactions", () => {
     await app.shutdown()
   })
 
+  it("bills Prime Intellect to a team once one is set and rebuilds that provider's client", async () => {
+    const app = await ready("otis-app-team-")
+    preparing(app)
+    const glm = {
+      provider: "primeintellect" as const,
+      id: "z-ai/glm-5.3",
+      displayName: "GLM 5.3",
+      supportsImageInput: false,
+    }
+    await app.setHostedApiKey("primeintellect", "pi_key", { list: async () => [glm] })
+    expect(await app.selectModel(glm)).toEqual({ ok: true })
+    const before = app.focused.selection?.client
+    expect(app.status().primeTeamId).toBeNull()
+    await app.setPrimeTeamId(" team_abc ")
+    expect(app.status().primeTeamId).toBe("team_abc")
+    expect((await loadLocalSettings()).primeintellectTeamId).toBe("team_abc")
+    expect(app.focused.selection?.client).not.toBe(before)
+    await app.setPrimeTeamId("")
+    expect(app.status().primeTeamId).toBeNull()
+    await app.shutdown()
+  })
+
   it("hides and shows hosted models for the picker and persists the choice", async () => {
     const app = await ready("otis-app-hidden-")
     expect(app.status().hiddenModels).toEqual([])

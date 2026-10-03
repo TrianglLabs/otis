@@ -36,6 +36,8 @@ export type LocalSettings = {
   togetherApiKey?: string
   basetenApiKey?: string
   primeintellectApiKey?: string
+  /** The Prime Intellect team whose wallet pays for requests; omitted bills the personal one. */
+  primeintellectTeamId?: string
   pairEndpoints?: PairEndpoints
   pairEngine?: PairEngine
   model?: string
@@ -124,6 +126,7 @@ export async function loadLocalSettings(options: SettingsFileOptions = {}): Prom
       fastServingModels: fastServingModels.length > 0 ? fastServingModels : undefined,
     }),
     ...keys,
+    primeintellectTeamId: env.PRIME_TEAM_ID?.trim() || saved.primeintellectTeamId,
     model: saved.model,
     modelDisplayName: saved.modelDisplayName,
     modelContextLength: saved.modelContextLength,
@@ -295,6 +298,13 @@ export async function saveWorkspacePanelWidth(
   await updateSettings(options, (saved) => ({ ...saved, workspacePanelWidth }))
 }
 
+export async function savePrimeTeamId(
+  teamId: string | undefined,
+  options: SettingsFileOptions = {},
+) {
+  await updateSettings(options, (saved) => defined({ ...saved, primeintellectTeamId: teamId }))
+}
+
 export async function saveHiddenModels(hiddenModels: string[], options: SettingsFileOptions = {}) {
   await updateSettings(options, (saved) =>
     defined({ ...saved, hiddenModels: hiddenModels.length ? hiddenModels : undefined }),
@@ -422,6 +432,7 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
   return defined({
     version: 1 as const,
     ...keys,
+    primeintellectTeamId: optionalString(value.primeintellectTeamId, "primeintellectTeamId"),
     pairEndpoints: hasPairEndpoints(pairEndpoints) ? pairEndpoints : undefined,
     omlx,
     pairEngine,
