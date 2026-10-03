@@ -74,6 +74,7 @@ const SNAPSHOT: DesktopSnapshot = {
   workspacePanelWidth: undefined,
   freshAchievements: [],
   theme: "default",
+  textSize: "default",
   language: "system",
   thinkingVisible: false,
   notifyOnCompletion: true,

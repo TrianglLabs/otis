@@ -419,6 +419,9 @@ async function runDesktopUiChecks() {
   )
   settingsTabs[1].click()
   await until(() => !!document.querySelector("#settings-skill-url"), "Extensions tab did not open")
+  ;[...document.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
+    .find((tab) => tab.textContent === "Memory")
+    ?.click()
   await until(
     () =>
       [...document.querySelectorAll("button")].filter((button) => button.textContent === "Forget")

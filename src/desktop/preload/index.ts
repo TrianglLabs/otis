@@ -62,6 +62,7 @@ const api: DesktopApi = {
   rememberFact: (scope, fact) => invoke(DESKTOP_CHANNELS.rememberFact, scope, fact),
   forgetFact: (scope, fact) => invoke(DESKTOP_CHANNELS.forgetFact, scope, fact),
   setTheme: (theme) => invoke(DESKTOP_CHANNELS.setTheme, theme),
+  setTextSize: (textSize) => invoke(DESKTOP_CHANNELS.setTextSize, textSize),
   setLanguage: (language) => invoke(DESKTOP_CHANNELS.setLanguage, language),
   setThinkingVisible: (visible) => invoke(DESKTOP_CHANNELS.setThinkingVisible, visible),
   setNotifyOnCompletion: (enabled) => invoke(DESKTOP_CHANNELS.setNotifyOnCompletion, enabled),

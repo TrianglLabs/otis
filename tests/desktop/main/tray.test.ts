@@ -134,6 +134,7 @@ function statusFixture(overrides: Partial<DesktopStatus> = {}): DesktopStatus {
     terminal: false,
     workspacePanelWidth: undefined,
     theme: "default",
+    textSize: "default",
     language: "system",
     thinkingVisible: true,
     notifyOnCompletion: true,

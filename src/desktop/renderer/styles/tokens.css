@@ -52,7 +52,8 @@
   --text-meta: 11.5px;
   --text-ui: 12.5px;
   --text-body: 13.5px;
-  --text-prose: 14px;
+  --text-prose: 15px; /* chat messages and the composer; Appearance → Text size moves it */
+  --text-code: calc(var(--text-prose) - 3px); /* code blocks and diffs follow the prose size */
 
   /* Geometry, in the macOS manner: every control is one rounded rectangle, surfaces that hold
      content take the large radius, and capsules are kept for switches, tracks, dots, and the
@@ -96,4 +97,16 @@
      stronger for control outlines, a hairline for separators and resting cards. */
   --border: color-mix(in srgb, var(--text) 16%, transparent);
   --hairline: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+:root[data-text-size="small"] {
+  --text-prose: 14px;
+}
+
+:root[data-text-size="large"] {
+  --text-prose: 16px;
+}
+
+:root[data-text-size="larger"] {
+  --text-prose: 17px;
 }

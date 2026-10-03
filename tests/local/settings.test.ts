@@ -18,6 +18,7 @@ import {
   saveSelectedModel,
   saveSelectedTheme,
   saveSubagentPanelVisible,
+  saveTextSize,
   saveThinkingVisible,
   saveUiLanguage,
   saveWorkspacePanelWidth,
@@ -32,6 +33,16 @@ afterEach(async () => {
 })
 
 describe("local settings", () => {
+  it("keeps the chat text size and rejects sizes it does not know", async () => {
+    const file = join(await tempDirectory(), "config.json")
+    await saveTextSize("large", { file })
+    await saveSelectedModel(model("org/first", "First", 65_536), { file })
+    expect((await loadLocalSettings({ file, env: {} })).textSize).toBe("large")
+    await writeFile(file, JSON.stringify({ version: 1, textSize: "huge" }), "utf8")
+    await expect(loadLocalSettings({ file, env: {} })).rejects.toThrow(
+      "textSize must be one of small, default, large, larger",
+    )
+  })
   it("keeps the Prime Intellect team id, lets the environment override it, and clears it", async () => {
     const file = join(await tempDirectory(), "config.json")
     await savePrimeTeamId("team_abc", { file })

@@ -47,6 +47,7 @@ import {
   type SessionOpResult,
   type SkillSummary,
   type SkillsSummary,
+  type TextSize,
   type ThemeName,
   type TranscriptPatchOp,
 } from "../../contracts.js"
@@ -1038,6 +1039,7 @@ class DemoRuntime implements DesktopApi {
     terminal: false,
     workspacePanelWidth: undefined,
     theme: "default",
+    textSize: "default",
     language: "system",
     thinkingVisible: true,
     notifyOnCompletion: true,
@@ -1325,6 +1327,11 @@ class DemoRuntime implements DesktopApi {
 
   async setTheme(theme: ThemeName): Promise<void> {
     this.#state = { ...this.#state, theme }
+    this.#emitStatus()
+  }
+
+  async setTextSize(textSize: TextSize): Promise<void> {
+    this.#state = { ...this.#state, textSize }
     this.#emitStatus()
   }
 

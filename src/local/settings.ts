@@ -46,6 +46,7 @@ export type LocalSettings = {
   modelSupportsImageInput?: boolean
   modelProvider?: ModelProvider
   theme?: ThemeName
+  textSize?: TextSize
   language?: UiLanguage
   lastWorkspace?: string
   thinkingVisible?: boolean
@@ -82,6 +83,10 @@ export const THEME_NAMES = [
   "titanium",
 ] as const
 export type ThemeName = (typeof THEME_NAMES)[number]
+
+/** Chat prose sizes; the UI chrome keeps its own scale. */
+export const TEXT_SIZES = ["small", "default", "large", "larger"] as const
+export type TextSize = (typeof TEXT_SIZES)[number]
 
 export const UI_LANGUAGES = [
   "system",
@@ -231,6 +236,10 @@ export async function clearSelectedModel(options: SettingsFileOptions = {}) {
 
 export async function saveSelectedTheme(theme: ThemeName, options: SettingsFileOptions = {}) {
   await updateSettings(options, (saved) => ({ ...saved, theme }))
+}
+
+export async function saveTextSize(textSize: TextSize, options: SettingsFileOptions = {}) {
+  await updateSettings(options, (saved) => ({ ...saved, textSize }))
 }
 
 export async function saveUiLanguage(language: UiLanguage, options: SettingsFileOptions = {}) {
@@ -385,6 +394,11 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
     value.modelSupportsImageInput,
     "modelSupportsImageInput",
   )
+  const textSize = optionalChoice(
+    value.textSize,
+    TEXT_SIZES,
+    `Invalid Otis config: textSize must be one of ${TEXT_SIZES.join(", ")}.`,
+  )
   const language = optionalChoice(
     value.language,
     UI_LANGUAGES,
@@ -444,6 +458,7 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
     // The theme list changes across releases; an unrecognized saved name (e.g. a removed theme)
     // falls back to the default rather than blocking startup over a cosmetic preference.
     theme: isThemeName(value.theme) ? value.theme : undefined,
+    textSize,
     language,
     lastWorkspace,
     localThinking,

@@ -469,9 +469,13 @@ describe("AppShell settings navigation", () => {
     expect(panel.getByText("skill-59")).toBeTruthy()
     expect(panel.queryByRole("button", { name: "Show more" })).toBeNull()
 
-    // Collections and their installer come before the skills list.
+    // Collections and their installer come before the skills list; memory lives behind its own tab.
     const sections = panel.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)
-    expect(sections).toEqual(["Installed skills", "All skills", "Memory"])
+    expect(sections).toEqual(["Installed skills", "All skills"])
+    fireEvent.click(panel.getByRole("tab", { name: "Memory" }))
+    expect(panel.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual([
+      "Memory",
+    ])
   })
 
   it("lists each keyed provider's hosted models with picker visibility switches", async () => {
@@ -806,6 +810,8 @@ describe("AppShell settings navigation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Settings" }))
     await act(async () => {})
     fireEvent.click(screen.getByRole("tab", { name: "Extensions" }))
+    await act(async () => {})
+    fireEvent.click(screen.getByRole("tab", { name: "Memory" }))
     await act(async () => {})
     const memory = screen.getByRole("heading", { name: "Memory" }).parentElement as HTMLElement
     expect(within(memory).getByText("Deploys go through CI.")).toBeTruthy()
@@ -2712,6 +2718,26 @@ describe("header context meter", () => {
     }
     await renderApp(fakeApi({ getSnapshot: vi.fn(async () => inConversation) }))
     expect(document.body.querySelector(".contextMeter")).toBeTruthy()
+  })
+})
+
+describe("text size", () => {
+  it("sizes chat text from a four-step slider in Appearance", async () => {
+    const api = fakeApi({
+      getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, textSize: "large" as const })),
+    })
+    await renderApp(api)
+    expect(document.documentElement.dataset.textSize).toBe("large")
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }))
+    fireEvent.click(screen.getByRole("tab", { name: "Appearance" }))
+    await act(async () => {})
+    const panel = within(screen.getByRole("tabpanel", { name: "Appearance" }))
+    const slider = panel.getByRole("slider", { name: "Text size" }) as HTMLInputElement
+    expect(slider.value).toBe("2")
+    expect(slider.getAttribute("aria-valuetext")).toBe("Large")
+    expect(panel.getByText("Large")).toBeTruthy()
+    fireEvent.change(slider, { target: { value: "3" } })
+    expect(api.setTextSize).toHaveBeenCalledWith("larger")
   })
 })
 
