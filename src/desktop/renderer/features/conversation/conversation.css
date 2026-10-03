@@ -371,7 +371,7 @@
   background: var(--bg-user);
   border-radius: var(--radius-lg);
   padding: 9px 12px;
-  font-size: var(--text-body);
+  font-size: var(--text-prose);
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: break-word;
@@ -495,7 +495,7 @@ button.reasoning-header:hover {
   padding: 2px 0 0 10px;
   border-left: 1px solid var(--hairline);
   color: var(--text-dim);
-  font-size: var(--text-ui);
+  font-size: calc(var(--text-prose) - 2.5px); /* follows Text size like the prose it explains */
   font-style: italic;
   line-height: 1.55;
   white-space: pre-wrap;
@@ -637,7 +637,7 @@ button.reasoning-header:hover {
   overflow-x: hidden;
   padding: 8px 0;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-code);
   line-height: 1.6;
   border-radius: var(--radius-lg);
 }

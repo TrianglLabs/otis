@@ -45,9 +45,11 @@ import {
   saveNotifyOnCompletion,
   saveSelectedTheme,
   saveSubagentPanelVisible,
+  saveTextSize,
   saveThinkingVisible,
   saveUiLanguage,
   saveWorkspacePanelWidth,
+  type TextSize,
   UI_LANGUAGES,
 } from "../../local/settings.js"
 import { type AchievementId, calculateLocalStats } from "../../local/stats.js"
@@ -906,6 +908,12 @@ export class DesktopRuntime {
     this.#markStateDirty()
   }
 
+  async setTextSize(textSize: TextSize) {
+    await saveTextSize(textSize)
+    this.app.settings.textSize = textSize
+    this.#markStateDirty()
+  }
+
   async setLanguage(language: string) {
     const selected = UI_LANGUAGES.find((known) => known === language)
     if (!selected) return
@@ -1401,6 +1409,7 @@ export class DesktopRuntime {
       terminal: this.#terminal !== undefined,
       workspacePanelWidth: app.settings.workspacePanelWidth,
       theme: app.settings.theme ?? "default",
+      textSize: app.settings.textSize ?? "default",
       language: app.settings.language ?? "system",
       thinkingVisible: app.settings.thinkingVisible ?? false,
       notifyOnCompletion: app.settings.notifyOnCompletion ?? true,

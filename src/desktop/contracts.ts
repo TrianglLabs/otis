@@ -13,7 +13,7 @@ import type {
 import type { LocalThinkingSelection, LocalThinkingState } from "../inference/local-thinking.js"
 import type { ModelPickerItem, ModelPickerStatus } from "../inference/picker-catalog.js"
 import type { HostedModel, HostedProvider, ModelProvider } from "../inference/types.js"
-import type { ThemeName, UiLanguage } from "../local/settings.js"
+import type { TextSize, ThemeName, UiLanguage } from "../local/settings.js"
 import type { MemoryEntry, MemoryScope } from "../memory/memory.js"
 import type { PermissionMode } from "../permissions/policy.js"
 import type { SkillsSummary } from "../skills/catalog.js"
@@ -23,7 +23,7 @@ export type { PendingPermission, TurnPhase, TurnSpeed } from "../app/conversatio
 export type { RecentArtifact } from "../app/global-sessions.js"
 export type { ModelState } from "../app/models.js"
 export type { HostedModel, HostedProvider } from "../inference/types.js"
-export type { ThemeName, UiLanguage } from "../local/settings.js"
+export type { TextSize, ThemeName, UiLanguage } from "../local/settings.js"
 export type { PermissionMode } from "../permissions/policy.js"
 
 import type { AchievementId, LocalStats } from "../local/stats.js"
@@ -64,6 +64,7 @@ export const DESKTOP_CHANNELS = {
   setWorkspacePanelWidth: "desktop:set-workspace-panel-width",
   markAchievementsSeen: "desktop:mark-achievements-seen",
   setTheme: "desktop:set-theme",
+  setTextSize: "desktop:set-text-size",
   setLanguage: "desktop:set-language",
   setThinkingVisible: "desktop:set-thinking-visible",
   setNotifyOnCompletion: "desktop:set-notify-on-completion",
@@ -167,6 +168,8 @@ export type DesktopStatus = {
   workspacePanelWidth: number | undefined
   /** The active color theme; persisted in local settings. */
   theme: ThemeName
+  /** Chat prose size from Appearance; the UI chrome keeps its own scale. */
+  textSize: TextSize
   /** Desktop interface language; system follows the operating system locale. */
   language: UiLanguage
   /**
@@ -390,6 +393,7 @@ export type DesktopApi = {
   markAchievementsSeen(): Promise<void>
   /** Applies and persists a color theme. Unknown theme names are ignored. */
   setTheme(theme: ThemeName): Promise<void>
+  setTextSize(textSize: TextSize): Promise<void>
   /** Applies and persists the desktop interface language. */
   setLanguage(language: UiLanguage): Promise<void>
   /** Shows thinking as trace cards or as plain muted text; persisted in local settings. */

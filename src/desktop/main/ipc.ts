@@ -5,6 +5,7 @@ import { BrowserWindow, dialog, type IpcMainInvokeEvent, ipcMain, shell } from "
 import { isArtifactReference } from "../../artifacts/types.js"
 import { describeError } from "../../inference/errors.js"
 import { HOSTED_PROVIDER_INFO, isHostedProvider } from "../../inference/types.js"
+import { TEXT_SIZES } from "../../local/settings.js"
 import { isMemoryScope } from "../../memory/memory.js"
 import {
   DESKTOP_CHANNELS,
@@ -260,6 +261,11 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
   handle(DESKTOP_CHANNELS.setTheme, (theme) => {
     if (typeof theme !== "string") throw new Error("Invalid theme.")
     return runtime.setTheme(theme)
+  })
+  handle(DESKTOP_CHANNELS.setTextSize, (textSize) => {
+    const size = TEXT_SIZES.find((known) => known === textSize)
+    if (!size) throw new Error("Invalid text size.")
+    return runtime.setTextSize(size)
   })
   handle(DESKTOP_CHANNELS.setLanguage, (language) => {
     if (typeof language !== "string") throw new Error("Invalid language.")

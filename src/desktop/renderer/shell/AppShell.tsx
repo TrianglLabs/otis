@@ -25,6 +25,7 @@ export function AppShell() {
   const { t } = useI18n()
   const state = useDesktopState(
     "theme",
+    "textSize",
     "platform",
     "model",
     "needsWorkspace",
@@ -97,6 +98,10 @@ export function AppShell() {
   }, [api])
 
   const theme = state?.theme ?? "default"
+  const textSize = state?.textSize ?? "default"
+  useLayoutEffect(() => {
+    document.documentElement.dataset.textSize = textSize
+  }, [textSize])
   useLayoutEffect(() => {
     document.documentElement.dataset.theme = theme
     // Components that draw their own pixels, such as the thinking orb, read light or dark here.

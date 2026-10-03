@@ -115,7 +115,7 @@ function ThinkingSlider({ state, disabled }: { state: LocalThinkingState; disabl
           className="composer-popover thinkingControl-panel"
           role="dialog"
           aria-label={t("thinking.title")}
-          style={{ "--thinking-fill": `${fillPercent}%` } as CSSProperties}
+          style={{ "--slider-fill": `${fillPercent}%` } as CSSProperties}
         >
           <span className="thinkingControl-header">
             <span className="thinkingControl-selected" aria-hidden="true">
@@ -135,6 +135,7 @@ function ThinkingSlider({ state, disabled }: { state: LocalThinkingState; disabl
           <input
             ref={slider}
             type="range"
+            className="slider"
             min={0}
             max={state.levels.length - 1}
             step={1}

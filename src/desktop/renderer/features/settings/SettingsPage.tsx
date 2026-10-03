@@ -6,8 +6,11 @@ import {
   ChevronRight,
   Cloud,
   Cpu,
+  FileText,
   Laptop,
   LoaderCircle,
+  type LucideIcon,
+  NotebookPen,
   Palette,
   Plug,
   Puzzle,
@@ -32,7 +35,13 @@ import {
   supportsOmlx,
 } from "../../../../inference/types.js"
 import type { LocalStats } from "../../../../local/stats.js"
-import type { DesktopApi, SessionOpResult, ThemeName, UiLanguage } from "../../../contracts.js"
+import type {
+  DesktopApi,
+  SessionOpResult,
+  TextSize,
+  ThemeName,
+  UiLanguage,
+} from "../../../contracts.js"
 import lmStudioIcon from "../../assets/lm-studio.svg"
 import ollamaIcon from "../../assets/ollama.svg"
 import omlxIcon from "../../assets/omlx.svg"
@@ -94,6 +103,15 @@ const SKILL_ORIGINS = {
 } as const
 const SETTINGS_TAB_IDS = Object.keys(SETTINGS_TABS) as SettingsTab[]
 
+/** Mirrors TEXT_SIZES in src/local/settings.ts, for the same reason as THEME_NAMES. */
+const TEXT_SIZES: TextSize[] = ["small", "default", "large", "larger"]
+const TEXT_SIZE_LABELS = {
+  small: "settings.textSizeSmall",
+  default: "settings.textSizeDefault",
+  large: "settings.textSizeLarge",
+  larger: "settings.textSizeLarger",
+} as const
+
 /**
  * The settings page, opened from the header's gear button or the ⌘K palette. It takes over the
  * whole window. Mirrors the TUI's /settings submenu: hosted API keys, local model-server endpoints,
@@ -126,6 +144,7 @@ export function SettingsPage({
     "hostedConfigured",
     "hiddenModels",
     "theme",
+    "textSize",
     "language",
     "thinkingVisible",
     "notifyOnCompletion",
@@ -144,6 +163,7 @@ export function SettingsPage({
   useEffect(() => setActiveTab(initialTab), [initialTab])
   const [openForm, setOpenForm] = useState<"pair" | HostedProvider>()
   const [hostedOpen, setHostedOpen] = useState(false)
+  const [extension, setExtension] = useState<"skills" | "memory">("skills")
   const tabRefs = useRef(new Map<SettingsTab, HTMLButtonElement>())
 
   const [ollama, setOllama] = useState("")
@@ -195,6 +215,7 @@ export function SettingsPage({
   if (!state) return null
   const { fastServing } = state
   const fastDisabled = fastPending || !fastServing.available || state.busy || state.working > 0
+  const textSizeIndex = TEXT_SIZES.indexOf(state.textSize)
 
   const toggleForm = (form: "pair" | HostedProvider) => {
     setPairError(undefined)
@@ -296,7 +317,20 @@ export function SettingsPage({
           aria-labelledby={`settings-tab-${activeTab}`}
         >
           <div className="settingsPage-column">
-            <h1 className="settingsPage-title">{t(SETTINGS_TABS[activeTab].label)}</h1>
+            {/* Page-level tabs sit with the title; section-level ones sit with their heading. */}
+            <div className="settingsPage-heading">
+              <h1 className="settingsPage-title">{t(SETTINGS_TABS[activeTab].label)}</h1>
+              {activeTab === "extensions" ? (
+                <TabStrip
+                  tabs={[
+                    ["skills", t("settings.skills"), FileText],
+                    ["memory", t("settings.memory"), NotebookPen],
+                  ]}
+                  selected={extension}
+                  onSelect={setExtension}
+                />
+              ) : null}
+            </div>
             {activeTab === "providers" ? (
               <>
                 <div className="settingsGroup">
@@ -501,14 +535,15 @@ export function SettingsPage({
             {activeTab === "usage" ? <UsageStats stats={state.stats} /> : null}
 
             {activeTab === "extensions" ? (
-              <>
+              extension === "skills" ? (
                 <SkillsSettings />
+              ) : (
                 <MemorySettings />
-              </>
+              )
             ) : null}
             {activeTab === "appearance" ? (
               <>
-                <div className="settingsRow settingsLanguage settingsSurface">
+                <div className="settingsRow settingsSurface">
                   <label className="settingsRow-label" htmlFor="settings-language">
                     {t("settings.language")}
                   </label>
@@ -531,6 +566,47 @@ export function SettingsPage({
                       </option>
                     ))}
                   </select>
+                </div>
+
+                <div className="settingsRow settingsSurface">
+                  <label className="settingsRow-label" htmlFor="settings-text-size">
+                    {t("settings.textSize")}
+                    <span className="settingsRow-meta">{t(TEXT_SIZE_LABELS[state.textSize])}</span>
+                  </label>
+                  {/* Four snap points from small A to large A, the way macOS sizes text. */}
+                  <span className="settingsTextSize">
+                    <span className="settingsTextSize-small" aria-hidden>
+                      A
+                    </span>
+                    <input
+                      id="settings-text-size"
+                      type="range"
+                      className="slider"
+                      style={
+                        {
+                          "--slider-fill": `${(textSizeIndex * 100) / (TEXT_SIZES.length - 1)}%`,
+                        } as CSSProperties
+                      }
+                      min={0}
+                      max={TEXT_SIZES.length - 1}
+                      step={1}
+                      list="settings-text-size-ticks"
+                      value={textSizeIndex}
+                      aria-label={t("settings.textSize")}
+                      aria-valuetext={t(TEXT_SIZE_LABELS[state.textSize])}
+                      onChange={(event) =>
+                        void api.setTextSize(TEXT_SIZES[Number(event.target.value)])
+                      }
+                    />
+                    <datalist id="settings-text-size-ticks">
+                      {TEXT_SIZES.map((size, index) => (
+                        <option key={size} value={index} />
+                      ))}
+                    </datalist>
+                    <span className="settingsTextSize-large" aria-hidden>
+                      A
+                    </span>
+                  </span>
                 </div>
 
                 <div className="settingsGroup">
@@ -864,21 +940,12 @@ function HostedModelsSettings({
   return (
     <div className="settingsGroup">
       <h2 className="settings-section">{t("settings.hostedModels")}</h2>
+      <TabStrip
+        tabs={providers.map((entry) => [entry, HOSTED_PROVIDER_INFO[entry].name])}
+        selected={provider}
+        onSelect={setChosen}
+      />
       <div className="settingsSurface">
-        <div className="tabStrip settingsModels-tabs" role="tablist">
-          {providers.map((entry) => (
-            <button
-              key={entry}
-              type="button"
-              role="tab"
-              className={`tabStrip-tab${entry === provider ? " tabStrip-tab-selected" : ""}`}
-              aria-selected={entry === provider}
-              onClick={() => setChosen(entry)}
-            >
-              {HOSTED_PROVIDER_INFO[entry].name}
-            </button>
-          ))}
-        </div>
         <section role="tabpanel" aria-label={name}>
           {failed ? (
             <div className="settingsRow settings-message settings-error">
@@ -910,6 +977,35 @@ function HostedModelsSettings({
         </section>
       </div>
       <p className="settingsForm-note settingsGroup-note">{t("settings.hostedModelsNote")}</p>
+    </div>
+  )
+}
+
+/** The canvas-style tab strip that picks one of a group's panels inside a settings tab. */
+function TabStrip<T extends string>({
+  tabs,
+  selected,
+  onSelect,
+}: {
+  tabs: readonly (readonly [T, string, LucideIcon?])[]
+  selected: T
+  onSelect: (tab: T) => void
+}) {
+  return (
+    <div className="tabStrip settingsTabs" role="tablist">
+      {tabs.map(([id, label, icon]) => (
+        <button
+          key={id}
+          type="button"
+          role="tab"
+          className={`tabStrip-tab${id === selected ? " tabStrip-tab-selected" : ""}`}
+          aria-selected={id === selected}
+          onClick={() => onSelect(id)}
+        >
+          {icon ? <Icon icon={icon} size={13} /> : null}
+          {label}
+        </button>
+      ))}
     </div>
   )
 }
