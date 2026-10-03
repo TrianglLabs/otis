@@ -1,6 +1,6 @@
 /** Fireworks Fast serving paths use a router ID, not `service_tier`. */
 
-import type { FireworksModel } from "./types.js"
+import type { FireworksModel, HostedModel } from "./types.js"
 
 export function isFastFireworksModel(modelId: string) {
   return /\/routers\/[^/]+-fast$/i.test(normalizedModelResource(modelId))
@@ -22,12 +22,12 @@ export function fireworksServiceTier(modelId: string) {
   return isFastFireworksModel(modelId) ? undefined : "priority"
 }
 
-export function matchesFireworksModel(model: FireworksModel, modelId: string) {
+export function matchesHostedModel(model: HostedModel, modelId: string) {
   return model.id === modelId || model.fastId === modelId
 }
 
-export function findFireworksModel(models: readonly FireworksModel[], modelId: string) {
-  return models.find((model) => matchesFireworksModel(model, modelId))
+export function findHostedModel<T extends HostedModel>(models: readonly T[], modelId: string) {
+  return models.find((model) => matchesHostedModel(model, modelId))
 }
 
 /**
@@ -38,7 +38,7 @@ export function useFastServingPath(modelId: string | undefined, fast?: boolean) 
   return Boolean(modelId && isFastFireworksModel(modelId)) || fast === true
 }
 
-export function fireworksServingModel(model: FireworksModel, fast: boolean): FireworksModel {
+export function fireworksServingModel<T extends HostedModel>(model: T, fast: boolean): T {
   if (!model.fastId) return model
   return {
     ...model,
@@ -70,9 +70,9 @@ const DEFAULT_FIREWORKS_MODEL_IDS = [
   "accounts/fireworks/models/inkling",
 ] as const
 
-export function selectDefaultFireworksModel(
-  models: readonly FireworksModel[],
-): FireworksModel | undefined {
+export function selectDefaultFireworksModel<T extends HostedModel>(
+  models: readonly T[],
+): T | undefined {
   for (const modelId of DEFAULT_FIREWORKS_MODEL_IDS) {
     const model = models.find((candidate) => candidate.id === modelId)
     if (model) return model

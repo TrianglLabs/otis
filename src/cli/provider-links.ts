@@ -1,14 +1,15 @@
 import { spawn } from "node:child_process"
+import { HOSTED_PROVIDER_INFO, type HostedProvider } from "../inference/types.js"
 
-export const FIREWORKS_KEY_URL = "https://app.fireworks.ai/api-keys"
-
-type OpenFireworksKeyPageOptions = {
+type OpenKeyPageOptions = {
   platform?: NodeJS.Platform
   launch?: (command: string, args: string[]) => Promise<void>
 }
 
-export async function openFireworksKeyPage(
-  options: OpenFireworksKeyPageOptions = {},
+/** Opens the provider's API key page in the user's browser; false when there is no launcher. */
+export async function openHostedKeyPage(
+  provider: HostedProvider,
+  options: OpenKeyPageOptions = {},
 ): Promise<boolean> {
   const platform = options.platform ?? process.platform
   const executable =
@@ -16,7 +17,7 @@ export async function openFireworksKeyPage(
   if (!executable) return false
 
   try {
-    await (options.launch ?? launchDetached)(executable, [FIREWORKS_KEY_URL])
+    await (options.launch ?? launchDetached)(executable, [HOSTED_PROVIDER_INFO[provider].keyURL])
     return true
   } catch {
     return false

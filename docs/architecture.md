@@ -12,7 +12,7 @@ User terminal or server process
       -> agent loop, tools, permissions, sessions, and inference
       -> local Agent Skills
       -> local JSONL sessions and usage
-      -> Fireworks API with the user's key
+      -> Fireworks, Together AI, Baseten, or Prime Intellect with the user's key for that provider
       -> llama-server on 127.0.0.1
       -> NVIDIA PAIR proxy on loopback -> one eligible Ollama or LM Studio engine
       -> Parallel Search MCP
@@ -41,7 +41,7 @@ src/cli
   or `src/cli`. `Application.shutdown()` cancels an active conversation and in-flight model selection, then stops the
   model runtime.
 - `src/core` owns the agent loop, project instruction loading, and conversation compaction.
-- `src/inference` owns Fireworks, PAIR, and local llama.cpp request serialization, model discovery, hardware fit, the
+- `src/inference` owns hosted-provider, PAIR, and local llama.cpp request serialization, model discovery, hardware fit, the
   human-authored `system-prompt.txt`, prompt assembly and project-context bounds, and SSE parsing.
 - `src/local` owns platform paths, the private provider configuration file, and home-screen statistic derivation.
 - `src/skills` owns portable Agent Skill discovery, manifest validation, precedence, and confined resource reads.
@@ -52,16 +52,25 @@ src/cli
 Keep network transport, persistence, and tool execution outside the UI layer. Keep provider response shapes inside
 `src/inference` and `src/web` so the rest of the runtime uses smaller internal models.
 
-## Fireworks boundary
+## Hosted provider boundary
 
-The user supplies a Fireworks API key. Otis sends it only to the Fireworks API in a bearer header and never writes it
-to a session or transcript.
+Otis knows four hosted providers — Fireworks, Together AI, Baseten, and Prime Intellect — described by one table
+(`HOSTED_PROVIDER_INFO`: name, key environment variable, key page, chat completions and model-list URLs). The user
+supplies a key per provider. Otis sends each key only to its own provider in a bearer header and never writes it to a
+session or transcript. One `HostedClient` serves all four through OpenAI-compatible streaming chat completions; only
+Fireworks gets its documented `reasoning_effort` tiers and `service_tier`, the others keep provider defaults.
 
-Model selection comes from Fireworks' public serverless catalog. Otis filters out every model that does not explicitly
-report tool support; unverified model IDs are not accepted through the normal UI. Chat requests use Fireworks'
-OpenAI-compatible streaming endpoint and retain text, reasoning content, structured tool calls, tool results, and final
-token usage. Verified display-name and context-window metadata are saved with the selection so the context meter and
-auto-compaction threshold remain safe for smaller tool-capable models.
+Model selection comes from each provider's live model list, filtered to tool-capable models: Fireworks' serverless
+catalog flags `supportsTools`; Prime Intellect lists `tools` among a model's `supported_parameters`; every Baseten Model
+API supports tools; Together's list has no flag, so Otis keeps a curated allowlist of the serverless chat models
+Together documents for function calling and offers those its live list confirms. Unverified model IDs are not accepted
+through the normal UI. Requests retain text, reasoning content, structured tool calls, tool results, and final token
+usage. Verified display-name and context-window metadata are saved with the selection so the context meter and
+auto-compaction threshold remain safe for smaller tool-capable models. The picker groups hosted rows under one header
+per configured provider and filters every row by typed text. `/settings` → Hosted models in the terminal and Settings
+→ Inference on the desktop list each keyed provider's catalog with a show/hide toggle per model; hidden models
+(`hiddenModels` in the config file, keyed `<provider>:<id>`) are left out of the picker everywhere, except the selected
+model, which always stays listed.
 
 The selection is per session. Each `SessionRuntime` owns a `ModelSelection`: the catalog model, its image capability,
 and its inference client once the model serves; a new session starts on the focused session's selection, and the
@@ -73,7 +82,7 @@ model leaves the server running for the others and stops it only when no session
 
 Attachments are represented as provider-neutral ordered user-content parts. Image loading validates the actual
 signature, enforces Fireworks' per-request count and base64-size limits, and places images before text for portability
-across supported vision model families. The Fireworks adapter alone converts images to `image_url` data URLs.
+across supported vision model families. The hosted adapter alone converts images to `image_url` data URLs.
 Catalog-provided image capability is saved with model metadata; every adapter rejects images before inference when the
 selected model lacks that capability.
 
@@ -181,7 +190,7 @@ and keep per-block expansion as ephemeral UI state, while headless output includ
 
 ## Local llama.cpp boundary
 
-`/model` lists a curated local catalog above Fireworks. Identities are official Hugging Face checkpoints. GGUF files
+`/model` lists a curated local catalog above the hosted providers. Identities are official Hugging Face checkpoints. GGUF files
 come from the model author when they publish GGUF, otherwise from ggml-org or a conversion of those official Instruct
 weights. Each row reports a fitted context and memory estimate; models that cannot fit even 64K context are hidden
 unless a cached copy needs to remain visible for deletion. Context is the largest window that fits the full inference
@@ -201,7 +210,8 @@ which `nvidia-smi` rows are summed, by index or UUID; a MIG-enabled GPU is repla
 memory is readable, otherwise budgeted whole with a note on the probe. On Linux the host total is the smaller of
 physical memory and the cgroup limit. If no render device is present, Otis uses the CPU build.
 
-Picker and settings rows are a provider-tagged catalog: Fireworks entries may include a Fast serving path; managed-local
+Picker and settings rows are a provider-tagged catalog: Fireworks entries may include a Fast serving path; other hosted
+entries never do; managed-local
 entries carry a fitted context and never a `fastId`; PAIR entries carry their endpoint identity. Managed-local rows not
 currently serving label that context `Est.`; the active managed-local row receives the context returned by llama.cpp
 and labels it `loaded`.
@@ -286,7 +296,7 @@ request. A per-model lock serializes concurrent downloads and deletion across Ot
 
 Download percent and a loading state appear next to the model name in the `/model` picker. Local rows already on disk
 show `Downloaded` next to the name. Otis then starts `llama-server` on `127.0.0.1` with `--jinja` and without llama.cpp
-`--tools`. Chat then uses the same OpenAI-compatible SSE path as Fireworks, without Fireworks-only `service_tier` or
+`--tools`. Chat then uses the same OpenAI-compatible SSE path as the hosted providers, without Fireworks-only `service_tier` or
 `reasoning_effort` fields. Otis tools remain in the local runtime. `OTIS_LLAMA_SERVER` overrides the bundled binary.
 llama.cpp's native fitter is authoritative at startup. Otis passes 1 GiB of fit headroom per GPU, including Apple
 unified memory, or the system-memory headroom for the CPU backend, then reads `/props` and persists the context actually
@@ -305,9 +315,10 @@ Interactive `/exit`, Ctrl+C, and SIGINT/SIGTERM wait for `llama-server` to stop 
 Headless `otis exec` awaits that stop in `finally`.
 
 First-run setup offers local and hosted inference before requesting credentials. Local inference then offers the
-existing Otis-managed path and the external PAIR path as separate choices. The managed route opens the hardware-filtered
-catalog without a hosted inference API key; the hosted route requests the current provider's key and selects a verified
-tool-capable default model. Headless `otis exec --model <local-id>` also does not require a hosted inference API key.
+existing Otis-managed path and the external PAIR path as separate choices; hosted inference offers the provider list.
+The managed route opens the hardware-filtered catalog without a hosted inference API key; the hosted route requests the
+chosen provider's key and selects a verified tool-capable default model. Headless `otis exec --model <local-id>` also
+does not require a hosted inference API key; `--provider` names the hosted provider of an ad hoc `--model`.
 `/settings` can validate and save that key later without replacing the selected local model, connect or reconnect
 PAIR, open cached-model deletion when a GGUF is present, choose a color theme, and own the ephemeral debug-mode toggle.
 
@@ -375,7 +386,7 @@ Otis keeps its own `web_search` and `web_read` tools. The Parallel adapter maps 
 Page reads do not request full page content. `session_id` is the Otis session id, truncated to 100 characters, which
 Parallel uses as the free-tier rate-limit key. `model_name` is the selected inference model.
 
-The Fireworks API key is not written to sessions, transcripts, tool results, or usage events. Environment values override
+Hosted provider keys are not written to sessions, transcripts, tool results, or usage events. Environment values override
 saved values without being copied into `config.json`. Keys entered through setup are written atomically to the
 platform user-config directory; on macOS and Linux, that directory is mode `0700` and `config.json` is mode `0600`.
 This location is separate from the Otis executable, and the updater replaces only that executable.
@@ -395,11 +406,22 @@ client, workspace, permission policy, approval handler, usage sink, and abort si
 that contains only the delegated brief. Its tool set is the read-only subset of the parent's tools: file reading and
 search, web search and reading, and skill loading. It never receives `write`, `edit`, `edit_document`, `document`, `save_attachment`, `bash`, or
 `agent`, so a subagent cannot mutate the workspace or delegate again. Agent runs have no fixed step cap. Only the child's final
-assistant text returns to the parent as the tool result; its own text, reasoning, and context accounting stay private.
+assistant text reaches the parent; its own text, reasoning, and context accounting stay private.
 
-The `agent` tool and its system-prompt guidance are offered only for hosted Fireworks models and NVIDIA PAIR
-clusters, and oMLX, which can serve several requests at once. Otis' managed `llama-server` runs a single slot, so local models
-receive the catalog without `agent`; headless `--tools` can narrow a provider's catalog but never widen it.
+Coworkers run in the background. The `agent` call returns at once ("Coworker started…") and the parent keeps
+streaming and using tools; child events are forwarded into the parent's event stream whenever the parent awaits a
+model step, a tool, an approval, or compaction. A finished coworker's report is delivered to the parent as a user
+message (`[Coworker report: <title>]`, or `[Coworker failed: <title>]`) before its next model request, exactly once;
+the transcript projector skips those messages on replay since the coworker trace already shows them. A turn whose
+model reply has no tool calls does not end while a coworker is still working or unreported: the loop waits for a
+report, delivers it, and lets the model continue, keeping steering open meanwhile. `wait_coworkers` blocks until every
+coworker has settled and returns the undelivered reports as its tool output, for the case where the next step needs
+them. The parent's and children's approval requests share one serialized chain; aborting the parent aborts its
+children, and a parent that finishes or fails cancels any still running.
+
+The `agent` and `wait_coworkers` tools and their system-prompt guidance are offered only for hosted models, NVIDIA
+PAIR clusters, and oMLX, which can serve several requests at once. Otis' managed `llama-server` runs a single slot, so
+local models receive the catalog without them; headless `--tools` can narrow a provider's catalog but never widen it.
 
 Adjacent `agent` calls in one model response run concurrently, and their results are appended in the model's order.
 Every other tool call still runs one at a time so workspace mutations stay ordered. The approval surface accepts one
@@ -463,7 +485,7 @@ The trigger reserves output room from the serving context: at least 20%, raised 
 default thinking level is high or above (8K otherwise), and capped at 250,000 tokens. Hosted and managed-local models
 use their serving context, oMLX uses its reported request limit (64K policy budget if unavailable), and Ollama/LM
 Studio/PAIR use the 64K local-agent minimum as their working budget. Unknown hosted context is treated as a 128K
-window, and a Fireworks selection saved without a context length is refreshed from the catalog on connect. Summary
+window, and a hosted selection saved without a context length is refreshed from the catalog on connect. Summary
 requests ask for the model's minimal reasoning, leave headroom for the summary itself, and instruct the summarizer to
 replace credentials seen in tool output with `[redacted]`. `/compact` reports "Nothing to compact yet." when the
 summarizable history is no larger than the summary cap, without sending a request.

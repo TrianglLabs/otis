@@ -85,6 +85,46 @@ describe("calculateLocalStats", () => {
     ])
   })
 
+  it("counts every hosted provider as hosted usage and the first one as the hosted achievement", async () => {
+    const root = await tempDirectory()
+    const now = new Date(2026, 6, 16, 12, 0, 0)
+    const providers = ["together", "baseten", "primeintellect", "local"] as const
+    await writeSession(root, "project-a", "session-a", [
+      event(1, "session-a", "session_started", localISO(now, -10), { version: 1 }),
+      event(2, "session-a", "prompt_admitted", localISO(now, 0), {
+        promptId: "prompt-a",
+        message: { role: "user", content: "hello" },
+      }),
+      ...providers.map((provider, index) =>
+        event(3 + index, "session-a", "usage_recorded", localISO(now, 1 + index), {
+          purpose: "agent",
+          promptId: "prompt-a",
+          provider,
+          model: `${provider}/model`,
+          modelName: `${provider} model`,
+          usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+        }),
+      ),
+      event(7, "session-a", "turn_completed", localISO(now, 30), {
+        promptId: "prompt-a",
+        messages: [{ role: "assistant", content: [{ type: "text", text: "hi" }] }],
+      }),
+    ])
+
+    const stats = await calculateLocalStats({ sessionsRoot: root, now })
+    expect(stats.providers.sort()).toEqual(["baseten", "local", "primeintellect", "together"])
+    expect(stats.modelUsage).toEqual({
+      "together model": { hosted: true, promptTokens: 10, completionTokens: 5 },
+      "baseten model": { hosted: true, promptTokens: 10, completionTokens: 5 },
+      "primeintellect model": { hosted: true, promptTokens: 10, completionTokens: 5 },
+      "local model": { hosted: false, promptTokens: 10, completionTokens: 5 },
+    })
+    expect(stats.achievements).toMatchObject({
+      "hosted-model": { at: localISO(now, 1), count: 1 },
+      "local-model": { at: localISO(now, 4), count: 1 },
+    })
+  })
+
   it("counts active turn time including interrupts and skips idle gaps", async () => {
     const root = await tempDirectory()
     const now = new Date(2026, 6, 16, 12, 0, 0)

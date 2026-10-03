@@ -391,7 +391,7 @@ describe("chat UI status and prompts", () => {
     harness.pressCtrlC()
     expect(onQuit).toHaveBeenCalledOnce()
 
-    harness.ui.showSetupInput()
+    harness.ui.showSetupInput("", "choice", "fireworks")
     harness.pressCtrlC()
     expect(onQuit).toHaveBeenCalledTimes(2)
 

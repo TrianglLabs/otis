@@ -151,8 +151,8 @@ describe("CLI shutdown", () => {
 
   it("aborts model catalog discovery before destroying the renderer", async () => {
     let catalogSignal: AbortSignal | undefined
-    mocks.listToolCapableModels.mockImplementation(
-      (_apiKey, options) =>
+    mocks.listHostedModels.mockImplementation(
+      (_provider, _apiKey, options) =>
         new Promise((_resolve, reject) => {
           catalogSignal = options?.signal
           catalogSignal?.addEventListener("abort", () => reject(catalogSignal?.reason), {

@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import type { FireworksModel } from "../../src/inference/types.js"
+import type { HostedModel, HostedProvider } from "../../src/inference/types.js"
 import type { PermissionConfig } from "../../src/permissions/policy.js"
 import type { SkillCatalog } from "../../src/skills/catalog.js"
 import { summaryFixture } from "../support/compaction.js"
@@ -10,7 +10,13 @@ import { summaryFixture } from "../support/compaction.js"
 const mocks = vi.hoisted(() => ({
   createSession: vi.fn(),
   listSessions: vi.fn(async () => []),
-  listToolCapableModels: vi.fn<() => Promise<FireworksModel[]>>(async () => [
+  listHostedModels: vi.fn<
+    (
+      provider: HostedProvider,
+      apiKey: string,
+      options?: { signal?: AbortSignal },
+    ) => Promise<HostedModel[]>
+  >(async () => [
     {
       provider: "fireworks",
       id: "accounts/fireworks/models/test",
@@ -21,10 +27,13 @@ const mocks = vi.hoisted(() => ({
   loadLocalSettings: vi.fn<
     () => Promise<{
       fireworksApiKey?: string
+      togetherApiKey?: string
+      basetenApiKey?: string
+      primeintellectApiKey?: string
       pairEndpoints?: { ollama?: string; lmStudio?: string }
       pairEngine?: "ollama" | "lmstudio"
       model: string
-      modelProvider?: "fireworks" | "local" | "pair" | "omlx"
+      modelProvider?: HostedProvider | "local" | "pair" | "omlx"
       omlx?: { baseURL: string; apiKey?: string }
       modelContextLength?: number
       modelSupportsImageInput?: boolean
@@ -96,10 +105,10 @@ vi.mock("../../src/app/turn-runner.js", async (importOriginal) => {
   return { ...actual, executeTurn: vi.fn(actual.executeTurn) }
 })
 vi.mock("../../src/inference/client.js", () => ({
-  FireworksClient: vi.fn(function FireworksClient(config: { model: string }) {
+  HostedClient: vi.fn(function HostedClient(config: { model: string }) {
     return { model: config.model, streamChat: mocks.streamChat }
   }),
-  listToolCapableModels: mocks.listToolCapableModels,
+  listHostedModels: mocks.listHostedModels,
   fireworksReasoningEffort: () => undefined,
 }))
 vi.mock("../../src/inference/hardware.js", async (importOriginal) => {
@@ -134,7 +143,8 @@ vi.mock("../../src/inference/omlx.js", async (importOriginal) => ({
     },
   ]),
 }))
-vi.mock("../../src/local/settings.js", () => ({
+vi.mock("../../src/local/settings.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/local/settings.js")>()),
   loadLocalSettings: mocks.loadLocalSettings,
   saveSelectedModel: mocks.saveSelectedModel,
 }))
@@ -156,7 +166,7 @@ vi.mock("../../src/storage/session.js", async (importOriginal) => ({
 
 import { executeTurn } from "../../src/app/turn-runner.js"
 import { runHeadlessCommand } from "../../src/cli/headless-cli.js"
-import { FireworksClient } from "../../src/inference/client.js"
+import { HostedClient } from "../../src/inference/client.js"
 import { createPairClient } from "../../src/inference/pair.js"
 
 const temporaryDirectories: string[] = []
@@ -226,9 +236,12 @@ describe("runHeadlessCommand", () => {
       yield { type: "text_delta", text: "Done." }
     })
     if (delegate) {
-      mocks.streamChat.mockImplementationOnce(async function* () {
-        yield { type: "text_delta", text: "Done." }
-      })
+      // The coworker's own report, then the parent's answer once that report is delivered.
+      for (let answer = 0; answer < 2; answer += 1) {
+        mocks.streamChat.mockImplementationOnce(async function* () {
+          yield { type: "text_delta", text: "Done." }
+        })
+      }
     }
     const output = streams({ processCwd: cwd })
 
@@ -237,7 +250,10 @@ describe("runHeadlessCommand", () => {
     expect(exitCode, output.stderr()).toBe(0)
     expect(output.stdout()).toBe("Done.\n")
     expect(output.stderr()).not.toContain("(failed)")
-    expect(mocks.streamChat).toHaveBeenCalledTimes(delegate ? 54 : 52)
+    // With delegation the coworker's report lands before the parent's final request when the
+    // child finishes first (54 calls) and needs one more request otherwise (55).
+    if (delegate) expect([54, 55]).toContain(mocks.streamChat.mock.calls.length)
+    else expect(mocks.streamChat).toHaveBeenCalledTimes(52)
   })
 
   it.each([
@@ -661,7 +677,7 @@ describe("runHeadlessCommand", () => {
   })
 
   it("uses an explicit Fast serving path when requested", async () => {
-    mocks.listToolCapableModels.mockResolvedValue([
+    mocks.listHostedModels.mockResolvedValue([
       {
         provider: "fireworks",
         id: "accounts/fireworks/models/kimi-k3",
@@ -681,7 +697,7 @@ describe("runHeadlessCommand", () => {
     )
 
     expect(exitCode).toBe(0)
-    expect(FireworksClient).toHaveBeenCalledWith(
+    expect(HostedClient).toHaveBeenCalledWith(
       expect.objectContaining({ model: "accounts/fireworks/routers/kimi-k3-fast" }),
     )
   })
@@ -701,7 +717,7 @@ describe("runHeadlessCommand", () => {
     fastServingModels,
     model,
   }) => {
-    mocks.listToolCapableModels.mockResolvedValue([
+    mocks.listHostedModels.mockResolvedValue([
       {
         provider: "fireworks",
         id: "accounts/fireworks/models/kimi-k3",
@@ -730,11 +746,11 @@ describe("runHeadlessCommand", () => {
     )
 
     expect(exitCode).toBe(0)
-    expect(FireworksClient).toHaveBeenCalledWith(expect.objectContaining({ model }))
+    expect(HostedClient).toHaveBeenCalledWith(expect.objectContaining({ model }))
   })
 
   it("keeps an explicit catalog model on the base serving path", async () => {
-    mocks.listToolCapableModels.mockResolvedValue([
+    mocks.listHostedModels.mockResolvedValue([
       {
         provider: "fireworks",
         id: "accounts/fireworks/models/kimi-k3",
@@ -759,7 +775,7 @@ describe("runHeadlessCommand", () => {
     )
 
     expect(exitCode).toBe(0)
-    expect(FireworksClient).toHaveBeenCalledWith(
+    expect(HostedClient).toHaveBeenCalledWith(
       expect.objectContaining({ model: "accounts/fireworks/models/kimi-k3" }),
     )
   })
@@ -773,8 +789,81 @@ describe("runHeadlessCommand", () => {
     )
 
     expect(exitCode).toBe(1)
-    expect(mocks.listToolCapableModels).toHaveBeenCalledOnce()
-    expect(output.stderr()).toContain("not a tool-capable Fireworks serverless model")
+    expect(mocks.listHostedModels).toHaveBeenCalledExactlyOnceWith("fireworks", "fw_test", {
+      signal: expect.any(AbortSignal),
+    })
+    expect(output.stderr()).toContain("not a tool-capable Fireworks model")
+  })
+
+  it("rejects --provider without --model and an unknown provider before any work", async () => {
+    const withoutModel = streams()
+    expect(
+      await runHeadlessCommand(["--provider", "together", "hello"], withoutModel.options),
+    ).toBe(2)
+    expect(withoutModel.stderr()).toContain("--provider requires --model.")
+
+    const unknown = streams()
+    expect(
+      await runHeadlessCommand(["-p", "openai", "--model", "gpt", "hello"], unknown.options),
+    ).toBe(2)
+    expect(unknown.stderr()).toContain(
+      "--provider must be one of fireworks, together, baseten, primeintellect.",
+    )
+    expect(mocks.loadLocalSettings).not.toHaveBeenCalled()
+    expect(mocks.listHostedModels).not.toHaveBeenCalled()
+  })
+
+  it("resolves a --provider together model through the Together catalog and key", async () => {
+    const together: HostedModel = {
+      provider: "together",
+      id: "moonshotai/Kimi-K3",
+      displayName: "Kimi K3",
+      contextLength: 262_144,
+      supportsImageInput: false,
+    }
+    mocks.listHostedModels.mockResolvedValue([together])
+    mocks.loadLocalSettings.mockResolvedValue({
+      fireworksApiKey: "fw_test",
+      togetherApiKey: "tg_test",
+      model: "accounts/fireworks/models/test",
+    })
+    mocks.streamChat.mockImplementationOnce(async function* () {
+      yield { type: "text_delta", text: "together answer" }
+    })
+    const output = streams()
+
+    const exitCode = await runHeadlessCommand(
+      ["--ephemeral", "--provider", "together", "--model", together.id, "hello"],
+      output.options,
+    )
+
+    expect(exitCode, output.stderr()).toBe(0)
+    expect(mocks.listHostedModels).toHaveBeenCalledExactlyOnceWith("together", "tg_test", {
+      signal: expect.any(AbortSignal),
+    })
+    expect(HostedClient).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: "together", apiKey: "tg_test", model: together.id }),
+    )
+    expect(mocks.saveSelectedModel).not.toHaveBeenCalled()
+    expect(output.stdout()).toBe("together answer\n")
+  })
+
+  it("names the missing provider key when --provider has none saved", async () => {
+    mocks.loadLocalSettings.mockResolvedValue({
+      fireworksApiKey: "fw_test",
+      model: "accounts/fireworks/models/test",
+    })
+    const output = streams()
+
+    const exitCode = await runHeadlessCommand(
+      ["--ephemeral", "-p", "baseten", "-m", "deepseek-ai/DeepSeek-V4", "hello"],
+      output.options,
+    )
+
+    expect(exitCode).toBe(1)
+    expect(output.stderr()).toContain("Baseten API key is not configured.")
+    expect(mocks.listHostedModels).not.toHaveBeenCalled()
+    expect(HostedClient).not.toHaveBeenCalledWith(expect.objectContaining({ provider: "baseten" }))
   })
 
   it("passes the command cancellation signal into local model startup", async () => {
@@ -841,7 +930,7 @@ describe("runHeadlessCommand", () => {
       model: "qwen3.5:35b",
     })
     expect(mocks.ensureLocalServing).not.toHaveBeenCalled()
-    expect(FireworksClient).not.toHaveBeenCalled()
+    expect(HostedClient).not.toHaveBeenCalled()
     expect(output.stdout()).toBe("PAIR answer\n")
   })
 
@@ -862,7 +951,7 @@ describe("runHeadlessCommand", () => {
       apiKey: "test-key",
     })
     expect(mocks.ensureLocalServing).not.toHaveBeenCalled()
-    expect(FireworksClient).not.toHaveBeenCalled()
+    expect(HostedClient).not.toHaveBeenCalled()
     expect(output.stdout()).toBe("MLX answer\n")
   })
 
@@ -878,7 +967,7 @@ describe("runHeadlessCommand", () => {
     expect(exitCode).toBe(1)
     expect(output.stderr()).toContain("Local model server endpoint is not configured")
     expect(mocks.ensureLocalServing).not.toHaveBeenCalled()
-    expect(FireworksClient).not.toHaveBeenCalled()
+    expect(HostedClient).not.toHaveBeenCalled()
   })
 
   it("interrupts local startup and stops the runtime on SIGINT", async () => {

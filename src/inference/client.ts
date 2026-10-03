@@ -9,38 +9,48 @@ import {
 } from "./openai-compat.js"
 import { fireworksServiceTier } from "./serving-path.js"
 import { parseChatCompletionStream } from "./stream-parser.js"
-import type {
-  ChatMessage,
-  CompleteOptions,
-  FireworksClientConfig,
-  InferenceClient,
-  StreamChatOptions,
+import {
+  type ChatMessage,
+  type CompleteOptions,
+  HOSTED_PROVIDER_INFO,
+  type HostedClientConfig,
+  type HostedProvider,
+  type InferenceClient,
+  type StreamChatOptions,
 } from "./types.js"
 
-export { listToolCapableModels } from "./catalog.js"
+export { listHostedModels } from "./catalog.js"
 export type { InferenceClient } from "./types.js"
 
-const DEFAULT_INFERENCE_URL = "https://api.fireworks.ai/inference/v1/chat/completions"
-
-export class FireworksClient implements InferenceClient {
+/**
+ * A hosted provider's OpenAI-compatible chat completions, called with the user's own key. Only
+ * Fireworks documents reasoning tiers and a priority service tier; the others keep their
+ * defaults.
+ */
+export class HostedClient implements InferenceClient {
+  readonly provider: HostedProvider
   readonly model: string
   readonly #apiKey: string
   readonly #fetch: typeof fetch
   readonly #inferenceURL: string
   readonly #idleTimeoutMs: number
 
-  constructor(config: FireworksClientConfig) {
-    this.#apiKey = requiredText(config.apiKey, "Fireworks API key")
-    this.model = requiredText(config.model, "Fireworks model")
+  constructor(config: HostedClientConfig) {
+    const { name, inferenceURL } = HOSTED_PROVIDER_INFO[config.provider]
+    this.provider = config.provider
+    this.#apiKey = requiredText(config.apiKey, `${name} API key`)
+    this.model = requiredText(config.model, `${name} model`)
     this.#fetch = config.fetch ?? fetch
     this.#inferenceURL = inferenceEndpointURL(
-      config.inferenceURL ?? DEFAULT_INFERENCE_URL,
-      "Fireworks inference URL",
+      config.inferenceURL ?? inferenceURL,
+      `${name} inference URL`,
     )
     this.#idleTimeoutMs = config.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS
   }
 
   async *streamChat(options: StreamChatOptions) {
+    const { name } = HOSTED_PROVIDER_INFO[this.provider]
+    const fireworks = this.provider === "fireworks"
     const response = await fetchWithIdleTimeout(
       this.#fetch,
       this.#inferenceURL,
@@ -52,18 +62,24 @@ export class FireworksClient implements InferenceClient {
           "content-type": "application/json",
         },
         body: JSON.stringify(
-          openaiChatCompletionRequest(this.model, options, {
-            reasoningEffort: fireworksReasoningEffort(this.model, options.minimalReasoning),
-            serviceTier: fireworksServiceTier(this.model),
-          }),
+          openaiChatCompletionRequest(
+            this.model,
+            options,
+            fireworks
+              ? {
+                  reasoningEffort: fireworksReasoningEffort(this.model, options.minimalReasoning),
+                  serviceTier: fireworksServiceTier(this.model),
+                }
+              : {},
+          ),
         ),
         signal: options.signal,
       },
       this.#idleTimeoutMs,
-      "Fireworks",
+      name,
     )
-    if (!response.ok) throw await inferenceResponseError(response, "Fireworks")
-    if (!response.body) throw new Error("Fireworks response did not include a stream body")
+    if (!response.ok) throw await inferenceResponseError(response, name)
+    if (!response.body) throw new Error(`${name} response did not include a stream body`)
     yield* parseChatCompletionStream(response.body)
   }
 

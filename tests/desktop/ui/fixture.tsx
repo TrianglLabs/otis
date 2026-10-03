@@ -420,7 +420,9 @@ async function runDesktopUiChecks() {
   settingsTabs[1].click()
   await until(() => !!document.querySelector("#settings-skill-url"), "Extensions tab did not open")
   await until(
-    () => document.querySelectorAll(".settingsMemory-fact").length === 3,
+    () =>
+      [...document.querySelectorAll("button")].filter((button) => button.textContent === "Forget")
+        .length === 3,
     "Extensions tab does not list remembered facts",
   )
   settingsTabs[2].click()
@@ -1831,7 +1833,11 @@ async function runDesktopUiChecks() {
   api.startNewSession = newSession
   api.pickWorkspaceFolder = pickFolder
   await nativeInput({ focus: false })
-  status({ model: null, modelState: "unconfigured", hostedConfigured: false })
+  status({
+    model: null,
+    modelState: "unconfigured",
+    hostedConfigured: { fireworks: false, together: false, baseten: false, primeintellect: false },
+  })
   await until(() => !!document.querySelector(".onboarding"), "Onboarding did not open")
   for (const theme of ["default", "pearl"] as const) {
     status({ theme })

@@ -4,7 +4,7 @@ import { dirname, isAbsolute, parse, relative, resolve, sep } from "node:path"
 import { requestContextEstimator } from "../core/compaction.js"
 import { loadProjectContext } from "../core/context.js"
 import { validateAttachments } from "../inference/attachments.js"
-import { FireworksClient, listToolCapableModels } from "../inference/client.js"
+import { HostedClient, listHostedModels } from "../inference/client.js"
 import { requireLocalContextLength } from "../inference/context-policy.js"
 import { describeError } from "../inference/errors.js"
 import { deleteLocalGguf, listDownloadedLocalModels } from "../inference/gguf-cache.js"
@@ -24,35 +24,45 @@ import {
   pairModelKey,
 } from "../inference/pair.js"
 import {
-  type FireworksPickerChoice,
+  type HostedPickerChoice,
   isSelectablePickerItem,
   type ModelPickerChoice,
   toLocalCatalogModel,
   toOmlxCatalogModel,
   toPairCatalogModel,
 } from "../inference/picker-catalog.js"
+import { hiddenModelKey } from "../inference/picker-filter.js"
 import {
   baseFireworksModelId,
-  findFireworksModel,
+  findHostedModel,
   fireworksServingModel,
   isFastFireworksModel,
 } from "../inference/serving-path.js"
-import type {
-  AttachmentContentPart,
-  CatalogModel,
-  ChatMessage,
-  ContextFile,
-  FireworksModel,
-  ModelProvider,
-  OutputCapabilities,
-  UserChatMessage,
+import {
+  type AttachmentContentPart,
+  type CatalogModel,
+  type ChatMessage,
+  type ContextFile,
+  type FireworksModel,
+  HOSTED_PROVIDER_INFO,
+  HOSTED_PROVIDERS,
+  type HostedApiKeys,
+  type HostedModel,
+  type HostedProvider,
+  isHostedModel,
+  isHostedProvider,
+  type ModelProvider,
+  type OutputCapabilities,
+  type UserChatMessage,
 } from "../inference/types.js"
 import {
   clearSelectedModel,
+  hostedApiKeys,
   type LocalSettings,
   loadLocalSettings,
   saveFastServingSelection,
-  saveFireworksApiKey,
+  saveHiddenModels,
+  saveHostedApiKey,
   saveLocalServers,
   saveLocalThinking,
   savePermissionMode,
@@ -91,7 +101,7 @@ import {
   type ModelLoad,
   type ModelSelection,
   type ModelState,
-  resolveFireworksServing,
+  resolveHostedServing,
 } from "./models.js"
 import { type OpenSession, SESSION_REASONS, SessionCoordinator } from "./sessions.js"
 import { type SubagentStatus, SubagentTraces } from "./subagents.js"
@@ -154,7 +164,9 @@ export type AppStatus = {
   permissionMode: PermissionMode
   /** Fast serving for the selected hosted model: whether it has a fast path, and whether it is on. */
   fastServing: { available: boolean; enabled: boolean }
-  hostedConfigured: boolean
+  hostedConfigured: Record<HostedProvider, boolean>
+  /** Hosted models hidden from the picker, as `hiddenModelKey` strings. */
+  hiddenModels: string[]
   pairEndpoints: PairEndpoints
   omlx: { baseURL: string; hasApiKey: boolean } | null
   subagents: SubagentSummary[]
@@ -184,8 +196,8 @@ export type SelectionResult = { ok: true } | { ok: false; reason: string }
 
 export type SelectModelOptions = {
   signal?: AbortSignal
-  /** A key not yet saved (onboarding); it becomes the application's once the selection commits. */
-  fireworksApiKey?: string
+  /** The target's provider key, not yet saved (onboarding); kept once the selection commits. */
+  hostedApiKey?: string
   /** Replaces the default `saveSelectedModel`, e.g. to save a new key and model together. */
   persist?: (serving: CatalogModel) => Promise<void>
 }
@@ -208,7 +220,7 @@ export function isSelectionCancelled(result: SelectionResult) {
 }
 
 /** The catalog model behind a hosted picker row, without the row's own fields. */
-function fireworksCatalogModel(choice: FireworksPickerChoice): FireworksModel {
+function hostedCatalogModel(choice: HostedPickerChoice): HostedModel {
   const { kind: _kind, available: _available, active: _active, status: _status, ...model } = choice
   return model
 }
@@ -294,7 +306,7 @@ export class Application {
   skills!: SkillCatalog
   permissionMode: PermissionMode
   permissionRules: PermissionRule[]
-  fireworksApiKey: string | undefined
+  readonly hostedApiKeys: HostedApiKeys
   pairEndpoints: PairEndpoints
   /**
    * An adapter's own reasons not to admit a prompt or drive the queue (shutting down, switching
@@ -342,7 +354,7 @@ export class Application {
     this.cwd = cwd
     this.outputCapabilities = options.outputCapabilities ?? {}
     this.settings = settings
-    this.fireworksApiKey = settings.fireworksApiKey
+    this.hostedApiKeys = hostedApiKeys(settings)
     this.pairEndpoints = { ...settings.pairEndpoints }
     this.permissionMode = settings.permissions?.defaultMode ?? DEFAULT_PERMISSION_MODE
     this.permissionRules = [...(settings.permissions?.rules ?? [])]
@@ -550,7 +562,7 @@ export class Application {
     if (runtime.modelState === "starting") return MODEL_STARTING
     // A switch may stop the managed server or reconnect a user-managed one, and always changes
     // the session that asked for it; a hosted session with its client is otherwise unaffected.
-    const hosted = runtime.selection?.model.provider === "fireworks"
+    const hosted = isHostedProvider(runtime.selection?.model.provider)
     if (this.models.selecting && (!hosted || !runtime.client || this.#switching.has(runtime)))
       return MODEL_SWITCHING
     if (runtime.client) return undefined
@@ -734,7 +746,8 @@ export class Application {
       localThinking: models.thinkingState(model),
       permissionMode: this.permissionMode,
       fastServing,
-      hostedConfigured: Boolean(this.fireworksApiKey),
+      hostedConfigured: this.hostedConfigured(),
+      hiddenModels: [...(this.settings.hiddenModels ?? [])],
       pairEndpoints: { ...this.pairEndpoints },
       omlx: models.omlx
         ? { baseURL: models.omlx.baseURL, hasApiKey: Boolean(models.omlx.apiKey) }
@@ -853,8 +866,8 @@ export class Application {
     const unsupported = () =>
       new Error(`${model.displayName} does not support image input. Choose a vision model.`)
     if (selection.supportsImageInput === false) throw unsupported()
-    const apiKey = this.fireworksApiKey
-    if (model.provider !== "fireworks" || !apiKey) {
+    const apiKey = isHostedModel(model) ? this.hostedApiKeys[model.provider] : undefined
+    if (!isHostedModel(model) || !apiKey) {
       selection.supportsImageInput =
         model.provider === "local" && findLocalModel(model.id)?.supportsImageInput === true
       this.#notify({ type: "status" })
@@ -863,7 +876,7 @@ export class Application {
     }
     if (this.#imageSupport?.modelId !== model.id) {
       const promise = (async () => {
-        const { serving } = await resolveFireworksServing(apiKey, model.id, {
+        const { serving } = await resolveHostedServing(model.provider, apiKey, model.id, {
           fast: isFastFireworksModel(model.id),
           signal,
         })
@@ -885,7 +898,7 @@ export class Application {
     const model = this.#focused.selection?.model
     return Boolean(
       model &&
-        ((model.provider === "fireworks" && this.fireworksApiKey) ||
+        ((isHostedModel(model) && this.hostedApiKeys[model.provider]) ||
           model.provider === "local" ||
           (model.provider === "omlx" && this.models.omlx) ||
           (model.provider === "pair" && pairEndpointForEngine(this.pairEndpoints, model.engine))),
@@ -1047,7 +1060,7 @@ export class Application {
     }
     if (model.provider !== "local") return "unconfigured"
     const prepared = await models.prepare(model, {
-      fireworksApiKey: this.fireworksApiKey,
+      hostedApiKeys: this.hostedApiKeys,
       signal,
       isExiting,
       onLocalProgress: (progress) => {
@@ -1123,14 +1136,17 @@ export class Application {
               : choice.provider === "omlx"
                 ? toOmlxCatalogModel(choice)
                 : fireworksServingModel(
-                    fireworksCatalogModel(choice),
+                    hostedCatalogModel(choice),
                     this.fastServingEnabled(choice.id),
                   )
-        const fireworksApiKey = options.fireworksApiKey ?? this.fireworksApiKey
+        const unsavedKey =
+          options.hostedApiKey && isHostedModel(selected)
+            ? { [selected.provider]: options.hostedApiKey }
+            : {}
         try {
           runtime.selection = await models.persistSelection(selected, {
             signal,
-            fireworksApiKey,
+            hostedApiKeys: { ...this.hostedApiKeys, ...unsavedKey },
             keepLocal: this.#localElsewhere(runtime),
             persist: options.persist ?? ((serving) => saveSelectedModel(serving)),
             loadKey: pickerKey(selected),
@@ -1184,7 +1200,7 @@ export class Application {
    */
   async setFastServing(
     fast: boolean,
-    options: { catalog?: readonly FireworksModel[]; signal?: AbortSignal } = {},
+    options: { catalog?: readonly HostedModel[]; signal?: AbortSignal } = {},
   ): Promise<SelectionResult> {
     const runtime = this.#focused
     if (this.#deleting || runtime.busy)
@@ -1197,7 +1213,7 @@ export class Application {
       .enqueueSelection(async (queued): Promise<SelectionResult> => {
         const signal = options.signal ? AbortSignal.any([queued, options.signal]) : queued
         const current = runtime.selection?.model
-        const apiKey = this.fireworksApiKey
+        const apiKey = this.hostedApiKeys.fireworks
         if (current?.provider !== "fireworks") return { ok: false, reason: NO_FAST_SERVING }
         const selectedId = current.id
         if (isFastFireworksModel(selectedId) === fast) return { ok: true }
@@ -1206,18 +1222,18 @@ export class Application {
         try {
           if (!catalog?.length) {
             if (!apiKey) return { ok: false, reason: NO_FAST_SERVING }
-            catalog = await listToolCapableModels(apiKey, { signal })
+            catalog = await listHostedModels("fireworks", apiKey, { signal })
           }
         } catch (error) {
           return { ok: false, reason: describeError(error) }
         }
-        const model = findFireworksModel(catalog, selectedId)
+        const model = findHostedModel(catalog, selectedId)
         if (!model?.fastId) return { ok: false, reason: NO_FAST_SERVING }
         const serving = fireworksServingModel(model, fast)
         try {
           runtime.selection = await models.persistSelection(serving, {
             signal,
-            fireworksApiKey: apiKey,
+            hostedApiKeys: this.hostedApiKeys,
             keepLocal: this.#localElsewhere(runtime),
             persist: (saved) => saveFastServingSelection(saved as FireworksModel, fast),
           })
@@ -1237,28 +1253,50 @@ export class Application {
     return selection ?? SUPERSEDED
   }
 
+  /** Hides a hosted model from the picker, or shows it again; the active model stays listed. */
+  async setModelHidden(provider: HostedProvider, id: string, hidden: boolean) {
+    const key = hiddenModelKey(provider, id)
+    const hiddenModels = new Set(this.settings.hiddenModels ?? [])
+    if (hidden) hiddenModels.add(key)
+    else hiddenModels.delete(key)
+    const next = [...hiddenModels]
+    this.settings.hiddenModels = next.length ? next : undefined
+    await saveHiddenModels(next)
+    this.#notify({ type: "status" })
+  }
+
+  /** Which hosted providers have a key. */
+  hostedConfigured(): Record<HostedProvider, boolean> {
+    const configured = {} as Record<HostedProvider, boolean>
+    for (const provider of HOSTED_PROVIDERS)
+      configured[provider] = Boolean(this.hostedApiKeys[provider])
+    return configured
+  }
+
   /**
-   * Validates a Fireworks API key against the hosted catalog, then persists and activates it: a
-   * saved hosted model waiting on a key becomes chat-ready the moment the key lands. Returns the
-   * verified catalog. `list` is the desktop's catalog seam.
+   * Validates a hosted provider's API key against its catalog, then persists and activates it: a
+   * saved model of that provider waiting on a key becomes chat-ready the moment the key lands.
+   * Returns the verified catalog. `list` is the desktop's catalog seam.
    */
-  async setFireworksApiKey(
+  async setHostedApiKey(
+    provider: HostedProvider,
     apiKey: string,
-    options: { signal?: AbortSignal; list?: typeof listToolCapableModels } = {},
-  ): Promise<FireworksModel[]> {
+    options: { signal?: AbortSignal; list?: typeof listHostedModels } = {},
+  ): Promise<HostedModel[]> {
     const key = apiKey.trim()
-    if (!key) throw new Error("Fireworks API key is required.")
-    const catalog = await (options.list ?? listToolCapableModels)(key, { signal: options.signal })
+    if (!key) throw new Error(`${HOSTED_PROVIDER_INFO[provider].name} API key is required.`)
+    const list = options.list ?? listHostedModels
+    const catalog = await list(provider, key, { signal: options.signal })
     options.signal?.throwIfAborted()
     if (catalog.length === 0) throw new Error(NO_TOOL_MODELS)
-    await saveFireworksApiKey(key)
-    this.fireworksApiKey = key
+    await saveHostedApiKey(provider, key)
+    this.hostedApiKeys[provider] = key
     for (const runtime of this.#runtimes) {
       const selection = runtime.selection
-      if (selection?.model.provider === "fireworks")
+      if (selection?.model.provider === provider)
         runtime.selection = {
           ...selection,
-          client: new FireworksClient({ apiKey: key, model: selection.model.id }),
+          client: new HostedClient({ provider, apiKey: key, model: selection.model.id }),
         }
     }
     this.#notify({ type: "status" })

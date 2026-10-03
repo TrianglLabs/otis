@@ -96,7 +96,7 @@ const SNAPSHOT: DesktopSnapshot = snapshotFixture({
       workspacePath: "/ws",
     },
   ],
-  hostedConfigured: true,
+  hostedConfigured: { fireworks: true, together: false, baseten: false, primeintellect: false },
 })
 
 function fakeApi(overrides: Partial<DesktopApi> = {}): DesktopApi {
@@ -349,12 +349,17 @@ describe("AppShell settings navigation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Settings" }))
     await act(async () => {})
 
-    const tabs = screen.getAllByRole("tab")
+    const sidebar = screen
+      .getAllByRole("tablist")
+      .find((list) => list.getAttribute("aria-orientation") === "vertical")
+    if (!sidebar) throw new Error("settings sidebar not found")
+    const tabs = within(sidebar).getAllByRole("tab")
     expect(tabs.map((tab) => tab.textContent)).toEqual([
       "Inference",
       "Extensions",
       "Appearance",
       "General",
+      "Usage",
       "Achievements",
     ])
     expect(tabs[0].getAttribute("aria-selected")).toBe("true")
@@ -377,6 +382,10 @@ describe("AppShell settings navigation", () => {
     expect(screen.getByText("Security")).toBeTruthy()
     expect(screen.getByText("Behavior")).toBeTruthy()
     expect(screen.getByText("Updates")).toBeTruthy()
+
+    fireEvent.keyDown(screen.getByRole("tab", { name: "General" }), { key: "ArrowDown" })
+    expect(screen.getByRole("tabpanel", { name: "Usage" })).toBeTruthy()
+    expect(screen.getByText("Calculating local usage…")).toBeTruthy()
   })
 
   it("lists skills with their origins and manages installed skills from the Extensions tab", async () => {
@@ -465,7 +474,105 @@ describe("AppShell settings navigation", () => {
     expect(sections).toEqual(["Installed skills", "All skills", "Memory"])
   })
 
-  it("shows locally recorded usage in provider settings", async () => {
+  it("lists each keyed provider's hosted models with picker visibility switches", async () => {
+    const listHostedCatalogs = vi.fn(async () => ({
+      fireworks: [
+        {
+          provider: "fireworks" as const,
+          id: "accounts/fireworks/models/kimi",
+          displayName: "Kimi",
+          contextLength: 262_144,
+          supportsImageInput: false,
+        },
+        {
+          provider: "fireworks" as const,
+          id: "accounts/fireworks/models/glm",
+          displayName: "GLM",
+          contextLength: 131_072,
+          supportsImageInput: true,
+        },
+      ],
+      together: [],
+    }))
+    const setModelHidden = vi.fn(async () => {})
+    const snapshot: DesktopSnapshot = {
+      ...SNAPSHOT,
+      hostedConfigured: { fireworks: true, together: true, baseten: false, primeintellect: false },
+      hiddenModels: ["fireworks:accounts/fireworks/models/glm"],
+    }
+    let emit!: (event: DesktopEvent) => void
+    const api = fakeApi({
+      listHostedCatalogs,
+      setModelHidden,
+      getSnapshot: vi.fn(async () => snapshot),
+      subscribe: vi.fn((listener) => {
+        emit = listener
+        return () => {}
+      }),
+    })
+    await renderApp(api)
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }))
+    await act(async () => {})
+
+    const panel = within(screen.getByRole("tabpanel", { name: "Inference" }))
+    expect(panel.getByText("Hosted models")).toBeTruthy()
+    expect(listHostedCatalogs).toHaveBeenCalledOnce()
+    // One provider at a time behind a tab strip; the first keyed provider opens.
+    expect(panel.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
+      "Fireworks",
+      "Together AI",
+    ])
+    const fireworks = within(panel.getByRole("tabpanel", { name: "Fireworks" }))
+    // The detail line is the picker's: context, then the modality with its icon.
+    expect(fireworks.getByText("256K")).toBeTruthy()
+    expect(fireworks.getByText("Text").querySelector("svg")).toBeTruthy()
+    expect(fireworks.getByText("Vision").querySelector("svg")).toBeTruthy()
+    const kimi = fireworks.getByRole("switch", { name: "Show Kimi in the model picker" })
+    const glm = fireworks.getByRole("switch", { name: "Show GLM in the model picker" })
+    expect(kimi.getAttribute("aria-checked")).toBe("true")
+    expect(glm.getAttribute("aria-checked")).toBe("false")
+
+    fireEvent.click(kimi)
+    expect(setModelHidden).toHaveBeenLastCalledWith(
+      "fireworks",
+      "accounts/fireworks/models/kimi",
+      true,
+    )
+    fireEvent.click(glm)
+    expect(setModelHidden).toHaveBeenLastCalledWith(
+      "fireworks",
+      "accounts/fireworks/models/glm",
+      false,
+    )
+    // The switch follows the status stream, not the click.
+    expect(kimi.getAttribute("aria-checked")).toBe("true")
+    act(() =>
+      emit({
+        type: "status",
+        revision: 2,
+        status: { ...snapshot, hiddenModels: ["fireworks:accounts/fireworks/models/kimi"] },
+      }),
+    )
+    expect(
+      fireworks
+        .getByRole("switch", { name: "Show Kimi in the model picker" })
+        .getAttribute("aria-checked"),
+    ).toBe("false")
+    expect(
+      fireworks
+        .getByRole("switch", { name: "Show GLM in the model picker" })
+        .getAttribute("aria-checked"),
+    ).toBe("true")
+
+    // A keyed provider without models says so once its tab is chosen; an unkeyed one has no tab.
+    fireEvent.click(panel.getByRole("tab", { name: "Together AI" }))
+    expect(
+      within(panel.getByRole("tabpanel", { name: "Together AI" })).getByText("No models listed."),
+    ).toBeTruthy()
+    expect(panel.queryByRole("tab", { name: "Baseten" })).toBeNull()
+  })
+
+  it("shows locally recorded usage on its own Usage tab", async () => {
     await renderApp(
       fakeApi({
         getSnapshot: vi.fn(async () => ({
@@ -495,6 +602,8 @@ describe("AppShell settings navigation", () => {
     )
     fireEvent.click(screen.getByRole("button", { name: "Settings" }))
     await act(async () => {})
+    expect(screen.queryByRole("region", { name: "Usage" })).toBeNull()
+    fireEvent.click(screen.getByRole("tab", { name: "Usage" }))
 
     const usage = screen.getByRole("region", { name: "Usage" })
     expect(within(usage).getByText("1.5M")).toBeTruthy()
@@ -1020,7 +1129,8 @@ describe("AppShell settings navigation", () => {
     // Open the catalog from the composer's model chip.
     fireEvent.click(screen.getByRole("button", { name: "gpt-oss 20B" }))
     await act(async () => {})
-    expect(screen.getByRole("heading", { name: "Select a model" })).toBeTruthy()
+    expect(screen.getByRole("dialog", { name: "Select a model" })).toBeTruthy()
+    expect(screen.queryByRole("heading", { name: "Select a model" })).toBeNull()
 
     // Downloaded managed-local rows carry the delete affordance — including the over-budget cache,
     // which cannot run on this machine but can still be freed.
@@ -1083,12 +1193,8 @@ describe("AppShell settings navigation", () => {
     expect(screen.getByText("Qwen3.8 27B")).toBeTruthy()
     expect((uncachedSelect as HTMLButtonElement).disabled).toBe(false)
 
-    // The title bar's close button dismisses the catalog, like the trace overlay's header.
-    fireEvent.click(
-      within(screen.getByRole("dialog", { name: "Select a model" })).getByRole("button", {
-        name: "Close model picker",
-      }),
-    )
+    // Like the ⌘K palette there is no title bar; the backdrop dismisses the catalog.
+    fireEvent.click(screen.getByRole("button", { name: "Close model picker" }))
     await act(async () => {})
     expect(screen.queryByRole("dialog", { name: "Select a model" })).toBeNull()
   })

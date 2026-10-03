@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type {
   DesktopApi,
@@ -18,7 +18,11 @@ import {
 import { DesktopProvider } from "../../../src/desktop/renderer/runtime.js"
 import { DesktopViewStore } from "../../../src/desktop/renderer/state.js"
 import type { ModelPickerItem } from "../../../src/inference/picker-catalog.js"
-import { fakeApi as fakeDesktopApi, snapshotFixture } from "../support/desktop-api.js"
+import {
+  fakeApi as fakeDesktopApi,
+  hostedConfigured,
+  snapshotFixture,
+} from "../support/desktop-api.js"
 
 /**
  * First-run onboarding: it owns the window until a model is configured and exposes every inference
@@ -35,6 +39,16 @@ const FIREWORKS_ITEM: ModelPickerItem = {
   provider: "fireworks",
   id: "accounts/fireworks/models/kimi-k2p6",
   displayName: "Kimi K2.6",
+  supportsImageInput: false,
+  available: true,
+  active: false,
+}
+
+const TOGETHER_ITEM: ModelPickerItem = {
+  kind: "model",
+  provider: "together",
+  id: "moonshotai/Kimi-K2.5",
+  displayName: "Kimi K2.5 on Together",
   supportsImageInput: false,
   available: true,
   active: false,
@@ -87,7 +101,13 @@ const PAIR_ITEM: ModelPickerItem = {
 
 function fakeApi(overrides: Partial<DesktopApi> = {}): DesktopApi {
   return fakeDesktopApi(SNAPSHOT, {
-    listModels: vi.fn(async () => [FIREWORKS_ITEM, LOCAL_ITEM, OTHER_LOCAL_ITEM, PAIR_ITEM]),
+    listModels: vi.fn(async () => [
+      FIREWORKS_ITEM,
+      TOGETHER_ITEM,
+      LOCAL_ITEM,
+      OTHER_LOCAL_ITEM,
+      PAIR_ITEM,
+    ]),
     ...overrides,
   })
 }
@@ -195,15 +215,20 @@ describe("OnboardingPage", () => {
 
   it("cloud path saves the Fireworks key, then lists hosted models without PAIR entries", async () => {
     const api = fakeApi({
-      getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, hostedConfigured: true })),
+      getSnapshot: vi.fn(async () => ({
+        ...SNAPSHOT,
+        hostedConfigured: hostedConfigured("fireworks"),
+      })),
     })
     await renderApp(api)
     fireEvent.click(await screen.findByRole("button", { name: /Hosted/ }))
 
-    // Key already configured → straight to the hosted model list; PAIR inventory never appears.
+    // Key already configured → straight to the hosted model list; PAIR inventory and the other
+    // providers' catalogs never appear.
     const row = rowButton(await screen.findByText("Kimi K2.6"))
     expect(screen.queryByText("PAIR cluster model")).toBeNull()
     expect(screen.queryByText("Qwen 3.5 9B")).toBeNull()
+    expect(screen.queryByText("Kimi K2.5 on Together")).toBeNull()
     fireEvent.click(row)
     expect(api.selectModel).toHaveBeenCalledWith("accounts/fireworks/models/kimi-k2p6")
   })
@@ -212,13 +237,56 @@ describe("OnboardingPage", () => {
     const api = fakeApi()
     await renderApp(api)
     fireEvent.click(await screen.findByRole("button", { name: /Hosted/ }))
+    // Fireworks is the default provider; its key page is the one the link opens.
+    expect(screen.getByText(/Hosted models run on Fireworks/)).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Get a key" }))
+    expect(api.openHostedKeyPage).toHaveBeenCalledWith("fireworks")
     fireEvent.change(screen.getByLabelText("Fireworks API key"), {
       target: { value: "fw_test_key" },
     })
     fireEvent.click(screen.getByRole("button", { name: /Continue/ }))
-    expect(api.setFireworksApiKey).toHaveBeenCalledWith("fw_test_key")
+    expect(api.setHostedApiKey).toHaveBeenCalledWith("fireworks", "fw_test_key")
     // No model rows until the key is in place.
     expect(screen.queryByText("Kimi K2.6")).toBeNull()
+  })
+
+  it("cloud path lets the user set up another hosted provider instead of Fireworks", async () => {
+    let listener: ((event: DesktopEvent) => void) | undefined
+    const api = fakeApi({
+      subscribe: vi.fn((fn: (event: DesktopEvent) => void) => {
+        listener = fn
+        return () => {}
+      }),
+    })
+    await renderApp(api)
+    fireEvent.click(await screen.findByRole("button", { name: /Hosted/ }))
+    const together = screen.getByRole("tab", { name: "Together AI" })
+    expect(together.getAttribute("aria-selected")).toBe("false")
+    fireEvent.click(together)
+    expect(together.getAttribute("aria-selected")).toBe("true")
+    expect(screen.getByText(/Hosted models run on Together AI/)).toBeTruthy()
+    expect(screen.queryByLabelText("Fireworks API key")).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Get a key" }))
+    expect(api.openHostedKeyPage).toHaveBeenCalledWith("together")
+    fireEvent.change(screen.getByLabelText("Together AI API key"), {
+      target: { value: "tg_test_key" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: /Continue/ }))
+    expect(api.setHostedApiKey).toHaveBeenCalledWith("together", "tg_test_key")
+
+    // The key lands: only Together's models are offered, not Fireworks'.
+    const { entries: _e, revision: _r, ...status } = SNAPSHOT
+    await act(async () =>
+      listener?.({
+        type: "status",
+        revision: 2,
+        status: { ...status, hostedConfigured: hostedConfigured("together") },
+      }),
+    )
+    const row = rowButton(await screen.findByText("Kimi K2.5 on Together"))
+    expect(screen.queryByText("Kimi K2.6")).toBeNull()
+    fireEvent.click(row)
+    expect(api.selectModel).toHaveBeenCalledWith("moonshotai/Kimi-K2.5")
   })
 
   it("reloads the catalog when saving the key flips hostedConfigured", async () => {
@@ -240,7 +308,11 @@ describe("OnboardingPage", () => {
     // The runtime accepts the key and echoes hostedConfigured through a status event.
     const { entries: _e, revision: _r, ...status } = SNAPSHOT
     await act(async () =>
-      listener?.({ type: "status", revision: 2, status: { ...status, hostedConfigured: true } }),
+      listener?.({
+        type: "status",
+        revision: 2,
+        status: { ...status, hostedConfigured: hostedConfigured("fireworks") },
+      }),
     )
     expect(api.listModels).toHaveBeenCalled()
     expect(await screen.findByText("Kimi K2.6")).toBeTruthy()
@@ -547,7 +619,7 @@ describe("OnboardingPage", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Local model servers/ }))
 
     const row = rowButton(await screen.findByText("PAIR cluster model"))
-    expect(row.querySelector("svg")).toBeNull()
+    expect(row.querySelector("svg.lucide-check")).toBeNull()
     fireEvent.click(row)
     expect(api.selectModel).toHaveBeenCalledWith("ollama:qwen3:32b")
 
@@ -555,8 +627,56 @@ describe("OnboardingPage", () => {
     catalog = [{ ...PAIR_ITEM, active: true }]
     await waitFor(() => {
       const updated = rowButton(screen.getByText("PAIR cluster model"))
-      expect(updated.querySelector("svg")).not.toBeNull()
+      expect(updated.querySelector("svg.lucide-check")).not.toBeNull()
     })
+  })
+
+  it("Settings offers a key form per hosted provider and saves a Together key", async () => {
+    const api = fakeApi({
+      getSnapshot: vi.fn(async () => ({
+        ...SNAPSHOT,
+        hostedConfigured: hostedConfigured("fireworks"),
+      })),
+    })
+    await renderApp(api)
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }))
+    fireEvent.click(await screen.findByRole("button", { name: /Hosted inference/ }))
+
+    // One row per provider under the hosted row, with its connection state; only the keyed one
+    // reads Connected.
+    const panel = within(screen.getByRole("tabpanel", { name: "Inference" }))
+    expect(panel.getAllByText("Connected")).toHaveLength(1)
+    expect(panel.getAllByText("Not connected")).toHaveLength(3)
+    expect(panel.getByRole("button", { name: "Replace key" })).toBeTruthy()
+    expect(panel.getAllByRole("button", { name: "Add key" })).toHaveLength(3)
+    expect(screen.queryByLabelText("Together AI API key")).toBeNull()
+
+    // Connect opens one inline field; saving a key closes it again.
+    fireEvent.click(panel.getAllByRole("button", { name: "Add key" })[0])
+    const togetherKey = screen.getByLabelText("Together AI API key") as HTMLInputElement
+    expect(togetherKey.type).toBe("password")
+    expect(screen.queryByLabelText("Baseten API key")).toBeNull()
+    fireEvent.click(panel.getByRole("button", { name: "Get a key" }))
+    expect(api.openHostedKeyPage).toHaveBeenLastCalledWith("together")
+    fireEvent.change(togetherKey, { target: { value: "tg_settings_key" } })
+    fireEvent.click(panel.getByRole("button", { name: "Save" }))
+    await act(async () => {})
+    expect(api.setHostedApiKey).toHaveBeenCalledWith("together", "tg_settings_key")
+    expect(screen.queryByLabelText("Together AI API key")).toBeNull()
+
+    // A refused key stays in the open field with the reason beside it.
+    vi.mocked(api.setHostedApiKey).mockResolvedValueOnce({ ok: false, reason: "Bad key" })
+    fireEvent.click(panel.getAllByRole("button", { name: "Add key" })[1])
+    const basetenKey = screen.getByLabelText("Baseten API key") as HTMLInputElement
+    fireEvent.change(basetenKey, { target: { value: "nope" } })
+    fireEvent.keyDown(basetenKey, { key: "Enter" })
+    await act(async () => {})
+    expect(api.setHostedApiKey).toHaveBeenLastCalledWith("baseten", "nope")
+    expect(panel.getByText("Bad key")).toBeTruthy()
+    expect((screen.getByLabelText("Baseten API key") as HTMLInputElement).value).toBe("nope")
+    // Cancel closes the editor without saving.
+    fireEvent.click(panel.getByRole("button", { name: "Cancel" }))
+    expect(screen.queryByLabelText("Baseten API key")).toBeNull()
   })
 
   it("back returns to the path cards", async () => {

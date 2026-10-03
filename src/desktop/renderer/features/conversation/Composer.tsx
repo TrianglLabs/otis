@@ -10,6 +10,8 @@ import {
 } from "../../../../inference/document-constraints.js"
 import {
   base64EncodedLength,
+  HOSTED_PROVIDER_INFO,
+  isHostedProvider,
   MAX_BASE64_IMAGE_BYTES,
   MAX_IMAGES_PER_REQUEST,
   MAX_RAW_IMAGE_BYTES,
@@ -143,7 +145,7 @@ export const Composer = memo(function Composer({ installing = false }: { install
   const modelStateClass =
     modelState === "starting" || modelState === "failed" ? ` composer-model-${modelState}` : ""
   // Hosted serving is not the user's hardware; only local providers get the speed readout.
-  const showSpeed = state?.model !== null && state?.model.provider !== "fireworks"
+  const showSpeed = state?.model !== null && !isHostedProvider(state?.model.provider)
   const speed = state?.speed ?? null
   const rate = speed
     ? t("composer.tokensPerSecond", { rate: Math.round(speed.tokensPerSecond) })
@@ -448,16 +450,15 @@ export const Composer = memo(function Composer({ installing = false }: { install
                     onClick={() => setPickerOpen((open) => !open)}
                     title={t("composer.modelTitle", {
                       id: state.model.id,
-                      provider:
-                        state.model.provider === "fireworks"
-                          ? "Fireworks"
-                          : state.model.provider === "omlx"
-                            ? "oMLX"
-                            : t(
-                                state.model.provider === "local"
-                                  ? "models.local"
-                                  : "models.localServers",
-                              ),
+                      provider: isHostedProvider(state.model.provider)
+                        ? HOSTED_PROVIDER_INFO[state.model.provider].name
+                        : state.model.provider === "omlx"
+                          ? "oMLX"
+                          : t(
+                              state.model.provider === "local"
+                                ? "models.local"
+                                : "models.localServers",
+                            ),
                       fast: state.fastServing.enabled ? ` · ${t("composer.fastServing")}` : "",
                     })}
                     aria-haspopup="dialog"

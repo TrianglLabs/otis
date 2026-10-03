@@ -1,4 +1,4 @@
-import { listToolCapableModels } from "./catalog.js"
+import { listHostedModels } from "./catalog.js"
 import { LOCAL_MIN_CONTEXT_LENGTH } from "./context-policy.js"
 import { isAnyLocalModelPackingDownloaded, isLocalGgufDownloaded } from "./gguf-cache.js"
 import { detectHardware, type HardwareProbe, inferenceMemoryBudget } from "./hardware.js"
@@ -6,19 +6,22 @@ import { supportsLlamaCppTarget, unsupportedLlamaCppTargetMessage } from "./llam
 import { findLocalModel, isLocalModelId, LOCAL_MODELS } from "./local-catalog.js"
 import { fitLocalModel, formatMemoryLabel, memoryRequiredFor } from "./local-fit.js"
 import { pairModelKey } from "./pair.js"
-import { matchesFireworksModel } from "./serving-path.js"
-import type {
-  FireworksModel,
-  LocalCatalogModel,
-  ModelProvider,
-  OmlxCatalogModel,
-  PairCatalogModel,
-  PairEngine,
+import { hiddenModelKey, providerLabel } from "./picker-filter.js"
+import { matchesHostedModel } from "./serving-path.js"
+import {
+  HOSTED_PROVIDERS,
+  type HostedApiKeys,
+  type HostedModel,
+  type LocalCatalogModel,
+  type ModelProvider,
+  type OmlxCatalogModel,
+  type PairCatalogModel,
+  type PairEngine,
 } from "./types.js"
 
 export type ModelPickerItem = ModelPickerHeader | ModelPickerChoice
 
-type ModelPickerHeader = {
+export type ModelPickerHeader = {
   kind: "header"
   id: string
   displayName: string
@@ -48,7 +51,7 @@ export type LocalPickerChoice = LocalCatalogModel & {
   active: boolean
 }
 
-export type FireworksPickerChoice = FireworksModel & {
+export type HostedPickerChoice = HostedModel & {
   kind: "model"
   available: true
   active: boolean
@@ -74,12 +77,14 @@ export type OmlxPickerChoice = OmlxCatalogModel & {
 
 export type ModelPickerChoice =
   | LocalPickerChoice
-  | FireworksPickerChoice
+  | HostedPickerChoice
   | PairPickerChoice
   | OmlxPickerChoice
 
 type ListModelPickerOptions = {
-  fireworksApiKey?: string
+  hostedApiKeys?: HostedApiKeys
+  /** Hosted models the user hid from the picker (`hiddenModelKey`); the active one still shows. */
+  hiddenModels?: ReadonlySet<string>
   currentModel?: string
   currentProvider?: ModelProvider
   currentPairEngine?: PairEngine
@@ -90,7 +95,7 @@ type ListModelPickerOptions = {
   loadStatus?: { modelId: string; status: ModelPickerStatus }
   loadedLocalModel?: { model: string; contextLength: number }
   detect?: typeof detectHardware
-  listFireworks?: typeof listToolCapableModels
+  listHosted?: typeof listHostedModels
   /**
    * Keep downloaded local models listed even when they cannot run on this machine — selection
    * stays unavailable. The desktop catalog opts in so cached files remain deletable from the
@@ -229,22 +234,38 @@ export async function listModelPickerItems(
     .filter((item) => item !== undefined)
     .sort((a, b) => preference(a.id) - preference(b.id))
 
-  let fireworks: readonly FireworksModel[] = []
-  if (options.fireworksApiKey) {
-    const list = options.listFireworks ?? listToolCapableModels
-    fireworks = await list(options.fireworksApiKey, { signal: options.signal }).catch(() => [])
-  }
+  const header = (provider: ModelProvider): ModelPickerHeader => ({
+    kind: "header",
+    id: `header-${provider}`,
+    displayName: providerLabel(provider),
+  })
+  // One section per configured provider; a catalog that fails to load is simply absent this time.
+  const list = options.listHosted ?? listHostedModels
+  const hosted = await Promise.all(
+    HOSTED_PROVIDERS.map(async (provider): Promise<ModelPickerItem[]> => {
+      const apiKey = options.hostedApiKeys?.[provider]
+      const models = apiKey
+        ? await list(provider, apiKey, { signal: options.signal }).catch(() => [])
+        : []
+      const current = currentProvider === provider ? options.currentModel : undefined
+      const rows = models
+        .map(
+          (model): HostedPickerChoice => ({
+            kind: "model",
+            ...model,
+            available: true,
+            active: current !== undefined && matchesHostedModel(model, current),
+          }),
+        )
+        .filter((row) => row.active || !options.hiddenModels?.has(hiddenModelKey(provider, row.id)))
+      return rows.length ? [header(provider), ...rows] : []
+    }),
+  )
   const pairModels = options.pairModels ?? []
   const omlxModels = options.omlxModels ?? []
-  const currentFireworksModel = currentProvider === "fireworks" ? options.currentModel : undefined
-  const header = (id: string, displayName: string): ModelPickerHeader => ({
-    kind: "header",
-    id,
-    displayName,
-  })
   return [
-    ...(localItems.length ? [header("header-local", "Local"), ...localItems] : []),
-    ...(pairModels.length ? [header("header-pair", "NVIDIA PAIR")] : []),
+    ...(localItems.length ? [header("local"), ...localItems] : []),
+    ...(pairModels.length ? [header("pair")] : []),
     ...pairModels.map((model): PairPickerChoice => {
       // Load status is keyed like the renderer's rows: PAIR entries by selectionKey, not the
       // bare model id.
@@ -261,7 +282,7 @@ export async function listModelPickerItems(
         ...status(selectionKey),
       }
     }),
-    ...(omlxModels.length ? [header("header-omlx", "oMLX")] : []),
+    ...(omlxModels.length ? [header("omlx")] : []),
     ...omlxModels.map((model): OmlxPickerChoice => {
       const selectionKey = `omlx:${model.id}`
       const available =
@@ -278,8 +299,7 @@ export async function listModelPickerItems(
         ...status(selectionKey),
       }
     }),
-    ...(fireworks.length ? [header("header-hosted", "Hosted")] : []),
-    ...fireworks.map((model) => toFireworksPickerChoice(model, currentFireworksModel)),
+    ...hosted.flat(),
   ]
 }
 
@@ -319,19 +339,6 @@ export function toOmlxCatalogModel(item: OmlxPickerChoice): OmlxCatalogModel {
     baseURL: item.baseURL,
     contextLength: item.contextLength,
     supportsImageInput: item.supportsImageInput,
-  }
-}
-
-function toFireworksPickerChoice(
-  model: FireworksModel,
-  currentModel?: string,
-): FireworksPickerChoice {
-  return {
-    kind: "model",
-    ...model,
-    provider: "fireworks",
-    available: true,
-    active: currentModel ? matchesFireworksModel(model, currentModel) : false,
   }
 }
 

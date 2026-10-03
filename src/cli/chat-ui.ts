@@ -68,6 +68,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     attachments,
     messages,
     modelPanel,
+    modelPanelFooter,
     modelRowsBox,
     modeLabel,
     permissionLabel,
@@ -90,7 +91,7 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     welcomePanel,
   } = layout
   const commands = new CommandMenu(renderer, commandMenu, options.commands ?? [])
-  const models = new ModelPicker(renderer, modelRowsBox)
+  const models = new ModelPicker(renderer, modelRowsBox, modelPanelFooter)
   const sessions = new SessionPicker(renderer, sessionRowsBox)
   const thinkingVisible = options.thinkingVisible ?? false
   const transcriptView = new TranscriptView(
@@ -130,11 +131,15 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     onModeChange: (mode) =>
       setWelcomePanelExpanded(
         welcomePanel,
-        mode === "setupChoice" || mode === "setupLocalChoice" || mode === "setupPairInput",
+        mode === "setupChoice" ||
+          mode === "setupLocalChoice" ||
+          mode === "setupHostedChoice" ||
+          mode === "setupPairInput",
       ),
     onSetup: options.onSetup,
     onSetupInferenceChoice: options.onSetupInferenceChoice,
     onSetupLocalInferenceChoice: options.onSetupLocalInferenceChoice,
+    onSetupHostedChoice: options.onSetupHostedChoice,
     onSetupSubmit: options.onSetupSubmit,
     onPairSetupSubmit: options.onPairSetupSubmit,
   })
@@ -706,12 +711,15 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
       inputController.focus()
     },
     showModelPicker,
-    showSetupError: (message, cancelTarget) =>
-      inputController.showSetup(message, cancelTarget, true),
+    showSetupError: (message, cancelTarget, provider) =>
+      inputController.showSetup(message, cancelTarget, provider, true),
     showSetupInferenceChoice: (message) => inputController.showSetupInferenceChoice(message),
     showSetupLocalInferenceChoice: (message) =>
       inputController.showSetupLocalInferenceChoice(message),
-    showSetupInput: (message, cancelTarget) => inputController.showSetup(message, cancelTarget),
+    showSetupHostedChoice: (configured, cancelTarget) =>
+      inputController.showSetupHostedChoice(configured, cancelTarget),
+    showSetupInput: (message, cancelTarget, provider) =>
+      inputController.showSetup(message, cancelTarget, provider),
     showPairSetup: (message, cancelTarget, endpoints) =>
       inputController.showPairSetup(message, cancelTarget, endpoints),
     showPairSetupError: (message, cancelTarget, endpoints) =>

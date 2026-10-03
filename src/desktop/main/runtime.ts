@@ -19,12 +19,12 @@ import { SESSION_REASONS } from "../../app/sessions.js"
 import type { TranscriptChange, TranscriptEntry } from "../../app/transcript.js"
 import type { ArtifactReference } from "../../artifacts/types.js"
 import { createAttachment } from "../../inference/attachments.js"
-import type { listToolCapableModels } from "../../inference/catalog.js"
+import { listHostedModels } from "../../inference/catalog.js"
 import { describeError } from "../../inference/errors.js"
 import { discoverOmlxModels } from "../../inference/omlx.js"
 import { discoverPairModels, type PairDiscovery } from "../../inference/pair.js"
 import {
-  type FireworksPickerChoice,
+  type HostedPickerChoice,
   listModelPickerItems,
   type ModelPickerChoice,
   type ModelPickerItem,
@@ -32,7 +32,9 @@ import {
 import { baseFireworksModelId } from "../../inference/serving-path.js"
 import {
   type AttachmentContentPart,
-  type FireworksModel,
+  HOSTED_PROVIDERS,
+  type HostedModel,
+  type HostedProvider,
   SUPPORTED_IMAGE_EXTENSIONS,
   type UserChatMessage,
 } from "../../inference/types.js"
@@ -90,8 +92,8 @@ type DesktopRuntimeOptions = {
   listPickerItems?: typeof listModelPickerItems
   discoverPair?: typeof discoverPairModels
   discoverOmlx?: typeof discoverOmlxModels
-  /** Test seam for verifying a Fireworks key against the hosted catalog. */
-  listToolCapableModels?: typeof listToolCapableModels
+  /** Test seam for the hosted catalogs: picker listing and key verification. */
+  listHostedModels?: typeof listHostedModels
   /** Test seam for the Git collections of skills; production manages the real checkouts. */
   skills?: SkillManager
   /**
@@ -199,7 +201,7 @@ export class DesktopRuntime {
   /**
    * Builds a runtime around an existing application and starts its saved selection. A saved local
    * model needs its managed server started before any prompt can run, exactly as the TUI does at
-   * launch; Fireworks and PAIR selections already have their client from `savedSelection`. This
+   * launch; hosted and PAIR selections already have their client from `savedSelection`. This
    * is the test seam for DesktopRuntime.
    */
   static forApplication(app: Application, options: DesktopRuntimeOptions) {
@@ -823,7 +825,9 @@ export class DesktopRuntime {
     const activeLocal = this.app.models.activeLocal
     const model = this.app.selection?.model
     const items = await (this.options.listPickerItems ?? listModelPickerItems)({
-      fireworksApiKey: this.app.fireworksApiKey,
+      hostedApiKeys: this.app.hostedApiKeys,
+      hiddenModels: new Set(this.app.settings.hiddenModels),
+      listHosted: this.options.listHostedModels,
       currentModel: model?.id,
       currentProvider: model?.provider,
       currentPairEngine: model?.provider === "pair" ? model.engine : undefined,
@@ -839,6 +843,31 @@ export class DesktopRuntime {
     })
     this.#lastPickerItems = items
     return items
+  }
+
+  /**
+   * Every keyed hosted provider's catalog, hidden models included, fetched together. One
+   * provider's failure empties its list without blanking the others.
+   */
+  async listHostedCatalogs(): Promise<Partial<Record<HostedProvider, HostedModel[]>>> {
+    const list = this.options.listHostedModels ?? listHostedModels
+    const keyed = HOSTED_PROVIDERS.flatMap((provider) => {
+      const apiKey = this.app.hostedApiKeys[provider]
+      return apiKey ? [{ provider, apiKey }] : []
+    })
+    const catalogs = await Promise.all(
+      keyed.map(({ provider, apiKey }) => list(provider, apiKey).catch(() => [])),
+    )
+    return Object.fromEntries(keyed.map(({ provider }, index) => [provider, catalogs[index]]))
+  }
+
+  /**
+   * Persists a hosted model's picker visibility; the application's status notice carries it to
+   * the renderer, and the next listing reflects it.
+   */
+  async setModelHidden(provider: HostedProvider, id: string, hidden: boolean) {
+    await this.app.setModelHidden(provider, id, hidden)
+    this.#lastPickerItems = undefined
   }
 
   /**
@@ -917,10 +946,10 @@ export class DesktopRuntime {
     const baseId = baseFireworksModelId(model.id) ?? model.id
     const hostedRow = (items: ModelPickerItem[]) =>
       items.find(
-        (entry): entry is FireworksPickerChoice =>
+        (entry): entry is HostedPickerChoice =>
           entry.kind === "model" && entry.provider === "fireworks" && entry.id === baseId,
       )
-    let catalog: FireworksModel[] | undefined
+    let catalog: HostedModel[] | undefined
     const listed = hostedRow(this.#lastPickerItems ?? [])
     if (listed?.fastId) catalog = [listed]
     else {
@@ -934,10 +963,11 @@ export class DesktopRuntime {
     return this.app.setFastServing(fast, { catalog })
   }
 
-  /** Validates a Fireworks API key against the hosted catalog, then persists and activates it. */
-  setFireworksApiKey(apiKey: string): Promise<ModelSelectResult> {
+  /** Validates a provider's API key against its catalog, then persists and activates it. */
+  setHostedApiKey(provider: HostedProvider, apiKey: string): Promise<ModelSelectResult> {
     return attempt(async () => {
-      await this.app.setFireworksApiKey(apiKey, { list: this.options.listToolCapableModels })
+      await this.app.setHostedApiKey(provider, apiKey, { list: this.options.listHostedModels })
+      this.#lastPickerItems = undefined
       this.#markStateDirty()
     })
   }

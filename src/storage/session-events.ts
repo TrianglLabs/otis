@@ -16,6 +16,7 @@ import {
   type ChatMessage,
   type DocumentContentPart,
   type ImageContentPart,
+  isModelProvider,
   MAX_BASE64_IMAGE_BYTES,
   MAX_IMAGES_PER_REQUEST,
   type ModelProvider,
@@ -451,13 +452,7 @@ function parseSessionEvent(value: unknown, line: number): SessionEvent {
       throw invalidEvent(line, "usage promptId must be a non-empty string")
     }
     const { provider, model, modelName } = value
-    if (
-      provider !== undefined &&
-      provider !== "fireworks" &&
-      provider !== "local" &&
-      provider !== "pair" &&
-      provider !== "omlx"
-    ) {
+    if (provider !== undefined && !isModelProvider(provider)) {
       throw invalidEvent(line, "usage provider was invalid")
     }
     if (model !== undefined && (typeof model !== "string" || !model)) {

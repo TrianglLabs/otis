@@ -1,6 +1,7 @@
 import { Cpu, Download, Eye, Loader2, Star, Text, Trash2, X } from "lucide-react"
 import { Fragment, useCallback, useEffect, useRef, useState } from "react"
-import type { ModelPickerItem } from "../../../../inference/picker-catalog.js"
+import type { ModelPickerChoice, ModelPickerItem } from "../../../../inference/picker-catalog.js"
+import { filterModelPickerItems } from "../../../../inference/picker-filter.js"
 import { Button, IconButton } from "../../components/Button.js"
 import { Icon } from "../../components/Icon.js"
 import { useI18n } from "../../i18n/index.js"
@@ -15,16 +16,18 @@ import {
 /**
  * The model catalog overlay, opened from the composer's model chip. The catalog loads on open and
  * reloads when an in-flight load settles (download flags move); progress and failures stream in
- * through status events and are overlaid onto the fetched rows. Selection resolves through the main
- * process, which owns the model host. Downloaded managed-local models carry a delete affordance:
- * hover the row, confirm, and the main process removes the cached GGUFs — stopping the server and
- * clearing the selection first when that model is the active one.
+ * through status events and are overlaid onto the fetched rows. A search box at the top narrows
+ * the rows by name, id, or provider. Selection resolves through the main process, which
+ * owns the model host. Downloaded managed-local models carry a delete affordance: hover the row,
+ * confirm, and the main process removes the cached GGUFs — stopping the server and clearing the
+ * selection first when that model is the active one.
  */
 export function ModelPicker({ onClose }: { onClose: () => void }) {
   const { api } = useDesktop()
   const { t } = useI18n()
   const state = useDesktopState("modelLoad")
   const [items, setItems] = useState<ModelPickerItem[]>()
+  const [query, setQuery] = useState("")
   const [listError, setListError] = useState<string>()
   const [actionError, setActionError] = useState<string>()
   const [confirmingDeleteKey, setConfirmingDeleteKey] = useState<string>()
@@ -64,15 +67,19 @@ export function ModelPicker({ onClose }: { onClose: () => void }) {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return
       event.stopPropagation()
-      // A pending delete confirmation absorbs the first Escape; the next one closes the catalog.
+      // A pending delete confirmation absorbs the first Escape, then a search query; the next one
+      // closes the catalog.
       if (confirmingDeleteKey !== undefined) setConfirmingDeleteKey(undefined)
+      else if (query) setQuery("")
       else onClose()
     }
     window.addEventListener("keydown", onKeyDown, true)
     return () => window.removeEventListener("keydown", onKeyDown, true)
-  }, [onClose, confirmingDeleteKey])
+  }, [onClose, confirmingDeleteKey, query])
 
-  const rows = mergeModelLoad(items ?? [], modelLoad)
+  const rows = filterModelPickerItems(mergeModelLoad(items ?? [], modelLoad), query)
+  const noMatches =
+    items !== undefined && query.trim() !== "" && !rows.some((r) => r.kind === "model")
 
   return (
     <>
@@ -88,10 +95,20 @@ export function ModelPicker({ onClose }: { onClose: () => void }) {
         aria-modal="true"
         aria-label={t("models.select")}
       >
-        <div className="modelPicker-title">
-          <h2 className="modelPicker-titleText">{t("models.select")}</h2>
-          <IconButton icon={X} label={t("models.close")} size={22} onClick={onClose} />
-        </div>
+        {/* The same bare field as the ⌘K palette: full width, a hairline underneath. */}
+        <input
+          className="modelPicker-search"
+          type="text"
+          placeholder={t("models.searchPlaceholder")}
+          aria-label={t("models.searchPlaceholder")}
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          // biome-ignore lint/a11y/noAutofocus: the overlay opens to type into this field
+          autoFocus
+          spellCheck={false}
+          autoComplete="off"
+        />
+        {noMatches ? <div className="modelPicker-message">{t("models.noMatches")}</div> : null}
         {listError ? (
           <div className="modelPicker-message modelPicker-error">{listError}</div>
         ) : null}
@@ -110,13 +127,12 @@ export function ModelPicker({ onClose }: { onClose: () => void }) {
             if (item.kind === "header") {
               return (
                 <div key={item.id} className="modelPicker-header">
+                  {/* Hosted sections carry the provider's brand name, which is not translated. */}
                   {item.id === "header-pair"
                     ? t("models.serverHeading")
                     : item.id === "header-local"
                       ? t("models.local")
-                      : item.id === "header-hosted"
-                        ? t("models.hosted")
-                        : item.displayName}
+                      : item.displayName}
                 </div>
               )
             }
@@ -220,27 +236,7 @@ export function ModelPicker({ onClose }: { onClose: () => void }) {
                               {<Icon icon={Loader2} size={11} />}
                             </span>
                           ) : null}
-                          {status?.label ??
-                            pickerDetailParts(item, t).map((part, index) => (
-                              <Fragment key={`${part.label}-${index}`}>
-                                {index > 0 ? <span aria-hidden>·</span> : null}
-                                <span
-                                  className={
-                                    part.modality
-                                      ? `modelPicker-modality modelPicker-modality-${part.modality}`
-                                      : undefined
-                                  }
-                                >
-                                  {part.modality ? (
-                                    <Icon
-                                      icon={part.modality === "vision" ? Eye : Text}
-                                      size={11}
-                                    />
-                                  ) : null}
-                                  {part.label}
-                                </span>
-                              </Fragment>
-                            ))}
+                          {status?.label ?? <ModelDetail item={item} />}
                         </span>
                       </span>
                     </button>
@@ -289,4 +285,22 @@ export function ModelPicker({ onClose }: { onClose: () => void }) {
       </div>
     </>
   )
+}
+
+/** A row's detail line — context, modality with its icon, Fast mode — shared with Settings. */
+export function ModelDetail({ item }: { item: ModelPickerChoice }) {
+  const { t } = useI18n()
+  return pickerDetailParts(item, t).map((part, index) => (
+    <Fragment key={`${part.label}-${index}`}>
+      {index > 0 ? <span aria-hidden>·</span> : null}
+      <span
+        className={
+          part.modality ? `modelPicker-modality modelPicker-modality-${part.modality}` : undefined
+        }
+      >
+        {part.modality ? <Icon icon={part.modality === "vision" ? Eye : Text} size={11} /> : null}
+        {part.label}
+      </span>
+    </Fragment>
+  ))
 }

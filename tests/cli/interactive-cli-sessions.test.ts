@@ -716,7 +716,7 @@ describe("CLI session turn handling", () => {
 
   it("runs a prompt parked behind a setup operation as soon as it ends", async () => {
     let listCatalog: ((models: ReturnType<typeof testModel>[]) => void) | undefined
-    mocks.listToolCapableModels.mockImplementationOnce(
+    mocks.listHostedModels.mockImplementationOnce(
       () =>
         new Promise((resolve) => {
           listCatalog = resolve

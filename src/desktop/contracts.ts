@@ -12,7 +12,7 @@ import type {
 } from "../artifacts/types.js"
 import type { LocalThinkingSelection, LocalThinkingState } from "../inference/local-thinking.js"
 import type { ModelPickerItem, ModelPickerStatus } from "../inference/picker-catalog.js"
-import type { ModelProvider } from "../inference/types.js"
+import type { HostedModel, HostedProvider, ModelProvider } from "../inference/types.js"
 import type { ThemeName, UiLanguage } from "../local/settings.js"
 import type { MemoryEntry, MemoryScope } from "../memory/memory.js"
 import type { PermissionMode } from "../permissions/policy.js"
@@ -22,6 +22,7 @@ export type { RuntimeSummary, SubagentSummary } from "../app/application.js"
 export type { PendingPermission, TurnPhase, TurnSpeed } from "../app/conversation.js"
 export type { RecentArtifact } from "../app/global-sessions.js"
 export type { ModelState } from "../app/models.js"
+export type { HostedModel, HostedProvider } from "../inference/types.js"
 export type { ThemeName, UiLanguage } from "../local/settings.js"
 export type { PermissionMode } from "../permissions/policy.js"
 
@@ -53,6 +54,8 @@ export const DESKTOP_CHANNELS = {
   refreshSessions: "desktop:refresh-sessions",
   deleteSession: "desktop:delete-session",
   listModels: "desktop:list-models",
+  listHostedCatalogs: "desktop:list-hosted-catalogs",
+  setModelHidden: "desktop:set-model-hidden",
   selectModel: "desktop:select-model",
   cancelModelSelection: "desktop:cancel-model-selection",
   getSubagentTrace: "desktop:subagent-trace",
@@ -66,8 +69,8 @@ export const DESKTOP_CHANNELS = {
   setLocalThinking: "desktop:set-local-thinking",
   setPermissionMode: "desktop:set-permission-mode",
   setFastServing: "desktop:set-fast-serving",
-  openFireworksKeyPage: "desktop:open-fireworks-key-page",
-  setFireworksApiKey: "desktop:set-fireworks-api-key",
+  openHostedKeyPage: "desktop:open-hosted-key-page",
+  setHostedApiKey: "desktop:set-hosted-api-key",
   connectLocalServers: "desktop:connect-local-servers",
   deleteLocalModel: "desktop:delete-local-model",
   listSkills: "desktop:list-skills",
@@ -180,8 +183,10 @@ export type DesktopStatus = {
    * is active.
    */
   fastServing: { available: boolean; enabled: boolean }
-  /** A Fireworks API key is configured. The key itself is never sent to the renderer. */
-  hostedConfigured: boolean
+  /** Which hosted providers have an API key. The keys themselves are never sent to the renderer. */
+  hostedConfigured: Record<HostedProvider, boolean>
+  /** Hosted models hidden from the picker, as `hiddenModelKey` strings; persisted in settings. */
+  hiddenModels: string[]
   /** At least one NVIDIA PAIR endpoint is configured. */
   pairConfigured: boolean
   /** The saved PAIR endpoint addresses (loopback URLs), for prefilling the connect form. */
@@ -356,6 +361,13 @@ export type DesktopApi = {
    */
   listModels(): Promise<ModelPickerItem[]>
   /**
+   * Every keyed hosted provider's full catalog, hidden models included, for the visibility
+   * switches in Settings. A provider whose fetch fails lists as empty.
+   */
+  listHostedCatalogs(): Promise<Partial<Record<HostedProvider, HostedModel[]>>>
+  /** Hides a hosted model from the picker, or shows it again; the selected model always shows. */
+  setModelHidden(provider: HostedProvider, id: string, hidden: boolean): Promise<void>
+  /**
    * Selects a picker item, downloading and loading a managed local model when needed. `id` is the
    * item id, or the selectionKey for PAIR entries whose plain ids collide across engines. Resolves
    * when the switch finishes.
@@ -386,10 +398,10 @@ export type DesktopApi = {
    * path.
    */
   setFastServing(fast: boolean): Promise<ModelSelectResult>
-  /** Opens https://app.fireworks.ai/api-keys in the system browser. */
-  openFireworksKeyPage(): Promise<void>
-  /** Validates a Fireworks API key against the hosted catalog, then persists and activates it. */
-  setFireworksApiKey(apiKey: string): Promise<ModelSelectResult>
+  /** Opens the provider's API-key page in the system browser. */
+  openHostedKeyPage(provider: HostedProvider): Promise<void>
+  /** Validates a provider's API key against its catalog, then persists and activates it. */
+  setHostedApiKey(provider: HostedProvider, apiKey: string): Promise<ModelSelectResult>
   /** Validates, probes, and persists NVIDIA PAIR endpoints, keeping only the ones that respond. */
   connectLocalServers(endpoints: LocalServerInputs): Promise<ModelSelectResult>
   /**

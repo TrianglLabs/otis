@@ -3,7 +3,7 @@ import { resolve } from "node:path"
 import { parseArgs } from "node:util"
 import { Application } from "../app/application.js"
 import { sessionArtifactPublisher } from "../app/artifacts.js"
-import { resolveFireworksServing } from "../app/models.js"
+import { resolveHostedServing } from "../app/models.js"
 import { executeTurn } from "../app/turn-runner.js"
 import { autoCompactThreshold } from "../core/compaction.js"
 import { loadAttachmentFiles } from "../inference/attachments.js"
@@ -21,8 +21,14 @@ import {
 } from "../inference/messages.js"
 import { pairEndpointForEngine } from "../inference/pair.js"
 import { baseFireworksModelId } from "../inference/serving-path.js"
-import type { InferenceClient } from "../inference/types.js"
-import { saveSelectedModel } from "../local/settings.js"
+import {
+  HOSTED_PROVIDER_INFO,
+  HOSTED_PROVIDERS,
+  type HostedProvider,
+  type InferenceClient,
+  isHostedProvider,
+} from "../inference/types.js"
+import { hostedApiKeys, saveSelectedModel } from "../local/settings.js"
 import {
   createPermissionPolicy,
   type PermissionMode,
@@ -118,15 +124,15 @@ export async function runHeadlessCommand(
       parsed.model && parsed.model !== settings.model
         ? isLocalModelId(parsed.model)
           ? "local"
-          : "fireworks"
+          : (parsed.provider ?? "fireworks")
         : (settings.modelProvider ?? (isLocalModelId(model) ? "local" : "fireworks"))
     modelContextLength = parsed.model ? undefined : settings.modelContextLength
     let modelSupportsImageInput = parsed.model ? undefined : settings.modelSupportsImageInput
     if (!model)
       throw new Error("A model is not configured. Run Otis interactively or pass --model.")
 
-    const resolveServing = async (apiKey: string) => {
-      const resolved = await resolveFireworksServing(apiKey, model, {
+    const resolveServing = async (hosted: { provider: HostedProvider; apiKey: string }) => {
+      const resolved = await resolveHostedServing(hosted.provider, hosted.apiKey, model, {
         fast: parsed.model
           ? undefined
           : settings.fastServingModels?.includes(baseFireworksModelId(model)),
@@ -141,6 +147,8 @@ export async function runHeadlessCommand(
     }
 
     let client: InferenceClient
+    /** The hosted provider and its key once the model is known to need one. */
+    let hosted: { provider: HostedProvider; apiKey: string } | undefined
     if (modelProvider === "local") {
       const spec = findLocalModel(model)
       if (!spec) throw new Error(`Unknown local model: ${model}`)
@@ -173,14 +181,16 @@ export async function runHeadlessCommand(
       })
       client = connected.client
     } else {
-      const fireworksApiKey = settings.fireworksApiKey
-      if (!fireworksApiKey) throw new Error("Fireworks API key is not configured.")
+      const apiKey = hostedApiKeys(settings)[modelProvider]
+      if (!apiKey)
+        throw new Error(`${HOSTED_PROVIDER_INFO[modelProvider].name} API key is not configured.`)
+      hosted = { provider: modelProvider, apiKey }
       if (parsed.model || (hasImages && modelSupportsImageInput === undefined))
-        await resolveServing(fireworksApiKey)
+        await resolveServing(hosted)
       const connected = await app.connectModel({
-        provider: "fireworks",
+        provider: modelProvider,
         modelId: model,
-        fireworksApiKey,
+        hostedApiKey: apiKey,
         contextLength: modelContextLength,
         supportsImageInput: modelSupportsImageInput,
         signal: controller.signal,
@@ -203,14 +213,8 @@ export async function runHeadlessCommand(
       }
     }
     const sessionContainsImages = session ? messagesContainImages(session.replayMessages()) : false
-    if (
-      sessionContainsImages &&
-      modelProvider === "fireworks" &&
-      modelSupportsImageInput === undefined &&
-      settings.fireworksApiKey
-    ) {
-      await resolveServing(settings.fireworksApiKey)
-    }
+    if (sessionContainsImages && modelSupportsImageInput === undefined && hosted)
+      await resolveServing(hosted)
     modelContextLength = compactionContextLength({
       provider: modelProvider,
       contextLength: modelContextLength,
@@ -363,6 +367,7 @@ function parseHeadlessArgs(argv: string[]) {
       help: { type: "boolean", short: "h" },
       cwd: { type: "string", short: "C" },
       model: { type: "string", short: "m" },
+      provider: { type: "string", short: "p" },
       image: { type: "string", multiple: true },
       file: { type: "string", multiple: true },
       session: { type: "string", short: "s" },
@@ -381,6 +386,10 @@ function parseHeadlessArgs(argv: string[]) {
   })
   if (values.session && values.continue)
     throw new Error("--session and --continue cannot be used together.")
+  const provider = values.provider
+  if (provider !== undefined && !isHostedProvider(provider))
+    throw new Error(`--provider must be one of ${HOSTED_PROVIDERS.join(", ")}.`)
+  if (provider && !values.model) throw new Error("--provider requires --model.")
   if (values.ephemeral && (values.session || values.continue)) {
     throw new Error("--ephemeral cannot be combined with --session or --continue.")
   }
@@ -412,6 +421,7 @@ function parseHeadlessArgs(argv: string[]) {
     help: values.help ?? false,
     cwd: values.cwd,
     model: values.model,
+    provider,
     images: values.image ?? [],
     files: values.file ?? [],
     session: values.session,
@@ -443,7 +453,9 @@ Run one non-interactive Otis turn. If no prompt is given, the prompt is read fro
 
 Options:
   -C, --cwd <path>             Working directory
-  -m, --model <id>             Local catalog id or Fireworks serverless model
+  -m, --model <id>             Local catalog id or hosted model id
+  -p, --provider <name>        Hosted provider of --model: fireworks (default), together,
+                               baseten, or primeintellect
       --image <path>           Attach an image; repeatable
       --file <path>            Attach a text, PDF, DOCX, or image file; repeatable
   -s, --session <id>           Resume a specific local session

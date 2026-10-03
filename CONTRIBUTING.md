@@ -14,7 +14,8 @@ bun install --frozen-lockfile
 bun run dev
 ```
 
-To exercise the complete agent locally, set `FIREWORKS_API_KEY` or enter it through the first-run UI. Never commit API
+To exercise the complete agent locally, set a hosted provider key (`FIREWORKS_API_KEY`, `TOGETHER_API_KEY`,
+`BASETEN_API_KEY`, or `PRIME_API_KEY`) or enter it through the first-run UI. Never commit API
 keys, local configuration, session data, or captured provider payloads.
 
 ## Before opening a pull request
@@ -34,7 +35,7 @@ release tooling.
 - `src/app` owns shared application composition used by the CLI and future adapters, including conversation lifecycle
   and model-selection transactions.
 - `src/core` owns the agent loop and conversation behavior.
-- `src/inference` owns Fireworks HTTP transport, model discovery, and stream parsing.
+- `src/inference` owns hosted-provider HTTP transport, model discovery, and stream parsing.
 - `src/local` owns local configuration, paths, and derived statistics.
 - `src/storage` owns local session persistence and replay.
 - `src/tools` owns structured tool definitions, local execution, and web-tool adapters.
@@ -51,8 +52,8 @@ that only prove a module imports, a mock was called without checking its effect,
 Tests mirror the source tree under `tests/`. OpenTUI integration tests use the real `@opentui/core/testing` renderer and
 therefore run Vitest through Bun; use the package scripts instead of invoking `vitest` directly.
 
-Provider tests must use documented response shapes or local fakes. They must never call Fireworks or Parallel or
-depend on a real API key.
+Provider tests must use documented response shapes or local fakes. They must never call a hosted inference provider
+or Parallel or depend on a real API key.
 
 `tests/integration` holds the runs that use real processes. The provider contract there runs an in-process fake
 that speaks the OpenAI wire format and is part of `bun run test`. The suites that boot the real managed

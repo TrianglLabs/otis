@@ -8,9 +8,8 @@ import {
 import { describe, expect, it, vi } from "vitest"
 import { colors } from "../../src/cli/theme.js"
 import { selectionOutline } from "../../src/cli/ui/color-pulse.js"
-import { fireworksModel } from "../../src/inference/types.js"
 import { THEME_NAMES } from "../../src/local/settings.js"
-import { fireworksChoice, useChatHarness } from "./support/chat-ui-harness.js"
+import { hostedChoice, useChatHarness } from "./support/chat-ui-harness.js"
 
 /** The selection outline pulses from rest to accent and back over this period. */
 const COLOR_PULSE_PERIOD_MS = 2400
@@ -112,7 +111,7 @@ describe("chat UI input", () => {
   it("returns from a nested command submenu to its parent on Escape", async () => {
     const harness = await setup()
     const parent = [
-      { name: "Hosted inference", description: "Add API key", submission: "/settings hosted" },
+      { name: "Fireworks", description: "Add API key", submission: "/settings hosted fireworks" },
       {
         name: "Delete local model",
         description: "Choose a downloaded model",
@@ -135,7 +134,7 @@ describe("chat UI input", () => {
     harness.press("escape")
 
     expect(showParent).toHaveBeenCalledOnce()
-    expect(harness.text("command-row-0")).toBe("› Hosted inference")
+    expect(harness.text("command-row-0")).toBe("› Fireworks")
     expect(harness.text("command-row-1")).toBe("  Delete local model")
     expect(harness.text("command-row-2")).toBe("  Debug mode")
 
@@ -160,9 +159,9 @@ describe("chat UI input", () => {
       harness.ui.showCommandSubmenu(
         [
           {
-            name: "Hosted inference",
+            name: "Fireworks",
             description: "Add API key",
-            submission: "/settings hosted",
+            submission: "/settings hosted fireworks",
           },
           {
             name: "Debug mode",
@@ -184,7 +183,7 @@ describe("chat UI input", () => {
 
     expect(onSubmit).toHaveBeenCalledOnce()
     expect(onSubmit).toHaveBeenCalledWith("/settings")
-    expect(harness.text("command-row-0")).toBe("› Hosted inference")
+    expect(harness.text("command-row-0")).toBe("› Fireworks")
     expect(harness.text("command-row-1")).toBe("  Debug mode")
 
     harness.press("escape")
@@ -389,13 +388,17 @@ describe("chat UI input", () => {
       "Ollama, LM Studio, oMLX, and NVIDIA PAIR.",
     )
     expect(harness.find("setup-choice-local-detail-2")).toBeUndefined()
-    expect(harness.text("setup-choice-hosted-label")).toBe("Powered by Fireworks")
+    expect(harness.text("setup-choice-hosted-label")).toBe(
+      "Fireworks, Together AI, Baseten, Prime Intellect",
+    )
     expect(harness.text("setup-choice-hosted-description")).toBe(
       "Fast remote inference with no local hardware requirements.",
     )
-    expect(harness.text("setup-choice-hosted-detail-0")).toBe("Zero Data Retention by default.")
-    expect(harness.text("setup-choice-hosted-detail-1")).toBe("Uses your own Fireworks API key.")
-    expect(harness.text("setup-choice-hosted-detail-2")).toBe("Configure it anytime in Settings.")
+    expect(harness.text("setup-choice-hosted-detail-0")).toBe(
+      "Uses your own API key, sent only to that provider.",
+    )
+    expect(harness.text("setup-choice-hosted-detail-1")).toBe("Configure it anytime in Settings.")
+    expect(harness.find("setup-choice-hosted-detail-2")).toBeUndefined()
     expect(harness.text("setup-choice-hint")).toBe("[←→] move · [enter] select")
 
     const localCard = harness.get<BoxRenderable>("setup-choice-local")
@@ -456,7 +459,7 @@ describe("chat UI input", () => {
     harness.press("return")
     expect(onSetupInferenceChoice).toHaveBeenLastCalledWith("hosted")
 
-    harness.ui.showSetupInput()
+    harness.ui.showSetupInput("", "choice", "fireworks")
     await harness.renderOnce()
     expect(harness.get<BoxRenderable>("welcome-panel").width).toBe(72)
     const setupInput = harness.get<InputRenderable>("setup-input")
@@ -465,7 +468,7 @@ describe("chat UI input", () => {
     expect(setupInput.focused).toBe(false)
     expect(harness.childIds("input-area")).toEqual(["setup-choice"])
     expect(harness.text("setup-choice-hosted-title")).toBe("Hosted inference")
-    harness.ui.showSetupInput()
+    harness.ui.showSetupInput("", "choice", "fireworks")
     expect(harness.text("setup-input-label")).toBe("Fireworks API key")
     expect(harness.childIds("setup-form")).toEqual(["setup-input-box", "setup-continue-box"])
     expect(harness.find("setup-message")).toBeUndefined()
@@ -480,17 +483,73 @@ describe("chat UI input", () => {
     expect(harness.text("setup-status")).toBe("Loading models...")
 
     harness.ui.showModelPicker([
-      fireworksChoice(
-        fireworksModel({
-          id: "accounts/fireworks/models/tool-model",
-          displayName: "Tool Model",
-          supportsImageInput: false,
-        }),
-      ),
+      hostedChoice("fireworks", {
+        id: "accounts/fireworks/models/tool-model",
+        displayName: "Tool Model",
+        supportsImageInput: false,
+      }),
     ])
     expect(harness.find("setup-status-box")).toBeUndefined()
     expect(harness.childIds("input-area")).toEqual([])
     expect(harness.childIds("chat-body")).toEqual(["model-panel", "messages"])
+  })
+
+  it("picks a hosted provider from the list and honors each cancel target", async () => {
+    const onSetupHostedChoice = vi.fn()
+    const harness = await setup({ configured: false, onSetupHostedChoice })
+    const none = { fireworks: false, together: false, baseten: false, primeintellect: false }
+
+    harness.ui.showSetupHostedChoice({ ...none, fireworks: true }, "choice")
+    expect(harness.childIds("input-area")).toEqual(["setup-hosted-choice"])
+    expect(harness.text("setup-hosted-choice-heading")).toBe("Choose a hosted provider")
+    expect(harness.childIds("setup-hosted-choice-rows")).toEqual([
+      "setup-hosted-row-0-box",
+      "setup-hosted-row-1-box",
+      "setup-hosted-row-2-box",
+      "setup-hosted-row-3-box",
+    ])
+    expect(harness.text("setup-hosted-row-0")).toBe("› Fireworks")
+    expect(harness.text("setup-hosted-row-0-meta")).toBe("  API key saved")
+    expect(harness.get<TextRenderable>("setup-hosted-row-0-meta").visible).toBe(true)
+    expect(harness.text("setup-hosted-row-1")).toBe("  Together AI")
+    expect(harness.get<TextRenderable>("setup-hosted-row-1-meta").visible).toBe(false)
+    expect(harness.text("setup-hosted-row-2")).toBe("  Baseten")
+    expect(harness.text("setup-hosted-row-3")).toBe("  Prime Intellect")
+    expect(harness.text("setup-hosted-choice-hint")).toBe("[↑↓] move · [enter] select · [esc] back")
+
+    harness.press("down")
+    expect(harness.text("setup-hosted-row-0")).toBe("  Fireworks")
+    expect(harness.text("setup-hosted-row-1")).toBe("› Together AI")
+    harness.press("up")
+    harness.press("up")
+    expect(harness.text("setup-hosted-row-3")).toBe("› Prime Intellect")
+    harness.press("return")
+    expect(onSetupHostedChoice).toHaveBeenCalledExactlyOnceWith("primeintellect")
+
+    // The key form for that provider backs out to the list, and the list to the inference choice.
+    harness.ui.showSetupInput("", "hosted", "primeintellect")
+    expect(harness.childIds("input-area")).toEqual(["setup-form"])
+    expect(harness.text("setup-input-label")).toBe("Prime Intellect API key")
+    expect(harness.get<InputRenderable>("setup-input").focused).toBe(true)
+    harness.press("escape")
+    expect(harness.childIds("input-area")).toEqual(["setup-hosted-choice"])
+    expect(harness.text("setup-hosted-row-3")).toBe("› Prime Intellect")
+    harness.press("escape")
+    expect(harness.childIds("input-area")).toEqual(["setup-choice"])
+    expect(harness.text("setup-choice-hosted-title")).toBe("Hosted inference")
+
+    // From Settings, both screens cancel back to the chat composer.
+    harness.ui.setConfigured()
+    harness.ui.showSetupHostedChoice(none, "configured")
+    expect(harness.get<TextRenderable>("setup-hosted-row-0-meta").visible).toBe(false)
+    harness.press("escape")
+    expect(harness.childIds("input-area")).toEqual(["input-box"])
+    expect(harness.get<TextareaRenderable>("otis-input").focused).toBe(true)
+    harness.ui.showSetupInput("", "configured", "baseten")
+    expect(harness.text("setup-input-label")).toBe("Baseten API key")
+    harness.press("escape")
+    expect(harness.childIds("input-area")).toEqual(["input-box"])
+    expect(harness.get<TextareaRenderable>("otis-input").focused).toBe(true)
   })
 
   it("keeps PAIR available when managed local inference is unsupported", async () => {
@@ -609,12 +668,13 @@ describe("chat UI input", () => {
   it("shows API keys in the input and clears them after an error", async () => {
     const onSetupSubmit = vi.fn()
     const harness = await setup({ configured: false, onSetupSubmit })
-    harness.ui.showSetupInput()
+    harness.ui.showSetupInput("", "choice", "fireworks")
 
     await harness.typeText("first-secret")
     expect(harness.get<InputRenderable>("setup-input").plainText).toBe("first-secret")
 
-    harness.ui.showSetupError("Try again", "choice")
+    harness.ui.showSetupError("Try again", "choice", "together")
+    expect(harness.text("setup-input-label")).toBe("Together AI API key")
     expect(harness.get<InputRenderable>("setup-input").plainText).toBe("")
     expect(harness.childIds("setup-form")).toEqual([
       "setup-input-box",
@@ -643,7 +703,8 @@ describe("chat UI input", () => {
         .some((line) => line.includes("Local inference") && line.includes("Hosted inference")),
     ).toBe(true)
     expect(frame).toContain("Private, on your devices")
-    expect(frame).toContain("Powered by Fireworks")
+    expect(frame).toContain("Fireworks, Together AI,")
+    expect(frame).toContain("Baseten, Prime Intellect")
     expect(frame).toContain("[←→] move · [enter] select")
 
     harness.ui.showSetupLocalInferenceChoice()
@@ -705,7 +766,7 @@ describe("chat UI input", () => {
   it("returns to the configured input when hosted settings are cancelled", async () => {
     const harness = await setup({ configured: true })
 
-    harness.ui.showSetupInput("", "configured")
+    harness.ui.showSetupInput("", "configured", "fireworks")
     const setupInput = harness.get<InputRenderable>("setup-input")
     expect(setupInput.focused).toBe(true)
     expect(harness.childIds("input-area")).toEqual(["setup-form"])

@@ -4,13 +4,15 @@ import {
   MarkdownRenderable,
   RGBA,
   type ScrollBoxRenderable,
+  type TextareaRenderable,
   type TextRenderable,
 } from "@opentui/core"
 import { describe, expect, it, vi } from "vitest"
 import { TranscriptStore } from "../../src/app/transcript.js"
 import { colors, selectTheme } from "../../src/cli/theme.js"
-import { fireworksModel } from "../../src/inference/types.js"
-import { fireworksChoice, useChatHarness } from "./support/chat-ui-harness.js"
+import { MODEL_PICKER_HINT } from "../../src/cli/ui/model-picker.js"
+import type { HostedModel } from "../../src/inference/types.js"
+import { hostedChoice, useChatHarness } from "./support/chat-ui-harness.js"
 
 /** The selection outline pulses over 2400ms; a running title's shimmer sweeps once per 1300ms. */
 const COLOR_PULSE_PERIOD_MS = 2400
@@ -557,7 +559,9 @@ describe("chat UI rendering", () => {
     expect(harness.text("model-row-0")).not.toContain("accounts/fireworks")
     expect(harness.text("model-row-1")).toBe("  Beta")
     expect(harness.text("model-row-1-meta")).toBe("  Text")
-    expect(harness.text("model-panel-footer")).toBe("[↑↓] move · * recommended · ◐ partly on CPU")
+    expect(harness.text("model-panel-footer")).toBe(
+      "[↑↓] move · type to search · * recommended · ◐ partly on CPU",
+    )
     expect(harness.text("model-panel-header")).toBe("Models")
 
     harness.press("down")
@@ -730,7 +734,7 @@ describe("chat UI rendering", () => {
     harness.ui.showModelPicker([
       { kind: "header", id: "header-local", displayName: "Local" },
       unavailable,
-      { kind: "header", id: "header-hosted", displayName: "Hosted" },
+      { kind: "header", id: "header-fireworks", displayName: "Fireworks" },
       fireworks,
     ])
 
@@ -740,7 +744,7 @@ describe("chat UI rendering", () => {
     expect(harness.get<TextRenderable>("model-row-1").fg.equals(RGBA.fromHex(colors.muted))).toBe(
       true,
     )
-    expect(harness.text("model-row-2")).toBe("HOSTED")
+    expect(harness.text("model-row-2")).toBe("FIREWORKS")
     expect(harness.text("model-row-3")).toBe("› Alpha")
 
     harness.press("return")
@@ -750,6 +754,105 @@ describe("chat UI rendering", () => {
     expect(harness.text("model-row-1")).toBe("› Qwen3.8 27B  Downloaded")
     harness.press("return")
     expect(onSelectModel).toHaveBeenCalledTimes(1)
+  })
+
+  it("searches the model picker by name, id, or provider and clears before closing", async () => {
+    const onCloseModelPicker = vi.fn()
+    const onSelectModel = vi.fn()
+    const harness = await setup({ onCloseModelPicker, onSelectModel })
+    const local = {
+      kind: "model" as const,
+      provider: "local" as const,
+      id: "openai/gpt-oss-20b",
+      displayName: "gpt-oss 20B",
+      contextLength: 131_072,
+      supportsImageInput: false,
+      available: true,
+      recommended: false,
+      availabilityLabel: "Est. 128K · MXFP4 · 16 GB",
+      hasDownloadedPacking: false,
+      cpuOffload: false,
+      downloaded: false,
+      active: false,
+    }
+    const alpha = fireworksRow(
+      { id: "accounts/fireworks/models/alpha", displayName: "Alpha", supportsImageInput: false },
+      true,
+    )
+    const kimi = hostedChoice("together", {
+      id: "moonshotai/Kimi-K3",
+      displayName: "Kimi K3",
+      contextLength: 262_144,
+      supportsImageInput: false,
+    })
+    const items = [
+      { kind: "header" as const, id: "header-local", displayName: "Local" },
+      local,
+      { kind: "header" as const, id: "header-fireworks", displayName: "Fireworks" },
+      alpha,
+      { kind: "header" as const, id: "header-together", displayName: "Together AI" },
+      kimi,
+    ]
+
+    harness.ui.showModelPicker(items)
+    expect(harness.text("model-panel-footer")).toBe(MODEL_PICKER_HINT)
+    expect(harness.text("model-row-3")).toBe("› Alpha")
+    expect(harness.find("model-row-5")).toBeDefined()
+
+    // Typing narrows to matching rows under their own headers; empty sections disappear.
+    await harness.typeText("KIMI")
+    expect(harness.get<TextareaRenderable>("otis-input").plainText).toBe("")
+    expect(harness.text("model-panel-footer")).toBe("Search: KIMI")
+    expect(harness.text("model-row-0")).toBe("TOGETHER AI")
+    expect(harness.text("model-row-1")).toBe("› Kimi K3")
+    expect(harness.text("model-row-1-meta")).toBe("  256K · Text")
+    expect(harness.find("model-row-2")).toBeUndefined()
+
+    // Backspace edits the query; the row that was selected stays selected when it survives.
+    for (let step = 0; step < 4; step += 1) harness.press("backspace")
+    expect(harness.text("model-panel-footer")).toBe(MODEL_PICKER_HINT)
+    expect(harness.text("model-row-0")).toBe("LOCAL")
+    expect(harness.text("model-row-3")).toBe("  Alpha")
+    expect(harness.text("model-row-5")).toBe("› Kimi K3")
+
+    // A provider name matches its rows; an id fragment matches too.
+    await harness.typeText("fireworks")
+    expect(harness.text("model-row-0")).toBe("FIREWORKS")
+    expect(harness.text("model-row-1")).toBe("› Alpha")
+    expect(harness.find("model-row-2")).toBeUndefined()
+    harness.press("escape")
+    await harness.typeText("gpt-oss")
+    expect(harness.text("model-row-0")).toBe("LOCAL")
+    expect(harness.text("model-row-1")).toBe("› gpt-oss 20B")
+    expect(harness.find("model-row-2")).toBeUndefined()
+
+    // Nothing matching leaves a placeholder that Enter cannot select.
+    await harness.typeText("zz")
+    expect(harness.text("model-panel-footer")).toBe("Search: gpt-osszz")
+    expect(harness.text("model-row-0")).toBe("  No models match")
+    expect(harness.find("model-row-1")).toBeUndefined()
+    harness.press("return")
+    expect(onSelectModel).not.toHaveBeenCalled()
+
+    // Escape first clears the search, then closes the picker.
+    harness.press("escape")
+    expect(onCloseModelPicker).not.toHaveBeenCalled()
+    expect(harness.text("model-panel-footer")).toBe(MODEL_PICKER_HINT)
+    expect(harness.find("model-row-5")).toBeDefined()
+    harness.press("escape")
+    expect(onCloseModelPicker).toHaveBeenCalledOnce()
+    expect(harness.find("model-panel")).toBeUndefined()
+
+    // Enter selects the filtered row, and a picker closed mid-search reopens unfiltered.
+    harness.ui.showModelPicker(items)
+    expect(harness.text("model-panel-footer")).toBe(MODEL_PICKER_HINT)
+    await harness.typeText("kimi")
+    harness.press("return")
+    expect(onSelectModel).toHaveBeenCalledExactlyOnceWith(kimi)
+    harness.ui.hideModelPicker()
+    harness.ui.showModelPicker(items)
+    expect(harness.text("model-panel-footer")).toBe(MODEL_PICKER_HINT)
+    expect(harness.text("model-row-5")).toBe("› Kimi K3")
   })
 
   it("shows local download progress next to the model name", async () => {
@@ -853,7 +956,7 @@ describe("chat UI rendering", () => {
     harness.ui.showModelPicker([
       { kind: "header", id: "header-local", displayName: "Local" },
       local,
-      { kind: "header", id: "header-hosted", displayName: "Hosted" },
+      { kind: "header", id: "header-fireworks", displayName: "Fireworks" },
       ...fireworks,
     ])
     await harness.renderOnce()
@@ -873,8 +976,8 @@ describe("chat UI rendering", () => {
   })
 })
 
-function fireworksRow(fields: Parameters<typeof fireworksModel>[0], active = false) {
-  return fireworksChoice(fireworksModel(fields), active ? fields.id : undefined)
+function fireworksRow(fields: Omit<HostedModel, "provider">, active = false) {
+  return hostedChoice("fireworks", fields, active ? fields.id : undefined)
 }
 
 function statusLetterColors(row: TextRenderable, label: string) {

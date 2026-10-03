@@ -8,6 +8,7 @@ import {
 import { localServerNames, supportsOmlx } from "../../inference/types.js"
 import { colors } from "../theme.js"
 import { formatContextLabel } from "./format.js"
+import { MODEL_PICKER_HINT } from "./model-picker.js"
 import { createMessagesView, createSidePanel, createStatsRow } from "./panels.js"
 import type { ChatUIOptions, Renderer } from "./types.js"
 
@@ -50,11 +51,11 @@ export function createUILayout(
     header: "Sessions",
     footer: "[↑↓] move · [n] new · [d] delete",
   })
-  const { panel: modelPanel, rows: modelRowsBox } = createSidePanel(renderer, {
-    id: "model",
-    header: "Models",
-    footer: "[↑↓] move · * recommended · ◐ partly on CPU",
-  })
+  const {
+    panel: modelPanel,
+    rows: modelRowsBox,
+    footer: modelPanelFooter,
+  } = createSidePanel(renderer, { id: "model", header: "Models", footer: MODEL_PICKER_HINT })
   const {
     panel: subagentPanel,
     rows: subagentRowsBox,
@@ -194,11 +195,10 @@ export function createUILayout(
   const setupHostedCard = createInferenceChoiceCard(renderer, {
     id: "setup-choice-hosted",
     title: "Hosted inference",
-    label: "Powered by Fireworks",
+    label: "Fireworks, Together AI, Baseten, Prime Intellect",
     description: "Fast remote inference with no local hardware requirements.",
     details: [
-      "Zero Data Retention by default.",
-      "Uses your own Fireworks API key.",
+      "Uses your own API key, sent only to that provider.",
       "Configure it anytime in Settings.",
     ],
   })
@@ -260,6 +260,31 @@ export function createUILayout(
     new TextRenderable(renderer, {
       id: "setup-local-choice-hint",
       content: "[←→] move · [enter] select · [esc] back",
+      fg: colors.muted,
+      selectable: false,
+    }),
+  )
+
+  const setupHostedChoiceBox = createSetupColumn(renderer, "setup-hosted-choice")
+  setupHostedChoiceBox.add(
+    new TextRenderable(renderer, {
+      id: "setup-hosted-choice-heading",
+      content: "Choose a hosted provider",
+      fg: colors.text,
+      selectable: false,
+    }),
+  )
+  const setupHostedChoiceRows = new BoxRenderable(renderer, {
+    id: "setup-hosted-choice-rows",
+    flexDirection: "column",
+    width: "100%",
+    flexShrink: 0,
+  })
+  setupHostedChoiceBox.add(setupHostedChoiceRows)
+  setupHostedChoiceBox.add(
+    new TextRenderable(renderer, {
+      id: "setup-hosted-choice-hint",
+      content: "[↑↓] move · [enter] select · [esc] back",
       fg: colors.muted,
       selectable: false,
     }),
@@ -608,6 +633,7 @@ export function createUILayout(
     attachments,
     messages,
     modelPanel,
+    modelPanelFooter,
     modelRowsBox,
     modeLabel,
     permissionLabel,
@@ -620,6 +646,8 @@ export function createUILayout(
     setupChoiceBox,
     setupChoiceMessage,
     setupHostedCard,
+    setupHostedChoiceBox,
+    setupHostedChoiceRows,
     setupLocalChoiceBox,
     setupLocalChoiceMessage,
     setupLocalCard,

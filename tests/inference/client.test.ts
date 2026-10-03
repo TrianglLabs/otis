@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { FireworksClient } from "../../src/inference/client.js"
+import { HostedClient } from "../../src/inference/client.js"
+import { HOSTED_PROVIDER_INFO, HOSTED_PROVIDERS } from "../../src/inference/types.js"
 
 afterEach(() => vi.restoreAllMocks())
 
-describe("FireworksClient", () => {
+describe("HostedClient for Fireworks", () => {
   it("streams a direct tool-capable chat request and preserves provider usage", async () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
       sseResponse([
@@ -27,7 +28,8 @@ describe("FireworksClient", () => {
         { choices: [], usage: { prompt_tokens: 120, completion_tokens: 30, total_tokens: 150 } },
       ]),
     )
-    const client = new FireworksClient({
+    const client = new HostedClient({
+      provider: "fireworks",
       apiKey: "fw_test_key",
       model: "accounts/fireworks/models/tool-model",
       fetch: fetchMock as typeof fetch,
@@ -100,7 +102,8 @@ describe("FireworksClient", () => {
   })
 
   it("abandons a Fireworks stream that stays silent past the idle limit", async () => {
-    const client = new FireworksClient({
+    const client = new HostedClient({
+      provider: "fireworks",
       apiKey: "fw_test_key",
       model: "accounts/fireworks/models/tool-model",
       inferenceURL: "http://localhost/v1/chat/completions",
@@ -131,7 +134,8 @@ describe("FireworksClient", () => {
 
   it("surfaces provider errors without retrying through another service", async () => {
     const fetchMock = vi.fn(async () => new Response("invalid model", { status: 400 }))
-    const client = new FireworksClient({
+    const client = new HostedClient({
+      provider: "fireworks",
       apiKey: "fw_test_key",
       model: "accounts/fireworks/models/tool-model",
       fetch: fetchMock as typeof fetch,
@@ -148,7 +152,8 @@ describe("FireworksClient", () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
       sseResponse([]),
     )
-    const client = new FireworksClient({
+    const client = new HostedClient({
+      provider: "fireworks",
       apiKey: "fw_test_key",
       model: "accounts/fireworks/models/vision-model",
       fetch: fetchMock as typeof fetch,
@@ -189,7 +194,8 @@ describe("FireworksClient", () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
       sseResponse([]),
     )
-    const client = new FireworksClient({
+    const client = new HostedClient({
+      provider: "fireworks",
       apiKey: "fw_test_key",
       model: "accounts/fireworks/models/tool-model",
       fetch: fetchMock as typeof fetch,
@@ -233,7 +239,8 @@ describe("FireworksClient", () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
       sseResponse([]),
     )
-    const client = new FireworksClient({
+    const client = new HostedClient({
+      provider: "fireworks",
       apiKey: "fw_test_key",
       model: "accounts/fireworks/routers/kimi-k3-fast",
       fetch: fetchMock as typeof fetch,
@@ -261,7 +268,8 @@ describe("FireworksClient", () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
       sseResponse([]),
     )
-    const client = new FireworksClient({
+    const client = new HostedClient({
+      provider: "fireworks",
       apiKey: "fw_test_key",
       model,
       fetch: fetchMock as typeof fetch,
@@ -281,7 +289,8 @@ describe("FireworksClient", () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
       sseResponse([]),
     )
-    const client = new FireworksClient({
+    const client = new HostedClient({
+      provider: "fireworks",
       apiKey: "fw_test_key",
       model,
       fetch: fetchMock as typeof fetch,
@@ -303,7 +312,8 @@ describe("FireworksClient", () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
       sseResponse([]),
     )
-    const client = new FireworksClient({
+    const client = new HostedClient({
+      provider: "fireworks",
       apiKey: "fw_test_key",
       model: "accounts/fireworks/models/kimi-k2-thinking",
       fetch: fetchMock as typeof fetch,
@@ -329,7 +339,8 @@ describe("FireworksClient", () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
       sseResponse([]),
     )
-    const client = new FireworksClient({
+    const client = new HostedClient({
+      provider: "fireworks",
       apiKey: "fw_test_key",
       model,
       fetch: fetchMock as typeof fetch,
@@ -345,12 +356,108 @@ describe("FireworksClient", () => {
   it("rejects non-HTTPS provider URLs outside local tests", () => {
     expect(
       () =>
-        new FireworksClient({
+        new HostedClient({
+          provider: "fireworks",
           apiKey: "fw_test_key",
           model: "accounts/fireworks/models/tool-model",
           inferenceURL: "http://example.com/chat",
         }),
     ).toThrow("must use HTTPS")
+  })
+})
+
+const OTHER_PROVIDERS = HOSTED_PROVIDERS.filter((provider) => provider !== "fireworks")
+
+describe.each(OTHER_PROVIDERS)("HostedClient for %s", (provider) => {
+  const { name, inferenceURL } = HOSTED_PROVIDER_INFO[provider]
+
+  it("posts to the provider's documented endpoint with the key and no Fireworks-only fields", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      sseResponse([
+        {
+          choices: [{ delta: { reasoning: "thinking", content: "Done." }, finish_reason: "stop" }],
+        },
+        { choices: [], usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 } },
+      ]),
+    )
+    const client = new HostedClient({
+      provider,
+      apiKey: " secret-key ",
+      model: "org/deepseek-v4",
+      fetch: fetchMock as typeof fetch,
+    })
+    expect(client.provider).toBe(provider)
+
+    const events = await collect(
+      client.streamChat({
+        messages: [{ role: "user", content: "hello" }],
+        tools: [{ name: "read", description: "Read a file", parameters: { type: "object" } }],
+        minimalReasoning: true,
+      }),
+    )
+
+    expect(events).toEqual([
+      { type: "reasoning_delta", field: "reasoning", text: "thinking" },
+      { type: "text_delta", text: "Done." },
+      { type: "usage", usage: { promptTokens: 10, completionTokens: 2, totalTokens: 12 } },
+      { type: "finish", reason: "stop" },
+    ])
+    expect(fetchMock).toHaveBeenCalledOnce()
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(String(url)).toBe(inferenceURL)
+    expect(init?.method).toBe("POST")
+    expect(init?.headers).toEqual({
+      accept: "text/event-stream",
+      authorization: "Bearer secret-key",
+      "content-type": "application/json",
+    })
+    const body = JSON.parse(String(init?.body))
+    expect(body).toMatchObject({
+      model: "org/deepseek-v4",
+      stream: true,
+      stream_options: { include_usage: true },
+      tools: [{ type: "function", function: { name: "read" } }],
+    })
+    // Only Fireworks documents reasoning tiers and a priority tier; a model whose name would
+    // earn `max` on Fireworks keeps this provider's defaults.
+    expect(body).not.toHaveProperty("reasoning_effort")
+    expect(body).not.toHaveProperty("service_tier")
+    expect(JSON.stringify(body)).not.toContain("secret-key")
+  })
+
+  it("names the provider in request failures and silent streams", async () => {
+    const rejecting = new HostedClient({
+      provider,
+      apiKey: "key",
+      model: "org/model",
+      fetch: (async () => new Response("invalid model", { status: 400 })) as typeof fetch,
+    })
+    await expect(
+      collect(rejecting.streamChat({ messages: [{ role: "user", content: "hello" }] })),
+    ).rejects.toThrow(`${name} rejected the request: invalid model.`)
+
+    const silent = new HostedClient({
+      provider,
+      apiKey: "key",
+      model: "org/model",
+      idleTimeoutMs: 20,
+      fetch: (async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({ pull: () => new Promise<void>(() => {}) }),
+        )) as typeof fetch,
+    })
+    await expect(
+      collect(silent.streamChat({ messages: [{ role: "user", content: "hello" }] })),
+    ).rejects.toThrow(`${name} sent no data for 20 ms; the request timed out.`)
+  })
+
+  it("requires a key and a model up front", () => {
+    expect(() => new HostedClient({ provider, apiKey: " ", model: "org/model" })).toThrow(
+      `${name} API key is required.`,
+    )
+    expect(() => new HostedClient({ provider, apiKey: "key", model: " " })).toThrow(
+      `${name} model is required.`,
+    )
   })
 })
 

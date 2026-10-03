@@ -212,14 +212,71 @@ describe("demo runtime model lifecycle", () => {
     expect(await api.getSnapshot()).toMatchObject({
       model: null,
       modelState: "unconfigured",
-      hostedConfigured: false,
+      hostedConfigured: {
+        fireworks: false,
+        together: false,
+        baseten: false,
+        primeintellect: false,
+      },
     })
-    expect(await api.setFireworksApiKey("")).toMatchObject({ ok: false })
-    expect(await settle(api.setFireworksApiKey("demo-key"))).toEqual({ ok: true })
-    expect(await api.getSnapshot()).toMatchObject({ model: null, hostedConfigured: true })
+    expect(await api.setHostedApiKey("fireworks", "")).toMatchObject({
+      ok: false,
+      reason: "Fireworks API key is required.",
+    })
+    expect(await api.setHostedApiKey("together", "")).toMatchObject({
+      ok: false,
+      reason: "Together AI API key is required.",
+    })
+    expect(await settle(api.setHostedApiKey("fireworks", "demo-key"))).toEqual({ ok: true })
+    expect(await api.getSnapshot()).toMatchObject({
+      model: null,
+      hostedConfigured: { fireworks: true, together: false },
+    })
+    const items = await api.listModels()
+    expect(items.find((item) => item.id === "header-fireworks")?.displayName).toBe("Fireworks")
+    expect(items.some((item) => item.id === "header-hosted")).toBe(false)
     const id = "accounts/fireworks/models/kimi-k3"
     expect(await settle(api.selectModel(id))).toEqual({ ok: true })
     expect(await api.getSnapshot()).toMatchObject({ model: { id }, modelState: "ready" })
+  })
+
+  it("lists the hosted catalog for the visibility switches and hides models from the picker", async () => {
+    const api = createDemoRuntime()
+    const catalogs = await api.listHostedCatalogs()
+    // The demo has three providers keyed, each with its own catalog and picker section.
+    expect(Object.keys(catalogs)).toEqual(["fireworks", "together", "baseten"])
+    expect(catalogs.fireworks?.map((model) => model.id)).toEqual([
+      "accounts/fireworks/models/glm-5p3",
+      "accounts/fireworks/models/kimi-k3",
+    ])
+    expect(catalogs.together?.map((model) => model.provider)).toEqual(["together", "together"])
+    const headers = (await api.listModels()).filter((item) => item.kind === "header")
+    expect(headers.map((item) => item.id)).toEqual([
+      "header-local",
+      "header-omlx",
+      "header-fireworks",
+      "header-together",
+      "header-baseten",
+    ])
+    const fireworksIds = async () =>
+      (await api.listModels())
+        .filter((item) => item.kind === "model" && item.provider === "fireworks")
+        .map((item) => item.id)
+    await api.setModelHidden("fireworks", "accounts/fireworks/models/kimi-k3", true)
+    expect((await api.getSnapshot()).hiddenModels).toEqual([
+      "fireworks:accounts/fireworks/models/kimi-k3",
+    ])
+    expect(await fireworksIds()).toEqual(["accounts/fireworks/models/glm-5p3"])
+    // The active model stays in the picker however it is marked; unhiding restores the row.
+    await api.setModelHidden("fireworks", "accounts/fireworks/models/glm-5p3", true)
+    expect(await fireworksIds()).toEqual(["accounts/fireworks/models/glm-5p3"])
+    await api.setModelHidden("fireworks", "accounts/fireworks/models/kimi-k3", false)
+    expect(await fireworksIds()).toEqual([
+      "accounts/fireworks/models/glm-5p3",
+      "accounts/fireworks/models/kimi-k3",
+    ])
+    // The catalog for the switches never drops a hidden model.
+    expect((await api.listHostedCatalogs()).fireworks).toHaveLength(2)
   })
 
   it("switches saved Word versions and reopens the latest independently of the working file", async () => {

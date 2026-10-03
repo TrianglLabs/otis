@@ -10,7 +10,18 @@ import {
 import { normalizeOmlxSettings, type OmlxSettings } from "../inference/omlx.js"
 import { normalizePairEndpoints, type PairEndpoints } from "../inference/pair.js"
 import { baseFireworksModelId, isFastFireworksModel } from "../inference/serving-path.js"
-import type { CatalogModel, FireworksModel, ModelProvider, PairEngine } from "../inference/types.js"
+import {
+  type CatalogModel,
+  type FireworksModel,
+  HOSTED_PROVIDER_INFO,
+  HOSTED_PROVIDERS,
+  type HostedApiKeys,
+  type HostedModel,
+  type HostedProvider,
+  isModelProvider,
+  type ModelProvider,
+  type PairEngine,
+} from "../inference/types.js"
 import {
   type PermissionConfig,
   type PermissionMode,
@@ -22,6 +33,9 @@ import { type AchievementId, isAchievementId } from "./stats.js"
 export type LocalSettings = {
   omlx?: OmlxSettings
   fireworksApiKey?: string
+  togetherApiKey?: string
+  basetenApiKey?: string
+  primeintellectApiKey?: string
   pairEndpoints?: PairEndpoints
   pairEngine?: PairEngine
   model?: string
@@ -46,6 +60,8 @@ export type LocalSettings = {
   achievementsSeen?: AchievementId[]
   fastServingModels?: string[]
   modelFastId?: string
+  /** Hosted models hidden from the picker, as `hiddenModelKey` strings. */
+  hiddenModels?: string[]
   permissions?: PermissionConfig
 }
 
@@ -96,13 +112,18 @@ export async function loadLocalSettings(options: SettingsFileOptions = {}): Prom
   const saved = (await readSettingsFile(options)) ?? { version: 1 }
   const { version: _version, fastMode: _fastMode, ...settings } = saved
   const fastServingModels = migratedFastServingModels(saved)
+  const keys: LocalSettings = {}
+  for (const provider of HOSTED_PROVIDERS) {
+    const field = hostedApiKeyField(provider)
+    keys[field] = env[HOSTED_PROVIDER_INFO[provider].keyEnv]?.trim() || saved[field]
+  }
   return {
     ...defined({
       ...settings,
       modelProvider: saved.modelProvider ?? inferModelProvider(saved.model),
       fastServingModels: fastServingModels.length > 0 ? fastServingModels : undefined,
     }),
-    fireworksApiKey: env.FIREWORKS_API_KEY?.trim() || saved.fireworksApiKey,
+    ...keys,
     model: saved.model,
     modelDisplayName: saved.modelDisplayName,
     modelContextLength: saved.modelContextLength,
@@ -153,24 +174,33 @@ export async function initializeLocalSettings(
   })
 }
 
-export async function saveFireworksSetup(
-  apiKey: string,
-  model: FireworksModel,
-  options: SettingsFileOptions = {},
-) {
-  await updateSettings(options, (saved) =>
-    selectedModelSettings(
-      { ...saved, fireworksApiKey: required(apiKey, "Fireworks API key") },
-      model,
-    ),
-  )
+/** The settings field that holds a hosted provider's key. */
+function hostedApiKeyField(provider: HostedProvider) {
+  return `${provider}ApiKey` as const
 }
 
-export async function saveFireworksApiKey(apiKey: string, options: SettingsFileOptions = {}) {
-  await updateSettings(options, (saved) => ({
-    ...saved,
-    fireworksApiKey: required(apiKey, "Fireworks API key"),
-  }))
+/** The saved key of every hosted provider that has one. */
+export function hostedApiKeys(settings: LocalSettings): HostedApiKeys {
+  const keys: HostedApiKeys = {}
+  for (const provider of HOSTED_PROVIDERS) {
+    const key = settings[hostedApiKeyField(provider)]
+    if (key) keys[provider] = key
+  }
+  return keys
+}
+
+/** Saves a hosted provider's key, with the model it was verified against when setup picks one. */
+export async function saveHostedApiKey(
+  provider: HostedProvider,
+  apiKey: string,
+  model?: HostedModel,
+  options: SettingsFileOptions = {},
+) {
+  const key = required(apiKey, `${HOSTED_PROVIDER_INFO[provider].name} API key`)
+  await updateSettings(options, (saved) => {
+    const next = { ...saved, [hostedApiKeyField(provider)]: key }
+    return model ? selectedModelSettings(next, model) : next
+  })
 }
 
 export async function saveSelectedModel(model: CatalogModel, options: SettingsFileOptions = {}) {
@@ -265,6 +295,12 @@ export async function saveWorkspacePanelWidth(
   await updateSettings(options, (saved) => ({ ...saved, workspacePanelWidth }))
 }
 
+export async function saveHiddenModels(hiddenModels: string[], options: SettingsFileOptions = {}) {
+  await updateSettings(options, (saved) =>
+    defined({ ...saved, hiddenModels: hiddenModels.length ? hiddenModels : undefined }),
+  )
+}
+
 export async function saveFastServingSelection(
   model: FireworksModel,
   fast: boolean,
@@ -297,7 +333,11 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
   if (!isRecord(value)) throw new Error("Invalid Otis config: expected an object.")
   if (value.version !== 1) throw new Error("Invalid Otis config: unsupported version.")
 
-  const fireworksApiKey = optionalString(value.fireworksApiKey, "fireworksApiKey")
+  const keys: LocalSettings = {}
+  for (const provider of HOSTED_PROVIDERS) {
+    const field = hostedApiKeyField(provider)
+    keys[field] = optionalString(value[field], field)
+  }
   if (value.pairEndpoints !== undefined && !isRecord(value.pairEndpoints)) {
     throw new Error("Invalid Otis config: pairEndpoints must be an object.")
   }
@@ -369,27 +409,19 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
   }
   const achievementsSeen = value.achievementsSeen?.filter(isAchievementId)
   const fastMode = optionalBoolean(value.fastMode, "fastMode")
-  if (value.fastServingModels !== undefined && !Array.isArray(value.fastServingModels)) {
-    throw new Error("Invalid Otis config: fastServingModels must be an array of strings.")
-  }
-  const fastServingModels = value.fastServingModels && [
-    ...new Set(
-      value.fastServingModels.map((item) => optionalString(item, "fastServingModels") as string),
-    ),
-  ]
+  const fastServingModels = optionalStringList(value.fastServingModels, "fastServingModels")
   const modelFastId = optionalString(value.modelFastId, "modelFastId")
-  const modelProvider = optionalChoice(
-    value.modelProvider,
-    ["fireworks", "local", "pair", "omlx"],
-    "Invalid Otis config: modelProvider must be fireworks, local, pair, or omlx.",
-  )
+  const hiddenModels = optionalStringList(value.hiddenModels, "hiddenModels")
+  const modelProvider = value.modelProvider
+  if (modelProvider !== undefined && !isModelProvider(modelProvider))
+    throw new Error("Invalid Otis config: modelProvider is not a known provider.")
   const permissions =
     value.permissions === undefined
       ? undefined
       : parsePermissionConfig(value.permissions, "Invalid Otis config: permissions")
   return defined({
     version: 1 as const,
-    fireworksApiKey,
+    ...keys,
     pairEndpoints: hasPairEndpoints(pairEndpoints) ? pairEndpoints : undefined,
     omlx,
     pairEngine,
@@ -412,6 +444,7 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
     fastMode,
     fastServingModels,
     modelFastId,
+    hiddenModels,
     permissions,
   })
 }
@@ -539,10 +572,21 @@ function optionalBoolean(value: unknown, name: string): boolean | undefined {
 }
 
 function optionalString(value: unknown, name: string) {
-  if (value === undefined) return undefined
+  return value === undefined ? undefined : parsedString(value, name)
+}
+
+function parsedString(value: unknown, name: string) {
   if (typeof value !== "string" || !value.trim())
     throw new Error(`Invalid Otis config: ${name} must be a string.`)
   return value.trim()
+}
+
+/** A list of non-empty strings, deduplicated; `undefined` when the field is absent. */
+function optionalStringList(value: unknown, name: string) {
+  if (value === undefined) return undefined
+  if (!Array.isArray(value))
+    throw new Error(`Invalid Otis config: ${name} must be an array of strings.`)
+  return [...new Set(value.map((item) => parsedString(item, name)))]
 }
 
 function required(value: string, label: string) {

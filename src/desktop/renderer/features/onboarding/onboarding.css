@@ -276,6 +276,28 @@
   text-align: center;
 }
 
+/* Hosted provider choice: the canvas's tab strip; the chosen one is filled, keyed ones carry a check. */
+.onboarding-providers {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.onboarding-providersLegend {
+  display: block;
+  width: 100%;
+  padding: 0;
+  margin-bottom: 6px;
+  font-size: var(--text-meta);
+  color: var(--text-dim);
+  text-align: center;
+}
+
+.onboarding-providerTabs {
+  justify-content: center;
+}
+
 .onboarding-keyRow {
   display: flex;
   align-items: center;

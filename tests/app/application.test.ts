@@ -7,7 +7,7 @@ import { SESSION_REASONS } from "../../src/app/sessions.js"
 import type { TurnResult, TurnRunnerOptions } from "../../src/app/turn-runner.js"
 import { findLocalModel } from "../../src/inference/local-catalog.js"
 import type {
-  FireworksPickerChoice,
+  HostedPickerChoice,
   LocalPickerChoice,
   PairPickerChoice,
 } from "../../src/inference/picker-catalog.js"
@@ -15,6 +15,7 @@ import type {
   CatalogModel,
   ChatMessage,
   FireworksModel,
+  HostedModel,
   InferenceClient,
   LocalCatalogModel,
 } from "../../src/inference/types.js"
@@ -28,12 +29,12 @@ const mocks = vi.hoisted(() => ({
   executeTurn: vi.fn(),
   listDownloaded: vi.fn<() => Promise<unknown[]>>(async () => []),
   deleteGguf: vi.fn<() => Promise<void>>(async () => {}),
-  listToolCapableModels: vi.fn<() => Promise<unknown[]>>(async () => []),
+  listHostedModels: vi.fn<() => Promise<unknown[]>>(async () => []),
 }))
 vi.mock("../../src/app/turn-runner.js", () => ({ executeTurn: mocks.executeTurn }))
 vi.mock("../../src/inference/client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/inference/client.js")>()),
-  listToolCapableModels: mocks.listToolCapableModels,
+  listHostedModels: mocks.listHostedModels,
 }))
 vi.mock("../../src/inference/gguf-cache.js", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../src/inference/gguf-cache.js")>()
@@ -138,7 +139,7 @@ const localChoice: LocalPickerChoice = {
   downloaded: true,
   active: false,
 }
-const kimiChoice: FireworksPickerChoice = {
+const kimiChoice: HostedPickerChoice = {
   kind: "model",
   provider: "fireworks",
   id: "accounts/fireworks/models/kimi",
@@ -180,7 +181,7 @@ describe("Application", () => {
     })
 
     expect(app.cwd).toBe(home)
-    expect(app.fireworksApiKey).toBe("fw_test")
+    expect(app.hostedApiKeys).toEqual({ fireworks: "fw_test" })
     expect(app.settings.model).toBeUndefined()
     expect(app.settings.theme).toBeUndefined()
     expect(app.transcript.entries).toEqual([])
@@ -546,7 +547,12 @@ describe("Application status", () => {
       localThinking: null,
       permissionMode: "auto",
       fastServing: { available: true, enabled: false },
-      hostedConfigured: true,
+      hostedConfigured: {
+        fireworks: true,
+        together: false,
+        baseten: false,
+        primeintellect: false,
+      },
       pairEndpoints: {},
       omlx: null,
       subagents: [],
@@ -679,6 +685,24 @@ describe("Application model transactions", () => {
     await app.shutdown()
   })
 
+  it("hides and shows hosted models for the picker and persists the choice", async () => {
+    const app = await ready("otis-app-hidden-")
+    expect(app.status().hiddenModels).toEqual([])
+    await app.setModelHidden("together", "moonshotai/Kimi-K3", true)
+    await app.setModelHidden("baseten", "zai-org/GLM-5.3", true)
+    expect(app.status().hiddenModels).toEqual([
+      "together:moonshotai/Kimi-K3",
+      "baseten:zai-org/GLM-5.3",
+    ])
+    expect((await loadLocalSettings()).hiddenModels).toEqual([
+      "together:moonshotai/Kimi-K3",
+      "baseten:zai-org/GLM-5.3",
+    ])
+    await app.setModelHidden("together", "moonshotai/Kimi-K3", false)
+    expect(app.status().hiddenModels).toEqual(["baseten:zai-org/GLM-5.3"])
+    await app.shutdown()
+  })
+
   it("drops the speed readout when the model switches or the session changes", async () => {
     const app = await ready("otis-app-speed-")
     preparing(app)
@@ -775,12 +799,14 @@ describe("Application model transactions", () => {
     await saveSelectedModel({ ...kimiChoice, kind: undefined } as never)
     const app = await Application.create({ cwd: home, env: {} })
     expect(app.status().modelState).toBe("unconfigured")
-    await expect(app.setFireworksApiKey("  ")).rejects.toThrow("Fireworks API key is required.")
-    await expect(app.setFireworksApiKey("bad", { list: async () => [] })).rejects.toThrow(
+    await expect(app.setHostedApiKey("fireworks", "  ")).rejects.toThrow(
+      "Fireworks API key is required.",
+    )
+    await expect(app.setHostedApiKey("fireworks", "bad", { list: async () => [] })).rejects.toThrow(
       "no public models with tool support",
     )
     await expect(
-      app.setFireworksApiKey("bad", {
+      app.setHostedApiKey("fireworks", "bad", {
         list: async () => {
           throw new Error("HTTP 401")
         },
@@ -789,13 +815,77 @@ describe("Application model transactions", () => {
     expect((await loadLocalSettings()).fireworksApiKey).toBeUndefined()
 
     const catalog = [{ ...kimiChoice, fastId: "accounts/fireworks/routers/kimi-fast" }]
-    expect(await app.setFireworksApiKey(" good ", { list: async () => catalog as never })).toBe(
-      catalog,
-    )
-    expect(app.fireworksApiKey).toBe("good")
+    const list = vi.fn(async () => catalog as never)
+    expect(await app.setHostedApiKey("fireworks", " good ", { list })).toBe(catalog)
+    expect(list).toHaveBeenCalledWith("fireworks", "good", { signal: undefined })
+    expect(app.hostedApiKeys).toEqual({ fireworks: "good" })
     expect((await loadLocalSettings()).fireworksApiKey).toBe("good")
-    expect(app.status()).toMatchObject({ modelState: "ready", hostedConfigured: true })
+    expect(app.status()).toMatchObject({
+      modelState: "ready",
+      hostedConfigured: { fireworks: true, together: false },
+    })
     expect(app.focused.client?.model).toBe(kimiChoice.id)
+    await app.shutdown()
+  })
+
+  it("activates a saved Together AI model with its key and leaves other providers' sessions alone", async () => {
+    const home = await isolate("otis-app-together-key-")
+    const together: HostedModel = {
+      provider: "together",
+      id: "moonshotai/Kimi-K3",
+      displayName: "Kimi K3",
+      contextLength: 262_144,
+      supportsImageInput: true,
+    }
+    await saveSelectedModel(together)
+    const app = await Application.create({ cwd: home, env: { FIREWORKS_API_KEY: "fw" } })
+    expect(app.status()).toMatchObject({
+      modelState: "unconfigured",
+      hostedConfigured: {
+        fireworks: true,
+        together: false,
+        baseten: false,
+        primeintellect: false,
+      },
+    })
+    // A second session runs on Fireworks with a live client; the Together key must not rebuild it.
+    const fireworksSession = app.addRuntime()
+    fireworksSession.selection = { model: fakeModel, supportsImageInput: false, client: fakeClient }
+    expect(app.selection?.model.provider).toBe("together")
+
+    await expect(app.setHostedApiKey("together", " ")).rejects.toThrow(
+      "Together AI API key is required.",
+    )
+    await expect(
+      app.setHostedApiKey("together", "bad", {
+        list: async () => {
+          throw new Error("Together AI rejected the API key.")
+        },
+      }),
+    ).rejects.toThrow("Together AI rejected the API key.")
+    expect(app.hostedApiKeys).toEqual({ fireworks: "fw" })
+
+    const list = vi.fn(async () => [together])
+    expect(await app.setHostedApiKey("together", " tg_good ", { list })).toEqual([together])
+    expect(list).toHaveBeenCalledWith("together", "tg_good", { signal: undefined })
+    expect(app.hostedApiKeys).toEqual({ fireworks: "fw", together: "tg_good" })
+    // The Fireworks key came from the environment, so only the Together key lands in the file.
+    expect(await loadLocalSettings({ env: {} })).toMatchObject({
+      fireworksApiKey: undefined,
+      togetherApiKey: "tg_good",
+      model: together.id,
+      modelProvider: "together",
+    })
+    expect(app.status()).toMatchObject({
+      modelState: "ready",
+      model: { id: together.id, provider: "together" },
+      hostedConfigured: { fireworks: true, together: true, baseten: false, primeintellect: false },
+    })
+    expect(app.focused.selection?.client).toMatchObject({
+      provider: "together",
+      model: together.id,
+    })
+    expect(fireworksSession.selection?.client).toBe(fakeClient)
     await app.shutdown()
   })
 
@@ -872,7 +962,7 @@ describe("Application model transactions", () => {
 
 describe("Application prompts with attachments", () => {
   beforeEach(() => {
-    mocks.listToolCapableModels.mockReset()
+    mocks.listHostedModels.mockReset()
   })
 
   const png = {
@@ -893,7 +983,7 @@ describe("Application prompts with attachments", () => {
     } as never)
     const app = await Application.create({ cwd: home, env: { FIREWORKS_API_KEY: "fw" } })
     expect(app.selection?.supportsImageInput).toBeUndefined()
-    mocks.listToolCapableModels.mockResolvedValue([
+    mocks.listHostedModels.mockResolvedValue([
       { ...kimiChoice, kind: undefined, supportsImageInput: true, contextLength: 128_000 },
     ])
 
@@ -906,7 +996,7 @@ describe("Application prompts with attachments", () => {
       content: [png, { type: "text", text: "what is this" }],
     })
     expect(second.role).toBe("user")
-    expect(mocks.listToolCapableModels).toHaveBeenCalledOnce()
+    expect(mocks.listHostedModels).toHaveBeenCalledOnce()
     expect(app.selection?.supportsImageInput).toBe(true)
     expect(await loadLocalSettings()).toMatchObject({
       modelSupportsImageInput: true,
@@ -915,18 +1005,18 @@ describe("Application prompts with attachments", () => {
     // Known from here on: no further lookups, text prompts never look.
     await app.buildPrompt("again", [png])
     await app.buildPrompt("plain", [])
-    expect(mocks.listToolCapableModels).toHaveBeenCalledOnce()
+    expect(mocks.listHostedModels).toHaveBeenCalledOnce()
     await app.shutdown()
   })
 
   it("refuses images for a model without vision, by catalog spec for local models", async () => {
     const app = await ready("otis-app-novision-")
     app.focused.selection = { model: fakeModel, supportsImageInput: undefined, client: fakeClient }
-    app.fireworksApiKey = undefined
+    delete app.hostedApiKeys.fireworks
     await expect(app.buildPrompt("see", [png])).rejects.toThrow(
       "accounts/fireworks/models/fake does not support image input. Choose a vision model.",
     )
-    expect(mocks.listToolCapableModels).not.toHaveBeenCalled()
+    expect(mocks.listHostedModels).not.toHaveBeenCalled()
 
     app.focused.selection = { model: gptOss, supportsImageInput: undefined, client: fakeClient }
     await expect(app.buildPrompt("see", [png])).rejects.toThrow(

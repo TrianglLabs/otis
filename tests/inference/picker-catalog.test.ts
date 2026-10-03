@@ -21,12 +21,24 @@ import {
 } from "../../src/inference/local-fit.js"
 import {
   formatContextWindow,
+  type HostedPickerChoice,
   isSelectablePickerItem,
   type LocalPickerChoice,
   listModelPickerItems,
+  type ModelPickerItem,
   type PairPickerChoice,
 } from "../../src/inference/picker-catalog.js"
-import { fireworksModel } from "../../src/inference/types.js"
+import {
+  filterModelPickerItems,
+  hiddenModelKey,
+  providerLabel,
+} from "../../src/inference/picker-filter.js"
+import {
+  HOSTED_PROVIDER_INFO,
+  HOSTED_PROVIDERS,
+  type HostedModel,
+  type HostedProvider,
+} from "../../src/inference/types.js"
 
 const ample: HardwareProbe = {
   platform: "darwin",
@@ -429,18 +441,60 @@ describe("model picker catalog", () => {
     expect(bonsai?.availabilityLabel).toContain("· PQ2_0")
   })
 
+  it("hides the hosted models the user hid, except the active one", async () => {
+    const list = async (provider: HostedProvider) => [
+      { provider, id: "a/kept", displayName: "Kept", supportsImageInput: false },
+      { provider, id: "a/hidden", displayName: "Hidden", supportsImageInput: false },
+      { provider, id: "a/active-hidden", displayName: "Active", supportsImageInput: false },
+    ]
+    const options = {
+      hardware: await macHardware(512),
+      dataDirectory: await tempDir(),
+      hostedApiKeys: { together: "tg", baseten: "bt" },
+      listHosted: list,
+      hiddenModels: new Set([
+        hiddenModelKey("together", "a/hidden"),
+        hiddenModelKey("together", "a/active-hidden"),
+        hiddenModelKey("baseten", "a/kept"),
+        hiddenModelKey("baseten", "a/hidden"),
+        hiddenModelKey("baseten", "a/active-hidden"),
+      ]),
+    }
+    const items = await listModelPickerItems({
+      ...options,
+      currentProvider: "together",
+      currentModel: "a/active-hidden",
+    })
+    const hosted = items.filter((item) => item.kind === "header" || item.provider !== "local")
+    expect(hosted.map((item) => (item.kind === "header" ? item.id : item.id))).toEqual([
+      "header-local",
+      "header-together",
+      "a/kept",
+      "a/active-hidden",
+    ])
+    // A section whose models are all hidden has no header; the hidden flag is per provider.
+    const unselected = await listModelPickerItems(options)
+    expect(unselected.some((item) => item.kind === "header" && item.id === "header-baseten")).toBe(
+      false,
+    )
+    expect(
+      unselected.filter((item) => item.kind === "model" && item.provider === "together"),
+    ).toHaveLength(1)
+  })
+
   it("lists local models in recommendation order above hosted entries", async () => {
     const items = await listModelPickerItems({
       hardware: await macHardware(512),
       dataDirectory: await tempDir(),
       currentModel: "accounts/fireworks/models/inkling",
-      fireworksApiKey: "fw_test",
-      listFireworks: async () => [
-        fireworksModel({
+      hostedApiKeys: { fireworks: "fw_test" },
+      listHosted: async () => [
+        {
+          provider: "fireworks",
           id: "accounts/fireworks/models/inkling",
           displayName: "Inkling",
           supportsImageInput: false,
-        }),
+        },
       ],
     })
 
@@ -451,7 +505,7 @@ describe("model picker catalog", () => {
     ).toEqual([GLM, FLASH, QWEN, BONSAI, ORNITH, GEMMA, LFM, GPT_OSS, GEMMA_A4B, GEMMA_31B])
     expect(items[1]).toMatchObject({ recommended: true })
     const hostedHeader = items.findIndex(
-      (item) => item.kind === "header" && item.displayName === "Hosted",
+      (item) => item.kind === "header" && item.displayName === "Fireworks",
     )
     expect(hostedHeader).toBe(1 + LOCAL_MODELS.length)
     expect(items[hostedHeader + 1]).toMatchObject({
@@ -511,18 +565,19 @@ describe("model picker catalog", () => {
     const items = await listModelPickerItems({
       hardware: { ...tight, totalMemoryBytes: 4 * 1024 ** 3, gpuMemoryBytes: 4 * 1024 ** 3 },
       dataDirectory: await tempDir(),
-      fireworksApiKey: "fw_test",
-      listFireworks: async () => [
-        fireworksModel({
+      hostedApiKeys: { fireworks: "fw_test" },
+      listHosted: async () => [
+        {
+          provider: "fireworks",
           id: "accounts/fireworks/models/alpha",
           displayName: "Alpha",
           supportsImageInput: false,
-        }),
+        },
       ],
     })
 
     expect(items.some((item) => item.kind === "header" && item.id === "header-local")).toBe(false)
-    expect(items[0]).toMatchObject({ kind: "header", id: "header-hosted" })
+    expect(items[0]).toMatchObject({ kind: "header", id: "header-fireworks" })
   })
 
   it("keeps hybrid-offload models available when system RAM is sufficient", async () => {
@@ -674,17 +729,115 @@ describe("model picker catalog", () => {
     const items = await listModelPickerItems({
       hardware: ample,
       dataDirectory: await tempDir(),
-      fireworksApiKey: "fw_test",
-      listFireworks: async () => {
+      hostedApiKeys: { fireworks: "fw_test" },
+      listHosted: async () => {
         throw new Error("Fireworks down")
       },
     })
-    expect(items.some((item) => item.kind === "header" && item.displayName === "Hosted")).toBe(
+    expect(items.some((item) => item.kind === "header" && item.id === "header-fireworks")).toBe(
       false,
     )
     expect(items.some((item) => item.kind !== "header" && item.id === "openai/gpt-oss-20b")).toBe(
       true,
     )
+  })
+
+  it("groups hosted rows per provider in catalog order and only lists providers with a key", async () => {
+    const calls: [HostedProvider, string][] = []
+    const items = await listModelPickerItems({
+      hardware: { ...tight, totalMemoryBytes: 4 * 1024 ** 3, gpuMemoryBytes: 4 * 1024 ** 3 },
+      dataDirectory: await tempDir(),
+      hostedApiKeys: { primeintellect: "pi_key", fireworks: "fw_key", together: "tg_key" },
+      listHosted: async (provider, apiKey) => {
+        calls.push([provider, apiKey])
+        if (provider === "together") throw new Error("Together AI is unavailable right now")
+        return [hostedModel(provider, "beta", "Beta"), hostedModel(provider, "alpha", "Alpha")]
+      },
+    })
+
+    // Baseten has no key and Together failed: neither is asked for a header.
+    expect(calls.sort()).toEqual([
+      ["fireworks", "fw_key"],
+      ["primeintellect", "pi_key"],
+      ["together", "tg_key"],
+    ])
+    expect(items).toEqual([
+      { kind: "header", id: "header-fireworks", displayName: "Fireworks" },
+      {
+        kind: "model",
+        ...hostedModel("fireworks", "beta", "Beta"),
+        available: true,
+        active: false,
+      },
+      {
+        kind: "model",
+        ...hostedModel("fireworks", "alpha", "Alpha"),
+        available: true,
+        active: false,
+      },
+      { kind: "header", id: "header-primeintellect", displayName: "Prime Intellect" },
+      {
+        kind: "model",
+        ...hostedModel("primeintellect", "beta", "Beta"),
+        available: true,
+        active: false,
+      },
+      {
+        kind: "model",
+        ...hostedModel("primeintellect", "alpha", "Alpha"),
+        available: true,
+        active: false,
+      },
+    ])
+    expect(HOSTED_PROVIDERS.indexOf("fireworks")).toBeLessThan(
+      HOSTED_PROVIDERS.indexOf("primeintellect"),
+    )
+  })
+
+  it("marks a hosted row active only for the current provider, matching Fast ids on Fireworks", async () => {
+    const list = async (provider: HostedProvider): Promise<HostedModel[]> => [
+      {
+        ...hostedModel(provider, "shared/model", "Shared"),
+        ...(provider === "fireworks" ? { fastId: "accounts/fireworks/routers/shared-fast" } : {}),
+      },
+    ]
+    const hostedRows = async (currentProvider: HostedProvider, currentModel: string) => {
+      const items = await listModelPickerItems({
+        hardware: tight,
+        dataDirectory: await tempDir(),
+        hostedApiKeys: Object.fromEntries(HOSTED_PROVIDERS.map((p) => [p, `${p}_key`])),
+        listHosted: list,
+        currentProvider,
+        currentModel,
+      })
+      const rows = items.filter(
+        (item): item is HostedPickerChoice =>
+          item.kind === "model" && HOSTED_PROVIDERS.includes(item.provider as HostedProvider),
+      )
+      expect(
+        items.filter((item) => item.kind === "header").map((item) => item.displayName),
+      ).toEqual(["Local", ...HOSTED_PROVIDERS.map((p) => HOSTED_PROVIDER_INFO[p].name)])
+      return Object.fromEntries(rows.map((row) => [row.provider, row.active]))
+    }
+
+    expect(await hostedRows("baseten", "shared/model")).toEqual({
+      fireworks: false,
+      together: false,
+      baseten: true,
+      primeintellect: false,
+    })
+    expect(await hostedRows("fireworks", "accounts/fireworks/routers/shared-fast")).toEqual({
+      fireworks: true,
+      together: false,
+      baseten: false,
+      primeintellect: false,
+    })
+    expect(await hostedRows("together", "other/model")).toEqual({
+      fireworks: false,
+      together: false,
+      baseten: false,
+      primeintellect: false,
+    })
   })
 
   it("puts every PAIR model in one unified section and keeps duplicate engine model IDs distinct", async () => {
@@ -760,6 +913,108 @@ describe("model picker catalog", () => {
     ).toMatchObject({ active: true })
   })
 
+  it("names every provider the way its picker header does", () => {
+    expect(providerLabel("local")).toBe("Local")
+    expect(providerLabel("pair")).toBe("NVIDIA PAIR")
+    expect(providerLabel("omlx")).toBe("oMLX")
+    for (const provider of HOSTED_PROVIDERS)
+      expect(providerLabel(provider)).toBe(HOSTED_PROVIDER_INFO[provider].name)
+  })
+
+  it("filters rows by name, id, or provider label and keeps only headers with a match", async () => {
+    const items = await listModelPickerItems({
+      hardware: { ...tight, totalMemoryBytes: 4 * 1024 ** 3, gpuMemoryBytes: 4 * 1024 ** 3 },
+      dataDirectory: await tempDir(),
+      hostedApiKeys: { fireworks: "fw", together: "tg" },
+      listHosted: async (provider) =>
+        provider === "fireworks"
+          ? [
+              hostedModel(provider, "accounts/fireworks/models/kimi-k3", "Kimi K3"),
+              hostedModel(provider, "accounts/fireworks/models/glm-5p3", "GLM 5.3"),
+            ]
+          : [
+              hostedModel(provider, "moonshotai/Kimi-K3", "Kimi K3"),
+              hostedModel(provider, "zai-org/GLM-5.3-Flash", "GLM 5.3 Flash"),
+            ],
+      pairModels: [
+        {
+          provider: "pair",
+          id: "qwen3:32b",
+          displayName: "Qwen 3 32B",
+          baseURL: "http://127.0.0.1:11434",
+          engine: "ollama",
+          supportsImageInput: false,
+        },
+      ],
+      omlxModels: [
+        {
+          provider: "omlx",
+          id: "mlx-community/gemma-4",
+          displayName: "Gemma 4",
+          baseURL: "http://127.0.0.1:8000",
+          supportsImageInput: false,
+          contextLength: 131_072,
+        },
+      ],
+    })
+    const headers = (rows: readonly ModelPickerItem[]) =>
+      rows.filter((row) => row.kind === "header").map((row) => row.id)
+    const ids = (rows: readonly ModelPickerItem[]) =>
+      rows.filter((row) => row.kind === "model").map((row) => `${row.provider}:${row.id}`)
+    expect(headers(items)).toEqual([
+      "header-pair",
+      "header-omlx",
+      "header-fireworks",
+      "header-together",
+    ])
+
+    // A blank query hands back every row in order, as a copy the caller may mutate.
+    for (const blank of ["", "   ", "\t"]) {
+      const all = filterModelPickerItems(items, blank)
+      expect(all).toEqual(items)
+      expect(all).not.toBe(items)
+    }
+
+    // Matching is case-insensitive over the display name and the id.
+    const kimi = filterModelPickerItems(items, "  KIMI ")
+    expect(headers(kimi)).toEqual(["header-fireworks", "header-together"])
+    expect(ids(kimi)).toEqual([
+      "fireworks:accounts/fireworks/models/kimi-k3",
+      "together:moonshotai/Kimi-K3",
+    ])
+    expect(ids(filterModelPickerItems(items, "zai-org"))).toEqual([
+      "together:zai-org/GLM-5.3-Flash",
+    ])
+    expect(ids(filterModelPickerItems(items, "glm-5p3"))).toEqual([
+      "fireworks:accounts/fireworks/models/glm-5p3",
+    ])
+
+    // The provider label matches every row of that provider, under its header.
+    const together = filterModelPickerItems(items, "together")
+    expect(together[0]).toEqual({
+      kind: "header",
+      id: "header-together",
+      displayName: "Together AI",
+    })
+    expect(ids(together)).toEqual(["together:moonshotai/Kimi-K3", "together:zai-org/GLM-5.3-Flash"])
+    expect(together).toHaveLength(3)
+    expect(filterModelPickerItems(items, "pair")).toEqual([
+      { kind: "header", id: "header-pair", displayName: "NVIDIA PAIR" },
+      expect.objectContaining({ kind: "model", provider: "pair", id: "qwen3:32b" }),
+    ])
+    expect(ids(filterModelPickerItems(items, "omlx"))).toEqual(["omlx:mlx-community/gemma-4"])
+    expect(headers(filterModelPickerItems(items, "fireworks"))).toEqual(["header-fireworks"])
+
+    // Nothing matches: no headers survive either.
+    expect(filterModelPickerItems(items, "claude")).toEqual([])
+
+    // Rows without a header are kept on their own; a header only precedes its own matches.
+    const headless = items.filter((item) => item.kind === "model")
+    expect(filterModelPickerItems(headless, "kimi")).toEqual(
+      kimi.filter((item) => item.kind === "model"),
+    )
+  })
+
   it("labels context windows in binary K, exact thousands, or a marked rounding", async () => {
     expect(formatContextWindow(32_768)).toBe("32K")
     expect(formatContextWindow(16_384)).toBe("16K")
@@ -829,6 +1084,10 @@ async function recommendedIds(hardware: HardwareProbe, dataDirectory?: string) {
   return items.flatMap((item) =>
     item.kind === "model" && item.provider === "local" && item.recommended ? [item.id] : [],
   )
+}
+
+function hostedModel(provider: HostedProvider, id: string, displayName: string): HostedModel {
+  return { provider, id, displayName, supportsImageInput: false }
 }
 
 function localGgufPath(model: LocalModelSpec, directory: string) {

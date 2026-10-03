@@ -71,6 +71,20 @@ describe("slash commands", () => {
       setting: "delete-model",
       modelId: "openai/gpt-oss-20b",
     })
+    expect(parseSlashCommand("/settings hosted together")).toEqual({
+      type: "settings",
+      setting: "hosted",
+      provider: "together",
+    })
+    expect(parseSlashCommand("/settings hosted nope")).toBeUndefined()
+    expect(parseSlashCommand("/settings toggle-model together:Qwen/Qwen3:fast")).toEqual({
+      type: "settings",
+      setting: "toggle-model",
+      provider: "together",
+      modelId: "Qwen/Qwen3:fast",
+    })
+    expect(parseSlashCommand("/settings toggle-model nope")).toBeUndefined()
+    expect(parseSlashCommand("/settings toggle-model fireworks:")).toBeUndefined()
     expect(parseSlashCommand("/settings unknown")).toBeUndefined()
     expect(parseSlashCommand("/debug")).toEqual({ type: "settings", setting: "debug" })
     expect(parseSlashCommand("/theme")).toEqual({ type: "settings", setting: "theme" })

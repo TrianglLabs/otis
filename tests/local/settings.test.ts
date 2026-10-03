@@ -4,15 +4,16 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import {
   clearSelectedModel,
+  hostedApiKeys,
   initializeLocalSettings,
   loadLocalSettings,
+  saveAchievementsSeen,
   saveFastServingSelection,
-  saveFireworksApiKey,
-  saveFireworksSetup,
+  saveHiddenModels,
+  saveHostedApiKey,
   saveLocalServers,
   saveLocalThinking,
   savePermissionMode,
-  saveAchievementsSeen,
   saveSelectedModel,
   saveSelectedTheme,
   saveSubagentPanelVisible,
@@ -30,6 +31,21 @@ afterEach(async () => {
 })
 
 describe("local settings", () => {
+  it("saves hidden picker models without duplicates and clears the field when none remain", async () => {
+    const file = join(await tempDirectory(), "config.json")
+    await saveHiddenModels(["together:a/b", "together:a/b", "baseten:c"], { file })
+    await saveSelectedModel(model("org/first", "First", 65_536), { file })
+    expect((await loadLocalSettings({ file, env: {} })).hiddenModels).toEqual([
+      "together:a/b",
+      "baseten:c",
+    ])
+    await saveHiddenModels([], { file })
+    expect(JSON.parse(await readFile(file, "utf8")).hiddenModels).toBeUndefined()
+    await writeFile(file, JSON.stringify({ version: 1, hiddenModels: "x" }), "utf8")
+    await expect(loadLocalSettings({ file, env: {} })).rejects.toThrow(
+      "hiddenModels must be an array of strings",
+    )
+  })
   it("keeps viewed achievements and preferences through model saves and clears", async () => {
     const file = join(await tempDirectory(), "config.json")
     await saveAchievementsSeen(["hosted-model"], { file })
@@ -70,9 +86,14 @@ describe("local settings", () => {
   it("seeds a private independent profile without replacing its later settings", async () => {
     const source = join(await tempDirectory(), "config.json")
     const file = join(await tempDirectory(), "dev", "config.json")
-    await saveFireworksSetup("fw_fake_import_key", model("tool-model", "Tool Model", 131_072), {
-      file: source,
-    })
+    await saveHostedApiKey(
+      "fireworks",
+      "fw_fake_import_key",
+      model("tool-model", "Tool Model", 131_072),
+      {
+        file: source,
+      },
+    )
     await saveThinkingVisible(false, { file: source })
     const original = await readFile(source, "utf8")
 
@@ -85,7 +106,7 @@ describe("local settings", () => {
       expect((await stat(join(file, ".."))).mode & 0o777).toBe(0o700)
     }
 
-    await saveFireworksApiKey("fw_fake_dev_key", { file })
+    await saveHostedApiKey("fireworks", "fw_fake_dev_key", undefined, { file })
     await initializeLocalSettings(source, { file })
     expect((await loadLocalSettings({ file, env: {} })).fireworksApiKey).toBe("fw_fake_dev_key")
     expect(await readFile(source, "utf8")).toBe(original)
@@ -102,7 +123,7 @@ describe("local settings", () => {
     const directory = await tempDirectory()
     const source = join(directory, "source.json")
     const file = join(directory, "dev.json")
-    await saveFireworksApiKey("fw_fake_import_key", { file: source })
+    await saveHostedApiKey("fireworks", "fw_fake_import_key", undefined, { file: source })
     await saveThinkingVisible(false, { file })
     const original = await readFile(file, "utf8")
     await initializeLocalSettings(source, { file })
@@ -150,7 +171,7 @@ describe("local settings", () => {
       { file },
     )
 
-    await saveFireworksApiKey(" fw_test_key ", { file })
+    await saveHostedApiKey("fireworks", " fw_test_key ", undefined, { file })
 
     await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({
       fireworksApiKey: "fw_test_key",
@@ -162,7 +183,12 @@ describe("local settings", () => {
 
   it("stores the Fireworks key and selected model in a private local file", async () => {
     const file = join(await tempDirectory(), "config", "config.json")
-    await saveFireworksSetup(" fw_test_key ", model("tool-model", "Tool Model", 131_072), { file })
+    await saveHostedApiKey(
+      "fireworks",
+      " fw_test_key ",
+      model("tool-model", "Tool Model", 131_072),
+      { file },
+    )
 
     await expect(loadLocalSettings({ file, env: {} })).resolves.toEqual({
       fireworksApiKey: "fw_test_key",
@@ -211,9 +237,134 @@ describe("local settings", () => {
     })
   })
 
+  it("stores one key per hosted provider and keeps every key through model rewrites", async () => {
+    const file = join(await tempDirectory(), "config.json")
+    await saveHostedApiKey("together", " tg_key ", undefined, { file })
+    await saveHostedApiKey("baseten", "bt_key", undefined, { file })
+    await saveHostedApiKey(
+      "primeintellect",
+      "pi_key",
+      {
+        provider: "primeintellect",
+        id: "org/model",
+        displayName: "Model",
+        supportsImageInput: true,
+      },
+      { file },
+    )
+    await expect(saveHostedApiKey("together", "  ", undefined, { file })).rejects.toThrow(
+      "Together AI API key is required.",
+    )
+
+    const loaded = await loadLocalSettings({ file, env: {} })
+    expect(loaded).toMatchObject({
+      fireworksApiKey: undefined,
+      togetherApiKey: "tg_key",
+      basetenApiKey: "bt_key",
+      primeintellectApiKey: "pi_key",
+      model: "org/model",
+      modelDisplayName: "Model",
+      modelProvider: "primeintellect",
+      modelSupportsImageInput: true,
+    })
+    expect(hostedApiKeys(loaded)).toEqual({
+      together: "tg_key",
+      baseten: "bt_key",
+      primeintellect: "pi_key",
+    })
+
+    // Model saves rewrite the whole file; no provider's key may fall out of it.
+    await saveSelectedModel(model("new", "New"), { file })
+    await saveHostedApiKey("fireworks", "fw_key", undefined, { file })
+    await saveSelectedModel(
+      {
+        provider: "local",
+        id: "openai/gpt-oss-20b",
+        displayName: "gpt-oss 20B",
+        contextLength: 32_768,
+        supportsImageInput: false,
+      },
+      { file },
+    )
+    await clearSelectedModel({ file })
+    expect(JSON.parse(await readFile(file, "utf8"))).toEqual({
+      version: 1,
+      fireworksApiKey: "fw_key",
+      togetherApiKey: "tg_key",
+      basetenApiKey: "bt_key",
+      primeintellectApiKey: "pi_key",
+    })
+    expect(hostedApiKeys(await loadLocalSettings({ file, env: {} }))).toEqual({
+      fireworks: "fw_key",
+      together: "tg_key",
+      baseten: "bt_key",
+      primeintellect: "pi_key",
+    })
+  })
+
+  it("lets each provider's environment variable override its saved key without copying it", async () => {
+    const file = join(await tempDirectory(), "config.json")
+    await saveHostedApiKey("together", "tg_saved", undefined, { file })
+    await saveHostedApiKey("baseten", "bt_saved", undefined, { file })
+    const env = {
+      FIREWORKS_API_KEY: " fw_env ",
+      TOGETHER_API_KEY: " tg_env ",
+      BASETEN_API_KEY: "",
+      PRIME_API_KEY: "pi_env",
+    }
+
+    expect(hostedApiKeys(await loadLocalSettings({ file, env }))).toEqual({
+      fireworks: "fw_env",
+      together: "tg_env",
+      baseten: "bt_saved",
+      primeintellect: "pi_env",
+    })
+    expect(hostedApiKeys(await loadLocalSettings({ file, env: {} }))).toEqual({
+      together: "tg_saved",
+      baseten: "bt_saved",
+    })
+    await saveSelectedTheme("nord", { file })
+    expect(JSON.parse(await readFile(file, "utf8"))).toEqual({
+      version: 1,
+      togetherApiKey: "tg_saved",
+      basetenApiKey: "bt_saved",
+      theme: "nord",
+    })
+  })
+
+  it("loads a selected model of every hosted provider and rejects an unknown provider", async () => {
+    const directory = await tempDirectory()
+    for (const provider of ["together", "baseten", "primeintellect"]) {
+      const file = join(directory, `${provider}.json`)
+      await writeFile(
+        file,
+        JSON.stringify({ version: 1, model: "org/model", modelProvider: provider }),
+        "utf8",
+      )
+      await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({
+        model: "org/model",
+        modelProvider: provider,
+      })
+    }
+    const unknown = join(directory, "unknown.json")
+    await writeFile(
+      unknown,
+      JSON.stringify({ version: 1, model: "org/model", modelProvider: "openai" }),
+      "utf8",
+    )
+    await expect(loadLocalSettings({ file: unknown, env: {} })).rejects.toThrow(
+      "Invalid Otis config: modelProvider is not a known provider.",
+    )
+    const blankKey = join(directory, "blank-key.json")
+    await writeFile(blankKey, JSON.stringify({ version: 1, basetenApiKey: " " }), "utf8")
+    await expect(loadLocalSettings({ file: blankKey, env: {} })).rejects.toThrow(
+      "Invalid Otis config: basetenApiKey must be a string.",
+    )
+  })
+
   it("changes the selected model without replacing a saved key", async () => {
     const file = join(await tempDirectory(), "config.json")
-    await saveFireworksSetup("fw_test_key", model("old", "Old", 32_768), { file })
+    await saveHostedApiKey("fireworks", "fw_test_key", model("old", "Old", 32_768), { file })
     await saveSelectedModel(model("new", "New"), { file })
 
     expect(JSON.parse(await readFile(file, "utf8"))).toEqual({
@@ -228,7 +379,9 @@ describe("local settings", () => {
 
   it("clears only the selected model fields", async () => {
     const file = join(await tempDirectory(), "config.json")
-    await saveFireworksSetup("fw_test_key", model("tool-model", "Tool Model", 32_768), { file })
+    await saveHostedApiKey("fireworks", "fw_test_key", model("tool-model", "Tool Model", 32_768), {
+      file,
+    })
     await saveSelectedTheme("nord", { file })
     await saveThinkingVisible(true, { file })
     await saveFastServingSelection(model("tool-model", "Tool Model"), false, { file })
@@ -251,7 +404,7 @@ describe("local settings", () => {
     "titanium",
   ] as const)("stores %s without replacing provider settings", async (theme) => {
     const file = join(await tempDirectory(), "config.json")
-    await saveFireworksSetup("fw_test_key", model("tool-model", "Tool Model"), { file })
+    await saveHostedApiKey("fireworks", "fw_test_key", model("tool-model", "Tool Model"), { file })
     await saveSelectedTheme(theme, { file })
 
     await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({ theme })
@@ -263,7 +416,7 @@ describe("local settings", () => {
 
   it("stores the interface language without replacing provider or model settings", async () => {
     const file = join(await tempDirectory(), "config.json")
-    await saveFireworksSetup("fw_test_key", model("tool-model", "Tool Model"), { file })
+    await saveHostedApiKey("fireworks", "fw_test_key", model("tool-model", "Tool Model"), { file })
     await saveUiLanguage("ja", { file })
     await saveSelectedModel(model("new", "New"), { file })
 
@@ -276,7 +429,7 @@ describe("local settings", () => {
 
   it("stores subagent panel visibility independently from the selected model", async () => {
     const file = join(await tempDirectory(), "config.json")
-    await saveFireworksSetup("fw_test_key", model("tool-model", "Tool Model"), { file })
+    await saveHostedApiKey("fireworks", "fw_test_key", model("tool-model", "Tool Model"), { file })
     await saveSubagentPanelVisible(false, { file })
 
     await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({
@@ -295,7 +448,7 @@ describe("local settings", () => {
 
   it("stores thinking visibility independently from reasoning behavior", async () => {
     const file = join(await tempDirectory(), "config.json")
-    await saveFireworksSetup("fw_test_key", model("tool-model", "Tool Model"), { file })
+    await saveHostedApiKey("fireworks", "fw_test_key", model("tool-model", "Tool Model"), { file })
     await saveThinkingVisible(true, { file })
 
     await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({
@@ -333,7 +486,7 @@ describe("local settings", () => {
     const file = join(await tempDirectory(), "config.json")
     const alpha = fastModel("alpha", "Alpha")
     const beta = fastModel("beta", "Beta")
-    await saveFireworksSetup("fw_test_key", alpha, { file })
+    await saveHostedApiKey("fireworks", "fw_test_key", alpha, { file })
     await saveFastServingSelection({ ...alpha, id: alpha.fastId }, true, { file })
     await saveFastServingSelection({ ...beta, id: beta.fastId }, true, { file })
     await saveFastServingSelection(alpha, false, { file })
@@ -435,7 +588,7 @@ describe("local settings", () => {
 
   it("stores a selected local model without clearing a saved Fireworks key", async () => {
     const file = join(await tempDirectory(), "config.json")
-    await saveFireworksSetup("fw_test_key", model("tool-model", "Tool Model"), { file })
+    await saveHostedApiKey("fireworks", "fw_test_key", model("tool-model", "Tool Model"), { file })
     await saveSelectedModel(
       {
         provider: "local",
@@ -458,7 +611,7 @@ describe("local settings", () => {
 
   it("stores the selected PAIR engine and preserves configured endpoints across provider changes", async () => {
     const file = join(await tempDirectory(), "config.json")
-    await saveFireworksSetup("fw_test_key", model("tool-model", "Tool Model"), { file })
+    await saveHostedApiKey("fireworks", "fw_test_key", model("tool-model", "Tool Model"), { file })
     await saveSelectedModel(
       {
         provider: "pair",

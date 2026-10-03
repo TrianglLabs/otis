@@ -1,9 +1,5 @@
 import { autoCompactThreshold } from "../core/compaction.js"
-import {
-  FireworksClient,
-  fireworksReasoningEffort,
-  listToolCapableModels,
-} from "../inference/client.js"
+import { fireworksReasoningEffort, HostedClient, listHostedModels } from "../inference/client.js"
 import { compactionContextLength, requireLocalContextLength } from "../inference/context-policy.js"
 import { describeError } from "../inference/errors.js"
 import { detectHardware, type HardwareProbe } from "../inference/hardware.js"
@@ -29,22 +25,25 @@ import { discoverOmlxModels, OmlxClient, type OmlxSettings } from "../inference/
 import { createPairClient, pairEndpointForEngine } from "../inference/pair.js"
 import type { ModelPickerStatus } from "../inference/picker-catalog.js"
 import {
-  findFireworksModel,
+  findHostedModel,
   fireworksServingModel,
   useFastServingPath,
 } from "../inference/serving-path.js"
-import type {
-  CatalogModel,
-  ChatMessage,
-  CompleteOptions,
-  FireworksModel,
-  InferenceClient,
-  ModelProvider,
-  PairEngine,
-  StreamChatOptions,
+import {
+  type CatalogModel,
+  type ChatMessage,
+  type CompleteOptions,
+  HOSTED_PROVIDER_INFO,
+  type HostedApiKeys,
+  type HostedProvider,
+  type InferenceClient,
+  isLocalCatalogModel,
+  isPairCatalogModel,
+  type ModelProvider,
+  type PairEngine,
+  type StreamChatOptions,
 } from "../inference/types.js"
-import { isLocalCatalogModel, isPairCatalogModel } from "../inference/types.js"
-import type { LocalSettings } from "../local/settings.js"
+import { hostedApiKeys, type LocalSettings } from "../local/settings.js"
 
 type ActiveLocalModel = {
   spec: LocalModelSpec
@@ -231,7 +230,8 @@ type PreparedModelSelection = {
 type ConnectModelOptions = {
   provider: ModelProvider
   modelId: string
-  fireworksApiKey?: string
+  /** The key of a hosted `provider`. */
+  hostedApiKey?: string
   pairEndpoint?: string
   pairEngine?: PairEngine
   contextLength?: number
@@ -240,7 +240,7 @@ type ConnectModelOptions = {
 }
 
 type PrepareModelOptions = {
-  fireworksApiKey?: string
+  hostedApiKeys?: HostedApiKeys
   signal: AbortSignal
   isExiting?: () => boolean
   /** Other sessions still run on the managed server: a hosted selection leaves it serving. */
@@ -399,9 +399,8 @@ export class ModelHost {
       return { model, supportsImageInput, client }
     }
     const model: CatalogModel = { provider, ...shared, fastId: settings.modelFastId }
-    const client = settings.fireworksApiKey
-      ? new FireworksClient({ apiKey: settings.fireworksApiKey, model: id })
-      : undefined
+    const apiKey = hostedApiKeys(settings)[provider]
+    const client = apiKey ? new HostedClient({ provider, apiKey, model: id }) : undefined
     return { model, supportsImageInput, client }
   }
 
@@ -636,32 +635,14 @@ export class ModelHost {
     } else if (isPairCatalogModel(model)) {
       client = createPairClient({ baseURL: model.baseURL, model: model.id, engine: model.engine })
     } else {
-      if (!options.fireworksApiKey) throw new Error("Fireworks API key is required.")
-      client = new FireworksClient({ apiKey: options.fireworksApiKey, model: model.id })
+      const apiKey = options.hostedApiKeys?.[model.provider]
+      if (!apiKey)
+        throw new Error(`${HOSTED_PROVIDER_INFO[model.provider].name} API key is required.`)
+      client = new HostedClient({ provider: model.provider, apiKey, model: model.id })
     }
     // The server keeps serving the sessions that still run on it.
     if (!options.keepLocal) await guarded(() => this.stopLocal())
     return prepared({ model, supportsImageInput: model.supportsImageInput, client })
-  }
-
-  /**
-   * A saved selection without a window is budgeted like a 128K model; the catalog's reported
-   * window is better when it can be fetched, so this refreshes it best-effort before activation.
-   */
-  async fireworksContextLength(
-    apiKey: string,
-    model: FireworksModel,
-    signal?: AbortSignal,
-  ): Promise<FireworksModel> {
-    try {
-      const { serving } = await resolveFireworksServing(apiKey, model.id, { signal })
-      return serving.contextLength === undefined
-        ? model
-        : { ...model, contextLength: serving.contextLength }
-    } catch {
-      signal?.throwIfAborted()
-      return model
-    }
   }
 
   async restorePrevious(
@@ -729,32 +710,39 @@ export class ModelHost {
       return { model, supportsImageInput: model.supportsImageInput, client }
     }
     const supportsImageInput = options.supportsImageInput ?? false
-    await this.stopLocal()
     if (provider === "pair") {
       const baseURL = options.pairEndpoint
       if (!baseURL)
         throw new Error("Local model server endpoint is not configured for the selected engine.")
       const engine = options.pairEngine ?? "ollama"
+      await this.stopLocal()
       return {
         model: { provider, id: modelId, displayName: modelId, baseURL, engine, supportsImageInput },
         supportsImageInput,
         client: createPairClient({ baseURL, model: modelId, engine }),
       }
     }
-    if (!options.fireworksApiKey) throw new Error("Fireworks API key is not configured.")
-    let model: FireworksModel = {
-      provider,
-      id: modelId,
-      displayName: modelId,
-      contextLength: options.contextLength,
-      supportsImageInput,
+    const apiKey = options.hostedApiKey
+    if (!apiKey)
+      throw new Error(`${HOSTED_PROVIDER_INFO[provider].name} API key is not configured.`)
+    await this.stopLocal()
+    let contextLength = options.contextLength
+    // A saved selection without a window is budgeted like a 128K model; the catalog's reported
+    // window is better when it can be fetched, so refresh it best-effort before activation.
+    if (contextLength === undefined) {
+      try {
+        const { serving } = await resolveHostedServing(provider, apiKey, modelId, {
+          signal: options.signal,
+        })
+        contextLength = serving.contextLength
+      } catch {
+        options.signal?.throwIfAborted()
+      }
     }
-    if (model.contextLength === undefined)
-      model = await this.fireworksContextLength(options.fireworksApiKey, model, options.signal)
     return {
-      model,
+      model: { provider, id: modelId, displayName: modelId, contextLength, supportsImageInput },
       supportsImageInput: options.supportsImageInput,
-      client: new FireworksClient({ apiKey: options.fireworksApiKey, model: modelId }),
+      client: new HostedClient({ provider, apiKey, model: modelId }),
     }
   }
 
@@ -779,15 +767,19 @@ export class ModelHost {
   }
 }
 
-export async function resolveFireworksServing(
+/** The catalog entry behind a hosted model id, and the id it serves under (Fast or standard). */
+export async function resolveHostedServing(
+  provider: HostedProvider,
   apiKey: string,
   modelId: string,
   options: { fast?: boolean; signal?: AbortSignal },
 ) {
-  const models = await listToolCapableModels(apiKey, { signal: options.signal })
-  const selected = findFireworksModel(models, modelId)
-  if (!selected)
-    throw new Error(`Model is not a tool-capable Fireworks serverless model: ${modelId}`)
+  const models = await listHostedModels(provider, apiKey, { signal: options.signal })
+  const selected = findHostedModel(models, modelId)
+  if (!selected) {
+    const { name } = HOSTED_PROVIDER_INFO[provider]
+    throw new Error(`Model is not a tool-capable ${name} model: ${modelId}`)
+  }
   return {
     selected,
     serving: fireworksServingModel(selected, useFastServingPath(modelId, options.fast)),
