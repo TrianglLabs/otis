@@ -152,25 +152,34 @@ describe("CLI settings", () => {
     mocks.listHostedModels.mockResolvedValue([
       testModel({ id: "accounts/fireworks/models/kimi-k3", displayName: "Kimi K3" }),
     ])
+
+    // Without a provider, the menu offers only the keyed providers and loads nothing yet.
     await submit("/settings models")
-    expect(mocks.listHostedModels).toHaveBeenLastCalledWith("fireworks", "fw_test_key")
-    const key = "fireworks:accounts/fireworks/models/kimi-k3"
+    expect(mocks.listHostedModels).not.toHaveBeenCalled()
     expect(mocks.ui.showCommandSubmenu).toHaveBeenLastCalledWith(
       [
         {
-          name: "Kimi K3 · Fireworks",
-          description: "Shown",
-          submission: `/settings toggle-model ${key}`,
+          name: "Fireworks",
+          description: "Show or hide models",
+          submission: "/settings models fireworks",
         },
       ],
-      expect.anything(),
+      { onBack: expect.any(Function) },
     )
 
-    // A row flips the model and the menu stays open with the new state.
+    await submit("/settings models fireworks")
+    expect(mocks.listHostedModels).toHaveBeenCalledExactlyOnceWith("fireworks", "fw_test_key")
+    const key = "fireworks:accounts/fireworks/models/kimi-k3"
+    expect(mocks.ui.showCommandSubmenu).toHaveBeenLastCalledWith(
+      [{ name: "Kimi K3", description: "Shown", submission: `/settings toggle-model ${key}` }],
+      { onBack: expect.any(Function) },
+    )
+
+    // A row flips the model and that provider's list stays open with the new state.
     await submit(`/settings toggle-model ${key}`)
     expect(mocks.saveHiddenModels).toHaveBeenLastCalledWith([key])
     expect(mocks.ui.showCommandSubmenu).toHaveBeenLastCalledWith(
-      [expect.objectContaining({ name: "Kimi K3 · Fireworks", description: "Hidden" })],
+      [expect.objectContaining({ name: "Kimi K3", description: "Hidden" })],
       expect.anything(),
     )
     await submit(`/settings toggle-model ${key}`)
@@ -178,6 +187,73 @@ describe("CLI settings", () => {
     expect(mocks.ui.showCommandSubmenu).toHaveBeenLastCalledWith(
       [expect.objectContaining({ description: "Shown" })],
       expect.anything(),
+    )
+
+    // Backing out of the list returns to the provider chooser, and from there to settings.
+    mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[1]?.onBack?.()
+    expect(mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[0]).toEqual([
+      expect.objectContaining({ submission: "/settings models fireworks" }),
+    ])
+    mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[1]?.onBack?.()
+    await settle()
+    expect(mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[0]).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "Hosted models" })]),
+    )
+  })
+
+  it("scopes /settings models to the chosen provider's catalog", async () => {
+    mocks.loadLocalSettings.mockResolvedValue(localSettings({ togetherApiKey: "tg_test_key" }))
+    const kimi = testModel({
+      provider: "together",
+      id: "moonshotai/Kimi-K3",
+      displayName: "Kimi K3",
+    })
+    const qwen = testModel({ provider: "together", id: "Qwen/Qwen3.8", displayName: "Qwen 3.8" })
+    mocks.listHostedModels.mockImplementation(async (provider) =>
+      provider === "together" ? [kimi, qwen] : [testModel()],
+    )
+    await loadCli()
+
+    await submit("/settings models")
+    expect(mocks.ui.showCommandSubmenu).toHaveBeenLastCalledWith(
+      [
+        expect.objectContaining({ name: "Fireworks", submission: "/settings models fireworks" }),
+        expect.objectContaining({ name: "Together AI", submission: "/settings models together" }),
+      ],
+      { onBack: expect.any(Function) },
+    )
+
+    await submit("/settings models together")
+    expect(mocks.listHostedModels).toHaveBeenCalledExactlyOnceWith("together", "tg_test_key")
+    expect(mocks.ui.showCommandSubmenu).toHaveBeenLastCalledWith(
+      [
+        {
+          name: "Kimi K3",
+          description: "Shown",
+          submission: "/settings toggle-model together:moonshotai/Kimi-K3",
+        },
+        {
+          name: "Qwen 3.8",
+          description: "Shown",
+          submission: "/settings toggle-model together:Qwen/Qwen3.8",
+        },
+      ],
+      { onBack: expect.any(Function) },
+    )
+
+    // An empty catalog says so instead of opening an empty list.
+    mocks.listHostedModels.mockResolvedValueOnce([])
+    await submit("/settings models fireworks")
+    expect(mocks.ui.showTransientHint).toHaveBeenLastCalledWith(" No models to list. ")
+    expect(mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[0]).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "Qwen 3.8" })]),
+    )
+
+    // A failed request names the error rather than pretending the catalog is empty.
+    mocks.listHostedModels.mockRejectedValueOnce(new Error("401 Unauthorized"))
+    await submit("/settings models fireworks")
+    expect(mocks.ui.showTransientHint).toHaveBeenLastCalledWith(
+      " Could not list models: 401 Unauthorized ",
     )
   })
 
@@ -195,26 +271,7 @@ describe("CLI settings", () => {
     await submit("/settings")
     expect(mocks.ui.showCommandSubmenu).toHaveBeenLastCalledWith(
       [
-        {
-          name: "Fireworks",
-          description: "Replace API key",
-          submission: "/settings hosted fireworks",
-        },
-        {
-          name: "Together AI",
-          description: "Add API key",
-          submission: "/settings hosted together",
-        },
-        {
-          name: "Baseten",
-          description: "Add API key",
-          submission: "/settings hosted baseten",
-        },
-        {
-          name: "Prime Intellect",
-          description: "Add API key",
-          submission: "/settings hosted primeintellect",
-        },
+        { name: "Hosted inference", description: "Fireworks", submission: "/settings hosted" },
         {
           name: "Local servers",
           description: "Connect a local model server",
@@ -283,7 +340,7 @@ describe("CLI settings", () => {
     }>
     expect(settings).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ name: "Fireworks" }),
+        expect.objectContaining({ name: "Hosted inference" }),
         expect.objectContaining({ name: "Debug mode" }),
       ]),
     )

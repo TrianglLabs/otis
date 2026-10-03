@@ -27,6 +27,7 @@ import { isFastFireworksModel } from "../inference/serving-path.js"
 import {
   HOSTED_PROVIDER_INFO,
   HOSTED_PROVIDERS,
+  type HostedProvider,
   isHostedProvider,
   type ModelProvider,
   type UserChatMessage,
@@ -442,7 +443,8 @@ export class InteractiveApp {
       case "settings": {
         this.#ui.clearInput()
         if (command.setting === "hosted") {
-          this.#setupFlow.configureHostedInference(command.provider)
+          if (command.provider) this.#setupFlow.configureHostedInference(command.provider)
+          else this.#openProviderMenu("hosted")
         } else if (command.setting === "pair" || command.setting === "servers") {
           this.#setupFlow.configurePairInference()
         } else if (command.setting === "debug") {
@@ -455,12 +457,13 @@ export class InteractiveApp {
         } else if (command.setting === "theme") {
           this.#openThemeMenu()
         } else if (command.setting === "models") {
-          await this.#openHostedModelsMenu()
+          if (command.provider) await this.#openHostedModelsMenu(command.provider)
+          else this.#openProviderMenu("models")
         } else if (command.setting === "toggle-model" && command.provider && command.modelId) {
           const key = hiddenModelKey(command.provider, command.modelId)
           const hidden = !this.#app.settings.hiddenModels?.includes(key)
           await this.#app.setModelHidden(command.provider, command.modelId, hidden)
-          await this.#openHostedModelsMenu()
+          await this.#openHostedModelsMenu(command.provider)
         } else if (command.setting === "delete-model") {
           if (command.modelId) {
             void this.#deleteLocalModel(command.modelId)
@@ -776,12 +779,15 @@ export class InteractiveApp {
   async #openSettingsMenu() {
     const downloaded = (await listDownloadedLocalModels()).length > 0
     if (this.#exiting) return
+    const keyed = HOSTED_PROVIDERS.filter((provider) => this.#app.hostedApiKeys[provider])
     const items = [
-      ...HOSTED_PROVIDERS.map((provider) => ({
-        name: HOSTED_PROVIDER_INFO[provider].name,
-        description: this.#app.hostedApiKeys[provider] ? "Replace API key" : "Add API key",
-        submission: `/settings hosted ${provider}`,
-      })),
+      {
+        name: "Hosted inference",
+        description: keyed.length
+          ? keyed.map((provider) => HOSTED_PROVIDER_INFO[provider].name).join(", ")
+          : "Add an API key",
+        submission: "/settings hosted",
+      },
       {
         name: "Local servers",
         description:
@@ -801,7 +807,7 @@ export class InteractiveApp {
             },
           ]
         : []),
-      ...(HOSTED_PROVIDERS.some((provider) => this.#app.hostedApiKeys[provider])
+      ...(keyed.length
         ? [
             {
               name: "Hosted models",
@@ -975,40 +981,66 @@ export class InteractiveApp {
   }
 
   /**
-   * `/settings models`: every keyed provider's catalog with each model's picker visibility; a row
-   * flips it and the menu stays open for the next one.
+   * One row per hosted provider: `/settings hosted` lists them all and opens a key form;
+   * `/settings models` lists the keyed ones and opens a catalog.
    */
-  async #openHostedModelsMenu() {
-    this.#ui.showTransientHint(" Loading models… ")
-    const catalogs = await Promise.all(
-      HOSTED_PROVIDERS.map(async (provider) => {
-        const apiKey = this.#app.hostedApiKeys[provider]
-        const models = apiKey ? await listHostedModels(provider, apiKey).catch(() => []) : []
-        return { provider, models }
-      }),
+  #openProviderMenu(setting: "hosted" | "models") {
+    const keys = this.#app.hostedApiKeys
+    const providers =
+      setting === "hosted"
+        ? HOSTED_PROVIDERS
+        : HOSTED_PROVIDERS.filter((provider) => keys[provider])
+    this.#ui.clearInput()
+    this.#ui.showCommandSubmenu(
+      providers.map((provider) => ({
+        name: HOSTED_PROVIDER_INFO[provider].name,
+        description:
+          setting === "models"
+            ? "Show or hide models"
+            : keys[provider]
+              ? "Replace API key"
+              : "Add API key",
+        submission: `/settings ${setting} ${provider}`,
+      })),
+      { onBack: () => void this.#openSettingsMenu() },
     )
+    this.#ui.focusInput()
+  }
+
+  /**
+   * `/settings models <provider>`: that catalog with each model's picker visibility; a row flips
+   * it and the list stays open for the next one.
+   */
+  async #openHostedModelsMenu(provider: HostedProvider) {
+    const apiKey = this.#app.hostedApiKeys[provider]
+    if (!apiKey) return this.#openProviderMenu("models")
+    this.#ui.showTransientHint(" Loading models… ")
+    const models = await listHostedModels(provider, apiKey).catch((error: unknown) => {
+      this.#ui.showTransientHint(` Could not list models: ${describeError(error)} `)
+      return undefined
+    })
     if (this.#exiting) return
+    if (!models?.length) {
+      if (models) this.#ui.showTransientHint(" No models to list. ")
+      this.#ui.focusInput()
+      return
+    }
     const hidden = new Set(this.#app.settings.hiddenModels)
     const selected = this.#app.selection?.model
-    const items = catalogs.flatMap(({ provider, models }) =>
+    this.#ui.clearInput()
+    this.#ui.showCommandSubmenu(
       models.map((model) => {
         const key = hiddenModelKey(provider, model.id)
         const active =
           selected?.provider === provider && selected.id === model.id ? "Active · " : ""
         return {
-          name: `${model.displayName} · ${HOSTED_PROVIDER_INFO[provider].name}`,
+          name: model.displayName,
           description: `${active}${hidden.has(key) ? "Hidden" : "Shown"}`,
           submission: `/settings toggle-model ${key}`,
         }
       }),
+      { onBack: () => this.#openProviderMenu("models") },
     )
-    if (items.length === 0) {
-      this.#ui.showTransientHint(" No hosted models to list. ")
-      this.#ui.focusInput()
-      return
-    }
-    this.#ui.clearInput()
-    this.#ui.showCommandSubmenu(items, { onBack: () => void this.#openSettingsMenu() })
     this.#ui.focusInput()
   }
 

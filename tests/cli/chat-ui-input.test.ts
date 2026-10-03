@@ -142,6 +142,45 @@ describe("chat UI input", () => {
     expect(harness.find("command-menu")).toBeUndefined()
   })
 
+  it("windows a long submenu to twelve rows that slide with the selection", async () => {
+    const onSubmit = vi.fn()
+    const harness = await setup({ onSubmit })
+    const rows = Array.from({ length: 20 }, (_, index) => ({
+      name: `Model ${index}`,
+      description: index % 2 ? "" : "Shown",
+      submission: `/settings toggle-model fireworks:model-${index}`,
+    }))
+    harness.ui.showCommandSubmenu(rows)
+
+    const visible = (count: number) =>
+      Array.from({ length: count }, (_, index) => `command-row-${index}-box`)
+    expect(harness.childIds("command-menu")).toEqual(visible(12))
+    expect(harness.text("command-row-0")).toBe("› Model 0")
+    expect(harness.text("command-row-0-meta")).toBe("  Shown")
+    expect(harness.text("command-row-11")).toBe("  Model 11")
+    // The last visible row counts what is hidden below it alongside its own description.
+    expect(harness.text("command-row-11-meta")).toBe("  ↓ 8 more")
+    expect(harness.get<TextRenderable>("command-row-11-meta").visible).toBe(true)
+
+    // Moving past the bottom edge slides the window one row and reports both directions.
+    for (let i = 0; i < 12; i++) harness.press("down")
+    expect(harness.childIds("command-menu")).toEqual(visible(12))
+    expect(harness.text("command-row-0")).toBe("  Model 1")
+    expect(harness.text("command-row-0-meta")).toBe("  ↑ 1 more")
+    expect(harness.text("command-row-11")).toBe("› Model 12")
+    expect(harness.text("command-row-11-meta")).toBe("  Shown · ↓ 7 more")
+
+    // The window stops at the end of the list, with only the hidden rows above reported.
+    for (let i = 0; i < 7; i++) harness.press("down")
+    expect(harness.text("command-row-0")).toBe("  Model 8")
+    expect(harness.text("command-row-0-meta")).toBe("  Shown · ↑ 8 more")
+    expect(harness.text("command-row-11")).toBe("› Model 19")
+    expect(harness.get<TextRenderable>("command-row-11-meta").visible).toBe(false)
+
+    harness.press("return")
+    expect(onSubmit).toHaveBeenCalledWith("/settings toggle-model fireworks:model-19")
+  })
+
   it("opens the settings submenu from the slash menu", async () => {
     let openSettings = () => {}
     const onSubmit = vi.fn((value: string) => {
@@ -499,7 +538,7 @@ describe("chat UI input", () => {
     const harness = await setup({ configured: false, onSetupHostedChoice })
     const none = { fireworks: false, together: false, baseten: false, primeintellect: false }
 
-    harness.ui.showSetupHostedChoice({ ...none, fireworks: true }, "choice")
+    harness.ui.showSetupHostedChoice({ ...none, fireworks: true })
     expect(harness.childIds("input-area")).toEqual(["setup-hosted-choice"])
     expect(harness.text("setup-hosted-choice-heading")).toBe("Choose a hosted provider")
     expect(harness.childIds("setup-hosted-choice-rows")).toEqual([
@@ -538,13 +577,8 @@ describe("chat UI input", () => {
     expect(harness.childIds("input-area")).toEqual(["setup-choice"])
     expect(harness.text("setup-choice-hosted-title")).toBe("Hosted inference")
 
-    // From Settings, both screens cancel back to the chat composer.
+    // A key form opened from Settings cancels back to the chat composer.
     harness.ui.setConfigured()
-    harness.ui.showSetupHostedChoice(none, "configured")
-    expect(harness.get<TextRenderable>("setup-hosted-row-0-meta").visible).toBe(false)
-    harness.press("escape")
-    expect(harness.childIds("input-area")).toEqual(["input-box"])
-    expect(harness.get<TextareaRenderable>("otis-input").focused).toBe(true)
     harness.ui.showSetupInput("", "configured", "baseten")
     expect(harness.text("setup-input-label")).toBe("Baseten API key")
     harness.press("escape")

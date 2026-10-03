@@ -23,7 +23,10 @@
       // find and zoom requests from inside the page and relays its shortcuts back out.
       const frame = document.getElementById("preview")
       const agent =
-        "<style>::highlight(otis-find){background:#ffd54a80}::highlight(otis-find-current){background:#ff9800c0}</style>" +
+        // The preview's own scrollbars: the host's thin, always-present style, in a neutral tone
+        // that reads on light and dark pages, since macOS overlay bars would otherwise hide them.
+        "<style>::highlight(otis-find){background:#ffd54a80}::highlight(otis-find-current){background:#ff9800c0}" +
+          "::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-thumb{background:#80808073;border:3px solid transparent;border-radius:999px;background-clip:content-box}::-webkit-scrollbar-corner{background:transparent}</style>" +
         "<script>(() => {" +
         "document.addEventListener('click', (event) => {" +
         "const anchor = event.target instanceof Element ? event.target.closest('a[href]') : null;" +

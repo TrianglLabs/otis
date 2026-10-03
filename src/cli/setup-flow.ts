@@ -131,7 +131,7 @@ export class SetupFlow {
     if (this.#closed || this.options.isBusy()) return
     this.#credentialPurpose = "onboarding"
     if (choice === "local") this.options.ui.showSetupLocalInferenceChoice()
-    else this.options.ui.showSetupHostedChoice(this.#app.hostedConfigured(), "choice")
+    else this.options.ui.showSetupHostedChoice(this.#app.hostedConfigured())
   }
 
   selectHostedProvider(provider: HostedProvider) {
@@ -159,15 +159,11 @@ export class SetupFlow {
     void this.openModelPicker(false, { sources: "managed" })
   }
 
-  /** Settings: the key form for `provider`, or the provider list when none is named. */
-  configureHostedInference(provider?: HostedProvider) {
+  /** Settings: the key form for `provider`; the `/settings` menu picks the provider. */
+  configureHostedInference(provider: HostedProvider) {
     if (this.#closed || this.options.isBusy()) return
     this.#credentialPurpose = "settings"
     this.#openedKeyPage = undefined
-    if (!provider) {
-      this.options.ui.showSetupHostedChoice(this.#app.hostedConfigured(), "configured")
-      return
-    }
     this.#hostedProvider = provider
     this.requestHostedKey()
   }

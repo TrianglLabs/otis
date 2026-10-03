@@ -77,6 +77,13 @@ describe("slash commands", () => {
       provider: "together",
     })
     expect(parseSlashCommand("/settings hosted nope")).toBeUndefined()
+    expect(parseSlashCommand("/settings models")).toEqual({ type: "settings", setting: "models" })
+    expect(parseSlashCommand("/settings models together")).toEqual({
+      type: "settings",
+      setting: "models",
+      provider: "together",
+    })
+    expect(parseSlashCommand("/settings models nope")).toBeUndefined()
     expect(parseSlashCommand("/settings toggle-model together:Qwen/Qwen3:fast")).toEqual({
       type: "settings",
       setting: "toggle-model",

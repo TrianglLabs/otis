@@ -49,10 +49,8 @@ export class InputController {
   #setupInferenceChoice: SetupInferenceChoice = "local"
   #setupLocalInferenceChoice: SetupLocalInferenceChoice = "managed"
   #setupHostedChoice: HostedProvider = "fireworks"
-  /** The provider list as last shown, which a key form's Escape returns to. */
-  #setupHostedList:
-    | { configured: Record<HostedProvider, boolean>; cancelTarget: SetupInputCancelTarget }
-    | undefined
+  /** Which providers had a key when the list was last shown; a key form's Escape returns to it. */
+  #setupHostedConfigured: Record<HostedProvider, boolean> | undefined
   #setupInputCancelTarget: SetupInputCancelTarget = "choice"
   readonly #hostedRows: PickerRow[] = []
   readonly #setupChoicePulse: SelectionPulse
@@ -110,11 +108,8 @@ export class InputController {
       stopKey(key)
       if (this.#setupInputCancelTarget === "configured") this.setConfigured()
       else if (this.#setupInputCancelTarget === "local") this.showSetupLocalInferenceChoice()
-      else if (this.#setupInputCancelTarget === "hosted" && this.#setupHostedList)
-        this.showSetupHostedChoice(
-          this.#setupHostedList.configured,
-          this.#setupHostedList.cancelTarget,
-        )
+      else if (this.#setupInputCancelTarget === "hosted" && this.#setupHostedConfigured)
+        this.showSetupHostedChoice(this.#setupHostedConfigured)
       else this.showSetupInferenceChoice()
       return true
     }
@@ -134,8 +129,7 @@ export class InputController {
     }
     if (this.mode === "setupHostedChoice" && key.name === "escape") {
       stopKey(key)
-      if (this.#setupHostedList?.cancelTarget === "configured") this.setConfigured()
-      else this.showSetupInferenceChoice()
+      this.showSetupInferenceChoice()
       return true
     }
     if (this.mode === "setupPairInput" && key.name === "escape") {
@@ -236,13 +230,10 @@ export class InputController {
     this.#setupChoicePulse.start()
   }
 
-  showSetupHostedChoice(
-    configured: Record<HostedProvider, boolean>,
-    cancelTarget: SetupInputCancelTarget,
-  ) {
+  showSetupHostedChoice(configured: Record<HostedProvider, boolean>) {
     this.#clearSetupInput()
     this.mode = "setupHostedChoice"
-    this.#setupHostedList = { configured, cancelTarget }
+    this.#setupHostedConfigured = configured
     this.#layout.welcomeQuit.content = " "
     this.#renderHostedRows()
     this.#setPrimary(this.#layout.setupHostedChoiceBox)
@@ -307,7 +298,7 @@ export class InputController {
       this.#hostedRows,
       HOSTED_PROVIDERS.map((provider) => ({
         title: HOSTED_PROVIDER_INFO[provider].name,
-        meta: this.#setupHostedList?.configured[provider] ? "API key saved" : undefined,
+        meta: this.#setupHostedConfigured?.[provider] ? "API key saved" : undefined,
         fg: colors.text,
         selected: provider === this.#setupHostedChoice,
       })),
