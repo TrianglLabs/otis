@@ -281,6 +281,9 @@ export const ptBR: Messages = {
   "settings.inference": "Inferência",
   "settings.hostedInference": "Inferência hospedada",
   "settings.hostedKey": "Chave de API da {{provider}}",
+  "settings.primeTeamId": "ID da equipe (opcional)",
+  "settings.primeTeamIdNote":
+    "A Prime Intellect cobra as solicitações da carteira desta equipe em vez do seu saldo pessoal.",
   "settings.providerConnected": "Conectado",
   "settings.providerNotConnected": "Não conectado",
   "settings.addKey": "Adicionar chave",

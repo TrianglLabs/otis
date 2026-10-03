@@ -282,6 +282,9 @@ export const ja: Messages = {
   "settings.inference": "推論",
   "settings.hostedInference": "ホスト型推論",
   "settings.hostedKey": "{{provider}} API キー",
+  "settings.primeTeamId": "チーム ID（任意）",
+  "settings.primeTeamIdNote":
+    "Prime Intellect はリクエストを個人残高ではなくこのチームのウォレットに請求します。",
   "settings.providerConnected": "接続済み",
   "settings.providerNotConnected": "未接続",
   "settings.addKey": "キーを追加",

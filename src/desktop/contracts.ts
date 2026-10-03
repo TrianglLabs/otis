@@ -56,6 +56,7 @@ export const DESKTOP_CHANNELS = {
   listModels: "desktop:list-models",
   listHostedCatalogs: "desktop:list-hosted-catalogs",
   setModelHidden: "desktop:set-model-hidden",
+  setPrimeTeamId: "desktop:set-prime-team-id",
   selectModel: "desktop:select-model",
   cancelModelSelection: "desktop:cancel-model-selection",
   getSubagentTrace: "desktop:subagent-trace",
@@ -187,6 +188,8 @@ export type DesktopStatus = {
   hostedConfigured: Record<HostedProvider, boolean>
   /** Hosted models hidden from the picker, as `hiddenModelKey` strings; persisted in settings. */
   hiddenModels: string[]
+  /** The Prime Intellect team billed for inference, or null for the personal wallet. */
+  primeTeamId: string | null
   /** At least one NVIDIA PAIR endpoint is configured. */
   pairConfigured: boolean
   /** The saved PAIR endpoint addresses (loopback URLs), for prefilling the connect form. */
@@ -367,6 +370,8 @@ export type DesktopApi = {
   listHostedCatalogs(): Promise<Partial<Record<HostedProvider, HostedModel[]>>>
   /** Hides a hosted model from the picker, or shows it again; the selected model always shows. */
   setModelHidden(provider: HostedProvider, id: string, hidden: boolean): Promise<void>
+  /** Bills Prime Intellect requests to this team's wallet; blank returns to the personal one. */
+  setPrimeTeamId(teamId: string): Promise<void>
   /**
    * Selects a picker item, downloading and loading a managed local model when needed. `id` is the
    * item id, or the selectionKey for PAIR entries whose plain ids collide across engines. Resolves

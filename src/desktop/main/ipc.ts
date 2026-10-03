@@ -236,6 +236,10 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
     if (typeof hidden !== "boolean") throw new Error("Invalid visibility flag.")
     return runtime.setModelHidden(provider, id, hidden)
   })
+  handle(DESKTOP_CHANNELS.setPrimeTeamId, (teamId) => {
+    if (typeof teamId !== "string") throw new Error("Invalid team id.")
+    return runtime.setPrimeTeamId(teamId)
+  })
 
   handle(DESKTOP_CHANNELS.selectModel, (id) => {
     if (typeof id !== "string") throw new Error("selectModel expects a string id")

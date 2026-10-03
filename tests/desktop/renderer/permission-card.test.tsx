@@ -82,6 +82,7 @@ const SNAPSHOT: DesktopSnapshot = {
   fastServing: { available: false, enabled: false },
   hostedConfigured: { fireworks: true, together: false, baseten: false, primeintellect: false },
   hiddenModels: [],
+  primeTeamId: null,
   pairConfigured: false,
   pairEndpoints: {},
   debug: false,

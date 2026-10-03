@@ -281,6 +281,8 @@ export class ModelHost {
   readonly llama: LlamaCppRuntime
   readonly gate = new InferenceGate()
   omlx: OmlxSettings | undefined
+  /** The Prime Intellect team billed for inference, when the user works from a team wallet. */
+  primeTeamId: string | undefined
   activeLocal: ActiveLocalModel | undefined
   localThinking: LocalThinkingPreferences = {}
   load: ModelLoad | undefined
@@ -360,7 +362,14 @@ export class ModelHost {
 
   applySettings(settings: LocalSettings) {
     this.omlx = settings.omlx
+    this.primeTeamId = settings.primeintellectTeamId
     this.localThinking = { ...settings.localThinking }
+  }
+
+  /** A hosted provider's client, billed to the Prime Intellect team when one is set. */
+  hostedClient(provider: HostedProvider, apiKey: string, model: string) {
+    const teamId = provider === "primeintellect" ? this.primeTeamId : undefined
+    return new HostedClient({ provider, apiKey, model, teamId })
   }
 
   /**
@@ -400,7 +409,7 @@ export class ModelHost {
     }
     const model: CatalogModel = { provider, ...shared, fastId: settings.modelFastId }
     const apiKey = hostedApiKeys(settings)[provider]
-    const client = apiKey ? new HostedClient({ provider, apiKey, model: id }) : undefined
+    const client = apiKey ? this.hostedClient(provider, apiKey, id) : undefined
     return { model, supportsImageInput, client }
   }
 
@@ -638,7 +647,7 @@ export class ModelHost {
       const apiKey = options.hostedApiKeys?.[model.provider]
       if (!apiKey)
         throw new Error(`${HOSTED_PROVIDER_INFO[model.provider].name} API key is required.`)
-      client = new HostedClient({ provider: model.provider, apiKey, model: model.id })
+      client = this.hostedClient(model.provider, apiKey, model.id)
     }
     // The server keeps serving the sessions that still run on it.
     if (!options.keepLocal) await guarded(() => this.stopLocal())
@@ -742,7 +751,7 @@ export class ModelHost {
     return {
       model: { provider, id: modelId, displayName: modelId, contextLength, supportsImageInput },
       supportsImageInput: options.supportsImageInput,
-      client: new HostedClient({ provider, apiKey, model: modelId }),
+      client: this.hostedClient(provider, apiKey, modelId),
     }
   }
 

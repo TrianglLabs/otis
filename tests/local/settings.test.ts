@@ -14,6 +14,7 @@ import {
   saveLocalServers,
   saveLocalThinking,
   savePermissionMode,
+  savePrimeTeamId,
   saveSelectedModel,
   saveSelectedTheme,
   saveSubagentPanelVisible,
@@ -31,6 +32,19 @@ afterEach(async () => {
 })
 
 describe("local settings", () => {
+  it("keeps the Prime Intellect team id, lets the environment override it, and clears it", async () => {
+    const file = join(await tempDirectory(), "config.json")
+    await savePrimeTeamId("team_abc", { file })
+    await saveSelectedModel(model("org/first", "First", 65_536), { file })
+    expect((await loadLocalSettings({ file, env: {} })).primeintellectTeamId).toBe("team_abc")
+    expect(
+      (await loadLocalSettings({ file, env: { PRIME_TEAM_ID: " team_env " } }))
+        .primeintellectTeamId,
+    ).toBe("team_env")
+    expect(JSON.parse(await readFile(file, "utf8")).primeintellectTeamId).toBe("team_abc")
+    await savePrimeTeamId(undefined, { file })
+    expect(JSON.parse(await readFile(file, "utf8")).primeintellectTeamId).toBeUndefined()
+  })
   it("saves hidden picker models without duplicates and clears the field when none remain", async () => {
     const file = join(await tempDirectory(), "config.json")
     await saveHiddenModels(["together:a/b", "together:a/b", "baseten:c"], { file })

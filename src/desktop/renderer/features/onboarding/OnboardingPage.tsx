@@ -69,6 +69,7 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
   const [direction, setDirection] = useState<OnboardingDirection>("forward")
   const [hostedProvider, setHostedProvider] = useState<HostedProvider>("fireworks")
   const [apiKey, setApiKey] = useState("")
+  const [teamId, setTeamId] = useState("")
   const [ollama, setOllama] = useState("")
   const [lmStudio, setLmStudio] = useState("")
   const [omlx, setOmlx] = useState("")
@@ -90,6 +91,7 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
 
   const hostedConfigured = state?.hostedConfigured[hostedProvider] === true
   const hostedName = HOSTED_PROVIDER_INFO[hostedProvider].name
+  const billsTeam = hostedProvider === "primeintellect"
 
   const pairConfigured = state?.pairConfigured === true || Boolean(state?.omlx)
 
@@ -149,6 +151,14 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
     }
+  }
+
+  // A Prime Intellect team is billed from the first request, so it lands before the key.
+  async function saveHostedKey() {
+    setError(undefined)
+    if (billsTeam && teamId.trim()) await api.setPrimeTeamId(teamId)
+    const result = await api.setHostedApiKey(hostedProvider, apiKey.trim())
+    if (!result.ok) setError(result.reason)
   }
 
   async function connectServer() {
@@ -387,17 +397,26 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                 variant="primary"
                 size="sm"
                 disabled={!apiKey.trim()}
-                onClick={() => {
-                  setError(undefined)
-                  void api.setHostedApiKey(hostedProvider, apiKey.trim()).then((result) => {
-                    if (!result.ok) setError(result.reason)
-                  })
-                }}
+                onClick={() => void saveHostedKey()}
               >
                 {t("common.continue")}
                 <Icon icon={ArrowRight} size={13} />
               </Button>
             </div>
+            {billsTeam ? (
+              <div className="onboarding-keyRow">
+                <input
+                  className="onboarding-input"
+                  placeholder={t("settings.primeTeamId")}
+                  aria-label={t("settings.primeTeamId")}
+                  title={t("settings.primeTeamIdNote")}
+                  value={teamId}
+                  autoComplete="off"
+                  spellCheck={false}
+                  onChange={(event) => setTeamId(event.target.value)}
+                />
+              </div>
+            ) : null}
           </>
         ) : null}
 

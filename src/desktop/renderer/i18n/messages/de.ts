@@ -283,6 +283,9 @@ export const de: Messages = {
   "settings.inference": "Inferenz",
   "settings.hostedInference": "Gehostete Inferenz",
   "settings.hostedKey": "{{provider}}-API-Schlüssel",
+  "settings.primeTeamId": "Team-ID (optional)",
+  "settings.primeTeamIdNote":
+    "Prime Intellect rechnet Anfragen über das Wallet dieses Teams statt über dein persönliches Guthaben ab.",
   "settings.providerConnected": "Verbunden",
   "settings.providerNotConnected": "Nicht verbunden",
   "settings.addKey": "Schlüssel hinzufügen",

@@ -4,7 +4,7 @@ import { dirname, isAbsolute, parse, relative, resolve, sep } from "node:path"
 import { requestContextEstimator } from "../core/compaction.js"
 import { loadProjectContext } from "../core/context.js"
 import { validateAttachments } from "../inference/attachments.js"
-import { HostedClient, listHostedModels } from "../inference/client.js"
+import { listHostedModels } from "../inference/client.js"
 import { requireLocalContextLength } from "../inference/context-policy.js"
 import { describeError } from "../inference/errors.js"
 import { deleteLocalGguf, listDownloadedLocalModels } from "../inference/gguf-cache.js"
@@ -66,6 +66,7 @@ import {
   saveLocalServers,
   saveLocalThinking,
   savePermissionMode,
+  savePrimeTeamId,
   saveSelectedModel,
 } from "../local/settings.js"
 import { publishOmarchyUsage } from "../local/stats.js"
@@ -167,6 +168,8 @@ export type AppStatus = {
   hostedConfigured: Record<HostedProvider, boolean>
   /** Hosted models hidden from the picker, as `hiddenModelKey` strings. */
   hiddenModels: string[]
+  /** The Prime Intellect team billed for inference, or null for the personal wallet. */
+  primeTeamId: string | null
   pairEndpoints: PairEndpoints
   omlx: { baseURL: string; hasApiKey: boolean } | null
   subagents: SubagentSummary[]
@@ -748,6 +751,7 @@ export class Application {
       fastServing,
       hostedConfigured: this.hostedConfigured(),
       hiddenModels: [...(this.settings.hiddenModels ?? [])],
+      primeTeamId: models.primeTeamId ?? null,
       pairEndpoints: { ...this.pairEndpoints },
       omlx: models.omlx
         ? { baseURL: models.omlx.baseURL, hasApiKey: Boolean(models.omlx.apiKey) }
@@ -1265,6 +1269,28 @@ export class Application {
     this.#notify({ type: "status" })
   }
 
+  /** Bills Prime Intellect requests to `teamId`'s wallet (blank: the personal one) from now on. */
+  async setPrimeTeamId(teamId: string) {
+    const team = teamId.trim() || undefined
+    await savePrimeTeamId(team)
+    this.models.primeTeamId = team
+    const apiKey = this.hostedApiKeys.primeintellect
+    if (apiKey) this.#rebuildHostedClients("primeintellect", apiKey)
+    this.#notify({ type: "status" })
+  }
+
+  /** Points every session on `provider` at a client built from the current key and team. */
+  #rebuildHostedClients(provider: HostedProvider, apiKey: string) {
+    for (const runtime of this.#runtimes) {
+      const selection = runtime.selection
+      if (selection?.model.provider === provider)
+        runtime.selection = {
+          ...selection,
+          client: this.models.hostedClient(provider, apiKey, selection.model.id),
+        }
+    }
+  }
+
   /** Which hosted providers have a key. */
   hostedConfigured(): Record<HostedProvider, boolean> {
     const configured = {} as Record<HostedProvider, boolean>
@@ -1291,14 +1317,7 @@ export class Application {
     if (catalog.length === 0) throw new Error(NO_TOOL_MODELS)
     await saveHostedApiKey(provider, key)
     this.hostedApiKeys[provider] = key
-    for (const runtime of this.#runtimes) {
-      const selection = runtime.selection
-      if (selection?.model.provider === provider)
-        runtime.selection = {
-          ...selection,
-          client: new HostedClient({ provider, apiKey: key, model: selection.model.id }),
-        }
-    }
+    this.#rebuildHostedClients(provider, key)
     this.#notify({ type: "status" })
     return catalog
   }

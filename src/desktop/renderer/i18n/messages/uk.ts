@@ -328,6 +328,9 @@ export const uk: Messages = {
   "settings.inference": "Інференс",
   "settings.hostedInference": "Хмарний інференс",
   "settings.hostedKey": "Ключ API {{provider}}",
+  "settings.primeTeamId": "ID команди (необов’язково)",
+  "settings.primeTeamIdNote":
+    "Prime Intellect списує кошти за запити з гаманця цієї команди, а не з вашого особистого балансу.",
   "settings.providerConnected": "Підключено",
   "settings.providerNotConnected": "Не підключено",
   "settings.addKey": "Додати ключ",

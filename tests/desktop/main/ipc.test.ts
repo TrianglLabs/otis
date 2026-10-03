@@ -149,6 +149,11 @@ it("validates the model visibility call and forwards the catalog listing", async
   await expect(handler("openai", "gpt", true)).rejects.toThrow("Invalid hosted provider")
   await expect(handler("fireworks", "", true)).rejects.toThrow("Invalid model id")
   await expect(handler("fireworks", "kimi", "yes")).rejects.toThrow("Invalid visibility flag")
+  const setPrimeTeamId = vi.fn(async () => {})
+  const team = handlerFor(DESKTOP_CHANNELS.setPrimeTeamId, { setPrimeTeamId })
+  await team("team_abc")
+  expect(setPrimeTeamId).toHaveBeenCalledWith("team_abc")
+  await expect(team(42)).rejects.toThrow("Invalid team id")
   const listHostedCatalogs = vi.fn(async () => ({ fireworks: [] }))
   expect(await handlerFor(DESKTOP_CHANNELS.listHostedCatalogs, { listHostedCatalogs })()).toEqual({
     fireworks: [],

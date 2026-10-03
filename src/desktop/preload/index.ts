@@ -51,6 +51,7 @@ const api: DesktopApi = {
   listHostedCatalogs: () => invoke(DESKTOP_CHANNELS.listHostedCatalogs),
   setModelHidden: (provider, id, hidden) =>
     invoke(DESKTOP_CHANNELS.setModelHidden, provider, id, hidden),
+  setPrimeTeamId: (teamId) => invoke(DESKTOP_CHANNELS.setPrimeTeamId, teamId),
   selectModel: (id) => invoke(DESKTOP_CHANNELS.selectModel, id),
   cancelModelSelection: () => invoke(DESKTOP_CHANNELS.cancelModelSelection),
   getSubagentTrace: (toolCallId) => invoke(DESKTOP_CHANNELS.getSubagentTrace, toolCallId),

@@ -142,6 +142,7 @@ function statusFixture(overrides: Partial<DesktopStatus> = {}): DesktopStatus {
     fastServing: { available: false, enabled: false },
     hostedConfigured: { fireworks: true, together: false, baseten: false, primeintellect: false },
     hiddenModels: [],
+    primeTeamId: null,
     pairConfigured: false,
     pairEndpoints: {},
     debug: false,

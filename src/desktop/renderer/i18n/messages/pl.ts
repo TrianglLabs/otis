@@ -327,6 +327,9 @@ export const pl: Messages = {
   "settings.inference": "Wnioskowanie",
   "settings.hostedInference": "Inferencja hostowana",
   "settings.hostedKey": "Klucz API {{provider}}",
+  "settings.primeTeamId": "ID zespołu (opcjonalnie)",
+  "settings.primeTeamIdNote":
+    "Prime Intellect obciąża portfel tego zespołu zamiast Twojego osobistego salda.",
   "settings.providerConnected": "Połączono",
   "settings.providerNotConnected": "Nie połączono",
   "settings.addKey": "Dodaj klucz",

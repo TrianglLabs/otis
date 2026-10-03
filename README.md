@@ -157,6 +157,7 @@ with your own API key, entered during setup, from `/settings`, or from the envir
 
 ```sh
 export FIREWORKS_API_KEY=fw_your_key   # or TOGETHER_API_KEY, BASETEN_API_KEY, PRIME_API_KEY
+export PRIME_TEAM_ID=team_id           # optional: bill Prime Intellect to a team wallet
 otis
 ```
 
