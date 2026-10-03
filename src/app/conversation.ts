@@ -429,6 +429,11 @@ export class Conversation {
     this.#emit({ type: "speed", speed })
   }
 
+  /** The readout belongs to the model and session it measured; either changing drops it. */
+  clearSpeed() {
+    this.#setSpeed(null)
+  }
+
   async start(
     input: UserChatMessage | QueuedPrompt,
     onAdmitted?: () => void,

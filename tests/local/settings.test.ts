@@ -12,6 +12,7 @@ import {
   saveLocalServers,
   saveLocalThinking,
   savePermissionMode,
+  saveAchievementsSeen,
   saveSelectedModel,
   saveSelectedTheme,
   saveSubagentPanelVisible,
@@ -29,6 +30,21 @@ afterEach(async () => {
 })
 
 describe("local settings", () => {
+  it("keeps viewed achievements and preferences through model saves and clears", async () => {
+    const file = join(await tempDirectory(), "config.json")
+    await saveAchievementsSeen(["hosted-model"], { file })
+    await saveSelectedTheme("nord", { file })
+    await saveSelectedModel(model("org/first", "First", 65_536), { file })
+    await clearSelectedModel({ file })
+    await saveSelectedModel(model("org/second", "Second", 65_536), { file })
+    const saved = JSON.parse(await readFile(file, "utf8"))
+    expect(saved).toMatchObject({
+      achievementsSeen: ["hosted-model"],
+      theme: "nord",
+      model: "accounts/fireworks/models/org/second",
+    })
+    expect(saved.fastMode).toBeUndefined()
+  })
   it("remembers thinking per model through model changes, reset, and unrelated saves", async () => {
     const file = join(await tempDirectory(), "config.json")
     await Promise.all([

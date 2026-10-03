@@ -381,9 +381,14 @@ export class Application {
       client: () => runtime.client,
       isBusy: () => runtime.busy,
       isExiting: this.#isExiting,
-      onReset: () => artifacts.clear(),
-      onReplay: (messages, activities, session) =>
-        artifacts.restore(messages, activities, session.artifactDirectory),
+      onReset: () => {
+        artifacts.clear()
+        conversation.clearSpeed()
+      },
+      onReplay: (messages, activities, session) => {
+        artifacts.restore(messages, activities, session.artifactDirectory)
+        conversation.clearSpeed()
+      },
     })
     const conversation = new Conversation({
       sessions,
@@ -1134,7 +1139,8 @@ export class Application {
           if (signal.aborted || isAbortError(error)) return CANCELLED
           return { ok: false, reason: describeError(error) }
         }
-        if (options.fireworksApiKey) this.fireworksApiKey = options.fireworksApiKey
+        Object.assign(this.hostedApiKeys, unsavedKey)
+        runtime.conversation.clearSpeed()
         this.#notify({ type: "status" })
         return { ok: true }
       })
@@ -1223,6 +1229,7 @@ export class Application {
         if (fast) enabled.add(model.id)
         else enabled.delete(model.id)
         this.settings.fastServingModels = [...enabled].sort()
+        runtime.conversation.clearSpeed()
         this.#notify({ type: "status" })
         return { ok: true }
       })

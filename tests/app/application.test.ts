@@ -679,6 +679,35 @@ describe("Application model transactions", () => {
     await app.shutdown()
   })
 
+  it("drops the speed readout when the model switches or the session changes", async () => {
+    const app = await ready("otis-app-speed-")
+    preparing(app)
+    const events: AppEvent[] = []
+    app.subscribe((event) => events.push(event))
+    const measured = { exact: true, prefillMs: 300, tokensPerSecond: 65 }
+
+    // A hosted turn's readout is hidden for Fireworks; it must not surface on a local pick.
+    app.conversation.speed = measured
+    expect(await app.selectModel(localChoice)).toEqual({ ok: true })
+    expect(app.status().speed).toBeNull()
+    expect(events).toContainEqual({ type: "speed", speed: null, runtime: app.focused.id })
+
+    // A failed switch keeps the previous model and its readout.
+    app.conversation.speed = measured
+    vi.spyOn(app.models, "prepare").mockRejectedValueOnce(new Error("server did not start"))
+    expect(await app.selectModel(kimiChoice)).toMatchObject({ ok: false })
+    expect(app.status().speed).toEqual(measured)
+
+    // A fresh session in place and a loaded one both start without the old numbers.
+    expect(app.openNew()).toBe(app.focused)
+    expect(app.status().speed).toBeNull()
+    const other = await createSession({ cwd: app.cwd })
+    app.conversation.speed = measured
+    expect(await app.openSession(other.id)).toBe("opened")
+    expect(app.status().speed).toBeNull()
+    await app.shutdown()
+  })
+
   it("reports a failed first selection as a failed host and a PAIR failure on its engine row", async () => {
     const app = await Application.create({ cwd: await isolate("otis-app-first-"), env: {} })
     vi.spyOn(app.models, "prepare").mockRejectedValue(new Error("out of memory"))
