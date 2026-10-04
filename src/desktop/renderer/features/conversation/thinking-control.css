@@ -1,16 +1,29 @@
 .thinkingControl {
-  position: relative;
+  flex-shrink: 0;
   display: inline-flex;
 }
 .thinkingControl-value {
   color: var(--text-dim);
 }
+/* Above the composer box at its left edge (the control itself is no positioning context), so a
+   column squeezed by Canvas cannot push it past the pane's clipped edge. */
 .thinkingControl-panel {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 10px;
+  z-index: 30;
   display: flex;
   flex-direction: column;
   gap: 6px;
-  width: 232px;
-  max-width: calc(100vw - 48px);
+  width: min(232px, calc(100% - 20px));
+  padding: 10px 14px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  color: var(--text);
+  box-shadow: var(--shadow-float);
+  font-family: var(--font-ui);
+  font-size: var(--text-ui);
 }
 .thinkingControl-header {
   position: relative;

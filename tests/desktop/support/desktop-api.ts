@@ -60,6 +60,7 @@ export const STATUS: DesktopStatus = {
   debug: false,
   update: { status: "idle" },
   remote: null,
+  runtimePlatform: "darwin",
 }
 
 export function statusFixture(overrides: Partial<DesktopStatus> = {}): DesktopStatus {

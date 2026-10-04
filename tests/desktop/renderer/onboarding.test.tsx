@@ -148,7 +148,12 @@ function rowButton(name: HTMLElement): HTMLButtonElement {
 describe("OnboardingPage", () => {
   it.each(LOCALES)("omits oMLX from Linux onboarding and settings in %s", async (language) => {
     const api = fakeApi({
-      getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, platform: "linux" as const, language })),
+      getSnapshot: vi.fn(async () => ({
+        ...SNAPSHOT,
+        platform: "linux" as const,
+        runtimePlatform: "linux" as const,
+        language,
+      })),
     })
     const t = await renderApp(api, language)
     expect(document.body.textContent).not.toContain("Mac")
@@ -377,7 +382,11 @@ describe("OnboardingPage", () => {
   it("explains an unsupported platform instead of claiming nothing fits", async () => {
     const reason = "Local inference is not supported on win32/x64."
     const api = fakeApi({
-      getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, platform: "win32" as const })),
+      getSnapshot: vi.fn(async () => ({
+        ...SNAPSHOT,
+        platform: "win32" as const,
+        runtimePlatform: "win32" as const,
+      })),
       listModels: vi.fn(async () => [
         { ...LOCAL_ITEM, available: false, recommended: false, availabilityLabel: reason },
         { ...OTHER_LOCAL_ITEM, available: false, availabilityLabel: reason },
