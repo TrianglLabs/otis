@@ -198,7 +198,7 @@ async function publishArtifact(
   )
   return {
     title: `Published: ${name}`,
-    output: `Published ${name}, version ${artifact.version}. artifact_id: ${artifact.artifactId}\nSource: ${source.path}\nThe original file is unchanged. Pass this artifact_id when publishing revisions of this deliverable, including after moving or renaming it.`,
+    output: `Published ${name}, version ${artifact.version}. artifact_id: ${artifact.artifactId}\nSource: ${source.path}\nThe original file is unchanged. Pass this artifact_id when publishing revisions of this deliverable, including after moving or renaming it. Link to it in chat as [title](artifact://${artifact.artifactId}).`,
     artifact,
   }
 }

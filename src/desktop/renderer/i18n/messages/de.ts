@@ -241,7 +241,7 @@ export const de: Messages = {
   "toolRun.delegations": { one: "{{count}} Delegierung", other: "{{count}} Delegierungen" },
   "toolRun.memories": { one: "{{count}} Erinnerung", other: "{{count}} Erinnerungen" },
   "markdown.code": "Code",
-  "markdown.openCanvas": "Diagramm in Canvas öffnen",
+  "markdown.openCanvas": "In Canvas öffnen",
   "markdown.copyCode": "Code kopieren",
   "markdown.copied": "Kopiert",
   "onboarding.tagline": "Dein persönlicher KI-Agent auf Basis offener Modelle.",

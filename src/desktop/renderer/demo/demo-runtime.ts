@@ -1481,6 +1481,14 @@ class DemoRuntime implements DesktopApi {
     return { ok: false, reason: "Demo previews do not contain original files to save." }
   }
 
+  async openPublishedArtifact(artifactId: string, _runtime?: number): Promise<SessionOpResult> {
+    const published = DEMO_PUBLISHED.get(artifactId)
+    if (!published) return { ok: false, reason: "That demo artifact is unavailable." }
+    this.#take(published.metadata)
+    this.#emitStatus()
+    return { ok: true }
+  }
+
   async closeArtifact(_runtime: number, id: string): Promise<void> {
     const tabs = this.#state.tabs.filter((tab) => tab.artifact.id !== id)
     if (tabs.length === this.#state.tabs.length) return
@@ -1521,12 +1529,8 @@ class DemoRuntime implements DesktopApi {
         (candidate) =>
           candidate.metadata.publication.reference.version === (version ?? DEMO_SAVED_WORD.length),
       )
-      const published = DEMO_PUBLISHED.get(reference.artifactId)
-      if (published) {
-        this.#take(published.metadata)
-        this.#emitStatus()
-        return { ok: true }
-      }
+      if (DEMO_PUBLISHED.has(reference.artifactId))
+        return this.openPublishedArtifact(reference.artifactId)
       if (!known || !fixture)
         return { ok: false, reason: "That saved demo version is unavailable." }
       this.#take({

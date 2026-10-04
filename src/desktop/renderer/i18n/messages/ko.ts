@@ -241,7 +241,7 @@ export const ko: Messages = {
   "toolRun.delegations": { other: "위임 {{count}}건" },
   "toolRun.memories": { one: "기억 {{count}}개", other: "기억 {{count}}개" },
   "markdown.code": "코드",
-  "markdown.openCanvas": "캔버스에서 다이어그램 열기",
+  "markdown.openCanvas": "캔버스에서 열기",
   "markdown.copyCode": "코드 복사",
   "markdown.copied": "복사됨",
   "onboarding.tagline": "오픈 모델로 구동되는 개인 AI 에이전트.",

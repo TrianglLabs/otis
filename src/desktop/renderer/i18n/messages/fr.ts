@@ -242,7 +242,7 @@ export const fr: Messages = {
   "toolRun.delegations": { one: "{{count}} délégation", other: "{{count}} délégations" },
   "toolRun.memories": { one: "{{count}} souvenir", other: "{{count}} souvenirs" },
   "markdown.code": "code",
-  "markdown.openCanvas": "Ouvrir le diagramme dans le Canevas",
+  "markdown.openCanvas": "Ouvrir dans le Canevas",
   "markdown.copyCode": "Copier le code",
   "markdown.copied": "Copié",
   "onboarding.tagline": "Votre agent d’IA personnel, alimenté par des modèles ouverts.",

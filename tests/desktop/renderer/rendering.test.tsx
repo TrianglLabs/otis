@@ -8,7 +8,10 @@ import { FileTypeIcon } from "../../../src/desktop/renderer/components/FileTypeI
 import { Markdown } from "../../../src/desktop/renderer/components/Markdown.js"
 import { createDemoRuntime } from "../../../src/desktop/renderer/demo/demo-runtime.js"
 import { AgentTraceOverlay } from "../../../src/desktop/renderer/features/agents/AgentTraceOverlay.js"
-import { CanvasOpenContext } from "../../../src/desktop/renderer/features/canvas/canvas-context.js"
+import {
+  CanvasOpenContext,
+  PaneRuntimeContext,
+} from "../../../src/desktop/renderer/features/canvas/canvas-context.js"
 import { EntryView } from "../../../src/desktop/renderer/features/conversation/entries.js"
 import {
   ToolCard,
@@ -237,6 +240,31 @@ describe("stable message rendering", () => {
     expect(view.container.textContent).toBe("CSV")
     view.rerender(<FileTypeIcon name="config.json" kind="text" />)
     expect(view.container.textContent).toBe("JSON")
+  })
+
+  it("opens a publication from an artifact:// link in the pane's session", async () => {
+    const runtime = await testRuntime()
+    const open = vi
+      .spyOn(runtime.api, "openPublishedArtifact")
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({ ok: false, reason: "This artifact is no longer available." })
+    render(
+      <DesktopProvider value={runtime}>
+        <PaneRuntimeContext.Provider value={7}>
+          <Markdown text="Done. [Open the walkthrough](artifact://abc-123) covers the math." />
+        </PaneRuntimeContext.Provider>
+      </DesktopProvider>,
+    )
+
+    const link = screen.getByRole("link", { name: "Open the walkthrough" })
+    fireEvent.click(link)
+    expect(open).toHaveBeenCalledExactlyOnceWith("abc-123", 7)
+    // A publication this session no longer has says so next to the link instead of doing nothing.
+    fireEvent.click(link)
+    await waitFor(() =>
+      expect(screen.getByText("This artifact is no longer available.")).toBeTruthy(),
+    )
+    expect(document.querySelector('a[target="_blank"]')).toBeNull()
   })
 
   it("offers completed Mermaid source to Canvas without rendering other code blocks", () => {

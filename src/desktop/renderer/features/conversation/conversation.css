@@ -187,6 +187,7 @@
 }
 
 .paneHead-glyph,
+.paneHead-lead .matrix,
 .paneHead-lead .stateDot {
   transition: opacity var(--motion);
 }
@@ -217,8 +218,10 @@
 }
 
 .pane-card:hover .paneHead-lead .stateDot,
+.pane-card:hover .paneHead-lead .matrix,
 .pane-card:hover .paneHead-glyph,
 .paneHead-lead:has(.paneHead-close:focus-visible) .stateDot,
+.paneHead-lead:has(.paneHead-close:focus-visible) .matrix,
 .paneHead-lead:has(.paneHead-close:focus-visible) .paneHead-glyph {
   opacity: 0;
 }

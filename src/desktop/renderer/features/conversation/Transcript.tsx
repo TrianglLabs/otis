@@ -224,10 +224,12 @@ const ConversationPane = memo(function ConversationPane({
           }}
         >
           <span className="paneHead-lead">
-            <Icon icon={MessagesSquare} size={13} className="paneHead-glyph" />
             {state.busy ? (
               <MatrixLoader title={t("session.working")} />
-            ) : state.unseen ? (
+            ) : (
+              <Icon icon={MessagesSquare} size={13} className="paneHead-glyph" />
+            )}
+            {!state.busy && state.unseen ? (
               <span className="stateDot" title={t("session.finished")} />
             ) : null}
             <button

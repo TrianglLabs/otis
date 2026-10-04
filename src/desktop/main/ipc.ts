@@ -49,6 +49,13 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
       throw new Error("openArtifact expects a numeric runtime id")
     return runtime.openArtifact(reference, version, target)
   })
+  handle(DESKTOP_CHANNELS.openPublishedArtifact, (artifactId, target) => {
+    if (typeof artifactId !== "string")
+      throw new Error("openPublishedArtifact expects an artifact id")
+    if (target !== undefined && typeof target !== "number")
+      throw new Error("openPublishedArtifact expects a numeric runtime id")
+    return runtime.openPublishedArtifact(artifactId, target)
+  })
   handle(DESKTOP_CHANNELS.closeArtifact, (target, id) => {
     if (typeof target !== "number") throw new Error("closeArtifact expects a numeric runtime id")
     if (typeof id !== "string" || !id) throw new Error("closeArtifact expects an artifact id")

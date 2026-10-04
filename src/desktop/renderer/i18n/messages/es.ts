@@ -242,7 +242,7 @@ export const es: Messages = {
   "toolRun.delegations": { one: "{{count}} delegación", other: "{{count}} delegaciones" },
   "toolRun.memories": { one: "{{count}} recuerdo", other: "{{count}} recuerdos" },
   "markdown.code": "código",
-  "markdown.openCanvas": "Abrir diagrama en el Lienzo",
+  "markdown.openCanvas": "Abrir en el Lienzo",
   "markdown.copyCode": "Copiar código",
   "markdown.copied": "Copiado",
   "onboarding.tagline": "Tu agente personal de IA, impulsado por modelos abiertos.",

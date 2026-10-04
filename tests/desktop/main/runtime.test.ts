@@ -192,6 +192,16 @@ describe("DesktopRuntime model startup", () => {
     await runtime.shutdown()
   })
 
+  it("answers an artifact:// open for an unknown publication or session with a reason", async () => {
+    const { runtime } = await setup(false)
+    const missing = { ok: false, reason: "This artifact is no longer available." }
+    // The focused session has published nothing; a closed session id has no store at all.
+    expect(await runtime.openPublishedArtifact("not-published")).toEqual(missing)
+    expect(await runtime.openPublishedArtifact("not-published", 999)).toEqual(missing)
+    expect(await runtime.openPublishedArtifact("")).toEqual(missing)
+    await runtime.shutdown()
+  })
+
   it("rejects prompts while the model is not running, without recording anything", async () => {
     const { runtime, app } = await setup(false)
     const result = await runtime.sendPrompt("hello")

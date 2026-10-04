@@ -369,6 +369,13 @@ export class DesktopRuntime {
     return { ok: true }
   }
 
+  async openPublishedArtifact(artifactId: string, runtime?: number): Promise<SessionOpResult> {
+    const store = runtime === undefined ? this.app.artifacts : this.#storeOf(runtime)
+    return store?.openPublished(artifactId)
+      ? { ok: true }
+      : { ok: false, reason: "This artifact is no longer available." }
+  }
+
   closeArtifact(runtime: number, id: string) {
     this.#storeOf(runtime)?.close(id)
   }
