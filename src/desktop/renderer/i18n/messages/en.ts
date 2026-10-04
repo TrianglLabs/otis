@@ -248,7 +248,7 @@ export const en = {
   "onboarding.localBody":
     "Run models on this computer or your local AI network. Private and works offline.",
   "onboarding.back": "Back",
-  "onboarding.step": "Step {current} of {total}",
+  "onboarding.step": "Step {{current}} of {{total}}",
   "onboarding.setupHosted": "Set up hosted models",
   "onboarding.chooseLocal": "Choose local inference",
   "onboarding.localHint": "Use a model managed by Otis or connect one you already run.",

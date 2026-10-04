@@ -251,7 +251,7 @@ export const de: Messages = {
   "onboarding.localBody":
     "Modelle auf diesem Computer oder im lokalen KI-Netzwerk ausführen. Privat und offline.",
   "onboarding.back": "Zurück",
-  "onboarding.step": "Schritt {current} von {total}",
+  "onboarding.step": "Schritt {{current}} von {{total}}",
   "onboarding.setupHosted": "Gehostete Modelle einrichten",
   "onboarding.chooseLocal": "Lokale Inferenz auswählen",
   "onboarding.localHint":

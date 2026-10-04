@@ -251,7 +251,7 @@ export const ko: Messages = {
   "onboarding.localBody":
     "이 컴퓨터 또는 로컬 AI 네트워크에서 모델을 실행하세요. 비공개이며 오프라인에서도 작동합니다.",
   "onboarding.back": "뒤로",
-  "onboarding.step": "{total}단계 중 {current}단계",
+  "onboarding.step": "{{total}}단계 중 {{current}}단계",
   "onboarding.setupHosted": "호스팅 모델 설정",
   "onboarding.chooseLocal": "로컬 추론 선택",
   "onboarding.localHint": "Otis가 관리하는 모델을 사용하거나 이미 실행 중인 모델에 연결하세요.",

@@ -244,7 +244,7 @@ export const zhCN: Messages = {
   "onboarding.hostedBody": "顶尖开放模型，即刻可用。按量付费 — 使用你的服务商密钥连接。",
   "onboarding.localBody": "在此计算机或本地 AI 网络上运行模型。私密且支持离线。",
   "onboarding.back": "返回",
-  "onboarding.step": "第 {current} 步，共 {total} 步",
+  "onboarding.step": "第 {{current}} 步，共 {{total}} 步",
   "onboarding.setupHosted": "设置云端模型",
   "onboarding.chooseLocal": "选择本地推理方式",
   "onboarding.localHint": "使用由 Otis 管理的模型，或连接你已运行的模型。",

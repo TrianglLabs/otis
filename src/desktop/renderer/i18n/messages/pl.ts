@@ -296,7 +296,7 @@ export const pl: Messages = {
   "onboarding.localBody":
     "Uruchamiaj modele na tym komputerze lub w lokalnej sieci AI. Prywatnie i bez internetu.",
   "onboarding.back": "Wstecz",
-  "onboarding.step": "Krok {current} z {total}",
+  "onboarding.step": "Krok {{current}} z {{total}}",
   "onboarding.setupHosted": "Skonfiguruj modele hostowane",
   "onboarding.chooseLocal": "Wybierz lokalną inferencję",
   "onboarding.localHint":
