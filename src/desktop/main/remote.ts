@@ -50,6 +50,7 @@ export async function connectRemote(
   const overlay = <T extends DesktopStatus>(status: T): T => ({
     ...status,
     remote: host,
+    remoteSaved: null,
     theme: local.theme ?? "default",
     textSize: local.textSize ?? "default",
     language: local.language ?? "system",

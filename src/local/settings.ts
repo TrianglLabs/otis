@@ -63,8 +63,11 @@ export type LocalSettings = Partial<Record<ServerProvider, ServerSettings>> & {
   workspacePanelWidth?: number
   /** Achievements the user has looked at on the Achievements tab. */
   achievementsSeen?: AchievementId[]
-  /** The `otis serve` daemon the desktop app works on instead of its own runtime. */
-  remote?: { url: string; token: string }
+  /**
+   * The `otis serve` daemon the desktop app works on instead of its own runtime. Paused, it is
+   * remembered for the next pairing while the app runs on this machine.
+   */
+  remote?: { url: string; token: string; paused?: boolean }
   fastServingModels?: string[]
   modelFastId?: string
   /** Hosted models hidden from the picker, as `hiddenModelKey` strings. */
@@ -472,6 +475,7 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
       : {
           url: parsedString(value.remote.url, "remote.url"),
           token: parsedString(value.remote.token, "remote.token"),
+          paused: optionalBoolean(value.remote.paused, "remote.paused"),
         }
   if (remote && !URL.canParse(remote.url))
     throw new Error("Invalid Otis config: remote.url must be a URL.")

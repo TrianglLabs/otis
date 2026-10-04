@@ -2767,6 +2767,38 @@ describe("working on a daemon", () => {
     expect(screen.getByText("linux-box:7331 rejected the pairing token.")).toBeTruthy()
     expect(screen.getByRole("button", { name: "Connect" })).toHaveProperty("disabled", false)
   })
+
+  it("remembers the last pairing: the address is prefilled and a blank token reuses the saved one", async () => {
+    const api = fakeApi({
+      getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, remoteSaved: "ws://linux-box:7331" })),
+    })
+    await renderApp(api)
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Settings" }))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole("tab", { name: "General" }))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Connect to a server…" }))
+    })
+    const address = screen.getByRole("textbox", { name: "Address" }) as HTMLInputElement
+    expect(address.value).toBe("ws://linux-box:7331")
+    const token = screen.getByLabelText("Pairing token") as HTMLInputElement
+    expect(token.value).toBe("")
+    expect(token.placeholder).toBe("Leave blank to keep the saved token")
+    const connect = screen.getByRole("button", { name: "Connect" })
+    expect(connect).toHaveProperty("disabled", false)
+    // Another address needs its own token.
+    fireEvent.change(address, { target: { value: "ws://other:7331" } })
+    expect(token.placeholder).toBe("Pairing token")
+    expect(connect).toHaveProperty("disabled", true)
+    fireEvent.change(address, { target: { value: "ws://linux-box:7331" } })
+    await act(async () => {
+      fireEvent.click(connect)
+    })
+    expect(api.connectRemote).toHaveBeenCalledExactlyOnceWith("ws://linux-box:7331", "")
+  })
 })
 
 describe("header context meter", () => {

@@ -1423,6 +1423,7 @@ export class DesktopRuntime {
       debug: this.#debug,
       update: this.#update,
       remote: null,
+      remoteSaved: app.settings.remote?.url ?? null,
       runtimePlatform: this.options.platform,
       // Capture all live fields before yielding so a slow history scan cannot mix two sessions'
       // metadata.

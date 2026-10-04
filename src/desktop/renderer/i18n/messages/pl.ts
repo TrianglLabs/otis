@@ -307,6 +307,7 @@ export const pl: Messages = {
   "settings.remoteUrl": "Adres",
   "settings.remoteUrlPlaceholder": "ws://linux-box:7331",
   "settings.remoteToken": "Token parowania",
+  "settings.remoteTokenHint": "Zostaw puste, aby zachować zapisany token",
   "shell.remoteFolder": "Folder na {{host}}",
   "shell.remoteFolderHint": "Wpisz pełną ścieżkę folderu na tej maszynie.",
   "common.open": "Otwórz",

@@ -15,6 +15,7 @@ import {
   saveLocalThinking,
   savePermissionMode,
   savePrimeTeamId,
+  saveRemote,
   saveSelectedModel,
   saveSelectedTheme,
   saveSubagentPanelVisible,
@@ -667,6 +668,26 @@ describe("local settings", () => {
       modelProvider: "fireworks",
     })
     expect(hostedSettings.pairEngine).toBeUndefined()
+  })
+
+  it("keeps a paused daemon pairing on file and rejects a non-boolean paused flag", async () => {
+    const directory = await tempDirectory()
+    const file = join(directory, "config.json")
+    await saveRemote({ url: "ws://linux-box:7331", token: "secret", paused: true }, { file })
+    await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({
+      remote: { url: "ws://linux-box:7331", token: "secret", paused: true },
+    })
+    await writeFile(
+      file,
+      JSON.stringify({
+        version: 1,
+        remote: { url: "ws://linux-box:7331", token: "secret", paused: "yes" },
+      }),
+      "utf8",
+    )
+    await expect(loadLocalSettings({ file, env: {} })).rejects.toThrow(
+      "remote.paused must be a boolean",
+    )
   })
 
   it("normalizes saved PAIR endpoints and rejects non-local addresses", async () => {

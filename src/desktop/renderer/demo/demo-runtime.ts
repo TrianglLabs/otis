@@ -1067,6 +1067,8 @@ class DemoRuntime implements DesktopApi {
     debug: false,
     update: { status: "current" },
     remote: null,
+    // A daemon paired earlier, remembered for one-click reconnects.
+    remoteSaved: "ws://linux-box:7331",
     runtimePlatform: "darwin",
     subagents: [DEMO_SUBAGENT],
   }

@@ -262,6 +262,7 @@ export const ja: Messages = {
   "settings.remoteUrl": "アドレス",
   "settings.remoteUrlPlaceholder": "ws://linux-box:7331",
   "settings.remoteToken": "ペアリングトークン",
+  "settings.remoteTokenHint": "空欄のままで保存済みのトークンを使います",
   "shell.remoteFolder": "{{host}} のフォルダ",
   "shell.remoteFolderHint": "そのマシン上のフォルダのフルパスを入力してください。",
   "common.open": "開く",

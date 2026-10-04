@@ -69,7 +69,8 @@ potentially sensitive. Visible traces show a short preview and can be expanded i
   conversation, attachments, Canvas requests and the settings the window shows, and receives sessions, Canvas content
   and status; provider keys never cross the connection (the daemon holds its own). The connection is not encrypted by
   Otis, so use a private network such as a tailnet. The pairing token is saved in the client's `config.json` under
-  `remote`, with the same `0600` protection as provider keys.
+  `remote`, with the same `0600` protection as provider keys, and stays there while the app works on this machine so
+  the next connect needs only the Connect button; it never reaches the window.
 
 Read the [Fireworks Zero Data Retention policy](https://docs.fireworks.ai/guides/security_compliance/data_handling)
 and the data policies of [Together AI](https://www.together.ai/privacy),

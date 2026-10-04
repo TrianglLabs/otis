@@ -241,11 +241,14 @@ if (!app.requestSingleInstanceLock()) {
         checkForUpdates,
         installUpdate,
       })
-    if (!settings.remote) current = await startLocal()
+    const pairing = settings.remote
+    // Working on this machine keeps the pairing on file for the next connect.
+    const pause = () => saveRemote(pairing && { ...pairing, paused: true })
+    if (!pairing || pairing.paused) current = await startLocal()
     else {
-      const host = new URL(settings.remote.url).host
+      const host = new URL(pairing.url).host
       try {
-        current = await startRemote(settings.remote, () => {
+        current = await startRemote(pairing, () => {
           if (quitting) return
           void dialog
             .showMessageBox({
@@ -257,7 +260,7 @@ if (!app.requestSingleInstanceLock()) {
               cancelId: 0,
             })
             .then(async ({ response }) => {
-              if (response === 1) await saveRemote(undefined)
+              if (response === 1) await pause()
               await relaunch()
             })
         })
@@ -277,15 +280,18 @@ if (!app.requestSingleInstanceLock()) {
           app.quit()
           return
         }
-        await saveRemote(undefined)
+        await pause()
         current = await startLocal()
       }
     }
     backend = current
     registerDesktopIpc(current, {
       // A pairing is proven against the daemon before it is saved; the restart boots onto it.
-      async connectRemote(url, token) {
+      // A blank token means the one saved for that address.
+      async connectRemote(url, entered) {
         if (!URL.canParse(url)) return { ok: false, reason: "Enter the daemon's address as a URL." }
+        const token = entered || (pairing?.url === url && pairing.token)
+        if (!token) return { ok: false, reason: "Enter the daemon's pairing token." }
         try {
           const probe = await startRemote({ url, token }, () => {})
           await probe.call("getSnapshot", [])
@@ -298,7 +304,7 @@ if (!app.requestSingleInstanceLock()) {
         return { ok: true }
       },
       async disconnectRemote() {
-        await saveRemote(undefined)
+        await pause()
         void relaunch()
       },
     })

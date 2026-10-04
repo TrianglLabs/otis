@@ -259,6 +259,7 @@ export const en = {
   "settings.remoteUrl": "Address",
   "settings.remoteUrlPlaceholder": "ws://linux-box:7331",
   "settings.remoteToken": "Pairing token",
+  "settings.remoteTokenHint": "Leave blank to keep the saved token",
   "shell.remoteFolder": "Folder on {{host}}",
   "shell.remoteFolderHint": "Type the full path of a folder on that machine.",
   "common.open": "Open",
