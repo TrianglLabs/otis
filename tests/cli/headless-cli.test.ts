@@ -33,7 +33,7 @@ const mocks = vi.hoisted(() => ({
       pairEndpoints?: { ollama?: string; lmStudio?: string }
       pairEngine?: "ollama" | "lmstudio"
       model: string
-      modelProvider?: HostedProvider | "local" | "pair" | "omlx"
+      modelProvider?: HostedProvider | "local" | "pair" | "omlx" | "custom"
       omlx?: { baseURL: string; apiKey?: string }
       modelContextLength?: number
       modelSupportsImageInput?: boolean
@@ -77,7 +77,7 @@ const mocks = vi.hoisted(() => ({
   createPairClient: vi.fn(function createPairClient(config: { model: string }) {
     return { model: config.model, streamChat: mocks.streamChat }
   }),
-  OmlxClient: vi.fn(function OmlxClient(config: { model: string }) {
+  ServerClient: vi.fn(function ServerClient(_provider: string, config: { model: string }) {
     return { model: config.model, streamChat: mocks.streamChat }
   }),
 }))
@@ -129,10 +129,10 @@ vi.mock("../../src/inference/pair.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/inference/pair.js")>()),
   createPairClient: mocks.createPairClient,
 }))
-vi.mock("../../src/inference/omlx.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../src/inference/omlx.js")>()),
-  OmlxClient: mocks.OmlxClient,
-  discoverOmlxModels: vi.fn(async () => [
+vi.mock("../../src/inference/servers.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/inference/servers.js")>()),
+  ServerClient: mocks.ServerClient,
+  discoverServerModels: vi.fn(async () => [
     {
       provider: "omlx",
       id: "mlx-chat",
@@ -945,7 +945,7 @@ describe("runHeadlessCommand", () => {
     })
     const output = streams()
     expect(await runHeadlessCommand(["--ephemeral", "hello"], output.options)).toBe(0)
-    expect(mocks.OmlxClient).toHaveBeenCalledWith({
+    expect(mocks.ServerClient).toHaveBeenCalledWith("omlx", {
       model: "mlx-chat",
       baseURL: "http://127.0.0.1:8000",
       apiKey: "test-key",

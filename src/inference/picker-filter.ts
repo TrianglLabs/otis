@@ -1,7 +1,7 @@
 /** Picker search, kept free of Node modules so the desktop renderer can import it. */
 
 import type { ModelPickerHeader, ModelPickerItem } from "./picker-catalog.js"
-import { HOSTED_PROVIDER_INFO, type ModelProvider } from "./types.js"
+import { HOSTED_PROVIDER_INFO, isServerProvider, type ModelProvider, SERVER_INFO } from "./types.js"
 
 /** How a hidden model is recorded in settings: its provider and catalog id. */
 export function hiddenModelKey(provider: ModelProvider, id: string) {
@@ -12,7 +12,7 @@ export function hiddenModelKey(provider: ModelProvider, id: string) {
 export function providerLabel(provider: ModelProvider) {
   if (provider === "local") return "Local"
   if (provider === "pair") return "NVIDIA PAIR"
-  if (provider === "omlx") return "oMLX"
+  if (isServerProvider(provider)) return SERVER_INFO[provider].name
   return HOSTED_PROVIDER_INFO[provider].name
 }
 

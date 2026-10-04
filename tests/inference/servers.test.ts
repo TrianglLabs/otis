@@ -1,12 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { compactionContextLength } from "../../src/inference/context-policy.js"
-import { discoverOmlxModels, normalizeOmlxSettings, OmlxClient } from "../../src/inference/omlx.js"
+import {
+  discoverServerModels,
+  normalizeServerSettings,
+  ServerClient,
+} from "../../src/inference/servers.js"
 import type { ChatMessage } from "../../src/inference/types.js"
 
 const settings = { baseURL: "http://127.0.0.1:8000", apiKey: "test-private-key" }
 afterEach(() => vi.unstubAllGlobals())
 
-describe("oMLX", () => {
+describe("user-managed servers", () => {
   it("uses visible IDs, resolves aliases and profiles, and excludes non-chat models", async () => {
     const fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
       expect(init?.headers).toMatchObject({ authorization: `Bearer ${settings.apiKey}` })
@@ -40,7 +44,9 @@ describe("oMLX", () => {
         ],
       })
     })
-    const models = await discoverOmlxModels(settings, { fetch: fetch as typeof globalThis.fetch })
+    const models = await discoverServerModels("omlx", settings, {
+      fetch: fetch as typeof globalThis.fetch,
+    })
     expect(models).toEqual([
       {
         provider: "omlx",
@@ -71,7 +77,9 @@ describe("oMLX", () => {
             data: [{ id: "chat", max_model_len: -1, model_context_length: 262144 }],
           }),
     )
-    const [model] = await discoverOmlxModels(settings, { fetch: fetch as typeof globalThis.fetch })
+    const [model] = await discoverServerModels("omlx", settings, {
+      fetch: fetch as typeof globalThis.fetch,
+    })
     expect(model).toMatchObject({ supportsImageInput: false })
     expect(model).not.toHaveProperty("contextLength")
     if (!model) throw new Error("missing model")
@@ -79,21 +87,74 @@ describe("oMLX", () => {
     expect(compactionContextLength({ provider: "omlx", contextLength: 4096 })).toBe(4096)
   })
 
+  it("serves a custom server's configured model when it lists none, with the entered limit", async () => {
+    const custom = { baseURL: "http://127.0.0.1:8080", model: "qwen3.8-27b", contextLength: 131072 }
+    const fetch = vi.fn(async () => new Response("not found", { status: 404 }))
+    const models = await discoverServerModels("custom", custom, {
+      fetch: fetch as typeof globalThis.fetch,
+    })
+    expect(models).toEqual([
+      {
+        provider: "custom",
+        id: "qwen3.8-27b",
+        displayName: "qwen3.8-27b",
+        baseURL: custom.baseURL,
+        contextLength: 131072,
+        supportsImageInput: false,
+      },
+    ])
+    // No status endpoint is tried: that is oMLX's.
+    expect(fetch).toHaveBeenCalledTimes(1)
+    // A listed model wins over the configured one and brings its own limit when it reports one.
+    const listed = vi.fn(async () =>
+      Response.json({ data: [{ id: "served", context_length: 32768 }, { id: "other" }] }),
+    )
+    expect(
+      await discoverServerModels("custom", custom, { fetch: listed as typeof globalThis.fetch }),
+    ).toMatchObject([
+      { id: "served", contextLength: 32768 },
+      { id: "other", contextLength: 131072 },
+    ])
+    // Without a configured model, a server that lists none is a server that was not reached.
+    await expect(
+      discoverServerModels(
+        "custom",
+        { baseURL: custom.baseURL },
+        {
+          fetch: fetch as typeof globalThis.fetch,
+        },
+      ),
+    ).rejects.toThrow("Custom server lists no models. Enter the model id it serves.")
+    await expect(
+      discoverServerModels("custom", custom, {
+        fetch: vi.fn(async () => new Response("", { status: 401 })) as never,
+      }),
+    ).rejects.toThrow("Custom server returned HTTP 401")
+    // A configured model never stands in for a server that is not answering at all.
+    await expect(
+      discoverServerModels("custom", custom, {
+        fetch: vi.fn(async () => {
+          throw new TypeError("fetch failed")
+        }) as never,
+      }),
+    ).rejects.toThrow("Could not read Custom server models")
+  })
+
   it("reports auth and malformed inventory without echoing credentials", async () => {
     await expect(
-      discoverOmlxModels(settings, {
+      discoverServerModels("omlx", settings, {
         fetch: vi.fn(async () => new Response(settings.apiKey, { status: 401 })) as never,
       }),
     ).rejects.toThrow("HTTP 401")
     await expect(
-      discoverOmlxModels(settings, {
+      discoverServerModels("omlx", settings, {
         fetch: vi.fn(async () => Response.json({ data: null })) as never,
       }),
     ).rejects.toThrow("invalid model list")
     const controller = new AbortController()
     controller.abort()
     await expect(
-      discoverOmlxModels(settings, {
+      discoverServerModels("omlx", settings, {
         signal: controller.signal,
         fetch: vi.fn(async () => {
           controller.signal.throwIfAborted()
@@ -105,7 +166,7 @@ describe("oMLX", () => {
 
   it("normalizes loopback endpoints and rejects remote or credential-bearing URLs", () => {
     expect(
-      normalizeOmlxSettings({ baseURL: " http://localhost:8000/v1/ ", apiKey: " key " }),
+      normalizeServerSettings({ baseURL: " http://localhost:8000/v1/ ", apiKey: " key " }),
     ).toEqual({
       baseURL: "http://localhost:8000",
       apiKey: "key",
@@ -116,12 +177,12 @@ describe("oMLX", () => {
       "http://secret@localhost:8000",
       "http://localhost:8000?key=secret",
     ]) {
-      expect(() => normalizeOmlxSettings({ baseURL })).toThrow()
+      expect(() => normalizeServerSettings({ baseURL })).toThrow()
     }
   })
 
   it("redacts an echoed key from inference errors", async () => {
-    const client = new OmlxClient({
+    const client = new ServerClient("omlx", {
       ...settings,
       model: "chat",
       fetch: vi.fn(
@@ -146,7 +207,7 @@ describe("oMLX", () => {
           ].join("\n\n"),
         ),
     )
-    const client = new OmlxClient({
+    const client = new ServerClient("omlx", {
       ...settings,
       model: "chat",
       fetch: fetch as typeof globalThis.fetch,

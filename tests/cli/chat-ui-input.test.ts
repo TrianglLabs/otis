@@ -424,7 +424,7 @@ describe("chat UI input", () => {
     )
     expect(harness.text("setup-choice-local-detail-0")).toBe("Managed llama.cpp built in.")
     expect(harness.text("setup-choice-local-detail-1")).toBe(
-      "Ollama, LM Studio, oMLX, and NVIDIA PAIR.",
+      "Ollama, LM Studio, oMLX, any OpenAI-compatible server, and NVIDIA PAIR.",
     )
     expect(harness.find("setup-choice-local-detail-2")).toBeUndefined()
     expect(harness.text("setup-choice-hosted-label")).toBe(
@@ -618,22 +618,37 @@ describe("chat UI input", () => {
     harness.ui.showSetupInferenceChoice()
     expect(harness.text("setup-choice-local-detail-1")).not.toContain("oMLX")
     harness.ui.showSetupLocalInferenceChoice()
-    expect(harness.text("setup-local-choice-pair-detail-0")).toBe("Ollama or LM Studio.")
+    expect(harness.text("setup-local-choice-pair-detail-0")).toBe(
+      "Ollama, LM Studio, or any OpenAI-compatible server.",
+    )
     const endpoints = { ollama: "http://127.0.0.1:11434", lmStudio: "http://127.0.0.1:1234" }
     harness.ui.showPairSetup("", "local", {
       ...endpoints,
-      omlx: "http://127.0.0.1:8000",
-      omlxApiKey: "unused",
+      omlx: { baseURL: "http://127.0.0.1:8000", apiKey: "unused" },
     })
     expect(harness.text("setup-pair-description")).not.toContain("oMLX")
     expect(harness.find("setup-omlx-input")).toBeUndefined()
     expect(harness.find("setup-omlx-key-input")).toBeUndefined()
+    // A custom server is offered everywhere: address, key, model id, and context limit.
     harness.press("tab")
     expect(harness.get<InputRenderable>("setup-pair-lmstudio-input").focused).toBe(true)
     harness.press("tab")
+    expect(harness.get<InputRenderable>("setup-custom-input").focused).toBe(true)
+    for (const id of [
+      "setup-custom-key-input",
+      "setup-custom-model-input",
+      "setup-custom-context-input",
+    ]) {
+      harness.press("tab")
+      expect(harness.get<InputRenderable>(id).focused).toBe(true)
+    }
+    harness.press("tab")
     expect(harness.get<InputRenderable>("setup-pair-ollama-input").focused).toBe(true)
     harness.get<InputRenderable>("setup-pair-ollama-input").submit()
-    expect(onPairSetupSubmit).toHaveBeenCalledExactlyOnceWith(endpoints)
+    expect(onPairSetupSubmit).toHaveBeenCalledExactlyOnceWith({
+      ...endpoints,
+      custom: { baseURL: "", apiKey: "", model: "", contextLength: "" },
+    })
   })
 
   it("edits and submits both NVIDIA PAIR proxy endpoints in one form", async () => {
@@ -651,7 +666,7 @@ describe("chat UI input", () => {
     expect(harness.get<BoxRenderable>("welcome-panel").width).toBe(91)
     expect(harness.text("setup-pair-heading")).toBe("Local server endpoints")
     expect(harness.text("setup-pair-description")).toBe(
-      "Connect to Ollama, LM Studio, or oMLX. PAIR addresses: PAIR → Endpoints. Only one server is required. Models need at least 64K context. oMLX key: optional; blank keeps the saved key.",
+      "Connect to Ollama, LM Studio, oMLX, or any OpenAI-compatible server. PAIR addresses: PAIR → Endpoints. One server is enough; models need 64K context. A blank key keeps the saved one.",
     )
     expect(harness.text("setup-pair-ollama-label")).toBe("Ollama")
     expect(harness.text("setup-pair-lmstudio-label")).toBe("LM Studio")
@@ -671,7 +686,12 @@ describe("chat UI input", () => {
     expect(harness.get<InputRenderable>("setup-pair-ollama-input").focused).toBe(false)
     expect(harness.get<InputRenderable>("setup-pair-lmstudio-input").focused).toBe(true)
     harness.get<InputRenderable>("setup-pair-lmstudio-input").submit()
-    expect(onPairSetupSubmit).toHaveBeenCalledWith({ ...endpoints, omlx: "", omlxApiKey: "" })
+    const blankCustom = { custom: { baseURL: "", apiKey: "", model: "", contextLength: "" } }
+    expect(onPairSetupSubmit).toHaveBeenCalledWith({
+      ...endpoints,
+      omlx: { baseURL: "", apiKey: "" },
+      ...blankCustom,
+    })
 
     harness.press("tab")
     expect(harness.get<InputRenderable>("setup-omlx-input").focused).toBe(true)
@@ -682,8 +702,8 @@ describe("chat UI input", () => {
     harness.get<InputRenderable>("setup-omlx-key-input").submit()
     expect(onPairSetupSubmit).toHaveBeenLastCalledWith({
       ...endpoints,
-      omlx: "http://127.0.0.1:8000",
-      omlxApiKey: "test-key",
+      omlx: { baseURL: "http://127.0.0.1:8000", apiKey: "test-key" },
+      ...blankCustom,
     })
     harness.ui.showSetupStatus()
     harness.ui.showPairSetup("", "local", endpoints)

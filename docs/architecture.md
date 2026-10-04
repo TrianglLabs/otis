@@ -326,15 +326,19 @@ does not require a hosted inference API key; `--provider` names the hosted provi
 `/settings` can validate and save that key later without replacing the selected local model, connect or reconnect
 PAIR, open cached-model deletion when a GGUF is present, choose a color theme, and own the ephemeral debug-mode toggle.
 
-## oMLX boundary
+## User-managed server boundary
 
-oMLX is external, user-managed inference. `src/inference/omlx.ts` discovers visible models and optional status
-metadata and reuses `OpenAICompatibleClient` for streaming, tools, and reasoning replay. Its provider identity and
-picker keys are separate from PAIR and managed GGUF models. Setup, private persistence, and client refresh are
-coordinated in `src/app`, shared by terminal and desktop. Credentials never enter catalog or status objects.
-Startup refreshes the server request limit and vision metadata; reported limits below 64K are rejected, and unknown
-context uses the 64K minimum as an unverified policy budget. Otis never loads or unloads oMLX models explicitly or
-controls its process. See [oMLX](omlx.md) for API details and setup.
+oMLX and any other OpenAI-compatible engine the user runs are external, user-managed inference, one implementation
+with the provider as a parameter (`SERVER_PROVIDERS` in `src/inference/types.ts`). `src/inference/servers.ts`
+discovers visible models from `/v1/models` — oMLX adds its status metadata for model type and vision; a custom server
+falls back to the model id entered with it when it lists none, and to the entered context limit when it reports
+none — and reuses `OpenAICompatibleClient` for streaming, tools, and reasoning replay. Each server's provider identity
+and picker keys are separate from PAIR and managed GGUF models; its settings live under its provider id in
+`config.json`. Setup, private persistence, and client refresh are coordinated in `src/app`, shared by terminal and
+desktop. Credentials never enter catalog or status objects. Startup refreshes the server request limit and vision
+metadata; reported limits below 64K are rejected, and unknown context uses the 64K minimum as an unverified policy
+budget. Otis never loads or unloads a server's models or controls its process. See
+[user-managed servers](local-servers.md) for API details and setup.
 
 ## NVIDIA PAIR boundary
 

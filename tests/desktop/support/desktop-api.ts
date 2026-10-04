@@ -57,6 +57,7 @@ export const STATUS: DesktopStatus = {
   primeTeamId: null,
   pairConfigured: false,
   pairEndpoints: {},
+  servers: {},
   debug: false,
   update: { status: "idle" },
   remote: null,

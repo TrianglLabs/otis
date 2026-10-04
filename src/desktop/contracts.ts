@@ -1,4 +1,4 @@
-import type { RuntimeSummary, SubagentSummary } from "../app/application.js"
+import type { RuntimeSummary, ServerStatus, SubagentSummary } from "../app/application.js"
 import type { PendingPermission, TurnPhase, TurnSpeed } from "../app/conversation.js"
 import type { GlobalSessionPickerItem, RecentArtifact } from "../app/global-sessions.js"
 import type { LocalServerInputs } from "../app/local-servers.js"
@@ -12,17 +12,22 @@ import type {
 } from "../artifacts/types.js"
 import type { LocalThinkingSelection, LocalThinkingState } from "../inference/local-thinking.js"
 import type { ModelPickerItem, ModelPickerStatus } from "../inference/picker-catalog.js"
-import type { HostedModel, HostedProvider, ModelProvider } from "../inference/types.js"
+import type {
+  HostedModel,
+  HostedProvider,
+  ModelProvider,
+  ServerProvider,
+} from "../inference/types.js"
 import type { TextSize, ThemeName, UiLanguage } from "../local/settings.js"
 import type { MemoryEntry, MemoryScope } from "../memory/memory.js"
 import type { PermissionMode } from "../permissions/policy.js"
 import type { SkillsSummary } from "../skills/catalog.js"
 
-export type { RuntimeSummary, SubagentSummary } from "../app/application.js"
+export type { RuntimeSummary, ServerStatus, SubagentSummary } from "../app/application.js"
 export type { PendingPermission, TurnPhase, TurnSpeed } from "../app/conversation.js"
 export type { RecentArtifact } from "../app/global-sessions.js"
 export type { ModelState } from "../app/models.js"
-export type { HostedModel, HostedProvider } from "../inference/types.js"
+export type { HostedModel, HostedProvider, ServerProvider } from "../inference/types.js"
 export type { TextSize, ThemeName, UiLanguage } from "../local/settings.js"
 export type { PermissionMode } from "../permissions/policy.js"
 
@@ -200,7 +205,8 @@ export type DesktopStatus = {
   pairConfigured: boolean
   /** The saved PAIR endpoint addresses (loopback URLs), for prefilling the connect form. */
   pairEndpoints: { ollama?: string; lmStudio?: string }
-  omlx?: { baseURL: string; hasApiKey: boolean } | null
+  /** The connected user-managed servers, by provider; keys never reach the renderer. */
+  servers: Partial<Record<ServerProvider, ServerStatus>>
   /** Session-only debug mode, mirroring the TUI's /debug toggle; applies from the next turn. */
   debug: boolean
   update: DesktopUpdateState

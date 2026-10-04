@@ -1,14 +1,14 @@
 import { randomUUID } from "node:crypto"
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { dirname, join, resolve } from "node:path"
-import { describeError, isRecord } from "../inference/errors.js"
+import { describeError, isRecord, positiveInteger } from "../inference/errors.js"
 import { isLocalModelId } from "../inference/local-catalog.js"
 import {
   type LocalThinkingPreferences,
   validateLocalThinkingSelection,
 } from "../inference/local-thinking.js"
-import { normalizeOmlxSettings, type OmlxSettings } from "../inference/omlx.js"
 import { normalizePairEndpoints, type PairEndpoints } from "../inference/pair.js"
+import { normalizeServerSettings } from "../inference/servers.js"
 import { baseFireworksModelId, isFastFireworksModel } from "../inference/serving-path.js"
 import {
   type CatalogModel,
@@ -21,6 +21,9 @@ import {
   isModelProvider,
   type ModelProvider,
   type PairEngine,
+  SERVER_PROVIDERS,
+  type ServerProvider,
+  type ServerSettings,
 } from "../inference/types.js"
 import {
   type PermissionConfig,
@@ -30,8 +33,7 @@ import {
 import { localConfigDirectory } from "./paths.js"
 import { type AchievementId, isAchievementId } from "./stats.js"
 
-export type LocalSettings = {
-  omlx?: OmlxSettings
+export type LocalSettings = Partial<Record<ServerProvider, ServerSettings>> & {
   fireworksApiKey?: string
   togetherApiKey?: string
   basetenApiKey?: string
@@ -218,16 +220,20 @@ export async function saveSelectedModel(model: CatalogModel, options: SettingsFi
 }
 
 export async function saveLocalServers(
-  servers: { pairEndpoints: PairEndpoints; omlx?: OmlxSettings },
+  servers: { pairEndpoints: PairEndpoints } & Partial<Record<ServerProvider, ServerSettings>>,
   options: SettingsFileOptions = {},
 ) {
   const pairEndpoints = persistedPairEndpoints(servers.pairEndpoints)
-  const omlx = servers.omlx && normalizeOmlxSettings(servers.omlx)
-  await updateSettings(options, ({ omlx: _omlx, pairEndpoints: _pairEndpoints, ...rest }) =>
+  await updateSettings(options, (saved) =>
     defined({
-      ...rest,
+      ...saved,
       pairEndpoints: hasPairEndpoints(pairEndpoints) ? pairEndpoints : undefined,
-      omlx,
+      ...Object.fromEntries(
+        SERVER_PROVIDERS.map((provider) => {
+          const server = servers[provider]
+          return [provider, server && normalizeServerSettings(server)]
+        }),
+      ),
     }),
   )
 }
@@ -373,14 +379,20 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
     ollama: optionalString(value.pairEndpoints?.ollama, "pairEndpoints.ollama"),
     lmStudio: optionalString(value.pairEndpoints?.lmStudio, "pairEndpoints.lmStudio"),
   })
-  let omlx: OmlxSettings | undefined
-  if (value.omlx !== undefined) {
-    if (!isRecord(value.omlx) || typeof value.omlx.baseURL !== "string") {
-      throw new Error("Invalid Otis config: omlx must contain a baseURL.")
-    }
-    omlx = normalizeOmlxSettings({
-      baseURL: value.omlx.baseURL,
-      apiKey: optionalString(value.omlx.apiKey, "omlx.apiKey"),
+  const servers: Partial<Record<ServerProvider, ServerSettings>> = {}
+  for (const provider of SERVER_PROVIDERS) {
+    const saved = value[provider]
+    if (saved === undefined) continue
+    if (!isRecord(saved) || typeof saved.baseURL !== "string")
+      throw new Error(`Invalid Otis config: ${provider} must contain a baseURL.`)
+    const contextLength = positiveInteger(saved.contextLength)
+    if (saved.contextLength !== undefined && !contextLength)
+      throw new Error(`Invalid Otis config: ${provider}.contextLength must be a positive integer.`)
+    servers[provider] = normalizeServerSettings({
+      baseURL: saved.baseURL,
+      apiKey: optionalString(saved.apiKey, `${provider}.apiKey`),
+      model: optionalString(saved.model, `${provider}.model`),
+      contextLength,
     })
   }
   const pairEngine = optionalChoice(
@@ -468,7 +480,7 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
     ...keys,
     primeintellectTeamId: optionalString(value.primeintellectTeamId, "primeintellectTeamId"),
     pairEndpoints: hasPairEndpoints(pairEndpoints) ? pairEndpoints : undefined,
-    omlx,
+    ...servers,
     pairEngine,
     model,
     modelDisplayName,

@@ -77,27 +77,22 @@ async function until(check: () => boolean, message: string) {
   throw new Error(message)
 }
 
+/** Selects the oMLX tab of a local server form and checks its address and key rows line up. */
 async function checkLocalServerFields(prefix: "settings" | "onboarding") {
-  const address = element<HTMLInputElement>(`#${prefix}-omlx`)
-  const key = element<HTMLInputElement>(`#${prefix}-omlx-key`)
-  const fields = address.parentElement
-  assert(fields, "Server fields are missing")
-  const marks = Array.from(fields.querySelectorAll("label img")) as HTMLImageElement[]
-  await until(
-    () => marks.length === 3 && marks.every((mark) => mark.naturalWidth > 0),
-    "Server logos did not load",
+  const tab = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="tab"]')).find(
+    (candidate) => candidate.textContent === "oMLX",
   )
-  for (const label of fields.querySelectorAll("label")) {
-    const input = element<HTMLInputElement>(`#${label.htmlFor}`).getBoundingClientRect()
-    const bounds = label.getBoundingClientRect()
-    assert(bounds.right < input.left, `${prefix}: ${label.textContent} overlaps its input`)
-    assert(
-      Math.abs(bounds.top + bounds.height / 2 - input.top - input.height / 2) < 1,
-      "Server label is misaligned",
-    )
-  }
-  const urlBounds = address.getBoundingClientRect()
-  const keyBounds = key.getBoundingClientRect()
+  assert(tab, `${prefix}: oMLX tab is missing`)
+  tab.click()
+  await until(() => !!document.querySelector(`#${prefix}-omlx-key`), "oMLX fields did not show")
+  const key = element<HTMLInputElement>(`#${prefix}-omlx-key`)
+  const address = element<HTMLInputElement>(`[aria-label="Address"]`)
+  const fields = element(`.${prefix === "settings" ? "settingsEndpoints" : "onboarding-endpoints"}`)
+  // The onboarding rows carry an icon inside a bordered capsule; measure the capsules there.
+  const row = (input: HTMLInputElement) =>
+    (prefix === "onboarding" ? (input.parentElement ?? input) : input).getBoundingClientRect()
+  const urlBounds = row(address)
+  const keyBounds = row(key)
   assert(
     Math.abs(keyBounds.left - urlBounds.left) < 1,
     `${prefix}: API key is not aligned with the address`,
@@ -301,7 +296,7 @@ async function runDesktopUiChecks() {
   const settingsTabs = Array.from(
     document.querySelectorAll<HTMLButtonElement>('.settingsSidebar [role="tab"]'),
   )
-  assert(settingsTabs.length === 5, "Settings sidebar does not list every section")
+  assert(settingsTabs.length === 6, "Settings sidebar does not list every section")
   assert(!document.querySelector(".settingsPage-header h1"), "Settings still has a title wordmark")
   assert(settingsSidebar.width >= 160, "Settings sidebar is too narrow")
   assert(
@@ -389,7 +384,7 @@ async function runDesktopUiChecks() {
   await nativeInput({ events: [{ type: "mouseMove", x: 500, y: 100 }] })
   providers[1].querySelector("button")?.click()
   await until(
-    () => !!document.querySelector("#settings-omlx-key"),
+    () => !!document.querySelector('[aria-label="Address"]'),
     "Local server settings did not open",
   )
   await checkLocalServerFields("settings")
@@ -1870,7 +1865,7 @@ async function runDesktopUiChecks() {
   await nativeInput({ screenshot: true, screenshotName: "onboarding-local" })
   element<HTMLButtonElement>(".onboarding-cards button:last-child").click()
   await until(
-    () => !!document.querySelector("#onboarding-omlx-key"),
+    () => !!document.querySelector('[aria-label="Address"]'),
     "Local server setup did not open",
   )
   await nativeInput({ size: [960, 600] })

@@ -5,7 +5,12 @@ import {
   TextareaRenderable,
   TextRenderable,
 } from "@opentui/core"
-import { localServerNames, supportsOmlx } from "../../inference/types.js"
+import {
+  localServerNames,
+  SERVER_INFO,
+  type ServerProvider,
+  serverProviders,
+} from "../../inference/types.js"
 import { colors } from "../theme.js"
 import { formatContextLabel } from "./format.js"
 import { MODEL_PICKER_HINT } from "./model-picker.js"
@@ -148,7 +153,6 @@ export function createUILayout(
   })
 
   const platform = options.platform ?? process.platform
-  const showOmlx = supportsOmlx(platform)
   const servers = localServerNames(platform)
   const serverList = new Intl.ListFormat("en", { type: "disjunction" })
   const setupButtonBox = createSetupColumn(renderer, "setup-box")
@@ -318,30 +322,48 @@ export function createUILayout(
   setupPairForm.add(
     new TextRenderable(renderer, {
       id: "setup-pair-description",
-      content: `Connect to ${serverList.format(servers)}. PAIR addresses: PAIR → Endpoints. Only one server is required. Models need at least 64K context.${showOmlx ? " oMLX key: optional; blank keeps the saved key." : ""}`,
+      content:
+        `Connect to ${serverList.format(servers)}. PAIR addresses: PAIR → Endpoints. ` +
+        "One server is enough; models need 64K context. A blank key keeps the saved one.",
       fg: colors.muted,
       selectable: false,
       wrapMode: "word",
     }),
   )
-  const setupPairOllamaInput = createSetupInputRow(
-    renderer,
-    setupPairForm,
-    "setup-pair-ollama",
-    "Ollama",
-  )
-  const setupPairLMStudioInput = createSetupInputRow(
-    renderer,
-    setupPairForm,
-    "setup-pair-lmstudio",
-    "LM Studio",
-  )
-  const setupOmlxInput = showOmlx
-    ? createSetupInputRow(renderer, setupPairForm, "setup-omlx", "oMLX")
-    : undefined
-  const setupOmlxKeyInput = showOmlx
-    ? createSetupInputRow(renderer, setupPairForm, "setup-omlx-key", "API key")
-    : undefined
+  // The rows stack without gaps so the form fits a short terminal: the PAIR engines, whose
+  // addresses need the width, then each server this platform offers beside its key, and a custom
+  // server's model id beside its context limit.
+  const setupPairRows = new BoxRenderable(renderer, {
+    id: "setup-pair-rows",
+    flexDirection: "column",
+    width: "100%",
+    flexShrink: 0,
+    backgroundColor: colors.background,
+  })
+  setupPairForm.add(setupPairRows)
+  const [setupPairOllamaInput] = createSetupFieldRow(renderer, setupPairRows, [
+    ["setup-pair-ollama", "Ollama"],
+  ])
+  const [setupPairLMStudioInput] = createSetupFieldRow(renderer, setupPairRows, [
+    ["setup-pair-lmstudio", "LM Studio"],
+  ])
+  const setupServerInputs: Partial<Record<ServerProvider, ServerSetupRows>> = {}
+  for (const provider of serverProviders(platform)) {
+    const id = `setup-${provider}`
+    const [endpoint, key] = createSetupFieldRow(renderer, setupPairRows, [
+      [id, provider === "custom" ? "Custom" : SERVER_INFO[provider].name],
+      [`${id}-key`, "API key"],
+    ])
+    if (provider !== "custom") {
+      setupServerInputs[provider] = { endpoint, key }
+      continue
+    }
+    const [model, context] = createSetupFieldRow(renderer, setupPairRows, [
+      [`${id}-model`, "Model"],
+      [`${id}-context`, "Context"],
+    ])
+    setupServerInputs[provider] = { endpoint, key, model, context }
+  }
   const setupPairMessage = createSetupMessage(renderer, "setup-pair-message", colors.muted)
   setupPairForm.add(
     new TextRenderable(renderer, {
@@ -655,8 +677,7 @@ export function createUILayout(
     setupPairCard,
     setupPairForm,
     setupPairLMStudioInput,
-    setupOmlxInput,
-    setupOmlxKeyInput,
+    setupServerInputs,
     setupPairMessage,
     setupPairOllamaInput,
     setupContinueButton,
@@ -744,23 +765,39 @@ function createSetupInputBox(renderer: Renderer, id: string) {
   })
 }
 
-/** A labelled endpoint field appended to `form`; returns the input. */
-function createSetupInputRow(renderer: Renderer, form: BoxRenderable, id: string, label: string) {
-  const input = createSetupInput(renderer, `${id}-input`)
-  const box = createSetupInputBox(renderer, `${id}-box`)
-  box.add(
-    new TextRenderable(renderer, {
-      id: `${id}-label`,
-      content: label,
-      width: 9,
-      flexShrink: 0,
-      fg: colors.accent,
-      selectable: false,
-    }),
-  )
-  box.add(input)
+/** A server's setup fields: address and key, plus a custom server's model and context limit. */
+export type ServerSetupRows = {
+  endpoint: InputRenderable
+  key: InputRenderable
+  model?: InputRenderable
+  context?: InputRenderable
+}
+
+/** One boxed row holding labelled inputs side by side, returned in the order given. */
+function createSetupFieldRow(
+  renderer: Renderer,
+  form: BoxRenderable,
+  fields: readonly (readonly [id: string, label: string])[],
+) {
+  const [[first]] = fields
+  const box = createSetupInputBox(renderer, `${first}-box`)
+  const inputs = fields.map(([id, label]) => {
+    box.add(
+      new TextRenderable(renderer, {
+        id: `${id}-label`,
+        content: label,
+        width: 9,
+        flexShrink: 0,
+        fg: colors.accent,
+        selectable: false,
+      }),
+    )
+    const input = createSetupInput(renderer, `${id}-input`)
+    box.add(input)
+    return input
+  })
   form.add(box)
-  return input
+  return inputs
 }
 
 function createInferenceChoiceCard(

@@ -12,11 +12,15 @@ import {
   HOSTED_PROVIDERS,
   type HostedApiKeys,
   type HostedModel,
+  isServerProvider,
   type LocalCatalogModel,
   type ModelProvider,
-  type OmlxCatalogModel,
   type PairCatalogModel,
   type PairEngine,
+  SERVER_INFO,
+  SERVER_PROVIDERS,
+  type ServerCatalogModel,
+  type ServerProvider,
 } from "./types.js"
 
 export type ModelPickerItem = ModelPickerHeader | ModelPickerChoice
@@ -66,7 +70,7 @@ export type PairPickerChoice = PairCatalogModel & {
   status?: ModelPickerStatus
 }
 
-export type OmlxPickerChoice = OmlxCatalogModel & {
+export type ServerPickerChoice = ServerCatalogModel & {
   kind: "model"
   available: boolean
   availabilityLabel?: string
@@ -79,7 +83,7 @@ export type ModelPickerChoice =
   | LocalPickerChoice
   | HostedPickerChoice
   | PairPickerChoice
-  | OmlxPickerChoice
+  | ServerPickerChoice
 
 type ListModelPickerOptions = {
   hostedApiKeys?: HostedApiKeys
@@ -89,7 +93,7 @@ type ListModelPickerOptions = {
   currentProvider?: ModelProvider
   currentPairEngine?: PairEngine
   pairModels?: readonly PairCatalogModel[]
-  omlxModels?: readonly OmlxCatalogModel[]
+  serverModels?: Partial<Record<ServerProvider, readonly ServerCatalogModel[]>>
   hardware?: HardwareProbe
   dataDirectory?: string
   loadStatus?: { modelId: string; status: ModelPickerStatus }
@@ -262,7 +266,6 @@ export async function listModelPickerItems(
     }),
   )
   const pairModels = options.pairModels ?? []
-  const omlxModels = options.omlxModels ?? []
   return [
     ...(localItems.length ? [header("local"), ...localItems] : []),
     ...(pairModels.length ? [header("pair")] : []),
@@ -282,22 +285,32 @@ export async function listModelPickerItems(
         ...status(selectionKey),
       }
     }),
-    ...(omlxModels.length ? [header("omlx")] : []),
-    ...omlxModels.map((model): OmlxPickerChoice => {
-      const selectionKey = `omlx:${model.id}`
-      const available =
-        model.contextLength === undefined || model.contextLength >= LOCAL_MIN_CONTEXT_LENGTH
-      return {
-        ...model,
-        kind: "model",
-        available,
-        ...(available
-          ? {}
-          : { availabilityLabel: "Requires 64K context. Increase the model's context in oMLX." }),
-        selectionKey,
-        active: options.currentProvider === "omlx" && options.currentModel === model.id,
-        ...status(selectionKey),
-      }
+    ...SERVER_PROVIDERS.flatMap((provider) => {
+      const models = options.serverModels?.[provider] ?? []
+      if (!models.length) return []
+      return [
+        header(provider),
+        ...models.map((model): ServerPickerChoice => {
+          const selectionKey = `${provider}:${model.id}`
+          const available =
+            model.contextLength === undefined || model.contextLength >= LOCAL_MIN_CONTEXT_LENGTH
+          return {
+            ...model,
+            kind: "model",
+            available,
+            ...(available
+              ? {}
+              : {
+                  availabilityLabel:
+                    `Requires 64K context. Increase the model's context in ` +
+                    `${SERVER_INFO[provider].name}.`,
+                }),
+            selectionKey,
+            active: options.currentProvider === provider && options.currentModel === model.id,
+            ...status(selectionKey),
+          }
+        }),
+      ]
     }),
     ...hosted.flat(),
   ]
@@ -331,9 +344,13 @@ export function toPairCatalogModel(item: PairPickerChoice): PairCatalogModel {
   return model
 }
 
-export function toOmlxCatalogModel(item: OmlxPickerChoice): OmlxCatalogModel {
+export function isServerPickerChoice(item: ModelPickerChoice): item is ServerPickerChoice {
+  return isServerProvider(item.provider)
+}
+
+export function toServerCatalogModel(item: ServerPickerChoice): ServerCatalogModel {
   return {
-    provider: "omlx",
+    provider: item.provider,
     id: item.id,
     displayName: item.displayName,
     baseURL: item.baseURL,

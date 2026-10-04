@@ -1,4 +1,5 @@
 import type { TreeSitterClient } from "@opentui/core"
+import type { LocalServerInputs } from "../../app/local-servers.js"
 import type { SessionPickerItem } from "../../app/sessions.js"
 import type { SubagentTrace } from "../../app/subagents.js"
 import type { TranscriptEntry } from "../../app/transcript.js"
@@ -14,12 +15,6 @@ export type Renderer = Awaited<ReturnType<typeof import("@opentui/core").createC
 export type SetupInferenceChoice = "local" | "hosted"
 export type SetupLocalInferenceChoice = "managed" | "pair"
 export type SetupInputCancelTarget = "choice" | "local" | "hosted" | "configured"
-export type PairEndpointInputs = {
-  ollama: string
-  lmStudio: string
-  omlx?: string
-  omlxApiKey?: string
-}
 
 export type InputMode =
   | "chat"
@@ -83,7 +78,7 @@ export type ChatUIOptions = {
   onSetupLocalInferenceChoice?: (choice: SetupLocalInferenceChoice) => void
   onSetupHostedChoice?: (provider: HostedProvider) => void
   onSetupSubmit?: (value: string) => void
-  onPairSetupSubmit?: (endpoints: PairEndpointInputs) => void
+  onPairSetupSubmit?: (endpoints: LocalServerInputs) => void
   onCloseModelPicker?: () => void
   onSelectModel?: (model: ModelPickerItem) => void
   onNewSession?: () => void
@@ -144,12 +139,12 @@ export type ChatUI = {
   showPairSetup(
     message: string,
     cancelTarget: SetupInputCancelTarget,
-    endpoints: PairEndpointInputs,
+    endpoints: LocalServerInputs,
   ): void
   showPairSetupError(
     message: string,
     cancelTarget: SetupInputCancelTarget,
-    endpoints: PairEndpointInputs,
+    endpoints: LocalServerInputs,
   ): void
   showSetupStatus(message?: string): void
   showPermissionPrompt(detail: string): Promise<boolean>

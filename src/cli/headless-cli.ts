@@ -27,6 +27,7 @@ import {
   type HostedProvider,
   type InferenceClient,
   isHostedProvider,
+  isServerProvider,
 } from "../inference/types.js"
 import { hostedApiKeys, saveSelectedModel } from "../local/settings.js"
 import {
@@ -161,9 +162,9 @@ export async function runHeadlessCommand(
       client = connected.client
       model = connected.model.id
       modelContextLength = compactionContextLength(connected.model)
-    } else if (modelProvider === "omlx") {
+    } else if (isServerProvider(modelProvider)) {
       const connected = await app.connectModel({
-        provider: "omlx",
+        provider: modelProvider,
         modelId: model,
         signal: controller.signal,
       })

@@ -1,4 +1,5 @@
 import type { ModelPickerChoice, ModelPickerItem } from "../../../../inference/picker-catalog.js"
+import { isServerProvider, SERVER_INFO } from "../../../../inference/types.js"
 import type { DesktopStatus } from "../../../contracts.js"
 import { formatContextWindow } from "../../format.js"
 import { englishT } from "../../i18n/index.js"
@@ -53,7 +54,8 @@ export function pickerDetailParts(
   if (item.provider === "local") {
     return [{ label: item.availabilityLabel }, modality]
   }
-  if (item.provider === "omlx" && item.availabilityLabel)
+  // `in`, not isServerPickerChoice: the picker catalog's module graph is Node-only.
+  if ("availabilityLabel" in item && item.availabilityLabel)
     return [{ label: item.availabilityLabel }, modality]
   if (item.provider === "pair") {
     return [
@@ -67,7 +69,9 @@ export function pickerDetailParts(
       modality,
     ]
   }
-  const parts: PickerDetailPart[] = item.provider === "omlx" ? [{ label: "oMLX" }] : []
+  const parts: PickerDetailPart[] = isServerProvider(item.provider)
+    ? [{ label: SERVER_INFO[item.provider].name }]
+    : []
   if (item.contextLength) parts.push({ label: formatContextWindow(item.contextLength) })
   parts.push(modality)
   // Fast serving is a Fireworks path; other hosted providers never publish a fastId.

@@ -8,7 +8,7 @@ import {
 } from "../../src/core/compaction.js"
 import { ContextOverflowError } from "../../src/inference/errors.js"
 import { OllamaClient } from "../../src/inference/ollama-client.js"
-import { OmlxClient } from "../../src/inference/omlx.js"
+import { ServerClient } from "../../src/inference/servers.js"
 import type { ChatMessage, InferenceClient, StreamChatOptions } from "../../src/inference/types.js"
 import { TOOL_DEFINITIONS } from "../../src/tools/index.js"
 import { summaryFixture } from "../support/compaction.js"
@@ -47,7 +47,7 @@ describe("bounded compaction", () => {
         { status: 400 },
       ),
     )
-    const client = new OmlxClient({
+    const client = new ServerClient("omlx", {
       model: "chat",
       baseURL: "http://127.0.0.1:8000",
       fetch: fetch as typeof globalThis.fetch,
@@ -140,7 +140,7 @@ describe("bounded compaction", () => {
         `data: ${JSON.stringify({ choices: [{ delta: { content }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`,
       )
     })
-    const client = new OmlxClient({
+    const client = new ServerClient("omlx", {
       model: "chat",
       baseURL: "http://127.0.0.1:8000",
       fetch: fetch as typeof globalThis.fetch,

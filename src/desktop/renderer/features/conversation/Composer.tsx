@@ -12,9 +12,11 @@ import {
   base64EncodedLength,
   HOSTED_PROVIDER_INFO,
   isHostedProvider,
+  isServerProvider,
   MAX_BASE64_IMAGE_BYTES,
   MAX_IMAGES_PER_REQUEST,
   MAX_RAW_IMAGE_BYTES,
+  SERVER_INFO,
   SUPPORTED_IMAGE_EXTENSIONS,
 } from "../../../../inference/types.js"
 import type { DesktopAttachmentInput } from "../../../contracts.js"
@@ -455,8 +457,8 @@ export const Composer = memo(function Composer({ installing = false }: { install
                       id: state.model.id,
                       provider: isHostedProvider(state.model.provider)
                         ? HOSTED_PROVIDER_INFO[state.model.provider].name
-                        : state.model.provider === "omlx"
-                          ? "oMLX"
+                        : isServerProvider(state.model.provider)
+                          ? SERVER_INFO[state.model.provider].name
                           : t(
                               state.model.provider === "local"
                                 ? "models.local"

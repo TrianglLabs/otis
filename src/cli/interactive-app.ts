@@ -29,7 +29,9 @@ import {
   HOSTED_PROVIDERS,
   type HostedProvider,
   isHostedProvider,
+  isServerProvider,
   type ModelProvider,
+  SERVER_INFO,
   type UserChatMessage,
 } from "../inference/types.js"
 import {
@@ -274,9 +276,9 @@ export class InteractiveApp {
       } catch (error) {
         if (this.#exiting) return
         this.#configured = false
-        if (provider === "omlx") {
+        if (isServerProvider(provider)) {
           this.#app.transcript.addAssistantMessage(
-            `Could not connect to oMLX: ${describeError(error)}`,
+            `Could not connect to ${SERVER_INFO[provider].name}: ${describeError(error)}`,
           )
           this.#setupFlow.begin()
         } else {
@@ -292,7 +294,7 @@ export class InteractiveApp {
       !this.#configured &&
       HOSTED_PROVIDERS.some((provider) => this.#app.hostedApiKeys[provider]) &&
       saved?.provider !== "local" &&
-      saved?.provider !== "omlx"
+      !isServerProvider(saved?.provider)
     ) {
       this.#setupFlow.begin()
     }
@@ -793,7 +795,7 @@ export class InteractiveApp {
         description:
           this.#app.pairEndpoints.ollama ||
           this.#app.pairEndpoints.lmStudio ||
-          this.#app.models.omlx
+          Object.keys(this.#app.models.servers).length
             ? "Reconnect or choose model"
             : "Connect a local model server",
         submission: "/settings servers",
@@ -1199,7 +1201,7 @@ function modelLabel(
   id: string,
 ) {
   const name = formatModelName(displayName)
-  if (provider === "omlx") return `${name} · oMLX`
+  if (isServerProvider(provider)) return `${name} · ${SERVER_INFO[provider].name}`
   if (provider === "pair") return `${name} · NVIDIA PAIR`
   if (provider === "local") return `${name} · Local`
   if (provider === "fireworks") return withFastModelMark(name, isFastFireworksModel(id))

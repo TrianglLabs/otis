@@ -1063,6 +1063,7 @@ class DemoRuntime implements DesktopApi {
     primeTeamId: null,
     pairConfigured: false,
     pairEndpoints: {},
+    servers: {},
     debug: false,
     update: { status: "current" },
     remote: null,

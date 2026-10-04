@@ -60,8 +60,8 @@ Update an existing CLI installation with `otis update`.
     <td width="38%" valign="middle">
       <b>1. Choose where Otis thinks</b><br><br>
       First launch asks one question. <b>Local</b> recommends the best model for your machine, downloads it, and runs
-      it through an Otis-managed llama.cpp server, so Otis works offline. Or connect Ollama, LM Studio, oMLX, or an
-      NVIDIA PAIR cluster you already run. <b>Hosted</b> uses your own Fireworks, Together AI, Baseten, or Prime
+      it through an Otis-managed llama.cpp server, so Otis works offline. Or connect Ollama, LM Studio, oMLX, any
+      OpenAI-compatible server you run, or an NVIDIA PAIR cluster you already run. <b>Hosted</b> uses your own Fireworks, Together AI, Baseten, or Prime
       Intellect key.
     </td>
     <td width="62%"><img src="docs/screens/onboarding.png" alt="First launch: choose Hosted or Local" width="100%"></td>
@@ -136,7 +136,7 @@ Desktop app / OpenTUI terminal / headless CLI
       ├─ Private local configuration, sessions, diffs, and stats
       ├─ llama.cpp ── Otis-managed local GGUF inference
       ├─ NVIDIA PAIR ── routing across your local AI cluster
-      ├─ oMLX ── user-managed MLX inference on Apple Silicon
+      ├─ oMLX · any OpenAI-compatible server ── user-managed inference on loopback
       ├─ Fireworks · Together AI · Baseten · Prime Intellect ── hosted inference and model discovery
       └─ Parallel Search MCP ── web search and page reading
 ```
@@ -165,7 +165,8 @@ of unified memory, or Linux with at least 24 GB of RAM; compatible NVIDIA GPUs u
 Vulkan. See [managed local inference](docs/local-inference.md).
 
 **Local servers.** Connect Ollama or LM Studio through [NVIDIA PAIR](docs/nvidia-pair.md), which routes each request
-to an eligible computer in your cluster, or an [oMLX](docs/omlx.md) server on Apple silicon.
+to an eligible computer in your cluster, an [oMLX](docs/local-servers.md) server on Apple silicon, or
+[any OpenAI-compatible server](docs/local-servers.md) you run — vLLM, llama.cpp, NInfer, your own.
 
 **Hosted.** [Fireworks](https://app.fireworks.ai/api-keys), [Together AI](https://api.together.ai/settings/projects/~current/api-keys),
 [Baseten](https://app.baseten.co/settings/api_keys), or [Prime Intellect](https://app.primeintellect.ai/dashboard/tokens)
@@ -243,7 +244,7 @@ vulnerability reporting.
 
 - [Desktop app and downloads](https://triangllabs.ai/otis) — native macOS and Linux builds
 - [Managed local inference](docs/local-inference.md) — hardware fit, downloads, context, and model deletion
-- [oMLX](docs/omlx.md) — connect an MLX server, authentication, and model metadata
+- [User-managed servers](docs/local-servers.md) — oMLX and any OpenAI-compatible server: connection, keys, model metadata
 - [NVIDIA PAIR](docs/nvidia-pair.md) — endpoint setup, routing, inventory, and metadata
 - [Headless execution](docs/headless.md) — output formats, limits, sessions, and attachments
 - [Document workflows](docs/document-workflows.md) — reading, editing, generating, and publishing documents

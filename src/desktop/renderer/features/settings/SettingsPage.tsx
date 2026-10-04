@@ -23,15 +23,20 @@ import {
   useRef,
   useState,
 } from "react"
-import type { OmlxPickerChoice, PairPickerChoice } from "../../../../inference/picker-catalog.js"
+import type { ServerInput } from "../../../../app/local-servers.js"
+import type { PairPickerChoice, ServerPickerChoice } from "../../../../inference/picker-catalog.js"
 import { hiddenModelKey } from "../../../../inference/picker-filter.js"
 import {
   HOSTED_PROVIDER_INFO,
   HOSTED_PROVIDERS,
   type HostedModel,
   type HostedProvider,
+  isServerProvider,
+  type LocalServerTab,
   localServerNames,
-  supportsOmlx,
+  localServerTabs,
+  type ServerProvider,
+  serverFormInputs,
 } from "../../../../inference/types.js"
 import type { LocalStats } from "../../../../local/stats.js"
 import type {
@@ -41,9 +46,6 @@ import type {
   ThemeName,
   UiLanguage,
 } from "../../../contracts.js"
-import lmStudioIcon from "../../assets/lm-studio.svg"
-import ollamaIcon from "../../assets/ollama.svg"
-import omlxIcon from "../../assets/omlx.svg"
 import { Button, IconButton } from "../../components/Button.js"
 import { Icon } from "../../components/Icon.js"
 import { TabStrip } from "../../components/TabStrip.js"
@@ -138,7 +140,7 @@ export function SettingsPage({
     "busy",
     "working",
     "pairEndpoints",
-    "omlx",
+    "servers",
     "runtimePlatform",
     "pairConfigured",
     "hostedConfigured",
@@ -155,7 +157,6 @@ export function SettingsPage({
     "stats",
     "primeTeamId",
   )
-  const showOmlx = supportsOmlx(state?.runtimePlatform)
   const servers = new Intl.ListFormat(locale, { type: "disjunction" }).format(
     localServerNames(state?.runtimePlatform),
   )
@@ -167,13 +168,37 @@ export function SettingsPage({
   const [extension, setExtension] = useState<"skills" | "memory">("skills")
   const tabRefs = useRef(new Map<SettingsTab, HTMLButtonElement>())
 
-  const [ollama, setOllama] = useState("")
-  const [lmStudio, setLmStudio] = useState("")
-  const [omlx, setOmlx] = useState("")
-  const [omlxApiKey, setOmlxApiKey] = useState("")
+  // The server form shows one server at a time; every address stays in state and is probed.
+  const [serverTab, setServerTab] = useState<LocalServerTab>("ollama")
+  const [pairInputs, setPairInputs] = useState({ ollama: "", lmStudio: "" })
+  const [serverInputs, setServerInputs] = useState<Partial<Record<ServerProvider, ServerInput>>>({})
+  const setServer = (provider: ServerProvider, patch: Partial<ServerInput>) =>
+    setServerInputs((inputs) => ({
+      ...inputs,
+      [provider]: { baseURL: "", ...inputs[provider], ...patch },
+    }))
+  const connected = (tab: LocalServerTab) =>
+    Boolean(isServerProvider(tab) ? state?.servers[tab] : state?.pairEndpoints[tab])
+  const address = isServerProvider(serverTab)
+    ? (serverInputs[serverTab]?.baseURL ?? "")
+    : pairInputs[serverTab]
+  const setAddress = (baseURL: string) =>
+    isServerProvider(serverTab)
+      ? setServer(serverTab, { baseURL })
+      : setPairInputs((inputs) => ({ ...inputs, [serverTab]: baseURL }))
+  const submitOnEnter = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter") void submitPair()
+  }
+  // A key is typed once per connect; the saved one stays in force while the field is blank.
+  const clearServerKeys = () =>
+    setServerInputs((inputs) =>
+      Object.fromEntries(
+        Object.entries(inputs).map(([provider, input]) => [provider, { ...input, apiKey: "" }]),
+      ),
+    )
   const [pairPending, setPairPending] = useState(false)
   const [pairError, setPairError] = useState<string>()
-  const [pairModels, setPairModels] = useState<(PairPickerChoice | OmlxPickerChoice)[]>()
+  const [pairModels, setPairModels] = useState<(PairPickerChoice | ServerPickerChoice)[]>()
   const [pairCatalogReload, setPairCatalogReload] = useState(0)
 
   const [fastError, setFastError] = useState<string>()
@@ -191,8 +216,8 @@ export function SettingsPage({
 
   // Keep hooks unconditional while the initial snapshot is loading.
   useEffect(() => {
-    if (activeTab !== "providers" || openForm !== "pair" || !(state?.pairConfigured || state?.omlx))
-      return
+    const anyServer = state?.pairConfigured || Object.keys(state?.servers ?? {}).length > 0
+    if (activeTab !== "providers" || openForm !== "pair" || !anyServer) return
     let cancelled = false
     void api
       .listModels()
@@ -200,8 +225,9 @@ export function SettingsPage({
         if (cancelled) return
         setPairModels(
           items.filter(
-            (item): item is PairPickerChoice | OmlxPickerChoice =>
-              item.kind === "model" && (item.provider === "pair" || item.provider === "omlx"),
+            (item): item is PairPickerChoice | ServerPickerChoice =>
+              item.kind === "model" &&
+              (item.provider === "pair" || isServerProvider(item.provider)),
           ),
         )
       })
@@ -211,7 +237,7 @@ export function SettingsPage({
     return () => {
       cancelled = true
     }
-  }, [activeTab, openForm, state?.pairConfigured, state?.omlx, pairCatalogReload, api])
+  }, [activeTab, openForm, state?.pairConfigured, state?.servers, pairCatalogReload, api])
 
   if (!state) return null
   const { fastServing } = state
@@ -221,10 +247,14 @@ export function SettingsPage({
   const toggleForm = (form: "pair" | HostedProvider) => {
     setPairError(undefined)
     if (form === "pair" && openForm !== "pair") {
-      setOllama(state.pairEndpoints.ollama ?? PAIR_DEFAULT_ENDPOINTS.ollama)
-      setLmStudio(state.pairEndpoints.lmStudio ?? PAIR_DEFAULT_ENDPOINTS.lmStudio)
-      setOmlx(showOmlx ? (state.omlx?.baseURL ?? "http://127.0.0.1:8000") : "")
-      setOmlxApiKey("")
+      setPairInputs({
+        ollama: state.pairEndpoints.ollama ?? PAIR_DEFAULT_ENDPOINTS.ollama,
+        lmStudio: state.pairEndpoints.lmStudio ?? PAIR_DEFAULT_ENDPOINTS.lmStudio,
+      })
+      setServerInputs(serverFormInputs(state.runtimePlatform, state.servers))
+      setServerTab(
+        localServerTabs(state.runtimePlatform).find(([tab]) => connected(tab))?.[0] ?? "ollama",
+      )
     }
     setOpenForm(openForm === form ? undefined : form)
   }
@@ -233,16 +263,12 @@ export function SettingsPage({
     setPairError(undefined)
     setPairPending(true)
     try {
-      const result = await api.connectLocalServers({
-        ollama,
-        lmStudio,
-        ...(showOmlx ? { omlx, omlxApiKey } : {}),
-      })
+      const result = await api.connectLocalServers({ ...pairInputs, ...serverInputs })
       // The form stays open on success: model selection happens here now. Every successful connect
       // — including reconnects to a changed endpoint — refetches the catalog.
       if (result.ok) {
         setPairCatalogReload((n) => n + 1)
-        setOmlxApiKey("")
+        clearServerKeys()
       } else setPairError(result.reason)
     } finally {
       setPairPending(false)
@@ -382,85 +408,75 @@ export function SettingsPage({
                           <p className="settingsForm-note">
                             {t("settings.localServersNote", { servers })}
                           </p>
-                          <div className="settingsEndpoints">
-                            <label
-                              className="settingsEndpoint-label"
-                              htmlFor="settings-pair-ollama"
-                            >
-                              <img
-                                className="settingsProviderMark settingsProviderMark-ollama"
-                                src={ollamaIcon}
-                                alt=""
-                                aria-hidden
-                              />
-                              Ollama
-                            </label>
-                            <input
-                              id="settings-pair-ollama"
-                              className="settingsForm-input"
-                              value={ollama}
-                              onChange={(event) => setOllama(event.target.value)}
-                              spellCheck={false}
-                              autoComplete="off"
-                            />
-                            <label
-                              className="settingsEndpoint-label"
-                              htmlFor="settings-pair-lmstudio"
-                            >
-                              <img
-                                className="settingsProviderMark"
-                                src={lmStudioIcon}
-                                alt=""
-                                aria-hidden
-                              />
-                              LM Studio
-                            </label>
-                            <input
-                              id="settings-pair-lmstudio"
-                              className="settingsForm-input"
-                              value={lmStudio}
-                              onChange={(event) => setLmStudio(event.target.value)}
-                              onKeyDown={(event) => {
-                                if (event.key === "Enter") void submitPair()
-                              }}
-                              spellCheck={false}
-                              autoComplete="off"
-                            />
-                            {showOmlx ? (
+                          <TabStrip
+                            tabs={localServerTabs(state.runtimePlatform).map(([tab, name]) => [
+                              tab,
                               <>
-                                <label className="settingsEndpoint-label" htmlFor="settings-omlx">
-                                  <img
-                                    className="settingsProviderMark"
-                                    src={omlxIcon}
-                                    alt=""
-                                    aria-hidden
-                                  />
-                                  oMLX
-                                </label>
+                                {name}
+                                {connected(tab) ? <Icon icon={Check} size={11} /> : null}
+                              </>,
+                            ])}
+                            selected={serverTab}
+                            onSelect={(tab) => {
+                              setPairError(undefined)
+                              setServerTab(tab)
+                            }}
+                          />
+                          <div className="settingsEndpoints">
+                            <input
+                              className="settingsForm-input"
+                              aria-label={t("settings.serverAddress")}
+                              placeholder={t("settings.serverAddress")}
+                              value={address}
+                              onChange={(event) => setAddress(event.target.value)}
+                              onKeyDown={submitOnEnter}
+                              spellCheck={false}
+                              autoComplete="off"
+                            />
+                            {isServerProvider(serverTab) ? (
+                              <input
+                                id={`settings-${serverTab}-key`}
+                                type="password"
+                                className="settingsForm-input"
+                                aria-label={t("settings.serverKey")}
+                                placeholder={
+                                  state.servers[serverTab]?.hasApiKey
+                                    ? t("settings.serverKeyHint")
+                                    : t("settings.serverKey")
+                                }
+                                value={serverInputs[serverTab]?.apiKey ?? ""}
+                                onChange={(event) =>
+                                  setServer(serverTab, { apiKey: event.target.value })
+                                }
+                                onKeyDown={submitOnEnter}
+                                autoComplete="off"
+                              />
+                            ) : null}
+                            {serverTab === "custom" ? (
+                              <>
                                 <input
-                                  id="settings-omlx"
                                   className="settingsForm-input"
-                                  value={omlx}
-                                  onChange={(event) => setOmlx(event.target.value)}
+                                  aria-label={t("settings.serverModel")}
+                                  placeholder={t("settings.serverModel")}
+                                  value={serverInputs.custom?.model ?? ""}
+                                  onChange={(event) =>
+                                    setServer("custom", { model: event.target.value })
+                                  }
+                                  onKeyDown={submitOnEnter}
                                   spellCheck={false}
                                   autoComplete="off"
                                 />
                                 <input
-                                  id="settings-omlx-key"
-                                  type="password"
-                                  className="settingsForm-input settingsEndpoint-key"
-                                  aria-label={t("settings.omlxKey")}
-                                  value={omlxApiKey}
-                                  onChange={(event) => setOmlxApiKey(event.target.value)}
-                                  placeholder={
-                                    state.omlx?.hasApiKey
-                                      ? t("settings.omlxKeyHint")
-                                      : t("settings.omlxKey")
+                                  className="settingsForm-input"
+                                  aria-label={t("settings.serverContext")}
+                                  placeholder={t("settings.serverContext")}
+                                  inputMode="numeric"
+                                  value={serverInputs.custom?.contextLength ?? ""}
+                                  onChange={(event) =>
+                                    setServer("custom", { contextLength: event.target.value })
                                   }
+                                  onKeyDown={submitOnEnter}
                                   autoComplete="off"
-                                  onKeyDown={(event) => {
-                                    if (event.key === "Enter") void submitPair()
-                                  }}
                                 />
                               </>
                             ) : null}
@@ -482,7 +498,7 @@ export function SettingsPage({
                           {pairError ? (
                             <div className="settings-message settings-error">{pairError}</div>
                           ) : null}
-                          {state.pairConfigured || state.omlx ? (
+                          {state.pairConfigured || Object.keys(state.servers).length ? (
                             <>
                               <div className="settingsForm-label settingsModels-label">
                                 {t("settings.availableModels")}
@@ -505,7 +521,7 @@ export function SettingsPage({
                                     void api.selectModel(item.selectionKey).then((result) => {
                                       if (!result.ok) return setPairError(result.reason)
                                       setPairCatalogReload((n) => n + 1)
-                                      setOmlxApiKey("")
+                                      clearServerKeys()
                                     })
                                   }}
                                 >
