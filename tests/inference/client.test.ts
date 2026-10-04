@@ -101,6 +101,54 @@ describe("HostedClient for Fireworks", () => {
     })
   })
 
+  it.each([
+    ["fireworks", "reasoning_content", "reasoning"],
+    ["primeintellect", "reasoning", "reasoning_content"],
+  ] as const)("%s replays only its own reasoning field", async (provider, own, foreign) => {
+    const fetchMock = vi.fn(
+      async (_url: RequestInfo | URL, _init?: RequestInit) =>
+        new Response('data: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n'),
+    )
+    const client = new HostedClient({
+      provider,
+      apiKey: "test-key",
+      model: "model",
+      inferenceURL: "http://localhost/v1/chat/completions",
+      fetch: fetchMock as typeof fetch,
+    })
+    for await (const _event of client.streamChat({
+      messages: [
+        { role: "user", content: "earlier" },
+        {
+          role: "assistant",
+          content: [
+            { type: "reasoning", field: foreign, text: "Thought elsewhere" },
+            { type: "text", text: "Earlier answer" },
+          ],
+        },
+        { role: "user", content: "later" },
+        {
+          role: "assistant",
+          content: [
+            { type: "reasoning", field: own, text: "Thought here" },
+            { type: "text", text: "Later answer" },
+          ],
+        },
+        { role: "user", content: "now" },
+      ],
+    })) {
+      // drain
+    }
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
+    expect(body.messages[2]).toEqual({ role: "assistant", content: "Earlier answer" })
+    expect(body.messages[4]).toEqual({
+      role: "assistant",
+      content: "Later answer",
+      [own]: "Thought here",
+    })
+    expect(JSON.stringify(body)).not.toContain("Thought elsewhere")
+  })
+
   it("abandons a Fireworks stream that stays silent past the idle limit", async () => {
     const client = new HostedClient({
       provider: "fireworks",

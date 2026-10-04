@@ -133,10 +133,20 @@ export type PairEngine = "ollama" | "lmstudio"
 /** One saved key per hosted provider; a missing entry means that provider is not set up. */
 export type HostedApiKeys = Partial<Record<HostedProvider, string>>
 
-/** What a hosted provider is called and where its key and OpenAI-compatible endpoint live. */
+/**
+ * What a hosted provider is called, where its key and OpenAI-compatible endpoint live, and the
+ * field its models stream reasoning in, which is the only one it takes back in a later turn.
+ */
 export const HOSTED_PROVIDER_INFO: Record<
   HostedProvider,
-  { name: string; keyEnv: string; keyURL: string; inferenceURL: string; modelsURL: string }
+  {
+    name: string
+    keyEnv: string
+    keyURL: string
+    inferenceURL: string
+    modelsURL: string
+    reasoningField: OpenAICompatibleReasoningField
+  }
 > = {
   fireworks: {
     name: "Fireworks",
@@ -144,6 +154,7 @@ export const HOSTED_PROVIDER_INFO: Record<
     keyURL: "https://app.fireworks.ai/api-keys",
     inferenceURL: "https://api.fireworks.ai/inference/v1/chat/completions",
     modelsURL: "https://api.fireworks.ai/v1/accounts/fireworks/models",
+    reasoningField: "reasoning_content",
   },
   together: {
     name: "Together AI",
@@ -151,6 +162,7 @@ export const HOSTED_PROVIDER_INFO: Record<
     keyURL: "https://api.together.ai/settings/projects/~current/api-keys",
     inferenceURL: "https://api.together.xyz/v1/chat/completions",
     modelsURL: "https://api.together.xyz/v1/models",
+    reasoningField: "reasoning",
   },
   baseten: {
     name: "Baseten",
@@ -158,6 +170,7 @@ export const HOSTED_PROVIDER_INFO: Record<
     keyURL: "https://app.baseten.co/settings/api_keys",
     inferenceURL: "https://inference.baseten.co/v1/chat/completions",
     modelsURL: "https://inference.baseten.co/v1/models",
+    reasoningField: "reasoning_content",
   },
   primeintellect: {
     name: "Prime Intellect",
@@ -165,6 +178,7 @@ export const HOSTED_PROVIDER_INFO: Record<
     keyURL: "https://app.primeintellect.ai/dashboard/tokens",
     inferenceURL: "https://api.pinference.ai/api/v1/chat/completions",
     modelsURL: "https://api.pinference.ai/api/v1/models",
+    reasoningField: "reasoning",
   },
 }
 

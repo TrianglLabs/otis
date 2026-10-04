@@ -186,8 +186,11 @@ Requests otherwise avoid model-specific sampling and token settings.
 
 Model-provided reasoning is represented as ordered assistant content rather than UI status. The shared runtime assigns
 each streamed reasoning block an Otis-owned ID and start/end timing, emits start/delta/end lifecycle events, and keeps
-the original Fireworks field so later tool-use requests receive the reasoning context required for interleaved
-thinking. Sessions persist the complete block for replay. Display policy is independent: OpenTUI hides thinking by
+the field the provider streamed it in so later tool-use requests receive the reasoning context required for interleaved
+thinking. Each hosted provider declares that field (`reasoningField` in `HOSTED_PROVIDER_INFO`) and takes back only
+reasoning in it: a session resumed on another provider sends that provider the text and tool calls but not the other
+dialect's reasoning, which strict providers reject as an unknown key. Local servers declare none and replay every stored
+field. Sessions persist the complete block for replay. Display policy is independent: OpenTUI hides thinking by
 default and saves the user's `/thinking` visibility preference. Visible blocks render a compact three-line preview
 and keep per-block expansion as ephemeral UI state, while headless output includes trace text only when
 `--include-reasoning` is explicitly requested. These traces are provider output and may contain sensitive context.

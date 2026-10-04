@@ -14,6 +14,7 @@ import type {
   ChatMessage,
   CompleteOptions,
   InferenceClient,
+  OpenAICompatibleReasoningField,
   StreamChatOptions,
   ToolDefinition,
   UserChatMessage,
@@ -113,10 +114,18 @@ function formatInterval(ms: number) {
   return `${value} ${unit}${value === 1 ? "" : "s"}`
 }
 
+/**
+ * With `reasoningField`, only reasoning stored in that field is replayed; strict providers reject
+ * any other key. Without it every stored field goes back.
+ */
 export function openaiChatCompletionRequest(
   model: string,
   options: StreamChatOptions,
-  extras: { reasoningEffort?: string; serviceTier?: string } = {},
+  extras: {
+    reasoningEffort?: string
+    serviceTier?: string
+    reasoningField?: OpenAICompatibleReasoningField
+  } = {},
 ) {
   const tools = options.tools ?? []
   validateImageAttachments(imageAttachmentsFromMessages(options.messages))
@@ -160,11 +169,11 @@ export function openaiChatCompletionRequest(
             }),
           }
         }
-        const reasoning = new Map<string, string>()
+        const reasoning: Partial<Record<OpenAICompatibleReasoningField, string>> = {}
         const toolCalls = []
         for (const part of message.content) {
-          if (part.type === "reasoning")
-            reasoning.set(part.field, `${reasoning.get(part.field) ?? ""}${part.text}`)
+          if (part.type === "reasoning" && (extras.reasoningField ?? part.field) === part.field)
+            reasoning[part.field] = (reasoning[part.field] ?? "") + part.text
           if (part.type === "tool_call") {
             toolCalls.push({
               id: part.toolCall.id,
@@ -176,7 +185,7 @@ export function openaiChatCompletionRequest(
         return {
           role: "assistant",
           content: textContent(message.content) || null,
-          ...Object.fromEntries(reasoning),
+          ...reasoning,
           ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
         }
       }),

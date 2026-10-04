@@ -39,6 +39,7 @@ describe("LlamaCppClient", () => {
               text: "Prior reasoning",
               field: "reasoning_content" as const,
             },
+            { type: "reasoning" as const, text: "Hosted reasoning", field: "reasoning" as const },
             { type: "text" as const, text: "Prior answer" },
           ],
         },
@@ -50,8 +51,12 @@ describe("LlamaCppClient", () => {
     expect(requests[0]).toEqual(requests[1])
     expect(requests[0]).toMatchObject({
       reasoning_effort: "medium",
+      // A local server declares no reasoning field, so every stored dialect goes back.
       messages: expect.arrayContaining([
-        expect.objectContaining({ reasoning_content: "Prior reasoning" }),
+        expect.objectContaining({
+          reasoning_content: "Prior reasoning",
+          reasoning: "Hosted reasoning",
+        }),
       ]),
     })
     level = "off"
