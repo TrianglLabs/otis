@@ -28,6 +28,7 @@ import omlxIcon from "../../assets/omlx.svg"
 import { Button, IconButton } from "../../components/Button.js"
 import { Icon } from "../../components/Icon.js"
 import { OtisMark } from "../../components/OtisMark.js"
+import { TabStrip } from "../../components/TabStrip.js"
 import { useI18n } from "../../i18n/index.js"
 import { useDesktop, useDesktopState } from "../../runtime.js"
 import {
@@ -92,6 +93,9 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
   const hostedConfigured = state?.hostedConfigured[hostedProvider] === true
   const hostedName = HOSTED_PROVIDER_INFO[hostedProvider].name
   const billsTeam = hostedProvider === "primeintellect"
+  const submitOnEnter = (event: React.KeyboardEvent) => {
+    if (event.key === "Enter" && apiKey.trim()) void saveHostedKey()
+  }
 
   const pairConfigured = state?.pairConfigured === true || Boolean(state?.omlx)
 
@@ -252,6 +256,15 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
     )
   }
 
+  // A user-managed server adds its connection screen before the model list.
+  const stepIndex = {
+    cloud: hostedConfigured ? 2 : 1,
+    local: 1,
+    managed: 2,
+    server: 2,
+    serverModels: 3,
+  }[path]
+  const stepCount = path === "server" || path === "serverModels" ? 4 : 3
   return (
     <main className="onboarding">
       <div className="onboarding-topbar">
@@ -268,6 +281,20 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
           <Icon icon={ArrowLeft} size={13} />
           {t("onboarding.back")}
         </Button>
+        <div
+          className="onboarding-steps"
+          role="img"
+          aria-label={t("onboarding.step", { current: stepIndex + 1, total: stepCount })}
+        >
+          {Array.from({ length: stepCount }, (_, step) => (
+            <span
+              key={step}
+              className={`onboarding-stepDot${step === stepIndex ? " onboarding-stepDot-current" : ""}${
+                step < stepIndex ? " onboarding-stepDot-done" : ""
+              }`}
+            />
+          ))}
+        </div>
         <IconButton
           icon={Settings}
           label={t("common.settings")}
@@ -285,27 +312,21 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
               <legend className="onboarding-providersLegend">
                 {t("onboarding.chooseProvider")}
               </legend>
-              <div className="tabStrip onboarding-providerTabs" role="tablist">
-                {HOSTED_PROVIDERS.map((provider) => (
-                  <button
-                    key={provider}
-                    type="button"
-                    role="tab"
-                    className={`tabStrip-tab${
-                      provider === hostedProvider ? " tabStrip-tab-selected" : ""
-                    }`}
-                    aria-selected={provider === hostedProvider}
-                    onClick={() => {
-                      setError(undefined)
-                      setApiKey("")
-                      setHostedProvider(provider)
-                    }}
-                  >
+              <TabStrip
+                tabs={HOSTED_PROVIDERS.map((provider) => [
+                  provider,
+                  <>
                     {HOSTED_PROVIDER_INFO[provider].name}
                     {state?.hostedConfigured[provider] ? <Icon icon={Check} size={11} /> : null}
-                  </button>
-                ))}
-              </div>
+                  </>,
+                ])}
+                selected={hostedProvider}
+                onSelect={(provider) => {
+                  setError(undefined)
+                  setApiKey("")
+                  setHostedProvider(provider)
+                }}
+              />
             </fieldset>
           </>
         ) : null}
@@ -392,16 +413,8 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                 value={apiKey}
                 autoComplete="off"
                 onChange={(event) => setApiKey(event.target.value)}
+                onKeyDown={submitOnEnter}
               />
-              <Button
-                variant="primary"
-                size="sm"
-                disabled={!apiKey.trim()}
-                onClick={() => void saveHostedKey()}
-              >
-                {t("common.continue")}
-                <Icon icon={ArrowRight} size={13} />
-              </Button>
             </div>
             {billsTeam ? (
               <div className="onboarding-keyRow">
@@ -414,9 +427,21 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                   autoComplete="off"
                   spellCheck={false}
                   onChange={(event) => setTeamId(event.target.value)}
+                  onKeyDown={submitOnEnter}
                 />
               </div>
             ) : null}
+            <div className="onboarding-actions onboarding-actionsEnd">
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={!apiKey.trim()}
+                onClick={() => void saveHostedKey()}
+              >
+                {t("common.continue")}
+                <Icon icon={ArrowRight} size={13} />
+              </Button>
+            </div>
           </>
         ) : null}
 
