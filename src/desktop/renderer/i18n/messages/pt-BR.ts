@@ -262,6 +262,7 @@ export const ptBR: Messages = {
   "settings.remoteUrl": "Endereço",
   "settings.remoteUrlPlaceholder": "ws://linux-box:7331",
   "settings.remoteToken": "Token de pareamento",
+  "settings.remoteTokenHint": "Deixe em branco para manter o token salvo",
   "shell.remoteFolder": "Pasta em {{host}}",
   "shell.remoteFolderHint": "Digite o caminho completo de uma pasta nessa máquina.",
   "common.open": "Abrir",

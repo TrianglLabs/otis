@@ -153,6 +153,7 @@ otis serve --host <private address>
 Canvas documents are that machine's — and prints the addresses it is reachable at (the Tailscale one among them) and a
 pairing token, created once and reused. In the desktop app, Settings → General → Another
 machine takes the address and the token; the app restarts onto the daemon and shows which host it is working on.
+Switching back to this machine keeps the pairing, so reconnecting later needs no token, just Connect.
 Appearance settings stay with the window. The daemon listens on loopback unless `--host` names an interface; reach it
 over a private network such as Tailscale rather than exposing it to the internet. A client that disconnects leaves
 the daemon's work running. The terminal panel is not available over a connection yet.

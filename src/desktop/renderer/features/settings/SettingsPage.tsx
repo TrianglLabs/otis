@@ -154,6 +154,7 @@ export function SettingsPage({
     "model",
     "debug",
     "remote",
+    "remoteSaved",
     "stats",
     "primeTeamId",
   )
@@ -783,7 +784,7 @@ export function SettingsPage({
                 <div className="settingsGroup">
                   <h2 className="settings-section">{t("settings.server")}</h2>
                   <div className="settingsSurface">
-                    <ServerSettings remote={state.remote} />
+                    <ServerSettings remote={state.remote} remoteSaved={state.remoteSaved} />
                   </div>
                   <p className="settingsForm-note settingsGroup-note">{t("settings.remoteNote")}</p>
                 </div>
@@ -1011,15 +1012,23 @@ function HostedModelsSettings({
  * its inline editor pairs with a daemon, like a provider row takes a key. Either change restarts
  * the app.
  */
-function ServerSettings({ remote }: { remote: string | null }) {
+function ServerSettings({
+  remote,
+  remoteSaved,
+}: {
+  remote: string | null
+  remoteSaved: string | null
+}) {
   const { api } = useDesktop()
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
-  const [url, setUrl] = useState("")
+  const [url, setUrl] = useState(remoteSaved ?? "")
   const [token, setToken] = useState("")
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string>()
-  const ready = Boolean(url.trim() && token.trim()) && !pending
+  // The saved token applies while the address is the one it was saved for.
+  const tokenSaved = remoteSaved !== null && url.trim() === remoteSaved
+  const ready = Boolean(url.trim() && (token.trim() || tokenSaved)) && !pending
   const connect = async () => {
     if (!ready) return
     setPending(true)
@@ -1071,7 +1080,7 @@ function ServerSettings({ remote }: { remote: string | null }) {
             type="password"
             className="settingsForm-input settingsProvider-key"
             aria-label={t("settings.remoteToken")}
-            placeholder={t("settings.remoteToken")}
+            placeholder={t(tokenSaved ? "settings.remoteTokenHint" : "settings.remoteToken")}
             value={token}
             onChange={(event) => setToken(event.target.value)}
             onKeyDown={onKeyDown}

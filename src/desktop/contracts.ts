@@ -212,6 +212,8 @@ export type DesktopStatus = {
   update: DesktopUpdateState
   /** The `otis serve` host this window works on, or null for the runtime in this app. */
   remote: string | null
+  /** The last daemon address paired from here, prefilled to reconnect; its token stays on disk. */
+  remoteSaved: string | null
   /**
    * The operating system the runtime runs on, which decides the local model servers it can reach;
    * the daemon's when paired, unlike the snapshot's `platform`, which is this window's.

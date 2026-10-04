@@ -308,6 +308,7 @@ export const uk: Messages = {
   "settings.remoteUrl": "Адреса",
   "settings.remoteUrlPlaceholder": "ws://linux-box:7331",
   "settings.remoteToken": "Токен спарювання",
+  "settings.remoteTokenHint": "Залиште порожнім, щоб зберегти збережений токен",
   "shell.remoteFolder": "Тека на {{host}}",
   "shell.remoteFolderHint": "Введіть повний шлях до теки на тій машині.",
   "common.open": "Відкрити",

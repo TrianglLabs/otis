@@ -255,6 +255,7 @@ export const zhCN: Messages = {
   "settings.remoteUrl": "地址",
   "settings.remoteUrlPlaceholder": "ws://linux-box:7331",
   "settings.remoteToken": "配对令牌",
+  "settings.remoteTokenHint": "留空以保留已保存的令牌",
   "shell.remoteFolder": "{{host}} 上的文件夹",
   "shell.remoteFolderHint": "输入那台机器上文件夹的完整路径。",
   "common.open": "打开",

@@ -262,6 +262,7 @@ export const ko: Messages = {
   "settings.remoteUrl": "주소",
   "settings.remoteUrlPlaceholder": "ws://linux-box:7331",
   "settings.remoteToken": "페어링 토큰",
+  "settings.remoteTokenHint": "비워 두면 저장된 토큰을 유지합니다",
   "shell.remoteFolder": "{{host}}의 폴더",
   "shell.remoteFolderHint": "그 컴퓨터에 있는 폴더의 전체 경로를 입력하세요.",
   "common.open": "열기",

@@ -61,6 +61,7 @@ export const STATUS: DesktopStatus = {
   debug: false,
   update: { status: "idle" },
   remote: null,
+  remoteSaved: null,
   runtimePlatform: "darwin",
 }
 

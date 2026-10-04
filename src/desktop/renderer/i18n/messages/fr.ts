@@ -263,6 +263,7 @@ export const fr: Messages = {
   "settings.remoteUrl": "Adresse",
   "settings.remoteUrlPlaceholder": "ws://linux-box:7331",
   "settings.remoteToken": "Jeton d’appairage",
+  "settings.remoteTokenHint": "Laissez vide pour conserver le jeton enregistré",
   "shell.remoteFolder": "Dossier sur {{host}}",
   "shell.remoteFolderHint": "Saisissez le chemin complet d’un dossier sur cette machine.",
   "common.open": "Ouvrir",

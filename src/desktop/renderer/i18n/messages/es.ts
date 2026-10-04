@@ -263,6 +263,7 @@ export const es: Messages = {
   "settings.remoteUrl": "Dirección",
   "settings.remoteUrlPlaceholder": "ws://linux-box:7331",
   "settings.remoteToken": "Token de emparejamiento",
+  "settings.remoteTokenHint": "Déjalo en blanco para conservar el token guardado",
   "shell.remoteFolder": "Carpeta en {{host}}",
   "shell.remoteFolderHint": "Escribe la ruta completa de una carpeta en esa máquina.",
   "common.open": "Abrir",

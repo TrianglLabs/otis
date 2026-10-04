@@ -262,6 +262,7 @@ export const de: Messages = {
   "settings.remoteUrl": "Adresse",
   "settings.remoteUrlPlaceholder": "ws://linux-box:7331",
   "settings.remoteToken": "Kopplungstoken",
+  "settings.remoteTokenHint": "Leer lassen, um das gespeicherte Token zu behalten",
   "shell.remoteFolder": "Ordner auf {{host}}",
   "shell.remoteFolderHint": "Gib den vollständigen Pfad eines Ordners auf diesem Rechner ein.",
   "common.open": "Öffnen",
