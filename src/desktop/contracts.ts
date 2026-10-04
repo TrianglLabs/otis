@@ -86,6 +86,8 @@ export const DESKTOP_CHANNELS = {
   setDebugMode: "desktop:set-debug-mode",
   checkForUpdates: "desktop:check-for-updates",
   installUpdate: "desktop:install-update",
+  connectRemote: "desktop:connect-remote",
+  disconnectRemote: "desktop:disconnect-remote",
   getWindowState: "desktop:get-window-state",
   windowState: "desktop:window-state",
   event: "desktop:event",
@@ -202,6 +204,8 @@ export type DesktopStatus = {
   /** Session-only debug mode, mirroring the TUI's /debug toggle; applies from the next turn. */
   debug: boolean
   update: DesktopUpdateState
+  /** The `otis serve` host this window works on, or null for the runtime in this app. */
+  remote: string | null
 }
 
 /** The edge a session is dropped on: left and top put it first, right and bottom last. */
@@ -439,6 +443,13 @@ export type DesktopApi = {
   checkForUpdates(): Promise<void>
   /** Restarts into the downloaded update. No-op when no update is ready. */
   installUpdate(): Promise<void>
+  /**
+   * Pairs this app with an `otis serve` daemon and restarts into it; a failure names the reason
+   * and changes nothing.
+   */
+  connectRemote(url: string, token: string): Promise<SessionOpResult>
+  /** Forgets the daemon and restarts on the runtime in this app. */
+  disconnectRemote(): Promise<void>
   /**
    * Starts a login shell in the working folder unless one runs, and returns what it has printed so
    * far; what follows arrives through subscribeTerminal.

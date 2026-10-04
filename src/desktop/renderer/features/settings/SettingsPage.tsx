@@ -151,6 +151,7 @@ export function SettingsPage({
     "permissionMode",
     "model",
     "debug",
+    "remote",
     "stats",
     "primeTeamId",
   )
@@ -764,6 +765,14 @@ export function SettingsPage({
                 </div>
 
                 <div className="settingsGroup">
+                  <h2 className="settings-section">{t("settings.server")}</h2>
+                  <div className="settingsSurface">
+                    <ServerSettings remote={state.remote} />
+                  </div>
+                  <p className="settingsForm-note settingsGroup-note">{t("settings.remoteNote")}</p>
+                </div>
+
+                <div className="settingsGroup">
                   <h2 className="settings-section">{t("updates.title")}</h2>
                   <div className="settingsSurface">
                     <SoftwareUpdates installing={installing} onInstall={onInstallUpdate} />
@@ -834,7 +843,7 @@ function HostedProviderRow({
             {configured ? t("settings.providerConnected") : t("settings.providerNotConnected")}
           </span>
         </span>
-        <Button variant="ghost" size="sm" aria-expanded={open} onClick={onToggle}>
+        <Button size="sm" aria-expanded={open} onClick={onToggle}>
           {open ? t("common.cancel") : configured ? t("settings.replaceKey") : t("settings.addKey")}
         </Button>
       </div>
@@ -853,7 +862,7 @@ function HostedProviderRow({
             spellCheck={false}
             autoComplete="off"
           />
-          <Button variant="ghost" size="sm" onClick={() => void api.openHostedKeyPage(provider)}>
+          <Button size="sm" onClick={() => void api.openHostedKeyPage(provider)}>
             {t("settings.getKey")}
           </Button>
           <Button
@@ -977,6 +986,89 @@ function HostedModelsSettings({
         </section>
       </div>
       <p className="settingsForm-note settingsGroup-note">{t("settings.hostedModelsNote")}</p>
+    </div>
+  )
+}
+
+/**
+ * Where the runtime runs: this machine, or an `otis serve` daemon. The row names the current one;
+ * its inline editor pairs with a daemon, like a provider row takes a key. Either change restarts
+ * the app.
+ */
+function ServerSettings({ remote }: { remote: string | null }) {
+  const { api } = useDesktop()
+  const { t } = useI18n()
+  const [open, setOpen] = useState(false)
+  const [url, setUrl] = useState("")
+  const [token, setToken] = useState("")
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string>()
+  const ready = Boolean(url.trim() && token.trim()) && !pending
+  const connect = async () => {
+    if (!ready) return
+    setPending(true)
+    setError(undefined)
+    const result = await api.connectRemote(url, token)
+    if (!result.ok) {
+      setError(result.reason)
+      setPending(false)
+    }
+  }
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter") void connect()
+    if (event.key === "Escape") setOpen(false)
+  }
+  return (
+    <div className="settingsProvider">
+      <div className="settingsRow">
+        <span className="settingsRow-label">
+          {t("settings.serverRunsOn")}
+          <span className={`settingsRow-meta${remote ? " settingsProvider-connected" : ""}`}>
+            {remote ?? t("settings.serverThisMachine")}
+          </span>
+        </span>
+        {remote ? (
+          <Button size="sm" onClick={() => void api.disconnectRemote()}>
+            {t("settings.serverUseThisMachine")}
+          </Button>
+        ) : (
+          <Button size="sm" aria-expanded={open} onClick={() => setOpen(!open)}>
+            {open ? t("common.cancel") : t("settings.serverConnect")}
+          </Button>
+        )}
+      </div>
+      {open && !remote ? (
+        <div className="settingsProvider-editor">
+          <input
+            className="settingsForm-input settingsProvider-key"
+            aria-label={t("settings.remoteUrl")}
+            placeholder={t("settings.remoteUrlPlaceholder")}
+            value={url}
+            onChange={(event) => setUrl(event.target.value)}
+            onKeyDown={onKeyDown}
+            // biome-ignore lint/a11y/noAutofocus: the row was just opened to type the address
+            autoFocus
+            spellCheck={false}
+            autoComplete="off"
+          />
+          <input
+            type="password"
+            className="settingsForm-input settingsProvider-key"
+            aria-label={t("settings.remoteToken")}
+            placeholder={t("settings.remoteToken")}
+            value={token}
+            onChange={(event) => setToken(event.target.value)}
+            onKeyDown={onKeyDown}
+            autoComplete="off"
+          />
+          <Button variant="primary" size="sm" disabled={!ready} onClick={() => void connect()}>
+            {pending ? t("common.checking") : t("common.connect")}
+          </Button>
+          {error ? (
+            <div className="settings-message settings-error settingsProvider-message">{error}</div>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -1348,7 +1440,6 @@ function SkillsSettings() {
               </span>
               <span className="settingsSkills-actions">
                 <Button
-                  variant="ghost"
                   size="sm"
                   disabled={pending}
                   onClick={() => void change(() => api.updateSkills(source.id))}
@@ -1356,7 +1447,6 @@ function SkillsSettings() {
                   {t("settings.skillUpdate")}
                 </Button>
                 <Button
-                  variant="ghost"
                   size="sm"
                   disabled={pending}
                   onClick={() => void change(() => api.removeSkills(source.id))}
@@ -1494,7 +1584,6 @@ function MemorySettings() {
               </span>
             </span>
             <Button
-              variant="ghost"
               size="sm"
               disabled={pending}
               onClick={() => void change(() => api.forgetFact(entry.scope, entry.text))}

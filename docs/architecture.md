@@ -19,7 +19,8 @@ User terminal or server process
 ```
 
 There is no Otis control plane. Users do not create an Otis account, and the runtime has no dependency on an Otis
-server, remote profile, cloud database, or Otis-hosted tool service.
+server, remote profile, cloud database, or Otis-hosted tool service. `otis serve` is the user's own process on the
+user's own machine; see the desktop daemon boundary.
 
 ## Source boundaries
 
@@ -538,6 +539,29 @@ bounded extraction metadata. Provider request limits bound each admitted image t
 bytes, extracted text, and PDF page count have independent local limits.
 Headless processes take an exclusive lock while resuming a session so concurrent workers cannot append turns with the
 same sequence numbers. Ephemeral headless turns bypass session persistence entirely.
+
+## Desktop daemon boundary
+
+The desktop window talks to a `DesktopBackend` (`src/desktop/main/api.ts`): the runtime in the Electron main process,
+or an `otis serve` daemon on another machine. Both dispatch through `desktopMethods`, the desktop API by method name
+with every payload validated at that boundary, so the IPC layer and the daemon trust a caller only as far as its
+arguments check out.
+
+`otis serve` (`src/cli/serve.ts`, `src/desktop/serve.ts`) hosts `DesktopRuntime` under Bun and serves it over one
+WebSocket per client (`ws`), JSON text frames with bytes as base64 (`src/desktop/wire.ts`). The pairing token rides
+the upgrade request as a bearer token; a wrong token is refused at the handshake, so a socket that is not paired
+never becomes one and nothing is read from it. The token lives in `serve-token` beside `config.json`, mode `0600`,
+generated once. The daemon listens on `127.0.0.1`
+unless `--host` names an interface; it does no TLS and no accounts, so it belongs on a private network such as a
+tailnet, never on a public address. Clients that disconnect leave sessions running; a pending approval waits for the
+next client.
+
+The Electron client (`src/desktop/main/remote.ts`) forwards every call and relays the daemon's event, terminal and
+notification streams to the renderer. Window preferences — theme, text size, language, thinking traces, completion
+notices, panel visibility and width — and this app's update state stay on the client: the overlay answers those
+calls from local settings and stamps them onto every status. Re-emitted statuses take revisions above the daemon's so
+the renderer's revision guard keeps accepting. Switching between the in-process runtime and a daemon restarts the
+app; a pairing is proven against the daemon before it is saved. The terminal panel is not served over a connection.
 
 ## Headless execution
 

@@ -1,4 +1,4 @@
-import { ChevronsLeft, Search, Settings, SquarePen, SquareTerminal } from "lucide-react"
+import { ChevronsLeft, Computer, Search, Settings, SquarePen, SquareTerminal } from "lucide-react"
 import { Button, IconButton } from "../components/Button.js"
 import { formatTokenCount } from "../format.js"
 import { useI18n } from "../i18n/index.js"
@@ -12,12 +12,15 @@ export function WorkspaceHeader({
   hasViews,
   onOpenPalette,
   onOpenSettings,
+  onOpenServer,
   onOpenTerminal,
 }: {
   /** Canvas has a tab or the shell is open: the rail has something to show besides coworkers. */
   hasViews: boolean
   onOpenPalette: () => void
   onOpenSettings: () => void
+  /** The Server row in Settings, where the daemon this window works on is changed. */
+  onOpenServer: () => void
   onOpenTerminal: () => void
 }) {
   const { api } = useDesktop()
@@ -32,6 +35,7 @@ export function WorkspaceHeader({
     "agentsPanelVisible",
     "freshAchievements",
     "terminal",
+    "remote",
   )
   const hasEntries = useDesktopSelector((snapshot) => (snapshot?.entries.length ?? 0) > 0)
   if (!state) return <header className="workspaceHeader" />
@@ -86,8 +90,17 @@ export function WorkspaceHeader({
           </span>
         ) : null}
         <div className="workspaceHeader-actions">
-          {/* Only with a conversation, and only until the shell runs. */}
-          {conversation && !state.terminal ? (
+          {state.remote ? (
+            <IconButton
+              icon={Computer}
+              label={t("header.remote", { host: state.remote })}
+              onClick={onOpenServer}
+              className="noDrag"
+            />
+          ) : null}
+          {/* Only with a conversation, until the shell runs, and only for the runtime in this
+              app: a daemon has no shell to offer yet. */}
+          {conversation && !state.terminal && !state.remote ? (
             <IconButton
               icon={SquareTerminal}
               label={t("header.openTerminal")}

@@ -2687,6 +2687,88 @@ describe("global session history", () => {
   })
 })
 
+describe("working on a daemon", () => {
+  it("names the host, takes a typed folder instead of the native picker, and offers the way back", async () => {
+    const api = fakeApi({
+      getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, remote: "linux-box:7331" })),
+    })
+    await renderApp(api)
+    expect(screen.getByTitle("Working on linux-box:7331")).toBeTruthy()
+
+    // ⌘O opens a prompt for a path on that machine; the native picker only sees this one.
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "o", metaKey: true })
+    })
+    const prompt = screen.getByRole("dialog", { name: "Folder on linux-box:7331" })
+    expect(api.pickWorkspaceFolder).not.toHaveBeenCalled()
+    fireEvent.change(within(prompt).getByRole("textbox"), { target: { value: " /srv/notes " } })
+    await act(async () => {
+      fireEvent.click(within(prompt).getByRole("button", { name: "Open" }))
+    })
+    expect(api.openWorkspace).toHaveBeenCalledExactlyOnceWith("/srv/notes")
+    expect(screen.queryByRole("dialog", { name: "Folder on linux-box:7331" })).toBeNull()
+
+    // Cancelling opens nothing.
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "o", metaKey: true })
+    })
+    await act(async () => {
+      fireEvent.click(
+        within(screen.getByRole("dialog", { name: "Folder on linux-box:7331" })).getByRole(
+          "button",
+          { name: "Cancel" },
+        ),
+      )
+    })
+    expect(api.openWorkspace).toHaveBeenCalledTimes(1)
+
+    // Settings shows the host and the way back to this machine's runtime.
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Settings" }))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole("tab", { name: "General" }))
+    })
+    expect(screen.getByText("linux-box:7331")).toBeTruthy()
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Use this machine" }))
+    })
+    expect(api.disconnectRemote).toHaveBeenCalledOnce()
+  })
+
+  it("pairs from Settings and shows the daemon's refusal in place", async () => {
+    const api = fakeApi({
+      connectRemote: vi.fn(async () => ({
+        ok: false as const,
+        reason: "linux-box:7331 rejected the pairing token.",
+      })),
+    })
+    await renderApp(api)
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Settings" }))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole("tab", { name: "General" }))
+    })
+    expect(screen.getByText("This machine")).toBeTruthy()
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Connect to a server…" }))
+    })
+    const connect = screen.getByRole("button", { name: "Connect" })
+    expect(connect).toHaveProperty("disabled", true)
+    fireEvent.change(screen.getByRole("textbox", { name: "Address" }), {
+      target: { value: " ws://linux-box:7331 " },
+    })
+    fireEvent.change(screen.getByLabelText("Pairing token"), { target: { value: "abc" } })
+    await act(async () => {
+      fireEvent.click(connect)
+    })
+    expect(api.connectRemote).toHaveBeenCalledExactlyOnceWith(" ws://linux-box:7331 ", "abc")
+    expect(screen.getByText("linux-box:7331 rejected the pairing token.")).toBeTruthy()
+    expect(screen.getByRole("button", { name: "Connect" })).toHaveProperty("disabled", false)
+  })
+})
+
 describe("header context meter", () => {
   it("labels the external-server guard as the auto-compaction threshold", async () => {
     await renderApp(

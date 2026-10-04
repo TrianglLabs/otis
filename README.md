@@ -141,6 +141,22 @@ Desktop app / OpenTUI terminal / headless CLI
       └─ Parallel Search MCP ── web search and page reading
 ```
 
+## Work on another machine
+
+A machine that stays on can run the Otis runtime as a daemon and the desktop app can work on it:
+
+```sh
+otis serve --host <private address>
+```
+
+`otis serve` hosts the same runtime the desktop app runs in-process — sessions, models, API keys, skills, memory and
+Canvas documents are that machine's — and prints the addresses it is reachable at (the Tailscale one among them) and a
+pairing token, created once and reused. In the desktop app, Settings → General → Another
+machine takes the address and the token; the app restarts onto the daemon and shows which host it is working on.
+Appearance settings stay with the window. The daemon listens on loopback unless `--host` names an interface; reach it
+over a private network such as Tailscale rather than exposing it to the internet. A client that disconnects leaves
+the daemon's work running. The terminal panel is not available over a connection yet.
+
 ## Models
 
 **Managed local.** Setup opens a hardware-aware catalog, downloads a curated, checksum-verified GGUF, and runs it
@@ -204,7 +220,8 @@ file outside the workspace always asks for permission for that exact file. See
 ## Local data and privacy
 
 Otis writes private configuration and append-only sessions to standard platform user directories; set `OTIS_HOME`
-to keep everything under one location. Provider keys are never written to sessions, transcripts, tool results, or
+to keep everything under one location. A desktop app paired with `otis serve` works on that machine's data; what
+crosses the wire is the conversation, Canvas content and settings the window shows, never a provider key. Provider keys are never written to sessions, transcripts, tool results, or
 usage records. Managed inference stays on loopback, hosted prompts go directly to the provider you selected (Fireworks
 documents Zero Data Retention for open-model inference by default; check the others' data policies), web requests go
 directly to Parallel, and PAIR owns traffic within your cluster.

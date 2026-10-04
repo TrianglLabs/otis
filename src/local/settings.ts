@@ -61,6 +61,8 @@ export type LocalSettings = {
   workspacePanelWidth?: number
   /** Achievements the user has looked at on the Achievements tab. */
   achievementsSeen?: AchievementId[]
+  /** The `otis serve` daemon the desktop app works on instead of its own runtime. */
+  remote?: { url: string; token: string }
   fastServingModels?: string[]
   modelFastId?: string
   /** Hosted models hidden from the picker, as `hiddenModelKey` strings. */
@@ -314,6 +316,13 @@ export async function savePrimeTeamId(
   await updateSettings(options, (saved) => defined({ ...saved, primeintellectTeamId: teamId }))
 }
 
+export async function saveRemote(
+  remote: LocalSettings["remote"],
+  options: SettingsFileOptions = {},
+) {
+  await updateSettings(options, (saved) => defined({ ...saved, remote }))
+}
+
 export async function saveHiddenModels(hiddenModels: string[], options: SettingsFileOptions = {}) {
   await updateSettings(options, (saved) =>
     defined({ ...saved, hiddenModels: hiddenModels.length ? hiddenModels : undefined }),
@@ -443,6 +452,17 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
     value.permissions === undefined
       ? undefined
       : parsePermissionConfig(value.permissions, "Invalid Otis config: permissions")
+  if (value.remote !== undefined && !isRecord(value.remote))
+    throw new Error("Invalid Otis config: remote must be an object.")
+  const remote =
+    value.remote === undefined
+      ? undefined
+      : {
+          url: parsedString(value.remote.url, "remote.url"),
+          token: parsedString(value.remote.token, "remote.token"),
+        }
+  if (remote && !URL.canParse(remote.url))
+    throw new Error("Invalid Otis config: remote.url must be a URL.")
   return defined({
     version: 1 as const,
     ...keys,
@@ -472,6 +492,7 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
     modelFastId,
     hiddenModels,
     permissions,
+    remote,
   })
 }
 

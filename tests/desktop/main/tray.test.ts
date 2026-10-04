@@ -148,6 +148,7 @@ function statusFixture(overrides: Partial<DesktopStatus> = {}): DesktopStatus {
     pairEndpoints: {},
     debug: false,
     update: { status: "idle" },
+    remote: null,
     ...overrides,
   }
 }

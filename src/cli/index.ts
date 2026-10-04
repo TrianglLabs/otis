@@ -36,6 +36,11 @@ try {
     case "skills":
       await runSkillsCommand(args)
       break
+    case "serve": {
+      const { runServeCommand } = await import("./serve.js")
+      await runServeCommand(args)
+      break
+    }
     case "--version":
     case "-v":
     case "version":

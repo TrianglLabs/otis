@@ -1053,6 +1053,7 @@ class DemoRuntime implements DesktopApi {
     pairEndpoints: {},
     debug: false,
     update: { status: "current" },
+    remote: null,
     subagents: [DEMO_SUBAGENT],
   }
 
@@ -1374,6 +1375,12 @@ class DemoRuntime implements DesktopApi {
   }
 
   async installUpdate(): Promise<void> {}
+
+  async connectRemote(): Promise<SessionOpResult> {
+    return { ok: false, reason: "The demo has no daemon to connect to." }
+  }
+
+  async disconnectRemote(): Promise<void> {}
 
   async checkForUpdates(): Promise<void> {
     this.#state = { ...this.#state, update: { status: "checking" } }

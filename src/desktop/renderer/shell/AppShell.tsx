@@ -9,7 +9,13 @@ import { OnboardingPage } from "../features/onboarding/OnboardingPage.js"
 import { CommandPalette } from "../features/palette/CommandPalette.js"
 import { SettingsPage, type SettingsTab } from "../features/settings/SettingsPage.js"
 import { useI18n } from "../i18n/index.js"
-import { LIGHT_THEMES, rememberTheme, useDesktop, useDesktopState } from "../runtime.js"
+import {
+  DesktopProvider,
+  LIGHT_THEMES,
+  rememberTheme,
+  useDesktop,
+  useDesktopState,
+} from "../runtime.js"
 import { APP_SHORTCUTS } from "./shortcuts.js"
 import { WorkspaceHeader } from "./WorkspaceHeader.js"
 import { WorkspacePanel } from "./WorkspacePanel.js"
@@ -21,12 +27,13 @@ import { WorkspacePanel } from "./WorkspacePanel.js"
  * elements opt out with `noDrag`.
  */
 export function AppShell() {
-  const { api } = useDesktop()
+  const { api: bridge, store } = useDesktop()
   const { t } = useI18n()
   const state = useDesktopState(
     "theme",
     "textSize",
     "platform",
+    "remote",
     "model",
     "needsWorkspace",
     "update",
@@ -40,6 +47,21 @@ export function AppShell() {
   const [installing, setInstalling] = useState(false)
   const [locateError, setLocateError] = useState<string | undefined>(undefined)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  // On a daemon, the native folder picker would only show this machine's folders: the path is
+  // typed instead, and every "open folder" in the window goes through this one prompt.
+  const [folderPrompt, setFolderPrompt] = useState<(path: string | undefined) => void>()
+  const remote = state?.remote
+  const api = useMemo(
+    () =>
+      remote
+        ? {
+            ...bridge,
+            pickWorkspaceFolder: () =>
+              new Promise<string | undefined>((resolve) => setFolderPrompt(() => resolve)),
+          }
+        : bridge,
+    [bridge, remote],
+  )
   // A diagram opened from a card is a Canvas tab of its own until it is closed.
   const [openedCanvas, setOpenedCanvas] = useState<Extract<CanvasView, { runtime?: undefined }>>()
   const nextCanvasId = useRef(0)
@@ -67,10 +89,12 @@ export function AppShell() {
   // The shell runs in the main process and outlives the renderer; the stamp is when it was last
   // asked for here, so asking again brings its tab forward and focuses it.
   const [terminalFocus, setTerminalFocus] = useState<number>()
+  // A daemon has no shell to offer yet; the header hides the button and the shortcut stays quiet.
   const openTerminal = useCallback(() => {
+    if (remote) return
     void api.openTerminal()
     setTerminalFocus(Date.now())
-  }, [api])
+  }, [api, remote])
   const openSettingsTab = useCallback((tab: SettingsTab | undefined) => {
     setSettingsTab(tab)
     setSettingsOpen(true)
@@ -146,98 +170,167 @@ export function AppShell() {
     void api.installUpdate()
   }
 
+  const desktop = useMemo(() => ({ api, store }), [api, store])
   return (
-    <CanvasOpenContext.Provider value={openCanvas}>
-      <div className={`appShell ${platformClass}${settingsClass}${fullscreenClass}`}>
-        {/* The workspace stays mounted behind Settings so drafts, scroll positions, expanded
+    <DesktopProvider value={desktop}>
+      <CanvasOpenContext.Provider value={openCanvas}>
+        <div className={`appShell ${platformClass}${settingsClass}${fullscreenClass}`}>
+          {/* The workspace stays mounted behind Settings so drafts, scroll positions, expanded
             cards, and the workspace-panel selection survive the round trip. */}
-        <div
-          className={`workspaceView${settingsOpen ? " workspaceView-hidden" : ""}`}
-          aria-hidden={settingsOpen}
-          inert={settingsOpen ? true : undefined}
-        >
-          <div className="mainColumn">
-            {state && state.model === null ? (
-              <OnboardingPage onOpenSettings={openSettings} />
-            ) : (
-              <>
-                <WorkspaceHeader
-                  hasViews={views.length > 0 || Boolean(state?.terminal)}
-                  onOpenPalette={() => setPaletteOpen(true)}
-                  onOpenSettings={openSettings}
-                  onOpenTerminal={openTerminal}
-                />
-                {state?.needsWorkspace ? (
-                  <div className="workspaceBanner">
-                    <span>
-                      {t("shell.workspaceMissing")}
-                      {locateError ? (
-                        <span className="workspaceBanner-error">{locateError}</span>
-                      ) : null}
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() =>
-                        void api.pickWorkspaceFolder().then(async (path) => {
-                          if (!path) return
-                          const result = await api.locateWorkspace(path)
-                          setLocateError(
-                            result.ok
-                              ? undefined
-                              : (result.reason ?? t("shell.couldNotOpenFolder")),
-                          )
-                        })
-                      }
-                    >
-                      <Icon icon={FolderOpen} size={12} />
-                      {t("shell.locateWorkingFolder")}
-                    </Button>
-                  </div>
-                ) : null}
-                <ConversationView installing={installing} />
-              </>
+          <div
+            className={`workspaceView${settingsOpen ? " workspaceView-hidden" : ""}`}
+            aria-hidden={settingsOpen}
+            inert={settingsOpen ? true : undefined}
+          >
+            <div className="mainColumn">
+              {state && state.model === null ? (
+                <OnboardingPage onOpenSettings={openSettings} />
+              ) : (
+                <>
+                  <WorkspaceHeader
+                    hasViews={views.length > 0 || Boolean(state?.terminal)}
+                    onOpenPalette={() => setPaletteOpen(true)}
+                    onOpenSettings={openSettings}
+                    onOpenServer={() => openSettingsTab("general")}
+                    onOpenTerminal={openTerminal}
+                  />
+                  {state?.needsWorkspace ? (
+                    <div className="workspaceBanner">
+                      <span>
+                        {t("shell.workspaceMissing")}
+                        {locateError ? (
+                          <span className="workspaceBanner-error">{locateError}</span>
+                        ) : null}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() =>
+                          void api.pickWorkspaceFolder().then(async (path) => {
+                            if (!path) return
+                            const result = await api.locateWorkspace(path)
+                            setLocateError(
+                              result.ok
+                                ? undefined
+                                : (result.reason ?? t("shell.couldNotOpenFolder")),
+                            )
+                          })
+                        }
+                      >
+                        <Icon icon={FolderOpen} size={12} />
+                        {t("shell.locateWorkingFolder")}
+                      </Button>
+                    </div>
+                  ) : null}
+                  <ConversationView installing={installing} />
+                </>
+              )}
+              {readyUpdate ? (
+                <button
+                  type="button"
+                  className="updateFab noDrag"
+                  disabled={installing}
+                  title={
+                    installing
+                      ? t("shell.restartingUpdate")
+                      : t("shell.updateReadyTitle", { version: readyUpdate.version })
+                  }
+                  onClick={installUpdate}
+                >
+                  <Icon icon={Download} size={12} />
+                  <span className="updateFab-label">
+                    {installing ? t("shell.restarting") : t("shell.update")}
+                  </span>
+                </button>
+              ) : null}
+              <UnlockBanners onOpen={() => openSettingsTab("achievements")} />
+            </div>
+            {state?.model === null ? null : (
+              <WorkspacePanel
+                views={views}
+                onCloseDiagram={closeDiagram}
+                terminalFocus={terminalFocus}
+              />
             )}
-            {readyUpdate ? (
-              <button
-                type="button"
-                className="updateFab noDrag"
-                disabled={installing}
-                title={
-                  installing
-                    ? t("shell.restartingUpdate")
-                    : t("shell.updateReadyTitle", { version: readyUpdate.version })
-                }
-                onClick={installUpdate}
-              >
-                <Icon icon={Download} size={12} />
-                <span className="updateFab-label">
-                  {installing ? t("shell.restarting") : t("shell.update")}
-                </span>
-              </button>
-            ) : null}
-            <UnlockBanners onOpen={() => openSettingsTab("achievements")} />
           </div>
-          {state?.model === null ? null : (
-            <WorkspacePanel
-              views={views}
-              onCloseDiagram={closeDiagram}
-              terminalFocus={terminalFocus}
+          {settingsOpen ? (
+            <div className="settingsLayer">
+              <SettingsPage
+                onClose={closeSettings}
+                installing={installing}
+                onInstallUpdate={installUpdate}
+                initialTab={settingsTab}
+              />
+            </div>
+          ) : null}
+          {paletteOpen ? <CommandPalette onClose={() => setPaletteOpen(false)} /> : null}
+          {folderPrompt && remote ? (
+            <RemoteFolderPrompt
+              host={remote}
+              onClose={(path) => {
+                folderPrompt(path)
+                setFolderPrompt(undefined)
+              }}
             />
-          )}
+          ) : null}
         </div>
-        {settingsOpen ? (
-          <div className="settingsLayer">
-            <SettingsPage
-              onClose={closeSettings}
-              installing={installing}
-              onInstallUpdate={installUpdate}
-              initialTab={settingsTab}
-            />
-          </div>
-        ) : null}
-        {paletteOpen ? <CommandPalette onClose={() => setPaletteOpen(false)} /> : null}
-      </div>
-    </CanvasOpenContext.Provider>
+      </CanvasOpenContext.Provider>
+    </DesktopProvider>
+  )
+}
+
+function RemoteFolderPrompt({
+  host,
+  onClose,
+}: {
+  host: string
+  onClose: (path: string | undefined) => void
+}) {
+  const { t } = useI18n()
+  const [path, setPath] = useState("")
+  const label = t("shell.remoteFolder", { host })
+  return (
+    <>
+      <button
+        type="button"
+        className="overlayBackdrop"
+        aria-label={t("common.cancel")}
+        onClick={() => onClose(undefined)}
+      />
+      <form
+        className="pathPrompt noDrag"
+        role="dialog"
+        aria-modal="true"
+        aria-label={label}
+        onSubmit={(event) => {
+          event.preventDefault()
+          onClose(path.trim() || undefined)
+        }}
+      >
+        <label className="pathPrompt-label" htmlFor="pathPrompt-input">
+          {label}
+        </label>
+        <input
+          id="pathPrompt-input"
+          className="pathPrompt-input"
+          value={path}
+          onChange={(event) => setPath(event.target.value)}
+          placeholder="/home/you/project"
+          // biome-ignore lint/a11y/noAutofocus: the prompt opens to type into this field
+          autoFocus
+          spellCheck={false}
+          autoComplete="off"
+        />
+        <p className="pathPrompt-hint">{t("shell.remoteFolderHint")}</p>
+        <div className="pathPrompt-actions">
+          <Button variant="ghost" size="sm" onClick={() => onClose(undefined)}>
+            {t("common.cancel")}
+          </Button>
+          <Button variant="primary" size="sm" type="submit" disabled={!path.trim()}>
+            {t("common.open")}
+          </Button>
+        </div>
+      </form>
+    </>
   )
 }

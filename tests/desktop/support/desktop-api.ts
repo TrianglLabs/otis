@@ -59,6 +59,7 @@ export const STATUS: DesktopStatus = {
   pairEndpoints: {},
   debug: false,
   update: { status: "idle" },
+  remote: null,
 }
 
 export function statusFixture(overrides: Partial<DesktopStatus> = {}): DesktopStatus {
@@ -150,6 +151,8 @@ export function fakeApi(
     setDebugMode: vi.fn(async () => {}),
     installUpdate: vi.fn(async () => {}),
     checkForUpdates: vi.fn(async () => {}),
+    connectRemote: vi.fn(async () => ({ ok: true as const })),
+    disconnectRemote: vi.fn(async () => {}),
     openTerminal: vi.fn(async () => ""),
     writeTerminal: vi.fn(async () => {}),
     resizeTerminal: vi.fn(async () => {}),

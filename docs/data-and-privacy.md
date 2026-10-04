@@ -15,6 +15,7 @@ By default, Otis uses the platform's standard user directories:
 | Managed skill sources | `~/Library/Application Support/otis/skills/` | `~/.local/share/otis/skills/` |
 | Memory that holds everywhere | `~/Library/Application Support/otis/memory.md` | `~/.local/share/otis/memory.md` |
 | Memory for one workspace | `~/Library/Application Support/otis/sessions/<workspace>/memory.md` | `~/.local/share/otis/sessions/<workspace>/memory.md` |
+| `otis serve` pairing token | `~/Library/Application Support/otis/serve-token` | `~/.config/otis/serve-token` |
 
 `XDG_CONFIG_HOME` and `XDG_DATA_HOME` are respected on Linux. Set `OTIS_HOME` to keep all Otis state in one specific
 directory.
@@ -64,6 +65,11 @@ potentially sensitive. Visible traces show a short preview and can be expanded i
 - NVIDIA PAIR traffic goes to a loopback proxy. PAIR owns communication and routing within the user's cluster.
 - Web search and page reading go directly to Parallel's Search MCP from the local runtime.
 - Managed llama.cpp inference stays on `127.0.0.1`.
+- `otis serve` listens on `127.0.0.1` unless `--host` names an interface. A paired desktop app sends it the
+  conversation, attachments, Canvas requests and the settings the window shows, and receives sessions, Canvas content
+  and status; provider keys never cross the connection (the daemon holds its own). The connection is not encrypted by
+  Otis, so use a private network such as a tailnet. The pairing token is saved in the client's `config.json` under
+  `remote`, with the same `0600` protection as provider keys.
 
 Read the [Fireworks Zero Data Retention policy](https://docs.fireworks.ai/guides/security_compliance/data_handling)
 and the data policies of [Together AI](https://www.together.ai/privacy),

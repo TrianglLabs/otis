@@ -127,6 +127,52 @@
   top: 0.5px;
 }
 
+/* A typed folder path for a daemon, in the model picker's frame. */
+.pathPrompt {
+  position: fixed;
+  top: 15vh;
+  left: 50%;
+  translate: -50% 0;
+  z-index: var(--z-overlay);
+  width: min(440px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  animation: overlay-enter var(--motion);
+}
+
+.pathPrompt-label {
+  font-size: var(--text-ui);
+  font-weight: 600;
+}
+
+.pathPrompt-input {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  color: var(--text);
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: var(--text-ui);
+}
+
+.pathPrompt-hint {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: var(--text-meta);
+}
+
+.pathPrompt-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .headerDiff {
   display: inline-flex;
   gap: 6px;
