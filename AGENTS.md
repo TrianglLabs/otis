@@ -57,9 +57,12 @@ hosted providers get no `reasoning_effort` or `service_tier` (their defaults app
 model-specific reasoning, sampling, or token settings without an explicit capability model. Do not enable llama.cpp
 built-in `--tools`; Otis tools stay in the local runtime.
 
-oMLX is an external server, not part of the curated GGUF catalog. Discover its visible models from `/v1/models`, with
-optional `/v1/models/status` metadata for model type and vision. Use its reported request context limit, not native
-architecture metadata, for compaction. Otis must not install, start, stop, or manage oMLX models.
+oMLX and custom OpenAI-compatible servers are external, not part of the curated GGUF catalog, and share one
+implementation keyed by provider. Discover visible models from `/v1/models`, with oMLX's optional `/v1/models/status`
+metadata for model type and vision. Use the reported request context limit, not native architecture metadata, for
+compaction; a custom server that reports none uses the limit the user entered, and one that lists no models serves
+the model id the user entered. Tool support on a custom server is the user's responsibility, documented, not
+Otis' claim. Servers stay on loopback. Otis must not install, start, stop, or manage their models.
 
 Preserve provider-native reasoning and tool-call history when sending later turns.
 

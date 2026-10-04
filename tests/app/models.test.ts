@@ -12,7 +12,7 @@ import type {
   ChatStreamEvent,
   FireworksModel,
   HostedModel,
-  OmlxCatalogModel,
+  ServerCatalogModel,
   StreamChatOptions,
 } from "../../src/inference/types.js"
 import type { LocalSettings } from "../../src/local/settings.js"
@@ -39,12 +39,12 @@ describe("ModelHost", () => {
   ])("rejects an oMLX serving limit of %i before stopping or persisting the previous model", async (contextLength) => {
     const llama = fakeLlama()
     const host = new ModelHost({ llama })
-    host.omlx = { baseURL: "http://127.0.0.1:8000" }
-    const model: OmlxCatalogModel = {
+    host.servers = { omlx: { baseURL: "http://127.0.0.1:8000" } }
+    const model: ServerCatalogModel = {
       provider: "omlx",
       id: "chat",
       displayName: "Chat",
-      baseURL: host.omlx.baseURL,
+      baseURL: "http://127.0.0.1:8000",
       supportsImageInput: false,
       contextLength,
     }
@@ -62,12 +62,12 @@ describe("ModelHost", () => {
     131072,
   ])("uses the minimum policy or reported oMLX serving context: %s", async (contextLength) => {
     const host = new ModelHost({ llama: fakeLlama() })
-    host.omlx = { baseURL: "http://127.0.0.1:8000" }
-    const model: OmlxCatalogModel = {
+    host.servers = { omlx: { baseURL: "http://127.0.0.1:8000" } }
+    const model: ServerCatalogModel = {
       provider: "omlx",
       id: "chat",
       displayName: "Chat",
-      baseURL: host.omlx.baseURL,
+      baseURL: "http://127.0.0.1:8000",
       supportsImageInput: false,
       ...(contextLength ? { contextLength } : {}),
     }

@@ -110,7 +110,24 @@ export type ContextFile = {
 
 export const HOSTED_PROVIDERS = ["fireworks", "together", "baseten", "primeintellect"] as const
 export type HostedProvider = (typeof HOSTED_PROVIDERS)[number]
-export type ModelProvider = HostedProvider | "local" | "pair" | "omlx"
+/**
+ * User-managed OpenAI-compatible servers on loopback: oMLX, and any other engine the user runs.
+ * Their settings keys in the config file are these ids.
+ */
+export const SERVER_PROVIDERS = ["omlx", "custom"] as const
+export type ServerProvider = (typeof SERVER_PROVIDERS)[number]
+export const SERVER_INFO: Record<ServerProvider, { name: string; defaultEndpoint: string }> = {
+  omlx: { name: "oMLX", defaultEndpoint: "http://127.0.0.1:8000" },
+  custom: { name: "Custom server", defaultEndpoint: "http://127.0.0.1:8080" },
+}
+/** A server's address and key; a model and context limit stand in for what it does not report. */
+export type ServerSettings = {
+  baseURL: string
+  apiKey?: string
+  model?: string
+  contextLength?: number
+}
+export type ModelProvider = HostedProvider | "local" | "pair" | ServerProvider
 export type PairEngine = "ollama" | "lmstudio"
 
 /** One saved key per hosted provider; a missing entry means that provider is not set up. */
@@ -151,10 +168,14 @@ export const HOSTED_PROVIDER_INFO: Record<
   },
 }
 
-const MODEL_PROVIDERS = [...HOSTED_PROVIDERS, "local", "pair", "omlx"] as const
+const MODEL_PROVIDERS = [...HOSTED_PROVIDERS, "local", "pair", ...SERVER_PROVIDERS] as const
 
 export function isModelProvider(value: unknown): value is ModelProvider {
   return MODEL_PROVIDERS.some((provider) => provider === value)
+}
+
+export function isServerProvider(value: unknown): value is ServerProvider {
+  return SERVER_PROVIDERS.some((provider) => provider === value)
 }
 
 export function isHostedProvider(value: unknown): value is HostedProvider {
@@ -196,15 +217,19 @@ export type PairCatalogModel = {
   supportsImageInput: boolean
 }
 
-export type OmlxCatalogModel = SharedModelFields & {
-  provider: "omlx"
+export type ServerCatalogModel = SharedModelFields & {
+  provider: ServerProvider
   baseURL: string
 }
 
-export type CatalogModel = HostedModel | LocalCatalogModel | PairCatalogModel | OmlxCatalogModel
+export type CatalogModel = HostedModel | LocalCatalogModel | PairCatalogModel | ServerCatalogModel
 
 export function isHostedModel(model: CatalogModel): model is HostedModel {
   return isHostedProvider(model.provider)
+}
+
+export function isServerCatalogModel(model: CatalogModel): model is ServerCatalogModel {
+  return isServerProvider(model.provider)
 }
 
 export function isLocalCatalogModel(model: CatalogModel): model is LocalCatalogModel {
@@ -273,13 +298,49 @@ export type LocalClientConfig = {
   idleTimeoutMs?: number
 }
 
-/** oMLX runs on macOS; only advertise its local setup there. Safe to import in UI adapters. */
-export function supportsOmlx(platform: string | undefined): boolean {
-  return platform === "darwin"
+/**
+ * The servers a platform can connect to: oMLX runs on macOS only; every platform can name its own
+ * OpenAI-compatible one. Safe to import in UI adapters.
+ */
+export function serverProviders(platform: string | undefined): ServerProvider[] {
+  return SERVER_PROVIDERS.filter((provider) => provider !== "omlx" || platform === "darwin")
+}
+
+/** One tab per local server a desktop form offers: the PAIR engines, then the platform's servers. */
+export type LocalServerTab = "ollama" | "lmStudio" | ServerProvider
+export function localServerTabs(platform: string | undefined): [LocalServerTab, string][] {
+  return [
+    ["ollama", "Ollama"],
+    ["lmStudio", "LM Studio"],
+    ...serverProviders(platform).map((p): [LocalServerTab, string] => [p, SERVER_INFO[p].name]),
+  ]
+}
+
+/** A setup form's fields for the servers a platform offers: saved settings, else the default. */
+export function serverFormInputs(
+  platform: string | undefined,
+  saved: Partial<
+    Record<ServerProvider, { baseURL: string; model?: string; contextLength?: number }>
+  >,
+) {
+  const inputs: Partial<
+    Record<ServerProvider, { baseURL: string; model: string; contextLength: string }>
+  > = {}
+  for (const provider of serverProviders(platform)) {
+    const server = saved[provider]
+    inputs[provider] = {
+      baseURL: server?.baseURL ?? SERVER_INFO[provider].defaultEndpoint,
+      model: server?.model ?? "",
+      contextLength: server?.contextLength?.toString() ?? "",
+    }
+  }
+  return inputs
 }
 
 export function localServerNames(platform: string | undefined): string[] {
-  return ["Ollama", "LM Studio", ...(supportsOmlx(platform) ? ["oMLX"] : [])]
+  return localServerTabs(platform).map(([tab, name]) =>
+    tab === "custom" ? "any OpenAI-compatible server" : name,
+  )
 }
 
 export const MAX_IMAGES_PER_REQUEST = 30

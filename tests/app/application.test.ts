@@ -554,7 +554,7 @@ describe("Application status", () => {
         primeintellect: false,
       },
       pairEndpoints: {},
-      omlx: null,
+      servers: {},
       subagents: [],
     })
     expect(status.contextTokens).toBe(app.contextTokens())

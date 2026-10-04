@@ -5,10 +5,12 @@ import {
   MouseButton,
   TextRenderable,
 } from "@opentui/core"
+import type { LocalServerInputs } from "../../app/local-servers.js"
 import {
   HOSTED_PROVIDER_INFO,
   HOSTED_PROVIDERS,
   type HostedProvider,
+  SERVER_PROVIDERS,
 } from "../../inference/types.js"
 import { colors } from "../theme.js"
 import { colorPulseAmount, SelectionPulse, selectionOutline } from "./color-pulse.js"
@@ -16,7 +18,6 @@ import type { UILayout } from "./layout.js"
 import { type PickerRow, syncPickerRows } from "./picker-row.js"
 import {
   type InputMode,
-  type PairEndpointInputs,
   type Renderer,
   type SetupInferenceChoice,
   type SetupInputCancelTarget,
@@ -37,7 +38,7 @@ type InputControllerOptions = {
   onSetupLocalInferenceChoice?: (choice: SetupLocalInferenceChoice) => void
   onSetupHostedChoice?: (provider: HostedProvider) => void
   onSetupSubmit?: (value: string) => void
-  onPairSetupSubmit?: (endpoints: PairEndpointInputs) => void
+  onPairSetupSubmit?: (endpoints: LocalServerInputs) => void
 }
 
 /**
@@ -66,8 +67,9 @@ export class InputController {
     this.#pairInputs = [
       layout.setupPairOllamaInput,
       layout.setupPairLMStudioInput,
-      ...(layout.setupOmlxInput ? [layout.setupOmlxInput] : []),
-      ...(layout.setupOmlxKeyInput ? [layout.setupOmlxKeyInput] : []),
+      ...Object.values(layout.setupServerInputs).flatMap((rows) =>
+        [rows.endpoint, rows.key, rows.model, rows.context].filter((row) => row !== undefined),
+      ),
     ]
     this.#primaries = [
       layout.inputBox,
@@ -259,19 +261,26 @@ export class InputController {
   showPairSetup(
     message: string,
     cancelTarget: SetupInputCancelTarget,
-    endpoints: PairEndpointInputs,
+    endpoints: LocalServerInputs,
     error = false,
   ) {
     const layout = this.#layout
     this.#clearSetupInput()
     this.#setupInputCancelTarget = cancelTarget
     this.mode = "setupPairInput"
-    layout.setupPairOllamaInput.value = endpoints.ollama
-    layout.setupPairLMStudioInput.value = endpoints.lmStudio
-    if (layout.setupOmlxInput) layout.setupOmlxInput.value = endpoints.omlx ?? ""
-    if (layout.setupOmlxKeyInput) layout.setupOmlxKeyInput.value = endpoints.omlxApiKey ?? ""
+    layout.setupPairOllamaInput.value = endpoints.ollama ?? ""
+    layout.setupPairLMStudioInput.value = endpoints.lmStudio ?? ""
+    for (const provider of SERVER_PROVIDERS) {
+      const rows = layout.setupServerInputs[provider]
+      if (!rows) continue
+      const server = endpoints[provider]
+      rows.endpoint.value = server?.baseURL ?? ""
+      rows.key.value = server?.apiKey ?? ""
+      if (rows.model) rows.model.value = server?.model ?? ""
+      if (rows.context) rows.context.value = server?.contextLength ?? ""
+    }
     layout.welcomeQuit.content = " "
-    this.#setMessage(layout.setupPairForm, layout.setupPairMessage, message, 6, error)
+    this.#setMessage(layout.setupPairForm, layout.setupPairMessage, message, 3, error)
     this.#setPrimary(layout.setupPairForm)
     this.focus()
   }
@@ -333,13 +342,21 @@ export class InputController {
 
   #submitPairSetup() {
     if (this.mode !== "setupPairInput") return
-    const { setupPairOllamaInput, setupPairLMStudioInput, setupOmlxInput, setupOmlxKeyInput } =
-      this.#layout
+    const { setupPairOllamaInput, setupPairLMStudioInput, setupServerInputs } = this.#layout
     this.options.onPairSetupSubmit?.({
       ollama: setupPairOllamaInput.value,
       lmStudio: setupPairLMStudioInput.value,
-      ...(setupOmlxInput ? { omlx: setupOmlxInput.value } : {}),
-      ...(setupOmlxKeyInput ? { omlxApiKey: setupOmlxKeyInput.value } : {}),
+      ...Object.fromEntries(
+        Object.entries(setupServerInputs).map(([provider, rows]) => [
+          provider,
+          {
+            baseURL: rows.endpoint.value,
+            apiKey: rows.key.value,
+            model: rows.model?.value,
+            contextLength: rows.context?.value,
+          },
+        ]),
+      ),
     })
   }
 

@@ -5,11 +5,11 @@ import {
   NO_TOOL_MODELS,
   type SelectionResult,
 } from "../app/application.js"
+import type { LocalServerInputs } from "../app/local-servers.js"
 import { isAbortError } from "../app/models.js"
 import { listHostedModels } from "../inference/client.js"
 import { describeError } from "../inference/errors.js"
 import { isLocalModelId } from "../inference/local-catalog.js"
-import { discoverOmlxModels, OMLX_DEFAULT_ENDPOINT } from "../inference/omlx.js"
 import { discoverPairModels, PAIR_DEFAULT_ENDPOINTS, pairEngineLabel } from "../inference/pair.js"
 import {
   isSelectablePickerItem,
@@ -27,18 +27,16 @@ import {
   type HostedProvider,
   isHostedModel,
   isHostedProvider,
-  type OmlxCatalogModel,
+  isServerProvider,
   type PairCatalogModel,
-  supportsOmlx,
+  SERVER_INFO,
+  type ServerCatalogModel,
+  type ServerProvider,
+  serverFormInputs,
 } from "../inference/types.js"
 import { saveHostedApiKey, saveSelectedModel } from "../local/settings.js"
 import { openHostedKeyPage } from "./provider-links.js"
-import type {
-  ChatUI,
-  PairEndpointInputs,
-  SetupInferenceChoice,
-  SetupLocalInferenceChoice,
-} from "./ui/types.js"
+import type { ChatUI, SetupInferenceChoice, SetupLocalInferenceChoice } from "./ui/types.js"
 
 type SetupFlowOptions = {
   ui: ChatUI
@@ -67,7 +65,7 @@ export class SetupFlow {
   /** The provider whose key the setup input asks for. */
   #hostedProvider: HostedProvider = "fireworks"
   #pairModels: PairCatalogModel[] = []
-  #omlxModels: OmlxCatalogModel[] = []
+  #serverModels: Partial<Record<ServerProvider, ServerCatalogModel[]>> = {}
   /** The verified Fireworks catalog, which the Fast toggle consults. */
   #fireworksModels: HostedModel[] = []
   #credentialPurpose: "onboarding" | "settings" = "onboarding"
@@ -103,7 +101,7 @@ export class SetupFlow {
     const selected = this.#app.selection?.model
     const provider = selected?.provider
     const selectedId = selected?.id
-    if (provider === "pair" || provider === "omlx") {
+    if (provider === "pair" || isServerProvider(provider)) {
       this.requestPairEndpoints("Reconnect to your local server, then choose a model.")
       return
     }
@@ -213,7 +211,7 @@ export class SetupFlow {
     })
   }
 
-  async submitPairEndpoints(inputs: PairEndpointInputs) {
+  async submitPairEndpoints(inputs: LocalServerInputs) {
     if (this.#closed) return
     await this.runCatalogOperation(async (signal) => {
       if (this.#closed || this.options.isBusy()) return
@@ -223,7 +221,7 @@ export class SetupFlow {
       try {
         const connection = await this.#app.connectLocalServers(inputs, { signal })
         this.#pairModels = connection.pairModels
-        this.#omlxModels = connection.omlxModels
+        this.#serverModels = connection.serverModels
         this.#modelPickerBackTarget = settings ? "choice" : "local"
         this.#wasConfigured = settings
         if (this.#closed) return
@@ -263,10 +261,7 @@ export class SetupFlow {
           const discovery = await discoverPairModels(pairEndpoints, { signal })
           this.#pairModels = [...(discovery.ollama ?? []), ...(discovery.lmStudio ?? [])]
         }
-        this.#omlxModels =
-          !managed && models.omlx
-            ? await discoverOmlxModels(models.omlx, { signal }).catch(() => [])
-            : []
+        this.#serverModels = managed ? {} : await models.discoverServers({ signal })
         const items = await this.listPickerItems(
           managed ? undefined : this.#hostedApiKeys,
           managed ? [] : this.#pairModels,
@@ -310,7 +305,8 @@ export class SetupFlow {
       return
     }
     this.options.ui.hideModelPicker()
-    if (item.provider === "omlx") this.options.ui.showTransientHint(" Connected to oMLX ")
+    if (isServerProvider(item.provider))
+      this.options.ui.showTransientHint(` Connected to ${SERVER_INFO[item.provider].name} `)
     else if (item.provider === "pair") {
       this.options.ui.showTransientHint(
         ` Connected through NVIDIA PAIR · ${pairEngineLabel(item.engine)} `,
@@ -373,9 +369,7 @@ export class SetupFlow {
     this.options.ui.showPairSetup(message, cancelTarget, {
       ollama: pairEndpoints.ollama ?? PAIR_DEFAULT_ENDPOINTS.ollama,
       lmStudio: pairEndpoints.lmStudio ?? PAIR_DEFAULT_ENDPOINTS.lmStudio,
-      ...(supportsOmlx(process.platform)
-        ? { omlx: models.omlx?.baseURL ?? OMLX_DEFAULT_ENDPOINT }
-        : {}),
+      ...serverFormInputs(process.platform, models.servers),
     })
   }
 
@@ -393,7 +387,7 @@ export class SetupFlow {
       currentProvider: model?.provider,
       currentPairEngine: model?.provider === "pair" ? model.engine : undefined,
       pairModels,
-      omlxModels: this.#omlxModels,
+      serverModels: this.#serverModels,
       listHosted: (provider, key, options) =>
         this.loadVerifiedModels(provider, key, options?.signal),
       loadStatus: models.load,

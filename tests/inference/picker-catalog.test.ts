@@ -81,14 +81,16 @@ describe("model picker catalog", () => {
     const items = await listModelPickerItems({
       hardware: ample,
       dataDirectory: await tempDir(),
-      omlxModels: [8192, 65536, undefined].map((contextLength) => ({
-        provider: "omlx",
-        id: `chat-${contextLength}`,
-        displayName: "Chat",
-        baseURL: "http://127.0.0.1:8000",
-        supportsImageInput: false,
-        contextLength,
-      })),
+      serverModels: {
+        omlx: [8192, 65536, undefined].map((contextLength) => ({
+          provider: "omlx",
+          id: `chat-${contextLength}`,
+          displayName: "Chat",
+          baseURL: "http://127.0.0.1:8000",
+          supportsImageInput: false,
+          contextLength,
+        })),
+      },
     })
     const models = items.filter((item) => item.kind === "model" && item.provider === "omlx")
     expect(models).toHaveLength(3)
@@ -917,6 +919,7 @@ describe("model picker catalog", () => {
     expect(providerLabel("local")).toBe("Local")
     expect(providerLabel("pair")).toBe("NVIDIA PAIR")
     expect(providerLabel("omlx")).toBe("oMLX")
+    expect(providerLabel("custom")).toBe("Custom server")
     for (const provider of HOSTED_PROVIDERS)
       expect(providerLabel(provider)).toBe(HOSTED_PROVIDER_INFO[provider].name)
   })
@@ -946,16 +949,18 @@ describe("model picker catalog", () => {
           supportsImageInput: false,
         },
       ],
-      omlxModels: [
-        {
-          provider: "omlx",
-          id: "mlx-community/gemma-4",
-          displayName: "Gemma 4",
-          baseURL: "http://127.0.0.1:8000",
-          supportsImageInput: false,
-          contextLength: 131_072,
-        },
-      ],
+      serverModels: {
+        omlx: [
+          {
+            provider: "omlx",
+            id: "mlx-community/gemma-4",
+            displayName: "Gemma 4",
+            baseURL: "http://127.0.0.1:8000",
+            supportsImageInput: false,
+            contextLength: 131_072,
+          },
+        ],
+      },
     })
     const headers = (rows: readonly ModelPickerItem[]) =>
       rows.filter((row) => row.kind === "header").map((row) => row.id)

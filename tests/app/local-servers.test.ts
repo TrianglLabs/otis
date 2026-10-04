@@ -5,7 +5,8 @@ import { Application } from "../../src/app/application.js"
 import { prepareLocalServers } from "../../src/app/local-servers.js"
 import { autoCompactThreshold } from "../../src/core/compaction.js"
 import { DesktopRuntime } from "../../src/desktop/main/runtime.js"
-import type { OmlxCatalogModel } from "../../src/inference/types.js"
+import type { discoverServerModels } from "../../src/inference/servers.js"
+import type { ServerCatalogModel } from "../../src/inference/types.js"
 import { localConfigDirectory } from "../../src/local/paths.js"
 import {
   clearSelectedModel,
@@ -18,7 +19,7 @@ import { useOtisHome } from "./support/otis-home.js"
 
 const isolate = useOtisHome()
 afterEach(() => vi.unstubAllGlobals())
-const model: OmlxCatalogModel = {
+const model: ServerCatalogModel = {
   provider: "omlx",
   id: "chat",
   displayName: "Chat",
@@ -27,33 +28,41 @@ const model: OmlxCatalogModel = {
   supportsImageInput: true,
 }
 const discoverPair = vi.fn(async () => ({ errors: [] }))
-const discoverOmlx = vi.fn(async () => [model])
+const discoverServer = vi.fn(async () => [model])
 
 /** Puts the focused session on the oMLX model with a live client, as a committed selection. */
 function serve(app: Application) {
   app.focused.selection = {
     model,
     supportsImageInput: model.supportsImageInput,
-    client: app.models.omlxClient(model.id, model.baseURL),
+    client: app.models.serverClient("omlx", model.id, model.baseURL),
   }
+}
+
+function runtimeFor(
+  app: Application,
+  cwd: string,
+  discover: typeof discoverServerModels = discoverServer,
+) {
+  return DesktopRuntime.forApplication(app, {
+    cwd,
+    version: "test",
+    platform: "darwin",
+    send: () => {},
+    sendTerminal: () => {},
+    spawnPty: () => {
+      throw new Error("The tests run no shell.")
+    },
+    discoverPair,
+    discoverServer: discover,
+  })
 }
 
 describe("local server coordination", () => {
   it("saves oMLX privately, selects without inference, and exposes no key to the renderer", async () => {
     const cwd = await isolate("otis-omlx-")
     const app = await Application.create({ cwd, env: {} })
-    const runtime = DesktopRuntime.forApplication(app, {
-      cwd,
-      version: "test",
-      platform: "darwin",
-      send: () => {},
-      sendTerminal: () => {},
-      spawnPty: () => {
-        throw new Error("The tests run no shell.")
-      },
-      discoverPair,
-      discoverOmlx,
-    })
+    const runtime = runtimeFor(app, cwd)
     const stop = vi.spyOn(app.models.llama, "stop").mockResolvedValue()
     const network = vi.fn(() => {
       throw new Error("unexpected network call")
@@ -61,12 +70,14 @@ describe("local server coordination", () => {
     vi.stubGlobal("fetch", network)
     expect(
       await runtime.connectLocalServers({
-        omlx: `${model.baseURL}/v1`,
-        omlxApiKey: "private-omlx-key",
+        omlx: { baseURL: `${model.baseURL}/v1`, apiKey: "private-omlx-key" },
       }),
-    ).toEqual({
-      ok: true,
-    })
+    ).toEqual({ ok: true })
+    expect(discoverServer).toHaveBeenLastCalledWith(
+      "omlx",
+      { baseURL: model.baseURL, apiKey: "private-omlx-key" },
+      expect.anything(),
+    )
     expect(
       (await runtime.listModels()).filter(
         (item) => item.kind === "model" && item.provider === "omlx",
@@ -78,7 +89,7 @@ describe("local server coordination", () => {
     expect(app.models.autoCompactAtTokens(app.selection?.model)).toBe(autoCompactThreshold(131072))
     expect(providerTools("omlx").some((tool) => tool.name === "agent")).toBe(true)
     const snapshot = await runtime.snapshot()
-    expect(snapshot.omlx).toEqual({ baseURL: model.baseURL, hasApiKey: true })
+    expect(snapshot.servers).toEqual({ omlx: { baseURL: model.baseURL, hasApiKey: true } })
     expect(JSON.stringify(snapshot)).not.toContain("private-omlx-key")
     await saveSelectedTheme("nord")
     expect(await loadLocalSettings({ env: {} })).toMatchObject({
@@ -94,28 +105,69 @@ describe("local server coordination", () => {
     await app.shutdown()
   })
 
+  it("connects a custom server with the model and context limit it does not report", async () => {
+    const cwd = await isolate("otis-custom-")
+    const app = await Application.create({ cwd, env: {} })
+    const served: ServerCatalogModel = {
+      provider: "custom",
+      id: "qwen3.8-27b",
+      displayName: "qwen3.8-27b",
+      baseURL: "http://127.0.0.1:8080",
+      contextLength: 131072,
+      supportsImageInput: false,
+    }
+    const discover = vi.fn(async () => [served])
+    const runtime = runtimeFor(app, cwd, discover)
+    expect(
+      await runtime.connectLocalServers({
+        custom: { baseURL: served.baseURL, model: " qwen3.8-27b ", contextLength: "131072" },
+      }),
+    ).toEqual({ ok: true })
+    // What the user entered reaches discovery as settings, numbers parsed and names trimmed.
+    expect(discover).toHaveBeenLastCalledWith(
+      "custom",
+      { baseURL: served.baseURL, model: "qwen3.8-27b", contextLength: 131072 },
+      expect.anything(),
+    )
+    expect(await runtime.selectModel("custom:qwen3.8-27b")).toEqual({ ok: true })
+    expect((await runtime.snapshot()).servers).toEqual({
+      custom: {
+        baseURL: served.baseURL,
+        hasApiKey: false,
+        model: "qwen3.8-27b",
+        contextLength: 131072,
+      },
+    })
+    expect(await loadLocalSettings({ env: {} })).toMatchObject({
+      modelProvider: "custom",
+      custom: { baseURL: served.baseURL, model: "qwen3.8-27b", contextLength: 131072 },
+    })
+    // A limit that is not a number is refused before anything is probed.
+    expect(
+      await runtime.connectLocalServers({
+        custom: { baseURL: served.baseURL, contextLength: "lots" },
+      }),
+    ).toMatchObject({ ok: false, reason: expect.stringContaining("context limit in tokens") })
+    await app.shutdown()
+  })
+
   it("rebuilds the active client on reconnect, preserves a blank key on the same endpoint, and invalidates removed servers", async () => {
     const cwd = await isolate("otis-omlx-reconnect-")
     const app = await Application.create({ cwd, env: {} })
-    await app.connectLocalServers(
-      { omlx: model.baseURL, omlxApiKey: "key-one" },
-      { discoverPair, discoverOmlx },
-    )
+    const options = { discoverPair, discoverServer }
+    await app.connectLocalServers({ omlx: { baseURL: model.baseURL, apiKey: "key-one" } }, options)
     serve(app)
     const previous = app.focused.selection?.client
-    await app.connectLocalServers(
-      { omlx: model.baseURL, omlxApiKey: "" },
-      { discoverPair, discoverOmlx },
-    )
-    expect(app.models.omlx?.apiKey).toBe("key-one")
+    await app.connectLocalServers({ omlx: { baseURL: model.baseURL, apiKey: "" } }, options)
+    expect(app.models.servers.omlx?.apiKey).toBe("key-one")
     expect(app.focused.selection?.client).not.toBe(previous)
     const beforeFailure = await readFile(join(localConfigDirectory(), "config.json"), "utf8")
     await expect(
       app.connectLocalServers(
-        { omlx: model.baseURL, omlxApiKey: "bad-key" },
+        { omlx: { baseURL: model.baseURL, apiKey: "bad-key" } },
         {
           discoverPair,
-          discoverOmlx: async () => {
+          discoverServer: async () => {
             throw new Error("HTTP 401")
           },
         },
@@ -124,10 +176,10 @@ describe("local server coordination", () => {
     expect(await readFile(join(localConfigDirectory(), "config.json"), "utf8")).toBe(beforeFailure)
     const changed = { ...model, baseURL: "http://127.0.0.1:8001", contextLength: 65536 }
     await app.connectLocalServers(
-      { omlx: changed.baseURL },
-      { discoverPair, discoverOmlx: async () => [changed] },
+      { omlx: { baseURL: changed.baseURL } },
+      { discoverPair, discoverServer: async () => [changed] },
     )
-    expect(app.models.omlx).toEqual({ baseURL: changed.baseURL })
+    expect(app.models.servers.omlx).toEqual({ baseURL: changed.baseURL })
     expect(app.models.autoCompactAtTokens(app.selection?.model)).toBe(autoCompactThreshold(65536))
     await app.connectLocalServers(
       { ollama: "http://127.0.0.1:11434" },
@@ -147,7 +199,7 @@ describe("local server coordination", () => {
         }),
       },
     )
-    expect(app.models.omlx).toBeUndefined()
+    expect(app.models.servers).toEqual({})
     expect(app.focused.client).toBeUndefined()
     expect(app.hasConfiguredSelection()).toBe(false)
     await app.shutdown()
@@ -158,7 +210,10 @@ describe("local server coordination", () => {
   ])("validates the refreshed serving limit %i on restart without loading models or invoking inference", async (contextLength) => {
     const cwd = await isolate("otis-omlx-restore-")
     const app = await Application.create({ cwd, env: {} })
-    await app.connectLocalServers({ omlx: model.baseURL }, { discoverPair, discoverOmlx })
+    await app.connectLocalServers(
+      { omlx: { baseURL: model.baseURL } },
+      { discoverPair, discoverServer },
+    )
     await saveSelectedModel(model)
     await app.shutdown()
     const fetch = vi.fn(async (url: RequestInfo | URL) =>
@@ -188,7 +243,10 @@ describe("local server coordination", () => {
   ])("rejects an undersized reconnect to the %s server and preserves valid selection state", async (destination) => {
     const cwd = await isolate("otis-omlx-minimum-")
     const app = await Application.create({ cwd, env: {} })
-    await app.connectLocalServers({ omlx: model.baseURL }, { discoverPair, discoverOmlx })
+    await app.connectLocalServers(
+      { omlx: { baseURL: model.baseURL } },
+      { discoverPair, discoverServer },
+    )
     serve(app)
     const previous = app.focused.selection?.client
     const before = await readFile(join(localConfigDirectory(), "config.json"), "utf8")
@@ -197,19 +255,10 @@ describe("local server coordination", () => {
       baseURL: destination === "same" ? model.baseURL : "http://127.0.0.1:8001",
       contextLength: 8192,
     }
-    const runtime = DesktopRuntime.forApplication(app, {
-      cwd,
-      version: "test",
-      platform: "darwin",
-      send: () => {},
-      sendTerminal: () => {},
-      spawnPty: () => {
-        throw new Error("The tests run no shell.")
-      },
-      discoverPair,
-      discoverOmlx: async () => [undersized],
-    })
-    expect(await runtime.connectLocalServers({ omlx: undersized.baseURL })).toMatchObject({
+    const runtime = runtimeFor(app, cwd, async () => [undersized])
+    expect(
+      await runtime.connectLocalServers({ omlx: { baseURL: undersized.baseURL } }),
+    ).toMatchObject({
       ok: false,
       reason: expect.stringContaining("at least 65,536 tokens (64K)"),
     })
@@ -224,24 +273,32 @@ describe("local server coordination", () => {
   })
 
   it("propagates cancellation and rejects empty or malformed setup", async () => {
-    await expect(prepareLocalServers({}, undefined)).rejects.toThrow("Enter at least one")
-    await expect(prepareLocalServers({ omlx: "http://example.com" }, undefined)).rejects.toThrow(
-      "127.0.0.1",
-    )
+    await expect(prepareLocalServers({}, {})).rejects.toThrow("Enter at least one")
     await expect(
-      prepareLocalServers({ omlx: model.baseURL }, undefined, {
-        discoverPair,
-        discoverOmlx: async () => [],
-      }),
+      prepareLocalServers({ omlx: { baseURL: "http://example.com" } }, {}),
+    ).rejects.toThrow("127.0.0.1")
+    await expect(
+      prepareLocalServers(
+        { omlx: { baseURL: model.baseURL } },
+        {},
+        {
+          discoverPair,
+          discoverServer: async () => [],
+        },
+      ),
     ).rejects.toThrow("no available models")
     const controller = new AbortController()
     controller.abort()
     await expect(
-      prepareLocalServers({ omlx: model.baseURL }, undefined, {
-        signal: controller.signal,
-        discoverPair,
-        discoverOmlx,
-      }),
+      prepareLocalServers(
+        { omlx: { baseURL: model.baseURL } },
+        {},
+        {
+          signal: controller.signal,
+          discoverPair,
+          discoverServer,
+        },
+      ),
     ).rejects.toMatchObject({ name: "AbortError" })
   })
 })

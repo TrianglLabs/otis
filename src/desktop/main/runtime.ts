@@ -21,7 +21,6 @@ import type { ArtifactReference } from "../../artifacts/types.js"
 import { createAttachment } from "../../inference/attachments.js"
 import { listHostedModels } from "../../inference/catalog.js"
 import { describeError } from "../../inference/errors.js"
-import { discoverOmlxModels } from "../../inference/omlx.js"
 import { discoverPairModels, type PairDiscovery } from "../../inference/pair.js"
 import {
   type HostedPickerChoice,
@@ -29,6 +28,7 @@ import {
   type ModelPickerChoice,
   type ModelPickerItem,
 } from "../../inference/picker-catalog.js"
+import type { discoverServerModels } from "../../inference/servers.js"
 import { baseFireworksModelId } from "../../inference/serving-path.js"
 import {
   type AttachmentContentPart,
@@ -94,7 +94,7 @@ type DesktopRuntimeOptions = {
   /** Test seam for the picker catalog; production uses the real implementations. */
   listPickerItems?: typeof listModelPickerItems
   discoverPair?: typeof discoverPairModels
-  discoverOmlx?: typeof discoverOmlxModels
+  discoverServer?: typeof discoverServerModels
   /** Test seam for the hosted catalogs: picker listing and key verification. */
   listHostedModels?: typeof listHostedModels
   /** Test seam for the Git collections of skills; production manages the real checkouts. */
@@ -827,11 +827,9 @@ export class DesktopRuntime {
       endpoints.ollama || endpoints.lmStudio
         ? await (this.options.discoverPair ?? discoverPairModels)(endpoints).catch(() => ({}))
         : {}
-    const omlxModels = this.app.models.omlx
-      ? await (this.options.discoverOmlx ?? discoverOmlxModels)(this.app.models.omlx).catch(
-          () => [],
-        )
-      : []
+    const serverModels = await this.app.models.discoverServers({
+      discover: this.options.discoverServer,
+    })
     const activeLocal = this.app.models.activeLocal
     const model = this.app.selection?.model
     const items = await (this.options.listPickerItems ?? listModelPickerItems)({
@@ -842,7 +840,7 @@ export class DesktopRuntime {
       currentProvider: model?.provider,
       currentPairEngine: model?.provider === "pair" ? model.engine : undefined,
       pairModels: [...(discovery.ollama ?? []), ...(discovery.lmStudio ?? [])],
-      omlxModels,
+      serverModels,
       loadStatus: this.app.models.load,
       loadedLocalModel: activeLocal
         ? { model: activeLocal.spec.id, contextLength: activeLocal.contextLength }
@@ -1000,7 +998,7 @@ export class DesktopRuntime {
     return attempt(async () => {
       await this.app.connectLocalServers(input, {
         discoverPair: this.options.discoverPair,
-        discoverOmlx: this.options.discoverOmlx,
+        discoverServer: this.options.discoverServer,
       })
       this.#lastPickerItems = undefined
       this.#markStateDirty()

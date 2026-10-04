@@ -1,26 +1,36 @@
 import {
   ArrowLeft,
   ArrowRight,
+  Box,
   Check,
   ChevronRight,
   Cloud,
   Cpu,
+  Globe,
   KeyRound,
   Laptop,
   Loader2,
   Plug,
+  RulerDimensionLine,
+  Server,
   Settings,
   Star,
   X,
 } from "lucide-react"
-import { useCallback, useEffect, useState } from "react"
+import { type KeyboardEvent, useCallback, useEffect, useState } from "react"
+import type { ServerInput } from "../../../../app/local-servers.js"
 import type { ModelPickerChoice, ModelPickerItem } from "../../../../inference/picker-catalog.js"
 import {
   HOSTED_PROVIDER_INFO,
   HOSTED_PROVIDERS,
   type HostedProvider,
+  isServerProvider,
+  type LocalServerTab,
   localServerNames,
-  supportsOmlx,
+  localServerTabs,
+  type ServerProvider,
+  serverFormInputs,
+  serverProviders,
 } from "../../../../inference/types.js"
 import lmStudioIcon from "../../assets/lm-studio.svg"
 import ollamaIcon from "../../assets/ollama.svg"
@@ -60,10 +70,10 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
     "modelLoad",
     "pairConfigured",
     "pairEndpoints",
-    "omlx",
+    "servers",
     "runtimePlatform",
   )
-  const showOmlx = supportsOmlx(state?.runtimePlatform)
+  const serverKinds = serverProviders(state?.runtimePlatform)
   const servers = localServerNames(state?.runtimePlatform)
   const serverList = new Intl.ListFormat(locale, { type: "disjunction" })
   const [path, setPath] = useState<OnboardingPath>("welcome")
@@ -71,10 +81,27 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
   const [hostedProvider, setHostedProvider] = useState<HostedProvider>("fireworks")
   const [apiKey, setApiKey] = useState("")
   const [teamId, setTeamId] = useState("")
-  const [ollama, setOllama] = useState("")
-  const [lmStudio, setLmStudio] = useState("")
-  const [omlx, setOmlx] = useState("")
-  const [omlxApiKey, setOmlxApiKey] = useState("")
+  // The server form shows one server at a time; every address stays in state and is probed.
+  const [serverTab, setServerTab] = useState<LocalServerTab>("ollama")
+  const [pairInputs, setPairInputs] = useState({ ollama: "", lmStudio: "" })
+  const [serverInputs, setServerInputs] = useState<Partial<Record<ServerProvider, ServerInput>>>({})
+  const setServer = (provider: ServerProvider, patch: Partial<ServerInput>) =>
+    setServerInputs((inputs) => ({
+      ...inputs,
+      [provider]: { baseURL: "", ...inputs[provider], ...patch },
+    }))
+  const connected = (tab: LocalServerTab) =>
+    Boolean(isServerProvider(tab) ? state?.servers[tab] : state?.pairEndpoints[tab])
+  const address = isServerProvider(serverTab)
+    ? (serverInputs[serverTab]?.baseURL ?? "")
+    : pairInputs[serverTab]
+  const setAddress = (baseURL: string) =>
+    isServerProvider(serverTab)
+      ? setServer(serverTab, { baseURL })
+      : setPairInputs((inputs) => ({ ...inputs, [serverTab]: baseURL }))
+  const connectOnEnter = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter") void connectServer()
+  }
   const [serverPending, setServerPending] = useState(false)
   const [items, setItems] = useState<ModelPickerItem[]>()
   const [error, setError] = useState<string>()
@@ -93,11 +120,12 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
   const hostedConfigured = state?.hostedConfigured[hostedProvider] === true
   const hostedName = HOSTED_PROVIDER_INFO[hostedProvider].name
   const billsTeam = hostedProvider === "primeintellect"
-  const submitOnEnter = (event: React.KeyboardEvent) => {
+  const submitOnEnter = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Enter" && apiKey.trim()) void saveHostedKey()
   }
 
-  const pairConfigured = state?.pairConfigured === true || Boolean(state?.omlx)
+  const pairConfigured =
+    state?.pairConfigured === true || Object.keys(state?.servers ?? {}).length > 0
 
   useEffect(() => {
     if (
@@ -122,7 +150,8 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
     (item): item is ModelPickerChoice =>
       item.kind === "model" &&
       rowProvider !== null &&
-      (item.provider === rowProvider || (rowProvider === "pair" && item.provider === "omlx")),
+      (item.provider === rowProvider ||
+        (rowProvider === "pair" && isServerProvider(item.provider))),
   )
 
   // The local step shows the single best model for this computer: the recommended row when it fits,
@@ -169,21 +198,22 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
     setError(undefined)
     setServerPending(true)
     try {
-      const result = await api.connectLocalServers({
-        ollama,
-        lmStudio,
-        ...(showOmlx ? { omlx, omlxApiKey } : {}),
-      })
+      const result = await api.connectLocalServers({ ...pairInputs, ...serverInputs })
       if (!result.ok) {
         setError(result.reason)
         return
       }
-      setOmlxApiKey("")
+      setServerInputs((inputs) =>
+        Object.fromEntries(
+          Object.entries(inputs).map(([provider, input]) => [provider, { ...input, apiKey: "" }]),
+        ),
+      )
       const catalog = await load()
       if (!catalog) return
       if (
         !catalog.some(
-          (item) => item.kind === "model" && (item.provider === "pair" || item.provider === "omlx"),
+          (item) =>
+            item.kind === "model" && (item.provider === "pair" || isServerProvider(item.provider)),
         )
       ) {
         setError(t("onboarding.connectedNoModels"))
@@ -357,10 +387,15 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                 type="button"
                 className="onboarding-card"
                 onClick={() => {
-                  setOllama(state?.pairEndpoints.ollama ?? LOCAL_SERVER_DEFAULTS.ollama)
-                  setLmStudio(state?.pairEndpoints.lmStudio ?? LOCAL_SERVER_DEFAULTS.lmStudio)
-                  setOmlx(showOmlx ? (state?.omlx?.baseURL ?? "http://127.0.0.1:8000") : "")
-                  setOmlxApiKey("")
+                  setPairInputs({
+                    ollama: state?.pairEndpoints.ollama ?? LOCAL_SERVER_DEFAULTS.ollama,
+                    lmStudio: state?.pairEndpoints.lmStudio ?? LOCAL_SERVER_DEFAULTS.lmStudio,
+                  })
+                  setServerInputs(serverFormInputs(state?.runtimePlatform, state?.servers ?? {}))
+                  setServerTab(
+                    localServerTabs(state?.runtimePlatform).find(([tab]) => connected(tab))?.[0] ??
+                      "ollama",
+                  )
                   setError(undefined)
                   navigate("server", "forward")
                 }}
@@ -372,9 +407,10 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                     alt=""
                   />
                   <img className="onboarding-providerMark" src={lmStudioIcon} alt="" />
-                  {showOmlx ? (
+                  {serverKinds.includes("omlx") ? (
                     <img className="onboarding-providerMark" src={omlxIcon} alt="" />
                   ) : null}
+                  <Icon icon={Server} size={16} className="onboarding-providerMark" />
                 </span>
                 <span className="onboarding-cardText">
                   <span className="onboarding-cardTitle">{t("onboarding.server")}</span>
@@ -523,68 +559,87 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                 {t("onboarding.connectServerHint", { servers: serverList.format(servers) })}
               </p>
             </div>
-            <div className="onboarding-endpoints">
-              <label className="onboarding-endpointLabel" htmlFor="onboarding-ollama">
-                <img
-                  className="onboarding-endpointMark onboarding-providerMarkOllama"
-                  src={ollamaIcon}
-                  alt=""
-                  aria-hidden
-                />
-                Ollama
-              </label>
-              <input
-                id="onboarding-ollama"
-                className="onboarding-endpointInput"
-                value={ollama}
-                onChange={(event) => setOllama(event.target.value)}
-                spellCheck={false}
-                autoComplete="off"
-              />
-              <label className="onboarding-endpointLabel" htmlFor="onboarding-lmstudio">
-                <img className="onboarding-endpointMark" src={lmStudioIcon} alt="" aria-hidden />
-                LM Studio
-              </label>
-              <input
-                id="onboarding-lmstudio"
-                className="onboarding-endpointInput"
-                value={lmStudio}
-                onChange={(event) => setLmStudio(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") void connectServer()
+            <fieldset className="onboarding-providers">
+              <legend className="onboarding-providersLegend">{t("onboarding.chooseServer")}</legend>
+              <TabStrip
+                tabs={localServerTabs(state?.runtimePlatform).map(([tab, name]) => [
+                  tab,
+                  <>
+                    {name}
+                    {connected(tab) ? <Icon icon={Check} size={11} /> : null}
+                  </>,
+                ])}
+                selected={serverTab}
+                onSelect={(tab) => {
+                  setError(undefined)
+                  setServerTab(tab)
                 }}
-                spellCheck={false}
-                autoComplete="off"
               />
-              {showOmlx ? (
-                <>
-                  <label className="onboarding-endpointLabel" htmlFor="onboarding-omlx">
-                    <img className="onboarding-endpointMark" src={omlxIcon} alt="" aria-hidden />
-                    oMLX
-                  </label>
+            </fieldset>
+            <div className="onboarding-endpoints">
+              <div className="onboarding-keyRow">
+                <Icon icon={Globe} size={14} className="onboarding-keyIcon" />
+                <input
+                  className="onboarding-input"
+                  aria-label={t("settings.serverAddress")}
+                  placeholder={t("settings.serverAddress")}
+                  value={address}
+                  onChange={(event) => setAddress(event.target.value)}
+                  onKeyDown={connectOnEnter}
+                  spellCheck={false}
+                  autoComplete="off"
+                />
+              </div>
+              {isServerProvider(serverTab) ? (
+                <div className="onboarding-keyRow">
+                  <Icon icon={KeyRound} size={14} className="onboarding-keyIcon" />
                   <input
-                    id="onboarding-omlx"
-                    className="onboarding-endpointInput"
-                    value={omlx}
-                    onChange={(event) => setOmlx(event.target.value)}
-                    spellCheck={false}
-                    autoComplete="off"
-                  />
-                  <input
-                    id="onboarding-omlx-key"
+                    id={`onboarding-${serverTab}-key`}
                     type="password"
-                    className="onboarding-endpointInput onboarding-endpointKey"
-                    aria-label={t("settings.omlxKey")}
-                    value={omlxApiKey}
-                    onChange={(event) => setOmlxApiKey(event.target.value)}
+                    className="onboarding-input"
+                    aria-label={t("settings.serverKey")}
                     placeholder={
-                      state?.omlx?.hasApiKey ? t("settings.omlxKeyHint") : t("settings.omlxKey")
+                      state?.servers[serverTab]?.hasApiKey
+                        ? t("settings.serverKeyHint")
+                        : t("settings.serverKey")
                     }
+                    value={serverInputs[serverTab]?.apiKey ?? ""}
+                    onChange={(event) => setServer(serverTab, { apiKey: event.target.value })}
+                    onKeyDown={connectOnEnter}
                     autoComplete="off"
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") void connectServer()
-                    }}
                   />
+                </div>
+              ) : null}
+              {serverTab === "custom" ? (
+                <>
+                  <div className="onboarding-keyRow">
+                    <Icon icon={Box} size={14} className="onboarding-keyIcon" />
+                    <input
+                      className="onboarding-input"
+                      aria-label={t("settings.serverModel")}
+                      placeholder={t("settings.serverModel")}
+                      value={serverInputs.custom?.model ?? ""}
+                      onChange={(event) => setServer("custom", { model: event.target.value })}
+                      onKeyDown={connectOnEnter}
+                      spellCheck={false}
+                      autoComplete="off"
+                    />
+                  </div>
+                  <div className="onboarding-keyRow">
+                    <Icon icon={RulerDimensionLine} size={14} className="onboarding-keyIcon" />
+                    <input
+                      className="onboarding-input"
+                      aria-label={t("settings.serverContext")}
+                      placeholder={t("settings.serverContext")}
+                      inputMode="numeric"
+                      value={serverInputs.custom?.contextLength ?? ""}
+                      onChange={(event) =>
+                        setServer("custom", { contextLength: event.target.value })
+                      }
+                      onKeyDown={connectOnEnter}
+                      autoComplete="off"
+                    />
+                  </div>
                 </>
               ) : null}
               <div className="onboarding-actions onboarding-actionsEnd">

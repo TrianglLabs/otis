@@ -163,9 +163,14 @@ describe("OnboardingPage", () => {
     expect(document.body.textContent).not.toContain("oMLX")
     fireEvent.click(servers)
     expect(screen.queryByLabelText("oMLX")).toBeNull()
-    expect(document.querySelector('input[type="password"]')).toBeNull()
+    expect(document.querySelector("#onboarding-omlx-key")).toBeNull()
     expect(document.body.textContent).not.toContain("oMLX")
-    const endpoints = { ollama: "http://127.0.0.1:11434", lmStudio: "http://127.0.0.1:1234" }
+    // A custom OpenAI-compatible server is offered on every platform, prefilled with its default.
+    const endpoints = {
+      ollama: "http://127.0.0.1:11434",
+      lmStudio: "http://127.0.0.1:1234",
+      custom: { baseURL: "http://127.0.0.1:8080", model: "", contextLength: "" },
+    }
     fireEvent.click(screen.getByRole("button", { name: t("common.connect") }))
     expect(api.connectLocalServers).toHaveBeenLastCalledWith(endpoints)
     await screen.findByText(t("onboarding.chooseModel"))
@@ -488,22 +493,29 @@ describe("OnboardingPage", () => {
     fireEvent.click(servers)
 
     expect(screen.getByText(/default local addresses are prefilled/)).toBeTruthy()
-    expect((screen.getByLabelText("Ollama") as HTMLInputElement).value).toBe(
+    // One server shows at a time; the tabs switch which address is edited.
+    expect((screen.getByLabelText("Address") as HTMLInputElement).value).toBe(
       "http://127.0.0.1:11434",
     )
-    expect((screen.getByLabelText("LM Studio") as HTMLInputElement).value).toBe(
+    fireEvent.click(screen.getByRole("tab", { name: "LM Studio" }))
+    expect((screen.getByLabelText("Address") as HTMLInputElement).value).toBe(
       "http://127.0.0.1:1234",
     )
+    fireEvent.click(screen.getByRole("tab", { name: "Custom server" }))
+    expect((screen.getByLabelText("Address") as HTMLInputElement).value).toBe(
+      "http://127.0.0.1:8080",
+    )
+    expect(screen.getByLabelText("Model id, if the server lists none")).toBeTruthy()
     fireEvent.click(screen.getByRole("button", { name: "Connect" }))
 
     expect(api.connectLocalServers).toHaveBeenCalledWith({
-      omlx: "http://127.0.0.1:8000",
-      omlxApiKey: "",
       ollama: "http://127.0.0.1:11434",
       lmStudio: "http://127.0.0.1:1234",
+      omlx: { baseURL: "http://127.0.0.1:8000", model: "", contextLength: "" },
+      custom: { baseURL: "http://127.0.0.1:8080", model: "", contextLength: "" },
     })
     expect(await screen.findByText("Choose a model")).toBeTruthy()
-    expect(screen.queryByLabelText("Ollama")).toBeNull()
+    expect(screen.queryByLabelText("Address")).toBeNull()
     const row = rowButton(await screen.findByText("PAIR cluster model"))
     fireEvent.click(row)
     expect(api.selectModel).toHaveBeenCalledWith("ollama:qwen3:32b")
@@ -603,16 +615,20 @@ describe("OnboardingPage", () => {
     const api = fakeApi({
       getSnapshot: vi.fn(async () => ({
         ...SNAPSHOT,
-        omlx: { baseURL: item.baseURL, hasApiKey: true },
+        servers: { omlx: { baseURL: item.baseURL, hasApiKey: true } },
       })),
       listModels: vi.fn(async () => [item]),
     })
     await renderApp(api)
     fireEvent.click(screen.getByRole("button", { name: "Settings" }))
     fireEvent.click(await screen.findByRole("button", { name: /Local model servers/ }))
-    const key = screen.getByLabelText("oMLX API key (optional)") as HTMLInputElement
+    // The form opens on the connected server's tab.
+    expect(screen.getByRole("tab", { name: "oMLX" }).getAttribute("aria-selected")).toBe("true")
+    const key = document.querySelector("#settings-omlx-key") as HTMLInputElement
     expect(key.type).toBe("password")
     expect(key.value).toBe("")
+    // A saved key is kept while the field stays blank; the hint says so instead of asking again.
+    expect(key.placeholder).toBe("Leave blank to keep the saved key")
     fireEvent.click(rowButton(await screen.findByText("MLX chat")))
     expect(api.selectModel).toHaveBeenCalledWith("omlx:mlx-chat")
   })

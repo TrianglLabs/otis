@@ -146,6 +146,7 @@ function statusFixture(overrides: Partial<DesktopStatus> = {}): DesktopStatus {
     primeTeamId: null,
     pairConfigured: false,
     pairEndpoints: {},
+    servers: {},
     debug: false,
     update: { status: "idle" },
     remote: null,

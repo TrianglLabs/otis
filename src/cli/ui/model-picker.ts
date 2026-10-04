@@ -3,12 +3,13 @@ import { pairEngineLabel } from "../../inference/pair.js"
 import {
   formatContextWindow,
   isSelectablePickerItem,
+  isServerPickerChoice,
   type ModelPickerChoice,
   type ModelPickerItem,
   type ModelPickerStatus,
 } from "../../inference/picker-catalog.js"
 import { filterModelPickerItems } from "../../inference/picker-filter.js"
-import { isHostedProvider } from "../../inference/types.js"
+import { isHostedProvider, isServerProvider } from "../../inference/types.js"
 import { colors } from "../theme.js"
 import { SelectionPulse } from "./color-pulse.js"
 import { CPU_OFFLOAD_MODEL_MARK, FAST_MODE_LABEL, RECOMMENDED_MODEL_MARK } from "./format.js"
@@ -208,7 +209,7 @@ function modelNameSuffixes(item: ModelPickerChoice) {
     : undefined
   if (item.provider === "pair")
     suffixes.push({ text: pairEngineLabel(item.engine), fg: colors.muted })
-  if (item.provider === "omlx" || item.provider === "pair") {
+  if (isServerProvider(item.provider) || item.provider === "pair") {
     if (status) suffixes.push(status)
   } else if (item.provider === "local") {
     if (status) suffixes.push(status)
@@ -218,7 +219,7 @@ function modelNameSuffixes(item: ModelPickerChoice) {
 }
 
 function modelMeta(item: ModelPickerChoice) {
-  if (item.provider === "omlx" && item.availabilityLabel) return item.availabilityLabel
+  if (isServerPickerChoice(item) && item.availabilityLabel) return item.availabilityLabel
   if (item.provider === "local") {
     return `${item.availabilityLabel} · ${item.supportsImageInput ? "Vision" : "Text"}`
   }

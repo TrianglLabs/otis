@@ -308,7 +308,7 @@
   text-align: center;
 }
 
-/* Hosted provider choice: the shared segmented control; keyed providers carry a check. */
+/* Provider choice: the shared segmented control; keyed providers carry a check. */
 .onboarding-providers {
   margin: 0;
   padding: 0;
@@ -371,58 +371,9 @@
 }
 
 .onboarding-endpoints {
-  display: grid;
-  grid-template-columns: 88px minmax(0, 1fr);
-  align-items: center;
-  gap: 8px 10px;
-}
-
-.onboarding-endpointLabel,
-.onboarding-listLabel {
-  margin: 0;
-  font-size: var(--text-meta);
-  color: var(--text-dim);
-}
-
-.onboarding-endpointLabel {
   display: flex;
-  align-items: center;
-  gap: 7px;
-  white-space: nowrap;
-}
-
-.onboarding-endpointMark {
-  box-sizing: border-box;
-  display: block;
-  width: 17px;
-  height: 17px;
-  object-fit: contain;
-  border-radius: 4px;
-}
-
-.onboarding-endpointInput {
-  min-width: 0;
-  padding: 6px 10px;
-  background: var(--bg-surface);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius);
-  color: var(--text);
-  font: inherit;
-  font-size: var(--text-ui);
-  outline: none;
-}
-
-.onboarding-endpointInput:focus {
-  border-color: var(--accent);
-}
-
-.onboarding-endpointKey {
-  grid-column: 2;
-}
-
-.onboarding-listLabel {
-  padding: 3px 10px 0;
-  font-weight: 600;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .onboarding-list {

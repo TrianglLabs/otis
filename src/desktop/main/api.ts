@@ -1,5 +1,7 @@
+import type { LocalServerInputs } from "../../app/local-servers.js"
 import { isArtifactReference } from "../../artifacts/types.js"
-import { isHostedProvider } from "../../inference/types.js"
+import { isRecord } from "../../inference/errors.js"
+import { isHostedProvider, isServerProvider } from "../../inference/types.js"
 import { TEXT_SIZES } from "../../local/settings.js"
 import { isMemoryScope } from "../../memory/memory.js"
 import type { DesktopAttachmentInput, DesktopStatus, PaneDrop, PaneSide } from "../contracts.js"
@@ -241,18 +243,22 @@ export function desktopCall(runtime: DesktopRuntime) {
       return runtime.setHostedApiKey(provider, apiKey)
     },
     connectLocalServers: (endpoints: unknown) => {
-      if (
-        !endpoints ||
-        typeof endpoints !== "object" ||
-        Array.isArray(endpoints) ||
-        Object.entries(endpoints).some(
-          ([key, value]) =>
-            !["ollama", "lmStudio", "omlx", "omlxApiKey"].includes(key) ||
-            (value !== undefined && typeof value !== "string"),
+      const text = (value: unknown) => value === undefined || typeof value === "string"
+      const valid =
+        isRecord(endpoints) &&
+        Object.entries(endpoints).every(([key, value]) =>
+          isServerProvider(key)
+            ? value === undefined ||
+              (isRecord(value) &&
+                typeof value.baseURL === "string" &&
+                Object.entries(value).every(
+                  ([field, entry]) =>
+                    ["baseURL", "apiKey", "model", "contextLength"].includes(field) && text(entry),
+                ))
+            : ["ollama", "lmStudio"].includes(key) && text(value),
         )
-      )
-        throw new Error("Invalid local server settings.")
-      return runtime.connectLocalServers(endpoints)
+      if (!valid) throw new Error("Invalid local server settings.")
+      return runtime.connectLocalServers(endpoints as LocalServerInputs)
     },
     deleteLocalModel: (id: unknown) => {
       if (typeof id !== "string") throw new Error("Invalid model id.")

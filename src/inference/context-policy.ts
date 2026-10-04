@@ -1,4 +1,4 @@
-import type { ModelProvider } from "./types.js"
+import { isServerProvider, type ModelProvider } from "./types.js"
 
 export const LOCAL_MIN_CONTEXT_LENGTH = 65_536
 
@@ -6,7 +6,7 @@ export function compactionContextLength(model: {
   provider?: ModelProvider
   contextLength?: number
 }) {
-  if (model.provider === "omlx") return model.contextLength ?? LOCAL_MIN_CONTEXT_LENGTH
+  if (isServerProvider(model.provider)) return model.contextLength ?? LOCAL_MIN_CONTEXT_LENGTH
   // Direct servers and PAIR expose the same inventory API, without a reliable serving limit.
   // The minimum is a product requirement and fallback budget, not a verified server allocation.
   // Architecture metadata and one routed node's allocation never become cluster compaction state.

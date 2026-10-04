@@ -21,9 +21,9 @@ import {
   type LocalThinkingState,
   localThinkingCapability,
 } from "../inference/local-thinking.js"
-import { discoverOmlxModels, OmlxClient, type OmlxSettings } from "../inference/omlx.js"
 import { createPairClient, pairEndpointForEngine } from "../inference/pair.js"
 import type { ModelPickerStatus } from "../inference/picker-catalog.js"
+import { discoverServerModels, ServerClient } from "../inference/servers.js"
 import {
   findHostedModel,
   fireworksServingModel,
@@ -39,8 +39,15 @@ import {
   type InferenceClient,
   isLocalCatalogModel,
   isPairCatalogModel,
+  isServerCatalogModel,
+  isServerProvider,
   type ModelProvider,
   type PairEngine,
+  SERVER_INFO,
+  SERVER_PROVIDERS,
+  type ServerCatalogModel,
+  type ServerProvider,
+  type ServerSettings,
   type StreamChatOptions,
 } from "../inference/types.js"
 import { hostedApiKeys, type LocalSettings } from "../local/settings.js"
@@ -280,7 +287,8 @@ const OPEN_GATE = new InferenceGate()
 export class ModelHost {
   readonly llama: LlamaCppRuntime
   readonly gate = new InferenceGate()
-  omlx: OmlxSettings | undefined
+  /** The user-managed servers, by provider; absent means not connected. */
+  servers: Partial<Record<ServerProvider, ServerSettings>> = {}
   /** The Prime Intellect team billed for inference, when the user works from a team wallet. */
   primeTeamId: string | undefined
   activeLocal: ActiveLocalModel | undefined
@@ -361,7 +369,11 @@ export class ModelHost {
   }
 
   applySettings(settings: LocalSettings) {
-    this.omlx = settings.omlx
+    this.servers = Object.fromEntries(
+      SERVER_PROVIDERS.flatMap((provider) =>
+        settings[provider] ? [[provider, settings[provider]]] : [],
+      ),
+    )
     this.primeTeamId = settings.primeintellectTeamId
     this.localThinking = { ...settings.localThinking }
   }
@@ -374,7 +386,7 @@ export class ModelHost {
 
   /**
    * The saved model as the first session's selection, with a client when settings can build one
-   * outright: Fireworks with a key, PAIR with its endpoint. Local and oMLX models get theirs once
+   * outright: Fireworks with a key, PAIR with its endpoint. Local and server models get theirs once
    * their server answers.
    */
   savedSelection(settings: LocalSettings): ModelSelection | undefined {
@@ -396,8 +408,9 @@ export class ModelHost {
     }
     // A server selection whose endpoint is gone stays selected without a client, so setup can ask
     // for the endpoint again instead of forgetting the model.
-    if (provider === "omlx") {
-      const model: CatalogModel = { provider, ...shared, baseURL: this.omlx?.baseURL ?? "" }
+    if (isServerProvider(provider)) {
+      const baseURL = this.servers[provider]?.baseURL ?? ""
+      const model: CatalogModel = { provider, ...shared, baseURL }
       return { model, supportsImageInput, client: undefined }
     }
     if (provider === "pair") {
@@ -638,9 +651,9 @@ export class ModelHost {
     }
 
     let client: InferenceClient
-    if (model.provider === "omlx") {
-      requireLocalContextLength(model.contextLength, "oMLX")
-      client = this.omlxClient(model.id, model.baseURL)
+    if (isServerCatalogModel(model)) {
+      requireLocalContextLength(model.contextLength, SERVER_INFO[model.provider].name)
+      client = this.serverClient(model.provider, model.id, model.baseURL)
     } else if (isPairCatalogModel(model)) {
       client = createPairClient({ baseURL: model.baseURL, model: model.id, engine: model.engine })
     } else {
@@ -707,13 +720,15 @@ export class ModelHost {
       }
       return this.#serve(active, serving.inferenceURL)
     }
-    if (provider === "omlx") {
-      if (!this.omlx) throw new Error("oMLX is not configured. Connect it in Local servers.")
-      const models = await discoverOmlxModels(this.omlx, { signal: options.signal })
+    if (isServerProvider(provider)) {
+      const { name } = SERVER_INFO[provider]
+      const server = this.servers[provider]
+      if (!server) throw new Error(`${name} is not configured. Connect it in Local servers.`)
+      const models = await discoverServerModels(provider, server, { signal: options.signal })
       const model = models.find((entry) => entry.id === modelId)
-      if (!model) throw new Error(`oMLX model is no longer available: ${modelId}`)
-      requireLocalContextLength(model.contextLength, "oMLX")
-      const client = this.omlxClient(model.id, model.baseURL)
+      if (!model) throw new Error(`${name} model is no longer available: ${modelId}`)
+      requireLocalContextLength(model.contextLength, name)
+      const client = this.serverClient(provider, model.id, model.baseURL)
       await this.stopLocal()
       options.signal?.throwIfAborted()
       return { model, supportsImageInput: model.supportsImageInput, client }
@@ -769,10 +784,29 @@ export class ModelHost {
     await this.llama.stop()
   }
 
-  omlxClient(model: string, baseURL: string) {
-    if (!this.omlx || this.omlx.baseURL !== baseURL)
-      throw new Error("oMLX endpoint changed. Refresh the model list.")
-    return new OmlxClient({ ...this.omlx, model })
+  /** Every connected server's inventory; a server that does not answer lists none. */
+  async discoverServers(
+    options: { signal?: AbortSignal; discover?: typeof discoverServerModels } = {},
+  ) {
+    const discover = options.discover ?? discoverServerModels
+    const serverModels: Partial<Record<ServerProvider, ServerCatalogModel[]>> = {}
+    await Promise.all(
+      SERVER_PROVIDERS.map(async (provider) => {
+        const server = this.servers[provider]
+        if (!server) return
+        serverModels[provider] = await discover(provider, server, {
+          signal: options.signal,
+        }).catch(() => [])
+      }),
+    )
+    return serverModels
+  }
+
+  serverClient(provider: ServerProvider, model: string, baseURL: string) {
+    const server = this.servers[provider]
+    if (!server || server.baseURL !== baseURL)
+      throw new Error(`${SERVER_INFO[provider].name} endpoint changed. Refresh the model list.`)
+    return new ServerClient(provider, { ...server, model })
   }
 }
 

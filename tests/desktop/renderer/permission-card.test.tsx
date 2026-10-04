@@ -86,6 +86,7 @@ const SNAPSHOT: DesktopSnapshot = {
   primeTeamId: null,
   pairConfigured: false,
   pairEndpoints: {},
+  servers: {},
   debug: false,
   platform: "darwin",
   version: "0.0.0-test",

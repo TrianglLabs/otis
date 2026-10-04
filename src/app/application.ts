@@ -26,10 +26,11 @@ import {
 import {
   type HostedPickerChoice,
   isSelectablePickerItem,
+  isServerPickerChoice,
   type ModelPickerChoice,
   toLocalCatalogModel,
-  toOmlxCatalogModel,
   toPairCatalogModel,
+  toServerCatalogModel,
 } from "../inference/picker-catalog.js"
 import { hiddenModelKey } from "../inference/picker-filter.js"
 import {
@@ -51,8 +52,12 @@ import {
   type HostedProvider,
   isHostedModel,
   isHostedProvider,
+  isServerCatalogModel,
+  isServerProvider,
   type ModelProvider,
   type OutputCapabilities,
+  SERVER_INFO,
+  type ServerProvider,
   type UserChatMessage,
 } from "../inference/types.js"
 import {
@@ -135,6 +140,14 @@ export type RuntimeSummary = {
   contextTokens: number
 }
 
+/** A connected server as adapters show it: the address and what was entered beside it. */
+export type ServerStatus = {
+  baseURL: string
+  hasApiKey: boolean
+  model?: string
+  contextLength?: number
+}
+
 /**
  * The mutable application state outside the transcript, shared by every interface. Session
  * fields describe the focused runtime; `runtimes` lists every open one.
@@ -171,7 +184,8 @@ export type AppStatus = {
   /** The Prime Intellect team billed for inference, or null for the personal wallet. */
   primeTeamId: string | null
   pairEndpoints: PairEndpoints
-  omlx: { baseURL: string; hasApiKey: boolean } | null
+  /** The connected user-managed servers; keys never leave the process. */
+  servers: Partial<Record<ServerProvider, ServerStatus>>
   subagents: SubagentSummary[]
   runtimes: RuntimeSummary[]
   /** Busy runtimes other than the focused one. */
@@ -228,9 +242,9 @@ function hostedCatalogModel(choice: HostedPickerChoice): HostedModel {
   return model
 }
 
-/** Picker rows are keyed the way the list keys them: oMLX and PAIR by selectionKey. */
+/** Picker rows are keyed the way the list keys them: servers and PAIR by selectionKey. */
 function pickerKey(model: CatalogModel) {
-  if (model.provider === "omlx") return `omlx:${model.id}`
+  if (isServerProvider(model.provider)) return `${model.provider}:${model.id}`
   return model.provider === "pair" ? pairModelKey(model) : model.id
 }
 
@@ -753,9 +767,12 @@ export class Application {
       hiddenModels: [...(this.settings.hiddenModels ?? [])],
       primeTeamId: models.primeTeamId ?? null,
       pairEndpoints: { ...this.pairEndpoints },
-      omlx: models.omlx
-        ? { baseURL: models.omlx.baseURL, hasApiKey: Boolean(models.omlx.apiKey) }
-        : null,
+      servers: Object.fromEntries(
+        Object.entries(models.servers).map(([provider, { apiKey, ...server }]) => [
+          provider,
+          { ...server, hasApiKey: Boolean(apiKey) },
+        ]),
+      ),
       subagents: this.subagents.all.map((trace) => ({
         toolCallId: trace.toolCallId,
         title: trace.title,
@@ -859,7 +876,8 @@ export class Application {
   /**
    * Throws unless the selected model takes images. Local models answer from the catalog spec;
    * a hosted model whose saved selection predates the capability is looked up once and its
-   * serving entry persisted. Server-discovered models (PAIR, oMLX) answer from their discovery.
+   * serving entry persisted. Server-discovered models (PAIR, user-managed) answer from their
+   * discovery.
    */
   async ensureImageSupport(signal?: AbortSignal): Promise<void> {
     const runtime = this.#focused
@@ -904,7 +922,7 @@ export class Application {
       model &&
         ((isHostedModel(model) && this.hostedApiKeys[model.provider]) ||
           model.provider === "local" ||
-          (model.provider === "omlx" && this.models.omlx) ||
+          (isServerProvider(model.provider) && this.models.servers[model.provider]) ||
           (model.provider === "pair" && pairEndpointForEngine(this.pairEndpoints, model.engine))),
     )
   }
@@ -922,7 +940,7 @@ export class Application {
   }
 
   /**
-   * Probes and persists local servers, refreshing the active PAIR or oMLX client onto the new
+   * Probes and persists local servers, refreshing the active PAIR or server client onto the new
    * endpoints. A selection whose server no longer answers is invalidated and reported as failed.
    */
   async connectLocalServers(input: LocalServerInputs, options: LocalServerDiscoveryOptions = {}) {
@@ -940,7 +958,7 @@ export class Application {
     const models = this.models
     const connection = await models.enqueueSelection(async (signal) => {
       const combined = options.signal ? AbortSignal.any([signal, options.signal]) : signal
-      const servers = await prepareLocalServers(input, models.omlx, {
+      const servers = await prepareLocalServers(input, models.servers, {
         ...options,
         signal: combined,
       })
@@ -949,30 +967,32 @@ export class Application {
       const served = this.#runtimes.flatMap((runtime) => {
         const selection = runtime.selection
         const provider = selection?.model.provider
-        return selection && (provider === "pair" || provider === "omlx")
+        return selection && (provider === "pair" || isServerProvider(provider))
           ? [{ runtime, selection }]
           : []
       })
+      const refreshedServerModel = (model: CatalogModel) =>
+        isServerCatalogModel(model)
+          ? servers.serverModels[model.provider]?.find((entry) => entry.id === model.id)
+          : undefined
       for (const { runtime, selection } of served) {
-        const { model } = selection
-        const omlxModel =
-          model.provider === "omlx" && servers.omlxModels.find((entry) => entry.id === model.id)
-        if (!omlxModel) continue
+        const refreshed = refreshedServerModel(selection.model)
+        if (!refreshed) continue
         try {
-          requireLocalContextLength(omlxModel.contextLength, "oMLX")
+          requireLocalContextLength(refreshed.contextLength, SERVER_INFO[refreshed.provider].name)
         } catch (error) {
           // A refreshed limit invalidates the existing client only when it describes the same
           // server.
-          if (omlxModel.baseURL === models.omlx?.baseURL) {
+          if (refreshed.baseURL === models.servers[refreshed.provider]?.baseURL) {
             runtime.selection = { ...selection, client: undefined }
             runtime.transcript.invalidateContext()
           }
           throw error
         }
       }
-      await saveLocalServers(servers)
+      await saveLocalServers({ pairEndpoints: servers.pairEndpoints, ...servers.servers })
       this.pairEndpoints = servers.pairEndpoints
-      models.omlx = servers.omlx
+      models.servers = servers.servers
       for (const { runtime, selection } of served) {
         const { model } = selection
         const refreshed =
@@ -980,7 +1000,7 @@ export class Application {
             ? servers.pairModels.find(
                 (entry) => entry.id === model.id && entry.engine === model.engine,
               )
-            : servers.omlxModels.find((entry) => entry.id === model.id)
+            : refreshedServerModel(model)
         const client =
           refreshed?.provider === "pair"
             ? createPairClient({
@@ -989,7 +1009,7 @@ export class Application {
                 engine: refreshed.engine,
               })
             : refreshed
-              ? models.omlxClient(model.id, refreshed.baseURL)
+              ? models.serverClient(refreshed.provider, model.id, refreshed.baseURL)
               : undefined
         runtime.selection = {
           model: refreshed ?? model,
@@ -1058,8 +1078,12 @@ export class Application {
     if (runtime.client) return "ready"
     const model = runtime.selection?.model
     if (!model) return "unconfigured"
-    if (model.provider === "omlx") {
-      runtime.selection = await models.connect({ provider: "omlx", modelId: model.id, signal })
+    if (isServerCatalogModel(model)) {
+      runtime.selection = await models.connect({
+        provider: model.provider,
+        modelId: model.id,
+        signal,
+      })
       return "ready"
     }
     if (model.provider !== "local") return "unconfigured"
@@ -1126,7 +1150,8 @@ export class Application {
           : current?.id === target.id && current.provider === target.provider
         // A managed server that died since it was ready must be restarted, not shortcut.
         const serving = target.provider !== "local" || models.llama.alive
-        if (active && runtime.client && serving && target.provider !== "omlx") return { ok: true }
+        if (active && runtime.client && serving && !isServerProvider(target.provider))
+          return { ok: true }
         // Defense in depth: no session a switch affects can start a turn while one is queued, so
         // running work here means a turn outlived the entry check.
         const refusal = this.#switchRefusal(runtime, target.provider)
@@ -1137,8 +1162,8 @@ export class Application {
             ? toLocalCatalogModel(choice)
             : choice.provider === "pair"
               ? toPairCatalogModel(choice)
-              : choice.provider === "omlx"
-                ? toOmlxCatalogModel(choice)
+              : isServerPickerChoice(choice)
+                ? toServerCatalogModel(choice)
                 : fireworksServingModel(
                     hostedCatalogModel(choice),
                     this.fastServingEnabled(choice.id),
