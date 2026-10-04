@@ -297,6 +297,7 @@ export const uk: Messages = {
   "onboarding.localBody":
     "Запускайте моделі на цьому комп’ютері або у своїй локальній ШІ-мережі. Приватно й без інтернету.",
   "onboarding.back": "Назад",
+  "onboarding.step": "Крок {current} з {total}",
   "onboarding.setupHosted": "Налаштувати хмарні моделі",
   "onboarding.chooseLocal": "Вибрати локальний інференс",
   "onboarding.localHint":

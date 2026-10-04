@@ -252,6 +252,7 @@ export const es: Messages = {
   "onboarding.localBody":
     "Ejecuta modelos en este equipo o en tu red de IA local. Privado y sin conexión.",
   "onboarding.back": "Atrás",
+  "onboarding.step": "Paso {current} de {total}",
   "onboarding.setupHosted": "Configurar modelos en la nube",
   "onboarding.chooseLocal": "Elegir inferencia local",
   "onboarding.localHint":

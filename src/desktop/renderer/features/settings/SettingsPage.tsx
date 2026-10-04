@@ -9,7 +9,6 @@ import {
   FileText,
   Laptop,
   LoaderCircle,
-  type LucideIcon,
   NotebookPen,
   Palette,
   Plug,
@@ -47,6 +46,7 @@ import ollamaIcon from "../../assets/ollama.svg"
 import omlxIcon from "../../assets/omlx.svg"
 import { Button, IconButton } from "../../components/Button.js"
 import { Icon } from "../../components/Icon.js"
+import { TabStrip } from "../../components/TabStrip.js"
 import { formatTokenCount } from "../../format.js"
 import { LANGUAGE_OPTIONS, useI18n } from "../../i18n/index.js"
 import { useDesktop, useDesktopState } from "../../runtime.js"
@@ -977,35 +977,6 @@ function HostedModelsSettings({
         </section>
       </div>
       <p className="settingsForm-note settingsGroup-note">{t("settings.hostedModelsNote")}</p>
-    </div>
-  )
-}
-
-/** The canvas-style tab strip that picks one of a group's panels inside a settings tab. */
-function TabStrip<T extends string>({
-  tabs,
-  selected,
-  onSelect,
-}: {
-  tabs: readonly (readonly [T, string, LucideIcon?])[]
-  selected: T
-  onSelect: (tab: T) => void
-}) {
-  return (
-    <div className="tabStrip settingsTabs" role="tablist">
-      {tabs.map(([id, label, icon]) => (
-        <button
-          key={id}
-          type="button"
-          role="tab"
-          className={`tabStrip-tab${id === selected ? " tabStrip-tab-selected" : ""}`}
-          aria-selected={id === selected}
-          onClick={() => onSelect(id)}
-        >
-          {icon ? <Icon icon={icon} size={13} /> : null}
-          {label}
-        </button>
-      ))}
     </div>
   )
 }

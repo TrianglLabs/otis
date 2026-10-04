@@ -713,15 +713,14 @@
   color: var(--success);
 }
 
-/* Settings strips sit beside 48px rows, so they run larger than the canvas tabs they borrow. */
-.settingsTabs > .tabStrip-tab {
+/* Settings strips sit beside 48px rows, so they run larger than the shared control. */
+.settingsPage .tabStrip-tab {
   height: 28px;
-  padding: 0 12px;
   font-size: var(--text-ui);
 }
 
 /* A tab strip between a section heading and its surface. */
-.settingsGroup > .settingsTabs {
+.settingsGroup > .tabStrip {
   margin-bottom: 10px;
 }
 

@@ -13,8 +13,9 @@
   overflow-y: auto;
 }
 
+/* A floor keeps the steps the same size as they slide; a taller form grows past it. */
 .onboarding-step {
-  height: min(340px, calc(100vh - 96px));
+  min-height: min(340px, calc(100vh - 96px));
   flex-shrink: 0;
   will-change: transform, opacity;
 }
@@ -72,6 +73,37 @@
   padding: 0 12px;
   -webkit-app-region: drag;
   user-select: none;
+}
+
+/* Page dots for the route, centered between the bar's buttons; the current one stretches. */
+.onboarding-steps {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.onboarding-stepDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 18%, transparent);
+  transition:
+    width var(--motion),
+    background var(--motion);
+}
+
+.onboarding-stepDot-done {
+  background: var(--text-dim);
+}
+
+.onboarding-stepDot-current {
+  width: 18px;
+  background: var(--accent);
 }
 
 .platform-darwin .onboarding-topbar {
@@ -276,7 +308,7 @@
   text-align: center;
 }
 
-/* Hosted provider choice: the canvas's tab strip; the chosen one is filled, keyed ones carry a check. */
+/* Hosted provider choice: the shared segmented control; keyed providers carry a check. */
 .onboarding-providers {
   margin: 0;
   padding: 0;
@@ -294,15 +326,15 @@
   text-align: center;
 }
 
-.onboarding-providerTabs {
-  justify-content: center;
+.onboarding-providers .tabStrip {
+  margin: 0 auto;
 }
 
 .onboarding-keyRow {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 4px 4px 10px;
+  padding: 4px 10px;
   border: 1px solid var(--hairline);
   border-radius: var(--radius);
   background: var(--bg-surface);
