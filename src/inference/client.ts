@@ -51,7 +51,7 @@ export class HostedClient implements InferenceClient {
   }
 
   async *streamChat(options: StreamChatOptions) {
-    const { name } = HOSTED_PROVIDER_INFO[this.provider]
+    const { name, reasoningField } = HOSTED_PROVIDER_INFO[this.provider]
     const fireworks = this.provider === "fireworks"
     const response = await fetchWithIdleTimeout(
       this.#fetch,
@@ -65,16 +65,13 @@ export class HostedClient implements InferenceClient {
           ...(this.#teamId ? { "x-prime-team-id": this.#teamId } : {}),
         },
         body: JSON.stringify(
-          openaiChatCompletionRequest(
-            this.model,
-            options,
-            fireworks
-              ? {
-                  reasoningEffort: fireworksReasoningEffort(this.model, options.minimalReasoning),
-                  serviceTier: fireworksServiceTier(this.model),
-                }
-              : {},
-          ),
+          openaiChatCompletionRequest(this.model, options, {
+            reasoningField,
+            ...(fireworks && {
+              reasoningEffort: fireworksReasoningEffort(this.model, options.minimalReasoning),
+              serviceTier: fireworksServiceTier(this.model),
+            }),
+          }),
         ),
         signal: options.signal,
       },

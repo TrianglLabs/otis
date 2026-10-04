@@ -6,7 +6,12 @@ import { type AgentEvent, type RunAgentOptions, runAgent } from "../../src/core/
 import { autoCompactThreshold, isCompactionSummary } from "../../src/core/compaction.js"
 import { HostedClient } from "../../src/inference/client.js"
 import { OpenAICompatibleClient } from "../../src/inference/openai-compat.js"
-import type { ChatMessage, InferenceClient, TokenUsage } from "../../src/inference/types.js"
+import type {
+  ChatMessage,
+  InferenceClient,
+  OpenAICompatibleReasoningField,
+  TokenUsage,
+} from "../../src/inference/types.js"
 import { createPermissionPolicy } from "../../src/permissions/policy.js"
 import { emptySkillCatalog } from "../../src/skills/catalog.js"
 import { TOOL_DEFINITIONS } from "../../src/tools/index.js"
@@ -23,11 +28,18 @@ import {
  * speaks the real wire format, so request serialization, stream parsing, overflow recovery, and
  * the idle watchdog are exercised together rather than per function.
  */
-const transports = [
+const transports: {
+  name: string
+  label: string
+  bearer: string
+  reasoningField: OpenAICompatibleReasoningField
+  create: (url: string, idleTimeoutMs: number) => InferenceClient
+}[] = [
   {
     name: "HostedClient (Fireworks)",
     label: "Fireworks",
     bearer: "Bearer fw_test_key",
+    reasoningField: "reasoning_content",
     create: (url: string, idleTimeoutMs: number): InferenceClient =>
       new HostedClient({
         provider: "fireworks",
@@ -41,6 +53,7 @@ const transports = [
     name: "HostedClient (Together AI)",
     label: "Together AI",
     bearer: "Bearer tg_test_key",
+    reasoningField: "reasoning",
     create: (url: string, idleTimeoutMs: number): InferenceClient =>
       new HostedClient({
         provider: "together",
@@ -54,6 +67,7 @@ const transports = [
     name: "OpenAICompatibleClient",
     label: "Local model",
     bearer: "Bearer local-secret",
+    reasoningField: "reasoning_content",
     create: (url: string, idleTimeoutMs: number): InferenceClient =>
       new OpenAICompatibleClient({
         model: "local-model",
@@ -71,6 +85,7 @@ type WireMessage = {
   role: string
   content: string | null
   reasoning_content?: string
+  reasoning?: string
   tool_calls?: { id: string; type: string; function: { name: string; arguments: string } }[]
   tool_call_id?: string
 }
@@ -129,7 +144,7 @@ describe.each(transports)("$name against a wire-format fake", (transport) => {
       {
         kind: "sse",
         chunks: [
-          delta({ reasoning_content: "Let me read the note." }),
+          delta({ [transport.reasoningField]: "Let me read the note." }),
           delta(
             {
               tool_calls: [
@@ -167,7 +182,7 @@ describe.each(transports)("$name against a wire-format fake", (transport) => {
         content: [
           expect.objectContaining({
             type: "reasoning",
-            field: "reasoning_content",
+            field: transport.reasoningField,
             text: "Let me read the note.",
           }),
           {
@@ -208,7 +223,7 @@ describe.each(transports)("$name against a wire-format fake", (transport) => {
     expect(second[2]).toEqual({
       role: "assistant",
       content: null,
-      reasoning_content: "Let me read the note.",
+      [transport.reasoningField]: "Let me read the note.",
       tool_calls: [
         {
           id: "call_note",
