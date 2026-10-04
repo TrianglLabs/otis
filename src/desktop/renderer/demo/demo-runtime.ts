@@ -72,7 +72,10 @@ const DEMO_SHELL: Record<string, string> = {
   "bun test": " 1814 pass\r\n 0 fail\r\nRan 1814 tests across 127 files. [4.21s]\r\n",
 }
 
-/** `start` is the demo query value: "onboarding", a fixture session id to show, or nothing. */
+/**
+ * `start` is the demo query value: "onboarding", "local" (a managed model mid-session), a fixture
+ * session id to show, or nothing.
+ */
 export function createDemoRuntime(hostApi?: DemoHostApi, start = ""): DesktopApi {
   return new DemoRuntime(hostApi, start)
 }
@@ -756,6 +759,15 @@ class DemoRuntime implements DesktopApi {
       this.#state.model = null
       this.#state.modelState = "unconfigured"
       this.#state.hostedConfigured = NO_HOSTED_KEYS
+    } else if (start === "local") {
+      // A managed model after a turn: the tok/s readout and the thinking control join the composer.
+      this.#state.model = {
+        id: "prism-ml/Ternary-Bonsai-2-27B-gguf",
+        provider: "local",
+        displayName: "Bonsai 2 27B",
+        supportsImageInput: false,
+      }
+      this.#state.speed = { tokensPerSecond: 38.4, prefillMs: 1420, exact: true }
     } else if (start) {
       // A session running in another pane is focused; anything else is opened from the list.
       const running = this.#state.runtimes.find((entry) => entry.session?.id === start)
@@ -1054,6 +1066,7 @@ class DemoRuntime implements DesktopApi {
     debug: false,
     update: { status: "current" },
     remote: null,
+    runtimePlatform: "darwin",
     subagents: [DEMO_SUBAGENT],
   }
 

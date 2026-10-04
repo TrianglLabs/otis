@@ -61,12 +61,18 @@ export async function runServeCommand(args: string[]) {
     version: process.env.OTIS_VERSION ?? "dev",
     token,
   })
-  // A wildcard bind is reachable at each interface's address; those are what a client pastes.
+  // A wildcard bind is reachable at each interface's address; those are what a client pastes,
+  // named so the tailnet one (Tailscale hands out 100.64.0.0/10) stands out from the LAN.
   const addresses = ["0.0.0.0", "::"].includes(options.host)
-    ? Object.values(networkInterfaces())
-        .flat()
-        .filter((net) => net && net.family === "IPv4" && !net.internal)
-        .map((net) => `ws://${net?.address}:${server.port}`)
+    ? Object.entries(networkInterfaces()).flatMap(([name, nets]) =>
+        (nets ?? [])
+          .filter((net) => net.family === "IPv4" && !net.internal)
+          .map((net) => {
+            const [a, b] = net.address.split(".").map(Number)
+            const via = a === 100 && b >= 64 && b < 128 ? "Tailscale" : name
+            return `ws://${net.address}:${server.port}  (${via})`
+          }),
+      )
     : [server.url]
   console.log(`Otis is serving ${cwd}`)
   for (const address of addresses) console.log(`  ${address}`)

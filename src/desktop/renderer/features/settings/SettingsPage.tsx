@@ -139,7 +139,7 @@ export function SettingsPage({
     "working",
     "pairEndpoints",
     "omlx",
-    "platform",
+    "runtimePlatform",
     "pairConfigured",
     "hostedConfigured",
     "hiddenModels",
@@ -155,9 +155,9 @@ export function SettingsPage({
     "stats",
     "primeTeamId",
   )
-  const showOmlx = supportsOmlx(state?.platform)
+  const showOmlx = supportsOmlx(state?.runtimePlatform)
   const servers = new Intl.ListFormat(locale, { type: "disjunction" }).format(
-    localServerNames(state?.platform),
+    localServerNames(state?.runtimePlatform),
   )
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab)
   // An unlock banner clicked while settings is already open still lands on its tab.

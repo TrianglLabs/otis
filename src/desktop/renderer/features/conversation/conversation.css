@@ -978,11 +978,13 @@ button.reasoning-header:hover {
   padding: 4px 8px 8px 12px;
 }
 
-/* Model and workspace chips sit together on the left; space-between only separates them from the actions. */
+/* Model and workspace chips sit together on the left; space-between only separates them from the
+   actions. In a narrow column the chips give way with an ellipsis instead of pushing past it. */
 .composer-context {
   display: inline-flex;
   align-items: center;
   gap: 10px;
+  flex: 1 1 auto;
   min-width: 0;
 }
 
@@ -999,15 +1001,31 @@ button.reasoning-header:hover {
   font-size: var(--text-meta);
   color: var(--text-dim);
   white-space: nowrap;
+  border-radius: var(--radius);
+  min-width: 0;
+}
+
+/* The chip is a flex row (icon, name, chevron), where an ellipsis cannot land on the text itself;
+   the name gets its own box that can. */
+.composer-chipLabel {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  border-radius: var(--radius);
 }
 
 /* The workspace label can be long; the model name keeps priority for footer space. */
 .composer-workspace {
   max-width: 180px;
-  flex-shrink: 1;
+  flex-shrink: 2;
+}
+
+/* A column squeezed by Canvas keeps every chip, the folder and the thinking effort as their icons
+   alone, so the model name and the readout stay readable. */
+@container main-column (max-width: 720px) {
+  .composer-workspace .composer-chipLabel,
+  .thinkingControl-value {
+    display: none;
+  }
 }
 
 /* Fast-serving bolt, amber like the picker's recommended star. */
@@ -1068,6 +1086,7 @@ button.composer-model-failed {
 }
 
 .composer-actions {
+  flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -1084,23 +1103,6 @@ button.composer-model-failed {
 
 .composer-upload:disabled {
   pointer-events: none;
-}
-
-/* Floating panels anchored above a footer chip: the thinking slider and the speed readout. */
-.composer-popover {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 0;
-  z-index: 30;
-  padding: 10px 14px 12px;
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius);
-  background: var(--bg-elev);
-  color: var(--text);
-  box-shadow: var(--shadow-float);
-  font-family: var(--font-ui);
-  font-size: var(--text-ui);
-  white-space: normal;
 }
 
 /* Generation speed for local models: a read-only chip on the model chip's metrics, including its

@@ -61,10 +61,10 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
     "pairConfigured",
     "pairEndpoints",
     "omlx",
-    "platform",
+    "runtimePlatform",
   )
-  const showOmlx = supportsOmlx(state?.platform)
-  const servers = localServerNames(state?.platform)
+  const showOmlx = supportsOmlx(state?.runtimePlatform)
+  const servers = localServerNames(state?.runtimePlatform)
   const serverList = new Intl.ListFormat(locale, { type: "disjunction" })
   const [path, setPath] = useState<OnboardingPath>("welcome")
   const [direction, setDirection] = useState<OnboardingDirection>("forward")

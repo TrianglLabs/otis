@@ -206,6 +206,11 @@ export type DesktopStatus = {
   update: DesktopUpdateState
   /** The `otis serve` host this window works on, or null for the runtime in this app. */
   remote: string | null
+  /**
+   * The operating system the runtime runs on, which decides the local model servers it can reach;
+   * the daemon's when paired, unlike the snapshot's `platform`, which is this window's.
+   */
+  runtimePlatform: NodeJS.Platform
 }
 
 /** The edge a session is dropped on: left and top put it first, right and bottom last. */

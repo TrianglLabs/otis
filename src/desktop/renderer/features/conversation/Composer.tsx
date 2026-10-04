@@ -1,5 +1,5 @@
 import { BorderBeam } from "border-beam"
-import { ArrowUp, ChevronDown, FolderOpen, Gauge, Paperclip, Square, X, Zap } from "lucide-react"
+import { ArrowUp, ChevronsUpDown, FolderOpen, Gauge, Paperclip, Square, X, Zap } from "lucide-react"
 import { memo, useEffect, useRef, useState } from "react"
 import {
   MAX_DOCUMENTS_PER_MESSAGE,
@@ -70,6 +70,9 @@ function fileExtension(name: string) {
  */
 const ACCENT_BEAM_CSS = `
 [data-beam="{id}"] {
+  /* The layers clip themselves to the box; the root need not, so the thinking panel can rise
+     above it. */
+  overflow: visible;
   --beam-glow-{id}:
     radial-gradient(ellipse 45% 80% at 0% 0%, color-mix(in srgb, var(--accent) calc(75% * var(--bop-tl-{id}, 1)), transparent), transparent 70%),
     radial-gradient(ellipse 45% 80% at 100% 0%, color-mix(in srgb, var(--accent) calc(75% * var(--bop-tr-{id}, 1)), transparent), transparent 70%),
@@ -469,8 +472,10 @@ export const Composer = memo(function Composer({ installing = false }: { install
                     ) : null}
                     {/* The short model id is the last path segment; mirrored in
                       src/desktop/main/tray.ts. */}
-                    {state.model.displayName ?? state.model.id.split("/").at(-1)}
-                    <Icon icon={ChevronDown} size={11} />
+                    <span className="composer-chipLabel">
+                      {state.model.displayName ?? state.model.id.split("/").at(-1)}
+                    </span>
+                    <Icon icon={ChevronsUpDown} size={11} />
                   </button>
                   <ThinkingControl />
                 </>
@@ -494,7 +499,10 @@ export const Composer = memo(function Composer({ installing = false }: { install
                   }
                 >
                   <Icon icon={FolderOpen} size={11} />
-                  {state.workspace.path.split("/").filter(Boolean).at(-1) ?? state.workspace.label}
+                  <span className="composer-chipLabel">
+                    {state.workspace.path.split("/").filter(Boolean).at(-1) ??
+                      state.workspace.label}
+                  </span>
                 </button>
               ) : null}
               {showSpeed && speed ? (

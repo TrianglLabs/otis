@@ -132,13 +132,20 @@ export async function connectRemote(
   const here: Record<string, (...args: unknown[]) => Promise<unknown>> = {
     getSnapshot: async () => {
       const snapshot = (await forward("getSnapshot", [])) as DesktopSnapshot
-      // Only the status part is kept: a restate must not ship the transcript again.
-      const { entries: _entries, transcripts: _transcripts, ...status } = snapshot
-      if (!last || snapshot.revision >= last.revision)
-        last = { revision: snapshot.revision, status }
+      // Only the status part is kept: a restate must not ship the transcript again, and the
+      // window's platform and version are this app's, set below.
+      const {
+        entries: _entries,
+        transcripts: _transcripts,
+        platform: _platform,
+        version: _version,
+        revision,
+        ...status
+      } = snapshot
+      if (!last || revision >= last.revision) last = { revision, status }
       return {
         ...overlay(snapshot),
-        revision: snapshot.revision + bumps,
+        revision: revision + bumps,
         platform: handlers.platform,
         version: handlers.version,
       }

@@ -1,4 +1,4 @@
-import { Brain, ChevronDown, RotateCcw } from "lucide-react"
+import { Brain, ChevronsUpDown, RotateCcw } from "lucide-react"
 import { type CSSProperties, useEffect, useRef, useState } from "react"
 import type {
   LocalThinkingSelection,
@@ -108,11 +108,11 @@ function ThinkingSlider({ state, disabled }: { state: LocalThinkingState; disabl
       >
         <Icon icon={Brain} size={12} />
         <span className="thinkingControl-value">{levelLabel}</span>
-        <Icon icon={ChevronDown} size={10} />
+        <Icon icon={ChevronsUpDown} size={10} />
       </button>
       {open ? (
         <span
-          className="composer-popover thinkingControl-panel"
+          className="thinkingControl-panel"
           role="dialog"
           aria-label={t("thinking.title")}
           style={{ "--slider-fill": `${fillPercent}%` } as CSSProperties}

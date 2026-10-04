@@ -143,6 +143,8 @@ describe("otis serve", () => {
     expect((await loadLocalSettings()).theme).toBe("pearl")
     const restated = events.at(-1)
     expect(restated).toMatchObject({ type: "status", status: { theme: "pearl" } })
+    // A restate carries the daemon's status, never its platform or version: those are this app's.
+    expect(restated?.type === "status" ? restated.status : {}).not.toHaveProperty("platform")
     expect(restated?.revision).toBeGreaterThan(before.revision)
     // A daemon-side change streams back with a revision above the restated one.
     await saveSelectedTheme("default")

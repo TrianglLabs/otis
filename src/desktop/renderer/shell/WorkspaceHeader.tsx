@@ -1,4 +1,4 @@
-import { ChevronsLeft, Computer, Search, Settings, SquarePen, SquareTerminal } from "lucide-react"
+import { ChevronsLeft, Monitor, Search, Settings, SquarePen, SquareTerminal } from "lucide-react"
 import { Button, IconButton } from "../components/Button.js"
 import { formatTokenCount } from "../format.js"
 import { useI18n } from "../i18n/index.js"
@@ -92,7 +92,7 @@ export function WorkspaceHeader({
         <div className="workspaceHeader-actions">
           {state.remote ? (
             <IconButton
-              icon={Computer}
+              icon={Monitor}
               label={t("header.remote", { host: state.remote })}
               onClick={onOpenServer}
               className="noDrag"
