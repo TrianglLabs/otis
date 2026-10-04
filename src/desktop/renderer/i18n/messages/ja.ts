@@ -251,7 +251,7 @@ export const ja: Messages = {
   "onboarding.localBody":
     "このコンピューターまたはローカル AI ネットワークで実行。プライベートでオフライン対応。",
   "onboarding.back": "戻る",
-  "onboarding.step": "ステップ {current} / {total}",
+  "onboarding.step": "ステップ {{current}} / {{total}}",
   "onboarding.setupHosted": "ホスト型モデルを設定",
   "onboarding.chooseLocal": "ローカル推論を選択",
   "onboarding.localHint": "Otis が管理するモデルを使うか、すでに実行中のモデルに接続します。",

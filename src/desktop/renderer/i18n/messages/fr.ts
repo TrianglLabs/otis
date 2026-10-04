@@ -252,7 +252,7 @@ export const fr: Messages = {
   "onboarding.localBody":
     "Exécutez les modèles sur cet ordinateur ou votre réseau d’IA local. Privé et hors ligne.",
   "onboarding.back": "Retour",
-  "onboarding.step": "Étape {current} sur {total}",
+  "onboarding.step": "Étape {{current}} sur {{total}}",
   "onboarding.setupHosted": "Configurer les modèles hébergés",
   "onboarding.chooseLocal": "Choisir l’inférence locale",
   "onboarding.localHint":

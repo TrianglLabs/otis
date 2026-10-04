@@ -251,7 +251,7 @@ export const ptBR: Messages = {
   "onboarding.localBody":
     "Execute modelos neste computador ou na sua rede local de IA. Privado e funciona offline.",
   "onboarding.back": "Voltar",
-  "onboarding.step": "Etapa {current} de {total}",
+  "onboarding.step": "Etapa {{current}} de {{total}}",
   "onboarding.setupHosted": "Configurar modelos hospedados",
   "onboarding.chooseLocal": "Escolher inferência local",
   "onboarding.localHint":
