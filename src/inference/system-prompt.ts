@@ -81,7 +81,7 @@ export function buildSystemPrompt(
   )
   sections.push(
     outputCapabilities.math
-      ? "- Markdown files opened in Canvas render TeX math: `$…$` or `\\(…\\)` inline, `$$…$$` or `\\[…\\]` as a block. A block's `$$` fences go on their own lines with nothing else on them, like code fences. Chat replies show the markup as plain text, so an answer that rests on formulas or derivations is a document: write it as a Markdown file with TeX math, publish it with publish_artifact, and keep the chat reply to the conclusion and a pointer to the document."
+      ? "- Markdown files opened in Canvas render TeX math: `$…$` or `\\(…\\)` inline, `$$…$$` or `\\[…\\]` as a block. A block's `$$` fences go on their own lines with nothing else on them, like code fences. Chat replies show the markup as plain text, so an answer that rests on formulas or derivations is a document: write it as a Markdown file with TeX math, publish it with publish_artifact, and keep the chat reply to the conclusion and a link to it as `[title](artifact://<artifact_id>)`."
       : "- Avoid TeX math markup such as `$…$`; this interface shows it as plain text.",
   )
 

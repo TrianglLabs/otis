@@ -96,6 +96,7 @@ export function fakeApi(
     getArtifact: vi.fn(async () => ({ ok: false as const, stale: true, reason: "stale" })),
     getArtifactAsset: vi.fn(async () => ({ ok: false as const, stale: true, reason: "stale" })),
     openArtifact: vi.fn(async () => ({ ok: true as const })),
+    openPublishedArtifact: vi.fn(async () => ({ ok: true as const })),
     closeArtifact: vi.fn(async () => {}),
     saveArtifact: vi.fn(async () => ({ ok: true as const })),
     getWindowState: vi.fn(async () => ({ fullscreen: false })),

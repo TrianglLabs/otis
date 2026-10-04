@@ -236,7 +236,7 @@ export const zhCN: Messages = {
   "toolRun.delegations": { other: "{{count}} 次委派" },
   "toolRun.memories": { one: "{{count}} 条记忆", other: "{{count}} 条记忆" },
   "markdown.code": "代码",
-  "markdown.openCanvas": "在画布中打开图表",
+  "markdown.openCanvas": "在画布中打开",
   "markdown.copyCode": "复制代码",
   "markdown.copied": "已复制",
   "onboarding.tagline": "由开放模型驱动的个人 AI 助手。",

@@ -25,6 +25,8 @@ const api: DesktopApi = {
   closeArtifact: (runtime, id) => invoke(DESKTOP_CHANNELS.closeArtifact, runtime, id),
   openArtifact: (reference, version, runtime) =>
     invoke(DESKTOP_CHANNELS.openArtifact, reference, version, runtime),
+  openPublishedArtifact: (artifactId, runtime) =>
+    invoke(DESKTOP_CHANNELS.openPublishedArtifact, artifactId, runtime),
   saveArtifact: (runtime, id, revision) =>
     invoke(DESKTOP_CHANNELS.saveArtifact, runtime, id, revision),
   getWindowState: () => invoke(DESKTOP_CHANNELS.getWindowState),

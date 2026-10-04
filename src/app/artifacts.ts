@@ -264,6 +264,12 @@ export class ArtifactStore {
     return true
   }
 
+  /** Opens the latest version of a publication this session made; false when it has none. */
+  openPublished(artifactId: string) {
+    const latest = this.#published.get(artifactId)?.at(-1)
+    return latest !== undefined && this.open(latest)
+  }
+
   /** Closes a tab; the one opened last is left in view. A pinned version closed is unpinned. */
   close(id: string) {
     const tab = this.#tab(id)

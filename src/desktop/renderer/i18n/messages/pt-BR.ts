@@ -241,7 +241,7 @@ export const ptBR: Messages = {
   "toolRun.delegations": { one: "{{count}} delegação", other: "{{count}} delegações" },
   "toolRun.memories": { one: "{{count}} memória", other: "{{count}} memórias" },
   "markdown.code": "código",
-  "markdown.openCanvas": "Abrir diagrama na Tela",
+  "markdown.openCanvas": "Abrir na Tela",
   "markdown.copyCode": "Copiar código",
   "markdown.copied": "Copiado",
   "onboarding.tagline": "Seu agente pessoal de IA, movido por modelos abertos.",

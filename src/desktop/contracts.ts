@@ -33,6 +33,7 @@ export const DESKTOP_CHANNELS = {
   getArtifact: "desktop:get-artifact",
   getArtifactAsset: "desktop:get-artifact-asset",
   openArtifact: "desktop:open-artifact",
+  openPublishedArtifact: "desktop:open-published-artifact",
   closeArtifact: "desktop:close-artifact",
   saveArtifact: "desktop:save-artifact",
   sendPrompt: "desktop:send-prompt",
@@ -309,6 +310,8 @@ export type DesktopApi = {
     version?: number,
     runtime?: number,
   ): Promise<SessionOpResult>
+  /** Opens a publication's latest version, as an `artifact://<id>` link does; focused by default. */
+  openPublishedArtifact(artifactId: string, runtime?: number): Promise<SessionOpResult>
   closeArtifact(runtime: number, id: string): Promise<void>
   saveArtifact(runtime: number, id: string, revision: number): Promise<SessionOpResult>
   getWindowState(): Promise<DesktopWindowState>

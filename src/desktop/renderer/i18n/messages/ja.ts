@@ -241,7 +241,7 @@ export const ja: Messages = {
   "toolRun.delegations": { other: "{{count}}件の委任" },
   "toolRun.memories": { one: "{{count}} 件の記憶", other: "{{count}} 件の記憶" },
   "markdown.code": "コード",
-  "markdown.openCanvas": "キャンバスで図を開く",
+  "markdown.openCanvas": "キャンバスで開く",
   "markdown.copyCode": "コードをコピー",
   "markdown.copied": "コピー済み",
   "onboarding.tagline": "オープンモデルを活用する、あなた専用の AI エージェント。",

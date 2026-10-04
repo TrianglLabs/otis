@@ -329,6 +329,23 @@ describe("ArtifactStore", () => {
     }
   })
 
+  it("opens a publication's latest version by id, as an artifact:// chat link does", async () => {
+    const cwd = await trackedTempDir()
+    const directory = join(await trackedTempDir(), "artifacts")
+    const publisher = new ArtifactPublisher(directory)
+    const source = { name: "report.md", kind: "markdown" as const, path: join(cwd, "report.md") }
+    const v1 = await publisher.publish(Buffer.from("v1"), source)
+    const v2 = await publisher.publish(Buffer.from("v2"), source, v1.artifactId)
+    const store = new ArtifactStore(cwd, directory)
+    store.observeFile(v1)
+    store.observeFile(v2)
+    store.close(`published:${v1.artifactId}`)
+
+    expect(store.openPublished(v1.artifactId)).toBe(true)
+    expect(store.metadata?.publication?.reference.version).toBe(2)
+    expect(store.openPublished("not-published-here")).toBe(false)
+  })
+
   it("shows produced files unless a version is pinned, live and after replay alike", async () => {
     const cwd = await trackedTempDir()
     const directory = join(await trackedTempDir(), "artifacts")

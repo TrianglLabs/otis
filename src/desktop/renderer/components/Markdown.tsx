@@ -2,12 +2,12 @@ import type { Element, ElementContent, Root, Text } from "hast"
 import { Check, Copy } from "lucide-react"
 import type { Parent as MdastParent, Root as MdastRoot } from "mdast"
 import { createContext, isValidElement, memo, useContext, useEffect, useRef, useState } from "react"
-import ReactMarkdown, { type Components } from "react-markdown"
+import ReactMarkdown, { type Components, defaultUrlTransform } from "react-markdown"
 import rehypeHighlight from "rehype-highlight"
 import rehypeKatex from "rehype-katex"
 import remarkGfm from "remark-gfm"
 import remarkMath from "remark-math-extended"
-import { useOpenCanvas } from "../features/canvas/canvas-context.js"
+import { PaneRuntimeContext, useOpenCanvas } from "../features/canvas/canvas-context.js"
 import { MermaidFrame } from "../features/canvas/MermaidFrame.js"
 import { useI18n } from "../i18n/index.js"
 import { useDesktop } from "../runtime.js"
@@ -32,11 +32,14 @@ const CardsContext = createContext(true)
 // Component types must survive text updates, otherwise React remounts code/table subtrees and loses
 // selection, horizontal scrolling, and copy-button state.
 const components: Components = {
-  a: ({ href, children }) => (
-    <a href={href} target="_blank" rel="noreferrer">
-      {children}
-    </a>
-  ),
+  a: ({ href, children }) =>
+    href?.startsWith(ARTIFACT_LINK) ? (
+      <ArtifactLink artifactId={href.slice(ARTIFACT_LINK.length)}>{children}</ArtifactLink>
+    ) : (
+      <a href={href} target="_blank" rel="noreferrer">
+        {children}
+      </a>
+    ),
   img: ({ src, alt, title }) => <Image src={src} alt={alt} title={title} />,
   pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
   table: ({ children }) => (
@@ -86,6 +89,7 @@ const Blocks = memo(function Blocks({
         document ? documentRehypePlugins : streaming ? streamingRehypePlugins : rehypePlugins
       }
       components={components}
+      urlTransform={urlTransform}
     >
       {text}
     </ReactMarkdown>
@@ -256,6 +260,46 @@ function extractText(node: React.ReactNode): string {
   if (Array.isArray(node)) return node.map(extractText).join("")
   if (isValidElement<{ children?: React.ReactNode }>(node)) return extractText(node.props.children)
   return ""
+}
+
+/** The link form a publish result hands the model; it opens that publication's latest version. */
+const ARTIFACT_LINK = "artifact://"
+// react-markdown drops hrefs outside the web schemes; the artifact scheme is ours.
+const urlTransform = (url: string) =>
+  url.startsWith(ARTIFACT_LINK) ? url : defaultUrlTransform(url)
+
+/**
+ * `[title](artifact://<id>)` opens the publication's latest version as a Canvas tab of the pane's
+ * session, or of the focused one from inside a document.
+ */
+function ArtifactLink({
+  artifactId,
+  children,
+}: {
+  artifactId: string
+  children?: React.ReactNode
+}) {
+  const { api } = useDesktop()
+  const { t } = useI18n()
+  const runtime = useContext(PaneRuntimeContext)
+  const [error, setError] = useState<string>()
+  return (
+    <>
+      <a
+        href={`${ARTIFACT_LINK}${artifactId}`}
+        title={t("markdown.openCanvas")}
+        onClick={(event) => {
+          event.preventDefault()
+          void api
+            .openPublishedArtifact(artifactId, runtime)
+            .then((result) => setError(result.ok ? undefined : result.reason))
+        }}
+      >
+        {children}
+      </a>
+      {error ? <span className="artifactCard-error"> {error}</span> : null}
+    </>
+  )
 }
 
 /** Absolute and inline sources load as written; a document's relative paths come from its folder. */
