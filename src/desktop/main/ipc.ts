@@ -2,93 +2,47 @@ import { randomUUID } from "node:crypto"
 import { rename, rm, writeFile } from "node:fs/promises"
 import { dirname, extname, join } from "node:path"
 import { BrowserWindow, dialog, type IpcMainInvokeEvent, ipcMain, shell } from "electron"
-import { isArtifactReference } from "../../artifacts/types.js"
 import { describeError } from "../../inference/errors.js"
 import { HOSTED_PROVIDER_INFO, isHostedProvider } from "../../inference/types.js"
-import { TEXT_SIZES } from "../../local/settings.js"
-import { isMemoryScope } from "../../memory/memory.js"
-import {
-  DESKTOP_CHANNELS,
-  type DesktopAttachmentInput,
-  type PaneDrop,
-  type PaneSide,
-  type SessionOpResult,
-} from "../contracts.js"
-import type { DesktopRuntime } from "./runtime.js"
+import { DESKTOP_CHANNELS, type SessionOpResult } from "../contracts.js"
+import type { DesktopBackend } from "./api.js"
+
+type Handler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown
 
 /**
- * Registers the validated IPC handlers for the desktop API. Every handler checks that the call
- * comes from our own renderer before touching the runtime, and validates payload shapes at the
- * boundary.
+ * Registers the IPC handlers for the desktop API. Every handler checks that the call comes from our
+ * own renderer; payloads are validated where the runtime lives, by `desktopCall`. `actions` are
+ * what the window asks of this process rather than of the runtime serving it.
  */
-export function registerDesktopIpc(runtime: DesktopRuntime) {
-  handle(DESKTOP_CHANNELS.getSnapshot, () => runtime.snapshot())
-  handle(DESKTOP_CHANNELS.getArtifact, (target, id, revision) => {
-    if (typeof target !== "number") throw new Error("getArtifact expects a numeric runtime id")
-    if (typeof id !== "string" || !id) throw new Error("getArtifact expects an artifact id")
-    if (typeof revision !== "number") throw new Error("getArtifact expects a numeric revision")
-    return runtime.getArtifact(target, id, revision)
-  })
-  handle(DESKTOP_CHANNELS.getArtifactAsset, (target, id, revision, src) => {
-    if (typeof target !== "number") throw new Error("getArtifactAsset expects a numeric runtime id")
-    if (typeof id !== "string" || !id) throw new Error("getArtifactAsset expects an artifact id")
-    if (typeof revision !== "number") throw new Error("getArtifactAsset expects a numeric revision")
-    if (typeof src !== "string" || !src || src.length > 1024)
-      throw new Error("getArtifactAsset expects a relative image path")
-    return runtime.getArtifactAsset(target, id, revision, src)
-  })
-  handle(DESKTOP_CHANNELS.openArtifact, (reference, version, target) => {
-    if (!isArtifactReference(reference))
-      throw new Error("openArtifact expects a valid artifact reference")
-    if (
-      version !== undefined &&
-      (typeof version !== "number" || !Number.isSafeInteger(version) || version < 1)
-    )
-      throw new Error("openArtifact expects a positive integer version")
-    if (target !== undefined && typeof target !== "number")
-      throw new Error("openArtifact expects a numeric runtime id")
-    return runtime.openArtifact(reference, version, target)
-  })
-  handle(DESKTOP_CHANNELS.openPublishedArtifact, (artifactId, target) => {
-    if (typeof artifactId !== "string")
-      throw new Error("openPublishedArtifact expects an artifact id")
-    if (target !== undefined && typeof target !== "number")
-      throw new Error("openPublishedArtifact expects a numeric runtime id")
-    return runtime.openPublishedArtifact(artifactId, target)
-  })
-  handle(DESKTOP_CHANNELS.closeArtifact, (target, id) => {
-    if (typeof target !== "number") throw new Error("closeArtifact expects a numeric runtime id")
-    if (typeof id !== "string" || !id) throw new Error("closeArtifact expects an artifact id")
-    runtime.closeArtifact(target, id)
-  })
-
-  // Saves the captured revision only to a destination chosen through the native Save dialog.
-  ipcMain.handle(
-    DESKTOP_CHANNELS.saveArtifact,
-    async (
+export function registerDesktopIpc(
+  backend: DesktopBackend,
+  actions: {
+    connectRemote(url: string, token: string): Promise<SessionOpResult>
+    disconnectRemote(): Promise<void>
+  },
+) {
+  const window = (event: IpcMainInvokeEvent) =>
+    BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getAllWindows()[0]
+  const local: Record<string, Handler> = {
+    // Saves the captured revision only to a destination chosen through the native Save dialog.
+    saveArtifact: async (
       event: IpcMainInvokeEvent,
       target: unknown,
       id: unknown,
       revision: unknown,
     ): Promise<SessionOpResult> => {
-      assertTrustedSender(event)
-      if (typeof target !== "number") throw new Error("saveArtifact expects a numeric runtime id")
-      if (typeof id !== "string" || !id) throw new Error("saveArtifact expects an artifact id")
-      if (typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 0)
-        throw new Error("saveArtifact expects a numeric revision")
-      const file = await runtime.getArtifactFile(target, id, revision)
+      const file = (await backend.call("getArtifactFile", [target, id, revision])) as
+        | { name: string; bytes: Uint8Array }
+        | undefined
       if (!file)
         return { ok: false, reason: "This preview changed. Try saving the current version again." }
       try {
         const extension = extname(file.name)
-        const result = await dialog.showSaveDialog(
-          BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getAllWindows()[0],
-          {
-            defaultPath: file.name,
-            filters: [{ name: extension.slice(1).toUpperCase(), extensions: [extension.slice(1)] }],
-            properties: ["showOverwriteConfirmation", "createDirectory"],
-          },
-        )
+        const result = await dialog.showSaveDialog(window(event), {
+          defaultPath: file.name,
+          filters: [{ name: extension.slice(1).toUpperCase(), extensions: [extension.slice(1)] }],
+          properties: ["showOverwriteConfirmation", "createDirectory"],
+        })
         if (result.canceled || !result.filePath) return { ok: true }
         const path = result.filePath
         if (extname(path).toLowerCase() !== extension.toLowerCase())
@@ -107,282 +61,47 @@ export function registerDesktopIpc(runtime: DesktopRuntime) {
         return { ok: false, reason: describeError(error) }
       }
     },
-  )
-
-  ipcMain.handle(DESKTOP_CHANNELS.getWindowState, (event: IpcMainInvokeEvent) => {
-    assertTrustedSender(event)
-    return { fullscreen: BrowserWindow.fromWebContents(event.sender)?.isFullScreen() ?? false }
-  })
-
-  handle(DESKTOP_CHANNELS.sendPrompt, (text, attachments) => {
-    if (typeof text !== "string") throw new Error("sendPrompt expects a string")
-    const valid =
-      attachments === undefined ||
-      (Array.isArray(attachments) &&
-        attachments.every(
-          (attachment): attachment is DesktopAttachmentInput =>
-            typeof attachment === "object" &&
-            attachment !== null &&
-            typeof attachment.name === "string" &&
-            typeof attachment.mimeType === "string" &&
-            attachment.bytes instanceof Uint8Array,
-        ))
-    if (!valid) throw new Error("sendPrompt expects valid attachments")
-    return runtime.sendPrompt(text, attachments)
-  })
-
-  handle(DESKTOP_CHANNELS.stop, () => runtime.stop())
-
-  handle(DESKTOP_CHANNELS.openTerminal, () => runtime.openTerminal())
-  handle(DESKTOP_CHANNELS.writeTerminal, (data) => {
-    if (typeof data !== "string") throw new Error("writeTerminal expects a string")
-    return runtime.writeTerminal(data)
-  })
-  handle(DESKTOP_CHANNELS.resizeTerminal, (cols, rows) => {
-    if (![cols, rows].every((v) => typeof v === "number" && Number.isSafeInteger(v) && v > 0))
-      throw new Error("resizeTerminal expects a size in cells")
-    return runtime.resizeTerminal(cols as number, rows as number)
-  })
-  handle(DESKTOP_CHANNELS.closeTerminal, () => runtime.closeTerminal())
-
-  handle(DESKTOP_CHANNELS.respondToPermission, (id, allow) => {
-    if (typeof id !== "number" || typeof allow !== "boolean") {
-      throw new Error("respondToPermission expects a numeric id and a boolean decision")
-    }
-    runtime.respondToPermission(id, allow)
-  })
-
-  handle(DESKTOP_CHANNELS.selectSession, (id, dirName, at) => {
-    if (typeof id !== "string") throw new Error("selectSession expects a string id")
-    if (dirName !== undefined && typeof dirName !== "string")
-      throw new Error("selectSession expects a dir name")
-    if (at !== undefined && !isPaneDrop(at)) throw new Error("selectSession expects a drop target")
-    return runtime.selectSession(id, dirName, at)
-  })
-
-  handle(DESKTOP_CHANNELS.focusSession, (id) => {
-    if (typeof id !== "number") throw new Error("focusSession expects a numeric runtime id")
-    runtime.focusSession(id)
-  })
-  handle(DESKTOP_CHANNELS.openPane, (id, side) => {
-    if (typeof id !== "number") throw new Error("openPane expects a numeric runtime id")
-    if (!isPaneSide(side)) throw new Error("openPane expects a side")
-    runtime.openPane(id, side)
-  })
-  handle(DESKTOP_CHANNELS.closePane, (id) => {
-    if (typeof id !== "number") throw new Error("closePane expects a numeric runtime id")
-    runtime.closePane(id)
-  })
-  handle(DESKTOP_CHANNELS.soloPane, (id) => {
-    if (typeof id !== "number") throw new Error("soloPane expects a numeric runtime id")
-    runtime.soloPane(id)
-  })
-  handle(DESKTOP_CHANNELS.replacePane, (target, id) => {
-    if (typeof target !== "number" || typeof id !== "number")
-      throw new Error("replacePane expects numeric runtime ids")
-    runtime.replacePane(target, id)
-  })
-
-  handle(DESKTOP_CHANNELS.searchSessions, (query) => {
-    if (typeof query !== "string") throw new Error("searchSessions expects a string query")
-    return runtime.searchSessions(query)
-  })
-
-  handle(DESKTOP_CHANNELS.startNewSession, () => runtime.startNewSession())
-
-  handle(DESKTOP_CHANNELS.openSessionAt, (workspacePath, sessionId, dirName) => {
-    if (typeof workspacePath !== "string" || typeof sessionId !== "string") {
-      throw new Error("openSessionAt expects a workspace path and a session id")
-    }
-    if (dirName !== undefined && typeof dirName !== "string")
-      throw new Error("openSessionAt expects a dir name")
-    return runtime.switchWorkspace(workspacePath, sessionId, dirName)
-  })
-
-  handle(DESKTOP_CHANNELS.openWorkspace, (path) => {
-    if (typeof path !== "string" || !path) throw new Error("openWorkspace expects a path")
-    return runtime.openWorkspace(path)
-  })
-  handle(DESKTOP_CHANNELS.locateWorkspace, (path) => {
-    if (typeof path !== "string" || !path) throw new Error("locateWorkspace expects a path")
-    return runtime.locateWorkspace(path)
-  })
-
-  ipcMain.handle(DESKTOP_CHANNELS.pickWorkspaceFolder, async (event: IpcMainInvokeEvent) => {
-    assertTrustedSender(event)
-    const result = await dialog.showOpenDialog(
-      BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getAllWindows()[0],
-      {
+    getWindowState: (event: IpcMainInvokeEvent) => ({
+      fullscreen: window(event)?.isFullScreen() ?? false,
+    }),
+    pickWorkspaceFolder: async (event: IpcMainInvokeEvent) => {
+      const result = await dialog.showOpenDialog(window(event), {
         title: "Open Folder",
         properties: ["openDirectory", "createDirectory"],
-      },
-    )
-    return result.canceled ? undefined : result.filePaths[0]
-  })
-
-  handle(DESKTOP_CHANNELS.registerWorkspace, (dirName, path) => {
-    if (typeof dirName !== "string" || typeof path !== "string") {
-      throw new Error("registerWorkspace expects a session dir name and a path")
-    }
-    return runtime.registerWorkspace(dirName, path)
-  })
-
-  handle(DESKTOP_CHANNELS.refreshSessions, () => runtime.refreshSessions())
-
-  handle(DESKTOP_CHANNELS.deleteSession, (id, dirName) => {
-    if (typeof id !== "string") throw new Error("deleteSession expects a string id")
-    if (dirName !== undefined && typeof dirName !== "string")
-      throw new Error("deleteSession expects a dir name")
-    return runtime.deleteSession(id, dirName)
-  })
-
-  handle(DESKTOP_CHANNELS.listModels, () => runtime.listModels())
-  handle(DESKTOP_CHANNELS.listHostedCatalogs, () => runtime.listHostedCatalogs())
-  handle(DESKTOP_CHANNELS.setModelHidden, (provider, id, hidden) => {
-    if (!isHostedProvider(provider)) throw new Error("Invalid hosted provider.")
-    if (typeof id !== "string" || !id) throw new Error("Invalid model id.")
-    if (typeof hidden !== "boolean") throw new Error("Invalid visibility flag.")
-    return runtime.setModelHidden(provider, id, hidden)
-  })
-  handle(DESKTOP_CHANNELS.setPrimeTeamId, (teamId) => {
-    if (typeof teamId !== "string") throw new Error("Invalid team id.")
-    return runtime.setPrimeTeamId(teamId)
-  })
-
-  handle(DESKTOP_CHANNELS.selectModel, (id) => {
-    if (typeof id !== "string") throw new Error("selectModel expects a string id")
-    return runtime.selectModel(id)
-  })
-
-  handle(DESKTOP_CHANNELS.cancelModelSelection, () => runtime.cancelModelSelection())
-  handle(DESKTOP_CHANNELS.setAgentsPanelVisible, (visible) => {
-    if (typeof visible !== "boolean") throw new Error("Invalid visibility flag.")
-    return runtime.setAgentsPanelVisible(visible)
-  })
-  handle(DESKTOP_CHANNELS.setWorkspacePanelWidth, (width) => {
-    if (width !== undefined && (typeof width !== "number" || !Number.isFinite(width) || width <= 0))
-      throw new Error("Invalid panel width.")
-    return runtime.setWorkspacePanelWidth(width)
-  })
-  handle(DESKTOP_CHANNELS.markAchievementsSeen, () => runtime.markAchievementsSeen())
-  handle(DESKTOP_CHANNELS.setTheme, (theme) => {
-    if (typeof theme !== "string") throw new Error("Invalid theme.")
-    return runtime.setTheme(theme)
-  })
-  handle(DESKTOP_CHANNELS.setTextSize, (textSize) => {
-    const size = TEXT_SIZES.find((known) => known === textSize)
-    if (!size) throw new Error("Invalid text size.")
-    return runtime.setTextSize(size)
-  })
-  handle(DESKTOP_CHANNELS.setLanguage, (language) => {
-    if (typeof language !== "string") throw new Error("Invalid language.")
-    return runtime.setLanguage(language)
-  })
-  handle(DESKTOP_CHANNELS.setThinkingVisible, (visible) => {
-    if (typeof visible !== "boolean") throw new Error("Invalid visibility flag.")
-    return runtime.setThinkingVisible(visible)
-  })
-  handle(DESKTOP_CHANNELS.setNotifyOnCompletion, (enabled) => {
-    if (typeof enabled !== "boolean") throw new Error("Invalid notification flag.")
-    return runtime.setNotifyOnCompletion(enabled)
-  })
-  handle(DESKTOP_CHANNELS.setLocalThinking, (model, level) => {
-    if (typeof model !== "string" || typeof level !== "string")
-      throw new Error("Invalid thinking effort.")
-    return runtime.setLocalThinking(model, level)
-  })
-  handle(DESKTOP_CHANNELS.setPermissionMode, (mode) => {
-    if (mode !== "ask" && mode !== "auto") throw new Error("Invalid permission mode.")
-    return runtime.setPermissionMode(mode)
-  })
-  handle(DESKTOP_CHANNELS.setFastServing, (fast) => {
-    if (typeof fast !== "boolean") throw new Error("Invalid Fast serving flag.")
-    return runtime.setFastServing(fast)
-  })
-  // The CLI spawns open/xdg-open for the same provider pages; the desktop main uses Electron's shell.
-  handle(DESKTOP_CHANNELS.openHostedKeyPage, (provider) => {
-    if (!isHostedProvider(provider)) throw new Error("Invalid hosted provider.")
-    return shell.openExternal(HOSTED_PROVIDER_INFO[provider].keyURL)
-  })
-  handle(DESKTOP_CHANNELS.setHostedApiKey, (provider, apiKey) => {
-    if (!isHostedProvider(provider)) throw new Error("Invalid hosted provider.")
-    if (typeof apiKey !== "string") throw new Error("Invalid API key.")
-    return runtime.setHostedApiKey(provider, apiKey)
-  })
-  handle(DESKTOP_CHANNELS.connectLocalServers, (endpoints) => {
-    if (
-      !endpoints ||
-      typeof endpoints !== "object" ||
-      Array.isArray(endpoints) ||
-      Object.entries(endpoints).some(
-        ([key, value]) =>
-          !["ollama", "lmStudio", "omlx", "omlxApiKey"].includes(key) ||
-          (value !== undefined && typeof value !== "string"),
-      )
-    )
-      throw new Error("Invalid local server settings.")
-    return runtime.connectLocalServers(endpoints)
-  })
-  handle(DESKTOP_CHANNELS.deleteLocalModel, (id) => {
-    if (typeof id !== "string") throw new Error("Invalid model id.")
-    return runtime.deleteLocalModel(id)
-  })
-  handle(DESKTOP_CHANNELS.listSkills, () => runtime.listSkills())
-  handle(DESKTOP_CHANNELS.installSkills, (url) => {
-    if (typeof url !== "string") throw new Error("installSkills expects a Git URL")
-    return runtime.installSkills(url)
-  })
-  handle(DESKTOP_CHANNELS.updateSkills, (id) => {
-    if (typeof id !== "string") throw new Error("updateSkills expects an id")
-    return runtime.updateSkills(id)
-  })
-  handle(DESKTOP_CHANNELS.removeSkills, (id) => {
-    if (typeof id !== "string") throw new Error("removeSkills expects an id")
-    return runtime.removeSkills(id)
-  })
-  handle(DESKTOP_CHANNELS.listMemory, () => runtime.listMemory())
-  handle(DESKTOP_CHANNELS.rememberFact, (scope, fact) => {
-    if (!isMemoryScope(scope) || typeof fact !== "string") throw new Error("Invalid memory fact.")
-    return runtime.rememberFact(scope, fact)
-  })
-  handle(DESKTOP_CHANNELS.forgetFact, (scope, fact) => {
-    if (!isMemoryScope(scope) || typeof fact !== "string") throw new Error("Invalid memory fact.")
-    return runtime.forgetFact(scope, fact)
-  })
-  handle(DESKTOP_CHANNELS.checkForUpdates, () => runtime.checkForUpdates())
-  handle(DESKTOP_CHANNELS.installUpdate, () => runtime.installUpdate())
-  handle(DESKTOP_CHANNELS.setDebugMode, (enabled) => {
-    if (typeof enabled !== "boolean") throw new Error("Invalid debug flag.")
-    return runtime.setDebugMode(enabled)
-  })
-  handle(DESKTOP_CHANNELS.getSubagentTrace, (toolCallId) => {
-    if (typeof toolCallId !== "string" || !toolCallId) throw new Error("Invalid tool call id.")
-    return runtime.getSubagentTrace(toolCallId)
-  })
-}
-
-function isPaneSide(value: unknown): value is PaneSide {
-  return value === "left" || value === "right" || value === "top" || value === "bottom"
-}
-
-function isPaneDrop(value: unknown): value is PaneDrop {
-  if (typeof value !== "object" || value === null) return false
-  return (
-    ("side" in value && isPaneSide(value.side)) ||
-    ("replace" in value && typeof value.replace === "number")
-  )
-}
-
-/** A handler's rejection reaches the renderer as the sentence it should show. */
-function handle<T extends unknown[]>(channel: string, handler: (...args: T) => unknown) {
-  ipcMain.handle(channel, async (event: IpcMainInvokeEvent, ...args: unknown[]) => {
-    assertTrustedSender(event)
-    try {
-      return await handler(...(args as T))
-    } catch (error) {
-      throw new Error(describeError(error))
-    }
-  })
+      })
+      return result.canceled ? undefined : result.filePaths[0]
+    },
+    // The CLI spawns open/xdg-open for the same provider pages; the desktop main uses Electron's
+    // shell.
+    openHostedKeyPage: (_event: IpcMainInvokeEvent, provider: unknown) => {
+      if (!isHostedProvider(provider)) throw new Error("Invalid hosted provider.")
+      return shell.openExternal(HOSTED_PROVIDER_INFO[provider].keyURL)
+    },
+    connectRemote: (_event: IpcMainInvokeEvent, url: unknown, token: unknown) => {
+      if (typeof url !== "string" || typeof token !== "string")
+        throw new Error("connectRemote expects an address and a token")
+      return actions.connectRemote(url.trim(), token.trim())
+    },
+    disconnectRemote: () => actions.disconnectRemote(),
+  }
+  const pushed: string[] = [
+    DESKTOP_CHANNELS.event,
+    DESKTOP_CHANNELS.terminal,
+    DESKTOP_CHANNELS.windowState,
+  ]
+  for (const [method, channel] of Object.entries(DESKTOP_CHANNELS)) {
+    if (pushed.includes(channel)) continue
+    const handler: Handler = local[method] ?? ((_event, ...args) => backend.call(method, args))
+    ipcMain.handle(channel, async (event: IpcMainInvokeEvent, ...args: unknown[]) => {
+      assertTrustedSender(event)
+      // A rejection reaches the renderer as the sentence it should show.
+      try {
+        return await handler(event, ...args)
+      } catch (error) {
+        throw new Error(describeError(error))
+      }
+    })
+  }
 }
 
 /** Only our own renderer may invoke the desktop API. */

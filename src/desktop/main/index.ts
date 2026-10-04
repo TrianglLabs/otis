@@ -8,8 +8,10 @@ import { app, BrowserWindow, dialog, Notification, shell } from "electron"
 import electronUpdater from "electron-updater"
 import { describeError } from "../../inference/errors.js"
 import { localConfigDirectory, localDataDirectory } from "../../local/paths.js"
-import { loadLocalSettings } from "../../local/settings.js"
-import { DESKTOP_CHANNELS } from "../contracts.js"
+import { loadLocalSettings, saveRemote } from "../../local/settings.js"
+import { DESKTOP_CHANNELS, type DesktopEvent, type DesktopSnapshot } from "../contracts.js"
+import type { SessionNotice } from "../wire.js"
+import { type DesktopBackend, localBackend } from "./api.js"
 import { configureAppIcon } from "./app-icon.js"
 import { initializeDevProfile, resolveDevData, shouldInitializeDevProfile } from "./dev-data.js"
 import { registerDesktopIpc } from "./ipc.js"
@@ -26,7 +28,9 @@ handleClosedOutput(process.stdout)
 handleClosedOutput(process.stderr)
 
 let mainWindow: BrowserWindow | undefined
-let runtime: DesktopRuntime | undefined
+/** The runtime serving the window: in this process, or an `otis serve` daemon. */
+let backend: DesktopBackend | undefined
+const stopBackend = () => backend?.shutdown().catch(() => {}) ?? Promise.resolve()
 let updater: ReturnType<typeof startAutoUpdates> | undefined
 let quitting = false
 // The sole route for both tray status writers (live stream and seed); see trayStatusGate for why
@@ -55,7 +59,7 @@ const crash = (error: unknown) => {
     app.exit(1)
   }
   setTimeout(exit, 10_000).unref()
-  void (runtime?.shutdown() ?? Promise.resolve()).catch(() => {}).finally(exit)
+  void stopBackend().finally(exit)
 }
 process.on("uncaughtException", crash)
 process.on("unhandledRejection", crash)
@@ -121,13 +125,13 @@ if (!app.requestSingleInstanceLock()) {
       platform: process.platform,
     })
 
+    const settings = await loadLocalSettings()
     // The last GUI workspace only applies when the shell handed us no cwd (Finder/Dock relaunch).
-    const lastWorkspace = (await loadLocalSettings()).lastWorkspace
     let cwd: string | undefined = resolveWorkspaceCwd(
       process.env,
       process.cwd(),
       homedir(),
-      lastWorkspace,
+      settings.lastWorkspace,
     )
     try {
       await mkdir(cwd, { recursive: true })
@@ -166,51 +170,138 @@ if (!app.requestSingleInstanceLock()) {
       mainWindow.show()
       mainWindow.focus()
     }
-    const current = await DesktopRuntime.create({
-      cwd,
-      checkForUpdates: async () => updater?.check(),
-      installUpdate: async () => {
-        // The replacement process must find the single-instance lock free and managed servers
-        // stopped.
-        await runtime?.shutdown().catch(() => {})
-        app.releaseSingleInstanceLock()
-        updater?.install()
-      },
-      version: app.getVersion(),
-      platform: process.platform,
-      // A finished session is announced only when the window is not in front; clicking the
-      // notice shows that session.
-      notify: ({ runtime, title, failed }) => {
-        if (mainWindow?.isFocused() || !Notification.isSupported()) return
-        const notice = new Notification({
-          title,
-          body: failed ? "Stopped with an error" : "Finished",
+    // Switching between the runtime here and a daemon is a restart: the window boots onto one
+    // backend and keeps it.
+    let current: DesktopBackend
+    const relaunch = async () => {
+      quitting = true
+      await stopBackend()
+      app.relaunch()
+      app.exit(0)
+    }
+    const send = (event: DesktopEvent) => {
+      if (mainWindow) sendToRenderer(mainWindow.webContents, DESKTOP_CHANNELS.event, event)
+      // The status bar item rides the same ordered stream the renderer sees, so it can never
+      // drift.
+      if (event.type === "status") statusTrayGate?.applyLive(event.status)
+    }
+    const sendTerminal = (data: string) => {
+      if (mainWindow) sendToRenderer(mainWindow.webContents, DESKTOP_CHANNELS.terminal, data)
+    }
+    // A finished session is announced only when the window is not in front; clicking the notice
+    // shows that session.
+    const notify = ({ runtime, title, failed }: SessionNotice) => {
+      if (mainWindow?.isFocused() || !Notification.isSupported()) return
+      const notice = new Notification({
+        title,
+        body: failed ? "Stopped with an error" : "Finished",
+      })
+      notice.on("click", () => {
+        void current.call("focusSession", [runtime])
+        focusWindow()
+      })
+      notice.show()
+    }
+    const checkForUpdates = async () => updater?.check()
+    const installUpdate = async () => {
+      // The replacement process must find the single-instance lock free and managed servers
+      // stopped.
+      await stopBackend()
+      app.releaseSingleInstanceLock()
+      updater?.install()
+    }
+    const startLocal = async () =>
+      localBackend(
+        await DesktopRuntime.create({
+          cwd,
+          checkForUpdates,
+          installUpdate,
+          version: app.getVersion(),
+          platform: process.platform,
+          notify,
+          send,
+          sendTerminal,
+          // Packaged builds keep node-pty beside the resources; see electron-builder.yml.
+          spawnPty: () =>
+            (
+              createRequire(__filename)(
+                app.isPackaged ? join(process.resourcesPath, "node-pty") : "node-pty",
+              ) as typeof import("node-pty")
+            ).spawn,
+        }),
+      )
+    const startRemote = async (remote: { url: string; token: string }, onClose: () => void) =>
+      (await import("./remote.js")).connectRemote(remote, {
+        platform: process.platform,
+        version: app.getVersion(),
+        onEvent: send,
+        onTerminal: sendTerminal,
+        onNotify: notify,
+        onClose,
+        checkForUpdates,
+        installUpdate,
+      })
+    if (!settings.remote) current = await startLocal()
+    else {
+      const host = new URL(settings.remote.url).host
+      try {
+        current = await startRemote(settings.remote, () => {
+          if (quitting) return
+          void dialog
+            .showMessageBox({
+              type: "error",
+              message: `Lost the connection to ${host}`,
+              detail: "Reconnect once it is reachable again, or work on this machine.",
+              buttons: ["Reconnect", "Work locally"],
+              defaultId: 0,
+              cancelId: 0,
+            })
+            .then(async ({ response }) => {
+              if (response === 1) await saveRemote(undefined)
+              await relaunch()
+            })
         })
-        notice.on("click", () => {
-          current.focusSession(runtime)
-          focusWindow()
+      } catch (error) {
+        const { response } = await dialog.showMessageBox({
+          type: "error",
+          message: `Couldn't reach ${host}`,
+          detail: [
+            describeError(error),
+            "Work on this machine instead, or quit and check the daemon.",
+          ].join("\n\n"),
+          buttons: ["Work locally", "Quit"],
+          defaultId: 0,
+          cancelId: 1,
         })
-        notice.show()
+        if (response === 1) {
+          app.quit()
+          return
+        }
+        await saveRemote(undefined)
+        current = await startLocal()
+      }
+    }
+    backend = current
+    registerDesktopIpc(current, {
+      // A pairing is proven against the daemon before it is saved; the restart boots onto it.
+      async connectRemote(url, token) {
+        if (!URL.canParse(url)) return { ok: false, reason: "Enter the daemon's address as a URL." }
+        try {
+          const probe = await startRemote({ url, token }, () => {})
+          await probe.call("getSnapshot", [])
+          await probe.shutdown()
+        } catch (error) {
+          return { ok: false, reason: describeError(error) }
+        }
+        await saveRemote({ url, token })
+        void relaunch()
+        return { ok: true }
       },
-      send: (event) => {
-        if (mainWindow) sendToRenderer(mainWindow.webContents, DESKTOP_CHANNELS.event, event)
-        // The status bar item rides the same ordered stream the renderer sees, so it can never
-        // drift.
-        if (event.type === "status") statusTrayGate?.applyLive(event.status)
+      async disconnectRemote() {
+        await saveRemote(undefined)
+        void relaunch()
       },
-      sendTerminal: (data) => {
-        if (mainWindow) sendToRenderer(mainWindow.webContents, DESKTOP_CHANNELS.terminal, data)
-      },
-      // Packaged builds keep node-pty beside the resources; see electron-builder.yml.
-      spawnPty: () =>
-        (
-          createRequire(__filename)(
-            app.isPackaged ? join(process.resourcesPath, "node-pty") : "node-pty",
-          ) as typeof import("node-pty")
-        ).spawn,
     })
-    runtime = current
-    registerDesktopIpc(current)
     updater = startAutoUpdates({
       isPackaged: app.isPackaged,
       onState: (state) => current.setUpdateState(state),
@@ -251,7 +342,7 @@ if (!app.requestSingleInstanceLock()) {
     })
     mainWindow = window
     handleRendererFailure(window, {
-      onRendererGone: () => current.handleRendererGone(),
+      onRendererGone: () => current.rendererGone(),
       isQuitting: () => quitting || Boolean(updater?.isInstalling()),
     })
     window.once("ready-to-show", () => window.show())
@@ -309,13 +400,13 @@ if (!app.requestSingleInstanceLock()) {
       actions: {
         focusWindow,
         focusSession: (runtime) => {
-          current.focusSession(runtime)
+          void current.call("focusSession", [runtime])
           focusWindow()
         },
-        startNewSession: () => void current.startNewSession(),
-        stop: (runtime) => current.stop(runtime),
-        installUpdate: () => void current.installUpdate(),
-        respondToPermission: (id, allow) => current.respondToPermission(id, allow),
+        startNewSession: () => void current.call("startNewSession", []),
+        stop: (runtime) => void current.call("stop", [runtime]),
+        installUpdate: () => void current.call("installUpdate", []),
+        respondToPermission: (id, allow) => void current.call("respondToPermission", [id, allow]),
       },
     })
     if (!tray) return
@@ -326,8 +417,8 @@ if (!app.requestSingleInstanceLock()) {
     const gate = trayStatusGate(tray)
     statusTrayGate = gate
     void current
-      .snapshot()
-      .then((snapshot) => gate.applySeed(snapshot))
+      .call("getSnapshot", [])
+      .then((snapshot) => gate.applySeed(snapshot as DesktopSnapshot))
       .catch((error) => console.warn(`Unable to seed the status bar item: ${String(error)}`))
   })
 
@@ -340,9 +431,9 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   app.on("before-quit", (event) => {
-    if (quitting || !runtime || updater?.isInstalling()) return
+    if (quitting || !backend || updater?.isInstalling()) return
     quitting = true
     event.preventDefault()
-    void runtime.shutdown().finally(() => app.exit(0))
+    void stopBackend().finally(() => app.exit(0))
   })
 }

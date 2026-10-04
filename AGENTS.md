@@ -14,7 +14,8 @@ database, or cloud synchronization dependency. Hosted inference goes directly to
 Together AI, Baseten, or Prime Intellect) with a user-owned API key for that provider.
 Local inference runs Otis-managed `llama-server` or connects to a user-managed oMLX server or NVIDIA PAIR proxy on loopback;
 PAIR owns its cluster and routes requests across the user's local network. Web search and extraction go directly to
-Parallel's Search MCP.
+Parallel's Search MCP. `otis serve` runs the desktop runtime as a daemon on the user's own machine; a desktop app pairs
+with it over a private network using a local token. There is no relay, account, or Otis-operated endpoint in between.
 
 ## Current technical decisions
 
@@ -32,6 +33,8 @@ Parallel's Search MCP.
 - Sessions and usage: append-only local JSONL events.
 - Tools: local structured tools plus direct Parallel-backed `web_search` and `web_read`.
 - Distribution: GitHub Actions and GitHub Releases.
+- Remote use: `otis serve` over one WebSocket per client with a pairing token; the client keeps window preferences,
+  the daemon owns everything else. Not TLS; private networks only.
 
 Do not introduce a service account, product login, invite flow, telemetry backend, provider-key proxy, Otis-hosted tool
 proxy, or other Otis-owned runtime service without an explicit product decision.

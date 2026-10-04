@@ -78,6 +78,7 @@ import {
   type SkillsSummary,
   type TranscriptPatchOp,
 } from "../contracts.js"
+import type { SessionNotice } from "../wire.js"
 import { type SpawnPty, WorkspaceTerminal } from "./terminal.js"
 
 type DesktopRuntimeOptions = {
@@ -104,7 +105,7 @@ type DesktopRuntimeOptions = {
   installUpdate?: () => Promise<void>
   checkForUpdates?: () => Promise<void>
   /** Tells the user a session finished, when the window is not where they are looking. */
-  notify?: (notice: { runtime: number; title: string; failed: boolean }) => void
+  notify?: (notice: SessionNotice) => void
 }
 
 /**
@@ -1423,6 +1424,7 @@ export class DesktopRuntime {
       pairConfigured: Boolean(app.pairEndpoints.ollama || app.pairEndpoints.lmStudio),
       debug: this.#debug,
       update: this.#update,
+      remote: null,
       // Capture all live fields before yielding so a slow history scan cannot mix two sessions'
       // metadata.
       ...(await this.#historyCache.then(({ sessions, artifacts }) => ({

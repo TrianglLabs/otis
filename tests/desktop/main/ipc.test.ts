@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { dialog, ipcMain } from "electron"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { DESKTOP_CHANNELS } from "../../../src/desktop/contracts.js"
+import { localBackend } from "../../../src/desktop/main/api.js"
 import { registerDesktopIpc } from "../../../src/desktop/main/ipc.js"
 import type { DesktopRuntime } from "../../../src/desktop/main/runtime.js"
 
@@ -19,7 +20,10 @@ type Handler = (event: unknown, ...args: unknown[]) => Promise<unknown>
 /** The handler registered for a channel, invoked as our own renderer would. */
 function handlerFor(channel: string, runtime: Partial<DesktopRuntime>) {
   vi.mocked(ipcMain.handle).mockClear()
-  registerDesktopIpc(runtime as DesktopRuntime)
+  registerDesktopIpc(localBackend(runtime as DesktopRuntime), {
+    connectRemote: async () => ({ ok: true }),
+    disconnectRemote: async () => {},
+  })
   const registered = vi.mocked(ipcMain.handle).mock.calls.find(([name]) => name === channel)?.[1] as
     | Handler
     | undefined

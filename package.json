@@ -57,6 +57,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "@types/use-sync-external-store": "^1.7.0",
+    "@types/ws": "^8.18.2",
     "@types/yauzl": "^3.4.0",
     "@vitejs/plugin-react": "^6.1.1",
     "@vitest/coverage-v8": "^4.1.9",
@@ -91,6 +92,7 @@
     "remark-math-extended": "^6.1.1",
     "thinking-orbs": "^0.3.2",
     "use-sync-external-store": "^1.7.0",
+    "ws": "^8.22.0",
     "yaml": "^2.9.0",
     "yauzl": "^3.4.0"
   },
