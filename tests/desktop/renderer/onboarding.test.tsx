@@ -186,9 +186,9 @@ describe("OnboardingPage", () => {
 
   it("owns the window until a model is configured — no composer, no transcript", async () => {
     await renderApp(fakeApi())
-    expect(await screen.findByRole("heading", { name: "Otis" })).toBeTruthy()
+    expect(await screen.findByRole("heading", { name: "Welcome to Otis" })).toBeTruthy()
     expect(await screen.findByText(/Your personal AI agent, powered by open models/)).toBeTruthy()
-    expect(screen.getByText("Choose a model setup")).toBeTruthy()
+    expect(screen.getByText("Welcome to Otis")).toBeTruthy()
     expect(screen.queryByLabelText("Prompt")).toBeNull()
     // The workspace header stays out of onboarding (no Search / context meter)…
     expect(screen.queryByRole("button", { name: /search/i })).toBeNull()
@@ -219,7 +219,7 @@ describe("OnboardingPage", () => {
     })
     await renderApp(api)
 
-    expect(await screen.findByRole("heading", { name: "Otis" })).toBeTruthy()
+    expect(await screen.findByRole("heading", { name: "Welcome to Otis" })).toBeTruthy()
     expect(screen.queryByLabelText("Coworkers")).toBeNull()
   })
 
@@ -248,7 +248,7 @@ describe("OnboardingPage", () => {
     await renderApp(api)
     fireEvent.click(await screen.findByRole("button", { name: /Hosted/ }))
     // Fireworks is the default provider; its key page is the one the link opens.
-    expect(screen.getByText(/Hosted models run on Fireworks/)).toBeTruthy()
+    expect(screen.getByText(/Pay-as-you-go with your Fireworks account/)).toBeTruthy()
     fireEvent.click(screen.getByRole("button", { name: "Get a key" }))
     expect(api.openHostedKeyPage).toHaveBeenCalledWith("fireworks")
     fireEvent.change(screen.getByLabelText("Fireworks API key"), {
@@ -274,7 +274,7 @@ describe("OnboardingPage", () => {
     expect(together.getAttribute("aria-selected")).toBe("false")
     fireEvent.click(together)
     expect(together.getAttribute("aria-selected")).toBe("true")
-    expect(screen.getByText(/Hosted models run on Together AI/)).toBeTruthy()
+    expect(screen.getByText(/Pay-as-you-go with your Together AI account/)).toBeTruthy()
     expect(screen.queryByLabelText("Fireworks API key")).toBeNull()
     fireEvent.click(screen.getByRole("button", { name: "Get a key" }))
     expect(api.openHostedKeyPage).toHaveBeenCalledWith("together")
@@ -337,8 +337,11 @@ describe("OnboardingPage", () => {
     fireEvent.click(managed)
 
     expect(await screen.findByText("Qwen 3.5 9B")).toBeTruthy()
-    // The row says what the button will fetch, and that the other figure is memory, not a download.
-    expect(screen.getByText("Est. 32K · Q4_K_M · Text")).toBeTruthy()
+    // The figures are explained, not just listed; this fixture carries no measured memory or quant.
+    expect(screen.getByText("32K tokens")).toBeTruthy()
+    expect(screen.getByText(/about 25,000 words it keeps in mind/)).toBeTruthy()
+    expect(screen.getByText("Text only")).toBeTruthy()
+    expect(screen.queryByText("Memory")).toBeNull()
     // No list to dig through: other local models, hosted models, and PAIR inventory stay hidden.
     expect(screen.queryByText("Qwen 3.5 27B")).toBeNull()
     expect(screen.queryByText("Kimi K2.6")).toBeNull()
@@ -488,11 +491,11 @@ describe("OnboardingPage", () => {
     const api = fakeApi()
     await renderApp(api)
     fireEvent.click(await screen.findByRole("button", { name: /^Local/ }))
-    const servers = await screen.findByRole("button", { name: /Local servers/ })
+    const servers = await screen.findByRole("button", { name: /Your existing setup/ })
     expect(servers.querySelectorAll("img")).toHaveLength(3)
     fireEvent.click(servers)
 
-    expect(screen.getByText(/default local addresses are prefilled/)).toBeTruthy()
+    expect(screen.getByText(/default address is already filled in/)).toBeTruthy()
     // One server shows at a time; the tabs switch which address is edited.
     expect((screen.getByLabelText("Address") as HTMLInputElement).value).toBe(
       "http://127.0.0.1:11434",

@@ -1,7 +1,11 @@
-import type { ModelPickerChoice, ModelPickerItem } from "../../../../inference/picker-catalog.js"
+import type {
+  LocalPickerChoice,
+  ModelPickerChoice,
+  ModelPickerItem,
+} from "../../../../inference/picker-catalog.js"
 import { isServerProvider, SERVER_INFO } from "../../../../inference/types.js"
 import type { DesktopStatus } from "../../../contracts.js"
-import { formatContextWindow } from "../../format.js"
+import { formatContextWindow, formatMemory } from "../../format.js"
 import { englishT } from "../../i18n/index.js"
 import type { Translate } from "../../i18n/messages/en.js"
 
@@ -89,4 +93,52 @@ export function pickerDetailLabel(item: ModelPickerChoice, t: Translate = englis
   return pickerDetailParts(item, t)
     .map((part) => part.label)
     .join(" · ")
+}
+
+/**
+ * A local model's figures explained one per line: what the context, memory, quantization, and
+ * input kind mean for someone who has not run a model before. Figures the catalog did not
+ * measure are left out.
+ */
+export function localModelFacts(item: LocalPickerChoice, t: Translate, locale: string) {
+  const words = (Math.round((item.contextLength * 0.75) / 1000) * 1000).toLocaleString(locale)
+  // The first number in a packing name is its bits per weight: Q4_K_M, IQ3_XS, PQ2_0, F16.
+  const bits = Number(item.quant?.match(/\d+/)?.[0])
+  const facts: { term: string; value: string; hint?: string }[] = [
+    {
+      term: t("models.factContextTerm"),
+      value: t("models.factTokens", { count: formatContextWindow(item.contextLength) }),
+      hint: t("models.factContext", { words }),
+    },
+  ]
+  if (item.memoryBytes !== undefined) {
+    facts.push({
+      term: t("models.factMemoryTerm"),
+      value: formatMemory(item.memoryBytes),
+      hint: item.cpuOffload
+        ? `${t("models.factMemory")} · ${t("models.partlyOnCpu")}`
+        : t("models.factMemory"),
+    })
+  }
+  if (item.quant && bits) {
+    facts.push({
+      term: t("models.factQualityTerm"),
+      value: bits >= 16 ? t("models.factQuantFull") : t("models.factQuantBits", { bits }),
+      hint: t(
+        bits <= 3
+          ? "models.factQuantLowHint"
+          : bits < 8
+            ? "models.factQuantMidHint"
+            : bits < 16
+              ? "models.factQuantHighHint"
+              : "models.factQuantFullHint",
+        { quant: item.quant },
+      ),
+    })
+  }
+  facts.push({
+    term: t("models.factInputTerm"),
+    value: t(item.supportsImageInput ? "models.factInputVision" : "models.factInputText"),
+  })
+  return facts
 }

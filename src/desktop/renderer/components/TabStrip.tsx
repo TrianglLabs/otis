@@ -10,10 +10,13 @@ export function TabStrip<T extends string>({
   tabs,
   selected,
   onSelect,
+  size = "md",
 }: {
   tabs: readonly (readonly [T, ReactNode, LucideIcon?])[]
   selected: T
   onSelect: (tab: T) => void
+  /** `lg` sits with large fields and buttons, as in onboarding. */
+  size?: "md" | "lg"
 }) {
   const strip = useRef<HTMLDivElement>(null)
   const tab = useRef<HTMLButtonElement>(null)
@@ -42,7 +45,7 @@ export function TabStrip<T extends string>({
     return () => observer.disconnect()
   }, [])
   return (
-    <div ref={strip} className="tabStrip" role="tablist">
+    <div ref={strip} className={`tabStrip tabStrip-${size}`} role="tablist">
       <span ref={pill} className="tabStrip-pill" aria-hidden />
       {tabs.map(([id, label, icon]) => (
         <button

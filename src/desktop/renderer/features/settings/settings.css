@@ -546,7 +546,7 @@
   color: var(--text-dim);
 }
 
-/* A model's detail parts with their modality icons, laid out like the picker's detail line. */
+/* A row's detail parts (model modality icons, provider status), laid out like the picker's. */
 .settingsRow-detail {
   display: inline-flex;
   align-items: center;
@@ -738,22 +738,6 @@
 
 .settingsModels-label {
   margin-top: 16px;
-}
-
-.settingsForm-input {
-  width: 100%;
-  padding: 6px 10px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text);
-  font: inherit;
-  font-size: var(--text-ui);
-  outline: none;
-}
-
-.settingsForm-input:focus {
-  border-color: var(--accent);
 }
 
 .settingsForm-actions {

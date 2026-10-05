@@ -1,4 +1,6 @@
-import type { LucideIcon } from "lucide-react"
+import { type LucideIcon, ShieldAlert, ShieldCheck, ShieldQuestion } from "lucide-react"
+import type { DataRetention } from "../../../inference/types.js"
+import { useI18n } from "../i18n/index.js"
 
 /**
  * Lucide icons with round line caps and joins, matching Otis's soft geometry.
@@ -24,5 +26,22 @@ export function Icon({
       className={className}
       aria-hidden
     />
+  )
+}
+
+const RETENTION_ICON: Record<DataRetention, LucideIcon> = {
+  zero: ShieldCheck,
+  optIn: ShieldAlert,
+  unknown: ShieldQuestion,
+}
+
+/** A provider's documented data retention as a shield and a few words. */
+export function RetentionBadge({ retention }: { retention: DataRetention }) {
+  const { t } = useI18n()
+  return (
+    <span className={`retention retention-${retention}`}>
+      <Icon icon={RETENTION_ICON[retention]} size={12} />
+      {t(`privacy.${retention}`)}
+    </span>
   )
 }

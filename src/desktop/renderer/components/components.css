@@ -86,6 +86,12 @@
   padding: 0 12px;
 }
 
+.btn-lg {
+  height: 36px;
+  padding: 0 20px;
+  font-size: var(--text-body);
+}
+
 .btn-sm {
   height: 22px;
   padding: 0 8px;
@@ -180,6 +186,12 @@
 .tabStrip-tab:hover,
 .tabStrip-tab[aria-selected="true"] {
   color: var(--text);
+}
+
+.tabStrip-lg .tabStrip-tab {
+  height: 32px;
+  padding: 0 16px;
+  font-size: var(--text-body);
 }
 
 /* A range input with an accent fill up to `--slider-fill`; thinking effort and text size use it. */
@@ -590,4 +602,62 @@
 .katex-display {
   overflow: auto hidden;
   padding: 2px 0;
+}
+
+/* A provider's data retention: none kept, none once enabled in the account, or not published. */
+.retention {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.retention-zero {
+  color: var(--success);
+}
+
+.retention-optIn {
+  color: var(--warning);
+}
+
+.retention-unknown {
+  color: var(--text-dim);
+}
+
+/* The one text field: a bordered row, an optional leading icon, the input borderless inside. */
+.field {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+}
+
+.field:focus-within {
+  border-color: var(--accent);
+}
+
+.field-icon {
+  flex-shrink: 0;
+  color: var(--text-dim);
+}
+
+.field-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: var(--text-ui);
+  color: var(--text);
+  outline: none;
+}
+
+.field-input::placeholder {
+  color: var(--text-dim);
 }

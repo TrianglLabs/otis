@@ -134,8 +134,16 @@ export type PairEngine = "ollama" | "lmstudio"
 export type HostedApiKeys = Partial<Record<HostedProvider, string>>
 
 /**
- * What a hosted provider is called, where its key and OpenAI-compatible endpoint live, and the
- * field its models stream reasoning in, which is the only one it takes back in a later turn.
+ * What a provider documents about prompts and outputs: `zero` keeps none by default, `optIn`
+ * stores them until zero data retention is switched on in the account, `unknown` publishes no
+ * inference retention terms. Sources are listed in docs/data-and-privacy.md.
+ */
+export type DataRetention = "zero" | "optIn" | "unknown"
+
+/**
+ * What a hosted provider is called, where its key and OpenAI-compatible endpoint live, the field
+ * its models stream reasoning in, which is the only one it takes back in a later turn, and its
+ * documented data retention.
  */
 export const HOSTED_PROVIDER_INFO: Record<
   HostedProvider,
@@ -146,6 +154,7 @@ export const HOSTED_PROVIDER_INFO: Record<
     inferenceURL: string
     modelsURL: string
     reasoningField: OpenAICompatibleReasoningField
+    dataRetention: DataRetention
   }
 > = {
   fireworks: {
@@ -155,6 +164,7 @@ export const HOSTED_PROVIDER_INFO: Record<
     inferenceURL: "https://api.fireworks.ai/inference/v1/chat/completions",
     modelsURL: "https://api.fireworks.ai/v1/accounts/fireworks/models",
     reasoningField: "reasoning_content",
+    dataRetention: "zero",
   },
   together: {
     name: "Together AI",
@@ -163,6 +173,7 @@ export const HOSTED_PROVIDER_INFO: Record<
     inferenceURL: "https://api.together.xyz/v1/chat/completions",
     modelsURL: "https://api.together.xyz/v1/models",
     reasoningField: "reasoning",
+    dataRetention: "optIn",
   },
   baseten: {
     name: "Baseten",
@@ -171,6 +182,7 @@ export const HOSTED_PROVIDER_INFO: Record<
     inferenceURL: "https://inference.baseten.co/v1/chat/completions",
     modelsURL: "https://inference.baseten.co/v1/models",
     reasoningField: "reasoning_content",
+    dataRetention: "zero",
   },
   primeintellect: {
     name: "Prime Intellect",
@@ -179,6 +191,7 @@ export const HOSTED_PROVIDER_INFO: Record<
     inferenceURL: "https://api.pinference.ai/api/v1/chat/completions",
     modelsURL: "https://api.pinference.ai/api/v1/models",
     reasoningField: "reasoning",
+    dataRetention: "unknown",
   },
 }
 

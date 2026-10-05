@@ -24,6 +24,12 @@ export function formatContextWindow(tokens: number): string {
   return `~${Math.round(tokens / 1_024)}K`
 }
 
+/** Mirrors formatMemoryLabel in src/inference/local-fit.ts, for the same reason. */
+export function formatMemory(bytes: number): string {
+  const gib = bytes / 1024 ** 3
+  return `${gib >= 10 ? Math.round(gib) : gib.toFixed(1).replace(/\.0$/, "")} GB`
+}
+
 /**
  * The compact age a session row carries, for rows the renderer stamps itself. Mirrors
  * formatSessionAge in src/app/sessions.ts, which stays out of the renderer bundle.
