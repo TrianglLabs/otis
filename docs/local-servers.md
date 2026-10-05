@@ -39,6 +39,9 @@ so the setup is the defaults plus a key.
    **Settings → Local servers**). Keep `http://127.0.0.1:8080`, enter the key, and connect.
 3. Choose the model from the **Custom server** section of the picker.
 
+From another machine, run `otis serve` on the NInfer box and pair the desktop app to it; the server tab then
+belongs to that machine, and NInfer stays on its loopback.
+
 Leave **Model id** and **Context limit** blank: NInfer's `/v1/models` names its model and reports the effective
 `max_model_len`, which Otis uses for compaction. It streams reasoning as `reasoning_content` and accepts both
 `reasoning_content` and `reasoning` in assistant history, so sessions started on a hosted provider resume on it.
