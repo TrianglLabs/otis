@@ -49,3 +49,30 @@ export function IconButton({
     </button>
   )
 }
+
+/** A pill switch, in keeping with the app's soft geometry. */
+export function Toggle({
+  label,
+  checked,
+  disabled,
+  onChange,
+}: {
+  label: string
+  checked: boolean
+  disabled?: boolean
+  onChange: (checked: boolean) => void
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      disabled={disabled}
+      className={`toggle${checked ? " toggle-on" : ""}`}
+      onClick={() => onChange(!checked)}
+    >
+      <span className="toggle-knob" />
+    </button>
+  )
+}

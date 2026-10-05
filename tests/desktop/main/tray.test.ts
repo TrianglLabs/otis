@@ -147,6 +147,7 @@ function statusFixture(overrides: Partial<DesktopStatus> = {}): DesktopStatus {
     pairConfigured: false,
     pairEndpoints: {},
     servers: {},
+    routines: [],
     debug: false,
     update: { status: "idle" },
     remote: null,
@@ -407,6 +408,7 @@ describe("tray menu", () => {
       busy: false,
       unseen: false,
       diffs: { added: 0, removed: 0 },
+      workspace: { label: "otis", path: "/Users/you/otis" },
       contextTokens: 0,
       ...extra,
     })

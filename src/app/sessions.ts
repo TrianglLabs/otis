@@ -190,15 +190,12 @@ export class SessionCoordinator {
   }
 
   /** Refused with "noop" while this runtime's own turn runs; another runtime's turn is not ours. */
-  async select(
-    sessionId: string,
-    storage?: { directory: string },
-  ): Promise<"noop" | "loaded" | "locked"> {
-    if (this.options.isBusy() || this.isCurrent(sessionId, storage?.directory)) return "noop"
+  async select(sessionId: string, directory?: string): Promise<"noop" | "loaded" | "locked"> {
+    if (this.options.isBusy() || this.isCurrent(sessionId, directory)) return "noop"
     // A directory override opens the session by its storage identity (locate-workspace flow); the
     // cwd-derived default would silently resolve to a different conversation when folder and
     // history disagree.
-    const where = { cwd: this.options.cwd, ...storage }
+    const where = { cwd: this.options.cwd, directory }
     let lock: SessionLock
     try {
       lock = await acquireSessionLock({ ...where, sessionId })
@@ -214,7 +211,7 @@ export class SessionCoordinator {
       throw error
     }
     this.#session = session
-    this.#directory = storage?.directory ? resolve(storage.directory) : undefined
+    this.#directory = directory ? resolve(directory) : undefined
     await this.releaseLock()
     this.#lock = lock
     this.#loadCurrent(session)

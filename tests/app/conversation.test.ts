@@ -93,6 +93,7 @@ async function setup(shared?: { serving: Serving; cwd: string }) {
     isExiting: () => false,
     artifacts,
     gate: () => undefined,
+    routines: () => ({ error: "No routines in this test." }),
   })
   return { conversation, sessions, transcript, artifacts, serving, cwd }
 }

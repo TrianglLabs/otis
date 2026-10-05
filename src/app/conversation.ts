@@ -15,7 +15,7 @@ import type { SkillCatalog } from "../skills/catalog.js"
 import type { JsonlSession, PromptAdmission } from "../storage/session.js"
 import type { SessionTurnDetails } from "../storage/session-events.js"
 import { describeToolCall, type ToolActivityKind } from "../tools/activity.js"
-import { providerTools } from "../tools/index.js"
+import { providerTools, type RoutineStore } from "../tools/index.js"
 import type { ParallelClient } from "../web/client.js"
 import { type ArtifactStore, sessionArtifactPublisher } from "./artifacts.js"
 import type { GatedInferenceClient, InferenceGate } from "./models.js"
@@ -169,6 +169,8 @@ type ConversationOptions = {
   subagents: SubagentTraces
   webClient: ParallelClient
   cwd: string
+  /** The host's routines for the `routines` tool, or why there are none. */
+  routines: () => RoutineStore | { error: string }
   /** The runtime's model as it stands: its gated client, provider, and compaction trigger. */
   serving: () =>
     | {
@@ -547,6 +549,7 @@ export class Conversation {
               webSession: { id: session.id },
               sessionId: session.id,
               cwd: this.options.cwd,
+              routines: this.options.routines(),
               artifactPublisher: sessionArtifactPublisher(session),
               attachments: () => artifacts.attachments,
               debug: this.debug,

@@ -50,7 +50,7 @@ import type {
   ThemeName,
   UiLanguage,
 } from "../../../contracts.js"
-import { Button, IconButton } from "../../components/Button.js"
+import { Button, IconButton, Toggle } from "../../components/Button.js"
 import { Icon, RetentionBadge } from "../../components/Icon.js"
 import { TabStrip } from "../../components/TabStrip.js"
 import { TextField } from "../../components/TextField.js"
@@ -282,15 +282,7 @@ export function SettingsPage({
   }
 
   return (
-    <div
-      className="settingsPage"
-      onPointerDownCapture={(event) => {
-        event.currentTarget.dataset.pointerInput = "true"
-      }}
-      onKeyDownCapture={(event) => {
-        delete event.currentTarget.dataset.pointerInput
-      }}
-    >
+    <div className="settingsPage">
       <header className="workspaceHeader settingsPage-header">
         <div className="workspaceHeader-right">
           <IconButton icon={X} label={t("settings.close")} className="noDrag" onClick={onClose} />
@@ -1105,33 +1097,6 @@ function ServerSettings({
         </div>
       ) : null}
     </div>
-  )
-}
-
-/** A pill switch, in keeping with the app's soft geometry. */
-function Toggle({
-  label,
-  checked,
-  disabled,
-  onChange,
-}: {
-  label: string
-  checked: boolean
-  disabled?: boolean
-  onChange: (checked: boolean) => void
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      disabled={disabled}
-      className={`toggle${checked ? " toggle-on" : ""}`}
-      onClick={() => onChange(!checked)}
-    >
-      <span className="toggle-knob" />
-    </button>
   )
 }
 

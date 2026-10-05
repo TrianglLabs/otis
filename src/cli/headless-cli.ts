@@ -29,6 +29,7 @@ import {
   isHostedProvider,
   isServerProvider,
 } from "../inference/types.js"
+import { ROUTINES_UNAVAILABLE } from "../local/routines.js"
 import { hostedApiKeys, saveSelectedModel } from "../local/settings.js"
 import {
   createPermissionPolicy,
@@ -273,6 +274,7 @@ export async function runHeadlessCommand(
               message.role === "user" ? userMessageAttachments(message) : [],
             ) ?? [],
         projectContext: app.projectContext,
+        routines: app.routines ?? { error: app.routinesError ?? ROUTINES_UNAVAILABLE },
         skills: app.skills,
         tools,
         autoCompactAtTokens: autoCompactThreshold(modelContextLength),

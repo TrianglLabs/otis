@@ -69,8 +69,9 @@ Update an existing CLI installation with `otis update`.
   <tr>
     <td valign="middle">
       <b>2. Pick up where you left off</b><br><br>
-      Home lists recent sessions and the documents they produced, across every workspace. Open one, or just start
-      typing. <code>⌘K</code> searches every session by title and content.
+      Home lists recent sessions and the documents they produced, across every folder. Open one, or just start
+      typing. <code>⌘K</code> searches every session by title and content. The switcher at the top flips to your
+      routines.
     </td>
     <td><img src="docs/screens/home.png" alt="Home: recent sessions and documents above the composer" width="100%"></td>
   </tr>
@@ -98,13 +99,25 @@ Update an existing CLI installation with `otis update`.
       Sessions keep working when you switch away. Chips above the composer show the ones off screen, with a dot for
       the ones still working. Drag a chip, or a session from <code>⌘K</code>, onto an edge for up to four side by
       side, or onto a card to swap. Open a session from history later and the ones it shared the screen with come
-      back beside it, as you placed them. Otis notifies you when a background session finishes.
+      back beside it, as you placed them. Sessions in one window can work in different folders. Otis notifies you
+      when a background session finishes.
     </td>
     <td><img src="docs/screens/split.png" alt="Two sessions side by side with the others as chips" width="100%"></td>
   </tr>
   <tr>
     <td valign="middle">
-      <b>6. Pick the model. Keep the work.</b><br><br>
+      <b>6. Let it run while you are away</b><br><br>
+      A routine is a prompt that runs in a folder on a schedule, daily at a time or every so many minutes, on the
+      model you choose. Each run is an ordinary session: watch it live, or open it later; a dot marks one you have
+      not looked at. Routines only read unless you let them run tools without asking. Ask for one in chat and Otis
+      saves it, after asking you first. They run while the app is open, or around the clock under
+      <code>otis serve</code>.
+    </td>
+    <td><img src="docs/screens/routines.png" alt="Routines: cards for each scheduled prompt, with New routine first and a pager" width="100%"></td>
+  </tr>
+  <tr>
+    <td valign="middle">
+      <b>7. Pick the model. Keep the work.</b><br><br>
       One picker holds every model Otis can reach: managed local models with their memory needs, models on your own
       servers, and hosted ones. The star marks the local model that fits this computer best.
     </td>
@@ -112,7 +125,7 @@ Update an existing CLI installation with `otis update`.
   </tr>
   <tr>
     <td valign="middle">
-      <b>7. Pick up in the terminal, or run it from scripts</b><br><br>
+      <b>8. Pick up in the terminal, or run it from scripts</b><br><br>
       Work in the desktop app, pick up in the terminal, or run tasks from scripts with the same agent and local
       sessions. <code>otis exec</code> runs a turn headlessly for scripts and CI, with plain, JSON, or streaming
       JSONL output.
@@ -140,6 +153,17 @@ Desktop app / OpenTUI terminal / headless CLI
       ├─ Fireworks · Together AI · Baseten · Prime Intellect ── hosted inference and model discovery
       └─ Parallel Search MCP ── web search and page reading
 ```
+
+## Routines
+
+The home screen's Routines tab holds prompts that run on a schedule in a folder of your choice, daily at a time or
+every so many minutes, without you at the keyboard. Each run is an ordinary session, on the current model or one you
+pick for the routine: it shows up in the session strip while it works, where you can watch it or step in, and stays
+in history afterwards. A routine only reads
+unless you let it run tools without asking. Routines run while the desktop app is open, or around the clock on a
+machine that runs `otis serve`; the terminal can save and list them through the `routines` tool but does not run
+them. You can also ask in chat: "run the test suite here every night at two" and Otis saves the routine, after asking
+you first. The model cannot grant a routine tools without asking; that switch is yours, in the editor.
 
 ## Work on another machine
 

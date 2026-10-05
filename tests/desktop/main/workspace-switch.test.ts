@@ -220,7 +220,7 @@ describe("DesktopRuntime workspace switching", () => {
     await runtime.shutdown()
   })
 
-  it("refuses to switch during active work and leaves the current workspace running", async () => {
+  it("opens another folder beside a running session and keeps both working", async () => {
     const { runtime, cwd, otherCwd } = await setup()
     let release: () => void = () => {}
     mocks.executeTurn.mockImplementation(
@@ -233,11 +233,26 @@ describe("DesktopRuntime workspace switching", () => {
     await runtime.sendPrompt("long alpha turn")
     await vi.waitFor(async () => expect((await runtime.snapshot()).busy).toBe(true))
 
-    const result = await runtime.switchWorkspace(otherCwd)
-    expect(result.ok).toBe(false)
-    expect(result.ok === false && result.reason).toMatch(/Finish the current work/)
-    expect((await runtime.snapshot()).workspace.path).toBe(resolve(cwd))
+    // The folder opens in a new runtime; alpha's turn is untouched and its runtime stays open.
+    const alpha = runtime.app.runtimes[0]
+    expect((await runtime.switchWorkspace(otherCwd)).ok).toBe(true)
+    await flush()
+    const snapshot = await runtime.snapshot()
+    expect(snapshot.workspace.path).toBe(resolve(otherCwd))
+    expect(snapshot.busy).toBe(false)
+    expect(runtime.app.runtimes).toHaveLength(2)
+    expect(alpha?.busy).toBe(true)
+    expect(snapshot.runtimes.map((entry) => entry.workspace.path)).toEqual([
+      resolve(cwd),
+      resolve(otherCwd),
+    ])
+    expect(snapshot.working).toBe(1)
 
+    // Back to alpha's session: its runtime takes the screen again, still mid-turn.
+    runtime.focusSession(alpha?.id ?? -1)
+    await flush()
+    expect((await runtime.snapshot()).workspace.path).toBe(resolve(cwd))
+    expect((await runtime.snapshot()).busy).toBe(true)
     release()
     await runtime.shutdown()
   })
@@ -386,17 +401,19 @@ describe("workspace switch failure safety", () => {
     await runtime.shutdown()
   })
 
-  it("refuses a second switch while one is in flight", async () => {
+  it("leaves no empty runtime behind when moving between folders", async () => {
     const { runtime, cwd, otherCwd } = await setup()
     const gamma = join(cwd, "..", "gamma")
     await mkdir(gamma, { recursive: true })
 
-    const first = runtime.switchWorkspace(otherCwd)
-    const second = await runtime.switchWorkspace(gamma)
-    expect(second.ok).toBe(false)
-    expect(second.ok === false && second.reason).toBe("A workspace switch is already in progress.")
-    expect((await first).ok).toBe(true)
-    expect((await runtime.snapshot()).workspace.path).toBe(resolve(otherCwd))
+    expect((await runtime.switchWorkspace(otherCwd)).ok).toBe(true)
+    expect((await runtime.switchWorkspace(gamma)).ok).toBe(true)
+    await flush()
+    // Alpha and beta had no session and no work, so leaving them closed their runtimes.
+    const snapshot = await runtime.snapshot()
+    expect(snapshot.workspace.path).toBe(resolve(gamma))
+    expect(snapshot.runtimes.map((entry) => entry.workspace.path)).toEqual([resolve(gamma)])
+    expect((await loadLocalSettings()).lastWorkspace).toBe(resolve(gamma))
     await runtime.shutdown()
   })
 

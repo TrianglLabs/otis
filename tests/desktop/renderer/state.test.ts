@@ -156,6 +156,7 @@ describe("DesktopViewStore", () => {
       busy: false,
       unseen: false,
       diffs: { added: 0, removed: 0 },
+      workspace: { label: "otis", path: "/Users/you/otis" },
       contextTokens: 0,
     })
     const { api, emit } = fakeApi([entry(1, "focused")])

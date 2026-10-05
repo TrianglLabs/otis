@@ -512,14 +512,18 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
   })
 }
 
-async function writeSettingsFile(settings: SettingsFile, options: SettingsFileOptions) {
-  const filePath = settingsFilePath(options)
+function writeSettingsFile(settings: SettingsFile, options: SettingsFileOptions) {
+  return writePrivateJson(settingsFilePath(options), settings)
+}
+
+/** Writes a private JSON file atomically: a temp file in a 0700 directory, renamed into place. */
+export async function writePrivateJson(filePath: string, value: unknown) {
   const directory = dirname(filePath)
   await mkdir(directory, { recursive: true, mode: 0o700 })
   await chmodPrivate(directory, 0o700)
   const temporaryFile = `${filePath}.${process.pid}.${randomUUID()}.tmp`
   try {
-    await writeFile(temporaryFile, `${JSON.stringify(settings, null, 2)}\n`, {
+    await writeFile(temporaryFile, `${JSON.stringify(value, null, 2)}\n`, {
       encoding: "utf8",
       mode: 0o600,
     })

@@ -593,56 +593,13 @@
   border-color: var(--text-dim);
 }
 
-.settingsPage[data-pointer-input] .settingsSelect:focus-visible {
+/* A clicked select shows the fields' focus lift; a keyboard-focused one keeps the shell's ring. */
+.settingsSelect:focus-visible {
+  border-color: color-mix(in srgb, var(--border), var(--text) 14%);
+}
+
+.appShell[data-pointer-input] .settingsSelect:focus-visible {
   outline: none;
-}
-
-/* Toggle switch */
-
-.toggle {
-  flex-shrink: 0;
-  position: relative;
-  width: 32px;
-  height: 19px;
-  padding: 0;
-  background: color-mix(in srgb, var(--border) 65%, transparent);
-  border: 1px solid transparent;
-  border-radius: var(--radius-pill);
-  cursor: pointer;
-  transition: background var(--motion);
-}
-
-.toggle:hover:not(:disabled) {
-  filter: brightness(1.1);
-}
-
-.toggle:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
-.toggle-knob {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 13px;
-  height: 13px;
-  border-radius: var(--radius-pill);
-  background: var(--text);
-  translate: 0 0;
-  /* A spring-like curve: the knob overshoots a hair and settles. */
-  transition:
-    translate 350ms cubic-bezier(0.34, 1.35, 0.64, 1),
-    background var(--motion);
-}
-
-.toggle-on {
-  background: var(--accent);
-}
-
-.toggle-on .toggle-knob {
-  translate: 13px 0;
-  background: var(--on-accent);
 }
 
 /* Provider forms */

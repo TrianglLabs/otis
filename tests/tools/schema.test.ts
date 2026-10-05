@@ -10,6 +10,7 @@ describe("parseStructuredToolCall", () => {
       "recall",
       "remember",
       "forget",
+      "routines",
       "read",
       "grep",
       "glob",

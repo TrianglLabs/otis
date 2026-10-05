@@ -1755,7 +1755,7 @@ async function runDesktopUiChecks() {
         pageFocused: document.hasFocus(),
         focused: select.matches(":focus"),
         focusVisible: select.matches(":focus-visible"),
-        pointer: element(".settingsPage").dataset.pointerInput,
+        pointer: element(".appShell").dataset.pointerInput,
         style: getComputedStyle(select).outline,
       })}`,
     )

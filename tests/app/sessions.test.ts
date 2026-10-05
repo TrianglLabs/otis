@@ -196,12 +196,12 @@ describe("duplicate session ids across storage dirs", () => {
     const otherDir = await sessionIn("legacy-aaaaaaaaaaaa", own.id, "legacy conversation")
 
     // Same id, different store: must switch, not mistake it for the current session.
-    expect(await sessions.select(own.id, { directory: otherDir })).toBe("loaded")
+    expect(await sessions.select(own.id, otherDir)).toBe("loaded")
     expect(transcript.entries.some((entry) => entry.text === "legacy conversation")).toBe(true)
     expect(sessions.currentDirName).toBe("legacy-aaaaaaaaaaaa")
 
     // And selecting the truly-current identity is the only noop.
-    expect(await sessions.select(own.id, { directory: otherDir })).toBe("noop")
+    expect(await sessions.select(own.id, otherDir)).toBe("noop")
     await sessions.releaseLock()
   })
 
@@ -220,7 +220,7 @@ describe("duplicate session ids across storage dirs", () => {
       isBusy: () => false,
       isExiting: () => false,
     })
-    expect(await holder.select(own.id, { directory: otherDir })).toBe("loaded")
+    expect(await holder.select(own.id, otherDir)).toBe("loaded")
     expect(await sessions.delete(own.id, { directory: otherDir })).toBe("locked")
     expect(sessions.current?.id).toBe(own.id) // current session untouched
 

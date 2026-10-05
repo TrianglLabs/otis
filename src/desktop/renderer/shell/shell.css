@@ -80,8 +80,21 @@
 
 /* The active workspace: quiet label, FolderOpen affordance, opens the folder picker. */
 /* Centered window title, macOS-style; sits above the drag region. */
+.workspaceHeader-switch {
+  grid-column: 2;
+  justify-self: center;
+}
+
+/* A finished routine run not looked at yet, marked the way the home cards mark theirs. */
+.tabStrip-dot {
+  margin-left: 2px;
+}
+
 .workspaceHeader-title {
   grid-column: 2;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
   justify-self: center;
   min-width: 0;
   max-width: 100%;
@@ -92,6 +105,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   pointer-events: none;
+}
+
+/* The session's folder, shown while open sessions span more than one. */
+.workspaceHeader-folder {
+  font-weight: 400;
+  color: var(--text-dim);
+  opacity: 0.8;
 }
 
 .platform-darwin .workspaceHeader-left {

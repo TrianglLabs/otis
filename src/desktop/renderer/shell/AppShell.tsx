@@ -17,7 +17,7 @@ import {
   useDesktopState,
 } from "../runtime.js"
 import { APP_SHORTCUTS } from "./shortcuts.js"
-import { WorkspaceHeader } from "./WorkspaceHeader.js"
+import { type HomeView, WorkspaceHeader } from "./WorkspaceHeader.js"
 import { WorkspacePanel } from "./WorkspacePanel.js"
 
 /**
@@ -42,6 +42,7 @@ export function AppShell() {
     "terminal",
   )
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [homeView, setHomeView] = useState<HomeView>("home")
   const [settingsTab, setSettingsTab] = useState<SettingsTab>()
   const [windowFullscreen, setWindowFullscreen] = useState(false)
   const [installing, setInstalling] = useState(false)
@@ -174,7 +175,17 @@ export function AppShell() {
   return (
     <DesktopProvider value={desktop}>
       <CanvasOpenContext.Provider value={openCanvas}>
-        <div className={`appShell ${platformClass}${settingsClass}${fullscreenClass}`}>
+        <div
+          className={`appShell ${platformClass}${settingsClass}${fullscreenClass}`}
+          // Selects take :focus-visible on a click too; the flag tells pointer focus from keyboard
+          // focus so only the latter draws a ring.
+          onPointerDownCapture={(event) => {
+            event.currentTarget.dataset.pointerInput = "true"
+          }}
+          onKeyDownCapture={(event) => {
+            delete event.currentTarget.dataset.pointerInput
+          }}
+        >
           {/* The workspace stays mounted behind Settings so drafts, scroll positions, expanded
             cards, and the workspace-panel selection survive the round trip. */}
           <div
@@ -189,6 +200,8 @@ export function AppShell() {
                 <>
                   <WorkspaceHeader
                     hasViews={views.length > 0 || Boolean(state?.terminal)}
+                    homeView={homeView}
+                    onHomeView={setHomeView}
                     onOpenPalette={() => setPaletteOpen(true)}
                     onOpenSettings={openSettings}
                     onOpenServer={() => openSettingsTab("general")}
@@ -222,7 +235,7 @@ export function AppShell() {
                       </Button>
                     </div>
                   ) : null}
-                  <ConversationView installing={installing} />
+                  <ConversationView installing={installing} homeView={homeView} />
                 </>
               )}
               {readyUpdate ? (

@@ -48,8 +48,9 @@ textarea {
   color: inherit;
 }
 
+/* Keyboard focus is a quiet grey ring, in step with the fields' focus lift, never the accent. */
 :focus-visible {
-  outline: 1px solid var(--accent);
+  outline: 1px solid color-mix(in srgb, var(--text) 40%, transparent);
   outline-offset: 1px;
 }
 
