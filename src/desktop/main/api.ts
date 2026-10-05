@@ -4,7 +4,13 @@ import { isRecord } from "../../inference/errors.js"
 import { isHostedProvider, isServerProvider } from "../../inference/types.js"
 import { TEXT_SIZES } from "../../local/settings.js"
 import { isMemoryScope } from "../../memory/memory.js"
-import type { DesktopAttachmentInput, DesktopStatus, PaneDrop, PaneSide } from "../contracts.js"
+import type {
+  DesktopAttachmentInput,
+  DesktopStatus,
+  PaneDrop,
+  PaneSide,
+  RoutineInput,
+} from "../contracts.js"
 import type { DesktopRuntime } from "./runtime.js"
 
 /**
@@ -276,6 +282,34 @@ export function desktopCall(runtime: DesktopRuntime) {
     removeSkills: (id: unknown) => {
       if (typeof id !== "string") throw new Error("removeSkills expects an id")
       return runtime.removeSkills(id)
+    },
+    saveRoutine: (routine: unknown) => {
+      const text = (value: unknown) => typeof value === "string"
+      if (
+        !isRecord(routine) ||
+        !text(routine.name) ||
+        !text(routine.prompt) ||
+        !text(routine.cwd) ||
+        !isRecord(routine.schedule) ||
+        (routine.model !== undefined && !text(routine.model)) ||
+        typeof routine.auto !== "boolean" ||
+        typeof routine.enabled !== "boolean" ||
+        (routine.id !== undefined && !text(routine.id))
+      )
+        throw new Error("Invalid routine.")
+      return runtime.saveRoutine(routine as RoutineInput)
+    },
+    deleteRoutine: (id: unknown) => {
+      if (typeof id !== "string") throw new Error("Invalid routine id.")
+      return runtime.deleteRoutine(id)
+    },
+    runRoutine: (id: unknown) => {
+      if (typeof id !== "string") throw new Error("Invalid routine id.")
+      return runtime.runRoutine(id)
+    },
+    cancelRoutine: (id: unknown) => {
+      if (typeof id !== "string") throw new Error("Invalid routine id.")
+      return runtime.cancelRoutine(id)
     },
     listMemory: () => runtime.listMemory(),
     rememberFact: (scope: unknown, fact: unknown) => {

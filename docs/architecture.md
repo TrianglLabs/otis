@@ -40,7 +40,17 @@ src/cli
 - `src/app` owns shared application composition: conversation projection and turn lifecycle, session ownership, model
   selection transactions, and workspace loading. Adapters call this layer; it does not import OpenTUI, Electron, React,
   or `src/cli`. `Application.shutdown()` cancels an active conversation and in-flight model selection, then stops the
-  model runtime.
+  model runtime. A `Workspace` is one folder's project context, skills and permission rules, loaded once per folder
+  and shared by every session runtime in it; one `Application` holds runtimes in any number of folders, and its
+  `cwd`, `projectContext`, `skills` and `permissionRules` are those of the focused runtime's folder. Routines
+  (`src/app/routines.ts`) are saved prompts run on a schedule in a folder: each run is an ordinary session runtime
+  in that folder, with its own session file and title, so a running routine can be watched and steered like any
+  other session. Runs use the `dontAsk` permission mode unless the routine was saved to run tools without asking;
+  `DesktopRuntime` attaches as the host and starts the scheduler, in the app and under `otis serve`; a run that is
+  still going after 30 minutes is stopped.
+  Routine types and the `routines.json` file live in `src/local/routines.ts`; `Application` loads them once and
+  hands the live scheduler to conversations, where the `routines` tool lists, saves, and removes through it, so
+  chat, the home screen, and the file never disagree.
 - `src/core` owns the agent loop, project instruction loading, and conversation compaction.
 - `src/inference` owns hosted-provider, PAIR, and local llama.cpp request serialization, model discovery, hardware fit, the
   human-authored `system-prompt.txt`, prompt assembly and project-context bounds, and SSE parsing.
@@ -553,6 +563,11 @@ The desktop window talks to a `DesktopBackend` (`src/desktop/main/api.ts`): the 
 or an `otis serve` daemon on another machine. Both dispatch through `desktopMethods`, the desktop API by method name
 with every payload validated at that boundary, so the IPC layer and the daemon trust a caller only as far as its
 arguments check out.
+
+`DesktopRuntime` hosts the routine scheduler, so routines run wherever the runtime lives: in the Electron main
+process while the app is open, or on the daemon machine around the clock. A run's runtime closes when it settles
+unless it is on screen. Routines are saved in `routines.json` beside `config.json`; a file that fails validation
+leaves routines unavailable and the rest of the app untouched.
 
 `otis serve` (`src/cli/serve.ts`, `src/desktop/serve.ts`) hosts `DesktopRuntime` under Bun and serves it over one
 WebSocket per client (`ws`), JSON text frames with bytes as base64 (`src/desktop/wire.ts`). The pairing token rides

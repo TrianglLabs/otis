@@ -1,7 +1,7 @@
 import { readFile, realpath } from "node:fs/promises"
 import { join, relative, resolve, sep } from "node:path"
 import { resolveArtifactSource } from "../artifacts/files.js"
-import { TOOL_NAMES, type ToolCall, type ToolName } from "../tools/index.js"
+import { routineSubject, TOOL_NAMES, type ToolCall, type ToolName } from "../tools/index.js"
 import { editedDocumentPath, resolveWorkspacePath } from "../tools/workspace.js"
 
 const PERMISSION_EFFECTS = ["allow", "ask", "deny"] as const
@@ -71,10 +71,13 @@ export function createPermissionPolicy(options: PermissionPolicyOptions): Permis
           ? await resolveArtifactSource(call.input.path, options.cwd)
           : undefined
       const resources = source?.resources ?? (await permissionResources(call, options.cwd))
-      // Publishing an external file needs approval even in auto mode; readiness checks never do.
-      const mode = source?.external && options.mode === "auto" ? "ask" : options.mode
+      // Publishing an external file or changing a routine (a standing, unattended grant) needs
+      // approval even in auto mode; readiness checks and listings never do.
+      const standing =
+        source?.external || (call.name === "routines" && call.input.action !== "list")
+      const mode = standing && options.mode === "auto" ? "ask" : options.mode
       const restricted =
-        source?.external ||
+        standing ||
         (RESTRICTED_BY_DEFAULT.has(call.name) &&
           !(call.name === "document" && call.input.operation === "check"))
       const fallback: PermissionEffect =
@@ -168,6 +171,7 @@ async function permissionResources(call: ToolCall, cwd: string): Promise<string[
   if (call.name === "wait_coworkers") return ["coworkers"]
   if (call.name === "recall") return [call.input.query]
   if (call.name === "remember" || call.name === "forget") return [call.input.scope]
+  if (call.name === "routines") return [routineSubject(call.input)]
   const paths =
     call.name === "edit_document"
       ? [

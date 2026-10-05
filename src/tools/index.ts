@@ -1,3 +1,4 @@
+import { describeSchedule, ROUTINES_UNAVAILABLE } from "../local/routines.js"
 import { forget, recall, remember } from "../memory/memory.js"
 import { readSkillResource } from "../skills/catalog.js"
 import { runDocumentWorkflow } from "./document-workflow.js"
@@ -5,13 +6,14 @@ import { editLocalDocument } from "./documents.js"
 import { editLocalFile, readLocalFile, writeLocalFile } from "./files.js"
 import { globLocalFiles, grepLocalFiles } from "./search.js"
 import { runBash } from "./shell.js"
-import type { ToolCall, ToolContext, ToolResult } from "./types.js"
+import type { RoutineStore, ToolCall, ToolContext, ToolResult } from "./types.js"
 
 export {
   describeToolAction,
   describeToolCall,
   isToolAction,
   isToolActivityKind,
+  routineSubject,
   splitSubject,
   TOOL_ACTIONS,
   TOOL_ACTIVITY_KINDS,
@@ -29,6 +31,7 @@ export {
 import { TOOL_DEFINITIONS, type ToolDefinition } from "./schema.js"
 
 export {
+  type RoutineStore,
   TOOL_NAMES,
   type ToolCall,
   type ToolContext,
@@ -38,7 +41,7 @@ export {
 
 import { createHash, randomUUID } from "node:crypto"
 import { link, rm, writeFile } from "node:fs/promises"
-import { basename, dirname, extname, join } from "node:path"
+import { basename, dirname, extname, join, resolve } from "node:path"
 import {
   readArtifactBytes,
   resolveArtifactSource,
@@ -104,7 +107,69 @@ export async function executeToolCall(
       const entry = await forget(scope, fact, context.cwd ?? process.cwd())
       return { title: `Forgot (${scope})`, output: entry.text }
     }
+    case "routines":
+      return manageRoutines(call.input, context)
   }
+}
+
+/**
+ * The routines tool against the host's store. Tools run without asking stays the user's switch:
+ * a saved routine keeps its setting and a new one starts read-only.
+ */
+async function manageRoutines(
+  input: Extract<ToolCall, { name: "routines" }>["input"],
+  context: ToolContext,
+): Promise<ToolResult> {
+  const store = context.routines
+  if (!store || "error" in store) throw new Error(store?.error ?? ROUTINES_UNAVAILABLE)
+  const find = (id: string | undefined) => store.list().find((entry) => entry.id === id)
+  const when = (iso: string) => new Date(iso).toLocaleString()
+  const line = (routine: ReturnType<RoutineStore["list"]>[number]) =>
+    [
+      `${routine.name} (${routine.id})`,
+      routine.cwd,
+      describeSchedule(routine.schedule),
+      routine.model ? `model ${routine.model}` : "",
+      routine.enabled && routine.nextRunAt ? `next ${when(routine.nextRunAt)}` : "paused",
+      routine.lastRun
+        ? [
+            `last run ${routine.lastRun.status} ${when(routine.lastRun.startedAt)}`,
+            routine.lastRun.error ? `(${routine.lastRun.error})` : "",
+          ]
+            .filter(Boolean)
+            .join(" ")
+        : "",
+      `tools without asking: ${routine.auto ? "on" : "off"}`,
+    ]
+      .filter(Boolean)
+      .join(" · ")
+  if (input.action === "list") {
+    const routines = store.list()
+    return {
+      title: `Routines (${routines.length})`,
+      output: routines.length ? routines.map(line).join("\n") : "No routines yet.",
+    }
+  }
+  if (input.action === "remove") {
+    const routine = find(input.id)
+    if (!routine) throw new Error(`No routine ${input.id}.`)
+    await store.remove(input.id)
+    return { title: "Removed routine", output: line(routine) }
+  }
+  // The user's choices on an existing routine (its model, tools without asking) stay theirs.
+  const existing = find(input.id)
+  const saved = await store.save({
+    ...(input.id ? { id: input.id } : {}),
+    name: input.name,
+    prompt: input.prompt,
+    cwd: resolve(context.cwd ?? process.cwd(), input.cwd ?? "."),
+    schedule: input.schedule,
+    model: existing?.model,
+    auto: existing?.auto ?? false,
+    enabled: input.enabled ?? existing?.enabled ?? true,
+  })
+  const listed = find(saved.id)
+  return { title: `Saved routine: ${saved.name}`, output: listed ? line(listed) : saved.name }
 }
 
 async function executeWebTool(

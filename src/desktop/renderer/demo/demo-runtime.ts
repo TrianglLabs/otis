@@ -42,6 +42,8 @@ import {
   type PaneDrop,
   type PaneOps,
   type PaneSide,
+  type RoutineInput,
+  type RoutineStatus,
   type RuntimeSummary,
   type SendPromptResult,
   type SessionOpResult,
@@ -79,6 +81,89 @@ const DEMO_SHELL: Record<string, string> = {
 export function createDemoRuntime(hostApi?: DemoHostApi, start = ""): DesktopApi {
   return new DemoRuntime(hostApi, start)
 }
+
+/** The folder every demo session works in. */
+const DEMO_WORKSPACE = { label: "otis", path: "/Users/you/otis" }
+
+const DEMO_ROUTINE: RoutineStatus = {
+  id: "routine_demo",
+  name: "Morning digest",
+  prompt:
+    "Summarize what changed in this repository since yesterday and list what needs a decision.",
+  cwd: "/Users/dev/Projects/otis",
+  folder: "otis",
+  schedule: { kind: "daily", time: "07:30" },
+  auto: false,
+  enabled: true,
+  createdAt: "2026-09-28T07:00:00.000Z",
+  lastRun: {
+    startedAt: new Date(Date.now() - 5 * 3_600_000).toISOString(),
+    finishedAt: new Date(Date.now() - 5 * 3_600_000 + 90_000).toISOString(),
+    status: "complete",
+    sessionId: "session_demo1",
+    dirName: "otis-6b9c2f1d5a3e",
+  },
+  nextRunAt: new Date(Date.now() + 19 * 3_600_000).toISOString(),
+}
+
+const demoRoutine = (
+  id: string,
+  name: string,
+  prompt: string,
+  schedule: RoutineStatus["schedule"],
+  over: Partial<RoutineStatus> = {},
+): RoutineStatus => ({
+  ...DEMO_ROUTINE,
+  id,
+  name,
+  prompt,
+  schedule,
+  lastRun: undefined,
+  nextRunAt: new Date(Date.now() + 2 * 3_600_000).toISOString(),
+  ...over,
+})
+
+/** Seven routines: enough to page the home grid, with every state a card can show. */
+const DEMO_ROUTINES: RoutineStatus[] = [
+  DEMO_ROUTINE,
+  demoRoutine("routine_tests", "Nightly tests", "Run the full test suite and report failures.", {
+    kind: "daily",
+    time: "02:00",
+  }),
+  demoRoutine(
+    "routine_deps",
+    "Dependency check",
+    "List outdated dependencies with their changelogs.",
+    { kind: "interval", minutes: 1440 },
+    {
+      lastRun: {
+        startedAt: new Date(Date.now() - 26 * 3_600_000).toISOString(),
+        finishedAt: new Date(Date.now() - 26 * 3_600_000 + 40_000).toISOString(),
+        status: "error",
+        error: "That model is no longer in the catalog.",
+      },
+    },
+  ),
+  demoRoutine("routine_inbox", "Inbox triage", "Sort new issues by area and urgency.", {
+    kind: "interval",
+    minutes: 60,
+  }),
+  demoRoutine(
+    "routine_notes",
+    "Release notes draft",
+    "Draft release notes from merged pull requests.",
+    { kind: "daily", time: "17:00" },
+    { enabled: false, nextRunAt: undefined },
+  ),
+  demoRoutine("routine_lint", "Lint sweep", "Fix lint warnings and open a summary.", {
+    kind: "interval",
+    minutes: 180,
+  }),
+  demoRoutine("routine_docs", "Docs check", "Find documentation that disagrees with the code.", {
+    kind: "daily",
+    time: "11:30",
+  }),
+]
 
 /** The demo keeps one Canvas document, reported as the first session's tab. */
 /** The demo's Canvas tabs all belong to its first session. */
@@ -946,6 +1031,7 @@ class DemoRuntime implements DesktopApi {
         busy: false,
         unseen: false,
         diffs: { added: 12, removed: 3 },
+        workspace: DEMO_WORKSPACE,
         contextTokens: 18_420,
       },
       // More open sessions, one finished out of view: the strip lists them and each can be
@@ -961,6 +1047,7 @@ class DemoRuntime implements DesktopApi {
         busy: false,
         unseen: true,
         diffs: { added: 0, removed: 0 },
+        workspace: DEMO_WORKSPACE,
         contextTokens: 4_200,
       },
       {
@@ -974,6 +1061,7 @@ class DemoRuntime implements DesktopApi {
         busy: false,
         unseen: false,
         diffs: { added: 31, removed: 8 },
+        workspace: DEMO_WORKSPACE,
         contextTokens: 22_900,
       },
       {
@@ -983,6 +1071,7 @@ class DemoRuntime implements DesktopApi {
         busy: false,
         unseen: false,
         diffs: { added: 0, removed: 0 },
+        workspace: DEMO_WORKSPACE,
         contextTokens: 6_100,
       },
       {
@@ -996,6 +1085,7 @@ class DemoRuntime implements DesktopApi {
         busy: true,
         unseen: false,
         diffs: { added: 140, removed: 62 },
+        workspace: DEMO_WORKSPACE,
         contextTokens: 61_300,
       },
       {
@@ -1005,6 +1095,7 @@ class DemoRuntime implements DesktopApi {
         busy: false,
         unseen: false,
         diffs: { added: 9, removed: 0 },
+        workspace: DEMO_WORKSPACE,
         contextTokens: 3_400,
       },
     ],
@@ -1070,6 +1161,7 @@ class DemoRuntime implements DesktopApi {
     pairConfigured: false,
     pairEndpoints: {},
     servers: {},
+    routines: DEMO_ROUTINES,
     debug: false,
     update: { status: "current" },
     remote: null,
@@ -1835,6 +1927,15 @@ class DemoRuntime implements DesktopApi {
     const target = this.#state.sessions.find((session) => session.id === id)
     if (!target) return { ok: false, reason: "Unknown session." }
     const session = { id: target.id, title: target.title, dirName: target.dirName }
+    // Opening a routine's run is seeing it.
+    this.#state = {
+      ...this.#state,
+      routines: this.#state.routines.map((routine) =>
+        routine.lastRun?.sessionId === id
+          ? { ...routine, lastRun: { ...routine.lastRun, seen: true } }
+          : routine,
+      ),
+    }
     const { panes, runtimes } = this.#state
     const holder = runtimes.find((entry) => entry.session?.id === id)
     // Dropped on a side, the session joins the ones on screen; an empty card alone is no company.
@@ -1846,6 +1947,7 @@ class DemoRuntime implements DesktopApi {
         busy: false,
         unseen: false,
         diffs: { added: 0, removed: 0 },
+        workspace: DEMO_WORKSPACE,
         contextTokens: 0,
       }
       if (!holder) this.#state = { ...this.#state, runtimes: [...runtimes, runtime] }
@@ -1933,6 +2035,7 @@ class DemoRuntime implements DesktopApi {
             runtime: Math.max(...runtimes.map((entry) => entry.runtime)) + 1,
             session: null,
             diffs: { added: 0, removed: 0 },
+            workspace: DEMO_WORKSPACE,
             contextTokens: 0,
           }
       if (!empty) this.#transcripts.set(focused.runtime, this.#state.entries)
@@ -1942,6 +2045,7 @@ class DemoRuntime implements DesktopApi {
         session: null,
         tabs: [],
         diffs: { added: 0, removed: 0 },
+        workspace: DEMO_WORKSPACE,
         contextTokens: 0,
         subagents: [],
         agentsPanelVisible,
@@ -2033,6 +2137,65 @@ class DemoRuntime implements DesktopApi {
   async removeSkills(id: string): Promise<SessionOpResult> {
     this.#skillSources = this.#skillSources.filter((source) => source.id !== id)
     return { ok: true }
+  }
+
+  async saveRoutine(routine: RoutineInput): Promise<SessionOpResult> {
+    if (!routine.name.trim()) return { ok: false, reason: "Invalid routine: name." }
+    const existing = this.#state.routines.find((entry) => entry.id === routine.id)
+    const saved: RoutineStatus = {
+      ...(existing ?? { createdAt: new Date().toISOString() }),
+      ...routine,
+      id: existing?.id ?? `routine_${Date.now().toString(36)}`,
+      folder: routine.cwd.split("/").filter(Boolean).at(-1) ?? routine.cwd,
+      nextRunAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+    }
+    this.#state = {
+      ...this.#state,
+      routines: existing
+        ? this.#state.routines.map((entry) => (entry.id === saved.id ? saved : entry))
+        : [...this.#state.routines, saved],
+    }
+    this.#emitStatus()
+    return { ok: true }
+  }
+
+  async deleteRoutine(id: string): Promise<void> {
+    this.#state = { ...this.#state, routines: this.#state.routines.filter((r) => r.id !== id) }
+    this.#emitStatus()
+  }
+
+  /** Demo: a run takes a moment, then lands as the last run. */
+  async runRoutine(id: string): Promise<SessionOpResult> {
+    const update = (patch: Partial<RoutineStatus>) => {
+      this.#state = {
+        ...this.#state,
+        routines: this.#state.routines.map((r) => (r.id === id ? { ...r, ...patch } : r)),
+      }
+      this.#emitStatus()
+    }
+    const startedAt = new Date().toISOString()
+    update({ runtime: 1 })
+    setTimeout(() => {
+      update({
+        runtime: undefined,
+        lastRun: {
+          startedAt,
+          finishedAt: new Date().toISOString(),
+          status: "complete",
+          sessionId: "session_demo1",
+          dirName: "otis-6b9c2f1d5a3e",
+        },
+      })
+    }, 1800)
+    return { ok: true }
+  }
+
+  async cancelRoutine(id: string): Promise<void> {
+    this.#state = {
+      ...this.#state,
+      routines: this.#state.routines.map((r) => (r.id === id ? { ...r, runtime: undefined } : r)),
+    }
+    this.#emitStatus()
   }
 
   async listMemory(): Promise<MemoryEntry[]> {
@@ -2635,6 +2798,10 @@ function toolActivityTranscript(): TranscriptEntry[] {
     tool("recall", "session lock flakiness", "t26"),
     tool("remember", "Session locks live in src/storage/session-lock.ts.", "t27"),
     tool("forget", "The lock test is flaky.", "t28"),
+    fixture({ kind: "message", speaker: "Otis", text: "Routines, from chat:" }),
+    tool("routines_list", "routines", "t29"),
+    tool("routines_save", "Nightly tests", "t30"),
+    tool("routines_remove", "Nightly tests", "t31"),
     fixture({
       kind: "message",
       speaker: "Otis",

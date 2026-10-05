@@ -12,6 +12,7 @@ export const TOOL_ACTIVITY_KINDS = [
   "shell",
   "agent",
   "memory",
+  "routine",
 ] as const
 
 export type ToolActivityKind = (typeof TOOL_ACTIVITY_KINDS)[number]
@@ -52,6 +53,9 @@ export const TOOL_ACTIONS = {
   recall: ["memory", "Recalling", "Recalling", "Recalled"],
   remember: ["memory", "Remembering", "Remembering", "Remembered"],
   forget: ["memory", "Forgetting", "Forgetting", "Forgot"],
+  routines_list: ["routine", "Listing routines", "Listing routines", "Listed routines"],
+  routines_save: ["routine", "Saving routine", "Saving routine", "Saved routine"],
+  routines_remove: ["routine", "Removing routine", "Removing routine", "Removed routine"],
 } as const satisfies Record<string, readonly [ToolActivityKind, string, string, string]>
 
 export type ToolAction = keyof typeof TOOL_ACTIONS
@@ -63,6 +67,11 @@ const DOCUMENT_ACTIONS: Record<DocumentOperation, ToolAction> = {
   "edit-pdf": "document_edit_pdf",
   convert: "document_convert",
   render: "document_render",
+}
+
+/** What a routines call is about: the routine by name, else by id, else the list. */
+export function routineSubject(input: Extract<ToolCall, { name: "routines" }>["input"]) {
+  return "name" in input ? input.name : "id" in input ? input.id : "routines"
 }
 
 export type ToolActivity = {
@@ -102,6 +111,8 @@ export function describeToolCall(call: ToolCall): ToolActivity {
   if (call.name === "recall") return describeToolAction("recall", call.input.query)
   if (call.name === "remember" || call.name === "forget")
     return describeToolAction(call.name, call.input.fact)
+  if (call.name === "routines")
+    return describeToolAction(`routines_${call.input.action}`, routineSubject(call.input))
 
   const command = call.input.command
   if (/\b(rg|grep|find)\b/.test(command)) return describeToolAction("search_command", command)

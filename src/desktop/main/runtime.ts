@@ -38,6 +38,7 @@ import {
   SUPPORTED_IMAGE_EXTENSIONS,
   type UserChatMessage,
 } from "../../inference/types.js"
+import { ROUTINES_UNAVAILABLE, type RoutineInput } from "../../local/routines.js"
 import {
   isThemeName,
   saveAchievementsSeen,
@@ -120,7 +121,6 @@ const FLUSH_INTERVAL_MS = 32
 const RECENT_ARTIFACTS = 3
 
 const RESTARTING = "Otis is restarting to finish an update."
-const SWITCHING = "Switching workspaces — try again in a moment."
 /** What the desktop renders that the model may lean on. */
 const CANVAS = { mermaid: true, math: true }
 const LOCATING = "Locating the working folder — try again in a moment."
@@ -152,11 +152,6 @@ export class DesktopRuntime {
   #lastPickerItems: ModelPickerItem[] | undefined
   /** Session-only debug mode, mirroring the TUI's /debug toggle. */
   #debug = false
-  /**
-   * A workspace switch in flight; switches and conflicting session operations are refused until it
-   * settles.
-   */
-  #switching = false
   /**
    * Global session listing is disk-heavy; the shared promise coalesces concurrent status snapshots.
    */
@@ -211,7 +206,62 @@ export class DesktopRuntime {
     const runtime = new DesktopRuntime(app, options)
     void runtime.#startSavedSelection()
     void runtime.#refreshStats()
+    runtime.#startRoutines()
     return runtime
+  }
+
+  /** Runs the routines that are due, now and on; a run stays on screen while it is watched. */
+  #startRoutines() {
+    const routines = this.app.routines
+    if (!routines) return
+    routines.attach({
+      // A run watched to its end has been seen; one off screen closes, unless the user already did.
+      release: async (runtime) => {
+        const sessionId = runtime.sessions.current?.id
+        if (this.#panes.includes(runtime) && sessionId) await routines.seen(sessionId)
+        else if (this.app.runtimes.includes(runtime)) await this.app.closeRuntime(runtime)
+      },
+      // A run keeps its own model; the saved selection stays the user's.
+      selectModel: async (runtime, key) => {
+        const item = await this.#pickerChoice(key)
+        if (!item.ok) return item
+        return this.app.selectModel(item.choice, { runtime, persist: async () => {} })
+      },
+    })
+    routines.subscribe(() => this.#markStateDirty())
+    routines.start()
+  }
+
+  async saveRoutine(routine: RoutineInput): Promise<SessionOpResult> {
+    if (!this.app.routines) return { ok: false, reason: this.#routinesUnavailable }
+    try {
+      await this.app.routines.save(routine)
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, reason: describeError(error) }
+    }
+  }
+
+  async deleteRoutine(id: string) {
+    await this.app.routines?.remove(id)
+  }
+
+  async runRoutine(id: string): Promise<SessionOpResult> {
+    if (!this.app.routines) return { ok: false, reason: this.#routinesUnavailable }
+    try {
+      void this.app.routines.run(id)
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, reason: describeError(error) }
+    }
+  }
+
+  async cancelRoutine(id: string) {
+    this.app.routines?.cancel(id)
+  }
+
+  get #routinesUnavailable() {
+    return this.app.routinesError ?? ROUTINES_UNAVAILABLE
   }
 
   /**
@@ -447,7 +497,6 @@ export class DesktopRuntime {
     // updates.
     if (this.#disposed) return RESTARTING
     if (this.#rendererGone) return RENDERER_GONE
-    if (this.#switching) return SWITCHING
     // A foreign session's read-only restriction is set after its async open; prompts must not slip
     // through first.
     if (this.#sessionSelecting > 0) return "Opening the session — try again in a moment."
@@ -489,7 +538,6 @@ export class DesktopRuntime {
     at?: PaneDrop,
   ): Promise<SessionOpResult> {
     if (this.#disposed) return { ok: false, reason: RESTARTING }
-    if (this.#switching) return { ok: false, reason: SWITCHING }
     if (this.#locating) return { ok: false, reason: LOCATING }
     if (!sessionId) return { ok: false, reason: "Invalid session id." }
     // Held synchronously from here until the open settles: a prompt admitted in between would run
@@ -497,33 +545,34 @@ export class DesktopRuntime {
     this.#sessionSelecting += 1
     try {
       // The palette row may be stale: another instance can register the dir's workspace after the
-      // list loaded. Re-resolve now — a known, present, different folder means this session belongs
-      // to a workspace switch.
+      // list loaded. Re-resolve now — a known, present, different folder means this session opens
+      // in a runtime there.
       if (dirName !== undefined && dirName !== this.#home) {
         const registered = await readWorkspacePath(sessionDir(dirName))
         if (registered && resolve(registered) !== this.app.cwd && (await pathExists(registered))) {
-          return await this.switchWorkspace(registered, sessionId, dirName)
+          return await this.#openSession(sessionId, dirName, at, resolve(registered))
         }
       }
-      return await this.#selectInPlace(sessionId, dirName, at)
+      return await this.#openSession(sessionId, dirName, at)
     } finally {
       this.#sessionSelecting -= 1
     }
   }
 
   /**
-   * Opens a session in the current window. Sessions from before workspace registration — or whose
-   * folder was since removed — open in place so their history is readable, but agent work stays
-   * blocked until the user locates the folder (file tools would otherwise run in the wrong place);
-   * the locate flow follows from the banner.
+   * Opens a session in this window, in a runtime on `cwd` when the session belongs to another
+   * folder. Sessions from before workspace registration — or whose folder was since removed —
+   * open in place so their history is readable, but agent work stays blocked until the user
+   * locates the folder (file tools would otherwise run in the wrong place); the locate flow
+   * follows from the banner.
    */
-  async #selectInPlace(
+  async #openSession(
     sessionId: string,
     dirName: string | undefined,
     at?: PaneDrop,
+    cwd?: string,
   ): Promise<SessionOpResult> {
-    // Held through the load, also as defense in depth under #switching: no prompt slips in
-    // mid-load.
+    // Held through the load as defense in depth: no prompt slips in mid-load.
     this.#sessionSelecting += 1
     try {
       const { focused } = this.app
@@ -538,9 +587,9 @@ export class DesktopRuntime {
         this.#historyCache = undefined
         return { ok: true }
       }
-      const storage = this.#storageFor(dirName)
+      const storage = { directory: dirName === undefined ? undefined : sessionDir(dirName), cwd }
       const open = this.app.runtimes.find((runtime) =>
-        runtime.sessions.isCurrent(sessionId, storage?.directory),
+        runtime.sessions.isCurrent(sessionId, storage.directory),
       )
       // Dropped on a card, it takes that card's place; one already on screen trades places.
       if (at && "replace" in at) {
@@ -555,6 +604,10 @@ export class DesktopRuntime {
       if (!open || !this.#panes.includes(open)) this.#recordView([this.app.focused])
       const result = await this.app.openSession(sessionId, storage)
       if (result === "locked") return { ok: false, reason: SESSION_REASONS.locked }
+      // Opening a routine's run is seeing it.
+      void this.app.routines?.seen(sessionId)
+      // GUI relaunches resume the folder of the session last opened.
+      if (cwd && result === "opened") await saveLastWorkspace(cwd)
       const current = this.app.sessions.current
       const currentDir = this.app.sessions.currentDirName
       // The workspace's own store is home; any other dir must resolve to a present folder.
@@ -599,10 +652,6 @@ export class DesktopRuntime {
     }
   }
 
-  #storageFor(dirName: string | undefined): { directory: string } | undefined {
-    return dirName === undefined ? undefined : { directory: sessionDir(dirName) }
-  }
-
   /** The name of this workspace's own session store. */
   get #home() {
     return basename(defaultSessionDirectory(this.app.cwd))
@@ -617,90 +666,41 @@ export class DesktopRuntime {
   }
 
   /**
-   * Moves the window to another workspace, optionally straight into one of its sessions (global
-   * history). The destination application — and session, lock included — is fully acquired before
-   * the current one shuts down, so any failure leaves this workspace running untouched. `dirName`
-   * pins the session's storage identity when the caller located history by hand; without it the
-   * session must live in the folder's own store.
+   * Opens a folder in this window: a stored session from its history, or a fresh session there.
+   * Other folders' sessions keep running; the new runtime takes the screen.
    */
   async switchWorkspace(
     path: string,
     sessionId?: string,
     dirName?: string,
   ): Promise<SessionOpResult> {
-    if (this.#locating) return { ok: false, reason: LOCATING }
-    return this.#performSwitch(path, sessionId, dirName)
-  }
-
-  /** The switch itself; locateWorkspace calls this directly since it holds the locating guard. */
-  async #performSwitch(
-    path: string,
-    sessionId?: string,
-    dirName?: string,
-  ): Promise<SessionOpResult> {
-    const cwd = resolve(path)
     if (this.#disposed) return { ok: false, reason: RESTARTING }
-    if (cwd === this.app.cwd)
-      return sessionId ? this.selectSession(sessionId, dirName) : { ok: true }
-    if (this.#switching) return { ok: false, reason: "A workspace switch is already in progress." }
-    if (
-      this.app.anyBusy ||
-      this.app.models.selecting ||
-      this.app.models.load?.status.kind === "progress"
-    ) {
-      return { ok: false, reason: "Finish the current work before switching workspaces." }
+    if (this.#locating) return { ok: false, reason: LOCATING }
+    const cwd = resolve(path)
+    if (!(await pathExists(cwd)) || !(await stat(cwd)).isDirectory()) {
+      // Folder gone but history present: open the session in place; the locate flow takes it
+      // from there.
+      if (sessionId && dirName) return await this.#openSession(sessionId, dirName)
+      return { ok: false, reason: "That folder is no longer available." }
     }
-    // Set synchronously, before any await: two overlapping calls must not both pass validation.
-    this.#switching = true
-    try {
-      if (!(await pathExists(cwd)) || !(await stat(cwd)).isDirectory()) {
-        // Folder gone but history present: open the session in place; the locate flow takes it from
-        // there. Awaited, so #switching stays held until loading and read-only classification
-        // finish.
-        if (sessionId && dirName) return await this.#selectInPlace(sessionId, dirName)
-        return { ok: false, reason: "That folder is no longer available." }
-      }
+    if (sessionId) {
       const directory = dirName ? sessionDir(dirName) : defaultSessionDirectory(cwd)
-      if (sessionId && !(await pathExists(sessionFile({ cwd, directory }, sessionId)))) {
+      if (!(await pathExists(sessionFile({ cwd, directory }, sessionId))))
         return { ok: false, reason: "That session is no longer available." }
-      }
-
-      let next: Application
-      try {
-        next = await Application.create({ cwd, outputCapabilities: CANVAS })
-      } catch (error) {
-        return { ok: false, reason: `Could not open that folder: ${describeError(error)}` }
-      }
-
-      // Open the destination session (write lock included) before committing: a refusal here must
-      // not strand the user in a workspace they never entered.
-      if (sessionId) {
-        const result = selectResult(await next.sessions.select(sessionId, { directory }))
-        if (!result.ok) {
-          await next.shutdown()
-          return result
-        }
-      }
-
-      this.#unsubscribe()
-      await this.app.shutdown()
-      this.#terminal?.kill()
-      this.#attach(next)
-      this.#historyCache = undefined
-      void this.#startSavedSelection()
-      this.#queue(next.focused, { op: "reset" })
-      this.#markStateDirty()
-      await saveLastWorkspace(cwd)
-      return { ok: true }
-    } finally {
-      this.#switching = false
+      return await this.#openSession(sessionId, dirName, undefined, cwd)
     }
+    try {
+      await this.app.openFolder(cwd)
+    } catch (error) {
+      return { ok: false, reason: `Could not open that folder: ${describeError(error)}` }
+    }
+    this.#historyCache = undefined
+    this.#markStateDirty()
+    await saveLastWorkspace(cwd)
+    return { ok: true }
   }
 
-  /**
-   * "Open Folder" — always a plain workspace switch, never a locate; previewing history stays
-   * unregistered.
-   */
+  /** "Open Folder": a fresh session in that folder, never a locate; history stays unregistered. */
   async openWorkspace(path: string): Promise<SessionOpResult> {
     return this.switchWorkspace(path)
   }
@@ -717,7 +717,6 @@ export class DesktopRuntime {
     // locate refuses while any of them is in flight — otherwise an earlier selection settling
     // mid-locate could be relocked.
     if (this.#locating) return { ok: false, reason: LOCATING }
-    if (this.#switching) return { ok: false, reason: SWITCHING }
     if (this.#sessionSelecting > 0)
       return { ok: false, reason: "A session is still opening — try again in a moment." }
     const pending = this.#pendingWorkspace
@@ -741,8 +740,13 @@ export class DesktopRuntime {
       ) {
         return { ok: false, reason: "The session changed while locating — try again." }
       }
-      if (resolve(path) !== this.app.cwd)
-        return await this.#performSwitch(path, pending.sessionId, pending.dirName)
+      if (resolve(path) !== this.app.cwd) {
+        // The read-only runtime sits in the wrong folder; it has no lock and no work to lose. Its
+        // pane goes with it; the opened session takes the screen.
+        await this.app.closeRuntime(this.app.focused)
+        this.#panes = this.#panes.filter((runtime) => this.app.runtimes.includes(runtime))
+        return await this.#openSession(pending.sessionId, pending.dirName, undefined, resolve(path))
+      }
       if ((await this.app.sessions.relock()) === "locked") {
         return { ok: false, reason: "That session is open in another Otis window." }
       }
@@ -780,7 +784,6 @@ export class DesktopRuntime {
 
   startNewSession(): SessionOpResult {
     if (this.#disposed) return { ok: false, reason: RESTARTING }
-    if (this.#switching) return { ok: false, reason: SWITCHING }
     if (this.#locating) return { ok: false, reason: LOCATING }
     const { focused } = this.app
     if (this.#panes.length > 1) {
@@ -802,10 +805,12 @@ export class DesktopRuntime {
 
   async deleteSession(sessionId: string, dirName?: string): Promise<SessionOpResult> {
     if (this.#disposed) return { ok: false, reason: RESTARTING }
-    if (this.#switching) return { ok: false, reason: SWITCHING }
     if (this.#locating) return { ok: false, reason: LOCATING }
     if (!sessionId) return { ok: false, reason: "Invalid session id." }
-    const result = await this.app.deleteSession(sessionId, this.#storageFor(dirName))
+    const result = await this.app.deleteSession(
+      sessionId,
+      dirName === undefined ? undefined : { directory: sessionDir(dirName) },
+    )
     if (result !== "deleted") return { ok: false, reason: SESSION_REASONS[result] }
     // Deleting a session on screen closed its runtime; its pane goes with it.
     this.#panes = this.#panes.filter((runtime) => this.app.runtimes.includes(runtime))
@@ -889,6 +894,14 @@ export class DesktopRuntime {
    * and progress on the row, is the application's.
    */
   async selectModel(id: string): Promise<ModelSelectResult> {
+    const item = await this.#pickerChoice(id)
+    return item.ok ? this.app.selectModel(item.choice) : item
+  }
+
+  /** The picker row for a selection key, from the last listing or a fresh one. */
+  async #pickerChoice(
+    id: string,
+  ): Promise<{ ok: true; choice: ModelPickerChoice } | { ok: false; reason: string }> {
     if (!id) return { ok: false, reason: "Invalid model id." }
     const match = (entry: ModelPickerItem): entry is ModelPickerChoice =>
       entry.kind === "model" &&
@@ -903,7 +916,7 @@ export class DesktopRuntime {
       if (this.#disposed) return { ok: false, reason: SELECTION_SUPERSEDED }
       if (!item) return { ok: false, reason: "That model is no longer in the catalog." }
     }
-    return this.app.selectModel(item)
+    return { ok: true, choice: item }
   }
 
   /** Applies and persists a color theme; unknown names are ignored. */
@@ -1235,6 +1248,7 @@ export class DesktopRuntime {
 
   async shutdown() {
     this.#disposed = true
+    this.app.routines?.stop()
     if (this.#flushTimer) clearTimeout(this.#flushTimer)
     this.app.models.cancelSelection()
     this.app.conversation.stop()
@@ -1373,7 +1387,7 @@ export class DesktopRuntime {
     if (this.#historyCache === undefined) {
       const pending = listGlobalHistory(RECENT_ARTIFACTS, {
         open: app.openSessions(this.#panes),
-        seeds: [app.cwd],
+        seeds: [...new Set(app.runtimes.map((runtime) => runtime.workspace.cwd))],
       })
       this.#historyCache = pending
       void pending.catch(() => {
@@ -1406,6 +1420,7 @@ export class DesktopRuntime {
       panes: this.#panes.map((runtime) => runtime.id),
       paneAxis: this.#paneAxis,
       needsWorkspace: this.#pendingWorkspace !== undefined,
+      routines: this.app.routines?.list() ?? [],
       workspace: { label: formatWorkspaceLabel(app.cwd), path: app.cwd },
       stats: this.#stats,
       freshAchievements: (Object.keys(this.#stats?.achievements ?? {}) as AchievementId[]).filter(
@@ -1500,10 +1515,6 @@ function compactChanges(
 function sessionDir(dirName: string) {
   if (!/^[A-Za-z0-9._-]+$/.test(dirName)) throw new Error("Invalid session directory")
   return join(sessionRootDirectory(), dirName)
-}
-
-function selectResult(result: "noop" | "loaded" | "locked"): SessionOpResult {
-  return result === "loaded" ? { ok: true } : { ok: false, reason: SESSION_REASONS[result] }
 }
 
 async function pathExists(path: string) {

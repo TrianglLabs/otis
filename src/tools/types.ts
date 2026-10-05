@@ -1,6 +1,7 @@
 import type { ArtifactPublisher } from "../artifacts/publisher.js"
 import type { FileArtifactReference } from "../artifacts/types.js"
 import type { AttachmentContentPart } from "../inference/types.js"
+import type { Routine, RoutineInput, RoutineSchedule } from "../local/routines.js"
 import type { MemoryScope } from "../memory/memory.js"
 import type { SkillCatalog } from "../skills/catalog.js"
 import type { ParallelClient } from "../web/client.js"
@@ -24,6 +25,7 @@ export const TOOL_NAMES = [
   "recall",
   "remember",
   "forget",
+  "routines",
 ] as const
 
 export type ToolName = (typeof TOOL_NAMES)[number]
@@ -83,6 +85,21 @@ export type ToolCall =
   | { name: "recall"; input: { query: string } }
   | { name: "remember"; input: { fact: string; scope: MemoryScope } }
   | { name: "forget"; input: { fact: string; scope: MemoryScope } }
+  | {
+      name: "routines"
+      input:
+        | { action: "list" }
+        | { action: "remove"; id: string }
+        | {
+            action: "save"
+            id?: string
+            name: string
+            prompt: string
+            cwd?: string
+            schedule: RoutineSchedule
+            enabled?: boolean
+          }
+    }
 
 export type ToolResult = {
   title: string
@@ -92,8 +109,17 @@ export type ToolResult = {
   artifact?: FileArtifactReference
 }
 
+/** The live routines the `routines` tool edits: the host's scheduler, never the file directly. */
+export type RoutineStore = {
+  list(): readonly (Routine & { nextRunAt?: string })[]
+  save(input: RoutineInput): Promise<Routine>
+  remove(id: string): Promise<void>
+}
+
 export type ToolContext = {
   cwd?: string
+  /** The host's routines, or why there are none; absent in a bare tool run. */
+  routines?: RoutineStore | { error: string }
   /**
    * Optional local-data root override for document backups, runtime and bundled skill resources.
    */

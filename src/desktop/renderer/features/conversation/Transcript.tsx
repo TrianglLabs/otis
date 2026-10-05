@@ -10,7 +10,9 @@ import { OtisMark } from "../../components/OtisMark.js"
 import { formatAge, formatSessionDetail, formatTokenCount, inView } from "../../format.js"
 import { useI18n } from "../../i18n/index.js"
 import { useDesktop, useDesktopSelector, useDesktopState } from "../../runtime.js"
+import { foldersSpanned, type HomeView } from "../../shell/WorkspaceHeader.js"
 import { PaneRuntimeContext } from "../canvas/canvas-context.js"
+import { RoutinesHome } from "../routines/RoutinesHome.js"
 import { Composer } from "./Composer.js"
 import { TranscriptList } from "./TranscriptList.js"
 
@@ -45,8 +47,10 @@ export const SESSION_DRAG_TYPE = "application/x-otis-session"
  */
 export const ConversationView = memo(function ConversationView({
   installing = false,
+  homeView,
 }: {
   installing?: boolean
+  homeView: HomeView
 }) {
   const { api } = useDesktop()
   const state = useDesktopSelector((snapshot) => ({
@@ -124,6 +128,7 @@ export const ConversationView = memo(function ConversationView({
             active={runtime === state.focused}
             split={panes.length > 1}
             dropTarget={drop !== undefined && "replace" in drop && drop.replace === runtime}
+            homeView={homeView}
           />
         ))}
         {drop && "side" in drop ? (
@@ -156,12 +161,14 @@ const ConversationPane = memo(function ConversationPane({
   active,
   split,
   dropTarget,
+  homeView,
 }: {
   runtime: number
   active: boolean
   split: boolean
   /** A dragged session hovering over this card would take its place. */
   dropTarget: boolean
+  homeView: HomeView
 }) {
   const { api } = useDesktop()
   const { locale, t } = useI18n()
@@ -284,7 +291,7 @@ const ConversationPane = memo(function ConversationPane({
         </div>
       ) : null}
       {!split && state.entries.length === 0 && !state.permission ? (
-        <EmptyState />
+        <EmptyState view={homeView} />
       ) : (
         <PaneRuntimeContext.Provider value={runtime}>
           <TranscriptList
@@ -311,6 +318,7 @@ export const SessionStrip = memo(function SessionStrip() {
   const state = useDesktopState("runtimes", "panes")
   const hidden = state?.runtimes.filter((runtime) => !state.panes.includes(runtime.runtime)) ?? []
   if (hidden.length === 0) return null
+  const spanned = foldersSpanned(state?.runtimes ?? [])
   return (
     <nav className="sessionStrip noDrag" aria-label={t("session.open")}>
       {hidden.map((runtime) => (
@@ -333,6 +341,7 @@ export const SessionStrip = memo(function SessionStrip() {
             <span className="stateDot" title={t("session.finished")} />
           ) : null}
           <span className="sessionStrip-title">{runtime.session?.title ?? t("session.new")}</span>
+          {spanned ? <span className="sessionStrip-folder">{runtime.workspace.label}</span> : null}
         </button>
       ))}
     </nav>
@@ -346,7 +355,7 @@ const RECENT_SESSIONS = 4
  * recent sessions and recent Canvas documents, each document with its opening set on a page.
  * First run — no history anywhere — shows only the mark and any setup guidance.
  */
-function EmptyState() {
+function EmptyState({ view }: { view: HomeView }) {
   const { api } = useDesktop()
   const { locale, t } = useI18n()
   const state = useDesktopState("sessions", "recentArtifacts", "modelState", "modelError")
@@ -382,7 +391,9 @@ function EmptyState() {
           </div>
         ) : null}
       </div>
-      {firstRun ? null : (
+      {view === "routines" ? (
+        <RoutinesHome />
+      ) : firstRun ? null : (
         <div className="home-recents">
           <span className="home-heading">
             {t("home.recent")}

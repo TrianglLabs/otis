@@ -111,6 +111,7 @@ describe("conversation scrolling", () => {
       isExiting: () => false,
       artifacts: new ArtifactStore(cwd),
       gate: () => undefined,
+      routines: () => ({ error: "No routines in this test." }),
     })
     follow(conversation, harness.ui, transcript, subagents)
     await conversation.start({ role: "user", content: "hi" })

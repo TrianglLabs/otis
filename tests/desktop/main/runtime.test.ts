@@ -2465,9 +2465,7 @@ describe("locate race safety", () => {
 
     // State drift underneath the runtime (defense-in-depth path): the coordinator now holds B.
     expect(
-      await app.sessions.select("session-b", {
-        directory: join(sessionRootDirectory(), "drift-bb0000000009"),
-      }),
+      await app.sessions.select("session-b", join(sessionRootDirectory(), "drift-bb0000000009")),
     ).toBe("loaded")
 
     const relockSpy = vi.spyOn(app.sessions, "relock")

@@ -421,16 +421,27 @@
   color: var(--text);
 }
 /* A session's state beside its name: working (breathing), finished out of view, or just open. */
+/* Something finished while you were not looking: the accent, like the settings gear's badge. */
 .stateDot {
   flex-shrink: 0;
   width: 6px;
   height: 6px;
   border-radius: var(--radius-pill);
-  background: var(--text);
+  background: var(--accent);
 }
 
 .stateDot-open {
   background: var(--text-dim);
+}
+
+/* Paused is a hollow ring, failed a filled red dot: told apart by shape, not only by hue. */
+.stateDot-paused {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--text-dim);
+}
+
+.stateDot-failed {
+  background: var(--danger);
 }
 
 .fileTypeIcon {
@@ -637,8 +648,9 @@
   background: var(--bg-surface);
 }
 
+/* Focus is a faint grey lift, as on the composer: the caret already marks the active field. */
 .field:focus-within {
-  border-color: var(--accent);
+  border-color: color-mix(in srgb, var(--border), var(--text) 14%);
 }
 
 .field-icon {
@@ -660,4 +672,52 @@
 
 .field-input::placeholder {
   color: var(--text-dim);
+}
+
+/* Toggle switch */
+
+.toggle {
+  flex-shrink: 0;
+  position: relative;
+  width: 32px;
+  height: 19px;
+  padding: 0;
+  background: color-mix(in srgb, var(--border) 65%, transparent);
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: background var(--motion);
+}
+
+.toggle:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.toggle:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: var(--radius-pill);
+  background: var(--text);
+  translate: 0 0;
+  /* A spring-like curve: the knob overshoots a hair and settles. */
+  transition:
+    translate 350ms cubic-bezier(0.34, 1.35, 0.64, 1),
+    background var(--motion);
+}
+
+.toggle-on {
+  background: var(--accent);
+}
+
+.toggle-on .toggle-knob {
+  translate: 13px 0;
+  background: var(--on-accent);
 }

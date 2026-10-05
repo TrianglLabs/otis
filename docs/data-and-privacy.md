@@ -12,6 +12,7 @@ By default, Otis uses the platform's standard user directories:
 | --- | --- | --- |
 | Configuration | `~/Library/Application Support/otis/config.json` | `~/.config/otis/config.json` |
 | Sessions and usage | `~/Library/Application Support/otis/` | `~/.local/share/otis/` |
+| Routines | `~/Library/Application Support/otis/routines.json` | `~/.config/otis/routines.json` |
 | Managed skill sources | `~/Library/Application Support/otis/skills/` | `~/.local/share/otis/skills/` |
 | Memory that holds everywhere | `~/Library/Application Support/otis/memory.md` | `~/.local/share/otis/memory.md` |
 | Memory for one workspace | `~/Library/Application Support/otis/sessions/<workspace>/memory.md` | `~/.local/share/otis/sessions/<workspace>/memory.md` |

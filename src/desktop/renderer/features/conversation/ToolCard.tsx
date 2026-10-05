@@ -1,5 +1,6 @@
 import {
   Box,
+  CalendarClock,
   ChevronRight,
   FileText,
   FolderSearch,
@@ -37,10 +38,20 @@ const KIND_ICONS: Record<ToolActivityKind, LucideIcon> = {
   shell: SquareTerminal,
   agent: Box,
   memory: NotebookPen,
+  routine: CalendarClock,
 }
 
 /** Subjects that are sentences rather than code: a delegation's brief, a web query, a fact. */
-const PROSE_ACTIONS = new Set<ToolAction>(["agent", "web_search", "recall", "remember", "forget"])
+const PROSE_ACTIONS = new Set<ToolAction>([
+  "agent",
+  "web_search",
+  "recall",
+  "remember",
+  "forget",
+  "routines_list",
+  "routines_save",
+  "routines_remove",
+])
 
 /** What a finished run did, counted by what each kind of action amounts to for the reader. */
 const RUN_COUNTS: Record<ToolActivityKind, MessageKey> = {
@@ -55,6 +66,7 @@ const RUN_COUNTS: Record<ToolActivityKind, MessageKey> = {
   shell: "toolRun.commands",
   agent: "toolRun.delegations",
   memory: "toolRun.memories",
+  routine: "toolRun.routines",
 }
 
 /**

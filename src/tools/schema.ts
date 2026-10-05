@@ -1,3 +1,4 @@
+import type { RoutineSchedule } from "../local/routines.js"
 import { isMemoryScope } from "../memory/memory.js"
 import {
   DOCUMENT_OPERATIONS,
@@ -97,6 +98,37 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         },
       },
       ["fact"],
+    ),
+  },
+  {
+    name: "routines",
+    description:
+      "List, save, or remove the user's routines: prompts Otis runs unattended on a schedule in a folder, each run its own session. Save takes name, prompt, schedule and optionally cwd (defaults to the working folder), enabled, and id to replace an existing routine. Routines only read unless the user enables tools without asking in the app; this tool cannot. Saving or removing always asks the user.",
+    parameters: objectSchema(
+      {
+        action: {
+          type: "string",
+          enum: ["list", "save", "remove"],
+          description: "What to do.",
+        },
+        id: stringSchema("The routine to replace or remove, as list shows it."),
+        name: stringSchema("A short name, for save."),
+        prompt: stringSchema("What each run should do, for save."),
+        cwd: stringSchema("The folder the runs work in, for save. Defaults to the working folder."),
+        schedule: {
+          type: "object",
+          description:
+            'For save: { "kind": "daily", "time": "HH:MM" } or { "kind": "interval", "minutes": N }.',
+          properties: {
+            kind: { type: "string", enum: ["daily", "interval"] },
+            time: { type: "string" },
+            minutes: { type: "integer" },
+          },
+          required: ["kind"],
+        },
+        enabled: { type: "boolean", description: "For save; defaults to true." },
+      },
+      ["action"],
     ),
   },
   {
@@ -494,6 +526,37 @@ export function parseStructuredToolCall(name: string, input: unknown): ToolCall 
       const scope = text("scope") ?? "workspace"
       if (!isMemoryScope(scope)) throw new Error(`${name} scope must be "workspace" or "global"`)
       return { name, input: { fact, scope } }
+    }
+    case "routines": {
+      const action = text("action")
+      if (action !== "list" && action !== "save" && action !== "remove")
+        throw new Error('routines "action" must be list, save, or remove')
+      const id = text("id")
+      if (action === "list") return { name, input: { action } }
+      if (action === "remove") {
+        if (!id) throw new Error('routines remove requires a non-empty "id"')
+        return { name, input: { action, id } }
+      }
+      const routineName = text("name")
+      const prompt = text("prompt")
+      const schedule = fields.schedule
+      if (!routineName || !prompt || !isRecord(schedule))
+        throw new Error('routines save requires "name", "prompt", and a "schedule" object')
+      if (fields.enabled !== undefined && typeof fields.enabled !== "boolean")
+        throw new Error('routines "enabled" must be a boolean')
+      // The store validates the schedule's shape; the parser only passes the object through.
+      return {
+        name,
+        input: {
+          action,
+          name: routineName,
+          prompt,
+          schedule: schedule as RoutineSchedule,
+          ...(id ? { id } : {}),
+          ...(text("cwd") ? { cwd: text("cwd") } : {}),
+          ...(fields.enabled === undefined ? {} : { enabled: fields.enabled }),
+        },
+      }
     }
     case "save_attachment": {
       const attachment = text("attachment")

@@ -31,6 +31,10 @@ including PDF inspection because first use can install the fixed document depend
 An allowed document operation authorizes its private runtime setup; it does not authorize arbitrary shell commands,
 packages, or helper scripts. Skill loading grants no additional permission.
 
+`routines` lists routines freely. Saving or removing one is a standing grant for unattended runs, so it asks even in
+`auto` mode and is denied in `dontAsk`, which is also the mode a routine's own run uses. The tool cannot turn on
+tools without asking for a routine; only the app's editor can.
+
 Interactive Otis defaults to `auto`; press Tab to switch between automatic execution and approval prompts. `otis exec`
 defaults to `dontAsk` and never prompts. Read-only tools are allowed by default in both interfaces.
 

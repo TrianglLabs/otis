@@ -429,9 +429,9 @@ if (!app.requestSingleInstanceLock()) {
       .catch((error) => console.warn(`Unable to seed the status bar item: ${String(error)}`))
   })
 
-  // v1 policy: one window, one workspace. Closing the window quits the app so no managed processes
-  // outlive it. During an update install both quit paths stand down: quitAndInstall owns the
-  // shutdown, and racing it with app.quit()/app.exit(0) would kill the installer handoff.
+  // One window; its sessions may sit in different folders. Closing it quits the app so no managed
+  // processes outlive it. During an update install both quit paths stand down: quitAndInstall owns
+  // the shutdown, and racing it with app.quit()/app.exit(0) would kill the installer handoff.
   app.on("window-all-closed", () => {
     if (updater?.isInstalling()) return
     app.quit()

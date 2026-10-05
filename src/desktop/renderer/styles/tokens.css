@@ -11,6 +11,7 @@
   --z-backdrop: 40;
   --z-overlay: 41;
   /* Surfaces */
+  color-scheme: dark;
   --bg: #1a1a1a;
   --bg-elev: #262626;
   /* The workspace rail, a shade above the page; the terminal paints its cells on it too. */

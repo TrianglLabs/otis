@@ -1,6 +1,7 @@
 /* Theme overrides mirroring src/cli/theme.ts. The default theme lives in tokens.css (:root). */
 
 [data-theme="pearl"] {
+  color-scheme: light;
   --bg: #f5f5f7;
   --bg-elev: #ffffff;
   --bg-rail: #fafafb;
@@ -26,6 +27,7 @@
 }
 
 [data-theme="sage"] {
+  color-scheme: light;
   --bg: #f3f5f1;
   --bg-elev: #fdfefc;
   --bg-rail: #f8f9f6;
@@ -93,6 +95,7 @@
 }
 
 [data-theme="bright"] {
+  color-scheme: light;
   --otis-mark-top-opacity: 0.5;
   --bg: #d8d8d6;
   --bg-elev: #cececa;
@@ -176,6 +179,7 @@
 }
 
 [data-theme="beige"] {
+  color-scheme: light;
   --otis-mark-top-opacity: 0.5;
   --bg: #eae3ce;
   --bg-elev: #ddd3b6;

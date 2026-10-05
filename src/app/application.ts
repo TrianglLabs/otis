@@ -60,6 +60,7 @@ import {
   type ServerProvider,
   type UserChatMessage,
 } from "../inference/types.js"
+import { loadRoutines, ROUTINES_UNAVAILABLE } from "../local/routines.js"
 import {
   clearSelectedModel,
   hostedApiKeys,
@@ -109,6 +110,7 @@ import {
   type ModelState,
   resolveHostedServing,
 } from "./models.js"
+import { Routines } from "./routines.js"
 import { type OpenSession, SESSION_REASONS, SessionCoordinator } from "./sessions.js"
 import { type SubagentStatus, SubagentTraces } from "./subagents.js"
 import { type TranscriptChange, TranscriptStore } from "./transcript.js"
@@ -133,6 +135,8 @@ export type SubagentSummary = {
 export type RuntimeSummary = {
   runtime: number
   session: { id: string; title: string; dirName: string } | null
+  /** The folder this session works in. */
+  workspace: { label: string; path: string }
   focused: boolean
   busy: boolean
   unseen: boolean
@@ -213,6 +217,8 @@ export type SelectionResult = { ok: true } | { ok: false; reason: string }
 
 export type SelectModelOptions = {
   signal?: AbortSignal
+  /** The session to put on the model; the focused one by default. */
+  runtime?: SessionRuntime
   /** The target's provider key, not yet saved (onboarding); kept once the selection commits. */
   hostedApiKey?: string
   /** Replaces the default `saveSelectedModel`, e.g. to save a new key and model together. */
@@ -249,6 +255,32 @@ function pickerKey(model: CatalogModel) {
 }
 
 /**
+ * One folder's loaded state, shared by every session in it: the folder, its AGENTS.md context,
+ * the skills visible from it, and its project permission rules.
+ */
+export class Workspace {
+  readonly label: string
+
+  private constructor(
+    readonly cwd: string,
+    public projectContext: ContextFile[],
+    public skills: SkillCatalog,
+    readonly rules: PermissionRule[],
+  ) {
+    this.label = formatWorkspaceLabel(cwd)
+  }
+
+  static async load(cwd: string) {
+    return new Workspace(
+      cwd,
+      loadProjectContext(cwd),
+      await loadSkillCatalog(cwd),
+      await loadProjectPermissionRules(cwd),
+    )
+  }
+}
+
+/**
  * One open session: its own transcript, delegated runs, artifacts, session file and lock, and
  * turn loop. Its id is the conversation's — the owner id at the inference gate and the permission
  * broker.
@@ -263,6 +295,9 @@ export class SessionRuntime {
   readonly #detach: () => void
 
   constructor(
+    readonly workspace: Workspace,
+    /** A routine's run approves its tools under this mode; other sessions follow the setting. */
+    readonly permissionMode: PermissionMode | undefined,
     readonly models: ModelHost,
     selection: ModelSelection | undefined,
     readonly transcript: TranscriptStore,
@@ -312,17 +347,21 @@ export class SessionRuntime {
 }
 
 export class Application {
-  readonly cwd: string
   readonly outputCapabilities: OutputCapabilities
   readonly models: ModelHost
+  /** The saved routines and their scheduler; undefined when routines.json does not parse. */
+  routines: Routines | undefined
+  /** Why routines are unavailable, for the places that would otherwise offer them. */
+  routinesError: string | undefined
   /** The approval surface every runtime asks through; `status().permission` is its head. */
   readonly permissions = new PermissionBroker()
   readonly webClient = new ParallelClient()
   settings: LocalSettings
-  projectContext: ContextFile[] = []
-  skills!: SkillCatalog
   permissionMode: PermissionMode
-  permissionRules: PermissionRule[]
+  /** The user's own rules from settings; each workspace adds its project's. */
+  #settingsRules: PermissionRule[]
+  /** Every folder a session has been opened in this process, loaded once. */
+  readonly #workspaces = new Map<string, Promise<Workspace>>()
   readonly hostedApiKeys: HostedApiKeys
   pairEndpoints: PairEndpoints
   /**
@@ -343,20 +382,21 @@ export class Application {
   #imageSupport: { modelId: string; promise: Promise<void> } | undefined
 
   static async create(options: ApplicationOptions = {}) {
-    const cwd = resolve(options.cwd ?? process.cwd())
+    const workspace = await Workspace.load(resolve(options.cwd ?? process.cwd()))
     const settings = await loadLocalSettings({ env: options.env })
-    const app = new Application(cwd, settings, options)
+    const app = new Application(workspace, settings, options)
+    app.routines = await loadRoutines().then(
+      (routines) => new Routines(app, routines),
+      (error) => {
+        app.routinesError = `${ROUTINES_UNAVAILABLE} ${describeError(error)}`
+        return undefined
+      },
+    )
     app.models.applySettings(settings)
     app.#focused.selection = app.models.savedSelection(settings)
     // A saved selection without a client still needs its server (local, oMLX) or its key.
     if (!app.#focused.client)
       app.models.setState(app.hasConfiguredSelection() ? "starting" : "unconfigured")
-    app.projectContext = loadProjectContext(cwd)
-    await app.reloadSkills()
-    app.permissionRules = [
-      ...(settings.permissions?.rules ?? []),
-      ...(await loadProjectPermissionRules(cwd)),
-    ]
     void app.publishUsage()
     return app
   }
@@ -366,15 +406,15 @@ export class Application {
     return publishOmarchyUsage(this.#focused.selection?.model.provider).catch(() => undefined)
   }
 
-  private constructor(cwd: string, settings: LocalSettings, options: ApplicationOptions) {
+  private constructor(workspace: Workspace, settings: LocalSettings, options: ApplicationOptions) {
     this.#isExiting = options.isExiting ?? (() => false)
-    this.cwd = cwd
+    this.#workspaces.set(workspace.cwd, Promise.resolve(workspace))
     this.outputCapabilities = options.outputCapabilities ?? {}
     this.settings = settings
     this.hostedApiKeys = hostedApiKeys(settings)
     this.pairEndpoints = { ...settings.pairEndpoints }
     this.permissionMode = settings.permissions?.defaultMode ?? DEFAULT_PERMISSION_MODE
-    this.permissionRules = [...(settings.permissions?.rules ?? [])]
+    this.#settingsRules = [...(settings.permissions?.rules ?? [])]
     this.models = new ModelHost({ env: options.env })
     this.models.onLocal = (selection) => {
       for (const runtime of this.#runtimes)
@@ -392,19 +432,49 @@ export class Application {
     this.permissions.subscribe((request) =>
       this.#notify({ type: "permission", request }, request?.runtime),
     )
-    this.#focused = this.#createRuntime()
+    this.#focused = this.#createRuntime(workspace)
     this.#runtimes.push(this.#focused)
   }
 
+  /** The focused session's folder; the one an interface shows and acts in by default. */
+  get cwd() {
+    return this.#focused.workspace.cwd
+  }
+
+  get projectContext() {
+    return this.#focused.workspace.projectContext
+  }
+
+  get skills() {
+    return this.#focused.workspace.skills
+  }
+
+  /** The user's rules followed by the focused workspace's project rules. */
+  get permissionRules(): PermissionRule[] {
+    return [...this.#settingsRules, ...this.#focused.workspace.rules]
+  }
+
+  /** The loaded state of a folder, read once per process and shared by its sessions. */
+  workspace(path: string): Promise<Workspace> {
+    const cwd = resolve(path)
+    let loading = this.#workspaces.get(cwd)
+    if (!loading) {
+      loading = Workspace.load(cwd)
+      this.#workspaces.set(cwd, loading)
+      loading.catch(() => this.#workspaces.delete(cwd))
+    }
+    return loading
+  }
+
   /** A runtime with its own stores, coordinator, and turn loop, reporting events under its id. */
-  #createRuntime(): SessionRuntime {
+  #createRuntime(workspace: Workspace, permissionMode?: PermissionMode): SessionRuntime {
     const selection = this.#focused?.selection && { ...this.#focused.selection }
     const transcript = new TranscriptStore()
     const subagents = new SubagentTraces()
-    const artifacts = new ArtifactStore(this.cwd)
+    const artifacts = new ArtifactStore(workspace.cwd)
     let runtime!: SessionRuntime
     const sessions = new SessionCoordinator({
-      cwd: this.cwd,
+      cwd: workspace.cwd,
       transcript,
       subagents,
       client: () => runtime.client,
@@ -424,7 +494,7 @@ export class Application {
       transcript,
       subagents,
       webClient: this.webClient,
-      cwd: this.cwd,
+      cwd: workspace.cwd,
       serving: () => {
         const client = runtime.client
         const model = runtime.selection?.model
@@ -437,9 +507,10 @@ export class Application {
           autoCompactAtTokens: this.models.autoCompactAtTokens(model),
         }
       },
-      projectContext: () => this.projectContext,
-      skills: () => this.skills,
-      permissionPolicy: () => this.createPermissionPolicy(),
+      projectContext: () => workspace.projectContext,
+      skills: () => workspace.skills,
+      routines: () => this.routines ?? { error: this.routinesError ?? ROUTINES_UNAVAILABLE },
+      permissionPolicy: () => this.createPermissionPolicy(workspace, permissionMode),
       broker: this.permissions,
       isExiting: this.#isExiting,
       outputCapabilities: this.outputCapabilities,
@@ -448,6 +519,8 @@ export class Application {
     })
     conversation.debug = this.#debug
     runtime = new SessionRuntime(
+      workspace,
+      permissionMode,
       this.models,
       selection,
       transcript,
@@ -519,9 +592,12 @@ export class Application {
     for (const runtime of this.#runtimes) runtime.conversation.debug = enabled
   }
 
-  /** Rereads the skills on disk; conversations pick the catalog up from their next turn. */
+  /** Rereads the skills on disk for every open folder; conversations pick them up next turn. */
   async reloadSkills() {
-    this.skills = await loadSkillCatalog(this.cwd)
+    for (const loading of this.#workspaces.values()) {
+      const workspace = await loading
+      workspace.skills = await loadSkillCatalog(workspace.cwd)
+    }
   }
 
   /** The skills reread from disk as the pickers list them, each with where it comes from. */
@@ -603,12 +679,13 @@ export class Application {
 
   /**
    * Opens a session in this process: focuses the runtime that already has it, refuses one another
-   * process holds, and otherwise loads it — into the focused runtime when that one is idle, else
-   * into a new runtime that takes focus. Never refused for being busy.
+   * process holds, and otherwise loads it — into the focused runtime when that one is idle and in
+   * the session's folder, else into a new runtime that takes focus. Never refused for being busy.
+   * `cwd` names the session's folder when it is not the focused one.
    */
   async openSession(
     sessionId: string,
-    storage?: { directory: string },
+    storage?: { directory?: string; cwd?: string },
   ): Promise<"focused" | "opened" | "locked"> {
     const open = this.#runtimes.find((runtime) =>
       runtime.sessions.isCurrent(sessionId, storage?.directory),
@@ -617,10 +694,12 @@ export class Application {
       this.focus(open)
       return "focused"
     }
-    const runtime = this.#focused.busy ? this.#createRuntime() : this.#focused
+    const workspace = storage?.cwd ? await this.workspace(storage.cwd) : this.#focused.workspace
+    const reuse = !this.#focused.busy && this.#focused.workspace === workspace
+    const runtime = reuse ? this.#focused : this.#createRuntime(workspace)
     let result: "noop" | "loaded" | "locked" | undefined
     try {
-      result = await runtime.sessions.select(sessionId, storage)
+      result = await runtime.sessions.select(sessionId, storage?.directory)
     } finally {
       if (result !== "loaded" && runtime !== this.#focused) await runtime.dispose()
     }
@@ -643,7 +722,7 @@ export class Application {
     // Opening creates what is missing; a session deleted since is not brought back empty.
     if (!(await stat(sessionFile({ cwd: this.cwd }, sessionId)).catch(() => undefined)))
       return undefined
-    const runtime = this.#createRuntime()
+    const runtime = this.#createRuntime(this.#focused.workspace)
     if ((await runtime.sessions.select(sessionId)) !== "loaded") {
       await runtime.dispose()
       return "locked"
@@ -665,10 +744,26 @@ export class Application {
     return this.#focused
   }
 
-  /** A fresh, unfocused runtime; the caller places it and focuses it. */
-  addRuntime(): SessionRuntime {
-    const runtime = this.#createRuntime()
+  /**
+   * A fresh, unfocused runtime in a folder (the focused one's by default); the caller
+   * places it.
+   */
+  addRuntime(workspace = this.#focused.workspace, permissionMode?: PermissionMode): SessionRuntime {
+    const runtime = this.#createRuntime(workspace, permissionMode)
     this.#runtimes.push(runtime)
+    return runtime
+  }
+
+  /**
+   * A fresh session in a folder: the focused runtime resets in place when it is idle and already
+   * there, else a new runtime in that folder takes focus. The caller decides what becomes of the
+   * runtime it left.
+   */
+  async openFolder(path: string): Promise<SessionRuntime> {
+    const workspace = await this.workspace(path)
+    if (workspace === this.#focused.workspace) return this.openNew()
+    const runtime = this.addRuntime(workspace)
+    this.focus(runtime)
     return runtime
   }
 
@@ -692,7 +787,7 @@ export class Application {
     const index = this.#runtimes.indexOf(runtime)
     if (index < 0) throw new Error("That session runtime is not open.")
     this.#runtimes.splice(index, 1)
-    if (this.#runtimes.length === 0) this.#runtimes.push(this.#createRuntime())
+    if (this.#runtimes.length === 0) this.#runtimes.push(this.#createRuntime(runtime.workspace))
     if (runtime === this.#focused)
       this.focus(this.#runtimes[Math.min(index, this.#runtimes.length - 1)])
     else this.#notify({ type: "status" })
@@ -788,6 +883,7 @@ export class Application {
             current && currentDirName
               ? { id: current.id, title: runtime.sessions.activeLabel(), dirName: currentDirName }
               : null,
+          workspace: { label: runtime.workspace.label, path: runtime.workspace.cwd },
           focused: runtime === this.#focused,
           busy: runtime.busy,
           unseen: runtime.unseen,
@@ -823,22 +919,23 @@ export class Application {
     await savePermissionMode(mode)
   }
 
-  createPermissionPolicy() {
+  createPermissionPolicy(workspace = this.#focused.workspace, mode = this.permissionMode) {
     return createPermissionPolicy({
-      cwd: this.cwd,
-      mode: this.permissionMode,
-      rules: this.permissionRules,
+      cwd: workspace.cwd,
+      mode,
+      rules: [...this.#settingsRules, ...workspace.rules],
     })
   }
 
   contextEstimator(runtime = this.#focused) {
+    const { projectContext, skills } = runtime.workspace
     const tools = providerTools(runtime.selection?.model.provider ?? "fireworks").filter(
-      (tool) => tool.name !== "skill" || this.skills.skills.length > 0,
+      (tool) => tool.name !== "skill" || skills.skills.length > 0,
     )
     return requestContextEstimator({
       tools,
-      projectContext: this.projectContext,
-      skills: tools.some((tool) => tool.name === "skill") ? this.skills.skills : [],
+      projectContext,
+      skills: tools.some((tool) => tool.name === "skill") ? skills.skills : [],
       outputCapabilities: this.outputCapabilities,
     })
   }
@@ -1130,7 +1227,7 @@ export class Application {
     target: ModelPickerChoice | CatalogModel,
     options: SelectModelOptions = {},
   ): Promise<SelectionResult> {
-    const runtime = this.#focused
+    const runtime = options.runtime ?? this.#focused
     const refusal = this.#switchRefusal(runtime, target.provider)
     if (refusal) return refusal
     const models = this.models

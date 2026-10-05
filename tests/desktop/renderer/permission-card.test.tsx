@@ -60,6 +60,7 @@ const SNAPSHOT: DesktopSnapshot = {
       busy: true,
       unseen: false,
       diffs: { added: 0, removed: 0 },
+      workspace: { label: "ws", path: "/ws" },
       contextTokens: 0,
     },
   ],
@@ -87,6 +88,7 @@ const SNAPSHOT: DesktopSnapshot = {
   pairConfigured: false,
   pairEndpoints: {},
   servers: {},
+  routines: [],
   debug: false,
   platform: "darwin",
   version: "0.0.0-test",
@@ -121,7 +123,7 @@ async function renderConversation(pending: PendingPermission) {
   await store.start()
   const view = render(
     <DesktopProvider value={{ api, store }}>
-      <ConversationView />
+      <ConversationView homeView="home" />
     </DesktopProvider>,
   )
   return {
@@ -164,6 +166,7 @@ describe("PermissionCard", () => {
       busy: false,
       unseen: false,
       diffs: { added: 0, removed: 0 },
+      workspace: { label: "ws", path: "/ws" },
       contextTokens: 0,
     }
     const { queryByText, replace } = await renderConversation(permission)

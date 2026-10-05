@@ -1,0 +1,185 @@
+/* Routines on the home screen: the recents' cards, and a sheet for the one being edited. */
+
+.home-card-add .home-cardTile {
+  background: transparent;
+  border: 1px dashed var(--border);
+}
+
+/* Page controls in the heading's hint slot: the chevrons and "1 of 3". The buttons stand taller
+   than the heading's line and overflow it, so the heading keeps the Recent heading's height. */
+.home-pager {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  gap: 4px;
+  height: 1.45em;
+}
+
+/* A card with nothing to open says so quietly, centred under the grid, for a few seconds. */
+.home-notice {
+  align-self: center;
+  color: var(--text-dim);
+  animation: overlay-fade var(--motion);
+}
+
+/* A routine card is a card with two targets: the body opens the run, the pencil the editor. */
+.home-card-routine {
+  padding: 0;
+  cursor: default;
+}
+
+.home-card-routine:active {
+  transform: none;
+}
+
+.home-cardOpen {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px 0 12px 14px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.home-cardEdit {
+  flex-shrink: 0;
+  margin: 0 10px;
+  opacity: 0;
+  transition: opacity var(--motion);
+}
+
+.home-card-routine:hover .home-cardEdit,
+.home-cardEdit:focus-visible {
+  opacity: 1;
+}
+
+/* The folder prompt's frame, sized for a form. */
+.routineSheet {
+  position: fixed;
+  top: 8vh;
+  left: 50%;
+  translate: -50% 0;
+  z-index: var(--z-overlay);
+  width: min(520px, calc(100vw - 32px));
+  max-height: 84vh;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px 18px 16px;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  animation: overlay-enter var(--motion);
+}
+
+.routineSheet-title {
+  margin: 0 0 6px;
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+
+.routineSheet-summary {
+  margin: -4px 0 4px;
+  font-size: var(--text-meta);
+  color: var(--text-dim);
+}
+
+/* The select at the fields' height and type, not the Settings row's compact one. */
+.routineSheet-model {
+  min-height: 32px;
+  font-size: var(--text-ui);
+  background: var(--bg-surface);
+}
+
+.routineSheet-label {
+  margin-top: 8px;
+  font-size: var(--text-meta);
+  color: var(--text-dim);
+}
+
+.routineSheet-folder,
+.routineSheet-time {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* The kind of schedule and its time on one line: compact selects beside the strip. */
+.routineSheet-schedule {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* The field's frame on a textarea: the same border and fill, the input's own type. */
+.routineSheet-prompt {
+  display: block;
+  min-height: 72px;
+  resize: vertical;
+  font: inherit;
+  font-size: var(--text-ui);
+  line-height: 1.45;
+  color: var(--text);
+  outline: none;
+}
+
+.routineSheet-schedule .tabStrip {
+  flex: none;
+}
+
+/* The schedule's selects at the fields' height and type, compact beside the strip. The Settings
+   select's own minimum width is overridden here, hence the nested selectors. */
+.routineSheet-schedule .routineSheet-select {
+  flex: none;
+  width: 74px;
+  min-width: 0;
+  min-height: 32px;
+  font-size: var(--text-ui);
+  background: var(--bg-surface);
+}
+
+.routineSheet-schedule .routineSheet-select-interval {
+  width: 150px;
+}
+
+.routineSheet-colon {
+  color: var(--text-dim);
+}
+
+.routineSheet-switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  font-size: var(--text-ui);
+}
+
+.routineSheet-switch > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.routineSheet-hint {
+  font-size: var(--text-meta);
+  color: var(--text-dim);
+}
+
+.routineSheet-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.routineSheet-spacer {
+  flex: 1;
+}

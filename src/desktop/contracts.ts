@@ -3,6 +3,7 @@ import type { PendingPermission, TurnPhase, TurnSpeed } from "../app/conversatio
 import type { GlobalSessionPickerItem, RecentArtifact } from "../app/global-sessions.js"
 import type { LocalServerInputs } from "../app/local-servers.js"
 import type { ModelState } from "../app/models.js"
+import type { RoutineStatus } from "../app/routines.js"
 import type { TranscriptEntry } from "../app/transcript.js"
 import type {
   ArtifactAsset,
@@ -18,6 +19,7 @@ import type {
   ModelProvider,
   ServerProvider,
 } from "../inference/types.js"
+import type { RoutineInput } from "../local/routines.js"
 import type { TextSize, ThemeName, UiLanguage } from "../local/settings.js"
 import type { MemoryEntry, MemoryScope } from "../memory/memory.js"
 import type { PermissionMode } from "../permissions/policy.js"
@@ -85,6 +87,10 @@ export const DESKTOP_CHANNELS = {
   installSkills: "desktop:install-skills",
   updateSkills: "desktop:update-skills",
   removeSkills: "desktop:remove-skills",
+  saveRoutine: "desktop:save-routine",
+  deleteRoutine: "desktop:delete-routine",
+  runRoutine: "desktop:run-routine",
+  cancelRoutine: "desktop:cancel-routine",
   listMemory: "desktop:list-memory",
   rememberFact: "desktop:remember-fact",
   forgetFact: "desktop:forget-fact",
@@ -207,6 +213,8 @@ export type DesktopStatus = {
   pairEndpoints: { ollama?: string; lmStudio?: string }
   /** The connected user-managed servers, by provider; keys never reach the renderer. */
   servers: Partial<Record<ServerProvider, ServerStatus>>
+  /** The saved routines with their run state; a running one names its runtime. */
+  routines: RoutineStatus[]
   /** Session-only debug mode, mirroring the TUI's /debug toggle; applies from the next turn. */
   debug: boolean
   update: DesktopUpdateState
@@ -290,6 +298,9 @@ export type DesktopAttachmentInput = {
 
 export type SessionOpResult = { ok: true } | { ok: false; reason: string }
 
+export type { RoutineStatus } from "../app/routines.js"
+export type { ModelPickerItem } from "../inference/picker-catalog.js"
+export type { RoutineInput, RoutineRun, RoutineSchedule } from "../local/routines.js"
 export type { MemoryEntry, MemoryScope } from "../memory/memory.js"
 export type { SkillSummary, SkillsSummary } from "../skills/catalog.js"
 
@@ -446,6 +457,12 @@ export type DesktopApi = {
   updateSkills(id: string): Promise<SessionOpResult>
   /** Removes a collection and the skills it activated. */
   removeSkills(id: string): Promise<SessionOpResult>
+  /** Adds or replaces a routine; the reason names the field when the input is refused. */
+  saveRoutine(routine: RoutineInput): Promise<SessionOpResult>
+  deleteRoutine(id: string): Promise<void>
+  /** Starts a run now; refused while one is on. The run settles on its own. */
+  runRoutine(id: string): Promise<SessionOpResult>
+  cancelRoutine(id: string): Promise<void>
   /** What Otis remembers for this workspace and everywhere, in file order. */
   listMemory(): Promise<MemoryEntry[]>
   rememberFact(scope: MemoryScope, fact: string): Promise<SessionOpResult>

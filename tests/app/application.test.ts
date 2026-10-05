@@ -1,4 +1,5 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { type AppEvent, Application, formatWorkspaceLabel } from "../../src/app/application.js"
@@ -19,6 +20,7 @@ import type {
   InferenceClient,
   LocalCatalogModel,
 } from "../../src/inference/types.js"
+import { localConfigDirectory } from "../../src/local/paths.js"
 import { loadLocalSettings, saveSelectedModel } from "../../src/local/settings.js"
 import type { PermissionRequest } from "../../src/permissions/policy.js"
 import { createSession, listSessions } from "../../src/storage/session.js"
@@ -351,7 +353,7 @@ describe("Application prompt admission", () => {
     // A selection settling with a client re-drives the backlog.
     await app.models.enqueueSelection(async () => serve(app, fakeClient))
     await vi.waitFor(() => expect(mocks.executeTurn).toHaveBeenCalledOnce())
-    expect(JSON.stringify(mocks.executeTurn.mock.calls[0]?.[0])).toContain("hold this")
+    expect(JSON.stringify(mocks.executeTurn.mock.calls[0]?.[0].input)).toContain("hold this")
     await app.conversation.idle()
     expect(app.conversation.peekQueued()).toBeUndefined()
     await app.shutdown()
@@ -1262,6 +1264,86 @@ describe("Application session views", () => {
     expect(await app.openBeside("missing")).toBeUndefined()
     expect(app.runtimes).toHaveLength(2)
     await app.shutdown()
+  })
+})
+
+describe("Application routines", () => {
+  it("loads routines beside the settings and keeps a broken file from blocking startup", async () => {
+    const home = await isolate("otis-app-routines-")
+    const cwd = join(home, "work")
+    await mkdir(cwd, { recursive: true })
+    const good = await Application.create({ cwd, env: {} })
+    expect(good.routines?.list()).toEqual([])
+    expect(good.routinesError).toBeUndefined()
+    await good.shutdown()
+
+    await writeFile(join(localConfigDirectory(), "routines.json"), "{ not json")
+    const broken = await Application.create({ cwd, env: {} })
+    expect(broken.routines).toBeUndefined()
+    expect(broken.routinesError).toContain("routines.json")
+    await broken.shutdown()
+  })
+})
+
+describe("Application workspaces", () => {
+  it("opens sessions in other folders beside the focused one, each with its own project state", async () => {
+    const app = await ready()
+    const other = await mkdtemp(join(tmpdir(), "otis-other-"))
+    await writeFile(join(other, "AGENTS.md"), "# Other\n\nBe terse.\n")
+    await mkdir(join(other, ".otis"), { recursive: true })
+    await writeFile(
+      join(other, ".otis", "permissions.json"),
+      JSON.stringify({ version: 1, rules: [{ tool: "bash", effect: "deny" }] }),
+    )
+    const home = app.focused
+
+    // Opening another folder keeps the runtime the user came from and focuses a new one there.
+    const runtime = await app.openFolder(other)
+    expect(runtime).not.toBe(home)
+    expect(app.focused).toBe(runtime)
+    expect(app.runtimes).toEqual([home, runtime])
+    expect(app.cwd).toBe(other)
+    expect(runtime.workspace.cwd).toBe(other)
+    expect(runtime.workspace.projectContext.map((file) => file.content)).toContain(
+      "# Other\n\nBe terse.\n",
+    )
+    expect(app.permissionRules).toEqual([{ tool: "bash", effect: "deny" }])
+    expect(home.workspace.projectContext).toEqual([])
+    expect(app.runtimes.map((entry) => entry.workspace.label)).toEqual([
+      formatWorkspaceLabel(home.workspace.cwd),
+      formatWorkspaceLabel(other),
+    ])
+    // The same folder again is the same loaded workspace; opening it from its own runtime just
+    // starts a fresh session there.
+    expect(await app.workspace(other)).toBe(runtime.workspace)
+    expect(await app.openFolder(other)).toBe(runtime)
+    expect(app.runtimes).toHaveLength(2)
+
+    // A stored session in the other folder opens into a runtime there, not the focused one.
+    app.focus(home)
+    const stored = await createSession({ cwd: other })
+    const admission = await stored.admitPrompt("hello")
+    await stored.completeTurn(admission, [
+      { role: "assistant", content: [{ type: "text", text: "hi" }] },
+    ])
+    expect(await app.closeRuntime(runtime)).toBe("closed")
+    expect(await app.openSession(stored.id, { cwd: other })).toBe("opened")
+    expect(app.focused).not.toBe(home)
+    expect(app.focused.workspace.cwd).toBe(other)
+    expect(app.focused.sessions.current?.id).toBe(stored.id)
+    expect(app.status().runtimes.map((entry) => entry.workspace.path)).toEqual([
+      home.workspace.cwd,
+      other,
+    ])
+    // Another stored session in that folder reuses the idle runtime already there.
+    const second = await createSession({ cwd: other })
+    const opened = app.focused
+    expect(await app.openSession(second.id, { cwd: other })).toBe("opened")
+    expect(app.focused).toBe(opened)
+    expect(app.focused.sessions.current?.id).toBe(second.id)
+    expect(app.runtimes).toHaveLength(2)
+    await app.shutdown()
+    await rm(other, { recursive: true, force: true })
   })
 })
 
