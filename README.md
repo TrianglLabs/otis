@@ -245,7 +245,8 @@ vulnerability reporting.
 
 - [Desktop app and downloads](https://triangllabs.ai/otis) — native macOS and Linux builds
 - [Managed local inference](docs/local-inference.md) — hardware fit, downloads, context, and model deletion
-- [User-managed servers](docs/local-servers.md) — oMLX and any OpenAI-compatible server: connection, keys, model metadata
+- [User-managed servers](docs/local-servers.md) — oMLX, NInfer, Strata, and any OpenAI-compatible server: connection,
+  keys, model metadata
 - [NVIDIA PAIR](docs/nvidia-pair.md) — endpoint setup, routing, inventory, and metadata
 - [Headless execution](docs/headless.md) — output formats, limits, sessions, and attachments
 - [Document workflows](docs/document-workflows.md) — reading, editing, generating, and publishing documents
