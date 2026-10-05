@@ -7,9 +7,9 @@ download its models, or start and stop it. (Ollama and LM Studio connect through
 
 ## Any OpenAI-compatible server
 
-The **Custom server** field takes the address of whatever engine you run: vLLM, SGLang, llama.cpp's `llama-server`,
-NInfer, or your own. It must serve `/v1/chat/completions` with streaming and tool calls, over HTTP on loopback
-(`127.0.0.1`, `localhost`, or `::1`), optionally behind an API key.
+The **Custom server** field takes the address of whatever engine you run: vLLM, SGLang, llama.cpp's
+`llama-server`, [NInfer](#ninfer), [Strata](#strata), or your own. It must serve `/v1/chat/completions` with
+streaming and tool calls, over HTTP on loopback (`127.0.0.1`, `localhost`, or `::1`), optionally behind an API key.
 
 Otis lists the server's models from `/v1/models` and reads each entry's `max_model_len` or `context_length` as its
 request limit. Two fields cover what a server may not say:
@@ -21,6 +21,47 @@ request limit. Two fields cover what a server may not say:
 
 Tool calling depends on the model and the server's parser; Otis does not verify every user-installed model. Reasoning
 and sampling stay at the server's defaults.
+
+### NInfer
+
+[NInfer](https://github.com/Neroued/ninfer) serves Qwen3.6/3.8 artifacts on one NVIDIA RTX 5090 (64-bit Linux) with
+an OpenAI-compatible API that documents what it accepts. Its default address is Otis's default custom-server address,
+so the setup is the defaults plus a key.
+
+1. Start it with at least two execution lanes, so subagent turns run alongside the main conversation, and a key:
+
+   ```bash
+   ninfer-serve models/qwen3_8_27b_nvfp4.ninfer --max-context 240000 --kv-capacity 240000 \
+     --max-concurrency 2 --preserve-thinking --api-key local-secret
+   ```
+
+2. In Otis, open the **Custom server** tab (desktop: **Settings → Inference → Local model servers**; terminal:
+   **Settings → Local servers**). Keep `http://127.0.0.1:8080`, enter the key, and connect.
+3. Choose the model from the **Custom server** section of the picker.
+
+Leave **Model id** and **Context limit** blank: NInfer's `/v1/models` names its model and reports the effective
+`max_model_len`, which Otis uses for compaction. It streams reasoning as `reasoning_content` and accepts both
+`reasoning_content` and `reasoning` in assistant history, so sessions started on a hosted provider resume on it.
+It supports function tools with `tool_choice: auto` and parallel calls, which is what Otis sends; it rejects
+`strict` tools and named tool choice, which Otis does not use. `--preserve-thinking` or `--no-thinking` set the
+thinking default; Otis sends no reasoning settings of its own. Checked against NInfer's `docs/serving.md`.
+
+### Strata
+
+[Strata](https://github.com/Niko1221/Strata) runs Qwen3.8-Flash-Next on a 12 GB+ NVIDIA or AMD card (Windows or
+Linux) and serves an OpenAI-compatible API on the same default address.
+
+1. Run Strata's setup (`START-HERE.bat` on Windows, `setup.sh` on Linux). Serving on another machine needs
+   `--host` and `--api-key`; Otis connects over loopback only, so pair the desktop app to an `otis serve` daemon on
+   that machine instead of exposing Strata.
+2. In Otis, open the **Custom server** tab, keep `http://127.0.0.1:8080`, enter the key if you set one, and connect.
+3. If Otis reports no context limit, enter the context you chose in Strata's setup (at least 65536) in **Context
+   limit** and connect again. Any model id works for Strata; leave the field blank unless `/v1/models` is missing.
+4. Choose the model from the **Custom server** section of the picker.
+
+Strata's thinking level (off, low, medium, high) is set in Strata; Otis sends no reasoning settings. Strata's API
+is not yet documented, so Otis has not verified how it returns reasoning or whether `/v1/models` reports a context
+limit; tool calling works for the coding agents Strata lists, and Otis sends the same OpenAI tool format.
 
 ## Connect oMLX
 
