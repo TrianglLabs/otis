@@ -7,9 +7,8 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 20px;
-  padding: 48px 28px 24px;
+  gap: 28px;
+  padding: 56px 28px 32px;
   overflow-y: auto;
 }
 
@@ -17,6 +16,7 @@
 .onboarding-step {
   min-height: min(340px, calc(100vh - 96px));
   flex-shrink: 0;
+  margin: auto 0;
   will-change: transform, opacity;
 }
 
@@ -49,13 +49,6 @@
   to {
     opacity: 1;
     transform: translateX(0);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .onboarding-step-forward,
-  .onboarding-step-back {
-    animation: none;
   }
 }
 
@@ -111,11 +104,11 @@
 }
 
 .onboarding-welcome {
-  width: min(400px, 100%);
+  width: min(520px, 100%);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 24px;
+  gap: 32px;
 }
 
 .onboarding-brand {
@@ -128,7 +121,7 @@
 
 .onboarding-logo {
   display: block;
-  width: 88px;
+  width: 112px;
   height: auto;
   margin-bottom: 3px;
   color: var(--text-dim);
@@ -137,41 +130,26 @@
 
 .onboarding-title {
   margin: 0;
-  font-size: 24px;
+  font-size: 32px;
   line-height: 1;
-  font-weight: 650;
+  font-weight: 580;
   letter-spacing: -0.03em;
   color: var(--text);
 }
 
 .onboarding-sub {
   margin: 0;
-  font-size: var(--text-ui);
+  font-size: 15px;
   color: var(--text-dim);
   text-align: center;
-  max-width: 400px;
-}
-
-.onboarding-choices {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.onboarding-choose {
-  margin: 0;
-  font-size: var(--text-meta);
-  font-weight: 600;
-  color: var(--text);
-  text-align: center;
+  max-width: 520px;
 }
 
 .onboarding-cards {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr) auto;
   grid-auto-rows: 1fr;
-  gap: 8px 11px;
+  gap: 10px 14px;
   width: 100%;
 }
 
@@ -181,8 +159,8 @@
   grid-column: 1 / -1;
   grid-template-columns: subgrid;
   align-items: center;
-  gap: 11px;
-  padding: 12px 13px;
+  gap: 14px;
+  padding: 16px 18px;
   border: 1px solid var(--hairline);
   border-radius: var(--radius-lg);
   background: var(--bg-surface);
@@ -219,27 +197,29 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 44px;
 }
 
 .onboarding-cardOtisMark {
   display: block;
-  width: 18px;
+  width: 40px;
   height: auto;
   color: var(--text-dim);
   --accent: currentColor;
 }
 
 .onboarding-providerMarks {
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: repeat(2, 20px);
   gap: 4px;
+  width: 44px;
 }
 
 .onboarding-providerMark {
   box-sizing: border-box;
   display: block;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   object-fit: contain;
   border-radius: 4px;
 }
@@ -252,7 +232,7 @@
 .onboarding-cardText {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
   min-width: 0;
 }
 
@@ -271,40 +251,38 @@
 }
 
 .onboarding-cardTitle {
-  font-size: var(--text-ui);
+  font-size: var(--text-body);
   font-weight: 600;
 }
 
 .onboarding-cardBody {
-  font-size: var(--text-meta);
+  font-size: var(--text-body);
   line-height: 1.5;
   color: var(--text-dim);
 }
 
 .onboarding-panel {
-  width: min(400px, 100%);
+  width: min(520px, 100%);
   display: flex;
   flex-direction: column;
-  gap: 12px;
-}
-
-.onboarding-panel .onboarding-logo {
-  align-self: center;
+  gap: 16px;
 }
 
 .onboarding-panelTitle {
   margin: 0;
-  font-size: var(--text-ui);
+  font-size: 24px;
   font-weight: 600;
   text-align: center;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
 }
 
 .onboarding-stepHeader {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  margin-bottom: 4px;
+  gap: 10px;
+  margin-bottom: 12px;
   text-align: center;
 }
 
@@ -317,63 +295,64 @@
 }
 
 .onboarding-providersLegend {
-  display: block;
-  width: 100%;
-  padding: 0;
-  margin-bottom: 6px;
-  font-size: var(--text-meta);
-  color: var(--text-dim);
-  text-align: center;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .onboarding-providers .tabStrip {
   margin: 0 auto;
 }
 
-.onboarding-keyRow {
+/* A form: the choice of provider or server across the top, its labeled fields below. */
+.onboarding-form {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 10px;
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius);
-  background: var(--bg-surface);
+  flex-direction: column;
+  gap: 18px;
+  width: 100%;
 }
 
-.onboarding-keyRow:focus-within {
-  border-color: var(--accent);
+.onboarding-formBody {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 
-.onboarding-keyIcon {
-  color: var(--text-dim);
-  flex-shrink: 0;
+.onboarding-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
-.onboarding-input {
-  flex: 1;
-  min-width: 0;
-  border: none;
-  background: none;
-  font: inherit;
+.onboarding-fieldLabel {
   font-size: var(--text-ui);
-  color: var(--text);
-  outline: none;
+  color: var(--text-dim);
 }
 
-.onboarding-input::placeholder {
+.onboarding-formNote {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 6px;
+  margin: 0;
+  font-size: var(--text-ui);
+  line-height: 1.5;
   color: var(--text-dim);
 }
 
 .onboarding-hint {
   margin: 0;
-  font-size: var(--text-meta);
+  font-size: var(--text-body);
   color: var(--text-dim);
 }
 
-.onboarding-endpoints {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+.onboarding-panel .onboarding-hint {
+  text-align: center;
 }
 
 .onboarding-list {
@@ -430,6 +409,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: var(--text-body);
 }
 
 .onboarding-recommended,
@@ -450,7 +430,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: var(--text-meta);
+  font-size: var(--text-ui);
   color: var(--text-dim);
   flex-shrink: 0;
 }
@@ -461,14 +441,14 @@
 
 .onboarding-error {
   margin: 0;
-  font-size: var(--text-meta);
+  font-size: var(--text-body);
   line-height: 1.45;
   color: var(--danger);
   text-align: center;
   overflow-wrap: anywhere;
 }
 
-/* Local step: brand mark, one recommendation, one action. */
+/* Local step: one recommendation, one action. */
 .onboarding-local {
   display: flex;
   flex-direction: column;
@@ -477,20 +457,132 @@
   text-align: center;
 }
 
+.onboarding-localPick .onboarding-rowName {
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
 .onboarding-localPick {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 3px;
+  animation: rise-in 400ms var(--ease) both;
+}
+
+/* The picked model's figures as rows, like Settings: the name and what it means, the figure. */
+.onboarding-specs {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  margin: 16px 0 0;
+  text-align: left;
+  animation: rise-in 400ms var(--ease) 120ms both;
+}
+
+.onboarding-spec {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 10px 0;
+}
+
+.onboarding-spec + .onboarding-spec {
+  border-top: 1px solid var(--hairline);
+}
+
+.onboarding-specText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.onboarding-specs dd,
+.onboarding-specs dt {
+  margin: 0;
+}
+
+.onboarding-specTerm {
+  font-size: var(--text-body);
+  font-weight: 500;
+  color: var(--text);
+}
+
+.onboarding-specHint {
+  font-size: var(--text-ui);
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+.onboarding-specValue {
+  flex-shrink: 0;
+  font-size: var(--text-body);
+  color: var(--text);
+  white-space: nowrap;
 }
 
 .onboarding-actions {
   display: flex;
   align-items: center;
   gap: 8px;
+  justify-content: center;
+  margin-top: 8px;
 }
 
-.onboarding-actionsEnd {
-  grid-column: 1 / -1;
-  justify-content: flex-end;
+/*
+ * First arrival: the brand settles in, then the text and the two choices follow in turn. Coming
+ * back to this step slides like any other.
+ */
+.onboarding-welcome.onboarding-step-forward {
+  animation: none;
+}
+
+.onboarding-welcome.onboarding-step-forward .onboarding-logo {
+  animation: onboarding-brand-in 600ms var(--ease) both;
+}
+
+.onboarding-welcome.onboarding-step-forward .onboarding-title,
+.onboarding-welcome.onboarding-step-forward .onboarding-sub,
+.onboarding-welcome.onboarding-step-forward .onboarding-card {
+  animation: rise-in 450ms var(--ease) both;
+}
+
+.onboarding-welcome.onboarding-step-forward .onboarding-title {
+  animation-delay: 180ms;
+}
+
+.onboarding-welcome.onboarding-step-forward .onboarding-sub {
+  animation-delay: 260ms;
+}
+
+.onboarding-welcome.onboarding-step-forward .onboarding-card:nth-child(1) {
+  animation-delay: 440ms;
+}
+
+.onboarding-welcome.onboarding-step-forward .onboarding-card:nth-child(2) {
+  animation-delay: 520ms;
+}
+
+@keyframes onboarding-brand-in {
+  from {
+    opacity: 0;
+    transform: scale(0.82);
+    filter: blur(6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-step-forward,
+  .onboarding-step-back,
+  .onboarding-welcome.onboarding-step-forward .onboarding-logo,
+  .onboarding-welcome.onboarding-step-forward .onboarding-title,
+  .onboarding-welcome.onboarding-step-forward .onboarding-sub,
+  .onboarding-welcome.onboarding-step-forward .onboarding-card,
+  .onboarding-localPick,
+  .onboarding-specs {
+    animation: none;
+  }
 }

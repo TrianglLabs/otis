@@ -14,7 +14,7 @@ export function Button({
   ...rest
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant
-  size?: "sm" | "md"
+  size?: "sm" | "md" | "lg"
   icon?: LucideIcon
   /** Trailing icon, after the label (Send, Continue…). */
   iconAfter?: LucideIcon

@@ -36,13 +36,15 @@ import lmStudioIcon from "../../assets/lm-studio.svg"
 import ollamaIcon from "../../assets/ollama.svg"
 import omlxIcon from "../../assets/omlx.svg"
 import { Button, IconButton } from "../../components/Button.js"
-import { Icon } from "../../components/Icon.js"
+import { Icon, RetentionBadge } from "../../components/Icon.js"
 import { OtisMark } from "../../components/OtisMark.js"
 import { TabStrip } from "../../components/TabStrip.js"
+import { TextField } from "../../components/TextField.js"
 import { useI18n } from "../../i18n/index.js"
 import { useDesktop, useDesktopState } from "../../runtime.js"
 import {
   isPickerRowSelectable,
+  localModelFacts,
   mergeModelLoad,
   pickerDetailLabel,
   pickerItemKey,
@@ -249,37 +251,34 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
         >
           <div className="onboarding-brand">
             <OtisMark className="onboarding-logo" />
-            <h1 className="onboarding-title">Otis</h1>
+            <h1 className="onboarding-title">{t("onboarding.welcome")}</h1>
             <p className="onboarding-sub">{t("onboarding.tagline")}</p>
           </div>
-          <div className="onboarding-choices">
-            <p className="onboarding-choose">{t("onboarding.chooseSetup")}</p>
-            <div className="onboarding-cards">
-              <button
-                type="button"
-                className="onboarding-card"
-                onClick={() => navigate("cloud", "forward")}
-              >
-                <Icon icon={Cloud} size={14} className="onboarding-cardIcon" />
-                <span className="onboarding-cardText">
-                  <span className="onboarding-cardTitle">{t("common.hosted")}</span>
-                  <span className="onboarding-cardBody">{t("onboarding.hostedBody")}</span>
-                </span>
-                <Icon icon={ChevronRight} size={14} className="onboarding-cardChevron" />
-              </button>
-              <button
-                type="button"
-                className="onboarding-card"
-                onClick={() => navigate("local", "forward")}
-              >
-                <Icon icon={Laptop} size={14} className="onboarding-cardIcon" />
-                <span className="onboarding-cardText">
-                  <span className="onboarding-cardTitle">{t("common.local")}</span>
-                  <span className="onboarding-cardBody">{t("onboarding.localBody")}</span>
-                </span>
-                <Icon icon={ChevronRight} size={14} className="onboarding-cardChevron" />
-              </button>
-            </div>
+          <div className="onboarding-cards">
+            <button
+              type="button"
+              className="onboarding-card"
+              onClick={() => navigate("cloud", "forward")}
+            >
+              <Icon icon={Cloud} size={18} className="onboarding-cardIcon" />
+              <span className="onboarding-cardText">
+                <span className="onboarding-cardTitle">{t("common.hosted")}</span>
+                <span className="onboarding-cardBody">{t("onboarding.hostedBody")}</span>
+              </span>
+              <Icon icon={ChevronRight} size={16} className="onboarding-cardChevron" />
+            </button>
+            <button
+              type="button"
+              className="onboarding-card"
+              onClick={() => navigate("local", "forward")}
+            >
+              <Icon icon={Laptop} size={18} className="onboarding-cardIcon" />
+              <span className="onboarding-cardText">
+                <span className="onboarding-cardTitle">{t("common.local")}</span>
+                <span className="onboarding-cardBody">{t("onboarding.localBody")}</span>
+              </span>
+              <Icon icon={ChevronRight} size={16} className="onboarding-cardChevron" />
+            </button>
           </div>
         </div>
       </main>
@@ -335,36 +334,17 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
       </div>
       <div key={path} className={`onboarding-panel onboarding-step onboarding-step-${direction}`}>
         {path === "cloud" ? (
-          <>
-            <OtisMark className="onboarding-logo" />
+          <div className="onboarding-stepHeader">
             <p className="onboarding-panelTitle">{t("onboarding.setupHosted")}</p>
-            <fieldset className="onboarding-providers">
-              <legend className="onboarding-providersLegend">
-                {t("onboarding.chooseProvider")}
-              </legend>
-              <TabStrip
-                tabs={HOSTED_PROVIDERS.map((provider) => [
-                  provider,
-                  <>
-                    {HOSTED_PROVIDER_INFO[provider].name}
-                    {state?.hostedConfigured[provider] ? <Icon icon={Check} size={11} /> : null}
-                  </>,
-                ])}
-                selected={hostedProvider}
-                onSelect={(provider) => {
-                  setError(undefined)
-                  setApiKey("")
-                  setHostedProvider(provider)
-                }}
-              />
-            </fieldset>
-          </>
+            <p className="onboarding-hint">
+              {t("onboarding.hostedHintBefore", { provider: hostedName })}
+            </p>
+          </div>
         ) : null}
 
         {path === "local" ? (
           <>
             <div className="onboarding-stepHeader">
-              <OtisMark className="onboarding-logo" />
               <p className="onboarding-panelTitle">{t("onboarding.chooseLocal")}</p>
               <p className="onboarding-hint">{t("onboarding.localHint")}</p>
             </div>
@@ -381,7 +361,7 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                   <span className="onboarding-cardTitle">{t("onboarding.managed")}</span>
                   <span className="onboarding-cardBody">{t("onboarding.managedBody")}</span>
                 </span>
-                <Icon icon={ChevronRight} size={14} className="onboarding-cardChevron" />
+                <Icon icon={ChevronRight} size={16} className="onboarding-cardChevron" />
               </button>
               <button
                 type="button"
@@ -410,7 +390,7 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                   {serverKinds.includes("omlx") ? (
                     <img className="onboarding-providerMark" src={omlxIcon} alt="" />
                   ) : null}
-                  <Icon icon={Server} size={16} className="onboarding-providerMark" />
+                  <Icon icon={Server} size={18} className="onboarding-providerMark" />
                 </span>
                 <span className="onboarding-cardText">
                   <span className="onboarding-cardTitle">{t("onboarding.server")}</span>
@@ -420,7 +400,7 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                     })}
                   </span>
                 </span>
-                <Icon icon={ChevronRight} size={14} className="onboarding-cardChevron" />
+                <Icon icon={ChevronRight} size={16} className="onboarding-cardChevron" />
               </button>
             </div>
           </>
@@ -428,54 +408,80 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
 
         {path === "cloud" && !hostedConfigured ? (
           <>
-            <p className="onboarding-hint">
-              {t("onboarding.hostedHintBefore", { provider: hostedName })}{" "}
-              <button
-                type="button"
-                className="onboarding-link"
-                onClick={() => void api.openHostedKeyPage(hostedProvider)}
-              >
-                {t("onboarding.getKey")}
-              </button>{" "}
-              {t("onboarding.hostedHintAfter")}
-            </p>
-            <div className="onboarding-keyRow">
-              <Icon icon={KeyRound} size={14} className="onboarding-keyIcon" />
-              <input
-                className="onboarding-input"
-                type="password"
-                placeholder={t("onboarding.pasteKey")}
-                aria-label={t("onboarding.hostedKey", { provider: hostedName })}
-                value={apiKey}
-                autoComplete="off"
-                onChange={(event) => setApiKey(event.target.value)}
-                onKeyDown={submitOnEnter}
-              />
-            </div>
-            {billsTeam ? (
-              <div className="onboarding-keyRow">
-                <input
-                  className="onboarding-input"
-                  placeholder={t("settings.primeTeamId")}
-                  aria-label={t("settings.primeTeamId")}
-                  title={t("settings.primeTeamIdNote")}
-                  value={teamId}
-                  autoComplete="off"
-                  spellCheck={false}
-                  onChange={(event) => setTeamId(event.target.value)}
-                  onKeyDown={submitOnEnter}
+            <div className="onboarding-form">
+              <fieldset className="onboarding-providers">
+                <legend className="onboarding-providersLegend">
+                  {t("onboarding.chooseProvider")}
+                </legend>
+                <TabStrip
+                  size="lg"
+                  tabs={HOSTED_PROVIDERS.map((provider) => [
+                    provider,
+                    <>
+                      {HOSTED_PROVIDER_INFO[provider].name}
+                      {state?.hostedConfigured[provider] ? <Icon icon={Check} size={11} /> : null}
+                    </>,
+                  ])}
+                  selected={hostedProvider}
+                  onSelect={(provider) => {
+                    setError(undefined)
+                    setApiKey("")
+                    setHostedProvider(provider)
+                  }}
                 />
+              </fieldset>
+              <div className="onboarding-formBody">
+                <div className="onboarding-field">
+                  <span className="onboarding-fieldLabel">
+                    {t("onboarding.hostedKey", { provider: hostedName })}
+                  </span>
+                  <TextField
+                    icon={KeyRound}
+                    type="password"
+                    placeholder={t("onboarding.pasteKey")}
+                    aria-label={t("onboarding.hostedKey", { provider: hostedName })}
+                    value={apiKey}
+                    autoComplete="off"
+                    onChange={(event) => setApiKey(event.target.value)}
+                    onKeyDown={submitOnEnter}
+                  />
+                </div>
+                {billsTeam ? (
+                  <div className="onboarding-field">
+                    <span className="onboarding-fieldLabel">{t("settings.primeTeamId")}</span>
+                    <TextField
+                      aria-label={t("settings.primeTeamId")}
+                      title={t("settings.primeTeamIdNote")}
+                      value={teamId}
+                      autoComplete="off"
+                      spellCheck={false}
+                      onChange={(event) => setTeamId(event.target.value)}
+                      onKeyDown={submitOnEnter}
+                    />
+                  </div>
+                ) : null}
+                <p className="onboarding-formNote">
+                  <RetentionBadge retention={HOSTED_PROVIDER_INFO[hostedProvider].dataRetention} />
+                  <span aria-hidden>·</span>
+                  <button
+                    type="button"
+                    className="onboarding-link"
+                    onClick={() => void api.openHostedKeyPage(hostedProvider)}
+                  >
+                    {t("onboarding.getKey")}
+                  </button>
+                </p>
               </div>
-            ) : null}
-            <div className="onboarding-actions onboarding-actionsEnd">
+            </div>
+            <div className="onboarding-actions">
               <Button
                 variant="primary"
-                size="sm"
+                size="lg"
                 disabled={!apiKey.trim()}
                 onClick={() => void saveHostedKey()}
               >
                 {t("common.continue")}
-                <Icon icon={ArrowRight} size={13} />
+                <Icon icon={ArrowRight} size={14} />
               </Button>
             </div>
           </>
@@ -487,7 +493,6 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
 
         {path === "managed" ? (
           <div className="onboarding-local">
-            <OtisMark className="onboarding-logo" />
             {!pick ? (
               error ? (
                 <p className="onboarding-error">{error}</p>
@@ -500,29 +505,40 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
               )
             ) : (
               <>
-                <p className="onboarding-panelTitle">{t("onboarding.bestModel")}</p>
+                <p className="onboarding-hint">{t("onboarding.bestModel")}</p>
                 <div className="onboarding-localPick">
                   <span className="onboarding-rowName">
                     {pick.displayName}
-                    {"recommended" in pick && pick.recommended ? (
-                      <span className="onboarding-recommended" title={t("common.recommended")}>
-                        <Icon icon={Star} size={11} />
-                      </span>
-                    ) : null}
                     {"cpuOffload" in pick && pick.cpuOffload ? (
                       <span className="onboarding-cpuOffload" title={t("models.partlyOnCpu")}>
                         <Icon icon={Cpu} size={11} />
                       </span>
                     ) : null}
                   </span>
-                  <span className="onboarding-rowDetail">
-                    {pickLoading ? pickStatus.label : pickerDetailLabel(pick, t)}
-                  </span>
+                  {pickLoading || pick.provider !== "local" ? (
+                    <span className="onboarding-rowDetail">
+                      {pickLoading ? pickStatus.label : pickerDetailLabel(pick, t)}
+                    </span>
+                  ) : (
+                    <dl className="onboarding-specs">
+                      {localModelFacts(pick, t, locale).map((fact) => (
+                        <div key={fact.term} className="onboarding-spec">
+                          <div className="onboarding-specText">
+                            <dt className="onboarding-specTerm">{fact.term}</dt>
+                            {fact.hint ? (
+                              <dd className="onboarding-specHint">{fact.hint}</dd>
+                            ) : null}
+                          </div>
+                          <dd className="onboarding-specValue">{fact.value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  )}
                 </div>
                 <div className="onboarding-actions">
                   <Button
                     variant="primary"
-                    size="sm"
+                    size="lg"
                     disabled={pickLoading}
                     onClick={() => void select(pick)}
                   >
@@ -530,9 +546,9 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                       ? t("common.continue")
                       : t("onboarding.downloadContinue")}
                     {pickLoading ? (
-                      <Icon icon={Loader2} size={13} className="spin" />
+                      <Icon icon={Loader2} size={14} className="spin" />
                     ) : (
-                      <Icon icon={ArrowRight} size={13} />
+                      <Icon icon={ArrowRight} size={14} />
                     )}
                   </Button>
                   {pickLoading ? (
@@ -553,110 +569,111 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
         {path === "server" ? (
           <>
             <div className="onboarding-stepHeader">
-              <OtisMark className="onboarding-logo" />
               <p className="onboarding-panelTitle">{t("onboarding.connectServer")}</p>
-              <p className="onboarding-hint">
-                {t("onboarding.connectServerHint", { servers: serverList.format(servers) })}
-              </p>
+              <p className="onboarding-hint">{t("onboarding.connectServerHint")}</p>
             </div>
-            <fieldset className="onboarding-providers">
-              <legend className="onboarding-providersLegend">{t("onboarding.chooseServer")}</legend>
-              <TabStrip
-                tabs={localServerTabs(state?.runtimePlatform).map(([tab, name]) => [
-                  tab,
-                  <>
-                    {name}
-                    {connected(tab) ? <Icon icon={Check} size={11} /> : null}
-                  </>,
-                ])}
-                selected={serverTab}
-                onSelect={(tab) => {
-                  setError(undefined)
-                  setServerTab(tab)
-                }}
-              />
-            </fieldset>
-            <div className="onboarding-endpoints">
-              <div className="onboarding-keyRow">
-                <Icon icon={Globe} size={14} className="onboarding-keyIcon" />
-                <input
-                  className="onboarding-input"
-                  aria-label={t("settings.serverAddress")}
-                  placeholder={t("settings.serverAddress")}
-                  value={address}
-                  onChange={(event) => setAddress(event.target.value)}
-                  onKeyDown={connectOnEnter}
-                  spellCheck={false}
-                  autoComplete="off"
+            <div className="onboarding-form">
+              <fieldset className="onboarding-providers">
+                <legend className="onboarding-providersLegend">
+                  {t("onboarding.chooseServer")}
+                </legend>
+                <TabStrip
+                  size="lg"
+                  tabs={localServerTabs(state?.runtimePlatform).map(([tab, name]) => [
+                    tab,
+                    <>
+                      {name}
+                      {connected(tab) ? <Icon icon={Check} size={11} /> : null}
+                    </>,
+                  ])}
+                  selected={serverTab}
+                  onSelect={(tab) => {
+                    setError(undefined)
+                    setServerTab(tab)
+                  }}
                 />
-              </div>
-              {isServerProvider(serverTab) ? (
-                <div className="onboarding-keyRow">
-                  <Icon icon={KeyRound} size={14} className="onboarding-keyIcon" />
-                  <input
-                    id={`onboarding-${serverTab}-key`}
-                    type="password"
-                    className="onboarding-input"
-                    aria-label={t("settings.serverKey")}
-                    placeholder={
-                      state?.servers[serverTab]?.hasApiKey
-                        ? t("settings.serverKeyHint")
-                        : t("settings.serverKey")
-                    }
-                    value={serverInputs[serverTab]?.apiKey ?? ""}
-                    onChange={(event) => setServer(serverTab, { apiKey: event.target.value })}
+              </fieldset>
+              <div className="onboarding-formBody">
+                <div className="onboarding-field">
+                  <span className="onboarding-fieldLabel">{t("settings.serverAddress")}</span>
+                  <TextField
+                    icon={Globe}
+                    aria-label={t("settings.serverAddress")}
+                    placeholder={t("settings.serverAddress")}
+                    value={address}
+                    onChange={(event) => setAddress(event.target.value)}
                     onKeyDown={connectOnEnter}
+                    spellCheck={false}
                     autoComplete="off"
                   />
                 </div>
-              ) : null}
-              {serverTab === "custom" ? (
-                <>
-                  <div className="onboarding-keyRow">
-                    <Icon icon={Box} size={14} className="onboarding-keyIcon" />
-                    <input
-                      className="onboarding-input"
-                      aria-label={t("settings.serverModel")}
-                      placeholder={t("settings.serverModel")}
-                      value={serverInputs.custom?.model ?? ""}
-                      onChange={(event) => setServer("custom", { model: event.target.value })}
-                      onKeyDown={connectOnEnter}
-                      spellCheck={false}
-                      autoComplete="off"
-                    />
-                  </div>
-                  <div className="onboarding-keyRow">
-                    <Icon icon={RulerDimensionLine} size={14} className="onboarding-keyIcon" />
-                    <input
-                      className="onboarding-input"
-                      aria-label={t("settings.serverContext")}
-                      placeholder={t("settings.serverContext")}
-                      inputMode="numeric"
-                      value={serverInputs.custom?.contextLength ?? ""}
-                      onChange={(event) =>
-                        setServer("custom", { contextLength: event.target.value })
+                {isServerProvider(serverTab) ? (
+                  <div className="onboarding-field">
+                    <span className="onboarding-fieldLabel">{t("settings.serverKey")}</span>
+                    <TextField
+                      icon={KeyRound}
+                      id={`onboarding-${serverTab}-key`}
+                      type="password"
+                      aria-label={t("settings.serverKey")}
+                      placeholder={
+                        state?.servers[serverTab]?.hasApiKey
+                          ? t("settings.serverKeyHint")
+                          : undefined
                       }
+                      value={serverInputs[serverTab]?.apiKey ?? ""}
+                      onChange={(event) => setServer(serverTab, { apiKey: event.target.value })}
                       onKeyDown={connectOnEnter}
                       autoComplete="off"
                     />
                   </div>
-                </>
-              ) : null}
-              <div className="onboarding-actions onboarding-actionsEnd">
-                <Button
-                  variant="primary"
-                  size="sm"
-                  disabled={serverPending}
-                  onClick={() => void connectServer()}
-                >
-                  <Icon
-                    icon={serverPending ? Loader2 : Plug}
-                    size={13}
-                    className={serverPending ? "spin" : undefined}
-                  />
-                  {serverPending ? t("common.checking") : t("common.connect")}
-                </Button>
+                ) : null}
+                {serverTab === "custom" ? (
+                  <>
+                    <div className="onboarding-field">
+                      <span className="onboarding-fieldLabel">{t("settings.serverModel")}</span>
+                      <TextField
+                        icon={Box}
+                        aria-label={t("settings.serverModel")}
+                        value={serverInputs.custom?.model ?? ""}
+                        onChange={(event) => setServer("custom", { model: event.target.value })}
+                        onKeyDown={connectOnEnter}
+                        spellCheck={false}
+                        autoComplete="off"
+                      />
+                    </div>
+                    <div className="onboarding-field">
+                      <span className="onboarding-fieldLabel">{t("settings.serverContext")}</span>
+                      <TextField
+                        icon={RulerDimensionLine}
+                        aria-label={t("settings.serverContext")}
+                        inputMode="numeric"
+                        value={serverInputs.custom?.contextLength ?? ""}
+                        onChange={(event) =>
+                          setServer("custom", { contextLength: event.target.value })
+                        }
+                        onKeyDown={connectOnEnter}
+                        autoComplete="off"
+                      />
+                    </div>
+                  </>
+                ) : null}
+                <p className="onboarding-formNote">{t("onboarding.connectServerNote")}</p>
               </div>
+            </div>
+            <div className="onboarding-actions">
+              <Button
+                variant="primary"
+                size="lg"
+                disabled={serverPending}
+                onClick={() => void connectServer()}
+              >
+                <Icon
+                  icon={serverPending ? Loader2 : Plug}
+                  size={14}
+                  className={serverPending ? "spin" : undefined}
+                />
+                {serverPending ? t("common.checking") : t("common.connect")}
+              </Button>
             </div>
           </>
         ) : null}
@@ -664,7 +681,6 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
         {path === "serverModels" ? (
           <>
             <div className="onboarding-stepHeader">
-              <OtisMark className="onboarding-logo" />
               <p className="onboarding-panelTitle">{t("onboarding.chooseModel")}</p>
               <p className="onboarding-hint">{t("onboarding.chooseServerModel")}</p>
             </div>

@@ -42,6 +42,10 @@ export type LocalPickerChoice = LocalCatalogModel & {
   recommended: boolean
   availabilityLabel: string
   loadedContextLength?: number
+  /** The selected packing's quantization, e.g. `Q4_K_M`. */
+  quant?: string
+  /** Memory the selected packing needs at its context, when it fits this computer. */
+  memoryBytes?: number
   /**
    * At least one packing for this model is cached, including one selected for different
    * hardware.
@@ -202,17 +206,16 @@ export async function listModelPickerItems(
           currentLocalModel === model.id && options.loadedLocalModel?.model === model.id
             ? options.loadedLocalModel.contextLength
             : undefined
+        const memoryBytes =
+          loaded === undefined ? fit.memoryRequiredBytes : memoryRequiredFor(selected, loaded)
+        const cost = formatMemoryLabel(memoryBytes)
         let availabilityLabel: string
         if (unsupported) availabilityLabel = unsupported
-        else if (loaded !== undefined) {
-          const cost = formatMemoryLabel(memoryRequiredFor(selected, loaded))
+        else if (loaded !== undefined)
           availabilityLabel = `${formatContextWindow(loaded)} · ${selected.quant} · ${cost}`
-        } else if (!fit.available)
-          availabilityLabel = `Needs ${formatMemoryLabel(fit.memoryRequiredBytes)}`
-        else {
-          const cost = formatMemoryLabel(fit.memoryRequiredBytes)
+        else if (!fit.available) availabilityLabel = `Needs ${cost}`
+        else
           availabilityLabel = `Est. ${formatContextWindow(fit.contextLength)} · ${selected.quant} · ${cost}`
-        }
         return {
           kind: "model",
           provider: "local",
@@ -225,6 +228,8 @@ export async function listModelPickerItems(
           recommended: !unsupported && fit.available && recommendedModelIds.has(selected.id),
           availabilityLabel,
           ...(loaded === undefined ? {} : { loadedContextLength: loaded }),
+          quant: selected.quant,
+          ...(fit.available ? { memoryBytes } : {}),
           downloaded,
           hasDownloadedPacking,
           cpuOffload: fit.available && fit.requiresCpuOffload,

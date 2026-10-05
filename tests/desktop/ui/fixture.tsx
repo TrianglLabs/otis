@@ -87,10 +87,13 @@ async function checkLocalServerFields(prefix: "settings" | "onboarding") {
   await until(() => !!document.querySelector(`#${prefix}-omlx-key`), "oMLX fields did not show")
   const key = element<HTMLInputElement>(`#${prefix}-omlx-key`)
   const address = element<HTMLInputElement>(`[aria-label="Address"]`)
-  const fields = element(`.${prefix === "settings" ? "settingsEndpoints" : "onboarding-endpoints"}`)
-  // The onboarding rows carry an icon inside a bordered capsule; measure the capsules there.
-  const row = (input: HTMLInputElement) =>
-    (prefix === "onboarding" ? (input.parentElement ?? input) : input).getBoundingClientRect()
+  const fields = element(`.${prefix === "settings" ? "settingsEndpoints" : "onboarding-formBody"}`)
+  // Both pages render the shared field capsule; measure the capsule, not the borderless input.
+  const row = (input: HTMLInputElement) => {
+    const capsule = input.closest(".field")
+    assert(capsule, `${prefix}: field capsule is missing`)
+    return capsule.getBoundingClientRect()
+  }
   const urlBounds = row(address)
   const keyBounds = row(key)
   assert(
@@ -1844,7 +1847,7 @@ async function runDesktopUiChecks() {
   }
   status({ theme: "default" })
   element<HTMLButtonElement>(".onboarding-cards button:first-child").click()
-  await until(() => !!document.querySelector(".onboarding-keyRow"), "Hosted setup did not open")
+  await until(() => !!document.querySelector(".field"), "Hosted setup did not open")
   await pause(250)
   await nativeInput({ screenshot: true, screenshotName: "onboarding-hosted" })
   element<HTMLButtonElement>(".onboarding-topbar .btn").click()

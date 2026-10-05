@@ -1,5 +1,6 @@
 import {
   Award,
+  Box,
   ChartNoAxesColumnDecreasing,
   Check,
   ChevronDown,
@@ -7,12 +8,15 @@ import {
   Cloud,
   Cpu,
   FileText,
+  Globe,
+  KeyRound,
   Laptop,
   LoaderCircle,
   NotebookPen,
   Palette,
   Plug,
   Puzzle,
+  RulerDimensionLine,
   SlidersHorizontal,
   X,
 } from "lucide-react"
@@ -47,8 +51,9 @@ import type {
   UiLanguage,
 } from "../../../contracts.js"
 import { Button, IconButton } from "../../components/Button.js"
-import { Icon } from "../../components/Icon.js"
+import { Icon, RetentionBadge } from "../../components/Icon.js"
 import { TabStrip } from "../../components/TabStrip.js"
+import { TextField } from "../../components/TextField.js"
 import { formatTokenCount } from "../../format.js"
 import { LANGUAGE_OPTIONS, useI18n } from "../../i18n/index.js"
 import { useDesktop, useDesktopState } from "../../runtime.js"
@@ -424,8 +429,8 @@ export function SettingsPage({
                             }}
                           />
                           <div className="settingsEndpoints">
-                            <input
-                              className="settingsForm-input"
+                            <TextField
+                              icon={Globe}
                               aria-label={t("settings.serverAddress")}
                               placeholder={t("settings.serverAddress")}
                               value={address}
@@ -435,10 +440,10 @@ export function SettingsPage({
                               autoComplete="off"
                             />
                             {isServerProvider(serverTab) ? (
-                              <input
+                              <TextField
                                 id={`settings-${serverTab}-key`}
                                 type="password"
-                                className="settingsForm-input"
+                                icon={KeyRound}
                                 aria-label={t("settings.serverKey")}
                                 placeholder={
                                   state.servers[serverTab]?.hasApiKey
@@ -455,8 +460,8 @@ export function SettingsPage({
                             ) : null}
                             {serverTab === "custom" ? (
                               <>
-                                <input
-                                  className="settingsForm-input"
+                                <TextField
+                                  icon={Box}
                                   aria-label={t("settings.serverModel")}
                                   placeholder={t("settings.serverModel")}
                                   value={serverInputs.custom?.model ?? ""}
@@ -467,8 +472,8 @@ export function SettingsPage({
                                   spellCheck={false}
                                   autoComplete="off"
                                 />
-                                <input
-                                  className="settingsForm-input"
+                                <TextField
+                                  icon={RulerDimensionLine}
                                   aria-label={t("settings.serverContext")}
                                   placeholder={t("settings.serverContext")}
                                   inputMode="numeric"
@@ -856,8 +861,12 @@ function HostedProviderRow({
       <div className="settingsRow">
         <span className="settingsRow-label">
           {name}
-          <span className={`settingsRow-meta${configured ? " settingsProvider-connected" : ""}`}>
-            {configured ? t("settings.providerConnected") : t("settings.providerNotConnected")}
+          <span className="settingsRow-meta settingsRow-detail">
+            <span className={configured ? "settingsProvider-connected" : undefined}>
+              {configured ? t("settings.providerConnected") : t("settings.providerNotConnected")}
+            </span>
+            <span aria-hidden>·</span>
+            <RetentionBadge retention={HOSTED_PROVIDER_INFO[provider].dataRetention} />
           </span>
         </span>
         <Button size="sm" aria-expanded={open} onClick={onToggle}>
@@ -866,15 +875,15 @@ function HostedProviderRow({
       </div>
       {open ? (
         <div className="settingsProvider-editor">
-          <input
+          <TextField
             type="password"
-            className="settingsForm-input settingsProvider-key"
+            className="settingsProvider-key"
+            icon={KeyRound}
             aria-label={t("settings.hostedKey", { provider: name })}
             placeholder={t("settings.hostedKey", { provider: name })}
             value={apiKey}
             onChange={(event) => setApiKey(event.target.value)}
             onKeyDown={onKeyDown}
-            // biome-ignore lint/a11y/noAutofocus: the row was just opened to type the key
             autoFocus
             spellCheck={false}
             autoComplete="off"
@@ -892,8 +901,8 @@ function HostedProviderRow({
           </Button>
           {billsTeam ? (
             <>
-              <input
-                className="settingsForm-input settingsProvider-key"
+              <TextField
+                className="settingsProvider-key"
                 aria-label={t("settings.primeTeamId")}
                 placeholder={t("settings.primeTeamId")}
                 value={team}
@@ -1064,21 +1073,22 @@ function ServerSettings({
       </div>
       {open && !remote ? (
         <div className="settingsProvider-editor">
-          <input
-            className="settingsForm-input settingsProvider-key"
+          <TextField
+            className="settingsProvider-key"
+            icon={Globe}
             aria-label={t("settings.remoteUrl")}
             placeholder={t("settings.remoteUrlPlaceholder")}
             value={url}
             onChange={(event) => setUrl(event.target.value)}
             onKeyDown={onKeyDown}
-            // biome-ignore lint/a11y/noAutofocus: the row was just opened to type the address
             autoFocus
             spellCheck={false}
             autoComplete="off"
           />
-          <input
+          <TextField
             type="password"
-            className="settingsForm-input settingsProvider-key"
+            className="settingsProvider-key"
+            icon={KeyRound}
             aria-label={t("settings.remoteToken")}
             placeholder={t(tokenSaved ? "settings.remoteTokenHint" : "settings.remoteToken")}
             value={token}
@@ -1485,9 +1495,8 @@ function SkillsSettings() {
             <label className="settingsForm-label" htmlFor="settings-skill-url">
               {t("settings.skillUrl")}
             </label>
-            <input
+            <TextField
               id="settings-skill-url"
-              className="settingsForm-input"
               value={url}
               onChange={(event) => setUrl(event.target.value)}
               onKeyDown={(event) => {
@@ -1621,9 +1630,8 @@ function MemorySettings() {
           <label className="settingsForm-label" htmlFor="settings-memory-fact">
             {t("settings.memoryFact")}
           </label>
-          <input
+          <TextField
             id="settings-memory-fact"
-            className="settingsForm-input"
             value={fact}
             onChange={(event) => setFact(event.target.value)}
             onKeyDown={(event) => {

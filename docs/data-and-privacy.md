@@ -58,9 +58,11 @@ potentially sensitive. Visible traces show a short preview and can be expanded i
 ## Network boundaries
 
 - Hosted prompts go directly from Otis to the selected provider (Fireworks, Together AI, Baseten, or Prime Intellect)
-  using the user's key for that provider; a key is sent only to its own provider. Fireworks states that open-model
-  inference uses Zero Data Retention by default unless the user opts in; service metadata such as token counts may
-  still be recorded. Prime Intellect's gateway models route to third-party model vendors under Prime Intellect's
+  using the user's key for that provider; a key is sent only to its own provider. Otis shows each provider's
+  documented retention as a shield next to it: Fireworks and Baseten state that they keep no prompts or outputs by
+  default (service metadata such as token counts may still be recorded); Together AI stores prompts and responses
+  until zero data retention is switched on in the organization's privacy settings; Prime Intellect publishes no
+  inference retention terms, and its gateway models route to third-party model vendors under Prime Intellect's
   terms. Check each provider's data policy before sending sensitive content.
 - NVIDIA PAIR traffic goes to a loopback proxy. PAIR owns communication and routing within the user's cluster.
 - Web search and page reading go directly to Parallel's Search MCP from the local runtime.

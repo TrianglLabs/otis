@@ -194,6 +194,8 @@ describe("model picker catalog", () => {
         item.id === "prism-ml/Ternary-Bonsai-2-27B-gguf",
     )
     expect(bonsai?.availabilityLabel).toContain(`· ${quant}`)
+    expect(bonsai?.quant).toBe(quant)
+    expect(bonsai?.memoryBytes).toBeGreaterThan(0)
   })
 
   it.each([
