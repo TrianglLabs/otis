@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import { HeadlessReporter } from "../../src/cli/headless-output.js"
+import { emptyUsage } from "../../src/inference/types.js"
 
 describe("HeadlessReporter", () => {
   it("keeps recovery quiet in plain output while preserving the structured JSONL event", async () => {
@@ -151,7 +152,7 @@ describe("HeadlessReporter", () => {
       status: "complete",
       output: "Done.",
       model: "test",
-      usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+      usage: emptyUsage(),
       durationMs: 1,
     })
 

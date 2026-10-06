@@ -12,13 +12,15 @@ import type {
   LocalPickerChoice,
   PairPickerChoice,
 } from "../../src/inference/picker-catalog.js"
-import type {
-  CatalogModel,
-  ChatMessage,
-  FireworksModel,
-  HostedModel,
-  InferenceClient,
-  LocalCatalogModel,
+import {
+  addUsage,
+  type CatalogModel,
+  type ChatMessage,
+  emptyUsage,
+  type FireworksModel,
+  type HostedModel,
+  type InferenceClient,
+  type LocalCatalogModel,
 } from "../../src/inference/types.js"
 import { localConfigDirectory } from "../../src/local/paths.js"
 import { loadLocalSettings, saveSelectedModel } from "../../src/local/settings.js"
@@ -753,6 +755,11 @@ describe("Application model transactions", () => {
     app.conversation.speed = measured
     expect(await app.openSession(other.id)).toBe("opened")
     expect(app.status().speed).toBeNull()
+    // The status carries the open session's recorded usage for the header's breakdown.
+    expect(app.status().usage).toEqual({ last: null, total: emptyUsage() })
+    const usage = { promptTokens: 12, completionTokens: 3, totalTokens: 15, cachedPromptTokens: 8 }
+    await app.sessions.current?.recordUsage(usage, "agent")
+    expect(app.status().usage).toEqual({ last: usage, total: addUsage(emptyUsage(), usage) })
     await app.shutdown()
   })
 

@@ -22,6 +22,8 @@ import {
 import { pairEndpointForEngine } from "../inference/pair.js"
 import { baseFireworksModelId } from "../inference/serving-path.js"
 import {
+  addUsage,
+  emptyUsage,
   HOSTED_PROVIDER_INFO,
   HOSTED_PROVIDERS,
   type HostedProvider,
@@ -39,12 +41,7 @@ import {
 import { createSession, type JsonlSession, listSessions, openSession } from "../storage/session.js"
 import { acquireSessionLock, type SessionLock } from "../storage/session-lock.js"
 import { providerTools, TOOL_NAMES, type ToolName } from "../tools/index.js"
-import {
-  addUsage,
-  emptyUsage,
-  type HeadlessOutputFormat,
-  HeadlessReporter,
-} from "./headless-output.js"
+import { type HeadlessOutputFormat, HeadlessReporter } from "./headless-output.js"
 
 type OutputStream = { write(chunk: string): unknown }
 
@@ -264,6 +261,7 @@ export async function runHeadlessCommand(
         webClient: app.webClient,
         webClientModel: model,
         webSession: session ? { id: session.id } : undefined,
+        sessionId: session?.id,
         cwd,
         signal: controller.signal,
         artifactPublisher: session ? sessionArtifactPublisher(session) : undefined,

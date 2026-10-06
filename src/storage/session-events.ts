@@ -471,6 +471,13 @@ function parseSessionEvent(value: unknown, line: number): SessionEvent {
     if (totalTokens < promptTokens + completionTokens) {
       throw invalidEvent(line, "usage totalTokens must include prompt and completion tokens")
     }
+    const cachedPromptTokens = nonNegativeInteger(usage.cachedPromptTokens)
+    if (
+      usage.cachedPromptTokens !== undefined &&
+      (cachedPromptTokens === undefined || cachedPromptTokens > promptTokens)
+    ) {
+      throw invalidEvent(line, "usage cachedPromptTokens must be an integer within promptTokens")
+    }
     return {
       ...base,
       type,
@@ -479,7 +486,12 @@ function parseSessionEvent(value: unknown, line: number): SessionEvent {
       ...(provider === undefined ? {} : { provider }),
       ...(model === undefined ? {} : { model }),
       ...(modelName === undefined ? {} : { modelName }),
-      usage: { promptTokens, completionTokens, totalTokens },
+      usage: {
+        promptTokens,
+        completionTokens,
+        totalTokens,
+        ...(cachedPromptTokens === undefined ? {} : { cachedPromptTokens }),
+      },
     }
   }
   if (type === "title_renamed") {

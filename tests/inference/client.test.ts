@@ -55,6 +55,7 @@ describe("HostedClient for Fireworks", () => {
       tools: [{ name: "read", description: "Read a file", parameters: { type: "object" } }],
       projectContext: [{ path: "/work/AGENTS.md", content: "Use strict TypeScript." }],
       now: new Date("2026-07-16T12:00:00Z"),
+      sessionId: "session_20260716_abc",
     })) {
       events.push(event)
     }
@@ -72,7 +73,11 @@ describe("HostedClient for Fireworks", () => {
 
     const [url, init] = fetchMock.mock.calls[0]
     expect(String(url)).toBe("http://localhost/v1/chat/completions")
-    expect(init?.headers).toMatchObject({ authorization: "Bearer fw_test_key" })
+    // The session id routes serverless requests to the replica holding the conversation's cache.
+    expect(init?.headers).toMatchObject({
+      authorization: "Bearer fw_test_key",
+      "x-session-affinity": "session_20260716_abc",
+    })
     const body = JSON.parse(String(init?.body))
     expect(body).toMatchObject({
       model: "accounts/fireworks/models/tool-model",
@@ -300,6 +305,8 @@ describe("HostedClient for Fireworks", () => {
     const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body))
     expect(body.model).toBe("accounts/fireworks/routers/kimi-k3-fast")
     expect(body).not.toHaveProperty("service_tier")
+    // Without a session there is no routing hint to send.
+    expect(fetchMock.mock.calls[0][1]?.headers).not.toHaveProperty("x-session-affinity")
   })
 
   it.each([
@@ -440,6 +447,47 @@ describe("HostedClient team billing", () => {
   })
 })
 
+describe("cached prompt tokens", () => {
+  const usageOf = async (usage: Record<string, unknown>) => {
+    const client = new HostedClient({
+      provider: "together",
+      apiKey: "key",
+      model: "org/model",
+      fetch: (async () =>
+        sseResponse([
+          { choices: [{ delta: { content: "ok" }, finish_reason: "stop" }] },
+          { choices: [], usage },
+        ])) as typeof fetch,
+    })
+    const events = await collect(client.streamChat({ messages: [{ role: "user", content: "hi" }] }))
+    return events.find((event) => event.type === "usage")
+  }
+
+  it("reads Together's top-level cached count when the nested field is absent", async () => {
+    await expect(
+      usageOf({ prompt_tokens: 10, completion_tokens: 2, total_tokens: 12, cached_tokens: 4 }),
+    ).resolves.toEqual({
+      type: "usage",
+      usage: { promptTokens: 10, completionTokens: 2, totalTokens: 12, cachedPromptTokens: 4 },
+    })
+  })
+
+  it("leaves the cached count out when it is unreported or exceeds the prompt", async () => {
+    const plain = { promptTokens: 10, completionTokens: 2, totalTokens: 12 }
+    await expect(
+      usageOf({ prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 }),
+    ).resolves.toEqual({ type: "usage", usage: plain })
+    await expect(
+      usageOf({
+        prompt_tokens: 10,
+        completion_tokens: 2,
+        total_tokens: 12,
+        prompt_tokens_details: { cached_tokens: 11 },
+      }),
+    ).resolves.toEqual({ type: "usage", usage: plain })
+  })
+})
+
 describe.each(OTHER_PROVIDERS)("HostedClient for %s", (provider) => {
   const { name, inferenceURL } = HOSTED_PROVIDER_INFO[provider]
 
@@ -449,7 +497,15 @@ describe.each(OTHER_PROVIDERS)("HostedClient for %s", (provider) => {
         {
           choices: [{ delta: { reasoning: "thinking", content: "Done." }, finish_reason: "stop" }],
         },
-        { choices: [], usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 } },
+        {
+          choices: [],
+          usage: {
+            prompt_tokens: 10,
+            completion_tokens: 2,
+            total_tokens: 12,
+            prompt_tokens_details: { cached_tokens: 8 },
+          },
+        },
       ]),
     )
     const client = new HostedClient({
@@ -465,13 +521,18 @@ describe.each(OTHER_PROVIDERS)("HostedClient for %s", (provider) => {
         messages: [{ role: "user", content: "hello" }],
         tools: [{ name: "read", description: "Read a file", parameters: { type: "object" } }],
         minimalReasoning: true,
+        // The affinity hint is Fireworks' routing; the exact header check below keeps it off here.
+        sessionId: "session_20260716_abc",
       }),
     )
 
     expect(events).toEqual([
       { type: "reasoning_delta", field: "reasoning", text: "thinking" },
       { type: "text_delta", text: "Done." },
-      { type: "usage", usage: { promptTokens: 10, completionTokens: 2, totalTokens: 12 } },
+      {
+        type: "usage",
+        usage: { promptTokens: 10, completionTokens: 2, totalTokens: 12, cachedPromptTokens: 8 },
+      },
       { type: "finish", reason: "stop" },
     ])
     expect(fetchMock).toHaveBeenCalledOnce()

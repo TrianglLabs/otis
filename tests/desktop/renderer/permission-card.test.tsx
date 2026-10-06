@@ -39,6 +39,7 @@ const SNAPSHOT: DesktopSnapshot = {
   busy: true,
   phase: "working",
   speed: null,
+  usage: null,
   model: { id: "m", provider: "fireworks", supportsImageInput: false },
   modelState: "ready",
   modelError: undefined,

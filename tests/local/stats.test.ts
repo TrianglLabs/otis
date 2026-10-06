@@ -30,7 +30,12 @@ describe("calculateLocalStats", () => {
         provider: "fireworks",
         model: "accounts/fireworks/models/glm",
         modelName: "GLM-5.3",
-        usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
+        usage: {
+          promptTokens: 100,
+          completionTokens: 50,
+          totalTokens: 150,
+          cachedPromptTokens: 60,
+        },
       }),
       event(4, "session-a", "turn_completed", localISO(now, 120), {
         promptId: "prompt-a",
@@ -64,13 +69,26 @@ describe("calculateLocalStats", () => {
       activeDays: 2,
       promptTokens: 140,
       completionTokens: 60,
+      // Yesterday's title request reported no cache count, so only today's 100 prompt tokens
+      // have cache data; the hit rate is 60 of those, and the other 40 are neither hit nor miss.
+      cachedPromptTokens: 60,
+      cacheReportedPromptTokens: 100,
       promptCount: 2,
       todayPrompts: 1,
       todaySessions: 1,
       todayTokens: 150,
       activeDates: [localDateKey(yesterday), localDateKey(now)],
       // Yesterday's title usage predates model notes, so only today's turn has a model.
-      modelUsage: { "GLM-5.3": { hosted: true, promptTokens: 100, completionTokens: 50 } },
+      modelUsage: {
+        "GLM-5.3": {
+          hosted: true,
+          promptTokens: 100,
+          completionTokens: 50,
+          totalTokens: 150,
+          cachedPromptTokens: 60,
+          cacheReportedPromptTokens: 100,
+        },
+      },
       todayTokensByModel: { "GLM-5.3": 150 },
     })
     // Firsts date from the earliest session; noon prompts earn no owl or bird.
@@ -113,11 +131,18 @@ describe("calculateLocalStats", () => {
 
     const stats = await calculateLocalStats({ sessionsRoot: root, now })
     expect(stats.providers.sort()).toEqual(["baseten", "local", "primeintellect", "together"])
+    const usage = {
+      promptTokens: 10,
+      completionTokens: 5,
+      totalTokens: 15,
+      cachedPromptTokens: 0,
+      cacheReportedPromptTokens: 0,
+    }
     expect(stats.modelUsage).toEqual({
-      "together model": { hosted: true, promptTokens: 10, completionTokens: 5 },
-      "baseten model": { hosted: true, promptTokens: 10, completionTokens: 5 },
-      "primeintellect model": { hosted: true, promptTokens: 10, completionTokens: 5 },
-      "local model": { hosted: false, promptTokens: 10, completionTokens: 5 },
+      "together model": { hosted: true, ...usage },
+      "baseten model": { hosted: true, ...usage },
+      "primeintellect model": { hosted: true, ...usage },
+      "local model": { hosted: false, ...usage },
     })
     expect(stats.achievements).toMatchObject({
       "hosted-model": { at: localISO(now, 1), count: 1 },

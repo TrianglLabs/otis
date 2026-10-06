@@ -121,6 +121,8 @@ export const Composer = memo(function Composer({ installing = false }: { install
     "workspace",
     "speed",
   )
+  const speed = state?.speed ?? null
+  const rate = speed ? t("speed.tokensPerSecond", { rate: Math.round(speed.tokensPerSecond) }) : ""
   const [draft, setDraft] = useState("")
   const [sendError, setSendError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
@@ -149,12 +151,6 @@ export const Composer = memo(function Composer({ installing = false }: { install
   const boxDropClass = dragActive ? " composer-boxDrop" : ""
   const modelStateClass =
     modelState === "starting" || modelState === "failed" ? ` composer-model-${modelState}` : ""
-  // Hosted serving is not the user's hardware; only local providers get the speed readout.
-  const showSpeed = state?.model !== null && !isHostedProvider(state?.model.provider)
-  const speed = state?.speed ?? null
-  const rate = speed
-    ? t("composer.tokensPerSecond", { rate: Math.round(speed.tokensPerSecond) })
-    : ""
 
   const replacePendingAttachments = (attachments: PendingAttachment[]) => {
     pendingAttachmentsRef.current = attachments
@@ -507,13 +503,14 @@ export const Composer = memo(function Composer({ installing = false }: { install
                   </span>
                 </button>
               ) : null}
-              {showSpeed && speed ? (
+              {/* Hosted serving is not the user's hardware; only local models show speed. */}
+              {speed && state?.model && !isHostedProvider(state.model.provider) ? (
                 <span className="composer-speed" title={t("composer.speedLabel")}>
                   <Icon icon={Gauge} size={12} />
                   {speed.exact
                     ? speed.prefillMs === undefined
                       ? rate
-                      : `${rate} · ${t("composer.prefill", { seconds: (speed.prefillMs / 1000).toFixed(1) })}`
+                      : `${rate} · ${t("speed.prefill", { seconds: (speed.prefillMs / 1000).toFixed(1) })}`
                     : `~${rate}`}
                 </span>
               ) : null}

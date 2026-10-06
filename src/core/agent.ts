@@ -385,6 +385,7 @@ export async function* runAgent(
           compactConversation(messages, {
             client: options.client,
             signal: options.signal,
+            sessionId: options.sessionId,
             onUsage: options.onCompactionUsage ?? options.onUsage,
             contextBudget: budget,
             maxInputTokens: summaryBudget,
@@ -419,6 +420,7 @@ export async function* runAgent(
           skills: modelSkills,
           outputCapabilities: options.outputCapabilities,
           signal: options.signal,
+          sessionId: options.sessionId,
         })
         while (true) {
           const step = yield* coworkers.during(stream.next())

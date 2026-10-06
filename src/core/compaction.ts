@@ -63,6 +63,7 @@ export type CompactionResult = {
 type CompactionOptions = {
   client: InferenceClient
   instructions?: string
+  sessionId?: string
   onUsage?: (usage: TokenUsage) => void | Promise<void>
   signal?: AbortSignal
   keepRecentTokens?: number
@@ -223,6 +224,7 @@ ${focus}`
     tools: [],
     minimalReasoning: true,
     signal: options.signal,
+    sessionId: options.sessionId,
   })
   const countRequest = (request: ReturnType<typeof summaryRequest>) =>
     options.client.countTokens?.(request) ?? estimate(request.messages)

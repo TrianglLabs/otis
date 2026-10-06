@@ -8,10 +8,12 @@ import {
   SquarePen,
   SquareTerminal,
 } from "lucide-react"
+import { Fragment } from "react"
+import { addUsage, emptyUsage, type UsageTotals } from "../../../inference/types.js"
 import { Button, IconButton } from "../components/Button.js"
 import { TabStrip } from "../components/TabStrip.js"
 import { unseenRun } from "../features/routines/RoutinesHome.js"
-import { formatTokenCount } from "../format.js"
+import { formatTokenCount, usageBreakdown } from "../format.js"
 import { useI18n } from "../i18n/index.js"
 import { useDesktop, useDesktopSelector, useDesktopState } from "../runtime.js"
 
@@ -48,6 +50,7 @@ export function WorkspaceHeader({
     "diffs",
     "contextTokens",
     "contextLimit",
+    "usage",
     "session",
     "panes",
     "runtimes",
@@ -125,18 +128,30 @@ export function WorkspaceHeader({
           </span>
         ) : null}
         {hasEntries && contextTokens !== undefined && state.panes.length === 1 ? (
-          <span
-            className="contextMeter noDrag"
-            title={t("header.contextTokens", {
-              used: contextTokens.toLocaleString(locale),
-              limit: contextLimit.toLocaleString(locale),
-            })}
-          >
+          // biome-ignore lint/a11y/noNoninteractiveTabindex: keyboard focus opens the token breakdown.
+          <div className="contextMeter noDrag" tabIndex={0}>
             <span className="contextMeter-track">
               <span className="contextMeter-fill" style={{ width: `${contextPercent}%` }} />
             </span>
             <span className="contextMeter-text">{formatTokenCount(contextTokens)}</span>
-          </span>
+            <div className="contextMeter-popover">
+              <p className="contextMeter-context">
+                {t("header.contextTokens", {
+                  used: contextTokens.toLocaleString(locale),
+                  limit: contextLimit.toLocaleString(locale),
+                })}
+              </p>
+              {state.usage?.last ? (
+                <>
+                  <UsageRows
+                    title={t("header.lastRequest")}
+                    usage={addUsage(emptyUsage(), state.usage.last)}
+                  />
+                  <UsageRows title={t("header.thisSession")} usage={state.usage.total} />
+                </>
+              ) : null}
+            </div>
+          </div>
         ) : null}
         <div className="workspaceHeader-actions">
           {state.remote ? (
@@ -188,4 +203,25 @@ export function WorkspaceHeader({
 /** Open sessions in more than one folder: each then says which it is in. */
 export function foldersSpanned(runtimes: readonly { workspace: { path: string } }[]) {
   return new Set(runtimes.map((entry) => entry.workspace.path)).size > 1
+}
+
+function UsageRows({ title, usage }: { title: string; usage: UsageTotals }) {
+  const { locale, t } = useI18n()
+  const { hitRate, rows } = usageBreakdown(usage, t, locale)
+  return (
+    <>
+      <p className="contextMeter-section">
+        {title}
+        {hitRate ? <span>{hitRate}</span> : null}
+      </p>
+      <dl className="contextMeter-rows">
+        {rows.map((row) => (
+          <Fragment key={row.id}>
+            <dt>{row.label}</dt>
+            <dd>{formatTokenCount(row.tokens)}</dd>
+          </Fragment>
+        ))}
+      </dl>
+    </>
+  )
 }

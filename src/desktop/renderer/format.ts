@@ -1,6 +1,8 @@
 /** Display formatting helpers shared across renderer features. */
 
 import type { GlobalSessionPickerItem } from "../../app/global-sessions.js"
+import type { UsageTotals } from "../../inference/types.js"
+import type { Translate } from "./i18n/messages/en.js"
 
 export function formatTokenCount(tokens: number): string {
   if (tokens >= 1_000_000_000) return `${(tokens / 1_000_000_000).toFixed(1)}B`
@@ -85,4 +87,47 @@ export function formatElapsed(durationMs: number): string {
   const minutes = Math.floor(total / 60)
   if (minutes < 60) return `${minutes}m ${total % 60}s`
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
+}
+
+export type UsageRow = {
+  id: "uncached" | "cached" | "unknown" | "output"
+  label: string
+  tokens: number
+}
+
+/**
+ * Input split into uncached and cached where the server reported a cache count, plain input
+ * where it did not, then output. The hit rate covers the reported part only, and is absent
+ * without one.
+ */
+export function usageBreakdown(usage: UsageTotals, t: Translate, locale: string) {
+  const { promptTokens, completionTokens, cachedPromptTokens, cacheReportedPromptTokens } = usage
+  const unknown = promptTokens - cacheReportedPromptTokens
+  const rows: UsageRow[] = []
+  if (cacheReportedPromptTokens > 0) {
+    rows.push(
+      {
+        id: "uncached",
+        label: t("settings.usageUncachedInput"),
+        tokens: cacheReportedPromptTokens - cachedPromptTokens,
+      },
+      { id: "cached", label: t("settings.usageCachedInput"), tokens: cachedPromptTokens },
+    )
+  }
+  if (unknown > 0 || cacheReportedPromptTokens === 0) {
+    const key =
+      cacheReportedPromptTokens > 0 ? "settings.usageInputNoCacheData" : "settings.usageInput"
+    rows.push({ id: "unknown", label: t(key), tokens: unknown })
+  }
+  rows.push({ id: "output", label: t("settings.usageOutput"), tokens: completionTokens })
+  const hitRate =
+    cacheReportedPromptTokens > 0
+      ? t("settings.usageCacheHit", {
+          percent: new Intl.NumberFormat(locale, {
+            style: "percent",
+            maximumFractionDigits: 0,
+          }).format(cachedPromptTokens / cacheReportedPromptTokens),
+        })
+      : null
+  return { hitRate, rows }
 }

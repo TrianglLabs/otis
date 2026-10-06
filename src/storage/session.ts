@@ -2,7 +2,15 @@ import { randomUUID } from "node:crypto"
 import { readdir, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { createUserMessage } from "../inference/messages.js"
-import type { ChatMessage, ModelProvider, TokenUsage, UserChatMessage } from "../inference/types.js"
+import {
+  addUsage,
+  type ChatMessage,
+  emptyUsage,
+  type ModelProvider,
+  type SessionUsage,
+  type TokenUsage,
+  type UserChatMessage,
+} from "../inference/types.js"
 import {
   type BaseSessionEvent,
   isNotFoundError,
@@ -219,6 +227,18 @@ export class JsonlSession {
 
   hasTitle() {
     return this.events.some((event) => event.type === "title_renamed")
+  }
+
+  /** Every recorded request, title generation and compaction included. */
+  usage(): SessionUsage {
+    let last: TokenUsage | null = null
+    let total = emptyUsage()
+    for (const event of this.events) {
+      if (event.type !== "usage_recorded") continue
+      last = event.usage
+      total = addUsage(total, event.usage)
+    }
+    return { last, total }
   }
 
   title() {
