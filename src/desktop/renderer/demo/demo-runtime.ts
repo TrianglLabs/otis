@@ -883,15 +883,22 @@ class DemoRuntime implements DesktopApi {
   #memory: MemoryEntry[] = [
     {
       scope: "workspace",
+      topic: "testing",
       date: "2026-09-12",
       text: "Session locks live in src/storage/session-lock.ts; the flaky test was timing.",
     },
     {
       scope: "workspace",
+      topic: "releases",
       date: "2026-09-20",
       text: "Release notes go in CHANGELOG.md under the version heading before tagging.",
     },
-    { scope: "global", date: "2026-08-03", text: "Prefer bun over npm for scripts and installs." },
+    {
+      scope: "global",
+      topic: "general",
+      date: "2026-08-03",
+      text: "Prefer bun over npm for scripts and installs.",
+    },
   ]
   #downloadedLocalIds = new Set(
     DEMO_MODELS.filter((item) => item.provider === "local" && item.downloaded).map(
@@ -2265,7 +2272,8 @@ class DemoRuntime implements DesktopApi {
   async rememberFact(scope: MemoryScope, fact: string): Promise<SessionOpResult> {
     const text = fact.trim()
     if (!text) return { ok: false, reason: "There is nothing to remember." }
-    this.#memory = [...this.#memory, { scope, date: new Date().toISOString().slice(0, 10), text }]
+    const date = new Date().toISOString().slice(0, 10)
+    this.#memory = [...this.#memory, { scope, topic: "general", date, text }]
     return { ok: true }
   }
 

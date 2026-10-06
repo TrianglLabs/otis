@@ -456,7 +456,7 @@ export const en = {
   "settings.memoryRemember": "Remember",
   "settings.memoryForget": "Forget",
   "settings.memoryNote":
-    "Facts live in Otis' data folder: a memory.md for each working folder, and one for those that hold everywhere. Nothing is written into the project. Otis reads them only when it calls recall.",
+    "Facts live in Otis' data folder: a memory folder for each working folder, and one for those that hold everywhere. Nothing is written into the project. Otis reads them only when it calls recall.",
   "settings.skillBundled": "Bundled",
   "settings.skillPersonal": "Personal",
   "settings.skillProject": "Project",

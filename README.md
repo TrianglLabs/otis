@@ -253,13 +253,16 @@ documents Zero Data Retention for open-model inference by default; check the oth
 directly to Parallel, and PAIR owns traffic within your cluster.
 
 Otis keeps a small memory it never puts in the prompt: facts the agent or you save with `remember` land in Otis' data
-folder, in a `memory.md` beside the working folder's sessions or in one for everything that holds everywhere; nothing
-is written into your project. The agent reads them only when it calls `recall`, which also searches your past
-sessions in every workspace. Memory is for the project and your tooling, not for people: the agent is told not to
-save personal details, and credentials, email addresses, phone, card and national-id numbers are stripped from
-anything saved or recalled. Both files are plain Markdown you can edit; the Extensions settings tab lists and edits
-them too. What `recall` returns goes to whichever model is answering, so with a hosted model it leaves your machine
-like the rest of the conversation.
+folder, in a `memory/` folder beside the working folder's sessions or in one for everything that holds everywhere;
+nothing is written into your project. Each folder follows the Agent Memory Repo layout: `MEMORY.md` links the topic
+files, and each fact is one Markdown bullet with the session it came from and the date. The agent reads them only
+when it calls `recall`, which also searches your past sessions in every workspace. Memory is for the project and your
+tooling, not for people: the agent is told not to save personal details, and credentials, email addresses, phone,
+card and national-id numbers are stripped from anything saved or recalled. The files are plain Markdown you can edit;
+the Extensions settings tab lists and edits them too. Make a memory folder itself a git repository, or clone one your
+other agents share into its place, and Otis commits every change there; pushing stays yours. A repository further up,
+such as a home directory under version control, is left alone. What `recall` returns goes to whichever model is
+answering, so with a hosted model it leaves your machine like the rest of the conversation.
 
 Read [local data and privacy](docs/data-and-privacy.md) for paths and retention, the
 [architecture guide](docs/architecture.md) for runtime boundaries, and [SECURITY.md](SECURITY.md) for private

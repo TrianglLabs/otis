@@ -1,5 +1,5 @@
 import type { RoutineSchedule } from "../local/routines.js"
-import { isMemoryScope } from "../memory/memory.js"
+import { isMemoryScope, memoryTopic } from "../memory/memory.js"
 import {
   DOCUMENT_OPERATIONS,
   type DocumentOperation,
@@ -80,6 +80,9 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           enum: ["workspace", "global"],
           description: "Where it applies. Defaults to workspace.",
         },
+        topic: stringSchema(
+          "The topic file the fact belongs in, a short lowercase name such as build, deploy, or conventions; recall shows each fact's topic. Defaults to general.",
+        ),
       },
       ["fact"],
     ),
@@ -525,7 +528,8 @@ export function parseStructuredToolCall(name: string, input: unknown): ToolCall 
       if (!fact) throw new Error(`${name} requires a non-empty string "fact"`)
       const scope = text("scope") ?? "workspace"
       if (!isMemoryScope(scope)) throw new Error(`${name} scope must be "workspace" or "global"`)
-      return { name, input: { fact, scope } }
+      if (name === "forget") return { name, input: { fact, scope } }
+      return { name, input: { fact, scope, topic: memoryTopic(text("topic")) } }
     }
     case "routines": {
       const action = text("action")

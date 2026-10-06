@@ -1,6 +1,7 @@
-import { appendFile, mkdir, readFile, rm, rmdir, writeFile } from "node:fs/promises"
-import { dirname, join } from "node:path"
+import { appendFile, mkdir, readdir, readFile, rm, rmdir, stat, writeFile } from "node:fs/promises"
+import { basename, dirname, join, sep } from "node:path"
 import { localDataDirectory } from "../local/paths.js"
+import { runGit } from "../skills/manager.js"
 import { searchAllSessions } from "../storage/session.js"
 import { defaultSessionDirectory } from "../storage/session-files.js"
 
@@ -12,14 +13,23 @@ export function isMemoryScope(value: unknown): value is MemoryScope {
 
 export type MemoryEntry = {
   scope: MemoryScope
+  /** The topic file the fact lives in, as its `[[link]]` path. */
+  topic: string
   /** The day it was remembered; absent on lines written by hand. */
   date?: string
   text: string
 }
 
 const SCOPES = ["workspace", "global"] as const
-/** `- 2026-09-27 [session]: fact`; a bullet written by hand carries only the fact. */
-const ENTRY = /^- (?:(\d{4}-\d{2}-\d{2})(?: \[[^\]]+\])?: )?(.+)$/u
+const DEFAULT_TOPIC = "general"
+const INDEX = "MEMORY.md"
+/**
+ * The Agent Memory Repo layout: `MEMORY.md` indexes topic files with `[[path]]` links, and a
+ * fact is one bullet with optional `[key: value; key: value]` metadata, `source` and `added`.
+ */
+const ENTRY = /^- (.+?)(?: \[((?:source|added): [^\]]*)\])?$/u
+/** `- 2026-09-27 [session]: fact`, the single-file layout before 0.2.19. */
+const LEGACY_ENTRY = /^- (?:(\d{4}-\d{2}-\d{2})(?: \[([^\]]+)\])?: )?(.+)$/u
 
 /**
  * Credentials and personal details that slip into a fact or a transcript excerpt never reach
@@ -48,29 +58,147 @@ export function redactPrivate(text: string) {
   )
 }
 
-async function memoryFile(scope: MemoryScope, cwd: string) {
-  if (scope === "global") return join(localDataDirectory(), "memory.md")
-  const file = join(defaultSessionDirectory(cwd), "memory.md")
-  // 0.2.6 kept workspace memory in the project's `.otis/memory.md`, where it ended up in commits;
-  // it moves to the data folder on first use.
-  const legacy = join(cwd, ".otis", "memory.md")
-  const old = await readFile(legacy, "utf8").catch(() => undefined)
-  if (old === undefined) return file
+/** A topic as the agent or user typed it, normalized to a `[[link]]` path. */
+export function memoryTopic(value: string | undefined) {
+  const topic = (value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\.md$/u, "")
+    .replace(/[\s_]+/gu, "-")
+    .replace(/[^a-z0-9/-]+/gu, "")
+    .replace(/-{2,}/gu, "-")
+    .replace(/-?\/+-?/gu, "/")
+    .replace(/^[-/]+|[-/]+$/gu, "")
+  if (topic) return topic
+  if (value?.trim()) throw new Error(`"${value}" is not a usable topic name.`)
+  return DEFAULT_TOPIC
+}
+
+/**
+ * The memory folder of a scope. Facts remembered before 0.2.19 sat in one `memory.md` beside
+ * it (and in 0.2.6, in the project's `.otis/`); they move into the folder on first use.
+ */
+async function memoryRoot(scope: MemoryScope, cwd: string) {
+  const parent = scope === "global" ? localDataDirectory() : defaultSessionDirectory(cwd)
+  const root = join(parent, "memory")
+  const legacy = [
+    join(parent, "memory.md"),
+    ...(scope === "global" ? [] : [join(cwd, ".otis", "memory.md")]),
+  ]
+  for (const file of legacy) {
+    const old = await readFile(file, "utf8").catch(() => undefined)
+    if (old === undefined) continue
+    const facts = old.split("\n").flatMap((line) => {
+      const match = LEGACY_ENTRY.exec(line)
+      return match ? [formatEntry(match[3], match[2], match[1])] : []
+    })
+    if (facts.length) await appendEntries(root, scope, cwd, DEFAULT_TOPIC, facts)
+    await rm(file)
+    if (file.startsWith(join(cwd, ".otis"))) await rmdir(dirname(file)).catch(() => {})
+  }
+  return root
+}
+
+function formatEntry(text: string, source?: string, added?: string) {
+  const metadata = [source && `source: ${source}`, added && `added: ${added}`].filter(Boolean)
+  return `- ${text}${metadata.length ? ` [${metadata.join("; ")}]` : ""}`
+}
+
+function parseEntry(scope: MemoryScope, topic: string, line: string): MemoryEntry | undefined {
+  const match = ENTRY.exec(line)
+  if (!match) return undefined
+  const added = /(?:^|;)\s*added:\s*(\d{4}-\d{2}-\d{2})/u.exec(match[2] ?? "")?.[1]
+  return { scope, topic, ...(added ? { date: added } : {}), text: match[1] }
+}
+
+/** Every topic file, nested ones too; dot folders such as `.git` and the index are not topics. */
+async function topicFiles(root: string) {
+  const names = await readdir(root, { recursive: true }).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return [] as string[]
+    throw error
+  })
+  return names
+    .map((name) => name.split(sep))
+    .filter(
+      (parts) =>
+        parts.at(-1)?.endsWith(".md") &&
+        parts.at(-1) !== INDEX &&
+        !parts.some((part) => part.startsWith(".")),
+    )
+    .map((parts) => ({ topic: parts.join("/").slice(0, -3), file: join(root, ...parts) }))
+    .sort((a, b) => (a.topic < b.topic ? -1 : a.topic > b.topic ? 1 : 0))
+}
+
+async function readLines(file: string) {
+  const content = await readFile(file, "utf8").catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return ""
+    throw error
+  })
+  return content ? content.replace(/\n$/u, "").split("\n") : []
+}
+
+/** Appends facts to a topic file, creating it with a heading and linking it from the index. */
+async function appendEntries(
+  root: string,
+  scope: MemoryScope,
+  cwd: string,
+  topic: string,
+  lines: string[],
+) {
+  const file = join(root, `${topic}.md`)
   await mkdir(dirname(file), { recursive: true, mode: 0o700 })
-  await writeFile(file, old, { flag: "wx", mode: 0o600 }).catch(() => {})
-  await rm(legacy)
-  await rmdir(dirname(legacy)).catch(() => {})
-  return file
+  const content = await readFile(file, "utf8").catch(() => "")
+  const name = topic.slice(topic.lastIndexOf("/") + 1).replace(/[-_]+/gu, " ")
+  const heading = `# ${name.charAt(0).toUpperCase()}${name.slice(1)}\n\n`
+  const head = content ? (content.endsWith("\n") ? "" : "\n") : heading
+  // Appending keeps a fact another session saves at the same moment.
+  await appendFile(file, `${head}${lines.map((line) => `${line}\n`).join("")}`, { mode: 0o600 })
+  // A link the user wrote by hand, annotated or not, is the same link.
+  const index = join(root, INDEX)
+  const indexLines = await readLines(index)
+  if (indexLines.some((line) => line.includes(`[[${topic}]]`))) return
+  const owner = scope === "global" ? "Otis" : basename(cwd) || "workspace"
+  const existing = indexLines.length ? indexLines : [`# Memory: ${owner}`, ""]
+  await writeFile(index, `${[...existing, `- [[${topic}]]`].join("\n")}\n`, { mode: 0o600 })
+}
+
+/**
+ * When the memory folder is itself a git repository, every change becomes a commit there, so
+ * the history is the user's and syncs through whatever remote they gave the repository. Otis
+ * never pushes. A repository further up, say a home directory under version control, is left
+ * alone. Returns the short hash, or nothing when the folder is not a repository.
+ */
+async function commitMemory(root: string, message: string) {
+  const repository = await stat(join(root, ".git")).then(
+    () => true,
+    () => false,
+  )
+  if (!repository) return undefined
+  try {
+    await runGit(["add", "--all"], { cwd: root })
+    await runGit(["commit", "--quiet", "--message", message], { cwd: root })
+  } catch (error) {
+    // The fact is on disk; the caller must not save it again.
+    throw new Error(`Saved, but the memory repository commit failed: ${(error as Error).message}`)
+  }
+  return (await runGit(["rev-parse", "--short", "HEAD"], { cwd: root })).trim()
 }
 
 export async function listMemory(cwd: string): Promise<MemoryEntry[]> {
   const entries = await Promise.all(
-    SCOPES.map(async (scope) =>
-      (await readLines(await memoryFile(scope, cwd))).flatMap((line) => {
-        const match = ENTRY.exec(line)
-        return match ? [entry(scope, match)] : []
-      }),
-    ),
+    SCOPES.map(async (scope) => {
+      const root = await memoryRoot(scope, cwd)
+      const topics = await topicFiles(root)
+      const rows = await Promise.all(
+        topics.map(async ({ topic, file }) =>
+          (await readLines(file)).flatMap((line) => {
+            const entry = parseEntry(scope, topic, line)
+            return entry ? [entry] : []
+          }),
+        ),
+      )
+      return rows.flat()
+    }),
   )
   return entries.flat()
 }
@@ -80,40 +208,56 @@ export async function remember(
   fact: string,
   cwd: string,
   session?: string,
-): Promise<MemoryEntry> {
+  topic = DEFAULT_TOPIC,
+): Promise<MemoryEntry & { commit?: string }> {
   const text = redactPrivate(fact.trim().replace(/\s+/gu, " "))
   if (!text) throw new Error("There is nothing to remember.")
   const date = new Date().toISOString().slice(0, 10)
-  const file = await memoryFile(scope, cwd)
-  const content = await readFile(file, "utf8").catch(() => "")
-  await mkdir(dirname(file), { recursive: true, mode: 0o700 })
-  // Appending keeps a fact another session saves at the same moment.
-  const separator = content && !content.endsWith("\n") ? "\n" : ""
-  const stamp = session ? `${date} [${session}]` : date
-  await appendFile(file, `${separator}- ${stamp}: ${text}\n`, { mode: 0o600 })
-  return { scope, date, text }
+  const root = await memoryRoot(scope, cwd)
+  await appendEntries(root, scope, cwd, topic, [formatEntry(text, session, date)])
+  const commit = await commitMemory(root, `memory: remember ${topic}`)
+  return { scope, topic, date, text, ...(commit ? { commit } : {}) }
 }
 
 /** Removes the entry whose text matches, or the one entry containing the given text. */
-export async function forget(scope: MemoryScope, fact: string, cwd: string): Promise<MemoryEntry> {
+export async function forget(
+  scope: MemoryScope,
+  fact: string,
+  cwd: string,
+): Promise<MemoryEntry & { commit?: string }> {
   const needle = fact.trim().toLowerCase()
-  const file = await memoryFile(scope, cwd)
-  const lines = await readLines(file)
-  const matches = lines.map((line) => ENTRY.exec(line))
-  const indexes = (test: (text: string) => boolean) =>
-    matches.flatMap((match, index) => (match && test(match[2].toLowerCase()) ? [index] : []))
-  const exact = indexes((text) => text === needle)
-  const candidates = exact.length ? exact : indexes((text) => text.includes(needle))
+  const root = await memoryRoot(scope, cwd)
+  const found: { topic: string; file: string; lines: string[]; index: number; text: string }[] = []
+  for (const { topic, file } of await topicFiles(root)) {
+    const lines = await readLines(file)
+    lines.forEach((line, index) => {
+      const entry = parseEntry(scope, topic, line)
+      if (entry) found.push({ topic, file, lines, index, text: entry.text.toLowerCase() })
+    })
+  }
+  const exact = found.filter((hit) => hit.text === needle)
+  const candidates = exact.length ? exact : found.filter((hit) => hit.text.includes(needle))
   if (candidates.length !== 1)
     throw new Error(
       candidates.length === 0
         ? `Nothing in ${scope} memory matches "${fact.trim()}".`
         : `"${fact.trim()}" matches ${candidates.length} ${scope} memories; pass the full text.`,
     )
-  const [index] = candidates
+  const [{ topic, file, lines, index }] = candidates
+  const entry = parseEntry(scope, topic, lines[index]) as MemoryEntry
   const kept = lines.filter((_, at) => at !== index)
-  await writeFile(file, kept.map((line) => `${line}\n`).join(""), { mode: 0o600 })
-  return entry(scope, matches[index] as RegExpExecArray)
+  if (kept.some((line) => ENTRY.test(line))) {
+    await writeFile(file, kept.map((line) => `${line}\n`).join(""), { mode: 0o600 })
+  } else {
+    // A topic without facts leaves, with its folder when that empties too, and its index link.
+    await rm(file)
+    await rmdir(dirname(file)).catch(() => {})
+    const indexFile = join(root, INDEX)
+    const indexLines = (await readLines(indexFile)).filter((line) => !line.includes(`[[${topic}]]`))
+    await writeFile(indexFile, indexLines.map((line) => `${line}\n`).join(""), { mode: 0o600 })
+  }
+  const commit = await commitMemory(root, `memory: forget ${topic}`)
+  return { ...entry, ...(commit ? { commit } : {}) }
 }
 
 /**
@@ -129,7 +273,7 @@ export async function recall(query: string, cwd: string, session?: string): Prom
   const sections = SCOPES.flatMap((scope) => {
     const rows = memories
       .filter((memory) => memory.scope === scope)
-      .map((memory) => `- ${memory.date ? `${memory.date}: ` : ""}${memory.text}`)
+      .map((memory) => `- ${memory.text} (${memory.topic}${memory.date ? `, ${memory.date}` : ""})`)
     return rows.length ? [`Remembered (${scope}):\n${rows.join("\n")}`] : []
   })
   if (sessions.length)
@@ -142,16 +286,4 @@ export async function recall(query: string, cwd: string, session?: string): Prom
         .join("\n")}`,
     )
   return redactPrivate(sections.join("\n\n") || "Nothing remembered or recorded matches.")
-}
-
-function entry(scope: MemoryScope, [, date, text]: RegExpExecArray): MemoryEntry {
-  return { scope, ...(date ? { date } : {}), text }
-}
-
-async function readLines(file: string) {
-  const content = await readFile(file, "utf8").catch((error: NodeJS.ErrnoException) => {
-    if (error.code === "ENOENT") return ""
-    throw error
-  })
-  return content ? content.replace(/\n$/u, "").split("\n") : []
 }

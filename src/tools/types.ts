@@ -83,7 +83,7 @@ export type ToolCall =
   | { name: "agent"; input: { description: string; prompt: string } }
   | { name: "wait_coworkers"; input: Record<string, never> }
   | { name: "recall"; input: { query: string } }
-  | { name: "remember"; input: { fact: string; scope: MemoryScope } }
+  | { name: "remember"; input: { fact: string; scope: MemoryScope; topic: string } }
   | { name: "forget"; input: { fact: string; scope: MemoryScope } }
   | {
       name: "routines"

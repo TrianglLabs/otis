@@ -1,5 +1,5 @@
 import { describeSchedule, ROUTINES_UNAVAILABLE } from "../local/routines.js"
-import { forget, recall, remember } from "../memory/memory.js"
+import { forget, type MemoryEntry, recall, remember } from "../memory/memory.js"
 import { readSkillResource } from "../skills/catalog.js"
 import { runDocumentWorkflow } from "./document-workflow.js"
 import { editLocalDocument } from "./documents.js"
@@ -98,14 +98,15 @@ export async function executeToolCall(
         output: await recall(call.input.query, context.cwd ?? process.cwd(), context.sessionId),
       }
     case "remember": {
-      const { scope, fact } = call.input
-      const entry = await remember(scope, fact, context.cwd ?? process.cwd(), context.sessionId)
-      return { title: `Remembered (${scope})`, output: entry.text }
+      const { scope, fact, topic } = call.input
+      const cwd = context.cwd ?? process.cwd()
+      const entry = await remember(scope, fact, cwd, context.sessionId, topic)
+      return { title: `Remembered (${scope} · ${topic})`, output: memoryOutput(entry) }
     }
     case "forget": {
       const { scope, fact } = call.input
       const entry = await forget(scope, fact, context.cwd ?? process.cwd())
-      return { title: `Forgot (${scope})`, output: entry.text }
+      return { title: `Forgot (${scope} · ${entry.topic})`, output: memoryOutput(entry) }
     }
     case "routines":
       return manageRoutines(call.input, context)
@@ -320,4 +321,9 @@ async function saveAttachment(
     output: `Saved the original ${attachment.sizeBytes} bytes to ${input.path}. The uploaded source is unchanged.`,
     ...(artifact ? { artifact } : {}),
   }
+}
+
+/** The fact, and the memory repository commit that recorded the change when there is one. */
+function memoryOutput(entry: MemoryEntry & { commit?: string }) {
+  return entry.commit ? `${entry.text}\nCommitted ${entry.commit}.` : entry.text
 }

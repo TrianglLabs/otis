@@ -941,7 +941,8 @@ export class InteractiveApp {
     if (this.#exiting) return
     if (command.action === "list") {
       const rows = entries.map(
-        (entry) => `- ${entry.scope === "global" ? "everywhere" : "workspace"}: ${entry.text}`,
+        (entry) =>
+          `- ${entry.scope === "global" ? "everywhere" : "workspace"} · ${entry.topic}: ${entry.text}`,
       )
       this.#say(rows.length > 0 ? rows.join("\n") : "Nothing remembered yet.")
       return
