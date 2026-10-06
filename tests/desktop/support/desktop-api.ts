@@ -9,6 +9,7 @@ export const STATUS: DesktopStatus = {
   busy: false,
   phase: "idle",
   speed: null,
+  usage: null,
   model: null,
   modelState: "unconfigured",
   modelError: undefined,

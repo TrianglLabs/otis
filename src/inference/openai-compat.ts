@@ -215,6 +215,7 @@ export async function collectCompletionText(
     messages,
     projectContext: options.projectContext,
     signal: options.signal,
+    sessionId: options.sessionId,
     tools: [],
   })) {
     if (event.type === "text_delta") text += event.text

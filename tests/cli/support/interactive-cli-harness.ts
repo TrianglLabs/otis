@@ -1,13 +1,15 @@
 import { afterEach, beforeEach, vi } from "vitest"
 import type { LocalModelSpec } from "../../../src/inference/local-catalog.js"
-import type {
-  HostedModel,
-  HostedProvider,
-  PairCatalogModel,
-  UserChatMessage,
+import {
+  emptyUsage,
+  type HostedModel,
+  type HostedProvider,
+  type PairCatalogModel,
+  type UserChatMessage,
 } from "../../../src/inference/types.js"
 import type { ThemeName } from "../../../src/local/settings.js"
 import type { ManagedSkill, ManagedSkillSource, SkillCatalog } from "../../../src/skills/catalog.js"
+
 import type { SessionReplay, SessionTranscriptReplay } from "../../../src/storage/session-events.js"
 
 const mocks = vi.hoisted(() => {
@@ -449,6 +451,7 @@ function baseSession() {
     hasTitle: vi.fn(() => false),
     id: "session_test",
     recordUsage: vi.fn(async () => undefined),
+    usage: vi.fn(() => ({ last: null, total: emptyUsage() })),
     renameTitle: vi.fn(async () => undefined),
     replay: vi.fn<() => SessionReplay>(() => ({ messages: [], toolActivities: [], subagents: [] })),
     replayTranscript: vi.fn<() => SessionTranscriptReplay>(() => ({

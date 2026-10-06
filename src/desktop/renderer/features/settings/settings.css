@@ -155,6 +155,8 @@
 /* Local usage */
 
 .settingsUsage {
+  --usage-cached: color-mix(in srgb, var(--accent) 55%, var(--border));
+  --usage-unknown: color-mix(in srgb, var(--text-dim) 45%, var(--border));
   --usage-output: color-mix(in srgb, var(--accent) 25%, var(--border));
   padding: 0;
   overflow: hidden;
@@ -212,19 +214,30 @@
 }
 
 .settingsUsage-mixTitle {
-  display: block;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 10px;
   color: var(--text);
   font-weight: 560;
 }
 
+.settingsUsage-cacheHit {
+  color: var(--text-dim);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Uncached input, the cached prefix, input without cache data, then output. */
 .settingsUsage-mixTrack {
   width: 100%;
   height: 6px;
   border-radius: var(--radius-pill);
   background: linear-gradient(
     to right,
-    var(--accent) var(--usage-input-share),
+    var(--accent) var(--usage-uncached-share),
+    var(--usage-cached) 0 var(--usage-cached-share),
+    var(--usage-unknown) 0 var(--usage-input-share),
     var(--usage-output) 0
   );
 }
@@ -233,22 +246,23 @@
   background: var(--border);
 }
 
+/* A legend under the track: one row per segment, values right-aligned. */
 .settingsUsage-mixValues {
   display: flex;
-  justify-content: space-between;
-  gap: 12px;
+  flex-direction: column;
+  gap: 6px;
   margin-top: 10px;
 }
 
 .settingsUsage-mixValues > span {
   display: flex;
   align-items: center;
-  gap: 5px;
-  min-width: 0;
+  gap: 6px;
+  white-space: nowrap;
 }
 
 .settingsUsage-mixValues strong {
-  margin-left: 2px;
+  margin-left: auto;
   color: var(--text);
   font-weight: 560;
   font-variant-numeric: tabular-nums;
@@ -262,11 +276,19 @@
   border-radius: 50%;
 }
 
-.settingsUsage-mixDotInput {
+.settingsUsage-mixDot-uncached {
   background: var(--accent);
 }
 
-.settingsUsage-mixDotOutput {
+.settingsUsage-mixDot-cached {
+  background: var(--usage-cached);
+}
+
+.settingsUsage-mixDot-unknown {
+  background: var(--usage-unknown);
+}
+
+.settingsUsage-mixDot-output {
   background: var(--usage-output);
 }
 

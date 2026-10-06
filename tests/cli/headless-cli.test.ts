@@ -301,7 +301,7 @@ describe("runHeadlessCommand", () => {
     expect(events.at(-1)).toMatchObject({
       type: "result",
       output: "Finished.",
-      usage: { totalTokens: 110 },
+      usage: { totalTokens: 110, cachedPromptTokens: 0, cacheReportedPromptTokens: 0 },
     })
     expect(session.compactTurn).toHaveBeenCalledTimes(ephemeral ? 0 : 1)
     if (!ephemeral) {

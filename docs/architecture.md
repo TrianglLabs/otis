@@ -72,7 +72,9 @@ session or transcript. Prime Intellect bills the key owner's personal wallet unl
 optional team id (`primeintellectTeamId`, env `PRIME_TEAM_ID`, settable in Settings and onboarding) is sent as
 `X-Prime-Team-ID` on Prime inference requests. One `HostedClient` serves all four through OpenAI-compatible
 streaming chat completions; only Fireworks gets its documented `reasoning_effort` tiers and `service_tier`, the
-others keep provider defaults.
+others keep provider defaults. Fireworks caches prompts per replica and routes serverless requests by an
+`x-session-affinity` hint, so every Fireworks request carries the session id; without it, consecutive turns land on
+different replicas and report zero cached tokens.
 
 Model selection comes from each provider's live model list, filtered to tool-capable models: Fireworks' serverless
 catalog flags `supportsTools`; Prime Intellect lists `tools` among a model's `supported_parameters`; every Baseten Model
@@ -602,9 +604,16 @@ approval policy is separate from OS sandboxing; a future sandbox can be added at
 without changing command output or session contracts.
 
 Every completed inference request that reports usage adds a validated `usage_recorded` event before the surrounding
-agent turn, title generation, or compaction operation continues. Home-screen totals are calculated across local
-workspace session directories. Session counts, durations, and activity streaks are also derived from those local event
-timestamps.
+agent turn, title generation, or compaction operation continues. The event carries prompt, completion, and total
+tokens, plus the prompt tokens the server reported as reused from its prefix cache when it reports them:
+`llama-server`, oMLX, Fireworks, Baseten, Prime Intellect, and vLLM-based servers do, Together only for some models,
+and Ollama never. Totals also keep the prompt tokens of the requests that reported a count, so input without cache data
+is shown as such rather than as a cache miss. The desktop Usage tab shows uncached input, cached input, input without
+cache data, output, and the cache hit rate; the header's context meter opens the same breakdown for the last request
+and the current session.
+
+Home-screen totals are calculated across local workspace session directories. Session counts, durations, and activity
+streaks are also derived from those local event timestamps.
 
 The home-screen stats row is absent until at least one provider credential is available. Once visible, every card has
 a stable label and displays zero until enough local session data exists to calculate a non-zero value.

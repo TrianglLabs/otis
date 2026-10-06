@@ -209,9 +209,80 @@
 }
 
 .contextMeter {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 7px;
+  outline: none;
+}
+
+/* Hover or keyboard focus opens the token breakdown under the meter, flush with its right edge. */
+.contextMeter-popover {
+  display: none;
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: var(--z-overlay);
+  width: 296px;
+  padding: 12px 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-meta);
+  color: var(--text-dim);
+  text-align: left;
+  cursor: default;
+  user-select: text;
+  /* A fade only: the scale of overlay-enter would drift the text while it settles. */
+  animation: overlay-fade var(--motion);
+}
+
+.contextMeter:hover .contextMeter-popover,
+.contextMeter:focus-visible .contextMeter-popover {
+  display: block;
+}
+
+/* Bridges the gap to the meter so the pointer can travel down into the popover. */
+.contextMeter-popover::before {
+  content: "";
+  position: absolute;
+  top: -8px;
+  right: 0;
+  left: 0;
+  height: 8px;
+}
+
+.contextMeter-context {
+  margin: 0;
+}
+
+.contextMeter-section {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px 0 6px;
+  color: var(--text);
+  font-weight: 560;
+}
+
+.contextMeter-section > span {
+  color: var(--text-dim);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.contextMeter-rows {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 12px;
+  margin: 0;
+}
+
+.contextMeter-rows dd {
+  margin: 0;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 .contextMeter-track {

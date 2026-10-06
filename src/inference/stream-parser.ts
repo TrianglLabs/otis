@@ -82,7 +82,23 @@ export async function* parseChatCompletionStream(
         if (promptTokens !== undefined && completionTokens !== undefined) {
           const totalTokens =
             nonNegativeInteger(chunk.usage.total_tokens) ?? promptTokens + completionTokens
-          yield { type: "usage", usage: { promptTokens, completionTokens, totalTokens } }
+          // OpenAI's `prompt_tokens_details.cached_tokens`, which llama-server and vLLM-based
+          // servers report too; Together puts it at the top level on the models that report it.
+          const details = chunk.usage.prompt_tokens_details
+          const cached = nonNegativeInteger(
+            (isRecord(details) ? details.cached_tokens : undefined) ?? chunk.usage.cached_tokens,
+          )
+          yield {
+            type: "usage",
+            usage: {
+              promptTokens,
+              completionTokens,
+              totalTokens,
+              ...(cached === undefined || cached > promptTokens
+                ? {}
+                : { cachedPromptTokens: cached }),
+            },
+          }
         }
       }
 

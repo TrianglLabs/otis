@@ -740,6 +740,7 @@ export class Conversation {
         const result = await compactConversation(transcript.history, {
           client,
           instructions,
+          sessionId: session.id,
           contextBudget: serving.autoCompactAtTokens,
           countContextTokens: (messages) =>
             client.countTokens?.({

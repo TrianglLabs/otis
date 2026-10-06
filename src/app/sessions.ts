@@ -335,6 +335,7 @@ ${lines.join("\n")}`
     let title: string
     try {
       const raw = await client.complete([{ role: "user", content: prompt }], {
+        sessionId: turnSession.id,
         onUsage: async (usage) => {
           await turnSession.recordUsage(usage, "title")
         },

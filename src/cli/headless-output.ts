@@ -1,5 +1,5 @@
 import type { AgentEvent } from "../core/agent.js"
-import type { OpenAICompatibleReasoningField, TokenUsage } from "../inference/types.js"
+import type { OpenAICompatibleReasoningField, TokenUsage, UsageTotals } from "../inference/types.js"
 
 const HEADLESS_EVENT_VERSION = 1
 export type HeadlessOutputFormat = "plain" | "json" | "jsonl"
@@ -9,7 +9,7 @@ type HeadlessResult = {
   output: string
   sessionId?: string
   model: string
-  usage: TokenUsage
+  usage: UsageTotals
   durationMs: number
   error?: string
 }
@@ -193,17 +193,5 @@ function publicEvent(
     label: event.label,
     ...(event.outcome ? { outcome: event.outcome } : {}),
     ...(event.diff ? { diff: event.diff } : {}),
-  }
-}
-
-export function emptyUsage(): TokenUsage {
-  return { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
-}
-
-export function addUsage(total: TokenUsage, usage: TokenUsage): TokenUsage {
-  return {
-    promptTokens: total.promptTokens + usage.promptTokens,
-    completionTokens: total.completionTokens + usage.completionTokens,
-    totalTokens: total.totalTokens + usage.totalTokens,
   }
 }

@@ -63,6 +63,7 @@ export class HostedClient implements InferenceClient {
           authorization: `Bearer ${this.#apiKey}`,
           "content-type": "application/json",
           ...(this.#teamId ? { "x-prime-team-id": this.#teamId } : {}),
+          ...(fireworks && options.sessionId ? { "x-session-affinity": options.sessionId } : {}),
         },
         body: JSON.stringify(
           openaiChatCompletionRequest(this.model, options, {

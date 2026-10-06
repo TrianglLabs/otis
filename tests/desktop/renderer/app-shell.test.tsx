@@ -590,14 +590,30 @@ describe("AppShell settings navigation", () => {
             activeDays: 11,
             promptTokens: 1_119_400,
             completionTokens: 362_900,
+            cachedPromptTokens: 700_000,
+            cacheReportedPromptTokens: 819_400,
             todayTokens: 44_000,
             recentActivity: [
               { date: "2026-09-18", tokens: 12_000 },
               { date: "2026-09-19", tokens: 44_000 },
             ],
             modelUsage: {
-              "Qwen3.8 27B": { hosted: false, promptTokens: 300_000, completionTokens: 100_000 },
-              "GLM-5.3": { hosted: true, promptTokens: 819_400, completionTokens: 262_900 },
+              "Qwen3.8 27B": {
+                hosted: false,
+                promptTokens: 300_000,
+                completionTokens: 100_000,
+                totalTokens: 400_000,
+                cachedPromptTokens: 0,
+                cacheReportedPromptTokens: 0,
+              },
+              "GLM-5.3": {
+                hosted: true,
+                promptTokens: 819_400,
+                completionTokens: 262_900,
+                totalTokens: 1_082_300,
+                cachedPromptTokens: 700_000,
+                cacheReportedPromptTokens: 819_400,
+              },
             },
             achievements: {},
           },
@@ -614,7 +630,23 @@ describe("AppShell settings navigation", () => {
     expect(within(usage).getByText("24")).toBeTruthy()
     expect(within(usage).getByText("11")).toBeTruthy()
     expect(within(usage).getByText("44.0k")).toBeTruthy()
-    // Models list biggest first, with their input and output split.
+    // GLM's 819.4k prompt tokens came with a cache count, so the hit rate is 700k of those; Qwen's
+    // 300k have no cache data and are neither hit nor miss.
+    expect(within(usage).getByText("85% cache hit")).toBeTruthy()
+    const legend = [...usage.querySelectorAll(".settingsUsage-mixValues > span")].map(
+      (e) => e.textContent,
+    )
+    expect(legend).toEqual([
+      "Uncached input119.4k",
+      "Cached input700.0k",
+      "Input without cache data300.0k",
+      "Output362.9k",
+    ])
+    const track = usage.querySelector<HTMLElement>(".settingsUsage-mixTrack")
+    expect(track?.style.getPropertyValue("--usage-uncached-share")).toMatch(/^8\.05/)
+    expect(track?.style.getPropertyValue("--usage-cached-share")).toMatch(/^55\.2/)
+    expect(track?.style.getPropertyValue("--usage-input-share")).toMatch(/^75\.5/)
+    // Models list biggest first, with their input and output split, cached when reported.
     const models = [...usage.querySelectorAll(".settingsUsage-modelName")].map((e) => e.textContent)
     expect(models).toEqual(["GLM-5.3", "Qwen3.8 27B"])
     const where = [...usage.querySelectorAll<HTMLElement>(".settingsUsage-modelWhere")].map(
@@ -622,6 +654,7 @@ describe("AppShell settings navigation", () => {
     )
     expect(where).toEqual(["Hosted", "Local"])
     expect(within(usage).getByText("300.0k in · 100.0k out")).toBeTruthy()
+    expect(within(usage).getByText("819.4k in · 700.0k cached · 262.9k out")).toBeTruthy()
     expect(usage.querySelectorAll(".settingsUsage-bar")).toHaveLength(2)
     const activityBars = within(usage).getAllByRole("button")
     fireEvent.pointerEnter(activityBars[0])
@@ -642,6 +675,8 @@ describe("AppShell settings navigation", () => {
       activeDays: 1,
       promptTokens: 6,
       completionTokens: 4,
+      cachedPromptTokens: 0,
+      cacheReportedPromptTokens: 0,
       todayTokens: 10,
       recentActivity: [],
       modelUsage: {},
@@ -748,6 +783,8 @@ describe("AppShell settings navigation", () => {
       activeDays: 0,
       promptTokens: 0,
       completionTokens: 0,
+      cachedPromptTokens: 0,
+      cacheReportedPromptTokens: 0,
       todayTokens: 0,
       recentActivity: [],
       modelUsage: {},
@@ -2814,10 +2851,87 @@ describe("header context meter", () => {
         })),
       }),
     )
-    expect(document.querySelector(".contextMeter")?.getAttribute("title")).toBe(
+    expect(document.querySelector(".contextMeter-context")?.textContent).toBe(
       "~26,214 tokens used · Auto-compact at 52,428",
     )
     expect((document.querySelector(".contextMeter-fill") as HTMLElement).style.width).toBe("50%")
+  })
+
+  it("breaks the session's tokens down in its popover", async () => {
+    const usage = {
+      last: {
+        promptTokens: 18_000,
+        completionTokens: 600,
+        totalTokens: 18_600,
+        cachedPromptTokens: 17_100,
+      },
+      total: {
+        promptTokens: 60_000,
+        completionTokens: 2_000,
+        totalTokens: 62_000,
+        cachedPromptTokens: 10_000,
+        cacheReportedPromptTokens: 40_000,
+      },
+    }
+    const snapshot = {
+      ...SNAPSHOT,
+      contextTokens: 18_000,
+      entries: [{ id: 1, kind: "message" as const, speaker: "You" as const, text: "hello" }],
+      usage,
+      speed: { tokensPerSecond: 41.6, prefillMs: 320, exact: true },
+    }
+    await renderApp(
+      fakeApi({
+        getSnapshot: vi.fn(async () => ({
+          ...snapshot,
+          model: { id: "local/model", provider: "local" as const, supportsImageInput: false },
+        })),
+      }),
+    )
+    const popover = document.querySelector(".contextMeter-popover")
+    if (!popover) throw new Error("expected the context popover")
+    const sections = [...popover.querySelectorAll(".contextMeter-section")].map(
+      (e) => e.textContent,
+    )
+    expect(sections).toEqual(["Last request95% cache hit", "This session25% cache hit"])
+    const rows = [...popover.querySelectorAll(".contextMeter-rows")].map((list) =>
+      [...list.children].map((cell) => cell.textContent),
+    )
+    expect(rows).toEqual([
+      ["Uncached input", "900", "Cached input", "17.1k", "Output", "600"],
+      [
+        "Uncached input",
+        "30.0k",
+        "Cached input",
+        "10.0k",
+        "Input without cache data",
+        "20.0k",
+        "Output",
+        "2.0k",
+      ],
+    ])
+    // Speed stays the composer's readout, for local models only.
+    expect(document.querySelector(".composer-speed")?.textContent).toBe("42 tok/s · 0.3s prefill")
+    cleanup()
+
+    // Hosted serving is not the user's hardware, so its speed is not shown; a request whose server
+    // reported no cache count shows plain input rather than a cache miss.
+    const unreported = { promptTokens: 1_200, completionTokens: 50, totalTokens: 1_250 }
+    await renderApp(
+      fakeApi({
+        getSnapshot: vi.fn(async () => ({ ...snapshot, usage: { ...usage, last: unreported } })),
+      }),
+    )
+    expect(document.querySelector(".composer-speed")).toBeNull()
+    const lists = [...document.querySelectorAll(".contextMeter-rows")]
+    expect(lists).toHaveLength(2)
+    expect([...lists[0].children].map((cell) => cell.textContent)).toEqual([
+      "Input",
+      "1.2k",
+      "Output",
+      "50",
+    ])
+    expect(document.querySelector(".contextMeter-section")?.textContent).toBe("Last request")
   })
 
   it("stays hidden on the home screen and appears once a conversation exists", async () => {

@@ -1034,6 +1034,20 @@ button.reasoning-header:hover {
   }
 }
 
+/* Generation speed for local models: a read-only readout beside the chips, no control border. */
+.composer-speed {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 4px;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-meta);
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
 /* Fast-serving bolt, amber like the picker's recommended star. */
 .composer-fast {
   color: var(--warning);
@@ -1109,24 +1123,6 @@ button.composer-model-failed {
 
 .composer-upload:disabled {
   pointer-events: none;
-}
-
-/* Generation speed for local models: a read-only chip on the model chip's metrics, including its
-   pull against the row gap so all three chips sit the same distance apart. */
-.composer-speed {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 22px;
-  margin-left: -4px;
-  padding: 0 8px;
-  flex-shrink: 0;
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius);
-  font-family: var(--font-mono);
-  font-size: var(--text-meta);
-  color: var(--text-dim);
-  white-space: nowrap;
 }
 
 .composer-hint {

@@ -2,7 +2,13 @@ import { existsSync } from "node:fs"
 import { mkdir, readdir, rename, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
-import { isHostedProvider, type ModelProvider } from "../inference/types.js"
+import {
+  addUsage,
+  emptyUsage,
+  isHostedProvider,
+  type ModelProvider,
+  type UsageTotals,
+} from "../inference/types.js"
 import { sessionRootDirectory } from "../storage/session-files.js"
 import {
   readSessionDigest,
@@ -36,19 +42,17 @@ export type Achievement = { at: string; count: number }
 
 const HOUR_MS = 3_600_000
 
-export type LocalStats = {
+/** Every recorded request summed, with the home-screen figures derived from the same pass. */
+export type LocalStats = UsageTotals & {
   streak: number
-  totalTokens: number
   sessionCount: number
   avgTokensPerSession: number
   avgSessionSeconds: number
   activeDays: number
-  promptTokens: number
-  completionTokens: number
   todayTokens: number
   recentActivity: LocalUsageDay[]
   /** By picker name; usage recorded before models were noted is left out. */
-  modelUsage: Record<string, { hosted: boolean; promptTokens: number; completionTokens: number }>
+  modelUsage: Record<string, UsageTotals & { hosted: boolean }>
   /** Earned achievements only; the rest are locked. */
   achievements: Partial<Record<AchievementId, Achievement>>
 }
@@ -90,9 +94,7 @@ export async function calculateLocalStats(
       if (child.isFile() && child.name.endsWith(".jsonl")) files.push(join(path, child.name))
     }
   }
-  let totalTokens = 0
-  let promptTokens = 0
-  let completionTokens = 0
+  let totals = emptyUsage()
   let totalDurationSeconds = 0
   let sessionCount = 0
   let promptCount = 0
@@ -138,22 +140,18 @@ export async function calculateLocalStats(
       const at = timestamp(event.at)
       if (at !== undefined) days.add(localDateKey(new Date(at)))
       if (event.type === "usage_recorded") {
-        totalTokens += event.usage.totalTokens
-        promptTokens += event.usage.promptTokens
-        completionTokens += event.usage.completionTokens
+        const { usage } = event
+        totals = addUsage(totals, usage)
         if (event.provider) {
           providers.add(event.provider)
           reach(isHostedProvider(event.provider) ? "hosted-model" : "local-model", at)
         }
         const name = event.modelName ?? event.model
         if (name) {
-          modelUsage[name] ??= {
+          modelUsage[name] = {
             hosted: isHostedProvider(event.provider),
-            promptTokens: 0,
-            completionTokens: 0,
+            ...addUsage(modelUsage[name] ?? emptyUsage(), usage),
           }
-          modelUsage[name].promptTokens += event.usage.promptTokens
-          modelUsage[name].completionTokens += event.usage.completionTokens
         }
         if (at === undefined) continue
         const key = localDateKey(new Date(at))
@@ -240,14 +238,12 @@ export async function calculateLocalStats(
     return { date, tokens: dailyTokens.get(date) ?? 0 }
   })
   return {
+    ...totals,
     streak,
-    totalTokens,
     sessionCount,
-    avgTokensPerSession: sessionCount === 0 ? 0 : totalTokens / sessionCount,
+    avgTokensPerSession: sessionCount === 0 ? 0 : totals.totalTokens / sessionCount,
     avgSessionSeconds: sessionCount === 0 ? 0 : totalDurationSeconds / sessionCount,
     activeDays: days.size,
-    promptTokens,
-    completionTokens,
     todayTokens,
     recentActivity,
     modelUsage,

@@ -103,6 +103,7 @@ function statusFixture(overrides: Partial<DesktopStatus> = {}): DesktopStatus {
     busy: false,
     phase: "idle",
     speed: null,
+    usage: null,
     model: {
       id: "accounts/fireworks/models/kimi-k2",
       provider: "fireworks",

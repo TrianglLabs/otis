@@ -18,6 +18,7 @@ import type {
   HostedProvider,
   ModelProvider,
   ServerProvider,
+  SessionUsage,
 } from "../inference/types.js"
 import type { RoutineInput } from "../local/routines.js"
 import type { TextSize, ThemeName, UiLanguage } from "../local/settings.js"
@@ -123,6 +124,8 @@ export type DesktopStatus = {
   phase: TurnPhase
   /** Generation speed of the latest model request; null until the current turn streams. */
   speed: TurnSpeed | null
+  /** The focused session's recorded usage; null without a session. */
+  usage: SessionUsage | null
   model: {
     id: string
     provider: ModelProvider

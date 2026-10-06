@@ -3,7 +3,7 @@ import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/pro
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import type { ChatMessage } from "../../src/inference/types.js"
+import { type ChatMessage, emptyUsage } from "../../src/inference/types.js"
 import {
   createSession,
   deleteSession,
@@ -29,7 +29,7 @@ describe("JsonlSession", () => {
     const session = await openSession(options)
     const admission = await session.admitPrompt("count tokens")
     const usage = { promptTokens: 3, completionTokens: 2, totalTokens: 5 }
-    await session.recordUsage(usage, "agent", {
+    await session.recordUsage({ ...usage, cachedPromptTokens: 2 }, "agent", {
       promptId: admission.promptId,
       provider: "local",
       model: "openai/gpt-oss-20b",
@@ -44,12 +44,14 @@ describe("JsonlSession", () => {
         provider: "local",
         model: "openai/gpt-oss-20b",
         modelName: "gpt-oss 20B",
-        usage,
+        usage: { ...usage, cachedPromptTokens: 2 },
       },
       { type: "usage_recorded", purpose: "title", usage },
     ])
     expect(reopened.events[3]).not.toHaveProperty("model")
     expect(reopened.events[3]).not.toHaveProperty("modelName")
+    // Usage from a server that reports no cache stays without the field.
+    expect((reopened.events[3] as { usage: object }).usage).not.toHaveProperty("cachedPromptTokens")
 
     const file = join(options.directory, `${session.id}.jsonl`)
     const blank = { seq: 5, sessionId: session.id, at: new Date().toISOString() }
@@ -58,6 +60,58 @@ describe("JsonlSession", () => {
       `${JSON.stringify({ ...blank, type: "usage_recorded", purpose: "agent", model: "", usage })}\n`,
     )
     await expect(readSessionEvents(file)).rejects.toThrow("usage model must be a non-empty string")
+  })
+
+  it("tallies every recorded request, with the latest one apart", async () => {
+    const cwd = await trackedTempDir()
+    const session = await openSession({ cwd, directory: join(cwd, "sessions") })
+    expect(session.usage()).toEqual({ last: null, total: emptyUsage() })
+    const first = { promptTokens: 10, completionTokens: 2, totalTokens: 12 }
+    const second = {
+      promptTokens: 20,
+      completionTokens: 3,
+      totalTokens: 23,
+      cachedPromptTokens: 15,
+    }
+    await session.recordUsage(first, "title")
+    await session.recordUsage(second, "agent")
+    // The first request reported no cached count, so only the second one's 20 prompt tokens have
+    // cache data; title generation counts like a turn.
+    expect(session.usage()).toEqual({
+      last: second,
+      total: {
+        promptTokens: 30,
+        completionTokens: 5,
+        totalTokens: 35,
+        cachedPromptTokens: 15,
+        cacheReportedPromptTokens: 20,
+      },
+    })
+    const reopened = await openSession({
+      cwd,
+      directory: join(cwd, "sessions"),
+      sessionId: session.id,
+    })
+    expect(reopened.usage()).toEqual(session.usage())
+  })
+
+  it("rejects a cached prompt count that is not an integer within the prompt", async () => {
+    const cwd = await trackedTempDir()
+    const options = { cwd, directory: join(cwd, "sessions") }
+    const session = await openSession(options)
+    const file = join(options.directory, `${session.id}.jsonl`)
+    const started = await readFile(file, "utf8")
+    for (const cachedPromptTokens of [4, -1, 1.5, "2"]) {
+      const usage = { promptTokens: 3, completionTokens: 2, totalTokens: 5, cachedPromptTokens }
+      const event = { seq: 2, sessionId: session.id, at: new Date().toISOString() }
+      await writeFile(
+        file,
+        `${started}${JSON.stringify({ ...event, type: "usage_recorded", purpose: "agent", usage })}\n`,
+      )
+      await expect(readSessionEvents(file)).rejects.toThrow(
+        "usage cachedPromptTokens must be an integer within promptTokens",
+      )
+    }
   })
 
   it("accepts every hosted provider on recorded usage and rejects an unknown one", async () => {

@@ -50,8 +50,11 @@ uses the Python package index; loading the skill alone performs no installation 
 Provider keys are never written to sessions, transcripts, tool results, or usage records. A `FIREWORKS_API_KEY`,
 `TOGETHER_API_KEY`, `BASETEN_API_KEY`, or `PRIME_API_KEY` environment value overrides the saved key for that provider
 without being copied into `config.json`; `PRIME_TEAM_ID` does the same for the Prime Intellect team id, which is sent
-only to Prime Intellect as a billing header. The managed `llama-server` child and
-its device probe receive an allowlisted environment; Hugging Face tokens and provider keys are never forwarded to them.
+only to Prime Intellect as a billing header. Fireworks requests carry the session id as an `x-session-affinity`
+routing hint, so the conversation keeps hitting the replica that holds its prompt cache; the id is the local session
+file's name, a creation timestamp plus a random suffix, and no other provider receives it. The managed `llama-server`
+child and its device probe receive an allowlisted environment; Hugging Face tokens and provider keys are never
+forwarded to them.
 
 Model-provided thinking is assistant history and is retained in local sessions even when hidden in the UI. Treat it as
 potentially sensitive. Visible traces show a short preview and can be expanded in OpenTUI.

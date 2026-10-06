@@ -58,6 +58,7 @@ import {
   type OutputCapabilities,
   SERVER_INFO,
   type ServerProvider,
+  type SessionUsage,
   type UserChatMessage,
 } from "../inference/types.js"
 import { loadRoutines, ROUTINES_UNAVAILABLE } from "../local/routines.js"
@@ -161,6 +162,8 @@ export type AppStatus = {
   phase: TurnPhase
   /** Generation speed of the latest model request; null until the current turn streams. */
   speed: TurnSpeed | null
+  /** The focused session's recorded usage; null without a session. */
+  usage: SessionUsage | null
   model: {
     id: string
     provider: ModelProvider
@@ -838,6 +841,7 @@ export class Application {
       busy: conversation.busy,
       phase: conversation.phase,
       speed: conversation.speed,
+      usage: sessions.current?.usage() ?? null,
       model: model
         ? {
             id: model.id,

@@ -54,7 +54,7 @@ import { Button, IconButton, Toggle } from "../../components/Button.js"
 import { Icon, RetentionBadge } from "../../components/Icon.js"
 import { TabStrip } from "../../components/TabStrip.js"
 import { TextField } from "../../components/TextField.js"
-import { formatTokenCount } from "../../format.js"
+import { formatTokenCount, usageBreakdown } from "../../format.js"
 import { LANGUAGE_OPTIONS, useI18n } from "../../i18n/index.js"
 import { useDesktop, useDesktopState } from "../../runtime.js"
 import { AchievementsTab } from "../achievements/Achievements.js"
@@ -1214,9 +1214,10 @@ function UsageStats({ stats }: { stats: LocalStats | undefined }) {
   const firstDay = recentActivity[0]
   const lastDay = recentActivity.at(-1)
   const activeDay = recentActivity.find((day) => day.date === activeDate)
-  const { promptTokens, completionTokens } = stats
+  const { promptTokens, completionTokens, cachedPromptTokens, cacheReportedPromptTokens } = stats
   const countedTokens = promptTokens + completionTokens
-  const inputShare = countedTokens === 0 ? 0 : (promptTokens / countedTokens) * 100
+  const share = (tokens: number) => (countedTokens === 0 ? 0 : (tokens / countedTokens) * 100)
+  const breakdown = usageBreakdown(stats, t, locale)
   // Each bar is relative to the leader.
   const models = Object.entries(stats.modelUsage)
     .map(([name, usage]) => ({
@@ -1237,24 +1238,32 @@ function UsageStats({ stats }: { stats: LocalStats | undefined }) {
           <span className="settingsUsage-note">{t("settings.usagePrivate")}</span>
         </div>
         <div className="settingsUsage-mix">
-          <span className="settingsUsage-mixTitle">{t("settings.usageTokenMix")}</span>
+          <span className="settingsUsage-mixTitle">
+            {t("settings.usageTokenMix")}
+            {breakdown.hitRate ? (
+              <span className="settingsUsage-cacheHit">{breakdown.hitRate}</span>
+            ) : null}
+          </span>
           <div
             className="settingsUsage-mixTrack"
             data-empty={countedTokens === 0 ? "true" : undefined}
-            style={{ "--usage-input-share": `${inputShare}%` } as CSSProperties}
+            style={
+              {
+                "--usage-uncached-share": `${share(cacheReportedPromptTokens - cachedPromptTokens)}%`,
+                "--usage-cached-share": `${share(cacheReportedPromptTokens)}%`,
+                "--usage-input-share": `${share(promptTokens)}%`,
+              } as CSSProperties
+            }
             aria-hidden="true"
           />
           <div className="settingsUsage-mixValues">
-            <span>
-              <i className="settingsUsage-mixDot settingsUsage-mixDotInput" />
-              {t("settings.usageInput")}
-              <strong>{formatTokenCount(promptTokens)}</strong>
-            </span>
-            <span>
-              <i className="settingsUsage-mixDot settingsUsage-mixDotOutput" />
-              {t("settings.usageOutput")}
-              <strong>{formatTokenCount(completionTokens)}</strong>
-            </span>
+            {breakdown.rows.map((row) => (
+              <span key={row.id}>
+                <i className={`settingsUsage-mixDot settingsUsage-mixDot-${row.id}`} />
+                {row.label}
+                <strong>{formatTokenCount(row.tokens)}</strong>
+              </span>
+            ))}
           </div>
         </div>
       </div>
@@ -1279,31 +1288,49 @@ function UsageStats({ stats }: { stats: LocalStats | undefined }) {
           </div>
           {models
             .slice(0, allModels ? undefined : MODELS_SHOWN)
-            .map(({ name, hosted, promptTokens, completionTokens, total }) => (
-              <div
-                key={name}
-                className="settingsUsage-model"
-                style={{ "--usage-share": `${(total / models[0].total) * 100}%` } as CSSProperties}
-              >
-                <span className="settingsUsage-modelName" title={name}>
-                  {name}
-                </span>
-                <span
-                  className="settingsUsage-modelWhere"
-                  title={t(hosted ? "common.hosted" : "common.local")}
+            .map(
+              ({
+                name,
+                hosted,
+                promptTokens,
+                completionTokens,
+                cachedPromptTokens,
+                total,
+                cacheReportedPromptTokens,
+              }) => (
+                <div
+                  key={name}
+                  className="settingsUsage-model"
+                  style={
+                    { "--usage-share": `${(total / models[0].total) * 100}%` } as CSSProperties
+                  }
                 >
-                  <Icon icon={hosted ? Cloud : Laptop} size={13} />
-                </span>
-                <span className="settingsUsage-modelSplit">
-                  {t("settings.usageModelSplit", {
-                    input: formatTokenCount(promptTokens),
-                    output: formatTokenCount(completionTokens),
-                  })}
-                </span>
-                <strong title={number.format(total)}>{formatTokenCount(total)}</strong>
-                <i className="settingsUsage-modelBar" aria-hidden="true" />
-              </div>
-            ))}
+                  <span className="settingsUsage-modelName" title={name}>
+                    {name}
+                  </span>
+                  <span
+                    className="settingsUsage-modelWhere"
+                    title={t(hosted ? "common.hosted" : "common.local")}
+                  >
+                    <Icon icon={hosted ? Cloud : Laptop} size={13} />
+                  </span>
+                  <span className="settingsUsage-modelSplit">
+                    {cacheReportedPromptTokens > 0
+                      ? t("settings.usageModelSplitCached", {
+                          input: formatTokenCount(promptTokens),
+                          cached: formatTokenCount(cachedPromptTokens),
+                          output: formatTokenCount(completionTokens),
+                        })
+                      : t("settings.usageModelSplit", {
+                          input: formatTokenCount(promptTokens),
+                          output: formatTokenCount(completionTokens),
+                        })}
+                  </span>
+                  <strong title={number.format(total)}>{formatTokenCount(total)}</strong>
+                  <i className="settingsUsage-modelBar" aria-hidden="true" />
+                </div>
+              ),
+            )}
           {models.length > MODELS_SHOWN && !allModels ? (
             <Button
               variant="ghost"

@@ -83,6 +83,50 @@ export type TokenUsage = {
   promptTokens: number
   completionTokens: number
   totalTokens: number
+  /**
+   * Prompt tokens the server reused from its prefix cache, out of `promptTokens`. Absent when
+   * the server does not report it, as Ollama and some Together models do not.
+   */
+  cachedPromptTokens?: number
+}
+
+/**
+ * Usage summed over requests. Only the requests whose server reported a cached count say how
+ * much of their input was cached, so `cacheReportedPromptTokens` are the prompt tokens those
+ * requests had: the cache hit rate is `cachedPromptTokens` out of them, and the rest of
+ * `promptTokens` has no cache data.
+ */
+export type UsageTotals = TokenUsage & {
+  cachedPromptTokens: number
+  cacheReportedPromptTokens: number
+}
+
+/** A session's recorded usage: the latest request, and every request summed. */
+export type SessionUsage = {
+  last: TokenUsage | null
+  total: UsageTotals
+}
+
+export function emptyUsage(): UsageTotals {
+  return {
+    promptTokens: 0,
+    completionTokens: 0,
+    totalTokens: 0,
+    cachedPromptTokens: 0,
+    cacheReportedPromptTokens: 0,
+  }
+}
+
+export function addUsage(total: UsageTotals, usage: TokenUsage): UsageTotals {
+  const reported = usage.cachedPromptTokens !== undefined
+  return {
+    promptTokens: total.promptTokens + usage.promptTokens,
+    completionTokens: total.completionTokens + usage.completionTokens,
+    totalTokens: total.totalTokens + usage.totalTokens,
+    cachedPromptTokens: total.cachedPromptTokens + (usage.cachedPromptTokens ?? 0),
+    cacheReportedPromptTokens:
+      total.cacheReportedPromptTokens + (reported ? usage.promptTokens : 0),
+  }
 }
 
 export type ChatStreamEvent =
@@ -297,11 +341,17 @@ export type StreamChatOptions = {
   outputCapabilities?: OutputCapabilities
   /** Spend as little on reasoning as the model allows, e.g. for a summary that must fit. */
   minimalReasoning?: boolean
+  /**
+   * The session the request serves. Fireworks caches prompts per replica and routes serverless
+   * requests by this hint (`x-session-affinity`), so a conversation keeps hitting its own cache.
+   */
+  sessionId?: string
 }
 
 export type CompleteOptions = {
   projectContext?: ContextFile[]
   signal?: AbortSignal
+  sessionId?: string
   onUsage?: (usage: TokenUsage) => void | Promise<void>
 }
 

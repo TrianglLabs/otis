@@ -973,6 +973,21 @@ class DemoRuntime implements DesktopApi {
     busy: false,
     phase: "idle",
     speed: null,
+    usage: {
+      last: {
+        promptTokens: 18_420,
+        completionTokens: 612,
+        totalTokens: 19_032,
+        cachedPromptTokens: 17_210,
+      },
+      total: {
+        promptTokens: 214_880,
+        completionTokens: 9_340,
+        totalTokens: 224_220,
+        cachedPromptTokens: 171_300,
+        cacheReportedPromptTokens: 214_880,
+      },
+    },
     model: {
       id: "accounts/fireworks/models/glm-5p3",
       provider: "fireworks",
@@ -1112,6 +1127,9 @@ class DemoRuntime implements DesktopApi {
       activeDays: 124,
       promptTokens: 19_909_600,
       completionTokens: 5_000_000,
+      cachedPromptTokens: 12_740_000,
+      // Kimi K3 and the 8-bit Qwen ran on servers that report no cache count.
+      cacheReportedPromptTokens: 18_909_600,
       todayTokens: 412_300,
       achievements: {
         "first-session": { at: "2026-07-02T14:10:00.000Z", count: 1 },
@@ -1124,12 +1142,54 @@ class DemoRuntime implements DesktopApi {
         "week-streak": { at: "2026-09-12T12:00:00.000Z", count: 3 },
       },
       modelUsage: {
-        "GLM-5.3": { hosted: true, promptTokens: 10_240_000, completionTokens: 2_410_000 },
-        "Qwen3.8 27B": { hosted: false, promptTokens: 5_380_000, completionTokens: 1_420_000 },
-        "Bonsai 2 27B": { hosted: false, promptTokens: 2_210_000, completionTokens: 690_000 },
-        "Gemma 4 31B": { hosted: false, promptTokens: 1_079_600, completionTokens: 280_000 },
-        "Kimi K3": { hosted: true, promptTokens: 640_000, completionTokens: 140_000 },
-        "Qwen3.8 27B 8-bit": { hosted: false, promptTokens: 360_000, completionTokens: 60_000 },
+        "GLM-5.3": {
+          hosted: true,
+          promptTokens: 10_240_000,
+          completionTokens: 2_410_000,
+          totalTokens: 12_650_000,
+          cachedPromptTokens: 6_900_000,
+          cacheReportedPromptTokens: 10_240_000,
+        },
+        "Qwen3.8 27B": {
+          hosted: false,
+          promptTokens: 5_380_000,
+          completionTokens: 1_420_000,
+          totalTokens: 6_800_000,
+          cachedPromptTokens: 3_650_000,
+          cacheReportedPromptTokens: 5_380_000,
+        },
+        "Bonsai 2 27B": {
+          hosted: false,
+          promptTokens: 2_210_000,
+          completionTokens: 690_000,
+          totalTokens: 2_900_000,
+          cachedPromptTokens: 1_480_000,
+          cacheReportedPromptTokens: 2_210_000,
+        },
+        "Gemma 4 31B": {
+          hosted: false,
+          promptTokens: 1_079_600,
+          completionTokens: 280_000,
+          totalTokens: 1_359_600,
+          cachedPromptTokens: 710_000,
+          cacheReportedPromptTokens: 1_079_600,
+        },
+        "Kimi K3": {
+          hosted: true,
+          promptTokens: 640_000,
+          completionTokens: 140_000,
+          totalTokens: 780_000,
+          cachedPromptTokens: 0,
+          cacheReportedPromptTokens: 0,
+        },
+        "Qwen3.8 27B 8-bit": {
+          hosted: false,
+          promptTokens: 360_000,
+          completionTokens: 60_000,
+          totalTokens: 420_000,
+          cachedPromptTokens: 0,
+          cacheReportedPromptTokens: 0,
+        },
       },
       recentActivity: DEMO_ACTIVITY_TOKENS.map((tokens, index) => {
         const day = new Date()
