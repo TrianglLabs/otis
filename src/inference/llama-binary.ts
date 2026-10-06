@@ -1,6 +1,6 @@
 import type { CudaVersion, HardwareBackend } from "./hardware.js"
 
-const LLAMA_CPP_RELEASE_TAG = "b11057"
+const LLAMA_CPP_RELEASE_TAG = "b11438"
 const PRISM_LLAMA_CPP_RELEASE_TAG = "prism-b10685-7dffb15"
 export const PINNED_LLAMA_CPP_RELEASE_TAGS = [
   LLAMA_CPP_RELEASE_TAG,
@@ -10,54 +10,80 @@ export const PINNED_LLAMA_CPP_RELEASE_TAGS = [
 export type LlamaRuntimeKind = "upstream" | "prism"
 
 const UPSTREAM_LLAMA_CPP_ASSETS: Record<string, LlamaCppAssetMetadata> = {
-  "llama-b11057-bin-macos-arm64.tar.gz": {
-    size: 11_178_107,
-    sha256: "443eadead90d44c3925b7163012430b2df4934df881cf72a4d94fc71d1380da1",
+  "llama-b11438-bin-macos-arm64.tar.gz": {
+    size: 11_971_002,
+    sha256: "a19734f6cbfc011661ce517173bf3ccdb43d1e054038f73f44c1f9d8c2789132",
   },
-  "llama-b11057-bin-macos-x64.tar.gz": {
-    size: 11_216_033,
-    sha256: "220c44e2c4405e2e1a660ea22c8fa5346ccc9fb3edcfc369038094ced64dc858",
+  "llama-b11438-bin-macos-x64.tar.gz": {
+    size: 11_486_947,
+    sha256: "0cadca1306d7b8c533f22a3293a35787e012261d43704c82fa60d8b29c7bb40d",
   },
-  "llama-b11057-bin-ubuntu-arm64.tar.gz": {
-    size: 13_497_940,
-    sha256: "9a3c641816b88ecbd1f5d1187d448d1d9501901ac5d931303669d4da829626d7",
+  "llama-b11438-bin-ubuntu-arm64.tar.gz": {
+    size: 13_681_020,
+    sha256: "fa3600d62125eed3ee96e6acae79bec3ad8ef8f54fa2ba432289e7ad579f740c",
   },
-  "llama-b11057-bin-ubuntu-vulkan-arm64.tar.gz": {
-    size: 24_335_721,
-    sha256: "0c00ef5396a249f988c2e2998e8b4672456a3a4a73f681fd21ce645c5193e016",
+  "llama-b11438-bin-ubuntu-vulkan-arm64.tar.gz": {
+    size: 24_844_211,
+    sha256: "d0a270f014be3504d4599859a3e8c7820ccfff37c82bc3453793c855dacccca0",
   },
-  "llama-b11057-bin-ubuntu-vulkan-x64.tar.gz": {
-    size: 30_383_532,
-    sha256: "30de01e5e9a0f4ccb65afeaa2ed2961d7beee71aaaf63167b9cc2a04a70b4178",
+  "llama-b11438-bin-ubuntu-vulkan-x64.tar.gz": {
+    size: 31_635_148,
+    sha256: "43405007f3fb145429e920888666cbc6acbb49bef596cde098d85c74f899afd2",
   },
-  "llama-b11057-bin-ubuntu-x64.tar.gz": {
-    size: 16_876_121,
-    sha256: "fa7532f45d5b1c47696afb1cb7c334692262404c81ecc8e28b14dc273796289f",
+  "llama-b11438-bin-ubuntu-x64.tar.gz": {
+    size: 17_692_768,
+    sha256: "afd4262e6f41b3c9d7b41605c4e080969f8343a12a72a5c1c732f59555c92a1e",
   },
-  "llama-b11057-bin-ubuntu-cuda-12.8-x64.tar.gz": {
-    size: 168_842_418,
-    sha256: "9def87abd480719ff7d80d8cbe8d55f2db75724049d1df0bd5d550e4438116c1",
+  "llama-b11438-bin-ubuntu-cuda-12.8-x64.tar.gz": {
+    size: 171_652_707,
+    sha256: "acbeb6b85c9af12f09e811f83c6647b255c79f0552966dc831b1617bdb7e1af9",
   },
-  "llama-b11057-bin-ubuntu-cuda-13.3-x64.tar.gz": {
-    size: 149_142_938,
-    sha256: "7f8d89f2dcdf110265ef1cde8e67065d089d9bea727832d526cd2e00027f3141",
+  "llama-b11438-bin-ubuntu-cuda-13.4-x64.tar.gz": {
+    size: 152_519_019,
+    sha256: "3573b47d2113833f86e29ad7692b6edbbd64cc132364b59cd7a48d752390b3db",
   },
-  "llama-b11057-bin-ubuntu-cuda-13.3-arm64.tar.gz": {
-    size: 145_088_184,
-    sha256: "a4b587b4c6c70f6e4a33aa7a59d5ae7459ace40554821b8b2ee35b802da868a0",
+  "llama-b11438-bin-ubuntu-cuda-13.4-arm64.tar.gz": {
+    size: 147_640_434,
+    sha256: "b03a5eaf34bc508e3240f2318d40a2d40ac04e88695e499995f1cd0576ab2dce",
   },
-  "cudart-llama-b11057-bin-ubuntu-cuda-12.8-x64.tar.gz": {
-    size: 594_373_772,
-    sha256: "9c14614404dddc29c9fc18eb4d7f6c9547e184f163a89fe4cf6c9bb5d3133ec5",
-  },
-  "cudart-llama-b11057-bin-ubuntu-cuda-13.3-x64.tar.gz": {
+}
+
+/**
+ * NVIDIA's runtime/cuBLAS libraries, by CUDA version and architecture, from upstream's official
+ * companion archives. Both llama.cpp builds use them; Prism's 13.3 build takes the libraries from
+ * the last upstream release that shipped a 13.3 companion.
+ */
+const CUDA_RUNTIME_ARCHIVES: Record<string, LlamaCppArchive> = {
+  "12.8-x64": cudaRuntimeArchive("b11438", "12.8", "x64", {
+    size: 594_377_525,
+    sha256: "96c4a60c5854a34a6d2f8e4cf217dc25b9f0ecb73fcf6015ee20881aa0fe496b",
+  }),
+  "13.4-x64": cudaRuntimeArchive("b11438", "13.4", "x64", {
+    size: 440_236_663,
+    sha256: "6ab3154c677a23d2d475f7ed4358292cb8d1c4b1f5a68534cad813e0a62d2e83",
+  }),
+  "13.4-arm64": cudaRuntimeArchive("b11438", "13.4", "arm64", {
+    size: 552_522_170,
+    sha256: "703e7f7cbab48f68ac6e8556194419cd9f06614d4354b7597941ca58a5b8b92c",
+  }),
+  "13.3-x64": cudaRuntimeArchive("b11057", "13.3", "x64", {
     size: 410_248_824,
     sha256: "7a6ea3a0971055b41195ae92e6098842b5369995d360069fc06e392f64ea18f2",
-  },
-  "cudart-llama-b11057-bin-ubuntu-cuda-13.3-arm64.tar.gz": {
-    size: 518_393_019,
-    sha256: "5cc384684ecf368b94c25fbb3ee16f2f6a2a3d2c04e4316c420cfae7d2f4fad2",
-  },
+  }),
+}
+
+function cudaRuntimeArchive(
+  tag: string,
+  cuda: string,
+  arch: string,
+  metadata: LlamaCppAssetMetadata,
+): LlamaCppArchive {
+  const name = `cudart-llama-${tag}-bin-ubuntu-cuda-${cuda}-${arch}.tar.gz`
+  return {
+    name,
+    url: `https://github.com/ggml-org/llama.cpp/releases/download/${tag}/${name}`,
+    ...metadata,
+  }
 }
 
 const PRISM_LLAMA_CPP_ASSETS: Record<string, LlamaCppAssetMetadata> = {
@@ -140,10 +166,11 @@ export function llamaRuntimeTarget<T extends LlamaBinaryTarget>(
   target: T,
   runtime: LlamaRuntimeKind,
 ): T {
-  // Prism publishes Linux CUDA binaries only for x64.
-  return runtime === "prism" && target.backend === "cuda" && target.arch !== "x64"
-    ? { ...target, backend: "vulkan", cudaVersion: undefined }
-    : target
+  if (runtime !== "prism" || target.backend !== "cuda") return target
+  // Prism publishes Linux CUDA binaries only for x64, and its newest CUDA build is 13.3, which
+  // the R615 driver that qualifies a machine for 13.4 runs as well.
+  if (target.arch !== "x64") return { ...target, backend: "vulkan", cudaVersion: undefined }
+  return target.cudaVersion === "13.4" ? { ...target, cudaVersion: "13.3" } : target
 }
 
 export function pinnedLlamaCppAsset(
@@ -177,18 +204,9 @@ export function pinnedLlamaCppAsset(
     ...asset,
   }
   if (target.backend !== "cuda") return archive
-  // NVIDIA's runtime/cuBLAS libraries are shared by both llama.cpp builds.
-  // Use the pinned official companion for the same CUDA version and architecture;
-  // all ggml/llama libraries still come exclusively from the selected runtime.
-  const companionName = `cudart-llama-${LLAMA_CPP_RELEASE_TAG}-bin-ubuntu-cuda-${target.cudaVersion}-${target.arch}.tar.gz`
-  const companion = UPSTREAM_LLAMA_CPP_ASSETS[companionName]
+  // The companion carries NVIDIA's libraries for the same CUDA version and architecture; every
+  // ggml/llama library still comes exclusively from the selected runtime.
+  const companion = CUDA_RUNTIME_ARCHIVES[`${target.cudaVersion}-${target.arch}`]
   if (!companion) throw new Error("No CUDA runtime companion is pinned for this target.")
-  return {
-    ...archive,
-    companion: {
-      name: companionName,
-      url: `https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_CPP_RELEASE_TAG}/${companionName}`,
-      ...companion,
-    },
-  }
+  return { ...archive, companion }
 }

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest"
 import {
   findLocalModel,
+  LOCAL_MODELS,
+  localFileSource,
+  localModelFiles,
   localModelPackings,
   localModelWeightBytes,
 } from "../../src/inference/local-catalog.js"
@@ -22,9 +25,38 @@ describe("local model catalog", () => {
           size: 5_780_090_816,
         },
       ],
+      mmproj: {
+        name: "mmproj-Ornith-1.5-9B-BF16.gguf",
+        sha256: "626f9f90627402a6bf4a999111d0fbd69b5fcca7aa8ba089d69e5f10e8858e1d",
+        size: 921_704_672,
+      },
       nativeContextLength: 262_144,
-      supportsImageInput: false,
+      supportsImageInput: true,
     })
+  })
+
+  it("offers image input exactly for the models whose vision projector is pinned", () => {
+    for (const model of LOCAL_MODELS) {
+      for (const packing of localModelPackings(model)) {
+        expect(packing.supportsImageInput).toBe(packing.mmproj !== undefined)
+        expect(localModelFiles(packing).at(-1)).toBe(packing.mmproj ?? packing.ggufFiles.at(-1))
+        // The projector loads into memory beside the weights, so it counts in the footprint.
+        expect(localModelWeightBytes(packing)).toBe(
+          packing.ggufFiles.reduce((sum, file) => sum + file.size, packing.mmproj?.size ?? 0),
+        )
+      }
+    }
+    expect(
+      LOCAL_MODELS.filter((model) => model.supportsImageInput).map((model) => model.id),
+    ).toEqual([
+      "ornith-ai/Ornith-1.5-9B",
+      "google/gemma-4-12B-it",
+      "Qwen/Qwen3.8-27B",
+      "prism-ml/Ternary-Bonsai-2-27B-gguf",
+      "Qwen/Qwen3.8-Flash-Next",
+      "google/gemma-4-26B-A4B-it",
+      "google/gemma-4-31B-it",
+    ])
   })
 
   it("pins the current model-author GGUF for Liquid AI's 2.6B model", () => {
@@ -56,9 +88,14 @@ describe("local model catalog", () => {
           size: 6_975_879_296,
         },
       ],
+      mmproj: {
+        name: "mmproj-gemma-4-12b-it-qat-q4_0.gguf",
+        sha256: "cb018338a7538a9814d994bfe54644c71eb7ed54e31eae2f721e45fd3c260da7",
+        size: 175_115_616,
+      },
       quant: "Q4_0",
       nativeContextLength: 262_144,
-      supportsImageInput: false,
+      supportsImageInput: true,
     })
   })
 
@@ -76,6 +113,11 @@ describe("local model catalog", () => {
           size: 7_206_168_928,
         },
       ],
+      mmproj: {
+        name: "Ternary-Bonsai-2-27B-mmproj-Q8_0.gguf",
+        sha256: "6807ede61d570bb86ba34b756a0fa109edc33668604de867c6ea6d8f1d631903",
+        size: 629_246_976,
+      },
       quant: "PQ2_0",
       packings: [
         {
@@ -100,24 +142,25 @@ describe("local model catalog", () => {
         },
       ],
       nativeContextLength: 262_144,
-      supportsImageInput: false,
+      supportsImageInput: true,
       attention: { groups: [{ layers: 16, kvHeads: 4, headDim: 256 }] },
     })
   })
 
   it("pins both Qwen3.8 Flash Next packings, Qwen's own Q8 from its separate repository", () => {
     const model = findLocalModel("Qwen/Qwen3.8-Flash-Next")
+    if (!model?.mmproj) throw new Error("missing catalog entry")
     expect(model).toMatchObject({
       sourceModel: "Qwen/Qwen3.8-Flash-Next",
       ggufRepo: "unsloth/Qwen3.8-Flash-Next-GGUF",
       ggufRevision: "c8b5954a88c2775c546b92593eda40ea041d3176",
       quant: "UD-IQ3_XXS",
       nativeContextLength: 262_144,
-      supportsImageInput: false,
+      supportsImageInput: true,
     })
-    expect(model?.ggufFiles).toHaveLength(3)
-    expect(model && localModelWeightBytes(model)).toBe(81_961_823_936)
-    const [compact, official] = model ? localModelPackings(model) : []
+    expect(model.ggufFiles).toHaveLength(3)
+    expect(localModelWeightBytes(model)).toBe(81_961_823_936 + 616_703_104)
+    const [compact, official] = localModelPackings(model)
     expect(compact).toMatchObject({
       quant: "UD-IQ3_XXS",
       ggufRepo: "unsloth/Qwen3.8-Flash-Next-GGUF",
@@ -128,7 +171,20 @@ describe("local model catalog", () => {
       ggufRevision: "01534bc2e1877d5de995b73d247d4459d273e688",
     })
     expect(official?.ggufFiles).toHaveLength(2)
-    expect(official && localModelWeightBytes(official)).toBe(162_624_826_656)
+    expect(official && localModelWeightBytes(official)).toBe(162_624_826_656 + 616_703_104)
+    // Both packings load Qwen's Q8 projector, which the IQ3 packing fetches from Qwen's repository
+    // rather than from its own weights' repository.
+    for (const packing of [compact, official]) {
+      expect(packing?.mmproj).toBe(model.mmproj)
+      expect(packing && localFileSource(packing, model.mmproj)).toEqual({
+        repo: "ggml-org/Qwen3.8-Flash-Next-GGUF",
+        revision: "01534bc2e1877d5de995b73d247d4459d273e688",
+      })
+    }
+    expect(localFileSource(compact, compact.ggufFiles[0])).toEqual({
+      repo: "unsloth/Qwen3.8-Flash-Next-GGUF",
+      revision: "c8b5954a88c2775c546b92593eda40ea041d3176",
+    })
   })
 
   it("pins a split GLM-5.3 conversion of the official checkpoint", () => {

@@ -45,7 +45,7 @@ describe("local model fit", () => {
     expect(fit.available).toBe(true)
     expect(fit.requiresCpuOffload).toBe(false)
     expect(fit.memoryAvailableBytes).toBe(31 * 1024 ** 3)
-    expect(fit.contextLength).toBe(194_560)
+    expect(fit.contextLength).toBe(185_344)
     // Qwen: 16 full-attention layers, 4 KV heads, 256 dimensions, f16 K+V.
     const footprint =
       localModelWeightBytes(qwen) +
@@ -71,10 +71,15 @@ describe("local model fit", () => {
     expect(fit.contextLength).toBe(65_536)
     expect(fit.memoryRequiredBytes).toBeGreaterThan(19 * 1024 ** 3)
     expect(fit.memoryRequiredBytes).toBeLessThan(fit.memoryAvailableBytes)
-    // A 24 GB card holds the 64K footprint itself, with a little context to spare.
+    // The 64K footprint with the vision projector is 23.43 GiB: past a 24 GB card's 23 GiB budget,
+    // inside a 25 GB card's with a little context to spare.
     expect(fitLocalModel(qwen, { ...linux32, gpuMemoryBytes: 24 * 1024 ** 3 })).toMatchObject({
+      requiresCpuOffload: true,
+      contextLength: 65_536,
+    })
+    expect(fitLocalModel(qwen, { ...linux32, gpuMemoryBytes: 25 * 1024 ** 3 })).toMatchObject({
       requiresCpuOffload: false,
-      contextLength: 67_584,
+      contextLength: 73_728,
     })
   })
 
@@ -85,7 +90,7 @@ describe("local model fit", () => {
     expect(fit).toMatchObject({
       available: true,
       requiresCpuOffload: false,
-      contextLength: 194_560,
+      contextLength: 185_344,
       memoryAvailableBytes: 31 * 1024 ** 3,
     })
   })
@@ -228,7 +233,7 @@ describe("local model fit", () => {
       platform: "linux",
       arch: "x64",
       backend: "cuda",
-      cudaVersion: "13.3",
+      cudaVersion: "13.4",
       unifiedMemory: false,
       gpuMemoryBytes: vram * 1024 ** 3,
       gpuCount: capabilities?.length || 1,
@@ -283,10 +288,11 @@ describe("local model fit", () => {
     expect(memoryRequiredFor(qwen, 65_536)).toBeGreaterThan(
       Math.floor((32 * GIBIBYTE * 2) / 3) - GIBIBYTE,
     )
-    // Two thirds of 36 GiB less the margin is 23 GiB, just above the 22.85 GiB footprint.
+    // Two thirds of 36 GiB less the margin is 23 GiB, just under the 23.43 GiB footprint with the
+    // vision projector.
     expect(fitLocalModel(qwen, appleHardware(36))).toMatchObject({
-      requiresCpuOffload: false,
-      contextLength: 67_584,
+      requiresCpuOffload: true,
+      contextLength: 65_536,
     })
   })
 
@@ -299,7 +305,7 @@ describe("local model fit", () => {
     expect(fit).toMatchObject({
       available: true,
       requiresCpuOffload: false,
-      contextLength: 132_096,
+      contextLength: 122_880,
       memoryAvailableBytes: 30_150_672_384 - GIBIBYTE,
     })
     expect(fit.memoryRequiredBytes).toBeLessThanOrEqual(fit.memoryAvailableBytes)

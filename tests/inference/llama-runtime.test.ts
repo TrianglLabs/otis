@@ -21,7 +21,12 @@ import {
   pinnedLlamaCppAsset,
 } from "../../src/inference/llama-binary.js"
 import { formatLocalLoadStatus, LlamaCppRuntime } from "../../src/inference/llama-runtime.js"
-import { findLocalModel, type LocalModelSpec } from "../../src/inference/local-catalog.js"
+import {
+  findLocalModel,
+  type LocalModelSpec,
+  localFileSource,
+  localModelFiles,
+} from "../../src/inference/local-catalog.js"
 import { LlamaCppClient } from "../../src/inference/local-client.js"
 import { fitLocalModel } from "../../src/inference/local-fit.js"
 
@@ -347,6 +352,35 @@ describe("llama.cpp runtime", () => {
     } finally {
       await runtime.stop()
     }
+  })
+
+  it("passes a vision model's cached projector to llama-server", async () => {
+    const catalog = findLocalModel("google/gemma-4-12B-it")
+    if (!catalog?.mmproj) throw new Error("missing catalog entry")
+    const bytes = new Uint8Array([1, 2, 3, 4])
+    const model = tinyModel(catalog, bytes)
+    const spawned: string[][] = []
+    const directory = await tempDir()
+    const runtime = new LlamaCppRuntime({
+      env: { OTIS_LLAMA_SERVER: process.execPath },
+      dataDirectory: directory,
+      allocatePort: async () => 18765,
+      readyTimeoutMs: 1_000,
+      sleep: async () => undefined,
+      spawn: ((command, args) => {
+        spawned.push([String(command), ...(args as string[])])
+        return fakeChild()
+      }) as LlamaCppRuntimeOptions["spawn"],
+      fetch: huggingfaceFetch(bytes, 65_536),
+    })
+    await runtime.ensureServing(model, fitLocalModel(model, hardware), hardware)
+    const args = spawned[0]?.slice(1) ?? []
+    expect(args.slice(args.indexOf("--mmproj"), args.indexOf("--mmproj") + 2)).toEqual([
+      "--mmproj",
+      join(directory, "models", "tiny-mmproj.gguf"),
+    ])
+    await expect(stat(join(directory, "models", "tiny-mmproj.gguf"))).resolves.toBeDefined()
+    await runtime.stop()
   })
 
   it("reports the runtime phase and retries a transient gateway failure", async () => {
@@ -1497,7 +1531,7 @@ describe("llama.cpp runtime", () => {
 describe("CUDA runtime bundles", () => {
   it.each([
     "12.8",
-    "13.3",
+    "13.4",
   ] as const)("isolates CUDA %s libraries for both device checks and serving without changing the parent", async (cudaVersion) => {
     const setup = await cudaRuntimeSetup(cudaVersion)
     const parent = Object.freeze({
@@ -1871,7 +1905,7 @@ describe("CUDA runtime bundles", () => {
     expect((await readdir(join(setup.directory, "bin"))).sort()).toEqual([
       LLAMA_CPP_RELEASE_TAG,
       `${LLAMA_CPP_RELEASE_TAG}-cpu`,
-      `${LLAMA_CPP_RELEASE_TAG}-cuda-13.3`,
+      `${LLAMA_CPP_RELEASE_TAG}-cuda-13.4`,
     ])
     // Reuse the live CPU process under the original hardware selection.
     expect(await runtime.ensureServing(setup.model, setup.fit, setup.hardware)).toBe(serving)
@@ -2034,23 +2068,24 @@ describe("CUDA runtime bundles", () => {
   })
 
   it.each([
-    "12.8",
-    "13.3",
-  ] as const)("starts Bonsai with Prism CUDA %s and its cached PQ2 weights", async (cudaVersion) => {
+    ["12.8", "12.8"],
+    // Prism's newest CUDA build is 13.3; a 13.4 machine runs it on the same driver.
+    ["13.4", "13.3"],
+  ] as const)("starts Bonsai with Prism CUDA on a %s machine and its cached PQ2 weights", async (cudaVersion, prismVersion) => {
     const setup = await cudaRuntimeSetup(cudaVersion, "prism")
     const selectAsset = vi.fn(setup.options.runtimeAsset)
     const runtime = new LlamaCppRuntime({ ...setup.options, runtimeAsset: selectAsset })
     await runtime.ensureServing(setup.model, setup.fit, setup.hardware)
     expect(setup.fit.model.quant).toBe("PQ2_0")
     expect(selectAsset).toHaveBeenCalledWith(
-      expect.objectContaining({ backend: "cuda", cudaVersion }),
+      expect.objectContaining({ backend: "cuda", cudaVersion: prismVersion }),
       "prism",
     )
     expect(setup.commands).toEqual([
       join(
         setup.directory,
         "bin",
-        `${PRISM_LLAMA_CPP_RELEASE_TAG}-cuda-${cudaVersion}`,
+        `${PRISM_LLAMA_CPP_RELEASE_TAG}-cuda-${prismVersion}`,
         "llama-server",
       ),
     ])
@@ -2059,7 +2094,7 @@ describe("CUDA runtime bundles", () => {
   })
 
   it("keeps Bonsai on Prism and reuses cached PTQ1 when CUDA falls back to Vulkan", async () => {
-    const setup = await cudaRuntimeSetup("13.3", "prism")
+    const setup = await cudaRuntimeSetup("13.4", "prism")
     const fallback = fitLocalModel(setup.model, { ...setup.hardware, backend: "vulkan" }).model
     await cacheWeights(fallback, setup.directory)
     const spawn = vi.fn(setup.options.spawn)
@@ -2095,7 +2130,7 @@ describe("CUDA runtime bundles", () => {
     "probe",
     "startup",
   ] as const)("downloads verified PTQ1 after Bonsai CUDA %s failure and reuses the live fallback", async (failure) => {
-    const setup = await cudaRuntimeSetup("13.3", "prism")
+    const setup = await cudaRuntimeSetup("13.4", "prism")
     const body = Buffer.from("fallback PTQ1 weights")
     const model = {
       ...setup.model,
@@ -2175,7 +2210,7 @@ describe("CUDA runtime bundles", () => {
   })
 
   it("does not start Vulkan with PQ2 when the required PTQ1 download fails", async () => {
-    const setup = await cudaRuntimeSetup("13.3", "prism")
+    const setup = await cudaRuntimeSetup("13.4", "prism")
     const originalFetch = setup.options.fetch
     if (!originalFetch) throw new Error("missing fake fetch")
     const runtime = new LlamaCppRuntime({
@@ -2199,7 +2234,7 @@ describe("CUDA runtime bundles", () => {
 
   it.each([
     "12.8",
-    "13.3",
+    "13.4",
   ] as const)("upgrades from Vulkan to CUDA %s without touching cached models, then reuses both verified archives", async (cudaVersion) => {
     const setup = await cudaRuntimeSetup(cudaVersion)
     const old = await installFakeBinary(setup.directory, "b10964")
@@ -2341,7 +2376,7 @@ describe("CUDA runtime bundles", () => {
 })
 
 async function cudaRuntimeSetup(
-  cudaVersion: "12.8" | "13.3" = "13.3",
+  cudaVersion: "12.8" | "13.4" = "13.4",
   runtime: LlamaRuntimeKind = "upstream",
 ) {
   const cudaHardware: HardwareProbe = {
@@ -2548,33 +2583,37 @@ function catalogModel() {
   return model
 }
 
+/** Fakes a verified download of every pinned file, projector included. */
 async function cacheWeights(model: ReturnType<typeof catalogModel>, directory: string) {
   await mkdir(join(directory, "models"), { recursive: true })
-  const path = localGgufPath(model, directory)
-  await writeFile(path, "")
-  await truncate(path, model.ggufFiles[0].size)
-  await writeFile(
-    `${path}.otis.json`,
-    JSON.stringify({
-      version: 1,
-      model: model.id,
-      revision: model.ggufRevision,
-      sha256: model.ggufFiles[0].sha256,
-      size: model.ggufFiles[0].size,
-    }),
-  )
+  for (const file of localModelFiles(model)) {
+    const path = join(directory, "models", file.name)
+    await writeFile(path, "")
+    await truncate(path, file.size)
+    await writeFile(
+      `${path}.otis.json`,
+      JSON.stringify({
+        version: 1,
+        model: model.id,
+        revision: localFileSource(model, file).revision,
+        sha256: file.sha256,
+        size: file.size,
+      }),
+    )
+  }
 }
 
+/** The catalog entry with tiny weights, and a tiny projector in place of a vision model's. */
 function tinyModel(model: ReturnType<typeof catalogModel>, contents: Uint8Array): LocalModelSpec {
+  const file = (name: string) => ({
+    name,
+    size: contents.byteLength,
+    sha256: createHash("sha256").update(contents).digest("hex"),
+  })
   return {
     ...model,
-    ggufFiles: [
-      {
-        name: "tiny.gguf",
-        size: contents.byteLength,
-        sha256: createHash("sha256").update(contents).digest("hex"),
-      },
-    ],
+    ggufFiles: [file("tiny.gguf")],
+    mmproj: model.mmproj && { ...model.mmproj, ...file("tiny-mmproj.gguf") },
   }
 }
 

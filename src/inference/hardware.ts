@@ -16,7 +16,11 @@ const NVIDIA_SMI_FIELDS = ["index", "uuid", "name", "memory.total"]
 const NVIDIA_SMI_DETAIL_FIELDS = ["driver_version", "compute_cap", "mig.mode.current"]
 
 export type HardwareBackend = "metal" | "cuda" | "vulkan" | "cpu"
-export type CudaVersion = "12.8" | "13.3"
+/**
+ * Upstream's CUDA builds, plus 13.3: only `llamaRuntimeTarget` produces it, for Prism's newest
+ * CUDA build on a machine qualified for 13.4.
+ */
+export type CudaVersion = "12.8" | "13.3" | "13.4"
 export type GpuVendor = "nvidia" | "amd" | "intel"
 
 export type HardwareProbe = {
@@ -174,18 +178,19 @@ export async function detectHardware(options: HardwareDetectOptions = {}): Promi
   )
   if (devices.length > 0) {
     const glibc = await (options.glibcVersion ?? defaultGlibcVersion)().catch(() => undefined)
-    // Official CUDA archives target Ubuntu 24.04. Their PTX kernels need the
-    // toolkit's full driver version, not just CUDA minor-version compatibility.
-    // CUDA 12.8 includes kernels through SM 120, but not GB10's SM 121.
+    // Official CUDA archives target Ubuntu 24.04. Their PTX kernels need the toolkit's own
+    // driver branch, not just CUDA minor-version compatibility: CUDA 13.4 is the R615 branch
+    // (the toolkit no longer bundles a driver), CUDA 12.8 shipped with 570.211.01. CUDA 12.8
+    // includes kernels through SM 120, but not GB10's SM 121.
     let cudaVersion: CudaVersion | undefined
     if (glibc && versionAtLeast(glibc, "2.39") && (arch === "x64" || arch === "arm64")) {
       if (
         devices.every(
           ({ driver, compute }) =>
-            versionAtLeast(driver, "610.43.02") && compute >= 7.5 && compute <= 12.1,
+            versionAtLeast(driver, "615") && compute >= 7.5 && compute <= 12.1,
         )
       ) {
-        cudaVersion = "13.3"
+        cudaVersion = "13.4"
       } else if (
         arch === "x64" &&
         devices.every(
