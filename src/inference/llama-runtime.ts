@@ -29,6 +29,7 @@ import {
   ensureLocalGguf,
   type GgufProgress,
   hashFile,
+  localMmprojPath,
   sha256File,
 } from "./gguf-cache.js"
 import { type HardwareBackend, type HardwareProbe, inferenceMemoryBudget } from "./hardware.js"
@@ -44,7 +45,7 @@ import {
   supportsLlamaCppTarget,
   unsupportedLlamaCppTargetMessage,
 } from "./llama-binary.js"
-import type { LocalModelSpec } from "./local-catalog.js"
+import { type LocalModelSpec, localModelFiles } from "./local-catalog.js"
 import { fitLocalModel, type LocalModelFit } from "./local-fit.js"
 import { localThinkingParameters, minimalLocalThinkingLevel } from "./local-thinking.js"
 import { parseChatCompletionStream } from "./stream-parser.js"
@@ -256,7 +257,7 @@ export class LlamaCppRuntime {
       model.ggufRepo,
       model.ggufRevision,
       model.quant,
-      model.ggufFiles,
+      localModelFiles(model),
       hardware.platform,
       hardware.arch,
       hardware.backend,
@@ -534,6 +535,8 @@ export class LlamaCppRuntime {
       String(LOCAL_MIN_CONTEXT_LENGTH),
       "--no-webui",
     ]
+    const mmproj = localMmprojPath(model, this.#options.dataDirectory)
+    if (mmproj) args.push("--mmproj", mmproj)
     if (runtime.devices?.length) args.push("--device", runtime.devices.join(","))
     const child = (this.#options.spawn ?? spawn)(runtime.binaryPath, args, {
       env: this.#serverEnvironment(runtime),

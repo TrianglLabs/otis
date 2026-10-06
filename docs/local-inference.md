@@ -28,7 +28,12 @@ The terminal and desktop use the same recommendation policy.
 Selecting a model downloads:
 
 - an Otis-pinned `llama-server` build for the current platform; and
-- a revision-pinned GGUF, or its required split GGUF files, from Hugging Face.
+- a revision-pinned GGUF, or its required split GGUF files, from Hugging Face; and
+- for a vision model, its pinned multimodal projector (`mmproj`), from the weights' repository or the model author's,
+  which llama-server loads beside the weights so image attachments work.
+
+Ornith 1.5 9B, Gemma 4 12B, 26B A4B and 31B, Qwen3.8 27B, Qwen3.8 Flash Next, and Bonsai 2 27B accept images. The
+projector counts toward a model's memory footprint; LFM2.5 2.6B, gpt-oss 20B, and GLM-5.3 are text only.
 
 Most models use Otis' pinned upstream llama.cpp build. Bonsai 2 uses a separately pinned Prism llama.cpp build because
 its ternary GGUFs need Prism's loader and compute kernels. Otis selects that runtime from the model catalog; it
@@ -39,8 +44,9 @@ libraries. Otis downloads both; installing the CUDA toolkit is not required. The
 and the normal Linux runtime libraries, including OpenMP (`libgomp1` on Ubuntu).
 
 CUDA selection requires glibc 2.39 or newer. CUDA 12.8 is available on x64 with NVIDIA driver 570.211.01 or newer and
-GPU compute capability 5.0–12.0. CUDA 13.3 is preferred on x64 and arm64 with driver 610.43.02 or newer and compute
-capability 7.5–12.1. All detected NVIDIA GPUs must be compatible with the selected build. Unknown or incompatible
+GPU compute capability 5.0–12.0. CUDA 13.4 is preferred on x64 and arm64 with an R615 (615 or newer) driver and compute
+capability 7.5–12.1. Drivers between 610 and 615 no longer qualify for the 13.x build: x64 falls back to CUDA 12.8
+where its compute range allows, arm64 to Vulkan. All detected NVIDIA GPUs must be compatible with the selected build. Unknown or incompatible
 configurations keep Vulkan, as do AMD and Intel GPUs. Otis also checks that the downloaded CUDA server can see a CUDA
 device before loading a model; if it cannot, it uses Vulkan. Bonsai uses Prism's official CUDA binaries on Linux x64,
 paired with the same-version NVIDIA runtime/cuBLAS libraries from the pinned upstream companion archives. Prism does
@@ -115,9 +121,10 @@ Examples with a dedicated GPU:
 | --- | --- |
 | 4 GiB | Qwen3.8 Flash Next when host RAM holds it, else the CPU order |
 | 6–8 GiB | LFM2.5 2.6B |
-| 12–20 GiB | Bonsai 2 27B (its PTQ1 packing at 12 GiB fits by a few hundred MiB; CUDA's PQ2 packing needs 16 GiB) |
-| 24–64 GiB | Qwen3.8 27B |
-| 80–256 GiB | Qwen3.8 Flash Next |
+| 12 GiB | Ornith 1.5 9B / Gemma 4 12B |
+| 16–24 GiB | Bonsai 2 27B |
+| 32–80 GiB | Qwen3.8 27B |
+| 96–256 GiB | Qwen3.8 Flash Next |
 | 384 GiB and above | GLM-5.3 |
 
 Qwen3.8 Flash Next comes in two packings: an 82 GB IQ3 conversion of the official checkpoint, and Qwen's own Q8
@@ -136,7 +143,8 @@ hold 64K there; the rest of memory stays with the system. With the default worki
 | 16–18 GiB | Ornith 1.5 9B / Gemma 4 12B | Ornith 1.5 9B / Gemma 4 12B |
 | 24 GiB | Bonsai 2 27B | Bonsai 2 27B |
 | 32 GiB | Bonsai 2 27B | Qwen3.8 27B |
-| 36–96 GiB | Qwen3.8 27B | Qwen3.8 27B |
+| 36 GiB | Bonsai 2 27B | Qwen3.8 27B |
+| 48–96 GiB | Qwen3.8 27B | Qwen3.8 27B |
 | 128–384 GiB | Qwen3.8 Flash Next | Qwen3.8 Flash Next |
 | 512 GiB | GLM-5.3 | GLM-5.3 |
 

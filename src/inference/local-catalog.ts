@@ -34,6 +34,9 @@ export type LocalGgufFile = {
   /** SHA-256 from the repository's Git LFS object metadata. */
   sha256: string
   size: number
+  /** Set when the file lives outside the weights' repository or revision. */
+  ggufRepo?: string
+  ggufRevision?: string
 }
 
 type LocalModelPacking = {
@@ -69,6 +72,11 @@ export type LocalModelSpec = {
   ggufRevision: string
   /** One file for a normal GGUF, or all files for a split GGUF in load order. */
   ggufFiles: readonly [LocalGgufFile, ...LocalGgufFile[]]
+  /**
+   * The multimodal projector llama-server loads beside the weights for image input, shared by
+   * every packing. Present for a vision model; `supportsImageInput` follows it.
+   */
+  mmproj?: LocalGgufFile
   quant: string
   /** First compatible matching rule wins; otherwise use the last compatible packing. */
   packings?: readonly [LocalModelPacking, ...LocalModelPacking[]]
@@ -149,11 +157,14 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
         size: 5_780_090_816,
       },
     ],
+    mmproj: {
+      name: "mmproj-Ornith-1.5-9B-BF16.gguf",
+      sha256: "626f9f90627402a6bf4a999111d0fbd69b5fcca7aa8ba089d69e5f10e8858e1d",
+      size: 921_704_672,
+    },
     quant: "Q4_K_M",
     nativeContextLength: 262_144,
-    // The checkpoint is multimodal, but local image input also requires the separate mmproj
-    // artifact.
-    supportsImageInput: false,
+    supportsImageInput: true,
     attention: { groups: [{ layers: 8, kvHeads: 4, headDim: 256 }] },
     vocabSize: 248_320,
     hiddenSize: 4_096,
@@ -172,11 +183,14 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
         size: 6_975_879_296,
       },
     ],
+    mmproj: {
+      name: "mmproj-gemma-4-12b-it-qat-q4_0.gguf",
+      sha256: "cb018338a7538a9814d994bfe54644c71eb7ed54e31eae2f721e45fd3c260da7",
+      size: 175_115_616,
+    },
     quant: "Q4_0",
     nativeContextLength: 262_144,
-    // The checkpoint is multimodal, but local image input also requires the separate mmproj
-    // artifact.
-    supportsImageInput: false,
+    supportsImageInput: true,
     attention: {
       groups: [
         { layers: 8, kvHeads: 1, headDim: 512 },
@@ -221,9 +235,14 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
         size: 18_973_870_432,
       },
     ],
+    mmproj: {
+      name: "mmproj-Qwen3.8-27B-Q8_0.gguf",
+      sha256: "2e968a6af97ce35d8971890b257b9b7edabf20ad91450501fa53162a19ee33eb",
+      size: 629_247_008,
+    },
     quant: "Q4_K_M",
     nativeContextLength: 262_144,
-    supportsImageInput: false,
+    supportsImageInput: true,
     attention: { groups: [{ layers: 16, kvHeads: 4, headDim: 256 }] },
     vocabSize: 248_320,
     hiddenSize: 5_120,
@@ -255,8 +274,13 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
         supportedBackends: ["metal", "cuda", "cpu"],
       },
     ],
+    mmproj: {
+      name: "Ternary-Bonsai-2-27B-mmproj-Q8_0.gguf",
+      sha256: "6807ede61d570bb86ba34b756a0fa109edc33668604de867c6ea6d8f1d631903",
+      size: 629_246_976,
+    },
     nativeContextLength: 262_144,
-    supportsImageInput: false,
+    supportsImageInput: true,
     // Bonsai retains the Qwen3.8 27B architecture and KV-cache geometry.
     attention: { groups: [{ layers: 16, kvHeads: 4, headDim: 256 }] },
     vocabSize: 248_320,
@@ -272,6 +296,14 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     ggufRepo: "unsloth/Qwen3.8-Flash-Next-GGUF",
     ggufRevision: "c8b5954a88c2775c546b92593eda40ea041d3176",
     ggufFiles: FLASH_NEXT_IQ3.ggufFiles,
+    // Qwen's ggml-org conversion publishes the projector at Q8; both packings use it.
+    mmproj: {
+      ggufRepo: "ggml-org/Qwen3.8-Flash-Next-GGUF",
+      ggufRevision: "01534bc2e1877d5de995b73d247d4459d273e688",
+      name: "mmproj-Qwen3.8-Flash-Next-Q8_0.gguf",
+      sha256: "b2e9b5e4a44c107f8867e67dbf09b607fd99ae33c1a97a60a6720aeb252a9dad",
+      size: 616_703_104,
+    },
     quant: FLASH_NEXT_IQ3.quant,
     packings: [
       {
@@ -302,9 +334,7 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
       },
     ],
     nativeContextLength: 262_144,
-    // The checkpoint is multimodal, but local image input also requires the separate mmproj
-    // artifact.
-    supportsImageInput: false,
+    supportsImageInput: true,
     attention: { groups: [{ layers: 12, kvHeads: 2, headDim: 256 }] },
     vocabSize: 248_320,
     hiddenSize: 2_560,
@@ -349,9 +379,14 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
         size: 14_439_363_584,
       },
     ],
+    mmproj: {
+      name: "gemma-4-26B-it-mmproj.gguf",
+      sha256: "a359953a076b877db30c31dbbb4c6d93b4a6e017ee5db5784247e4d4c0dd4f3b",
+      size: 1_194_828_160,
+    },
     quant: "Q4_0",
     nativeContextLength: 262_144,
-    supportsImageInput: false,
+    supportsImageInput: true,
     attention: {
       groups: [
         { layers: 5, kvHeads: 2, headDim: 512 },
@@ -375,9 +410,14 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
         size: 17_651_001_568,
       },
     ],
+    mmproj: {
+      name: "gemma-4-31B-it-mmproj.gguf",
+      sha256: "6bd60bdb958548b4093196d38744b0f2290c12503a3fddd7486bffa9c5eb07a4",
+      size: 1_200_726_368,
+    },
     quant: "Q4_0",
     nativeContextLength: 262_144,
-    supportsImageInput: false,
+    supportsImageInput: true,
     attention: {
       groups: [
         { layers: 10, kvHeads: 4, headDim: 512 },
@@ -451,8 +491,22 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
   },
 ]
 
+/** Every file a packing downloads: the weights, then the projector when the model has one. */
+export function localModelFiles(model: LocalModelSpec): readonly LocalGgufFile[] {
+  return model.mmproj ? [...model.ggufFiles, model.mmproj] : model.ggufFiles
+}
+
+/** Where a pinned file is fetched from: a projector may name its own repository. */
+export function localFileSource(model: LocalModelSpec, file: LocalGgufFile) {
+  return {
+    repo: file.ggufRepo ?? model.ggufRepo,
+    revision: file.ggufRevision ?? model.ggufRevision,
+  }
+}
+
+/** Bytes a packing loads and downloads, projector included. */
 export function localModelWeightBytes(model: LocalModelSpec) {
-  return model.ggufFiles.reduce((total, file) => total + file.size, 0)
+  return localModelFiles(model).reduce((total, file) => total + file.size, 0)
 }
 
 export function localModelForHardware(

@@ -12,26 +12,28 @@ const smi = (fields: string, mig = "Disabled") =>
     .filter(Boolean)
     .map((line, index) => `${index}, GPU-${index}, NVIDIA GPU, ${line}, ${mig}`)
     .join("\n")
-const twoGpus = smi("24576, 610.43.02, 8.9\n8192, 610.43.02, 8.6")
+const twoGpus = smi("24576, 615.40.03, 8.9\n8192, 615.40.03, 8.6")
 
 describe("hardware detection", () => {
   it.each([
     ["x64", "2.39", "24576, 570.211.01, 8.9", "12.8"],
-    ["x64", "2.39", "24576, 610.43.02, 8.9", "13.3"],
-    ["arm64", "2.40", "[N/A], 610.43.02, 12.1", "13.3"],
-    ["x64", "2.39", "8192, 610.43.02, 6.1", "12.8"],
-    ["x64", "2.39", "8192, 610.43.02, 8.9\n8192, 610.43.02, 6.1", "12.8"],
+    ["x64", "2.39", "24576, 615.40.03, 8.9", "13.4"],
+    ["arm64", "2.40", "[N/A], 615.40.03, 12.1", "13.4"],
+    // An R610 driver ran the old 13.3 build; the 13.4 build needs R615, so 12.8 serves it.
+    ["x64", "2.39", "24576, 610.43.02, 8.9", "12.8"],
+    ["x64", "2.39", "8192, 615.40.03, 6.1", "12.8"],
+    ["x64", "2.39", "8192, 615.40.03, 8.9\n8192, 615.40.03, 6.1", "12.8"],
     ["x64", "2.39", "8192, 570.211.00, 8.6", undefined],
-    ["x64", "2.38", "8192, 610.43.02, 8.6", undefined],
-    ["x64", undefined, "8192, 610.43.02, 8.6", undefined],
+    ["x64", "2.38", "8192, 615.40.03, 8.6", undefined],
+    ["x64", undefined, "8192, 615.40.03, 8.6", undefined],
     ["x64", "2.39", "8192, [N/A], 8.6", undefined],
-    ["x64", "2.39", "8192, 610.43.02, [N/A]", undefined],
-    ["x64", "2.39", "8192, 610.43.02, 3.5", undefined],
-    ["x64", "2.39", "8192, 610.43.02, 13.0", undefined],
+    ["x64", "2.39", "8192, 615.40.03, [N/A]", undefined],
+    ["x64", "2.39", "8192, 615.40.03, 3.5", undefined],
+    ["x64", "2.39", "8192, 615.40.03, 13.0", undefined],
     ["x64", "2.39", "8192, 580.100.00, 12.1", undefined],
     ["arm64", "2.39", "8192, 580.100.00, 8.7", undefined],
-    ["arm64", "2.39", "8192, 610.43.01, 12.1", undefined],
-    ["riscv64", "2.39", "8192, 610.43.02, 8.9", undefined],
+    ["arm64", "2.39", "8192, 614.99.99, 12.1", undefined],
+    ["riscv64", "2.39", "8192, 615.40.03, 8.9", undefined],
   ] as const)("selects a compatible CUDA build for %s, glibc %s, NVIDIA %s", async (arch, glibc, output, cudaVersion) => {
     const hardware = await detectHardware({
       env: { platform: "linux", arch, totalMemoryBytes: 64 * 1024 ** 3 },

@@ -12,6 +12,7 @@ import {
   findLocalModel,
   LOCAL_MODELS,
   type LocalModelSpec,
+  localModelFiles,
   localModelPackings,
 } from "../../src/inference/local-catalog.js"
 import {
@@ -109,7 +110,8 @@ describe("model picker catalog", () => {
     [18, [ORNITH, GEMMA]],
     [24, [BONSAI]],
     [32, [BONSAI]],
-    [36, [QWEN]],
+    // Qwen3.8 27B with its vision projector needs 23.43 GiB at 64K, past a 36 GiB working set.
+    [36, [BONSAI]],
     [48, [QWEN]],
     [64, [QWEN]],
     [96, [QWEN]],
@@ -202,8 +204,8 @@ describe("model picker catalog", () => {
     [8188, [LFM]],
     [8191, [LFM]],
     [8192, [LFM]],
-    // Vulkan selects Bonsai's PTQ1 packing, whose 64K footprint is just inside 11 GiB.
-    [12288, [BONSAI]],
+    // Vulkan selects Bonsai's PTQ1 packing, whose 64K footprint with the projector is 11.3 GiB.
+    [12288, [ORNITH, GEMMA]],
     [16380, [BONSAI]],
   ])("stars models whose full footprint fits %d MiB of Vulkan VRAM", async (gpuMiB, ids) => {
     await expect(
@@ -216,14 +218,14 @@ describe("model picker catalog", () => {
     [4, [FLASH]],
     [6, [LFM]],
     [8, [LFM]],
-    [12, [BONSAI]],
+    [12, [ORNITH, GEMMA]],
     [16, [BONSAI]],
     [20, [BONSAI]],
-    [24, [QWEN]],
+    [24, [BONSAI]],
     [32, [QWEN]],
     [48, [QWEN]],
     [64, [QWEN]],
-    [80, [FLASH]],
+    [80, [QWEN]],
     [96, [FLASH]],
     [192, [FLASH]],
     [256, [FLASH]],
@@ -236,7 +238,7 @@ describe("model picker catalog", () => {
   it.each([
     32, 64, 128, 256, 1024,
   ])("keeps the 24 GiB GPU recommendation stable with %d GiB host RAM", async (ramGiB) => {
-    await expect(recommendedIds(linuxHardware(ramGiB, 24))).resolves.toEqual([QWEN])
+    await expect(recommendedIds(linuxHardware(ramGiB, 24))).resolves.toEqual([BONSAI])
   })
 
   it.each([
@@ -291,8 +293,8 @@ describe("model picker catalog", () => {
         nvidiaSmi: async () => nvidiaOutput,
       })
     // Equal combined VRAM, but two devices need 2 GiB rather than 1 GiB of headroom.
-    const single = await probe("0, GPU-0, NVIDIA GPU, 24576\n")
-    const dual = await probe("0, GPU-0, NVIDIA GPU, 12288\n1, GPU-1, NVIDIA GPU, 12288\n")
+    const single = await probe("0, GPU-0, NVIDIA GPU, 25600\n")
+    const dual = await probe("0, GPU-0, NVIDIA GPU, 12800\n1, GPU-1, NVIDIA GPU, 12800\n")
     expect(single.gpuMemoryBytes).toBe(dual.gpuMemoryBytes)
     await expect(recommendedIds(single)).resolves.toEqual([QWEN])
     await expect(recommendedIds(dual)).resolves.toEqual([BONSAI])
@@ -415,7 +417,7 @@ describe("model picker catalog", () => {
       if (!row) throw new Error("missing picker row")
       expect(isSelectablePickerItem(row)).toBe(true)
       expect(row.recommended).toBe(gpuGiB === 32)
-      expect(row.contextLength).toBe(gpuGiB === 32 ? 194_560 : 65_536)
+      expect(row.contextLength).toBe(gpuGiB === 32 ? 185_344 : 65_536)
       expect(row.availabilityLabel).toContain(
         formatMemoryLabel(memoryRequiredFor(model, row.contextLength)),
       )
@@ -428,10 +430,7 @@ describe("model picker catalog", () => {
     const compact = model && localModelPackings(model).find(({ quant }) => quant === "PTQ1_0")
     if (!model || !compact) throw new Error("missing Bonsai packing")
     const directory = await tempDir()
-    const path = localGgufPath(compact, directory)
-    await mkdir(join(directory, "models"), { recursive: true })
-    await writeFile(path, "")
-    await truncate(path, compact.ggufFiles[0].size)
+    await cacheFiles(compact, directory)
 
     const items = await listModelPickerItems({
       hardware: { ...ample, totalMemoryBytes: 24 * 1024 ** 3, gpuMemoryBytes: 24 * 1024 ** 3 },
@@ -542,9 +541,7 @@ describe("model picker catalog", () => {
     const directory = await tempDir()
     const cached = LOCAL_MODELS.find((model) => model.id === "openai/gpt-oss-20b")
     if (!cached) throw new Error("missing catalog entry")
-    await mkdir(join(directory, "models"), { recursive: true })
-    await writeFile(localGgufPath(cached, directory), "")
-    await truncate(localGgufPath(cached, directory), cached.ggufFiles[0].size)
+    await cacheFiles(cached, directory)
 
     const withCached = await listModelPickerItems({
       hardware: tight,
@@ -626,9 +623,7 @@ describe("model picker catalog", () => {
     const directory = await tempDir()
     const cached = LOCAL_MODELS.find((model) => model.id === "openai/gpt-oss-20b")
     if (!cached) throw new Error("missing catalog entry")
-    await mkdir(join(directory, "models"), { recursive: true })
-    await writeFile(localGgufPath(cached, directory), "")
-    await truncate(localGgufPath(cached, directory), cached.ggufFiles[0].size)
+    await cacheFiles(cached, directory)
 
     const items = await listModelPickerItems({ hardware: ample, dataDirectory: directory })
     const local = items.filter(
@@ -1097,8 +1092,14 @@ function hostedModel(provider: HostedProvider, id: string, displayName: string):
   return { provider, id, displayName, supportsImageInput: false }
 }
 
-function localGgufPath(model: LocalModelSpec, directory: string) {
-  return join(directory, "models", model.ggufFiles[0].name)
+/** Fakes a complete download: every pinned file, projector included, at its pinned size. */
+async function cacheFiles(model: LocalModelSpec, directory: string) {
+  await mkdir(join(directory, "models"), { recursive: true })
+  for (const file of localModelFiles(model)) {
+    const path = join(directory, "models", file.name)
+    await writeFile(path, "")
+    await truncate(path, file.size)
+  }
 }
 
 /** A detected Mac: the default Metal working set unless `iogpu.wired_limit_mb` is raised. */

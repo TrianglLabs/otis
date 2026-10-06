@@ -20,6 +20,8 @@ import {
   LOCAL_MODELS,
   type LocalGgufFile,
   type LocalModelSpec,
+  localFileSource,
+  localModelFiles,
   localModelPackings,
   localModelWeightBytes,
 } from "./local-catalog.js"
@@ -30,16 +32,24 @@ const DOWNLOAD_LOCK_HEARTBEAT_MS = 15_000
 const DOWNLOAD_LOCK_STALE_MS = 60_000
 const GGUF_MANIFEST_VERSION = 1
 
+function modelCacheRoot(dataDirectory?: string) {
+  return dataDirectory ? join(dataDirectory, "models") : llamaModelCacheDirectory()
+}
+
 function localGgufPaths(model: LocalModelSpec, dataDirectory?: string) {
-  const root = dataDirectory ? join(dataDirectory, "models") : llamaModelCacheDirectory()
-  return model.ggufFiles.map((file) => join(root, file.name))
+  const root = modelCacheRoot(dataDirectory)
+  return localModelFiles(model).map((file) => join(root, file.name))
+}
+
+/** Where the model's projector is cached, for llama-server's `--mmproj`; none for a text model. */
+export function localMmprojPath(model: LocalModelSpec, dataDirectory?: string) {
+  return model.mmproj && join(modelCacheRoot(dataDirectory), model.mmproj.name)
 }
 
 export async function isLocalGgufDownloaded(model: LocalModelSpec, dataDirectory?: string) {
+  const root = modelCacheRoot(dataDirectory)
   const states = await Promise.all(
-    localGgufPaths(model, dataDirectory).map((path, index) =>
-      hasPinnedFileSize(path, model.ggufFiles[index].size),
-    ),
+    localModelFiles(model).map((file) => hasPinnedFileSize(join(root, file.name), file.size)),
   )
   return states.every(Boolean)
 }
@@ -106,7 +116,7 @@ export async function cloneLocalGguf(
   await mkdir(dirname(destinations[0]), { recursive: true, mode: 0o700 })
   const releaseLock = await acquireDownloadLock(lockPath(destinations[0]))
   try {
-    for (const [index, file] of model.ggufFiles.entries()) {
+    for (const [index, file] of localModelFiles(model).entries()) {
       const dest = destinations[index]
       await mkdir(dirname(dest), { recursive: true, mode: 0o700 })
       try {
@@ -158,6 +168,7 @@ type DownloadGgufOptions = {
 }
 
 export async function ensureLocalGguf(model: LocalModelSpec, options: DownloadGgufOptions = {}) {
+  const files = localModelFiles(model)
   const destinations = localGgufPaths(model, options.dataDirectory)
   const totalBytes = localModelWeightBytes(model)
   await mkdir(dirname(destinations[0]), { recursive: true, mode: 0o700 })
@@ -173,7 +184,7 @@ export async function ensureLocalGguf(model: LocalModelSpec, options: DownloadGg
     // Verify every file first so the space check counts only bytes still to download.
     const pending: Array<{ dest: string; partial: string; resumedBytes: number }> = []
     let checkedBytes = 0
-    for (const [index, pinnedFile] of model.ggufFiles.entries()) {
+    for (const [index, pinnedFile] of files.entries()) {
       const dest = destinations[index]
       const expectedSha256 = normalizedSha256(pinnedFile.sha256)
       const checked = checkedBytes
@@ -206,8 +217,7 @@ export async function ensureLocalGguf(model: LocalModelSpec, options: DownloadGg
       pending.push({ dest, partial, resumedBytes })
     }
     const neededBytes = pending.reduce(
-      (sum, { dest, resumedBytes }) =>
-        sum + model.ggufFiles[destinations.indexOf(dest)].size - resumedBytes,
+      (sum, { dest, resumedBytes }) => sum + files[destinations.indexOf(dest)].size - resumedBytes,
       0,
     )
     if (neededBytes > 0) {
@@ -224,7 +234,7 @@ export async function ensureLocalGguf(model: LocalModelSpec, options: DownloadGg
     }
 
     let completedBytes = 0
-    for (const [index, pinnedFile] of model.ggufFiles.entries()) {
+    for (const [index, pinnedFile] of files.entries()) {
       const dest = destinations[index]
       const work = pending.find((entry) => entry.dest === dest)
       if (work) {
@@ -272,8 +282,9 @@ async function downloadGgufFile(
   const token = env.HF_TOKEN?.trim() || env.HUGGING_FACE_HUB_TOKEN?.trim()
   if (token) headers.authorization = `Bearer ${token}`
   if (resumedBytes > 0) headers.range = `bytes=${resumedBytes}-`
+  const source = localFileSource(model, pinnedFile)
   const response = await (options.fetch ?? fetch)(
-    `https://huggingface.co/${model.ggufRepo}/resolve/${model.ggufRevision}/${pinnedFile.name}`,
+    `https://huggingface.co/${source.repo}/resolve/${source.revision}/${pinnedFile.name}`,
     { headers, signal: options.signal, redirect: "follow" },
   )
   if (!response.ok || !response.body) {
@@ -368,7 +379,7 @@ async function hasMatchingManifest(
     return (
       value.version === GGUF_MANIFEST_VERSION &&
       value.model === model.id &&
-      value.revision === model.ggufRevision &&
+      value.revision === localFileSource(model, pinnedFile).revision &&
       value.sha256 === expectedSha256 &&
       value.size === pinnedFile.size
     )
@@ -388,7 +399,7 @@ async function writeGgufManifest(
   const manifest = {
     version: GGUF_MANIFEST_VERSION,
     model: model.id,
-    revision: model.ggufRevision,
+    revision: localFileSource(model, pinnedFile).revision,
     sha256: expectedSha256,
     size: pinnedFile.size,
   }

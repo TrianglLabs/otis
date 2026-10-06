@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import { mkdir, mkdtemp, readFile, rm, stat, truncate, utimes, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { basename, join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   cloneLocalGguf,
@@ -9,10 +9,12 @@ import {
   ensureLocalGguf,
   isLocalGgufDownloaded,
   listDownloadedLocalModels,
+  localMmprojPath,
 } from "../../src/inference/gguf-cache.js"
 import {
   findLocalModel,
   type LocalModelSpec,
+  localModelFiles,
   localModelPackings,
 } from "../../src/inference/local-catalog.js"
 
@@ -127,6 +129,54 @@ describe("local GGUF cache", () => {
     await expect(readFile(`${dest}.otis.json`, "utf8")).resolves.toContain(
       model.ggufFiles[0].sha256,
     )
+  })
+
+  it("fetches a vision projector from its own repository and keeps it with the weights", async () => {
+    const weights = new Uint8Array([1, 2, 3, 4])
+    const projector = new Uint8Array([9, 8, 7])
+    const model = visionModel(weights, projector)
+    const directory = await tempDir()
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      const body = url.endsWith("/tiny-mmproj.gguf") ? projector : weights
+      return new Response(Buffer.from(body), {
+        status: 200,
+        headers: { "content-length": String(body.byteLength) },
+      })
+    }) as unknown as typeof fetch
+    const percents: number[] = []
+    const dest = await ensureLocalGguf(model, {
+      dataDirectory: directory,
+      fetch: fetchImpl,
+      onProgress: ({ percent }) => percents.push(percent),
+    })
+
+    expect(dest).toBe(localGgufPath(model, directory))
+    expect(localMmprojPath(model, directory)).toBe(join(directory, "models", "tiny-mmproj.gguf"))
+    expect(vi.mocked(fetchImpl).mock.calls.map(([input]) => String(input))).toEqual([
+      `https://huggingface.co/${model.ggufRepo}/resolve/${model.ggufRevision}/tiny.gguf`,
+      "https://huggingface.co/other/Projector-GGUF/resolve/feedface/tiny-mmproj.gguf",
+    ])
+    expect(percents.at(-1)).toBe(100)
+    expect(await readFile(join(directory, "models", "tiny-mmproj.gguf"))).toEqual(
+      Buffer.from(projector),
+    )
+    await expect(
+      readFile(join(directory, "models", "tiny-mmproj.gguf.otis.json"), "utf8").then(JSON.parse),
+    ).resolves.toMatchObject({ model: model.id, revision: "feedface" })
+    expect(await isLocalGgufDownloaded(model, directory)).toBe(true)
+    // The same weights without their projector are not a complete download.
+    await rm(join(directory, "models", "tiny-mmproj.gguf"))
+    expect(await isLocalGgufDownloaded(model, directory)).toBe(false)
+    expect(await isLocalGgufDownloaded({ ...model, mmproj: undefined }, directory)).toBe(true)
+
+    await ensureLocalGguf(model, { dataDirectory: directory, fetch: fetchImpl })
+    expect(vi.mocked(fetchImpl).mock.calls).toHaveLength(3)
+    await deleteLocalGguf(model, directory)
+    await expect(stat(join(directory, "models", "tiny-mmproj.gguf"))).rejects.toMatchObject({
+      code: "ENOENT",
+    })
+    await expect(stat(dest)).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("verifies a legacy cached GGUF once and then skips the network", async () => {
@@ -456,10 +506,17 @@ describe("local GGUF cache", () => {
     if (!model) throw new Error("missing Bonsai catalog entry")
     const directory = await tempDir()
     await mkdir(join(directory, "models"), { recursive: true })
-    const paths = localModelPackings(model).map((packing) => localGgufPath(packing, directory))
-    for (const [index, path] of paths.entries()) {
+    // Both packings share the projector; each has its own weights.
+    const paths = [
+      ...new Set(localModelPackings(model).flatMap((p) => localGgufPaths(p, directory))),
+    ]
+    const sizes = new Map(
+      localModelPackings(model).flatMap((p) => localModelFiles(p).map((f) => [f.name, f.size])),
+    )
+    expect(paths).toHaveLength(3)
+    for (const path of paths) {
       await writeFile(path, "")
-      await truncate(path, model.packings?.[index]?.ggufFiles[0].size ?? 0)
+      await truncate(path, sizes.get(basename(path)))
       await writeFile(`${path}.partial`, "unfinished")
       await writeFile(`${path}.otis.json`, "manifest")
     }
@@ -519,7 +576,7 @@ async function tempDir() {
 }
 
 function localGgufPaths(model: LocalModelSpec, directory: string) {
-  return model.ggufFiles.map((file) => join(directory, "models", file.name))
+  return localModelFiles(model).map((file) => join(directory, "models", file.name))
 }
 
 function localGgufPath(model: LocalModelSpec, directory: string) {
@@ -542,6 +599,19 @@ function tinyModel(body: Uint8Array): LocalModelSpec {
         sha256: createHash("sha256").update(body).digest("hex"),
       },
     ],
+  }
+}
+
+function visionModel(weights: Uint8Array, projector: Uint8Array): LocalModelSpec {
+  return {
+    ...tinyModel(weights),
+    mmproj: {
+      ggufRepo: "other/Projector-GGUF",
+      ggufRevision: "feedface",
+      name: "tiny-mmproj.gguf",
+      size: projector.byteLength,
+      sha256: createHash("sha256").update(projector).digest("hex"),
+    },
   }
 }
 

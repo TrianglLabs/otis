@@ -96,7 +96,9 @@ model leaves the server running for the others and stops it only when no session
 
 Attachments are represented as provider-neutral ordered user-content parts. Image loading validates the actual
 signature, enforces Fireworks' per-request count and base64-size limits, and places images before text for portability
-across supported vision model families. The hosted adapter alone converts images to `image_url` data URLs.
+across supported vision model families. The OpenAI-compatible adapter converts images to `image_url` data URLs for
+hosted providers and for the local `llama-server`, which loads the catalog's pinned multimodal projector (`--mmproj`)
+for a vision model.
 Catalog-provided image capability is saved with model metadata; every adapter rejects images before inference when the
 selected model lacks that capability.
 
@@ -235,7 +237,7 @@ and labels it `loaded`.
 
 Selecting a runnable local model downloads its Otis-pinned llama.cpp runtime (Metal on macOS, CUDA on compatible Linux
 NVIDIA systems, Vulkan on other Linux GPU systems, otherwise CPU) and the selected GGUF into the platform local-data
-directory. Normal models use upstream llama.cpp `b11057`. Bonsai 2 uses Prism's
+directory. Normal models use upstream llama.cpp `b11438`. Bonsai 2 uses Prism's
 `prism-b10685-7dffb15` fork because its ternary formats require Prism's
 loader and kernels. Runtime choice is catalog metadata, so the fork is isolated to the model that needs it and both
 pinned bundles may coexist. macOS and Linux on arm64 and x64 are supported; other targets are disabled before
@@ -246,8 +248,8 @@ and obsolete known runtime directories are removed after a pinned runtime is ava
 
 Linux CUDA compatibility checks use glibc, NVIDIA driver version, and every detected GPU's compute capability. The
 official Ubuntu 24.04 CUDA archives require glibc 2.39; CUDA 12.8 (x64) requires driver 570.211.01 and SM 50–120, while
-CUDA 13.3 (x64/arm64) requires driver 610.43.02 and SM 75–121. These deliberately require the toolkit's full driver
-version because upstream ships PTX kernels; CUDA minor-version compatibility alone does not guarantee PTX support.
+CUDA 13.4 (x64/arm64) requires the R615 driver branch and SM 75–121. These deliberately require the toolkit's own driver
+branch because upstream ships PTX kernels; CUDA minor-version compatibility alone does not guarantee PTX support.
 Each CUDA server archive is paired with its official `cudart` archive. Archives download into a persistent
 `downloads` directory under a per-bundle lock, resume by byte range with the same range and hash checks as GGUF
 files, and a verified archive is kept for the retry when its companion fails. Both are size/checksum verified before
@@ -271,8 +273,9 @@ display variables, plus `LLAMA_CACHE`); Hugging Face tokens and provider keys ar
 mutate the parent environment, driver installation, or system CUDA toolkit. `OTIS_LLAMA_SERVER` preserves the custom executable's loader settings and bypasses device checks and fallback.
 
 On Linux x64, Bonsai uses Prism's official CUDA 12.8/13.3 binaries with the matching NVIDIA libraries
-from upstream's pinned companion archive. Its llama/ggml libraries come exclusively from Prism. The pinned Prism release
-has no Linux arm64 CUDA binary, so that target stays on Vulkan.
+from upstream's companion archives; a machine qualified for CUDA 13.4 runs Prism's 13.3 build with the 13.3 companion
+from the last upstream release that shipped one. Its llama/ggml libraries come exclusively from Prism. The pinned Prism
+release has no Linux arm64 CUDA binary, so that target stays on Vulkan.
 
 Bonsai's packing is selected from the same hardware probe used for fit. Otis uses the compact 5.95 GB `PTQ1_0` file
 on systems with at most 8 GiB of dedicated GPU memory or 16 GiB of unified/system memory, and the faster-prompt 7.21 GB
