@@ -884,9 +884,9 @@ describe("DesktopRuntime subagents", () => {
     expect(await runtime.listMemory()).toMatchObject([
       { scope: "workspace", text: "Deploys go through CI." },
     ])
-    expect(await readFile(join(defaultSessionDirectory(cwd), "memory.md"), "utf8")).toMatch(
-      /^- \d{4}-\d{2}-\d{2}: Deploys/,
-    )
+    expect(
+      await readFile(join(defaultSessionDirectory(cwd), "memory", "general.md"), "utf8"),
+    ).toMatch(/^# General\n\n- Deploys go through CI\. \[added: \d{4}-\d{2}-\d{2}\]\n$/)
     expect(await runtime.forgetFact("workspace", "deploys")).toEqual({ ok: true })
     expect(await runtime.forgetFact("workspace", "deploys")).toMatchObject({ ok: false })
     expect(await runtime.listMemory()).toEqual([])

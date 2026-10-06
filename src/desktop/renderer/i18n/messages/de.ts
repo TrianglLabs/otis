@@ -462,7 +462,7 @@ export const de: Messages = {
   "settings.memoryRemember": "Merken",
   "settings.memoryForget": "Vergessen",
   "settings.memoryNote":
-    "Fakten liegen im Datenordner von Otis: eine memory.md pro Arbeitsordner und eine für alles, was überall gilt. Ins Projekt wird nichts geschrieben. Otis liest sie nur, wenn es recall aufruft.",
+    "Fakten liegen im Datenordner von Otis: ein Memory-Ordner pro Arbeitsordner und einer für alles, was überall gilt. Ins Projekt wird nichts geschrieben. Otis liest sie nur, wenn es recall aufruft.",
   "settings.skillBundled": "Mitgeliefert",
   "settings.skillPersonal": "Persönlich",
   "settings.skillProject": "Projekt",

@@ -14,12 +14,17 @@ By default, Otis uses the platform's standard user directories:
 | Sessions and usage | `~/Library/Application Support/otis/` | `~/.local/share/otis/` |
 | Routines | `~/Library/Application Support/otis/routines.json` | `~/.config/otis/routines.json` |
 | Managed skill sources | `~/Library/Application Support/otis/skills/` | `~/.local/share/otis/skills/` |
-| Memory that holds everywhere | `~/Library/Application Support/otis/memory.md` | `~/.local/share/otis/memory.md` |
-| Memory for one workspace | `~/Library/Application Support/otis/sessions/<workspace>/memory.md` | `~/.local/share/otis/sessions/<workspace>/memory.md` |
+| Memory that holds everywhere | `~/Library/Application Support/otis/memory/` | `~/.local/share/otis/memory/` |
+| Memory for one workspace | `~/Library/Application Support/otis/sessions/<workspace>/memory/` | `~/.local/share/otis/sessions/<workspace>/memory/` |
 | `otis serve` pairing token | `~/Library/Application Support/otis/serve-token` | `~/.config/otis/serve-token` |
 
 `XDG_CONFIG_HOME` and `XDG_DATA_HOME` are respected on Linux. Set `OTIS_HOME` to keep all Otis state in one specific
 directory.
+
+A memory folder may itself be a git repository: make it one, or clone a repository your other agents share into its
+place. Otis then commits each remembered or forgotten fact there and never pushes or pulls, so memory leaves the
+machine only through a remote you configured and a push you make. A repository that merely contains the data folder is
+left alone.
 
 Configuration is written atomically. On macOS and Linux, its directory uses mode `0700` and `config.json` uses mode
 `0600`. State lives outside the executable and survives `otis update`.

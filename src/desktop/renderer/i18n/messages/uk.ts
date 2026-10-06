@@ -523,7 +523,7 @@ export const uk: Messages = {
   "settings.memoryRemember": "Запам'ятати",
   "settings.memoryForget": "Забути",
   "settings.memoryNote":
-    "Факти лежать у теці даних Otis: по одному memory.md на робочу теку й один для тих, що діють усюди. У проєкт нічого не записується. Otis читає їх лише тоді, коли викликає recall.",
+    "Факти лежать у теці даних Otis: по одній теці пам'яті на робочу теку й одна для тих, що діють усюди. У проєкт нічого не записується. Otis читає їх лише тоді, коли викликає recall.",
   "settings.skillBundled": "Вбудована",
   "settings.skillPersonal": "Особиста",
   "settings.skillProject": "Проєкт",

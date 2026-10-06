@@ -70,7 +70,10 @@ describe("permission policy", () => {
       "allow",
     )
     expect(
-      await ask.evaluate({ name: "remember", input: { fact: "x", scope: "global" } }),
+      await ask.evaluate({
+        name: "remember",
+        input: { fact: "x", scope: "global", topic: "general" },
+      }),
     ).toMatchObject({ effect: "ask", resources: ["global"] })
     expect(
       (await auto.evaluate({ name: "forget", input: { fact: "x", scope: "workspace" } })).effect,

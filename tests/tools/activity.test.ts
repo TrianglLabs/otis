@@ -34,7 +34,7 @@ describe("describeToolCall", () => {
     expect(
       describeToolCall({
         name: "remember",
-        input: { fact: "Deploys go through CI.", scope: "workspace" },
+        input: { fact: "Deploys go through CI.", scope: "workspace", topic: "general" },
       }),
     ).toMatchObject({
       kind: "memory",

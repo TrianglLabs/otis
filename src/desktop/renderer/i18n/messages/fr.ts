@@ -468,7 +468,7 @@ export const fr: Messages = {
   "settings.memoryRemember": "Mémoriser",
   "settings.memoryForget": "Oublier",
   "settings.memoryNote":
-    "Les faits vivent dans le dossier de données d'Otis : une memory.md par dossier de travail, et une pour ceux qui valent partout. Rien n'est écrit dans le projet. Otis ne les lit que lorsqu'il appelle recall.",
+    "Les faits vivent dans le dossier de données d'Otis : un dossier de mémoire par dossier de travail, et un pour ceux qui valent partout. Rien n'est écrit dans le projet. Otis ne les lit que lorsqu'il appelle recall.",
   "settings.skillBundled": "Intégré",
   "settings.skillPersonal": "Personnel",
   "settings.skillProject": "Projet",

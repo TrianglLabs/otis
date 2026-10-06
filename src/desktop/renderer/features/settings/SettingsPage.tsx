@@ -1606,6 +1606,7 @@ function MemorySettings() {
               </span>
               <span className="settingsRow-meta">
                 {t(entry.scope === "global" ? "settings.memoryGlobal" : "settings.memoryWorkspace")}
+                {` · ${entry.topic}`}
                 {entry.date ? ` · ${formatShortDate(entry.date, locale)}` : ""}
               </span>
             </span>

@@ -835,8 +835,13 @@ describe("AppShell settings navigation", () => {
 
   it("lists remembered facts on the Extensions tab and adds or forgets them", async () => {
     const entries = [
-      { scope: "workspace" as const, date: "2026-09-12", text: "Deploys go through CI." },
-      { scope: "global" as const, text: "Prefer bun over npm." },
+      {
+        scope: "workspace" as const,
+        topic: "deploy",
+        date: "2026-09-12",
+        text: "Deploys go through CI.",
+      },
+      { scope: "global" as const, topic: "general", text: "Prefer bun over npm." },
     ]
     const api = fakeApi({
       listMemory: vi.fn(async () => entries),
@@ -852,8 +857,8 @@ describe("AppShell settings navigation", () => {
     await act(async () => {})
     const memory = screen.getByRole("heading", { name: "Memory" }).parentElement as HTMLElement
     expect(within(memory).getByText("Deploys go through CI.")).toBeTruthy()
-    expect(within(memory).getByText("This workspace · Sep 12")).toBeTruthy()
-    expect(within(memory).getByText("Everywhere")).toBeTruthy()
+    expect(within(memory).getByText("This workspace · deploy · Sep 12")).toBeTruthy()
+    expect(within(memory).getByText("Everywhere · general")).toBeTruthy()
 
     const input = within(memory).getByLabelText("Remember for this workspace") as HTMLInputElement
     fireEvent.change(input, { target: { value: "Tests run with bun test." } })
