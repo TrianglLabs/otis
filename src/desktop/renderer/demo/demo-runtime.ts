@@ -49,6 +49,7 @@ import {
   type SessionOpResult,
   type SkillSummary,
   type SkillsSummary,
+  type SubagentTraceView,
   type TextSize,
   type ThemeName,
   type TranscriptPatchOp,
@@ -1598,10 +1599,12 @@ class DemoRuntime implements DesktopApi {
     return { ok: true }
   }
 
-  async getSubagentTrace(toolCallId: string): Promise<TranscriptEntry[]> {
-    if (!this.#state.subagents.some((run) => run.toolCallId === toolCallId)) return []
+  async getSubagentTrace(toolCallId: string, seen?: number): Promise<SubagentTraceView> {
+    if (!this.#state.subagents.some((run) => run.toolCallId === toolCallId))
+      return { revision: 0, entries: [] }
+    if (seen === 1) return { revision: 1 }
     let id = 9_000
-    return [
+    const entries: TranscriptEntry[] = [
       {
         id: id++,
         kind: "tool",
@@ -1629,6 +1632,7 @@ class DemoRuntime implements DesktopApi {
         text: "The session lock is per-workspace and held for the duration of a turn; switching sessions waits for the lock to drain.",
       },
     ]
+    return { revision: 1, entries }
   }
 
   async getSnapshot(): Promise<DesktopSnapshot> {
@@ -3065,12 +3069,144 @@ function sessionStoreTranscript(): TranscriptEntry[] {
 +/** Older sessions sit in the directory itself; new ones under their runtime. */
 +const runtimeSegment = (options: SessionOptions) => options.runtime ?? ""`,
     ),
-    tool("command", "bun run typecheck", "s4"),
-    tool("command", "bun test tests/storage", "s5"),
+    tool(
+      "edit",
+      "src/storage/session.ts",
+      "s4",
+      `--- a/src/storage/session.ts
++++ b/src/storage/session.ts
+@@ -341,12 +341,14 @@ async function digestSessions(options: Omit<SessionOptions, "sessionId">) {
+   const directory = sessionDirectory(options)
+-  let fileNames: string[]
++  let files: { name: string; runtime?: string }[]
+   try {
+-    fileNames = await readdir(directory)
++    files = await listSessionFiles(directory)
+   } catch (error) {
+     if (isNotFoundError(error)) return []
+     throw error
+   }
+-  for (const fileName of fileNames) {
+-    if (!fileName.endsWith(".jsonl")) continue
++  for (const { name, runtime } of files) {
++    if (!name.endsWith(".jsonl")) continue
++    const path = runtime ? join(directory, runtime, name) : join(directory, name)`,
+    ),
+    tool(
+      "edit",
+      "src/storage/session.ts",
+      "s5",
+      `--- a/src/storage/session.ts
++++ b/src/storage/session.ts
+@@ -367,8 +369,10 @@ export async function digestAllSessions(seeds: string[] | undefined) {
+   const dirs = await listWorkspaceSessionDirs(seeds)
+   const grouped = await Promise.all(
+-    dirs.map(async ({ dir, dirName, workspacePath }) => {
++    dirs.map(async ({ dir, dirName, workspacePath, runtimes }) => {
+       try {
+-        const sessions = await digestSessions({ cwd: "", directory: dir })
++        const sessions = (
++          await Promise.all(runtimes.map((runtime) => digestSessions({ cwd: "", directory: dir, runtime })))
++        ).flat()`,
+    ),
+    tool(
+      "write",
+      "src/storage/session-layout.ts",
+      "s6",
+      `--- a/src/storage/session-layout.ts
++++ b/src/storage/session-layout.ts
+@@ -0,0 +1,24 @@
++import { readdir } from "node:fs/promises"
++import { join } from "node:path"
++
++/**
++ * Session files live either directly in a workspace's session directory (sessions written before
++ * runtimes had their own files) or one level down, under the runtime that wrote them. Readers see
++ * both; writers only ever use the runtime segment.
++ */
++export async function listSessionFiles(directory: string) {
++  const entries = await readdir(directory, { withFileTypes: true })
++  const files: { name: string; runtime?: string }[] = []
++  for (const entry of entries) {
++    if (entry.isFile()) {
++      files.push({ name: entry.name })
++      continue
++    }
++    if (!entry.isDirectory()) continue
++    for (const name of await readdir(join(directory, entry.name)))
++      files.push({ name, runtime: entry.name })
++  }
++  return files
++}
++
++export const LEGACY_RUNTIME = ""`,
+    ),
+    tool("command", "bun run typecheck", "s7"),
+    tool(
+      "edit",
+      "src/app/sessions.ts",
+      "s8",
+      `--- a/src/app/sessions.ts
++++ b/src/app/sessions.ts
+@@ -96,7 +96,8 @@ export class SessionCoordinator {
+   constructor(
+     private readonly transcript: TranscriptStore,
+-    private readonly options: SessionOptions,
++    options: SessionOptions,
++    readonly runtime: string,
+   ) {
+-    this.#options = options
++    this.#options = { ...options, runtime }
+   }`,
+    ),
+    tool(
+      "edit",
+      "src/desktop/main/runtime.ts",
+      "s9",
+      `--- a/src/desktop/main/runtime.ts
++++ b/src/desktop/main/runtime.ts
+@@ -1384,7 +1384,7 @@ export class DesktopRuntime {
+     if (this.#historyCache === undefined) {
+       const pending = listGlobalHistory(RECENT_ARTIFACTS, {
+         open: app.openSessions(this.#panes),
+-        seeds: [...new Set(app.runtimes.map((runtime) => runtime.workspace.cwd))],
++        seeds: [...new Set(app.runtimes.map((runtime) => runtime.workspace.cwd))].sort(),
+       })`,
+    ),
+    tool(
+      "edit",
+      "src/cli/interactive-app.ts",
+      "s10",
+      `--- a/src/cli/interactive-app.ts
++++ b/src/cli/interactive-app.ts
+@@ -212,9 +212,9 @@ export class InteractiveApp {
+   #openSession(id: string) {
+-    const session = openSession({ cwd: this.cwd, sessionId: id })
++    const session = openSession({ cwd: this.cwd, sessionId: id, runtime: this.runtimeId })
+     this.transcript.replaceMessages(session.messages())
+-    this.status(\`Opened \${id}\`)
++    this.status(\`Opened \${id} (\${session.runtime ?? "legacy"})\`)
+   }`,
+    ),
+    tool(
+      "edit",
+      "src/storage/session-files.ts",
+      "s11",
+      `--- a/src/storage/session-files.ts
++++ b/src/storage/session-files.ts
+@@ -40,4 +43,9 @@ const runtimeSegment = (options: SessionOptions) => options.runtime ?? ""
++
++/** A session's file under whichever layout holds it; the runtime segment wins when both exist. */
++export async function locateSessionFile(options: SessionOptions, sessionId: string) {
++  const nested = sessionFile(options, sessionId)
++  return (await pathExists(nested)) ? nested : join(sessionDirectory(options), \`\${sessionId}.jsonl\`)
++}`,
+    ),
+    tool("command", "bun test tests/storage tests/app", "s12"),
     fixture({
       kind: "message",
       speaker: "Otis",
-      text: "Typecheck is clean and the storage tests pass.",
+      text: "Typecheck is clean and the storage and app tests pass. Six files changed; old sessions still read from the directory itself.",
     }),
     // Mid-thought: the busy session shows the live thinking status.
     fixture({

@@ -156,6 +156,7 @@
 }
 
 .workspaceRail-view-canvas,
+.workspaceRail-view-changes,
 .workspaceRail-view-terminal {
   transform: translateX(12px);
 }
@@ -163,6 +164,73 @@
 /* The document tabs stack over the document. */
 .workspaceRail-view-canvas {
   flex-direction: column;
+}
+
+/* Changes: one disclosure per file, its patches below in the order they were made. */
+.changesList {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  padding: 0 0 10px 10px;
+}
+
+.changeFile-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 0 8px;
+  border-radius: var(--radius);
+  font-size: var(--text-ui);
+  color: var(--text);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.changeFile-summary::-webkit-details-marker {
+  display: none;
+}
+
+.changeFile-summary:hover {
+  background: var(--bg-hover);
+}
+
+.changeFile-chevron {
+  flex-shrink: 0;
+  color: var(--text-dim);
+  transition: transform var(--motion);
+}
+
+.changeFile[open] > .changeFile-summary .changeFile-chevron {
+  transform: rotate(90deg);
+}
+
+.changeFile-path {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.changeFile-name {
+  font-weight: 520;
+}
+
+.changeFile-folder {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-dim);
+  font-size: var(--text-meta);
+}
+
+.changeFile .diffView {
+  margin: 2px 10px 8px 0;
 }
 
 /* The terminal tab carries its close: the pair is one pill, hovered and selected together. */
@@ -212,14 +280,6 @@
   pointer-events: auto;
   transform: translateX(0);
   transition-delay: 45ms, 0s, 0s;
-}
-
-.workspaceRail-empty {
-  margin: auto;
-  padding: 24px;
-  color: var(--text-dim);
-  font-size: var(--text-ui);
-  text-align: center;
 }
 
 .agentsRail-list {

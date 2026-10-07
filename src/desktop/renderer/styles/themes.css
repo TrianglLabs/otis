@@ -121,6 +121,10 @@
   --bg-elev: #1b1b1b;
   --bg-rail: #131313;
   --accent: #00ff66;
+  /* One hue by design, so these are told apart by brightness, and a failure is the one red. */
+  --danger: #ff5050;
+  --usage-uncached: #1c7a3e;
+  --usage-output: #c9ffd8;
   --on-accent: #052e12;
   --text: #00ff41;
   --text-dim: #4d7a52;
@@ -184,6 +188,11 @@
   --bg: #eae3ce;
   --bg-elev: #ddd3b6;
   --bg-rail: #e4dcc3;
+  /* Warm sand for hover and selection: the text-tinted defaults turn grey on this paper. */
+  --bg-hover: #ddd2b1;
+  --bg-selected: #d0c295;
+  /* A true red for failures; the theme's rose sits too close to its brown accent at dot size. */
+  --danger: #b5372b;
   --accent: #8a4b1f;
   --text: #33291d;
   --text-dim: #8a7a5c;
@@ -205,6 +214,9 @@
   --bg-elev: #2a1b4a;
   --bg-rail: #22153e;
   --accent: #ff6ec7;
+  /* The accent is itself a pink: failures and uncached input take the theme's orange. */
+  --danger: #ff6b6b;
+  --usage-uncached: #ffb86b;
   --text: #ede6f7;
   --text-dim: #8f7fb8;
   --cyan: #4dd8e8;
@@ -225,6 +237,8 @@
   --bg-elev: #0a1e28;
   --bg-rail: #05131c;
   --accent: #1eefff;
+  /* The accent is itself a cyan: output takes the theme's green. */
+  --usage-output: #8fe3b4;
   --on-accent: #083032;
   --text: #abffe9;
   --text-dim: #4e7e7c;

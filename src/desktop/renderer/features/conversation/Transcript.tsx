@@ -1,5 +1,5 @@
 import { Maximize2, MessagesSquare, Shield, X } from "lucide-react"
-import { type DragEvent, memo, useId, useMemo, useState } from "react"
+import { type DragEvent, memo, useEffect, useId, useMemo, useRef, useState } from "react"
 import type { TranscriptEntry } from "../../../../app/transcript.js"
 import type { PaneDrop, PaneSide, PendingPermission, SessionOpResult } from "../../../contracts.js"
 import { Button } from "../../components/Button.js"
@@ -12,11 +12,13 @@ import { useI18n } from "../../i18n/index.js"
 import { useDesktop, useDesktopSelector, useDesktopState } from "../../runtime.js"
 import type { HomeView } from "../../shell/WorkspaceHeader.js"
 import { PaneRuntimeContext } from "../canvas/canvas-context.js"
+import { FindBar, useFind } from "../canvas/find.js"
 import { RoutinesHome } from "../routines/RoutinesHome.js"
 import { Composer } from "./Composer.js"
 import { TranscriptList } from "./TranscriptList.js"
 
 const emptyEntries: TranscriptEntry[] = []
+const noDiffs = { added: 0, removed: 0 }
 const emptyPanes: number[] = []
 /** The fraction of the conversation's width or height, from each edge, that inserts a session. */
 const DROP_BAND = 0.18
@@ -48,9 +50,12 @@ export const SESSION_DRAG_TYPE = "application/x-otis-session"
 export const ConversationView = memo(function ConversationView({
   installing = false,
   homeView,
+  findFocus,
 }: {
   installing?: boolean
   homeView: HomeView
+  /** When find in session was last asked for; a change opens the active pane's find bar. */
+  findFocus?: number
 }) {
   const { api } = useDesktop()
   const state = useDesktopSelector((snapshot) => ({
@@ -129,6 +134,7 @@ export const ConversationView = memo(function ConversationView({
             split={panes.length > 1}
             dropTarget={drop !== undefined && "replace" in drop && drop.replace === runtime}
             homeView={homeView}
+            findFocus={findFocus}
           />
         ))}
         {drop && "side" in drop ? (
@@ -162,6 +168,7 @@ const ConversationPane = memo(function ConversationPane({
   split,
   dropTarget,
   homeView,
+  findFocus,
 }: {
   runtime: number
   active: boolean
@@ -169,6 +176,7 @@ const ConversationPane = memo(function ConversationPane({
   /** A dragged session hovering over this card would take its place. */
   dropTarget: boolean
   homeView: HomeView
+  findFocus: number | undefined
 }) {
   const { api } = useDesktop()
   const { locale, t } = useI18n()
@@ -182,7 +190,7 @@ const ConversationPane = memo(function ConversationPane({
       busy: own?.busy ?? false,
       unseen: own?.unseen ?? false,
       title: own?.session?.title ?? t("session.new"),
-      diffs: own?.diffs ?? { added: 0, removed: 0 },
+      diffs: own?.diffs ?? noDiffs,
       contextTokens: own?.contextTokens ?? 0,
       contextLimit: snapshot?.contextLimit ?? 0,
       // A fresh session in the same runtime remounts the list; a move of focus does not.
@@ -192,6 +200,25 @@ const ConversationPane = memo(function ConversationPane({
       waiting: snapshot?.permissionQueue ?? 0,
     }
   })
+  // Find in session: ⌘F opens the bar over the active pane's transcript and hands focus back
+  // where it came from on close. Every pane sees the request; only the active one with something
+  // to search acts on it, and a new session in the pane starts without the bar.
+  const finder = useFind()
+  const findReturn = useRef<Element | null>(null)
+  const seenFindFocus = useRef(findFocus)
+  const searchable = active && state.entries.length > 0
+  useEffect(() => {
+    const previous = seenFindFocus.current
+    seenFindFocus.current = findFocus
+    if (findFocus === undefined || findFocus === previous || !searchable) return
+    if (!finder.finding) findReturn.current = document.activeElement
+    finder.open()
+  }, [findFocus, searchable, finder.finding, finder.open])
+  useEffect(() => finder.close(), [state.listKey, finder.close])
+  const closeFind = () => {
+    finder.close()
+    if (findReturn.current instanceof HTMLElement) findReturn.current.focus()
+  }
   // Mounting straight into a split is the card that just opened; it settles in.
   const [entered] = useState(split)
   const footer = useMemo(
@@ -210,10 +237,13 @@ const ConversationPane = memo(function ConversationPane({
     ? ` pane-card${active ? " pane-card-active" : ""}${entered ? " pane-card-enter" : ""}`
     : ""
 
+  const className = `conversation${cardClass}${state.busy ? " conversation-busy" : ""}${
+    dropTarget ? " conversation-dropTarget" : ""
+  }`
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: a click anywhere in a card makes it the active session; its header button is the keyboard path.
     <div
-      className={`conversation${cardClass}${dropTarget ? " conversation-dropTarget" : ""}`}
+      className={className}
       data-runtime={runtime}
       onMouseDown={() => {
         if (split && !active) void api.focusSession(runtime)
@@ -290,6 +320,15 @@ const ConversationPane = memo(function ConversationPane({
           </span>
         </div>
       ) : null}
+      {finder.finding ? (
+        <FindBar
+          find={finder}
+          label={t("transcript.find")}
+          placeholder={t("transcript.findPlaceholder")}
+          onClose={closeFind}
+          className="noDrag"
+        />
+      ) : null}
       {!split && state.entries.length === 0 && !state.permission ? (
         <EmptyState view={homeView} />
       ) : (
@@ -300,6 +339,8 @@ const ConversationPane = memo(function ConversationPane({
             busy={state.busy}
             thinkingVisible={state.thinkingVisible}
             footer={footer}
+            find={finder.request}
+            onFindCount={finder.setMatchCount}
           />
         </PaneRuntimeContext.Provider>
       )}

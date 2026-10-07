@@ -7,7 +7,7 @@ import type {
   DesktopStatus,
   TranscriptPatchOp,
 } from "../../../src/desktop/contracts.js"
-import { DesktopViewStore, reconcileTraceEntries } from "../../../src/desktop/renderer/state.js"
+import { DesktopViewStore, share } from "../../../src/desktop/renderer/state.js"
 import {
   fakeApi as fakeDesktopApi,
   snapshotFixture,
@@ -54,6 +54,17 @@ async function patched(base: TranscriptEntry[], ops: TranscriptPatchOp[]) {
   return entries
 }
 
+const runtime = (id: number, focused: boolean) => ({
+  runtime: id,
+  session: null,
+  focused,
+  busy: false,
+  unseen: false,
+  diffs: { added: 0, removed: 0 },
+  workspace: { label: "otis", path: "/Users/you/otis" },
+  contextTokens: 0,
+})
+
 describe("transcript patches", () => {
   it("preserves unchanged rows and ignores identical deliveries without replacing the array", async () => {
     const base = [entry(1, "a"), entry(2, "b")]
@@ -68,12 +79,39 @@ describe("transcript patches", () => {
     expect(next[1]).not.toBe(base[1])
   })
 
-  it("retains unchanged trace rows across IPC snapshots while honoring edits, deletions, and ordering", () => {
+  it("keeps the identity of everything an IPC copy left unchanged, down to the leaves", () => {
     const base = [entry(1, "a"), entry(2, "b"), entry(3, "c")]
-    expect(reconcileTraceEntries(base, structuredClone(base))).toBe(base)
-    const next = reconcileTraceEntries(base, [entry(3, "c"), entry(2, "updated")])
-    expect(next[0]).toBe(base[2])
-    expect(next.map((row) => row.text)).toEqual(["c", "updated"])
+    expect(share(base, structuredClone(base))).toBe(base)
+    const next = share(base, [entry(1, "a"), entry(2, "updated")])
+    expect(next[0]).toBe(base[0])
+    expect(next.map((row) => row.text)).toEqual(["a", "updated"])
+    const runtimes = [runtime(1, true), runtime(2, false)]
+    const copy = structuredClone(runtimes)
+    copy[1] = { ...copy[1], busy: true }
+    const shared = share(runtimes, copy)
+    expect(shared).not.toBe(runtimes)
+    expect(shared[0]).toBe(runtimes[0])
+    expect(shared[1].busy).toBe(true)
+  })
+
+  it("applies a status that carries only the fields that changed", async () => {
+    const { api, emit } = fakeApi([])
+    const store = new DesktopViewStore(api)
+    await store.start()
+    emit({
+      type: "status",
+      revision: 6,
+      status: { runtimes: [runtime(1, true), runtime(2, false)], panes: [1, 2] },
+      panes: [{ runtime: 2, ops: [{ op: "reset", entries: [entry(9, "pane two")] }] }],
+    })
+    const before = store.getState()
+    emit({ type: "status", revision: 7, status: { busy: true } })
+    const after = store.getState()
+    expect(after?.busy).toBe(true)
+    expect(after?.runtimes).toBe(before?.runtimes)
+    expect(after?.sessions).toBe(before?.sessions)
+    // Without a pane list in the event, no pane's transcript is dropped.
+    expect(after?.transcripts[2]).toBe(before?.transcripts[2])
   })
   it("appends new entries and patches existing ones in place", async () => {
     const base = [entry(1, "a"), entry(2, "b")]
@@ -149,16 +187,6 @@ describe("DesktopViewStore", () => {
   })
 
   it("keeps each pane's transcript apart and follows focus without reloading", async () => {
-    const runtime = (id: number, focused: boolean) => ({
-      runtime: id,
-      session: null,
-      focused,
-      busy: false,
-      unseen: false,
-      diffs: { added: 0, removed: 0 },
-      workspace: { label: "otis", path: "/Users/you/otis" },
-      contextTokens: 0,
-    })
     const { api, emit } = fakeApi([entry(1, "focused")])
     const store = new DesktopViewStore(api)
     await store.start()

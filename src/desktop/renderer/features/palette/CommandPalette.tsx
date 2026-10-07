@@ -1,4 +1,4 @@
-import { CornerDownLeft, FilePlus2, FolderOpen, Trash2 } from "lucide-react"
+import { CornerDownLeft, FilePlus2, FolderOpen, Search, Trash2 } from "lucide-react"
 import { Fragment, useEffect, useRef, useState } from "react"
 import type { GlobalSessionPickerItem } from "../../../../app/global-sessions.js"
 import { Button } from "../../components/Button.js"
@@ -29,7 +29,15 @@ function rowKey(item: GlobalSessionPickerItem) {
  * carry a snippet) plus the app-level actions. Sessions are searched through the main process,
  * which owns the workspace's stored JSONL files.
  */
-export function CommandPalette({ onClose }: { onClose: () => void }) {
+export function CommandPalette({
+  open,
+  onClose,
+  onFind,
+}: {
+  open: boolean
+  onClose: () => void
+  onFind: () => void
+}) {
   const { api } = useDesktop()
   const { locale, t } = useI18n()
   const state = useDesktopState("sessions", "workspace")
@@ -76,16 +84,29 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
 
   useEffect(() => setSelected(0), [needle])
 
-  // Focus the input on open and give focus back to whatever had it (usually the composer) on close.
+  // Hidden, not unmounted, while closed (see AppShell). Focus moves to the input on open and
+  // back to whatever had it (usually the composer) on close, when every search and menu state
+  // is cleared.
   useEffect(() => {
+    if (!open) {
+      setQuery("")
+      setFound(undefined)
+      setSelected(0)
+      setConfirmingDeleteKey(undefined)
+      setMenu(undefined)
+      setLifted(undefined)
+      setActionError(undefined)
+      return
+    }
     const previous = document.activeElement
     inputRef.current?.focus()
     return () => {
       if (previous instanceof HTMLElement) previous.focus()
     }
-  }, [])
+  }, [open])
 
   useEffect(() => {
+    if (!open) return
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.stopPropagation()
@@ -123,22 +144,22 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
     }
     window.addEventListener("keydown", onKeyDown, true)
     return () => window.removeEventListener("keydown", onKeyDown, true)
-  }, [onClose, menu])
+  }, [open, onClose, menu])
 
   // Opening the palette refreshes history: sessions created outside this window (e.g. the TUI)
   // appear.
   useEffect(() => {
-    void api.refreshSessions()
-  }, [api])
+    if (open) void api.refreshSessions()
+  }, [open, api])
 
   // Any click outside the context menu dismisses it (its own item handles its click before this
   // fires).
   useEffect(() => {
-    if (!menu) return
+    if (!open || !menu) return
     const dismiss = () => setMenu(undefined)
     window.addEventListener("mousedown", dismiss)
     return () => window.removeEventListener("mousedown", dismiss)
-  }, [menu])
+  }, [open, menu])
 
   const actions: PaletteRow[] = [
     {
@@ -149,6 +170,17 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
       run: () => {
         void api.startNewSession()
         onClose()
+      },
+    },
+    {
+      kind: "action" as const,
+      id: "find",
+      label: t("transcript.find"),
+      hint: "⌘F",
+      icon: Search,
+      run: () => {
+        onClose()
+        onFind()
       },
     },
     {
@@ -256,6 +288,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
         className={`overlayBackdrop${lifted ? " lifted" : ""}`}
         aria-label={t("palette.close")}
         onClick={onClose}
+        hidden={!open}
       />
       <div
         className={`palette noDrag${lifted ? " lifted" : ""}`}
@@ -263,6 +296,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
         aria-modal="true"
         aria-label={t("palette.dialog")}
         ref={dialogRef}
+        hidden={!open}
       >
         <input
           ref={inputRef}

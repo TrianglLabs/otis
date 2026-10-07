@@ -22,7 +22,7 @@ import {
  * confirm, and the main process removes the cached GGUFs — stopping the server and clearing the
  * selection first when that model is the active one.
  */
-export function ModelPicker({ onClose }: { onClose: () => void }) {
+export function ModelPicker({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { api } = useDesktop()
   const { t } = useI18n()
   const state = useDesktopState("modelLoad")
@@ -36,6 +36,7 @@ export function ModelPicker({ onClose }: { onClose: () => void }) {
   const [deletingKey, setDeletingKey] = useState<string>()
   const modelLoad = state?.modelLoad ?? null
   const scrollbar = useScrollbarFlash()
+  const inputRef = useRef<HTMLInputElement>(null)
 
   const load = useCallback(async () => {
     try {
@@ -46,9 +47,18 @@ export function ModelPicker({ onClose }: { onClose: () => void }) {
     }
   }, [api])
 
+  // Hidden, not unmounted, while closed (see AppShell); the rows stay too, since hovered ones
+  // carry transitions. Each open reloads the catalog behind a cleared search.
   useEffect(() => {
-    void load()
-  }, [load])
+    if (open) {
+      void load()
+      inputRef.current?.focus()
+      return
+    }
+    setQuery("")
+    setActionError(undefined)
+    setConfirmingDeleteKey(undefined)
+  }, [open, load])
 
   // A finished load changes downloaded flags and availability labels; refresh the catalog once it
   // settles.
@@ -60,10 +70,11 @@ export function ModelPicker({ onClose }: { onClose: () => void }) {
     }
     if (!loadWasInFlight.current) return
     loadWasInFlight.current = false
-    void load()
-  }, [modelLoad, load])
+    if (open) void load()
+  }, [modelLoad, load, open])
 
   useEffect(() => {
+    if (!open) return
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return
       event.stopPropagation()
@@ -75,7 +86,7 @@ export function ModelPicker({ onClose }: { onClose: () => void }) {
     }
     window.addEventListener("keydown", onKeyDown, true)
     return () => window.removeEventListener("keydown", onKeyDown, true)
-  }, [onClose, confirmingDeleteKey, query])
+  }, [open, onClose, confirmingDeleteKey, query])
 
   const rows = filterModelPickerItems(mergeModelLoad(items ?? [], modelLoad), query)
   const noMatches =
@@ -88,23 +99,24 @@ export function ModelPicker({ onClose }: { onClose: () => void }) {
         className="overlayBackdrop"
         aria-label={t("models.close")}
         onClick={onClose}
+        hidden={!open}
       />
       <div
         className="modelPicker noDrag"
         role="dialog"
         aria-modal="true"
         aria-label={t("models.select")}
+        hidden={!open}
       >
         {/* The same bare field as the ⌘K palette: full width, a hairline underneath. */}
         <input
+          ref={inputRef}
           className="modelPicker-search"
           type="text"
           placeholder={t("models.searchPlaceholder")}
           aria-label={t("models.searchPlaceholder")}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          // biome-ignore lint/a11y/noAutofocus: the overlay opens to type into this field
-          autoFocus
           spellCheck={false}
           autoComplete="off"
         />

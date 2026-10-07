@@ -131,7 +131,7 @@ export function fakeApi(
     setPrimeTeamId: vi.fn(async () => {}),
     selectModel: vi.fn(async () => ({ ok: true as const })),
     cancelModelSelection: vi.fn(async () => {}),
-    getSubagentTrace: vi.fn(async () => []),
+    getSubagentTrace: vi.fn(async () => ({ revision: 0, entries: [] })),
     setAgentsPanelVisible: vi.fn(async () => {}),
     setWorkspacePanelWidth: vi.fn(async () => {}),
     markAchievementsSeen: vi.fn(async () => {}),

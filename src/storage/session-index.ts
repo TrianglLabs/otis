@@ -62,8 +62,11 @@ export type SessionActivity =
  */
 export type SessionDigest = {
   summary: Omit<SessionSummary, "id">
-  /** Each user and assistant message on one line, compaction summaries excluded. */
-  texts: string[]
+  /**
+   * Each user and assistant message on one line, compaction summaries excluded. Only a search
+   * asks for them; listings and stats leave the text on disk.
+   */
+  texts?: string[]
   /** Documents the session published, each stamped by the turn that ended on disk. */
   artifacts: { reference: PublishedArtifactReference; endedAt?: string }[]
   activity: SessionActivity[]
@@ -78,11 +81,12 @@ const FALLBACK_TITLE_MAX_LENGTH = 60
 
 const digests = new Map<string, { size: number; digest: SessionDigest }>()
 
-export async function readSessionDigest(filePath: string): Promise<SessionDigest> {
+export async function readSessionDigest(filePath: string, texts = false): Promise<SessionDigest> {
   const { mtimeMs, size } = await stat(filePath)
   const known = digests.get(filePath)
-  if (known && known.size === size && known.digest.summary.mtimeMs === mtimeMs) return known.digest
-  const digest = digestEvents(await readSessionEvents(filePath), mtimeMs)
+  const current = known?.size === size && known.digest.summary.mtimeMs === mtimeMs
+  if (current && (!texts || known.digest.texts)) return known.digest
+  const digest = digestEvents(await readSessionEvents(filePath), mtimeMs, texts)
   digests.set(filePath, { size, digest })
   return digest
 }
@@ -91,7 +95,11 @@ export function forgetSessionDigest(filePath: string) {
   digests.delete(filePath)
 }
 
-function digestEvents(events: readonly SessionEvent[], mtimeMs: number): SessionDigest {
+function digestEvents(
+  events: readonly SessionEvent[],
+  mtimeMs: number,
+  texts: boolean,
+): SessionDigest {
   const view = sessionView(events)
   const messages = replaySessionMessages(events)
   const transcript = replaySessionTranscript(events)
@@ -148,9 +156,13 @@ function digestEvents(events: readonly SessionEvent[], mtimeMs: number): Session
     },
     // The full transcript, not the model-context replay: compaction drops pre-compaction messages
     // from the model's view, but the user's original text is still on disk and stays searchable.
-    texts: transcript.messages.flatMap((message) =>
-      message.role === "tool" || isCompactionSummary(message) ? [] : [messageText(message)],
-    ),
+    ...(texts
+      ? {
+          texts: transcript.messages.flatMap((message) =>
+            message.role === "tool" || isCompactionSummary(message) ? [] : [messageText(message)],
+          ),
+        }
+      : {}),
     artifacts: transcript.toolActivities.flatMap(({ toolCallId, artifact }) =>
       isPublishedArtifactReference(artifact)
         ? [{ reference: artifact, endedAt: endedAt.get(toolCallId) }]

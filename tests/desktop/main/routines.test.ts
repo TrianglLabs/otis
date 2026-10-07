@@ -85,9 +85,10 @@ describe("DesktopRuntime routines", () => {
       const [routine] = (await runtime.snapshot()).routines
       expect(routine?.lastRun?.status).toBe("complete")
     })
-    // The run was never on screen: its runtime is gone and nobody has seen it yet.
+    // The run was never on screen: its runtime closes once the run is recorded, and nobody has
+    // seen it yet.
     const [routine] = (await runtime.snapshot()).routines
-    expect(app.runtimes).toHaveLength(1)
+    await vi.waitFor(() => expect(app.runtimes).toHaveLength(1))
     expect(routine?.lastRun?.seen).toBeUndefined()
     const run = routine?.lastRun
     expect(await runtime.selectSession(run?.sessionId ?? "", run?.dirName)).toEqual({ ok: true })

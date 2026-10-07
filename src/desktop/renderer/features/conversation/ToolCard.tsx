@@ -205,7 +205,7 @@ export function ToolRunCard({
 }
 
 /** Unified diff rendered as a proper view: line-number gutter, sign column, hunk separators. */
-const DiffView = memo(function DiffView({ diff }: { diff: string }) {
+export const DiffView = memo(function DiffView({ diff }: { diff: string }) {
   const { t } = useI18n()
   const rows = useMemo(() => parseDiffDisplay(diff), [diff])
   if (rows.length > 200) {
@@ -261,7 +261,7 @@ type DiffDisplayRow =
 
 const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/
 
-function parseDiffDisplay(diff: string): DiffDisplayRow[] {
+export function parseDiffDisplay(diff: string): DiffDisplayRow[] {
   const rows: DiffDisplayRow[] = []
   let oldLine = 0
   let newLine = 0

@@ -56,7 +56,8 @@ const api: DesktopApi = {
   setPrimeTeamId: (teamId) => invoke(DESKTOP_CHANNELS.setPrimeTeamId, teamId),
   selectModel: (id) => invoke(DESKTOP_CHANNELS.selectModel, id),
   cancelModelSelection: () => invoke(DESKTOP_CHANNELS.cancelModelSelection),
-  getSubagentTrace: (toolCallId) => invoke(DESKTOP_CHANNELS.getSubagentTrace, toolCallId),
+  getSubagentTrace: (toolCallId, seen) =>
+    invoke(DESKTOP_CHANNELS.getSubagentTrace, toolCallId, seen),
   setAgentsPanelVisible: (visible) => invoke(DESKTOP_CHANNELS.setAgentsPanelVisible, visible),
   setWorkspacePanelWidth: (width) => invoke(DESKTOP_CHANNELS.setWorkspacePanelWidth, width),
   markAchievementsSeen: () => invoke(DESKTOP_CHANNELS.markAchievementsSeen),

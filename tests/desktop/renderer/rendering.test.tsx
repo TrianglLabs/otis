@@ -235,11 +235,19 @@ describe("stable message rendering", () => {
     expect(screen.queryByRole("alert")).toBeNull()
   })
 
-  it("labels uploaded text formats by their real extension", () => {
+  it("picks the mark for a file's real extension, falling back to the kind's", () => {
+    const icon = (view: { container: HTMLElement }) =>
+      [...(view.container.querySelector("svg")?.classList ?? [])].find((name) =>
+        name.startsWith("tabler-icon-"),
+      )
     const view = render(<FileTypeIcon name="data.csv" />)
-    expect(view.container.textContent).toBe("CSV")
+    expect(icon(view)).toBe("tabler-icon-file-type-csv")
     view.rerender(<FileTypeIcon name="config.json" kind="text" />)
-    expect(view.container.textContent).toBe("JSON")
+    expect(icon(view)).toBe("tabler-icon-json")
+    view.rerender(<FileTypeIcon name="notes.weird" kind="text" />)
+    expect(icon(view)).toBe("tabler-icon-file")
+    view.rerender(<FileTypeIcon kind="docx" />)
+    expect(icon(view)).toBe("tabler-icon-file-type-docx")
   })
 
   it("opens a publication from an artifact:// link in the pane's session", async () => {
@@ -326,6 +334,51 @@ describe("stable message rendering", () => {
     expect(container.querySelector("p .katex:not(.katex-display .katex)")?.textContent).toContain(
       "x",
     )
+  })
+
+  it("reads display math whose fence shares a line with the formula, as Pandoc does", () => {
+    const tail = "- **Case II:** paired, $d_i$\n\n## Lesson 4\n\nText $x$ here."
+    const formulas = (container: HTMLElement) =>
+      [...container.querySelectorAll(".katex-display annotation")].map((e) => e.textContent)
+    for (const [text, formula] of [
+      [`Welch df:\n\n$$\n\\nu = \\frac{a}{b}$$\n${tail}`, "\\nu = \\frac{a}{b}"],
+      [`Welch df:\n\n$$\\nu = \\frac{a}\n{b}$$\n${tail}`, "\\nu = \\frac{a}\n{b}"],
+      [`Welch df:\n\n$$\\nu = \\frac{a}{b}\n+ c$$\n${tail}`, "\\nu = \\frac{a}{b}\n+ c"],
+      [`Welch df:\n\n$$\\nu = \\frac{a}\n{b}\n$$\n${tail}`, "\\nu = \\frac{a}\n{b}"],
+    ]) {
+      const { container, unmount } = render(
+        <Markdown text={text} document={{ runtime: 1, id: "doc.md", revision: 1 }} />,
+      )
+      expect(container.querySelector(".katex-error")).toBeNull()
+      expect(formulas(container)).toEqual([formula])
+      // Everything after the closer is Markdown: the list, the heading, the inline math.
+      expect(container.querySelector("li strong")?.textContent).toBe("Case II:")
+      expect(container.querySelector("h2")?.textContent).toBe("Lesson 4")
+      expect(container.querySelectorAll(".katex")).toHaveLength(3)
+      unmount()
+    }
+    // Several such blocks: each keeps its own fences, and an escaped dollar before a closer is
+    // part of the formula. A block may end the document; a line that opens inline math and goes
+    // on in prose stays a paragraph.
+    const many = render(
+      <Markdown
+        text={"$$\n\\nu = 1$$\nmid\n\n$$\ns_p = 2$$\nend\n\n$$\nx = 5\\$$$\nAfter.\n\n$$\na$$"}
+        document={{ runtime: 1, id: "doc.md", revision: 1 }}
+      />,
+    )
+    expect(many.container.querySelector(".katex-error")).toBeNull()
+    expect(formulas(many.container)).toEqual(["\\nu = 1", "s_p = 2", "x = 5\\$", "a"])
+    expect(many.container.textContent).not.toContain("$$")
+    many.unmount()
+    const prose = render(
+      <Markdown
+        text={"$$E$$ is the energy.\nNext line."}
+        document={{ runtime: 1, id: "d", revision: 1 }}
+      />,
+    )
+    expect(prose.container.querySelectorAll(".katex-display")).toHaveLength(0)
+    expect(prose.container.querySelector("p .katex")).toBeTruthy()
+    expect(prose.container.textContent).toContain("is the energy.")
   })
 
   it("renders a document's Mermaid inline and its relative images from the workspace", async () => {
@@ -585,7 +638,7 @@ describe("scoped desktop subscriptions", () => {
       revision: ++revision,
       status: { ...runtime.snapshot, subagents: [run] },
     })
-    const getTrace = vi.fn(async () => [])
+    const getTrace = vi.fn(async () => ({ revision: 0, entries: [] }))
     runtime.api.getSubagentTrace = getTrace
     render(
       <DesktopProvider value={runtime}>

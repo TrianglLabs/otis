@@ -15,9 +15,10 @@ import {
 import type { SessionToolActivity, SessionView } from "../storage/session-events.js"
 import { defaultSessionDirectory } from "../storage/session-files.js"
 import { acquireSessionLock, SessionInUseError, type SessionLock } from "../storage/session-lock.js"
+import { countDiffLines } from "../tools/activity.js"
 import type { ConversationTurnResult } from "./conversation.js"
 import type { SubagentTraces } from "./subagents.js"
-import { countDiffLines, type TranscriptStore } from "./transcript.js"
+import type { TranscriptStore } from "./transcript.js"
 
 const GENERATED_TITLE_MAX_LENGTH = 60
 const DISPLAY_TITLE_MAX_LENGTH = 36

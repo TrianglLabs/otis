@@ -16,6 +16,7 @@ import { unseenRun } from "../features/routines/RoutinesHome.js"
 import { formatTokenCount, usageBreakdown } from "../format.js"
 import { useI18n } from "../i18n/index.js"
 import { useDesktop, useDesktopSelector, useDesktopState } from "../runtime.js"
+import { isChange } from "./WorkspacePanel.js"
 
 /** What the home screen shows: recent work, or the routines. */
 export type HomeView = "home" | "routines"
@@ -62,6 +63,7 @@ export function WorkspaceHeader({
     "routines",
   )
   const hasEntries = useDesktopSelector((snapshot) => (snapshot?.entries.length ?? 0) > 0)
+  const hasChanges = useDesktopSelector((snapshot) => snapshot?.entries.some(isChange) ?? false)
   if (!state) return <header className="workspaceHeader" />
 
   const { diffs, contextTokens, contextLimit } = state
@@ -190,7 +192,9 @@ export function WorkspaceHeader({
           />
           {/* Rightmost: it opens the rail that slides in from the right edge; not on the home
               screen. */}
-          {conversation && (state.subagents.length > 0 || hasViews) && !state.agentsPanelVisible ? (
+          {conversation &&
+          (state.subagents.length > 0 || hasViews || hasChanges) &&
+          !state.agentsPanelVisible ? (
             <IconButton
               icon={ChevronsLeft}
               label={t("header.showSidePanel")}

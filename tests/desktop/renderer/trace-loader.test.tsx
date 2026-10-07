@@ -3,7 +3,11 @@
 import { act, cleanup, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { TranscriptEntry } from "../../../src/app/transcript.js"
-import type { DesktopApi, DesktopSnapshot } from "../../../src/desktop/contracts.js"
+import type {
+  DesktopApi,
+  DesktopSnapshot,
+  SubagentTraceView,
+} from "../../../src/desktop/contracts.js"
 import { createDemoRuntime } from "../../../src/desktop/renderer/demo/demo-runtime.js"
 import { AgentTraceOverlay } from "../../../src/desktop/renderer/features/agents/AgentTraceOverlay.js"
 import { DesktopProvider } from "../../../src/desktop/renderer/runtime.js"
@@ -55,9 +59,9 @@ async function mountTrace(status: "running" | "complete" = "running") {
     subagents: [{ toolCallId: "trace", title: "Test trace", status, tools: 0 }],
   }
   api.getSnapshot = async () => snapshot
-  const loads: ReturnType<typeof deferred<TranscriptEntry[]>>[] = []
+  const loads: ReturnType<typeof deferred<SubagentTraceView>>[] = []
   const getTrace = vi.fn<DesktopApi["getSubagentTrace"]>(() => {
-    const load = deferred<TranscriptEntry[]>()
+    const load = deferred<SubagentTraceView>()
     loads.push(load)
     return load.promise
   })
@@ -83,22 +87,35 @@ describe("trace loader", () => {
     // Polls queue behind the in-flight load instead of discarding it.
     expect(trace.getTrace).toHaveBeenCalledTimes(1)
 
-    await act(async () => trace.loads[0].resolve([message(1, "First entry")]))
-    expect(screen.getByText("First entry")).toBeTruthy()
-    // Exactly one coalesced follow-up.
-    expect(trace.getTrace).toHaveBeenCalledTimes(2)
-
     await act(async () =>
-      trace.loads[1].resolve([message(1, "First entry"), message(2, "Second entry")]),
+      trace.loads[0].resolve({ revision: 1, entries: [message(1, "First entry")] }),
+    )
+    expect(screen.getByText("First entry")).toBeTruthy()
+    // Exactly one coalesced follow-up, asking only for what is newer than revision 1.
+    expect(trace.getTrace).toHaveBeenCalledTimes(2)
+    expect(trace.getTrace).toHaveBeenLastCalledWith("trace", 1)
+    // Nothing newer: the entries shown stay as they are.
+    await act(async () => trace.loads[1].resolve({ revision: 1 }))
+    expect(screen.getByText("First entry")).toBeTruthy()
+    expect(screen.queryByText("Second entry")).toBeNull()
+    await trace.poll()
+    expect(trace.getTrace).toHaveBeenLastCalledWith("trace", 1)
+    await act(async () =>
+      trace.loads[2].resolve({
+        revision: 2,
+        entries: [message(1, "First entry"), message(2, "Second entry")],
+      }),
     )
     expect(screen.getByText("Second entry")).toBeTruthy()
-    expect(trace.getTrace).toHaveBeenCalledTimes(2)
+    expect(trace.getTrace).toHaveBeenCalledTimes(3)
   })
 
   it("drops late responses after the view is torn down", async () => {
     const trace = await mountTrace()
     trace.view.unmount()
-    await act(async () => trace.loads[0].resolve([message(1, "Late entry")]))
+    await act(async () =>
+      trace.loads[0].resolve({ revision: 1, entries: [message(1, "Late entry")] }),
+    )
     expect(screen.queryByText("Late entry")).toBeNull()
     expect(trace.getTrace).toHaveBeenCalledTimes(1)
   })
@@ -108,7 +125,9 @@ describe("trace loader", () => {
     await act(async () => trace.loads[0].reject(new Error("gone")))
     await trace.poll()
     expect(trace.getTrace).toHaveBeenCalledTimes(2)
-    await act(async () => trace.loads[1].resolve([message(1, "Recovered entry")]))
+    await act(async () =>
+      trace.loads[1].resolve({ revision: 1, entries: [message(1, "Recovered entry")] }),
+    )
     expect(screen.getByText("Recovered entry")).toBeTruthy()
   })
 })

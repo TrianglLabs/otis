@@ -34,6 +34,11 @@
   --danger: var(--pink);
   --warning: var(--orange);
   --success: var(--green);
+  /* The usage mix: cached input is the accent; a theme whose palette folds these together names
+     its own. */
+  --usage-cached: var(--accent);
+  --usage-uncached: var(--pink);
+  --usage-output: var(--cyan);
 
   /* Diffs */
   --diff-add-bg: #1a2e22;

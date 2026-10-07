@@ -117,7 +117,8 @@ export type DesktopUpdateState =
   | { status: "error"; message: string }
 
 /**
- * The mutable application state outside the transcript. Sent whole on every change; it is small.
+ * The mutable application state outside the transcript. A snapshot carries it whole; a status
+ * event carries the fields that changed since the last one.
  */
 export type DesktopStatus = {
   busy: boolean
@@ -280,10 +281,16 @@ export type DesktopEvent =
   | {
       type: "status"
       revision: number
-      status: DesktopStatus
+      status: Partial<DesktopStatus>
       ops?: TranscriptPatchOp[]
       panes?: PaneOps[]
     }
+
+/**
+ * One delegated run's transcript for the trace view. `entries` is left out when the caller
+ * already holds `revision`; a run that is gone reads as empty at revision 0.
+ */
+export type SubagentTraceView = { revision: number; entries?: TranscriptEntry[] }
 
 export type SendPromptResult =
   | { accepted: true; delivery: "started" | "steered" | "queued" }
@@ -417,8 +424,8 @@ export type DesktopApi = {
   selectModel(id: string): Promise<ModelSelectResult>
   /** Cancels an in-flight model selection; a completed or absent selection is a no-op. */
   cancelModelSelection(): Promise<void>
-  /** The full transcript of one delegated run, for the trace view. Empty when the run is gone. */
-  getSubagentTrace(toolCallId: string): Promise<TranscriptEntry[]>
+  /** The transcript of one delegated run, unless nothing changed since `seen`. */
+  getSubagentTrace(toolCallId: string, seen?: number): Promise<SubagentTraceView>
   /** Shows or hides the delegated-runs rail; persisted across launches. */
   setAgentsPanelVisible(visible: boolean): Promise<void>
   /** Remembers the dragged workspace panel width; undefined restores the responsive default. */

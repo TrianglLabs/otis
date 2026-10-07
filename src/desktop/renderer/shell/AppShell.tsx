@@ -48,6 +48,12 @@ export function AppShell() {
   const [installing, setInstalling] = useState(false)
   const [locateError, setLocateError] = useState<string | undefined>(undefined)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  // Chromium keeps a removed subtree alive once an animation or transition ran on it, which
+  // every overlay has, so Settings and the palette mount on first use and hide afterwards; the
+  // model picker lives with the composer the same way. The latch only ever turns on.
+  const mounted = useRef({ settings: false, palette: false })
+  mounted.current.settings ||= settingsOpen
+  mounted.current.palette ||= paletteOpen
   // On a daemon, the native folder picker would only show this machine's folders: the path is
   // typed instead, and every "open folder" in the window goes through this one prompt.
   const [folderPrompt, setFolderPrompt] = useState<(path: string | undefined) => void>()
@@ -90,6 +96,8 @@ export function AppShell() {
   // The shell runs in the main process and outlives the renderer; the stamp is when it was last
   // asked for here, so asking again brings its tab forward and focuses it.
   const [terminalFocus, setTerminalFocus] = useState<number>()
+  // When find in session was last asked for; a change opens the active pane's find bar.
+  const [findFocus, setFindFocus] = useState<number>()
   // A daemon has no shell to offer yet; the header hides the button and the shortcut stays quiet.
   const openTerminal = useCallback(() => {
     if (remote) return
@@ -140,11 +148,14 @@ export function AppShell() {
 
   useEffect(() => {
     const onKeyDown = async (event: KeyboardEvent) => {
+      // A Canvas document finds within itself and says so.
+      if (event.defaultPrevented) return
       if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return
       const key = event.key.toLowerCase()
       if (!APP_SHORTCUTS.has(key)) return
       event.preventDefault()
       if (key === "k") setPaletteOpen((value) => !value)
+      else if (key === "f") setFindFocus(Date.now())
       else if (key === "`") openTerminal()
       else {
         if (key === "n") {
@@ -235,7 +246,11 @@ export function AppShell() {
                       </Button>
                     </div>
                   ) : null}
-                  <ConversationView installing={installing} homeView={homeView} />
+                  <ConversationView
+                    installing={installing}
+                    homeView={homeView}
+                    findFocus={findFocus}
+                  />
                 </>
               )}
               {readyUpdate ? (
@@ -266,9 +281,10 @@ export function AppShell() {
               />
             )}
           </div>
-          {settingsOpen ? (
-            <div className="settingsLayer">
+          {mounted.current.settings ? (
+            <div className="settingsLayer" hidden={!settingsOpen}>
               <SettingsPage
+                open={settingsOpen}
                 onClose={closeSettings}
                 installing={installing}
                 onInstallUpdate={installUpdate}
@@ -276,7 +292,13 @@ export function AppShell() {
               />
             </div>
           ) : null}
-          {paletteOpen ? <CommandPalette onClose={() => setPaletteOpen(false)} /> : null}
+          {mounted.current.palette ? (
+            <CommandPalette
+              open={paletteOpen}
+              onClose={() => setPaletteOpen(false)}
+              onFind={() => setFindFocus(Date.now())}
+            />
+          ) : null}
           {folderPrompt && remote ? (
             <RemoteFolderPrompt
               host={remote}

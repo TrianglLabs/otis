@@ -564,7 +564,7 @@ export const Composer = memo(function Composer({ installing = false }: { install
         </form>
       </BorderBeam>
       {/* The disabled form is translucent while loading; its model picker must remain opaque. */}
-      {state?.model && pickerOpen ? <ModelPicker onClose={() => setPickerOpen(false)} /> : null}
+      {state?.model ? <ModelPicker open={pickerOpen} onClose={() => setPickerOpen(false)} /> : null}
       {sendError ? (
         <div className="composer-hint">
           <span className="composer-error">{sendError}</span>

@@ -44,10 +44,10 @@ export async function connectRemote(
   // them, and every later daemon number moves up by as many as were taken, so the renderer's
   // revision guard keeps accepting. `last` never moves backwards: a snapshot can arrive after an
   // event that was numbered past it.
-  let last: { revision: number; status: DesktopStatus } | undefined
+  let last: number | undefined
   let bumps = 0
   const host = new URL(remote.url).host
-  const overlay = <T extends DesktopStatus>(status: T): T => ({
+  const overlay = <T extends Partial<DesktopStatus>>(status: T): T => ({
     ...status,
     remote: host,
     remoteSaved: null,
@@ -59,14 +59,11 @@ export async function connectRemote(
     workspacePanelWidth: local.workspacePanelWidth,
     update,
   })
+  // A status event carries what changed, so a restate carries just this app's own fields.
   const restate = () => {
-    if (!last) return
+    if (last === undefined) return
     bumps += 1
-    handlers.onEvent({
-      type: "status",
-      revision: last.revision + bumps,
-      status: overlay(last.status),
-    })
+    handlers.onEvent({ type: "status", revision: last + bumps, status: overlay({}) })
   }
   const socket = new WebSocket(remote.url, {
     headers: { authorization: `Bearer ${remote.token}` },
@@ -94,7 +91,7 @@ export async function connectRemote(
     if ("event" in message) {
       const event = { ...message.event, revision: message.event.revision + bumps }
       if (event.type === "status") {
-        last = { revision: message.event.revision, status: event.status }
+        last = Math.max(last ?? 0, message.event.revision)
         handlers.onEvent({ ...event, status: overlay(event.status) })
       } else handlers.onEvent(event)
     } else if ("terminal" in message) handlers.onTerminal(message.terminal)
@@ -133,17 +130,9 @@ export async function connectRemote(
   const here: Record<string, (...args: unknown[]) => Promise<unknown>> = {
     getSnapshot: async () => {
       const snapshot = (await forward("getSnapshot", [])) as DesktopSnapshot
-      // Only the status part is kept: a restate must not ship the transcript again, and the
-      // window's platform and version are this app's, set below.
-      const {
-        entries: _entries,
-        transcripts: _transcripts,
-        platform: _platform,
-        version: _version,
-        revision,
-        ...status
-      } = snapshot
-      if (!last || revision >= last.revision) last = { revision, status }
+      const { revision } = snapshot
+      last = Math.max(last ?? 0, revision)
+      // The window's platform and version are this app's.
       return {
         ...overlay(snapshot),
         revision: revision + bumps,

@@ -326,9 +326,10 @@ export function desktopCall(runtime: DesktopRuntime) {
       if (typeof enabled !== "boolean") throw new Error("Invalid debug flag.")
       return runtime.setDebugMode(enabled)
     },
-    getSubagentTrace: (toolCallId: unknown) => {
+    getSubagentTrace: (toolCallId: unknown, seen: unknown) => {
       if (typeof toolCallId !== "string" || !toolCallId) throw new Error("Invalid tool call id.")
-      return runtime.getSubagentTrace(toolCallId)
+      if (seen !== undefined && typeof seen !== "number") throw new Error("Invalid revision.")
+      return runtime.getSubagentTrace(toolCallId, seen)
     },
   }
   return (method: string, args: unknown[]) => {

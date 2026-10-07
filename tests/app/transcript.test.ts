@@ -7,6 +7,37 @@ import {
 import type { AgentEvent } from "../../src/core/agent.js"
 
 describe("TranscriptStore", () => {
+  it("counts every entry and history change in its revision and prices the history once each", () => {
+    const transcript = new TranscriptStore()
+    const seen: number[] = []
+    const estimate = (messages: readonly unknown[]) => {
+      seen.push(messages.length)
+      return messages.length * 10
+    }
+    expect(transcript.estimateHistory(estimate)).toBe(0)
+    expect(transcript.estimateHistory(estimate)).toBe(0)
+    expect(seen).toEqual([0])
+    // An entry alone moves the revision polling readers watch; the history's price holds.
+    const before = transcript.revision
+    transcript.addUserMessage("hello")
+    expect(transcript.revision).toBeGreaterThan(before)
+    expect(transcript.estimateHistory(estimate)).toBe(0)
+    expect(seen).toEqual([0])
+    transcript.addMessages([{ role: "assistant", content: [{ type: "text", text: "hi" }] }])
+    expect(transcript.estimateHistory(estimate)).toBe(10)
+    transcript.loadCompacted("Summary.", [])
+    expect(transcript.estimateHistory(estimate)).toBe(10)
+    transcript.replaceMessages([])
+    expect(transcript.estimateHistory(estimate)).toBe(0)
+    expect(seen).toEqual([0, 1, 1, 0])
+    // Another estimator prices the history on its own terms.
+    const other = (messages: readonly unknown[]) => messages.length * 100
+    transcript.addMessages([{ role: "assistant", content: [{ type: "text", text: "hi" }] }])
+    expect(transcript.estimateHistory(other)).toBe(100)
+    expect(transcript.estimateHistory(estimate)).toBe(10)
+    expect(seen).toEqual([0, 1, 1, 0, 1])
+  })
+
   it("records transcript entries in insertion order with stable IDs", () => {
     const transcript = new TranscriptStore()
 

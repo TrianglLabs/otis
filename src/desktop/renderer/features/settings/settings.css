@@ -155,9 +155,6 @@
 /* Local usage */
 
 .settingsUsage {
-  --usage-cached: color-mix(in srgb, var(--accent) 55%, var(--border));
-  --usage-unknown: color-mix(in srgb, var(--text-dim) 45%, var(--border));
-  --usage-output: color-mix(in srgb, var(--accent) 25%, var(--border));
   padding: 0;
   overflow: hidden;
 }
@@ -228,25 +225,51 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Uncached input, the cached prefix, input without cache data, then output. */
+/*
+ * The mix as a stacked bar: one segment per legend row with a hairline of background between,
+ * each kind in its own color so cached and uncached input never read as one line.
+ */
 .settingsUsage-mixTrack {
+  display: flex;
+  gap: 2px;
   width: 100%;
-  height: 6px;
+  height: 10px;
   border-radius: var(--radius-pill);
-  background: linear-gradient(
-    to right,
-    var(--accent) var(--usage-uncached-share),
-    var(--usage-cached) 0 var(--usage-cached-share),
-    var(--usage-unknown) 0 var(--usage-input-share),
-    var(--usage-output) 0
-  );
+  overflow: hidden;
 }
 
 .settingsUsage-mixTrack[data-empty="true"] {
   background: var(--border);
 }
 
-/* A legend under the track: one row per segment, values right-aligned. */
+.settingsUsage-mixSegment {
+  display: block;
+  flex-basis: 0;
+  min-width: 2px;
+}
+
+.settingsUsage-mix-cached {
+  background: var(--usage-cached);
+}
+
+.settingsUsage-mix-uncached {
+  background: var(--usage-uncached);
+}
+
+.settingsUsage-mix-output {
+  background: var(--usage-output);
+}
+
+/* Input the provider gave no cache count for: neither hit nor miss, so it is hatched. */
+.settingsUsage-mix-unknown {
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--text-dim) 0 2px,
+    color-mix(in srgb, var(--text-dim) 35%, transparent) 2px 5px
+  );
+}
+
+/* A legend under the track: one row per segment, the count and its share right-aligned. */
 .settingsUsage-mixValues {
   display: flex;
   flex-direction: column;
@@ -268,28 +291,20 @@
   font-variant-numeric: tabular-nums;
 }
 
+.settingsUsage-mixValues small {
+  min-width: 34px;
+  color: var(--text-dim);
+  font-size: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
 .settingsUsage-mixDot {
   display: block;
-  width: 5px;
-  height: 5px;
+  width: 8px;
+  height: 8px;
   flex-shrink: 0;
-  border-radius: 50%;
-}
-
-.settingsUsage-mixDot-uncached {
-  background: var(--accent);
-}
-
-.settingsUsage-mixDot-cached {
-  background: var(--usage-cached);
-}
-
-.settingsUsage-mixDot-unknown {
-  background: var(--usage-unknown);
-}
-
-.settingsUsage-mixDot-output {
-  background: var(--usage-output);
+  border-radius: 2px;
 }
 
 .settingsUsage-metric {

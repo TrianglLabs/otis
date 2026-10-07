@@ -528,6 +528,12 @@ describe("ModelHost", () => {
     expect(host.clientFor(2, selection)).not.toBe(gated)
     const next = { ...selection, client: { ...raw } }
     expect(host.clientFor(1, next)).not.toBe(gated)
+    // A released owner starts over; another owner's view is untouched.
+    const other = host.clientFor(2, selection)
+    const renewed = host.clientFor(1, next)
+    host.releaseClient(1)
+    expect(host.clientFor(1, next)).not.toBe(renewed)
+    expect(host.clientFor(2, selection)).toBe(other)
     expect(host.clientFor(1, next)?.inner).toBe(next.client)
     expect(host.clientFor(1, next)).toBe(host.clientFor(1, next))
     // Hosted requests never wait behind the managed server's slots.

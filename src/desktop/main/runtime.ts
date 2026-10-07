@@ -1,5 +1,6 @@
 import { stat } from "node:fs/promises"
 import { basename, extname, join, resolve } from "node:path"
+import { isDeepStrictEqual } from "node:util"
 import {
   Application,
   formatWorkspaceLabel,
@@ -77,6 +78,7 @@ import {
   type SendPromptResult,
   type SessionOpResult,
   type SkillsSummary,
+  type SubagentTraceView,
   type TranscriptPatchOp,
 } from "../contracts.js"
 import type { SessionNotice } from "../wire.js"
@@ -150,6 +152,8 @@ export class DesktopRuntime {
   #locating = false
   /** The most recent picker listing; feeds fast-serving availability without a fetch per status. */
   #lastPickerItems: ModelPickerItem[] | undefined
+  /** What the renderer holds; the next status event carries only the fields that differ. */
+  #sentStatus: DesktopStatus | undefined
   /** Session-only debug mode, mirroring the TUI's /debug toggle. */
   #debug = false
   /**
@@ -357,6 +361,8 @@ export class DesktopRuntime {
   }
 
   async snapshot(): Promise<DesktopSnapshot> {
+    // Whoever snapshots holds a status no push was diffed against; the next push is whole.
+    this.#sentStatus = undefined
     return {
       platform: this.options.platform,
       version: this.options.version,
@@ -1074,13 +1080,13 @@ export class DesktopRuntime {
     return this.app.cancelModelSelection()
   }
 
-  /**
-   * The full transcript of one delegated run for the trace view; an empty list when the run is
-   * gone.
-   */
-  getSubagentTrace(toolCallId: string): TranscriptEntry[] {
-    const trace = this.app.subagents.get(toolCallId)
-    return trace ? [...trace.transcript.entries] : []
+  /** The transcript of one delegated run for the trace view, unless `seen` is still current. */
+  getSubagentTrace(toolCallId: string, seen?: number): SubagentTraceView {
+    const transcript = this.app.subagents.get(toolCallId)?.transcript
+    const revision = transcript?.revision ?? 0
+    return revision === seen
+      ? { revision }
+      : { revision, entries: transcript ? [...transcript.entries] : [] }
   }
 
   /** Persists the delegated-runs rail preference, mirroring the TUI's subagent panel setting. */
@@ -1371,10 +1377,18 @@ export class DesktopRuntime {
     }
     const revision = ++this.#revision
     const status = await this.#status()
+    const sent = this.#sentStatus
+    this.#sentStatus = status
     this.options.send({
       type: "status",
       revision,
-      status,
+      status: sent
+        ? Object.fromEntries(
+            Object.entries(status).filter(
+              ([key, value]) => !isDeepStrictEqual(sent[key as keyof DesktopStatus], value),
+            ),
+          )
+        : status,
       ...(reset ? { ops } : {}),
       ...(panes.length > 0 ? { panes } : {}),
     })

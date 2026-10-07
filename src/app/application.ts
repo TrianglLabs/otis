@@ -291,6 +291,15 @@ export class Workspace {
 export class SessionRuntime {
   /** The model this session runs on; a new runtime starts on the focused one's. */
   selection: ModelSelection | undefined
+  /** The request estimator for the inputs it was built from; rebuilt when any of them changes. */
+  estimator:
+    | {
+        workspace: Workspace
+        skills: Workspace["skills"]
+        provider: ModelProvider
+        estimate: (messages: readonly ChatMessage[]) => number
+      }
+    | undefined
   /** An in-place open whose working folder is unknown or gone; prompts wait for a locate. */
   readOnly: { dirName: string; sessionId: string } | undefined
   /** Settled while not focused; cleared on focus. */
@@ -345,6 +354,7 @@ export class SessionRuntime {
     await this.conversation.wait()
     this.#detach()
     this.artifacts.dispose()
+    this.models.releaseClient(this.id)
     await this.sessions.releaseLock()
   }
 }
@@ -794,6 +804,10 @@ export class Application {
     if (runtime === this.#focused)
       this.focus(this.#runtimes[Math.min(index, this.#runtimes.length - 1)])
     else this.#notify({ type: "status" })
+    // A folder's loaded state leaves with its last session; the home folder stays for the next.
+    const { cwd } = runtime.workspace
+    if (cwd !== this.cwd && !this.#runtimes.some((open) => open.workspace.cwd === cwd))
+      this.#workspaces.delete(cwd)
     await runtime.dispose()
     return "closed"
   }
@@ -931,24 +945,40 @@ export class Application {
     })
   }
 
+  /**
+   * The estimator for a runtime's requests. Building one renders the system prompt and tokenizes
+   * it with the tool schemas, so it is kept until the workspace, its skills, or the provider
+   * changes; every status read asks for it.
+   */
   contextEstimator(runtime = this.#focused) {
-    const { projectContext, skills } = runtime.workspace
-    const tools = providerTools(runtime.selection?.model.provider ?? "fireworks").filter(
+    const { workspace } = runtime
+    const provider = runtime.selection?.model.provider ?? "fireworks"
+    const memo = runtime.estimator
+    if (
+      memo?.workspace === workspace &&
+      memo.skills === workspace.skills &&
+      memo.provider === provider
+    )
+      return memo.estimate
+    const { projectContext, skills } = workspace
+    const tools = providerTools(provider).filter(
       (tool) => tool.name !== "skill" || skills.skills.length > 0,
     )
-    return requestContextEstimator({
+    const estimate = requestContextEstimator({
       tools,
       projectContext,
       skills: tools.some((tool) => tool.name === "skill") ? skills.skills : [],
       outputCapabilities: this.outputCapabilities,
     })
+    runtime.estimator = { workspace, skills, provider, estimate }
+    return estimate
   }
 
   contextTokens(pendingInput?: UserChatMessage, runtime = this.#focused) {
     const estimate = this.contextEstimator(runtime)
     const { transcript } = runtime
     const tokens =
-      transcript.contextTokens(runtime.selection?.client) ?? estimate(transcript.history)
+      transcript.contextTokens(runtime.selection?.client) ?? transcript.estimateHistory(estimate)
     return pendingInput ? tokens + estimate([pendingInput]) - estimate([]) : tokens
   }
 

@@ -1,12 +1,22 @@
 import type { Element, ElementContent, Root, Text } from "hast"
 import { Check, Copy } from "lucide-react"
-import type { Parent as MdastParent, Root as MdastRoot } from "mdast"
+import { factorySpace } from "micromark-factory-space"
+import { markdownLineEnding } from "micromark-util-character"
+import type {
+  Code,
+  Construct,
+  Effects,
+  Extension,
+  State,
+  TokenizeContext,
+} from "micromark-util-types"
 import { createContext, isValidElement, memo, useContext, useEffect, useRef, useState } from "react"
 import ReactMarkdown, { type Components, defaultUrlTransform } from "react-markdown"
 import rehypeHighlight from "rehype-highlight"
 import rehypeKatex from "rehype-katex"
 import remarkGfm from "remark-gfm"
 import remarkMath from "remark-math-extended"
+import type { Processor } from "unified"
 import { PaneRuntimeContext, useOpenCanvas } from "../features/canvas/canvas-context.js"
 import { MermaidFrame } from "../features/canvas/MermaidFrame.js"
 import { useI18n } from "../i18n/index.js"
@@ -24,7 +34,7 @@ export type DocumentSource = { runtime: number; id: string; revision: number }
 const remarkPlugins = [remarkGfm]
 // Documents opt into TeX math in dollar and `\(…\)` / `\[…\]` form; chat stays literal so
 // prices are not equations.
-const documentRemarkPlugins = [remarkGfm, remarkMath, displayMathParagraphs]
+const documentRemarkPlugins = [remarkGfm, remarkMath, pandocMath]
 const rehypePlugins = [trimCodeNewline, rehypeHighlight]
 const documentRehypePlugins = [trimCodeNewline, rehypeHighlight, rehypeKatex]
 const DocumentContext = createContext<DocumentSource | undefined>(undefined)
@@ -126,40 +136,108 @@ function splitWords(node: Root | Element) {
 }
 
 /**
- * A paragraph that is nothing but `$$…$$` is display math, as Pandoc and GitHub read it. The
- * parser alone sets it inline, since block math wants its fences on their own lines.
+ * Display math fences the way Pandoc and GitHub read them: `$$` may share its line with the
+ * formula, opening or closing, and a closer ends the block at the end of any line. The parser's
+ * own `$$` construct wants both fences alone on their lines and reads anything after an opener as
+ * a label, so a document written the other way became one block running to its end. This
+ * construct is registered ahead of it and emits the same tokens, so the math node and its hast
+ * hints come from the parser's own builder; what it declines (a bare `$$` at the end of the file,
+ * a `$$` line interrupting a paragraph) falls through to the library's.
  */
-function displayMathParagraphs() {
-  return (tree: MdastRoot, file: { value: unknown }) => {
-    const source = String(file.value)
-    const visit = (parent: MdastParent) => {
-      parent.children = parent.children.map((node) => {
-        if ("children" in node) visit(node)
-        if (node.type !== "paragraph" || node.children.length !== 1) return node
-        const [math] = node.children
-        const offset = math?.position?.start.offset
-        if (math?.type !== "inlineMath" || offset === undefined || !source.startsWith("$$", offset))
-          return node
-        // The same hast hints the parser gives block math, which rehype-katex reads as display.
-        return {
-          type: "math",
-          value: math.value,
-          position: node.position,
-          data: {
-            hName: "pre",
-            hChildren: [
-              {
-                type: "element",
-                tagName: "code",
-                properties: { className: ["language-math", "math-display"] },
-                children: [{ type: "text", value: math.value }],
-              },
-            ],
-          },
-        }
-      })
+function pandocMath(this: Processor) {
+  const data = this.data() as { micromarkExtensions?: Extension[] }
+  data.micromarkExtensions ??= []
+  data.micromarkExtensions.push({ flow: { 36: pandocMathFlow } })
+}
+
+const pandocMathFlow: Construct = { name: "mathFlow", concrete: true, tokenize: tokenizeMathFlow }
+
+function tokenizeMathFlow(this: TokenizeContext, effects: Effects, ok: State, nok: State): State {
+  const self = this
+  const tail = self.events[self.events.length - 1]
+  const prefix =
+    tail && tail[1].type === "linePrefix" ? tail[2].sliceSerialize(tail[1], true).length : 0
+  const continuation: Construct = { tokenize: tokenizeContinuation, partial: true }
+  const closing: Construct = { tokenize: tokenizeClosing, partial: true }
+  let opening = true
+  return start
+
+  function start(code: Code): State | undefined {
+    effects.enter("mathFlow")
+    effects.enter("mathFlowFence")
+    effects.enter("mathFlowFenceSequence")
+    effects.consume(code)
+    return open
+  }
+  function open(code: Code): State | undefined {
+    if (code !== 36) return nok(code)
+    effects.consume(code)
+    effects.exit("mathFlowFenceSequence")
+    effects.exit("mathFlowFence")
+    return beforeContent
+  }
+  function beforeContent(code: Code): State | undefined {
+    if (code === null) return nok(code)
+    if (markdownLineEnding(code)) {
+      if (self.interrupt) return ok(code)
+      opening = false
+      return effects.attempt(continuation, contentStart, nok)(code)
     }
-    visit(tree)
+    if (self.interrupt) return nok(code)
+    if (code === 36) return effects.attempt(closing, after, valueStart)(code)
+    effects.enter("mathFlowValue")
+    return value(code)
+  }
+  function contentStart(code: Code): State | undefined {
+    return (
+      prefix ? factorySpace(effects, beforeContent, "linePrefix", prefix + 1) : beforeContent
+    )(code)
+  }
+  function valueStart(code: Code): State | undefined {
+    // A `$$` on the opening line that closes nothing is inline math in a paragraph, not a block.
+    if (opening) return nok(code)
+    effects.enter("mathFlowValue")
+    effects.consume(code)
+    return value
+  }
+  function value(code: Code): State | undefined {
+    if (code === null || code === 36 || markdownLineEnding(code)) {
+      effects.exit("mathFlowValue")
+      return beforeContent(code)
+    }
+    effects.consume(code)
+    return value
+  }
+  function after(code: Code): State | undefined {
+    effects.exit("mathFlow")
+    return ok(code)
+  }
+  function tokenizeContinuation(effects: Effects, ok: State, nok: State): State {
+    return (code: Code) => {
+      if (code === null) return ok(code)
+      effects.enter("lineEnding")
+      effects.consume(code)
+      effects.exit("lineEnding")
+      return (next: Code) => (self.parser.lazy[self.now().line] ? nok(next) : ok(next))
+    }
+  }
+  function tokenizeClosing(effects: Effects, ok: State, nok: State): State {
+    return (code: Code) => {
+      effects.enter("mathFlowFence")
+      effects.enter("mathFlowFenceSequence")
+      effects.consume(code)
+      return (second: Code) => {
+        if (second !== 36) return nok(second)
+        effects.consume(second)
+        effects.exit("mathFlowFenceSequence")
+        return factorySpace(effects, afterClose, "whitespace")
+      }
+    }
+    function afterClose(code: Code): State | undefined {
+      if (code !== null && !markdownLineEnding(code)) return nok(code)
+      effects.exit("mathFlowFence")
+      return ok(code)
+    }
   }
 }
 
@@ -302,7 +380,9 @@ function ArtifactLink({
   )
 }
 
-/** Absolute and inline sources load as written; a document's relative paths come from its folder. */
+/**
+ * Absolute and inline sources load as written; a document's relative paths come from its folder.
+ */
 function Image({ src, alt, title }: { src?: string; alt?: string; title?: string }) {
   const document = useContext(DocumentContext)
   if (!src || !document || /^(?:[a-z][a-z0-9+.-]*:|\/|#)/i.test(src))

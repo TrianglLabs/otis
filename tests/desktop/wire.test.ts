@@ -20,4 +20,12 @@ describe("wire codec", () => {
     expect(decoded.nested.plain).toBe("$bytes")
     expect(decode(encode({ id: 1, result: null }))).toEqual({ id: 1, result: null })
   })
+
+  it("keeps a field set to undefined, so a status change can clear one", () => {
+    const event = { type: "status", revision: 4, status: { modelError: undefined, theme: "nord" } }
+    const decoded = decode(encode({ event })) as { event: typeof event }
+    expect(Object.hasOwn(decoded.event.status, "modelError")).toBe(true)
+    expect(decoded.event.status).toEqual({ modelError: undefined, theme: "nord" })
+    expect({ ...{ modelError: "old" }, ...decoded.event.status }.modelError).toBeUndefined()
+  })
 })

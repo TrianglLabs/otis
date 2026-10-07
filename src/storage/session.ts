@@ -320,7 +320,7 @@ export async function searchSessions(
   options: Omit<SessionOptions, "sessionId">,
   query: string,
 ): Promise<SessionSearchResult[]> {
-  return matchSessions(await digestSessions(options), query)
+  return matchSessions(await digestSessions(options, true), query)
 }
 
 /** Every workspace's sessions under the shared data root, merged and recency-ordered. */
@@ -334,11 +334,11 @@ export async function searchAllSessions(
   query: string,
   options: { seeds?: string[] } = {},
 ): Promise<GlobalSessionSearchResult[]> {
-  return matchSessions(await digestAllSessions(options.seeds), query)
+  return matchSessions(await digestAllSessions(options.seeds, true), query)
 }
 
 /** Every readable session in a dir with its digest, newest first; other errors surface. */
-async function digestSessions(options: Omit<SessionOptions, "sessionId">) {
+async function digestSessions(options: Omit<SessionOptions, "sessionId">, texts = false) {
   const directory = sessionDirectory(options)
   let fileNames: string[]
   try {
@@ -353,7 +353,7 @@ async function digestSessions(options: Omit<SessionOptions, "sessionId">) {
     try {
       const id = fileName.slice(0, -".jsonl".length)
       assertSessionId(id)
-      const digest = await readSessionDigest(join(directory, fileName))
+      const digest = await readSessionDigest(join(directory, fileName), texts)
       sessions.push({ ...digest, summary: { id, ...digest.summary } })
     } catch (error) {
       if (isUnreadableSessionFile(error)) continue
@@ -364,12 +364,12 @@ async function digestSessions(options: Omit<SessionOptions, "sessionId">) {
 }
 
 /** Every workspace's sessions with their digests, newest first across workspaces. */
-export async function digestAllSessions(seeds: string[] | undefined) {
+export async function digestAllSessions(seeds: string[] | undefined, texts = false) {
   const dirs = await listWorkspaceSessionDirs(seeds)
   const grouped = await Promise.all(
     dirs.map(async ({ dir, dirName, workspacePath }) => {
       try {
-        const sessions = await digestSessions({ cwd: "", directory: dir })
+        const sessions = await digestSessions({ cwd: "", directory: dir }, texts)
         return sessions.map((session) => ({
           ...session,
           summary: { ...session.summary, dirName, ...(workspacePath ? { workspacePath } : {}) },
@@ -387,7 +387,7 @@ export async function digestAllSessions(seeds: string[] | undefined) {
  * hits, which carry a snippet from the first matching message.
  */
 function matchSessions<T extends SessionSummary>(
-  sessions: readonly { summary: T; texts: string[] }[],
+  sessions: readonly { summary: T; texts?: string[] }[],
   query: string,
 ): (T & { snippet?: string })[] {
   const needle = query.trim().toLowerCase()
@@ -399,7 +399,7 @@ function matchSessions<T extends SessionSummary>(
       titleHits.push(summary)
       continue
     }
-    for (const text of texts) {
+    for (const text of texts ?? []) {
       const index = text.toLowerCase().indexOf(needle)
       if (index === -1) continue
       const from = Math.max(0, index - 40)
