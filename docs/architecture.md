@@ -72,9 +72,9 @@ session or transcript. Prime Intellect bills the key owner's personal wallet unl
 optional team id (`primeintellectTeamId`, env `PRIME_TEAM_ID`, settable in Settings and onboarding) is sent as
 `X-Prime-Team-ID` on Prime inference requests. One `HostedClient` serves all four through OpenAI-compatible
 streaming chat completions; only Fireworks gets its documented `reasoning_effort` tiers and `service_tier`, the
-others keep provider defaults. Fireworks caches prompts per replica and routes serverless requests by an
-`x-session-affinity` hint, so every Fireworks request carries the session id; without it, consecutive turns land on
-different replicas and report zero cached tokens.
+others keep provider defaults. Fireworks and Baseten cache prompts per replica and route requests by an
+`x-session-affinity` header, and Together by a `prompt_cache_key` request field, so every request to those three
+carries the session id; without it, consecutive turns land on different replicas and report zero cached tokens.
 
 Model selection comes from each provider's live model list, filtered to tool-capable models: Fireworks' serverless
 catalog flags `supportsTools`; Prime Intellect lists `tools` among a model's `supported_parameters`; every Baseten Model
@@ -603,8 +603,10 @@ configured auto default, or the explicit `--auto` policy. Explicit deny rules re
 approval policy is separate from OS sandboxing; a future sandbox can be added at the tool-executor boundary
 without changing command output or session contracts.
 
-Every completed inference request that reports usage adds a validated `usage_recorded` event before the surrounding
-agent turn, title generation, or compaction operation continues. The event carries prompt, completion, and total
+Every completed inference request that reports usage adds one validated `usage_recorded` event, with the final count
+when a server streams a running one, before the surrounding agent turn, title generation, or compaction operation
+continues. Sessions written by earlier releases hold one record per streamed chunk from such servers; readers collapse
+consecutive records that look like one request's running count to the last, a heuristic those files cannot improve on. The event carries prompt, completion, and total
 tokens, plus the prompt tokens the server reported as reused from its prefix cache when it reports them:
 `llama-server`, oMLX, Fireworks, Baseten, Prime Intellect, and vLLM-based servers do, Together only for some models,
 and Ollama never. Totals also keep the prompt tokens of the requests that reported a count, so input without cache data

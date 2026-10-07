@@ -458,10 +458,8 @@ export async function* runAgent(
             yield* endReasoning()
             toolCalls.push(event.toolCall)
             content.push({ type: "tool_call", toolCall: event.toolCall })
-          } else if (event.type === "usage") {
-            usage = event.usage
-            await options.onUsage?.(event.usage)
-          } else if (event.type === "finish") finishReason = event.reason
+          } else if (event.type === "usage") usage = event.usage
+          else if (event.type === "finish") finishReason = event.reason
         }
       } catch (error) {
         // An interrupted stream still publishes its partial output through the interrupted path
@@ -498,6 +496,10 @@ export async function* runAgent(
           retrying = true
           continue
         }
+      } finally {
+        // Billed tokens are recorded however the stream ended; a server that streams a running
+        // count reports a request once, with the last count received.
+        if (usage) await options.onUsage?.(usage)
       }
       yield* endReasoning()
       const response = content

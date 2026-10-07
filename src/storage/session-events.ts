@@ -340,6 +340,34 @@ function findReplayTurn<T extends { promptId?: string }>(turns: T[], promptId: s
   return undefined
 }
 
+/**
+ * The usage records of a session, one per request. Releases up to 0.2.19 wrote one record per
+ * streamed chunk when a server reported a running count, so consecutive records that look like
+ * one request's chunks collapse to the last: same prompt, purpose, provider and model, the prompt
+ * tokens and cached count unchanged, the completion count never falling. Two sibling requests
+ * that match all of that are told apart from a running count by nothing on disk, so this is a
+ * heuristic for those files; sessions written since record each request once.
+ */
+export function recordedUsage(events: readonly SessionEvent[]) {
+  const records: Extract<SessionEvent, { type: "usage_recorded" }>[] = []
+  for (const event of events) {
+    if (event.type !== "usage_recorded") continue
+    const previous = records.at(-1)
+    const repeat =
+      previous !== undefined &&
+      previous.promptId === event.promptId &&
+      previous.purpose === event.purpose &&
+      previous.provider === event.provider &&
+      previous.model === event.model &&
+      previous.usage.promptTokens === event.usage.promptTokens &&
+      previous.usage.cachedPromptTokens === event.usage.cachedPromptTokens &&
+      previous.usage.completionTokens <= event.usage.completionTokens
+    if (repeat) records[records.length - 1] = event
+    else records.push(event)
+  }
+  return records
+}
+
 export function replaySessionMessages(events: readonly SessionEvent[]) {
   return replaySession(events).messages
 }

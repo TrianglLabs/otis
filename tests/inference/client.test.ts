@@ -521,7 +521,7 @@ describe.each(OTHER_PROVIDERS)("HostedClient for %s", (provider) => {
         messages: [{ role: "user", content: "hello" }],
         tools: [{ name: "read", description: "Read a file", parameters: { type: "object" } }],
         minimalReasoning: true,
-        // The affinity hint is Fireworks' routing; the exact header check below keeps it off here.
+        // Each provider gets the routing hint where it reads it, checked exactly below.
         sessionId: "session_20260716_abc",
       }),
     )
@@ -539,10 +539,12 @@ describe.each(OTHER_PROVIDERS)("HostedClient for %s", (provider) => {
     const [url, init] = fetchMock.mock.calls[0]
     expect(String(url)).toBe(inferenceURL)
     expect(init?.method).toBe("POST")
+    // Baseten routes by the same affinity header as Fireworks; Together by a request field.
     expect(init?.headers).toEqual({
       accept: "text/event-stream",
       authorization: "Bearer secret-key",
       "content-type": "application/json",
+      ...(provider === "baseten" ? { "x-session-affinity": "session_20260716_abc" } : {}),
     })
     const body = JSON.parse(String(init?.body))
     expect(body).toMatchObject({
@@ -550,12 +552,44 @@ describe.each(OTHER_PROVIDERS)("HostedClient for %s", (provider) => {
       stream: true,
       stream_options: { include_usage: true },
       tools: [{ type: "function", function: { name: "read" } }],
+      ...(provider === "together" ? { prompt_cache_key: "session_20260716_abc" } : {}),
     })
+    if (provider !== "together") expect(body).not.toHaveProperty("prompt_cache_key")
     // Only Fireworks documents reasoning tiers and a priority tier; a model whose name would
     // earn `max` on Fireworks keeps this provider's defaults.
     expect(body).not.toHaveProperty("reasoning_effort")
     expect(body).not.toHaveProperty("service_tier")
     expect(JSON.stringify(body)).not.toContain("secret-key")
+  })
+
+  it("sends no routing hint without a session and records a completion's usage once", async () => {
+    const running = (completion: number) => ({
+      prompt_tokens: 10,
+      completion_tokens: completion,
+      total_tokens: 10 + completion,
+    })
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      sseResponse([
+        { choices: [{ delta: { content: "A " }, finish_reason: null }], usage: running(1) },
+        { choices: [{ delta: { content: "title" }, finish_reason: "stop" }], usage: running(2) },
+      ]),
+    )
+    const client = new HostedClient({
+      provider,
+      apiKey: "key",
+      model: "org/model",
+      fetch: fetchMock as typeof fetch,
+    })
+    const onUsage = vi.fn()
+    await expect(
+      client.complete([{ role: "user", content: "Name this." }], { onUsage }),
+    ).resolves.toBe("A title")
+    expect(fetchMock.mock.calls[0][1]?.headers).not.toHaveProperty("x-session-affinity")
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).not.toHaveProperty(
+      "prompt_cache_key",
+    )
+    expect(onUsage).toHaveBeenCalledTimes(1)
+    expect(onUsage).toHaveBeenCalledWith({ promptTokens: 10, completionTokens: 2, totalTokens: 12 })
   })
 
   it("names the provider in request failures and silent streams", async () => {

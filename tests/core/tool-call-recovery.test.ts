@@ -58,6 +58,42 @@ async function collect(events: AsyncGenerator<AgentEvent>) {
   return result
 }
 
+describe("usage recording", () => {
+  it("records a request once when the server streams a running usage count", async () => {
+    const options = await workspace()
+    const usageAt = (completion: number) => ({
+      prompt_tokens: 10,
+      completion_tokens: completion,
+      total_tokens: 10 + completion,
+      prompt_tokens_details: { cached_tokens: 8 },
+    })
+    const chunks = [
+      { choices: [{ delta: { content: "One " }, finish_reason: null }], usage: usageAt(1) },
+      { choices: [{ delta: { content: "two " }, finish_reason: null }], usage: usageAt(2) },
+      { choices: [{ delta: { content: "three." }, finish_reason: "stop" }], usage: usageAt(3) },
+    ]
+    const client = new HostedClient({
+      provider: "baseten",
+      model: "fake",
+      apiKey: "fake-test-key",
+      fetch: (async () =>
+        new Response(
+          `${chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("")}data: [DONE]\n\n`,
+        )) as typeof fetch,
+    })
+    const onUsage = vi.fn()
+    const events = await collect(runAgent("Count.", [], { ...options, client, onUsage }))
+    expect(events.at(-1)?.type).toBe("complete")
+    expect(onUsage).toHaveBeenCalledTimes(1)
+    expect(onUsage).toHaveBeenCalledWith({
+      promptTokens: 10,
+      completionTokens: 3,
+      totalTokens: 13,
+      cachedPromptTokens: 8,
+    })
+  })
+})
+
 describe("tool-call recovery", () => {
   it("retries once without executing any call from the malformed batch or repeating earlier successful work", async () => {
     const options = await workspace()

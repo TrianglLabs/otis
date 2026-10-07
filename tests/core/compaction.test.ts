@@ -94,6 +94,29 @@ describe("compactConversation", () => {
     expect(messages).toEqual(original)
   })
 
+  it("records a summary request's usage once when the server streams a running count", async () => {
+    const messages: ChatMessage[] = [
+      { role: "user", content: `Start the work.${filler}` },
+      { role: "assistant", content: [{ type: "text", text: "Working through it." }] },
+      { role: "user", content: "Continue" },
+    ]
+    streamAgentMock.mockImplementationOnce(async function* () {
+      const summary = summaryFixture()
+      for (const [index, text] of [summary.slice(0, 20), summary.slice(20)].entries()) {
+        yield { type: "text_delta", text }
+        yield {
+          type: "usage",
+          usage: { promptTokens: 40, completionTokens: index + 1, totalTokens: 41 + index },
+        }
+      }
+      yield { type: "finish", reason: "stop" }
+    })
+    const onUsage = vi.fn()
+    await compactConversation(messages, { client, keepRecentTokens: 10, onUsage })
+    expect(onUsage).toHaveBeenCalledTimes(1)
+    expect(onUsage).toHaveBeenCalledWith({ promptTokens: 40, completionTokens: 2, totalTokens: 42 })
+  })
+
   it.each([
     ["an unanswered prompt", [{ role: "user", content: "hi" }] as ChatMessage[]],
     [
