@@ -21,16 +21,22 @@ describe("readSessionDigest", () => {
     const admission = await session.admitPrompt("first question")
     const file = join(options.directory, `${session.id}.jsonl`)
 
-    const digest = await readSessionDigest(file)
-    expect(await readSessionDigest(file)).toBe(digest)
-    expect(digest.summary).toMatchObject({ title: "first question", state: "pending" })
+    const plain = await readSessionDigest(file)
+    expect(await readSessionDigest(file)).toBe(plain)
+    expect(plain.summary).toMatchObject({ title: "first question", state: "pending" })
+    // Listings leave the message text on disk; a search asks for it, and that read serves both.
+    expect(plain.texts).toBeUndefined()
+    const digest = await readSessionDigest(file, true)
+    expect(digest).not.toBe(plain)
     expect(digest.texts).toEqual(["first question"])
+    expect(await readSessionDigest(file)).toBe(digest)
+    expect(await readSessionDigest(file, true)).toBe(digest)
 
     await session.completeTurn(admission, [
       admission.message,
       { role: "assistant", content: [{ type: "text", text: "an  answer\nhere" }] },
     ])
-    const next = await readSessionDigest(file)
+    const next = await readSessionDigest(file, true)
     expect(next).not.toBe(digest)
     expect(next.summary).toMatchObject({ messageCount: 2, state: "complete" })
     expect(next.texts).toEqual(["first question", "an answer here"])

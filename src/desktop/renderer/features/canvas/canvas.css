@@ -281,50 +281,6 @@
   color: var(--text);
 }
 
-.canvas-findBar {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--hairline);
-}
-
-/* Like the palette's search field: bare text on the bar, no box of its own. */
-.canvas-findInput {
-  flex: 1;
-  min-width: 0;
-  height: 26px;
-  padding: 0 4px;
-  border: none;
-  background: none;
-  color: var(--text);
-  font: inherit;
-  font-size: var(--text-ui);
-  outline: none;
-}
-
-.canvas-findInput::placeholder {
-  color: var(--text-dim);
-}
-
-.canvas-findCount {
-  flex-shrink: 0;
-  min-width: 56px;
-  color: var(--text-dim);
-  font-size: var(--text-meta);
-  text-align: right;
-  white-space: nowrap;
-}
-
-::highlight(otis-find) {
-  background: color-mix(in srgb, var(--yellow) 35%, transparent);
-}
-
-::highlight(otis-find-current) {
-  background: color-mix(in srgb, var(--orange) 60%, transparent);
-}
-
 .canvas-artifactBody:focus {
   outline: none;
 }

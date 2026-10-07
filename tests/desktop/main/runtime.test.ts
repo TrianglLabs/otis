@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { Application, type SessionRuntime } from "../../../src/app/application.js"
 import type { ModelSelection } from "../../../src/app/models.js"
 import type { TurnResult, TurnRunnerOptions } from "../../../src/app/turn-runner.js"
-import type { DesktopEvent } from "../../../src/desktop/contracts.js"
+import type { DesktopEvent, DesktopStatus } from "../../../src/desktop/contracts.js"
 import { DesktopRuntime } from "../../../src/desktop/main/runtime.js"
 import { findLocalModel } from "../../../src/inference/local-catalog.js"
 import type { discoverPairModels, PairEndpoints } from "../../../src/inference/pair.js"
@@ -154,6 +154,14 @@ async function foreignSession(dirName: string, sessionId: string, text: string) 
 /** Flushes the runtime's batched event pump (32ms interval). */
 async function flush() {
   await new Promise((resolve) => setTimeout(resolve, 60))
+}
+
+/** What a renderer holds after every status event sent so far: each carries only changes. */
+function latestStatus(sent: DesktopEvent[]) {
+  return Object.assign(
+    {},
+    ...sent.flatMap((event) => (event.type === "status" ? [event.status] : [])),
+  ) as DesktopStatus
 }
 
 describe("DesktopRuntime model startup", () => {
@@ -332,12 +340,16 @@ describe("DesktopRuntime subagents", () => {
     })
     expect(finished?.durationMs).toBeGreaterThanOrEqual(0)
 
-    const trace = await runtime.getSubagentTrace("call_scout")
+    const trace = runtime.getSubagentTrace("call_scout")
     expect(
-      trace.some((entry) => entry.kind === "tool" && entry.text.includes("Reading files")),
+      trace.entries?.some((entry) => entry.kind === "tool" && entry.text.includes("Reading files")),
     ).toBe(true)
-    expect(trace.some((entry) => entry.text === "Found it.")).toBe(true)
-    expect(await runtime.getSubagentTrace("missing")).toEqual([])
+    expect(trace.entries?.some((entry) => entry.text === "Found it.")).toBe(true)
+    // A reader holding the current revision gets no entries back.
+    expect(runtime.getSubagentTrace("call_scout", trace.revision)).toEqual({
+      revision: trace.revision,
+    })
+    expect(runtime.getSubagentTrace("missing")).toEqual({ revision: 0, entries: [] })
     await runtime.shutdown()
   })
 
@@ -1003,8 +1015,7 @@ describe("DesktopRuntime conversation flow", () => {
     await flush()
     const transcriptEvents = sent.filter((event) => event.type === "transcript")
     expect(transcriptEvents.length).toBeGreaterThan(0)
-    const statusEvents = sent.filter((event) => event.type === "status")
-    expect(statusEvents.at(-1)).toMatchObject({ status: { busy: false } })
+    expect(latestStatus(sent)).toMatchObject({ busy: false })
     await runtime.shutdown()
   })
 
@@ -1372,11 +1383,28 @@ describe("DesktopRuntime sessions", () => {
         expect(sent.some((event) => event.type === "status" && event.ops)).toBe(true),
       )
       const reset = sent.find((event) => event.type === "status" && event.ops)
+      // The snapshot read above holds a status no push was diffed against, so this status is
+      // whole; the one after it carries only what changed.
       expect(reset).toMatchObject({
         type: "status",
         status: { session: null, subagents: [], diffs: { added: 0, removed: 0 } },
         ops: [{ op: "reset", entries: [] }],
       })
+      expect(reset?.type === "status" ? reset.status : {}).toHaveProperty("theme")
+      sent.length = 0
+      await runtime.setTheme("nord")
+      await flush()
+      expect(sent.find((event) => event.type === "status")).toEqual({
+        type: "status",
+        revision: expect.any(Number),
+        status: { theme: "nord" },
+      })
+      // A snapshot taken between pushes resets the baseline: the next push is whole again.
+      await runtime.snapshot()
+      sent.length = 0
+      await runtime.setTheme("pearl")
+      await flush()
+      expect(latestStatus(sent)).toHaveProperty("runtimes")
       expect(
         sent.some(
           (event) => event.type === "transcript" && event.ops?.some((op) => op.op === "reset"),
@@ -1483,9 +1511,10 @@ describe("DesktopRuntime sessions", () => {
       runtime.openPane(first.id, "left")
       await flush()
       expect(sent.find((event) => event.type === "status")).toMatchObject({
-        status: { panes: [first.id, second.id], paneAxis: "row" },
+        status: { panes: [first.id, second.id] },
         panes: [{ runtime: first.id, ops: [{ op: "reset", entries: expect.any(Array) }] }],
       })
+      expect((await runtime.snapshot()).paneAxis).toBe("row")
       const snapshot = await runtime.snapshot()
       expect(snapshot.transcripts[first.id]?.map((entry) => entry.text)).toEqual([
         "first",
@@ -1980,7 +2009,7 @@ describe("DesktopRuntime model selection", () => {
       modelId: localChoice.id,
       status: { label: "Downloading 42%", kind: "progress" },
     })
-    expect(statuses.at(-1)).toMatchObject({ modelLoad: null, modelState: "ready" })
+    expect(latestStatus(sent)).toMatchObject({ modelLoad: null, modelState: "ready" })
     expect((await runtime.snapshot()).model).toEqual({
       id: localChoice.id,
       provider: "local",
@@ -2169,8 +2198,7 @@ describe("DesktopRuntime model selection", () => {
     await runtime.cancelModelSelection()
     expect(await pending).toEqual({ ok: false, reason: "The selection was cancelled." })
     await flush()
-    const last = sent.filter((event) => event.type === "status").at(-1)
-    expect(last?.status.modelLoad).toBeNull()
+    expect(latestStatus(sent).modelLoad).toBeNull()
     await runtime.shutdown()
   })
 })
@@ -2195,7 +2223,7 @@ describe("DesktopRuntime updates", () => {
 
     await flush()
     const updateEvents = sent.filter(
-      (event) => event.type === "status" && event.status.update.status === "ready",
+      (event) => event.type === "status" && event.status.update?.status === "ready",
     )
     expect(updateEvents).toHaveLength(1)
 

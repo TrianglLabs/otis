@@ -331,6 +331,11 @@ export class ModelHost {
     return gated
   }
 
+  /** A closed runtime's gated view goes with it. */
+  releaseClient(owner: number) {
+    this.#gated.delete(owner)
+  }
+
   /** The state behind a selection without a client: its server starting, failed, or unset. */
   get state() {
     return this.#state

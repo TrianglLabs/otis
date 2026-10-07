@@ -462,7 +462,7 @@ async function runDesktopUiChecks() {
     demoRevision = Math.max(demoRevision, event.revision)
     demoEventLog.push(
       event.type === "status"
-        ? `status(subagents=${event.status.subagents.length},busy=${event.status.busy})`
+        ? `status(subagents=${event.status.subagents?.length},busy=${event.status.busy})`
         : event.type,
     )
   })

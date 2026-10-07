@@ -127,11 +127,13 @@ const TEXT_SIZE_LABELS = {
  * picker. Every control writes through the main process; status events update the UI.
  */
 export function SettingsPage({
+  open,
   onClose,
   installing,
   onInstallUpdate,
   initialTab = "providers",
 }: {
+  open: boolean
   onClose: () => void
   installing: boolean
   onInstallUpdate: () => void
@@ -168,7 +170,6 @@ export function SettingsPage({
   )
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab)
   // An unlock banner clicked while settings is already open still lands on its tab.
-  useEffect(() => setActiveTab(initialTab), [initialTab])
   const [openForm, setOpenForm] = useState<"pair" | HostedProvider>()
   const [hostedOpen, setHostedOpen] = useState(false)
   const [extension, setExtension] = useState<"skills" | "memory">("skills")
@@ -208,9 +209,21 @@ export function SettingsPage({
   const [pairCatalogReload, setPairCatalogReload] = useState(0)
 
   const [fastError, setFastError] = useState<string>()
+  // Hidden, not unmounted, while closed (see AppShell). Closing leaves the tab, so a tab's
+  // leave effects such as marking achievements seen still run, and drops open forms; each open
+  // lands on the requested tab.
+  useEffect(() => {
+    setActiveTab(open ? initialTab : "providers")
+    if (open) return
+    setOpenForm(undefined)
+    setHostedOpen(false)
+    setPairError(undefined)
+    setFastError(undefined)
+  }, [open, initialTab])
   const [fastPending, setFastPending] = useState(false)
 
   useEffect(() => {
+    if (!open) return
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return
       event.stopPropagation()
@@ -218,7 +231,7 @@ export function SettingsPage({
     }
     window.addEventListener("keydown", onKeyDown, true)
     return () => window.removeEventListener("keydown", onKeyDown, true)
-  }, [onClose])
+  }, [open, onClose])
 
   // Keep hooks unconditional while the initial snapshot is loading.
   useEffect(() => {
@@ -826,6 +839,10 @@ function HostedProviderRow({
   const [team, setTeam] = useState(teamId ?? "")
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string>()
+  // A key typed but not saved leaves with the editor.
+  useEffect(() => {
+    if (!open) setApiKey("")
+  }, [open])
   const name = HOSTED_PROVIDER_INFO[provider].name
   const billsTeam = provider === "primeintellect"
   const teamChanged = billsTeam && team.trim() !== (teamId ?? "")
@@ -1214,9 +1231,9 @@ function UsageStats({ stats }: { stats: LocalStats | undefined }) {
   const firstDay = recentActivity[0]
   const lastDay = recentActivity.at(-1)
   const activeDay = recentActivity.find((day) => day.date === activeDate)
-  const { promptTokens, completionTokens, cachedPromptTokens, cacheReportedPromptTokens } = stats
-  const countedTokens = promptTokens + completionTokens
-  const share = (tokens: number) => (countedTokens === 0 ? 0 : (tokens / countedTokens) * 100)
+  const countedTokens = stats.promptTokens + stats.completionTokens
+  const share = (tokens: number) => (countedTokens === 0 ? 0 : tokens / countedTokens)
+  const percent = new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 0 })
   const breakdown = usageBreakdown(stats, t, locale)
   // Each bar is relative to the leader.
   const models = Object.entries(stats.modelUsage)
@@ -1244,24 +1261,29 @@ function UsageStats({ stats }: { stats: LocalStats | undefined }) {
               <span className="settingsUsage-cacheHit">{breakdown.hitRate}</span>
             ) : null}
           </span>
+          {/* One segment per legend row, in legend order, each as wide as its share. */}
           <div
             className="settingsUsage-mixTrack"
             data-empty={countedTokens === 0 ? "true" : undefined}
-            style={
-              {
-                "--usage-uncached-share": `${share(cacheReportedPromptTokens - cachedPromptTokens)}%`,
-                "--usage-cached-share": `${share(cacheReportedPromptTokens)}%`,
-                "--usage-input-share": `${share(promptTokens)}%`,
-              } as CSSProperties
-            }
             aria-hidden="true"
-          />
+          >
+            {breakdown.rows
+              .filter((row) => row.tokens > 0)
+              .map((row) => (
+                <i
+                  key={row.id}
+                  className={`settingsUsage-mixSegment settingsUsage-mix-${row.id}`}
+                  style={{ flexGrow: share(row.tokens) }}
+                />
+              ))}
+          </div>
           <div className="settingsUsage-mixValues">
             {breakdown.rows.map((row) => (
               <span key={row.id}>
-                <i className={`settingsUsage-mixDot settingsUsage-mixDot-${row.id}`} />
+                <i className={`settingsUsage-mixDot settingsUsage-mix-${row.id}`} />
                 {row.label}
                 <strong>{formatTokenCount(row.tokens)}</strong>
+                <small>{percent.format(share(row.tokens))}</small>
               </span>
             ))}
           </div>

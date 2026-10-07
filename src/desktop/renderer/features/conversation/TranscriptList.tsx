@@ -5,14 +5,23 @@ import {
   memo,
   type ReactNode,
   useCallback,
+  useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react"
-import { Virtuoso } from "react-virtuoso"
+import { Virtuoso, type VirtuosoHandle } from "react-virtuoso"
 import type { TranscriptEntry } from "../../../../app/transcript.js"
 import { Icon } from "../../components/Icon.js"
+import {
+  clearHighlights,
+  type FindRequest,
+  matchOffsets,
+  setHighlights,
+  textRanges,
+} from "../canvas/find.js"
 import { EntryView } from "./entries.js"
-import { ToolRunCard } from "./ToolCard.js"
+import { parseDiffDisplay, ToolRunCard } from "./ToolCard.js"
 import { useTranscriptScroll } from "./useTranscriptScroll.js"
 
 /**
@@ -128,16 +137,23 @@ const isActivityRow = (item: TranscriptItem | undefined) =>
  * Only the visible slice mounts. Virtuoso measures rows; the scroll hook owns following the live
  * tail.
  */
+const NO_MATCHES: number[] = []
+
 export const TranscriptList = memo(function TranscriptList({
   entries,
   thinkingVisible,
   busy = false,
   footer,
+  find,
+  onFindCount,
 }: {
   entries: TranscriptEntry[]
   thinkingVisible: boolean
   busy?: boolean
   footer?: ReactNode
+  /** Find in session: the query and which matching row, in order, is the current one. */
+  find?: FindRequest
+  onFindCount?: (count: number) => void
 }) {
   const visible = useMemo(
     () => visibleEntries(entries, thinkingVisible),
@@ -167,13 +183,76 @@ export const TranscriptList = memo(function TranscriptList({
     [visible, expanded],
   )
   const context = useMemo(() => ({ footer }), [footer])
+
+  // Occurrences are counted per row over the rows' data, since only the visible slice is in the
+  // DOM, and over what a row shows: a folded run or thought stays out until it is opened. The
+  // current occurrence's row scrolls to the middle of the view and following the tail stops.
+  const query = find?.query ?? ""
+  const counts = useMemo(() => {
+    if (!query) return NO_MATCHES
+    return items.map((item) => {
+      if (item.kind === "toolRun" || (item.kind === "reasoning" && !expanded.has(item.id))) return 0
+      const shown = item.diff
+        ? [item.text, ...parseDiffDisplay(item.diff).map((row) => ("text" in row ? row.text : ""))]
+        : [item.messageText ?? item.text]
+      return matchOffsets(shown.join("\n"), query).length
+    })
+  }, [items, query, expanded])
+  const total = counts.reduce((sum, count) => sum + count, 0)
+  useEffect(() => {
+    onFindCount?.(total)
+  }, [total, onFindCount])
+  let current: number | undefined
+  let within = find?.index ?? 0
+  for (let row = 0; row < counts.length && current === undefined; row++) {
+    if (within < counts[row]) current = row
+    else within -= counts[row]
+  }
+  const virtuoso = useRef<VirtuosoHandle>(null)
+  const viewport = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (current === undefined) return
+    scroll.pauseFollowing()
+    virtuoso.current?.scrollToIndex({ index: current, align: "center" })
+  }, [current, scroll.pauseFollowing])
+  // Every occurrence in the mounted rows is painted, the current one in the stronger color: the
+  // one at the same position in its row when the rendered text has as many as the data (Markdown
+  // can hide some), else the whole row's. Rows mount after the scroll settles, so painting waits a
+  // frame; rows that mount during a scroll are painted when it ends. While a query is open, each
+  // transcript change walks the mounted rows' text again, which is the cost of painting what is
+  // on screen.
+  useEffect(() => {
+    const root = viewport.current
+    if (!root) return
+    if (!query) {
+      clearHighlights(root)
+      return
+    }
+    const frame = requestAnimationFrame(() => {
+      const ranges = textRanges(root, query)
+      const row = current === undefined ? null : root.querySelector(`[aria-current="true"]`)
+      const own = row ? ranges.filter((range) => row.contains(range.startContainer)) : []
+      const exact =
+        current !== undefined && own.length === counts[current] ? own[within] : undefined
+      setHighlights(root, ranges, exact ? [exact] : own)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [query, current, within, counts, items, scroll.scrolling])
+  useEffect(() => {
+    const root = viewport.current
+    return () => {
+      if (root) clearHighlights(root)
+    }
+  }, [])
+
   const renderEntry = useCallback(
     (index: number, item: TranscriptItem) => {
       // Neighbor-aware spacing belongs inside each measured row, including flattened run entries.
       const activity = isActivityRow(item) && isActivityRow(items[index + 1])
       const className = `transcriptEntry${activity ? " transcriptEntry-activity" : ""}`
+      const found = index === current ? true : undefined
       return item.kind === "toolRun" ? (
-        <div className={className} data-run-id={item.id}>
+        <div className={className} data-run-id={item.id} aria-current={found}>
           <ToolRunCard
             run={item}
             active={busy && index === items.length - 1}
@@ -185,6 +264,7 @@ export const TranscriptList = memo(function TranscriptList({
         <div
           className={`${className}${expandedEntries.has(item.id) ? " transcriptEntry-inRun" : ""}`}
           data-entry-id={item.id}
+          aria-current={found}
         >
           <EntryView
             entry={item}
@@ -196,15 +276,16 @@ export const TranscriptList = memo(function TranscriptList({
         </div>
       )
     },
-    [busy, items, thinkingVisible, expanded, expandedEntries, setEntryExpanded],
+    [busy, items, thinkingVisible, expanded, expandedEntries, setEntryExpanded, current],
   )
 
   return (
-    <div className="transcriptViewport">
+    <div className="transcriptViewport" ref={viewport}>
       {/* Steady thumb while a turn streams: event-driven reveals flicker with the follow jumps,
           and a hidden thumb reads as "the scrollbar is gone" when the pointer sits on the
           composer. */}
       <Virtuoso<TranscriptItem, ListContext>
+        ref={virtuoso}
         scrollerRef={scroll.scrollerRef}
         onScrollCapture={scroll.onScrollCapture}
         onWheelCapture={scroll.onWheelCapture}

@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, Download, Minus, Plus, Search, X } from "lucide-react"
+import { Download, Minus, Plus, Search } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { ArtifactMetadata, ArtifactPayload } from "../../../../artifacts/types.js"
 import { IconButton } from "../../components/Button.js"
@@ -6,7 +6,14 @@ import { FileTypeIcon } from "../../components/FileTypeIcon.js"
 import { Markdown } from "../../components/Markdown.js"
 import { useI18n } from "../../i18n/index.js"
 import { useDesktop } from "../../runtime.js"
-import { clearHighlights, type FindRequest, setHighlights, textRanges } from "./find.js"
+import {
+  clearHighlights,
+  FindBar,
+  type FindRequest,
+  setHighlights,
+  textRanges,
+  useFind,
+} from "./find.js"
 import { PdfPreview } from "./PdfPreview.js"
 
 const WORD_PREVIEW_CSS = `
@@ -46,18 +53,11 @@ export function FileArtifact({
   const payload = loaded?.id === artifact.id ? loaded.payload : undefined
   const error = loaded?.id === artifact.id ? loaded.error : undefined
   const [zoom, setZoom] = useState(1)
-  const [finding, setFinding] = useState(false)
-  const [query, setQuery] = useState("")
-  const [step, setStep] = useState(0)
-  const [matchCount, setMatchCount] = useState(0)
-  const findInput = useRef<HTMLInputElement>(null)
+  const finder = useFind()
+  // Previews receive the current match's document-order index.
+  const find = finder.request
   const body = useRef<HTMLDivElement>(null)
   const article = useRef<HTMLElement>(null)
-  // The current match wraps around in either direction; previews receive its document-order index.
-  const find: FindRequest = {
-    query: finding ? query : "",
-    index: matchCount > 0 ? ((step % matchCount) + matchCount) % matchCount : 0,
-  }
 
   useEffect(() => {
     let current = true
@@ -86,12 +86,9 @@ export function FileArtifact({
       factor === 0 ? 1 : Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, current * factor)),
     )
   }, [])
-  const openFind = useCallback(() => {
-    setFinding(true)
-    requestAnimationFrame(() => findInput.current?.select())
-  }, [])
+  const openFind = finder.open
   const closeFind = () => {
-    setFinding(false)
+    finder.close()
     body.current?.focus()
   }
   /** Ctrl/Cmd shortcuts, from this window or relayed by a framed preview. */
@@ -124,7 +121,7 @@ export function FileArtifact({
     const root = article.current
     if (!root || payload?.kind !== "markdown") return
     const ranges = textRanges(root, find.query)
-    setMatchCount(ranges.length)
+    finder.setMatchCount(ranges.length)
     const current = ranges[find.index]
     setHighlights(root, ranges, current ? [current] : [])
     current?.startContainer.parentElement?.scrollIntoView({ block: "center" })
@@ -198,47 +195,13 @@ export function FileArtifact({
           revision={artifact.revision}
         />
       </header>
-      {finding ? (
-        <search className="canvas-findBar">
-          <input
-            ref={findInput}
-            type="text"
-            className="canvas-findInput"
-            aria-label={t("canvas.find")}
-            placeholder={t("canvas.findPlaceholder")}
-            value={query}
-            onChange={(event) => {
-              setQuery(event.target.value)
-              setStep(0)
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") setStep((current) => current + (event.shiftKey ? -1 : 1))
-              else if (event.key === "Escape") closeFind()
-              else return
-              event.preventDefault()
-            }}
-          />
-          <span className="canvas-findCount" aria-live="polite">
-            {matchCount > 0
-              ? t("canvas.findMatches", { index: find.index + 1, count: matchCount })
-              : query
-                ? t("canvas.findNone")
-                : ""}
-          </span>
-          <IconButton
-            icon={ChevronUp}
-            label={t("canvas.findPrevious")}
-            disabled={matchCount === 0}
-            onClick={() => setStep((current) => current - 1)}
-          />
-          <IconButton
-            icon={ChevronDown}
-            label={t("canvas.findNext")}
-            disabled={matchCount === 0}
-            onClick={() => setStep((current) => current + 1)}
-          />
-          <IconButton icon={X} label={t("canvas.findClose")} onClick={closeFind} />
-        </search>
+      {finder.finding ? (
+        <FindBar
+          find={finder}
+          label={t("canvas.find")}
+          placeholder={t("canvas.findPlaceholder")}
+          onClose={closeFind}
+        />
       ) : null}
       {/* Focusable by click, not by tab, so a document's shortcuts work once it is clicked into. */}
       <div ref={body} className="canvas-artifactBody" tabIndex={-1}>
@@ -261,7 +224,7 @@ export function FileArtifact({
             data={payload.content}
             zoom={zoom}
             find={find}
-            onMatches={setMatchCount}
+            onMatches={finder.setMatchCount}
           />
         ) : null}
         {payload?.kind === "html" || wordSource ? (
@@ -271,7 +234,7 @@ export function FileArtifact({
             title={payload?.title ?? artifact.title}
             zoom={zoom}
             find={find}
-            onMatches={setMatchCount}
+            onMatches={finder.setMatchCount}
             onShortcut={shortcut}
           />
         ) : null}

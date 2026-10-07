@@ -1,6 +1,6 @@
 import { createPatch } from "diff"
 import { describe, expect, it } from "vitest"
-import { countDiffLines } from "../../src/app/transcript.js"
+import { countDiffLines } from "../../src/tools/activity.js"
 
 const PATCH_OPTIONS = {
   context: 3,

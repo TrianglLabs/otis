@@ -11,25 +11,37 @@ import type { DesktopViewStore } from "../../../src/desktop/renderer/state.js"
 
 // Stand-in for Virtuoso with the pieces these tests exercise: the scroller ref the scroll hook
 // binds to, the class it toggles, and the flattened rows in order.
-vi.mock("react-virtuoso", () => ({
-  Virtuoso: ({
-    scrollerRef,
-    className,
-    data = [],
-    itemContent,
-  }: {
-    scrollerRef?: (element: HTMLElement | Window | null) => void
-    className?: string
-    data?: { id?: number; kind?: string }[]
-    itemContent?: (index: number, item: unknown) => ReactNode
-  }) => (
-    <div className={className} ref={scrollerRef}>
-      {data.map((item, index) => (
-        <div key={`${item.kind ?? "item"}-${item.id ?? index}`}>{itemContent?.(index, item)}</div>
-      ))}
-    </div>
-  ),
-}))
+const scrollToIndex = vi.hoisted(() => vi.fn())
+vi.mock("react-virtuoso", async () => {
+  const { forwardRef, useImperativeHandle } = await import("react")
+  return {
+    Virtuoso: forwardRef(function Virtuoso(
+      {
+        scrollerRef,
+        className,
+        data = [],
+        itemContent,
+      }: {
+        scrollerRef?: (element: HTMLElement | Window | null) => void
+        className?: string
+        data?: { id?: number; kind?: string }[]
+        itemContent?: (index: number, item: unknown) => ReactNode
+      },
+      ref,
+    ) {
+      useImperativeHandle(ref, () => ({ scrollToIndex }))
+      return (
+        <div className={className} ref={scrollerRef}>
+          {data.map((item, index) => (
+            <div key={`${item.kind ?? "item"}-${item.id ?? index}`}>
+              {itemContent?.(index, item)}
+            </div>
+          ))}
+        </div>
+      )
+    }),
+  }
+})
 
 let nextId = 1
 const entry = (
@@ -223,5 +235,54 @@ describe("tool runs", () => {
       String(d.id),
     ])
     expect(view.container.querySelectorAll(".transcriptEntry-inRun")).toHaveLength(2)
+  })
+
+  it("counts occurrences in the text rows show, scrolls to the current one, and marks its row", () => {
+    const onFindCount = vi.fn()
+    const entries = [
+      message({ speaker: "You", text: "Does the Lock lock?" }),
+      tool({ text: "Reading files: lock.ts", activityKind: "file_read" }),
+      tool({ text: "Searching files: drain", activityKind: "file_search" }),
+      reasoning({ text: "The lock is per workspace.", streaming: false }),
+      message({ text: "The lock drains on switch." }),
+    ]
+    const list = (find: { query: string; index: number } | undefined) => (
+      <DesktopProvider value={runtime}>
+        <TranscriptList
+          entries={entries}
+          thinkingVisible={false}
+          find={find}
+          onFindCount={onFindCount}
+        />
+      </DesktopProvider>
+    )
+    scrollToIndex.mockClear()
+    const view = render(list(undefined))
+    expect(view.container.querySelector(".jumpToLatest")).toBeNull()
+    view.rerender(list({ query: "lock", index: 0 }))
+    // Case-insensitive, two in the first row; the folded run and thought hide their text.
+    expect(onFindCount).toHaveBeenLastCalledWith(3)
+    const found = () => view.container.querySelector<HTMLElement>('[aria-current="true"]')
+    expect(found()?.dataset.entryId).toBe(String(entries[0].id))
+    expect(scrollToIndex).toHaveBeenCalledWith({ index: 0, align: "center" })
+    // Following the tail stops once a match is in view.
+    expect(view.container.querySelector(".jumpToLatest")).toBeTruthy()
+    view.rerender(list({ query: "lock", index: 1 }))
+    expect(found()?.dataset.entryId).toBe(String(entries[0].id))
+    expect(scrollToIndex).toHaveBeenCalledTimes(1)
+    view.rerender(list({ query: "lock", index: 2 }))
+    expect(found()?.dataset.entryId).toBe(String(entries[4].id))
+    // The hidden thought is not a row: the last message is the third row.
+    expect(scrollToIndex).toHaveBeenLastCalledWith({ index: 2, align: "center" })
+    // Opening the run puts its entries on screen and into the search.
+    fireEvent.click(
+      view.container.querySelector(`[data-run-id="${entries[1].id}"] button`) as HTMLElement,
+    )
+    expect(onFindCount).toHaveBeenLastCalledWith(4)
+    view.rerender(list({ query: "lock", index: 2 }))
+    expect(found()?.dataset.entryId).toBe(String(entries[1].id))
+    view.rerender(list(undefined))
+    expect(onFindCount).toHaveBeenLastCalledWith(0)
+    expect(found()).toBeNull()
   })
 })

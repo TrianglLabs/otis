@@ -9,7 +9,7 @@ import { formatElapsed } from "../../format.js"
 import { englishT, useI18n } from "../../i18n/index.js"
 import type { Translate } from "../../i18n/messages/en.js"
 import { useDesktop, useDesktopState } from "../../runtime.js"
-import { reconcileTraceEntries } from "../../state.js"
+import { share } from "../../state.js"
 import { TranscriptList } from "../conversation/TranscriptList.js"
 
 /** How often a live run's entries are fetched while the overlay is open. */
@@ -41,6 +41,7 @@ export function AgentTraceOverlay({
     let inFlight = false
     let queued = false
     let disposed = false
+    let seen: number | undefined
     const refresh = () => {
       if (disposed) return
       if (inFlight) {
@@ -49,9 +50,12 @@ export function AgentTraceOverlay({
       }
       inFlight = true
       void api
-        .getSubagentTrace(toolCallId)
-        .then((fetched) => {
-          if (!disposed) setEntries((previous) => reconcileTraceEntries(previous, fetched))
+        .getSubagentTrace(toolCallId, seen)
+        .then((view) => {
+          if (disposed) return
+          seen = view.revision
+          const { entries } = view
+          if (entries) setEntries((previous) => share(previous, entries))
         })
         .catch(() => {})
         .finally(() => {
@@ -93,7 +97,7 @@ export function AgentTraceOverlay({
         onClick={onClose}
       />
       <div
-        className="agentTrace noDrag"
+        className={`agentTrace noDrag${running ? " agentTrace-running" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-label={t("trace.dialog", { title: run?.title ?? t("trace.run") })}

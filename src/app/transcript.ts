@@ -62,53 +62,6 @@ export type TranscriptEntry = {
 }
 
 /**
- * Counts changed lines inside unified-diff hunks. Headers precede the first hunk, so content that
- * itself starts with "---" or "+++" (a Markdown rule, a front-matter fence) is counted like any
- * other line. A removal and addition with identical text differ only by the trailing newline,
- * which the "\ No newline" marker flags on either side; that pair is not a change.
- */
-export function countDiffLines(diff: string) {
-  let added = 0
-  let removed = 0
-  let inHunk = false
-  let removal: string | undefined
-  let addition: string | undefined
-  const settle = () => {
-    if (addition !== undefined) added += 1
-    addition = undefined
-  }
-  for (const line of diff.split("\n")) {
-    if (line.startsWith("@@")) {
-      settle()
-      inHunk = true
-      removal = undefined
-      continue
-    }
-    if (!inHunk) continue
-    if (line.startsWith("\\")) {
-      if (addition !== undefined) {
-        removed -= 1
-        addition = undefined
-      } else if (removal !== undefined) removal = `${removal}\u0000`
-      continue
-    }
-    settle()
-    if (line.startsWith("-")) {
-      removed += 1
-      removal = line.slice(1)
-    } else if (line.startsWith("+")) {
-      const text = line.slice(1)
-      if (removal === `${text}\u0000`) removed -= 1
-      else if (removal === text) addition = text
-      else added += 1
-      removal = undefined
-    } else removal = undefined
-  }
-  settle()
-  return { added, removed }
-}
-
-/**
  * Saved tool cards keyed by call id, in order, so repeated ids across compacted turns pair up with
  * their calls.
  */
@@ -122,12 +75,20 @@ export function groupToolActivities(activities: readonly SessionToolActivity[]) 
   return grouped
 }
 
+type HistoryEstimator = (messages: readonly ChatMessage[]) => number
+
 export class TranscriptStore {
   readonly entries: TranscriptEntry[] = []
   readonly history: ChatMessage[] = []
   private nextMessageID = 1
   private nextLocalReasoningID = 1
   private observedContext?: { client: InferenceClient; tokens: number }
+  /** The history's cost under one estimator, good until the history changes. */
+  private historyEstimate?: { revision: number; estimate: HistoryEstimator; tokens: number }
+  /** Counts every change to the entries; polling readers compare it. */
+  revision = 0
+  /** Counts every change to the history, which streamed entry text does not touch. */
+  private historyRevision = 0
   private listeners = new Set<(change: TranscriptChange) => void>()
   private pendingArtifacts = new Map<string, number>()
 
@@ -140,7 +101,17 @@ export class TranscriptStore {
   }
 
   private emit(change: TranscriptChange) {
+    this.revision += 1
     for (const listener of this.listeners) listener(change)
+  }
+
+  /** What the whole history costs under `estimate`, computed once per history change. */
+  estimateHistory(estimate: HistoryEstimator) {
+    const memo = this.historyEstimate
+    if (memo?.revision === this.historyRevision && memo.estimate === estimate) return memo.tokens
+    const tokens = estimate(this.history)
+    this.historyEstimate = { revision: this.historyRevision, estimate, tokens }
+    return tokens
   }
 
   contextTokens(client: InferenceClient | undefined) {
@@ -159,11 +130,13 @@ export class TranscriptStore {
 
   /** Loads one finished run, including any steering messages within it. */
   loadMessages(messages: ChatMessage[], toolActivities: SessionToolActivity[] = []) {
+    this.historyRevision += 1
     this.history.push(...messages)
     this.loadEntries(messages, toolActivities)
   }
 
   replaceMessages(messages: ChatMessage[], turns: readonly SessionTurnSegment[] = [{ messages }]) {
+    this.historyRevision += 1
     this.entries.length = 0
     this.history.length = 0
     this.nextMessageID = 1
@@ -176,6 +149,7 @@ export class TranscriptStore {
 
   /** Replace model context while keeping the user's scrollback and pending entries intact. */
   loadCompacted(summary: string, keptMessages: ChatMessage[]) {
+    this.historyRevision += 1
     this.history.length = 0
     this.observedContext = undefined
     this.history.push(compactionSummaryMessage(summary), ...keptMessages)
@@ -321,6 +295,7 @@ export class TranscriptStore {
   }
 
   addMessages(messages: ChatMessage[]) {
+    this.historyRevision += 1
     this.history.push(...messages)
   }
 

@@ -14,14 +14,14 @@ import type { PermissionPolicy, PermissionRequest } from "../permissions/policy.
 import type { SkillCatalog } from "../skills/catalog.js"
 import type { JsonlSession, PromptAdmission } from "../storage/session.js"
 import type { SessionTurnDetails } from "../storage/session-events.js"
-import { describeToolCall, type ToolActivityKind } from "../tools/activity.js"
+import { countDiffLines, describeToolCall, type ToolActivityKind } from "../tools/activity.js"
 import { providerTools, type RoutineStore } from "../tools/index.js"
 import type { ParallelClient } from "../web/client.js"
 import { type ArtifactStore, sessionArtifactPublisher } from "./artifacts.js"
 import type { GatedInferenceClient, InferenceGate } from "./models.js"
 import type { SessionCoordinator } from "./sessions.js"
 import type { SubagentTraces } from "./subagents.js"
-import { countDiffLines, TranscriptProjector, type TranscriptStore } from "./transcript.js"
+import { TranscriptProjector, type TranscriptStore } from "./transcript.js"
 import { executeTurn } from "./turn-runner.js"
 
 export type ConversationTurnResult =

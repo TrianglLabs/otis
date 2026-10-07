@@ -76,6 +76,18 @@ vi.mock("../../../src/desktop/renderer/features/terminal/TerminalView.js", () =>
  * away.
  */
 
+/** A workspace document open in Canvas, where a test needs the Canvas tab to exist. */
+const DOC = {
+  id: "workspace:resume.md",
+  revision: 1,
+  source: "workspace" as const,
+  kind: "markdown" as const,
+  title: "resume.md",
+  mimeType: "text/markdown",
+  editable: true,
+  path: "resume.md",
+}
+
 const SNAPSHOT: DesktopSnapshot = snapshotFixture({
   model: {
     id: "openai/gpt-oss-20b",
@@ -331,6 +343,8 @@ describe("session views in history", () => {
     expect(selectSession).toHaveBeenCalledWith("alpha", item.dirName, { side: "left" })
     fireEvent.dragEnd(row, { dataTransfer: { ...dataTransfer, dropEffect: "move" } })
     expect(screen.queryByRole("dialog")).toBeNull()
+    // Closed overlays hide rather than unmount (Chromium keeps a removed, once-animated subtree).
+    expect(document.querySelector<HTMLElement>(".palette")?.hidden).toBe(true)
     // A refused drop says why, where the composer reports its own refusals.
     expect((await screen.findByRole("alert")).textContent).toBe("That session is open elsewhere.")
 
@@ -637,15 +651,25 @@ describe("AppShell settings navigation", () => {
       (e) => e.textContent,
     )
     expect(legend).toEqual([
-      "Uncached input119.4k",
-      "Cached input700.0k",
-      "Input without cache data300.0k",
-      "Output362.9k",
+      "Uncached input119.4k8%",
+      "Cached input700.0k47%",
+      "Input without cache data300.0k20%",
+      "Output362.9k24%",
     ])
-    const track = usage.querySelector<HTMLElement>(".settingsUsage-mixTrack")
-    expect(track?.style.getPropertyValue("--usage-uncached-share")).toMatch(/^8\.05/)
-    expect(track?.style.getPropertyValue("--usage-cached-share")).toMatch(/^55\.2/)
-    expect(track?.style.getPropertyValue("--usage-input-share")).toMatch(/^75\.5/)
+    // The bar's segments follow the legend, each as wide as its share of every counted token.
+    const segments = [...usage.querySelectorAll<HTMLElement>(".settingsUsage-mixSegment")]
+    expect(segments.map((e) => e.className.split(" ")[1])).toEqual([
+      "settingsUsage-mix-uncached",
+      "settingsUsage-mix-cached",
+      "settingsUsage-mix-unknown",
+      "settingsUsage-mix-output",
+    ])
+    expect(segments.map((e) => Number(e.style.flexGrow).toFixed(3))).toEqual([
+      "0.081",
+      "0.472",
+      "0.202",
+      "0.245",
+    ])
     // Models list biggest first, with their input and output split, cached when reported.
     const models = [...usage.querySelectorAll(".settingsUsage-modelName")].map((e) => e.textContent)
     expect(models).toEqual(["GLM-5.3", "Qwen3.8 27B"])
@@ -661,6 +685,17 @@ describe("AppShell settings navigation", () => {
     expect(within(usage).getByText("September 18, 2026: 12,000 tokens")).toBeTruthy()
     fireEvent.pointerLeave(activityBars[0])
     expect(within(usage).queryByText("September 18, 2026: 12,000 tokens")).toBeNull()
+
+    // Settings mounts on first open and hides afterwards instead of unmounting; reopening lands
+    // on the requested tab again.
+    fireEvent.keyDown(window, { key: "Escape" })
+    await act(async () => {})
+    expect(screen.queryByRole("region", { name: "Usage" })).toBeNull()
+    expect(document.querySelector<HTMLElement>(".settingsLayer")?.hidden).toBe(true)
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }))
+    await act(async () => {})
+    expect(document.querySelector<HTMLElement>(".settingsLayer")?.hidden).toBe(false)
+    expect(screen.queryByRole("region", { name: "Usage" })).toBeNull()
   })
 
   it("shows achievements with fresh marks and dots, and announces later unlocks", async () => {
@@ -710,6 +745,11 @@ describe("AppShell settings navigation", () => {
     expect(api.markAchievementsSeen).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole("tab", { name: "General" }))
     expect(api.markAchievementsSeen).toHaveBeenCalledOnce()
+    // Closing Settings from the tab counts as having looked too, although the page stays mounted.
+    fireEvent.click(screen.getByRole("tab", { name: "Achievements" }))
+    fireEvent.keyDown(window, { key: "Escape" })
+    await act(async () => {})
+    expect(api.markAchievementsSeen).toHaveBeenCalledTimes(2)
 
     // What the first snapshot listed is history; an id appearing later earns a banner.
     expect(document.querySelector(".unlockCard")).toBeNull()
@@ -901,7 +941,9 @@ describe("AppShell settings navigation", () => {
     expect(restored.value).toBe("refactor the view store")
     expect(workspace.classList.contains("workspaceView-hidden")).toBe(false)
     expect(workspace.inert).toBe(false)
-    expect(settings.isConnected).toBe(false)
+    // Settings stays mounted but hidden; Chromium keeps a removed, once-animated subtree alive.
+    expect(settings.isConnected).toBe(true)
+    expect(settings.hidden).toBe(true)
 
     // Its capture listener must be gone, so Escape reaches the conversation again.
     const onEscape = vi.fn()
@@ -1242,9 +1284,21 @@ describe("AppShell settings navigation", () => {
     expect((uncachedSelect as HTMLButtonElement).disabled).toBe(false)
 
     // Like the ⌘K palette there is no title bar; the backdrop dismisses the catalog.
+    fireEvent.change(within(screen.getByRole("dialog")).getByRole("textbox"), {
+      target: { value: "qwen" },
+    })
     fireEvent.click(screen.getByRole("button", { name: "Close model picker" }))
     await act(async () => {})
     expect(screen.queryByRole("dialog", { name: "Select a model" })).toBeNull()
+    expect(document.querySelector<HTMLElement>(".modelPicker")?.hidden).toBe(true)
+    // Reopening clears the search and reloads the catalog into the rows kept from last time.
+    fireEvent.click(document.querySelector(".composer-model") as HTMLElement)
+    await act(async () => {})
+    expect(screen.getByRole("dialog", { name: "Select a model" })).toBeTruthy()
+    expect(
+      (within(screen.getByRole("dialog")).getByRole("textbox") as HTMLInputElement).value,
+    ).toBe("")
+    expect(api.listModels).toHaveBeenCalledTimes(3)
   })
 
   it("shows the Debug mode toggle only outside production builds", async () => {
@@ -1476,7 +1530,14 @@ describe("AppShell settings navigation", () => {
     await act(async () => {})
 
     expect(api.selectSession).toHaveBeenCalledWith("session-2", "ws-0123456789ab")
-    expect(screen.queryByLabelText("Search sessions and actions")).toBeNull()
+    expect(screen.queryByRole("dialog")).toBeNull()
+    // The hidden palette comes back empty and refreshes history again.
+    fireEvent.keyDown(window, { key: "k", metaKey: true })
+    await act(async () => {})
+    expect((screen.getByLabelText("Search sessions and actions") as HTMLInputElement).value).toBe(
+      "",
+    )
+    expect(api.refreshSessions).toHaveBeenCalledTimes(2)
   })
 
   it("shows the header's Fresh start button only once a conversation exists", async () => {
@@ -1885,6 +1946,7 @@ describe("AppShell settings navigation", () => {
       getSnapshot: async () => ({
         ...SNAPSHOT,
         subagents: [{ toolCallId: "one", title: "Coworker", status: "complete", tools: 1 }],
+        artifacts: [{ runtime: 1, artifact: DOC, activated: 1 }],
       }),
     })
     await renderApp(api)
@@ -1920,7 +1982,11 @@ describe("AppShell settings navigation", () => {
       status: "running" as const,
       tools: 0,
     })
-    const status = { ...SNAPSHOT, subagents: [run("one")] }
+    const status = {
+      ...SNAPSHOT,
+      subagents: [run("one")],
+      artifacts: [{ runtime: 1, artifact: DOC, activated: 1 }],
+    }
     const api = fakeApi({
       getSnapshot: async () => status,
       subscribe: vi.fn((listener) => {
@@ -1952,6 +2018,7 @@ describe("AppShell settings navigation", () => {
         ...SNAPSHOT,
         workspacePanelWidth: 500,
         subagents: [{ toolCallId: "one", title: "Coworker", status: "complete", tools: 1 }],
+        artifacts: [{ runtime: 1, artifact: DOC, activated: 1 }],
       }),
     })
     await renderApp(api)
@@ -1963,6 +2030,8 @@ describe("AppShell settings navigation", () => {
 
     const coworkers = screen.getByRole("tab", { name: "Coworkers" })
     const canvas = screen.getByRole("tab", { name: "Canvas" })
+    // A document on screen opens on Canvas; the keyboard walk starts from Coworkers.
+    fireEvent.click(coworkers)
     const viewOf = (tab: HTMLElement) => {
       const view = document.getElementById(tab.getAttribute("aria-controls") ?? "")
       if (!view) throw new Error("tab panel is missing")
@@ -3046,7 +3115,9 @@ describe("tool run condensing", () => {
     expect(screen.queryByText("Reading files: AppShell.tsx")).toBeNull()
 
     // The edit's diff is content, not a summary: it stays standalone outside the run.
-    expect(screen.getByText("Editing file: AppShell.tsx")).toBeTruthy()
+    // The side panel's Changes tab names the file too; the card is the one in the transcript.
+    const transcript = document.querySelector(".conversation") as HTMLElement
+    expect(within(transcript).getByText("Editing file: AppShell.tsx")).toBeTruthy()
 
     fireEvent.click(run)
     // Expanding flattens the actions into ordinary virtualized rows beside the run's row, indented
@@ -3061,5 +3132,242 @@ describe("tool run condensing", () => {
     fireEvent.click(run)
     expect(document.querySelectorAll(".transcriptEntry")).toHaveLength(4)
     expect(screen.queryByText("Searching files: keydown")).toBeNull()
+  })
+})
+
+describe("find in session", () => {
+  const entries = [
+    { id: 1, kind: "message", speaker: "You", text: "Where is the keydown handler?" },
+    { id: 2, kind: "message", speaker: "Otis", text: "The handler lives in AppShell." },
+    {
+      id: 3,
+      kind: "tool",
+      speaker: "Tool",
+      text: "Reading files: AppShell.tsx",
+      activityKind: "file_read",
+    },
+    { id: 4, kind: "message", speaker: "Otis", text: "It binds the palette and the terminal." },
+  ] satisfies TranscriptEntry[]
+  const found = () => document.querySelector('[aria-current="true"]')?.getAttribute("data-entry-id")
+
+  it("opens on ⌘F, steps through occurrences with wraparound, and closes on Escape", async () => {
+    await renderApp(fakeApi({ getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, entries })) }))
+    expect(screen.queryByLabelText("Find in session")).toBeNull()
+    const prompt = screen.getByLabelText("Prompt")
+    prompt.focus()
+    fireEvent.keyDown(window, { key: "f", metaKey: true })
+    await act(async () => {})
+    const input = screen.getByLabelText("Find in session") as HTMLInputElement
+    expect(document.activeElement).toBe(input)
+    fireEvent.change(input, { target: { value: "handler" } })
+    await act(async () => {})
+    expect(screen.getByText("1 of 2")).toBeTruthy()
+    expect(found()).toBe("1")
+    fireEvent.keyDown(input, { key: "Enter" })
+    expect(screen.getByText("2 of 2")).toBeTruthy()
+    expect(found()).toBe("2")
+    fireEvent.keyDown(input, { key: "Enter" })
+    expect(screen.getByText("1 of 2")).toBeTruthy()
+    fireEvent.keyDown(input, { key: "Enter", shiftKey: true })
+    expect(screen.getByText("2 of 2")).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Previous match" }))
+    expect(screen.getByText("1 of 2")).toBeTruthy()
+    // Tool rows count: the file name is in the activity text.
+    fireEvent.change(input, { target: { value: "appshell" } })
+    await act(async () => {})
+    expect(screen.getByText("1 of 2")).toBeTruthy()
+    fireEvent.keyDown(input, { key: "Enter" })
+    expect(found()).toBe("3")
+    fireEvent.change(input, { target: { value: "nowhere" } })
+    await act(async () => {})
+    expect(screen.getByText("No matches")).toBeTruthy()
+    expect(document.querySelector('[aria-current="true"]')).toBeNull()
+    // Closing hands focus back to the composer.
+    fireEvent.keyDown(input, { key: "Escape" })
+    expect(screen.queryByLabelText("Find in session")).toBeNull()
+    expect(document.activeElement).toBe(prompt)
+  })
+
+  it("is a palette action and stays closed on an empty session, even once entries arrive", async () => {
+    let emit!: (event: DesktopEvent) => void
+    await renderApp(
+      fakeApi({
+        subscribe: vi.fn((listener) => {
+          emit = listener
+          return () => {}
+        }),
+      }),
+    )
+    fireEvent.keyDown(window, { key: "f", metaKey: true })
+    await act(async () => {})
+    expect(screen.queryByLabelText("Find in session")).toBeNull()
+    act(() => emit({ type: "transcript", revision: 2, ops: [{ op: "upsert", entry: entries[0] }] }))
+    expect(screen.getByText("Where is the keydown handler?")).toBeTruthy()
+    expect(screen.queryByLabelText("Find in session")).toBeNull()
+    fireEvent.keyDown(window, { key: "k", metaKey: true })
+    await act(async () => {})
+    fireEvent.click(screen.getByRole("button", { name: /Find in session/ }))
+    await act(async () => {})
+    expect(screen.queryByRole("dialog")).toBeNull()
+    expect(screen.getByLabelText("Find in session")).toBeTruthy()
+  })
+
+  it("opens in the active pane only, and a focus change opens nothing", async () => {
+    let emit!: (event: DesktopEvent) => void
+    // Two sessions side by side; focusing one makes its session the snapshot's, as the daemon does.
+    const sessions = [
+      { id: "session-1", title: "Test session", dirName: "ws-0123456789ab" },
+      { id: "other", title: "Other", dirName: "ws-0123456789ab" },
+    ]
+    const focusOn = (focused: number) => ({
+      session: { id: sessions[focused - 1].id, title: sessions[focused - 1].title },
+      runtimes: sessions.map((session, index) => ({
+        ...SNAPSHOT.runtimes[0],
+        runtime: index + 1,
+        session,
+        focused: focused === index + 1,
+      })),
+    })
+    const other = [
+      { id: 9, kind: "message", speaker: "Otis", text: "Other pane." },
+    ] satisfies TranscriptEntry[]
+    await renderApp(
+      fakeApi({
+        getSnapshot: vi.fn(async () => ({
+          ...SNAPSHOT,
+          entries,
+          ...focusOn(1),
+          panes: [1, 2],
+          transcripts: { 2: other },
+        })),
+        subscribe: vi.fn((listener) => {
+          emit = listener
+          return () => {}
+        }),
+      }),
+    )
+    const pane = (runtime: number) =>
+      document.querySelector(`.conversation[data-runtime="${runtime}"]`) as HTMLElement
+    fireEvent.keyDown(window, { key: "f", metaKey: true })
+    await act(async () => {})
+    expect(screen.getAllByLabelText("Find in session")).toHaveLength(1)
+    expect(within(pane(1)).getByLabelText("Find in session")).toBeTruthy()
+    act(() => emit({ type: "status", revision: 2, status: focusOn(2) }))
+    expect(screen.getAllByLabelText("Find in session")).toHaveLength(1)
+    expect(within(pane(2)).queryByLabelText("Find in session")).toBeNull()
+    fireEvent.keyDown(window, { key: "f", metaKey: true })
+    await act(async () => {})
+    expect(within(pane(2)).getByLabelText("Find in session")).toBeTruthy()
+  })
+})
+
+describe("changes tab", () => {
+  const edit = (id: number, path: string, diff: string): TranscriptEntry => ({
+    id,
+    kind: "tool",
+    speaker: "Tool",
+    text: `Editing file: ${path.slice(path.lastIndexOf("/") + 1)}`,
+    activityKind: "file_edit",
+    activityAction: "edit",
+    activitySubject: path,
+    diff,
+  })
+  const entries = [
+    { id: 1, kind: "message", speaker: "You", text: "Rename the handler." },
+    edit(2, "src/shell/AppShell.tsx", "@@ -1,2 +1,2 @@\n-const a = 1\n+const b = 1\n context"),
+    edit(3, "README.md", "@@ -1 +1,2 @@\n # Otis\n+A terminal agent."),
+    edit(4, "src/shell/AppShell.tsx", "@@ -5 +5 @@\n-old\n+new"),
+    { id: 5, kind: "message", speaker: "Otis", text: "Done." },
+  ] satisfies TranscriptEntry[]
+
+  it("lists the session's edited files with their totals and patches in the side panel", async () => {
+    await renderApp(fakeApi({ getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, entries })) }))
+    const rail = document.querySelector(".workspaceRail") as HTMLElement
+    fireEvent.click(within(rail).getByRole("tab", { name: "Changes" }))
+    const files = rail.querySelectorAll(".changeFile")
+    expect(files).toHaveLength(2)
+    // Files in the order first touched; both edits of one file add up and show in sequence.
+    expect(files[0].querySelector(".changeFile-name")?.textContent).toBe("AppShell.tsx")
+    expect(files[0].querySelector(".changeFile-folder")?.textContent).toBe("src/shell")
+    expect(files[0].querySelector(".headerDiff")?.textContent).toBe("+2−2")
+    expect(files[0].querySelectorAll(".diffView")).toHaveLength(2)
+    expect(files[1].querySelector(".changeFile-name")?.textContent).toBe("README.md")
+    expect(files[1].querySelector(".changeFile-folder")).toBeNull()
+    expect(files[1].querySelector(".headerDiff")?.textContent).toBe("+1−0")
+    expect(files[1].querySelectorAll(".diffLine-add")).toHaveLength(1)
+  })
+
+  it("follows the focused pane", async () => {
+    let emit!: (event: DesktopEvent) => void
+    // Two sessions side by side; focusing one makes its session the snapshot's, as the daemon does.
+    const sessions = [
+      { id: "session-1", title: "Test session", dirName: "ws-0123456789ab" },
+      { id: "other", title: "Other", dirName: "ws-0123456789ab" },
+    ]
+    const focusOn = (focused: number) => ({
+      session: { id: sessions[focused - 1].id, title: sessions[focused - 1].title },
+      runtimes: sessions.map((session, index) => ({
+        ...SNAPSHOT.runtimes[0],
+        runtime: index + 1,
+        session,
+        focused: focused === index + 1,
+      })),
+    })
+    await renderApp(
+      fakeApi({
+        getSnapshot: vi.fn(async () => ({
+          ...SNAPSHOT,
+          entries,
+          ...focusOn(1),
+          panes: [1, 2],
+          transcripts: {
+            2: [
+              { id: 9, kind: "message", speaker: "Otis", text: "No edits." },
+            ] satisfies TranscriptEntry[],
+          },
+        })),
+        subscribe: vi.fn((listener) => {
+          emit = listener
+          return () => {}
+        }),
+      }),
+    )
+    const rail = () => document.querySelector(".workspaceRail") as HTMLElement
+    fireEvent.click(within(rail()).getByRole("tab", { name: "Changes" }))
+    expect(rail().querySelectorAll(".changeFile")).toHaveLength(2)
+    // The other pane has no edits and nothing else fills the rail, so it leaves; back again, the
+    // tab returns still selected.
+    act(() => emit({ type: "status", revision: 2, status: focusOn(2) }))
+    expect(document.querySelector(".workspaceRail")).toBeNull()
+    act(() => emit({ type: "status", revision: 3, status: focusOn(1) }))
+    expect(within(rail()).getByRole("tab", { name: "Changes" }).getAttribute("aria-selected")).toBe(
+      "true",
+    )
+    expect(rail().querySelectorAll(".changeFile")).toHaveLength(2)
+  })
+
+  it("is the only tab when nothing else has content", async () => {
+    await renderApp(fakeApi({ getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, entries })) }))
+    const rail = document.querySelector(".workspaceRail") as HTMLElement
+    expect(
+      within(rail)
+        .getAllByRole("tab")
+        .map((tab) => tab.textContent),
+    ).toEqual(["Changes"])
+    expect(within(rail).getByRole("tab", { name: "Changes" }).getAttribute("aria-selected")).toBe(
+      "true",
+    )
+  })
+
+  it("is reason enough to offer the hidden side panel", async () => {
+    await renderApp(
+      fakeApi({
+        getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, entries, agentsPanelVisible: false })),
+      }),
+    )
+    expect(screen.getByRole("button", { name: "Show side panel" })).toBeTruthy()
+    cleanup()
+    await renderApp(fakeApi({ getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, entries: [] })) }))
+    expect(document.querySelector(".workspaceRail")).toBeNull()
   })
 })

@@ -1333,7 +1333,15 @@ describe("Application workspaces", () => {
     await stored.completeTurn(admission, [
       { role: "assistant", content: [{ type: "text", text: "hi" }] },
     ])
+    // The request estimator is built once per folder, skills, and provider, and shared by
+    // status reads; the folder's loaded state leaves with its last session, the home one stays.
+    const estimate = app.contextEstimator(runtime)
+    expect(app.contextEstimator(runtime)).toBe(estimate)
+    expect(app.contextEstimator(home)).not.toBe(estimate)
+    const loaded = runtime.workspace
     expect(await app.closeRuntime(runtime)).toBe("closed")
+    expect(await app.workspace(home.workspace.cwd)).toBe(home.workspace)
+    expect(await app.workspace(other)).not.toBe(loaded)
     expect(await app.openSession(stored.id, { cwd: other })).toBe("opened")
     expect(app.focused).not.toBe(home)
     expect(app.focused.workspace.cwd).toBe(other)
@@ -1364,8 +1372,10 @@ describe("Application skills", () => {
       join(skill, "SKILL.md"),
       "---\nname: release-notes\ndescription: Prepare release notes.\n---\n\n# Notes\n",
     )
+    const stale = app.contextEstimator()
     await app.reloadSkills()
     expect(app.skills.byName.get("release-notes")?.description).toBe("Prepare release notes.")
+    expect(app.contextEstimator()).not.toBe(stale)
     await app.shutdown()
   })
 })

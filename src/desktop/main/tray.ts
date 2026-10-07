@@ -74,14 +74,20 @@ type StatusTray = {
  * yet.
  */
 export function trayStatusGate(tray: Pick<StatusTray, "onStatus">) {
-  let live = false
+  // Events carry what changed and are newer than any seed, so they overlay it whenever it lands;
+  // the icon shows nothing until a whole status exists.
+  let live: Partial<DesktopStatus> = {}
+  let whole: DesktopStatus | undefined
   return {
-    applyLive(status: DesktopStatus) {
-      live = true
-      tray.onStatus(status)
+    applyLive(status: Partial<DesktopStatus>) {
+      live = { ...live, ...status }
+      if (!whole) return
+      whole = { ...whole, ...live }
+      tray.onStatus(whole)
     },
     applySeed(status: DesktopStatus) {
-      if (!live) tray.onStatus(status)
+      whole = { ...status, ...live }
+      tray.onStatus(whole)
     },
   }
 }

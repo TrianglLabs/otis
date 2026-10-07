@@ -2,6 +2,7 @@ import {
   Box,
   ChevronRight,
   ChevronsRight,
+  FileDiff,
   Frame,
   type LucideIcon,
   SquareTerminal,
@@ -14,11 +15,15 @@ import {
   useEffect,
   useId,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react"
+import type { TranscriptEntry } from "../../../app/transcript.js"
+import { countDiffLines, splitSubject } from "../../../tools/activity.js"
 import type { SubagentSummary, ThemeName } from "../../contracts.js"
 import { IconButton } from "../components/Button.js"
+import { FileTypeIcon } from "../components/FileTypeIcon.js"
 import { Icon } from "../components/Icon.js"
 import {
   AgentStatus,
@@ -27,12 +32,18 @@ import {
 } from "../features/agents/AgentTraceOverlay.js"
 import { CanvasPanel } from "../features/canvas/CanvasPanel.js"
 import type { CanvasView } from "../features/canvas/canvas-context.js"
+import { DiffView } from "../features/conversation/ToolCard.js"
 import { TerminalView } from "../features/terminal/TerminalView.js"
 import { useI18n } from "../i18n/index.js"
-import { useDesktop, useDesktopSelector } from "../runtime.js"
+import { useDesktop, useDesktopSelector, useScrollbarFlash } from "../runtime.js"
 
-type PanelTab = "coworkers" | "canvas" | "terminal"
+type PanelTab = "coworkers" | "canvas" | "changes" | "terminal"
+/** A tool entry that edited a file: the Changes tab lists these by file. */
+type Change = TranscriptEntry & { diff: string; activitySubject: string }
+export const isChange = (entry: TranscriptEntry): entry is Change =>
+  entry.kind === "tool" && entry.diff !== undefined && entry.activitySubject !== undefined
 const EMPTY_RUNS: SubagentSummary[] = []
+const NO_CHANGES: Change[] = []
 const PANEL_MIN_WIDTH = 240
 const PANEL_MAX_WIDTH = 720
 const MAIN_MIN_WIDTH = 480
@@ -55,6 +66,10 @@ export function WorkspacePanel({
   // Drags update the local width immediately; the saved width seeds it and survives relaunches.
   // The wrapper tells a double-click reset (width undefined) apart from "never touched".
   const [local, setLocal] = useState<{ width: number | undefined }>()
+  // The focused session's edits; the selection compares by entry, so it holds until one lands.
+  const changes = useDesktopSelector((snapshot) =>
+    (snapshot?.entries ?? NO_CHANGES).filter(isChange),
+  )
   const state = useDesktopSelector((snapshot) => ({
     runs: snapshot?.subagents ?? EMPTY_RUNS,
     visible: snapshot?.agentsPanelVisible ?? true,
@@ -65,6 +80,7 @@ export function WorkspacePanel({
   const { savedWidth, ...panel } = state
   return (
     <SessionWorkspacePanel
+      changes={changes}
       {...panel}
       views={views}
       onCloseDiagram={onCloseDiagram}
@@ -85,6 +101,7 @@ function SessionWorkspacePanel({
   theme,
   railWidth,
   onRailWidthChange,
+  changes,
 }: {
   runs: SubagentSummary[]
   views: CanvasView[]
@@ -95,23 +112,28 @@ function SessionWorkspacePanel({
   theme: ThemeName
   railWidth: number | undefined
   onRailWidthChange: (width: number | undefined) => void
+  changes: Change[]
 }) {
   const { api } = useDesktop()
   const { t } = useI18n()
   const [pickedTab, setPickedTab] = useState<PanelTab>(views.length > 0 ? "canvas" : "coworkers")
-  const openTabs: readonly PanelTab[] = terminal
-    ? ["coworkers", "canvas", "terminal"]
-    : ["coworkers", "canvas"]
-  const activeTab = openTabs.includes(pickedTab) ? pickedTab : "coworkers"
-  // The tab that last took the view shows, unless the user picked another one since.
+  // The document that last took the view shows, unless the user picked another one since.
   const [chosen, setChosen] = useState<{ key: string; at: number }>()
   const latest = views.reduce<CanvasView | undefined>(
     (best, view) => (!best || view.activated > best.activated ? view : best),
     undefined,
   )
   const selected =
-    (chosen && chosen.at >= (latest?.activated ?? 0) && views.find((v) => v.key === chosen.key)) ||
-    latest
+    latest &&
+    ((chosen && chosen.at >= latest.activated && views.find((v) => v.key === chosen.key)) || latest)
+  // A tab exists while it has something to show; the rail itself leaves with the last one.
+  const openTabs: readonly PanelTab[] = [
+    ...(runs.length > 0 ? ["coworkers" as const] : []),
+    ...(selected ? ["canvas" as const] : []),
+    ...(changes.length > 0 ? ["changes" as const] : []),
+    ...(terminal ? ["terminal" as const] : []),
+  ]
+  const activeTab = openTabs.includes(pickedTab) ? pickedTab : (openTabs[0] ?? "coworkers")
   // A trace belongs to the session whose runs are listed; focus moving elsewhere closes it.
   const [chosenTraceId, setOpenTraceId] = useState<string>()
   const openTraceId = runs.some((run) => run.toolCallId === chosenTraceId)
@@ -125,7 +147,7 @@ function SessionWorkspacePanel({
   const headerRef = useRef<HTMLDivElement>(null)
   const tabsRef = useRef<HTMLDivElement>(null)
   const stopResizeRef = useRef<() => void>(() => {})
-  const hasContent = runs.length > 0 || views.length > 0 || terminal
+  const hasContent = openTabs.length > 0
 
   useEffect(() => () => stopResizeRef.current(), [])
   useEffect(() => {
@@ -350,8 +372,9 @@ function SessionWorkspacePanel({
             aria-label={t("panel.workspaceViews")}
             onKeyDown={selectTabWithKeyboard}
           >
-            {tab("coworkers", Box, t("panel.coworkers"))}
-            {tab("canvas", Frame, t("panel.canvas"))}
+            {runs.length > 0 ? tab("coworkers", Box, t("panel.coworkers")) : null}
+            {selected ? tab("canvas", Frame, t("panel.canvas")) : null}
+            {changes.length > 0 ? tab("changes", FileDiff, t("panel.changes")) : null}
             {terminal ? (
               <div className="workspaceRail-tab" data-selected={activeTab === "terminal"}>
                 {tab("terminal", SquareTerminal, t("panel.terminal"))}
@@ -375,8 +398,8 @@ function SessionWorkspacePanel({
           />
         </div>
         <div className="workspaceRail-views">
-          <div {...view("coworkers")}>
-            {runs.length > 0 ? (
+          {runs.length > 0 ? (
+            <div {...view("coworkers")}>
               <ul className="agentsRail-list">
                 {runs.map((run) => (
                   <li key={run.toolCallId} className="agentsRail-item">
@@ -400,49 +423,54 @@ function SessionWorkspacePanel({
                   </li>
                 ))}
               </ul>
-            ) : (
-              <div className="workspaceRail-empty">{t("panel.noCoworkers")}</div>
-            )}
-          </div>
-          <div {...view("canvas")}>
-            {views.length > 1 ? (
-              <div className="canvas-tabs" role="tablist" aria-label={t("canvas.tabs")}>
-                {views.map((entry) => {
-                  const title =
-                    entry.artifact.kind === "mermaid" ? t("canvas.diagram") : entry.artifact.title
-                  return (
-                    <div
-                      key={entry.key}
-                      className={`canvas-tab${entry === selected ? " canvas-tab-selected" : ""}`}
-                    >
-                      <button
-                        type="button"
-                        role="tab"
-                        className="canvas-tabOpen"
-                        aria-selected={entry === selected}
-                        onClick={() => setChosen({ key: entry.key, at: Date.now() })}
+            </div>
+          ) : null}
+          {selected ? (
+            <div {...view("canvas")}>
+              {views.length > 1 ? (
+                <div className="canvas-tabs" role="tablist" aria-label={t("canvas.tabs")}>
+                  {views.map((entry) => {
+                    const title =
+                      entry.artifact.kind === "mermaid" ? t("canvas.diagram") : entry.artifact.title
+                    return (
+                      <div
+                        key={entry.key}
+                        className={`canvas-tab${entry === selected ? " canvas-tab-selected" : ""}`}
                       >
-                        {title}
-                      </button>
-                      <button
-                        type="button"
-                        className="iconBtn canvas-tabClose"
-                        aria-label={t("canvas.closeTab", { title })}
-                        onClick={() =>
-                          entry.runtime === undefined
-                            ? onCloseDiagram()
-                            : void api.closeArtifact(entry.runtime, entry.artifact.id)
-                        }
-                      >
-                        <Icon icon={X} size={11} />
-                      </button>
-                    </div>
-                  )
-                })}
-              </div>
-            ) : null}
-            <CanvasPanel view={selected} />
-          </div>
+                        <button
+                          type="button"
+                          role="tab"
+                          className="canvas-tabOpen"
+                          aria-selected={entry === selected}
+                          onClick={() => setChosen({ key: entry.key, at: Date.now() })}
+                        >
+                          {title}
+                        </button>
+                        <button
+                          type="button"
+                          className="iconBtn canvas-tabClose"
+                          aria-label={t("canvas.closeTab", { title })}
+                          onClick={() =>
+                            entry.runtime === undefined
+                              ? onCloseDiagram()
+                              : void api.closeArtifact(entry.runtime, entry.artifact.id)
+                          }
+                        >
+                          <Icon icon={X} size={11} />
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : null}
+              <CanvasPanel view={selected} />
+            </div>
+          ) : null}
+          {changes.length > 0 ? (
+            <div {...view("changes")}>
+              <ChangesView changes={changes} />
+            </div>
+          ) : null}
           {terminal ? (
             <div {...view("terminal")}>
               <TerminalView key={theme} activated={terminalFocus} />
@@ -458,5 +486,52 @@ function SessionWorkspacePanel({
         />
       ) : null}
     </>
+  )
+}
+
+/** The session's edits by file, in the order the files were first touched, patches in sequence. */
+function ChangesView({ changes }: { changes: Change[] }) {
+  // The thumb appears on hover and flashes while scrolling, like the transcript.
+  const scrollbar = useScrollbarFlash()
+  const files = useMemo(() => {
+    const byPath = new Map<string, { patches: Change[]; added: number; removed: number }>()
+    for (const change of changes) {
+      const file = byPath.get(change.activitySubject) ?? { patches: [], added: 0, removed: 0 }
+      const lines = countDiffLines(change.diff)
+      file.patches.push(change)
+      file.added += lines.added
+      file.removed += lines.removed
+      byPath.set(change.activitySubject, file)
+    }
+    return [...byPath]
+  }, [changes])
+  return (
+    <div
+      className={`changesList${scrollbar.scrolling ? " scrolling" : ""}`}
+      onScroll={scrollbar.onScroll}
+    >
+      {files.map(([path, file]) => {
+        const [name, folder] = splitSubject("edit", path)
+        return (
+          <details key={path} className="changeFile" open>
+            <summary className="changeFile-summary">
+              <Icon icon={ChevronRight} size={12} className="changeFile-chevron" />
+              <FileTypeIcon name={name} size="xs" />
+              <span className="changeFile-path">
+                <span className="changeFile-name">{name}</span>
+                {folder ? <span className="changeFile-folder">{folder}</span> : null}
+              </span>
+              <span className="headerDiff">
+                <span className="headerDiff-add">+{file.added}</span>
+                <span className="headerDiff-remove">−{file.removed}</span>
+              </span>
+            </summary>
+            {file.patches.map((change) => (
+              <DiffView key={change.id} diff={change.diff} />
+            ))}
+          </details>
+        )
+      })}
+    </div>
   )
 }

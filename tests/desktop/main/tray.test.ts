@@ -773,14 +773,28 @@ describe("trayStatusGate", () => {
     expect(icons).toEqual([icon])
   })
 
-  it("applies every live status; only a pre-live seed applies, and only once", () => {
+  it("applies every live status; a seed never rolls back what has gone live", () => {
     const { icons, tray } = recordingTray()
     const gate = trayStatusGate(tray)
     gate.applySeed(statusFixture())
     gate.applyLive(statusFixture({ phase: "thinking" }))
-    gate.applySeed(statusFixture()) // a second seed is stale by construction and must be ignored
+    gate.applySeed(statusFixture()) // stale by construction: the live phase stays on top of it
     gate.applyLive(statusFixture())
-    expect(icons).toEqual(["idle", "working", "idle"])
+    expect(icons).toEqual(["idle", "working", "working", "idle"])
+  })
+
+  it("folds partial live statuses onto the seed, whichever lands first", () => {
+    const { icons, tray } = recordingTray()
+    const gate = trayStatusGate(tray)
+    // A daemon that was already pushing to nobody sends a diff first; nothing shows until the
+    // seed completes it, and the newer diff stays on top of the seed.
+    gate.applyLive({ phase: "thinking" })
+    expect(icons).toEqual([])
+    gate.applySeed(statusFixture())
+    gate.applyLive({ phase: "idle" })
+    gate.applyLive({ permission: { ...approval, id: 4, label: "Edit a file", kind: "file_edit" } })
+    gate.applyLive({ permission: null })
+    expect(icons).toEqual(["working", "idle", "alert", "idle"])
   })
 })
 

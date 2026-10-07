@@ -56,8 +56,8 @@ export class DesktopViewStore {
     const state = this.#state
     if (!state || event.revision <= state.revision) return
     const status = event.type === "status" ? event.status : undefined
-    const before = focusedRuntime(state)
-    const after = focusedRuntime(status ?? state)
+    const before = focusedRuntime(state.runtimes)
+    const after = focusedRuntime(status?.runtimes ?? state.runtimes)
     let { entries } = state
     const transcripts = { ...state.transcripts }
     // Focus moved: lists follow their sessions. A session that was not on screen starts empty
@@ -70,10 +70,20 @@ export class DesktopViewStore {
     if (event.ops) entries = applyTranscriptOps(entries, event.ops)
     for (const pane of event.panes ?? [])
       transcripts[pane.runtime] = applyTranscriptOps(transcripts[pane.runtime] ?? [], pane.ops)
-    if (status)
+    if (status?.panes)
       for (const key of Object.keys(transcripts))
         if (!status.panes.includes(Number(key))) delete transcripts[Number(key)]
-    this.#state = { ...state, ...status, revision: event.revision, entries, transcripts }
+    // A status carries the fields that changed, as fresh objects; within them, parts that did not
+    // change keep their identity so selectors and memoized views stay put.
+    const shared =
+      status &&
+      Object.fromEntries(
+        Object.entries(status).map(([key, value]) => [
+          key,
+          share(state[key as keyof ViewState], value),
+        ]),
+      )
+    this.#state = { ...state, ...shared, revision: event.revision, entries, transcripts }
     this.#emit()
   }
 
@@ -82,8 +92,8 @@ export class DesktopViewStore {
   }
 }
 
-function focusedRuntime(status: Pick<DesktopStatus, "runtimes">) {
-  return status.runtimes.find((runtime) => runtime.focused)?.runtime
+function focusedRuntime(runtimes: DesktopStatus["runtimes"]) {
+  return runtimes.find((runtime) => runtime.focused)?.runtime
 }
 
 function applyTranscriptOps(
@@ -114,21 +124,33 @@ function applyTranscriptOps(
 }
 
 /**
- * Trace snapshots cross IPC as fresh objects. Preserve unchanged rows just as transcript patches
- * do.
+ * `next` with every array and plain object that equals its counterpart in `previous` replaced
+ * by that counterpart, down to the leaves, so a value that crossed IPC unchanged is the same
+ * reference it was.
  */
-export function reconcileTraceEntries(
-  previous: TranscriptEntry[],
-  fetched: TranscriptEntry[],
-): TranscriptEntry[] {
-  const byId = new Map(previous.map((entry) => [entry.id, entry]))
-  const next = fetched.map((entry) => {
-    const existing = byId.get(entry.id)
-    return existing && shallowEqual(existing, entry) ? existing : entry
-  })
-  return next.length === previous.length && next.every((entry, index) => entry === previous[index])
-    ? previous
-    : next
+export function share<T>(previous: T, next: T): T {
+  if (Object.is(previous, next)) return next
+  if (Array.isArray(previous) && Array.isArray(next)) {
+    const items = next.map((item, index) => share(previous[index], item))
+    return items.length === previous.length &&
+      items.every((item, index) => item === previous[index])
+      ? previous
+      : (items as T)
+  }
+  if (!isPlain(previous) || !isPlain(next)) return next
+  const result: Record<string, unknown> = {}
+  let same = Object.keys(previous).length === Object.keys(next).length
+  for (const [key, value] of Object.entries(next)) {
+    result[key] = share(previous[key], value)
+    if (!Object.hasOwn(previous, key) || result[key] !== previous[key]) same = false
+  }
+  return same ? previous : (result as T)
+}
+
+function isPlain(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false
+  const proto = Object.getPrototypeOf(value)
+  return proto === Object.prototype || proto === null
 }
 
 export function shallowEqual<T>(left: T, right: T): boolean {

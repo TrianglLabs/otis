@@ -350,7 +350,9 @@
   color: var(--accent-ink);
 }
 
-.steeringIndicator svg {
+/* The wheel turns while the turn it steers is running; a settled transcript holds still. */
+.conversation-busy .steeringIndicator svg,
+.agentTrace-running .steeringIndicator svg {
   animation: spin 6s linear infinite;
 }
 
