@@ -298,12 +298,6 @@
   white-space: nowrap;
 }
 
-.sessionStrip-folder {
-  flex-shrink: 0;
-  color: var(--text-dim);
-  opacity: 0.8;
-}
-
 .transcript,
 .transcriptFooter {
   max-width: var(--content-max);

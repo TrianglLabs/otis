@@ -2856,9 +2856,11 @@ describe("header context meter", () => {
         })),
       }),
     )
-    expect(document.querySelector(".contextMeter-context")?.textContent).toBe(
-      "~26,214 tokens used · Auto-compact at 52,428",
+    const rows = [...document.querySelectorAll(".contextMeter-rows")[0].children].map(
+      (cell) => cell.textContent,
     )
+    expect(document.querySelector(".contextMeter-section")?.textContent).toBe("Context50% used")
+    expect(rows).toEqual(["Used", "26.2k", "Auto-compact at", "52.4k"])
     expect((document.querySelector(".contextMeter-fill") as HTMLElement).style.width).toBe("50%")
   })
 
@@ -2898,11 +2900,16 @@ describe("header context meter", () => {
     const sections = [...popover.querySelectorAll(".contextMeter-section")].map(
       (e) => e.textContent,
     )
-    expect(sections).toEqual(["Last request95% cache hit", "This session25% cache hit"])
+    expect(sections).toEqual([
+      "Context55% used",
+      "Last request95% cache hit",
+      "This session25% cache hit",
+    ])
     const rows = [...popover.querySelectorAll(".contextMeter-rows")].map((list) =>
       [...list.children].map((cell) => cell.textContent),
     )
     expect(rows).toEqual([
+      ["Used", "18.0k", "Auto-compact at", "32.8k"],
       ["Uncached input", "900", "Cached input", "17.1k", "Output", "600"],
       [
         "Uncached input",
@@ -2929,14 +2936,14 @@ describe("header context meter", () => {
     )
     expect(document.querySelector(".composer-speed")).toBeNull()
     const lists = [...document.querySelectorAll(".contextMeter-rows")]
-    expect(lists).toHaveLength(2)
-    expect([...lists[0].children].map((cell) => cell.textContent)).toEqual([
+    expect(lists).toHaveLength(3)
+    expect([...lists[1].children].map((cell) => cell.textContent)).toEqual([
       "Input",
       "1.2k",
       "Output",
       "50",
     ])
-    expect(document.querySelector(".contextMeter-section")?.textContent).toBe("Last request")
+    expect(document.querySelectorAll(".contextMeter-section")[1]?.textContent).toBe("Last request")
   })
 
   it("stays hidden on the home screen and appears once a conversation exists", async () => {

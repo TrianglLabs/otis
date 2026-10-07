@@ -10,7 +10,7 @@ import { OtisMark } from "../../components/OtisMark.js"
 import { formatAge, formatSessionDetail, formatTokenCount, inView } from "../../format.js"
 import { useI18n } from "../../i18n/index.js"
 import { useDesktop, useDesktopSelector, useDesktopState } from "../../runtime.js"
-import { foldersSpanned, type HomeView } from "../../shell/WorkspaceHeader.js"
+import type { HomeView } from "../../shell/WorkspaceHeader.js"
 import { PaneRuntimeContext } from "../canvas/canvas-context.js"
 import { RoutinesHome } from "../routines/RoutinesHome.js"
 import { Composer } from "./Composer.js"
@@ -318,7 +318,6 @@ export const SessionStrip = memo(function SessionStrip() {
   const state = useDesktopState("runtimes", "panes")
   const hidden = state?.runtimes.filter((runtime) => !state.panes.includes(runtime.runtime)) ?? []
   if (hidden.length === 0) return null
-  const spanned = foldersSpanned(state?.runtimes ?? [])
   return (
     <nav className="sessionStrip noDrag" aria-label={t("session.open")}>
       {hidden.map((runtime) => (
@@ -341,7 +340,6 @@ export const SessionStrip = memo(function SessionStrip() {
             <span className="stateDot" title={t("session.finished")} />
           ) : null}
           <span className="sessionStrip-title">{runtime.session?.title ?? t("session.new")}</span>
-          {spanned ? <span className="sessionStrip-folder">{runtime.workspace.label}</span> : null}
         </button>
       ))}
     </nav>
