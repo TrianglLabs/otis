@@ -342,8 +342,9 @@ export type StreamChatOptions = {
   /** Spend as little on reasoning as the model allows, e.g. for a summary that must fit. */
   minimalReasoning?: boolean
   /**
-   * The session the request serves. Fireworks caches prompts per replica and routes serverless
-   * requests by this hint (`x-session-affinity`), so a conversation keeps hitting its own cache.
+   * The session the request serves. Providers that cache prompts per replica route by it, as
+   * Fireworks' and Baseten's `x-session-affinity` header or Together's `prompt_cache_key`, so a
+   * conversation keeps hitting its own cache.
    */
   sessionId?: string
 }

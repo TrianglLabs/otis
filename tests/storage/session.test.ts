@@ -74,6 +74,9 @@ describe("JsonlSession", () => {
       cachedPromptTokens: 15,
     }
     await session.recordUsage(first, "title")
+    // A record an earlier release wrote mid-stream, with the same prompt and a running count,
+    // collapses into the request's final record.
+    await session.recordUsage({ ...second, completionTokens: 1, totalTokens: 21 }, "agent")
     await session.recordUsage(second, "agent")
     // The first request reported no cached count, so only the second one's 20 prompt tokens have
     // cache data; title generation counts like a turn.

@@ -16,6 +16,7 @@ import type {
   InferenceClient,
   OpenAICompatibleReasoningField,
   StreamChatOptions,
+  TokenUsage,
   ToolDefinition,
   UserChatMessage,
   UserContentPart,
@@ -124,6 +125,8 @@ export function openaiChatCompletionRequest(
   extras: {
     reasoningEffort?: string
     serviceTier?: string
+    /** Together's routing hint for prompt caches, the counterpart of the affinity header. */
+    promptCacheKey?: string
     reasoningField?: OpenAICompatibleReasoningField
   } = {},
 ) {
@@ -135,6 +138,7 @@ export function openaiChatCompletionRequest(
   return {
     model,
     ...(extras.serviceTier ? { service_tier: extras.serviceTier } : {}),
+    ...(extras.promptCacheKey ? { prompt_cache_key: extras.promptCacheKey } : {}),
     messages: [
       {
         role: "system",
@@ -211,6 +215,7 @@ export async function collectCompletionText(
   options: CompleteOptions,
 ) {
   let text = ""
+  let usage: TokenUsage | undefined
   for await (const event of client.streamChat({
     messages,
     projectContext: options.projectContext,
@@ -219,8 +224,9 @@ export async function collectCompletionText(
     tools: [],
   })) {
     if (event.type === "text_delta") text += event.text
-    if (event.type === "usage") await options.onUsage?.(event.usage)
+    if (event.type === "usage") usage = event.usage
   }
+  if (usage) await options.onUsage?.(usage)
   return text.trim()
 }
 

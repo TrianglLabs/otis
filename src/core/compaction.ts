@@ -259,11 +259,12 @@ ${focus}`
       }
       let text = ""
       let started = false
+      let usage: TokenUsage | undefined
       try {
         for await (const event of options.client.streamChat(request)) {
           started = true
           if (event.type === "text_delta") text += event.text
-          if (event.type === "usage") await options.onUsage?.(event.usage)
+          if (event.type === "usage") usage = event.usage
           if (event.type === "tool_call") {
             throw new Error(
               "Compaction failed: the model requested a tool instead of summarizing. The conversation was left unchanged.",
@@ -288,6 +289,7 @@ ${focus}`
         continue
       }
       options.signal?.throwIfAborted()
+      if (usage) await options.onUsage?.(usage)
       summary = text.trim()
       if (!summary) throw new Error("Compaction failed: the model returned an empty summary.")
       if (["goal", "progress", "next step"].some((name) => !summarySection(summary, name))) {

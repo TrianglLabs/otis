@@ -17,6 +17,7 @@ import {
   isUnreadableSessionFile,
   type NewSessionEvent,
   readSessionEvents,
+  recordedUsage,
   replaySession,
   replaySessionMessages,
   replaySessionTranscript,
@@ -231,14 +232,11 @@ export class JsonlSession {
 
   /** Every recorded request, title generation and compaction included. */
   usage(): SessionUsage {
-    let last: TokenUsage | null = null
-    let total = emptyUsage()
-    for (const event of this.events) {
-      if (event.type !== "usage_recorded") continue
-      last = event.usage
-      total = addUsage(total, event.usage)
+    const records = recordedUsage(this.events)
+    return {
+      last: records.at(-1)?.usage ?? null,
+      total: records.reduce((total, record) => addUsage(total, record.usage), emptyUsage()),
     }
-    return { last, total }
   }
 
   title() {

@@ -8,6 +8,7 @@ import { summarizeUserMessage, userMessageText } from "../inference/messages.js"
 import type { ChatMessage, ModelProvider, TokenUsage, UserChatMessage } from "../inference/types.js"
 import {
   readSessionEvents,
+  recordedUsage,
   replaySessionMessages,
   replaySessionTranscript,
   type SessionEvent,
@@ -98,6 +99,7 @@ function digestEvents(events: readonly SessionEvent[], mtimeMs: number): Session
   const endedAt = new Map<string, string>()
   const archived = new Map<string, { toolCallIds: string[]; subagents: number }>()
   const activity: SessionActivity[] = []
+  const usage = new Set<SessionEvent>(recordedUsage(events))
   for (const event of events) {
     if (event.type === "compacted" && event.promptId && event.turn) {
       const previous = archived.get(event.promptId) ?? { toolCallIds: [], subagents: 0 }
@@ -119,7 +121,7 @@ function digestEvents(events: readonly SessionEvent[], mtimeMs: number): Session
         subagents: earlier.subagents + (event.subagents?.length ?? 0),
       })
     }
-    if (event.type === "usage_recorded")
+    if (event.type === "usage_recorded" && usage.has(event))
       activity.push({
         type: event.type,
         at: event.at,

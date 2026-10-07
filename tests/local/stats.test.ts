@@ -24,7 +24,17 @@ describe("calculateLocalStats", () => {
         promptId: "prompt-a",
         message: { role: "user", content: "hello" },
       }),
+      // A server that streams a running count left one record per chunk in older sessions; the
+      // chunks of one request count once, as the last of them.
       event(3, "session-a", "usage_recorded", localISO(now, 1), {
+        purpose: "agent",
+        promptId: "prompt-a",
+        provider: "fireworks",
+        model: "accounts/fireworks/models/glm",
+        modelName: "GLM-5.3",
+        usage: { promptTokens: 100, completionTokens: 7, totalTokens: 107, cachedPromptTokens: 60 },
+      }),
+      event(4, "session-a", "usage_recorded", localISO(now, 1), {
         purpose: "agent",
         promptId: "prompt-a",
         provider: "fireworks",
@@ -37,7 +47,7 @@ describe("calculateLocalStats", () => {
           cachedPromptTokens: 60,
         },
       }),
-      event(4, "session-a", "turn_completed", localISO(now, 120), {
+      event(5, "session-a", "turn_completed", localISO(now, 120), {
         promptId: "prompt-a",
         messages: [{ role: "assistant", content: [{ type: "text", text: "hi" }] }],
       }),
