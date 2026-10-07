@@ -45,7 +45,7 @@ export function WorkspaceHeader({
   onOpenTerminal: () => void
 }) {
   const { api } = useDesktop()
-  const { locale, t } = useI18n()
+  const { t } = useI18n()
   const state = useDesktopState(
     "diffs",
     "contextTokens",
@@ -135,12 +135,16 @@ export function WorkspaceHeader({
             </span>
             <span className="contextMeter-text">{formatTokenCount(contextTokens)}</span>
             <div className="contextMeter-popover">
-              <p className="contextMeter-context">
-                {t("header.contextTokens", {
-                  used: contextTokens.toLocaleString(locale),
-                  limit: contextLimit.toLocaleString(locale),
-                })}
+              <p className="contextMeter-section">
+                {t("header.context")}
+                <span>{t("header.contextShare", { percent: `${contextPercent}%` })}</span>
               </p>
+              <dl className="contextMeter-rows">
+                <dt>{t("header.contextUsed")}</dt>
+                <dd>{formatTokenCount(contextTokens)}</dd>
+                <dt>{t("header.contextAutoCompact")}</dt>
+                <dd>{formatTokenCount(contextLimit)}</dd>
+              </dl>
               {state.usage?.last ? (
                 <>
                   <UsageRows

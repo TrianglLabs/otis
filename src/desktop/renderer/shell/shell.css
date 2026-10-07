@@ -252,10 +252,6 @@
   height: 8px;
 }
 
-.contextMeter-context {
-  margin: 0;
-}
-
 .contextMeter-section {
   display: flex;
   justify-content: space-between;
@@ -263,6 +259,10 @@
   margin: 12px 0 6px;
   color: var(--text);
   font-weight: 560;
+}
+
+.contextMeter-section:first-child {
+  margin-top: 0;
 }
 
 .contextMeter-section > span {
