@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import type { Dirent } from "node:fs"
 import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises"
 import { basename, dirname, join, resolve } from "node:path"
@@ -21,7 +22,8 @@ export async function registerWorkspacePath(
 ): Promise<void> {
   const dir = resolve(sessionDir)
   await mkdir(dir, { recursive: true, mode: 0o700 })
-  const tmp = join(dir, `.${MARKER}.${process.pid}.tmp`)
+  // Two registrations of one directory can be in flight at once; each writes its own file.
+  const tmp = join(dir, `.${MARKER}.${randomUUID()}.tmp`)
   await writeFile(tmp, `${JSON.stringify({ path: resolve(workspacePath) })}\n`, { mode: 0o600 })
   await rename(tmp, join(dir, MARKER))
 }

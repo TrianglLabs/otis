@@ -5,6 +5,7 @@ import type { TranscriptEntry } from "../../../../app/transcript.js"
 import { isCanvasArtifact } from "../../../../artifacts/canvas.js"
 import type { ArtifactReference } from "../../../../artifacts/types.js"
 import { ArtifactCard } from "../../components/ArtifactCard.js"
+import { FileTypeIcon } from "../../components/FileTypeIcon.js"
 import { Icon } from "../../components/Icon.js"
 import { Markdown } from "../../components/Markdown.js"
 import { formatElapsed } from "../../format.js"
@@ -78,6 +79,7 @@ export const EntryView = memo(function EntryView({
     const steering = entry.delivery === "steering"
     const queued = entry.delivery === "queued"
     const text = entry.messageText ?? entry.text
+    const attached = Boolean(entry.images?.length || entry.artifacts?.length)
     const steeringClass = steering ? " userRow-steering" : ""
     const queuedClass = queued ? " userRow-queued" : ""
     return (
@@ -102,9 +104,11 @@ export const EntryView = memo(function EntryView({
             <Icon icon={ListEnd} size={16} />
           </span>
         ) : null}
-        <div className={`userMessage${entry.artifacts?.length ? " userMessage-artifacts" : ""}`}>
+        <div className={`userMessage${attached ? " userMessage-artifacts" : ""}`}>
           {text ? <span>{text}</span> : null}
-          {entry.artifacts?.length ? <MessageArtifacts artifacts={entry.artifacts} /> : null}
+          {attached ? (
+            <MessageArtifacts artifacts={entry.artifacts ?? []} images={entry.images ?? []} />
+          ) : null}
         </div>
       </div>
     )
@@ -118,32 +122,57 @@ export const EntryView = memo(function EntryView({
   )
 })
 
-function MessageArtifacts({ artifacts }: { artifacts: ArtifactReference[] }) {
+/** The name a message shows for what it carries: the file's own, or the last path segment. */
+export const artifactTitle = (artifact: ArtifactReference) =>
+  artifact.source === "workspace"
+    ? (artifact.path.split("/").at(-1) ?? artifact.path)
+    : artifact.name
+
+/**
+ * What a message carried besides its words: documents Canvas can open get a card; images and
+ * other files get a chip with their type mark, the same material as the composer's previews.
+ */
+function MessageArtifacts({
+  artifacts,
+  images = [],
+}: {
+  artifacts: ArtifactReference[]
+  images?: string[]
+}) {
   const { api } = useDesktop()
   const { t } = useI18n()
   const runtime = useContext(PaneRuntimeContext)
+  const key = (artifact: ArtifactReference) =>
+    artifact.source === "workspace" ? `workspace:${artifact.path}` : `attachment:${artifact.sha256}`
+  const chips = [
+    ...images.map((name) => [`image:${name}`, name] as const),
+    ...artifacts
+      .filter((artifact) => !isCanvasArtifact(artifact.kind))
+      .map((artifact) => [key(artifact), artifactTitle(artifact)] as const),
+  ]
   return (
     <div className="messageArtifacts">
-      {artifacts.map((artifact) => {
-        const title =
-          artifact.source === "workspace"
-            ? (artifact.path.split("/").at(-1) ?? artifact.path)
-            : artifact.name
-        const key =
-          artifact.source === "workspace"
-            ? `workspace:${artifact.path}`
-            : `attachment:${artifact.sha256}`
-        if (!isCanvasArtifact(artifact.kind)) return <span key={key}>📄 {title}</span>
-        return (
+      {chips.length > 0 ? (
+        <div className="messageAttachments">
+          {chips.map(([id, name]) => (
+            <span key={id} className="messageAttachment" title={name}>
+              <FileTypeIcon name={name} size="xs" />
+              <span>{name}</span>
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {artifacts
+        .filter((artifact) => isCanvasArtifact(artifact.kind))
+        .map((artifact) => (
           <ArtifactCard
-            key={key}
+            key={key(artifact)}
             kind={artifact.kind}
-            title={title}
+            title={artifactTitle(artifact)}
             actionLabel={t("markdown.openCanvas")}
             onOpen={() => api.openArtifact(artifact, undefined, runtime)}
           />
-        )
-      })}
+        ))}
     </div>
   )
 }

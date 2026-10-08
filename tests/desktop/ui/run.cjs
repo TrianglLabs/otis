@@ -7,7 +7,7 @@ app.setPath("userData", join(output, "user-data"))
 const timeout = setTimeout(() => {
   console.error("Desktop UI checks timed out")
   app.exit(1)
-}, 60_000)
+}, 180_000) // 40 s on a laptop; CI runners take longer and share the machine
 
 app.whenReady().then(async () => {
   session.defaultSession.webRequest.onBeforeRequest(
@@ -66,6 +66,13 @@ app.whenReady().then(async () => {
     app.exit(0)
   } catch (error) {
     console.error(error)
+    // What the window showed when a check gave up, for a failure only a CI runner reproduces.
+    // A window that never painted rejects the capture; the failure above is the one to report.
+    if (process.env.OTIS_UI_SCREENSHOT) {
+      const { dir, name, ext } = parse(process.env.OTIS_UI_SCREENSHOT)
+      const image = await window.webContents.capturePage().catch(() => null)
+      if (image) await writeFile(join(dir, `${name}-failure${ext}`), image.toPNG())
+    }
     clearTimeout(timeout)
     app.exit(1)
   }

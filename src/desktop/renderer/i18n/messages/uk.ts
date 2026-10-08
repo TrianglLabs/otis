@@ -260,6 +260,7 @@ export const uk: Messages = {
   "transcript.codeChanges": "Зміни коду",
   "transcript.find": "Пошук у сесії",
   "transcript.findPlaceholder": "Пошук у сесії…",
+  "transcript.turns": "Репліки розмови",
   "tool.web_search.doing": "Шукає в інтернеті",
   "tool.web_search.done": "Пошук в інтернеті виконано",
   "tool.web_read.doing": "Читає",

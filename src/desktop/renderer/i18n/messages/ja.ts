@@ -243,6 +243,7 @@ export const ja: Messages = {
   "transcript.codeChanges": "コードの変更",
   "transcript.find": "セッション内を検索",
   "transcript.findPlaceholder": "セッション内を検索…",
+  "transcript.turns": "会話のターン",
   "tool.web_search.doing": "ウェブ検索中",
   "tool.web_search.done": "ウェブ検索済み",
   "tool.web_read.doing": "読み込み中",

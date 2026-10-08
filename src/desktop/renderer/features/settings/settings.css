@@ -693,12 +693,6 @@
   color: var(--success);
 }
 
-/* Settings strips sit beside 48px rows, so they run larger than the shared control. */
-.settingsPage .tabStrip-tab {
-  height: 28px;
-  font-size: var(--text-ui);
-}
-
 /* A tab strip between a section heading and its surface. */
 .settingsGroup > .tabStrip {
   margin-bottom: 10px;

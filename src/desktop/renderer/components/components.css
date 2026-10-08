@@ -179,14 +179,14 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  height: 24px;
+  height: 28px;
   padding: 0 12px;
   border: none;
   border-radius: 999px;
   background: none;
   color: var(--text-dim);
   font: inherit;
-  font-size: var(--text-meta);
+  font-size: var(--text-ui);
   cursor: pointer;
   transition: color var(--motion);
 }

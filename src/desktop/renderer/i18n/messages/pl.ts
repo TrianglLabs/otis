@@ -259,6 +259,7 @@ export const pl: Messages = {
   "transcript.codeChanges": "Zmiany w kodzie",
   "transcript.find": "Szukaj w sesji",
   "transcript.findPlaceholder": "Szukaj w sesji…",
+  "transcript.turns": "Tury rozmowy",
   "tool.web_search.doing": "Szuka w sieci",
   "tool.web_search.done": "Przeszukano sieć",
   "tool.web_read.doing": "Czyta",

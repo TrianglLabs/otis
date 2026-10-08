@@ -7,6 +7,7 @@ import type {
   ArtifactReference,
   PublishedArtifactReference,
 } from "../../../artifacts/types.js"
+import { DOCX_MIME_TYPE } from "../../../inference/document-constraints.js"
 import {
   type LocalThinkingPreferences,
   type LocalThinkingSelection,
@@ -1766,12 +1767,37 @@ class DemoRuntime implements DesktopApi {
     ]
       .filter(Boolean)
       .join("\n")
+    const images = attachments.filter((a) => a.mimeType.startsWith("image/")).map((a) => a.name)
+    const documents = attachments.filter((a) => !a.mimeType.startsWith("image/"))
+    const entry = {
+      ...this.#entry("You", display),
+      ...(attachments.length > 0 ? { messageText: text } : {}),
+      ...(images.length > 0 ? { images } : {}),
+      ...(documents.length > 0
+        ? {
+            artifacts: documents.map(
+              (document, index): ArtifactReference => ({
+                source: "attachment",
+                sha256: index.toString(16).padStart(64, "0"),
+                name: document.name,
+                kind:
+                  document.mimeType === "application/pdf"
+                    ? "pdf"
+                    : document.mimeType === DOCX_MIME_TYPE
+                      ? "docx"
+                      : "text",
+                mimeType: document.mimeType,
+              }),
+            ),
+          }
+        : {}),
+    }
     if (this.#state.busy) {
       this.#queued.push(display)
-      this.#push({ ...this.#entry("You", display), delivery: "queued" })
+      this.#push({ ...entry, delivery: "queued" })
       return { accepted: true, delivery: "queued" }
     }
-    this.#push(this.#entry("You", display))
+    this.#push(entry)
     this.#runTurn(display, ++this.#generation)
     return { accepted: true, delivery: "started" }
   }
@@ -2932,12 +2958,24 @@ The cache tests pass: **18 tests, 0 failures**.`,
   ]
 }
 
+const FLAKY_LOCK_PROMPT = "The session lock test is flaky on CI. Find out why and fix it."
 function flakyLockTranscript(): TranscriptEntry[] {
   return [
     fixture({
       kind: "message",
       speaker: "You",
-      text: "The session lock test is flaky on CI. Find out why and fix it.",
+      text: `${FLAKY_LOCK_PROMPT}\n📎 ci-run.png\n📄 lock-failures.log`,
+      messageText: FLAKY_LOCK_PROMPT,
+      images: ["ci-run.png"],
+      artifacts: [
+        {
+          source: "attachment",
+          sha256: "f".repeat(64),
+          name: "lock-failures.log",
+          kind: "text",
+          mimeType: "text/plain",
+        },
+      ],
     }),
     fixture({
       kind: "reasoning",

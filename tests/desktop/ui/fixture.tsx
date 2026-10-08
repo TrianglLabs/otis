@@ -37,6 +37,8 @@ import "../../../src/desktop/renderer/features/achievements/achievements.css"
 import "../../../src/desktop/renderer/features/terminal/terminal.css"
 
 const pause = (ms = 80) => new Promise((resolve) => setTimeout(resolve, ms))
+// No transition of its own: a machine with reduced motion on gives every element a 0.01ms one.
+const still = (target: Element) => parseFloat(getComputedStyle(target).transitionDuration) < 0.01
 const LOCALES = LANGUAGE_OPTIONS.flatMap((option) =>
   option.value === "system" ? [] : [option.value],
 )
@@ -69,8 +71,13 @@ function element<T extends HTMLElement = HTMLElement>(selector: string): T {
   assert(result, `Missing element: ${selector}`)
   return result
 }
+/**
+ * Waits poll until the condition holds and give up only after a budget sized for a shared CI
+ * runner, where first paint and font loading take several times longer than on a laptop; a
+ * passing run never spends the budget.
+ */
 async function until(check: () => boolean, message: string) {
-  for (let attempt = 0; attempt < 60; attempt++) {
+  for (let attempt = 0; attempt < 300; attempt++) {
     if (check()) return
     await pause(30)
   }
@@ -86,8 +93,10 @@ async function checkLocalServerFields(prefix: "settings" | "onboarding") {
   tab.click()
   await until(() => !!document.querySelector(`#${prefix}-omlx-key`), "oMLX fields did not show")
   const key = element<HTMLInputElement>(`#${prefix}-omlx-key`)
-  const address = element<HTMLInputElement>(`[aria-label="Address"]`)
   const fields = element(`.${prefix === "settings" ? "settingsEndpoints" : "onboarding-formBody"}`)
+  // The address is the form's first field; its accessible name is in the language under test.
+  const address = fields.querySelector("input")
+  assert(address, `${prefix}: address field is missing`)
   // Both pages render the shared field capsule; measure the capsule, not the borderless input.
   const row = (input: HTMLInputElement) => {
     const capsule = input.closest(".field")
@@ -105,9 +114,10 @@ async function checkLocalServerFields(prefix: "settings" | "onboarding") {
     `${prefix}: API key width differs from the address`,
   )
   assert(keyBounds.top >= urlBounds.bottom + 7, `${prefix}: API key overlaps the address`)
+  // Masked, and named for assistive tech; onboarding labels the field in text, Settings by hint.
   assert(
-    key.type === "password" && key.getAttribute("aria-label") && key.placeholder,
-    "API key lacks a secure label",
+    key.type === "password" && key.getAttribute("aria-label"),
+    `${prefix}: API key lacks a secure label`,
   )
   assert(
     fields.scrollWidth === fields.clientWidth,
@@ -116,7 +126,7 @@ async function checkLocalServerFields(prefix: "settings" | "onboarding") {
 }
 /** The demo's scripted turn runs on real timers; its milestones need a wider polling budget. */
 async function untilSlow(check: () => boolean, message: string) {
-  for (let attempt = 0; attempt < 80; attempt++) {
+  for (let attempt = 0; attempt < 200; attempt++) {
     if (check()) return
     await pause(150)
   }
@@ -289,10 +299,7 @@ async function runDesktopUiChecks() {
   element<HTMLButtonElement>('[aria-label="Settings"]').click()
   await pause()
   assert(element(".workspaceView").inert, "Settings left the workspace interactive")
-  assert(
-    getComputedStyle(element(".settingsLayer")).transitionDuration === "0s",
-    "Settings still animates",
-  )
+  assert(still(element(".settingsLayer")), "Settings still animates")
   const settingsSidebar = element(".settingsSidebar").getBoundingClientRect()
   const settingsContent = element(".settingsPage-content").getBoundingClientRect()
   const settingsPage = element(".settingsPage").getBoundingClientRect()
@@ -319,6 +326,10 @@ async function runDesktopUiChecks() {
       settingsShell.classList.remove("platform-darwin", "platform-linux", "platform-win32")
       settingsShell.classList.add(`platform-${platform}`)
       settingsShell.classList.toggle("windowFullscreen", fullscreen)
+      // With reduced motion on, every property change is a 0.01ms transition, and it starts at
+      // the next style pass, which a window that paints no frames gets only when forced.
+      void settingsShell.offsetHeight
+      await pause(20)
       const tab = settingsTabs[0].getBoundingClientRect()
       const header = element(".settingsPage-header").getBoundingClientRect()
       const close = element(".settingsPage-header button").getBoundingClientRect()
@@ -370,6 +381,21 @@ async function runDesktopUiChecks() {
       "Provider text gains an accent on hover",
     )
   }
+  // Usage has a tab of its own: the activity bars, the capped model list, and the day highlight.
+  settingsTabs[4].click()
+  await until(
+    () => document.querySelectorAll(".settingsUsage-bar").length === 28,
+    "Usage tab did not show the activity bars",
+  )
+  assert(
+    document.querySelectorAll(".settingsUsage-model").length === 5,
+    "Usage does not cap its per-model rows",
+  )
+  element<HTMLButtonElement>(".settingsUsage-more").click()
+  await until(
+    () => document.querySelectorAll(".settingsUsage-model").length === 6,
+    "Show more did not reveal the remaining models",
+  )
   const usageDay = element(
     '.settingsUsage-barSlot:not([data-empty="true"])',
   ).getBoundingClientRect()
@@ -385,7 +411,15 @@ async function runDesktopUiChecks() {
   await pause()
   await nativeInput({ screenshot: true, screenshotName: "settings-usage-highlight" })
   await nativeInput({ events: [{ type: "mouseMove", x: 500, y: 100 }] })
-  providers[1].querySelector("button")?.click()
+  // Back on Inference, the panel is a fresh mount: the local server form opens from its row.
+  settingsTabs[0].click()
+  await until(
+    () => document.querySelectorAll(".settingsProvider").length === 2,
+    "Inference tab did not come back",
+  )
+  const secondProvider = document.querySelectorAll<HTMLButtonElement>(".settingsProvider button")[1]
+  assert(secondProvider, "Second provider has no button")
+  secondProvider.click()
   await until(
     () => !!document.querySelector('[aria-label="Address"]'),
     "Local server settings did not open",
@@ -393,20 +427,7 @@ async function runDesktopUiChecks() {
   await checkLocalServerFields("settings")
   await pause()
   await nativeInput({ screenshot: true, screenshotName: "settings-local-servers" })
-  assert(
-    document.querySelectorAll(".settingsUsage-bar").length === 28,
-    "Provider usage activity is incomplete",
-  )
-  assert(
-    document.querySelectorAll(".settingsUsage-model").length === 5,
-    "Usage does not cap its per-model rows",
-  )
-  element<HTMLButtonElement>(".settingsUsage-more").click()
-  await until(
-    () => document.querySelectorAll(".settingsUsage-model").length === 6,
-    "Show more did not reveal the remaining models",
-  )
-  settingsTabs[4].click()
+  settingsTabs[5].click()
   await until(
     () => document.querySelectorAll(".achievement").length === 12,
     "Achievements tab did not list every medal",
@@ -444,9 +465,21 @@ async function runDesktopUiChecks() {
   await pause()
   await nativeInput({ screenshot: true, screenshotName: "settings-appearance" })
   element<HTMLButtonElement>('[aria-label="Close settings (Esc)"]').click()
-  await until(() => !document.querySelector(".settingsLayer"), "Settings did not unmount on close")
+  // Closed Settings stays mounted and hides, so Chromium frees nothing it would otherwise retain.
+  await until(() => element(".settingsLayer").hidden, "Settings did not hide on close")
   assert(element(".transcriptScroll") === scroll, "Settings replaced the conversation")
-  assert(Math.abs(scroll.scrollTop - beforeSettings) < 2, "Settings lost the reading position")
+  // The position must hold once the layout settles; the value at the moment of closing and the
+  // focus say what moved it when it does not.
+  const onClose = scroll.scrollTop
+  await pause(200)
+  assert(
+    Math.abs(scroll.scrollTop - beforeSettings) < 2,
+    `Settings lost the reading position: ${beforeSettings} before, ${onClose} on close, ${
+      scroll.scrollTop
+    } settled, of ${scroll.scrollHeight}; focus on ${document.activeElement?.tagName}.${
+      document.activeElement?.className
+    }`,
+  )
   assert(
     !!document.querySelector('[data-entry-id="101501"] .reasoning-body'),
     "Settings collapsed reasoning",
@@ -641,18 +674,21 @@ async function runDesktopUiChecks() {
   // rail.
   const completedRuns = store.getState()?.subagents ?? []
   for (const locale of LOCALES) {
+    // The demo turn's edit keeps the Changes tab once coworkers and documents are gone; the first
+    // coworker brings Coworkers back ahead of it.
+    const railTabs = () => document.querySelectorAll('.workspaceRail-tabs [role="tab"]').length
     status({ subagents: [], artifacts: [] })
-    await until(() => !document.querySelector(".workspaceRail"), "Empty side panel did not unmount")
+    await until(
+      () => railTabs() === 1 && !!document.querySelector('[id$="-tab-changes"]'),
+      "Side panel did not keep only the Changes tab",
+    )
     renderLanguage(locale)
     await until(
       () => document.documentElement.lang === locale,
       `Language did not switch to ${locale}`,
     )
     status({ subagents: completedRuns })
-    await until(
-      () => !!document.querySelector(".workspaceRail"),
-      `${locale}: first coworker did not open the panel`,
-    )
+    await until(() => railTabs() === 2, `${locale}: first coworker did not open its tab`)
     await until(() => {
       const rail = element(".workspaceRail").getBoundingClientRect()
       const collapse = element<HTMLButtonElement>(
@@ -1048,7 +1084,10 @@ async function runDesktopUiChecks() {
   const table = element('[data-entry-id="101502"] .md-tableWrap')
   const code = element('[data-entry-id="101502"] .codeBlock')
   table.scrollLeft = 90
-  const text = element('[data-entry-id="101502"] code').firstChild
+  // Highlighted code wraps its tokens in spans: select within the first text node.
+  const text = document
+    .createTreeWalker(element('[data-entry-id="101502"] code'), NodeFilter.SHOW_TEXT)
+    .nextNode()
   const selection = window.getSelection()
   assert(text && selection, "Code text selection is unavailable")
   const range = document.createRange()
@@ -1481,10 +1520,7 @@ async function runDesktopUiChecks() {
       !!document.querySelector(".home") && element(".workspaceView").className === "workspaceView",
     "Fresh start did not return to Home",
   )
-  assert(
-    getComputedStyle(element(".workspaceView")).transitionDuration === "0s",
-    "Fresh start still animates",
-  )
+  assert(still(element(".workspaceView")), "Fresh start still animates")
   assert(!document.querySelector(".workspaceHeader-title"), "Home retained the old session title")
   assert(!previousTranscript.isConnected, "Home kept the previous transcript mounted")
 
@@ -1579,8 +1615,8 @@ async function runDesktopUiChecks() {
         `Loading picker is dimmed by ${ancestor.className}`,
       )
     }
-    element<HTMLButtonElement>(".modelPicker-title button").click()
-    await until(() => !document.querySelector(".modelPicker"), "Model picker did not close")
+    element<HTMLButtonElement>('[aria-label="Close model picker"]').click()
+    await until(() => element(".modelPicker").hidden, "Model picker did not close")
   }
   status({ modelState: "ready", modelLoad: null })
 
@@ -1613,7 +1649,7 @@ async function runDesktopUiChecks() {
       "Last model cannot be reached by scrolling",
     )
     await nativeInput({ screenshot: true, screenshotName: `model-picker-${theme}-compact` })
-    element<HTMLButtonElement>(".modelPicker-title button").click()
+    element<HTMLButtonElement>('[aria-label="Close model picker"]').click()
     await nativeInput({ size })
     await pause()
   }
@@ -1989,4 +2025,31 @@ async function runDesktopUiChecks() {
   }
 }
 
-Object.assign(window, { runDesktopUiChecks })
+// A failure on a CI runner is read from its message alone, so it carries what the page saw:
+// renderer errors so far, the viewport, and how much of the transcript is on screen.
+const rendererErrors: string[] = []
+window.addEventListener("error", (event) =>
+  rendererErrors.push(String(event.error ?? event.message)),
+)
+window.addEventListener("unhandledrejection", (event) => rendererErrors.push(String(event.reason)))
+function diagnostics() {
+  const scroller = document.querySelector(".transcriptScroll")
+  const rows = document.querySelectorAll(".transcriptEntry")
+  const ids = [rows[0], rows[rows.length - 1]].map((row) => row?.getAttribute("data-entry-id"))
+  return [
+    `viewport ${window.innerWidth}x${window.innerHeight}`,
+    `hidden ${document.hidden}`,
+    scroller
+      ? `scroller ${scroller.clientWidth}x${scroller.clientHeight} at ${scroller.scrollTop}` +
+        `/${scroller.scrollHeight}`
+      : "scroller missing",
+    `rows ${rows.length} (${ids.join("..")})`,
+    `errors ${rendererErrors.length ? rendererErrors.join(" | ") : "none"}`,
+  ].join(", ")
+}
+Object.assign(window, {
+  runDesktopUiChecks: () =>
+    runDesktopUiChecks().catch((error) => {
+      throw new Error(`${error instanceof Error ? error.message : error} [${diagnostics()}]`)
+    }),
+})

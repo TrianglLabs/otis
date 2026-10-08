@@ -244,6 +244,7 @@ export const ptBR: Messages = {
   "transcript.codeChanges": "Alterações no código",
   "transcript.find": "Buscar na sessão",
   "transcript.findPlaceholder": "Buscar na sessão…",
+  "transcript.turns": "Turnos da conversa",
   "tool.web_search.doing": "Pesquisando na web",
   "tool.web_search.done": "Pesquisou na web",
   "tool.web_read.doing": "Lendo",

@@ -341,6 +341,7 @@ const ConversationPane = memo(function ConversationPane({
             footer={footer}
             find={finder.request}
             onFindCount={finder.setMatchCount}
+            rail={!split}
           />
         </PaneRuntimeContext.Provider>
       )}

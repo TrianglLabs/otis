@@ -226,19 +226,65 @@
   opacity: 0;
 }
 
+/* Registered so the fades can ease in and out instead of switching. */
+@property --fade-top {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@property --fade-bottom {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+/* Content that continues past an edge hazes into it rather than being cut; what rests at an edge
+   stays sharp. The mask spares the scrollbar's column so the thumb keeps its full length. */
 .transcriptScroll {
+  --fade-top: 0px;
+  --fade-bottom: 0px;
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
   /* Always reserve the scrollbar's width: the transcript text then stays put when a scrollbar appears. */
   scrollbar-gutter: stable;
+  mask-image:
+    linear-gradient(
+      to bottom,
+      transparent,
+      #000 var(--fade-top),
+      #000 calc(100% - var(--fade-bottom)),
+      transparent
+    ),
+    linear-gradient(#000, #000);
+  mask-size:
+    calc(100% - var(--scrollbar)) 100%,
+    var(--scrollbar) 100%;
+  mask-position:
+    left top,
+    right top;
+  mask-repeat: no-repeat;
+  transition:
+    --fade-top var(--motion),
+    --fade-bottom var(--motion);
 }
 
+.transcriptScroll-above {
+  --fade-top: 28px;
+}
+
+.transcriptScroll-below {
+  --fade-bottom: 56px;
+}
+
+/* The viewport is the container the rail's dots query. That containment also makes it the box any
+   fixed-position descendant would position against; nothing in a transcript row is fixed. */
 .transcriptViewport {
   position: relative;
   flex: 1;
   min-height: 0;
   min-width: 0;
+  container-type: inline-size;
 }
 
 .transcriptHeader {
@@ -247,7 +293,7 @@
 
 /* Mirrors the transcript's scrollbar gutter so the composer box shares the transcript text's exact edges. */
 .composerWrap {
-  padding-right: 10px;
+  padding-right: var(--scrollbar);
 }
 
 /* The open sessions not on screen, over the composer at its width, as far from what is above as
@@ -403,6 +449,34 @@
 
 .userMessage-artifacts .messageArtifacts {
   margin-top: 0;
+}
+
+/* Images and files that open nowhere: a chip each, in the composer preview's material. */
+.messageAttachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.messageAttachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 9px 4px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-code);
+  color: var(--text-dim);
+  font-size: var(--text-meta);
+  line-height: 1.4;
+}
+
+.messageAttachment > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Assistant message */
@@ -1155,6 +1229,120 @@ button.composer-model-failed {
 
 .jumpToLatest:hover {
   background-image: linear-gradient(var(--bg-hover), var(--bg-hover));
+}
+
+/* Turn rail: one line per user turn at the left edge of a session shown on its own, the one in
+   view brighter. Hovering a line names its turn; a click scrolls there. Many turns share the
+   same height, so the lines close up rather than run off. */
+
+.turnRail {
+  position: absolute;
+  top: 50%;
+  left: 16px;
+  translate: 0 -50%;
+  display: flex;
+  flex-direction: column;
+  height: min(calc(var(--turns) * 10px), 60%);
+  animation: rise-in var(--motion);
+}
+
+.turnRail-tick {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+  max-height: 10px;
+  width: 20px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  outline: none;
+}
+
+.turnRail-tick::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 12px;
+  height: 2px;
+  translate: 0 -50%;
+  border-radius: var(--radius-pill);
+  background: var(--border);
+  transition:
+    width var(--motion),
+    background var(--motion);
+}
+
+.turnRail-tick:hover::before,
+.turnRail-tick:focus-visible::before {
+  width: 16px;
+  background: var(--text-dim);
+}
+
+.turnRail-tick-current::before {
+  width: 16px;
+  background: var(--text);
+}
+
+.turnRail-label {
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 8px);
+  translate: 0 -50%;
+  max-width: 320px;
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  box-shadow: var(--shadow-soft);
+  font-family: var(--font-ui);
+  font-size: var(--text-meta);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity var(--motion),
+    visibility var(--motion);
+}
+
+.turnRail-tick:hover .turnRail-label,
+.turnRail-tick:focus-visible .turnRail-label {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* The rail lives in the margin beside the text column, which begins 28px into the 780px content
+   width. Below this the margin is narrower than the lines, so they become dots and stay. */
+@container (width < 812px) {
+  .turnRail {
+    left: 11px;
+  }
+
+  .turnRail-tick {
+    width: 10px;
+  }
+
+  /* A dot has a quarter of a line's area, so the resting ones take the hover tone to read. */
+  .turnRail-tick::before,
+  .turnRail-tick:hover::before,
+  .turnRail-tick:focus-visible::before,
+  .turnRail-tick-current::before {
+    width: 4px;
+    height: 4px;
+  }
+
+  .turnRail-tick::before {
+    background: var(--text-dim);
+  }
+
+  .turnRail-tick-current::before {
+    background: var(--text);
+  }
 }
 
 /* Home screen */

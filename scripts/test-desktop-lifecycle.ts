@@ -25,7 +25,7 @@ try {
     const timeout = setTimeout(() => {
       child.kill("SIGKILL")
       reject(new Error("Desktop lifecycle checks timed out"))
-    }, 30_000)
+    }, 180_000) // a cold Electron start on a shared CI runner
     let stdout = ""
     child.stdout.on("data", (chunk) => {
       stdout += String(chunk)

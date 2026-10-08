@@ -158,6 +158,58 @@ describe("TranscriptStore", () => {
     })
   })
 
+  it("names attached images apart from the user's words for graphical surfaces", () => {
+    const transcript = new TranscriptStore()
+    transcript.addUserMessage({
+      role: "user",
+      content: [
+        { type: "text", text: "Why does this fail?" },
+        {
+          type: "image",
+          name: "ci-run.png",
+          mimeType: "image/png",
+          data: "iVBORw0KGgo=",
+          sizeBytes: 8,
+        },
+      ],
+    })
+    expect(transcript.entries[0]).toMatchObject({
+      text: "Why does this fail?\n📎 ci-run.png",
+      messageText: "Why does this fail?",
+      images: ["ci-run.png"],
+    })
+    expect(transcript.entries[0]).not.toHaveProperty("artifacts")
+    // Words alone carry no attachment fields at all.
+    transcript.addUserMessage("plain")
+    expect(transcript.entries[1]).not.toHaveProperty("messageText")
+    expect(transcript.entries[1]).not.toHaveProperty("images")
+    // Images and documents together: the plain text lists both in order, the fields split them.
+    transcript.addUserMessage({
+      role: "user",
+      content: [
+        { type: "text", text: "Compare these" },
+        { type: "image", name: "a.png", mimeType: "image/png", data: "iVBORw0KGgo=", sizeBytes: 8 },
+        {
+          type: "document",
+          name: "notes.txt",
+          kind: "text",
+          mimeType: "text/plain",
+          data: "bm90ZXM=",
+          extractedText: "notes",
+          sha256: "b".repeat(64),
+          sizeBytes: 5,
+          truncated: false,
+        },
+      ],
+    })
+    expect(transcript.entries[2]).toMatchObject({
+      text: "Compare these\n📎 a.png\n📄 notes.txt",
+      messageText: "Compare these",
+      images: ["a.png"],
+      artifacts: [{ source: "attachment", name: "notes.txt", kind: "text" }],
+    })
+  })
+
   it("reconstructs tool cards from older sessions without activity metadata", () => {
     const transcript = new TranscriptStore()
     const messages = [

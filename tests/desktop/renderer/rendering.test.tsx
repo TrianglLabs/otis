@@ -54,8 +54,48 @@ describe("stable message rendering", () => {
         />
       </DesktopProvider>,
     )
-    expect(screen.getByText("📄 main.py")).toBeTruthy()
+    // A file Canvas cannot open is a chip with its type mark, not a card and not an emoji line.
+    const chip = screen.getByText("main.py").closest(".messageAttachment")
+    expect(chip?.querySelector(".tabler-icon-brand-python")).toBeTruthy()
+    expect(screen.queryByText(/📄/)).toBeNull()
     expect(screen.queryByRole("button", { name: /Open in Canvas/ })).toBeNull()
+  })
+  it("shows an image as a chip beside the card of a document Canvas opens", async () => {
+    const runtime = await testRuntime()
+    render(
+      <DesktopProvider value={runtime}>
+        <EntryView
+          entry={{
+            id: 1,
+            kind: "message",
+            speaker: "You",
+            text: "Summarize\n📎 ci-run.png\n📄 report.pdf",
+            messageText: "Summarize",
+            images: ["ci-run.png"],
+            artifacts: [
+              {
+                source: "attachment",
+                name: "report.pdf",
+                kind: "pdf",
+                mimeType: "application/pdf",
+                sha256: "c".repeat(64),
+              },
+            ],
+          }}
+          active={false}
+          thinkingVisible={false}
+          expanded={false}
+          onExpandedChange={() => {}}
+        />
+      </DesktopProvider>,
+    )
+    const chips = document.querySelectorAll(".messageAttachment")
+    expect(chips).toHaveLength(1)
+    expect(chips[0]?.textContent).toBe("ci-run.png")
+    expect(chips[0]?.querySelector(".tabler-icon-file-type-png")).toBeTruthy()
+    expect(screen.getByRole("button", { name: /Open in Canvas/ })).toBeTruthy()
+    expect(screen.getByText("Summarize")).toBeTruthy()
+    expect(screen.queryByText(/📎|📄/)).toBeNull()
   })
   it("renders a published artifact as its own card and opens its saved reference", async () => {
     const runtime = await testRuntime()

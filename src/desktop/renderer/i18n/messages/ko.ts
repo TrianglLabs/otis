@@ -243,6 +243,7 @@ export const ko: Messages = {
   "transcript.codeChanges": "코드 변경",
   "transcript.find": "세션 내 검색",
   "transcript.findPlaceholder": "세션 내 검색…",
+  "transcript.turns": "대화 차례",
   "tool.web_search.doing": "웹 검색 중",
   "tool.web_search.done": "웹 검색 완료",
   "tool.web_read.doing": "읽는 중",
