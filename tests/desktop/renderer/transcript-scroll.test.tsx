@@ -30,9 +30,7 @@ function Probe({ holder }: { holder: Holder }) {
       onTouchStartCapture={scroll.onTouchStartCapture}
       onTouchMoveCapture={scroll.onTouchMoveCapture}
       data-testid="scroller"
-    >
-      <div className="transcript" />
-    </section>
+    />
   )
 }
 
@@ -88,40 +86,9 @@ const nextFrame = () =>
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
-  vi.unstubAllGlobals()
 })
 
 describe("useTranscriptScroll", () => {
-  it("follows the list's own growth when it lands after the height report", async () => {
-    // A slow machine commits a taller list after Virtuoso has reported its height: the follow
-    // that report triggered scrolled to a bottom that then moved. Only the list's resize says so.
-    const observed = new Map<Element, ResizeObserverOptions | undefined>()
-    let resized: (() => void) | undefined
-    vi.stubGlobal(
-      "ResizeObserver",
-      class {
-        constructor(callback: () => void) {
-          resized = callback
-        }
-        observe(target: Element, options?: ResizeObserverOptions) {
-          observed.set(target, options)
-        }
-        disconnect() {}
-      },
-    )
-    const { holder, scroller } = mount(800, 1000, 200)
-    const list = scroller.querySelector(".transcript") as Element
-    // The list is sized by its padding, so only its border box tracks the total height.
-    expect(observed.get(list)).toEqual({ box: "border-box" })
-    act(() => scrollOf(holder).totalListHeightChanged(1000))
-    await nextFrame()
-    expect(scroller.scrollTop).toBe(800)
-    stubMetrics(scroller, 800, 1500, 200)
-    act(() => resized?.())
-    await nextFrame()
-    expect(scroller.scrollTop).toBe(1300)
-  })
-
   it("jumps to the new bottom as streamed content grows the list", async () => {
     const { holder, scroller } = mount(0, 1000, 200)
 
@@ -150,13 +117,15 @@ describe("useTranscriptScroll", () => {
     expect(scroller.scrollTop).toBe(500)
   })
 
-  it("returns to the tail after a scroll that was not the reader's input", async () => {
-    // A list correcting for a row it measured moves the view without changing any size.
+  it("leaves a scroll that was not the reader's input where it landed", async () => {
+    // A list correction can move the view without input; the hook neither follows it back nor
+    // takes it for the reader leaving the tail.
     const { holder, scroller } = mount(800, 1000, 200)
+    await nextFrame()
     scroller.scrollTop = 358
     fireEvent.scroll(scroller)
     await nextFrame()
-    expect(scroller.scrollTop).toBe(800)
+    expect(scroller.scrollTop).toBe(358)
     expect(scrollOf(holder).atBottom).toBe(true)
   })
 

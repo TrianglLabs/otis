@@ -411,12 +411,25 @@ export const TranscriptList = memo(function TranscriptList({
                 pinned.current = true
                 setTurnInView(turn.id)
                 scroll.pauseFollowing()
-                virtuoso.current?.scrollToIndex({
-                  index: turn.index,
-                  align: "start",
-                  behavior: "smooth",
-                  offset: -8,
-                })
+                const scroller = scroll.scroller.current
+                const row = scroller?.querySelector<HTMLElement>(
+                  `.transcriptEntry[data-index="${turn.index}"]`,
+                )
+                if (!scroller || !row) {
+                  // Off screen: the list estimates the position and corrects it as rows measure.
+                  virtuoso.current?.scrollToIndex({
+                    index: turn.index,
+                    align: "start",
+                    offset: -28,
+                  })
+                  return
+                }
+                // A mounted row goes by its measured position, clear of the top haze. One within
+                // a window of the tail cannot reach the top: the view stays there, and so does
+                // following, rather than the list retrying against every streamed delta.
+                scroller.scrollTop +=
+                  row.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 28
+                if (isAtBottom(scroller)) scroll.jumpToLatest()
               }}
             >
               <span className="turnRail-label" aria-hidden="true">

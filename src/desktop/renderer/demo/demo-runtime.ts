@@ -54,6 +54,7 @@ import {
   type TextSize,
   type ThemeName,
   type TranscriptPatchOp,
+  type TurnPhase,
 } from "../../contracts.js"
 
 /**
@@ -2475,8 +2476,18 @@ class DemoRuntime implements DesktopApi {
     this.#emitStatus()
   }
 
+  /** The turn's state on the status and on the focused session alike, as the runtime reports it. */
+  #setBusy(busy: boolean, phase: TurnPhase) {
+    this.#state = {
+      ...this.#state,
+      busy,
+      phase,
+      runtimes: this.#state.runtimes.map((entry) => (entry.focused ? { ...entry, busy } : entry)),
+    }
+  }
+
   #runTurn(prompt: string, generation: number) {
-    this.#state = { ...this.#state, busy: true, phase: "thinking" }
+    this.#setBusy(true, "thinking")
     this.#emitStatus()
 
     const reply: CannedReply = {
@@ -2617,12 +2628,8 @@ class DemoRuntime implements DesktopApi {
 
   #finishTurn(generation: number, text: string) {
     this.#streamText(this.#pushAssistant("", true).id, text, generation, () => {
-      this.#state = {
-        ...this.#state,
-        busy: false,
-        phase: "idle",
-        contextTokens: (this.#state.contextTokens ?? 0) + 3_800,
-      }
+      this.#setBusy(false, "idle")
+      this.#state.contextTokens = (this.#state.contextTokens ?? 0) + 3_800
       this.#earnNext()
       this.#emitStatus()
       const queued = this.#queued.shift()
@@ -2664,7 +2671,7 @@ class DemoRuntime implements DesktopApi {
     const streaming = this.#state.entries.find((entry) => entry.streaming)
     if (streaming) this.#patch(streaming.id, { streaming: false })
     this.#push(this.#entry("Otis", "_Interrupted._"))
-    this.#state = { ...this.#state, busy: false, phase: "idle" }
+    this.#setBusy(false, "idle")
     this.#emitStatus()
     // Like the real runtime, stopping one turn hands the next queued follow-up to the conversation.
     const queued = this.#queued.shift()

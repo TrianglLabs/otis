@@ -137,10 +137,15 @@ describe("turn rail", () => {
       "screen.png",
       "Now the docs",
     ])
+    // The turn's row is mounted 300px below the top edge: the view moves there by measurement,
+    // clear of the top haze, and following pauses.
+    const target = container.querySelector('.transcriptEntry[data-index="3"]') as HTMLElement
+    target.getBoundingClientRect = () => ({ top: 300, bottom: 360 }) as DOMRect
     fireEvent.click(ticks[1] as HTMLButtonElement)
-    expect(scrollToIndex).toHaveBeenCalledWith(
-      expect.objectContaining({ index: 3, align: "start" }),
-    )
+    expect(scroller.scrollTop).toBe(400 + 300 - 28)
+    expect(scrollToIndex).not.toHaveBeenCalled()
+    expect(scroller.classList.contains("transcriptScroll-below")).toBe(true)
+    expect(container.querySelector(".jumpToLatest")).not.toBeNull()
     expect(ticks[1]?.getAttribute("aria-current")).toBe("step")
     // The clicked turn stays lit through the scroll it caused, whatever lands at the top.
     scrollTo(scroller, 1400)
@@ -172,6 +177,29 @@ describe("turn rail", () => {
     fireEvent.wheel(ticks[2] as HTMLButtonElement, { deltaY: 40 })
     scrollTo(scroller, 300)
     expect(ticks[2]?.getAttribute("aria-current")).toBe("step")
+  })
+  it("keeps following when the clicked turn is already within one window of the tail", () => {
+    const { container } = renderList(threeTurns(), false, false, true)
+    const scroller = container.querySelector(".transcriptScroll") as HTMLElement
+    scrollTo(scroller, 1400)
+    const ticks = container.querySelectorAll<HTMLButtonElement>(".turnRail-tick")
+    // The row sits 100px below the top edge but the scroller is already at its end, so the move
+    // clamps: the view is still at the tail after the click, and keeps following.
+    const target = container.querySelector('.transcriptEntry[data-index="5"]') as HTMLElement
+    target.getBoundingClientRect = () => ({ top: 100, bottom: 160 }) as DOMRect
+    fireEvent.click(ticks[2] as HTMLButtonElement)
+    expect(ticks[2]?.getAttribute("aria-current")).toBe("step")
+    expect(scroller.classList.contains("transcriptScroll-below")).toBe(false)
+    expect(container.querySelector(".jumpToLatest")).toBeNull()
+  })
+  it("asks the list for a turn whose row is not mounted", () => {
+    scrollToIndex.mockClear()
+    const { container } = renderList(threeTurns(), false, false, true)
+    const scroller = container.querySelector(".transcriptScroll") as HTMLElement
+    scrollTo(scroller, 400)
+    container.querySelector('.transcriptEntry[data-index="3"]')?.remove()
+    fireEvent.click(container.querySelectorAll(".turnRail-tick")[1] as HTMLButtonElement)
+    expect(scrollToIndex).toHaveBeenCalledWith({ index: 3, align: "start", offset: -28 })
   })
   it("has no rail for two turns, for a session that fits its window, or in a split", () => {
     const short = renderList([you("One"), message({ text: "A" }), you("Two")], false, false, true)
