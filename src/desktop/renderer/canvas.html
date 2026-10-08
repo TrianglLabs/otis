@@ -8,6 +8,11 @@
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <style>
+      /* Whichever scheme the app is in: a frame whose scheme disagrees with its embedder's is
+         painted on an opaque backdrop, and the drawing is meant to sit on the panel. */
+      html {
+        color-scheme: light dark;
+      }
       html,
       body {
         margin: 0;
