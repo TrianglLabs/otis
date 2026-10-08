@@ -63,8 +63,8 @@ textarea {
 
 /* Thin scrollbars that appear on hover. */
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: var(--scrollbar);
+  height: var(--scrollbar);
 }
 
 ::-webkit-scrollbar-thumb {

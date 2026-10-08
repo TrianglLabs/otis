@@ -240,6 +240,7 @@ export const en = {
   "transcript.codeChanges": "Code changes",
   "transcript.find": "Find in session",
   "transcript.findPlaceholder": "Find in session…",
+  "transcript.turns": "Conversation turns",
   "tool.web_search.doing": "Searching the web for",
   "tool.web_search.done": "Searched the web for",
   "tool.web_read.doing": "Reading",

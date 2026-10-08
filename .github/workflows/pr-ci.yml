@@ -32,9 +32,19 @@ jobs:
       - name: Test
         run: bun run test
 
+      # The bundles are part of what a merge ships: a renderer that pulls in a Node module or a
+      # dependency the bundler cannot parse passes every test above and fails only here.
+      - name: Build CLI
+        run: bun run build
+
+      - name: Build Desktop
+        run: bun run build:desktop
+
   documents:
     name: Document Workflows
     runs-on: ubuntu-latest
+    # A stalled package mirror otherwise holds the run for the six-hour default.
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0

@@ -12,6 +12,11 @@ on:
         required: false
         type: boolean
         default: false
+      allow_unsigned:
+        description: "Publish macOS apps unsigned when the signing secrets are unavailable"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -44,8 +49,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if [[ "$GITHUB_REF_TYPE" != "branch" ]]; then
-            printf '%s\n' 'Run releases from a branch so the version commit remains in repository history.' >&2
+          if [[ "$GITHUB_REF_TYPE" != "branch" || "$GITHUB_REF_NAME" != "main" ]]; then
+            printf '%s\n' 'Run releases from main: the version commit lands there.' >&2
             exit 1
           fi
 
@@ -159,6 +164,8 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ALLOW_UNSIGNED: ${{ inputs.allow_unsigned }}
+          TARGET_OS: ${{ matrix.os }}
         run: |
           if [ -n "$CSC_LINK" ]; then
             if [ -n "$APPLE_API_KEY" ]; then
@@ -168,8 +175,11 @@ jobs:
               export APPLE_API_KEY="$key_file"
             fi
             bunx electron-builder --publish never ${{ matrix.targets }}
+          elif [ "$TARGET_OS" = "macOS" ] && [ "$ALLOW_UNSIGNED" != "true" ]; then
+            echo "macOS signing secrets are missing; set allow_unsigned to publish unsigned." >&2
+            exit 1
           else
-            echo "No signing secrets configured; building unsigned." >&2
+            echo "Building unsigned." >&2
             bunx electron-builder --publish never -c.mac.identity=null -c.mac.notarize=false ${{ matrix.targets }}
           fi
 

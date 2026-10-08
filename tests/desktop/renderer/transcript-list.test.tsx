@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { cleanup, fireEvent, render } from "@testing-library/react"
-import type { ReactNode } from "react"
+import type { ReactNode, UIEvent } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { TranscriptEntry } from "../../../src/app/transcript.js"
 import type { DesktopApi } from "../../../src/desktop/contracts.js"
@@ -21,17 +21,19 @@ vi.mock("react-virtuoso", async () => {
         className,
         data = [],
         itemContent,
+        onScrollCapture,
       }: {
         scrollerRef?: (element: HTMLElement | Window | null) => void
         className?: string
         data?: { id?: number; kind?: string }[]
         itemContent?: (index: number, item: unknown) => ReactNode
+        onScrollCapture?: (event: UIEvent<HTMLElement>) => void
       },
       ref,
     ) {
       useImperativeHandle(ref, () => ({ scrollToIndex }))
       return (
-        <div className={className} ref={scrollerRef}>
+        <div className={className} ref={scrollerRef} onScrollCapture={onScrollCapture}>
           {data.map((item, index) => (
             <div key={`${item.kind ?? "item"}-${item.id ?? index}`}>
               {itemContent?.(index, item)}
@@ -61,10 +63,15 @@ const reasoning = (partial: Partial<TranscriptEntry> = {}) =>
 // Rows never reach the API in these tests; the store is only read through the list's own props.
 const runtime = { api: {} as DesktopApi, store: {} as DesktopViewStore }
 
-function renderList(entries: TranscriptEntry[], thinkingVisible = false, busy = false) {
+function renderList(
+  entries: TranscriptEntry[],
+  thinkingVisible = false,
+  busy = false,
+  rail = false,
+) {
   const view = render(
     <DesktopProvider value={runtime}>
-      <TranscriptList entries={entries} thinkingVisible={thinkingVisible} busy={busy} />
+      <TranscriptList entries={entries} thinkingVisible={thinkingVisible} busy={busy} rail={rail} />
     </DesktopProvider>,
   )
   return {
@@ -97,6 +104,95 @@ describe("TranscriptList", () => {
     // Idle again: the thumb falls back to the hover/scroll reveal.
     view.rerender([only], false)
     expect(scroller.classList.contains("scrolling")).toBe(false)
+  })
+})
+
+describe("turn rail", () => {
+  const you = (text: string, extra: Partial<TranscriptEntry> = {}) =>
+    message({ speaker: "You", text, ...extra })
+  const threeTurns = () => [
+    you("Fix the flaky lock test\n📎 ci-run.png", { messageText: "Fix the flaky lock test" }),
+    message({ text: "Looking." }),
+    tool(),
+    you("", { messageText: "", images: ["screen.png"] }),
+    message({ text: "Done." }),
+    you("Now the docs"),
+  ]
+  // The list fits the window until the scroller says otherwise.
+  const scrollTo = (scroller: HTMLElement, top: number) => {
+    Object.defineProperty(scroller, "clientHeight", { value: 600, configurable: true })
+    Object.defineProperty(scroller, "scrollHeight", { value: 2000, configurable: true })
+    scroller.scrollTop = top
+    fireEvent.scroll(scroller)
+  }
+  it("marks each user turn once the session scrolls, names it, and lights the clicked one", () => {
+    scrollToIndex.mockClear()
+    const { container } = renderList(threeTurns(), false, false, true)
+    expect(container.querySelector(".turnRail")).toBeNull()
+    const scroller = container.querySelector(".transcriptScroll") as HTMLElement
+    scrollTo(scroller, 400)
+    const ticks = container.querySelectorAll<HTMLButtonElement>(".turnRail-tick")
+    expect([...ticks].map((tick) => tick.getAttribute("aria-label"))).toEqual([
+      "Fix the flaky lock test",
+      "screen.png",
+      "Now the docs",
+    ])
+    fireEvent.click(ticks[1] as HTMLButtonElement)
+    expect(scrollToIndex).toHaveBeenCalledWith(
+      expect.objectContaining({ index: 3, align: "start" }),
+    )
+    expect(ticks[1]?.getAttribute("aria-current")).toBe("step")
+    // The clicked turn stays lit through the scroll it caused, whatever lands at the top.
+    scrollTo(scroller, 1400)
+    expect(ticks[1]?.getAttribute("aria-current")).toBe("step")
+    // The reader's own wheel hands the light back to the view, here resting at the tail.
+    fireEvent.wheel(scroller, { deltaY: 40 })
+    scrollTo(scroller, 1400)
+    expect(ticks[2]?.getAttribute("aria-current")).toBe("step")
+  })
+  it("lights the turn whose content crosses the top edge, and the first before any turn", () => {
+    const { container } = renderList(threeTurns(), false, false, true)
+    const scroller = container.querySelector(".transcriptScroll") as HTMLElement
+    // Rows 0..2 sit above the top edge, row 3 (the second turn's start) crosses it.
+    const rows = container.querySelectorAll<HTMLElement>(".transcriptEntry")
+    rows.forEach((row, index) => {
+      row.getBoundingClientRect = () => ({ bottom: index < 3 ? -10 : 40 + index }) as DOMRect
+    })
+    scrollTo(scroller, 400)
+    const ticks = container.querySelectorAll<HTMLButtonElement>(".turnRail-tick")
+    expect(ticks[1]?.getAttribute("aria-current")).toBe("step")
+    // Only an assistant row before the first turn is across the edge: the first turn stands.
+    rows.forEach((row, index) => {
+      row.getBoundingClientRect = () => ({ bottom: index === 1 ? 40 : -10 }) as DOMRect
+    })
+    scrollTo(scroller, 300)
+    expect(ticks[0]?.getAttribute("aria-current")).toBe("step")
+    // A wheel on a tick itself does not hand the light back to the view.
+    fireEvent.click(ticks[2] as HTMLButtonElement)
+    fireEvent.wheel(ticks[2] as HTMLButtonElement, { deltaY: 40 })
+    scrollTo(scroller, 300)
+    expect(ticks[2]?.getAttribute("aria-current")).toBe("step")
+  })
+  it("has no rail for two turns, for a session that fits its window, or in a split", () => {
+    const short = renderList([you("One"), message({ text: "A" }), you("Two")], false, false, true)
+    scrollTo(short.container.querySelector(".transcriptScroll") as HTMLElement, 400)
+    expect(short.container.querySelector(".turnRail")).toBeNull()
+    cleanup()
+    const fits = renderList(threeTurns(), false, false, true)
+    expect(fits.container.querySelector(".turnRail")).toBeNull()
+    // Scrolling content brings the rail; content that fits again, with the view at both edges at
+    // once, takes it away.
+    const scroller = fits.container.querySelector(".transcriptScroll") as HTMLElement
+    scrollTo(scroller, 400)
+    expect(fits.container.querySelector(".turnRail")).not.toBeNull()
+    Object.defineProperty(scroller, "scrollHeight", { value: 600, configurable: true })
+    scroller.scrollTop = 0
+    fireEvent.scroll(scroller)
+    expect(fits.container.querySelector(".turnRail")).toBeNull()
+    cleanup()
+    const split = renderList(threeTurns())
+    scrollTo(split.container.querySelector(".transcriptScroll") as HTMLElement, 400)
+    expect(split.container.querySelector(".turnRail")).toBeNull()
   })
 })
 

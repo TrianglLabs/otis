@@ -1,9 +1,11 @@
 import { ArrowDown } from "lucide-react"
 import {
   type ComponentProps,
+  type CSSProperties,
   forwardRef,
   memo,
   type ReactNode,
+  type UIEvent,
   useCallback,
   useEffect,
   useMemo,
@@ -13,6 +15,7 @@ import {
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso"
 import type { TranscriptEntry } from "../../../../app/transcript.js"
 import { Icon } from "../../components/Icon.js"
+import { useI18n } from "../../i18n/index.js"
 import {
   clearHighlights,
   type FindRequest,
@@ -20,9 +23,9 @@ import {
   setHighlights,
   textRanges,
 } from "../canvas/find.js"
-import { EntryView } from "./entries.js"
+import { artifactTitle, EntryView } from "./entries.js"
 import { parseDiffDisplay, ToolRunCard } from "./ToolCard.js"
-import { useTranscriptScroll } from "./useTranscriptScroll.js"
+import { isAtBottom, useTranscriptScroll } from "./useTranscriptScroll.js"
 
 /**
  * A condensed run of consecutive tool activity. The run id is its first entry's id, which stays
@@ -146,6 +149,7 @@ export const TranscriptList = memo(function TranscriptList({
   footer,
   find,
   onFindCount,
+  rail = false,
 }: {
   entries: TranscriptEntry[]
   thinkingVisible: boolean
@@ -154,7 +158,10 @@ export const TranscriptList = memo(function TranscriptList({
   /** Find in session: the query and which matching row, in order, is the current one. */
   find?: FindRequest
   onFindCount?: (count: number) => void
+  /** The turn rail at the edge: one mark per user turn, for a session shown on its own. */
+  rail?: boolean
 }) {
+  const { t } = useI18n()
   const visible = useMemo(
     () => visibleEntries(entries, thinkingVisible),
     [entries, thinkingVisible],
@@ -184,6 +191,54 @@ export const TranscriptList = memo(function TranscriptList({
   )
   const context = useMemo(() => ({ footer }), [footer])
 
+  // The rail lists the user's turns by the row each starts at. The turn in view is the one at the
+  // top edge, or the last at the tail; rows above the window are not mounted, so the first mounted
+  // row across the edge stands for the turn it belongs to. A clicked turn stays lit until the
+  // reader's own input, since the transcript may not reach far enough to bring it to the top.
+  const turns = useMemo(
+    () =>
+      items.flatMap((item, index) => {
+        if (item.kind !== "message" || item.speaker !== "You") return []
+        const words = (item.messageText ?? item.text).trim().split("\n")[0]
+        const first = item.artifacts?.[0]
+        return [
+          {
+            index,
+            id: item.id,
+            label: words || item.images?.[0] || (first && artifactTitle(first)) || "",
+          },
+        ]
+      }),
+    [items],
+  )
+  const showRail = rail && turns.length >= 3 && !(scroll.atTop && scroll.atBottom)
+  const [turnInView, setTurnInView] = useState<number | undefined>()
+  const pinned = useRef(false)
+  const locateTurn = useCallback(
+    (scroller: HTMLElement) => {
+      if (pinned.current) return
+      if (isAtBottom(scroller)) {
+        setTurnInView(turns.at(-1)?.id)
+        return
+      }
+      const mark = scroller.getBoundingClientRect().top + 16
+      for (const row of scroller.querySelectorAll<HTMLElement>(".transcriptEntry")) {
+        if (row.getBoundingClientRect().bottom < mark) continue
+        const index = Number(row.dataset.index)
+        setTurnInView((turns.findLast((turn) => turn.index <= index) ?? turns[0])?.id)
+        return
+      }
+    },
+    [turns],
+  )
+  const onScrollCapture = useCallback(
+    (event: UIEvent<HTMLElement>) => {
+      scroll.onScrollCapture(event)
+      if (showRail && event.target === event.currentTarget) locateTurn(event.currentTarget)
+    },
+    [scroll.onScrollCapture, showRail, locateTurn],
+  )
+
   // Occurrences are counted per row over the rows' data, since only the visible slice is in the
   // DOM, and over what a row shows: a folded run or thought stays out until it is opened. The
   // current occurrence's row scrolls to the middle of the view and following the tail stops.
@@ -194,7 +249,11 @@ export const TranscriptList = memo(function TranscriptList({
       if (item.kind === "toolRun" || (item.kind === "reasoning" && !expanded.has(item.id))) return 0
       const shown = item.diff
         ? [item.text, ...parseDiffDisplay(item.diff).map((row) => ("text" in row ? row.text : ""))]
-        : [item.messageText ?? item.text]
+        : [
+            item.messageText ?? item.text,
+            ...(item.images ?? []),
+            ...(item.artifacts ?? []).map(artifactTitle),
+          ]
       return matchOffsets(shown.join("\n"), query).length
     })
   }, [items, query, expanded])
@@ -211,6 +270,28 @@ export const TranscriptList = memo(function TranscriptList({
   const virtuoso = useRef<VirtuosoHandle>(null)
   const viewport = useRef<HTMLDivElement>(null)
   useEffect(() => {
+    if (showRail && scroll.scroller.current) locateTurn(scroll.scroller.current)
+  }, [showRail, locateTurn, scroll.scroller])
+  // A rail that hides and returns starts unpinned, so the turn in view is located afresh.
+  useEffect(() => {
+    const root = viewport.current
+    if (!root || !showRail) return
+    const unpin = (event: Event) => {
+      if (event.target instanceof Element && event.target.closest(".turnRail")) return
+      pinned.current = false
+    }
+    const options = { capture: true, passive: true }
+    for (const type of ["wheel", "keydown", "touchmove", "pointerdown"]) {
+      root.addEventListener(type, unpin, options)
+    }
+    return () => {
+      for (const type of ["wheel", "keydown", "touchmove", "pointerdown"]) {
+        root.removeEventListener(type, unpin, options)
+      }
+      pinned.current = false
+    }
+  }, [showRail])
+  useEffect(() => {
     if (current === undefined) return
     scroll.pauseFollowing()
     virtuoso.current?.scrollToIndex({ index: current, align: "center" })
@@ -222,7 +303,7 @@ export const TranscriptList = memo(function TranscriptList({
   // transcript change walks the mounted rows' text again, which is the cost of painting what is
   // on screen.
   useEffect(() => {
-    const root = viewport.current
+    const root = scroll.scroller.current
     if (!root) return
     if (!query) {
       clearHighlights(root)
@@ -237,13 +318,13 @@ export const TranscriptList = memo(function TranscriptList({
       setHighlights(root, ranges, exact ? [exact] : own)
     })
     return () => cancelAnimationFrame(frame)
-  }, [query, current, within, counts, items, scroll.scrolling])
+  }, [query, current, within, counts, items, scroll.scrolling, scroll.scroller])
   useEffect(() => {
-    const root = viewport.current
+    const root = scroll.scroller.current
     return () => {
       if (root) clearHighlights(root)
     }
-  }, [])
+  }, [scroll.scroller])
 
   const renderEntry = useCallback(
     (index: number, item: TranscriptItem) => {
@@ -252,7 +333,7 @@ export const TranscriptList = memo(function TranscriptList({
       const className = `transcriptEntry${activity ? " transcriptEntry-activity" : ""}`
       const found = index === current ? true : undefined
       return item.kind === "toolRun" ? (
-        <div className={className} data-run-id={item.id} aria-current={found}>
+        <div className={className} data-run-id={item.id} data-index={index} aria-current={found}>
           <ToolRunCard
             run={item}
             active={busy && index === items.length - 1}
@@ -264,6 +345,7 @@ export const TranscriptList = memo(function TranscriptList({
         <div
           className={`${className}${expandedEntries.has(item.id) ? " transcriptEntry-inRun" : ""}`}
           data-entry-id={item.id}
+          data-index={index}
           aria-current={found}
         >
           <EntryView
@@ -287,14 +369,16 @@ export const TranscriptList = memo(function TranscriptList({
       <Virtuoso<TranscriptItem, ListContext>
         ref={virtuoso}
         scrollerRef={scroll.scrollerRef}
-        onScrollCapture={scroll.onScrollCapture}
+        onScrollCapture={onScrollCapture}
         onWheelCapture={scroll.onWheelCapture}
         onKeyDown={scroll.onKeyDown}
         onPointerDownCapture={scroll.onPointerDownCapture}
         onTouchStartCapture={scroll.onTouchStartCapture}
         onTouchMoveCapture={scroll.onTouchMoveCapture}
         totalListHeightChanged={scroll.totalListHeightChanged}
-        className={`transcriptScroll${scroll.scrolling || busy ? " scrolling" : ""}`}
+        className={`transcriptScroll${scroll.scrolling || busy ? " scrolling" : ""}${
+          scroll.atTop ? "" : " transcriptScroll-above"
+        }${scroll.atBottom ? "" : " transcriptScroll-below"}`}
         data={items}
         computeItemKey={itemKey}
         components={components}
@@ -309,6 +393,38 @@ export const TranscriptList = memo(function TranscriptList({
         <button type="button" className="jumpToLatest" onClick={scroll.jumpToLatest}>
           <Icon icon={ArrowDown} size={12} /> Latest
         </button>
+      ) : null}
+      {showRail ? (
+        <nav
+          className="turnRail"
+          aria-label={t("transcript.turns")}
+          style={{ "--turns": turns.length } as CSSProperties}
+        >
+          {turns.map((turn) => (
+            <button
+              key={turn.id}
+              type="button"
+              className={`turnRail-tick${turn.id === turnInView ? " turnRail-tick-current" : ""}`}
+              aria-label={turn.label}
+              aria-current={turn.id === turnInView ? "step" : undefined}
+              onClick={() => {
+                pinned.current = true
+                setTurnInView(turn.id)
+                scroll.pauseFollowing()
+                virtuoso.current?.scrollToIndex({
+                  index: turn.index,
+                  align: "start",
+                  behavior: "smooth",
+                  offset: -8,
+                })
+              }}
+            >
+              <span className="turnRail-label" aria-hidden="true">
+                {turn.label}
+              </span>
+            </button>
+          ))}
+        </nav>
       ) : null}
     </div>
   )

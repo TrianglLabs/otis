@@ -53,10 +53,12 @@ export type TranscriptEntry = {
   artifactDisplay?: "pending" | "superseded" | "ready"
   artifacts?: ArtifactReference[]
   /**
-   * User-authored text plus image labels, without document names that render as artifact cards in
-   * graphical UIs.
+   * The user's words alone when attachments ride along: graphical UIs show those as `images` and
+   * `artifacts`, while `text` names them in words for plain ones.
    */
   messageText?: string
+  /** Names of the images attached to a user message. */
+  images?: string[]
   streaming?: boolean
   delivery?: TranscriptDelivery
 }
@@ -388,21 +390,17 @@ export class TranscriptStore {
   private addUserEntry(message: string | UserChatMessage, delivery?: TranscriptDelivery) {
     const text = typeof message === "string" ? message : displayUserMessage(message)
     const documents = typeof message === "string" ? [] : userMessageDocuments(message)
-    const messageText =
-      typeof message === "string" || documents.length === 0
-        ? undefined
-        : [
-            userMessageText(message),
-            ...userMessageImages(message).map((image) => `📎 ${image.name}`),
-          ]
-            .filter(Boolean)
-            .join("\n")
+    const images =
+      typeof message === "string" ? [] : userMessageImages(message).map((image) => image.name)
     const entry = {
       id: this.nextMessageID++,
       kind: "message" as const,
       speaker: "You" as const,
       text,
-      ...(messageText !== undefined ? { messageText } : {}),
+      ...(typeof message !== "string" && images.length + documents.length > 0
+        ? { messageText: userMessageText(message) }
+        : {}),
+      ...(images.length > 0 ? { images } : {}),
       ...(documents.length > 0 ? { artifacts: documents.map(attachmentArtifactReference) } : {}),
       ...(delivery ? { delivery } : {}),
     }

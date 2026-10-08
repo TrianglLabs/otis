@@ -243,6 +243,7 @@ export const de: Messages = {
   "transcript.codeChanges": "Codeänderungen",
   "transcript.find": "In der Sitzung suchen",
   "transcript.findPlaceholder": "In der Sitzung suchen…",
+  "transcript.turns": "Gesprächsrunden",
   "tool.web_search.doing": "Websuche nach",
   "tool.web_search.done": "Web durchsucht nach",
   "tool.web_read.doing": "Liest",

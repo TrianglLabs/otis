@@ -238,6 +238,7 @@ export const zhCN: Messages = {
   "transcript.codeChanges": "代码更改",
   "transcript.find": "在会话中查找",
   "transcript.findPlaceholder": "在会话中查找…",
+  "transcript.turns": "对话轮次",
   "tool.web_search.doing": "正在搜索网页",
   "tool.web_search.done": "已搜索网页",
   "tool.web_read.doing": "正在读取",

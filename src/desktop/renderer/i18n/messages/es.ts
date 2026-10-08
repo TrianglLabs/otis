@@ -246,6 +246,7 @@ export const es: Messages = {
   "transcript.codeChanges": "Cambios de código",
   "transcript.find": "Buscar en la sesión",
   "transcript.findPlaceholder": "Buscar en la sesión…",
+  "transcript.turns": "Turnos de la conversación",
   "tool.web_search.doing": "Buscando en la web",
   "tool.web_search.done": "Buscó en la web",
   "tool.web_read.doing": "Leyendo",

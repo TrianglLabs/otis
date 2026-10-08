@@ -6,7 +6,12 @@ import { Icon } from "../../components/Icon.js"
 import { MatrixLoader } from "../../components/MatrixLoader.js"
 import { formatSessionDetail, inView } from "../../format.js"
 import { useI18n } from "../../i18n/index.js"
-import { useDesktop, useDesktopState, useScrollbarFlash } from "../../runtime.js"
+import {
+  useDesktop,
+  useDesktopSelector,
+  useDesktopState,
+  useScrollbarFlash,
+} from "../../runtime.js"
 import { liftGhost, SESSION_DRAG_TYPE } from "../conversation/Transcript.js"
 
 type PaletteRow =
@@ -41,6 +46,8 @@ export function CommandPalette({
   const { api } = useDesktop()
   const { locale, t } = useI18n()
   const state = useDesktopState("sessions", "workspace")
+  // Find acts on the focused pane, so it needs that pane's entries; the home screen has none.
+  const searchable = useDesktopSelector((snapshot) => (snapshot?.entries.length ?? 0) > 0)
   const [query, setQuery] = useState("")
   const scrollbar = useScrollbarFlash()
   // Results are tagged with the query that produced them — stale hits are never shown or activated.
@@ -172,17 +179,21 @@ export function CommandPalette({
         onClose()
       },
     },
-    {
-      kind: "action" as const,
-      id: "find",
-      label: t("transcript.find"),
-      hint: "⌘F",
-      icon: Search,
-      run: () => {
-        onClose()
-        onFind()
-      },
-    },
+    ...(searchable
+      ? [
+          {
+            kind: "action" as const,
+            id: "find",
+            label: t("transcript.find"),
+            hint: "⌘F",
+            icon: Search,
+            run: () => {
+              onClose()
+              onFind()
+            },
+          },
+        ]
+      : []),
     {
       kind: "action" as const,
       id: "open-folder",

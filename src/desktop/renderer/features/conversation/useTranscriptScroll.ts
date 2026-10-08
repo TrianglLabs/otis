@@ -21,6 +21,7 @@ export function useTranscriptScroll() {
   const following = useRef(true)
   const touchY = useRef<number | undefined>(undefined)
   const [atBottom, setAtBottom] = useState(true)
+  const [atTop, setAtTop] = useState(true)
   const [scrolling, setScrolling] = useState(false)
   const [listHeight, setListHeight] = useState(0)
 
@@ -37,6 +38,10 @@ export function useTranscriptScroll() {
   // Measurements arrive before React commits Virtuoso's updated layout.
   useLayoutEffect(follow, [follow, listHeight])
 
+  // The scroller's own box changes with the window; the list's border box changes with every row
+  // Virtuoso measures, after the DOM has it. Following the second is what keeps the tail in view
+  // when a row grows after the list reported its height, which on a slow machine happens
+  // between the report and the commit.
   const scrollerRef = useCallback(
     (scroll: HTMLElement | Window | null) => {
       observer.current?.disconnect()
@@ -44,6 +49,8 @@ export function useTranscriptScroll() {
       if (!element.current) return
       observer.current = new ResizeObserver(follow)
       observer.current.observe(element.current)
+      const list = element.current.querySelector(".transcript")
+      if (list) observer.current.observe(list, { box: "border-box" })
     },
     [follow],
   )
@@ -92,6 +99,7 @@ export function useTranscriptScroll() {
     (event: UIEvent<HTMLElement>) => {
       const scroll = event.currentTarget
       if (event.target !== scroll || scroll.clientHeight === 0) return
+      setAtTop(scroll.scrollTop <= 0)
       // Layout corrections also dispatch scroll events. Only returning to the tail changes follow
       // mode here; leaving it is driven by the user's input, never inferred from automatic
       // scroll-position changes.
@@ -101,9 +109,14 @@ export function useTranscriptScroll() {
       } else if (hasSelection()) {
         // Drag-selecting can auto-scroll the transcript without wheel or keyboard input.
         setAtBottom(false)
+      } else if (following.current) {
+        // The reader's input pauses following before its scroll event arrives, so this is a
+        // correction the list made for a row it measured, which can carry the view off the tail
+        // without a size change to follow: pull it back.
+        follow()
       }
     },
-    [hasSelection],
+    [hasSelection, follow],
   )
 
   const onWheelCapture = useCallback(
@@ -158,7 +171,10 @@ export function useTranscriptScroll() {
   }, [follow])
 
   return {
+    /** The scroller element, for callers that read its geometry or walk its rows. */
+    scroller: element,
     atBottom,
+    atTop,
     scrolling,
     scrollerRef,
     onScrollCapture,
@@ -192,6 +208,6 @@ function scrollsTranscript(target: EventTarget, scroller: HTMLElement) {
   return scroller.scrollTop > 0
 }
 
-function isAtBottom(scroller: HTMLElement) {
+export function isAtBottom(scroller: HTMLElement) {
   return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= BOTTOM_THRESHOLD
 }

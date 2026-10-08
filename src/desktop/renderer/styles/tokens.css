@@ -73,6 +73,7 @@
   --header-height: 48px;
   --composer-max: 240px;
   --content-max: 780px;
+  --scrollbar: 10px; /* the overlay scrollbar's track, mirrored by gutters and masks */
 
   --shadow-float: 0 16px 48px rgb(0 0 0 / 0.45);
   --shadow-soft: 0 1px 3px rgb(0 0 0 / 0.22);
