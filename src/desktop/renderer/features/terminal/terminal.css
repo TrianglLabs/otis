@@ -1,5 +1,6 @@
 /* The workspace shell fills its rail view on the rail's own colour, which its palette also uses. */
 .terminal {
+  position: relative;
   flex: 1;
   min-width: 0;
   min-height: 0;
@@ -7,4 +8,34 @@
   background: var(--bg-rail);
   /* Ghostty makes its host editable for input; the terminal draws the only cursor. */
   caret-color: transparent;
+}
+
+/* The app's thin scrollbar, in the gutter Ghostty's fit addon leaves beside the grid. The thumb
+   appears on hover and flashes while scrolling, like the transcript's. */
+.terminal-scrollbar {
+  position: absolute;
+  top: 8px;
+  right: 0;
+  bottom: 8px;
+  width: var(--scrollbar);
+}
+
+.terminal-scrollbar[hidden] {
+  display: none;
+}
+
+.terminal-scrollbarThumb {
+  position: absolute;
+  top: 0;
+  left: 3px;
+  right: 3px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--border) 80%, transparent);
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.terminal:hover .terminal-scrollbarThumb,
+.terminal.scrolling .terminal-scrollbarThumb {
+  opacity: 1;
 }
