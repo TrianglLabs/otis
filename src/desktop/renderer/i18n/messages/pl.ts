@@ -17,6 +17,7 @@ export const pl: Messages = {
   "canvas.latestVersion": "Najnowsza (v{{version}})",
   "canvas.versionHistory": "Wersje artefaktu",
   "common.continue": "Kontynuuj",
+  "common.copy": "Kopiuj",
   "common.connect": "Połącz",
   "common.save": "Zapisz",
   "common.checking": "Sprawdzanie…",
@@ -159,7 +160,6 @@ export const pl: Messages = {
   "composer.imageUnsupported": "{{name}} nie jest obsługiwanym typem obrazu.",
   "composer.imageTooLarge": "{{name}} jest za duży. Obrazy nie mogą przekraczać {{size}} MB.",
   "composer.tooManyImages": "Możesz załączyć maksymalnie {{count}} obrazów.",
-  "composer.modelNoImages": "Wybrany model nie obsługuje obrazów",
   "composer.modelNoImageInput":
     "Wybrany model nie obsługuje obrazów. Wybierz model z obsługą obrazu.",
   "composer.atMostImages": "Do jednej wiadomości możesz załączyć maksymalnie {{count}} obrazów.",
@@ -180,8 +180,6 @@ export const pl: Messages = {
   "composer.sendFollowUpTitle": "Wyślij jako kolejne polecenie (Enter)",
   "composer.sendTitle": "Wyślij (Enter)",
   "composer.followUp": "Kolejne polecenie",
-  "home.modelFailed": "Nie udało się uruchomić wybranego modelu{{detail}}",
-  "home.pickDifferent": "Wybierz inny model z menu modelu w edytorze wiadomości.",
   "home.noModel": "Nie skonfigurowano jeszcze modelu.",
   "home.setupHint":
     "Uruchom raz Otis w tym obszarze roboczym, aby skonfigurować inferencję — aplikacja komputerowa używa tej samej konfiguracji i sesji.",
@@ -391,6 +389,10 @@ export const pl: Messages = {
   "settings.serverUseThisMachine": "Użyj tej maszyny",
   "settings.remoteNote":
     "Uruchom `otis serve` na maszynie, która pozostaje włączona, i pracuj stąd na jej sesjach, modelach, umiejętnościach i pamięci przez prywatną sieć, np. Tailscale. To okno zachowuje swój wygląd. Otis uruchomi się ponownie, aby przełączyć.",
+  "settings.cliUpdating": "Aktualizowanie polecenia otis…",
+  "settings.cliUpdated": "Polecenie otis też jest w wersji {{version}}.",
+  "settings.serverSetup":
+    "Na drugim komputerze zainstaluj Otis i uruchom demona na jego prywatnym adresie:",
   "settings.remoteUrl": "Adres",
   "settings.remoteUrlPlaceholder": "ws://linux-box:7331",
   "settings.remoteToken": "Token parowania",
@@ -527,6 +529,20 @@ export const pl: Messages = {
   "settings.memoryFact": "Zapamiętaj dla tego obszaru roboczego",
   "settings.memoryRemember": "Zapamiętaj",
   "settings.memoryForget": "Zapomnij",
+  "settings.importTab": "Import",
+  "settings.otherAgents": "Czytaj w miejscu",
+  "settings.otherAgentsRead": "Używaj instrukcji i skilli innych agentów",
+  "settings.otherAgentsReadNote":
+    "Folder bez AGENTS.md jest czytany przez jego CLAUDE.md, GEMINI.md, instrukcje Copilota lub reguły Cursora, a skille z folderów tych agentów ładują się obok .agents/skills.",
+  "settings.otherAgentsImport": "Przenieś",
+  "settings.otherAgentsNone":
+    "Na tym komputerze nie znaleziono innych agentów z instrukcjami ani pamięcią.",
+  "settings.otherAgentsInstructions": "Globalne instrukcje z {{path}}",
+  "settings.otherAgentsShown": "{{shown}} z {{total}} pozycji",
+  "settings.otherAgentsImported": "Zaimportowano",
+  "settings.otherAgentsImportAction": "Importuj zaznaczone",
+  "settings.otherAgentsImportNote":
+    "Instrukcje trafiają do ~/AGENTS.md, które Otis czyta wszędzie. Fakty trafiają do pamięci, tego obszaru roboczego lub globalnej, bez danych logowania i danych osobowych. Po stronie innego agenta nic się nie zmienia.",
   "settings.memoryNote":
     "Fakty leżą w folderze danych Otisa: jeden folder pamięci na folder roboczy i jeden dla tych, które obowiązują wszędzie. Do projektu nic nie jest zapisywane. Otis czyta je tylko wtedy, gdy wywołuje recall.",
   "settings.skillBundled": "Dołączona",

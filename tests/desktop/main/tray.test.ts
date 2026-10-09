@@ -139,6 +139,8 @@ function statusFixture(overrides: Partial<DesktopStatus> = {}): DesktopStatus {
     language: "system",
     thinkingVisible: true,
     notifyOnCompletion: true,
+    otherAgentsEnabled: true,
+    cli: null,
     permissionMode: "ask",
     localThinking: null,
     fastServing: { available: false, enabled: false },

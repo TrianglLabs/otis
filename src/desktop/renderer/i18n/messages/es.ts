@@ -17,6 +17,7 @@ export const es: Messages = {
   "canvas.latestVersion": "Última (v{{version}})",
   "canvas.versionHistory": "Versiones del artefacto",
   "common.continue": "Continuar",
+  "common.copy": "Copiar",
   "common.connect": "Conectar",
   "common.save": "Guardar",
   "common.checking": "Comprobando…",
@@ -156,7 +157,6 @@ export const es: Messages = {
   "composer.imageTooLarge":
     "{{name}} es demasiado grande. Las imágenes deben tener {{size}} MB o menos.",
   "composer.tooManyImages": "Puedes adjuntar hasta {{count}} imágenes.",
-  "composer.modelNoImages": "El modelo seleccionado no admite imágenes.",
   "composer.modelNoImageInput":
     "El modelo seleccionado no admite imágenes. Elige un modelo con visión.",
   "composer.atMostImages": "Puedes adjuntar como máximo {{count}} imágenes por mensaje.",
@@ -177,8 +177,6 @@ export const es: Messages = {
   "composer.sendFollowUpTitle": "Enviar seguimiento (Enter)",
   "composer.sendTitle": "Enviar (Enter)",
   "composer.followUp": "Seguimiento",
-  "home.modelFailed": "No se pudo iniciar el modelo seleccionado{{detail}}",
-  "home.pickDifferent": "Elige otro modelo en el menú del editor.",
   "home.noModel": "Aún no hay ningún modelo configurado.",
   "home.setupHint":
     "Ejecuta otis una vez en este espacio de trabajo para configurar la inferencia; la aplicación de escritorio usa la misma configuración y sesiones.",
@@ -333,6 +331,10 @@ export const es: Messages = {
   "settings.serverUseThisMachine": "Usar esta máquina",
   "settings.remoteNote":
     "Ejecuta `otis serve` en una máquina que permanezca encendida y trabaja desde aquí con sus sesiones, modelos, habilidades y memoria, a través de una red privada como Tailscale. Esta ventana conserva su apariencia. Otis se reinicia para cambiar.",
+  "settings.cliUpdating": "Actualizando el comando otis…",
+  "settings.cliUpdated": "El comando otis también está en {{version}}.",
+  "settings.serverSetup":
+    "En el otro equipo, instala Otis e inicia el demonio en su dirección privada:",
   "settings.remoteUrl": "Dirección",
   "settings.remoteUrlPlaceholder": "ws://linux-box:7331",
   "settings.remoteToken": "Token de emparejamiento",
@@ -470,6 +472,20 @@ export const es: Messages = {
   "settings.memoryFact": "Recordar para este espacio de trabajo",
   "settings.memoryRemember": "Recordar",
   "settings.memoryForget": "Olvidar",
+  "settings.importTab": "Importar",
+  "settings.otherAgents": "Leer en el sitio",
+  "settings.otherAgentsRead": "Usar instrucciones y skills de otros agentes",
+  "settings.otherAgentsReadNote":
+    "Una carpeta sin AGENTS.md se lee a través de su CLAUDE.md, GEMINI.md, instrucciones de Copilot o reglas de Cursor, y los skills en las carpetas de esos agentes se cargan junto a .agents/skills.",
+  "settings.otherAgentsImport": "Copiar",
+  "settings.otherAgentsNone":
+    "No se encontraron otros agentes con instrucciones o memoria en este equipo.",
+  "settings.otherAgentsInstructions": "Instrucciones globales de {{path}}",
+  "settings.otherAgentsShown": "{{shown}} de {{total}} elementos",
+  "settings.otherAgentsImported": "Importado",
+  "settings.otherAgentsImportAction": "Importar selección",
+  "settings.otherAgentsImportNote":
+    "Las instrucciones van a ~/AGENTS.md, que Otis lee en todas partes. Los hechos van a la memoria, de este espacio de trabajo o global, sin credenciales ni datos personales. Nada cambia en el otro agente.",
   "settings.memoryNote":
     "Los hechos viven en la carpeta de datos de Otis: una carpeta de memoria por carpeta de trabajo y otra para los que valen en todas partes. No se escribe nada en el proyecto. Otis solo los lee cuando llama a recall.",
   "settings.skillBundled": "Incluido",

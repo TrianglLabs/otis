@@ -210,13 +210,36 @@ export async function remember(
   session?: string,
   topic = DEFAULT_TOPIC,
 ): Promise<MemoryEntry & { commit?: string }> {
-  const text = redactPrivate(fact.trim().replace(/\s+/gu, " "))
-  if (!text) throw new Error("There is nothing to remember.")
+  const { entries, commit } = await rememberAll(scope, [{ topic, text: fact }], cwd, session)
+  if (!entries[0]) throw new Error("There is nothing to remember.")
+  return { ...entries[0], ...(commit ? { commit } : {}) }
+}
+
+/**
+ * Remembers several facts at once, each in its topic, with one commit; blank facts are skipped.
+ * `source` names where they came from: a session, or another agent.
+ */
+export async function rememberAll(
+  scope: MemoryScope,
+  facts: readonly { topic?: string; text: string }[],
+  cwd: string,
+  source?: string,
+): Promise<{ entries: MemoryEntry[]; commit?: string }> {
   const date = new Date().toISOString().slice(0, 10)
+  const entries: MemoryEntry[] = []
+  const byTopic = new Map<string, string[]>()
+  for (const fact of facts) {
+    const text = redactPrivate(fact.text.trim().replace(/\s+/gu, " "))
+    if (!text) continue
+    const topic = fact.topic ?? DEFAULT_TOPIC
+    byTopic.set(topic, [...(byTopic.get(topic) ?? []), formatEntry(text, source, date)])
+    entries.push({ scope, topic, date, text })
+  }
+  if (!entries.length) return { entries }
   const root = await memoryRoot(scope, cwd)
-  await appendEntries(root, scope, cwd, topic, [formatEntry(text, session, date)])
-  const commit = await commitMemory(root, `memory: remember ${topic}`)
-  return { scope, topic, date, text, ...(commit ? { commit } : {}) }
+  for (const [topic, lines] of byTopic) await appendEntries(root, scope, cwd, topic, lines)
+  const commit = await commitMemory(root, `memory: remember ${[...byTopic.keys()].join(", ")}`)
+  return { entries, ...(commit ? { commit } : {}) }
 }
 
 /** Removes the entry whose text matches, or the one entry containing the given text. */

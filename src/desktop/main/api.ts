@@ -1,5 +1,6 @@
 import type { LocalServerInputs } from "../../app/local-servers.js"
 import { isArtifactReference } from "../../artifacts/types.js"
+import { isOtherAgentId } from "../../core/context.js"
 import { isRecord } from "../../inference/errors.js"
 import { isHostedProvider, isServerProvider } from "../../inference/types.js"
 import { TEXT_SIZES } from "../../local/settings.js"
@@ -22,6 +23,8 @@ export type DesktopBackend = {
   call(method: string, args: unknown[]): Promise<unknown>
   /** Update state belongs to this process's updater, whichever runtime serves the window. */
   setUpdateState(update: DesktopStatus["update"]): void
+  /** The `otis` command on this machine is this process's concern too. */
+  setCliState(cli: DesktopStatus["cli"]): void
   /** The window's renderer died; a local runtime stops its turns. */
   rendererGone(): void
   shutdown(): Promise<void>
@@ -312,6 +315,22 @@ export function desktopCall(runtime: DesktopRuntime) {
       return runtime.cancelRoutine(id)
     },
     listMemory: () => runtime.listMemory(),
+    listOtherAgents: () => runtime.listOtherAgents(),
+    importOtherAgent: (id: unknown, picks: unknown) => {
+      if (!isOtherAgentId(id)) throw new Error("importOtherAgent expects a known agent")
+      if (
+        !isRecord(picks) ||
+        typeof picks.instructions !== "boolean" ||
+        !Array.isArray(picks.facts) ||
+        !picks.facts.every((fact) => typeof fact === "string")
+      )
+        throw new Error("importOtherAgent expects the picked instructions and facts")
+      return runtime.importOtherAgent(id, { instructions: picks.instructions, facts: picks.facts })
+    },
+    setOtherAgentsEnabled: (enabled: unknown) => {
+      if (typeof enabled !== "boolean") throw new Error("setOtherAgentsEnabled expects a boolean")
+      return runtime.setOtherAgentsEnabled(enabled)
+    },
     rememberFact: (scope: unknown, fact: unknown) => {
       if (!isMemoryScope(scope) || typeof fact !== "string") throw new Error("Invalid memory fact.")
       return runtime.rememberFact(scope, fact)
@@ -347,6 +366,7 @@ export function localBackend(runtime: DesktopRuntime): DesktopBackend {
   return {
     call: async (method, args) => call(method, args),
     setUpdateState: (update) => runtime.setUpdateState(update),
+    setCliState: (cli) => runtime.setCliState(cli),
     rendererGone: () => runtime.handleRendererGone(),
     shutdown: () => runtime.shutdown(),
   }

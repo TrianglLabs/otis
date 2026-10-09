@@ -12,6 +12,7 @@ export const uk: Messages = {
   "thinking.max": "Максимальний",
   "thinking.reset": "Використати типове значення",
   "common.continue": "Продовжити",
+  "common.copy": "Копіювати",
   "common.connect": "Підключити",
   "common.save": "Зберегти",
   "common.checking": "Перевірка…",
@@ -160,7 +161,6 @@ export const uk: Messages = {
   "composer.imageTooLarge":
     "{{name}} завеликий. Розмір зображення не може перевищувати {{size}} МБ.",
   "composer.tooManyImages": "Можна прикріпити не більше {{count}} зображень.",
-  "composer.modelNoImages": "Вибрана модель не підтримує введення зображень",
   "composer.modelNoImageInput":
     "Вибрана модель не підтримує введення зображень. Виберіть модель із підтримкою зображень.",
   "composer.atMostImages": "До одного повідомлення можна прикріпити не більше {{count}} зображень.",
@@ -181,8 +181,6 @@ export const uk: Messages = {
   "composer.sendFollowUpTitle": "Надіслати як наступний запит (Enter)",
   "composer.sendTitle": "Надіслати (Enter)",
   "composer.followUp": "Наступний запит",
-  "home.modelFailed": "Не вдалося запустити вибрану модель{{detail}}",
-  "home.pickDifferent": "Виберіть іншу модель у меню моделі в редакторі повідомлення.",
   "home.noModel": "Модель ще не налаштована.",
   "home.setupHint":
     "Запустіть Otis у цьому робочому просторі один раз, щоб налаштувати інференс — настільний застосунок використовує ті самі налаштування й сеанси.",
@@ -392,6 +390,10 @@ export const uk: Messages = {
   "settings.serverUseThisMachine": "Використовувати цю машину",
   "settings.remoteNote":
     "Запустіть `otis serve` на машині, яка залишається ввімкненою, і працюйте звідси з її сесіями, моделями, навичками та пам’яттю через приватну мережу, як-от Tailscale. Це вікно зберігає свій вигляд. Otis перезапуститься для перемикання.",
+  "settings.cliUpdating": "Оновлення команди otis…",
+  "settings.cliUpdated": "Команда otis теж на {{version}}.",
+  "settings.serverSetup":
+    "На іншому комп’ютері встановіть Otis і запустіть демон на його приватній адресі:",
   "settings.remoteUrl": "Адреса",
   "settings.remoteUrlPlaceholder": "ws://linux-box:7331",
   "settings.remoteToken": "Токен спарювання",
@@ -528,6 +530,20 @@ export const uk: Messages = {
   "settings.memoryFact": "Запам'ятати для цього робочого простору",
   "settings.memoryRemember": "Запам'ятати",
   "settings.memoryForget": "Забути",
+  "settings.importTab": "Імпорт",
+  "settings.otherAgents": "Читати на місці",
+  "settings.otherAgentsRead": "Використовувати інструкції та навички інших агентів",
+  "settings.otherAgentsReadNote":
+    "Тека без AGENTS.md читається через її CLAUDE.md, GEMINI.md, інструкції Copilot або правила Cursor, а навички з тек цих агентів завантажуються поряд із .agents/skills.",
+  "settings.otherAgentsImport": "Перенести",
+  "settings.otherAgentsNone":
+    "На цьому комп’ютері не знайдено інших агентів з інструкціями чи пам’яттю.",
+  "settings.otherAgentsInstructions": "Глобальні інструкції з {{path}}",
+  "settings.otherAgentsShown": "{{shown}} з {{total}} елементів",
+  "settings.otherAgentsImported": "Імпортовано",
+  "settings.otherAgentsImportAction": "Імпортувати вибране",
+  "settings.otherAgentsImportNote":
+    "Інструкції потрапляють у ~/AGENTS.md, який Otis читає всюди. Факти потрапляють у пам’ять, цього робочого простору або глобальну, без облікових даних і персональних відомостей. З боку іншого агента нічого не змінюється.",
   "settings.memoryNote":
     "Факти лежать у теці даних Otis: по одній теці пам'яті на робочу теку й одна для тих, що діють усюди. У проєкт нічого не записується. Otis читає їх лише тоді, коли викликає recall.",
   "settings.skillBundled": "Вбудована",

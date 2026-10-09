@@ -3,6 +3,7 @@ import type { PendingPermission, TurnPhase, TurnSpeed } from "../app/conversatio
 import type { GlobalSessionPickerItem, RecentArtifact } from "../app/global-sessions.js"
 import type { LocalServerInputs } from "../app/local-servers.js"
 import type { ModelState } from "../app/models.js"
+import type { OtherAgentImport, OtherAgentPicks } from "../app/other-agents.js"
 import type { RoutineStatus } from "../app/routines.js"
 import type { TranscriptEntry } from "../app/transcript.js"
 import type {
@@ -11,6 +12,7 @@ import type {
   ArtifactPayload,
   ArtifactReference,
 } from "../artifacts/types.js"
+import type { OtherAgentId } from "../core/context.js"
 import type { LocalThinkingSelection, LocalThinkingState } from "../inference/local-thinking.js"
 import type { ModelPickerItem, ModelPickerStatus } from "../inference/picker-catalog.js"
 import type {
@@ -95,6 +97,9 @@ export const DESKTOP_CHANNELS = {
   listMemory: "desktop:list-memory",
   rememberFact: "desktop:remember-fact",
   forgetFact: "desktop:forget-fact",
+  listOtherAgents: "desktop:list-other-agents",
+  importOtherAgent: "desktop:import-other-agent",
+  setOtherAgentsEnabled: "desktop:set-other-agents-enabled",
   setDebugMode: "desktop:set-debug-mode",
   checkForUpdates: "desktop:check-for-updates",
   installUpdate: "desktop:install-update",
@@ -109,6 +114,14 @@ export const DESKTOP_CHANNELS = {
   closeTerminal: "desktop:close-terminal",
   terminal: "desktop:terminal",
 } as const
+
+/**
+ * The `otis` command installed on this machine, kept on the app's version: where it is, what it
+ * reports, and how the last check went. Null when none is installed.
+ */
+export type DesktopCliState =
+  | { status: "current" | "updating" | "updated"; path: string; version: string }
+  | { status: "failed"; path: string; version: string; message: string }
 
 /** Update lifecycle shared by automatic checks, Settings, and the restart affordance. */
 export type DesktopUpdateState =
@@ -195,6 +208,8 @@ export type DesktopStatus = {
    * settings.
    */
   thinkingVisible: boolean
+  /** Other agents' instruction files and skills are read in place; persisted in local settings. */
+  otherAgentsEnabled: boolean
   /** A system notification when a session finishes while Otis is not the frontmost app. */
   notifyOnCompletion: boolean
   localThinking: LocalThinkingState | null
@@ -222,6 +237,7 @@ export type DesktopStatus = {
   /** Session-only debug mode, mirroring the TUI's /debug toggle; applies from the next turn. */
   debug: boolean
   update: DesktopUpdateState
+  cli: DesktopCliState | null
   /** The `otis serve` host this window works on, or null for the runtime in this app. */
   remote: string | null
   /** The last daemon address paired from here, prefilled to reconnect; its token stays on disk. */
@@ -308,7 +324,9 @@ export type DesktopAttachmentInput = {
 
 export type SessionOpResult = { ok: true } | { ok: false; reason: string }
 
+export type { OtherAgentFact, OtherAgentImport, OtherAgentPicks } from "../app/other-agents.js"
 export type { RoutineStatus } from "../app/routines.js"
+export type { OtherAgentId } from "../core/context.js"
 export type { ModelPickerItem } from "../inference/picker-catalog.js"
 export type { RoutineInput, RoutineRun, RoutineSchedule } from "../local/routines.js"
 export type { MemoryEntry, MemoryScope } from "../memory/memory.js"
@@ -477,6 +495,15 @@ export type DesktopApi = {
   listMemory(): Promise<MemoryEntry[]>
   rememberFact(scope: MemoryScope, fact: string): Promise<SessionOpResult>
   forgetFact(scope: MemoryScope, fact: string): Promise<SessionOpResult>
+  /**
+   * The other agents on this machine with instructions or memory to take over, for the focused
+   * folder; each with what it holds and what is already imported.
+   */
+  listOtherAgents(): Promise<OtherAgentImport[]>
+  /** Takes the picked instructions and facts over; nothing changes on the other agent's side. */
+  importOtherAgent(id: OtherAgentId, picks: OtherAgentPicks): Promise<SessionOpResult>
+  /** Whether other agents' instruction files and skills are read in place; persisted. */
+  setOtherAgentsEnabled(enabled: boolean): Promise<void>
   /** Session-only debug mode; applies from the next turn. */
   setDebugMode(enabled: boolean): Promise<void>
   /** Checks the release feed; progress and results arrive through the status stream. */

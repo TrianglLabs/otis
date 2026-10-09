@@ -22,7 +22,7 @@ async function serve() {
     cwd,
     host: "127.0.0.1",
     port: 0,
-    version: "daemon-test",
+    version: "1.0.0",
     token: "secret-token",
   })
   open.push(server)
@@ -34,7 +34,7 @@ function client(url: string, token: string, onEvent = (_event: DesktopEvent) => 
     { url, token },
     {
       platform: "linux",
-      version: "client-test",
+      version: "1.0.0",
       onEvent,
       onTerminal: () => {},
       onNotify: () => {},
@@ -55,7 +55,7 @@ describe("otis serve", () => {
         { url: server.url, token: "wrong" },
         {
           platform: "linux",
-          version: "client-test",
+          version: "1.0.0",
           onEvent: () => {},
           onTerminal: () => {},
           onNotify: () => {},
@@ -68,6 +68,31 @@ describe("otis serve", () => {
     expect(onClose).not.toHaveBeenCalled()
     const backend = await client(server.url, "secret-token")
     await backend.shutdown()
+  })
+
+  it("refuses a daemon on another version, naming both and the fix, unless either is a dev build", async () => {
+    const { server } = await serve()
+    const host = new URL(server.url).host
+    const attempt = (version: string) =>
+      connectRemote(
+        { url: server.url, token: "secret-token" },
+        {
+          platform: "linux",
+          version,
+          onEvent: () => {},
+          onTerminal: () => {},
+          onNotify: () => {},
+          onClose: () => {},
+          checkForUpdates: async () => {},
+          installUpdate: async () => {},
+        },
+      )
+    await expect(attempt("1.1.0")).rejects.toThrow(
+      `${host} runs Otis 1.0.0 and this app is 1.1.0. Run \`otis update\` there, then connect again.`,
+    )
+    const dev = await attempt("dev")
+    expect((await dev.call("getSnapshot", [])) as DesktopSnapshot).toMatchObject({ version: "dev" })
+    await dev.shutdown()
   })
 
   it("drops a paired peer that sends garbage and keeps serving everyone else", async () => {
@@ -89,7 +114,7 @@ describe("otis serve", () => {
       { url: server.url, token: "secret-token" },
       {
         platform: "linux",
-        version: "client-test",
+        version: "1.0.0",
         onEvent: () => {},
         onTerminal: () => {},
         onNotify: () => {},
@@ -112,7 +137,7 @@ describe("otis serve", () => {
     expect(snapshot.workspace.path).toBe(cwd)
     expect(snapshot.remote).toBe(new URL(server.url).host)
     expect(snapshot.platform).toBe("linux")
-    expect(snapshot.version).toBe("client-test")
+    expect(snapshot.version).toBe("1.0.0")
     // Validation runs where the runtime lives, and a failure comes back as its sentence.
     await expect(backend.call("setPrimeTeamId", [42])).rejects.toThrow("Invalid team id.")
     await expect(backend.call("nope", [])).rejects.toThrow("Unknown desktop method: nope")

@@ -40,6 +40,9 @@ import {
   type MemoryEntry,
   type MemoryScope,
   type ModelSelectResult,
+  type OtherAgentId,
+  type OtherAgentImport,
+  type OtherAgentPicks,
   type PaneDrop,
   type PaneOps,
   type PaneSide,
@@ -78,7 +81,8 @@ const DEMO_SHELL: Record<string, string> = {
 }
 
 /**
- * `start` is the demo query value: "onboarding", "local" (a managed model mid-session), a fixture
+ * `start` is the demo query value: "onboarding", "failed" (a model that could not be prepared),
+ * "local" (a managed model mid-session), a fixture
  * session id to show, or nothing.
  */
 export function createDemoRuntime(hostApi?: DemoHostApi, start = ""): DesktopApi {
@@ -853,6 +857,10 @@ class DemoRuntime implements DesktopApi {
       this.#state.model = null
       this.#state.modelState = "unconfigured"
       this.#state.hostedConfigured = NO_HOSTED_KEYS
+    } else if (start === "failed") {
+      // The selected model could not be prepared: the banner above the composer says why.
+      this.#state.modelState = "failed"
+      this.#state.modelError = "Fireworks answered 401: the API key was rejected."
     } else if (start === "local") {
       // A managed model after a turn: the tok/s readout and the thinking control join the composer.
       this.#state.model = {
@@ -1222,6 +1230,8 @@ class DemoRuntime implements DesktopApi {
     language: "system",
     thinkingVisible: true,
     notifyOnCompletion: true,
+    otherAgentsEnabled: true,
+    cli: { status: "current", path: "~/.local/bin/otis", version: "0.1.35" },
     localThinking: null,
     permissionMode: "auto",
     fastServing: { available: true, enabled: false },
@@ -2311,6 +2321,85 @@ class DemoRuntime implements DesktopApi {
   async forgetFact(scope: MemoryScope, fact: string): Promise<SessionOpResult> {
     this.#memory = this.#memory.filter((entry) => entry.scope !== scope || entry.text !== fact)
     return { ok: true }
+  }
+
+  // Demo: the three agents found, with a fact already remembered so both states can be reviewed.
+  #otherAgents: OtherAgentImport[] = [
+    {
+      id: "claude-code",
+      name: "Claude Code",
+      instructions: { path: "~/.claude/CLAUDE.md", text: "Prefer small commits.", imported: false },
+      facts: [
+        {
+          scope: "workspace",
+          topic: "claude-code/feedback",
+          text: "Run the tests before declaring work complete.",
+          imported: false,
+        },
+        {
+          scope: "workspace",
+          topic: "claude-code/project",
+          text: "Releases go through GitHub Actions.",
+          imported: true,
+        },
+      ],
+    },
+    {
+      id: "codex",
+      name: "Codex",
+      facts: [
+        {
+          scope: "global",
+          topic: "codex/preferences",
+          text: "Answer plainly when delivery is blocked; never imply an email was sent.",
+          imported: false,
+        },
+        {
+          scope: "global",
+          topic: "codex/tips",
+          text: "Go straight to company careers pages when broad search is sparse.",
+          imported: false,
+        },
+      ],
+    },
+    {
+      id: "gemini",
+      name: "Gemini CLI",
+      instructions: {
+        path: "~/.gemini/GEMINI.md",
+        text: "Be terse. Prefer const over let.",
+        imported: true,
+      },
+      facts: [
+        { scope: "global", topic: "gemini/memories", text: "Nikita prefers bun.", imported: false },
+      ],
+    },
+  ]
+
+  async listOtherAgents(): Promise<OtherAgentImport[]> {
+    return this.#otherAgents
+  }
+
+  async importOtherAgent(id: OtherAgentId, picks: OtherAgentPicks): Promise<SessionOpResult> {
+    this.#otherAgents = this.#otherAgents.map((agent) => {
+      if (agent.id !== id) return agent
+      const { instructions } = agent
+      return {
+        ...agent,
+        ...(instructions && picks.instructions
+          ? { instructions: { ...instructions, imported: true } }
+          : {}),
+        facts: agent.facts.map((fact) =>
+          picks.facts.includes(fact.text) ? { ...fact, imported: true } : fact,
+        ),
+      }
+    })
+    return { ok: true }
+  }
+
+  async setOtherAgentsEnabled(enabled: boolean): Promise<void> {
+    this.#state = { ...this.#state, otherAgentsEnabled: enabled }
+    this.#emitStatus()
   }
 
   async listModels(): Promise<ModelPickerItem[]> {

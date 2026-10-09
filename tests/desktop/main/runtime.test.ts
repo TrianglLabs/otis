@@ -905,6 +905,43 @@ describe("DesktopRuntime subagents", () => {
     await runtime.shutdown()
   })
 
+  it("imports from other agents on this machine and reloads instructions, and toggles reading them", async () => {
+    const { runtime, app, cwd } = await setup()
+    const home = join(cwd, "..")
+    const previousHome = process.env.HOME
+    process.env.HOME = home
+    try {
+      await mkdir(join(home, ".claude"), { recursive: true })
+      await writeFile(join(home, ".claude", "CLAUDE.md"), "Prefer small commits.\n")
+      await writeFile(join(cwd, "CLAUDE.md"), "Project rules from Claude.\n")
+      const [agent] = await runtime.listOtherAgents()
+      expect(agent).toMatchObject({ id: "claude-code", facts: [] })
+      expect(
+        await runtime.importOtherAgent("claude-code", { instructions: true, facts: [] }),
+      ).toEqual({
+        ok: true,
+      })
+      expect(await readFile(join(home, "AGENTS.md"), "utf8")).toContain("## From Claude Code")
+      // The new ~/AGENTS.md section is already part of the project context.
+      expect(app.projectContext.map((file) => file.content)).toEqual([
+        "## From Claude Code\n\nPrefer small commits.\n",
+        "Project rules from Claude.\n",
+      ])
+      expect((await runtime.snapshot()).otherAgentsEnabled).toBe(true)
+      await runtime.setOtherAgentsEnabled(false)
+      expect((await runtime.snapshot()).otherAgentsEnabled).toBe(false)
+      expect((await loadLocalSettings()).otherAgents).toBe(false)
+      // Without the fallback the folder's CLAUDE.md is no longer read; ~/AGENTS.md still is.
+      expect(app.projectContext.map((file) => file.content)).toEqual([
+        "## From Claude Code\n\nPrefer small commits.\n",
+      ])
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME
+      else process.env.HOME = previousHome
+      await runtime.shutdown()
+    }
+  })
+
   it("keeps one shell per workspace that a returning renderer attaches to", async () => {
     const shell = fakePty()
     const printed: string[] = []

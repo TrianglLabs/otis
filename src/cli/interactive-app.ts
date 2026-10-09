@@ -76,6 +76,10 @@ type PendingAction =
   | { type: "session-deletion"; sessionId: string }
   | { type: "new-session" }
 
+/** The slash commands a status allows: Fast serving and thinking effort only where the model has them. */
+const commandsFor = (status: { fastServing: { available: boolean }; localThinking: unknown }) =>
+  slashCommands({ fast: status.fastServing.available, effort: status.localThinking !== null })
+
 export class InteractiveApp {
   #app!: Application
   #attachments!: AttachmentFlow
@@ -147,7 +151,7 @@ export class InteractiveApp {
     this.#ui = createChatUI(this.#renderer, {
       configured: this.#configured,
       localInferenceUnavailableReason,
-      commands: slashCommands({ fast: status.fastServing.available }),
+      commands: commandsFor(status),
       contextLabel: formatContextUsage(
         contextUsage(
           this.#app.contextEstimator()(this.#app.transcript.history),
@@ -748,8 +752,11 @@ export class InteractiveApp {
       model ? modelLabel(model.provider, model.displayName ?? model.id, model.id) : "No model"
     if (label(prev.model) !== label(next.model)) ui.setModelLabel(label(next.model))
     if (next.modelState === "ready") this.#configured = true
-    if (prev.fastServing.available !== next.fastServing.available)
-      ui.setCommands(slashCommands({ fast: next.fastServing.available }))
+    if (
+      prev.fastServing.available !== next.fastServing.available ||
+      (prev.localThinking === null) !== (next.localThinking === null)
+    )
+      ui.setCommands(commandsFor(next))
     if (prev.modelLoad !== next.modelLoad) {
       if (prev.modelLoad && prev.modelLoad.modelId !== next.modelLoad?.modelId)
         ui.setModelPickerStatus(prev.modelLoad.modelId, undefined)

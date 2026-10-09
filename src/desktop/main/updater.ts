@@ -1,5 +1,12 @@
+import { execFile } from "node:child_process"
+import { access, constants } from "node:fs/promises"
+import { homedir } from "node:os"
+import { delimiter, join } from "node:path"
+import { promisify } from "node:util"
 import electronUpdater from "electron-updater"
-import type { DesktopUpdateState } from "../contracts.js"
+import { runUpdateCommand } from "../../cli/update.js"
+import { describeError } from "../../inference/errors.js"
+import type { DesktopCliState, DesktopUpdateState } from "../contracts.js"
 
 const { autoUpdater } = electronUpdater
 
@@ -117,4 +124,56 @@ export function startAutoUpdates(deps: {
       }
     },
   }
+}
+
+/**
+ * Keeps the `otis` command on this machine on the app's version: the installer's default folder
+ * is looked at first, then the PATH. A command on another version is replaced from the release
+ * the app runs, the way `otis update` would; one that cannot be written stays, with the reason
+ * shown. Nothing happens without a command installed.
+ */
+export async function keepCliCurrent(deps: {
+  version: string
+  onState: (state: DesktopCliState | null) => void
+  env?: NodeJS.ProcessEnv
+  /** What `otis --version` says for a binary, or nothing when it does not run. */
+  versionOf?: (path: string) => Promise<string | undefined>
+  /** Replaces the binary with the release of `version`; rejects with the reason. */
+  update?: (path: string, from: string) => Promise<void>
+}) {
+  const env = deps.env ?? process.env
+  const home = env.HOME || homedir()
+  const folders = [
+    join(home, ".local", "bin"),
+    ...(env.PATH ?? "").split(delimiter).filter(Boolean),
+    "/usr/local/bin",
+    "/opt/homebrew/bin",
+  ]
+  const versionOf =
+    deps.versionOf ??
+    (async (path: string) => {
+      const { stdout } = await promisify(execFile)(path, ["--version"], { timeout: 5000 })
+      return /^otis (\S+)/u.exec(stdout.trim())?.[1]
+    })
+  const update =
+    deps.update ??
+    ((path: string, version: string) =>
+      runUpdateCommand(["--version", version], { execPath: path, stdout: { write: () => {} } }))
+  for (const folder of new Set(folders)) {
+    const path = join(folder, "otis")
+    const version = await access(path, constants.X_OK).then(
+      () => versionOf(path),
+      () => undefined,
+    )
+    if (version === undefined) continue
+    if (version === deps.version) return deps.onState({ status: "current", path, version })
+    deps.onState({ status: "updating", path, version })
+    try {
+      await update(path, deps.version)
+      return deps.onState({ status: "updated", path, version: deps.version })
+    } catch (error) {
+      return deps.onState({ status: "failed", path, version, message: describeError(error) })
+    }
+  }
+  deps.onState(null)
 }

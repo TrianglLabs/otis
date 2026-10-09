@@ -180,7 +180,21 @@ machine takes the address and the token; the app restarts onto the daemon and sh
 Switching back to this machine keeps the pairing, so reconnecting later needs no token, just Connect.
 Appearance settings stay with the window. The daemon listens on loopback unless `--host` names an interface; reach it
 over a private network such as Tailscale rather than exposing it to the internet. A client that disconnects leaves
-the daemon's work running. The terminal panel is not available over a connection yet.
+the daemon's work running. The terminal panel is not available over a connection yet. Both ends must run the same
+Otis version: a daemon on another one is refused with the version it runs and the command that updates it. The
+connect form shows how to install Otis on the other machine, and the app keeps the `otis` command installed on
+its own machine on its version after each update.
+
+## Other agents on the same machine
+
+Otis reads what other agents already keep, in place: a folder without `AGENTS.md` is read through its `CLAUDE.md`,
+`GEMINI.md`, `.github/copilot-instructions.md` or Cursor rules, and skills in `.claude/skills`, `.cursor/skills`,
+`.gemini/skills` and `.github/skills` load beside `.agents/skills`, with the same at home for Claude Code, Cursor,
+Gemini CLI and GitHub Copilot. Settings → Extensions → Import turns that off. The same page imports what the fallback
+cannot read live: Claude Code's, Codex's and Gemini CLI's global
+instruction files into `~/AGENTS.md` under a heading per agent, and their memory into Otis' memory as facts, Claude
+Code's for the current folder and the others' everywhere, with credentials and personal details stripped. You pick
+each item and nothing changes on the other agent's side.
 
 ## Models
 

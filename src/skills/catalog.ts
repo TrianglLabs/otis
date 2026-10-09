@@ -6,20 +6,38 @@ import type { ToolResult } from "../tools/types.js"
 import { bundledSkills, materializeBundledSkill } from "./bundled.js"
 
 const SKILLS_DIRECTORY = join(".agents", "skills")
+/**
+ * Where other agents keep skills in the same format, read in place beside `.agents/skills`:
+ * Claude Code, Cursor and Gemini CLI in a project, GitHub Copilot in `.github`; at home, the
+ * same three plus Copilot's own folder. Codex shares `.agents/skills`. At each level these come
+ * first, so a skill of the same name in `.agents/skills` wins.
+ */
+const OTHER_AGENT_SKILLS = [".claude", ".cursor", ".gemini", ".github"].map((dir) =>
+  join(dir, "skills"),
+)
+const OTHER_AGENT_HOME_SKILLS = [".claude", ".cursor", ".gemini", ".copilot"].map((dir) =>
+  join(dir, "skills"),
+)
 const MAX_SKILL_FILE_BYTES = 1024 * 1024
 const MAX_DESCRIPTION_LENGTH = 1024
 export const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u
 
 export async function loadSkillCatalog(
   cwd: string,
-  options: { home?: string; dataDirectory?: string } = {},
+  options: { home?: string; dataDirectory?: string; otherAgents?: boolean } = {},
 ): Promise<SkillCatalog> {
   // Home first, then every ancestor from the filesystem root down, so the nearest project
   // definition wins.
-  const sources = new Set([join(resolve(options.home ?? homedir()), SKILLS_DIRECTORY)])
+  const home = resolve(options.home ?? homedir())
+  const others = options.otherAgents ?? true
+  const sources = new Set([
+    ...(others ? OTHER_AGENT_HOME_SKILLS.map((dir) => join(home, dir)) : []),
+    join(home, SKILLS_DIRECTORY),
+  ])
   const ancestors: string[] = []
   for (let current = resolve(cwd); ; current = dirname(current)) {
     ancestors.unshift(join(current, SKILLS_DIRECTORY))
+    if (others) ancestors.unshift(...OTHER_AGENT_SKILLS.map((dir) => join(current, dir)))
     if (dirname(current) === current) break
   }
   for (const source of ancestors) sources.add(source)

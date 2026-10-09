@@ -148,6 +148,11 @@
   background: var(--bg-surface);
 }
 
+/* A group with one surface per agent keeps them apart. */
+.settingsGroup > .settingsSurface + .settingsSurface {
+  margin-top: 10px;
+}
+
 .settingsProvider + .settingsProvider {
   border-top: 1px solid var(--hairline);
 }
@@ -544,6 +549,65 @@
   border-top: 1px solid var(--hairline);
 }
 
+/* A row picked with a checkbox, such as an item another agent holds. */
+.settingsRow-pick {
+  justify-content: flex-start;
+  cursor: pointer;
+}
+
+/* The checkbox, drawn like the toggle: a hairline box that fills with the accent when picked. */
+.settingsRow-pick input {
+  appearance: none;
+  flex: none;
+  display: grid;
+  place-content: center;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--border) 35%, transparent);
+  cursor: pointer;
+  transition:
+    background var(--motion),
+    border-color var(--motion);
+}
+
+.settingsRow-pick input::before {
+  content: "";
+  width: 9px;
+  height: 5px;
+  border-left: 2px solid var(--on-accent);
+  border-bottom: 2px solid var(--on-accent);
+  rotate: -45deg;
+  translate: 0 -1px;
+  opacity: 0;
+  transition: opacity var(--motion);
+}
+
+.settingsRow-pick input:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.settingsRow-pick input:checked::before {
+  opacity: 1;
+}
+
+.settingsRow-pick input:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.settingsRow-pick input:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.settingsRow-pick input:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  outline-offset: 2px;
+}
+
 /* A row that is its own surface, such as the language and text size rows. */
 .settingsRow.settingsSurface {
   padding: 10px 16px;
@@ -574,6 +638,11 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 4px;
+  min-width: 0;
+}
+
+/* A picked row's label shrinks so its text can truncate. */
+.settingsRow-pick .settingsRow-label {
   min-width: 0;
 }
 
@@ -798,4 +867,20 @@
 .settingsSurface-form {
   padding-top: 12px;
   border-top: 1px solid var(--hairline);
+}
+
+/* A command to run elsewhere: the transcript's code block, wrapping instead of scrolling. */
+.settingsCommand {
+  width: 100%;
+  margin: 0 0 8px;
+}
+
+.settingsCommand pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.settingsServer-setup {
+  width: 100%;
+  margin: 4px 0 0;
 }
