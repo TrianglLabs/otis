@@ -77,7 +77,7 @@
     "@xmldom/xmldom": "0.9.12",
     "border-beam": "^1.4.1",
     "electron-updater": "^6.8.9",
-    "ghostty-web": "^0.4.0",
+    "ghostty-web": "0.4.0",
     "katex": "^0.18.9",
     "lucide-react": "^1.42.0",
     "mammoth": "^1.12.3",
