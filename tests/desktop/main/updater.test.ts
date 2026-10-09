@@ -1,8 +1,11 @@
 import { EventEmitter } from "node:events"
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import electronUpdater from "electron-updater"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import type { DesktopUpdateState } from "../../../src/desktop/contracts.js"
-import { startAutoUpdates } from "../../../src/desktop/main/updater.js"
+import type { DesktopCliState, DesktopUpdateState } from "../../../src/desktop/contracts.js"
+import { keepCliCurrent, startAutoUpdates } from "../../../src/desktop/main/updater.js"
 
 // No Electron process, release feed, credentials, or real downloads in these tests.
 vi.mock("electron-updater", async () => {
@@ -273,6 +276,63 @@ describe("startAutoUpdates", () => {
       await vi.advanceTimersByTimeAsync(3 * 60 * 60 * 1000)
       expect(updater.onInstallFailed).not.toHaveBeenCalled()
       expect(checkFeed).toHaveBeenCalledOnce()
+    })
+  })
+})
+
+describe("keepCliCurrent", () => {
+  const homes: string[] = []
+  afterEach(async () => {
+    await Promise.all(homes.splice(0).map((home) => rm(home, { recursive: true, force: true })))
+  })
+  /** A home with an executable `otis` in the installer's folder, and what it reports. */
+  async function installed(version: string | undefined) {
+    const home = await mkdtemp(join(tmpdir(), "otis-cli-"))
+    homes.push(home)
+    const path = join(home, ".local", "bin", "otis")
+    await mkdir(join(home, ".local", "bin"), { recursive: true })
+    await writeFile(path, "#!/bin/sh\n")
+    await chmod(path, 0o755)
+    const states: (DesktopCliState | null)[] = []
+    const update = vi.fn(async () => {})
+    const run = (appVersion: string) =>
+      keepCliCurrent({
+        version: appVersion,
+        env: { HOME: home, PATH: "" },
+        versionOf: async () => version,
+        update,
+        onState: (state) => states.push(state),
+      })
+    return { path, states, update, run }
+  }
+
+  it("reports nothing without a command, and a current one as current", async () => {
+    const none = await installed(undefined)
+    await none.run("1.2.3")
+    expect(none.states).toEqual([null])
+    expect(none.update).not.toHaveBeenCalled()
+    const same = await installed("1.2.3")
+    await same.run("1.2.3")
+    expect(same.states).toEqual([{ status: "current", path: same.path, version: "1.2.3" }])
+    expect(same.update).not.toHaveBeenCalled()
+  })
+
+  it("brings an older command to the app's version, and shows why when it cannot", async () => {
+    const older = await installed("1.2.0")
+    await older.run("1.2.3")
+    expect(older.update).toHaveBeenCalledExactlyOnceWith(older.path, "1.2.3")
+    expect(older.states).toEqual([
+      { status: "updating", path: older.path, version: "1.2.0" },
+      { status: "updated", path: older.path, version: "1.2.3" },
+    ])
+    const stuck = await installed("1.2.0")
+    stuck.update.mockRejectedValueOnce(new Error("Cannot write /opt/otis."))
+    await stuck.run("1.2.3")
+    expect(stuck.states.at(-1)).toEqual({
+      status: "failed",
+      path: stuck.path,
+      version: "1.2.0",
+      message: "Cannot write /opt/otis.",
     })
   })
 })

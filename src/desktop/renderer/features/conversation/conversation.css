@@ -921,17 +921,6 @@ button.reasoning-header:hover {
   width: 100%;
 }
 
-.composer-banner {
-  border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
-  background: color-mix(in srgb, var(--danger) 8%, var(--bg));
-  color: var(--danger);
-  font-size: var(--text-meta);
-  padding: 8px 10px;
-  margin-bottom: 8px;
-  border-radius: var(--radius-lg);
-  animation: rise-in var(--motion);
-}
-
 .composer-box {
   position: relative;
   min-width: 0;
@@ -1200,6 +1189,11 @@ button.composer-model-failed {
   text-align: center;
   font-size: var(--text-micro);
   color: var(--text-dim);
+}
+
+/* The same line above the box, for what keeps the box from being usable at all. */
+.composer-hint-above {
+  margin: 0 0 6px;
 }
 
 .composer-error {

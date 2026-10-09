@@ -841,6 +841,8 @@ describe("interactive CLI setup", () => {
     expect(mocks.ui.showSetupInput).not.toHaveBeenCalled()
     expect(mocks.ParallelClient).toHaveBeenCalledOnce()
     expect(commandNames()).not.toContain("/fast")
+    // A hosted model has no local thinking levels to set.
+    expect(commandNames()).not.toContain("/effort")
     expect(commandNames()).not.toContain("/delete-model")
   })
 
@@ -862,6 +864,8 @@ describe("interactive CLI setup", () => {
     expect(mocks.uiOptions?.configured).toBe(true)
     expect(mocks.uiOptions?.modelLabel).toBe("gpt-oss 20B · Local")
     expect(mocks.calculateLocalStats).toHaveBeenCalled()
+    // gpt-oss has thinking levels, so /effort is offered.
+    expect(commandNames()).toContain("/effort")
     expect(mocks.ui.setConfigured).not.toHaveBeenCalled()
   })
 

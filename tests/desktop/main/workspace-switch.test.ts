@@ -1,7 +1,8 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
-import { basename, join, resolve } from "node:path"
+import { basename, dirname, join, resolve } from "node:path"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { Application } from "../../../src/app/application.js"
+import { SESSION_REASONS } from "../../../src/app/sessions.js"
 import type { TurnResult, TurnRunnerOptions } from "../../../src/app/turn-runner.js"
 import type { DesktopEvent } from "../../../src/desktop/contracts.js"
 import { DesktopRuntime } from "../../../src/desktop/main/runtime.js"
@@ -255,6 +256,77 @@ describe("DesktopRuntime workspace switching", () => {
     expect((await runtime.snapshot()).busy).toBe(true)
     release()
     await runtime.shutdown()
+  })
+
+  it("shows a session from another folder beside the current one and brings the pair back", async () => {
+    const { runtime, app, cwd, otherCwd } = await setup()
+    try {
+      const foreign = await createSession({ cwd: otherCwd })
+      const admission = await foreign.admitPrompt("beta history")
+      await foreign.completeTurn(admission, [
+        { role: "assistant", content: [{ type: "text", text: "hi" }] },
+      ])
+      const dirName = basename(defaultSessionDirectory(otherCwd))
+      mocks.executeTurn.mockImplementation(turnEvents("ok"))
+      await runtime.sendPrompt("alpha work")
+      await flush()
+      const alpha = app.focused
+      const alphaSession = alpha.sessions.current?.id
+
+      // Dropped on a side, the other folder's session joins the screen in a runtime of its own
+      // folder; focus and the window's folder stay with alpha.
+      expect(await runtime.selectSession(foreign.id, dirName, { side: "right" })).toEqual({
+        ok: true,
+      })
+      await flush()
+      const beside = app.runtimes.find((entry) => entry !== alpha)
+      let snapshot = await runtime.snapshot()
+      expect(snapshot.panes).toEqual([alpha.id, beside?.id])
+      expect(beside?.workspace.cwd).toBe(resolve(otherCwd))
+      expect(beside?.sessions.current?.id).toBe(foreign.id)
+      expect(app.focused).toBe(alpha)
+      expect(snapshot.workspace.path).toBe(resolve(cwd))
+      expect(snapshot.runtimes.map((entry) => entry.workspace.path)).toEqual([
+        resolve(cwd),
+        resolve(otherCwd),
+      ])
+
+      // A fresh session takes the screen alone; then the beta session opened from history brings
+      // alpha's session back beside it, in alpha's folder, and the empty card goes.
+      expect(runtime.startNewSession()).toEqual({ ok: true })
+      await flush()
+      const fresh = (await runtime.snapshot()).panes
+      expect(fresh).toHaveLength(1)
+      expect(fresh).not.toContain(alpha.id)
+      expect(await runtime.selectSession(foreign.id, dirName)).toEqual({ ok: true })
+      await flush()
+      snapshot = await runtime.snapshot()
+      expect(snapshot.panes).toHaveLength(2)
+      expect(snapshot.workspace.path).toBe(resolve(otherCwd))
+      const restored = app.runtimes.map((entry) => ({
+        folder: entry.workspace.cwd,
+        session: entry.sessions.current?.id,
+      }))
+      expect(restored).toEqual([
+        { folder: resolve(cwd), session: alphaSession },
+        { folder: resolve(otherCwd), session: foreign.id },
+      ])
+
+      // A store whose folder is gone cannot sit beside live work: it needs the locate flow.
+      const ghostCwd = join(dirname(cwd), "gamma")
+      await mkdir(ghostCwd, { recursive: true })
+      const ghost = await createSession({ cwd: ghostCwd })
+      await ghost.admitPrompt("gone")
+      const ghostDir = basename(defaultSessionDirectory(ghostCwd))
+      await rm(ghostCwd, { recursive: true })
+      expect(await runtime.selectSession(ghost.id, ghostDir, { side: "left" })).toEqual({
+        ok: false,
+        reason: SESSION_REASONS.unlocated,
+      })
+      expect((await runtime.snapshot()).panes).toHaveLength(2)
+    } finally {
+      await runtime.shutdown()
+    }
   })
 
   it("rejects a missing folder without touching the current workspace", async () => {

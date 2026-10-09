@@ -52,6 +52,11 @@ export type LocalSettings = Partial<Record<ServerProvider, ServerSettings>> & {
   language?: UiLanguage
   lastWorkspace?: string
   thinkingVisible?: boolean
+  /**
+   * When false, other agents' instruction files and skills are not read in place. Omitted means
+   * read.
+   */
+  otherAgents?: boolean
   /** A system notification when a session finishes while Otis is not the frontmost app. */
   notifyOnCompletion?: boolean
   localThinking?: LocalThinkingPreferences
@@ -275,6 +280,10 @@ export async function saveThinkingVisible(
   await updateSettings(options, (saved) => ({ ...saved, thinkingVisible }))
 }
 
+export async function saveOtherAgents(otherAgents: boolean, options: SettingsFileOptions = {}) {
+  await updateSettings(options, (saved) => ({ ...saved, otherAgents }))
+}
+
 export async function saveNotifyOnCompletion(
   notifyOnCompletion: boolean,
   options: SettingsFileOptions = {},
@@ -442,6 +451,7 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
     }
   }
   const thinkingVisible = optionalBoolean(value.thinkingVisible, "thinkingVisible")
+  const otherAgents = optionalBoolean(value.otherAgents, "otherAgents")
   const notifyOnCompletion = optionalBoolean(value.notifyOnCompletion, "notifyOnCompletion")
   const subagentPanelVisible = optionalBoolean(value.subagentPanelVisible, "subagentPanelVisible")
   const workspacePanelWidth = value.workspacePanelWidth
@@ -499,6 +509,7 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
     lastWorkspace,
     localThinking,
     thinkingVisible,
+    otherAgents,
     notifyOnCompletion,
     subagentPanelVisible,
     workspacePanelWidth,

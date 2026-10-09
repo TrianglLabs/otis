@@ -398,7 +398,7 @@ const RECENT_SESSIONS = 4
 function EmptyState({ view }: { view: HomeView }) {
   const { api } = useDesktop()
   const { locale, t } = useI18n()
-  const state = useDesktopState("sessions", "recentArtifacts", "modelState", "modelError")
+  const state = useDesktopState("sessions", "recentArtifacts", "modelState")
   const [error, setError] = useState<string>()
   // Hovering a session lights the others it was last on screen with; opening it brings them.
   const [hovered, setHovered] = useState<NonNullable<typeof state>["sessions"][number]>()
@@ -417,14 +417,8 @@ function EmptyState({ view }: { view: HomeView }) {
     <div className="home">
       <div className="home-center">
         <OtisMark className="home-logo" />
-        {state.modelState === "failed" ? (
-          <div className="home-setup">
-            <p>
-              {t("home.modelFailed", { detail: state.modelError ? `: ${state.modelError}` : "." })}
-            </p>
-            <p className="home-setupHint">{t("home.pickDifferent")}</p>
-          </div>
-        ) : state.modelState === "unconfigured" ? (
+        {/* A model that could not start is reported once, at the composer. */}
+        {state.modelState === "unconfigured" ? (
           <div className="home-setup">
             <p>{t("home.noModel")}</p>
             <p className="home-setupHint">{t("home.setupHint")}</p>

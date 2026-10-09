@@ -40,6 +40,7 @@ export async function connectRemote(
 ): Promise<DesktopBackend> {
   const local = await loadLocalSettings()
   let update: DesktopStatus["update"] = { status: "idle" }
+  let cli: DesktopStatus["cli"] = null
   // The daemon numbers its events; a status the overlay re-emits on its own takes a number above
   // them, and every later daemon number moves up by as many as were taken, so the renderer's
   // revision guard keeps accepting. `last` never moves backwards: a snapshot can arrive after an
@@ -58,6 +59,7 @@ export async function connectRemote(
     agentsPanelVisible: local.subagentPanelVisible ?? true,
     workspacePanelWidth: local.workspacePanelWidth,
     update,
+    cli,
   })
   // A status event carries what changed, so a restate carries just this app's own fields.
   const restate = () => {
@@ -127,6 +129,17 @@ export async function connectRemote(
     local[key] = value
     restate()
   }
+  // Both ends ship from one repository with no compatibility promise between versions, so a
+  // daemon on another version is refused before the window takes anything from it. A
+  // development build pairs with anything.
+  const first = (await forward("getSnapshot", [])) as DesktopSnapshot
+  if (![first.version, handlers.version].includes("dev") && first.version !== handlers.version) {
+    socket.removeAllListeners("close")
+    socket.close(1000, "Version mismatch.")
+    throw new Error(
+      `${host} runs Otis ${first.version} and this app is ${handlers.version}. Run \`otis update\` there, then connect again.`,
+    )
+  }
   const here: Record<string, (...args: unknown[]) => Promise<unknown>> = {
     getSnapshot: async () => {
       const snapshot = (await forward("getSnapshot", [])) as DesktopSnapshot
@@ -177,6 +190,10 @@ export async function connectRemote(
     call: (method, args) => (here[method] ? here[method](...args) : forward(method, args)),
     setUpdateState(state) {
       update = state
+      restate()
+    },
+    setCliState(state) {
+      cli = state
       restate()
     },
     rendererGone() {},

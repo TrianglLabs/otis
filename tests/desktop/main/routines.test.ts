@@ -3,6 +3,7 @@ import { join } from "node:path"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { Application } from "../../../src/app/application.js"
 import type { TurnResult, TurnRunnerOptions } from "../../../src/app/turn-runner.js"
+import type { DesktopEvent } from "../../../src/desktop/contracts.js"
 import { DesktopRuntime } from "../../../src/desktop/main/runtime.js"
 import type { CatalogModel, ChatMessage, InferenceClient } from "../../../src/inference/types.js"
 import { useOtisHome } from "../../app/support/otis-home.js"
@@ -43,17 +44,26 @@ async function setup() {
   await mkdir(other, { recursive: true })
   const app = await Application.create({ cwd })
   app.focused.selection = { model: fakeModel, supportsImageInput: false, client: fakeClient }
+  const sent: DesktopEvent[] = []
   const runtime = DesktopRuntime.forApplication(app, {
     cwd,
     version: "test",
     platform: "darwin",
-    send: () => {},
+    // Copied as the IPC boundary would: an event holds what was sent, not live objects.
+    send: (event) => sent.push(structuredClone(event)),
     sendTerminal: () => {},
     spawnPty: () => {
       throw new Error("The tests run no shell.")
     },
   })
-  return { app, runtime, other }
+  return { app, runtime, other, sent }
+}
+
+/** The last run as the status events told the renderer; the window never sees a full snapshot. */
+function toldLastRun(sent: DesktopEvent[]) {
+  return sent.flatMap((event) =>
+    event.type === "status" && event.status.routines ? [event.status.routines[0]?.lastRun] : [],
+  )
 }
 
 const input = (cwd: string) => ({
@@ -71,7 +81,7 @@ beforeEach(() => {
 
 describe("DesktopRuntime routines", () => {
   it("hosts runs: an off-screen run closes and opening it marks it seen", async () => {
-    const { app, runtime, other } = await setup()
+    const { app, runtime, other, sent } = await setup()
     mocks.executeTurn.mockImplementation(reply("Beta done"))
     expect(
       await runtime.saveRoutine({ ...input(other), schedule: { kind: "daily", time: "25:00" } }),
@@ -81,20 +91,18 @@ describe("DesktopRuntime routines", () => {
     expect(saved?.enabled).toBe(false)
 
     expect(await runtime.runRoutine(saved?.id ?? "")).toEqual({ ok: true })
-    await vi.waitFor(async () => {
-      const [routine] = (await runtime.snapshot()).routines
-      expect(routine?.lastRun?.status).toBe("complete")
-    })
+    // The window learns of the finish from a status event, never a fresh snapshot: the run object
+    // was already sent while running and changed in place since.
+    await vi.waitFor(() => expect(toldLastRun(sent).at(-1)).toMatchObject({ status: "complete" }))
     // The run was never on screen: its runtime closes once the run is recorded, and nobody has
     // seen it yet.
-    const [routine] = (await runtime.snapshot()).routines
     await vi.waitFor(() => expect(app.runtimes).toHaveLength(1))
-    expect(routine?.lastRun?.seen).toBeUndefined()
-    const run = routine?.lastRun
+    const run = toldLastRun(sent).at(-1)
+    expect(run?.seen).toBeUndefined()
     expect(await runtime.selectSession(run?.sessionId ?? "", run?.dirName)).toEqual({ ok: true })
-    await vi.waitFor(async () =>
-      expect((await runtime.snapshot()).routines[0]?.lastRun?.seen).toBe(true),
-    )
+    // And of the seen mark, which clears the dots on the Routines tab and the card.
+    await vi.waitFor(() => expect(toldLastRun(sent).at(-1)?.seen).toBe(true))
+    expect((await runtime.snapshot()).routines[0]?.lastRun?.seen).toBe(true)
     expect(await runtime.runRoutine("nope")).toMatchObject({ ok: false })
     await runtime.shutdown()
   })

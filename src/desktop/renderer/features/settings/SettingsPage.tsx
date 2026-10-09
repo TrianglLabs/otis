@@ -6,9 +6,11 @@ import {
   ChevronDown,
   ChevronRight,
   Cloud,
+  Copy,
   Cpu,
   FileText,
   Globe,
+  Import,
   KeyRound,
   Laptop,
   LoaderCircle,
@@ -45,6 +47,8 @@ import {
 import type { LocalStats } from "../../../../local/stats.js"
 import type {
   DesktopApi,
+  OtherAgentId,
+  OtherAgentImport,
   SessionOpResult,
   TextSize,
   ThemeName,
@@ -56,7 +60,7 @@ import { TabStrip } from "../../components/TabStrip.js"
 import { TextField } from "../../components/TextField.js"
 import { formatTokenCount, usageBreakdown } from "../../format.js"
 import { LANGUAGE_OPTIONS, useI18n } from "../../i18n/index.js"
-import { useDesktop, useDesktopState } from "../../runtime.js"
+import { useDesktop, useDesktopSelector, useDesktopState } from "../../runtime.js"
 import { AchievementsTab } from "../achievements/Achievements.js"
 import { ModelDetail } from "../models/ModelPicker.js"
 
@@ -88,6 +92,10 @@ const PAIR_DEFAULT_ENDPOINTS = {
   lmStudio: "http://127.0.0.1:1234",
 }
 
+/** How the command line is installed, from the README; the app and the CLI share releases. */
+const INSTALL_COMMAND =
+  "curl -fsSL https://github.com/triangllabs/otis/releases/latest/download/install.sh | bash"
+
 const SETTINGS_TABS = {
   providers: { label: "settings.inference", icon: Cpu },
   extensions: { label: "settings.extensions", icon: Puzzle },
@@ -101,6 +109,8 @@ export type SettingsTab = keyof typeof SETTINGS_TABS
 
 /** Skills list in pages of this many; a suite can bring a hundred. */
 const SKILLS_PAGE = 10
+/** Rows of another agent's items shown at once; Show more adds as many. */
+const AGENT_PAGE = 8
 const MODELS_SHOWN = 5
 
 const SKILL_ORIGINS = {
@@ -164,6 +174,7 @@ export function SettingsPage({
     "remoteSaved",
     "stats",
     "primeTeamId",
+    "cli",
   )
   const servers = new Intl.ListFormat(locale, { type: "disjunction" }).format(
     localServerNames(state?.runtimePlatform),
@@ -172,7 +183,7 @@ export function SettingsPage({
   // An unlock banner clicked while settings is already open still lands on its tab.
   const [openForm, setOpenForm] = useState<"pair" | HostedProvider>()
   const [hostedOpen, setHostedOpen] = useState(false)
-  const [extension, setExtension] = useState<"skills" | "memory">("skills")
+  const [extension, setExtension] = useState<"skills" | "memory" | "agents">("skills")
   const tabRefs = useRef(new Map<SettingsTab, HTMLButtonElement>())
 
   // The server form shows one server at a time; every address stays in state and is probed.
@@ -363,6 +374,7 @@ export function SettingsPage({
                   tabs={[
                     ["skills", t("settings.skills"), FileText],
                     ["memory", t("settings.memory"), NotebookPen],
+                    ["agents", t("settings.importTab"), Import],
                   ]}
                   selected={extension}
                   onSelect={setExtension}
@@ -565,8 +577,10 @@ export function SettingsPage({
             {activeTab === "extensions" ? (
               extension === "skills" ? (
                 <SkillsSettings />
-              ) : (
+              ) : extension === "memory" ? (
                 <MemorySettings />
+              ) : (
+                <OtherAgentsSettings />
               )
             ) : null}
             {activeTab === "appearance" ? (
@@ -1111,6 +1125,9 @@ function ServerSettings({
           {error ? (
             <div className="settings-message settings-error settingsProvider-message">{error}</div>
           ) : null}
+          <p className="settingsForm-note settingsServer-setup">{t("settings.serverSetup")}</p>
+          <CommandLine command={INSTALL_COMMAND} />
+          <CommandLine command="otis serve --host <this machine's private address>" />
         </div>
       ) : null}
     </div>
@@ -1126,7 +1143,7 @@ function SoftwareUpdates({
 }) {
   const { api } = useDesktop()
   const { t } = useI18n()
-  const state = useDesktopState("update", "version")
+  const state = useDesktopState("update", "version", "cli")
   const [requesting, setRequesting] = useState(false)
   const [requestFailed, setRequestFailed] = useState(false)
   // "You're up to date." is a check result, not a resting status: it only appears after a manual
@@ -1143,7 +1160,7 @@ function SoftwareUpdates({
     (requesting && !downloading && !ready && update.status !== "error")
   const failed = requestFailed || update.status === "error"
 
-  const message =
+  const news =
     checking || downloading || ready || installing
       ? undefined
       : requestFailed
@@ -1155,6 +1172,18 @@ function SoftwareUpdates({
             : hasChecked && update.status === "current"
               ? t("updates.upToDate")
               : undefined
+  // The otis command follows the app on its own; only a change or a failure is news, and the
+  // app's own comes first.
+  const { cli } = state
+  const cliNews =
+    cli?.status === "updating"
+      ? t("settings.cliUpdating")
+      : cli?.status === "updated"
+        ? t("settings.cliUpdated", { version: cli.version })
+        : cli?.status === "failed"
+          ? cli.message
+          : undefined
+  const message = news ?? cliNews
 
   return (
     <div className="settingsRow settingsUpdate">
@@ -1162,7 +1191,10 @@ function SoftwareUpdates({
         Otis <span className="settingsRow-meta">{state.version}</span>
       </span>
       {message ? (
-        <span className={`settingsUpdate-status${failed ? " settings-error" : ""}`} role="status">
+        <span
+          className={`settingsUpdate-status${failed || (!news && cli?.status === "failed") ? " settings-error" : ""}`}
+          role="status"
+        >
           {message}
         </span>
       ) : null}
@@ -1209,6 +1241,42 @@ function SoftwareUpdates({
                 : t("updates.check")}
       </Button>
     </div>
+  )
+}
+
+/** A command to run elsewhere, with a copy button; the text is not translated. */
+function CommandLine({ command }: { command: string }) {
+  const { t } = useI18n()
+  const [copied, setCopied] = useState(false)
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => clearTimeout(timer.current), [])
+  // The transcript's code block, so a command reads the same everywhere.
+  return (
+    <figure className="codeBlock settingsCommand">
+      <figcaption>
+        <span className="codeBlock-lang">sh</span>
+        <span className="codeBlock-actions">
+          <IconButton
+            icon={copied ? Check : Copy}
+            label={copied ? t("markdown.copied") : t("common.copy")}
+            size={22}
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(command)
+                setCopied(true)
+                clearTimeout(timer.current)
+                timer.current = setTimeout(() => setCopied(false), 1600)
+              } catch {
+                // Clipboard can be unavailable; the button stays as it was.
+              }
+            }}
+          />
+        </span>
+      </figcaption>
+      <pre>
+        <code>{command}</code>
+      </pre>
+    </figure>
   )
 }
 
@@ -1583,6 +1651,146 @@ const listSkills = (api: DesktopApi) => api.listSkills()
  * A settings list read from the API and reread after each change: the change runs alone, its
  * failure shows as the reason, and success rereads the list.
  */
+/**
+ * Other agents on this machine: whether their instruction files and skills are read in place, and
+ * what each holds that can be taken over, with the picked items imported at once. Items already
+ * imported stay listed, checked and disabled, so a second visit shows what came from where.
+ */
+function OtherAgentsSettings() {
+  const { api } = useDesktop()
+  const { t } = useI18n()
+  const enabled = useDesktopSelector((state) => state?.otherAgentsEnabled ?? true)
+  const { value: agents, pending, error, change } = useSettingsList(listOtherAgents)
+  // What is picked per agent: fact texts, plus "instructions" for the file. Unset means
+  // everything not yet imported.
+  const [picks, setPicks] = useState<Partial<Record<OtherAgentId, Set<string>>>>({})
+  const picked = (agent: OtherAgentImport) =>
+    picks[agent.id] ??
+    new Set([
+      ...(agent.instructions && !agent.instructions.imported ? ["instructions"] : []),
+      ...agent.facts.filter((fact) => !fact.imported).map((fact) => fact.text),
+    ])
+  const importPicked = async (agent: OtherAgentImport) => {
+    const chosen = picked(agent)
+    const facts = agent.facts.filter((fact) => chosen.has(fact.text)).map((fact) => fact.text)
+    if (
+      await change(() =>
+        api.importOtherAgent(agent.id, { instructions: chosen.has("instructions"), facts }),
+      )
+    )
+      setPicks((current) => ({ ...current, [agent.id]: undefined }))
+  }
+  // Each agent's rows are paged like the skills list.
+  const [limits, setLimits] = useState<Partial<Record<OtherAgentId, number>>>({})
+  return (
+    <>
+      <div className="settingsGroup">
+        <h2 className="settings-section">{t("settings.otherAgents")}</h2>
+        <div className="settingsSurface">
+          <div className="settingsRow">
+            <span className="settingsRow-label">{t("settings.otherAgentsRead")}</span>
+            <Toggle
+              label={t("settings.otherAgentsRead")}
+              checked={enabled}
+              onChange={(next) => void api.setOtherAgentsEnabled(next)}
+            />
+          </div>
+        </div>
+        <p className="settingsForm-note settingsGroup-note">{t("settings.otherAgentsReadNote")}</p>
+      </div>
+      <div className="settingsGroup">
+        <h2 className="settings-section">{t("settings.otherAgentsImport")}</h2>
+        {agents?.length === 0 ? (
+          <div className="settingsSurface">
+            <div className="settingsRow settings-message">{t("settings.otherAgentsNone")}</div>
+          </div>
+        ) : null}
+        {agents?.map((agent) => {
+          const chosen = picked(agent)
+          const limit = limits[agent.id] ?? AGENT_PAGE
+          const rows = [
+            ...(agent.instructions
+              ? [
+                  {
+                    key: "instructions",
+                    text: t("settings.otherAgentsInstructions", { path: agent.instructions.path }),
+                    meta: agent.instructions.text,
+                    imported: agent.instructions.imported,
+                  },
+                ]
+              : []),
+            ...agent.facts.map((fact) => ({
+              key: fact.text,
+              text: fact.text,
+              meta: `${t(fact.scope === "global" ? "settings.memoryGlobal" : "settings.memoryWorkspace")} · ${fact.topic}`,
+              imported: fact.imported,
+            })),
+          ]
+          return (
+            <div className="settingsSurface" key={agent.id}>
+              <div className="settingsRow">
+                <span className="settingsRow-label">{agent.name}</span>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  disabled={pending || chosen.size === 0}
+                  onClick={() => void importPicked(agent)}
+                >
+                  {t("settings.otherAgentsImportAction")}
+                </Button>
+              </div>
+              {rows.slice(0, limit).map((row) => (
+                <label className="settingsRow settingsRow-pick" key={row.key}>
+                  <input
+                    type="checkbox"
+                    checked={row.imported || chosen.has(row.key)}
+                    disabled={row.imported || pending}
+                    onChange={() => {
+                      const next = new Set(chosen)
+                      if (!next.delete(row.key)) next.add(row.key)
+                      setPicks((current) => ({ ...current, [agent.id]: next }))
+                    }}
+                  />
+                  <span className="settingsRow-label">
+                    <span className="settingsRow-truncate" title={row.text}>
+                      {row.text}
+                    </span>
+                    <span className="settingsRow-meta settingsRow-truncate" title={row.meta}>
+                      {row.imported ? t("settings.otherAgentsImported") : row.meta}
+                    </span>
+                  </span>
+                </label>
+              ))}
+              {rows.length > limit ? (
+                <div className="settingsRow">
+                  <span className="settingsRow-meta">
+                    {t("settings.otherAgentsShown", { shown: limit, total: rows.length })}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() =>
+                      setLimits((current) => ({ ...current, [agent.id]: limit + AGENT_PAGE }))
+                    }
+                  >
+                    {t("settings.skillsMore")}
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          )
+        })}
+        {error ? <div className="settings-message settings-error">{error}</div> : null}
+        <p className="settingsForm-note settingsGroup-note">
+          {t("settings.otherAgentsImportNote")}
+        </p>
+      </div>
+    </>
+  )
+}
+
+const listOtherAgents = (api: DesktopApi) => api.listOtherAgents()
+
 function useSettingsList<T>(list: (api: DesktopApi) => Promise<T>) {
   const { api } = useDesktop()
   const [value, setValue] = useState<T>()

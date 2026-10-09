@@ -10,6 +10,7 @@ export const en = {
   "thinking.max": "Maximum",
   "thinking.reset": "Use model default",
   "common.continue": "Continue",
+  "common.copy": "Copy",
   "common.connect": "Connect",
   "common.save": "Save",
   "common.checking": "Checking…",
@@ -151,7 +152,6 @@ export const en = {
   "composer.imageUnsupported": "{{name}} is not a supported image type.",
   "composer.imageTooLarge": "{{name}} is too large. Images must be {{size}} MB or smaller.",
   "composer.tooManyImages": "You can attach up to {{count}} images.",
-  "composer.modelNoImages": "The selected model does not support image input",
   "composer.modelNoImageInput":
     "The selected model does not support image input. Choose a vision model.",
   "composer.atMostImages": "You can attach at most {{count}} images to one message.",
@@ -172,8 +172,6 @@ export const en = {
   "composer.sendFollowUpTitle": "Send as follow-up (Enter)",
   "composer.sendTitle": "Send (Enter)",
   "composer.followUp": "Follow up",
-  "home.modelFailed": "The selected model could not start{{detail}}",
-  "home.pickDifferent": "Pick a different model from the model menu in the composer.",
   "home.noModel": "No model is configured yet.",
   "home.setupHint":
     "Run otis in this workspace once to set up inference — the desktop app uses the same configuration and sessions.",
@@ -327,6 +325,10 @@ export const en = {
   "settings.serverUseThisMachine": "Use this machine",
   "settings.remoteNote":
     "Run `otis serve` on a machine that stays on and work on its sessions, models, skills and memory from here, over a private network such as Tailscale. This window keeps its own appearance. Otis restarts to switch.",
+  "settings.cliUpdating": "Updating the otis command…",
+  "settings.cliUpdated": "The otis command is on {{version}} too.",
+  "settings.serverSetup":
+    "On the other machine, install Otis and start the daemon on its private address:",
   "settings.remoteUrl": "Address",
   "settings.remoteUrlPlaceholder": "ws://linux-box:7331",
   "settings.remoteToken": "Pairing token",
@@ -461,6 +463,20 @@ export const en = {
   "settings.memoryFact": "Remember for this workspace",
   "settings.memoryRemember": "Remember",
   "settings.memoryForget": "Forget",
+  "settings.importTab": "Import",
+  "settings.otherAgents": "Read in place",
+  "settings.otherAgentsRead": "Use other agents' instructions and skills",
+  "settings.otherAgentsReadNote":
+    "A folder without AGENTS.md is read through its CLAUDE.md, GEMINI.md, Copilot instructions or Cursor rules, and skills in those agents' folders load beside .agents/skills.",
+  "settings.otherAgentsImport": "Copy over",
+  "settings.otherAgentsNone":
+    "No other agents with instructions or memory were found on this machine.",
+  "settings.otherAgentsInstructions": "Global instructions from {{path}}",
+  "settings.otherAgentsShown": "{{shown}} of {{total}} items",
+  "settings.otherAgentsImported": "Imported",
+  "settings.otherAgentsImportAction": "Import selected",
+  "settings.otherAgentsImportNote":
+    "Instructions go into ~/AGENTS.md, which Otis reads everywhere. Facts go into memory, for this workspace or everywhere, with credentials and personal details stripped. Nothing changes on the other agent's side.",
   "settings.memoryNote":
     "Facts live in Otis' data folder: a memory folder for each working folder, and one for those that hold everywhere. Nothing is written into the project. Otis reads them only when it calls recall.",
   "settings.skillBundled": "Bundled",

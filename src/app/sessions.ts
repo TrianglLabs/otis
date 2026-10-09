@@ -29,6 +29,7 @@ export const SESSION_REASONS = {
   gone: "That session no longer exists.",
   noop: "Finish the current work before switching sessions.",
   working: "That session is still working. Stop it first.",
+  unlocated: "That session's folder is not known yet. Open it on its own to locate the folder.",
 } as const
 
 /** A session open in some runtime of this process, as the pickers mark it. */

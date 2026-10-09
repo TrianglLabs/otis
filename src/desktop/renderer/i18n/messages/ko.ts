@@ -17,6 +17,7 @@ export const ko: Messages = {
   "canvas.latestVersion": "최신 (v{{version}})",
   "canvas.versionHistory": "아티팩트 버전",
   "common.continue": "계속",
+  "common.copy": "복사",
   "common.connect": "연결",
   "common.save": "저장",
   "common.checking": "확인 중…",
@@ -154,7 +155,6 @@ export const ko: Messages = {
   "composer.imageUnsupported": "{{name}}은(는) 지원되는 이미지 형식이 아닙니다.",
   "composer.imageTooLarge": "{{name}}이(가) 너무 큽니다. 이미지는 {{size}}MB 이하여야 합니다.",
   "composer.tooManyImages": "이미지는 최대 {{count}}개까지 첨부할 수 있습니다.",
-  "composer.modelNoImages": "선택한 모델은 이미지를 지원하지 않습니다.",
   "composer.modelNoImageInput":
     "선택한 모델은 이미지 입력을 지원하지 않습니다. 비전 모델을 선택하세요.",
   "composer.atMostImages": "메시지 하나에 이미지를 최대 {{count}}개 첨부할 수 있습니다.",
@@ -175,8 +175,6 @@ export const ko: Messages = {
   "composer.sendFollowUpTitle": "후속 메시지 보내기 (Enter)",
   "composer.sendTitle": "보내기 (Enter)",
   "composer.followUp": "후속 메시지",
-  "home.modelFailed": "선택한 모델을 시작할 수 없습니다{{detail}}",
-  "home.pickDifferent": "작성기의 모델 메뉴에서 다른 모델을 선택하세요.",
   "home.noModel": "아직 모델이 설정되지 않았습니다.",
   "home.setupHint":
     "이 작업 공간에서 otis를 한 번 실행해 추론을 설정하세요. 데스크톱 앱은 같은 설정과 세션을 사용합니다.",
@@ -330,6 +328,9 @@ export const ko: Messages = {
   "settings.serverUseThisMachine": "이 컴퓨터 사용",
   "settings.remoteNote":
     "항상 켜져 있는 컴퓨터에서 `otis serve`를 실행하고, 그 컴퓨터의 세션, 모델, 스킬, 메모리를 Tailscale 같은 사설망으로 여기서 사용합니다. 이 창의 모양은 그대로 유지됩니다. 전환하면 Otis가 다시 시작됩니다.",
+  "settings.cliUpdating": "otis 명령 업데이트 중…",
+  "settings.cliUpdated": "otis 명령도 {{version}}입니다.",
+  "settings.serverSetup": "다른 컴퓨터에 Otis를 설치하고 해당 사설 주소로 데몬을 시작하세요:",
   "settings.remoteUrl": "주소",
   "settings.remoteUrlPlaceholder": "ws://linux-box:7331",
   "settings.remoteToken": "페어링 토큰",
@@ -465,6 +466,20 @@ export const ko: Messages = {
   "settings.memoryFact": "이 워크스페이스에 기억",
   "settings.memoryRemember": "기억",
   "settings.memoryForget": "잊기",
+  "settings.importTab": "가져오기",
+  "settings.otherAgents": "바로 읽기",
+  "settings.otherAgentsRead": "다른 에이전트의 지침과 스킬 사용",
+  "settings.otherAgentsReadNote":
+    "AGENTS.md가 없는 폴더는 CLAUDE.md, GEMINI.md, Copilot 지침 또는 Cursor 규칙으로 읽고, 해당 에이전트 폴더의 스킬은 .agents/skills와 함께 불러옵니다.",
+  "settings.otherAgentsImport": "가져오기",
+  "settings.otherAgentsNone":
+    "이 컴퓨터에서 지침이나 메모리가 있는 다른 에이전트를 찾지 못했습니다.",
+  "settings.otherAgentsInstructions": "{{path}}의 전역 지침",
+  "settings.otherAgentsShown": "{{total}}개 중 {{shown}}개",
+  "settings.otherAgentsImported": "가져옴",
+  "settings.otherAgentsImportAction": "선택 항목 가져오기",
+  "settings.otherAgentsImportNote":
+    "지침은 Otis가 어디서나 읽는 ~/AGENTS.md에 들어갑니다. 사실은 이 작업 공간 또는 전역 메모리에 들어가며 자격 증명과 개인 정보는 제거됩니다. 다른 에이전트 쪽은 바뀌지 않습니다.",
   "settings.memoryNote":
     "사실은 Otis 데이터 폴더에 저장됩니다. 작업 폴더마다 메모리 폴더 하나, 모든 곳에 적용되는 것에도 하나입니다. 프로젝트에는 아무것도 쓰지 않습니다. Otis는 recall을 호출할 때만 읽습니다.",
   "settings.skillBundled": "기본 제공",

@@ -80,6 +80,8 @@ const SNAPSHOT: DesktopSnapshot = {
   language: "system",
   thinkingVisible: false,
   notifyOnCompletion: true,
+  otherAgentsEnabled: true,
+  cli: null,
   permissionMode: "ask",
   localThinking: null,
   fastServing: { available: false, enabled: false },

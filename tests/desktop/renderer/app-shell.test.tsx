@@ -2877,6 +2877,40 @@ describe("working on a daemon", () => {
     expect(api.connectRemote).toHaveBeenCalledExactlyOnceWith(" ws://linux-box:7331 ", "abc")
     expect(screen.getByText("linux-box:7331 rejected the pairing token.")).toBeTruthy()
     expect(screen.getByRole("button", { name: "Connect" })).toHaveProperty("disabled", false)
+    // The editor says how to get the other machine ready, with the commands to copy.
+    expect(
+      screen.getByText(
+        "On the other machine, install Otis and start the daemon on its private address:",
+      ),
+    ).toBeTruthy()
+    expect(
+      screen.getByText(
+        "curl -fsSL https://github.com/triangllabs/otis/releases/latest/download/install.sh | bash",
+      ),
+    ).toBeTruthy()
+    expect(screen.getByText("otis serve --host <this machine's private address>")).toBeTruthy()
+  })
+
+  it("reports an otis command that could not follow the app in the update row", async () => {
+    const api = fakeApi({
+      getSnapshot: vi.fn(async () => ({
+        ...SNAPSHOT,
+        cli: {
+          status: "failed" as const,
+          path: "/opt/otis",
+          version: "0.0.0",
+          message: "Cannot write.",
+        },
+      })),
+    })
+    await renderApp(api)
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }))
+    await act(async () => {})
+    fireEvent.click(screen.getByRole("tab", { name: "General" }))
+    // A command that could not follow the app says why in the row's status; nothing else shows.
+    expect(screen.getByRole("status").textContent).toBe("Cannot write.")
+    expect(screen.queryByText(/install\.sh \| bash/)).toBeNull()
+    expect(screen.queryByText(/Otis CLI/)).toBeNull()
   })
 
   it("remembers the last pairing: the address is prefilled and a blank token reuses the saved one", async () => {

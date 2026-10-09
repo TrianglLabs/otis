@@ -19,7 +19,7 @@ import { guardFrameNavigation, handleRendererFailure, sendToRenderer } from "./r
 import { DesktopRuntime } from "./runtime.js"
 import { handleClosedOutput } from "./stdio.js"
 import { createStatusTray, trayIconDir, trayStatusGate } from "./tray.js"
-import { startAutoUpdates } from "./updater.js"
+import { keepCliCurrent, startAutoUpdates } from "./updater.js"
 import { recoverWorkspaceCwd, resolveWorkspaceCwd } from "./workspace.js"
 
 const { autoUpdater } = electronUpdater
@@ -267,7 +267,7 @@ if (!app.requestSingleInstanceLock()) {
       } catch (error) {
         const { response } = await dialog.showMessageBox({
           type: "error",
-          message: `Couldn't reach ${host}`,
+          message: `Couldn't connect to ${host}`,
           detail: [
             describeError(error),
             "Work on this machine instead, or quit and check the daemon.",
@@ -352,6 +352,12 @@ if (!app.requestSingleInstanceLock()) {
       isQuitting: () => quitting || Boolean(updater?.isInstalling()),
     })
     window.once("ready-to-show", () => window.show())
+    // The otis command on this machine follows the app's version; a dev build leaves it alone.
+    if (app.isPackaged)
+      void keepCliCurrent({
+        version: app.getVersion(),
+        onState: (cli) => current.setCliState(cli),
+      }).catch((error) => console.warn(`Unable to check the otis command: ${String(error)}`))
     // Keep the native app identity when the shared HTML document announces its "Otis" title.
     window.on("page-title-updated", (event) => event.preventDefault())
     window.on("closed", () => {
@@ -376,8 +382,8 @@ if (!app.requestSingleInstanceLock()) {
       window,
       devServerUrl ?? pathToFileURL(join(__dirname, "../renderer/index.html")).href,
     )
-    // OTIS_DEMO=1 opens the fixture home screen; "onboarding", "local" or a fixture session id
-    // opens there.
+    // OTIS_DEMO=1 opens the fixture home screen; "onboarding", "failed", "local" or a fixture
+    // session id opens there.
     const demo =
       process.env.OTIS_DEMO === "1"
         ? "demo"

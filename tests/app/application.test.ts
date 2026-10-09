@@ -26,6 +26,7 @@ import { localConfigDirectory } from "../../src/local/paths.js"
 import { loadLocalSettings, saveSelectedModel } from "../../src/local/settings.js"
 import type { PermissionRequest } from "../../src/permissions/policy.js"
 import { createSession, listSessions } from "../../src/storage/session.js"
+import { defaultSessionDirectory } from "../../src/storage/session-files.js"
 import { acquireSessionLock } from "../../src/storage/session-lock.js"
 import { useOtisHome } from "./support/otis-home.js"
 
@@ -1357,6 +1358,34 @@ describe("Application workspaces", () => {
     expect(app.focused).toBe(opened)
     expect(app.focused.sessions.current?.id).toBe(second.id)
     expect(app.runtimes).toHaveLength(2)
+    await app.shutdown()
+    await rm(other, { recursive: true, force: true })
+  })
+
+  it("places a session from another folder beside the focused one without taking focus", async () => {
+    const app = await ready()
+    const other = await mkdtemp(join(tmpdir(), "otis-other-"))
+    const home = app.focused
+    const stored = await createSession({ cwd: other })
+    const admission = await stored.admitPrompt("hello")
+    await stored.completeTurn(admission, [
+      { role: "assistant", content: [{ type: "text", text: "hi" }] },
+    ])
+    const beside = await app.openBeside(stored.id, { cwd: other })
+    if (typeof beside !== "object") throw new Error(`Refused: ${beside}`)
+    expect(app.focused).toBe(home)
+    expect(app.cwd).toBe(home.workspace.cwd)
+    expect(beside.workspace.cwd).toBe(other)
+    expect(beside.sessions.current?.id).toBe(stored.id)
+    expect(app.runtimes).toEqual([home, beside])
+    // Asked again, by folder or by its store, the runtime already holding it is the answer.
+    expect(await app.openBeside(stored.id, { cwd: other })).toBe(beside)
+    expect(
+      await app.openBeside(stored.id, { directory: defaultSessionDirectory(other), cwd: other }),
+    ).toBe(beside)
+    // A session that is not in that folder's store leaves nothing behind.
+    expect(await app.openBeside("session_missing", { cwd: other })).toBeUndefined()
+    expect(app.runtimes).toEqual([home, beside])
     await app.shutdown()
     await rm(other, { recursive: true, force: true })
   })

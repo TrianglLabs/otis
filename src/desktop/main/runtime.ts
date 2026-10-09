@@ -16,9 +16,11 @@ import {
 } from "../../app/global-sessions.js"
 import type { LocalServerInputs } from "../../app/local-servers.js"
 import { isAbortError } from "../../app/models.js"
+import { importOtherAgent, listOtherAgents, type OtherAgentPicks } from "../../app/other-agents.js"
 import { SESSION_REASONS } from "../../app/sessions.js"
 import type { TranscriptChange, TranscriptEntry } from "../../app/transcript.js"
 import type { ArtifactReference } from "../../artifacts/types.js"
+import type { OtherAgentId } from "../../core/context.js"
 import { createAttachment } from "../../inference/attachments.js"
 import { listHostedModels } from "../../inference/catalog.js"
 import { describeError } from "../../inference/errors.js"
@@ -45,6 +47,7 @@ import {
   saveAchievementsSeen,
   saveLastWorkspace,
   saveNotifyOnCompletion,
+  saveOtherAgents,
   saveSelectedTheme,
   saveSubagentPanelVisible,
   saveTextSize,
@@ -165,6 +168,7 @@ export class DesktopRuntime {
   readonly #shipped = new WeakMap<SessionRuntime, Map<number, TranscriptEntry>>()
   #stats: DesktopStatus["stats"]
   #update: DesktopStatus["update"] = { status: "idle" }
+  #cli: DesktopStatus["cli"] = null
   /** The focused runtime as of the last focus move the renderer was told about. */
   #shown!: SessionRuntime
   /** The sessions on screen in display order; the focused one is always among them. */
@@ -528,6 +532,11 @@ export class DesktopRuntime {
     this.#markStateDirty()
   }
 
+  setCliState(cli: DesktopStatus["cli"]): void {
+    this.#cli = cli
+    this.#markStateDirty()
+  }
+
   async checkForUpdates(): Promise<void> {
     if (this.#disposed) return
     await this.options.checkForUpdates?.()
@@ -585,15 +594,18 @@ export class DesktopRuntime {
       // Dropped on a side, a session of this workspace's store joins the ones on screen. An empty
       // card alone is no company: the session takes its place instead.
       const empty = this.#panes.length === 1 && !focused.busy && !focused.sessions.current
-      if (at && "side" in at && !empty && (dirName ?? this.#home) === this.#home) {
-        const runtime = await this.app.openBeside(sessionId)
+      const storage = { directory: dirName === undefined ? undefined : sessionDir(dirName), cwd }
+      if (at && "side" in at && !empty) {
+        // Beside live work there is no place for a read-only view waiting on a locate.
+        const folder = await this.#storeFolder(dirName)
+        if (!folder) return { ok: false, reason: SESSION_REASONS.unlocated }
+        const runtime = await this.app.openBeside(sessionId, { ...storage, cwd: folder })
         if (typeof runtime !== "object")
           return { ok: false, reason: SESSION_REASONS[runtime === "locked" ? "locked" : "gone"] }
         this.openPane(runtime.id, at.side)
         this.#historyCache = undefined
         return { ok: true }
       }
-      const storage = { directory: dirName === undefined ? undefined : sessionDir(dirName), cwd }
       const open = this.app.runtimes.find((runtime) =>
         runtime.sessions.isCurrent(sessionId, storage.directory),
       )
@@ -628,16 +640,21 @@ export class DesktopRuntime {
         }
       }
       // A drop places the session itself. Opened from history, a session takes the screen unless
-      // the sessions it was last on screen with come back beside it, in their order; members of
-      // other stores are skipped.
+      // the sessions it was last on screen with come back beside it, in their order, each in its
+      // own folder; members whose folder cannot be found are skipped.
       if (at) this.#recordView()
       else {
         const shown = this.app.focused
         const view = this.#pendingWorkspace ? undefined : shown.sessions.current?.view()
         const panes: SessionRuntime[] = []
         for (const member of view?.members ?? []) {
-          if (panes.length >= MAX_PANES || member.dirName !== this.#home) continue
-          const runtime = await this.app.openBeside(member.id)
+          if (panes.length >= MAX_PANES) break
+          const folder = await this.#storeFolder(member.dirName)
+          if (!folder) continue
+          const runtime = await this.app.openBeside(member.id, {
+            directory: sessionDir(member.dirName),
+            cwd: folder,
+          })
           if (typeof runtime === "object") panes.push(runtime)
         }
         if (view && panes.length >= 2) {
@@ -661,6 +678,16 @@ export class DesktopRuntime {
   /** The name of this workspace's own session store. */
   get #home() {
     return basename(defaultSessionDirectory(this.app.cwd))
+  }
+
+  /**
+   * The folder a session store belongs to, for a runtime there: the focused folder for its own
+   * store, else the store's registered folder while it is present.
+   */
+  async #storeFolder(dirName: string | undefined): Promise<string | undefined> {
+    if (dirName === undefined || dirName === this.#home) return this.app.cwd
+    const registered = await readWorkspacePath(sessionDir(dirName))
+    return registered && (await pathExists(registered)) ? resolve(registered) : undefined
   }
 
   /**
@@ -1053,6 +1080,25 @@ export class DesktopRuntime {
     return listMemory(this.app.cwd)
   }
 
+  listOtherAgents() {
+    return listOtherAgents(this.app.cwd)
+  }
+
+  importOtherAgent(id: OtherAgentId, picks: OtherAgentPicks) {
+    return attempt(async () => {
+      const { instructions } = await importOtherAgent(this.app.cwd, id, picks)
+      // A new ~/AGENTS.md section is instructions for every folder.
+      if (instructions) await this.app.reloadSkills(true)
+    })
+  }
+
+  async setOtherAgentsEnabled(enabled: boolean) {
+    await saveOtherAgents(enabled)
+    this.app.settings.otherAgents = enabled
+    await this.app.reloadSkills(true)
+    this.#markStateDirty()
+  }
+
   rememberFact(scope: MemoryScope, fact: string) {
     return attempt(() => remember(scope, fact, this.app.cwd))
   }
@@ -1378,7 +1424,9 @@ export class DesktopRuntime {
     const revision = ++this.#revision
     const status = await this.#status()
     const sent = this.#sentStatus
-    this.#sentStatus = status
+    // The baseline is a copy: parts of a status alias state the application mutates in place
+    // (a routine's last run is marked seen), and a shared object would hide its own change.
+    this.#sentStatus = structuredClone(status)
     this.options.send({
       type: "status",
       revision,
@@ -1447,10 +1495,12 @@ export class DesktopRuntime {
       textSize: app.settings.textSize ?? "default",
       language: app.settings.language ?? "system",
       thinkingVisible: app.settings.thinkingVisible ?? false,
+      otherAgentsEnabled: app.settings.otherAgents ?? true,
       notifyOnCompletion: app.settings.notifyOnCompletion ?? true,
       pairConfigured: Boolean(app.pairEndpoints.ollama || app.pairEndpoints.lmStudio),
       debug: this.#debug,
       update: this.#update,
+      cli: this.#cli,
       remote: null,
       remoteSaved: app.settings.remote?.url ?? null,
       runtimePlatform: this.options.platform,

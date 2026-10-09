@@ -333,11 +333,18 @@ export const Composer = memo(function Composer({ installing = false }: { install
             : t("composer.ask")
           : t("composer.setupModel")
 
+  const blocker =
+    modelState === "failed" && state?.modelError
+      ? t("composer.modelFailed", { error: state.modelError })
+      : sendError
   return (
     <div className="composer">
-      {modelState === "failed" && state?.modelError ? (
-        <div className="composer-banner" role="alert">
-          {t("composer.modelFailed", { error: state.modelError })}
+      {/* What keeps the box from sending, or why the last attempt was refused, reads above it. */}
+      {blocker ? (
+        <div className="composer-hint composer-hint-above">
+          <span className="composer-error" role="alert">
+            {blocker}
+          </span>
         </div>
       ) : null}
       {/* While the agent works, a soft beam rides the box's border. */}
@@ -565,11 +572,6 @@ export const Composer = memo(function Composer({ installing = false }: { install
       </BorderBeam>
       {/* The disabled form is translucent while loading; its model picker must remain opaque. */}
       {state?.model ? <ModelPicker open={pickerOpen} onClose={() => setPickerOpen(false)} /> : null}
-      {sendError ? (
-        <div className="composer-hint">
-          <span className="composer-error">{sendError}</span>
-        </div>
-      ) : null}
     </div>
   )
 })

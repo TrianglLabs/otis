@@ -1,6 +1,6 @@
 import { stat } from "node:fs/promises"
 import { homedir } from "node:os"
-import { dirname, isAbsolute, parse, relative, resolve, sep } from "node:path"
+import { isAbsolute, parse, relative, resolve, sep } from "node:path"
 import { requestContextEstimator } from "../core/compaction.js"
 import { loadProjectContext } from "../core/context.js"
 import { validateAttachments } from "../inference/attachments.js"
@@ -273,11 +273,12 @@ export class Workspace {
     this.label = formatWorkspaceLabel(cwd)
   }
 
-  static async load(cwd: string) {
+  /** `otherAgents` reads other agents' instruction files and skills in place. */
+  static async load(cwd: string, otherAgents = true) {
     return new Workspace(
       cwd,
-      loadProjectContext(cwd),
-      await loadSkillCatalog(cwd),
+      loadProjectContext(cwd, otherAgents),
+      await loadSkillCatalog(cwd, { otherAgents }),
       await loadProjectPermissionRules(cwd),
     )
   }
@@ -395,8 +396,11 @@ export class Application {
   #imageSupport: { modelId: string; promise: Promise<void> } | undefined
 
   static async create(options: ApplicationOptions = {}) {
-    const workspace = await Workspace.load(resolve(options.cwd ?? process.cwd()))
     const settings = await loadLocalSettings({ env: options.env })
+    const workspace = await Workspace.load(
+      resolve(options.cwd ?? process.cwd()),
+      settings.otherAgents ?? true,
+    )
     const app = new Application(workspace, settings, options)
     app.routines = await loadRoutines().then(
       (routines) => new Routines(app, routines),
@@ -472,7 +476,7 @@ export class Application {
     const cwd = resolve(path)
     let loading = this.#workspaces.get(cwd)
     if (!loading) {
-      loading = Workspace.load(cwd)
+      loading = Workspace.load(cwd, this.settings.otherAgents ?? true)
       this.#workspaces.set(cwd, loading)
       loading.catch(() => this.#workspaces.delete(cwd))
     }
@@ -605,11 +609,16 @@ export class Application {
     for (const runtime of this.#runtimes) runtime.conversation.debug = enabled
   }
 
-  /** Rereads the skills on disk for every open folder; conversations pick them up next turn. */
-  async reloadSkills() {
+  /**
+   * Rereads the skills on disk for every open folder, and the instruction files too when asked;
+   * conversations pick them up next turn.
+   */
+  async reloadSkills(instructions = false) {
+    const otherAgents = this.settings.otherAgents ?? true
     for (const loading of this.#workspaces.values()) {
       const workspace = await loading
-      workspace.skills = await loadSkillCatalog(workspace.cwd)
+      workspace.skills = await loadSkillCatalog(workspace.cwd, { otherAgents })
+      if (instructions) workspace.projectContext = loadProjectContext(workspace.cwd, otherAgents)
     }
   }
 
@@ -626,11 +635,14 @@ export class Application {
         return {
           name: skill.name,
           description: skill.description,
+          // Personal: from the home folder, Otis' own or another agent's; project: from a folder
+          // on the way to the workspace.
           origin: collection
             ? { collection }
             : skill.bundled
               ? "bundled"
-              : dirname(skill.root) === manager.activationDirectory
+              : skill.root.startsWith(`${homedir()}${sep}`) &&
+                  !skill.root.startsWith(`${this.cwd}${sep}`)
                 ? "personal"
                 : "project",
         }
@@ -727,16 +739,23 @@ export class Application {
 
   /**
    * Opens a session in a runtime that does not take focus, for placing beside the focused one:
-   * the runtime already holding it, else a new one. Refused sessions leave nothing behind.
+   * the runtime already holding it, else a new one in the session's folder (the focused one's by
+   * default). Refused sessions leave nothing behind.
    */
-  async openBeside(sessionId: string): Promise<SessionRuntime | "locked" | undefined> {
-    const open = this.#runtimes.find((runtime) => runtime.sessions.isCurrent(sessionId))
+  async openBeside(
+    sessionId: string,
+    storage?: { directory?: string; cwd?: string },
+  ): Promise<SessionRuntime | "locked" | undefined> {
+    const open = this.#runtimes.find((runtime) =>
+      runtime.sessions.isCurrent(sessionId, storage?.directory),
+    )
     if (open) return open
     // Opening creates what is missing; a session deleted since is not brought back empty.
-    if (!(await stat(sessionFile({ cwd: this.cwd }, sessionId)).catch(() => undefined)))
-      return undefined
-    const runtime = this.#createRuntime(this.#focused.workspace)
-    if ((await runtime.sessions.select(sessionId)) !== "loaded") {
+    const where = { cwd: storage?.cwd ?? this.cwd, directory: storage?.directory }
+    if (!(await stat(sessionFile(where, sessionId)).catch(() => undefined))) return undefined
+    const workspace = storage?.cwd ? await this.workspace(storage.cwd) : this.#focused.workspace
+    const runtime = this.#createRuntime(workspace)
+    if ((await runtime.sessions.select(sessionId, storage?.directory)) !== "loaded") {
       await runtime.dispose()
       return "locked"
     }

@@ -70,8 +70,13 @@ const CATALOG: readonly CatalogCommand[] = [
   { type: "exit", name: "/exit", description: "Exit Otis" },
 ]
 
-export function slashCommands(options: { fast?: boolean } = {}): CommandSuggestion[] {
-  return CATALOG.filter((command) => command.type !== "fast" || options.fast).map((command) => ({
+/** The catalog as the menu lists it; `/fast` and `/effort` only when the selected model has them. */
+export function slashCommands(
+  options: { fast?: boolean; effort?: boolean } = {},
+): CommandSuggestion[] {
+  return CATALOG.filter(
+    (command) => (command.type !== "fast" && command.type !== "effort") || options[command.type],
+  ).map((command) => ({
     name: command.name,
     description: command.description,
     ...(command.type === "queue" ? { draft: "/queue " } : {}),

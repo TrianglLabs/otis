@@ -5,7 +5,7 @@ import {
   slashCommands,
 } from "../../src/cli/slash-commands.js"
 
-const SLASH_COMMANDS = slashCommands({ fast: true })
+const SLASH_COMMANDS = slashCommands({ fast: true, effort: true })
 
 describe("slash commands", () => {
   it("parses known commands and leaves unknown input for the agent", () => {
@@ -152,10 +152,17 @@ describe("slash commands", () => {
     ])
   })
 
-  it("omits /fast unless the current model has a Fast serving path", () => {
-    expect(slashCommands({ fast: true }).some((command) => command.name === "/fast")).toBe(true)
-    expect(slashCommands({ fast: false }).some((command) => command.name === "/fast")).toBe(false)
+  it("omits /fast and /effort unless the current model has them", () => {
+    const names = (options: Parameters<typeof slashCommands>[0]) =>
+      slashCommands(options).map((command) => command.name)
+    expect(names({ fast: true, effort: true })).toEqual(
+      expect.arrayContaining(["/fast", "/effort"]),
+    )
+    expect(names({ fast: false, effort: false })).not.toEqual(expect.arrayContaining(["/fast"]))
+    expect(names({ fast: false, effort: false })).not.toContain("/effort")
+    expect(names({})).not.toContain("/effort")
     expect(parseSlashCommand("/fast")).toEqual({ type: "fast" })
+    expect(parseSlashCommand("/effort high")).toEqual({ type: "effort", level: "high" })
   })
 
   it("parses every advertised command", () => {

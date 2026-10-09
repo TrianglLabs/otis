@@ -17,6 +17,7 @@ export const ja: Messages = {
   "canvas.latestVersion": "最新 (v{{version}})",
   "canvas.versionHistory": "アーティファクトのバージョン",
   "common.continue": "続ける",
+  "common.copy": "コピー",
   "common.connect": "接続",
   "common.save": "保存",
   "common.checking": "確認中…",
@@ -154,7 +155,6 @@ export const ja: Messages = {
   "composer.imageUnsupported": "{{name}} は対応していない画像形式です。",
   "composer.imageTooLarge": "{{name}} は大きすぎます。画像は {{size}} MB 以下にしてください。",
   "composer.tooManyImages": "最大 {{count}} 枚の画像を添付できます。",
-  "composer.modelNoImages": "選択したモデルは画像に対応していません。",
   "composer.modelNoImageInput":
     "選択したモデルは画像入力に対応していません。画像対応モデルを選択してください。",
   "composer.atMostImages": "1件のメッセージに最大 {{count}} 枚の画像を添付できます。",
@@ -175,8 +175,6 @@ export const ja: Messages = {
   "composer.sendFollowUpTitle": "フォローアップを送信 (Enter)",
   "composer.sendTitle": "送信 (Enter)",
   "composer.followUp": "フォローアップ",
-  "home.modelFailed": "選択したモデルを起動できませんでした{{detail}}",
-  "home.pickDifferent": "入力欄のモデルメニューから別のモデルを選択してください。",
   "home.noModel": "モデルがまだ設定されていません。",
   "home.setupHint":
     "このワークスペースで一度 otis を実行して推論を設定してください。デスクトップアプリは同じ設定とセッションを使用します。",
@@ -330,6 +328,10 @@ export const ja: Messages = {
   "settings.serverUseThisMachine": "このマシンを使う",
   "settings.remoteNote":
     "常時稼働しているマシンで `otis serve` を実行し、そのセッション、モデル、スキル、メモリを Tailscale などのプライベートネットワーク経由でここから使います。このウィンドウの外観はそのままです。切り替え時に Otis は再起動します。",
+  "settings.cliUpdating": "otis コマンドを更新中…",
+  "settings.cliUpdated": "otis コマンドも {{version}} になりました。",
+  "settings.serverSetup":
+    "もう一方のマシンに Otis をインストールし、そのプライベートアドレスでデーモンを起動します:",
   "settings.remoteUrl": "アドレス",
   "settings.remoteUrlPlaceholder": "ws://linux-box:7331",
   "settings.remoteToken": "ペアリングトークン",
@@ -466,6 +468,20 @@ export const ja: Messages = {
   "settings.memoryFact": "このワークスペースに記憶",
   "settings.memoryRemember": "記憶する",
   "settings.memoryForget": "忘れる",
+  "settings.importTab": "インポート",
+  "settings.otherAgents": "そのまま読む",
+  "settings.otherAgentsRead": "他のエージェントの指示とスキルを使う",
+  "settings.otherAgentsReadNote":
+    "AGENTS.md のないフォルダは CLAUDE.md、GEMINI.md、Copilot の指示、Cursor のルールから読み込まれ、それらのエージェントのフォルダにあるスキルは .agents/skills と並んで読み込まれます。",
+  "settings.otherAgentsImport": "取り込む",
+  "settings.otherAgentsNone":
+    "このマシンには指示やメモリを持つ他のエージェントが見つかりませんでした。",
+  "settings.otherAgentsInstructions": "{{path}} のグローバル指示",
+  "settings.otherAgentsShown": "{{total}} 件中 {{shown}} 件",
+  "settings.otherAgentsImported": "取り込み済み",
+  "settings.otherAgentsImportAction": "選択したものを取り込む",
+  "settings.otherAgentsImportNote":
+    "指示は Otis がどこでも読む ~/AGENTS.md に入ります。事実はこのワークスペースまたは全体のメモリに入り、認証情報と個人情報は取り除かれます。他のエージェント側は変わりません。",
   "settings.memoryNote":
     "事実は Otis のデータフォルダに保存されます。作業フォルダごとにメモリフォルダが 1 つ、すべての場所で有効なものにも 1 つあります。プロジェクトには何も書き込みません。Otis は recall を呼び出したときだけ読み込みます。",
   "settings.skillBundled": "同梱",
