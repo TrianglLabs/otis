@@ -4,6 +4,7 @@ import { createPortal } from "react-dom"
 import { IconButton } from "../../components/Button.js"
 import { useI18n } from "../../i18n/index.js"
 import { useDesktopSelector } from "../../runtime.js"
+import { ViewControls } from "./ViewControls.js"
 
 const canvasReloadEvent = "otis:canvas-reload"
 const hot = import.meta.hot
@@ -17,7 +18,8 @@ if (hot) {
  * A Mermaid diagram in the sandboxed canvas document. As a tab it fills the panel with pan and
  * zoom controls; inline, in a document, it sizes itself to the drawing and leaves scrolling to
  * the page. Either opens the diagram larger: a dialog over the window with the tab's controls,
- * where the drawing takes its full width. Theme changes repaint it in place.
+ * where the drawing takes its full width. The frame owns pan and zoom; the pill over its foot
+ * asks for steps and shows the scale the frame reports. Theme changes repaint it in place.
  */
 export function MermaidFrame({
   source,
@@ -37,6 +39,11 @@ export function MermaidFrame({
   const [frameRevision, setFrameRevision] = useState(0)
   const [renderError, setRenderError] = useState<string>()
   const [height, setHeight] = useState<number>()
+  const post = useCallback(
+    (message: object) => frame.current?.contentWindow?.postMessage(message, "*"),
+    [],
+  )
+  const [scale, setScale] = useState(1)
   // Opened larger: a dialog over the window, closed by its button, the backdrop, or Escape.
   // Focus moves into it as it opens, away from the frame whose button opened it, so Escape
   // reaches this window; once the drawing is clicked, its own frame answers Escape.
@@ -68,32 +75,21 @@ export function MermaidFrame({
       accent: color("--accent", "#8b7cff"),
       border: color("--border", "#444444"),
     }
-    frame.current?.contentWindow?.postMessage(
-      { type: "otis-canvas-source", source, inline, large, colors },
-      "*",
-    )
-  }, [source, inline, large])
+    post({ type: "otis-canvas-source", source, inline, large, colors })
+  }, [post, source, inline, large])
   const sendLanguage = useCallback(() => {
-    frame.current?.contentWindow?.postMessage(
-      {
-        type: "otis-canvas-language",
-        locale,
-        labels: {
-          viewport: t("canvas.viewport"),
-          controls: t("canvas.controls"),
-          zoomOut: t("canvas.zoomOut"),
-          resetView: t("canvas.resetView"),
-          zoomIn: t("canvas.zoomIn"),
-          enlarge: t("canvas.enlarge"),
-          renderFailed: t("canvas.renderFailed"),
-          loadFailed: t("canvas.loadFailed"),
-          emptySource: t("canvas.emptySource"),
-          tooLarge: t("canvas.tooLarge"),
-        },
+    post({
+      type: "otis-canvas-language",
+      locale,
+      labels: {
+        viewport: t("canvas.viewport"),
+        renderFailed: t("canvas.renderFailed"),
+        loadFailed: t("canvas.loadFailed"),
+        emptySource: t("canvas.emptySource"),
+        tooLarge: t("canvas.tooLarge"),
       },
-      "*",
-    )
-  }, [locale, t])
+    })
+  }, [post, locale, t])
 
   useEffect(sendLanguage, [sendLanguage])
   useEffect(() => {
@@ -106,14 +102,17 @@ export function MermaidFrame({
     return () => window.removeEventListener(canvasReloadEvent, reload)
   }, [])
   // The frame reports each render; failures are announced here since the frame's own text sits
-  // behind its sandbox boundary for assistive technology. It also asks to open larger, from its
-  // controls, and to close again, on Escape while large.
+  // behind its sandbox boundary for assistive technology. It also reports each change of view,
+  // and asks to close the dialog on Escape while large.
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       if (event.source !== frame.current?.contentWindow) return
+      if (event.data?.type === "otis-canvas-view") {
+        setScale(event.data.scale)
+        return
+      }
       if (event.data?.type === "otis-canvas-enlarge") {
-        if (event.data.open) setEnlarged(true)
-        else onClose?.()
+        onClose?.()
         return
       }
       if (event.data?.type !== "otis-canvas-render") return
@@ -131,6 +130,22 @@ export function MermaidFrame({
     return () => window.removeEventListener("message", onMessage)
   }, [t, onClose])
 
+  const view = (
+    <iframe
+      key={frameRevision}
+      ref={frame}
+      className={inline ? "canvas-frame canvas-frame-inline" : "canvas-frame"}
+      style={inline ? { height: height ?? 160 } : undefined}
+      title={t("canvas.diagram")}
+      sandbox="allow-scripts"
+      referrerPolicy="no-referrer"
+      src={new URL("canvas.html", location.href).href}
+      onLoad={() => {
+        sendLanguage()
+        sendSource()
+      }}
+    />
+  )
   return (
     <>
       {renderError ? (
@@ -138,29 +153,37 @@ export function MermaidFrame({
           {renderError}
         </div>
       ) : null}
-      <iframe
-        key={frameRevision}
-        ref={frame}
-        className={inline ? "canvas-frame canvas-frame-inline" : "canvas-frame"}
-        style={inline ? { height: height ?? 160 } : undefined}
-        title={t("canvas.diagram")}
-        sandbox="allow-scripts"
-        referrerPolicy="no-referrer"
-        src={new URL("canvas.html", location.href).href}
-        onLoad={() => {
-          sendLanguage()
-          sendSource()
-        }}
-      />
       {inline ? (
-        <IconButton
-          icon={Maximize2}
-          label={t("canvas.enlarge")}
-          size={22}
-          className="md-diagramEnlarge"
-          onClick={() => setEnlarged(true)}
-        />
-      ) : null}
+        <>
+          {view}
+          <IconButton
+            icon={Maximize2}
+            label={t("canvas.enlarge")}
+            size={22}
+            className="md-diagramEnlarge"
+            onClick={() => setEnlarged(true)}
+          />
+        </>
+      ) : (
+        <div className="canvas-diagram">
+          {view}
+          <ViewControls
+            label={t("canvas.controls")}
+            zoom={scale}
+            onZoom={(factor) => post({ type: "otis-canvas-zoom", factor })}
+            onReset={() => post({ type: "otis-canvas-zoom", reset: true })}
+          >
+            {large ? null : (
+              <IconButton
+                icon={Maximize2}
+                label={t("canvas.enlarge")}
+                size={24}
+                onClick={() => setEnlarged(true)}
+              />
+            )}
+          </ViewControls>
+        </div>
+      )}
       {enlarged
         ? createPortal(
             <>

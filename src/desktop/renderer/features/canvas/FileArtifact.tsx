@@ -1,4 +1,4 @@
-import { Download, Minus, Plus, Search } from "lucide-react"
+import { Download, Search } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { ArtifactMetadata, ArtifactPayload } from "../../../../artifacts/types.js"
 import { IconButton } from "../../components/Button.js"
@@ -15,6 +15,7 @@ import {
   useFind,
 } from "./find.js"
 import { PdfPreview } from "./PdfPreview.js"
+import { ViewControls, ZOOM_MAX, ZOOM_MIN, ZOOM_STEP } from "./ViewControls.js"
 
 const WORD_PREVIEW_CSS = `
   :root { color-scheme: light; font: 16px/1.6 ui-serif, Georgia, serif; color: #242321; background: #e9e7e2; }
@@ -33,9 +34,6 @@ const WORD_PREVIEW_CSS = `
   p:first-child, h1:first-child, h2:first-child { margin-top: 0; }
   @media (max-width: 520px) { body { padding: 0; } main { min-height: 100vh; padding: 28px 22px; box-shadow: none; } }
 `
-const ZOOM_MIN = 0.5
-const ZOOM_MAX = 3
-const ZOOM_STEP = 1.2
 
 /** A session's open document; `runtime` names the session whose tab it is. */
 export function FileArtifact({
@@ -164,30 +162,7 @@ export function FileArtifact({
             publication={artifact.publication}
           />
         ) : null}
-        <div className="canvas-viewControls" role="toolbar" aria-label={t("canvas.viewControls")}>
-          <IconButton icon={Search} label={t("canvas.find")} onClick={openFind} />
-          <IconButton
-            icon={Minus}
-            label={t("canvas.zoomOut")}
-            disabled={zoom <= ZOOM_MIN}
-            onClick={() => scaleZoom(1 / ZOOM_STEP)}
-          />
-          <button
-            type="button"
-            className="canvas-zoomLevel"
-            aria-label={t("canvas.resetView")}
-            title={t("canvas.resetView")}
-            onClick={() => scaleZoom(0)}
-          >
-            {Math.round(zoom * 100)}%
-          </button>
-          <IconButton
-            icon={Plus}
-            label={t("canvas.zoomIn")}
-            disabled={zoom >= ZOOM_MAX}
-            onClick={() => scaleZoom(ZOOM_STEP)}
-          />
-        </div>
+        <IconButton icon={Search} label={t("canvas.find")} onClick={openFind} />
         <ArtifactSave
           key={`${artifact.id}:${artifact.revision}`}
           runtime={runtime}
@@ -236,6 +211,14 @@ export function FileArtifact({
             find={find}
             onMatches={finder.setMatchCount}
             onShortcut={shortcut}
+          />
+        ) : null}
+        {payload ? (
+          <ViewControls
+            label={t("canvas.viewControls")}
+            zoom={zoom}
+            onZoom={scaleZoom}
+            onReset={() => scaleZoom(0)}
           />
         ) : null}
       </div>

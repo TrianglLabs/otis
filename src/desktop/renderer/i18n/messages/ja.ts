@@ -328,8 +328,6 @@ export const ja: Messages = {
   "settings.serverUseThisMachine": "このマシンを使う",
   "settings.remoteNote":
     "常時稼働しているマシンで `otis serve` を実行し、そのセッション、モデル、スキル、メモリを Tailscale などのプライベートネットワーク経由でここから使います。このウィンドウの外観はそのままです。切り替え時に Otis は再起動します。",
-  "settings.cliUpdating": "otis コマンドを更新中…",
-  "settings.cliUpdated": "otis コマンドも {{version}} になりました。",
   "settings.serverInstall": "もう一方のマシンに Otis CLI をインストール",
   "settings.serverStart": "サーバーを起動",
   "settings.remoteUrl": "アドレス",

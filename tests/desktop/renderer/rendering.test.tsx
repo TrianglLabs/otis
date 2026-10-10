@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { DesktopEvent } from "../../../src/desktop/contracts.js"
 import { ArtifactCard } from "../../../src/desktop/renderer/components/ArtifactCard.js"
@@ -449,16 +449,12 @@ describe("stable message rendering", () => {
     expect(large.classList.contains("canvas-frame-inline")).toBe(false)
     fireEvent.keyDown(window, { key: "Escape" })
     expect(dialog()).toBeNull()
-    // The frame asks the same from its own controls; the backdrop closes it too.
-    act(() => {
-      window.dispatchEvent(
-        new MessageEvent("message", {
-          data: { type: "otis-canvas-enlarge", open: true },
-          source: frame.contentWindow,
-        }),
-      )
-    })
-    expect(dialog()).toBeTruthy()
+    // The dialog carries the zoom pill, without an enlarge button; the backdrop closes it too.
+    fireEvent.click(screen.getByRole("button", { name: "Open larger" }))
+    expect(dialog()?.querySelector(".viewControls")).toBeTruthy()
+    expect(
+      within(dialog() as HTMLElement).queryByRole("button", { name: "Open larger" }),
+    ).toBeNull()
     fireEvent.click(document.querySelector(".overlayBackdrop") as HTMLElement)
     expect(dialog()).toBeNull()
     expect(asset).toHaveBeenCalledExactlyOnceWith(1, "workspace:doc.md", 4, "img/logo.png")

@@ -328,8 +328,6 @@ export const ko: Messages = {
   "settings.serverUseThisMachine": "이 컴퓨터 사용",
   "settings.remoteNote":
     "항상 켜져 있는 컴퓨터에서 `otis serve`를 실행하고, 그 컴퓨터의 세션, 모델, 스킬, 메모리를 Tailscale 같은 사설망으로 여기서 사용합니다. 이 창의 모양은 그대로 유지됩니다. 전환하면 Otis가 다시 시작됩니다.",
-  "settings.cliUpdating": "otis 명령 업데이트 중…",
-  "settings.cliUpdated": "otis 명령도 {{version}}입니다.",
   "settings.serverInstall": "다른 컴퓨터에 Otis CLI 설치",
   "settings.serverStart": "서버 시작",
   "settings.remoteUrl": "주소",

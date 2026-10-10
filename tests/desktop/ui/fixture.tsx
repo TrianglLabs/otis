@@ -774,13 +774,13 @@ async function runDesktopUiChecks() {
         ok: boolean
         message?: string
         width?: number
-        diagramTop?: number
-        controlsBottom?: number
-        controls?: boolean
+        diagramBottom?: number
       }
     | undefined
+  let canvasScale: number | undefined
   const onCanvasMessage = (event: MessageEvent) => {
     if (event.data?.type === "otis-canvas-render") canvasResult = event.data
+    if (event.data?.type === "otis-canvas-view") canvasScale = event.data.scale
   }
   window.addEventListener("message", onCanvasMessage)
   const diagramCount = 4
@@ -876,11 +876,24 @@ async function runDesktopUiChecks() {
     (canvasResult?.width ?? Number.POSITIVE_INFINITY) <= 480,
     "Canvas enlarged the selected diagram",
   )
-  assert(canvasResult?.controls, "Canvas did not initialize pan and zoom controls")
+  // The zoom pill floats over the frame's foot, clear of the drawing, and drives the frame.
+  const pill = element(".canvas-diagram .viewControls").getBoundingClientRect()
+  const frameTop = element(".canvas-frame").getBoundingClientRect().top
   assert(
-    (canvasResult?.diagramTop ?? 0) >= (canvasResult?.controlsBottom ?? Number.POSITIVE_INFINITY),
+    frameTop + (canvasResult?.diagramBottom ?? Number.POSITIVE_INFINITY) <= pill.top,
     "Canvas initially positioned the diagram underneath its controls",
   )
+  element<HTMLButtonElement>('.viewControls [aria-label="Zoom in"]').click()
+  await until(
+    () => canvasScale !== undefined && Math.abs(canvasScale - 1.2) < 1e-9,
+    "Zooming from the pill did not reach the diagram frame",
+  )
+  await until(
+    () => element(".viewControls-level").textContent === "120%",
+    "The pill did not show the frame's zoom",
+  )
+  element<HTMLButtonElement>('.viewControls [aria-label="Reset view"]').click()
+  await until(() => canvasScale === 1, "Resetting from the pill did not reach the diagram frame")
   assert(
     element<HTMLIFrameElement>(".canvas-frame").sandbox.contains("allow-scripts"),
     "Canvas iframe lost its sandbox",

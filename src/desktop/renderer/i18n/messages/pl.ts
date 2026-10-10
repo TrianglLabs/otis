@@ -389,8 +389,6 @@ export const pl: Messages = {
   "settings.serverUseThisMachine": "Użyj tej maszyny",
   "settings.remoteNote":
     "Uruchom `otis serve` na maszynie, która pozostaje włączona, i pracuj stąd na jej sesjach, modelach, umiejętnościach i pamięci przez prywatną sieć, np. Tailscale. To okno zachowuje swój wygląd. Otis uruchomi się ponownie, aby przełączyć.",
-  "settings.cliUpdating": "Aktualizowanie polecenia otis…",
-  "settings.cliUpdated": "Polecenie otis też jest w wersji {{version}}.",
   "settings.serverInstall": "Zainstaluj Otis CLI na drugim komputerze",
   "settings.serverStart": "Uruchom serwer",
   "settings.remoteUrl": "Adres",

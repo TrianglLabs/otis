@@ -2,11 +2,6 @@
 // The parent replaces these initial English labels with the selected catalog on load.
 let labels = {
   viewport: "Diagram canvas. Drag to pan; use the controls to zoom.",
-  controls: "Diagram view controls",
-  zoomOut: "Zoom out",
-  resetView: "Reset view",
-  zoomIn: "Zoom in",
-  enlarge: "Open larger",
   renderFailed: "Could not render this Mermaid diagram.",
   loadFailed: "Mermaid failed to load.",
   emptySource: "The Mermaid block is empty.",
@@ -16,11 +11,6 @@ let lastError
 const root = requiredElement("diagram")
 const errorView = requiredElement("error")
 const viewport = requiredElement("viewport")
-const controls = requiredElement("controls")
-const zoomOut = requiredElement("zoom-out")
-const zoomIn = requiredElement("zoom-in")
-const resetButton = requiredElement("reset-view")
-const enlarge = requiredElement("enlarge")
 
 let renderId = 0
 let scale = 1
@@ -34,12 +24,6 @@ let inline = false
 // Large, the frame fills a dialog over the window; the parent opens and closes it.
 let large = false
 
-zoomOut.addEventListener("click", () => setZoom(scale / 1.2))
-zoomIn.addEventListener("click", () => setZoom(scale * 1.2))
-resetButton.addEventListener("click", resetView)
-enlarge.addEventListener("click", () =>
-  parent.postMessage({ type: "otis-canvas-enlarge", open: true }, "*"),
-)
 window.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && large)
     parent.postMessage({ type: "otis-canvas-enlarge", open: false }, "*")
@@ -103,17 +87,13 @@ window.addEventListener("message", (event) => {
     labels = next
     document.documentElement.lang = event.data.locale
     viewport.setAttribute("aria-label", labels.viewport)
-    controls.setAttribute("aria-label", labels.controls)
-    for (const [element, label] of [
-      [zoomOut, labels.zoomOut],
-      [resetButton, labels.resetView],
-      [zoomIn, labels.zoomIn],
-      [enlarge, labels.enlarge],
-    ]) {
-      element.setAttribute("aria-label", label)
-      element.title = label
-    }
     if (lastError !== undefined) renderError()
+    return
+  }
+  // The parent's zoom pill steps or resets the view; wheel and keys here do the same directly.
+  if (event.data?.type === "otis-canvas-zoom") {
+    if (event.data.reset) resetView()
+    else setZoom(scale * event.data.factor)
     return
   }
   const request = event.data
@@ -209,9 +189,7 @@ async function render(source, colors, requestId, keepView) {
         type: "otis-canvas-render",
         ok: true,
         width: svg?.getBoundingClientRect().width,
-        diagramTop: svg?.getBoundingClientRect().top,
-        controlsBottom: controls.getBoundingClientRect().bottom,
-        controls: !inline,
+        diagramBottom: svg?.getBoundingClientRect().bottom,
         height: inline ? root.getBoundingClientRect().bottom : undefined,
       },
       "*",
@@ -221,8 +199,9 @@ async function render(source, colors, requestId, keepView) {
   }
 }
 
+// The same limits as the parent's pill, which disables its buttons at them.
 function setZoom(nextScale) {
-  scale = Math.min(3, Math.max(0.4, nextScale))
+  scale = Math.min(3, Math.max(0.5, nextScale))
   applyView()
 }
 
@@ -233,9 +212,10 @@ function resetView() {
   applyView()
 }
 
+// The parent shows the level in its pill, so every change of view reports the scale.
 function applyView() {
   root.style.transform = `translate3d(${panX}px, ${panY}px, 0) scale(${scale})`
-  resetButton.textContent = `${Math.round(scale * 100)}%`
+  parent.postMessage({ type: "otis-canvas-view", scale }, "*")
 }
 
 function endDrag(event) {

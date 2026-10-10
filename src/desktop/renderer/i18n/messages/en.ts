@@ -325,8 +325,6 @@ export const en = {
   "settings.serverUseThisMachine": "Use this machine",
   "settings.remoteNote":
     "Run `otis serve` on a machine that stays on and work on its sessions, models, skills and memory from here, over a private network such as Tailscale. This window keeps its own appearance. Otis restarts to switch.",
-  "settings.cliUpdating": "Updating the otis command…",
-  "settings.cliUpdated": "The otis command is on {{version}} too.",
   "settings.serverInstall": "Install Otis CLI on the other machine",
   "settings.serverStart": "Start the server",
   "settings.remoteUrl": "Address",
