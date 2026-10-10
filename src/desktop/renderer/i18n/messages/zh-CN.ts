@@ -321,8 +321,6 @@ export const zhCN: Messages = {
   "settings.serverUseThisMachine": "使用本机",
   "settings.remoteNote":
     "在一台常开的机器上运行 `otis serve`，通过 Tailscale 等私有网络在这里使用它的会话、模型、技能和记忆。本窗口保留自己的外观。切换时 Otis 将重启。",
-  "settings.cliUpdating": "正在更新 otis 命令…",
-  "settings.cliUpdated": "otis 命令也已是 {{version}}。",
   "settings.serverInstall": "在另一台机器上安装 Otis CLI",
   "settings.serverStart": "启动服务器",
   "settings.remoteUrl": "地址",

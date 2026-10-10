@@ -1174,18 +1174,9 @@ function SoftwareUpdates({
             : hasChecked && update.status === "current"
               ? t("updates.upToDate")
               : undefined
-  // The otis command follows the app on its own; only a change or a failure is news, and the
-  // app's own comes first.
+  // The otis command follows the app on its own; only its failure is news, after the app's own.
   const { cli } = state
-  const cliNews =
-    cli?.status === "updating"
-      ? t("settings.cliUpdating")
-      : cli?.status === "updated"
-        ? t("settings.cliUpdated", { version: cli.version })
-        : cli?.status === "failed"
-          ? cli.message
-          : undefined
-  const message = news ?? cliNews
+  const message = news ?? (cli?.status === "failed" ? cli.message : undefined)
 
   return (
     <div className="settingsRow settingsUpdate">

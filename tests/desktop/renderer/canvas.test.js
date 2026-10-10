@@ -5,32 +5,21 @@ import { uk } from "../../../src/desktop/renderer/i18n/messages/uk.js"
 
 it("localizes Canvas controls and existing errors without rerendering the diagram", async () => {
   document.body.innerHTML =
-    '<div id="diagram"></div><div id="error"></div><div id="viewport"></div><div id="controls"></div><button id="zoom-out"></button><button id="zoom-in"></button><button id="reset-view"></button><button id="enlarge"></button>'
+    '<div id="diagram"></div><div id="error"></div><div id="viewport"></div>'
   const listen = vi.spyOn(window, "addEventListener")
   await import("../../../src/desktop/renderer/canvas.js")
   const receive = listen.mock.calls.find(([type]) => type === "message")[1]
   listen.mockRestore()
   const notify = vi.spyOn(window.parent, "postMessage").mockImplementation(() => {})
   const send = (data, source = window.parent) => receive({ source, data })
-  const keys = [
-    "viewport",
-    "controls",
-    "zoomOut",
-    "resetView",
-    "zoomIn",
-    "enlarge",
-    "renderFailed",
-    "loadFailed",
-    "emptySource",
-    "tooLarge",
-  ]
+  const keys = ["viewport", "renderFailed", "loadFailed", "emptySource", "tooLarge"]
   const language = {
     type: "otis-canvas-language",
     locale: "uk",
     labels: Object.fromEntries(keys.map((key) => [key, uk[`canvas.${key}`]])),
   }
   send(language, {})
-  expect(document.getElementById("zoom-in").title).toBe("")
+  expect(document.getElementById("viewport").getAttribute("aria-label")).toBeNull()
   send({
     type: "otis-canvas-source",
     source: "",
@@ -49,16 +38,11 @@ it("localizes Canvas controls and existing errors without rerendering the diagra
     "*",
   )
   send(language)
-  expect(document.getElementById("zoom-in").title).toBe("Збільшити")
   expect(document.getElementById("viewport").getAttribute("aria-label")).toBe(uk["canvas.viewport"])
   expect(document.getElementById("error").textContent).toBe(
     `${uk["canvas.renderFailed"]}\n\n${uk["canvas.emptySource"]}`,
   )
   expect(document.documentElement.lang).toBe("uk")
-  document.getElementById("zoom-in").click()
-  expect(document.getElementById("reset-view").textContent).toBe("120%")
-  send(language)
-  expect(document.getElementById("reset-view").textContent).toBe("120%")
   window.removeEventListener("message", receive)
   notify.mockRestore()
   document.body.innerHTML = ""
@@ -66,7 +50,7 @@ it("localizes Canvas controls and existing errors without rerendering the diagra
 
 it("keeps zoom and pan across a theme re-render and resets them for a new diagram", async () => {
   document.body.innerHTML =
-    '<div id="diagram"></div><div id="error"></div><div id="viewport"></div><div id="controls"></div><button id="zoom-out"></button><button id="zoom-in"></button><button id="reset-view"></button><button id="enlarge"></button>'
+    '<div id="diagram"></div><div id="error"></div><div id="viewport"></div>'
   vi.resetModules()
   const listen = vi.spyOn(window, "addEventListener")
   await import("../../../src/desktop/renderer/canvas.js")
@@ -97,25 +81,32 @@ it("keeps zoom and pan across a theme re-render and resets them for a new diagra
     expect.objectContaining({ type: "otis-canvas-render", ok: true }),
     "*",
   )
-  document.getElementById("zoom-in").click()
-  document.getElementById("zoom-in").click()
-  expect(document.getElementById("reset-view").textContent).toBe("144%")
+  // The parent's pill asks for steps; every change of view reports the scale back.
+  const zoom = (data) =>
+    receive({ source: window.parent, data: { type: "otis-canvas-zoom", ...data } })
+  const scale = () => notify.mock.calls.findLast(([m]) => m.type === "otis-canvas-view")[0].scale
+  zoom({ factor: 1.2 })
+  zoom({ factor: 1.2 })
+  expect(scale()).toBeCloseTo(1.44)
   send("graph TD; A-->B", "red")
   await settle()
   expect(globalThis.mermaid.render).toHaveBeenCalledTimes(2)
-  expect(document.getElementById("reset-view").textContent).toBe("144%")
+  expect(scale()).toBeCloseTo(1.44)
   send("graph TD; A-->C", "red")
   await settle()
-  expect(document.getElementById("reset-view").textContent).toBe("100%")
+  expect(scale()).toBe(1)
+  zoom({ factor: 1.2 })
+  zoom({ reset: true })
+  expect(scale()).toBe(1)
   window.removeEventListener("message", receive)
   notify.mockRestore()
   vi.unstubAllGlobals()
   document.body.innerHTML = ""
 })
 
-it("opens larger from its controls, takes its full width there, and asks to close on Escape", async () => {
+it("takes its full width when large and asks to close on Escape only then", async () => {
   document.body.innerHTML =
-    '<div id="diagram"></div><div id="error"></div><div id="viewport"></div><div id="controls"></div><button id="zoom-out"></button><button id="zoom-in"></button><button id="reset-view"></button><button id="enlarge"></button>'
+    '<div id="diagram"></div><div id="error"></div><div id="viewport"></div>'
   vi.resetModules()
   const listen = vi.spyOn(window, "addEventListener")
   await import("../../../src/desktop/renderer/canvas.js")
@@ -144,11 +135,9 @@ it("opens larger from its controls, takes its full width there, and asks to clos
   send(false)
   await settle()
   expect(document.documentElement.classList.contains("large")).toBe(false)
-  document.getElementById("enlarge").click()
-  expect(notify).toHaveBeenLastCalledWith({ type: "otis-canvas-enlarge", open: true }, "*")
   // Escape is only the frame's to answer while it is large.
   pressEscape()
-  expect(notify).toHaveBeenCalledTimes(2)
+  expect(notify.mock.calls.some(([m]) => m.type === "otis-canvas-enlarge")).toBe(false)
   send(true)
   await settle()
   expect(document.documentElement.classList.contains("large")).toBe(true)

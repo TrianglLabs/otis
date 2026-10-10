@@ -329,8 +329,6 @@ export const ptBR: Messages = {
   "settings.serverUseThisMachine": "Usar esta máquina",
   "settings.remoteNote":
     "Execute `otis serve` em uma máquina que fique ligada e trabalhe daqui com suas sessões, modelos, habilidades e memória, por uma rede privada como o Tailscale. Esta janela mantém sua aparência. O Otis reinicia para trocar.",
-  "settings.cliUpdating": "Atualizando o comando otis…",
-  "settings.cliUpdated": "O comando otis também está na {{version}}.",
   "settings.serverInstall": "Instale a Otis CLI na outra máquina",
   "settings.serverStart": "Inicie o servidor",
   "settings.remoteUrl": "Endereço",
