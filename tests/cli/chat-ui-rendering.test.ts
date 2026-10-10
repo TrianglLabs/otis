@@ -144,6 +144,28 @@ describe("chat UI rendering", () => {
     expect(runLabel.plainText).toBe("Ran bun test")
   })
 
+  it("keeps a tool row's icon and its gap when the label is wider than the row", async () => {
+    const harness = await setup()
+    const transcript = new TranscriptStore()
+    const run = transcript.addToolMessage("Running command: bun test", "shell", {
+      toolCallId: "run_1",
+      activityAction: "command",
+      activitySubject: `cd ${"/very/long/folder".repeat(12)} && bun run lint 2>&1`,
+    })
+    harness.ui.showChatLayout()
+    harness.ui.renderTranscript(transcript.entries)
+    await harness.renderOnce()
+
+    // The icon is a flex child of the row; without a shrink of zero it is squeezed to nothing
+    // by an overlong label, which then draws over the glyph.
+    const icon = harness.get<TextRenderable>(`message-${run.id}-tool-icon`)
+    const label = harness.get<TextRenderable>(`message-${run.id}-tool-label`)
+    expect(icon.width).toBe(1)
+    expect(label.x).toBe(icon.x + 2)
+    const row = harness.captureCharFrame().split("\n")[label.y]
+    expect(row?.slice(icon.x, icon.x + 8)).toBe(`${icon.plainText} Ran cd`)
+  })
+
   it("updates streaming assistant markdown in place", async () => {
     const harness = await setup()
     const transcript = new TranscriptStore()

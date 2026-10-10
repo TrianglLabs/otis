@@ -105,6 +105,7 @@ describe("conversation scrolling", () => {
         autoCompactAtTokens: 100_000,
       }),
       projectContext: () => [],
+      memory: () => [],
       skills: () => ({ skills: [], byName: new Map() }),
       permissionPolicy: () => createPermissionPolicy({ cwd, mode: "auto" }),
       broker: new PermissionBroker(),

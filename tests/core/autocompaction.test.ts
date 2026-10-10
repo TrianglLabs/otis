@@ -61,6 +61,7 @@ describe("bounded compaction", () => {
         tools: [],
         skills: emptySkills,
         projectContext: [],
+        memory: [],
         autoCompactAtTokens: autoCompactThreshold(65536),
         onCompaction,
       }),
@@ -101,6 +102,7 @@ describe("bounded compaction", () => {
         tools: TOOL_DEFINITIONS,
         skills: emptySkills,
         projectContext: [],
+        memory: [],
         autoCompactAtTokens: threshold,
         onCompaction: () => {
           checkpointed = true
@@ -151,6 +153,7 @@ describe("bounded compaction", () => {
         tools: [],
         skills: emptySkills,
         projectContext: [],
+        memory: [],
         autoCompactAtTokens: 20000,
         onCompaction: () => {
           checkpointed = true
@@ -169,6 +172,7 @@ describe("bounded compaction", () => {
         tools: TOOL_DEFINITIONS,
         skills: emptySkills,
         projectContext: [],
+        memory: [],
         autoCompactAtTokens: autoCompactThreshold(4096),
       }),
     )
@@ -380,6 +384,7 @@ describe("autocompaction at model request boundaries", () => {
         tools: [],
         skills: emptySkills,
         projectContext: [],
+        memory: [],
         signal: controller.signal,
       }),
     )
@@ -402,6 +407,7 @@ describe("autocompaction at model request boundaries", () => {
         tools: [],
         skills: emptySkills,
         projectContext: [],
+        memory: [],
         historyTokens: 10_000,
         autoCompactAtTokens: 10_000,
       }),
@@ -431,6 +437,7 @@ describe("autocompaction at model request boundaries", () => {
         tools: [],
         skills: emptySkills,
         projectContext: [],
+        memory: [],
         onCompaction: checkpoint,
       }),
     )
@@ -465,6 +472,7 @@ describe("autocompaction at model request boundaries", () => {
         tools: [],
         skills: emptySkills,
         projectContext: [],
+        memory: [],
         autoCompactAtTokens: 8_000,
       }),
     )
@@ -502,6 +510,7 @@ describe("autocompaction at model request boundaries", () => {
         tools: [],
         skills: emptySkills,
         projectContext: [],
+        memory: [],
         onCompaction: () => {
           checkpointed = true
         },
@@ -538,6 +547,7 @@ describe("autocompaction at model request boundaries", () => {
         tools: [],
         skills: emptySkills,
         projectContext: [],
+        memory: [],
         steering,
         onCompaction: checkpoint,
       }),
@@ -559,6 +569,7 @@ describe("autocompaction at model request boundaries", () => {
         tools: [],
         skills: emptySkills,
         projectContext: [],
+        memory: [],
         onCompaction: () => {
           throw new Error("Disk full")
         },
@@ -590,6 +601,7 @@ describe("autocompaction at model request boundaries", () => {
         tools: [],
         skills: emptySkills,
         projectContext: [],
+        memory: [],
         signal: controller.signal,
         onCompaction: checkpoint,
       }),
@@ -607,7 +619,7 @@ async function collect(events: AsyncGenerator<AgentEvent>) {
 }
 
 describe("authoritative request counts and overflow recovery", () => {
-  const options = { tools: [], skills: emptySkills, projectContext: [] }
+  const options = { tools: [], skills: emptySkills, projectContext: [], memory: [] }
 
   it("compacts before inference when the serving tokenizer reports more tokens than the character estimate", async () => {
     const client = summaryClient()
@@ -970,7 +982,13 @@ it("bounds repeated context rejections even when there is still history to compa
     answer("x".repeat(8_000)),
   ]).flat()
   const events = await collect(
-    runAgent("next", history, { client, tools: [], skills: emptySkills, projectContext: [] }),
+    runAgent("next", history, {
+      client,
+      tools: [],
+      skills: emptySkills,
+      projectContext: [],
+      memory: [],
+    }),
   )
   expect(requests).toBe(3)
   expect(events.at(-1)).toMatchObject({

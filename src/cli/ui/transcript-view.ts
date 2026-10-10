@@ -334,9 +334,12 @@ export class TranscriptView {
       flexDirection: "row",
       gap: 1,
     })
+    // The icon keeps its cell when the label is too long for the row: a flex child shrinks to
+    // nothing otherwise, and the label then draws over the glyph.
     const icon = new TextRenderable(this.renderer, {
       id: `message-${entry.id}-tool-icon`,
       fg: colors.accent,
+      flexShrink: 0,
     })
     const label = new TextRenderable(this.renderer, {
       id: `message-${entry.id}-tool-label`,

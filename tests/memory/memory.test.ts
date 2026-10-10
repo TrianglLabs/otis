@@ -1,9 +1,10 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises"
-import { join } from "node:path"
+import { basename, join } from "node:path"
 import { describe, expect, it } from "vitest"
 import {
   forget,
   listMemory,
+  memoryIndex,
   memoryTopic,
   recall,
   redactPrivate,
@@ -259,6 +260,50 @@ describe("memory", () => {
     expect(output).toContain("[redacted]")
     expect(output).not.toContain("Limiter again")
     expect(await recall("zzz", cwd)).toBe("Nothing remembered or recorded matches.")
+  })
+
+  it("answers a question in other words than the facts, by any word, whole, most words first", async () => {
+    const { cwd } = await scratch()
+    const profile = "learner-profile"
+    await remember("workspace", "The user built the Otis agent harness.", cwd, undefined, profile)
+    await remember("workspace", "The user is new to LLM training.", cwd, undefined, profile)
+    await remember("workspace", "Memory lives in the workspace folder.", cwd, undefined, "layout")
+
+    // The query the model sent when asked "what do you know about me": a list of words.
+    const output = await recall("user preferences identity setup work history", cwd)
+    expect(output.split("\n").slice(0, 3)).toEqual([
+      "Remembered (workspace):",
+      `- The user built the Otis agent harness. (learner-profile, ${today})`,
+      `- The user is new to LLM training. (learner-profile, ${today})`,
+    ])
+    expect(output).not.toContain("Memory lives")
+    // Words match whole: "me" is not "memory". A topic's name reads the topic.
+    expect(await recall("me", cwd)).not.toContain("Memory lives")
+    expect(await recall("memory", cwd)).toContain("Memory lives")
+    expect(await recall("layout", cwd)).toContain("Memory lives")
+    // The fact with more of the words comes first.
+    const ranked = await recall("training llm user", cwd)
+    expect(ranked.indexOf("new to LLM training")).toBeLessThan(ranked.indexOf("agent harness"))
+    expect(await recall("", cwd)).toBe("Nothing remembered or recorded matches.")
+  })
+
+  it("serves each scope's index as it is on disk, for the prompt, and only where one exists", async () => {
+    const { home, cwd } = await scratch()
+    expect(await memoryIndex(cwd)).toEqual([])
+    await remember("global", "Prefer bun over npm.", cwd, undefined, "setup")
+    expect(await memoryIndex(cwd)).toEqual([
+      { scope: "global", content: "# Memory: Otis\n\n- [[setup]]\n" },
+    ])
+    // Hand-written lines in the index reach the prompt untouched.
+    await writeFile(
+      join(home, "memory", "MEMORY.md"),
+      "# Memory\n\nAlways answer in English.\n\n- [[setup]]\n",
+    )
+    await remember("workspace", "Tests run with bun test.", cwd, undefined, "testing")
+    expect((await memoryIndex(cwd)).map(({ scope, content }) => [scope, content])).toEqual([
+      ["workspace", `# Memory: ${basename(cwd)}\n\n- [[testing]]\n`],
+      ["global", "# Memory\n\nAlways answer in English.\n\n- [[setup]]\n"],
+    ])
   })
 
   it("runs as tools with the turn's session stamped on what it remembers", async () => {

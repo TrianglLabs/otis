@@ -6,6 +6,7 @@ import { estimateTextTokens } from "../inference/messages.js"
 import type {
   ChatMessage,
   ContextFile,
+  MemoryIndex,
   ModelProvider,
   OutputCapabilities,
   UserChatMessage,
@@ -182,6 +183,7 @@ type ConversationOptions = {
       }
     | undefined
   projectContext: () => ContextFile[]
+  memory: () => MemoryIndex[]
   skills: () => SkillCatalog
   permissionPolicy: () => PermissionPolicy
   /** The approval surface shared across runtimes; this conversation asks as `id`. */
@@ -580,6 +582,7 @@ export class Conversation {
               },
               signal,
               projectContext: this.options.projectContext(),
+              memory: this.options.memory(),
               skills: this.options.skills(),
               tools: providerTools(provider),
               permissionPolicy: this.options.permissionPolicy(),
@@ -748,6 +751,7 @@ export class Conversation {
               tools,
               skills: tools.some((tool) => tool.name === "skill") ? skills.skills : [],
               projectContext: this.options.projectContext(),
+              memory: this.options.memory(),
               outputCapabilities: this.options.outputCapabilities,
               signal,
             }) ?? countContextTokens(messages),

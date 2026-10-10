@@ -24,6 +24,7 @@ import {
 } from "../../src/inference/types.js"
 import { localConfigDirectory } from "../../src/local/paths.js"
 import { loadLocalSettings, saveSelectedModel } from "../../src/local/settings.js"
+import { remember } from "../../src/memory/memory.js"
 import type { PermissionRequest } from "../../src/permissions/policy.js"
 import { createSession, listSessions } from "../../src/storage/session.js"
 import { defaultSessionDirectory } from "../../src/storage/session-files.js"
@@ -1388,6 +1389,27 @@ describe("Application workspaces", () => {
     expect(app.runtimes).toEqual([home, beside])
     await app.shutdown()
     await rm(other, { recursive: true, force: true })
+  })
+})
+
+describe("Application memory", () => {
+  it("carries each scope's index to the prompt and rereads it once a turn settles", async () => {
+    const app = await ready()
+    expect(app.memory).toEqual([])
+    mocks.executeTurn.mockImplementation(turnEvents("done"))
+    await remember("workspace", "Tests run with bun test.", app.cwd, undefined, "testing")
+    // A topic that appeared since the session began reaches the prompt once a turn settles.
+    expect(app.memory).toEqual([])
+    const stale = app.contextEstimator()
+    await app.conversation.submit({ role: "user", content: "first" })
+    await app.conversation.idle()
+    await vi.waitFor(() =>
+      expect(app.memory).toEqual([
+        { scope: "workspace", content: expect.stringContaining("- [[testing]]") },
+      ]),
+    )
+    expect(app.contextEstimator()).not.toBe(stale)
+    await app.shutdown()
   })
 })
 

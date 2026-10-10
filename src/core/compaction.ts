@@ -372,15 +372,7 @@ function estimateMessageTokens(messages: readonly ChatMessage[]): number {
 
 /** Shared estimate for request checks, summary budgets, and the context meter. */
 export function requestContextEstimator(options: Omit<StreamChatOptions, "messages">) {
-  const systemPrompt =
-    options.systemPrompt ??
-    buildSystemPrompt(
-      options.projectContext,
-      options.now,
-      options.skills,
-      options.tools,
-      options.outputCapabilities,
-    )
+  const systemPrompt = options.systemPrompt ?? buildSystemPrompt(options)
   const staticTokens =
     MESSAGE_OVERHEAD_TOKENS +
     estimateTextTokens(systemPrompt) +

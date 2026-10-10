@@ -329,12 +329,16 @@ export type OutputCapabilities = {
   math?: boolean
 }
 
+/** A memory scope's `MEMORY.md`: the entry point of its Agent Memory Repo, short by its rule. */
+export type MemoryIndex = { scope: "workspace" | "global"; content: string }
+
 export type StreamChatOptions = {
   messages: ChatMessage[]
   /** Replaces the working agent instructions for internal tasks such as compaction. */
   systemPrompt?: string
   tools?: ToolDefinition[]
   projectContext?: ContextFile[]
+  memory?: readonly MemoryIndex[]
   signal?: AbortSignal
   now?: Date
   skills?: readonly import("../skills/catalog.js").Skill[]

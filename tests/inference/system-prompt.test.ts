@@ -4,7 +4,7 @@ import { TOOL_DEFINITIONS } from "../../src/tools/index.js"
 
 describe("system prompt", () => {
   it("requires format and design preservation and only offers enabled document operations", () => {
-    const prompt = buildSystemPrompt([], new Date(), [], TOOL_DEFINITIONS)
+    const prompt = buildSystemPrompt({ now: new Date(), tools: TOOL_DEFINITIONS })
     expect(prompt).toContain("Do not silently substitute Markdown")
     expect(prompt).toContain("Preserve existing formatting and design by default")
     expect(prompt).toContain("agreement to a new layout before recreating the document")
@@ -14,42 +14,41 @@ describe("system prompt", () => {
     expect(prompt).toContain("Use edit_document")
     expect(prompt).toContain("inspect-pdf/edit-pdf")
     expect(prompt).toContain("Distinguish structural/text checks from visual layout inspection")
-    const narrowed = buildSystemPrompt(
-      [],
-      new Date(),
-      [],
-      TOOL_DEFINITIONS.filter((tool) => tool.name !== "save_attachment"),
-    )
+    const narrowed = buildSystemPrompt({
+      now: new Date(),
+      tools: TOOL_DEFINITIONS.filter((tool) => tool.name !== "save_attachment"),
+    })
     expect(narrowed).not.toContain("Use save_attachment")
     expect(narrowed).toContain("Attachment export is unavailable")
-    expect(buildSystemPrompt([], new Date(), [], [])).not.toContain("Document work:")
+    expect(buildSystemPrompt({ now: new Date() })).not.toContain("Document work:")
   })
 
   it("instructs final-path publication only when the tool is offered", () => {
-    const withPublication = buildSystemPrompt([], new Date(), [], TOOL_DEFINITIONS)
+    const withPublication = buildSystemPrompt({ now: new Date(), tools: TOOL_DEFINITIONS })
     expect(withPublication).toContain("call publish_artifact on its final path")
     expect(withPublication).toContain("do not publish artifacts")
     expect(withPublication).toContain("Do not use bash to bypass")
     expect(
-      buildSystemPrompt(
-        [],
-        new Date(),
-        [],
-        TOOL_DEFINITIONS.filter((tool) => tool.name !== "publish_artifact"),
-      ),
+      buildSystemPrompt({
+        now: new Date(),
+        tools: TOOL_DEFINITIONS.filter((tool) => tool.name !== "publish_artifact"),
+      }),
     ).not.toContain("File deliverables:")
   })
 
   it("keeps diagram guidance capability-specific", () => {
-    const prompt = buildSystemPrompt([], new Date("2026-07-16T12:00:00Z"))
+    const prompt = buildSystemPrompt({ now: new Date("2026-07-16T12:00:00Z") })
 
     expect(prompt).not.toContain("show sequence diagrams")
     expect(prompt).toContain("Avoid mermaid diagrams")
   })
 
   it("advertises Mermaid only to interfaces with a Canvas", () => {
-    const prompt = buildSystemPrompt([], new Date("2026-07-16T12:00:00Z"), [], [], {
-      mermaid: true,
+    const prompt = buildSystemPrompt({
+      now: new Date("2026-07-16T12:00:00Z"),
+      outputCapabilities: {
+        mermaid: true,
+      },
     })
 
     expect(prompt).toContain("lets the user open fenced Mermaid diagrams in a visual Canvas")
@@ -60,12 +59,15 @@ describe("system prompt", () => {
   })
 
   it("advertises TeX math only to interfaces whose Canvas renders it", () => {
-    const plain = buildSystemPrompt([], new Date("2026-07-16T12:00:00Z"))
+    const plain = buildSystemPrompt({ now: new Date("2026-07-16T12:00:00Z") })
     expect(plain).toContain("Avoid TeX math markup")
 
-    const canvas = buildSystemPrompt([], new Date("2026-07-16T12:00:00Z"), [], [], {
-      mermaid: true,
-      math: true,
+    const canvas = buildSystemPrompt({
+      now: new Date("2026-07-16T12:00:00Z"),
+      outputCapabilities: {
+        mermaid: true,
+        math: true,
+      },
     })
     expect(canvas).toContain("Markdown files opened in Canvas render TeX math")
     // Chat shows TeX literally, so formula-heavy answers are steered into a published document.
@@ -75,7 +77,7 @@ describe("system prompt", () => {
   })
 
   it("names the web tools the runtime actually exposes", () => {
-    const prompt = buildSystemPrompt([], new Date("2026-07-16T12:00:00Z"))
+    const prompt = buildSystemPrompt({ now: new Date("2026-07-16T12:00:00Z") })
 
     expect(prompt).toContain("Use web_search for discovery and web_read for a specific URL.")
     expect(prompt).toContain("Provide 2-3 short search_queries for web_search when useful.")
@@ -85,13 +87,11 @@ describe("system prompt", () => {
 
   it("explains delegation only when the agent tool is offered", () => {
     const now = new Date("2026-07-16T12:00:00Z")
-    const withAgent = buildSystemPrompt([], now, [], TOOL_DEFINITIONS)
-    const withoutAgent = buildSystemPrompt(
-      [],
-      now,
-      [],
-      TOOL_DEFINITIONS.filter((tool) => tool.name !== "agent"),
-    )
+    const withAgent = buildSystemPrompt({ now, tools: TOOL_DEFINITIONS })
+    const withoutAgent = buildSystemPrompt({
+      now: now,
+      tools: TOOL_DEFINITIONS.filter((tool) => tool.name !== "agent"),
+    })
 
     expect(withAgent).toContain("Delegation:")
     expect(withAgent).toContain("call wait_coworkers")
@@ -99,14 +99,16 @@ describe("system prompt", () => {
     expect(withoutAgent).not.toContain("Delegation:")
     expect(withoutAgent).not.toContain("Use agent")
     expect(withoutAgent).not.toContain("subagent")
-    expect(buildSystemPrompt([], now)).not.toContain("Delegation:")
+    expect(buildSystemPrompt({ now })).not.toContain("Delegation:")
   })
 
   it("serializes escaped project instructions between the base prompt and current date", () => {
-    const prompt = buildSystemPrompt(
-      [{ path: "/work/project & tools/AGENTS.md", content: "Use strict TypeScript." }],
-      new Date("2026-07-16T12:00:00Z"),
-    )
+    const prompt = buildSystemPrompt({
+      projectContext: [
+        { path: "/work/project & tools/AGENTS.md", content: "Use strict TypeScript." },
+      ],
+      now: new Date("2026-07-16T12:00:00Z"),
+    })
 
     const contextIndex = prompt.indexOf("<project_context>")
     const dateIndex = prompt.indexOf("2026-07-16")
@@ -117,15 +119,37 @@ describe("system prompt", () => {
     )
   })
 
+  it("carries each memory scope's index, escaped, and points at recall for the rest", () => {
+    const prompt = buildSystemPrompt({
+      now: new Date("2026-07-16T12:00:00Z"),
+      memory: [
+        { scope: "workspace", content: "# Memory: otis\n\n- [[general]]\n- [[net & <io>]]\n" },
+        { scope: "global", content: "- [[setup]]" },
+      ],
+    })
+    expect(prompt).toContain(
+      "<memory>\nWhat Otis remembers from earlier sessions, as each scope's index",
+    )
+    expect(prompt).toContain(
+      '<scope name="workspace">\n# Memory: otis\n\n- [[general]]\n- [[net &amp; &lt;io&gt;]]\n</scope>\n<scope name="global">\n- [[setup]]\n</scope>\n</memory>',
+    )
+    expect(prompt).toContain("Read a topic with the recall tool")
+    expect(prompt.indexOf("<memory>")).toBeLessThan(prompt.indexOf("The current date is"))
+    expect(buildSystemPrompt({ now: new Date("2026-07-16T12:00:00Z") })).not.toContain("<memory>")
+  })
+
   it("advertises skill metadata without eagerly loading skill instructions", () => {
-    const prompt = buildSystemPrompt([], new Date("2026-07-16T12:00:00Z"), [
-      {
-        name: "review",
-        description: "Review code & explain <risks>.",
-        root: "/skills/review",
-        instructionsPath: "/skills/review/SKILL.md",
-      },
-    ])
+    const prompt = buildSystemPrompt({
+      now: new Date("2026-07-16T12:00:00Z"),
+      skills: [
+        {
+          name: "review",
+          description: "Review code & explain <risks>.",
+          root: "/skills/review",
+          instructionsPath: "/skills/review/SKILL.md",
+        },
+      ],
+    })
 
     expect(prompt).toContain(
       '<skill name="review">Review code &amp; explain &lt;risks&gt;.</skill>',

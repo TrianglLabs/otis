@@ -87,6 +87,7 @@ async function setup(shared?: { serving: Serving; cwd: string }) {
         autoCompactAtTokens: 100_000,
       },
     projectContext: () => [],
+    memory: () => [],
     skills: () => ({ skills: [], byName: new Map() }),
     permissionPolicy: () => createPermissionPolicy({ cwd, mode: "auto" }),
     broker: new PermissionBroker(),

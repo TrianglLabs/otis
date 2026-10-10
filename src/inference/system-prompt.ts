@@ -1,6 +1,5 @@
-import type { Skill } from "../skills/catalog.js"
 import promptText from "./system-prompt.txt" with { type: "text" }
-import type { ContextFile, OutputCapabilities, ToolDefinition } from "./types.js"
+import type { StreamChatOptions } from "./types.js"
 
 const MAX_CONTEXT_FILES = 10
 const MAX_CONTEXT_FILE_BYTES = 32 * 1024
@@ -8,13 +7,17 @@ const MAX_CONTEXT_TOTAL_BYTES = 64 * 1024
 
 const BASE_PROMPT = promptText.trim()
 
-export function buildSystemPrompt(
-  projectContext: readonly ContextFile[] = [],
+export function buildSystemPrompt({
+  projectContext = [],
   now = new Date(),
-  skills: readonly Skill[] = [],
-  tools: readonly ToolDefinition[] = [],
-  outputCapabilities: OutputCapabilities = {},
-) {
+  skills = [],
+  tools = [],
+  outputCapabilities = {},
+  memory = [],
+}: Pick<
+  StreamChatOptions,
+  "projectContext" | "now" | "skills" | "tools" | "outputCapabilities" | "memory"
+> = {}) {
   const offers = (name: string) => tools.some((tool) => tool.name === name)
   const sections = [BASE_PROMPT]
   if (offers("edit_document") || offers("document") || offers("save_attachment")) {
@@ -94,13 +97,7 @@ export function buildSystemPrompt(
       const path = file.path.trim()
       if (!path) throw new Error(`Project context file ${index + 1} is missing a path.`)
       if (path.length > 1024) throw new Error(`Project context path ${index + 1} is too long.`)
-      let content = file.content
-      const encoded = Buffer.from(content)
-      if (encoded.byteLength > MAX_CONTEXT_FILE_BYTES) {
-        let end = MAX_CONTEXT_FILE_BYTES
-        while (end > 0 && (encoded[end] & 0xc0) === 0x80) end -= 1
-        content = `${encoded.subarray(0, end).toString("utf8")}\n\n[File truncated at ${MAX_CONTEXT_FILE_BYTES} bytes.]`
-      }
+      const content = truncate(file.content)
       totalBytes += Buffer.byteLength(content)
       if (totalBytes > MAX_CONTEXT_TOTAL_BYTES) {
         throw new Error(`Project context must not exceed ${MAX_CONTEXT_TOTAL_BYTES} bytes.`)
@@ -120,11 +117,29 @@ export function buildSystemPrompt(
       `<available_skills>\nSkills provide specialized workflows. When a task matches a skill below, call the skill tool to load its SKILL.md before proceeding. Load referenced resources only when needed.\n${entries.join("\n")}\n</available_skills>`,
     )
   }
+  if (memory.length > 0) {
+    const scopes = memory.map(
+      ({ scope, content }) =>
+        `<scope name="${scope}">\n${escapeText(truncate(content.trim()))}\n</scope>`,
+    )
+    sections.push(
+      `<memory>\nWhat Otis remembers from earlier sessions, as each scope's index: topics as [[links]], with whatever every session should know. Read a topic with the recall tool before relying on it, and search memory and past sessions the same way. Memory is for the project and the user's tooling; the current repository and the user's instructions win when they disagree.\n${scopes.join("\n")}\n</memory>`,
+    )
+  }
   if (!Number.isFinite(now.getTime())) throw new Error("Current date is invalid.")
   sections.push(
     `The current date is ${now.toISOString().slice(0, 10)}. Use this date when searching for recent information.`,
   )
   return sections.join("\n\n")
+}
+
+/** Cut at the byte limit, on a character boundary, and say so. */
+function truncate(content: string) {
+  const encoded = Buffer.from(content)
+  if (encoded.byteLength <= MAX_CONTEXT_FILE_BYTES) return content
+  let end = MAX_CONTEXT_FILE_BYTES
+  while (end > 0 && (encoded[end] & 0xc0) === 0x80) end -= 1
+  return `${encoded.subarray(0, end).toString("utf8")}\n\n[File truncated at ${MAX_CONTEXT_FILE_BYTES} bytes.]`
 }
 
 function escapeText(value: string) {
