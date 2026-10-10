@@ -10,12 +10,14 @@ import type {
   ChatToolCall,
   ContextFile,
   InferenceClient,
+  MemoryIndex,
   ReasoningContentPart,
   ReasoningTraceEvent,
   StreamChatOptions,
   TokenUsage,
   UserChatMessage,
 } from "../inference/types.js"
+import { memoryIndex } from "../memory/memory.js"
 import {
   createPermissionPolicy,
   DEFAULT_PERMISSION_MODE,
@@ -84,6 +86,8 @@ export type RunAgentOptions = ToolContext & {
   permissionPolicy?: PermissionPolicy
   onPermissionRequest?: (request: PermissionRequest) => Promise<boolean>
   projectContext?: ContextFile[]
+  /** Each memory scope's index; read from the folder's memory when not given. */
+  memory?: MemoryIndex[]
   skills?: SkillCatalog
   tools?: ToolDefinition[]
   /** Last observed size of this history in the current application session, for the same client. */
@@ -292,19 +296,21 @@ export async function* runAgent(
   try {
     const cwd = options.cwd ?? process.cwd()
     const projectContext = options.projectContext ?? loadProjectContext(cwd)
+    const memory = options.memory ?? (await memoryIndex(cwd))
     const skills =
       options.skills ?? (await loadSkillCatalog(cwd, { dataDirectory: options.dataDirectory }))
     const tools = (options.tools ?? TOOL_DEFINITIONS).filter(
       (tool) => tool.name !== "skill" || skills.skills.length > 0,
     )
     const modelSkills = tools.some((tool) => tool.name === "skill") ? skills.skills : []
-    const systemPrompt = buildSystemPrompt(
+    const { outputCapabilities } = options
+    const systemPrompt = buildSystemPrompt({
       projectContext,
-      undefined,
-      modelSkills,
+      memory,
+      skills: modelSkills,
       tools,
-      options.outputCapabilities,
-    )
+      outputCapabilities,
+    })
     const requestOptions = { tools, systemPrompt, signal: options.signal }
     const estimate = requestContextEstimator(requestOptions)
     const count = (value: ChatMessage[]) =>
@@ -333,6 +339,7 @@ export async function* runAgent(
     const toolContext = {
       ...options,
       projectContext,
+      memory,
       skills,
       tools,
       attachments: () => [...(options.attachments?.() ?? []), ...attachments],
@@ -417,8 +424,9 @@ export async function* runAgent(
           tools,
           systemPrompt,
           projectContext: projectContext.length > 0 ? projectContext : undefined,
+          memory,
           skills: modelSkills,
-          outputCapabilities: options.outputCapabilities,
+          outputCapabilities,
           signal: options.signal,
           sessionId: options.sessionId,
         })

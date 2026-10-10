@@ -6,8 +6,10 @@ import { ArtifactPublisher } from "../../src/artifacts/publisher.js"
 import { type AgentEvent, runAgent, SteeringInbox } from "../../src/core/agent.js"
 import type { HostedClient } from "../../src/inference/client.js"
 import { createDocumentAttachment } from "../../src/inference/documents.js"
+import { remember } from "../../src/memory/memory.js"
 import { createPermissionPolicy, type PermissionRequest } from "../../src/permissions/policy.js"
 import { emptySkillCatalog } from "../../src/skills/catalog.js"
+import { useOtisHome } from "../app/support/otis-home.js"
 import { minimalDocx } from "../inference/support/document-fixtures.js"
 
 const streamAgentMock = vi.hoisted(() => vi.fn())
@@ -17,6 +19,7 @@ const client = {
 } as unknown as HostedClient
 
 const tempDirs: string[] = []
+const otisHome = useOtisHome()
 
 afterEach(async () => {
   vi.useRealTimers()
@@ -748,6 +751,27 @@ describe("runAgent", () => {
     expect(requests[0].projectContext?.[0].content).toContain("Use TypeScript strict mode.")
   })
 
+  it("carries the folder's memory index to the request unless one is given", async () => {
+    await otisHome()
+    const cwd = await trackedTempDir()
+    await remember("workspace", "Tests run with bun test.", cwd, undefined, "testing")
+    const requests: StreamAgentRequest[] = []
+    streamAgentMock.mockImplementation(async function* (request) {
+      requests.push(clone(request) as StreamAgentRequest)
+      yield { type: "text_delta", text: "Done." }
+    })
+
+    await collect(runAgent("hello", [], { client, cwd }))
+    expect(requests[0].memory).toEqual([
+      { scope: "workspace", content: expect.stringContaining("- [[testing]]") },
+    ])
+    expect(requests[0].systemPrompt).toContain('<scope name="workspace">')
+
+    await collect(runAgent("hello", [], { client, cwd, memory: [] }))
+    expect(requests[1].memory).toEqual([])
+    expect(requests[1].systemPrompt).not.toContain("<memory>")
+  })
+
   it("passes explicitly provided projectContext instead of loading from cwd", async () => {
     const cwd = await trackedTempDir()
     await writeFile(join(cwd, "AGENTS.md"), "SHOULD NOT APPEAR", "utf8")
@@ -853,4 +877,6 @@ type StreamAgentRequest = {
   skills?: unknown[]
   messages: Array<{ role: string; content?: unknown }>
   projectContext?: Array<{ path: string; content: string }>
+  memory?: Array<{ scope: string; content: string }>
+  systemPrompt?: string
 }

@@ -1,11 +1,12 @@
 import { appendFile, mkdir, readdir, readFile, rm, rmdir, stat, writeFile } from "node:fs/promises"
 import { basename, dirname, join, sep } from "node:path"
+import type { MemoryIndex } from "../inference/types.js"
 import { localDataDirectory } from "../local/paths.js"
 import { runGit } from "../skills/manager.js"
-import { searchAllSessions } from "../storage/session.js"
+import { searchAllSessions, searchNeedles } from "../storage/session.js"
 import { defaultSessionDirectory } from "../storage/session-files.js"
 
-export type MemoryScope = "workspace" | "global"
+export type MemoryScope = MemoryIndex["scope"]
 
 export function isMemoryScope(value: unknown): value is MemoryScope {
   return value === "workspace" || value === "global"
@@ -184,6 +185,23 @@ async function commitMemory(root: string, message: string) {
   return (await runGit(["rev-parse", "--short", "HEAD"], { cwd: root })).trim()
 }
 
+/**
+ * Each scope's `MEMORY.md` as it is on disk, for the system prompt: the entry point the Agent
+ * Memory Repo layout keeps short, so the model knows the topics before it asks. Scopes without
+ * one are left out.
+ */
+export async function memoryIndex(cwd: string): Promise<MemoryIndex[]> {
+  const indexes = await Promise.all(
+    SCOPES.map(async (scope) => {
+      const content = await readFile(join(await memoryRoot(scope, cwd), INDEX), "utf8").catch(
+        () => "",
+      )
+      return content.trim() ? [{ scope, content }] : []
+    }),
+  )
+  return indexes.flat()
+}
+
 export async function listMemory(cwd: string): Promise<MemoryEntry[]> {
   const entries = await Promise.all(
     SCOPES.map(async (scope) => {
@@ -284,21 +302,30 @@ export async function forget(
 }
 
 /**
- * What memory and past sessions know about a phrase: matching facts, then transcript hits across
- * every workspace, newest first, never the session asking. All of it passes redaction.
+ * What memory and past sessions know about a query, by its words: the facts any word matches,
+ * most words first, a topic's name counting as one of them so the index's topics read whole;
+ * then transcript hits across every workspace, never the session asking. All of it passes
+ * redaction.
  */
 export async function recall(query: string, cwd: string, session?: string): Promise<string> {
-  const phrase = query.trim().toLowerCase()
-  const memories = (await listMemory(cwd)).filter(({ text }) => text.toLowerCase().includes(phrase))
-  const sessions = (await searchAllSessions(query, { seeds: [cwd] }))
-    .filter((hit) => hit.id !== session)
-    .slice(0, 8)
+  const needles = searchNeedles(query, true)
+  const memories = (await listMemory(cwd))
+    .map((memory) => ({
+      memory,
+      score: needles.filter((needle) => needle.test(`${memory.topic} ${memory.text}`)).length,
+    }))
+    .filter(({ score }) => score > 0)
+    .sort((left, right) => right.score - left.score)
+    .map(({ memory }) => memory)
   const sections = SCOPES.flatMap((scope) => {
     const rows = memories
       .filter((memory) => memory.scope === scope)
       .map((memory) => `- ${memory.text} (${memory.topic}${memory.date ? `, ${memory.date}` : ""})`)
     return rows.length ? [`Remembered (${scope}):\n${rows.join("\n")}`] : []
   })
+  const sessions = (await searchAllSessions(query, { seeds: [cwd], words: true }))
+    .filter((hit) => hit.id !== session)
+    .slice(0, 8)
   if (sessions.length)
     sections.push(
       `Past sessions:\n${sessions

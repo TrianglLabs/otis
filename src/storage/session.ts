@@ -330,11 +330,27 @@ export async function listAllSessions(
   return (await digestAllSessions(options.seeds)).map((session) => session.summary)
 }
 
+/** With `words`, every word of the query counts on its own, as recall asks; else the phrase. */
 export async function searchAllSessions(
   query: string,
-  options: { seeds?: string[] } = {},
+  options: { seeds?: string[]; words?: boolean } = {},
 ): Promise<GlobalSessionSearchResult[]> {
-  return matchSessions(await digestAllSessions(options.seeds, true), query)
+  return matchSessions(await digestAllSessions(options.seeds, true), query, options.words)
+}
+
+/**
+ * What a search looks for: the phrase as typed, or each word of three letters or more on its
+ * own and whole, so "me" never finds "memory". Case never matters.
+ */
+export function searchNeedles(query: string, words = false): RegExp[] {
+  const literal = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")
+  if (!words) {
+    const phrase = query.trim()
+    return phrase ? [new RegExp(literal(phrase), "iu")] : []
+  }
+  return [...new Set(query.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) ?? [])].map(
+    (word) => new RegExp(`(?<![\\p{L}\\p{N}])${literal(word)}(?![\\p{L}\\p{N}])`, "iu"),
+  )
 }
 
 /** Every readable session in a dir with its digest, newest first; other errors surface. */
@@ -383,33 +399,39 @@ export async function digestAllSessions(seeds: string[] | undefined, texts = fal
 }
 
 /**
- * Title-first substring search, recency-ordered within each group. Title hits rank above content
- * hits, which carry a snippet from the first matching message.
+ * Sessions any needle matches: title hits above content hits, more needles above fewer, recency
+ * within. A content hit carries a snippet around the first needle found in the first message
+ * holding one. No needles at all lists every session.
  */
 function matchSessions<T extends SessionSummary>(
   sessions: readonly { summary: T; texts?: string[] }[],
   query: string,
+  words = false,
 ): (T & { snippet?: string })[] {
-  const needle = query.trim().toLowerCase()
-  if (!needle) return sessions.map((session) => session.summary)
-  const titleHits: T[] = []
-  const contentHits: (T & { snippet: string })[] = []
-  for (const { summary, texts } of sessions) {
-    if (summary.title.toLowerCase().includes(needle)) {
-      titleHits.push(summary)
-      continue
-    }
-    for (const text of texts ?? []) {
-      const index = text.toLowerCase().indexOf(needle)
-      if (index === -1) continue
+  const needles = searchNeedles(query, words)
+  if (!needles.length) return sessions.map((session) => session.summary)
+  const hits: { summary: T; snippet?: string; title: boolean; count: number }[] = []
+  for (const { summary, texts = [] } of sessions) {
+    const found = needles.filter(
+      (needle) => needle.test(summary.title) || texts.some((text) => needle.test(text)),
+    )
+    if (!found.length) continue
+    const title = found.some((needle) => needle.test(summary.title))
+    let snippet: string | undefined
+    for (const text of title ? [] : texts) {
+      const indices = found.map((needle) => text.search(needle)).filter((index) => index >= 0)
+      if (!indices.length) continue
+      const index = Math.min(...indices)
       const from = Math.max(0, index - 40)
-      const to = Math.min(text.length, index + needle.length + 80)
-      const snippet = `${from > 0 ? "…" : ""}${text.slice(from, to)}${to < text.length ? "…" : ""}`
-      contentHits.push({ ...summary, snippet })
+      const to = Math.min(text.length, index + 120)
+      snippet = `${from > 0 ? "…" : ""}${text.slice(from, to)}${to < text.length ? "…" : ""}`
       break
     }
+    hits.push({ summary, snippet, title, count: found.length })
   }
-  return [...titleHits, ...contentHits]
+  return hits
+    .sort((left, right) => Number(right.title) - Number(left.title) || right.count - left.count)
+    .map(({ summary, snippet }) => (snippet === undefined ? summary : { ...summary, snippet }))
 }
 
 function byRecency(left: SessionSummary, right: SessionSummary) {

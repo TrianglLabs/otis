@@ -142,15 +142,7 @@ export function openaiChatCompletionRequest(
     messages: [
       {
         role: "system",
-        content:
-          options.systemPrompt ??
-          buildSystemPrompt(
-            options.projectContext,
-            options.now,
-            options.skills,
-            tools,
-            options.outputCapabilities,
-          ),
+        content: options.systemPrompt ?? buildSystemPrompt({ ...options, tools }),
       },
       ...toolCallHistoryForRequest(options.messages).map((message) => {
         if (message.role === "tool") {

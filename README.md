@@ -266,11 +266,13 @@ usage records. Managed inference stays on loopback, hosted prompts go directly t
 documents Zero Data Retention for open-model inference by default; check the others' data policies), web requests go
 directly to Parallel, and PAIR owns traffic within your cluster.
 
-Otis keeps a small memory it never puts in the prompt: facts the agent or you save with `remember` land in Otis' data
-folder, in a `memory/` folder beside the working folder's sessions or in one for everything that holds everywhere;
-nothing is written into your project. Each folder follows the Agent Memory Repo layout: `MEMORY.md` links the topic
-files, and each fact is one Markdown bullet with the session it came from and the date. The agent reads them only
-when it calls `recall`, which also searches your past sessions in every workspace. Memory is for the project and your
+Otis keeps a small memory: facts the agent or you save with `remember` land in Otis' data folder, in a `memory/`
+folder beside the working folder's sessions or in one for everything that holds everywhere; nothing is written into
+your project. Each folder follows the Agent Memory Repo layout: `MEMORY.md` is the entry point, linking the topic
+files and holding whatever every session should know, and each fact is one Markdown bullet with the session it came
+from and the date. Only `MEMORY.md` goes into the prompt, so the model knows the topics and the cost stays a few
+lines; it reads a topic, or searches the facts and your past sessions in every workspace by the words of its query,
+only when it calls `recall`. Memory is for the project and your
 tooling, not for people: the agent is told not to save personal details, and credentials, email addresses, phone,
 card and national-id numbers are stripped from anything saved or recalled. The files are plain Markdown you can edit;
 the Extensions settings tab lists and edits them too. Make a memory folder itself a git repository, or clone one your

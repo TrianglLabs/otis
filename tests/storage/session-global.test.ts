@@ -82,6 +82,12 @@ describe("global session history", () => {
     expect(hits).toHaveLength(1)
     expect(hits[0].id).toBe(byTitle.id)
     expect(hits[0].workspacePath).toBe(cwd)
+
+    // By words, each counts alone: the phrase as such appears nowhere, its words do, and the
+    // session holding more of them ranks first.
+    expect(await searchAllSessions("migration unrelated zephyr")).toHaveLength(0)
+    const byWords = await searchAllSessions("migration unrelated zephyr", { words: true })
+    expect(byWords.map((hit) => hit.id)).toEqual([byTitle.id, other.id])
   })
 
   it("stamps new sessions with their workspace path on the start event", async () => {

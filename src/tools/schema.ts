@@ -62,9 +62,13 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: "recall",
     description:
-      "Search what Otis remembers about this workspace and the user, plus excerpts from past sessions in every workspace. Call it before working in a workspace you have not seen this session and when the user refers to earlier work. The current repository and the user's instructions win when they disagree.",
+      "Read what Otis remembers: a topic from the memory index in your instructions, by its name; facts holding any of the query's words; and excerpts from past sessions in every workspace. Call it before relying on a remembered topic and when the user refers to earlier work. The current repository and the user's instructions win when they disagree.",
     parameters: objectSchema(
-      { query: stringSchema("A short phrase: the topic, file, decision, or session to look up.") },
+      {
+        query: stringSchema(
+          "Words to look up: a topic's name, a file, decision, or session. Each word counts on its own.",
+        ),
+      },
       ["query"],
     ),
   },

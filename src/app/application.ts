@@ -54,6 +54,7 @@ import {
   isHostedProvider,
   isServerCatalogModel,
   isServerProvider,
+  type MemoryIndex,
   type ModelProvider,
   type OutputCapabilities,
   SERVER_INFO,
@@ -77,6 +78,7 @@ import {
   saveSelectedModel,
 } from "../local/settings.js"
 import { publishOmarchyUsage } from "../local/stats.js"
+import { memoryIndex } from "../memory/memory.js"
 import {
   createPermissionPolicy,
   DEFAULT_PERMISSION_MODE,
@@ -268,6 +270,12 @@ export class Workspace {
     readonly cwd: string,
     public projectContext: ContextFile[],
     public skills: SkillCatalog,
+    /**
+     * Each memory scope's index, for the prompt. Reread when a turn settles: it changes only
+     * when a topic appears, which is when the model should learn of it, so the cached prompt
+     * prefix otherwise holds.
+     */
+    public memory: MemoryIndex[],
     readonly rules: PermissionRule[],
   ) {
     this.label = formatWorkspaceLabel(cwd)
@@ -279,6 +287,7 @@ export class Workspace {
       cwd,
       loadProjectContext(cwd, otherAgents),
       await loadSkillCatalog(cwd, { otherAgents }),
+      await memoryIndex(cwd),
       await loadProjectPermissionRules(cwd),
     )
   }
@@ -297,6 +306,7 @@ export class SessionRuntime {
     | {
         workspace: Workspace
         skills: Workspace["skills"]
+        memory: Workspace["memory"]
         provider: ModelProvider
         estimate: (messages: readonly ChatMessage[]) => number
       }
@@ -466,6 +476,10 @@ export class Application {
     return this.#focused.workspace.skills
   }
 
+  get memory() {
+    return this.#focused.workspace.memory
+  }
+
   /** The user's rules followed by the focused workspace's project rules. */
   get permissionRules(): PermissionRule[] {
     return [...this.#settingsRules, ...this.#focused.workspace.rules]
@@ -525,6 +539,7 @@ export class Application {
         }
       },
       projectContext: () => workspace.projectContext,
+      memory: () => workspace.memory,
       skills: () => workspace.skills,
       routines: () => this.routines ?? { error: this.routinesError ?? ROUTINES_UNAVAILABLE },
       permissionPolicy: () => this.createPermissionPolicy(workspace, permissionMode),
@@ -553,6 +568,9 @@ export class Application {
             if (event.type === "settled") {
               if (self !== this.#focused) self.unseen = true
               void this.publishUsage()
+              void memoryIndex(workspace.cwd).then((memory) => {
+                workspace.memory = memory
+              })
             }
             this.#notify(event, self.id)
           }),
@@ -618,6 +636,7 @@ export class Application {
     for (const loading of this.#workspaces.values()) {
       const workspace = await loading
       workspace.skills = await loadSkillCatalog(workspace.cwd, { otherAgents })
+      workspace.memory = await memoryIndex(workspace.cwd)
       if (instructions) workspace.projectContext = loadProjectContext(workspace.cwd, otherAgents)
     }
   }
@@ -976,20 +995,22 @@ export class Application {
     if (
       memo?.workspace === workspace &&
       memo.skills === workspace.skills &&
+      memo.memory === workspace.memory &&
       memo.provider === provider
     )
       return memo.estimate
-    const { projectContext, skills } = workspace
+    const { projectContext, skills, memory } = workspace
     const tools = providerTools(provider).filter(
       (tool) => tool.name !== "skill" || skills.skills.length > 0,
     )
     const estimate = requestContextEstimator({
       tools,
       projectContext,
+      memory,
       skills: tools.some((tool) => tool.name === "skill") ? skills.skills : [],
       outputCapabilities: this.outputCapabilities,
     })
-    runtime.estimator = { workspace, skills, provider, estimate }
+    runtime.estimator = { workspace, skills, memory, provider, estimate }
     return estimate
   }
 

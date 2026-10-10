@@ -272,6 +272,7 @@ export async function runHeadlessCommand(
               message.role === "user" ? userMessageAttachments(message) : [],
             ) ?? [],
         projectContext: app.projectContext,
+        memory: app.memory,
         routines: app.routines ?? { error: app.routinesError ?? ROUTINES_UNAVAILABLE },
         skills: app.skills,
         tools,
