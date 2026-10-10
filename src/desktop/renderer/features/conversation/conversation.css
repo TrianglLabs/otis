@@ -1,6 +1,8 @@
 /* Conversation feature: transcript entries, tool cards, approval card, composer, empty state. */
 
-/* The active session's pane, and a second one beside it in a split, over the one composer. */
+/* The active session's pane, and a second one beside it in a split, over the one composer. A size
+   container: the turn rail centres on the column's height, which the composer's growth leaves
+   alone, where the transcript viewport's shrinks. */
 .conversationArea {
   position: relative;
   display: flex;
@@ -8,6 +10,7 @@
   min-width: 0;
   min-height: 0;
   flex: 1;
+  container-type: size;
 }
 
 .conversationPanes {
@@ -1227,16 +1230,18 @@ button.composer-model-failed {
 
 /* Turn rail: one line per user turn at the left edge of a session shown on its own, the one in
    view brighter. Hovering a line names its turn; a click scrolls there. Many turns share the
-   same height, so the lines close up rather than run off. */
+   same height, so the lines close up rather than run off. The rail sits at the middle of the
+   conversation column, which shares the viewport's top edge, rather than of the viewport, whose
+   bottom edge rises as the composer grows: half the column less half the composer at rest. */
 
 .turnRail {
   position: absolute;
-  top: 50%;
+  top: calc(50cqh - 60px);
   left: 16px;
   translate: 0 -50%;
   display: flex;
   flex-direction: column;
-  height: min(calc(var(--turns) * 10px), 60%);
+  height: min(calc(var(--turns) * 10px), 50cqh);
   animation: rise-in var(--motion);
 }
 

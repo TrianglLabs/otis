@@ -1125,9 +1125,11 @@ function ServerSettings({
           {error ? (
             <div className="settings-message settings-error settingsProvider-message">{error}</div>
           ) : null}
-          <p className="settingsForm-note settingsServer-setup">{t("settings.serverSetup")}</p>
-          <CommandLine command={INSTALL_COMMAND} />
-          <CommandLine command="otis serve --host <this machine's private address>" />
+          <CommandLine label={t("settings.serverInstall")} command={INSTALL_COMMAND} />
+          <CommandLine
+            label={t("settings.serverStart")}
+            command="otis serve --host <this machine's private address>"
+          />
         </div>
       ) : null}
     </div>
@@ -1245,38 +1247,34 @@ function SoftwareUpdates({
 }
 
 /** A command to run elsewhere, with a copy button; the text is not translated. */
-function CommandLine({ command }: { command: string }) {
+function CommandLine({ label, command }: { label: string; command: string }) {
   const { t } = useI18n()
   const [copied, setCopied] = useState(false)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   useEffect(() => () => clearTimeout(timer.current), [])
-  // The transcript's code block, so a command reads the same everywhere.
+  // A field like the ones above it, holding a command to copy rather than a value to type.
   return (
-    <figure className="codeBlock settingsCommand">
-      <figcaption>
-        <span className="codeBlock-lang">sh</span>
-        <span className="codeBlock-actions">
-          <IconButton
-            icon={copied ? Check : Copy}
-            label={copied ? t("markdown.copied") : t("common.copy")}
-            size={22}
-            onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(command)
-                setCopied(true)
-                clearTimeout(timer.current)
-                timer.current = setTimeout(() => setCopied(false), 1600)
-              } catch {
-                // Clipboard can be unavailable; the button stays as it was.
-              }
-            }}
-          />
-        </span>
-      </figcaption>
-      <pre>
-        <code>{command}</code>
-      </pre>
-    </figure>
+    <div className="settingsCommand">
+      <span className="settingsCommand-label">{label}</span>
+      <div className="field settingsCommand-field">
+        <code className="settingsCommand-text">{command}</code>
+        <IconButton
+          icon={copied ? Check : Copy}
+          label={copied ? t("markdown.copied") : t("common.copy")}
+          size={22}
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(command)
+              setCopied(true)
+              clearTimeout(timer.current)
+              timer.current = setTimeout(() => setCopied(false), 1600)
+            } catch {
+              // Clipboard can be unavailable; the button stays as it was.
+            }
+          }}
+        />
+      </div>
+    </div>
   )
 }
 

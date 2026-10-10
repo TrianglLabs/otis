@@ -98,6 +98,21 @@
         color: var(--canvas-muted, #808080);
         font-size: 10px;
       }
+      /* Opened larger, in a dialog over the window: the drawing takes the width it has, in the
+         middle of the dialog, and zooms about its own centre. */
+      html.large #viewport {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      html.large #diagram {
+        max-width: none;
+        margin: 0;
+        transform-origin: center;
+      }
+      html.large #enlarge {
+        display: none;
+      }
       /* Inline in a document: the drawing sets the frame's height and the page scrolls. */
       html.inline,
       html.inline body {
@@ -135,6 +150,7 @@
       <button id="zoom-out" type="button" aria-label="Zoom out" title="Zoom out">−</button>
       <button id="reset-view" type="button" aria-label="Reset view" title="Reset view">100%</button>
       <button id="zoom-in" type="button" aria-label="Zoom in" title="Zoom in">+</button>
+      <button id="enlarge" type="button" aria-label="Open larger" title="Open larger">⤢</button>
     </div>
     <template id="otis-canvas-runtime"></template>
   </body>

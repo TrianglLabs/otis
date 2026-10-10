@@ -117,6 +117,24 @@ describe("useTranscriptScroll", () => {
     expect(scroller.scrollTop).toBe(500)
   })
 
+  it("pauses following for a wheel whose scroll already landed on the top", async () => {
+    // Wheel listeners are passive: the browser scrolls first and dispatches the event after. One
+    // notch can carry a short transcript from its tail to its top, so the position at the event
+    // says nothing about the input; only a transcript that cannot scroll is left alone.
+    const { holder, scroller } = mount(0, 400, 200)
+    fireEvent.wheel(scroller, { deltaY: -300 })
+    expect(scrollOf(holder).atBottom).toBe(false)
+    stubMetrics(scroller, 0, 500, 200)
+    act(() => scrollOf(holder).totalListHeightChanged(500))
+    await nextFrame()
+    expect(scroller.scrollTop).toBe(0)
+
+    cleanup()
+    const fits = mount(0, 220, 200)
+    fireEvent.wheel(fits.scroller, { deltaY: -300 })
+    expect(scrollOf(fits.holder).atBottom).toBe(true)
+  })
+
   it("leaves a scroll that was not the reader's input where it landed", async () => {
     // A list correction can move the view without input; the hook neither follows it back nor
     // takes it for the reader leaving the tail.

@@ -6,6 +6,7 @@ let labels = {
   zoomOut: "Zoom out",
   resetView: "Reset view",
   zoomIn: "Zoom in",
+  enlarge: "Open larger",
   renderFailed: "Could not render this Mermaid diagram.",
   loadFailed: "Mermaid failed to load.",
   emptySource: "The Mermaid block is empty.",
@@ -19,6 +20,7 @@ const controls = requiredElement("controls")
 const zoomOut = requiredElement("zoom-out")
 const zoomIn = requiredElement("zoom-in")
 const resetButton = requiredElement("reset-view")
+const enlarge = requiredElement("enlarge")
 
 let renderId = 0
 let scale = 1
@@ -29,10 +31,19 @@ let latestRequest = 0
 let lastSource
 // Inline, the diagram sits in a document: no pan or zoom, and the frame reports its height.
 let inline = false
+// Large, the frame fills a dialog over the window; the parent opens and closes it.
+let large = false
 
 zoomOut.addEventListener("click", () => setZoom(scale / 1.2))
 zoomIn.addEventListener("click", () => setZoom(scale * 1.2))
 resetButton.addEventListener("click", resetView)
+enlarge.addEventListener("click", () =>
+  parent.postMessage({ type: "otis-canvas-enlarge", open: true }, "*"),
+)
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && large)
+    parent.postMessage({ type: "otis-canvas-enlarge", open: false }, "*")
+})
 
 viewport.addEventListener("pointerdown", (event) => {
   if (event.button !== 0 || inline) return
@@ -97,6 +108,7 @@ window.addEventListener("message", (event) => {
       [zoomOut, labels.zoomOut],
       [resetButton, labels.resetView],
       [zoomIn, labels.zoomIn],
+      [enlarge, labels.enlarge],
     ]) {
       element.setAttribute("aria-label", label)
       element.title = label
@@ -119,7 +131,9 @@ window.addEventListener("message", (event) => {
   const keepView = request.source === lastSource
   lastSource = request.source
   inline = request.inline === true
+  large = request.large === true
   document.documentElement.classList.toggle("inline", inline)
+  document.documentElement.classList.toggle("large", large)
   viewport.tabIndex = inline ? -1 : 0
   document.body.style.color = colors.text
   document.documentElement.style.setProperty("--canvas-surface", colors.surface)
@@ -183,7 +197,8 @@ async function render(source, colors, requestId, keepView) {
     if (svg) {
       const viewBoxWidth = Number(svg.getAttribute("viewBox")?.split(/\s+/)[2])
       const naturalWidth = Number.isFinite(viewBoxWidth) && viewBoxWidth > 0 ? viewBoxWidth : 480
-      svg.style.width = `min(100%, ${Math.min(naturalWidth, inline ? 720 : 480)}px)`
+      const width = large ? naturalWidth : Math.min(naturalWidth, inline ? 720 : 480)
+      svg.style.width = `min(100%, ${width}px)`
       svg.style.maxWidth = "100%"
       svg.style.height = "auto"
       svg.style.margin = "0 auto"

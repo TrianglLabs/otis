@@ -5,7 +5,7 @@ import { uk } from "../../../src/desktop/renderer/i18n/messages/uk.js"
 
 it("localizes Canvas controls and existing errors without rerendering the diagram", async () => {
   document.body.innerHTML =
-    '<div id="diagram"></div><div id="error"></div><div id="viewport"></div><div id="controls"></div><button id="zoom-out"></button><button id="zoom-in"></button><button id="reset-view"></button>'
+    '<div id="diagram"></div><div id="error"></div><div id="viewport"></div><div id="controls"></div><button id="zoom-out"></button><button id="zoom-in"></button><button id="reset-view"></button><button id="enlarge"></button>'
   const listen = vi.spyOn(window, "addEventListener")
   await import("../../../src/desktop/renderer/canvas.js")
   const receive = listen.mock.calls.find(([type]) => type === "message")[1]
@@ -18,6 +18,7 @@ it("localizes Canvas controls and existing errors without rerendering the diagra
     "zoomOut",
     "resetView",
     "zoomIn",
+    "enlarge",
     "renderFailed",
     "loadFailed",
     "emptySource",
@@ -65,7 +66,7 @@ it("localizes Canvas controls and existing errors without rerendering the diagra
 
 it("keeps zoom and pan across a theme re-render and resets them for a new diagram", async () => {
   document.body.innerHTML =
-    '<div id="diagram"></div><div id="error"></div><div id="viewport"></div><div id="controls"></div><button id="zoom-out"></button><button id="zoom-in"></button><button id="reset-view"></button>'
+    '<div id="diagram"></div><div id="error"></div><div id="viewport"></div><div id="controls"></div><button id="zoom-out"></button><button id="zoom-in"></button><button id="reset-view"></button><button id="enlarge"></button>'
   vi.resetModules()
   const listen = vi.spyOn(window, "addEventListener")
   await import("../../../src/desktop/renderer/canvas.js")
@@ -106,6 +107,53 @@ it("keeps zoom and pan across a theme re-render and resets them for a new diagra
   send("graph TD; A-->C", "red")
   await settle()
   expect(document.getElementById("reset-view").textContent).toBe("100%")
+  window.removeEventListener("message", receive)
+  notify.mockRestore()
+  vi.unstubAllGlobals()
+  document.body.innerHTML = ""
+})
+
+it("opens larger from its controls, takes its full width there, and asks to close on Escape", async () => {
+  document.body.innerHTML =
+    '<div id="diagram"></div><div id="error"></div><div id="viewport"></div><div id="controls"></div><button id="zoom-out"></button><button id="zoom-in"></button><button id="reset-view"></button><button id="enlarge"></button>'
+  vi.resetModules()
+  const listen = vi.spyOn(window, "addEventListener")
+  await import("../../../src/desktop/renderer/canvas.js")
+  const receive = listen.mock.calls.find(([type]) => type === "message")[1]
+  listen.mockRestore()
+  const notify = vi.spyOn(window.parent, "postMessage").mockImplementation(() => {})
+  vi.stubGlobal("mermaid", {
+    initialize: vi.fn(),
+    render: vi.fn(async () => ({ svg: '<svg viewBox="0 0 1200 400"></svg>' })),
+  })
+  const colors = {
+    background: "white",
+    surface: "white",
+    text: "black",
+    muted: "gray",
+    accent: "blue",
+    border: "gray",
+  }
+  const send = (large) =>
+    receive({
+      source: window.parent,
+      data: { type: "otis-canvas-source", source: "graph TD; A-->B", large, colors },
+    })
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
+  const pressEscape = () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }))
+  send(false)
+  await settle()
+  expect(document.documentElement.classList.contains("large")).toBe(false)
+  document.getElementById("enlarge").click()
+  expect(notify).toHaveBeenLastCalledWith({ type: "otis-canvas-enlarge", open: true }, "*")
+  // Escape is only the frame's to answer while it is large.
+  pressEscape()
+  expect(notify).toHaveBeenCalledTimes(2)
+  send(true)
+  await settle()
+  expect(document.documentElement.classList.contains("large")).toBe(true)
+  pressEscape()
+  expect(notify).toHaveBeenLastCalledWith({ type: "otis-canvas-enlarge", open: false }, "*")
   window.removeEventListener("message", receive)
   notify.mockRestore()
   vi.unstubAllGlobals()
