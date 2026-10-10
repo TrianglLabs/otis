@@ -441,6 +441,26 @@ describe("stable message rendering", () => {
     expect(frame.getAttribute("src")).toMatch(/canvas\.html$/)
     expect(frame.getAttribute("sandbox")).toBe("allow-scripts")
     expect(view.container.querySelector(".codeBlock")).toBeNull()
+
+    // The drawing opens larger over the window, with the tab's controls, and closes on Escape.
+    const dialog = () => screen.queryByRole("dialog", { name: "Mermaid diagram" })
+    fireEvent.click(screen.getByRole("button", { name: "Open larger" }))
+    const large = dialog()?.querySelector("iframe.canvas-frame") as HTMLIFrameElement
+    expect(large.classList.contains("canvas-frame-inline")).toBe(false)
+    fireEvent.keyDown(window, { key: "Escape" })
+    expect(dialog()).toBeNull()
+    // The frame asks the same from its own controls; the backdrop closes it too.
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "otis-canvas-enlarge", open: true },
+          source: frame.contentWindow,
+        }),
+      )
+    })
+    expect(dialog()).toBeTruthy()
+    fireEvent.click(document.querySelector(".overlayBackdrop") as HTMLElement)
+    expect(dialog()).toBeNull()
     expect(asset).toHaveBeenCalledExactlyOnceWith(1, "workspace:doc.md", 4, "img/logo.png")
     expect(objectUrl).toHaveBeenCalledOnce()
     expect((screen.getByAltText("Logo") as HTMLImageElement).getAttribute("src")).toBe(

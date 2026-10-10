@@ -179,7 +179,12 @@ export function useTranscriptScroll() {
   }
 }
 
-/** A nested diff consumes upward input while it has content above its own viewport. */
+/**
+ * A nested diff consumes upward input while it has content above its own viewport. The transcript
+ * itself counts whenever it can scroll at all, not only while it is below its top: a wheel event
+ * arrives after the browser has already scrolled for it, and one notch can land on the top of a
+ * short transcript.
+ */
 function scrollsTranscript(target: EventTarget, scroller: HTMLElement) {
   for (
     let node = target instanceof Element ? target : null;
@@ -194,7 +199,7 @@ function scrollsTranscript(target: EventTarget, scroller: HTMLElement) {
       return false
     }
   }
-  return scroller.scrollTop > 0
+  return scroller.scrollHeight - scroller.clientHeight > BOTTOM_THRESHOLD
 }
 
 export function isAtBottom(scroller: HTMLElement) {

@@ -2878,11 +2878,8 @@ describe("working on a daemon", () => {
     expect(screen.getByText("linux-box:7331 rejected the pairing token.")).toBeTruthy()
     expect(screen.getByRole("button", { name: "Connect" })).toHaveProperty("disabled", false)
     // The editor says how to get the other machine ready, with the commands to copy.
-    expect(
-      screen.getByText(
-        "On the other machine, install Otis and start the daemon on its private address:",
-      ),
-    ).toBeTruthy()
+    expect(screen.getByText("Install Otis CLI on the other machine")).toBeTruthy()
+    expect(screen.getByText("Start the server")).toBeTruthy()
     expect(
       screen.getByText(
         "curl -fsSL https://github.com/triangllabs/otis/releases/latest/download/install.sh | bash",
@@ -2931,7 +2928,7 @@ describe("working on a daemon", () => {
     expect(address.value).toBe("ws://linux-box:7331")
     const token = screen.getByLabelText("Pairing token") as HTMLInputElement
     expect(token.value).toBe("")
-    expect(token.placeholder).toBe("Leave blank to keep the saved token")
+    expect(token.placeholder).toBe("Blank keeps the saved token")
     const connect = screen.getByRole("button", { name: "Connect" })
     expect(connect).toHaveProperty("disabled", false)
     // Another address needs its own token.

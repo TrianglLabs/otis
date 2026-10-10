@@ -285,15 +285,61 @@
   outline: none;
 }
 
-/* A Mermaid drawing inside a Markdown document: the frame is as tall as the drawing. */
+/* A Mermaid drawing inside a Markdown document: the frame is as tall as the drawing. There is
+   nothing to pan or zoom, so the pointer stays with the page: the figure's hover shows the enlarge
+   button, and the drawing opens from it. */
 .canvas-frame-inline {
   flex: none;
   height: auto;
   min-height: 0;
+  pointer-events: none;
 }
 
 .md-diagram {
+  position: relative;
   margin: 10px 0;
+}
+
+/* Opens the drawing larger; rests over its top right corner and shows on hover or focus. */
+.md-diagramEnlarge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  opacity: 0;
+  transition: opacity var(--motion);
+}
+
+.md-diagram:hover .md-diagramEnlarge,
+.md-diagram:focus-within .md-diagramEnlarge {
+  opacity: 1;
+}
+
+/* A diagram opened larger: a dialog over the window with the tab's pan and zoom controls. */
+.diagramDialog {
+  position: fixed;
+  inset: 5vh 5vw;
+  z-index: var(--z-overlay);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-float);
+  overflow: hidden;
+  animation: overlay-enter var(--motion);
+}
+
+.diagramDialog-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 8px 8px 20px;
+  flex-shrink: 0;
+  font-size: var(--text-ui);
+  font-weight: 500;
 }
 
 .md-imageMissing {
