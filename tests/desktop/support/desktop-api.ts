@@ -76,6 +76,7 @@ export const STATUS: DesktopStatus = {
   update: { status: "idle" },
   remote: null,
   remoteSaved: null,
+  serve: null,
   runtimePlatform: "darwin",
 }
 
@@ -145,6 +146,7 @@ export function fakeApi(
     getSubagentTrace: vi.fn(async () => ({ revision: 0, entries: [] })),
     setAgentsPanelVisible: vi.fn(async () => {}),
     setWorkspacePanelWidth: vi.fn(async () => {}),
+    setServe: vi.fn(async () => ({ ok: true as const })),
     markAchievementsSeen: vi.fn(async () => {}),
     setTheme: vi.fn(async () => {}),
     setTextSize: vi.fn(async () => {}),

@@ -207,3 +207,18 @@ it("validates the skill collection calls", async () => {
   })
   await expect(remove(null)).rejects.toThrow("id")
 })
+
+it("validates and forwards the serving switch", async () => {
+  const setServe = vi.fn(async () => ({ ok: true as const }))
+  const handler = handlerFor(DESKTOP_CHANNELS.setServe, { setServe })
+  await handler(true, "100.101.2.3")
+  await handler(false, "0.0.0.0")
+  expect(setServe.mock.calls).toEqual([
+    [true, "100.101.2.3"],
+    [false, "0.0.0.0"],
+  ])
+  await expect(handler("yes", "0.0.0.0")).rejects.toThrow("Invalid serve flag")
+  for (const host of ["linux-box", "", 7, null]) {
+    await expect(handler(true, host)).rejects.toThrow("Invalid address")
+  }
+})

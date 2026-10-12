@@ -163,6 +163,7 @@ function statusFixture(overrides: Partial<DesktopStatus> = {}): DesktopStatus {
     update: { status: "idle" },
     remote: null,
     remoteSaved: null,
+    serve: null,
     runtimePlatform: "darwin",
     ...overrides,
   }

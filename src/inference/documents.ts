@@ -164,7 +164,7 @@ export async function createDocumentAttachment(
         (source[2] === 0x07 && source[3] === 0x08))
     if (!zip) throw new Error(`${safeName} is not a valid DOCX file.`)
     try {
-      await validateDocxArchive(source)
+      await readOfficeArchive(source, "word/document.xml")
       const { default: mammoth } = await import("mammoth")
       const normalized = normalizedExtractedText(
         (await mammoth.extractRawText({ buffer: source })).value,
@@ -233,43 +233,50 @@ const MAX_ENTRIES = 10_000
 const MAX_UNCOMPRESSED_BYTES = 100 * 1024 * 1024
 const MAX_DOCUMENT_XML_BYTES = 16 * 1024 * 1024
 
-/** Verify every entry with bounded streaming inflation before Mammoth materializes XML. */
-export async function validateDocxArchive(bytes: Buffer) {
+/**
+ * Verifies an Office package entry by entry with bounded streaming inflation, and hands back the
+ * parts `keep` selects. `main` names the part the format cannot do without. Mammoth reads a Word
+ * package again itself, so Word keeps nothing.
+ */
+export async function readOfficeArchive(
+  bytes: Buffer,
+  main: string,
+  keep: (name: string) => boolean = () => false,
+) {
+  const format = main.split("/")[0] === "word" ? "DOCX" : main.startsWith("xl/") ? "XLSX" : "PPTX"
   const zip = await fromBufferPromise(bytes, { validateEntrySizes: true, strictFileNames: true })
+  const parts = new Map<string, Buffer>()
   try {
     if (zip.entryCount === 0 || zip.entryCount > MAX_ENTRIES)
-      throw new Error("invalid DOCX entry count")
+      throw new Error(`invalid ${format} entry count`)
     const names = new Set<string>()
     let totalBytes = 0
     for await (const entry of zip.eachEntry()) {
-      if (names.has(entry.fileName)) throw new Error("duplicate DOCX archive entry")
+      if (names.has(entry.fileName)) throw new Error(`duplicate ${format} archive entry`)
       names.add(entry.fileName)
-      if (entry.isEncrypted()) throw new Error("encrypted DOCX files are not supported")
+      if (entry.isEncrypted()) throw new Error(`encrypted ${format} files are not supported`)
       // Mammoth reads local names, whereas yauzl indexes central names. Require an
       // unambiguous package.
       const local = await zip.readLocalFileHeaderPromise(entry)
-      if (!local.fileName.equals(entry.fileNameRaw)) throw new Error("inconsistent DOCX entry name")
-      if (
-        entry.fileName === "word/document.xml" &&
-        entry.uncompressedSize > MAX_DOCUMENT_XML_BYTES
-      ) {
+      if (!local.fileName.equals(entry.fileNameRaw))
+        throw new Error(`inconsistent ${format} entry name`)
+      if (entry.fileName === main && entry.uncompressedSize > MAX_DOCUMENT_XML_BYTES)
         throw new Error("main document XML exceeds the 16 MB safety limit")
-      }
       totalBytes += entry.uncompressedSize
       if (totalBytes > MAX_UNCOMPRESSED_BYTES)
-        throw new Error("DOCX expands beyond the 100 MB safety limit")
-
-      // yauzl aborts the stream as soon as inflated data exceeds the declared size.
-      // Draining (without retaining chunks) verifies compressed entries as well as metadata.
-      const stream = await zip.openReadStreamPromise(entry)
-      for await (const _chunk of stream) {
-        // The verified data is read again by Mammoth after the archive passes validation.
-      }
+        throw new Error(`${format} expands beyond the 100 MB safety limit`)
+      // yauzl aborts the stream as soon as inflated data exceeds the declared size, so draining
+      // verifies compressed entries as well as metadata.
+      const chunks: Buffer[] = []
+      const wanted = keep(entry.fileName)
+      for await (const chunk of await zip.openReadStreamPromise(entry))
+        if (wanted) chunks.push(chunk as Buffer)
+      if (wanted) parts.set(entry.fileName, Buffer.concat(chunks))
     }
-    if (!names.has("[Content_Types].xml") || !names.has("word/document.xml")) {
-      throw new Error("not a valid DOCX file")
-    }
+    if (!names.has("[Content_Types].xml") || !names.has(main))
+      throw new Error(`not a valid ${format} file`)
   } finally {
     zip.close()
   }
+  return parts
 }

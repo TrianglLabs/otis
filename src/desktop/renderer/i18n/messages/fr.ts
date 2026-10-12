@@ -331,7 +331,18 @@ export const fr: Messages = {
   "settings.serverConnect": "Se connecter à un serveur…",
   "settings.serverUseThisMachine": "Utiliser cette machine",
   "settings.remoteNote":
-    "Lancez `otis serve` sur une machine qui reste allumée et travaillez d’ici sur ses sessions, modèles, compétences et mémoire, via un réseau privé comme Tailscale. Cette fenêtre garde son apparence. Otis redémarre pour changer.",
+    "Travaillez sur une machine qui reste allumée : activez l’accès à distance dans son app Otis, ou lancez-y `otis serve` sans l’app. Otis redémarre pour changer ; cette fenêtre garde son apparence.",
+  "settings.remoteAccess": "Accès à distance",
+  "settings.remoteAccessDetail":
+    "Travaillez sur cette machine depuis Otis sur un autre appareil, via un réseau privé comme Tailscale",
+  "settings.serveListeningAt": "À l’écoute sur {{url}}",
+  "settings.serveListeningAll": "À l’écoute sur tous les réseaux, port {{port}}",
+  "settings.serveListenOn": "Écouter sur",
+  "settings.serveAllNetworks": "Tous les réseaux",
+  "settings.serveAddressOn": "Adresse sur {{via}}",
+  "settings.serveToken": "Jeton d’appairage",
+  "settings.showToken": "Afficher le jeton",
+  "settings.hideToken": "Masquer le jeton",
   "settings.serverInstall": "Installez Otis CLI sur l'autre machine",
   "settings.serverStart": "Démarrez le serveur",
   "settings.remoteUrl": "Adresse",
@@ -569,6 +580,10 @@ export const fr: Messages = {
   "canvas.emptySource": "Le bloc Mermaid est vide.",
   "canvas.tooLarge":
     "Ce diagramme Mermaid est trop volumineux. La limite est de 50 000 caractères.",
+  "canvas.sheets": "Feuilles",
+  "canvas.sheetRow": "Ligne",
+  "canvas.sheetTruncated":
+    "Cet aperçu montre le début de chaque feuille. Enregistrez une copie pour ouvrir le fichier entier.",
   "canvas.viewControls": "Commandes d’affichage du document",
   "canvas.find": "Rechercher dans le document",
   "canvas.findPlaceholder": "Rechercher…",

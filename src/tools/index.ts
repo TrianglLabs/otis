@@ -253,7 +253,10 @@ async function publishArtifact(
   }
   const name = basename(path)
   const kind = artifactKindForPath(name)
-  if (!kind) throw new Error("Publish supports Markdown, text, HTML, PDF, and DOCX files.")
+  if (!kind)
+    throw new Error(
+      "Publish supports Markdown, text, HTML, PDF, Word, CSV, Excel, and PowerPoint files.",
+    )
   context.signal?.throwIfAborted()
   const bytes = await readArtifactBytes(source.path)
   context.signal?.throwIfAborted()

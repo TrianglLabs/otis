@@ -56,6 +56,7 @@ export async function connectRemote(
     ...status,
     remote: host,
     remoteSaved: null,
+    serve: null,
     theme: local.theme ?? "default",
     textSize: local.textSize ?? "default",
     language: local.language ?? "system",
@@ -194,6 +195,9 @@ export async function connectRemote(
       const name = tab as WorkspacePanelTab
       const widths = withWorkspacePanelWidth(local.workspacePanelWidths, name, width)
       return keep("workspacePanelWidths", widths, () => saveWorkspacePanelWidth(name, width))
+    },
+    setServe: async () => {
+      throw new Error(`${host} serves this window; it cannot serve from here.`)
     },
     checkForUpdates: () => handlers.checkForUpdates(),
     installUpdate: () => handlers.installUpdate(),

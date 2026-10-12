@@ -1,7 +1,8 @@
 import { readdir, readFile, stat, writeFile } from "node:fs/promises"
 import { basename, extname } from "node:path"
 import { createPatch } from "diff"
-import { workspaceArtifactReference } from "../artifacts/files.js"
+import { officeText, workspaceArtifactReference } from "../artifacts/files.js"
+import type { ArtifactKind } from "../artifacts/types.js"
 import { createDocumentAttachment, MAX_EXTRACTED_DOCUMENT_CHARS } from "../inference/documents.js"
 import { detectImageMimeType } from "../inference/images.js"
 import { inspectPdfForm } from "./documents.js"
@@ -43,9 +44,13 @@ export async function readLocalFile(
       ? await createDocumentAttachment(content, basename(filePath))
       : undefined
   const pdfForm = extension === ".pdf" ? await inspectPdfForm(content).catch(() => []) : []
-  if (!document && isBinary(content))
-    throw new Error("read supports UTF-8 text, PDF, and DOCX files only.")
-  const lines = (document?.extractedText ?? content.toString("utf8")).split(/\r?\n/)
+  const office =
+    extension === ".xlsx" || extension === ".pptx"
+      ? await officeText(content, extension.slice(1) as ArtifactKind, basename(filePath))
+      : undefined
+  if (!document && !office && isBinary(content))
+    throw new Error("read supports UTF-8 text, PDF, Word, Excel, and PowerPoint files only.")
+  const lines = (document?.extractedText ?? office ?? content.toString("utf8")).split(/\r?\n/)
   const start = Math.max(1, Math.floor(offset))
   const count = Math.max(1, Math.min(DEFAULT_READ_LIMIT, Math.floor(limit)))
   const output = lines
@@ -129,9 +134,9 @@ export function truncateLine(line: string) {
 }
 
 function assertTextFilePath(path: string) {
-  if ([".pdf", ".docx", ".doc"].includes(extname(path).toLowerCase())) {
+  if ([".pdf", ".docx", ".doc", ".xlsx", ".pptx"].includes(extname(path).toLowerCase())) {
     throw new Error(
-      "write and edit support UTF-8 text only. PDF and Word files require a format-aware editor.",
+      "write and edit support UTF-8 text only. PDF and Office files require a format-aware editor.",
     )
   }
 }

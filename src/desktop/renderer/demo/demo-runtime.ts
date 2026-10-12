@@ -335,6 +335,91 @@ const DEMO_WEBPAGE = demoArtifact(
   </style></head><body><main><div class="eyebrow">Otis / Canvas</div><h1>Your work stays in view.</h1><p class="lede">Read, edit, and review workspace documents without breaking the conversation flow.</p><section class="grid"><article><span>01</span><h2>Work locally</h2><p>Source files stay in the workspace and previews render on-device.</p></article><article><span>02</span><h2>See every change</h2><p>Editable documents refresh as soon as Otis writes them.</p></article><article><span>03</span><h2>Keep context</h2><p>The active artifact follows its session and restores on return.</p></article></section></main></body></html>`,
 )
 
+const DEMO_SHEET = demoArtifact(
+  {
+    id: "workspace:trip-budget.xlsx",
+    kind: "xlsx",
+    title: "trip-budget.xlsx",
+    mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    editable: false,
+    path: "trip-budget.xlsx",
+  },
+  "sheets",
+  {
+    truncated: false,
+    sheets: [
+      {
+        name: "Budget",
+        rows: [
+          ["Item", "Nights", "Per night", "Total", "Paid", "Notes"],
+          ["Flights", "", "", "1,284.00", "TRUE", "Saturday out, Sunday back"],
+          ["Hotel Lisboa", "5", "162.00", "810.00", "FALSE", "Breakfast included"],
+          ["Car", "4", "48.50", "194.00", "FALSE", ""],
+          ["Food", "6", "70.00", "420.00", "", "Estimate"],
+          ["Museums & tours", "", "", "160.00", "", "Day passes"],
+          [],
+          ["Total", "", "", "2,868.00"],
+          ["Per person", "", "", "1,434.00"],
+        ],
+      },
+      {
+        name: "Flights",
+        rows: [
+          ["Date", "From", "To", "Departs", "Arrives", "Price"],
+          ["2026-10-17", "AMS", "LIS", "07:10", "09:05", "642.00"],
+          ["2026-10-25", "LIS", "AMS", "18:40", "22:35", "642.00"],
+        ],
+      },
+      {
+        name: "Packing",
+        rows: [
+          ["Item", "Done"],
+          ["Passports", "TRUE"],
+          ["Adapters", "FALSE"],
+          ["Sunscreen", "FALSE"],
+        ],
+      },
+    ],
+  },
+)
+
+/** Converted deck markup as the preview frame lays it out: shapes placed by percentage. */
+const DEMO_SLIDES = demoArtifact(
+  {
+    id: "workspace:trip-plan.pptx",
+    kind: "pptx",
+    title: "trip-plan.pptx",
+    mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    editable: false,
+    path: "trip-plan.pptx",
+  },
+  "html",
+  [
+    ["Lisbon, October", "Eight days, two of us, one small car.", "#1f3864", "#ffffff"],
+    [
+      "Where we stay",
+      "Hotel Lisboa, five nights, breakfast included. Then two nights in Sintra.",
+      "#ffffff",
+      "#1d1d1f",
+    ],
+    [
+      "What it costs",
+      "Flights 1,284 · Hotel 810 · Car 194 · Food 420 · Tours 160",
+      "#ffffff",
+      "#1d1d1f",
+    ],
+  ]
+    .map(
+      ([title, body, background, color], index) =>
+        `<section class="slide"><div class="frame" style="aspect-ratio:16/9;background:${background}">` +
+        `<div class="shape" style="left:6%;top:12%;width:88%;height:24%"><div class="text" style="padding:0.75cqw;justify-content:center"><p style="text-align:left"><span style="font-size:5.2cqw;color:${color};font-weight:700">${title}</span></p></div></div>` +
+        `<div class="shape" style="left:6%;top:42%;width:60%;height:40%"><div class="text" style="padding:0.75cqw"><p style="text-align:left;padding-left:2cqw;text-indent:-2cqw"><span class="bullet" style="font-size:2.6cqw;width:2cqw;color:${color}">•</span><span style="font-size:2.6cqw;color:${color}">${body}</span></p></div></div>` +
+        `<div class="shape" style="left:72%;top:46%;width:20%;height:34%;background:${index === 0 ? "#4472c4" : "#e9e7e2"};border-radius:8%"><div class="text" style="padding:0.75cqw;justify-content:center"><p style="text-align:center"><span style="font-size:2cqw;color:${index === 0 ? "#ffffff" : "#1d1d1f"}">Day ${index + 1}</span></p></div></div>` +
+        `</div><span class="n">${index + 1}</span></section>`,
+    )
+    .join(""),
+)
+
 // Preview HTML stands in for converted DOCX bytes, just like the working Word fixture above.
 // These references and hashes are fixture identities only; the demo never writes published files.
 const DEMO_SAVED_WORD = [
@@ -462,6 +547,8 @@ const DEMO_ARTIFACTS_BY_SESSION = new Map<string, DemoArtifactFixture>([
   ["session_pdf", DEMO_PDF],
   ["session_docx", DEMO_DOCX],
   ["session_webpage", DEMO_WEBPAGE],
+  ["session_sheet", DEMO_SHEET],
+  ["session_slides", DEMO_SLIDES],
   ["session_demo1", DEMO_MARKDOWN],
 ])
 
@@ -1036,6 +1123,8 @@ class DemoRuntime implements DesktopApi {
       demoSession("session_pdf", "Canvas preview · PDF", "Demo"),
       demoSession("session_docx", "Canvas preview · Word", "Demo"),
       demoSession("session_webpage", "Canvas preview · Webpage", "Demo"),
+      demoSession("session_sheet", "Canvas preview · Spreadsheet", "Demo"),
+      demoSession("session_slides", "Canvas preview · Slides", "Demo"),
       demoSession("session_demo1", "Canvas preview · Markdown", "Demo"),
       demoSession("session_tools", "Tool activity · every label", "Demo"),
       demoSession("session_notes", "Reading list cleanup", "2d ago", "notes"),
@@ -1257,6 +1346,15 @@ class DemoRuntime implements DesktopApi {
     remote: null,
     // A daemon paired earlier, remembered for one-click reconnects.
     remoteSaved: "ws://linux-box:7331",
+    serve: {
+      enabled: false,
+      host: "100.101.2.3",
+      networks: [
+        { address: "100.101.2.3", via: "Tailscale" },
+        { address: "192.168.1.24", via: "en0" },
+      ],
+      listening: null,
+    },
     runtimePlatform: "darwin",
     subagents: [DEMO_SUBAGENT],
   }
@@ -1264,6 +1362,28 @@ class DemoRuntime implements DesktopApi {
   async setAgentsPanelVisible(visible: boolean): Promise<void> {
     this.#state = { ...this.#state, agentsPanelVisible: visible }
     this.#emitStatus()
+  }
+
+  async setServe(enabled: boolean, host: string): Promise<SessionOpResult> {
+    const serve = this.#state.serve
+    if (!serve) return { ok: false, reason: "This window works on a daemon." }
+    this.#state.serve = {
+      ...serve,
+      enabled,
+      host,
+      listening: enabled
+        ? {
+            port: 7331,
+            urls: (host === "0.0.0.0"
+              ? serve.networks
+              : serve.networks.filter((network) => network.address === host)
+            ).map(({ address, via }) => ({ url: `ws://${address}:7331`, via })),
+            token: "2f7c1e9a4b8d3c6f0a1e5d9b7c3f8e2a6d4b1c9e7f3a5d8b2c6e0f4a9d1b7c3e",
+          }
+        : null,
+    }
+    this.#emitStatus()
+    return { ok: true }
   }
 
   async setWorkspacePanelWidth(tab: WorkspacePanelTab, width: number | undefined): Promise<void> {
@@ -3515,6 +3635,8 @@ Working --> Idle: Complete
         { source: "workspace", path: "product-brief.pdf", kind: "pdf" },
         { source: "workspace", path: "launch-plan.docx", kind: "docx" },
         { source: "workspace", path: "canvas-overview.html", kind: "html" },
+        { source: "workspace", path: "trip-budget.xlsx", kind: "xlsx" },
+        { source: "workspace", path: "trip-plan.pptx", kind: "pptx" },
         { source: "workspace", path: "canvas-demo.md", kind: "markdown" },
       ],
     }),

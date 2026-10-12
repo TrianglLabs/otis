@@ -50,6 +50,7 @@ import {
   saveNotifyOnCompletion,
   saveOtherAgents,
   saveSelectedTheme,
+  saveServe,
   saveSubagentPanelVisible,
   saveTextSize,
   saveThinkingVisible,
@@ -82,12 +83,15 @@ import {
   type PaneDrop,
   type PaneSide,
   type SendPromptResult,
+  type ServeStatus,
   type SessionOpResult,
   type SkillsSummary,
   type SubagentTraceView,
   type TranscriptPatchOp,
 } from "../contracts.js"
-import type { SessionNotice } from "../wire.js"
+import { listenDesktop, privateNetworks, serveToken } from "../serve.js"
+import { SERVE_PORT, type SessionNotice } from "../wire.js"
+import { desktopCall } from "./api.js"
 import { type SpawnPty, WorkspaceTerminal } from "./terminal.js"
 
 type DesktopRuntimeOptions = {
@@ -115,6 +119,11 @@ type DesktopRuntimeOptions = {
   checkForUpdates?: () => Promise<void>
   /** Tells the user a session finished, when the window is not where they are looking. */
   notify?: (notice: SessionNotice) => void
+  /**
+   * Serving other devices: `host` starts listening at creation whatever the settings say (the
+   * daemon's flags); `port` replaces the standard one.
+   */
+  serve?: { host?: string; port?: number }
 }
 
 /**
@@ -170,6 +179,13 @@ export class DesktopRuntime {
   /** Per session, the entry objects the renderer last received, so flushes can ship only growth. */
   readonly #shipped = new WeakMap<SessionRuntime, Map<number, TranscriptEntry>>()
   #stats: DesktopStatus["stats"]
+  /** The listener other devices connect to, its token, and the address it was asked to bind. */
+  #server:
+    | { host: string; token: string; listener: Awaited<ReturnType<typeof listenDesktop>> }
+    | undefined
+  /** A listen in flight counts as serving; the switch reads on while it is. */
+  #listening: Promise<void> | undefined
+  #serveError: string | undefined
   #update: DesktopStatus["update"] = { status: "idle" }
   #cli: DesktopStatus["cli"] = null
   /** The focused runtime as of the last focus move the renderer was told about. */
@@ -204,7 +220,9 @@ export class DesktopRuntime {
       cwd: options.cwd,
       outputCapabilities: CANVAS,
     })
-    return DesktopRuntime.forApplication(app, options)
+    const runtime = DesktopRuntime.forApplication(app, options)
+    if (options.serve?.host) await runtime.#listen(options.serve.host)
+    return runtime
   }
 
   /**
@@ -218,7 +236,103 @@ export class DesktopRuntime {
     void runtime.#startSavedSelection()
     void runtime.#refreshStats()
     runtime.#startRoutines()
+    const serve = app.settings.serve
+    // The daemon's flags decide for it; the app serves again when it was serving.
+    if (serve?.enabled && !options.serve?.host) void runtime.#listen(serve.host).catch(() => {})
     return runtime
+  }
+
+  /** Serving as the status reports it; the daemon prints where it listens from here. */
+  get serving(): ServeStatus {
+    const networks = privateNetworks()
+    const server = this.#server
+    const host =
+      server?.host ??
+      this.app.settings.serve?.host ??
+      networks.find((n) => n.via === "Tailscale")?.address ??
+      networks[0]?.address ??
+      "0.0.0.0"
+    const bound = !server
+      ? []
+      : server.host === "0.0.0.0"
+        ? networks
+        : [{ address: server.host, via: networks.find((n) => n.address === server.host)?.via }]
+    return {
+      enabled: server !== undefined || this.#listening !== undefined,
+      host,
+      networks,
+      listening: server
+        ? {
+            port: server.listener.port,
+            urls: bound.map(({ address, via }) => ({
+              url: `ws://${address}:${server.listener.port}`,
+              ...(via ? { via } : {}),
+            })),
+            token: server.token,
+          }
+        : null,
+      ...(this.#serveError ? { error: this.#serveError } : {}),
+    }
+  }
+
+  /**
+   * Starts or stops serving other devices and remembers the choice; a failure to listen names
+   * the reason and leaves serving off.
+   */
+  async setServe(enabled: boolean, host: string): Promise<SessionOpResult> {
+    await this.#stopServing()
+    this.#serveError = undefined
+    const remember = async (on: boolean) => {
+      this.app.settings.serve = { enabled: on, host }
+      await saveServe({ enabled: on, host })
+    }
+    await remember(enabled)
+    this.#markStateDirty()
+    if (!enabled) return { ok: true }
+    try {
+      await this.#listen(host)
+    } catch (error) {
+      await remember(false)
+      this.#markStateDirty()
+      return { ok: false, reason: describeError(error) }
+    }
+    return { ok: true }
+  }
+
+  #listen(host: string) {
+    const listening = serveToken()
+      .then(async (token) => {
+        const listener = await listenDesktop({
+          host,
+          port: this.options.serve?.port ?? SERVE_PORT,
+          token,
+          call: desktopCall(this),
+        })
+        this.#server = { host, token, listener }
+      })
+      .catch((error) => {
+        this.#serveError = describeError(error)
+        throw error
+      })
+      .finally(() => {
+        if (this.#listening === listening) this.#listening = undefined
+        this.#markStateDirty()
+      })
+    this.#listening = listening
+    return listening
+  }
+
+  async #stopServing() {
+    await this.#listening?.catch(() => {})
+    const server = this.#server
+    this.#server = undefined
+    await server?.listener.close()
+  }
+
+  /** Every window and every paired device sees the same ordered stream. */
+  #send(event: DesktopEvent) {
+    this.options.send(event)
+    this.#server?.listener.broadcast({ event })
   }
 
   /** Runs the routines that are due, now and on; a run stays on screen while it is watched. */
@@ -343,12 +457,15 @@ export class DesktopRuntime {
       } else if (event.type === "settled") {
         void this.#refreshStats()
         const runtime = app.runtimes.find((entry) => entry.id === event.runtime)
-        if (runtime && app.settings.notifyOnCompletion !== false && this.options.notify)
-          this.options.notify({
+        if (runtime && app.settings.notifyOnCompletion !== false) {
+          const notice = {
             runtime: runtime.id,
             title: runtime.sessions.activeLabel(),
             failed: event.result.status === "error",
-          })
+          }
+          this.options.notify?.(notice)
+          this.#server?.listener.broadcast({ notify: notice })
+        }
       } else if (event.type === "busy" && !event.busy) {
         this.#historyCache = undefined
         this.#markStateDirty()
@@ -1328,6 +1445,7 @@ export class DesktopRuntime {
     this.app.conversation.stop()
     this.#terminal?.kill()
     this.#unsubscribe()
+    await this.#stopServing()
     await this.#flushing
     await this.app.shutdown()
   }
@@ -1437,10 +1555,9 @@ export class DesktopRuntime {
       .filter((pane) => pane.ops.length > 0)
     const reset = ops[0]?.op === "reset"
     if (!reset && ops.length > 0)
-      this.options.send({ type: "transcript", revision: ++this.#revision, ops })
+      this.#send({ type: "transcript", revision: ++this.#revision, ops })
     if (!reset && !sendState) {
-      if (panes.length > 0)
-        this.options.send({ type: "transcript", revision: ++this.#revision, panes })
+      if (panes.length > 0) this.#send({ type: "transcript", revision: ++this.#revision, panes })
       return
     }
     const revision = ++this.#revision
@@ -1449,7 +1566,7 @@ export class DesktopRuntime {
     // The baseline is a copy: parts of a status alias state the application mutates in place
     // (a routine's last run is marked seen), and a shared object would hide its own change.
     this.#sentStatus = structuredClone(status)
-    this.options.send({
+    this.#send({
       type: "status",
       revision,
       status: sent
@@ -1527,6 +1644,7 @@ export class DesktopRuntime {
       cli: this.#cli,
       remote: null,
       remoteSaved: app.settings.remote?.url ?? null,
+      serve: this.serving,
       runtimePlatform: this.options.platform,
       // Capture all live fields before yielding so a slow history scan cannot mix two sessions'
       // metadata.

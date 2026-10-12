@@ -25,7 +25,7 @@ import {
   MAX_RAW_DOCUMENT_BYTES,
   PDF_MIME_TYPE,
 } from "../inference/document-constraints.js"
-import { createDocumentAttachment, validateDocxArchive } from "../inference/documents.js"
+import { createDocumentAttachment, readOfficeArchive } from "../inference/documents.js"
 import { localDataDirectory } from "../local/paths.js"
 import type { DocumentTextReplacement, ToolCall, ToolContext, ToolResult } from "./types.js"
 import { editedDocumentPath, isNotFoundError, resolveWorkspacePath } from "./workspace.js"
@@ -265,7 +265,7 @@ async function editDocx(source: Buffer, replacements: DocumentTextReplacement[],
     compression: "DEFLATE",
     compressionOptions: { level: 6 },
   })
-  await validateDocxArchive(bytes)
+  await readOfficeArchive(bytes, "word/document.xml")
   const after = await createDocumentAttachment(bytes, name, DOCX_MIME_TYPE)
   return {
     bytes,

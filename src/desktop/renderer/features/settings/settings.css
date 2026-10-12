@@ -908,3 +908,16 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* Serving other devices: the network picked, then the addresses and token to pair them with. */
+.settingsServe {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 0 14px;
+  border-top: 1px solid var(--hairline);
+}
+
+.settingsServe-row {
+  padding: 10px 0 4px;
+}

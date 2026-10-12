@@ -1,11 +1,8 @@
-import { randomBytes } from "node:crypto"
-import { mkdir, readFile, writeFile } from "node:fs/promises"
-import { homedir, networkInterfaces } from "node:os"
-import { join } from "node:path"
+import { mkdir } from "node:fs/promises"
+import { homedir } from "node:os"
+import { DesktopRuntime } from "../desktop/main/runtime.js"
 import { resolveWorkspaceCwd } from "../desktop/main/workspace.js"
-import { serveDesktop } from "../desktop/serve.js"
 import { SERVE_PORT } from "../desktop/wire.js"
-import { localConfigDirectory } from "../local/paths.js"
 import { loadLocalSettings } from "../local/settings.js"
 
 const USAGE =
@@ -13,15 +10,31 @@ const USAGE =
   "Runs the Otis desktop runtime as a daemon that desktop apps connect to with the pairing\n" +
   "token. It listens on loopback unless --host names an interface, such as a Tailscale address.\n"
 
-/** The pairing token, created privately on first use and reused by every later `serve`. */
-export async function serveToken() {
-  const path = join(localConfigDirectory(), "serve-token")
-  const saved = (await readFile(path, "utf8").catch(() => "")).trim()
-  if (saved) return saved
-  const token = randomBytes(32).toString("hex")
-  await mkdir(localConfigDirectory(), { recursive: true, mode: 0o700 })
-  await writeFile(path, `${token}\n`, { mode: 0o600 })
-  return token
+/**
+ * The desktop runtime as a daemon: `otis serve` hosts it on this machine, and desktop apps
+ * connect over a private network with the pairing token. Every client sees the same sessions,
+ * Canvas and settings, because there is one runtime; a client that drops leaves the work running.
+ */
+export async function serveDesktop(options: {
+  cwd: string
+  host: string
+  port: number
+  version: string
+}) {
+  const runtime = await DesktopRuntime.create({
+    cwd: options.cwd,
+    version: options.version,
+    platform: process.platform,
+    send: () => {},
+    sendTerminal: () => {},
+    spawnPty: () => {
+      throw new Error("The terminal is not available over a remote connection.")
+    },
+    serve: { host: options.host, port: options.port },
+  })
+  const { listening } = runtime.serving
+  if (!listening) throw new Error("Otis could not start serving.")
+  return { ...listening, close: () => runtime.shutdown() }
 }
 
 export async function runServeCommand(args: string[]) {
@@ -53,30 +66,15 @@ export async function runServeCommand(args: string[]) {
       (await loadLocalSettings()).lastWorkspace,
     )
   await mkdir(cwd, { recursive: true })
-  const token = await serveToken()
   const server = await serveDesktop({
     cwd,
     host: options.host,
     port: options.port,
     version: process.env.OTIS_VERSION ?? "dev",
-    token,
   })
-  // A wildcard bind is reachable at each interface's address; those are what a client pastes,
-  // named so the tailnet one (Tailscale hands out 100.64.0.0/10) stands out from the LAN.
-  const addresses = ["0.0.0.0", "::"].includes(options.host)
-    ? Object.entries(networkInterfaces()).flatMap(([name, nets]) =>
-        (nets ?? [])
-          .filter((net) => net.family === "IPv4" && !net.internal)
-          .map((net) => {
-            const [a, b] = net.address.split(".").map(Number)
-            const via = a === 100 && b >= 64 && b < 128 ? "Tailscale" : name
-            return `ws://${net.address}:${server.port}  (${via})`
-          }),
-      )
-    : [server.url]
   console.log(`Otis is serving ${cwd}`)
-  for (const address of addresses) console.log(`  ${address}`)
-  console.log(`Pair a desktop app with this token: ${token}`)
+  for (const { url, via } of server.urls) console.log(`  ${url}${via ? `  (${via})` : ""}`)
+  console.log(`Pair a desktop app with this token: ${server.token}`)
   if (options.host === "127.0.0.1")
     console.log("Only this machine can connect; pass --host with a private address to reach it.")
   await new Promise<void>((resolve) => {

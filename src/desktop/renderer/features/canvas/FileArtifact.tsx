@@ -1,6 +1,6 @@
 import { Download, Search } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import type { ArtifactMetadata, ArtifactPayload } from "../../../../artifacts/types.js"
+import type { ArtifactMetadata, ArtifactPayload, Sheet } from "../../../../artifacts/types.js"
 import { IconButton } from "../../components/Button.js"
 import { FileTypeIcon } from "../../components/FileTypeIcon.js"
 import { Markdown } from "../../components/Markdown.js"
@@ -35,6 +35,29 @@ const WORD_PREVIEW_CSS = `
   @media (max-width: 520px) { body { padding: 0; } main { min-height: 100vh; padding: 28px 22px; box-shadow: none; } }
 `
 
+/**
+ * A deck: each slide a box of the deck's aspect ratio, every shape placed by percentage and
+ * sized in container units, so the slide scales with the panel and the zoom.
+ */
+const SLIDES_PREVIEW_CSS = `
+  :root { color-scheme: light; font: 16px/1.2 ui-sans-serif, system-ui, sans-serif; color: #000; background: #e9e7e2; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px 16px 48px; }
+  .slide { width: min(960px, 100%); margin: 0 auto 28px; }
+  .frame { position: relative; overflow: hidden; container-type: inline-size; box-shadow: 0 4px 24px #0002; }
+  .n { display: block; margin-top: 6px; color: #0008; font-size: 11px; text-align: center; }
+  .shape { position: absolute; overflow: hidden; }
+  .shape img { display: block; width: 100%; height: 100%; object-fit: fill; }
+  .text { display: flex; flex-direction: column; width: 100%; height: 100%; overflow-wrap: anywhere; }
+  .text p { margin: 0; }
+  .bullet { display: inline-block; text-indent: 0; }
+  .shape table { width: 100%; height: 100%; border-collapse: collapse; table-layout: fixed; }
+  .shape td { padding: 0; border: 1px solid #0002; vertical-align: top; }
+  .shape td .text { height: auto; }
+  .chart { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; border: 1px dashed #0004; color: #0008; font-size: 2.4cqw; }
+  a { color: inherit; }
+`
+
 /** A session's open document; `runtime` names the session whose tab it is. */
 export function FileArtifact({
   runtime,
@@ -51,6 +74,8 @@ export function FileArtifact({
   const payload = loaded?.id === artifact.id ? loaded.payload : undefined
   const error = loaded?.id === artifact.id ? loaded.error : undefined
   const [zoom, setZoom] = useState(1)
+  /** Which sheet of a workbook shows; the view is keyed per document, so it starts over. */
+  const [sheet, setSheet] = useState(0)
   const finder = useFind()
   // Previews receive the current match's document-order index.
   const find = finder.request
@@ -114,10 +139,10 @@ export function FileArtifact({
     return () => target.removeEventListener("wheel", onWheel)
   }, [scaleZoom])
 
-  // Markdown renders into this window, so its matches are found and painted here.
+  // Markdown and sheets render into this window, so their matches are found and painted here.
   useEffect(() => {
     const root = article.current
-    if (!root || payload?.kind !== "markdown") return
+    if (!root) return
     const ranges = textRanges(root, find.query)
     finder.setMatchCount(ranges.length)
     const current = ranges[find.index]
@@ -131,10 +156,13 @@ export function FileArtifact({
     () => ({ runtime, id: artifact.id, revision: artifact.revision }),
     [runtime, artifact.id, artifact.revision],
   )
-  const wordSource =
-    payload?.kind === "docx"
-      ? `<!doctype html><html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><title>${payload.title.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")}</title><style>${WORD_PREVIEW_CSS}</style></head><body><main>${payload.content}</main></body></html>`
-      : undefined
+  // Source HTML as it is; a converted Office document inside a page styled for its kind.
+  const framed =
+    payload?.encoding === "html"
+      ? `<!doctype html><html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><title>${payload.title.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")}</title><style>${payload.kind === "docx" ? WORD_PREVIEW_CSS : SLIDES_PREVIEW_CSS}</style></head><body>${payload.kind === "docx" ? `<main>${payload.content}</main>` : payload.content}</body></html>`
+      : payload?.kind === "html"
+        ? payload.content
+        : undefined
   return (
     <section
       className="canvas-artifact"
@@ -161,6 +189,21 @@ export function FileArtifact({
             runtime={runtime}
             publication={artifact.publication}
           />
+        ) : null}
+        {payload?.encoding === "sheets" && payload.content.sheets.length > 1 ? (
+          <div className="canvas-artifactVersions">
+            <select
+              aria-label={t("canvas.sheets")}
+              value={sheet}
+              onChange={(event) => setSheet(Number(event.target.value))}
+            >
+              {payload.content.sheets.map((entry, index) => (
+                <option key={String(index)} value={index}>
+                  {entry.name}
+                </option>
+              ))}
+            </select>
+          </div>
         ) : null}
         <div className="canvas-artifactActions">
           <IconButton icon={Search} label={t("canvas.find")} onClick={openFind} />
@@ -195,6 +238,15 @@ export function FileArtifact({
             </div>
           </article>
         ) : null}
+        {payload?.encoding === "sheets" ? (
+          <article ref={article} className="canvas-document canvas-document-sheet">
+            <SheetPreview
+              sheet={payload.content.sheets[sheet] ?? payload.content.sheets[0]}
+              truncated={payload.content.truncated}
+              zoom={zoom}
+            />
+          </article>
+        ) : null}
         {payload?.kind === "pdf" ? (
           <PdfPreview
             key={artifact.id}
@@ -204,10 +256,10 @@ export function FileArtifact({
             onMatches={finder.setMatchCount}
           />
         ) : null}
-        {payload?.kind === "html" || wordSource ? (
+        {framed ? (
           <WebpagePreview
             key={artifact.id}
-            source={wordSource ?? (payload?.content as string)}
+            source={framed}
             title={payload?.title ?? artifact.title}
             zoom={zoom}
             find={find}
@@ -226,6 +278,68 @@ export function FileArtifact({
       </div>
     </section>
   )
+}
+
+/**
+ * One sheet as a grid with lettered columns and numbered rows. Cells that read as numbers sit
+ * to the right, as a spreadsheet shows them.
+ */
+function SheetPreview({
+  sheet,
+  truncated,
+  zoom,
+}: {
+  sheet: Sheet
+  truncated: boolean
+  zoom: number
+}) {
+  const { t } = useI18n()
+  const columns = Math.max(1, ...sheet.rows.map((row) => row.length))
+  return (
+    <div className="canvas-sheet" style={{ zoom }}>
+      <table className="canvas-sheetGrid" aria-label={sheet.name}>
+        <thead>
+          <tr>
+            <th scope="col" aria-label={t("canvas.sheetRow")} />
+            {Array.from({ length: columns }, (_, index) => (
+              <th key={index} scope="col">
+                {columnName(index)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {sheet.rows.map((row, index) => (
+            <tr key={index}>
+              <th scope="row">{index + 1}</th>
+              {Array.from({ length: columns }, (_, column) => {
+                const cell = row[column] ?? ""
+                return (
+                  <td
+                    key={column}
+                    className={NUMERIC.test(cell) ? "canvas-sheetNumber" : undefined}
+                  >
+                    {cell}
+                  </td>
+                )
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {truncated ? <p className="canvas-sheetNote">{t("canvas.sheetTruncated")}</p> : null}
+    </div>
+  )
+}
+
+const NUMERIC = /^[-+(]?[\d\s,.']*\d[\d\s,.']*%?\)?$/
+
+/** Spreadsheet column names: A to Z, then AA onwards. */
+function columnName(index: number) {
+  let name = ""
+  for (let n = index + 1; n > 0; n = Math.floor((n - 1) / 26))
+    name = String.fromCharCode(65 + ((n - 1) % 26)) + name
+  return name
 }
 
 /** Export reads the original bytes of the selected reference, so it does not wait on the preview. */

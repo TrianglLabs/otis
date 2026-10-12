@@ -8,6 +8,8 @@ import {
   Cloud,
   Copy,
   Cpu,
+  Eye,
+  EyeOff,
   FileText,
   Globe,
   Import,
@@ -46,6 +48,7 @@ import {
 import type { LocalStats } from "../../../../local/stats.js"
 import type {
   DesktopApi,
+  ServeStatus,
   OtherAgentId,
   OtherAgentImport,
   SessionOpResult,
@@ -178,6 +181,7 @@ export function SettingsPage({
     "debug",
     "remote",
     "remoteSaved",
+    "serve",
     "stats",
     "primeTeamId",
     "cli",
@@ -834,8 +838,8 @@ export function SettingsPage({
                   <h2 className="settings-section">{t("settings.server")}</h2>
                   <div className="settingsSurface">
                     <ServerSettings remote={state.remote} remoteSaved={state.remoteSaved} />
+                    {state.serve ? <ServeSettings serve={state.serve} /> : null}
                   </div>
-                  <p className="settingsForm-note settingsGroup-note">{t("settings.remoteNote")}</p>
                 </div>
 
                 <div className="settingsGroup">
@@ -1152,11 +1156,97 @@ function ServerSettings({
           {error ? (
             <div className="settings-message settings-error settingsProvider-message">{error}</div>
           ) : null}
+          <p className="settingsForm-note settingsProvider-message">{t("settings.remoteNote")}</p>
           <CommandLine label={t("settings.serverInstall")} command={INSTALL_COMMAND} />
           <CommandLine
             label={t("settings.serverStart")}
             command="otis serve --host <this machine's private address>"
           />
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * Serving this machine to the app on other devices: one switch, the network it listens on, and
+ * what to pair those devices with. A daemon-backed window has none of this; the daemon serves.
+ */
+function ServeSettings({ serve }: { serve: ServeStatus }) {
+  const { api } = useDesktop()
+  const { t } = useI18n()
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string>()
+  const apply = async (enabled: boolean, host: string) => {
+    setPending(true)
+    setError(undefined)
+    const result = await api.setServe(enabled, host)
+    if (!result.ok) setError(result.reason)
+    setPending(false)
+  }
+  const problem = error ?? serve.error
+  return (
+    <div className="settingsProvider">
+      <div className="settingsRow">
+        <span className="settingsRow-label">
+          {t("settings.remoteAccess")}
+          <span
+            className={`settingsRow-meta${serve.listening ? " settingsProvider-connected" : ""}`}
+          >
+            {!serve.listening
+              ? t("settings.remoteAccessDetail")
+              : serve.host === "0.0.0.0"
+                ? t("settings.serveListeningAll", { port: serve.listening.port })
+                : t("settings.serveListeningAt", { url: serve.listening.urls[0]?.url ?? "" })}
+          </span>
+        </span>
+        <Toggle
+          label={t("settings.remoteAccess")}
+          checked={serve.enabled}
+          disabled={pending}
+          onChange={(enabled) => void apply(enabled, serve.host)}
+        />
+      </div>
+      {serve.enabled || problem ? (
+        <div className="settingsServe">
+          <div className="settingsRow settingsServe-row">
+            <label className="settingsRow-label" htmlFor="settings-serve-host">
+              {t("settings.serveListenOn")}
+            </label>
+            <select
+              id="settings-serve-host"
+              className="settingsSelect"
+              value={serve.host}
+              disabled={pending}
+              onChange={(event) => void apply(true, event.target.value)}
+            >
+              {serve.networks.map((network) => (
+                <option key={network.address} value={network.address}>
+                  {network.via} · {network.address}
+                </option>
+              ))}
+              {serve.host === "0.0.0.0" ||
+              serve.networks.some((network) => network.address === serve.host) ? null : (
+                <option value={serve.host}>{serve.host}</option>
+              )}
+              <option value="0.0.0.0">{t("settings.serveAllNetworks")}</option>
+            </select>
+          </div>
+          {problem ? (
+            <div className="settings-message settings-error settingsProvider-message">
+              {problem}
+            </div>
+          ) : null}
+          {serve.listening?.urls.map(({ url, via }) => (
+            <CommandLine
+              key={url}
+              label={via ? t("settings.serveAddressOn", { via }) : t("settings.remoteUrl")}
+              command={url}
+            />
+          ))}
+          {serve.listening ? (
+            <CommandLine label={t("settings.serveToken")} command={serve.listening.token} secret />
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -1262,17 +1352,37 @@ function SoftwareUpdates({
 }
 
 /** A command to run elsewhere, with a copy button; the text is not translated. */
-function CommandLine({ label, command }: { label: string; command: string }) {
+/**
+ * A field like the ones above it, holding a command or address to copy rather than a value to
+ * type. A secret shows as dots until revealed; the copy button copies it either way.
+ */
+function CommandLine({
+  label,
+  command,
+  secret = false,
+}: {
+  label: string
+  command: string
+  secret?: boolean
+}) {
   const { t } = useI18n()
   const [copied, setCopied] = useState(false)
+  const [shown, setShown] = useState(!secret)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   useEffect(() => () => clearTimeout(timer.current), [])
-  // A field like the ones above it, holding a command to copy rather than a value to type.
   return (
     <div className="settingsCommand">
       <span className="settingsCommand-label">{label}</span>
       <div className="field settingsCommand-field">
-        <code className="settingsCommand-text">{command}</code>
+        <code className="settingsCommand-text">{shown ? command : "•".repeat(32)}</code>
+        {secret ? (
+          <IconButton
+            icon={shown ? EyeOff : Eye}
+            label={t(shown ? "settings.hideToken" : "settings.showToken")}
+            size={22}
+            onClick={() => setShown(!shown)}
+          />
+        ) : null}
         <IconButton
           icon={copied ? Check : Copy}
           label={copied ? t("markdown.copied") : t("common.copy")}

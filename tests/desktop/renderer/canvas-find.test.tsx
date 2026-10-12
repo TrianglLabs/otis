@@ -142,3 +142,67 @@ it("drives find and zoom in a Word preview through the frame agent", async () =>
   })
   expect(screen.getByText("2 of 2")).toBeTruthy()
 })
+
+it("shows a workbook as a lettered grid, one sheet at a time, finds in it and notes a cut sheet", async () => {
+  const sheet: ArtifactMetadata = {
+    ...markdown,
+    id: "workspace:budget.xlsx",
+    kind: "xlsx",
+    title: "budget.xlsx",
+    mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    editable: false,
+    path: "budget.xlsx",
+  }
+  await show(sheet, {
+    encoding: "sheets",
+    content: {
+      truncated: true,
+      sheets: [
+        {
+          name: "Budget",
+          rows: [
+            ["Item", "Total"],
+            ["Hotel", "810.00"],
+            ["Car", "-194.5%"],
+          ],
+        },
+        {
+          name: "Flights",
+          rows: [
+            ["From", "To", "Price"],
+            ["AMS", "LIS", "642"],
+          ],
+        },
+      ],
+    },
+  })
+  const grid = screen.getByRole("table", { name: "Budget" })
+  expect(Array.from(grid.querySelectorAll("thead th")).map((cell) => cell.textContent)).toEqual([
+    "",
+    "A",
+    "B",
+  ])
+  expect(Array.from(grid.querySelectorAll("th[scope=row]")).map((c) => c.textContent)).toEqual([
+    "1",
+    "2",
+    "3",
+  ])
+  // Numbers sit to the right; words do not.
+  expect(screen.getByText("810.00").className).toBe("canvas-sheetNumber")
+  expect(screen.getByText("-194.5%").className).toBe("canvas-sheetNumber")
+  expect(screen.getByText("Hotel").className).toBe("")
+  expect(screen.getByText(/first part of each sheet/)).toBeTruthy()
+  fireEvent.change(screen.getByRole("combobox", { name: "Sheets" }), { target: { value: "1" } })
+  const flights = screen.getByRole("table", { name: "Flights" })
+  expect(Array.from(flights.querySelectorAll("thead th")).map((cell) => cell.textContent)).toEqual([
+    "",
+    "A",
+    "B",
+    "C",
+  ])
+  const section = screen.getByRole("region", { name: "budget.xlsx" })
+  fireEvent.keyDown(section, { key: "f", ctrlKey: true })
+  const input = await screen.findByRole("textbox", { name: "Find in document" })
+  fireEvent.change(input, { target: { value: "lis" } })
+  expect(screen.getByText("1 of 1")).toBeTruthy()
+})

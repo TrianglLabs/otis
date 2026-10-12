@@ -107,6 +107,7 @@ const SNAPSHOT: DesktopSnapshot = {
   update: { status: "idle" },
   remote: null,
   remoteSaved: null,
+  serve: null,
   runtimePlatform: "darwin",
   workspace: { label: "ws", path: "/ws" },
   entries: [],
