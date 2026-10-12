@@ -45,6 +45,7 @@ import { ROUTINES_UNAVAILABLE, type RoutineInput } from "../../local/routines.js
 import {
   isThemeName,
   saveAchievementsSeen,
+  saveAlertSound,
   saveLastWorkspace,
   saveNotifyOnCompletion,
   saveOtherAgents,
@@ -992,6 +993,16 @@ export class DesktopRuntime {
     this.#markStateDirty()
   }
 
+  setKeepAwake(enabled: boolean) {
+    return this.app.setKeepAwake(enabled)
+  }
+
+  async setAlertSound(enabled: boolean) {
+    await saveAlertSound(enabled)
+    this.app.settings.alertSound = enabled
+    this.#markStateDirty()
+  }
+
   async setLocalThinking(model: string, level: string) {
     const draining = this.app.runtimes.some((runtime) => runtime.conversation.draining)
     if (draining || this.app.focused.modelState !== "ready")
@@ -1064,6 +1075,10 @@ export class DesktopRuntime {
 
   listSkills(): Promise<SkillsSummary> {
     return this.app.listSkills(this.#skills)
+  }
+
+  setSkillHidden(name: string, hidden: boolean) {
+    return this.app.setSkillHidden(name, hidden)
   }
 
   installSkills(url: string) {
@@ -1504,6 +1519,8 @@ export class DesktopRuntime {
       thinkingVisible: app.settings.thinkingVisible ?? false,
       otherAgentsEnabled: app.settings.otherAgents ?? true,
       notifyOnCompletion: app.settings.notifyOnCompletion ?? true,
+      keepAwake: app.settings.keepAwake ?? false,
+      alertSound: app.settings.alertSound ?? false,
       pairConfigured: Boolean(app.pairEndpoints.ollama || app.pairEndpoints.lmStudio),
       debug: this.#debug,
       update: this.#update,

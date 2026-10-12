@@ -585,7 +585,7 @@ next client.
 
 The Electron client (`src/desktop/main/remote.ts`) forwards every call and relays the daemon's event, terminal and
 notification streams to the renderer. Window preferences — theme, text size, language, thinking traces, completion
-notices, panel visibility and width — and this app's update state stay on the client: the overlay answers those
+notices, alert sounds, panel visibility and width — and this app's update state stay on the client: the overlay answers those
 calls from local settings and stamps them onto every status. Re-emitted statuses take revisions above the daemon's so
 the renderer's revision guard keeps accepting. Switching between the in-process runtime and a daemon restarts the
 app; a pairing is proven against the daemon before it is saved. The terminal panel is not served over a connection.

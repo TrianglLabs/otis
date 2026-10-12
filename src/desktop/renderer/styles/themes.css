@@ -254,3 +254,84 @@
   --diff-context-bg: #010a13;
   --diff-ln: #2e5e58;
 }
+
+/* White surfaces with near-black ink as the accent, and a desktop OS's system hues for syntax. */
+[data-theme="porcelain"] {
+  color-scheme: light;
+  --bg: #ffffff;
+  --bg-elev: #f5f5f7;
+  --bg-rail: #fbfbfd;
+  /* A light grey bubble: the black accent would mix the default one too dark. */
+  --bg-user: #ececef;
+  --accent: #000000;
+  --on-accent: #ffffff;
+  --text: #1d1d1f;
+  --text-dim: #6e6e73;
+  --cyan: #0071a4;
+  --green: #1e7a34;
+  --orange: #c93400;
+  --pink: #d30f45;
+  --yellow: #9a5b00;
+  --diff-add-bg: #e8f5ec;
+  --diff-add-content: #cfead8;
+  --diff-remove-bg: #fdecee;
+  --diff-remove-content: #f8d3d9;
+  --diff-context-bg: #ffffff;
+  --diff-ln: #8e8e93;
+  --otis-mark-top-opacity: 0.5;
+  --shadow-float: 0 8px 28px rgb(0 0 0 / 0.1);
+  --shadow-soft: 0 1px 3px rgb(0 0 0 / 0.06);
+}
+
+/* A console home screen: light grey with white cards, a brand red, and a neon blue. */
+[data-theme="arcade"] {
+  color-scheme: light;
+  --bg: #ebebeb;
+  --bg-elev: #ffffff;
+  --bg-rail: #f3f3f3;
+  --accent: #d9000f;
+  --on-accent: #ffffff;
+  --text: #2d2d2d;
+  --text-dim: #5f5f5f;
+  --cyan: #006a94;
+  --green: #276e2c;
+  --orange: #a04b00;
+  /* Magenta rather than a second red, so failures and uncached input stay apart from the accent. */
+  --pink: #b0186d;
+  --yellow: #765c00;
+  --diff-add-bg: #e1f0e2;
+  --diff-add-content: #c9e4cb;
+  --diff-remove-bg: #f9e1e3;
+  --diff-remove-content: #f2c7cb;
+  --diff-context-bg: #ebebeb;
+  --diff-ln: #7a7a7a;
+  --otis-mark-top-opacity: 0.5;
+  --shadow-float: 0 8px 28px rgb(0 0 0 / 0.12);
+  --shadow-soft: 0 1px 3px rgb(0 0 0 / 0.08);
+}
+
+/* The indigo of a 2001 handheld's shell: lavender surfaces, indigo ink, and bright game colors. */
+[data-theme="handheld"] {
+  color-scheme: light;
+  --bg: #e8e6f4;
+  --bg-elev: #f6f5fb;
+  --bg-rail: #efedf8;
+  --accent: #4a3db3;
+  --on-accent: #ffffff;
+  --text: #221d45;
+  --text-dim: #5a5580;
+  --cyan: #136a86;
+  --green: #2f6f3e;
+  --orange: #9a4a12;
+  --pink: #a8256a;
+  --yellow: #7a5e00;
+  --diff-add-bg: #dff0e4;
+  --diff-add-content: #c7e5cf;
+  --diff-remove-bg: #f6e0ea;
+  --diff-remove-content: #eec6d8;
+  --diff-context-bg: #e8e6f4;
+  --diff-ln: #7c78a0;
+  --otis-mark-top-opacity: 0.5;
+  --shadow-float: 0 8px 28px rgb(34 29 69 / 0.14);
+  --shadow-soft: 0 1px 3px rgb(34 29 69 / 0.08);
+}

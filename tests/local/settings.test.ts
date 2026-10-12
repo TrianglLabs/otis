@@ -8,9 +8,12 @@ import {
   initializeLocalSettings,
   loadLocalSettings,
   saveAchievementsSeen,
+  saveAlertSound,
   saveFastServingSelection,
   saveHiddenModels,
+  saveHiddenSkills,
   saveHostedApiKey,
+  saveKeepAwake,
   saveLocalServers,
   saveLocalThinking,
   savePermissionMode,
@@ -430,6 +433,9 @@ describe("local settings", () => {
     "pearl",
     "sage",
     "titanium",
+    "porcelain",
+    "arcade",
+    "handheld",
   ] as const)("stores %s without replacing provider settings", async (theme) => {
     const file = join(await tempDirectory(), "config.json")
     await saveHostedApiKey("fireworks", "fw_test_key", model("tool-model", "Tool Model"), { file })
@@ -486,6 +492,44 @@ describe("local settings", () => {
       fireworksApiKey: "fw_test_key",
       thinkingVisible: true,
     })
+  })
+
+  it("stores keep-awake beside other settings and rejects a value that is not a boolean", async () => {
+    const file = join(await tempDirectory(), "config.json")
+    await saveHostedApiKey("fireworks", "fw_test_key", model("tool-model", "Tool Model"), { file })
+    await expect(loadLocalSettings({ file, env: {} })).resolves.not.toHaveProperty("keepAwake")
+    await saveKeepAwake(true, { file })
+
+    await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({ keepAwake: true })
+    expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({
+      fireworksApiKey: "fw_test_key",
+      keepAwake: true,
+    })
+
+    await writeFile(file, JSON.stringify({ version: 1, keepAwake: "yes" }))
+    await expect(loadLocalSettings({ file, env: {} })).rejects.toThrow(/keepAwake/)
+  })
+
+  it("stores switched-off skills by name and rejects a list that is not strings", async () => {
+    const file = join(await tempDirectory(), "config.json")
+    await saveHostedApiKey("fireworks", "fw_test_key", model("tool-model", "Tool Model"), { file })
+    await saveHiddenSkills(["review", "docs"], { file })
+    expect((await loadLocalSettings({ file, env: {} })).hiddenSkills).toEqual(["review", "docs"])
+    await saveHiddenSkills([], { file })
+    expect(JSON.parse(await readFile(file, "utf8")).hiddenSkills).toBeUndefined()
+    await writeFile(file, JSON.stringify({ version: 1, hiddenSkills: "review" }))
+    await expect(loadLocalSettings({ file, env: {} })).rejects.toThrow(
+      "hiddenSkills must be an array of strings",
+    )
+  })
+
+  it("stores the alert sound switch and rejects a value that is not a boolean", async () => {
+    const file = join(await tempDirectory(), "config.json")
+    await saveHostedApiKey("fireworks", "fw_test_key", model("tool-model", "Tool Model"), { file })
+    await saveAlertSound(true, { file })
+    await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({ alertSound: true })
+    await writeFile(file, JSON.stringify({ version: 1, alertSound: 1 }))
+    await expect(loadLocalSettings({ file, env: {} })).rejects.toThrow(/alertSound/)
   })
 
   it("stores a model's Fast serving path without selecting it", async () => {

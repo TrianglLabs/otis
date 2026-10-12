@@ -108,6 +108,9 @@ export function createStatusTray(options: {
     installUpdate(): void
     /** Shows an open session in the window. */
     focusSession(runtime: number): void
+    /** Opens a finished routine run's session in the window. */
+    openSessionAt(workspacePath: string, sessionId: string, dirName?: string): void
+    runRoutine(id: string): void
     respondToPermission(id: number, allow: boolean): void
   }
   appName?: string
@@ -156,7 +159,13 @@ export function createStatusTray(options: {
     if (status.runtimes.length > 1) {
       for (const runtime of status.runtimes) {
         if (!runtime.session) continue
-        const state = runtime.busy ? " — working" : runtime.unseen ? " — done" : ""
+        const state = runtime.busy
+          ? " — working"
+          : !runtime.unseen
+            ? ""
+            : runtime.failed
+              ? " — failed"
+              : " — done"
         items.push({
           label: `${runtime.session.title}${state}`,
           type: "checkbox",
@@ -179,9 +188,9 @@ export function createStatusTray(options: {
     items.push({ label: modelLabel, enabled: false })
     items.push({ label: status.workspace.label, enabled: false })
     if (status.contextTokens !== undefined) {
-      const context = formatTokenCount(status.contextTokens)
+      const percent = Math.round((status.contextTokens / status.contextLimit) * 100)
       const limit = formatTokenCount(status.contextLimit)
-      items.push({ label: `Context ~${context} · Auto-compact at ${limit}`, enabled: false })
+      items.push({ label: `Context ${percent}% · Auto-compact at ${limit}`, enabled: false })
     }
     if (status.modelLoad?.status.kind === "progress") {
       items.push({ label: status.modelLoad.status.label, enabled: false })
@@ -191,6 +200,46 @@ export function createStatusTray(options: {
     ).length
     if (runningCoworkers > 0)
       items.push({ label: `Coworkers: ${runningCoworkers} running`, enabled: false })
+    const anyBusy = status.busy || status.working > 0
+    // Named only while it is the reason the machine is still up.
+    if (status.keepAwake && anyBusy)
+      items.push({ label: "Keeping the computer awake", enabled: false })
+    // Routines run with nobody watching: the one due next, then finished runs not looked at yet,
+    // which open their session. A run on now is listed with the sessions above.
+    const due = status.routines
+      .flatMap((routine) =>
+        routine.runtime === undefined && routine.nextRunAt
+          ? [{ name: routine.name, at: routine.nextRunAt }]
+          : [],
+      )
+      .sort((a, b) => a.at.localeCompare(b.at))[0]
+    if (due) {
+      // Due today reads as a time; later carries its day. Mirrors the renderer's `when`.
+      const date = new Date(due.at)
+      const when = new Intl.DateTimeFormat(undefined, {
+        ...(date.toDateString() === new Date().toDateString()
+          ? {}
+          : { month: "short", day: "numeric" }),
+        hour: "numeric",
+        minute: "2-digit",
+      }).format(date)
+      items.push({ label: `Next routine: ${due.name} · ${when}`, enabled: false })
+    }
+    for (const routine of status.routines) {
+      const run = routine.lastRun
+      if (!run?.finishedAt || run.seen || !run.sessionId) continue
+      const { sessionId, dirName } = run
+      const outcome =
+        run.status === "error" ? "failed" : run.status === "interrupted" ? "stopped" : "done"
+      items.push({
+        label: `${routine.name} — ${outcome}`,
+        click: () => actions.openSessionAt(routine.cwd, sessionId, dirName),
+      })
+    }
+    // A quiet menu still says what the day held.
+    const { stats } = status
+    if (stats && stats.todayTokens > 0 && !anyBusy)
+      items.push({ label: `Today: ${formatTokenCount(stats.todayTokens)} tokens`, enabled: false })
 
     items.push({ type: "separator" })
     // An approval is answered here; opening the window shows what it asks for.
@@ -213,6 +262,15 @@ export function createStatusTray(options: {
           click: () => actions.stop(runtime.runtime),
         })
     } else if (status.busy) items.push({ label: "Stop working", click: () => actions.stop() })
+    if (status.routines.length)
+      items.push({
+        label: "Run routine",
+        submenu: status.routines.map((routine) => ({
+          label: routine.name,
+          enabled: routine.runtime === undefined,
+          click: () => actions.runRoutine(routine.id),
+        })),
+      })
     items.push({ label: `Show ${appName}`, click: () => actions.focusWindow() })
 
     if (status.update.status === "ready" || status.update.status === "downloading") {

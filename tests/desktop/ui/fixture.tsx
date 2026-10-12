@@ -454,7 +454,7 @@ async function runDesktopUiChecks() {
     "Settings page does not identify the active section",
   )
   assert(
-    document.querySelectorAll(".themeTile").length === 12,
+    document.querySelectorAll(".themeTile").length === 15,
     "Appearance does not offer every theme",
   )
   assert(
@@ -1675,7 +1675,7 @@ async function runDesktopUiChecks() {
   await pause()
   element<HTMLButtonElement>('[role="tab"][id="settings-tab-appearance"]').click()
   await pause()
-  for (const theme of ["pearl", "sage", "titanium"] as const) {
+  for (const theme of ["porcelain", "arcade", "handheld"] as const) {
     const tile = element<HTMLSpanElement>(`.themeTile-preview[data-theme="${theme}"]`).closest(
       "button",
     )

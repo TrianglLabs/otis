@@ -100,7 +100,9 @@ Update an existing CLI installation with `otis update`.
       the ones still working. Drag a chip, or a session from <code>⌘K</code>, onto an edge for up to four side by
       side, or onto a card to swap. Open a session from history later and the ones it shared the screen with come
       back beside it, as you placed them. Sessions in one window can work in different folders. Otis notifies you
-      when a background session finishes.
+      when a background session finishes, and can play a sound when a session finishes or waits for approval
+      while Otis is not in focus. With Keep awake on (Settings → General) the computer stays out of sleep
+      while a session or routine works; displays still sleep.
     </td>
     <td><img src="docs/screens/split.png" alt="Two sessions side by side with the others as chips" width="100%"></td>
   </tr>
@@ -229,7 +231,7 @@ Each provider you add gets its own section in `/model`; type to search the list.
 | `/new` | Start a new session |
 | `/history` | Browse, open, or delete local sessions |
 | `/model` | Choose a managed-local, local-server, or hosted model |
-| `/settings` | Add hosted provider keys, hide hosted models from the picker, configure local servers, delete local models, or toggle debug mode |
+| `/settings` | Add hosted provider keys, hide hosted models from the picker, configure local servers, delete local models, toggle debug mode, or keep the machine awake while working |
 
 The desktop app has the same under Settings → Inference (a switch per hosted model), and Settings → Usage shows token
 usage by day and model.

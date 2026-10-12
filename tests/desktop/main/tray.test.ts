@@ -139,6 +139,8 @@ function statusFixture(overrides: Partial<DesktopStatus> = {}): DesktopStatus {
     language: "system",
     thinkingVisible: true,
     notifyOnCompletion: true,
+    keepAwake: false,
+    alertSound: false,
     otherAgentsEnabled: true,
     cli: null,
     permissionMode: "ask",
@@ -173,6 +175,8 @@ function actionsFixture(): TrayActions {
     stop: vi.fn(),
     installUpdate: vi.fn(),
     focusSession: vi.fn(),
+    openSessionAt: vi.fn(),
+    runRoutine: vi.fn(),
     respondToPermission: vi.fn(),
   }
 }
@@ -333,6 +337,46 @@ describe("tray tooltip", () => {
   })
 })
 
+/** An open session as the status lists it. */
+function openSession(
+  runtime: number,
+  title: string,
+  extra: Partial<DesktopStatus["runtimes"][0]>,
+): DesktopStatus["runtimes"][0] {
+  return {
+    runtime,
+    session: { id: `s${runtime}`, title, dirName: "ws" },
+    focused: false,
+    busy: false,
+    unseen: false,
+    failed: false,
+    diffs: { added: 0, removed: 0 },
+    workspace: { label: "otis", path: "/Users/you/otis" },
+    contextTokens: 0,
+    ...extra,
+  }
+}
+
+/** A saved routine as the status lists it: enabled, hourly, in its own folder. */
+function routine(
+  id: string,
+  name: string,
+  extra: Partial<DesktopStatus["routines"][0]>,
+): DesktopStatus["routines"][0] {
+  return {
+    id,
+    name,
+    prompt: "Do the thing",
+    cwd: `/Users/n/dev/${id}`,
+    folder: id,
+    schedule: { kind: "interval", minutes: 60 },
+    auto: false,
+    enabled: true,
+    createdAt: "2026-10-01T00:00:00.000Z",
+    ...extra,
+  }
+}
+
 describe("tray menu", () => {
   it("leads with the session's informational state, all disabled", () => {
     const items = mountTray().menu(statusFixture())
@@ -340,7 +384,7 @@ describe("tray menu", () => {
     expect(labels).toContain("Fix session lock behavior")
     expect(labels).toContain("Model: Kimi K2")
     expect(labels).toContain("otis")
-    expect(labels).toContain("Context ~41.2k · Auto-compact at 200.0k")
+    expect(labels).toContain("Context 21% · Auto-compact at 200.0k")
     const firstSeparator = items.findIndex((item) => item.type === "separator")
     expect(firstSeparator).toBeGreaterThan(0)
     for (const item of items.slice(0, firstSeparator)) expect(item.enabled).toBe(false)
@@ -389,6 +433,10 @@ describe("tray menu", () => {
     expect(items.some((item) => item.label?.startsWith("Coworkers"))).toBe(false)
     expect(items.some((item) => item.label?.startsWith("Restart to update"))).toBe(false)
     expect(items.some((item) => item.label?.startsWith("Downloading update"))).toBe(false)
+    expect(items.some((item) => item.label?.startsWith("Keeping"))).toBe(false)
+    expect(items.some((item) => item.label?.startsWith("Next routine"))).toBe(false)
+    expect(items.some((item) => item.label?.startsWith("Today"))).toBe(false)
+    expect(byLabel(items, "Run routine")).toBeUndefined()
     expect(items.at(-1)).toMatchObject({ role: "quit", label: "Quit Otis" })
   })
 
@@ -416,6 +464,7 @@ describe("tray menu", () => {
       focused: false,
       busy: false,
       unseen: false,
+      failed: false,
       diffs: { added: 0, removed: 0 },
       workspace: { label: "otis", path: "/Users/you/otis" },
       contextTokens: 0,
@@ -509,6 +558,136 @@ describe("tray menu", () => {
       }),
     )
     expect(byLabel(items, "Coworkers: 2 running")?.enabled).toBe(false)
+  })
+
+  it("names the hold on sleep only while keep-awake is on and something works", () => {
+    const mounted = mountTray()
+    const label = "Keeping the computer awake"
+    expect(
+      byLabel(mounted.menu(statusFixture({ keepAwake: true, busy: true })), label),
+    ).toBeDefined()
+    expect(
+      byLabel(mounted.menu(statusFixture({ keepAwake: true, working: 1 })), label),
+    ).toBeDefined()
+    expect(byLabel(mounted.menu(statusFixture({ keepAwake: true })), label)).toBeUndefined()
+    expect(byLabel(mounted.menu(statusFixture({ busy: true })), label)).toBeUndefined()
+  })
+
+  it("tells a session that failed off screen from one that finished", () => {
+    const items = mountTray().menu(
+      statusFixture({
+        runtimes: [
+          openSession(1, "Refactor", { focused: true }),
+          openSession(2, "Docs", { unseen: true }),
+          openSession(3, "Tests", { unseen: true, failed: true }),
+        ],
+      }),
+    )
+    expect(byLabel(items, "Docs — done")).toBeDefined()
+    expect(byLabel(items, "Tests — failed")).toBeDefined()
+  })
+
+  it("says what the day held only while nothing works", () => {
+    const mounted = mountTray()
+    const stats = { todayTokens: 230_100 } as DesktopStatus["stats"]
+    expect(byLabel(mounted.menu(statusFixture({ stats })), "Today: 230.1k tokens")).toBeDefined()
+    expect(
+      mounted
+        .menu(statusFixture({ stats, busy: true }))
+        .some((item) => item.label?.startsWith("Today")),
+    ).toBe(false)
+    expect(
+      mounted
+        .menu(statusFixture({ stats: { todayTokens: 0 } as DesktopStatus["stats"] }))
+        .some((item) => item.label?.startsWith("Today")),
+    ).toBe(false)
+  })
+
+  it("names the routine due next, as a time today or with its day later", () => {
+    const mounted = mountTray()
+    const soon = new Date(Date.now() + 60 * 60_000)
+    const later = new Date(Date.now() + 48 * 60 * 60_000)
+    const time = (date: Date, withDay: boolean) =>
+      new Intl.DateTimeFormat(undefined, {
+        ...(withDay ? { month: "short", day: "numeric" } : {}),
+        hour: "numeric",
+        minute: "2-digit",
+      }).format(date)
+    const items = mounted.menu(
+      statusFixture({
+        routines: [
+          routine("later", "Weekly digest", { nextRunAt: later.toISOString() }),
+          routine("soon", "Nightly tests", { nextRunAt: soon.toISOString() }),
+          routine("running", "Inbox triage", { nextRunAt: new Date().toISOString(), runtime: 7 }),
+        ],
+      }),
+    )
+    const next = items.find((item) => item.label?.startsWith("Next routine"))
+    expect(next).toMatchObject({
+      label: `Next routine: Nightly tests · ${time(soon, false)}`,
+      enabled: false,
+    })
+    const onlyLater = mounted.menu(
+      statusFixture({
+        routines: [routine("later", "Weekly digest", { nextRunAt: later.toISOString() })],
+      }),
+    )
+    expect(byLabel(onlyLater, `Next routine: Weekly digest · ${time(later, true)}`)).toBeDefined()
+  })
+
+  it("lists finished routine runs not looked at yet, opening their session", () => {
+    const mounted = mountTray()
+    const run = (status: "complete" | "error" | "interrupted", seen?: boolean) => ({
+      startedAt: "2026-10-12T07:30:00.000Z",
+      finishedAt: "2026-10-12T07:35:00.000Z",
+      status,
+      sessionId: `s-${status}`,
+      dirName: "ws",
+      ...(seen === undefined ? {} : { seen }),
+    })
+    const items = mounted.menu(
+      statusFixture({
+        routines: [
+          routine("a", "Morning digest", { lastRun: run("complete") }),
+          routine("b", "Nightly tests", { lastRun: run("error") }),
+          routine("c", "Inbox triage", { lastRun: run("interrupted") }),
+          routine("d", "Seen already", { lastRun: run("complete", true) }),
+          routine("e", "Still running", {
+            lastRun: { startedAt: "2026-10-12T07:30:00.000Z", status: "running" },
+            runtime: 9,
+          }),
+        ],
+      }),
+    )
+    expect(byLabel(items, "Morning digest — done")).toBeDefined()
+    expect(byLabel(items, "Inbox triage — stopped")).toBeDefined()
+    expect(items.some((item) => item.label?.startsWith("Seen already"))).toBe(false)
+    expect(items.some((item) => item.label?.startsWith("Still running"))).toBe(false)
+    click(byLabel(items, "Nightly tests — failed"))
+    expect(mounted.actions.openSessionAt).toHaveBeenCalledExactlyOnceWith(
+      "/Users/n/dev/b",
+      "s-error",
+      "ws",
+    )
+  })
+
+  it("runs a routine from a submenu, except one already running", () => {
+    const mounted = mountTray()
+    const items = mounted.menu(
+      statusFixture({
+        routines: [
+          routine("a", "Morning digest", {}),
+          routine("b", "Nightly tests", { runtime: 4 }),
+        ],
+      }),
+    )
+    const submenu = byLabel(items, "Run routine")?.submenu as MenuItemConstructorOptions[]
+    expect(submenu.map((item) => [item.label, isEnabled(item)])).toEqual([
+      ["Morning digest", true],
+      ["Nightly tests", false],
+    ])
+    click(submenu[0])
+    expect(mounted.actions.runRoutine).toHaveBeenCalledExactlyOnceWith("a")
   })
 
   it("offers to restart into a ready update", () => {

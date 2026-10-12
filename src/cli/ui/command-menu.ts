@@ -4,7 +4,7 @@ import { type PickerRow, type PickerRowSpec, syncPickerRows } from "./picker-row
 import { type CommandSuggestion, type Renderer, stopKey, type UIKey } from "./types.js"
 
 /** Rows shown at once; longer lists scroll under the selection. */
-const MAX_VISIBLE_ROWS = 12
+export const MAX_VISIBLE_ROWS = 12
 
 type MenuActions = {
   close: (restoreThemePreview?: boolean) => void

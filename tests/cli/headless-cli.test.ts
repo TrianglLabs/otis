@@ -48,6 +48,7 @@ const mocks = vi.hoisted(() => ({
   loadSkillCatalog: vi.fn<() => Promise<SkillCatalog>>(async () => ({
     skills: [],
     byName: new Map(),
+    problems: [],
   })),
   saveSelectedModel: vi.fn(async () => undefined),
   streamChat: vi.fn(),
@@ -185,7 +186,7 @@ beforeEach(() => {
     model: "accounts/fireworks/models/test",
   })
   mocks.createSession.mockResolvedValue(session)
-  mocks.loadSkillCatalog.mockResolvedValue({ skills: [], byName: new Map() })
+  mocks.loadSkillCatalog.mockResolvedValue({ skills: [], byName: new Map(), problems: [] })
   mocks.ensureLocalServing.mockImplementation(async (spec: { id: string }) => ({
     model: spec.id,
     inferenceURL: "http://127.0.0.1:18765/v1/chat/completions",
@@ -328,6 +329,7 @@ describe("runHeadlessCommand", () => {
     mocks.loadSkillCatalog.mockResolvedValue({
       skills: [skill],
       byName: new Map([[skill.name, skill]]),
+      problems: [],
     })
     mocks.streamChat.mockImplementationOnce(async function* (request) {
       expect(request.skills).toEqual([skill])

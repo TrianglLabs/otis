@@ -491,6 +491,7 @@ export const de: Messages = {
   "settings.skillInstall": "Installieren",
   "settings.skillUpdate": "Aktualisieren",
   "settings.skillRemove": "Entfernen",
+  "settings.showSkill": "{{name}} dem Modell anbieten",
   "settings.skillsShown": "{{shown}} von {{total}} Skills",
   "settings.skillsMore": "Mehr anzeigen",
   "settings.appearance": "Darstellung",
@@ -516,6 +517,14 @@ export const de: Messages = {
   "settings.notifyOnCompletion": "Bei fertiger Sitzung benachrichtigen",
   "settings.toggleNotify":
     "Systembenachrichtigung zeigen, wenn eine Sitzung fertig wird, während Otis nicht im Vordergrund ist",
+  "settings.alertSound": "Ton bei Abschluss oder Wartezeit",
+  "settings.alertSoundDetail": "Nur wenn Otis nicht im Fokus ist",
+  "settings.toggleAlertSound":
+    "Ton abspielen, wenn eine Sitzung endet oder auf Freigabe wartet, während Otis nicht im Fokus ist",
+  "settings.keepAwake": "Wach bleiben während der Arbeit",
+  "settings.keepAwakeDetail": "Bildschirme können trotzdem ausgehen",
+  "settings.toggleKeepAwake":
+    "Verhindert den Ruhezustand, solange eine Sitzung oder Routine arbeitet",
   "settings.fastServing": "Schnelle Inferenz",
   "settings.fastUnavailable": "Schnelle Inferenz ist für dieses Modell nicht verfügbar",
   "settings.toggleFast": "Schnelle Inferenz umschalten",

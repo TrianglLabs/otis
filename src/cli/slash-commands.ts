@@ -12,6 +12,7 @@ export type SlashCommand =
         | "servers"
         | "pair"
         | "debug"
+        | "keep-awake"
         | "subagents"
         | "delete-model"
         | "models"
@@ -33,7 +34,11 @@ export type SlashCommand =
   | { type: "queue"; prompt?: string }
   | { type: "compact"; instructions?: string }
   | { type: "skills"; action?: "list" }
-  | { type: "skills"; action: "source" | "install" | "update" | "remove"; target: string }
+  | {
+      type: "skills"
+      action: "source" | "install" | "update" | "remove" | "toggle"
+      target: string
+    }
   | { type: "memory"; action?: "list" }
   | { type: "memory"; action: "remember" | "forget"; target: string }
 
@@ -52,7 +57,16 @@ const IMMEDIATE_TYPES = new Set<SlashCommand["type"]>([
   "thinking",
   "theme",
 ])
-const SETTINGS = ["hosted", "pair", "servers", "debug", "subagents", "models", "theme"] as const
+const SETTINGS = [
+  "hosted",
+  "pair",
+  "servers",
+  "debug",
+  "keep-awake",
+  "subagents",
+  "models",
+  "theme",
+] as const
 
 const CATALOG: readonly CatalogCommand[] = [
   { type: "home", name: "/home", description: "Return to home screen" },
@@ -104,7 +118,11 @@ export function parseSlashCommand(value: string): SlashCommand | undefined {
     if (action === "list" && !target) return { type: "skills", action }
     if (
       target &&
-      (action === "source" || action === "install" || action === "update" || action === "remove")
+      (action === "source" ||
+        action === "install" ||
+        action === "update" ||
+        action === "remove" ||
+        action === "toggle")
     )
       return { type: "skills", action, target }
     return undefined
@@ -153,6 +171,7 @@ export function slashCommandRunsImmediately(command: SlashCommand) {
   return (
     command.setting === undefined ||
     command.setting === "debug" ||
+    command.setting === "keep-awake" ||
     command.setting === "subagents" ||
     command.setting === "theme"
   )

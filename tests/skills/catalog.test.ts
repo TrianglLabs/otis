@@ -68,9 +68,10 @@ describe("skill catalog", () => {
     expect(catalog.byName.get("poteto-mode")?.description).toBe("Go deep first.")
   })
 
-  it("rejects malformed manifests instead of silently advertising incorrect skills", async () => {
+  it("leaves a malformed manifest out, names it, and still loads the rest", async () => {
     const home = await temporaryDirectory()
     const project = await temporaryDirectory()
+    await writeSkill(project, "fine", "Loads.", "Body")
     const directory = join(project, ".agents", "skills", "wrong-directory")
     await mkdir(directory, { recursive: true })
     await writeFile(
@@ -78,9 +79,13 @@ describe("skill catalog", () => {
       "---\nname: another-name\ndescription: Test\n---\nBody\n",
     )
 
-    await expect(loadSkillCatalog(project, { home })).rejects.toThrow(
-      "name must match its parent directory",
-    )
+    const catalog = await loadSkillCatalog(project, { home })
+    const names = catalog.skills.map((skill) => skill.name)
+    expect(names).toContain("fine")
+    expect(names).not.toContain("another-name")
+    expect(names).not.toContain("wrong-directory")
+    expect(catalog.problems).toHaveLength(1)
+    expect(catalog.problems[0]).toMatch(/wrong-directory.*name must match its parent directory/)
   })
 })
 

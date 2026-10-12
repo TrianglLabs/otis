@@ -64,6 +64,10 @@ export type LocalSettings = Partial<Record<ServerProvider, ServerSettings>> & {
   otherAgents?: boolean
   /** A system notification when a session finishes while Otis is not the frontmost app. */
   notifyOnCompletion?: boolean
+  /** Holds off idle system sleep while a session or routine works; displays still sleep. */
+  keepAwake?: boolean
+  /** A short sound when a session finishes or waits for approval while Otis is not in focus. */
+  alertSound?: boolean
   localThinking?: LocalThinkingPreferences
   /**
    * When false, the chat side panel that lists delegated runs stays hidden. Omitted means shown.
@@ -82,6 +86,8 @@ export type LocalSettings = Partial<Record<ServerProvider, ServerSettings>> & {
   modelFastId?: string
   /** Hosted models hidden from the picker, as `hiddenModelKey` strings. */
   hiddenModels?: string[]
+  /** Skills by name that stay loaded but are not offered to the model. */
+  hiddenSkills?: string[]
   permissions?: PermissionConfig
 }
 
@@ -98,6 +104,9 @@ export const THEME_NAMES = [
   "pearl",
   "sage",
   "titanium",
+  "porcelain",
+  "arcade",
+  "handheld",
 ] as const
 export type ThemeName = (typeof THEME_NAMES)[number]
 
@@ -296,6 +305,14 @@ export async function saveNotifyOnCompletion(
   await updateSettings(options, (saved) => ({ ...saved, notifyOnCompletion }))
 }
 
+export async function saveKeepAwake(keepAwake: boolean, options: SettingsFileOptions = {}) {
+  await updateSettings(options, (saved) => ({ ...saved, keepAwake }))
+}
+
+export async function saveAlertSound(alertSound: boolean, options: SettingsFileOptions = {}) {
+  await updateSettings(options, (saved) => ({ ...saved, alertSound }))
+}
+
 export async function saveLocalThinking(
   model: string,
   level: string,
@@ -362,6 +379,12 @@ export async function saveRemote(
 export async function saveHiddenModels(hiddenModels: string[], options: SettingsFileOptions = {}) {
   await updateSettings(options, (saved) =>
     defined({ ...saved, hiddenModels: hiddenModels.length ? hiddenModels : undefined }),
+  )
+}
+
+export async function saveHiddenSkills(hiddenSkills: string[], options: SettingsFileOptions = {}) {
+  await updateSettings(options, (saved) =>
+    defined({ ...saved, hiddenSkills: hiddenSkills.length ? hiddenSkills : undefined }),
   )
 }
 
@@ -471,6 +494,8 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
   const thinkingVisible = optionalBoolean(value.thinkingVisible, "thinkingVisible")
   const otherAgents = optionalBoolean(value.otherAgents, "otherAgents")
   const notifyOnCompletion = optionalBoolean(value.notifyOnCompletion, "notifyOnCompletion")
+  const keepAwake = optionalBoolean(value.keepAwake, "keepAwake")
+  const alertSound = optionalBoolean(value.alertSound, "alertSound")
   const subagentPanelVisible = optionalBoolean(value.subagentPanelVisible, "subagentPanelVisible")
   let workspacePanelWidths: WorkspacePanelWidths | undefined
   if (value.workspacePanelWidths !== undefined) {
@@ -495,6 +520,7 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
   const fastServingModels = optionalStringList(value.fastServingModels, "fastServingModels")
   const modelFastId = optionalString(value.modelFastId, "modelFastId")
   const hiddenModels = optionalStringList(value.hiddenModels, "hiddenModels")
+  const hiddenSkills = optionalStringList(value.hiddenSkills, "hiddenSkills")
   const modelProvider = value.modelProvider
   if (modelProvider !== undefined && !isModelProvider(modelProvider))
     throw new Error("Invalid Otis config: modelProvider is not a known provider.")
@@ -536,6 +562,8 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
     thinkingVisible,
     otherAgents,
     notifyOnCompletion,
+    keepAwake,
+    alertSound,
     subagentPanelVisible,
     workspacePanelWidths,
     achievementsSeen,
@@ -543,6 +571,7 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
     fastServingModels,
     modelFastId,
     hiddenModels,
+    hiddenSkills,
     permissions,
     remote,
   })

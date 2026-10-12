@@ -556,6 +556,7 @@ export const pl: Messages = {
   "settings.skillInstall": "Zainstaluj",
   "settings.skillUpdate": "Aktualizuj",
   "settings.skillRemove": "Usuń",
+  "settings.showSkill": "Udostępniaj {{name}} modelowi",
   "settings.skillsShown": "{{shown}} z {{total}} umiejętności",
   "settings.skillsMore": "Pokaż więcej",
   "settings.appearance": "Wygląd",
@@ -581,6 +582,14 @@ export const pl: Messages = {
   "settings.notifyOnCompletion": "Powiadamiaj o zakończeniu sesji",
   "settings.toggleNotify":
     "Pokaż powiadomienie systemowe, gdy sesja zakończy się, a Otis nie jest na wierzchu",
+  "settings.alertSound": "Dźwięk po zakończeniu lub w oczekiwaniu",
+  "settings.alertSoundDetail": "Tylko gdy Otis nie jest aktywny",
+  "settings.toggleAlertSound":
+    "Odtwarzaj dźwięk, gdy sesja się kończy lub czeka na zgodę, a Otis nie jest aktywny",
+  "settings.keepAwake": "Nie usypiaj podczas pracy",
+  "settings.keepAwakeDetail": "Ekrany nadal mogą się wygaszać",
+  "settings.toggleKeepAwake":
+    "Nie pozwala komputerowi przejść w stan uśpienia, gdy pracuje sesja lub rutyna",
   "settings.fastServing": "Szybka inferencja",
   "settings.fastUnavailable": "Szybka inferencja nie jest dostępna dla tego modelu",
   "settings.toggleFast": "Przełącz szybką inferencję",

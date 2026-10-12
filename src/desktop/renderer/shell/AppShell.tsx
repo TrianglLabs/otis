@@ -1,5 +1,6 @@
 import { Download, FolderOpen } from "lucide-react"
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import alertSoundUrl from "../assets/sounds/task_completed.mp3"
 import { Button } from "../components/Button.js"
 import { Icon } from "../components/Icon.js"
 import { UnlockBanners } from "../features/achievements/Achievements.js"
@@ -14,6 +15,7 @@ import {
   LIGHT_THEMES,
   rememberTheme,
   useDesktop,
+  useDesktopSelector,
   useDesktopState,
 } from "../runtime.js"
 import { APP_SHORTCUTS } from "./shortcuts.js"
@@ -29,6 +31,31 @@ import { WorkspacePanel } from "./WorkspacePanel.js"
 export function AppShell() {
   const { api: bridge, store } = useDesktop()
   const { t } = useI18n()
+  // One short sound when a session finishes or a tool waits for approval while the window is not
+  // in focus; in focus, the window already shows both. Sessions are tracked by id, so one
+  // finishing while another starts still sounds.
+  const soundCue = useDesktopSelector((state) =>
+    state
+      ? {
+          enabled: state.alertSound,
+          busy: state.runtimes
+            .filter((runtime) => runtime.busy)
+            .map((runtime) => runtime.runtime)
+            .join(","),
+          permission: state.permission?.id ?? null,
+        }
+      : undefined,
+  )
+  const lastSoundCue = useRef(soundCue)
+  useEffect(() => {
+    const before = lastSoundCue.current
+    lastSoundCue.current = soundCue
+    if (!soundCue || !before || !soundCue.enabled || document.hasFocus()) return
+    const stillBusy = new Set(soundCue.busy.split(","))
+    const finished = before.busy.split(",").some((id) => id && !stillBusy.has(id))
+    const asked = soundCue.permission !== null && soundCue.permission !== before.permission
+    if (finished || asked) void new Audio(alertSoundUrl).play().catch(() => {})
+  }, [soundCue])
   const state = useDesktopState(
     "theme",
     "textSize",

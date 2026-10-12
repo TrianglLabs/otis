@@ -1065,6 +1065,7 @@ class DemoRuntime implements DesktopApi {
         focused: true,
         busy: false,
         unseen: false,
+        failed: false,
         diffs: { added: 12, removed: 3 },
         workspace: DEMO_WORKSPACE,
         contextTokens: 18_420,
@@ -1081,6 +1082,7 @@ class DemoRuntime implements DesktopApi {
         focused: false,
         busy: false,
         unseen: true,
+        failed: false,
         diffs: { added: 0, removed: 0 },
         workspace: DEMO_WORKSPACE,
         contextTokens: 4_200,
@@ -1095,6 +1097,7 @@ class DemoRuntime implements DesktopApi {
         focused: false,
         busy: false,
         unseen: false,
+        failed: false,
         diffs: { added: 31, removed: 8 },
         workspace: DEMO_WORKSPACE,
         contextTokens: 22_900,
@@ -1105,6 +1108,7 @@ class DemoRuntime implements DesktopApi {
         focused: false,
         busy: false,
         unseen: false,
+        failed: false,
         diffs: { added: 0, removed: 0 },
         workspace: DEMO_WORKSPACE,
         contextTokens: 6_100,
@@ -1119,6 +1123,7 @@ class DemoRuntime implements DesktopApi {
         focused: false,
         busy: true,
         unseen: false,
+        failed: false,
         diffs: { added: 140, removed: 62 },
         workspace: DEMO_WORKSPACE,
         contextTokens: 61_300,
@@ -1129,6 +1134,7 @@ class DemoRuntime implements DesktopApi {
         focused: false,
         busy: false,
         unseen: false,
+        failed: false,
         diffs: { added: 9, removed: 0 },
         workspace: DEMO_WORKSPACE,
         contextTokens: 3_400,
@@ -1232,6 +1238,8 @@ class DemoRuntime implements DesktopApi {
     language: "system",
     thinkingVisible: true,
     notifyOnCompletion: true,
+    keepAwake: false,
+    alertSound: false,
     otherAgentsEnabled: true,
     cli: { status: "current", path: "~/.local/bin/otis", version: "0.1.35" },
     localThinking: null,
@@ -1297,6 +1305,16 @@ class DemoRuntime implements DesktopApi {
 
   async setNotifyOnCompletion(enabled: boolean): Promise<void> {
     this.#state = { ...this.#state, notifyOnCompletion: enabled }
+    this.#emitStatus()
+  }
+
+  async setKeepAwake(enabled: boolean): Promise<void> {
+    this.#state = { ...this.#state, keepAwake: enabled }
+    this.#emitStatus()
+  }
+
+  async setAlertSound(enabled: boolean): Promise<void> {
+    this.#state = { ...this.#state, alertSound: enabled }
     this.#emitStatus()
   }
 
@@ -2060,6 +2078,7 @@ class DemoRuntime implements DesktopApi {
         focused: false,
         busy: false,
         unseen: false,
+        failed: false,
         diffs: { added: 0, removed: 0 },
         workspace: DEMO_WORKSPACE,
         contextTokens: 0,
@@ -2209,7 +2228,7 @@ class DemoRuntime implements DesktopApi {
         origin: { collection: source.id },
       })),
     )
-    const skills: SkillSummary[] = [
+    const skills: Omit<SkillSummary, "hidden">[] = [
       {
         name: "documents",
         description: "Read, edit, and generate PDF and Word documents.",
@@ -2223,9 +2242,19 @@ class DemoRuntime implements DesktopApi {
       ...managed,
     ]
     return {
-      skills: skills.sort((left, right) => left.name.localeCompare(right.name)),
+      skills: skills
+        .sort((left, right) => left.name.localeCompare(right.name))
+        .map((skill) => ({ ...skill, hidden: this.#hiddenSkills.has(skill.name) })),
       sources: this.#skillSources,
+      problems: [],
     }
+  }
+
+  #hiddenSkills = new Set<string>()
+
+  async setSkillHidden(name: string, hidden: boolean): Promise<void> {
+    if (hidden) this.#hiddenSkills.add(name)
+    else this.#hiddenSkills.delete(name)
   }
 
   async installSkills(url: string): Promise<SessionOpResult> {
