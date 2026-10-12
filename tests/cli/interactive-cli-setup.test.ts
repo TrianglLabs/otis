@@ -53,6 +53,7 @@ describe("interactive CLI setup", () => {
       together: false,
       baseten: false,
       primeintellect: false,
+      river: false,
     })
     expect(mocks.ui.showSetupInput).not.toHaveBeenCalled()
     mocks.uiOptions?.onSetupHostedChoice?.("fireworks")
@@ -61,7 +62,7 @@ describe("interactive CLI setup", () => {
 
     mocks.uiOptions?.onSetupSubmit?.(" ")
     expect(mocks.ui.showSetupError).toHaveBeenLastCalledWith(
-      "Fireworks API key is required.",
+      "Fireworks AI API key is required.",
       "hosted",
       "fireworks",
     )
@@ -395,7 +396,7 @@ describe("interactive CLI setup", () => {
     expect(mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[0]).toEqual(
       expect.arrayContaining([
         {
-          name: "Fireworks",
+          name: "Fireworks AI",
           description: "Add API key",
           submission: "/settings hosted fireworks",
         },
@@ -418,7 +419,7 @@ describe("interactive CLI setup", () => {
     })
     expect(mocks.saveSelectedModel).not.toHaveBeenCalled()
     expect(mocks.saveHostedApiKey).toHaveBeenCalledOnce()
-    expect(mocks.ui.showTransientHint).toHaveBeenLastCalledWith(" Fireworks configured ")
+    expect(mocks.ui.showTransientHint).toHaveBeenLastCalledWith(" Fireworks AI configured ")
 
     mocks.ui.showModelPicker.mockClear()
     await submit("/model")
@@ -428,7 +429,7 @@ describe("interactive CLI setup", () => {
         expect.objectContaining({
           kind: "header",
           id: "header-fireworks",
-          displayName: "Fireworks",
+          displayName: "Fireworks AI",
         }),
         expect.objectContaining({ id: hosted.id, provider: "fireworks" }),
       ]),
@@ -478,6 +479,7 @@ describe("interactive CLI setup", () => {
       together: false,
       baseten: false,
       primeintellect: false,
+      river: false,
     })
     mocks.uiOptions?.onSetupHostedChoice?.("together")
     expect(mocks.ui.showSetupInput).toHaveBeenLastCalledWith("", "hosted", "together")
@@ -557,7 +559,7 @@ describe("interactive CLI setup", () => {
       expect.arrayContaining([
         {
           name: "Hosted inference",
-          description: "Fireworks, Baseten",
+          description: "Fireworks AI, Baseten",
           submission: "/settings hosted",
         },
       ]),
@@ -566,7 +568,7 @@ describe("interactive CLI setup", () => {
     expect(mocks.ui.showCommandSubmenu).toHaveBeenLastCalledWith(
       [
         {
-          name: "Fireworks",
+          name: "Fireworks AI",
           description: "Replace API key",
           submission: "/settings hosted fireworks",
         },
@@ -581,6 +583,7 @@ describe("interactive CLI setup", () => {
           description: "Add API key",
           submission: "/settings hosted primeintellect",
         },
+        { name: "River AI", description: "Add API key", submission: "/settings hosted river" },
       ],
       { onBack: expect.any(Function) },
     )
@@ -608,7 +611,7 @@ describe("interactive CLI setup", () => {
     expect(mocks.ui.showCommandSubmenu).toHaveBeenCalledExactlyOnceWith(
       [
         {
-          name: "Fireworks",
+          name: "Fireworks AI",
           description: "Replace API key",
           submission: "/settings hosted fireworks",
         },
@@ -623,6 +626,7 @@ describe("interactive CLI setup", () => {
           description: "Add API key",
           submission: "/settings hosted primeintellect",
         },
+        { name: "River AI", description: "Add API key", submission: "/settings hosted river" },
       ],
       { onBack: expect.any(Function) },
     )
@@ -632,7 +636,7 @@ describe("interactive CLI setup", () => {
     await settle()
     expect(mocks.ui.showCommandSubmenu).toHaveBeenLastCalledWith(
       expect.arrayContaining([
-        { name: "Hosted inference", description: "Fireworks", submission: "/settings hosted" },
+        { name: "Hosted inference", description: "Fireworks AI", submission: "/settings hosted" },
       ]),
       { onBack: expect.any(Function) },
     )

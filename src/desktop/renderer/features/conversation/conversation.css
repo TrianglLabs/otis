@@ -1346,15 +1346,17 @@ button.composer-model-failed {
 
 /* Home screen */
 
-/* Anchored at the top so the mark stays put whichever view is under it. */
+/* The mark and the recents sit at the middle of whatever height the pane has; once they are
+   taller than it, they start at the top and scroll, which "safe" centring gives for free. */
 .home {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: safe center;
   gap: 22px;
-  padding: clamp(36px, 10vh, 88px) 28px 24px;
+  padding: 24px 28px;
   overflow-y: auto;
 }
 

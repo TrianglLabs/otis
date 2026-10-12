@@ -217,11 +217,12 @@ describe("demo runtime model lifecycle", () => {
         together: false,
         baseten: false,
         primeintellect: false,
+        river: false,
       },
     })
     expect(await api.setHostedApiKey("fireworks", "")).toMatchObject({
       ok: false,
-      reason: "Fireworks API key is required.",
+      reason: "Fireworks AI API key is required.",
     })
     expect(await api.setHostedApiKey("together", "")).toMatchObject({
       ok: false,
@@ -233,7 +234,7 @@ describe("demo runtime model lifecycle", () => {
       hostedConfigured: { fireworks: true, together: false },
     })
     const items = await api.listModels()
-    expect(items.find((item) => item.id === "header-fireworks")?.displayName).toBe("Fireworks")
+    expect(items.find((item) => item.id === "header-fireworks")?.displayName).toBe("Fireworks AI")
     expect(items.some((item) => item.id === "header-hosted")).toBe(false)
     const id = "accounts/fireworks/models/kimi-k3"
     expect(await settle(api.selectModel(id))).toEqual({ ok: true })

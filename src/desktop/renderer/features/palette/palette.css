@@ -1,51 +1,11 @@
 /* Command palette — the ⌘K session/action finder. Shares the overlayBackdrop/overlay-enter scaffolding from
    components.css with the model picker. */
 
-.palette {
-  position: fixed;
-  top: 15vh;
-  left: 50%;
-  translate: -50% 0;
-  z-index: var(--z-overlay);
-  width: 520px;
-  max-height: min(480px, 65vh);
-  display: flex;
-  flex-direction: column;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-float);
-  overflow: hidden;
-  animation: overlay-enter var(--motion);
-}
-
-.palette-input {
-  padding: 12px 16px;
-  font: inherit;
-  font-size: var(--text-body);
-  color: var(--text);
-  background: none;
-  border: none;
-  border-bottom: 1px solid var(--hairline);
-  outline: none;
-  flex-shrink: 0;
-}
-
-.palette-input::placeholder {
-  color: var(--text-dim);
-}
-
+/* The palette is a popover; its list and rows are its own. */
 .palette-list {
   overflow-y: auto;
   min-height: 0;
   padding: 6px;
-}
-
-.palette-section {
-  padding: 8px 10px 4px;
-  font-size: var(--text-meta);
-  font-weight: 500;
-  color: var(--text-dim);
 }
 
 /* Session rows are a div so the delete-confirm state can swap the row's contents; action rows are plain buttons. */
@@ -53,7 +13,8 @@
   display: flex;
   align-items: center;
   width: 100%;
-  padding: 7px 10px;
+  min-height: 34px;
+  padding: 8px 10px;
   border: none;
   border-radius: var(--radius);
   background: none;
@@ -216,15 +177,4 @@
 
 .palette-error {
   color: var(--danger);
-}
-
-.palette-footer {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 7px 16px;
-  border-top: 1px solid var(--hairline);
-  font-size: var(--text-meta);
-  color: var(--text-dim);
-  flex-shrink: 0;
 }

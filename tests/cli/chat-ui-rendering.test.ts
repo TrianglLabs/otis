@@ -23,7 +23,7 @@ describe("chat UI rendering", () => {
 
   it("destroys discarded transcript cards and their native children", async () => {
     const harness = await setup({ thinkingVisible: true })
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     const reasoning = transcript.addReasoningMessage("Long thought. ".repeat(1_000), {
       reasoningId: "old",
     })
@@ -40,7 +40,7 @@ describe("chat UI rendering", () => {
 
   it.each(["clear", "theme", "shutdown"])("releases card syntax styles on %s", async (action) => {
     const harness = await setup({ thinkingVisible: true })
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     const assistant = transcript.addAssistantMessage("# Answer\n```ts\nconst value = 1\n```")
     const reasoning = transcript.addReasoningMessage("Checking the change", {
       reasoningId: "thought",
@@ -90,7 +90,7 @@ describe("chat UI rendering", () => {
 
   it("does not update unchanged history while another message streams", async () => {
     const harness = await setup({ thinkingVisible: true })
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     const old = transcript.addReasoningMessage("Old thought. ".repeat(10_000), {
       reasoningId: "old",
     })
@@ -108,7 +108,7 @@ describe("chat UI rendering", () => {
 
   it("reads a tool card as verb, file name, and folder, live in the present tense", async () => {
     const harness = await setup()
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     const edit = transcript.addToolMessage(
       "Editing file: src/cli/ui/transcript-view.ts",
       "file_edit",
@@ -146,7 +146,7 @@ describe("chat UI rendering", () => {
 
   it("keeps a tool row's icon and its gap when the label is wider than the row", async () => {
     const harness = await setup()
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     const run = transcript.addToolMessage("Running command: bun test", "shell", {
       toolCallId: "run_1",
       activityAction: "command",
@@ -168,7 +168,7 @@ describe("chat UI rendering", () => {
 
   it("updates streaming assistant markdown in place", async () => {
     const harness = await setup()
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     const assistant = transcript.addAssistantMessage("")
 
     transcript.updateEntry(assistant.id, { text: "# Streaming heading", streaming: true })
@@ -205,7 +205,7 @@ describe("chat UI rendering", () => {
 
   it("renders markdown tables with rounded borders and readable cell spacing", async () => {
     const harness = await setup()
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     transcript.addAssistantMessage("| Name | Status |\n| --- | --- |\n| Otis | Ready |")
 
     harness.ui.showChatLayout()
@@ -221,7 +221,7 @@ describe("chat UI rendering", () => {
 
   it("hides reasoning by default and toggles all traces with /thinking state", async () => {
     const harness = await setup()
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     const reasoning = transcript.addReasoningMessage("one\ntwo\nthree\nfour\nfive", {
       reasoningId: "reasoning_1",
       durationMs: 1_250,
@@ -249,7 +249,7 @@ describe("chat UI rendering", () => {
 
   it("restores hidden reasoning traces in their original transcript positions", async () => {
     const harness = await setup({ thinkingVisible: true })
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     const user = transcript.addUserMessage("question")
     const firstReasoning = transcript.addReasoningMessage("first thought", {
       reasoningId: "reasoning_1",
@@ -278,7 +278,7 @@ describe("chat UI rendering", () => {
 
   it("shows the streaming tail and expands an individual trace by mouse", async () => {
     const harness = await setup({ thinkingVisible: true })
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     const reasoning = transcript.addReasoningMessage("one\ntwo\nthree\nfour\nfive", {
       reasoningId: "reasoning_1",
       streaming: true,
@@ -322,7 +322,7 @@ describe("chat UI rendering", () => {
 
   it("keeps collapsed streaming traces clipped without replacing the markdown prefix", async () => {
     const harness = await setup({ thinkingVisible: true })
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     const reasoning = transcript.addReasoningMessage("alpha\n", {
       reasoningId: "reasoning_1",
       streaming: true,
@@ -363,7 +363,7 @@ describe("chat UI rendering", () => {
   it("uses the theme text color as the Markdown and fenced-code fallback", async () => {
     selectTheme("default")
     const harness = await setup()
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     const assistant = transcript.addAssistantMessage("```\nsrc/\n```")
     harness.ui.showChatLayout()
     harness.ui.renderTranscript(transcript.entries)
@@ -427,7 +427,7 @@ describe("chat UI rendering", () => {
 
   it("keeps the full transcript mounted and replaces rows whose identity changes", async () => {
     const harness = await setup()
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     for (let index = 1; index <= 30; index += 1) transcript.addAssistantMessage(`message ${index}`)
 
     harness.ui.showChatLayout()
@@ -446,7 +446,7 @@ describe("chat UI rendering", () => {
 
   it("pins pending user messages to the bottom with delivery labels", async () => {
     const harness = await setup()
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     transcript.addUserMessage("active task")
     const queued = transcript.addQueuedUserMessage("separate follow-up")
     transcript.addAssistantMessage("still working")
@@ -473,7 +473,7 @@ describe("chat UI rendering", () => {
 
   it("uses sticky bottom scrolling without forcing normal render jumps", async () => {
     const harness = await setup()
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     transcript.addAssistantMessage("first")
     harness.ui.showChatLayout()
     harness.ui.renderTranscript(transcript.entries, { scrollToBottom: true })
@@ -489,7 +489,7 @@ describe("chat UI rendering", () => {
 
   it("renders tool diffs with the configured split view", async () => {
     const harness = await setup()
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     const tool = transcript.addToolMessage("Editing src/app.ts", "file_edit")
     transcript.updateEntry(tool.id, {
       diff: ["--- a/src/app.ts", "+++ b/src/app.ts", "@@ -1 +1 @@", "-old", "+new"].join("\n"),
@@ -756,7 +756,7 @@ describe("chat UI rendering", () => {
     harness.ui.showModelPicker([
       { kind: "header", id: "header-local", displayName: "Local" },
       unavailable,
-      { kind: "header", id: "header-fireworks", displayName: "Fireworks" },
+      { kind: "header", id: "header-fireworks", displayName: "Fireworks AI" },
       fireworks,
     ])
 
@@ -766,7 +766,7 @@ describe("chat UI rendering", () => {
     expect(harness.get<TextRenderable>("model-row-1").fg.equals(RGBA.fromHex(colors.muted))).toBe(
       true,
     )
-    expect(harness.text("model-row-2")).toBe("FIREWORKS")
+    expect(harness.text("model-row-2")).toBe("FIREWORKS AI")
     expect(harness.text("model-row-3")).toBe("› Alpha")
 
     harness.press("return")
@@ -810,7 +810,7 @@ describe("chat UI rendering", () => {
     const items = [
       { kind: "header" as const, id: "header-local", displayName: "Local" },
       local,
-      { kind: "header" as const, id: "header-fireworks", displayName: "Fireworks" },
+      { kind: "header" as const, id: "header-fireworks", displayName: "Fireworks AI" },
       alpha,
       { kind: "header" as const, id: "header-together", displayName: "Together AI" },
       kimi,
@@ -839,7 +839,7 @@ describe("chat UI rendering", () => {
 
     // A provider name matches its rows; an id fragment matches too.
     await harness.typeText("fireworks")
-    expect(harness.text("model-row-0")).toBe("FIREWORKS")
+    expect(harness.text("model-row-0")).toBe("FIREWORKS AI")
     expect(harness.text("model-row-1")).toBe("› Alpha")
     expect(harness.find("model-row-2")).toBeUndefined()
     harness.press("escape")
@@ -978,7 +978,7 @@ describe("chat UI rendering", () => {
     harness.ui.showModelPicker([
       { kind: "header", id: "header-local", displayName: "Local" },
       local,
-      { kind: "header", id: "header-fireworks", displayName: "Fireworks" },
+      { kind: "header", id: "header-fireworks", displayName: "Fireworks AI" },
       ...fireworks,
     ])
     await harness.renderOnce()

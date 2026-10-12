@@ -219,7 +219,7 @@ describe("executeTurn", () => {
   })
 
   it("keeps child checkpoints and continuation messages consistent between the live trace and saved run", async () => {
-    const traces = new SubagentTraces()
+    const traces = new SubagentTraces("/work")
     const parent: ChatMessage[] = [
       { role: "user", content: "map" },
       {

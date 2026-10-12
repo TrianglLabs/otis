@@ -57,8 +57,8 @@ type Serving = { client: InferenceClient | undefined; gate: InferenceGate }
 /** A conversation of its own; pass `shared` for a second one on the same serving and cwd. */
 async function setup(shared?: { serving: Serving; cwd: string }) {
   const cwd = shared?.cwd ?? (await isolate("otis-conversation-"))
-  const transcript = new TranscriptStore()
-  const subagents = new SubagentTraces()
+  const transcript = new TranscriptStore("/work")
+  const subagents = new SubagentTraces("/work")
   const serving: Serving = shared?.serving ?? {
     client: { model: "fake", streamChat: vi.fn(), complete: vi.fn() },
     gate: new InferenceGate(),

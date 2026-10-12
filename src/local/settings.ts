@@ -33,11 +33,16 @@ import {
 import { localConfigDirectory } from "./paths.js"
 import { type AchievementId, isAchievementId } from "./stats.js"
 
+export const WORKSPACE_PANEL_TABS = ["coworkers", "canvas", "changes", "terminal"] as const
+export type WorkspacePanelTab = (typeof WORKSPACE_PANEL_TABS)[number]
+export type WorkspacePanelWidths = Partial<Record<WorkspacePanelTab, number>>
+
 export type LocalSettings = Partial<Record<ServerProvider, ServerSettings>> & {
   fireworksApiKey?: string
   togetherApiKey?: string
   basetenApiKey?: string
   primeintellectApiKey?: string
+  riverApiKey?: string
   /** The Prime Intellect team whose wallet pays for requests; omitted bills the personal one. */
   primeintellectTeamId?: string
   pairEndpoints?: PairEndpoints
@@ -64,8 +69,8 @@ export type LocalSettings = Partial<Record<ServerProvider, ServerSettings>> & {
    * When false, the chat side panel that lists delegated runs stays hidden. Omitted means shown.
    */
   subagentPanelVisible?: boolean
-  /** The desktop workspace panel width in CSS pixels; omitted follows the responsive default. */
-  workspacePanelWidth?: number
+  /** The desktop workspace panel width in CSS pixels per tab; a tab without one follows its default. */
+  workspacePanelWidths?: WorkspacePanelWidths
   /** Achievements the user has looked at on the Achievements tab. */
   achievementsSeen?: AchievementId[]
   /**
@@ -320,11 +325,24 @@ export async function saveSubagentPanelVisible(
   await updateSettings(options, (saved) => ({ ...saved, subagentPanelVisible }))
 }
 
+/** The widths with one tab's dragged width set, or cleared back to its default by undefined. */
+export function withWorkspacePanelWidth(
+  widths: WorkspacePanelWidths | undefined,
+  tab: WorkspacePanelTab,
+  width: number | undefined,
+): WorkspacePanelWidths {
+  return defined({ ...widths, [tab]: width })
+}
+
 export async function saveWorkspacePanelWidth(
-  workspacePanelWidth: number | undefined,
+  tab: WorkspacePanelTab,
+  width: number | undefined,
   options: SettingsFileOptions = {},
 ) {
-  await updateSettings(options, (saved) => ({ ...saved, workspacePanelWidth }))
+  await updateSettings(options, (saved) => ({
+    ...saved,
+    workspacePanelWidths: withWorkspacePanelWidth(saved.workspacePanelWidths, tab, width),
+  }))
 }
 
 export async function savePrimeTeamId(
@@ -454,14 +472,21 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
   const otherAgents = optionalBoolean(value.otherAgents, "otherAgents")
   const notifyOnCompletion = optionalBoolean(value.notifyOnCompletion, "notifyOnCompletion")
   const subagentPanelVisible = optionalBoolean(value.subagentPanelVisible, "subagentPanelVisible")
-  const workspacePanelWidth = value.workspacePanelWidth
-  if (
-    workspacePanelWidth !== undefined &&
-    (typeof workspacePanelWidth !== "number" ||
-      !Number.isFinite(workspacePanelWidth) ||
-      workspacePanelWidth <= 0)
-  )
-    throw new Error("Invalid Otis config: workspacePanelWidth must be a positive number.")
+  let workspacePanelWidths: WorkspacePanelWidths | undefined
+  if (value.workspacePanelWidths !== undefined) {
+    if (!isRecord(value.workspacePanelWidths))
+      throw new Error("Invalid Otis config: workspacePanelWidths must be an object.")
+    workspacePanelWidths = {}
+    for (const tab of WORKSPACE_PANEL_TABS) {
+      const width = value.workspacePanelWidths[tab]
+      if (width === undefined) continue
+      if (typeof width !== "number" || !Number.isFinite(width) || width <= 0)
+        throw new Error(
+          `Invalid Otis config: workspacePanelWidths.${tab} must be a positive number.`,
+        )
+      workspacePanelWidths[tab] = width
+    }
+  }
   if (value.achievementsSeen !== undefined && !Array.isArray(value.achievementsSeen)) {
     throw new Error("Invalid Otis config: achievementsSeen must be an array.")
   }
@@ -512,7 +537,7 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
     otherAgents,
     notifyOnCompletion,
     subagentPanelVisible,
-    workspacePanelWidth,
+    workspacePanelWidths,
     achievementsSeen,
     fastMode,
     fastServingModels,

@@ -1,4 +1,4 @@
-import type { LucideIcon } from "lucide-react"
+import { LoaderCircle, type LucideIcon } from "lucide-react"
 import type { ButtonHTMLAttributes, ReactNode } from "react"
 import { Icon } from "./Icon"
 
@@ -9,6 +9,8 @@ export function Button({
   size = "md",
   icon,
   iconAfter,
+  busy = false,
+  disabled,
   children,
   className,
   ...rest
@@ -18,11 +20,22 @@ export function Button({
   icon?: LucideIcon
   /** Trailing icon, after the label (Send, Continue…). */
   iconAfter?: LucideIcon
+  /** The button's own work is under way: a spinner takes the icon's place and it cannot be pressed. */
+  busy?: boolean
   children?: ReactNode
 }) {
+  const leading = busy ? LoaderCircle : icon
   return (
-    <button type="button" className={`btn btn-${variant} btn-${size} ${className ?? ""}`} {...rest}>
-      {icon ? <Icon icon={icon} size={size === "sm" ? 12 : 14} /> : null}
+    <button
+      type="button"
+      className={`btn btn-${variant} btn-${size} ${className ?? ""}`}
+      disabled={busy || disabled}
+      aria-busy={busy || undefined}
+      {...rest}
+    >
+      {leading ? (
+        <Icon icon={leading} size={size === "sm" ? 12 : 14} className={busy ? "spin" : undefined} />
+      ) : null}
       {children}
       {iconAfter ? <Icon icon={iconAfter} size={size === "sm" ? 12 : 14} /> : null}
     </button>

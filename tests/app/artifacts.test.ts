@@ -122,7 +122,7 @@ describe("ArtifactStore", () => {
       "second.md",
     )
     const message = { role: "user" as const, content: [first, second] }
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     const artifacts = new ArtifactStore(cwd)
     transcript.loadMessages([message])
     artifacts.observeMessage(message)

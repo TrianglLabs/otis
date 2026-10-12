@@ -173,15 +173,17 @@ describe("local settings", () => {
         { file },
       ),
       saveSubagentPanelVisible(true, { file }),
-      saveWorkspacePanelWidth(416, { file }),
+      saveWorkspacePanelWidth("canvas", 416, { file }),
     ])
 
     const saved = await loadLocalSettings({ file })
     expect(saved.model).toBe("openai/gpt-oss-20b")
     expect(saved.subagentPanelVisible).toBe(true)
-    expect(saved.workspacePanelWidth).toBe(416)
-    await saveWorkspacePanelWidth(undefined, { file })
-    expect((await loadLocalSettings({ file })).workspacePanelWidth).toBeUndefined()
+    // Each tab keeps its own width; resetting one leaves the others.
+    expect(saved.workspacePanelWidths).toEqual({ canvas: 416 })
+    await saveWorkspacePanelWidth("coworkers", 300, { file })
+    await saveWorkspacePanelWidth("canvas", undefined, { file })
+    expect((await loadLocalSettings({ file })).workspacePanelWidths).toEqual({ coworkers: 300 })
   })
 
   it("stores a Fireworks key without replacing the selected local model", async () => {
@@ -782,7 +784,7 @@ describe("local settings", () => {
     )
     await writeFile(
       invalidPanelWidth,
-      JSON.stringify({ version: 1, workspacePanelWidth: -1 }),
+      JSON.stringify({ version: 1, workspacePanelWidths: { canvas: -1 } }),
       "utf8",
     )
     await writeFile(invalidFastMode, JSON.stringify({ version: 1, fastMode: "sometimes" }), "utf8")
@@ -814,7 +816,7 @@ describe("local settings", () => {
       "subagentPanelVisible must be",
     )
     await expect(loadLocalSettings({ file: invalidPanelWidth, env: {} })).rejects.toThrow(
-      "workspacePanelWidth must be",
+      "workspacePanelWidths.canvas must be",
     )
     await expect(loadLocalSettings({ file: invalidFastMode, env: {} })).rejects.toThrow(
       "fastMode must be",

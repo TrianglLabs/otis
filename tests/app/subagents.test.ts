@@ -41,7 +41,7 @@ function envelope(
 
 describe("SubagentTraces", () => {
   it("builds a live transcript per run and settles its status from the child's terminal event", () => {
-    const traces = new SubagentTraces()
+    const traces = new SubagentTraces("/work")
 
     traces.apply(envelope("call_a", { type: "model", phase: "start" }))
     traces.apply(envelope("call_b", { type: "model", phase: "start" }))
@@ -86,7 +86,7 @@ describe("SubagentTraces", () => {
   })
 
   it("loads saved runs and converts finished traces back into the persisted shape for compaction", () => {
-    const traces = new SubagentTraces()
+    const traces = new SubagentTraces("/work")
     traces.apply(envelope("call_a", { type: "delta", text: "working" }))
     traces.load([
       {

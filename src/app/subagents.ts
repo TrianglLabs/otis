@@ -35,6 +35,8 @@ type LiveTrace = {
  */
 export class SubagentTraces {
   readonly #traces = new Map<string, LiveTrace>()
+  /** The folder the coworkers' transcripts resolve workspace artifacts against. */
+  constructor(readonly cwd: string) {}
 
   get all(): readonly SubagentTrace[] {
     return [...this.#traces.values()].map((live) => live.trace)
@@ -48,7 +50,7 @@ export class SubagentTraces {
   apply(envelope: Extract<AgentEvent, { type: "subagent" }>): SubagentTrace {
     let live = this.#traces.get(envelope.toolCallId)
     if (!live) {
-      const transcript = new TranscriptStore()
+      const transcript = new TranscriptStore(this.cwd)
       live = {
         trace: {
           toolCallId: envelope.toolCallId,
@@ -93,7 +95,7 @@ export class SubagentTraces {
   load(runs: readonly SessionSubagentRun[]) {
     this.#traces.clear()
     for (const run of runs) {
-      const transcript = new TranscriptStore()
+      const transcript = new TranscriptStore(this.cwd)
       transcript.loadMessages(run.messages, run.toolActivities)
       this.#traces.set(run.toolCallId, {
         trace: {

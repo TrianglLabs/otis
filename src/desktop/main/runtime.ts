@@ -56,6 +56,8 @@ import {
   saveWorkspacePanelWidth,
   type TextSize,
   UI_LANGUAGES,
+  type WorkspacePanelTab,
+  withWorkspacePanelWidth,
 } from "../../local/settings.js"
 import { type AchievementId, calculateLocalStats } from "../../local/stats.js"
 import { forget, listMemory, type MemoryScope, remember } from "../../memory/memory.js"
@@ -1142,9 +1144,14 @@ export class DesktopRuntime {
     this.#markStateDirty()
   }
 
-  async setWorkspacePanelWidth(width: number | undefined) {
-    this.app.settings.workspacePanelWidth = width
-    await saveWorkspacePanelWidth(width)
+  async setWorkspacePanelWidth(tab: WorkspacePanelTab, width: number | undefined) {
+    const { settings } = this.app
+    settings.workspacePanelWidths = withWorkspacePanelWidth(
+      settings.workspacePanelWidths,
+      tab,
+      width,
+    )
+    await saveWorkspacePanelWidth(tab, width)
     this.#markStateDirty()
   }
 
@@ -1490,7 +1497,7 @@ export class DesktopRuntime {
       ),
       agentsPanelVisible: app.settings.subagentPanelVisible ?? true,
       terminal: this.#terminal !== undefined,
-      workspacePanelWidth: app.settings.workspacePanelWidth,
+      workspacePanelWidths: app.settings.workspacePanelWidths ?? {},
       theme: app.settings.theme ?? "default",
       textSize: app.settings.textSize ?? "default",
       language: app.settings.language ?? "system",

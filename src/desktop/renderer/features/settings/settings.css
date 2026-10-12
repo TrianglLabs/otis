@@ -679,6 +679,11 @@
   font-size: var(--text-meta);
 }
 
+/* A message standing in for a row keeps the row's even padding, so it sits centred in it. */
+.settingsRow.settings-message {
+  padding: 10px 0;
+}
+
 .settings-error {
   color: var(--pink);
 }

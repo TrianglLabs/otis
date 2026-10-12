@@ -111,7 +111,11 @@ describe("chat UI input", () => {
   it("returns from a nested command submenu to its parent on Escape", async () => {
     const harness = await setup()
     const parent = [
-      { name: "Fireworks", description: "Add API key", submission: "/settings hosted fireworks" },
+      {
+        name: "Fireworks AI",
+        description: "Add API key",
+        submission: "/settings hosted fireworks",
+      },
       {
         name: "Delete local model",
         description: "Choose a downloaded model",
@@ -134,7 +138,7 @@ describe("chat UI input", () => {
     harness.press("escape")
 
     expect(showParent).toHaveBeenCalledOnce()
-    expect(harness.text("command-row-0")).toBe("› Fireworks")
+    expect(harness.text("command-row-0")).toBe("› Fireworks AI")
     expect(harness.text("command-row-1")).toBe("  Delete local model")
     expect(harness.text("command-row-2")).toBe("  Debug mode")
 
@@ -198,7 +202,7 @@ describe("chat UI input", () => {
       harness.ui.showCommandSubmenu(
         [
           {
-            name: "Fireworks",
+            name: "Fireworks AI",
             description: "Add API key",
             submission: "/settings hosted fireworks",
           },
@@ -222,7 +226,7 @@ describe("chat UI input", () => {
 
     expect(onSubmit).toHaveBeenCalledOnce()
     expect(onSubmit).toHaveBeenCalledWith("/settings")
-    expect(harness.text("command-row-0")).toBe("› Fireworks")
+    expect(harness.text("command-row-0")).toBe("› Fireworks AI")
     expect(harness.text("command-row-1")).toBe("  Debug mode")
 
     harness.press("escape")
@@ -428,7 +432,7 @@ describe("chat UI input", () => {
     )
     expect(harness.find("setup-choice-local-detail-2")).toBeUndefined()
     expect(harness.text("setup-choice-hosted-label")).toBe(
-      "Fireworks, Together AI, Baseten, Prime Intellect",
+      "Fireworks AI, Together AI, Baseten, Prime Intellect, River AI",
     )
     expect(harness.text("setup-choice-hosted-description")).toBe(
       "Fast remote inference with no local hardware requirements.",
@@ -508,7 +512,7 @@ describe("chat UI input", () => {
     expect(harness.childIds("input-area")).toEqual(["setup-choice"])
     expect(harness.text("setup-choice-hosted-title")).toBe("Hosted inference")
     harness.ui.showSetupInput("", "choice", "fireworks")
-    expect(harness.text("setup-input-label")).toBe("Fireworks API key")
+    expect(harness.text("setup-input-label")).toBe("Fireworks AI API key")
     expect(harness.childIds("setup-form")).toEqual(["setup-input-box", "setup-continue-box"])
     expect(harness.find("setup-message")).toBeUndefined()
     expect(harness.text("setup-continue")).toContain("Continue")
@@ -536,7 +540,13 @@ describe("chat UI input", () => {
   it("picks a hosted provider from the list and honors each cancel target", async () => {
     const onSetupHostedChoice = vi.fn()
     const harness = await setup({ configured: false, onSetupHostedChoice })
-    const none = { fireworks: false, together: false, baseten: false, primeintellect: false }
+    const none = {
+      fireworks: false,
+      together: false,
+      baseten: false,
+      primeintellect: false,
+      river: false,
+    }
 
     harness.ui.showSetupHostedChoice({ ...none, fireworks: true })
     expect(harness.childIds("input-area")).toEqual(["setup-hosted-choice"])
@@ -546,20 +556,24 @@ describe("chat UI input", () => {
       "setup-hosted-row-1-box",
       "setup-hosted-row-2-box",
       "setup-hosted-row-3-box",
+      "setup-hosted-row-4-box",
     ])
-    expect(harness.text("setup-hosted-row-0")).toBe("› Fireworks")
+    expect(harness.text("setup-hosted-row-0")).toBe("› Fireworks AI")
     expect(harness.text("setup-hosted-row-0-meta")).toBe("  API key saved")
     expect(harness.get<TextRenderable>("setup-hosted-row-0-meta").visible).toBe(true)
     expect(harness.text("setup-hosted-row-1")).toBe("  Together AI")
     expect(harness.get<TextRenderable>("setup-hosted-row-1-meta").visible).toBe(false)
     expect(harness.text("setup-hosted-row-2")).toBe("  Baseten")
     expect(harness.text("setup-hosted-row-3")).toBe("  Prime Intellect")
+    expect(harness.text("setup-hosted-row-4")).toBe("  River AI")
     expect(harness.text("setup-hosted-choice-hint")).toBe("[↑↓] move · [enter] select · [esc] back")
 
     harness.press("down")
-    expect(harness.text("setup-hosted-row-0")).toBe("  Fireworks")
+    expect(harness.text("setup-hosted-row-0")).toBe("  Fireworks AI")
     expect(harness.text("setup-hosted-row-1")).toBe("› Together AI")
     harness.press("up")
+    harness.press("up")
+    expect(harness.text("setup-hosted-row-4")).toBe("› River AI")
     harness.press("up")
     expect(harness.text("setup-hosted-row-3")).toBe("› Prime Intellect")
     harness.press("return")
@@ -757,7 +771,7 @@ describe("chat UI input", () => {
         .some((line) => line.includes("Local inference") && line.includes("Hosted inference")),
     ).toBe(true)
     expect(frame).toContain("Private, on your devices")
-    expect(frame).toContain("Fireworks, Together AI,")
+    expect(frame).toContain("Fireworks AI, Together AI,")
     expect(frame).toContain("Baseten, Prime Intellect")
     expect(frame).toContain("[←→] move · [enter] select")
 

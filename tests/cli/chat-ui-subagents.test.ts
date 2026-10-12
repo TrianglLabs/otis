@@ -37,7 +37,7 @@ function envelope(
 }
 
 function startedTraces() {
-  const traces = new SubagentTraces()
+  const traces = new SubagentTraces("/work")
   traces.apply(envelope("call_a", "Map the notes", { type: "model", phase: "start" }))
   traces.apply(
     envelope("call_a", "Map the notes", {
@@ -119,7 +119,7 @@ describe("chat UI subagents", () => {
   it("opens a run's full trace in place of the conversation and returns on escape", async () => {
     const harness = await setup()
     harness.ui.showChatLayout()
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     transcript.addToolMessage("Delegating: Map the notes", "agent", { toolCallId: "call_a" })
     harness.ui.renderTranscript(transcript.entries)
     const traces = startedTraces()

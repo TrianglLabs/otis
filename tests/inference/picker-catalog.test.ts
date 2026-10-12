@@ -508,7 +508,7 @@ describe("model picker catalog", () => {
     ).toEqual([GLM, FLASH, QWEN, BONSAI, ORNITH, GEMMA, LFM, GPT_OSS, GEMMA_A4B, GEMMA_31B])
     expect(items[1]).toMatchObject({ recommended: true })
     const hostedHeader = items.findIndex(
-      (item) => item.kind === "header" && item.displayName === "Fireworks",
+      (item) => item.kind === "header" && item.displayName === "Fireworks AI",
     )
     expect(hostedHeader).toBe(1 + LOCAL_MODELS.length)
     expect(items[hostedHeader + 1]).toMatchObject({
@@ -761,7 +761,7 @@ describe("model picker catalog", () => {
       ["together", "tg_key"],
     ])
     expect(items).toEqual([
-      { kind: "header", id: "header-fireworks", displayName: "Fireworks" },
+      { kind: "header", id: "header-fireworks", displayName: "Fireworks AI" },
       {
         kind: "model",
         ...hostedModel("fireworks", "beta", "Beta"),
@@ -824,18 +824,21 @@ describe("model picker catalog", () => {
       together: false,
       baseten: true,
       primeintellect: false,
+      river: false,
     })
     expect(await hostedRows("fireworks", "accounts/fireworks/routers/shared-fast")).toEqual({
       fireworks: true,
       together: false,
       baseten: false,
       primeintellect: false,
+      river: false,
     })
     expect(await hostedRows("together", "other/model")).toEqual({
       fireworks: false,
       together: false,
       baseten: false,
       primeintellect: false,
+      river: false,
     })
   })
 

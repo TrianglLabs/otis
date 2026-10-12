@@ -6,6 +6,8 @@ import {
   TextRenderable,
 } from "@opentui/core"
 import {
+  HOSTED_PROVIDER_INFO,
+  HOSTED_PROVIDERS,
   localServerNames,
   SERVER_INFO,
   type ServerProvider,
@@ -199,7 +201,7 @@ export function createUILayout(
   const setupHostedCard = createInferenceChoiceCard(renderer, {
     id: "setup-choice-hosted",
     title: "Hosted inference",
-    label: "Fireworks, Together AI, Baseten, Prime Intellect",
+    label: HOSTED_PROVIDERS.map((provider) => HOSTED_PROVIDER_INFO[provider].name).join(", "),
     description: "Fast remote inference with no local hardware requirements.",
     details: [
       "Uses your own API key, sent only to that provider.",

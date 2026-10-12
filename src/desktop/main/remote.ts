@@ -11,6 +11,9 @@ import {
   saveWorkspacePanelWidth,
   TEXT_SIZES,
   UI_LANGUAGES,
+  WORKSPACE_PANEL_TABS,
+  type WorkspacePanelTab,
+  withWorkspacePanelWidth,
 } from "../../local/settings.js"
 import type { DesktopEvent, DesktopSnapshot, DesktopStatus } from "../contracts.js"
 import { decode, encode, MAX_FRAME, type ServerMessage, type SessionNotice } from "../wire.js"
@@ -57,7 +60,7 @@ export async function connectRemote(
     language: local.language ?? "system",
     thinkingVisible: local.thinkingVisible ?? false,
     agentsPanelVisible: local.subagentPanelVisible ?? true,
-    workspacePanelWidth: local.workspacePanelWidth,
+    workspacePanelWidths: local.workspacePanelWidths ?? {},
     update,
     cli,
   })
@@ -175,13 +178,16 @@ export async function connectRemote(
       if (typeof visible !== "boolean") throw new Error("Invalid visibility flag.")
       return keep("subagentPanelVisible", visible, () => saveSubagentPanelVisible(visible))
     },
-    setWorkspacePanelWidth: (width) => {
+    setWorkspacePanelWidth: (tab, width) => {
+      if (!WORKSPACE_PANEL_TABS.some((name) => name === tab)) throw new Error("Invalid panel tab.")
       if (
         width !== undefined &&
         !(typeof width === "number" && Number.isFinite(width) && width > 0)
       )
         throw new Error("Invalid panel width.")
-      return keep("workspacePanelWidth", width, () => saveWorkspacePanelWidth(width))
+      const name = tab as WorkspacePanelTab
+      const widths = withWorkspacePanelWidth(local.workspacePanelWidths, name, width)
+      return keep("workspacePanelWidths", widths, () => saveWorkspacePanelWidth(name, width))
     },
     checkForUpdates: () => handlers.checkForUpdates(),
     installUpdate: () => handlers.installUpdate(),

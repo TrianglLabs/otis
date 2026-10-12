@@ -108,7 +108,13 @@ const SNAPSHOT: DesktopSnapshot = snapshotFixture({
       workspacePath: "/ws",
     },
   ],
-  hostedConfigured: { fireworks: true, together: false, baseten: false, primeintellect: false },
+  hostedConfigured: {
+    fireworks: true,
+    together: false,
+    baseten: false,
+    primeintellect: false,
+    river: false,
+  },
 })
 
 function fakeApi(overrides: Partial<DesktopApi> = {}): DesktopApi {
@@ -515,7 +521,13 @@ describe("AppShell settings navigation", () => {
     const setModelHidden = vi.fn(async () => {})
     const snapshot: DesktopSnapshot = {
       ...SNAPSHOT,
-      hostedConfigured: { fireworks: true, together: true, baseten: false, primeintellect: false },
+      hostedConfigured: {
+        fireworks: true,
+        together: true,
+        baseten: false,
+        primeintellect: false,
+        river: false,
+      },
       hiddenModels: ["fireworks:accounts/fireworks/models/glm"],
     }
     let emit!: (event: DesktopEvent) => void
@@ -537,10 +549,10 @@ describe("AppShell settings navigation", () => {
     expect(listHostedCatalogs).toHaveBeenCalledOnce()
     // One provider at a time behind a tab strip; the first keyed provider opens.
     expect(panel.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
-      "Fireworks",
+      "Fireworks AI",
       "Together AI",
     ])
-    const fireworks = within(panel.getByRole("tabpanel", { name: "Fireworks" }))
+    const fireworks = within(panel.getByRole("tabpanel", { name: "Fireworks AI" }))
     // The detail line is the picker's: context, then the modality with its icon.
     expect(fireworks.getByText("256K")).toBeTruthy()
     expect(fireworks.getByText("Text").querySelector("svg")).toBeTruthy()
@@ -911,6 +923,28 @@ describe("AppShell settings navigation", () => {
     await act(async () => {})
     expect(api.forgetFact).toHaveBeenCalledWith("global", "Prefer bun over npm.")
     expect(within(memory).getByText("Nothing matches.")).toBeTruthy()
+  })
+
+  it("pages a long memory list ten facts at a time", async () => {
+    const entries = Array.from({ length: 12 }, (_, index) => ({
+      scope: "workspace" as const,
+      topic: "general",
+      text: `Fact number ${index + 1}.`,
+    }))
+    const api = fakeApi({ listMemory: vi.fn(async () => entries) })
+    await renderApp(api)
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }))
+    await act(async () => {})
+    fireEvent.click(screen.getByRole("tab", { name: "Extensions" }))
+    await act(async () => {})
+    fireEvent.click(screen.getByRole("tab", { name: "Memory" }))
+    await act(async () => {})
+    const memory = screen.getByRole("heading", { name: "Memory" }).parentElement as HTMLElement
+    expect(within(memory).getAllByRole("button", { name: "Forget" })).toHaveLength(10)
+    expect(within(memory).getByText("10 of 12 facts")).toBeTruthy()
+    fireEvent.click(within(memory).getByRole("button", { name: "Show more" }))
+    expect(within(memory).getAllByRole("button", { name: "Forget" })).toHaveLength(12)
+    expect(within(memory).queryByText("Show more")).toBeNull()
   })
 
   it("keeps the composer's unsent draft when settings is opened and closed", async () => {
@@ -1960,7 +1994,7 @@ describe("AppShell settings navigation", () => {
     expect(resize.getAttribute("aria-valuemax")).toBe("720")
     fireEvent.keyDown(resize, { key: "ArrowRight" })
     expect(panel.style.getPropertyValue("--workspace-rail-width")).toBe("544px")
-    expect(api.setWorkspacePanelWidth).toHaveBeenLastCalledWith(544)
+    expect(api.setWorkspacePanelWidth).toHaveBeenLastCalledWith("canvas", 544)
     viewport = 960
     fireEvent(window, new Event("resize"))
     expect(resize.getAttribute("aria-valuenow")).toBe("480")
@@ -1968,9 +2002,14 @@ describe("AppShell settings navigation", () => {
     viewport = 1600
     fireEvent(window, new Event("resize"))
     expect(resize.getAttribute("aria-valuenow")).toBe("544")
+    // The width is the Canvas tab's own: Coworkers keeps its default beside a widened document.
+    fireEvent.click(screen.getByRole("tab", { name: "Coworkers" }))
+    expect(resize.getAttribute("aria-valuenow")).toBe("320")
+    fireEvent.click(screen.getByRole("tab", { name: "Canvas" }))
+    expect(resize.getAttribute("aria-valuenow")).toBe("544")
     fireEvent.doubleClick(resize)
     expect(resize.getAttribute("aria-valuenow")).toBe("560")
-    expect(api.setWorkspacePanelWidth).toHaveBeenLastCalledWith(undefined)
+    expect(api.setWorkspacePanelWidth).toHaveBeenLastCalledWith("canvas", undefined)
     expect(api.setWorkspacePanelWidth).toHaveBeenCalledTimes(2)
   })
 
@@ -2016,7 +2055,7 @@ describe("AppShell settings navigation", () => {
     const api = fakeApi({
       getSnapshot: async () => ({
         ...SNAPSHOT,
-        workspacePanelWidth: 500,
+        workspacePanelWidths: { canvas: 500 },
         subagents: [{ toolCallId: "one", title: "Coworker", status: "complete", tools: 1 }],
         artifacts: [{ runtime: 1, artifact: DOC, activated: 1 }],
       }),

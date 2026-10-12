@@ -1,41 +1,6 @@
 /* The composer's model chip and the catalog popover it opens. */
 
-/* Command-palette placement: centered, near the top, above the dimmed workspace. */
-.modelPicker {
-  position: fixed;
-  top: 15vh;
-  left: 50%;
-  translate: -50% 0;
-  z-index: var(--z-overlay);
-  width: min(440px, calc(100vw - 32px));
-  max-height: min(520px, 70vh);
-  display: flex;
-  flex-direction: column;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-  animation: overlay-enter var(--motion);
-}
-
-/* The search box heads the popover and filters the catalog as you type; it shares the rows' inset. */
-.modelPicker-search {
-  flex-shrink: 0;
-  width: 100%;
-  padding: 12px 16px;
-  font: inherit;
-  font-size: var(--text-body);
-  color: var(--text);
-  background: none;
-  border: none;
-  border-bottom: 1px solid var(--hairline);
-  outline: none;
-}
-
-.modelPicker-search::placeholder {
-  color: var(--text-dim);
-}
-
+/* The picker is a popover; its list and rows are its own. */
 .modelPicker-message {
   padding: 8px 20px;
   font-size: var(--text-ui);
@@ -53,17 +18,6 @@
   scrollbar-gutter: stable;
   /* The same 6px breathing room under the search field as the ⌘K palette's list. */
   padding: 6px 0 6px 10px;
-}
-
-/* Section labels separate provider groups mid-list; the first one follows the search field directly,
-   so it skips the group-separation padding and lets the list's own top padding be the gap. */
-/* Section label treatment shared across overlays and pages. */
-/* Section labels spaced like the palette's, so the gap under the search field matches. */
-.modelPicker-header {
-  padding: 8px 10px 4px;
-  font-size: var(--text-meta);
-  font-weight: 500;
-  color: var(--text-dim);
 }
 
 /* Whole-row hover with an elevated active row, mono micro detail line. The row carries the background, so the
@@ -95,7 +49,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 8px 7px 10px;
+  padding: 8px 8px 8px 10px;
   border: none;
   background: transparent;
   color: var(--text);

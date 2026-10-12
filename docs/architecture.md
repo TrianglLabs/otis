@@ -12,7 +12,7 @@ User terminal or server process
       -> agent loop, tools, permissions, sessions, and inference
       -> local Agent Skills
       -> local JSONL sessions and usage
-      -> Fireworks, Together AI, Baseten, or Prime Intellect with the user's key for that provider
+      -> Fireworks AI, Together AI, Baseten, Prime Intellect, or River AI with the user's key for that provider
       -> llama-server on 127.0.0.1
       -> NVIDIA PAIR proxy on loopback -> one eligible Ollama or LM Studio engine
       -> Parallel Search MCP
@@ -65,12 +65,12 @@ Keep network transport, persistence, and tool execution outside the UI layer. Ke
 
 ## Hosted provider boundary
 
-Otis knows four hosted providers — Fireworks, Together AI, Baseten, and Prime Intellect — described by one table
+Otis knows five hosted providers — Fireworks AI, Together AI, Baseten, Prime Intellect, and River AI — described by one table
 (`HOSTED_PROVIDER_INFO`: name, key environment variable, key page, chat completions and model-list URLs). The user
 supplies a key per provider. Otis sends each key only to its own provider in a bearer header and never writes it to a
 session or transcript. Prime Intellect bills the key owner's personal wallet unless a request names a team, so an
 optional team id (`primeintellectTeamId`, env `PRIME_TEAM_ID`, settable in Settings and onboarding) is sent as
-`X-Prime-Team-ID` on Prime inference requests. One `HostedClient` serves all four through OpenAI-compatible
+`X-Prime-Team-ID` on Prime inference requests. One `HostedClient` serves all five through OpenAI-compatible
 streaming chat completions; only Fireworks gets its documented `reasoning_effort` tiers and `service_tier`, the
 others keep provider defaults. Fireworks and Baseten cache prompts per replica and route requests by an
 `x-session-affinity` header, and Together by a `prompt_cache_key` request field, so every request to those three
@@ -78,8 +78,8 @@ carries the session id; without it, consecutive turns land on different replicas
 
 Model selection comes from each provider's live model list, filtered to tool-capable models: Fireworks' serverless
 catalog flags `supportsTools`; Prime Intellect lists `tools` among a model's `supported_parameters`; every Baseten Model
-API supports tools; Together's list has no flag, so Otis keeps a curated allowlist of the serverless chat models
-Together documents for function calling and offers those its live list confirms. Unverified model IDs are not accepted
+API supports tools; Together's and River AI's lists have no flag, so Otis keeps a curated allowlist of the models each
+documents for function calling and offers those its live list confirms. Unverified model IDs are not accepted
 through the normal UI. Requests retain text, reasoning content, structured tool calls, tool results, and final token
 usage. Verified display-name and context-window metadata are saved with the selection so the context meter and
 auto-compaction threshold remain safe for smaller tool-capable models. The picker groups hosted rows under one header

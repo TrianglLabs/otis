@@ -13,11 +13,12 @@ const TOOL_CAPABLE_SERVERLESS_FILTER = "supports_serverless=true AND supports_to
 const MAX_MODEL_PAGES = 20
 
 /**
- * Together's model list carries no tool-calling flag, so Otis offers the serverless chat models
- * its function-calling documentation names, and only while the live catalog still lists them.
- * Image input follows each model's documented modalities.
+ * A provider's documented function-calling models, where its model list carries no flag. Image
+ * input follows each model's documented modalities; a context length fills in what the list omits.
  */
-const TOGETHER_TOOL_MODELS: Record<string, { supportsImageInput: boolean }> = {
+type CuratedModels = Record<string, { supportsImageInput: boolean; contextLength?: number }>
+/** The serverless chat models Together's function-calling documentation names. */
+const TOGETHER_TOOL_MODELS: CuratedModels = {
   "thinkingmachines/Inkling": { supportsImageInput: true },
   "MiniMaxAI/MiniMax-M3": { supportsImageInput: true },
   "Qwen/Qwen3.5-9B": { supportsImageInput: true },
@@ -31,6 +32,19 @@ const TOGETHER_TOOL_MODELS: Record<string, { supportsImageInput: boolean }> = {
   "deepseek-ai/DeepSeek-V4.1-Flash": { supportsImageInput: true },
   "meta-llama/Llama-3.3-70B-Instruct-Turbo": { supportsImageInput: false },
 }
+/**
+ * River documents function calling, image input and a 1M context for every model it serves;
+ * its list carries none of it.
+ */
+const RIVER_TOOL_MODELS: CuratedModels = {
+  "deepseek-ai/DeepSeek-V4.1-Flash": { supportsImageInput: true, contextLength: 1_048_576 },
+  "zai-org/GLM-5.3-Flash": { supportsImageInput: true, contextLength: 1_048_576 },
+}
+/** Each curated provider's models, offered only while its live list still has them. */
+const CURATED_TOOL_MODELS: Partial<Record<HostedProvider, CuratedModels>> = {
+  together: TOGETHER_TOOL_MODELS,
+  river: RIVER_TOOL_MODELS,
+}
 
 type ListModelsOptions = {
   fetch?: typeof fetch
@@ -43,8 +57,8 @@ type ListModelsOptions = {
 /**
  * The tool-capable models a hosted provider serves to this key, sorted by name. Fireworks' catalog
  * states tool support per model, as do Prime Intellect's supported parameters; every Baseten
- * Model API supports tools; Together's documented function-calling models are kept where its
- * live list confirms them.
+ * Model API supports tools; Together's and River's documented function-calling models are kept
+ * where their live lists confirm them.
  */
 export async function listHostedModels(
   provider: HostedProvider,
@@ -77,8 +91,10 @@ export async function listHostedModels(
       if (!isRecord(row)) continue
       const id = nonEmptyString(row.id)
       if (!id || seen.has(id)) continue
-      const curated = provider === "together" ? TOGETHER_TOOL_MODELS[id] : undefined
-      if (provider === "together" && (!curated || row.type !== "chat")) continue
+      // Together lists base models under chat ids too; only its chat rows count.
+      if (provider === "together" && row.type !== "chat") continue
+      const curated = CURATED_TOOL_MODELS[provider]?.[id]
+      if (CURATED_TOOL_MODELS[provider] && !curated) continue
       const parameters = Array.isArray(row.supported_parameters) ? row.supported_parameters : []
       if (provider === "primeintellect" && !parameters.includes("tools")) continue
       seen.add(id)
@@ -94,7 +110,7 @@ export async function listHostedModels(
           nonEmptyString(row.name) ??
           id.split("/").at(-1) ??
           id,
-        ...contextLengthField(row.context_length ?? row.context_window),
+        ...contextLengthField(row.context_length ?? row.context_window ?? curated?.contextLength),
         supportsImageInput:
           curated?.supportsImageInput ?? (features.includes("vision") || inputs.includes("image")),
       })

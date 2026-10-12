@@ -152,15 +152,15 @@ describe("context overflow errors", () => {
   it("keeps a short provider detail and drops a page of it", async () => {
     const rejected = await inferenceResponseError(
       Response.json({ error: { message: "Invalid API key provided" } }, { status: 401 }),
-      "Fireworks",
+      "Fireworks AI",
     )
-    expect(rejected.message).toBe("Fireworks rejected the API key: Invalid API key provided.")
+    expect(rejected.message).toBe("Fireworks AI rejected the API key: Invalid API key provided.")
     const page = await inferenceResponseError(
       new Response("<html><body>Bad gateway</body></html>", { status: 502 }),
-      "Fireworks",
+      "Fireworks AI",
     )
     expect(page.message).toBe(
-      "Fireworks is unavailable right now (HTTP 502); try again in a moment.",
+      "Fireworks AI is unavailable right now (HTTP 502); try again in a moment.",
     )
   })
 

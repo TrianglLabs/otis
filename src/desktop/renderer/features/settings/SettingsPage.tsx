@@ -13,7 +13,6 @@ import {
   Import,
   KeyRound,
   Laptop,
-  LoaderCircle,
   NotebookPen,
   Palette,
   Plug,
@@ -109,6 +108,8 @@ export type SettingsTab = keyof typeof SETTINGS_TABS
 
 /** Skills list in pages of this many; a suite can bring a hundred. */
 const SKILLS_PAGE = 10
+/** Facts shown at once in the memory list; Show more adds as many. */
+const MEMORY_PAGE = 10
 /** Rows of another agent's items shown at once; Show more adds as many. */
 const AGENT_PAGE = 8
 const MODELS_SHOWN = 5
@@ -508,16 +509,13 @@ export function SettingsPage({
                             <Button
                               variant="primary"
                               size="sm"
-                              disabled={pairPending}
+                              icon={Plug}
+                              busy={pairPending}
                               onClick={() => void submitPair()}
                             >
-                              <Icon icon={Plug} size={13} />
                               {t("common.connect")}
                             </Button>
                           </div>
-                          {pairPending ? (
-                            <div className="settings-message">{t("settings.checkingServers")}</div>
-                          ) : null}
                           {pairError ? (
                             <div className="settings-message settings-error">{pairError}</div>
                           ) : null}
@@ -917,7 +915,8 @@ function HostedProviderRow({
           <Button
             variant="primary"
             size="sm"
-            disabled={pending || !(apiKey.trim() || teamChanged)}
+            busy={pending}
+            disabled={!(apiKey.trim() || teamChanged)}
             onClick={() => void submit()}
           >
             {t("common.save")}
@@ -938,11 +937,6 @@ function HostedProviderRow({
                 {t("settings.primeTeamIdNote")}
               </p>
             </>
-          ) : null}
-          {pending ? (
-            <div className="settings-message settingsProvider-message">
-              {t("settings.checkingHosted")}
-            </div>
           ) : null}
           {error ? (
             <div className="settings-message settings-error settingsProvider-message">{error}</div>
@@ -1119,8 +1113,14 @@ function ServerSettings({
             onKeyDown={onKeyDown}
             autoComplete="off"
           />
-          <Button variant="primary" size="sm" disabled={!ready} onClick={() => void connect()}>
-            {pending ? t("common.checking") : t("common.connect")}
+          <Button
+            variant="primary"
+            size="sm"
+            busy={pending}
+            disabled={!ready}
+            onClick={() => void connect()}
+          >
+            {t("common.connect")}
           </Button>
           {error ? (
             <div className="settings-message settings-error settingsProvider-message">{error}</div>
@@ -1193,7 +1193,8 @@ function SoftwareUpdates({
       ) : null}
       <Button
         size="sm"
-        disabled={installing || checking || downloading || unavailable}
+        busy={installing || checking || downloading}
+        disabled={unavailable}
         onClick={
           ready
             ? onInstall
@@ -1211,7 +1212,6 @@ function SoftwareUpdates({
               }
         }
         aria-live="polite"
-        aria-busy={installing || checking || downloading}
         title={
           ready
             ? t("updates.versionReady", { version: update.version })
@@ -1220,9 +1220,6 @@ function SoftwareUpdates({
               : undefined
         }
       >
-        {installing || checking || downloading ? (
-          <Icon icon={LoaderCircle} size={12} className="spin" />
-        ) : null}
         {installing
           ? t("shell.restarting")
           : checking
@@ -1523,9 +1520,17 @@ function SkillsSettings() {
   const [url, setUrl] = useState("")
   const [limit, setLimit] = useState(SKILLS_PAGE)
   const { value: summary, pending, error, change } = useSettingsList(listSkills)
+  // Which button's work is under way, so it alone spins while the rest wait.
+  const [busy, setBusy] = useState<string>()
+  const run = async (key: string, operation: () => Promise<SessionOpResult>) => {
+    setBusy(key)
+    const ok = await change(operation)
+    setBusy(undefined)
+    return ok
+  }
   const install = async () => {
     const target = url.trim()
-    if (target && (await change(() => api.installSkills(target)))) setUrl("")
+    if (target && (await run("install", () => api.installSkills(target)))) setUrl("")
   }
   return (
     <>
@@ -1547,15 +1552,17 @@ function SkillsSettings() {
               <span className="settingsSkills-actions">
                 <Button
                   size="sm"
+                  busy={busy === `update:${source.id}`}
                   disabled={pending}
-                  onClick={() => void change(() => api.updateSkills(source.id))}
+                  onClick={() => void run(`update:${source.id}`, () => api.updateSkills(source.id))}
                 >
                   {t("settings.skillUpdate")}
                 </Button>
                 <Button
                   size="sm"
+                  busy={busy === `remove:${source.id}`}
                   disabled={pending}
-                  onClick={() => void change(() => api.removeSkills(source.id))}
+                  onClick={() => void run(`remove:${source.id}`, () => api.removeSkills(source.id))}
                 >
                   {t("settings.skillRemove")}
                 </Button>
@@ -1581,13 +1588,13 @@ function SkillsSettings() {
               <Button
                 variant="primary"
                 size="sm"
+                busy={busy === "install"}
                 disabled={pending || !url.trim()}
                 onClick={() => void install()}
               >
                 {t("settings.skillInstall")}
               </Button>
             </div>
-            {pending ? <div className="settings-message">{t("settings.skillsWorking")}</div> : null}
             {error ? <div className="settings-message settings-error">{error}</div> : null}
           </div>
         </div>
@@ -1805,6 +1812,7 @@ function MemorySettings() {
   const { api } = useDesktop()
   const { locale, t } = useI18n()
   const [fact, setFact] = useState("")
+  const [limit, setLimit] = useState(MEMORY_PAGE)
   const { value: entries, pending, error, change } = useSettingsList(listMemory)
   const rememberFact = async () => {
     const text = fact.trim()
@@ -1817,8 +1825,8 @@ function MemorySettings() {
         {entries?.length === 0 ? (
           <div className="settingsRow settings-message">{t("settings.memoryEmpty")}</div>
         ) : null}
-        {entries?.map((entry, index) => (
-          <div className="settingsRow" key={index}>
+        {entries?.slice(0, limit).map((entry) => (
+          <div className="settingsRow" key={`${entry.scope}:${entry.topic}:${entry.text}`}>
             <span className="settingsRow-label">
               <span className="settingsRow-truncate" title={entry.text}>
                 {entry.text}
@@ -1838,6 +1846,16 @@ function MemorySettings() {
             </Button>
           </div>
         ))}
+        {entries && entries.length > limit ? (
+          <div className="settingsRow">
+            <span className="settingsRow-meta">
+              {t("settings.memoryShown", { shown: limit, total: entries.length })}
+            </span>
+            <Button variant="ghost" size="sm" onClick={() => setLimit(limit + MEMORY_PAGE)}>
+              {t("settings.skillsMore")}
+            </Button>
+          </div>
+        ) : null}
         <div className="settingsForm settingsSurface-form">
           <label className="settingsForm-label" htmlFor="settings-memory-fact">
             {t("settings.memoryFact")}
