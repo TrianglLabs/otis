@@ -82,6 +82,11 @@ export type LocalSettings = Partial<Record<ServerProvider, ServerSettings>> & {
    * remembered for the next pairing while the app runs on this machine.
    */
   remote?: { url: string; token: string; paused?: boolean }
+  /**
+   * Whether this runtime serves desktop apps on other devices, and the address it listens on:
+   * one of this machine's, or 0.0.0.0 for every network.
+   */
+  serve?: { enabled: boolean; host: string }
   fastServingModels?: string[]
   modelFastId?: string
   /** Hosted models hidden from the picker, as `hiddenModelKey` strings. */
@@ -376,6 +381,10 @@ export async function saveRemote(
   await updateSettings(options, (saved) => defined({ ...saved, remote }))
 }
 
+export async function saveServe(serve: LocalSettings["serve"], options: SettingsFileOptions = {}) {
+  await updateSettings(options, (saved) => defined({ ...saved, serve }))
+}
+
 export async function saveHiddenModels(hiddenModels: string[], options: SettingsFileOptions = {}) {
   await updateSettings(options, (saved) =>
     defined({ ...saved, hiddenModels: hiddenModels.length ? hiddenModels : undefined }),
@@ -540,6 +549,15 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
         }
   if (remote && !URL.canParse(remote.url))
     throw new Error("Invalid Otis config: remote.url must be a URL.")
+  if (value.serve !== undefined && !isRecord(value.serve))
+    throw new Error("Invalid Otis config: serve must be an object.")
+  const serve =
+    value.serve === undefined
+      ? undefined
+      : {
+          enabled: optionalBoolean(value.serve.enabled, "serve.enabled") ?? false,
+          host: parsedString(value.serve.host, "serve.host"),
+        }
   return defined({
     version: 1 as const,
     ...keys,
@@ -574,6 +592,7 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
     hiddenSkills,
     permissions,
     remote,
+    serve,
   })
 }
 

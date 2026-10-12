@@ -5,7 +5,12 @@ import { PDFDocument, rgb, StandardFonts } from "pdf-lib"
 import { afterEach, describe, expect, it } from "vitest"
 import { executeToolCall } from "../../src/tools/index.js"
 import type { ToolContext } from "../../src/tools/types.js"
-import { minimalDocx, minimalPdf } from "../inference/support/document-fixtures.js"
+import {
+  minimalDocx,
+  minimalPdf,
+  minimalPptx,
+  minimalXlsx,
+} from "../inference/support/document-fixtures.js"
 
 const tempDirs: string[] = []
 
@@ -114,7 +119,22 @@ describe("executeToolCall", () => {
     ).rejects.toThrow("Attach the image to an Otis prompt instead")
     await expect(
       executeToolCall({ name: "read", input: { path: "data.bin" } }, context),
-    ).rejects.toThrow("read supports UTF-8 text, PDF, and DOCX files only")
+    ).rejects.toThrow("read supports UTF-8 text, PDF, Word, Excel, and PowerPoint files only")
+  })
+
+  it("reads spreadsheets and decks as text while returning their Canvas artifacts", async () => {
+    const context = await testContext()
+    await writeFile(join(context.cwd, "budget.xlsx"), await minimalXlsx())
+    await writeFile(join(context.cwd, "deck.pptx"), await minimalPptx())
+    const xlsx = await executeToolCall({ name: "read", input: { path: "budget.xlsx" } }, context)
+    const pptx = await executeToolCall({ name: "read", input: { path: "deck.pptx" } }, context)
+    expect(xlsx.output).toContain("Hotel & taxes\t1234.5\t2025-10-01")
+    expect(xlsx.artifact).toEqual({ source: "workspace", path: "budget.xlsx", kind: "xlsx" })
+    expect(pptx.output).toContain("Trip plan 2")
+    expect(pptx.artifact).toEqual({ source: "workspace", path: "deck.pptx", kind: "pptx" })
+    await expect(
+      executeToolCall({ name: "write", input: { path: "deck.pptx", content: "x" } }, context),
+    ).rejects.toThrow("format-aware editor")
   })
 
   it("reads PDF and DOCX text while returning their native Canvas artifacts", async () => {

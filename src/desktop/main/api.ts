@@ -217,6 +217,11 @@ export function desktopCall(runtime: DesktopRuntime) {
         throw new Error("Invalid panel width.")
       return runtime.setWorkspacePanelWidth(tab as WorkspacePanelTab, width)
     },
+    setServe: (enabled: unknown, host: unknown) => {
+      if (typeof enabled !== "boolean") throw new Error("Invalid serve flag.")
+      if (typeof host !== "string" || !/^[\d.]+$/.test(host)) throw new Error("Invalid address.")
+      return runtime.setServe(enabled, host)
+    },
     markAchievementsSeen: () => runtime.markAchievementsSeen(),
     setTheme: (theme: unknown) => {
       if (typeof theme !== "string") throw new Error("Invalid theme.")

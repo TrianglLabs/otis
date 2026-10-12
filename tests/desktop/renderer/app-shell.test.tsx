@@ -3559,3 +3559,97 @@ describe("alert sound", () => {
     }
   })
 })
+
+describe("serving other devices from Settings", () => {
+  it("turns serving on and off, picks the network, and shows where to pair with the token hidden", async () => {
+    let emit!: (event: DesktopEvent) => void
+    const api = fakeDesktopApi(
+      snapshotFixture({
+        serve: {
+          enabled: false,
+          host: "100.101.2.3",
+          networks: [
+            { address: "100.101.2.3", via: "Tailscale" },
+            { address: "192.168.1.24", via: "en0" },
+          ],
+          listening: null,
+        },
+      }),
+      {
+        subscribe: vi.fn((listener) => {
+          emit = listener
+          return () => {}
+        }),
+      },
+    )
+    await renderApp(api)
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }))
+    await act(async () => {})
+    fireEvent.click(screen.getByRole("tab", { name: "General" }))
+    const toggle = screen.getByRole("switch", { name: "Remote access" })
+    expect(toggle.getAttribute("aria-checked")).toBe("false")
+    expect(screen.queryByRole("combobox", { name: "Listen on" })).toBeNull()
+    expect(screen.getByText(/Work on this machine from Otis on another device/)).toBeTruthy()
+    fireEvent.click(toggle)
+    await waitFor(() => expect(api.setServe).toHaveBeenCalledWith(true, "100.101.2.3"))
+    // The runtime answers through its status: now listening, with addresses and the token.
+    await act(async () => {
+      emit({
+        type: "status",
+        revision: 99,
+        status: {
+          serve: {
+            enabled: true,
+            host: "100.101.2.3",
+            networks: [
+              { address: "100.101.2.3", via: "Tailscale" },
+              { address: "192.168.1.24", via: "en0" },
+            ],
+            listening: {
+              port: 7331,
+              urls: [{ url: "ws://100.101.2.3:7331", via: "Tailscale" }],
+              token: "a".repeat(64),
+            },
+          },
+        },
+      })
+    })
+    expect(screen.getByRole("switch", { name: "Remote access" }).getAttribute("aria-checked")).toBe(
+      "true",
+    )
+    expect(screen.getByText("Listening at ws://100.101.2.3:7331")).toBeTruthy()
+    expect(screen.getByText("ws://100.101.2.3:7331")).toBeTruthy()
+    expect(screen.getByText("Address on Tailscale")).toBeTruthy()
+    expect(screen.queryByText("a".repeat(64))).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Show token" }))
+    expect(screen.getByText("a".repeat(64))).toBeTruthy()
+    const address = screen.getByRole("combobox", { name: "Listen on" }) as HTMLSelectElement
+    expect(Array.from(address.options).map((option) => option.textContent)).toEqual([
+      "Tailscale · 100.101.2.3",
+      "en0 · 192.168.1.24",
+      "All networks",
+    ])
+    fireEvent.change(address, { target: { value: "0.0.0.0" } })
+    await waitFor(() => expect(api.setServe).toHaveBeenLastCalledWith(true, "0.0.0.0"))
+    fireEvent.click(screen.getByRole("switch", { name: "Remote access" }))
+    await waitFor(() => expect(api.setServe).toHaveBeenLastCalledWith(false, "100.101.2.3"))
+  })
+
+  it("shows why serving could not start and keeps the switch off", async () => {
+    const api = fakeDesktopApi(
+      snapshotFixture({
+        serve: { enabled: false, host: "192.168.1.24", networks: [], listening: null },
+      }),
+      { setServe: vi.fn(async () => ({ ok: false as const, reason: "Port 7331 is in use." })) },
+    )
+    await renderApp(api)
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }))
+    await act(async () => {})
+    fireEvent.click(screen.getByRole("tab", { name: "General" }))
+    fireEvent.click(screen.getByRole("switch", { name: "Remote access" }))
+    expect(await screen.findByText("Port 7331 is in use.")).toBeTruthy()
+    expect(screen.getByRole("switch", { name: "Remote access" }).getAttribute("aria-checked")).toBe(
+      "false",
+    )
+  })
+})

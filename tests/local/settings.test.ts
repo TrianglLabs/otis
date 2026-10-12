@@ -19,6 +19,7 @@ import {
   savePermissionMode,
   savePrimeTeamId,
   saveRemote,
+  saveServe,
   saveSelectedModel,
   saveSelectedTheme,
   saveSubagentPanelVisible,
@@ -733,6 +734,19 @@ describe("local settings", () => {
     )
     await expect(loadLocalSettings({ file, env: {} })).rejects.toThrow(
       "remote.paused must be a boolean",
+    )
+  })
+
+  it("keeps the serving switch and its address, and rejects a host that is not text", async () => {
+    const directory = await tempDirectory()
+    const file = join(directory, "config.json")
+    await saveServe({ enabled: true, host: "100.101.2.3" }, { file })
+    await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({
+      serve: { enabled: true, host: "100.101.2.3" },
+    })
+    await writeFile(file, JSON.stringify({ version: 1, serve: { enabled: true, host: 7 } }), "utf8")
+    await expect(loadLocalSettings({ file, env: {} })).rejects.toThrow(
+      "serve.host must be a string",
     )
   })
 

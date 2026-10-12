@@ -1,6 +1,6 @@
 import { extname, isAbsolute } from "node:path"
 
-const ARTIFACT_KINDS = ["markdown", "text", "html", "pdf", "docx"] as const
+const ARTIFACT_KINDS = ["markdown", "text", "html", "pdf", "docx", "csv", "xlsx", "pptx"] as const
 
 export type ArtifactKind = (typeof ARTIFACT_KINDS)[number]
 
@@ -66,11 +66,22 @@ export type ArtifactMetadata = {
   }
 }
 
-/** PDF bytes cross process boundaries as a typed array; text and converted HTML as strings. */
+/** One worksheet as rows of cell text, in sheet order; a merged range reads in its first cell. */
+export type Sheet = { name: string; rows: string[][] }
+
+/** A spreadsheet's sheets; `truncated` when a sheet was cut at the row or column cap. */
+export type Workbook = { sheets: Sheet[]; truncated: boolean }
+
+/**
+ * PDF bytes cross process boundaries as a typed array, spreadsheets as their cells, text and
+ * converted Office documents as strings.
+ */
 export type ArtifactPayload = ArtifactMetadata &
   (
     | { kind: "pdf"; encoding: "bytes"; content: Uint8Array }
-    | { kind: Exclude<ArtifactKind, "pdf">; encoding: "utf8" | "html"; content: string }
+    | { kind: "csv" | "xlsx"; encoding: "sheets"; content: Workbook }
+    | { kind: "markdown" | "text" | "html"; encoding: "utf8"; content: string }
+    | { kind: "docx" | "pptx"; encoding: "html"; content: string }
   )
 
 /** An image a Markdown document references by a workspace-relative path. */
@@ -84,6 +95,10 @@ const FILE_KINDS = new Map<string, ArtifactKind>([
   [".htm", "html"],
   [".pdf", "pdf"],
   [".docx", "docx"],
+  [".csv", "csv"],
+  [".tsv", "csv"],
+  [".xlsx", "xlsx"],
+  [".pptx", "pptx"],
 ])
 
 const MIME_TYPES: Record<ArtifactKind, string> = {
@@ -92,6 +107,9 @@ const MIME_TYPES: Record<ArtifactKind, string> = {
   html: "text/html",
   pdf: "application/pdf",
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  csv: "text/csv",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 }
 
 export function artifactKindForPath(path: string): ArtifactKind | undefined {
@@ -104,10 +122,15 @@ export function artifactKindForDocument(
   mimeType: string,
 ): ArtifactKind {
   if (kind !== "text") return kind
-  if (mimeType === "text/markdown" || [".md", ".markdown"].includes(extname(name).toLowerCase()))
-    return "markdown"
-  if (mimeType === "text/html" || [".html", ".htm"].includes(extname(name).toLowerCase()))
-    return "html"
+  const extension = extname(name).toLowerCase()
+  if (mimeType === "text/markdown" || [".md", ".markdown"].includes(extension)) return "markdown"
+  if (mimeType === "text/html" || [".html", ".htm"].includes(extension)) return "html"
+  if (
+    mimeType === "text/csv" ||
+    mimeType === "text/tab-separated-values" ||
+    [".csv", ".tsv"].includes(extension)
+  )
+    return "csv"
   return "text"
 }
 

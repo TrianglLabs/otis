@@ -466,3 +466,76 @@
   background: color-mix(in srgb, AccentColor, transparent 50%);
   color: transparent;
 }
+
+/* A spreadsheet: the grid scrolls both ways under lettered columns and numbered rows that stay
+   put, the way a sheet reads. The zoom scales the grid, not the panel. */
+.canvas-document-sheet {
+  padding: 0;
+  overflow: auto;
+}
+
+.canvas-sheet {
+  display: inline-block;
+  min-width: 100%;
+  padding: 0 0 56px;
+}
+
+.canvas-sheetGrid {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--text-ui);
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A column is as wide as its widest cell, up to a cap where long text wraps. */
+.canvas-sheetGrid th,
+.canvas-sheetGrid td {
+  min-width: 64px;
+  max-width: 360px;
+  padding: 5px 10px;
+  border-right: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--hairline);
+  text-align: left;
+  vertical-align: top;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+/* Column letters above and row numbers beside stay in view while the cells scroll. */
+.canvas-sheetGrid th {
+  position: sticky;
+  z-index: 1;
+  background: var(--bg-rail);
+  color: var(--text-dim);
+  font-size: var(--text-meta);
+  font-weight: 500;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.canvas-sheetGrid thead th {
+  top: 0;
+}
+
+.canvas-sheetGrid th[scope="row"] {
+  left: 0;
+  min-width: 0;
+}
+
+.canvas-sheetGrid thead th:first-child {
+  z-index: 2;
+  left: 0;
+}
+
+.canvas-sheetNumber {
+  text-align: right;
+}
+
+.canvas-sheetNote {
+  position: sticky;
+  left: 0;
+  margin: 12px 16px 0;
+  color: var(--text-dim);
+  font-size: var(--text-meta);
+}

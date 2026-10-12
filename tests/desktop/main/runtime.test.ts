@@ -4,7 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { Application, type SessionRuntime } from "../../../src/app/application.js"
 import type { ModelSelection } from "../../../src/app/models.js"
 import type { TurnResult, TurnRunnerOptions } from "../../../src/app/turn-runner.js"
-import type { DesktopEvent, DesktopStatus } from "../../../src/desktop/contracts.js"
+import type {
+  DesktopEvent,
+  DesktopSnapshot,
+  DesktopStatus,
+} from "../../../src/desktop/contracts.js"
 import { DesktopRuntime } from "../../../src/desktop/main/runtime.js"
 import { findLocalModel } from "../../../src/inference/local-catalog.js"
 import type { discoverPairModels, PairEndpoints } from "../../../src/inference/pair.js"
@@ -22,7 +26,7 @@ import type {
   LocalCatalogModel,
   PairCatalogModel,
 } from "../../../src/inference/types.js"
-import { loadLocalSettings, saveSelectedModel } from "../../../src/local/settings.js"
+import { loadLocalSettings, saveSelectedModel, saveServe } from "../../../src/local/settings.js"
 import { createSession } from "../../../src/storage/session.js"
 import {
   defaultSessionDirectory,
@@ -2637,5 +2641,82 @@ describe("locate overlap exclusion", () => {
     expect(snapshot.needsWorkspace).toBe(false)
     expect(snapshot.session?.id).toBe("session-a")
     await runtime.shutdown()
+  })
+})
+
+describe("serving other devices", () => {
+  it("listens when switched on, pairs a client through the same stream, and remembers the choice", async () => {
+    const { runtime, cwd } = await setup(true, { serve: { port: 0 } })
+    const { connectRemote } = await import("../../../src/desktop/main/remote.js")
+    expect((await runtime.snapshot()).serve).toMatchObject({ enabled: false, listening: null })
+    expect(await runtime.setServe(true, "127.0.0.1")).toEqual({ ok: true })
+    const serve = (await runtime.snapshot()).serve
+    expect(serve?.enabled).toBe(true)
+    expect(serve?.listening?.urls).toEqual([{ url: `ws://127.0.0.1:${serve?.listening?.port}` }])
+    expect(serve?.listening?.token).toMatch(/^[0-9a-f]{64}$/)
+    expect((await loadLocalSettings()).serve).toEqual({ enabled: true, host: "127.0.0.1" })
+    const events: DesktopEvent[] = []
+    const client = await connectRemote(
+      { url: serve?.listening?.urls[0].url ?? "", token: serve?.listening?.token ?? "" },
+      {
+        platform: "linux",
+        version: "test",
+        onEvent: (event) => events.push(event),
+        onTerminal: () => {},
+        onNotify: () => {},
+        onClose: () => {},
+        checkForUpdates: async () => {},
+        installUpdate: async () => {},
+      },
+    )
+    const snapshot = (await client.call("getSnapshot", [])) as DesktopSnapshot
+    expect(snapshot.workspace.path).toBe(cwd)
+    // A paired window does not manage serving: the daemon side does, and says so.
+    expect(snapshot.serve).toBeNull()
+    await expect(client.call("setServe", [false, "127.0.0.1"])).rejects.toThrow("cannot serve")
+    // What the runtime pushes to its window reaches the paired client too.
+    await runtime.setDebugMode(true)
+    await vi.waitFor(() =>
+      expect(events.some((event) => event.type === "status" && event.status.debug === true)).toBe(
+        true,
+      ),
+    )
+    await client.shutdown()
+    expect(await runtime.setServe(false, "127.0.0.1")).toEqual({ ok: true })
+    expect((await runtime.snapshot()).serve).toMatchObject({ enabled: false, listening: null })
+    expect((await loadLocalSettings()).serve).toEqual({ enabled: false, host: "127.0.0.1" })
+    await runtime.shutdown()
+  })
+
+  it("reports a listen failure, leaves serving off, and serves again at launch when it was on", async () => {
+    const first = await setup(true, { serve: { port: 0 } })
+    expect(await first.runtime.setServe(true, "127.0.0.1")).toEqual({ ok: true })
+    const port = (await first.runtime.snapshot()).serve?.listening?.port ?? 0
+    const second = await setup(true, { serve: { port } })
+    const refused = await second.runtime.setServe(true, "127.0.0.1")
+    expect(refused).toMatchObject({ ok: false, reason: expect.stringMatching(/in use/) })
+    expect((await second.runtime.snapshot()).serve).toMatchObject({
+      enabled: false,
+      error: expect.stringMatching(/in use/),
+    })
+    expect((await loadLocalSettings()).serve).toEqual({ enabled: false, host: "127.0.0.1" })
+    await second.runtime.shutdown()
+    await first.runtime.shutdown()
+    // The setting that is on when the app starts brings the listener up on its own.
+    await saveServe({ enabled: true, host: "127.0.0.1" })
+    const third = DesktopRuntime.forApplication(await Application.create({ cwd: second.cwd }), {
+      cwd: second.cwd,
+      version: "test",
+      platform: "darwin",
+      send: () => {},
+      sendTerminal: () => {},
+      spawnPty: () => {
+        throw new Error("The tests run no shell.")
+      },
+      serve: { port: 0 },
+    })
+    await vi.waitFor(async () => expect((await third.snapshot()).serve?.listening).not.toBeNull())
+    expect((await third.snapshot()).serve?.enabled).toBe(true)
+    await third.shutdown()
   })
 })

@@ -63,7 +63,7 @@ export function buildSystemPrompt({
       [
         "File deliverables:",
         "- File tools operate inside the workspace. Do not use bash to bypass a file-tool path restriction; request the appropriate workspace or permission instead.",
-        "- When delivering a Markdown, text, HTML, PDF, or Word file, call publish_artifact on its final path after generation, verification, edits, and moves. Shell commands and links in your reply do not publish artifacts.",
+        "- When delivering a Markdown, text, HTML, PDF, Word, CSV, Excel, or PowerPoint file, call publish_artifact on its final path after generation, verification, edits, and moves. Shell commands and links in your reply do not publish artifacts.",
         "- Publication saves a private preview revision. Keep the returned artifact_id and pass it when publishing later edits or moves of the same deliverable; omit it only for a new artifact. Working-file previews remain live and can become unavailable if moved or deleted.",
         "- Only publish files the user asked you to create, edit, or present, not unrelated files you inspected. External publication requires permission and does not grant edit access.",
       ].join("\n"),

@@ -285,7 +285,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: "publish_artifact",
     description:
-      "Publish a finished Markdown, text, HTML, PDF, or DOCX file as a durable artifact in the conversation. Saves a private preview copy without changing the original. Use after generating or moving a deliverable with bash, and again after final edits. External files require permission. Does not bundle linked assets or JavaScript dependencies.",
+      "Publish a finished Markdown, text, HTML, PDF, DOCX, CSV, XLSX, or PPTX file as a durable artifact in the conversation. Saves a private preview copy without changing the original. Use after generating or moving a deliverable with bash, and again after final edits. External files require permission. Does not bundle linked assets or JavaScript dependencies.",
     parameters: objectSchema(
       {
         path: stringSchema("Current relative or absolute path to the finished file."),

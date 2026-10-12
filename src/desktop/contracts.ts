@@ -86,6 +86,7 @@ export const DESKTOP_CHANNELS = {
   getSubagentTrace: "desktop:subagent-trace",
   setAgentsPanelVisible: "desktop:set-agents-panel-visible",
   setWorkspacePanelWidth: "desktop:set-workspace-panel-width",
+  setServe: "desktop:set-serve",
   markAchievementsSeen: "desktop:mark-achievements-seen",
   setTheme: "desktop:set-theme",
   setTextSize: "desktop:set-text-size",
@@ -137,6 +138,21 @@ export const DESKTOP_CHANNELS = {
 export type DesktopCliState =
   | { status: "current" | "updating" | "updated"; path: string; version: string }
   | { status: "failed"; path: string; version: string; message: string }
+
+/**
+ * Serving desktop apps on other devices from this runtime: the switch and the address it binds,
+ * this machine's private networks to choose from, and while it listens, where to connect and the
+ * token to pair with. Null on a window that works on a daemon, which does the serving.
+ */
+export type ServeStatus = {
+  enabled: boolean
+  /** One of this machine's addresses, or 0.0.0.0 for every network. */
+  host: string
+  networks: { address: string; via: string }[]
+  listening: { port: number; urls: { url: string; via?: string }[]; token: string } | null
+  /** Why the last attempt to listen failed, until the next one. */
+  error?: string
+}
 
 /** Update lifecycle shared by automatic checks, Settings, and the restart affordance. */
 export type DesktopUpdateState =
@@ -261,6 +277,7 @@ export type DesktopStatus = {
   remote: string | null
   /** The last daemon address paired from here, prefilled to reconnect; its token stays on disk. */
   remoteSaved: string | null
+  serve: ServeStatus | null
   /**
    * The operating system the runtime runs on, which decides the local model servers it can reach;
    * the daemon's when paired, unlike the snapshot's `platform`, which is this window's.
@@ -469,6 +486,11 @@ export type DesktopApi = {
   setAgentsPanelVisible(visible: boolean): Promise<void>
   /** Remembers a tab's dragged workspace panel width; undefined restores its default. */
   setWorkspacePanelWidth(tab: WorkspacePanelTab, width: number | undefined): Promise<void>
+  /**
+   * Serves desktop apps on other devices from this runtime at `host`, or stops; persisted, so
+   * the app serves again at launch. A failure to listen names the reason and leaves it off.
+   */
+  setServe(enabled: boolean, host: string): Promise<SessionOpResult>
   /** Records that every earned achievement has been looked at. */
   markAchievementsSeen(): Promise<void>
   /** Applies and persists a color theme. Unknown theme names are ignored. */

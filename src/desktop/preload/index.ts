@@ -60,7 +60,9 @@ const api: DesktopApi = {
   getSubagentTrace: (toolCallId, seen) =>
     invoke(DESKTOP_CHANNELS.getSubagentTrace, toolCallId, seen),
   setAgentsPanelVisible: (visible) => invoke(DESKTOP_CHANNELS.setAgentsPanelVisible, visible),
-  setWorkspacePanelWidth: (width) => invoke(DESKTOP_CHANNELS.setWorkspacePanelWidth, width),
+  setWorkspacePanelWidth: (tab, width) =>
+    invoke(DESKTOP_CHANNELS.setWorkspacePanelWidth, tab, width),
+  setServe: (enabled, host) => invoke(DESKTOP_CHANNELS.setServe, enabled, host),
   markAchievementsSeen: () => invoke(DESKTOP_CHANNELS.markAchievementsSeen),
   saveRoutine: (routine) => invoke(DESKTOP_CHANNELS.saveRoutine, routine),
   deleteRoutine: (id) => invoke(DESKTOP_CHANNELS.deleteRoutine, id),

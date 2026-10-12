@@ -20,6 +20,7 @@ import {
   IconFileTypePdf,
   IconFileTypePhp,
   IconFileTypePng,
+  IconFileTypePpt,
   IconFileTypeRs,
   IconFileTypeSql,
   IconFileTypeSvg,
@@ -46,6 +47,9 @@ const KIND_GLYPHS: Record<FileVisualKind, TablerIcon> = {
   html: IconFileTypeHtml,
   pdf: IconFileTypePdf,
   docx: IconFileTypeDocx,
+  csv: IconFileTypeCsv,
+  xlsx: IconFileSpreadsheet,
+  pptx: IconFileTypePpt,
   mermaid: IconFile,
 }
 
@@ -80,6 +84,7 @@ const GLYPHS: [TablerIcon, string][] = [
   [IconFileTypeDoc, "doc"],
   [IconFileTypeCsv, "csv tsv"],
   [IconFileSpreadsheet, "xlsx xls"],
+  [IconFileTypePpt, "pptx ppt"],
   [IconFileTypePng, "png"],
   [IconFileTypeJpg, "jpg jpeg"],
   [IconFileTypeSvg, "svg"],

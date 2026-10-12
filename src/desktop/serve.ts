@@ -1,41 +1,54 @@
-import { timingSafeEqual } from "node:crypto"
+import { randomBytes, timingSafeEqual } from "node:crypto"
+import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
+import { networkInterfaces } from "node:os"
+import { join } from "node:path"
 import { type WebSocket, WebSocketServer } from "ws"
 import { describeError } from "../inference/errors.js"
-import { desktopCall } from "./main/api.js"
-import { DesktopRuntime } from "./main/runtime.js"
+import { localConfigDirectory } from "../local/paths.js"
 import { type ClientMessage, decode, encode, MAX_FRAME, type ServerMessage } from "./wire.js"
 
+/** The pairing token, created privately on first use and reused by every later listener. */
+export async function serveToken() {
+  const path = join(localConfigDirectory(), "serve-token")
+  const saved = (await readFile(path, "utf8").catch(() => "")).trim()
+  if (saved) return saved
+  const token = randomBytes(32).toString("hex")
+  await mkdir(localConfigDirectory(), { recursive: true, mode: 0o700 })
+  await writeFile(path, `${token}\n`, { mode: 0o600 })
+  return token
+}
+
+/** A network this machine is on, by the IPv4 address a client would paste. */
+export type Network = { address: string; via: string }
+
 /**
- * The desktop runtime as a daemon: `otis serve` hosts it on this machine, and desktop apps connect
- * over a private network with the pairing token. Every client sees the same sessions, Canvas and
- * settings, because there is one runtime; a client that drops leaves the work running.
+ * This machine's addresses on private networks, the tailnet one named so it stands out from the
+ * LAN (Tailscale hands out 100.64.0.0/10).
  */
-export async function serveDesktop(options: {
-  cwd: string
+export function privateNetworks(): Network[] {
+  return Object.entries(networkInterfaces()).flatMap(([name, nets]) =>
+    (nets ?? [])
+      .filter((net) => net.family === "IPv4" && !net.internal)
+      .map((net) => {
+        const [a, b] = net.address.split(".").map(Number)
+        return { address: net.address, via: a === 100 && b >= 64 && b < 128 ? "Tailscale" : name }
+      }),
+  )
+}
+
+/**
+ * Desktop apps on other devices reach the runtime here: JSON frames over one WebSocket each,
+ * admitted by the pairing token at the handshake, every call dispatched through `call` and every
+ * event the runtime emits broadcast to all of them.
+ */
+export async function listenDesktop(options: {
   host: string
   port: number
-  version: string
   token: string
+  call: (method: string, args: unknown[]) => unknown
 }) {
-  const broadcast = (message: ServerMessage) => {
-    if (sockets.clients.size === 0) return
-    const text = encode(message)
-    for (const client of sockets.clients) client.send(text)
-  }
-  const runtime = await DesktopRuntime.create({
-    cwd: options.cwd,
-    version: options.version,
-    platform: process.platform,
-    send: (event) => broadcast({ event }),
-    sendTerminal: (data) => broadcast({ terminal: data }),
-    notify: (notice) => broadcast({ notify: notice }),
-    spawnPty: () => {
-      throw new Error("The terminal is not available over a remote connection.")
-    },
-  })
-  const call = desktopCall(runtime)
   const expected = Buffer.from(options.token)
   const paired = (token: unknown) => {
     const presented = Buffer.from(typeof token === "string" ? token : "")
@@ -67,7 +80,7 @@ export async function serveDesktop(options: {
       const { id, method } = message
       const args = (message.args ?? []).map((arg) => arg ?? undefined)
       try {
-        client.send(encode({ id, result: (await call(method, args)) ?? null }))
+        client.send(encode({ id, result: (await options.call(method, args)) ?? null }))
       } catch (error) {
         client.send(encode({ id, error: describeError(error) }))
       }
@@ -81,12 +94,16 @@ export async function serveDesktop(options: {
   return {
     port,
     url: `ws://${options.host}:${port}`,
+    broadcast(message: ServerMessage) {
+      if (sockets.clients.size === 0) return
+      const text = encode(message)
+      for (const client of sockets.clients) client.send(text)
+    },
     async close() {
       for (const client of sockets.clients) client.close(1001, "Otis is stopping.")
       // Upgraded sockets keep an HTTP server from closing on their own.
       server.closeAllConnections()
       await new Promise<void>((resolve) => server.close(() => resolve()))
-      await runtime.shutdown()
     },
   }
 }

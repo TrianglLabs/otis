@@ -1,10 +1,11 @@
-import { mkdir, readFile } from "node:fs/promises"
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { WebSocket } from "ws"
 import type { DesktopEvent, DesktopSnapshot } from "../../src/desktop/contracts.js"
 import { connectRemote } from "../../src/desktop/main/remote.js"
-import { serveDesktop } from "../../src/desktop/serve.js"
+import { serveDesktop } from "../../src/cli/serve.js"
+import { serveToken } from "../../src/desktop/serve.js"
 import { loadLocalSettings, saveSelectedTheme } from "../../src/local/settings.js"
 import { useOtisHome } from "../app/support/otis-home.js"
 
@@ -18,13 +19,9 @@ async function serve() {
   const home = await otisHome("otis-serve-")
   const cwd = join(home, "workspace")
   await mkdir(cwd, { recursive: true })
-  const server = await serveDesktop({
-    cwd,
-    host: "127.0.0.1",
-    port: 0,
-    version: "1.0.0",
-    token: "secret-token",
-  })
+  await mkdir(home, { recursive: true })
+  await writeFile(join(home, "serve-token"), "secret-token\n")
+  const server = await serveDesktop({ cwd, host: "127.0.0.1", port: 0, version: "1.0.0" })
   open.push(server)
   return { server, cwd, home }
 }
@@ -52,7 +49,7 @@ describe("otis serve", () => {
     // Bun's ws shim reports the 401 only as a failed connection; Node names the status.
     await expect(
       connectRemote(
-        { url: server.url, token: "wrong" },
+        { url: server.urls[0].url, token: "wrong" },
         {
           platform: "linux",
           version: "1.0.0",
@@ -66,16 +63,16 @@ describe("otis serve", () => {
       ),
     ).rejects.toThrow(/rejected the pairing token|Couldn't reach/)
     expect(onClose).not.toHaveBeenCalled()
-    const backend = await client(server.url, "secret-token")
+    const backend = await client(server.urls[0].url, "secret-token")
     await backend.shutdown()
   })
 
   it("refuses a daemon on another version, naming both and the fix, unless either is a dev build", async () => {
     const { server } = await serve()
-    const host = new URL(server.url).host
+    const host = new URL(server.urls[0].url).host
     const attempt = (version: string) =>
       connectRemote(
-        { url: server.url, token: "secret-token" },
+        { url: server.urls[0].url, token: "secret-token" },
         {
           platform: "linux",
           version,
@@ -97,8 +94,10 @@ describe("otis serve", () => {
 
   it("drops a paired peer that sends garbage and keeps serving everyone else", async () => {
     const { server } = await serve()
-    const backend = await client(server.url, "secret-token")
-    const peer = new WebSocket(server.url, { headers: { authorization: "Bearer secret-token" } })
+    const backend = await client(server.urls[0].url, "secret-token")
+    const peer = new WebSocket(server.urls[0].url, {
+      headers: { authorization: "Bearer secret-token" },
+    })
     const closed = new Promise<number>((resolve) => peer.on("close", resolve))
     await new Promise<void>((resolve) => peer.on("open", () => resolve()))
     peer.send("not json")
@@ -111,7 +110,7 @@ describe("otis serve", () => {
     const { server } = await serve()
     const onClose = vi.fn()
     const backend = await connectRemote(
-      { url: server.url, token: "secret-token" },
+      { url: server.urls[0].url, token: "secret-token" },
       {
         platform: "linux",
         version: "1.0.0",
@@ -132,10 +131,10 @@ describe("otis serve", () => {
 
   it("serves the runtime by method name, with this client's platform and version", async () => {
     const { server, cwd } = await serve()
-    const backend = await client(server.url, "secret-token")
+    const backend = await client(server.urls[0].url, "secret-token")
     const snapshot = (await backend.call("getSnapshot", [])) as DesktopSnapshot
     expect(snapshot.workspace.path).toBe(cwd)
-    expect(snapshot.remote).toBe(new URL(server.url).host)
+    expect(snapshot.remote).toBe(new URL(server.urls[0].url).host)
     expect(snapshot.platform).toBe("linux")
     expect(snapshot.version).toBe("1.0.0")
     // Validation runs where the runtime lives, and a failure comes back as its sentence.
@@ -161,7 +160,7 @@ describe("otis serve", () => {
   it("keeps appearance on the client and forwards everything else, streaming status back", async () => {
     const { server } = await serve()
     const events: DesktopEvent[] = []
-    const backend = await client(server.url, "secret-token", (event) => events.push(event))
+    const backend = await client(server.urls[0].url, "secret-token", (event) => events.push(event))
     const before = (await backend.call("getSnapshot", [])) as DesktopSnapshot
     await backend.call("setTheme", ["pearl"])
     // Saved in this machine's settings, shown in the next status, never sent to the daemon.
@@ -185,9 +184,9 @@ describe("otis serve", () => {
   it("leaves the daemon's work running when the client goes away", async () => {
     const { server } = await serve()
     const events: DesktopEvent[] = []
-    const backend = await client(server.url, "secret-token", (event) => events.push(event))
+    const backend = await client(server.urls[0].url, "secret-token", (event) => events.push(event))
     await backend.shutdown()
-    const again = await client(server.url, "secret-token")
+    const again = await client(server.urls[0].url, "secret-token")
     const snapshot = (await again.call("getSnapshot", [])) as DesktopSnapshot
     expect(snapshot.session).toBeNull()
     expect(snapshot.busy).toBe(false)
@@ -196,7 +195,7 @@ describe("otis serve", () => {
 
   it("writes a private pairing token once and reuses it", async () => {
     const { home } = await serve()
-    const { serveToken } = await import("../../src/cli/serve.js")
+    await rm(join(home, "serve-token"))
     const token = await serveToken()
     expect(token).toMatch(/^[0-9a-f]{64}$/)
     expect(await serveToken()).toBe(token)

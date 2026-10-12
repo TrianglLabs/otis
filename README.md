@@ -88,7 +88,8 @@ Update an existing CLI installation with `otis update`.
     <td valign="middle">
       <b>4. Review your work in Canvas</b><br><br>
       Preview documents beside your conversation, follow edits, and revisit saved versions. PDFs, Word files,
-      Markdown, webpages, and Mermaid diagrams each open as a tab, and nothing leaves your machine to render.
+      spreadsheets, slide decks, Markdown, webpages, and Mermaid diagrams each open as a tab, and nothing leaves
+      your machine to render.
       A Terminal tab (<code>⌃`</code>) opens your shell in the working folder beside them.
     </td>
     <td><img src="docs/screens/canvas.png" alt="Canvas with document tabs and a PDF preview" width="100%"></td>
@@ -169,16 +170,19 @@ you first. The model cannot grant a routine tools without asking; that switch is
 
 ## Work on another machine
 
-A machine that stays on can run the Otis runtime as a daemon and the desktop app can work on it:
+A machine that stays on can serve its Otis runtime to the desktop app on your other devices. In the app on that
+machine, Settings → General → Server → Let your other devices connect turns serving on, picks the network it listens
+on (the Tailscale one is preferred when there is one) and shows the addresses and the pairing token to use elsewhere;
+the app serves again at every launch until it is turned off. A machine without the app runs the daemon instead:
 
 ```sh
 otis serve --host <private address>
 ```
 
-`otis serve` hosts the same runtime the desktop app runs in-process — sessions, models, API keys, skills, memory and
-Canvas documents are that machine's — and prints the addresses it is reachable at (the Tailscale one among them) and a
-pairing token, created once and reused. In the desktop app, Settings → General → Another
-machine takes the address and the token; the app restarts onto the daemon and shows which host it is working on.
+Both host the same runtime the desktop app runs in-process — sessions, models, API keys, skills, memory and
+Canvas documents are that machine's. `otis serve` prints the addresses it is reachable at (the Tailscale one among
+them) and the pairing token, created once and shared with the app's switch. On the other device, Settings → General →
+Server takes the address and the token; the app restarts onto the host and shows which one it is working on.
 Switching back to this machine keeps the pairing, so reconnecting later needs no token, just Connect.
 Appearance settings stay with the window. The daemon listens on loopback unless `--host` names an interface; reach it
 over a private network such as Tailscale rather than exposing it to the internet. A client that disconnects leaves

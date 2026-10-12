@@ -5,10 +5,11 @@ import { MAX_PDF_PAGES } from "../inference/document-constraints.js"
 import {
   createDocumentAttachment,
   MAX_RAW_DOCUMENT_BYTES,
-  validateDocxArchive,
+  readOfficeArchive,
 } from "../inference/documents.js"
 import type { DocumentContentPart } from "../inference/types.js"
 import { isCanvasArtifact } from "./canvas.js"
+import { parseDelimited, slidesFromPptx, workbookFromXlsx, workbookText } from "./office.js"
 import {
   type ArtifactAsset,
   type ArtifactKind,
@@ -20,7 +21,7 @@ import {
   type WorkspaceArtifactReference,
 } from "./types.js"
 
-const MAX_RENDERED_DOCX_CHARS = 4_000_000
+const MAX_RENDERED_OFFICE_CHARS = 4_000_000
 const IMAGE_TYPES = new Map([
   [".png", "image/png"],
   [".jpg", "image/jpeg"],
@@ -87,7 +88,7 @@ export function workspaceArtifactMetadata(
     kind,
     title: basename(path) || path,
     mimeType: artifactMimeType(kind),
-    editable: kind === "markdown" || kind === "text" || kind === "html",
+    editable: kind === "markdown" || kind === "text" || kind === "html" || kind === "csv",
     path,
   }
 }
@@ -154,7 +155,7 @@ function isNestedPath(path: string) {
 
 /**
  * Preview-time conversion checks only what the renderer needs: the PDF header and page count, the
- * DOCX archive bounds, and the text caps. Publication runs the full document validation.
+ * Office archive bounds, and the text caps. Publication runs the full document validation.
  */
 export async function payloadFromBytes(
   bytes: Buffer,
@@ -173,15 +174,23 @@ export async function payloadFromBytes(
     // A tight copy: the renderer receives exactly these bytes, never a shared pool slab.
     return { ...metadata, kind, encoding: "bytes", content: new Uint8Array(bytes) }
   }
-  if (kind === "docx") {
-    if (bytes[0] !== 0x50 || bytes[1] !== 0x4b) throw new Error(`${name} is not a DOCX file.`)
-    await validateDocxArchive(bytes)
-    const { default: mammoth } = await import("mammoth")
-    const result = await mammoth.convertToHtml({ buffer: bytes })
-    if (result.value.length > MAX_RENDERED_DOCX_CHARS)
-      throw new Error("This Word document is too large to preview.")
-    return { ...metadata, kind, encoding: "html", content: result.value }
+  if (kind === "docx" || kind === "pptx") {
+    const content = await officeHtml(bytes, kind, name)
+    if (content.length > MAX_RENDERED_OFFICE_CHARS)
+      throw new Error(`This ${kind === "docx" ? "Word document" : "deck"} is too large to preview.`)
+    return { ...metadata, kind, encoding: "html", content }
   }
+  if (kind === "xlsx") {
+    if (bytes[0] !== 0x50 || bytes[1] !== 0x4b) throw new Error(`${name} is not an XLSX file.`)
+    return { ...metadata, kind, encoding: "sheets", content: await workbookFromXlsx(bytes) }
+  }
+  if (kind === "csv")
+    return {
+      ...metadata,
+      kind,
+      encoding: "sheets",
+      content: parseDelimited(decodeArtifactText(bytes, name), name),
+    }
   if (kind === "markdown" && bytes.byteLength > MAX_MARKDOWN_PREVIEW_BYTES)
     throw new Error(
       "This Markdown file is too large to preview in Canvas. Save a copy to open it elsewhere.",
@@ -189,11 +198,32 @@ export async function payloadFromBytes(
   return { ...metadata, kind, encoding: "utf8", content: decodeArtifactText(bytes, name) }
 }
 
+/** A Word document or deck as HTML for the preview frame, from a verified package. */
+async function officeHtml(bytes: Buffer, kind: "docx" | "pptx", name: string) {
+  if (bytes[0] !== 0x50 || bytes[1] !== 0x4b)
+    throw new Error(`${name} is not a ${kind.toUpperCase()} file.`)
+  if (kind === "pptx") return (await slidesFromPptx(bytes)).html
+  await readOfficeArchive(bytes, "word/document.xml")
+  const { default: mammoth } = await import("mammoth")
+  return (await mammoth.convertToHtml({ buffer: bytes })).value
+}
+
 /** Full validation before a publication is persisted or advertised as successful; yields the text. */
 export async function validateArtifactBytes(bytes: Buffer, kind: ArtifactKind, name: string) {
   if (kind === "pdf" || kind === "docx")
     return (await createDocumentAttachment(bytes, name, artifactMimeType(kind))).extractedText
-  return decodeArtifactText(bytes, name)
+  return officeText(bytes, kind, name)
+}
+
+/**
+ * A spreadsheet's or deck's words, for excerpts and for reading the file in the conversation;
+ * text files decode as they are.
+ */
+export async function officeText(bytes: Buffer, kind: ArtifactKind, name: string) {
+  if (kind === "pptx") return (await slidesFromPptx(bytes)).text
+  if (kind === "xlsx") return workbookText(await workbookFromXlsx(bytes))
+  const text = decodeArtifactText(bytes, name)
+  return kind === "csv" ? workbookText(parseDelimited(text, name)) : text
 }
 
 function decodeArtifactText(bytes: Buffer, name: string) {
