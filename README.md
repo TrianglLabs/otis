@@ -31,7 +31,7 @@ connects to the models you already run.
 - **Local models, without the setup work.** Otis recommends a model for your hardware, downloads it, and runs it
   for you. No account, no telemetry, and it works offline.
 - **Local or hosted, your call.** Run local models without per-token fees, or use hosted models with your own
-  Fireworks, Together AI, Baseten, or Prime Intellect key. Pick the model. Keep the work.
+  Fireworks AI, Together AI, Baseten, Prime Intellect, or River AI key. Pick the model. Keep the work.
 - **Shows its work.** Thinking, every command, every edit as a diff, and an approval before anything risky. Up to
   four sessions side by side, with documents open beside the conversation.
 - **Your history stays yours.** Conversations and saved artifacts live on your disk. Hosted inference and web
@@ -61,7 +61,7 @@ Update an existing CLI installation with `otis update`.
       <b>1. Choose where Otis thinks</b><br><br>
       First launch asks one question. <b>Local</b> recommends the best model for your machine, downloads it, and runs
       it through an Otis-managed llama.cpp server, so Otis works offline. Or connect Ollama, LM Studio, oMLX, any
-      OpenAI-compatible server you run, or an NVIDIA PAIR cluster you already run. <b>Hosted</b> uses your own Fireworks, Together AI, Baseten, or Prime
+      OpenAI-compatible server you run, or an NVIDIA PAIR cluster you already run. <b>Hosted</b> uses your own Fireworks AI, Together AI, Baseten, or Prime
       Intellect key.
     </td>
     <td width="62%"><img src="docs/screens/onboarding.png" alt="First launch: choose Hosted or Local" width="100%"></td>
@@ -150,7 +150,7 @@ Desktop app / OpenTUI terminal / headless CLI
       ├─ llama.cpp ── Otis-managed local GGUF inference
       ├─ NVIDIA PAIR ── routing across your local AI cluster
       ├─ oMLX · any OpenAI-compatible server ── user-managed inference on loopback
-      ├─ Fireworks · Together AI · Baseten · Prime Intellect ── hosted inference and model discovery
+      ├─ Fireworks AI · Together AI · Baseten · Prime Intellect · River AI ── hosted inference and model discovery
       └─ Parallel Search MCP ── web search and page reading
 ```
 
@@ -208,11 +208,11 @@ to an eligible computer in your cluster, an [oMLX](docs/local-servers.md) server
 [any OpenAI-compatible server](docs/local-servers.md) you run — vLLM, llama.cpp, NInfer, your own.
 
 **Hosted.** [Fireworks](https://app.fireworks.ai/api-keys), [Together AI](https://api.together.ai/settings/projects/~current/api-keys),
-[Baseten](https://app.baseten.co/settings/api_keys), or [Prime Intellect](https://app.primeintellect.ai/dashboard/tokens)
-with your own API key, entered during setup, from `/settings`, or from the environment:
+[Baseten](https://app.baseten.co/settings/api_keys), [Prime Intellect](https://app.primeintellect.ai/dashboard/tokens),
+or [River AI](https://console.river.ai/keys) with your own API key, entered during setup, from `/settings`, or from the environment:
 
 ```sh
-export FIREWORKS_API_KEY=fw_your_key   # or TOGETHER_API_KEY, BASETEN_API_KEY, PRIME_API_KEY
+export FIREWORKS_API_KEY=fw_your_key   # or TOGETHER_API_KEY, BASETEN_API_KEY, PRIME_API_KEY, RIVER_API_KEY
 export PRIME_TEAM_ID=team_id           # optional: bill Prime Intellect to a team wallet
 otis
 ```

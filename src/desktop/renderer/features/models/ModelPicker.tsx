@@ -1,4 +1,15 @@
-import { Cpu, Download, Eye, Loader2, Star, Text, Trash2, X } from "lucide-react"
+import {
+  CornerDownLeft,
+  Cpu,
+  Download,
+  Eye,
+  Loader2,
+  Search,
+  Star,
+  Text,
+  Trash2,
+  X,
+} from "lucide-react"
 import { Fragment, useCallback, useEffect, useRef, useState } from "react"
 import type { ModelPickerChoice, ModelPickerItem } from "../../../../inference/picker-catalog.js"
 import { filterModelPickerItems } from "../../../../inference/picker-filter.js"
@@ -102,24 +113,25 @@ export function ModelPicker({ open, onClose }: { open: boolean; onClose: () => v
         hidden={!open}
       />
       <div
-        className="modelPicker noDrag"
+        className="popover modelPicker noDrag"
         role="dialog"
         aria-modal="true"
         aria-label={t("models.select")}
         hidden={!open}
       >
-        {/* The same bare field as the ⌘K palette: full width, a hairline underneath. */}
-        <input
-          ref={inputRef}
-          className="modelPicker-search"
-          type="text"
-          placeholder={t("models.searchPlaceholder")}
-          aria-label={t("models.searchPlaceholder")}
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          spellCheck={false}
-          autoComplete="off"
-        />
+        <div className="popover-search">
+          <Icon icon={Search} size={14} />
+          <input
+            ref={inputRef}
+            type="text"
+            placeholder={t("models.searchPlaceholder")}
+            aria-label={t("models.searchPlaceholder")}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            spellCheck={false}
+            autoComplete="off"
+          />
+        </div>
         {noMatches ? <div className="modelPicker-message">{t("models.noMatches")}</div> : null}
         {listError ? (
           <div className="modelPicker-message modelPicker-error">{listError}</div>
@@ -138,7 +150,7 @@ export function ModelPicker({ open, onClose }: { open: boolean; onClose: () => v
           {rows.map((item) => {
             if (item.kind === "header") {
               return (
-                <div key={item.id} className="modelPicker-header">
+                <div key={item.id} className="popover-section">
                   {/* Hosted sections carry the provider's brand name, which is not translated. */}
                   {item.id === "header-pair"
                     ? t("models.serverHeading")
@@ -293,6 +305,9 @@ export function ModelPicker({ open, onClose }: { open: boolean; onClose: () => v
               </div>
             )
           })}
+        </div>
+        <div className="popover-footer">
+          <Icon icon={CornerDownLeft} size={11} /> {t("popover.footer")}
         </div>
       </div>
     </>

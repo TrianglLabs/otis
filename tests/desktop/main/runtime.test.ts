@@ -654,6 +654,7 @@ describe("DesktopRuntime subagents", () => {
       together: false,
       baseten: false,
       primeintellect: false,
+      river: false,
     })
 
     expect(await runtime.setHostedApiKey("fireworks", "good-key")).toEqual({ ok: true })
@@ -711,7 +712,7 @@ describe("DesktopRuntime subagents", () => {
         ["model", "moonshotai/Kimi-K2.5"],
       ]),
     )
-    expect(items.find((item) => item.id === "header-fireworks")?.displayName).toBe("Fireworks")
+    expect(items.find((item) => item.id === "header-fireworks")?.displayName).toBe("Fireworks AI")
     expect(items.find((item) => item.id === "header-together")?.displayName).toBe("Together AI")
     expect(items.some((item) => item.id === "header-baseten")).toBe(false)
     // Only keyed providers are fetched; the keys never pass through the picker row.
@@ -878,13 +879,13 @@ describe("DesktopRuntime subagents", () => {
 
   it("persists the workspace panel width and clears it on reset", async () => {
     const { runtime } = await setup()
-    expect((await runtime.snapshot()).workspacePanelWidth).toBeUndefined()
-    await runtime.setWorkspacePanelWidth(431)
-    expect((await runtime.snapshot()).workspacePanelWidth).toBe(431)
-    expect((await loadLocalSettings()).workspacePanelWidth).toBe(431)
-    await runtime.setWorkspacePanelWidth(undefined)
-    expect((await runtime.snapshot()).workspacePanelWidth).toBeUndefined()
-    expect((await loadLocalSettings()).workspacePanelWidth).toBeUndefined()
+    expect((await runtime.snapshot()).workspacePanelWidths).toEqual({})
+    await runtime.setWorkspacePanelWidth("canvas", 431)
+    expect((await runtime.snapshot()).workspacePanelWidths).toEqual({ canvas: 431 })
+    expect((await loadLocalSettings()).workspacePanelWidths).toEqual({ canvas: 431 })
+    await runtime.setWorkspacePanelWidth("canvas", undefined)
+    expect((await runtime.snapshot()).workspacePanelWidths).toEqual({})
+    expect((await loadLocalSettings()).workspacePanelWidths).toEqual({})
     await runtime.shutdown()
   })
 

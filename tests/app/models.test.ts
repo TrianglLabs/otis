@@ -221,8 +221,14 @@ describe("ModelHost", () => {
     "together",
     "baseten",
     "primeintellect",
+    "river",
   ] as const)("refuses a %s selection without that provider's key", async (provider) => {
-    const names = { together: "Together AI", baseten: "Baseten", primeintellect: "Prime Intellect" }
+    const names = {
+      together: "Together AI",
+      baseten: "Baseten",
+      primeintellect: "Prime Intellect",
+      river: "River AI",
+    }
     const llama = fakeLlama()
     const host = new ModelHost({ llama })
     const model: HostedModel = {

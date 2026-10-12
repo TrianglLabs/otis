@@ -8,7 +8,7 @@ import type { AgentEvent } from "../../src/core/agent.js"
 
 describe("TranscriptStore", () => {
   it("counts every entry and history change in its revision and prices the history once each", () => {
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     const seen: number[] = []
     const estimate = (messages: readonly unknown[]) => {
       seen.push(messages.length)
@@ -39,7 +39,7 @@ describe("TranscriptStore", () => {
   })
 
   it("records transcript entries in insertion order with stable IDs", () => {
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
 
     const user = transcript.addUserMessage("hello")
     const assistant = transcript.addAssistantMessage("hi")
@@ -56,7 +56,7 @@ describe("TranscriptStore", () => {
   })
 
   it("updates existing entries without mutating missing IDs", () => {
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     const entry = transcript.addAssistantMessage("partial")
 
     transcript.updateEntry(entry.id, { text: "complete", streaming: false })
@@ -68,7 +68,7 @@ describe("TranscriptStore", () => {
   })
 
   it("keeps artifact revisions in history but reveals only the last revision when the turn settles", () => {
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     const first = transcript.addToolMessage("Writing brief.md", "file_write", {
       toolCallId: "write_1",
     })
@@ -94,8 +94,35 @@ describe("TranscriptStore", () => {
     ])
   })
 
+  it("lets a publication take over the card of the working file it was saved from", () => {
+    const transcript = new TranscriptStore("/work")
+    const edit = transcript.addToolMessage("Editing brief.md", "file_edit", { toolCallId: "e1" })
+    const save = transcript.addToolMessage("Publishing brief.md", "file_write", {
+      toolCallId: "p1",
+    })
+    const other = transcript.addToolMessage("Editing notes.md", "file_edit", { toolCallId: "e2" })
+    transcript.stageArtifact(edit.id, { source: "workspace", path: "brief.md", kind: "markdown" })
+    transcript.stageArtifact(other.id, { source: "workspace", path: "notes.md", kind: "markdown" })
+    transcript.stageArtifact(save.id, {
+      source: "published",
+      artifactId: "a1",
+      version: 1,
+      sha256: "x",
+      name: "brief.md",
+      kind: "markdown",
+      sourcePath: "/work/brief.md",
+      excerpt: "",
+    })
+    expect(transcript.finalizeArtifacts()).toBe(true)
+    expect(transcript.entries.map((entry) => entry.artifactDisplay)).toEqual([
+      "superseded",
+      "ready",
+      "ready",
+    ])
+  })
+
   it("reveals the final revision of each distinct artifact", () => {
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     const brief = transcript.addToolMessage("Writing brief.md", "file_write")
     const notes = transcript.addToolMessage("Writing notes.md", "file_write")
 
@@ -107,7 +134,7 @@ describe("TranscriptStore", () => {
   })
 
   it("moves a queued user message to the active transcript position", () => {
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     transcript.addUserMessage("active")
     const queued = transcript.addQueuedUserMessage("follow-up")
     transcript.addAssistantMessage("active done")
@@ -124,7 +151,7 @@ describe("TranscriptStore", () => {
   })
 
   it("projects attached documents as reopenable artifacts while preserving terminal display text", () => {
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     transcript.addUserMessage({
       role: "user",
       content: [
@@ -159,7 +186,7 @@ describe("TranscriptStore", () => {
   })
 
   it("names attached images apart from the user's words for graphical surfaces", () => {
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     transcript.addUserMessage({
       role: "user",
       content: [
@@ -211,7 +238,7 @@ describe("TranscriptStore", () => {
   })
 
   it("reconstructs tool cards from older sessions without activity metadata", () => {
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     const messages = [
       { role: "user" as const, content: "hello" },
       {
@@ -249,7 +276,7 @@ describe("TranscriptStore", () => {
   })
 
   it("reconstructs reasoning, text, and tools in persisted content order", () => {
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     transcript.loadMessages([
       { role: "user", content: "inspect" },
       {
@@ -287,7 +314,7 @@ describe("TranscriptStore", () => {
   })
 
   it("replays persisted tool diffs by tool-call ID and preserves message order", () => {
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     const messages = [
       { role: "user" as const, content: "edit both files" },
       {
@@ -348,7 +375,7 @@ describe("TranscriptStore", () => {
   })
 
   it("replays one final artifact card per artifact and user turn", () => {
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     const messages = [
       { role: "user" as const, content: "Draft the brief" },
       {
@@ -415,7 +442,7 @@ describe("TranscriptStore", () => {
   })
 
   it("retains the latest matching activity when tool-call IDs repeat across compacted turns", () => {
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     const firstTurn = toolTurn("first", "old.ts")
     const secondTurn = toolTurn("second", "new.ts")
     const activities = [
@@ -439,7 +466,7 @@ describe("TranscriptStore", () => {
   })
 
   it("replaces replayed history when switching sessions", () => {
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
 
     transcript.loadMessages([{ role: "user", content: "old" }])
     transcript.replaceMessages([{ role: "user", content: "new" }])
@@ -449,7 +476,7 @@ describe("TranscriptStore", () => {
   })
 
   it("compacts model history while preserving existing scrollback exactly once", () => {
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
 
     transcript.loadMessages([
       { role: "user", content: "old question" },
@@ -476,7 +503,7 @@ describe("TranscriptStore", () => {
   })
 
   it("preserves pending prompt identities when model history is compacted", () => {
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     transcript.loadMessages([{ role: "user", content: "old task" }])
     const queued = transcript.addQueuedUserMessage("queued task")
     const steering = transcript.addSteeringUserMessage("new direction")
@@ -496,7 +523,7 @@ describe("TranscriptStore", () => {
   })
 
   it("keeps compaction summaries in model context without displaying them on session reload", () => {
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     const messages = [
       {
         role: "user" as const,
@@ -544,7 +571,7 @@ function watch(store: TranscriptStore) {
 
 describe("TranscriptStore change notifications", () => {
   it("replaces model context without publishing the compaction summary or resetting scrollback", () => {
-    const store = new TranscriptStore()
+    const store = new TranscriptStore("/work")
     store.loadMessages([{ role: "user", content: "original task" }])
     const entries = [...store.entries]
     const { changes } = watch(store)
@@ -557,7 +584,7 @@ describe("TranscriptStore change notifications", () => {
   })
 
   it("emits upsert for new and updated entries", () => {
-    const store = new TranscriptStore()
+    const store = new TranscriptStore("/work")
     const { changes } = watch(store)
 
     const entry = store.addAssistantMessage("hello")
@@ -570,7 +597,7 @@ describe("TranscriptStore change notifications", () => {
   })
 
   it("emits reset before replayed entries when messages are replaced", () => {
-    const store = new TranscriptStore()
+    const store = new TranscriptStore("/work")
     store.addAssistantMessage("old")
     const { changes } = watch(store)
 
@@ -582,7 +609,7 @@ describe("TranscriptStore change notifications", () => {
   })
 
   it("emits remove then upsert when a queued message activates, moving it to the end", () => {
-    const store = new TranscriptStore()
+    const store = new TranscriptStore("/work")
     const queued = store.addQueuedUserMessage("follow up")
     store.addAssistantMessage("working…")
     const { changes } = watch(store)
@@ -598,7 +625,7 @@ describe("TranscriptStore change notifications", () => {
   })
 
   it("emits remove and stops notifying after unsubscribe", () => {
-    const store = new TranscriptStore()
+    const store = new TranscriptStore("/work")
     const entry = store.addAssistantMessage("gone")
     const { changes, unsubscribe } = watch(store)
     changes.length = 0
@@ -613,7 +640,7 @@ describe("TranscriptStore change notifications", () => {
 
 describe("TranscriptProjector", () => {
   it("separates partial output from the next model attempt without adding an error message", () => {
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     const projector = new TranscriptProjector(transcript)
     projector.apply({ type: "delta", text: "Partial response" })
     expect(projector.apply({ type: "model", phase: "retry" })).toBe(true)
@@ -625,7 +652,7 @@ describe("TranscriptProjector", () => {
   })
 
   it("streams text into one assistant card and starts a new card after reasoning or tool activity", () => {
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     const projector = new TranscriptProjector(transcript)
     const events: AgentEvent[] = [
       { type: "delta", text: "Looking" },
@@ -686,7 +713,7 @@ describe("TranscriptProjector", () => {
   })
 
   it("attaches diffs to the tool card by call ID and expands debug output line by line", () => {
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     const projector = new TranscriptProjector(transcript)
     projector.apply({
       type: "tool",
@@ -720,7 +747,7 @@ describe("TranscriptProjector", () => {
   })
 
   it("holds artifact cards until the turn ends and reveals only the latest revision", () => {
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     const projector = new TranscriptProjector(transcript)
     const artifact = { source: "workspace" as const, path: "brief.md", kind: "markdown" as const }
 
@@ -761,7 +788,7 @@ describe("TranscriptProjector", () => {
   })
 
   it("ignores events that do not belong to the transcript", () => {
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     const projector = new TranscriptProjector(transcript)
 
     expect(projector.apply({ type: "model", phase: "start" })).toBe(false)
@@ -781,7 +808,7 @@ describe("TranscriptProjector", () => {
   })
 
   it("keeps revisions pending through steering and compaction in the same turn", () => {
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     let projector = new TranscriptProjector(transcript)
     const artifact = {
       source: "published" as const,

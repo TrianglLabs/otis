@@ -248,10 +248,10 @@ describe("OnboardingPage", () => {
     await renderApp(api)
     fireEvent.click(await screen.findByRole("button", { name: /Hosted/ }))
     // Fireworks is the default provider; its key page is the one the link opens.
-    expect(screen.getByText(/Pay-as-you-go with your Fireworks account/)).toBeTruthy()
+    expect(screen.getByText(/Pay-as-you-go with your Fireworks AI account/)).toBeTruthy()
     fireEvent.click(screen.getByRole("button", { name: "Get a key" }))
     expect(api.openHostedKeyPage).toHaveBeenCalledWith("fireworks")
-    fireEvent.change(screen.getByLabelText("Fireworks API key"), {
+    fireEvent.change(screen.getByLabelText("Fireworks AI API key"), {
       target: { value: "fw_test_key" },
     })
     fireEvent.click(screen.getByRole("button", { name: /Continue/ }))
@@ -275,7 +275,7 @@ describe("OnboardingPage", () => {
     fireEvent.click(together)
     expect(together.getAttribute("aria-selected")).toBe("true")
     expect(screen.getByText(/Pay-as-you-go with your Together AI account/)).toBeTruthy()
-    expect(screen.queryByLabelText("Fireworks API key")).toBeNull()
+    expect(screen.queryByLabelText("Fireworks AI API key")).toBeNull()
     fireEvent.click(screen.getByRole("button", { name: "Get a key" }))
     expect(api.openHostedKeyPage).toHaveBeenCalledWith("together")
     fireEvent.change(screen.getByLabelText("Together AI API key"), {
@@ -311,7 +311,7 @@ describe("OnboardingPage", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Hosted/ }))
     expect(api.listModels).not.toHaveBeenCalled()
 
-    fireEvent.change(screen.getByLabelText("Fireworks API key"), {
+    fireEvent.change(screen.getByLabelText("Fireworks AI API key"), {
       target: { value: "fw_test_key" },
     })
     fireEvent.click(screen.getByRole("button", { name: /Continue/ }))
@@ -674,9 +674,9 @@ describe("OnboardingPage", () => {
     // reads Connected.
     const panel = within(screen.getByRole("tabpanel", { name: "Inference" }))
     expect(panel.getAllByText("Connected")).toHaveLength(1)
-    expect(panel.getAllByText("Not connected")).toHaveLength(3)
+    expect(panel.getAllByText("Not connected")).toHaveLength(4)
     expect(panel.getByRole("button", { name: "Replace key" })).toBeTruthy()
-    expect(panel.getAllByRole("button", { name: "Add key" })).toHaveLength(3)
+    expect(panel.getAllByRole("button", { name: "Add key" })).toHaveLength(4)
     expect(screen.queryByLabelText("Together AI API key")).toBeNull()
 
     // Connect opens one inline field; saving a key closes it again.

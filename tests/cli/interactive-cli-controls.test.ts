@@ -159,7 +159,7 @@ describe("CLI settings", () => {
     expect(mocks.ui.showCommandSubmenu).toHaveBeenLastCalledWith(
       [
         {
-          name: "Fireworks",
+          name: "Fireworks AI",
           description: "Show or hide models",
           submission: "/settings models fireworks",
         },
@@ -217,7 +217,7 @@ describe("CLI settings", () => {
     await submit("/settings models")
     expect(mocks.ui.showCommandSubmenu).toHaveBeenLastCalledWith(
       [
-        expect.objectContaining({ name: "Fireworks", submission: "/settings models fireworks" }),
+        expect.objectContaining({ name: "Fireworks AI", submission: "/settings models fireworks" }),
         expect.objectContaining({ name: "Together AI", submission: "/settings models together" }),
       ],
       { onBack: expect.any(Function) },
@@ -271,7 +271,7 @@ describe("CLI settings", () => {
     await submit("/settings")
     expect(mocks.ui.showCommandSubmenu).toHaveBeenLastCalledWith(
       [
-        { name: "Hosted inference", description: "Fireworks", submission: "/settings hosted" },
+        { name: "Hosted inference", description: "Fireworks AI", submission: "/settings hosted" },
         {
           name: "Local servers",
           description: "Connect a local model server",

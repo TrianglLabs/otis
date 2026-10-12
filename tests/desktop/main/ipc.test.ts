@@ -137,11 +137,15 @@ it("rejects calls from anything but our own renderer", async () => {
 it("validates and forwards the workspace panel width", async () => {
   const setWorkspacePanelWidth = vi.fn(async () => {})
   const handler = handlerFor(DESKTOP_CHANNELS.setWorkspacePanelWidth, { setWorkspacePanelWidth })
-  await handler(420)
-  await handler(undefined)
-  expect(setWorkspacePanelWidth.mock.calls).toEqual([[420], [undefined]])
+  await handler("canvas", 420)
+  await handler("coworkers", undefined)
+  expect(setWorkspacePanelWidth.mock.calls).toEqual([
+    ["canvas", 420],
+    ["coworkers", undefined],
+  ])
+  await expect(handler("sidebar", 420)).rejects.toThrow("Invalid panel tab")
   for (const width of [0, -5, Number.NaN, "420", null]) {
-    await expect(handler(width)).rejects.toThrow("Invalid panel width")
+    await expect(handler("canvas", width)).rejects.toThrow("Invalid panel width")
   }
 })
 

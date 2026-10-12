@@ -558,6 +558,7 @@ describe("Application status", () => {
         together: false,
         baseten: false,
         primeintellect: false,
+        river: false,
       },
       pairEndpoints: {},
       servers: {},
@@ -833,7 +834,7 @@ describe("Application model transactions", () => {
     const app = await Application.create({ cwd: home, env: {} })
     expect(app.status().modelState).toBe("unconfigured")
     await expect(app.setHostedApiKey("fireworks", "  ")).rejects.toThrow(
-      "Fireworks API key is required.",
+      "Fireworks AI API key is required.",
     )
     await expect(app.setHostedApiKey("fireworks", "bad", { list: async () => [] })).rejects.toThrow(
       "no public models with tool support",
@@ -879,6 +880,7 @@ describe("Application model transactions", () => {
         together: false,
         baseten: false,
         primeintellect: false,
+        river: false,
       },
     })
     // A second session runs on Fireworks with a live client; the Together key must not rebuild it.
@@ -912,7 +914,13 @@ describe("Application model transactions", () => {
     expect(app.status()).toMatchObject({
       modelState: "ready",
       model: { id: together.id, provider: "together" },
-      hostedConfigured: { fireworks: true, together: true, baseten: false, primeintellect: false },
+      hostedConfigured: {
+        fireworks: true,
+        together: true,
+        baseten: false,
+        primeintellect: false,
+        river: false,
+      },
     })
     expect(app.focused.selection?.client).toMatchObject({
       provider: "together",

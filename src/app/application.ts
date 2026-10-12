@@ -500,8 +500,8 @@ export class Application {
   /** A runtime with its own stores, coordinator, and turn loop, reporting events under its id. */
   #createRuntime(workspace: Workspace, permissionMode?: PermissionMode): SessionRuntime {
     const selection = this.#focused?.selection && { ...this.#focused.selection }
-    const transcript = new TranscriptStore()
-    const subagents = new SubagentTraces()
+    const transcript = new TranscriptStore(workspace.cwd)
+    const subagents = new SubagentTraces(workspace.cwd)
     const artifacts = new ArtifactStore(workspace.cwd)
     let runtime!: SessionRuntime
     const sessions = new SessionCoordinator({

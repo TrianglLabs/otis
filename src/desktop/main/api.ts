@@ -3,7 +3,7 @@ import { isArtifactReference } from "../../artifacts/types.js"
 import { isOtherAgentId } from "../../core/context.js"
 import { isRecord } from "../../inference/errors.js"
 import { isHostedProvider, isServerProvider } from "../../inference/types.js"
-import { TEXT_SIZES } from "../../local/settings.js"
+import { TEXT_SIZES, WORKSPACE_PANEL_TABS, type WorkspacePanelTab } from "../../local/settings.js"
 import { isMemoryScope } from "../../memory/memory.js"
 import type {
   DesktopAttachmentInput,
@@ -203,13 +203,14 @@ export function desktopCall(runtime: DesktopRuntime) {
       if (typeof visible !== "boolean") throw new Error("Invalid visibility flag.")
       return runtime.setAgentsPanelVisible(visible)
     },
-    setWorkspacePanelWidth: (width: unknown) => {
+    setWorkspacePanelWidth: (tab: unknown, width: unknown) => {
+      if (!WORKSPACE_PANEL_TABS.some((name) => name === tab)) throw new Error("Invalid panel tab.")
       if (
         width !== undefined &&
         (typeof width !== "number" || !Number.isFinite(width) || width <= 0)
       )
         throw new Error("Invalid panel width.")
-      return runtime.setWorkspacePanelWidth(width)
+      return runtime.setWorkspacePanelWidth(tab as WorkspacePanelTab, width)
     },
     markAchievementsSeen: () => runtime.markAchievementsSeen(),
     setTheme: (theme: unknown) => {

@@ -23,7 +23,13 @@ import type {
   SessionUsage,
 } from "../inference/types.js"
 import type { RoutineInput } from "../local/routines.js"
-import type { TextSize, ThemeName, UiLanguage } from "../local/settings.js"
+import type {
+  TextSize,
+  ThemeName,
+  UiLanguage,
+  WorkspacePanelTab,
+  WorkspacePanelWidths,
+} from "../local/settings.js"
 import type { MemoryEntry, MemoryScope } from "../memory/memory.js"
 import type { PermissionMode } from "../permissions/policy.js"
 import type { SkillsSummary } from "../skills/catalog.js"
@@ -33,7 +39,13 @@ export type { PendingPermission, TurnPhase, TurnSpeed } from "../app/conversatio
 export type { RecentArtifact } from "../app/global-sessions.js"
 export type { ModelState } from "../app/models.js"
 export type { HostedModel, HostedProvider, ServerProvider } from "../inference/types.js"
-export type { TextSize, ThemeName, UiLanguage } from "../local/settings.js"
+export type {
+  TextSize,
+  ThemeName,
+  UiLanguage,
+  WorkspacePanelTab,
+  WorkspacePanelWidths,
+} from "../local/settings.js"
 export type { PermissionMode } from "../permissions/policy.js"
 
 import type { AchievementId, LocalStats } from "../local/stats.js"
@@ -195,8 +207,8 @@ export type DesktopStatus = {
   agentsPanelVisible: boolean
   /** A shell runs in the working folder; it outlives the renderer. */
   terminal: boolean
-  /** The workspace panel width the user last dragged to; undefined follows the responsive default. */
-  workspacePanelWidth: number | undefined
+  /** The workspace panel width each tab was last dragged to; a tab without one follows its default. */
+  workspacePanelWidths: WorkspacePanelWidths
   /** The active color theme; persisted in local settings. */
   theme: ThemeName
   /** Chat prose size from Appearance; the UI chrome keeps its own scale. */
@@ -446,8 +458,8 @@ export type DesktopApi = {
   getSubagentTrace(toolCallId: string, seen?: number): Promise<SubagentTraceView>
   /** Shows or hides the delegated-runs rail; persisted across launches. */
   setAgentsPanelVisible(visible: boolean): Promise<void>
-  /** Remembers the dragged workspace panel width; undefined restores the responsive default. */
-  setWorkspacePanelWidth(width: number | undefined): Promise<void>
+  /** Remembers a tab's dragged workspace panel width; undefined restores its default. */
+  setWorkspacePanelWidth(tab: WorkspacePanelTab, width: number | undefined): Promise<void>
   /** Records that every earned achievement has been looked at. */
   markAchievementsSeen(): Promise<void>
   /** Applies and persists a color theme. Unknown theme names are ignored. */

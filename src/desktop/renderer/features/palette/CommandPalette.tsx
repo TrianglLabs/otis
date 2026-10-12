@@ -302,24 +302,26 @@ export function CommandPalette({
         hidden={!open}
       />
       <div
-        className={`palette noDrag${lifted ? " lifted" : ""}`}
+        className={`popover palette noDrag${lifted ? " lifted" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-label={t("palette.dialog")}
         ref={dialogRef}
         hidden={!open}
       >
-        <input
-          ref={inputRef}
-          className="palette-input"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={onInputKeyDown}
-          placeholder={t("palette.placeholder")}
-          spellCheck={false}
-          autoComplete="off"
-          aria-label={t("palette.searchLabel")}
-        />
+        <div className="popover-search">
+          <Icon icon={Search} size={14} />
+          <input
+            ref={inputRef}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={onInputKeyDown}
+            placeholder={t("palette.placeholder")}
+            spellCheck={false}
+            autoComplete="off"
+            aria-label={t("palette.searchLabel")}
+          />
+        </div>
         {actionError ? <div className="palette-message palette-error">{actionError}</div> : null}
         <div
           className={`palette-list${scrollbar.scrolling ? " scrolling" : ""}`}
@@ -336,10 +338,10 @@ export function CommandPalette({
             return (
               <Fragment key={key}>
                 {!needle && index === 0 && row.kind === "action" ? (
-                  <div className="palette-section">{t("palette.actions")}</div>
+                  <div className="popover-section">{t("palette.actions")}</div>
                 ) : null}
                 {!needle && firstSession ? (
-                  <div className="palette-section">{t("palette.recentSessions")}</div>
+                  <div className="popover-section">{t("palette.recentSessions")}</div>
                 ) : null}
                 {row.kind === "action" ? (
                   <button
@@ -439,8 +441,8 @@ export function CommandPalette({
             <div className="palette-empty">{t("palette.noMatches")}</div>
           ) : null}
         </div>
-        <div className="palette-footer">
-          <Icon icon={CornerDownLeft} size={11} /> {t("palette.footer")}
+        <div className="popover-footer">
+          <Icon icon={CornerDownLeft} size={11} /> {t("popover.footer")}
         </div>
       </div>
       {menu ? (

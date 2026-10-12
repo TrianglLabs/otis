@@ -37,7 +37,7 @@ const transports: {
 }[] = [
   {
     name: "HostedClient (Fireworks)",
-    label: "Fireworks",
+    label: "Fireworks AI",
     bearer: "Bearer fw_test_key",
     reasoningField: "reasoning_content",
     create: (url: string, idleTimeoutMs: number): InferenceClient =>

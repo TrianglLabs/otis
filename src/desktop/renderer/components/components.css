@@ -12,10 +12,73 @@
   animation: overlay-fade var(--motion);
 }
 
+/* A popover: the model picker and the ⌘K palette share one frame, a search field with its
+   icon under a hairline, section labels, and a footer of keys, so the two read as one control. */
+.popover {
+  position: fixed;
+  top: 15vh;
+  left: 50%;
+  translate: -50% 0;
+  z-index: var(--z-overlay);
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(560px, 70vh);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-float);
+  overflow: hidden;
+  animation: overlay-enter var(--motion);
+}
+
+.popover-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--hairline);
+  color: var(--text-dim);
+}
+
+.popover-search input {
+  flex: 1;
+  min-width: 0;
+  padding: 14px 0;
+  font: inherit;
+  font-size: var(--text-body);
+  color: var(--text);
+  background: none;
+  border: none;
+  outline: none;
+}
+
+.popover-search input::placeholder {
+  color: var(--text-dim);
+}
+
+.popover-section {
+  padding: 10px 10px 4px;
+  font-size: var(--text-meta);
+  font-weight: 500;
+  color: var(--text-dim);
+}
+
+.popover-footer {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  padding: 8px 16px;
+  border-top: 1px solid var(--hairline);
+  font-size: var(--text-meta);
+  color: var(--text-dim);
+}
+
 /* A closed overlay hides rather than unmounts: Chromium keeps a removed subtree alive once an
    animation or transition ran on it. The attribute outranks the display the overlay sets. */
-.modelPicker[hidden],
-.palette[hidden],
+.popover[hidden],
 .settingsLayer[hidden] {
   display: none;
 }

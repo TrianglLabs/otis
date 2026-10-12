@@ -40,7 +40,7 @@ const CATALOG: ModelPickerItem[] = [
     downloaded: true,
     active: false,
   },
-  { kind: "header", id: "header-fireworks", displayName: "Fireworks" },
+  { kind: "header", id: "header-fireworks", displayName: "Fireworks AI" },
   {
     kind: "model",
     provider: "fireworks",
@@ -84,8 +84,8 @@ describe("ModelPicker search", () => {
     const { dialog, search } = await openPicker()
     expect(document.activeElement).toBe(search)
     expect(search.placeholder).toBe("Search models")
-    const headers = [...dialog.querySelectorAll(".modelPicker-header")].map((e) => e.textContent)
-    expect(headers).toEqual(["Local", "Fireworks", "Together AI"])
+    const headers = [...dialog.querySelectorAll(".popover-section")].map((e) => e.textContent)
+    expect(headers).toEqual(["Local", "Fireworks AI", "Together AI"])
     expect(within(dialog).queryByText("Hosted")).toBeNull()
   })
 
@@ -95,12 +95,12 @@ describe("ModelPicker search", () => {
     expect(within(dialog).queryByText("Qwen3.8 27B")).toBeNull()
     expect(within(dialog).getByText("Kimi K2.6")).toBeTruthy()
     expect(within(dialog).getByText("Kimi K2.5")).toBeTruthy()
-    let headers = [...dialog.querySelectorAll(".modelPicker-header")].map((e) => e.textContent)
-    expect(headers).toEqual(["Fireworks", "Together AI"])
+    let headers = [...dialog.querySelectorAll(".popover-section")].map((e) => e.textContent)
+    expect(headers).toEqual(["Fireworks AI", "Together AI"])
 
     // Provider names match too, so "together" finds a row whose name says nothing about it.
     fireEvent.change(search, { target: { value: "TOGETHER" } })
-    headers = [...dialog.querySelectorAll(".modelPicker-header")].map((e) => e.textContent)
+    headers = [...dialog.querySelectorAll(".popover-section")].map((e) => e.textContent)
     expect(headers).toEqual(["Together AI"])
     expect(within(dialog).getByText("Kimi K2.5")).toBeTruthy()
     expect(within(dialog).queryByText("Kimi K2.6")).toBeNull()
@@ -112,7 +112,7 @@ describe("ModelPicker search", () => {
     fireEvent.change(search, { target: { value: "no such model" } })
     expect(within(dialog).getByText("No models match")).toBeTruthy()
     expect(dialog.querySelectorAll(".modelPicker-row")).toHaveLength(0)
-    expect(dialog.querySelectorAll(".modelPicker-header")).toHaveLength(0)
+    expect(dialog.querySelectorAll(".popover-section")).toHaveLength(0)
   })
 
   it("keeps selection and deletion working on filtered rows", async () => {

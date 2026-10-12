@@ -664,15 +664,11 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
               <Button
                 variant="primary"
                 size="lg"
-                disabled={serverPending}
+                icon={Plug}
+                busy={serverPending}
                 onClick={() => void connectServer()}
               >
-                <Icon
-                  icon={serverPending ? Loader2 : Plug}
-                  size={14}
-                  className={serverPending ? "spin" : undefined}
-                />
-                {serverPending ? t("common.checking") : t("common.connect")}
+                {t("common.connect")}
               </Button>
             </div>
           </>

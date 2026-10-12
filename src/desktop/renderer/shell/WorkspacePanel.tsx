@@ -21,7 +21,12 @@ import {
 } from "react"
 import type { TranscriptEntry } from "../../../app/transcript.js"
 import { countDiffLines, splitSubject } from "../../../tools/activity.js"
-import type { SubagentSummary, ThemeName } from "../../contracts.js"
+import type {
+  SubagentSummary,
+  ThemeName,
+  WorkspacePanelTab,
+  WorkspacePanelWidths,
+} from "../../contracts.js"
 import { IconButton } from "../components/Button.js"
 import { FileTypeIcon } from "../components/FileTypeIcon.js"
 import { Icon } from "../components/Icon.js"
@@ -37,7 +42,6 @@ import { TerminalView } from "../features/terminal/TerminalView.js"
 import { useI18n } from "../i18n/index.js"
 import { useDesktop, useDesktopSelector, useScrollbarFlash } from "../runtime.js"
 
-type PanelTab = "coworkers" | "canvas" | "changes" | "terminal"
 /** A tool entry that edited a file: the Changes tab lists these by file. */
 type Change = TranscriptEntry & { diff: string; activitySubject: string }
 export const isChange = (entry: TranscriptEntry): entry is Change =>
@@ -63,9 +67,10 @@ export function WorkspacePanel({
   /** When the shell was last asked for from this window; a change brings its tab forward. */
   terminalFocus: number | undefined
 }) {
-  // Drags update the local width immediately; the saved width seeds it and survives relaunches.
-  // The wrapper tells a double-click reset (width undefined) apart from "never touched".
-  const [local, setLocal] = useState<{ width: number | undefined }>()
+  // Drags update the local width immediately; the saved widths seed it and survive relaunches.
+  // Each tab has its own, so a document's wide Canvas never widens the coworker list. The wrapper
+  // tells a double-click reset (width undefined) apart from "never touched".
+  const [local, setLocal] = useState<RailWidth>()
   // The focused session's edits; the selection compares by entry, so it holds until one lands.
   const changes = useDesktopSelector((snapshot) =>
     (snapshot?.entries ?? NO_CHANGES).filter(isChange),
@@ -75,9 +80,9 @@ export function WorkspacePanel({
     visible: snapshot?.agentsPanelVisible ?? true,
     theme: snapshot?.theme ?? "default",
     terminal: snapshot?.terminal ?? false,
-    savedWidth: snapshot?.workspacePanelWidth,
+    savedWidths: snapshot?.workspacePanelWidths ?? NO_WIDTHS,
   }))
-  const { savedWidth, ...panel } = state
+  const { savedWidths, ...panel } = state
   return (
     <SessionWorkspacePanel
       changes={changes}
@@ -85,11 +90,16 @@ export function WorkspacePanel({
       views={views}
       onCloseDiagram={onCloseDiagram}
       terminalFocus={terminalFocus}
-      railWidth={local ? local.width : savedWidth}
-      onRailWidthChange={(width) => setLocal({ width })}
+      savedWidths={savedWidths}
+      localWidth={local}
+      onRailWidthChange={setLocal}
     />
   )
 }
+
+/** A tab's width as last dragged or reset in this window, ahead of what is saved. */
+type RailWidth = { tab: WorkspacePanelTab; width: number | undefined }
+const NO_WIDTHS: WorkspacePanelWidths = {}
 
 function SessionWorkspacePanel({
   runs,
@@ -99,7 +109,8 @@ function SessionWorkspacePanel({
   terminalFocus,
   visible,
   theme,
-  railWidth,
+  savedWidths,
+  localWidth,
   onRailWidthChange,
   changes,
 }: {
@@ -110,13 +121,16 @@ function SessionWorkspacePanel({
   terminalFocus: number | undefined
   visible: boolean
   theme: ThemeName
-  railWidth: number | undefined
-  onRailWidthChange: (width: number | undefined) => void
+  savedWidths: WorkspacePanelWidths
+  localWidth: RailWidth | undefined
+  onRailWidthChange: (width: RailWidth) => void
   changes: Change[]
 }) {
   const { api } = useDesktop()
   const { t } = useI18n()
-  const [pickedTab, setPickedTab] = useState<PanelTab>(views.length > 0 ? "canvas" : "coworkers")
+  const [pickedTab, setPickedTab] = useState<WorkspacePanelTab>(
+    views.length > 0 ? "canvas" : "coworkers",
+  )
   // The document that last took the view shows, unless the user picked another one since.
   const [chosen, setChosen] = useState<{ key: string; at: number }>()
   const latest = views.reduce<CanvasView | undefined>(
@@ -127,7 +141,7 @@ function SessionWorkspacePanel({
     latest &&
     ((chosen && chosen.at >= latest.activated && views.find((v) => v.key === chosen.key)) || latest)
   // A tab exists while it has something to show; the rail itself leaves with the last one.
-  const openTabs: readonly PanelTab[] = [
+  const openTabs: readonly WorkspacePanelTab[] = [
     ...(runs.length > 0 ? ["coworkers" as const] : []),
     ...(selected ? ["canvas" as const] : []),
     ...(changes.length > 0 ? ["changes" as const] : []),
@@ -229,7 +243,9 @@ function SessionWorkspacePanel({
     activeTab === "coworkers" ? 320 : Math.min(560, Math.max(280, Math.round(viewportWidth * 0.38)))
   const clampWidth = (width: number) =>
     Math.min(maxWidth, Math.max(contentMinWidth, Math.round(width)))
+  const railWidth = localWidth?.tab === activeTab ? localWidth.width : savedWidths[activeTab]
   const effectiveWidth = clampWidth(railWidth ?? defaultWidth)
+  const setRailWidth = (width: number | undefined) => onRailWidthChange({ tab: activeTab, width })
   const clampWidthRef = useRef(clampWidth)
   useLayoutEffect(() => {
     clampWidthRef.current = clampWidth
@@ -249,7 +265,7 @@ function SessionWorkspacePanel({
     setResizing(true)
     const move = (moveEvent: globalThis.PointerEvent) => {
       if (moveEvent.pointerId !== pointerId) return
-      onRailWidthChange(clampWidthRef.current(startWidth + startX - moveEvent.clientX))
+      setRailWidth(clampWidthRef.current(startWidth + startX - moveEvent.clientX))
     }
     const stop = (stopEvent?: globalThis.PointerEvent) => {
       if (stopEvent && stopEvent.pointerId !== pointerId) return
@@ -272,12 +288,12 @@ function SessionWorkspacePanel({
   }
 
   // Persist once a drag settles or a keyboard/double-click change lands, never on mount.
-  const persistedWidth = useRef(railWidth)
+  const persisted = useRef(localWidth)
   useEffect(() => {
-    if (resizing || railWidth === persistedWidth.current) return
-    persistedWidth.current = railWidth
-    void api.setWorkspacePanelWidth(railWidth)
-  }, [railWidth, resizing, api])
+    if (resizing || !localWidth || localWidth === persisted.current) return
+    persisted.current = localWidth
+    void api.setWorkspacePanelWidth(localWidth.tab, localWidth.width)
+  }, [localWidth, resizing, api])
 
   const selectTabWithKeyboard = (event: KeyboardEvent<HTMLDivElement>) => {
     const index = openTabs.indexOf(activeTab)
@@ -300,18 +316,18 @@ function SessionWorkspacePanel({
     else if (event.key === "End") width = maxWidth
     else return
     event.preventDefault()
-    onRailWidthChange(clampWidth(width))
+    setRailWidth(clampWidth(width))
   }
 
   if (!hasContent) return null
   const canvasClass = activeTab === "canvas" ? " workspaceRail-canvas" : ""
   const hiddenClass = visible ? "" : " workspaceRail-hidden"
   const resizingClass = resizing ? " workspaceRail-resizing" : ""
-  const viewClass = (tab: PanelTab) => {
+  const viewClass = (tab: WorkspacePanelTab) => {
     const active = activeTab === tab ? " workspaceRail-view-active" : ""
     return `workspaceRail-view workspaceRail-view-${tab}${active}`
   }
-  const tab = (name: PanelTab, icon: LucideIcon, label: string) => (
+  const tab = (name: WorkspacePanelTab, icon: LucideIcon, label: string) => (
     <button
       type="button"
       role="tab"
@@ -325,7 +341,7 @@ function SessionWorkspacePanel({
       {label}
     </button>
   )
-  const view = (name: PanelTab) => ({
+  const view = (name: WorkspacePanelTab) => ({
     className: viewClass(name),
     role: "tabpanel",
     id: `${panelId}-view-${name}`,
@@ -360,7 +376,7 @@ function SessionWorkspacePanel({
           aria-valuenow={Math.round(effectiveWidth)}
           tabIndex={0}
           title={t("panel.resizeSidePanel")}
-          onDoubleClick={() => onRailWidthChange(undefined)}
+          onDoubleClick={() => setRailWidth(undefined)}
           onKeyDown={resizeWithKeyboard}
           onPointerDown={startResize}
         />

@@ -135,6 +135,14 @@
   font: inherit;
 }
 
+/* Find and save sit together at the header's end, as close as the workspace header's actions. */
+.canvas-artifactActions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
 .canvas-artifactSave {
   display: flex;
   flex-direction: column;

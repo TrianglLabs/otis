@@ -13,8 +13,8 @@ const isolate = useOtisHome()
 
 async function coordinator() {
   const home = await isolate("otis-sessions-")
-  const transcript = new TranscriptStore()
-  const subagents = new SubagentTraces()
+  const transcript = new TranscriptStore("/work")
+  const subagents = new SubagentTraces("/work")
   return {
     home,
     cwd: home,
@@ -99,8 +99,8 @@ describe("session write locking (TUI/GUI concurrency)", () => {
     return new SessionCoordinator({
       client: () => undefined,
       cwd,
-      transcript: new TranscriptStore(),
-      subagents: new SubagentTraces(),
+      transcript: new TranscriptStore("/work"),
+      subagents: new SubagentTraces("/work"),
       isBusy: () => false,
       isExiting: () => false,
     })
@@ -215,8 +215,8 @@ describe("duplicate session ids across storage dirs", () => {
     const holder = new SessionCoordinator({
       client: () => undefined,
       cwd: home,
-      transcript: new TranscriptStore(),
-      subagents: new SubagentTraces(),
+      transcript: new TranscriptStore("/work"),
+      subagents: new SubagentTraces("/work"),
       isBusy: () => false,
       isExiting: () => false,
     })
@@ -247,8 +247,8 @@ describe("previewed-session deletion", () => {
     const holder = new SessionCoordinator({
       client: () => undefined,
       cwd: home,
-      transcript: new TranscriptStore(),
-      subagents: new SubagentTraces(),
+      transcript: new TranscriptStore("/work"),
+      subagents: new SubagentTraces("/work"),
       isBusy: () => false,
       isExiting: () => false,
     })
@@ -273,8 +273,8 @@ describe("relock reloads history", () => {
     const holder = new SessionCoordinator({
       client: () => undefined,
       cwd: home,
-      transcript: new TranscriptStore(),
-      subagents: new SubagentTraces(),
+      transcript: new TranscriptStore("/work"),
+      subagents: new SubagentTraces("/work"),
       isBusy: () => false,
       isExiting: () => false,
     })

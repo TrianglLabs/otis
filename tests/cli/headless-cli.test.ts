@@ -792,7 +792,7 @@ describe("runHeadlessCommand", () => {
     expect(mocks.listHostedModels).toHaveBeenCalledExactlyOnceWith("fireworks", "fw_test", {
       signal: expect.any(AbortSignal),
     })
-    expect(output.stderr()).toContain("not a tool-capable Fireworks model")
+    expect(output.stderr()).toContain("not a tool-capable Fireworks AI model")
   })
 
   it("rejects --provider without --model and an unknown provider before any work", async () => {
@@ -807,7 +807,7 @@ describe("runHeadlessCommand", () => {
       await runHeadlessCommand(["-p", "openai", "--model", "gpt", "hello"], unknown.options),
     ).toBe(2)
     expect(unknown.stderr()).toContain(
-      "--provider must be one of fireworks, together, baseten, primeintellect.",
+      "--provider must be one of fireworks, together, baseten, primeintellect, river.",
     )
     expect(mocks.loadLocalSettings).not.toHaveBeenCalled()
     expect(mocks.listHostedModels).not.toHaveBeenCalled()

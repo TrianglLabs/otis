@@ -148,8 +148,8 @@ describe("conversation scrolling", () => {
 
   it("does not yank the transcript back to the bottom while reasoning streams", async () => {
     const harness = await setup()
-    const transcript = new TranscriptStore()
-    const subagents = new SubagentTraces()
+    const transcript = new TranscriptStore("/work")
+    const subagents = new SubagentTraces("/work")
     await fillTranscript(harness, transcript)
     mockReasoningTurn(harness)
 
@@ -166,8 +166,8 @@ describe("conversation scrolling", () => {
 
   it("keeps following new content when the user is already at the bottom", async () => {
     const harness = await setup({ thinkingVisible: true })
-    const transcript = new TranscriptStore()
-    const subagents = new SubagentTraces()
+    const transcript = new TranscriptStore("/work")
+    const subagents = new SubagentTraces("/work")
     await fillTranscript(harness, transcript)
     mockReasoningTurn(harness)
 

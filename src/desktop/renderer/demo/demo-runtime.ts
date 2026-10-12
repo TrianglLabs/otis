@@ -58,6 +58,7 @@ import {
   type ThemeName,
   type TranscriptPatchOp,
   type TurnPhase,
+  type WorkspacePanelTab,
 } from "../../contracts.js"
 
 /**
@@ -184,6 +185,7 @@ const NO_HOSTED_KEYS: DesktopStatus["hostedConfigured"] = {
   together: false,
   baseten: false,
   primeintellect: false,
+  river: false,
 }
 
 const SAMPLE_DIFF = `--- a/src/desktop/renderer/shell/AppShell.tsx
@@ -1224,7 +1226,7 @@ class DemoRuntime implements DesktopApi {
     freshAchievements: ["deep-work", "week-streak"],
     agentsPanelVisible: true,
     terminal: false,
-    workspacePanelWidth: undefined,
+    workspacePanelWidths: {},
     theme: "default",
     textSize: "default",
     language: "system",
@@ -1256,8 +1258,12 @@ class DemoRuntime implements DesktopApi {
     this.#emitStatus()
   }
 
-  async setWorkspacePanelWidth(width: number | undefined): Promise<void> {
-    this.#state = { ...this.#state, workspacePanelWidth: width }
+  async setWorkspacePanelWidth(tab: WorkspacePanelTab, width: number | undefined): Promise<void> {
+    // An undefined width reads as "no width" in the renderer, so nothing needs removing here.
+    this.#state = {
+      ...this.#state,
+      workspacePanelWidths: { ...this.#state.workspacePanelWidths, [tab]: width },
+    }
     this.#emitStatus()
   }
 

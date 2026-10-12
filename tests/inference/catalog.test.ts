@@ -134,6 +134,51 @@ describe("listHostedModels for Fireworks", () => {
   })
 })
 
+describe("listHostedModels for River AI", () => {
+  it("keeps the documented function-calling models the live list confirms", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      Response.json({
+        data: [
+          { id: "zai-org/GLM-5.3-Flash", object: "model", context_length: 262_144 },
+          { id: "deepseek-ai/DeepSeek-V4.1-Flash", object: "model" },
+          { id: "zai-org/GLM-5.3-Flash", object: "model" },
+          { id: "river/undocumented-model", object: "model" },
+        ],
+      }),
+    )
+
+    const models = await listHostedModels("river", " rv_test_key ", {
+      fetch: fetchMock as typeof fetch,
+      modelsURL: "http://localhost/v1/models",
+    })
+
+    expect(models).toEqual([
+      // The list names only ids, so the documented context window fills in; a listed one wins.
+      {
+        provider: "river",
+        id: "deepseek-ai/DeepSeek-V4.1-Flash",
+        displayName: "DeepSeek-V4.1-Flash",
+        contextLength: 1_048_576,
+        supportsImageInput: true,
+      },
+      {
+        provider: "river",
+        id: "zai-org/GLM-5.3-Flash",
+        displayName: "GLM-5.3-Flash",
+        contextLength: 262_144,
+        supportsImageInput: true,
+      },
+    ])
+    expect(fetchMock.mock.calls[0][1]?.headers).toEqual({ authorization: "Bearer rv_test_key" })
+  })
+
+  it("calls the documented models endpoint by default", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL) => Response.json({ data: [] }))
+    await listHostedModels("river", "rv_key", { fetch: fetchMock as typeof fetch })
+    expect(String(fetchMock.mock.calls[0][0])).toBe("https://api.river.ai/v1/models")
+  })
+})
+
 describe("listHostedModels for Together AI", () => {
   it("keeps only documented function-calling chat models from the bare array", async () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>

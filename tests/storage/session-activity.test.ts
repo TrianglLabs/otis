@@ -41,7 +41,7 @@ describe("session tool activity", () => {
 
     const reopened = await openSession(options)
     const replay = reopened.replayTranscript()
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     transcript.replaceMessages(reopened.replay().messages, replay.turns)
     expect(
       transcript.entries

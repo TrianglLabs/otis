@@ -162,13 +162,15 @@ export function FileArtifact({
             publication={artifact.publication}
           />
         ) : null}
-        <IconButton icon={Search} label={t("canvas.find")} onClick={openFind} />
-        <ArtifactSave
-          key={`${artifact.id}:${artifact.revision}`}
-          runtime={runtime}
-          id={artifact.id}
-          revision={artifact.revision}
-        />
+        <div className="canvas-artifactActions">
+          <IconButton icon={Search} label={t("canvas.find")} onClick={openFind} />
+          <ArtifactSave
+            key={`${artifact.id}:${artifact.revision}`}
+            runtime={runtime}
+            id={artifact.id}
+            revision={artifact.revision}
+          />
+        </div>
       </header>
       {finder.finding ? (
         <FindBar

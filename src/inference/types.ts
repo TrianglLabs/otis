@@ -152,7 +152,13 @@ export type ContextFile = {
   content: string
 }
 
-export const HOSTED_PROVIDERS = ["fireworks", "together", "baseten", "primeintellect"] as const
+export const HOSTED_PROVIDERS = [
+  "fireworks",
+  "together",
+  "baseten",
+  "primeintellect",
+  "river",
+] as const
 export type HostedProvider = (typeof HOSTED_PROVIDERS)[number]
 /**
  * User-managed OpenAI-compatible servers on loopback: oMLX, and any other engine the user runs.
@@ -202,7 +208,7 @@ export const HOSTED_PROVIDER_INFO: Record<
   }
 > = {
   fireworks: {
-    name: "Fireworks",
+    name: "Fireworks AI",
     keyEnv: "FIREWORKS_API_KEY",
     keyURL: "https://app.fireworks.ai/api-keys",
     inferenceURL: "https://api.fireworks.ai/inference/v1/chat/completions",
@@ -236,6 +242,15 @@ export const HOSTED_PROVIDER_INFO: Record<
     modelsURL: "https://api.pinference.ai/api/v1/models",
     reasoningField: "reasoning",
     dataRetention: "unknown",
+  },
+  river: {
+    name: "River AI",
+    keyEnv: "RIVER_API_KEY",
+    keyURL: "https://console.river.ai/keys",
+    inferenceURL: "https://api.river.ai/v1/chat/completions",
+    modelsURL: "https://api.river.ai/v1/models",
+    reasoningField: "reasoning_content",
+    dataRetention: "zero",
   },
 }
 

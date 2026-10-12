@@ -40,8 +40,8 @@ async function coordinator(cwd: string) {
   return new SessionCoordinator({
     client: () => undefined,
     cwd,
-    transcript: new TranscriptStore(),
-    subagents: new SubagentTraces(),
+    transcript: new TranscriptStore("/work"),
+    subagents: new SubagentTraces("/work"),
     isBusy: () => false,
     isExiting: () => false,
   })

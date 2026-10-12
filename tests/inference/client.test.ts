@@ -181,7 +181,7 @@ describe("HostedClient for Fireworks", () => {
         }))
           events.push(event)
       })(),
-    ).rejects.toThrow("Fireworks sent no data for 20 ms; the request timed out.")
+    ).rejects.toThrow("Fireworks AI sent no data for 20 ms; the request timed out.")
     expect(events).toEqual([{ type: "text_delta", text: "Hi" }])
   })
 
@@ -197,7 +197,7 @@ describe("HostedClient for Fireworks", () => {
 
     await expect(
       collect(client.streamChat({ messages: [{ role: "user", content: "hello" }] })),
-    ).rejects.toThrow("Fireworks rejected the request: invalid model")
+    ).rejects.toThrow("Fireworks AI rejected the request: invalid model")
     expect(fetchMock).toHaveBeenCalledOnce()
   })
 

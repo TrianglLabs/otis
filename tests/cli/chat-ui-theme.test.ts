@@ -22,7 +22,7 @@ describe("chat UI theme switching", () => {
   it("tints user message cards with a chromatic purple surface in the nord theme", async () => {
     selectTheme("nord")
     const harness = await setup({ theme: "nord" })
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     transcript.addUserMessage("hello from nord")
     harness.ui.showChatLayout()
     harness.ui.renderTranscript(transcript.entries)
@@ -41,7 +41,7 @@ describe("chat UI theme switching", () => {
   it("applies the beige theme with warm-toned surfaces and a tinted user card", async () => {
     selectTheme("beige")
     const harness = await setup({ theme: "beige" })
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     transcript.addUserMessage("hello from beige")
     harness.ui.showChatLayout()
     harness.ui.renderTranscript(transcript.entries)
@@ -66,7 +66,7 @@ describe("chat UI theme switching", () => {
   it("applies the vice theme with a hot pink accent on a purple night base", async () => {
     selectTheme("vice")
     const harness = await setup({ theme: "vice" })
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     transcript.addUserMessage("hello from vice")
     harness.ui.showChatLayout()
     harness.ui.renderTranscript(transcript.entries)
@@ -88,7 +88,7 @@ describe("chat UI theme switching", () => {
   it("matches the source terminal colors exactly in the eagan theme", async () => {
     selectTheme("eagan")
     const harness = await setup({ theme: "eagan" })
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     transcript.addUserMessage("hello from eagan")
     harness.ui.showChatLayout()
     harness.ui.renderTranscript(transcript.entries)
@@ -219,7 +219,7 @@ describe("chat UI theme switching", () => {
 
   it("preserves the transcript viewport while refreshing themed content", async () => {
     const harness = await setup()
-    const transcript = new TranscriptStore()
+    const transcript = new TranscriptStore("/work")
     for (let index = 1; index <= 40; index += 1) transcript.addAssistantMessage(`message ${index}`)
     harness.ui.showChatLayout()
     harness.ui.renderTranscript(transcript.entries, { scrollToBottom: true })

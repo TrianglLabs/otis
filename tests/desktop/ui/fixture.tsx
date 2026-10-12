@@ -1886,7 +1886,13 @@ async function runDesktopUiChecks() {
   status({
     model: null,
     modelState: "unconfigured",
-    hostedConfigured: { fireworks: false, together: false, baseten: false, primeintellect: false },
+    hostedConfigured: {
+      fireworks: false,
+      together: false,
+      baseten: false,
+      primeintellect: false,
+      river: false,
+    },
   })
   await until(() => !!document.querySelector(".onboarding"), "Onboarding did not open")
   for (const theme of ["default", "pearl"] as const) {

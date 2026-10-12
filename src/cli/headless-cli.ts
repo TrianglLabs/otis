@@ -457,7 +457,7 @@ Options:
   -C, --cwd <path>             Working directory
   -m, --model <id>             Local catalog id or hosted model id
   -p, --provider <name>        Hosted provider of --model: fireworks (default), together,
-                               baseten, or primeintellect
+                               baseten, primeintellect, or river
       --image <path>           Attach an image; repeatable
       --file <path>            Attach a text, PDF, DOCX, or image file; repeatable
   -s, --session <id>           Resume a specific local session

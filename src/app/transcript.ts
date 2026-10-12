@@ -1,3 +1,4 @@
+import { resolve } from "node:path"
 import {
   type ArtifactReference,
   attachmentArtifactReference,
@@ -80,6 +81,8 @@ export function groupToolActivities(activities: readonly SessionToolActivity[]) 
 type HistoryEstimator = (messages: readonly ChatMessage[]) => number
 
 export class TranscriptStore {
+  /** The folder workspace artifact paths are relative to; a publication names its source absolutely. */
+  constructor(readonly cwd: string) {}
   readonly entries: TranscriptEntry[] = []
   readonly history: ChatMessage[] = []
   private nextMessageID = 1
@@ -273,16 +276,23 @@ export class TranscriptStore {
 
   /**
    * Keeps every artifact reference on its tool entry for persistence, while marking only the
-   * latest revision of a logical artifact as the card to reveal when the turn settles.
+   * latest revision of a logical artifact as the card to reveal when the turn settles. A
+   * publication is the latest revision of the working file it was saved from, so that file's
+   * card gives way to it too.
    */
   stageArtifact(entryId: number, artifact: FileArtifactReference) {
+    const supersede = (key: string) => {
+      const previous = this.pendingArtifacts.get(key)
+      if (previous !== undefined && previous !== entryId)
+        this.updateEntry(previous, { artifactDisplay: "superseded" })
+      this.pendingArtifacts.delete(key)
+    }
     const key =
       artifact.source === "published"
         ? `published:${artifact.artifactId}`
-        : `workspace:${artifact.path.replaceAll("\\", "/")}`
-    const previous = this.pendingArtifacts.get(key)
-    if (previous !== undefined && previous !== entryId)
-      this.updateEntry(previous, { artifactDisplay: "superseded" })
+        : `workspace:${resolve(this.cwd, artifact.path)}`
+    if (artifact.source === "published") supersede(`workspace:${artifact.sourcePath}`)
+    supersede(key)
     this.pendingArtifacts.set(key, entryId)
     this.updateEntry(entryId, { artifact, artifactDisplay: "pending" })
   }
