@@ -48,9 +48,9 @@ import {
 import type { LocalStats } from "../../../../local/stats.js"
 import type {
   DesktopApi,
-  ServeStatus,
   OtherAgentId,
   OtherAgentImport,
+  ServeStatus,
   SessionOpResult,
   TextSize,
   ThemeName,
