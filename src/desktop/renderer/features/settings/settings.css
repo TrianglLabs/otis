@@ -115,9 +115,9 @@
   flex-direction: column;
   gap: 24px;
   width: 100%;
-  max-width: 688px;
+  max-width: var(--content-max);
   margin: 0 auto;
-  padding: 24px 32px 40px;
+  padding: 24px 28px 40px;
 }
 
 /* The title and, on tabs that split into panels, the strip that picks one. */
