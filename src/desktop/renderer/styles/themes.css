@@ -317,6 +317,12 @@
   --bg-elev: #f6f5fb;
   --bg-rail: #efedf8;
   --accent: #4a3db3;
+  /* Lilac for hover, selection and the user's bubble: ink-tinted mixes turn grey on this
+     lavender, and the default bubble lands on the page color. */
+  --bg-hover: color-mix(in srgb, var(--accent) 10%, transparent);
+  --bg-selected: color-mix(in srgb, var(--accent) 16%, transparent);
+  --bg-card-hover: color-mix(in srgb, var(--bg-elev) 88%, var(--accent));
+  --bg-user: color-mix(in srgb, var(--bg-elev) 80%, var(--accent));
   --on-accent: #ffffff;
   --text: #221d45;
   --text-dim: #5a5580;
