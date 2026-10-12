@@ -1430,7 +1430,7 @@ button.composer-model-failed {
 /* The lift also marks the sessions that come back with the hovered one. */
 .home-card:hover,
 .home-card-grouped {
-  background: color-mix(in srgb, var(--bg-elev) 92%, var(--text));
+  background: var(--bg-card-hover);
 }
 
 .home-card:active {

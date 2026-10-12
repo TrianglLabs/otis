@@ -96,6 +96,8 @@
      and darken light ones by the same step, so no theme tunes them. Elements resting on an opaque
      surface layer the hover as a background-image. */
   --bg-hover: color-mix(in srgb, var(--text) 12%, transparent);
+  /* A home card under the pointer: its surface, inked a little. */
+  --bg-card-hover: color-mix(in srgb, var(--bg-elev) 92%, var(--text));
   --bg-selected: color-mix(in srgb, var(--text) 18%, transparent);
   --accent-ink: color-mix(in srgb, var(--accent) 82%, var(--text));
   --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
