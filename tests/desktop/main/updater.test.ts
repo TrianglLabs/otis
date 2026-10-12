@@ -345,7 +345,7 @@ describe("keepCliCurrent on Windows", () => {
       const localAppData = join(home, "AppData", "Local")
       const path = join(localAppData, "Programs", "otis", "otis.exe")
       await mkdir(join(localAppData, "Programs", "otis"), { recursive: true })
-      await writeFile(path, "MZ")
+      await writeFile(path, "MZ", { mode: 0o755 })
       const states: (DesktopCliState | null)[] = []
       await keepCliCurrent({
         version: "1.2.3",
