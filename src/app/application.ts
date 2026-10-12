@@ -62,6 +62,7 @@ import {
   type SessionUsage,
   type UserChatMessage,
 } from "../inference/types.js"
+import { holdAwake } from "../local/keep-awake.js"
 import { loadRoutines, ROUTINES_UNAVAILABLE } from "../local/routines.js"
 import {
   clearSelectedModel,
@@ -70,7 +71,9 @@ import {
   loadLocalSettings,
   saveFastServingSelection,
   saveHiddenModels,
+  saveHiddenSkills,
   saveHostedApiKey,
+  saveKeepAwake,
   saveLocalServers,
   saveLocalThinking,
   savePermissionMode,
@@ -143,6 +146,8 @@ export type RuntimeSummary = {
   focused: boolean
   busy: boolean
   unseen: boolean
+  /** An unseen completion that ended in error. */
+  failed: boolean
   diffs: { added: number; removed: number }
   contextTokens: number
 }
@@ -315,6 +320,7 @@ export class SessionRuntime {
   readOnly: { dirName: string; sessionId: string } | undefined
   /** Settled while not focused; cleared on focus. */
   unseen = false
+  failed = false
   readonly #detach: () => void
 
   constructor(
@@ -398,6 +404,8 @@ export class Application {
   readonly #runtimes: SessionRuntime[] = []
   #focused!: SessionRuntime
   #debug = false
+  /** Ends the hold on idle sleep taken while a runtime works with keep-awake on. */
+  #releaseAwake: (() => void) | undefined
   /** A local-model deletion is in flight; other model transactions are refused until it settles. */
   #deleting = false
   /** Sessions whose own selection is in flight; their prompts wait for it to settle. */
@@ -540,7 +548,17 @@ export class Application {
       },
       projectContext: () => workspace.projectContext,
       memory: () => workspace.memory,
-      skills: () => workspace.skills,
+      // The folder's catalog less the skills switched off in settings.
+      skills: () => {
+        const hidden = this.settings.hiddenSkills ?? []
+        if (hidden.length === 0) return workspace.skills
+        const skills = workspace.skills.skills.filter((skill) => !hidden.includes(skill.name))
+        return {
+          ...workspace.skills,
+          skills,
+          byName: new Map(skills.map((skill) => [skill.name, skill])),
+        }
+      },
       routines: () => this.routines ?? { error: this.routinesError ?? ROUTINES_UNAVAILABLE },
       permissionPolicy: () => this.createPermissionPolicy(workspace, permissionMode),
       broker: this.permissions,
@@ -565,8 +583,12 @@ export class Application {
           sessions.subscribe(() => this.#notify({ type: "status" }, self.id)),
           transcript.subscribe((change) => this.#notify({ type: "transcript", change }, self.id)),
           conversation.subscribe((event) => {
+            if (event.type === "busy") this.#syncAwake()
             if (event.type === "settled") {
-              if (self !== this.#focused) self.unseen = true
+              if (self !== this.#focused) {
+                self.unseen = true
+                self.failed = event.result.status === "error"
+              }
               void this.publishUsage()
               void memoryIndex(workspace.cwd).then((memory) => {
                 workspace.memory = memory
@@ -627,6 +649,22 @@ export class Application {
     for (const runtime of this.#runtimes) runtime.conversation.debug = enabled
   }
 
+  /** Keeps the machine out of idle sleep while any runtime works, from now on or off. */
+  async setKeepAwake(enabled: boolean) {
+    this.settings.keepAwake = enabled
+    this.#syncAwake()
+    await saveKeepAwake(enabled)
+    this.#notify({ type: "status" })
+  }
+
+  #syncAwake() {
+    const hold = this.settings.keepAwake && this.anyBusy
+    if (hold && !this.#releaseAwake) this.#releaseAwake = holdAwake()
+    if (hold || !this.#releaseAwake) return
+    this.#releaseAwake()
+    this.#releaseAwake = undefined
+  }
+
   /**
    * Rereads the skills on disk for every open folder, and the instruction files too when asked;
    * conversations pick them up next turn.
@@ -639,6 +677,16 @@ export class Application {
       workspace.memory = await memoryIndex(workspace.cwd)
       if (instructions) workspace.projectContext = loadProjectContext(workspace.cwd, otherAgents)
     }
+  }
+
+  /** Keeps a skill loaded but out of the model's offer, from the next turn on, or back in. */
+  async setSkillHidden(name: string, hidden: boolean) {
+    const hiddenSkills = new Set(this.settings.hiddenSkills ?? [])
+    if (hidden) hiddenSkills.add(name)
+    else hiddenSkills.delete(name)
+    const next = [...hiddenSkills]
+    this.settings.hiddenSkills = next.length ? next : undefined
+    await saveHiddenSkills(next)
   }
 
   /** The skills reread from disk as the pickers list them, each with where it comes from. */
@@ -654,6 +702,7 @@ export class Application {
         return {
           name: skill.name,
           description: skill.description,
+          hidden: this.settings.hiddenSkills?.includes(skill.name) ?? false,
           // Personal: from the home folder, Otis' own or another agent's; project: from a folder
           // on the way to the workspace.
           origin: collection
@@ -667,6 +716,7 @@ export class Application {
         }
       }),
       sources,
+      problems: this.skills.problems,
     }
   }
 
@@ -821,6 +871,7 @@ export class Application {
   /** Shows a runtime: its transcript replaces the view and its completion is seen. */
   focus(runtime: SessionRuntime) {
     runtime.unseen = false
+    runtime.failed = false
     if (runtime === this.#focused) return
     this.#focused = runtime
     this.#notify({ type: "transcript", change: { op: "reset" } }, runtime.id)
@@ -943,6 +994,7 @@ export class Application {
           focused: runtime === this.#focused,
           busy: runtime.busy,
           unseen: runtime.unseen,
+          failed: runtime.failed,
           diffs: runtime.sessions.diffs,
           contextTokens: this.contextTokens(undefined, runtime),
         }

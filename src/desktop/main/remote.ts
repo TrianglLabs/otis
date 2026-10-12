@@ -3,6 +3,7 @@ import {
   isThemeName,
   type LocalSettings,
   loadLocalSettings,
+  saveAlertSound,
   saveSelectedTheme,
   saveSubagentPanelVisible,
   saveTextSize,
@@ -59,6 +60,7 @@ export async function connectRemote(
     textSize: local.textSize ?? "default",
     language: local.language ?? "system",
     thinkingVisible: local.thinkingVisible ?? false,
+    alertSound: local.alertSound ?? false,
     agentsPanelVisible: local.subagentPanelVisible ?? true,
     workspacePanelWidths: local.workspacePanelWidths ?? {},
     update,
@@ -173,6 +175,10 @@ export async function connectRemote(
     setThinkingVisible: (visible) => {
       if (typeof visible !== "boolean") throw new Error("Invalid visibility flag.")
       return keep("thinkingVisible", visible, () => saveThinkingVisible(visible))
+    },
+    setAlertSound: (enabled) => {
+      if (typeof enabled !== "boolean") throw new Error("Invalid sound flag.")
+      return keep("alertSound", enabled, () => saveAlertSound(enabled))
     },
     setAgentsPanelVisible: (visible) => {
       if (typeof visible !== "boolean") throw new Error("Invalid visibility flag.")

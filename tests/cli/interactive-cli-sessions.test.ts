@@ -979,6 +979,7 @@ describe("CLI session turn handling", () => {
     mocks.loadSkillCatalog.mockResolvedValue({
       skills: [skill],
       byName: new Map([[skill.name, skill]]),
+      problems: [],
     })
     mocks.runAgent.mockImplementationOnce(async function* () {
       yield { type: "delta", text: "done" }

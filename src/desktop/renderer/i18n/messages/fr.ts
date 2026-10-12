@@ -497,6 +497,7 @@ export const fr: Messages = {
   "settings.skillInstall": "Installer",
   "settings.skillUpdate": "Mettre à jour",
   "settings.skillRemove": "Retirer",
+  "settings.showSkill": "Proposer {{name}} au modèle",
   "settings.skillsShown": "{{shown}} skills sur {{total}}",
   "settings.skillsMore": "Afficher plus",
   "settings.appearance": "Apparence",
@@ -525,6 +526,14 @@ export const fr: Messages = {
   "settings.notifyOnCompletion": "Prévenir à la fin d'une session",
   "settings.toggleNotify":
     "Afficher une notification système quand une session se termine alors qu'Otis n'est pas au premier plan",
+  "settings.alertSound": "Son à la fin ou en attente",
+  "settings.alertSoundDetail": "Seulement quand Otis n'a pas le focus",
+  "settings.toggleAlertSound":
+    "Jouer un son quand une session se termine ou attend une approbation pendant qu'Otis n'a pas le focus",
+  "settings.keepAwake": "Rester éveillé pendant le travail",
+  "settings.keepAwakeDetail": "Les écrans peuvent quand même se mettre en veille",
+  "settings.toggleKeepAwake":
+    "Empêche la mise en veille de l'ordinateur pendant qu'une session ou une routine travaille",
   "settings.fastServing": "Inférence rapide",
   "settings.fastUnavailable": "L’inférence rapide n’est pas disponible pour ce modèle",
   "settings.toggleFast": "Activer ou désactiver l’inférence rapide",

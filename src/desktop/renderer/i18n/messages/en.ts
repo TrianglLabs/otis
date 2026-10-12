@@ -485,6 +485,7 @@ export const en = {
   "settings.skillInstall": "Install",
   "settings.skillUpdate": "Update",
   "settings.skillRemove": "Remove",
+  "settings.showSkill": "Offer {{name}} to the model",
   "settings.skillsShown": "{{shown}} of {{total}} skills",
   "settings.skillsMore": "Show more",
   "settings.appearance": "Appearance",
@@ -510,6 +511,14 @@ export const en = {
   "settings.notifyOnCompletion": "Notify when a session finishes",
   "settings.toggleNotify":
     "Show a system notification when a session finishes while Otis is not in front",
+  "settings.alertSound": "Play a sound when done or waiting",
+  "settings.alertSoundDetail": "Only when Otis is not in focus",
+  "settings.toggleAlertSound":
+    "Play a sound when a session finishes or waits for approval while Otis is not in focus",
+  "settings.keepAwake": "Keep awake while working",
+  "settings.keepAwakeDetail": "Displays can still sleep",
+  "settings.toggleKeepAwake":
+    "Keep this computer from sleeping while a session or routine is working",
   "settings.fastServing": "Fast serving",
   "settings.fastUnavailable": "Fast serving is not available for this model",
   "settings.toggleFast": "Toggle Fast serving",

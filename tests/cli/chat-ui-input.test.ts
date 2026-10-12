@@ -8,6 +8,7 @@ import {
 import { describe, expect, it, vi } from "vitest"
 import { colors } from "../../src/cli/theme.js"
 import { selectionOutline } from "../../src/cli/ui/color-pulse.js"
+import { MAX_VISIBLE_ROWS } from "../../src/cli/ui/command-menu.js"
 import { THEME_NAMES } from "../../src/local/settings.js"
 import { hostedChoice, useChatHarness } from "./support/chat-ui-harness.js"
 
@@ -18,7 +19,10 @@ const themeCommands = [
   { name: "/theme", description: "Choose a theme" },
   ...THEME_NAMES.map((theme) => ({ name: `/theme ${theme}`, description: "" })),
 ]
-const themeRowIDs = THEME_NAMES.map((_, index) => `command-row-${index}-box`)
+// The menu shows this many rows and scrolls the rest.
+const themeRowIDs = THEME_NAMES.slice(0, MAX_VISIBLE_ROWS).map(
+  (_, index) => `command-row-${index}-box`,
+)
 
 describe("chat UI input", () => {
   const setup = useChatHarness()
@@ -348,7 +352,7 @@ describe("chat UI input", () => {
 
     harness.setChatInput("/theme")
     harness.press("return")
-    expect(harness.childIds("command-menu")).toHaveLength(THEME_NAMES.length)
+    expect(harness.childIds("command-menu")).toEqual(themeRowIDs)
 
     // A real (non-empty) edit supersedes the theme submenu and filters commands.
     harness.setChatInput("/e")

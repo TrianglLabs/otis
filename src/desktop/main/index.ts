@@ -416,6 +416,11 @@ if (!app.requestSingleInstanceLock()) {
           void current.call("focusSession", [runtime])
           focusWindow()
         },
+        openSessionAt: (path, sessionId, dirName) => {
+          void current.call("openSessionAt", [path, sessionId, dirName])
+          focusWindow()
+        },
+        runRoutine: (id) => void current.call("runRoutine", [id]),
         startNewSession: () => void current.call("startNewSession", []),
         stop: (runtime) => void current.call("stop", [runtime]),
         installUpdate: () => void current.call("installUpdate", []),

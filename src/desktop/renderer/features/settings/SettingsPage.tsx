@@ -80,6 +80,9 @@ const THEME_NAMES: ThemeName[] = [
   "pearl",
   "sage",
   "titanium",
+  "porcelain",
+  "arcade",
+  "handheld",
 ]
 
 /**
@@ -168,6 +171,8 @@ export function SettingsPage({
     "language",
     "thinkingVisible",
     "notifyOnCompletion",
+    "alertSound",
+    "keepAwake",
     "permissionMode",
     "model",
     "debug",
@@ -751,6 +756,28 @@ export function SettingsPage({
                         label={t("settings.toggleNotify")}
                         checked={state.notifyOnCompletion}
                         onChange={(enabled) => void api.setNotifyOnCompletion(enabled)}
+                      />
+                    </div>
+                    <div className="settingsRow">
+                      <span className="settingsRow-label">
+                        {t("settings.alertSound")}
+                        <span className="settingsRow-meta">{t("settings.alertSoundDetail")}</span>
+                      </span>
+                      <Toggle
+                        label={t("settings.toggleAlertSound")}
+                        checked={state.alertSound}
+                        onChange={(enabled) => void api.setAlertSound(enabled)}
+                      />
+                    </div>
+                    <div className="settingsRow">
+                      <span className="settingsRow-label">
+                        {t("settings.keepAwake")}
+                        <span className="settingsRow-meta">{t("settings.keepAwakeDetail")}</span>
+                      </span>
+                      <Toggle
+                        label={t("settings.toggleKeepAwake")}
+                        checked={state.keepAwake}
+                        onChange={(enabled) => void api.setKeepAwake(enabled)}
                       />
                     </div>
                     <div
@@ -1621,6 +1648,21 @@ function SkillsSettings() {
                   ? t(SKILL_ORIGINS[skill.origin])
                   : skill.origin.collection}
               </span>
+              <Toggle
+                label={t("settings.showSkill", { name: skill.name })}
+                checked={!skill.hidden}
+                disabled={pending}
+                onChange={(shown) =>
+                  void change(() =>
+                    api.setSkillHidden(skill.name, !shown).then(() => ({ ok: true as const })),
+                  )
+                }
+              />
+            </div>
+          ))}
+          {summary?.problems.map((problem) => (
+            <div className="settingsRow settings-message settings-error" key={problem}>
+              {problem}
             </div>
           ))}
           {summary && summary.skills.length > limit ? (

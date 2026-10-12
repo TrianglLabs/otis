@@ -59,6 +59,7 @@ import type {
   DesktopEvent,
   DesktopSnapshot,
   DesktopUpdateState,
+  PendingPermission,
 } from "../../../src/desktop/contracts.js"
 import { App } from "../../../src/desktop/renderer/App.js"
 import { DesktopProvider } from "../../../src/desktop/renderer/runtime.js"
@@ -415,13 +416,20 @@ describe("AppShell settings navigation", () => {
           name: "documents",
           description: "PDF and Word deliverables.",
           origin: "bundled" as const,
+          hidden: false,
         },
         {
           name: "brainstorming",
           description: "Explore before building.",
           origin: { collection: "superpowers" },
+          hidden: true,
         },
-        { name: "release-notes", description: "Changelogs.", origin: "project" as const },
+        {
+          name: "release-notes",
+          description: "Changelogs.",
+          origin: "project" as const,
+          hidden: false,
+        },
       ],
       sources: [
         {
@@ -429,6 +437,9 @@ describe("AppShell settings navigation", () => {
           url: "https://github.com/obra/superpowers",
           skills: [{ name: "brainstorming", relativePath: "skills/brainstorming" }],
         },
+      ],
+      problems: [
+        "Invalid skill /home/you/.agents/skills/broken/SKILL.md: closed YAML frontmatter is required.",
       ],
     }))
     const installSkills = vi.fn(async () => ({ ok: false as const, reason: "Git said no." }))
@@ -449,6 +460,17 @@ describe("AppShell settings navigation", () => {
       "Project",
     )
     expect(panel.getByText("1 skill · https://github.com/obra/superpowers")).toBeTruthy()
+    // A skill that failed to load is named where the rest are listed.
+    expect(panel.getByText(/broken\/SKILL\.md: closed YAML frontmatter/)).toBeTruthy()
+    // Each skill's switch shows whether the model is offered it, and flips it, then relists.
+    const offered = (name: string) =>
+      panel.getByRole("switch", { name: `Offer ${name} to the model` })
+    expect(offered("documents").getAttribute("aria-checked")).toBe("true")
+    expect(offered("brainstorming").getAttribute("aria-checked")).toBe("false")
+    fireEvent.click(offered("documents"))
+    await act(async () => {})
+    expect(api.setSkillHidden).toHaveBeenCalledExactlyOnceWith("documents", true)
+    expect(listSkills).toHaveBeenCalledTimes(2)
 
     fireEvent.change(panel.getByLabelText("Git URL"), {
       target: { value: " https://github.com/acme/skills " },
@@ -457,12 +479,12 @@ describe("AppShell settings navigation", () => {
     await act(async () => {})
     expect(installSkills).toHaveBeenCalledWith("https://github.com/acme/skills")
     expect(panel.getByText("Git said no.")).toBeTruthy()
-    expect(listSkills).toHaveBeenCalledTimes(1)
+    expect(listSkills).toHaveBeenCalledTimes(2)
 
     fireEvent.click(panel.getByRole("button", { name: "Remove" }))
     await act(async () => {})
     expect(api.removeSkills).toHaveBeenCalledWith("superpowers")
-    expect(listSkills).toHaveBeenCalledTimes(2)
+    expect(listSkills).toHaveBeenCalledTimes(3)
   })
 
   it("pages a long skills list", async () => {
@@ -470,8 +492,11 @@ describe("AppShell settings navigation", () => {
       name: `skill-${String(index).padStart(2, "0")}`,
       description: "One of many.",
       origin: "project" as const,
+      hidden: false,
     }))
-    const api = fakeApi({ listSkills: vi.fn(async () => ({ skills, sources: [] })) })
+    const api = fakeApi({
+      listSkills: vi.fn(async () => ({ skills, sources: [], problems: [] })),
+    })
     await renderApp(api)
     fireEvent.click(screen.getByRole("button", { name: "Settings" }))
     fireEvent.click(screen.getByRole("tab", { name: "Extensions" }))
@@ -3455,5 +3480,82 @@ describe("changes tab", () => {
     cleanup()
     await renderApp(fakeApi({ getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, entries: [] })) }))
     expect(document.querySelector(".workspaceRail")).toBeNull()
+  })
+})
+
+describe("alert sound", () => {
+  const session = (runtime: number, busy: boolean): DesktopSnapshot["runtimes"][0] => ({
+    runtime,
+    session: { id: `s${runtime}`, title: `Session ${runtime}`, dirName: "ws" },
+    focused: runtime === 1,
+    busy,
+    unseen: false,
+    failed: false,
+    diffs: { added: 0, removed: 0 },
+    workspace: { label: "ws", path: WS },
+    contextTokens: 0,
+  })
+  const ask = (id: number): PendingPermission => ({
+    id,
+    kind: "shell",
+    label: "Running command: bun test",
+    resources: ["bun test"],
+    runtime: 1,
+    sessionTitle: "Session 1",
+  })
+
+  it("sounds once per finished session or new request, only off screen and only when on", async () => {
+    let emit!: (event: DesktopEvent) => void
+    const api = fakeDesktopApi(
+      { ...SNAPSHOT, alertSound: true, runtimes: [session(1, true), session(2, true)] },
+      {
+        subscribe: vi.fn((listener) => {
+          emit = listener
+          return () => {}
+        }),
+      },
+    )
+    const plays: string[] = []
+    vi.stubGlobal(
+      "Audio",
+      class {
+        constructor(readonly src: string) {}
+        play() {
+          plays.push(this.src)
+          return Promise.resolve()
+        }
+      },
+    )
+    const hasFocus = vi.fn(() => false)
+    Object.defineProperty(document, "hasFocus", { value: hasFocus, configurable: true })
+    try {
+      await renderApp(api)
+      expect(plays).toHaveLength(0)
+      const status = (revision: number, status: Partial<DesktopSnapshot>) =>
+        act(() => emit({ type: "status", revision, status }))
+
+      // One session finishes while the other keeps working: one sound.
+      status(2, { runtimes: [session(1, false), session(2, true)] })
+      expect(plays).toHaveLength(1)
+      expect(plays[0]).toMatch(/task_completed/)
+      // A tool asks; the same request restated is not a new ask, the next one is.
+      status(3, { permission: ask(7) })
+      status(4, { permission: ask(7), busy: true })
+      expect(plays).toHaveLength(2)
+      status(5, { permission: ask(8) })
+      expect(plays).toHaveLength(3)
+      // In front, the window already shows it.
+      hasFocus.mockReturnValue(true)
+      status(6, { permission: ask(9), runtimes: [session(1, false), session(2, false)] })
+      expect(plays).toHaveLength(3)
+      // Off, nothing sounds.
+      hasFocus.mockReturnValue(false)
+      status(7, { alertSound: false, runtimes: [session(1, true)] })
+      status(8, { permission: ask(10), runtimes: [session(1, false)] })
+      expect(plays).toHaveLength(3)
+    } finally {
+      vi.unstubAllGlobals()
+      delete (document as { hasFocus?: unknown }).hasFocus
+    }
   })
 })

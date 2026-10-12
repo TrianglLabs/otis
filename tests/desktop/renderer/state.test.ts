@@ -60,6 +60,7 @@ const runtime = (id: number, focused: boolean) => ({
   focused,
   busy: false,
   unseen: false,
+  failed: false,
   diffs: { added: 0, removed: 0 },
   workspace: { label: "otis", path: "/Users/you/otis" },
   contextTokens: 0,

@@ -79,6 +79,7 @@ export const DESKTOP_CHANNELS = {
   listModels: "desktop:list-models",
   listHostedCatalogs: "desktop:list-hosted-catalogs",
   setModelHidden: "desktop:set-model-hidden",
+  setSkillHidden: "desktop:set-skill-hidden",
   setPrimeTeamId: "desktop:set-prime-team-id",
   selectModel: "desktop:select-model",
   cancelModelSelection: "desktop:cancel-model-selection",
@@ -91,6 +92,8 @@ export const DESKTOP_CHANNELS = {
   setLanguage: "desktop:set-language",
   setThinkingVisible: "desktop:set-thinking-visible",
   setNotifyOnCompletion: "desktop:set-notify-on-completion",
+  setKeepAwake: "desktop:set-keep-awake",
+  setAlertSound: "desktop:set-alert-sound",
   setLocalThinking: "desktop:set-local-thinking",
   setPermissionMode: "desktop:set-permission-mode",
   setFastServing: "desktop:set-fast-serving",
@@ -224,6 +227,10 @@ export type DesktopStatus = {
   otherAgentsEnabled: boolean
   /** A system notification when a session finishes while Otis is not the frontmost app. */
   notifyOnCompletion: boolean
+  /** Holds off idle system sleep while a session or routine works; displays still sleep. */
+  keepAwake: boolean
+  /** A short sound when a session finishes or waits for approval while Otis is not in focus. */
+  alertSound: boolean
   localThinking: LocalThinkingState | null
   /** Permission behavior for mutating tools. Interactive controls offer ask and auto. */
   permissionMode: PermissionMode
@@ -444,6 +451,8 @@ export type DesktopApi = {
   listHostedCatalogs(): Promise<Partial<Record<HostedProvider, HostedModel[]>>>
   /** Hides a hosted model from the picker, or shows it again; the selected model always shows. */
   setModelHidden(provider: HostedProvider, id: string, hidden: boolean): Promise<void>
+  /** Keeps a skill loaded but out of the model's offer; listSkills reports it as hidden. */
+  setSkillHidden(name: string, hidden: boolean): Promise<void>
   /** Bills Prime Intellect requests to this team's wallet; blank returns to the personal one. */
   setPrimeTeamId(teamId: string): Promise<void>
   /**
@@ -470,6 +479,8 @@ export type DesktopApi = {
   /** Shows thinking as trace cards or as plain muted text; persisted in local settings. */
   setThinkingVisible(visible: boolean): Promise<void>
   setNotifyOnCompletion(enabled: boolean): Promise<void>
+  setKeepAwake(enabled: boolean): Promise<void>
+  setAlertSound(enabled: boolean): Promise<void>
   setLocalThinking(model: string, level: LocalThinkingSelection): Promise<void>
   /** Persists the permission behavior used by subsequent tool calls. */
   setPermissionMode(mode: "ask" | "auto"): Promise<void>

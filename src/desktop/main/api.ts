@@ -190,6 +190,11 @@ export function desktopCall(runtime: DesktopRuntime) {
       if (typeof hidden !== "boolean") throw new Error("Invalid visibility flag.")
       return runtime.setModelHidden(provider, id, hidden)
     },
+    setSkillHidden: (name: unknown, hidden: unknown) => {
+      if (typeof name !== "string" || typeof hidden !== "boolean")
+        throw new Error("Invalid skill flag.")
+      return runtime.setSkillHidden(name, hidden)
+    },
     setPrimeTeamId: (teamId: unknown) => {
       if (typeof teamId !== "string") throw new Error("Invalid team id.")
       return runtime.setPrimeTeamId(teamId)
@@ -233,6 +238,14 @@ export function desktopCall(runtime: DesktopRuntime) {
     setNotifyOnCompletion: (enabled: unknown) => {
       if (typeof enabled !== "boolean") throw new Error("Invalid notification flag.")
       return runtime.setNotifyOnCompletion(enabled)
+    },
+    setKeepAwake: (enabled: unknown) => {
+      if (typeof enabled !== "boolean") throw new Error("Invalid keep-awake flag.")
+      return runtime.setKeepAwake(enabled)
+    },
+    setAlertSound: (enabled: unknown) => {
+      if (typeof enabled !== "boolean") throw new Error("Invalid sound flag.")
+      return runtime.setAlertSound(enabled)
     },
     setLocalThinking: (model: unknown, level: unknown) => {
       if (typeof model !== "string" || typeof level !== "string")

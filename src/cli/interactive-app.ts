@@ -458,6 +458,11 @@ export class InteractiveApp {
           app.debug = !app.debug
           this.#ui.showTransientHint(` Debug mode ${app.debug ? "on" : "off"} `)
           this.#ui.focusInput()
+        } else if (command.setting === "keep-awake") {
+          const enabled = !this.#app.settings.keepAwake
+          await this.#app.setKeepAwake(enabled)
+          this.#ui.showTransientHint(` Keep awake while working ${enabled ? "on" : "off"} `)
+          this.#ui.focusInput()
         } else if (command.setting === "subagents") {
           await this.#setPanelVisible("subagents", !this.#subagentPanelVisible)
         } else if (command.setting === "theme") {
@@ -836,6 +841,11 @@ export class InteractiveApp {
         submission: "/settings debug",
       },
       {
+        name: "Keep awake while working",
+        description: this.#app.settings.keepAwake ? "On" : "Off",
+        submission: "/settings keep-awake",
+      },
+      {
         name: "Subagents",
         description: this.#subagentPanelVisible ? "Shown" : "Hidden",
         submission: "/settings subagents",
@@ -877,14 +887,27 @@ export class InteractiveApp {
       this.#say(text)
       return
     }
+    // Off keeps a skill loaded but out of the model's offer; `/skills toggle <name>` flips it.
+    if (command.action === "toggle") {
+      const name = command.target
+      const known = this.#app.skills.byName.has(name)
+      const hidden = !this.#app.settings.hiddenSkills?.includes(name)
+      if (known) await this.#app.setSkillHidden(name, hidden)
+      this.#ui.showTransientHint(
+        known ? ` ${name} ${hidden ? "off" : "on"} ` : ` No skill named ${name}. `,
+      )
+      this.#ui.focusInput()
+      return
+    }
     const summary = await this.#app.listSkills(this.#skills)
     if (this.#exiting) return
     if (command.action === "list") {
       const rows = summary.skills.map((skill) => {
         const origin = typeof skill.origin === "string" ? skill.origin : skill.origin.collection
-        return `- **${skill.name}** (${origin}): ${skill.description}`
+        return `- **${skill.name}** (${origin}${skill.hidden ? ", off" : ""}): ${skill.description}`
       })
-      this.#say(rows.length > 0 ? rows.join("\n") : "No skills are loaded.")
+      const problems = summary.problems.map((problem) => `- ⚠ ${problem}`)
+      this.#say([...rows, ...problems].join("\n") || "No skills are loaded.")
       return
     }
     const source =
@@ -911,7 +934,9 @@ export class InteractiveApp {
           },
           {
             name: "Loaded skills",
-            description: skillCount(summary.skills.length),
+            description: summary.problems.length
+              ? `${skillCount(summary.skills.length)} · ${summary.problems.length} failed to load`
+              : skillCount(summary.skills.length),
             submission: "/skills list",
           },
           ...summary.sources.map((entry) => ({

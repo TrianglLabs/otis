@@ -490,6 +490,7 @@ export const ptBR: Messages = {
   "settings.skillInstall": "Instalar",
   "settings.skillUpdate": "Atualizar",
   "settings.skillRemove": "Remover",
+  "settings.showSkill": "Oferecer {{name}} ao modelo",
   "settings.skillsShown": "{{shown}} de {{total}} skills",
   "settings.skillsMore": "Mostrar mais",
   "settings.appearance": "Aparência",
@@ -516,6 +517,14 @@ export const ptBR: Messages = {
   "settings.notifyOnCompletion": "Avisar ao terminar uma sessão",
   "settings.toggleNotify":
     "Mostrar uma notificação do sistema quando uma sessão terminar enquanto o Otis não está à frente",
+  "settings.alertSound": "Som ao terminar ou ao aguardar",
+  "settings.alertSoundDetail": "Só quando o Otis não está em foco",
+  "settings.toggleAlertSound":
+    "Tocar um som quando uma sessão termina ou aguarda aprovação enquanto o Otis não está em foco",
+  "settings.keepAwake": "Manter ativo durante o trabalho",
+  "settings.keepAwakeDetail": "As telas ainda podem desligar",
+  "settings.toggleKeepAwake":
+    "Impede que o computador entre em repouso enquanto uma sessão ou rotina trabalha",
   "settings.fastServing": "Inferência rápida",
   "settings.fastUnavailable": "A inferência rápida não está disponível para este modelo",
   "settings.toggleFast": "Alternar inferência rápida",

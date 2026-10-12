@@ -16,6 +16,7 @@ const runtime = (id: number, title: string | null, extra: Partial<RuntimeSummary
   focused: false,
   busy: false,
   unseen: false,
+  failed: false,
   diffs: { added: 0, removed: 0 },
   workspace: { label: "ws", path: "/ws" },
   contextTokens: 0,

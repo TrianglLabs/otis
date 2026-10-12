@@ -494,6 +494,7 @@ export const es: Messages = {
   "settings.skillInstall": "Instalar",
   "settings.skillUpdate": "Actualizar",
   "settings.skillRemove": "Quitar",
+  "settings.showSkill": "Ofrecer {{name}} al modelo",
   "settings.skillsShown": "{{shown}} de {{total}} skills",
   "settings.skillsMore": "Mostrar más",
   "settings.appearance": "Apariencia",
@@ -521,6 +522,14 @@ export const es: Messages = {
   "settings.notifyOnCompletion": "Avisar al terminar una sesión",
   "settings.toggleNotify":
     "Mostrar una notificación del sistema cuando una sesión termine mientras Otis no está delante",
+  "settings.alertSound": "Sonido al terminar o al esperar",
+  "settings.alertSoundDetail": "Solo cuando Otis no tiene el foco",
+  "settings.toggleAlertSound":
+    "Reproducir un sonido cuando una sesión termina o espera aprobación mientras Otis no tiene el foco",
+  "settings.keepAwake": "Mantener activo mientras trabaja",
+  "settings.keepAwakeDetail": "Las pantallas pueden apagarse igualmente",
+  "settings.toggleKeepAwake":
+    "Evita que el equipo entre en reposo mientras una sesión o rutina trabaja",
   "settings.fastServing": "Inferencia rápida",
   "settings.fastUnavailable": "La inferencia rápida no está disponible para este modelo",
   "settings.toggleFast": "Alternar inferencia rápida",

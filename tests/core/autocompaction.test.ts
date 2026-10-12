@@ -26,7 +26,7 @@ const longResponse: ChatMessage = {
     { type: "text", text: "Done." },
   ],
 }
-const emptySkills = { skills: [], byName: new Map() }
+const emptySkills = { skills: [], byName: new Map(), problems: [] }
 const summaryClient = (summary = "Task and progress summarized."): InferenceClient => ({
   model: "fake",
   complete: vi.fn(),

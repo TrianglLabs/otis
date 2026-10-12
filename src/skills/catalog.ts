@@ -2,6 +2,7 @@ import { readdir, readFile, realpath, stat } from "node:fs/promises"
 import { homedir } from "node:os"
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { parseDocument } from "yaml"
+import { describeError } from "../inference/errors.js"
 import type { ToolResult } from "../tools/types.js"
 import { bundledSkills, materializeBundledSkill } from "./bundled.js"
 
@@ -43,22 +44,29 @@ export async function loadSkillCatalog(
   for (const source of ancestors) sources.add(source)
 
   const skills = new Map(bundledSkills(options.dataDirectory).map((skill) => [skill.name, skill]))
+  const problems: string[] = []
   for (const source of sources) {
     const entries = await readdir(source, { withFileTypes: true }).catch((error) => {
       if (isNotFound(error)) return []
       throw error
     })
+    // A skill that fails to load is left out and named; one typo in a pack must not take the
+    // rest, or the app, down with it.
     for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
-      const skill = await loadSkillPackage(join(source, entry.name))
-      if (skill) skills.set(skill.name, skill)
+      try {
+        const skill = await loadSkillPackage(join(source, entry.name))
+        if (skill) skills.set(skill.name, skill)
+      } catch (error) {
+        problems.push(describeError(error))
+      }
     }
   }
   const ordered = [...skills.values()].sort((left, right) => left.name.localeCompare(right.name))
-  return { skills: ordered, byName: new Map(ordered.map((skill) => [skill.name, skill])) }
+  return { skills: ordered, byName: new Map(ordered.map((skill) => [skill.name, skill])), problems }
 }
 
 export function emptySkillCatalog(): SkillCatalog {
-  return { skills: [], byName: new Map() }
+  return { skills: [], byName: new Map(), problems: [] }
 }
 
 export async function loadSkillPackage(directory: string): Promise<Skill | undefined> {
@@ -185,6 +193,8 @@ export type Skill = {
 export type SkillCatalog = {
   skills: readonly Skill[]
   byName: ReadonlyMap<string, Skill>
+  /** Why each skill that failed to load was left out, naming its SKILL.md. */
+  problems: readonly string[]
 }
 
 export type ManagedSkill = { name: string; relativePath: string }
@@ -193,9 +203,15 @@ export type SkillSummary = {
   name: string
   description: string
   origin: "bundled" | "personal" | "project" | { collection: string }
+  /** Switched off in settings: loaded, but not offered to the model. */
+  hidden: boolean
 }
 
-export type SkillsSummary = { skills: SkillSummary[]; sources: ManagedSkillSource[] }
+export type SkillsSummary = {
+  skills: SkillSummary[]
+  sources: ManagedSkillSource[]
+  problems: readonly string[]
+}
 
 export type ManagedSkillSource = {
   id: string

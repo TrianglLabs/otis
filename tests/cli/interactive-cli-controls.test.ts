@@ -293,6 +293,11 @@ describe("CLI settings", () => {
           submission: "/settings debug",
         },
         {
+          name: "Keep awake while working",
+          description: "Off",
+          submission: "/settings keep-awake",
+        },
+        {
           name: "Subagents",
           description: "Shown",
           submission: "/settings subagents",
@@ -310,6 +315,16 @@ describe("CLI settings", () => {
     await submit("/settings")
     expect(mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[0]).toEqual(
       expect.arrayContaining([expect.objectContaining({ name: "Debug mode", description: "On" })]),
+    )
+
+    await submit("/settings keep-awake")
+    expect(mocks.ui.showTransientHint).toHaveBeenLastCalledWith(" Keep awake while working on ")
+    expect(mocks.saveKeepAwake).toHaveBeenCalledWith(true)
+    await submit("/settings")
+    expect(mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[0]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "Keep awake while working", description: "On" }),
+      ]),
     )
   })
 
@@ -382,6 +397,7 @@ describe("CLI skills", () => {
         },
       ],
       byName: new Map(),
+      problems: [],
     })
     await loadCli()
 

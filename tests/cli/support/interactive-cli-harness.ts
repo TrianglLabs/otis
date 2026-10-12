@@ -153,6 +153,7 @@ const mocks = vi.hoisted(() => {
     loadSkillCatalog: vi.fn<() => Promise<SkillCatalog>>(async () => ({
       skills: [],
       byName: new Map(),
+      problems: [],
     })),
     skills: {
       activationDirectory: "/home/otis/.agents/skills",
@@ -177,6 +178,7 @@ const mocks = vi.hoisted(() => {
       level === "default" ? {} : { [model]: level },
     ),
     saveSubagentPanelVisible: vi.fn(async () => undefined),
+    saveKeepAwake: vi.fn(async () => undefined),
     saveFastServingSelection: vi.fn(async () => undefined),
     savePermissionMode: vi.fn(async () => undefined),
     detectHardware: vi.fn(async () => ({
@@ -306,6 +308,7 @@ vi.mock("../../../src/local/settings.js", async (importOriginal) => ({
   saveThinkingVisible: mocks.saveThinkingVisible,
   saveLocalThinking: mocks.saveLocalThinking,
   saveSubagentPanelVisible: mocks.saveSubagentPanelVisible,
+  saveKeepAwake: mocks.saveKeepAwake,
   saveFastServingSelection: mocks.saveFastServingSelection,
   savePermissionMode: mocks.savePermissionMode,
 }))
@@ -380,7 +383,7 @@ beforeEach(() => {
     errors: [],
   })
   mocks.loadLocalSettings.mockResolvedValue(localSettings())
-  mocks.loadSkillCatalog.mockResolvedValue({ skills: [], byName: new Map() })
+  mocks.loadSkillCatalog.mockResolvedValue({ skills: [], byName: new Map(), problems: [] })
   mocks.checkForUpdate.mockResolvedValue(null)
   mocks.detectHardware.mockResolvedValue({
     platform: "darwin",

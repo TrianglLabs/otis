@@ -557,6 +557,7 @@ export const uk: Messages = {
   "settings.skillInstall": "Установити",
   "settings.skillUpdate": "Оновити",
   "settings.skillRemove": "Вилучити",
+  "settings.showSkill": "Пропонувати {{name}} моделі",
   "settings.skillsShown": "{{shown}} з {{total}} навичок",
   "settings.skillsMore": "Показати більше",
   "settings.appearance": "Вигляд",
@@ -582,6 +583,13 @@ export const uk: Messages = {
   "settings.notifyOnCompletion": "Сповіщати про завершення сеансу",
   "settings.toggleNotify":
     "Показувати системне сповіщення, коли сеанс завершується, а Otis не на передньому плані",
+  "settings.alertSound": "Звук після завершення або в очікуванні",
+  "settings.alertSoundDetail": "Лише коли Otis не у фокусі",
+  "settings.toggleAlertSound":
+    "Відтворювати звук, коли сеанс завершується або чекає на схвалення, поки Otis не у фокусі",
+  "settings.keepAwake": "Не засинати під час роботи",
+  "settings.keepAwakeDetail": "Дисплеї все одно можуть вимикатися",
+  "settings.toggleKeepAwake": "Не дає комп’ютеру заснути, поки працює сеанс або рутина",
   "settings.fastServing": "Швидкий інференс",
   "settings.fastUnavailable": "Швидкий інференс недоступний для цієї моделі",
   "settings.toggleFast": "Перемкнути швидкий інференс",

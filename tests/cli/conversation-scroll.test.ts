@@ -106,7 +106,7 @@ describe("conversation scrolling", () => {
       }),
       projectContext: () => [],
       memory: () => [],
-      skills: () => ({ skills: [], byName: new Map() }),
+      skills: () => ({ skills: [], byName: new Map(), problems: [] }),
       permissionPolicy: () => createPermissionPolicy({ cwd, mode: "auto" }),
       broker: new PermissionBroker(),
       isExiting: () => false,

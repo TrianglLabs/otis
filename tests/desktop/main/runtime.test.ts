@@ -386,6 +386,17 @@ describe("DesktopRuntime subagents", () => {
     expect((await runtime.snapshot()).notifyOnCompletion).toBe(false)
     expect((await loadLocalSettings()).notifyOnCompletion).toBe(false)
 
+    expect((await runtime.snapshot()).keepAwake).toBe(false)
+    await runtime.setKeepAwake(true)
+    expect((await runtime.snapshot()).keepAwake).toBe(true)
+    expect((await loadLocalSettings()).keepAwake).toBe(true)
+    await runtime.setKeepAwake(false)
+
+    expect((await runtime.snapshot()).alertSound).toBe(false)
+    await runtime.setAlertSound(true)
+    expect((await runtime.snapshot()).alertSound).toBe(true)
+    expect((await loadLocalSettings()).alertSound).toBe(true)
+
     await runtime.setPermissionMode("ask")
     expect((await runtime.snapshot()).permissionMode).toBe("ask")
     expect((await loadLocalSettings()).permissions?.defaultMode).toBe("ask")
@@ -1855,7 +1866,9 @@ describe("DesktopRuntime sessions", () => {
         name: "release-notes",
         description: "Prepare release notes.",
         origin: { collection: "acme" },
+        hidden: false,
       })
+      expect(listed.problems).toEqual([])
       expect(listed.skills.find((entry) => entry.name === "documents")?.origin).toBe("bundled")
 
       expect(await runtime.installSkills("https://github.com/acme/skills")).toEqual({ ok: true })

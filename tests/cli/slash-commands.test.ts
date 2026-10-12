@@ -25,6 +25,12 @@ describe("slash commands", () => {
       action: "remove",
       target: "pstack",
     })
+    expect(parseSlashCommand("/skills toggle review")).toEqual({
+      type: "skills",
+      action: "toggle",
+      target: "review",
+    })
+    expect(parseSlashCommand("/skills toggle")).toBeUndefined()
     expect(parseSlashCommand("/skills install")).toBeUndefined()
     expect(parseSlashCommand("/memory")).toEqual({ type: "memory" })
     expect(parseSlashCommand("/memory list")).toEqual({ type: "memory", action: "list" })
@@ -56,6 +62,10 @@ describe("slash commands", () => {
     expect(parseSlashCommand("/settings hosted")).toEqual({ type: "settings", setting: "hosted" })
     expect(parseSlashCommand("/settings pair")).toEqual({ type: "settings", setting: "pair" })
     expect(parseSlashCommand("/settings debug")).toEqual({ type: "settings", setting: "debug" })
+    expect(parseSlashCommand("/settings keep-awake")).toEqual({
+      type: "settings",
+      setting: "keep-awake",
+    })
     expect(parseSlashCommand("/settings subagents")).toEqual({
       type: "settings",
       setting: "subagents",
@@ -119,6 +129,7 @@ describe("slash commands", () => {
     expect(slashCommandRunsImmediately({ type: "theme", name: "nord" })).toBe(true)
     expect(slashCommandRunsImmediately({ type: "settings" })).toBe(true)
     expect(slashCommandRunsImmediately({ type: "settings", setting: "debug" })).toBe(true)
+    expect(slashCommandRunsImmediately({ type: "settings", setting: "keep-awake" })).toBe(true)
     expect(slashCommandRunsImmediately({ type: "settings", setting: "subagents" })).toBe(true)
     expect(slashCommandRunsImmediately({ type: "settings", setting: "theme" })).toBe(true)
     expect(slashCommandRunsImmediately({ type: "settings", setting: "hosted" })).toBe(false)

@@ -26,6 +26,7 @@ import { localConfigDirectory } from "../../src/local/paths.js"
 import { loadLocalSettings, saveSelectedModel } from "../../src/local/settings.js"
 import { remember } from "../../src/memory/memory.js"
 import type { PermissionRequest } from "../../src/permissions/policy.js"
+import type { SkillCatalog } from "../../src/skills/catalog.js"
 import { createSession, listSessions } from "../../src/storage/session.js"
 import { defaultSessionDirectory } from "../../src/storage/session-files.js"
 import { acquireSessionLock } from "../../src/storage/session-lock.js"
@@ -36,7 +37,10 @@ const mocks = vi.hoisted(() => ({
   listDownloaded: vi.fn<() => Promise<unknown[]>>(async () => []),
   deleteGguf: vi.fn<() => Promise<void>>(async () => {}),
   listHostedModels: vi.fn<() => Promise<unknown[]>>(async () => []),
+  releaseAwake: vi.fn(),
+  holdAwake: vi.fn(),
 }))
+vi.mock("../../src/local/keep-awake.js", () => ({ holdAwake: mocks.holdAwake }))
 vi.mock("../../src/app/turn-runner.js", () => ({ executeTurn: mocks.executeTurn }))
 vi.mock("../../src/inference/client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/inference/client.js")>()),
@@ -221,6 +225,63 @@ describe("Application", () => {
     await app.shutdown()
     expect(app.conversation.busy).toBe(false)
     await expect(started).resolves.toMatchObject({ status: "interrupted" })
+  })
+})
+
+describe("Application keep awake", () => {
+  beforeEach(() => {
+    mocks.releaseAwake.mockReset()
+    mocks.holdAwake.mockReset().mockReturnValue(mocks.releaseAwake)
+  })
+
+  it("holds off sleep only while a turn runs with the setting on, and remembers it", async () => {
+    const app = await ready("otis-app-awake-")
+    let finish = gate()
+    mocks.executeTurn.mockImplementation(async (options: TurnRunnerOptions) => {
+      await finish.promise
+      return turnEvents("done")(options)
+    })
+
+    finish.resolve()
+    await app.conversation.start({ role: "user", content: "off" })
+    expect(mocks.holdAwake).not.toHaveBeenCalled()
+
+    await app.setKeepAwake(true)
+    expect(mocks.holdAwake).not.toHaveBeenCalled()
+    expect((await loadLocalSettings()).keepAwake).toBe(true)
+
+    finish = gate()
+    const started = app.conversation.start({ role: "user", content: "on" })
+    await vi.waitFor(() => expect(app.conversation.busy).toBe(true))
+    expect(mocks.holdAwake).toHaveBeenCalledTimes(1)
+    finish.resolve()
+    await started
+    expect(mocks.releaseAwake).toHaveBeenCalledTimes(1)
+    await app.shutdown()
+  })
+
+  it("takes and drops the hold when the setting changes mid-turn, releasing it once at the end", async () => {
+    const app = await ready("otis-app-awake-toggle-")
+    const finish = gate()
+    mocks.executeTurn.mockImplementation(async (options: TurnRunnerOptions) => {
+      await finish.promise
+      return turnEvents("done")(options)
+    })
+    const started = app.conversation.start({ role: "user", content: "long" })
+    await vi.waitFor(() => expect(app.conversation.busy).toBe(true))
+
+    await app.setKeepAwake(true)
+    expect(mocks.holdAwake).toHaveBeenCalledTimes(1)
+    await app.setKeepAwake(false)
+    expect(mocks.releaseAwake).toHaveBeenCalledTimes(1)
+    await app.setKeepAwake(true)
+    expect(mocks.holdAwake).toHaveBeenCalledTimes(2)
+
+    const closing = app.shutdown()
+    finish.resolve()
+    await Promise.all([closing, started])
+    expect(mocks.releaseAwake).toHaveBeenCalledTimes(2)
+    expect(mocks.holdAwake).toHaveBeenCalledTimes(2)
   })
 })
 
@@ -732,6 +793,37 @@ describe("Application model transactions", () => {
     await app.shutdown()
   })
 
+  it("keeps a switched-off skill loaded but out of the model's offer, and remembers it", async () => {
+    const app = await ready("otis-app-hidden-skill-")
+    const directory = join(app.cwd, ".agents", "skills", "review")
+    await mkdir(directory, { recursive: true })
+    await writeFile(
+      join(directory, "SKILL.md"),
+      "---\nname: review\ndescription: Review changes.\n---\nLook closely.\n",
+    )
+    await app.reloadSkills()
+    // What a turn is offered: the catalog the turn runner receives.
+    mocks.executeTurn.mockImplementation(turnEvents("ok"))
+    const offered = async () => {
+      await app.conversation.start({ role: "user", content: "go" })
+      const { skills } = mocks.executeTurn.mock.lastCall?.[0].agent as { skills: SkillCatalog }
+      return skills
+    }
+    expect((await offered()).skills.map((skill) => skill.name)).toContain("review")
+
+    await app.setSkillHidden("review", true)
+    const without = await offered()
+    expect(without.skills.map((skill) => skill.name)).not.toContain("review")
+    expect(without.byName.has("review")).toBe(false)
+    expect(app.skills.byName.has("review")).toBe(true)
+    expect((await loadLocalSettings()).hiddenSkills).toEqual(["review"])
+
+    await app.setSkillHidden("review", false)
+    expect(await offered()).toBe(app.focused.workspace.skills)
+    expect((await loadLocalSettings()).hiddenSkills).toBeUndefined()
+    await app.shutdown()
+  })
+
   it("drops the speed readout when the model switches or the session changes", async () => {
     const app = await ready("otis-app-speed-")
     preparing(app)
@@ -1096,6 +1188,27 @@ describe("Application session runtimes", () => {
     return session
   }
 
+  it("marks an unfocused session whose turn failed, until it is shown", async () => {
+    const app = await ready("otis-app-failed-")
+    const first = app.focused
+    serve(app, fakeClient, gptOss)
+    const hold = gate()
+    mocks.executeTurn.mockImplementation(async (): Promise<TurnResult> => {
+      await hold.promise
+      return { status: "error", message: "boom", messages: [], details: {} }
+    })
+    await app.conversation.submit({ role: "user", content: "long task" })
+    const saved = await stored(app.cwd, "stored question", "stored answer")
+    expect(await app.openSession(saved.id)).toBe("opened")
+
+    hold.resolve()
+    await first.conversation.idle()
+    expect(app.status().runtimes[0]).toMatchObject({ unseen: true, failed: true })
+    app.focus(first)
+    expect(app.status().runtimes[0]).toMatchObject({ unseen: false, failed: false })
+    await app.shutdown()
+  })
+
   it("opens a second session while the first works: it keeps running, unfocused, then reads as done", async () => {
     const app = await ready("otis-app-runtimes-")
     const first = app.focused
@@ -1165,7 +1278,7 @@ describe("Application session runtimes", () => {
     expect(first.unseen).toBe(true)
     expect(app.status()).toMatchObject({
       working: 0,
-      runtimes: [{ unseen: true, busy: false }, { unseen: false }],
+      runtimes: [{ unseen: true, failed: false, busy: false }, { unseen: false }],
     })
 
     app.focus(first)
