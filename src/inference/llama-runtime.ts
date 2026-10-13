@@ -1,6 +1,6 @@
 import { type ChildProcess, execFile, spawn } from "node:child_process"
 import { createHash } from "node:crypto"
-import type { Dirent } from "node:fs"
+import { closeSync, type Dirent, openSync, writeSync } from "node:fs"
 import {
   chmod,
   type FileHandle,
@@ -18,6 +18,7 @@ import { createServer } from "node:net"
 import { dirname, join } from "node:path"
 import { promisify } from "node:util"
 import {
+  extractZip,
   llamaBinaryDirectory,
   llamaModelCacheDirectory,
   llamaServerRecordsDirectory,
@@ -553,9 +554,10 @@ export class LlamaCppRuntime {
     if (mmproj) args.push("--mmproj", mmproj)
     if (runtime.devices?.length) args.push("--device", runtime.devices.join(","))
     // The last start's complete output, for a server that fails on a machine without a terminal.
+    // Written as it arrives and closed once the pipes drain, after the exit.
     const logPath = join(dirname(this.#recordsDirectory()), "server.log")
     await mkdir(dirname(logPath), { recursive: true, mode: 0o700 })
-    const logFile = await open(logPath, "w", 0o600).catch(() => undefined)
+    const logFile = openSync(logPath, "w", 0o600)
     const child = (this.#options.spawn ?? spawn)(runtime.binaryPath, args, {
       env: this.#serverEnvironment(runtime),
       stdio: ["ignore", "pipe", "pipe"],
@@ -568,7 +570,7 @@ export class LlamaCppRuntime {
     })
     const append = (chunk: Buffer | string) => {
       logs.value = `${logs.value}${String(chunk)}`.slice(-20_000)
-      void logFile?.write(String(chunk)).catch(() => undefined)
+      writeSync(logFile, String(chunk))
     }
     child.stdout?.on("data", append)
     child.stderr?.on("data", append)
@@ -578,8 +580,8 @@ export class LlamaCppRuntime {
       if (this.#process === child && this.#serving)
         this.#exit = { code, signal: exitSignal, tail: logs.value.slice(-EXIT_TAIL_BYTES).trim() }
       void this.#forgetServer(child.pid)
-      void logFile?.close().catch(() => undefined)
     })
+    child.once("close", () => closeSync(logFile))
 
     const exited = new AbortController()
     const onExit = () => exited.abort(new LlamaServerExitError(logs.value, child))
@@ -1120,9 +1122,13 @@ async function checkLlamaGeneration(options: {
   }
 }
 
-/** tar reads the gzip tarballs and, as Windows' bsdtar, the zip archives of the Windows builds. */
+/** The tarballs through tar; the Windows builds' zips in-process (extractZip says why). */
 async function extractArchive(archivePath: string, destination: string) {
   await mkdir(destination, { recursive: true })
+  if (archivePath.endsWith(".zip")) {
+    await extractZip(archivePath, destination)
+    return
+  }
   const child = spawn(tarExecutable(), ["-xf", archivePath, "-C", destination], {
     stdio: "pipe",
     windowsHide: true,

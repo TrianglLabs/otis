@@ -4,7 +4,7 @@ import { createReadStream } from "node:fs"
 import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import { tarExecutable } from "../local/paths.js"
+import { extractZip, tarExecutable } from "../local/paths.js"
 
 const DEFAULT_RELEASES_BASE_URL = "https://github.com/triangllabs/otis/releases"
 const CURRENT_VERSION = process.env.OTIS_VERSION ?? "dev"
@@ -161,15 +161,20 @@ export async function runUpdateCommand(args: string[] = [], options: RunUpdateOp
       throw new Error("Downloaded Otis archive failed checksum verification.")
     }
 
-    const entries = (await runCommand(tarExecutable(), ["-tf", archivePath]))
-      .split(/\r?\n/)
-      .map((entry) => entry.trim())
-      .filter(Boolean)
+    // The Windows zip is read in-process into the private work directory (extractZip says why);
+    // a tarball is listed before anything is written.
+    await fs.mkdir(extractDirectory, { recursive: true })
+    const zipped = binary === "otis.exe"
+    const entries = zipped
+      ? await extractZip(archivePath, extractDirectory)
+      : (await runCommand(tarExecutable(), ["-tf", archivePath]))
+          .split(/\r?\n/)
+          .map((entry) => entry.trim())
+          .filter(Boolean)
     if (entries.length !== 1 || (entries[0] !== binary && entries[0] !== `./${binary}`)) {
       throw new Error("Otis release archive must contain only the otis binary.")
     }
-    await fs.mkdir(extractDirectory, { recursive: true })
-    await runCommand(tarExecutable(), ["-xf", archivePath, "-C", extractDirectory])
+    if (!zipped) await runCommand(tarExecutable(), ["-xf", archivePath, "-C", extractDirectory])
     const binaryPath = path.join(extractDirectory, binary)
     if (!(await fs.lstat(binaryPath)).isFile()) {
       throw new Error("Otis release archive did not contain a regular binary.")

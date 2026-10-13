@@ -46,7 +46,8 @@ does not replace the upstream runtime used by other models.
 On Linux and Windows, compatible NVIDIA GPUs use the official upstream CUDA builds and their matching CUDA
 runtime/cuBLAS libraries. Otis downloads both; installing the CUDA toolkit is not required. The system still needs an
 NVIDIA driver and, on Linux, the normal runtime libraries, including OpenMP (`libgomp1` on Ubuntu). Windows builds are
-the official zip archives, extracted with Windows' own `tar`.
+the official zip archives, which Otis unpacks itself: Windows' `tar` cannot open a path whose user name lies outside
+the system code page.
 
 CUDA selection requires glibc 2.39 or newer. CUDA 12.8 is available on x64 with NVIDIA driver 570.211.01 or newer and
 GPU compute capability 5.0–12.0. CUDA 13.4 is preferred on x64 and arm64 with an R615 (615 or newer) driver and compute
