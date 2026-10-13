@@ -17,6 +17,11 @@ type ThinkingCapability = {
 const CAPABILITIES: Record<string, ThinkingCapability> = {
   "Qwen/Qwen3.8-27B": { levels: ["off", "low", "medium", "xhigh"], defaultLevel: "xhigh" },
   "Qwen/Qwen3.8-Flash-Next": { levels: ["off", "low", "medium", "xhigh"], defaultLevel: "xhigh" },
+  // Saluki ships Qwen3.8's template: https://huggingface.co/ConwayResearch/Underdog-Saluki-27B-1.0
+  "ConwayResearch/Underdog-Saluki-27B-1.0": {
+    levels: ["off", "low", "medium", "xhigh"],
+    defaultLevel: "xhigh",
+  },
   "prism-ml/Ternary-Bonsai-2-27B-gguf": {
     levels: ["off", "medium", "xhigh"],
     defaultLevel: "xhigh",
