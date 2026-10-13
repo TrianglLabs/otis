@@ -287,6 +287,34 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     hiddenSize: 5_120,
   },
   {
+    id: "ConwayResearch/Underdog-Saluki-27B-1.0",
+    displayName: "Underdog Saluki 27B",
+    // Underdog's 2-bit mixed quantization of Qwen3.8-27B, published by its author as GGUF only.
+    sourceModel: "ConwayResearch/Underdog-Saluki-27B-1.0",
+    runtime: "upstream",
+    ggufRepo: "ConwayResearch/Underdog-Saluki-27B-1.0",
+    ggufRevision: "4f60eba09f4b6db63c72915d328d97e1d93edb8c",
+    ggufFiles: [
+      {
+        name: "Underdog-Saluki-27B-1.0-IQ2-mix.gguf",
+        sha256: "4a673518b11b1c4445f9b9a9d3c40356f5ba39f6a6260dcb25f3fbfd475d9efb",
+        size: 7_898_369_152,
+      },
+    ],
+    mmproj: {
+      name: "mmproj-Underdog-Saluki-27B-1.0-Q8_0.gguf",
+      sha256: "2e0b88b680a45a58eea666b9776a89601b16f4ef575b871a686d82ee65938756",
+      size: 629_246_976,
+    },
+    quant: "IQ2-mix",
+    nativeContextLength: 262_144,
+    supportsImageInput: true,
+    // Saluki retains the Qwen3.8 27B architecture and KV-cache geometry.
+    attention: { groups: [{ layers: 16, kvHeads: 4, headDim: 256 }] },
+    vocabSize: 248_320,
+    hiddenSize: 5_120,
+  },
+  {
     id: "Qwen/Qwen3.8-Flash-Next",
     displayName: "Qwen3.8 Flash Next",
     sourceModel: "Qwen/Qwen3.8-Flash-Next",
@@ -364,6 +392,29 @@ export const LOCAL_MODELS: readonly LocalModelSpec[] = [
     },
     vocabSize: 201_088,
     hiddenSize: 2_880,
+  },
+  {
+    id: "LiquidAI/LFM2.5-24B-A2B",
+    displayName: "LFM2.5 24B A2B",
+    sourceModel: "LiquidAI/LFM2.5-24B-A2B",
+    runtime: "upstream",
+    ggufRepo: "LiquidAI/LFM2.5-24B-A2B-GGUF",
+    ggufRevision: "0912d33141f77e10705345a6732bfd83f0252fdc",
+    // Liquid's quantization-aware distillation checkpoint, trained to recover Q4_0's loss.
+    ggufFiles: [
+      {
+        name: "LFM2.5-24B-A2B-QAD-Q4_0.gguf",
+        sha256: "d1c03f73ecaf61017d70419eec9e5dc0b05d50ae26c23d522829b934fbabf8a5",
+        size: 13_578_190_880,
+      },
+    ],
+    quant: "Q4_0",
+    nativeContextLength: 131_072,
+    supportsImageInput: false,
+    // Ten of the forty layers are full attention; the rest are gated short convolutions.
+    attention: { groups: [{ layers: 10, kvHeads: 8, headDim: 64 }] },
+    vocabSize: 128_000,
+    hiddenSize: 2_048,
   },
   {
     id: "google/gemma-4-26B-A4B-it",

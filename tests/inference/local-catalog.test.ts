@@ -7,8 +7,23 @@ import {
   localModelPackings,
   localModelWeightBytes,
 } from "../../src/inference/local-catalog.js"
+import { LOCAL_MODEL_CARDS, localModelCard } from "../../src/inference/model-cards.js"
 
 describe("local model catalog", () => {
+  it("carries a sourced card for every catalog model and for nothing else", () => {
+    for (const model of LOCAL_MODELS) {
+      const card = localModelCard(model.id)
+      expect(card, model.id).toBeDefined()
+      expect(card?.bestAt.length).toBeGreaterThan(0)
+      expect(card?.worstAt.length).toBeGreaterThan(0)
+      expect(card?.source).toBe(`https://huggingface.co/${model.sourceModel}`)
+    }
+    expect(Object.keys(LOCAL_MODEL_CARDS).sort()).toEqual(
+      LOCAL_MODELS.map((model) => model.id).sort(),
+    )
+    expect(localModelCard("Qwen/Qwen3-Coder-30B-A3B-Instruct")).toBeUndefined()
+  })
+
   it("does not offer Qwen Coder as a managed local model", () => {
     expect(findLocalModel("Qwen/Qwen3-Coder-30B-A3B-Instruct")).toBeUndefined()
   })
@@ -53,6 +68,7 @@ describe("local model catalog", () => {
       "google/gemma-4-12B-it",
       "Qwen/Qwen3.8-27B",
       "prism-ml/Ternary-Bonsai-2-27B-gguf",
+      "ConwayResearch/Underdog-Saluki-27B-1.0",
       "Qwen/Qwen3.8-Flash-Next",
       "google/gemma-4-26B-A4B-it",
       "google/gemma-4-31B-it",
@@ -73,6 +89,54 @@ describe("local model catalog", () => {
       ],
       nativeContextLength: 131_072,
       supportsImageInput: false,
+    })
+  })
+
+  it("pins Liquid AI's QAD Q4_0 GGUF for the 24B A2B mixture of experts", () => {
+    expect(findLocalModel("LiquidAI/LFM2.5-24B-A2B")).toMatchObject({
+      sourceModel: "LiquidAI/LFM2.5-24B-A2B",
+      runtime: "upstream",
+      ggufRepo: "LiquidAI/LFM2.5-24B-A2B-GGUF",
+      ggufRevision: "0912d33141f77e10705345a6732bfd83f0252fdc",
+      ggufFiles: [
+        {
+          name: "LFM2.5-24B-A2B-QAD-Q4_0.gguf",
+          sha256: "d1c03f73ecaf61017d70419eec9e5dc0b05d50ae26c23d522829b934fbabf8a5",
+          size: 13_578_190_880,
+        },
+      ],
+      quant: "Q4_0",
+      nativeContextLength: 131_072,
+      supportsImageInput: false,
+      // Only the ten full-attention layers of the hybrid stack hold a token KV cache.
+      attention: { groups: [{ layers: 10, kvHeads: 8, headDim: 64 }] },
+    })
+  })
+
+  it("pins Underdog's Saluki GGUF and its Q8 vision projector on the upstream runtime", () => {
+    expect(findLocalModel("ConwayResearch/Underdog-Saluki-27B-1.0")).toMatchObject({
+      displayName: "Underdog Saluki 27B",
+      sourceModel: "ConwayResearch/Underdog-Saluki-27B-1.0",
+      runtime: "upstream",
+      ggufRepo: "ConwayResearch/Underdog-Saluki-27B-1.0",
+      ggufRevision: "4f60eba09f4b6db63c72915d328d97e1d93edb8c",
+      ggufFiles: [
+        {
+          name: "Underdog-Saluki-27B-1.0-IQ2-mix.gguf",
+          sha256: "4a673518b11b1c4445f9b9a9d3c40356f5ba39f6a6260dcb25f3fbfd475d9efb",
+          size: 7_898_369_152,
+        },
+      ],
+      mmproj: {
+        name: "mmproj-Underdog-Saluki-27B-1.0-Q8_0.gguf",
+        sha256: "2e0b88b680a45a58eea666b9776a89601b16f4ef575b871a686d82ee65938756",
+        size: 629_246_976,
+      },
+      quant: "IQ2-mix",
+      nativeContextLength: 262_144,
+      supportsImageInput: true,
+      // Saluki keeps the Qwen3.8 27B KV-cache geometry.
+      attention: { groups: [{ layers: 16, kvHeads: 4, headDim: 256 }] },
     })
   })
 

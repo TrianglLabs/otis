@@ -109,6 +109,10 @@ lacks PQ2 kernels. If CUDA falls back to Vulkan, Otis reselects PTQ1 and downloa
 cached PQ2 file. A failure during the fallback download is reported without starting incompatible weights.
 The picker displays the packing preferred for the detected hardware; runtime fallback may use the compact packing.
 
+Underdog Saluki 27B is Underdog's 2-bit mixed quantization of Qwen3.8-27B, a 7.9 GB GGUF with Qwen's chat template
+and a Q8 vision projector that runs on the upstream runtime. LFM2.5 24B A2B uses Liquid AI's quantization-aware
+distillation `Q4_0` GGUF, a 13.6 GB mixture of experts with 2B active parameters that always thinks before answering.
+
 Managed local models with documented thinking controls show a **Thinking** slider beside the desktop model picker.
 The terminal uses `/effort` to list supported values and `/effort medium` (for example) to select one.
 Preferences are saved per model in the private local config; `/effort default` or **Use model default** removes the
@@ -116,20 +120,21 @@ override. Changes apply to subsequent requests without restarting the model. Con
 This changes model behavior independently of the thinking-trace visibility setting. The startup generation check and
 conversation summaries always use the model's lowest documented thinking setting, whatever the slider says.
 
-Qwen3.8 offers off/low/medium/xhigh, Bonsai 2 off/medium/xhigh, gpt-oss low/medium/high, and GLM-5.3 low/high/max.
-Ornith and Gemma expose on/off only. LFM2.5 has no documented thinking control and does not show the slider.
+Qwen3.8 and Underdog Saluki offer off/low/medium/xhigh, Bonsai 2 off/medium/xhigh, gpt-oss low/medium/high, and
+GLM-5.3 low/high/max. Ornith and Gemma expose on/off only. LFM2.5 has no documented thinking control and does not
+show the slider.
 The capability policy lives in `src/inference/local-thinking.ts`; it uses native template controls, not invented token
 budgets. Hosted and user-managed servers keep their existing behavior. Token counting uses the same thinking
 parameters as inference, and changing effort invalidates the previous observed context count.
 
 Recommendations star the first fitting group of a curated preference order. This is an Otis default, not a benchmark
 ranking. When a GPU can hold a whole model—selected weights, a 64K context cache, and runtime buffers, after
-llama.cpp's 1 GiB margin per device—the order is GLM-5.3, Qwen3.8 Flash Next, Qwen3.8 27B, Bonsai 2 27B,
-Ornith 1.5 9B / Gemma 4 12B, then LFM2.5 2.6B. A GPU-resident fit does not need host RAM for its layers, so extra
+llama.cpp's 1 GiB margin per device—the order is GLM-5.3, Qwen3.8 Flash Next, Qwen3.8 27B, LFM2.5 24B A2B,
+Underdog Saluki 27B, Bonsai 2 27B, Ornith 1.5 9B / Gemma 4 12B, then LFM2.5 2.6B. A GPU-resident fit does not need host RAM for its layers, so extra
 system RAM alone does not promote a larger model and little system RAM does not hide one. Without such a GPU—CPU-only
 hosts, GPUs whose VRAM is unreported, and GPUs too small to hold any model whole—generation is bound by host memory
 bandwidth, and the order prefers mixtures of experts with few active parameters and small dense models: Qwen3.8 Flash
-Next, gpt-oss 20B / Gemma 4 26B A4B, Ornith 1.5 9B / Gemma 4 12B, then LFM2.5 2.6B. Candidates there must fit host
+Next, LFM2.5 24B A2B / gpt-oss 20B / Gemma 4 26B A4B, Ornith 1.5 9B / Gemma 4 12B, then LFM2.5 2.6B. Candidates there must fit host
 memory with at least a 64K context, and the star may land on a row that spills layers to the CPU. Models whose 64K
 footprint exceeds the GPU budget but fits GPU plus host memory remain selectable, show an estimated 64K context and
 a CPU marker (`◐` in the terminal, a chip icon in the desktop), and are not starred while a GPU-resident candidate exists.
@@ -141,7 +146,9 @@ Examples with a dedicated GPU:
 | 4 GiB | Qwen3.8 Flash Next when host RAM holds it, else the CPU order |
 | 6–8 GiB | LFM2.5 2.6B |
 | 12 GiB | Ornith 1.5 9B / Gemma 4 12B |
-| 16–24 GiB | Bonsai 2 27B |
+| 14 GiB | Bonsai 2 27B |
+| 15 GiB | Underdog Saluki 27B |
+| 16–24 GiB | LFM2.5 24B A2B |
 | 32–80 GiB | Qwen3.8 27B |
 | 96–256 GiB | Qwen3.8 Flash Next |
 | 384 GiB and above | GLM-5.3 |
@@ -160,9 +167,9 @@ hold 64K there; the rest of memory stays with the system. With the default worki
 | --- | --- | --- |
 | 8 GiB | LFM2.5 2.6B | LFM2.5 2.6B |
 | 16–18 GiB | Ornith 1.5 9B / Gemma 4 12B | Ornith 1.5 9B / Gemma 4 12B |
-| 24 GiB | Bonsai 2 27B | Bonsai 2 27B |
-| 32 GiB | Bonsai 2 27B | Qwen3.8 27B |
-| 36 GiB | Bonsai 2 27B | Qwen3.8 27B |
+| 24 GiB | LFM2.5 24B A2B | LFM2.5 24B A2B |
+| 32 GiB | LFM2.5 24B A2B | Qwen3.8 27B |
+| 36 GiB | LFM2.5 24B A2B | Qwen3.8 27B |
 | 48–96 GiB | Qwen3.8 27B | Qwen3.8 27B |
 | 128–384 GiB | Qwen3.8 Flash Next | Qwen3.8 Flash Next |
 | 512 GiB | GLM-5.3 | GLM-5.3 |

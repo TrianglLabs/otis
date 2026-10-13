@@ -121,6 +121,8 @@ const GPU_RECOMMENDATION_GROUPS: PreferenceGroups = [
   ["zai-org/GLM-5.3"],
   ["Qwen/Qwen3.8-Flash-Next"],
   ["Qwen/Qwen3.8-27B"],
+  ["LiquidAI/LFM2.5-24B-A2B"],
+  ["ConwayResearch/Underdog-Saluki-27B-1.0"],
   ["prism-ml/Ternary-Bonsai-2-27B-gguf"],
   ["ornith-ai/Ornith-1.5-9B", "google/gemma-4-12B-it"],
   ["LiquidAI/LFM2.5-2.6B"],
@@ -129,7 +131,7 @@ const GPU_RECOMMENDATION_GROUPS: PreferenceGroups = [
 // experts with few active parameters and small dense models over 27B-class dense weights.
 const CPU_RECOMMENDATION_GROUPS: PreferenceGroups = [
   ["Qwen/Qwen3.8-Flash-Next"],
-  ["openai/gpt-oss-20b", "google/gemma-4-26B-A4B-it"],
+  ["LiquidAI/LFM2.5-24B-A2B", "openai/gpt-oss-20b", "google/gemma-4-26B-A4B-it"],
   ["ornith-ai/Ornith-1.5-9B", "google/gemma-4-12B-it"],
   ["LiquidAI/LFM2.5-2.6B"],
 ]

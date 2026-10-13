@@ -60,6 +60,8 @@ const tight: HardwareProbe = {
 const GIBIBYTE = 1024 ** 3
 const LFM = "LiquidAI/LFM2.5-2.6B"
 const BONSAI = "prism-ml/Ternary-Bonsai-2-27B-gguf"
+const SALUKI = "ConwayResearch/Underdog-Saluki-27B-1.0"
+const LFM_24B = "LiquidAI/LFM2.5-24B-A2B"
 const QWEN = "Qwen/Qwen3.8-27B"
 const FLASH = "Qwen/Qwen3.8-Flash-Next"
 const GLM = "zai-org/GLM-5.3"
@@ -108,10 +110,10 @@ describe("model picker catalog", () => {
     [8, [LFM]],
     [16, [ORNITH, GEMMA]],
     [18, [ORNITH, GEMMA]],
-    [24, [BONSAI]],
-    [32, [BONSAI]],
+    [24, [LFM_24B]],
+    [32, [LFM_24B]],
     // Qwen3.8 27B with its vision projector needs 23.43 GiB at 64K, past a 36 GiB working set.
-    [36, [BONSAI]],
+    [36, [LFM_24B]],
     [48, [QWEN]],
     [64, [QWEN]],
     [96, [QWEN]],
@@ -147,7 +149,7 @@ describe("model picker catalog", () => {
 
   it.each([
     [16, [ORNITH, GEMMA]],
-    [24, [BONSAI]],
+    [24, [LFM_24B]],
     [32, [QWEN]],
     [36, [QWEN]],
     [48, [QWEN]],
@@ -206,7 +208,7 @@ describe("model picker catalog", () => {
     [8192, [LFM]],
     // Vulkan selects Bonsai's PTQ1 packing, whose 64K footprint with the projector is 11.3 GiB.
     [12288, [ORNITH, GEMMA]],
-    [16380, [BONSAI]],
+    [16380, [LFM_24B]],
   ])("stars models whose full footprint fits %d MiB of Vulkan VRAM", async (gpuMiB, ids) => {
     await expect(
       recommendedIds({ ...linuxHardware(15.8, 8), gpuMemoryBytes: gpuMiB * 1024 ** 2 }),
@@ -219,9 +221,12 @@ describe("model picker catalog", () => {
     [6, [LFM]],
     [8, [LFM]],
     [12, [ORNITH, GEMMA]],
-    [16, [BONSAI]],
-    [20, [BONSAI]],
-    [24, [BONSAI]],
+    // Bonsai PQ2 needs 12.47 GiB at 64K, Saluki 13.12 GiB, and LFM2.5 24B A2B 14.80 GiB.
+    [14, [BONSAI]],
+    [15, [SALUKI]],
+    [16, [LFM_24B]],
+    [20, [LFM_24B]],
+    [24, [LFM_24B]],
     [32, [QWEN]],
     [48, [QWEN]],
     [64, [QWEN]],
@@ -238,7 +243,7 @@ describe("model picker catalog", () => {
   it.each([
     32, 64, 128, 256, 1024,
   ])("keeps the 24 GiB GPU recommendation stable with %d GiB host RAM", async (ramGiB) => {
-    await expect(recommendedIds(linuxHardware(ramGiB, 24))).resolves.toEqual([BONSAI])
+    await expect(recommendedIds(linuxHardware(ramGiB, 24))).resolves.toEqual([LFM_24B])
   })
 
   it.each([
@@ -256,8 +261,10 @@ describe("model picker catalog", () => {
       (item): item is LocalPickerChoice => item.kind === "model" && item.provider === "local",
     )
     expect(local.map((item) => item.id)).toEqual([
-      BONSAI,
+      LFM_24B,
       QWEN,
+      SALUKI,
+      BONSAI,
       ORNITH,
       GEMMA,
       LFM,
@@ -282,7 +289,7 @@ describe("model picker catalog", () => {
       memoryRequiredFor(model, 65_536) + inferenceMemoryBudget(hardware).deviceHeadroomBytes
     await expect(recommendedIds({ ...hardware, gpuMemoryBytes: boundary })).resolves.toEqual([QWEN])
     await expect(recommendedIds({ ...hardware, gpuMemoryBytes: boundary - 1 })).resolves.toEqual([
-      BONSAI,
+      LFM_24B,
     ])
   })
 
@@ -297,7 +304,7 @@ describe("model picker catalog", () => {
     const dual = await probe("0, GPU-0, NVIDIA GPU, 12800\n1, GPU-1, NVIDIA GPU, 12800\n")
     expect(single.gpuMemoryBytes).toBe(dual.gpuMemoryBytes)
     await expect(recommendedIds(single)).resolves.toEqual([QWEN])
-    await expect(recommendedIds(dual)).resolves.toEqual([BONSAI])
+    await expect(recommendedIds(dual)).resolves.toEqual([LFM_24B])
   })
 
   it("falls back at the exact working-set boundary without rounding memory upward", async () => {
@@ -317,10 +324,11 @@ describe("model picker catalog", () => {
   it.each([
     [8, [LFM]],
     [12, [ORNITH, GEMMA]],
-    // gpt-oss holds 64K in the 14 GiB host budget; Gemma 4 26B A4B needs 16 GiB.
+    // gpt-oss holds 64K in the 14 GiB host budget; LFM2.5 24B A2B needs 15 GiB and Gemma 4
+    // 26B A4B 18 GiB.
     [16, [GPT_OSS]],
-    [24, [GPT_OSS, GEMMA_A4B]],
-    [32, [GPT_OSS, GEMMA_A4B]],
+    [24, [GPT_OSS, LFM_24B, GEMMA_A4B]],
+    [32, [GPT_OSS, LFM_24B, GEMMA_A4B]],
     [128, [FLASH]],
     [1024, [FLASH]],
   ])("prefers mixtures of experts and small dense models on a CPU-only host with %d GiB RAM", async (ramGiB, ids) => {
@@ -342,12 +350,12 @@ describe("model picker catalog", () => {
       unifiedMemory: true,
       gpuVendor,
     })
-    await expect(recommendedIds(unified("intel"))).resolves.toEqual([GPT_OSS, GEMMA_A4B])
+    await expect(recommendedIds(unified("intel"))).resolves.toEqual([GPT_OSS, LFM_24B, GEMMA_A4B])
     await expect(recommendedIds(unified("amd"))).resolves.toEqual([QWEN])
   })
 
   it("uses the CPU preference order when a Vulkan device does not report VRAM", async () => {
-    await expect(recommendedIds(linuxHardware(32))).resolves.toEqual([GPT_OSS, GEMMA_A4B])
+    await expect(recommendedIds(linuxHardware(32))).resolves.toEqual([GPT_OSS, LFM_24B, GEMMA_A4B])
   })
 
   it("does not recommend when nothing fits 4 GiB of unified memory", async () => {
@@ -360,6 +368,7 @@ describe("model picker catalog", () => {
   ])("falls back to the CPU preference order when %d bytes of VRAM hold no model", async (gpuMemoryBytes) => {
     await expect(recommendedIds({ ...linuxHardware(64, 24), gpuMemoryBytes })).resolves.toEqual([
       GPT_OSS,
+      LFM_24B,
       GEMMA_A4B,
     ])
   })
@@ -505,7 +514,20 @@ describe("model picker catalog", () => {
     // The star first, then the preference order, then the rest in catalog order.
     expect(
       items.slice(1, 1 + LOCAL_MODELS.length).map((item) => ("id" in item ? item.id : undefined)),
-    ).toEqual([GLM, FLASH, QWEN, BONSAI, ORNITH, GEMMA, LFM, GPT_OSS, GEMMA_A4B, GEMMA_31B])
+    ).toEqual([
+      GLM,
+      FLASH,
+      QWEN,
+      LFM_24B,
+      SALUKI,
+      BONSAI,
+      ORNITH,
+      GEMMA,
+      LFM,
+      GPT_OSS,
+      GEMMA_A4B,
+      GEMMA_31B,
+    ])
     expect(items[1]).toMatchObject({ recommended: true })
     const hostedHeader = items.findIndex(
       (item) => item.kind === "header" && item.displayName === "Fireworks AI",
@@ -1051,7 +1073,9 @@ describe("model picker catalog", () => {
       [LFM]: "Est. 128K",
       [QWEN]: "Est. 256K",
       [BONSAI]: "Est. 256K",
+      [SALUKI]: "Est. 256K",
       [FLASH]: "Est. 256K",
+      [LFM_24B]: "Est. 128K",
       [GPT_OSS]: "Est. 128K",
       [GEMMA_A4B]: "Est. 256K",
       [GEMMA_31B]: "Est. 256K",
@@ -1068,12 +1092,14 @@ describe("model picker catalog", () => {
     )
     expect(local.map((item) => item.id)).toEqual([
       GPT_OSS,
+      LFM_24B,
       GEMMA_A4B,
       ORNITH,
       GEMMA,
       LFM,
       QWEN,
       BONSAI,
+      SALUKI,
       GEMMA_31B,
     ])
     expect(local[0]).toMatchObject({ recommended: true, available: true })
