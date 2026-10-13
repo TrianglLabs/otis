@@ -148,7 +148,7 @@ describe("document replacement conflicts", () => {
     const backup = result.output.match(/backed up at (.+)\.\n/)?.[1]
     if (!backup) throw new Error("The tool did not return a backup path")
     expect(await fs.readFile(backup)).toEqual(Buffer.from(source))
-    expect((await fs.stat(backup)).mode & 0o777).toBe(0o600)
+    if (process.platform !== "win32") expect((await fs.stat(backup)).mode & 0o777).toBe(0o600)
   })
 })
 

@@ -12,12 +12,20 @@ export async function openHostedKeyPage(
   options: OpenKeyPageOptions = {},
 ): Promise<boolean> {
   const platform = options.platform ?? process.platform
-  const executable =
-    platform === "darwin" ? "/usr/bin/open" : platform === "linux" ? "xdg-open" : undefined
-  if (!executable) return false
+  const url = HOSTED_PROVIDER_INFO[provider].keyURL
+  // On Windows, url.dll's handler is ShellExecute for a URL: the default browser, no shell quoting.
+  const launcher: [string, string[]] | undefined =
+    platform === "darwin"
+      ? ["/usr/bin/open", [url]]
+      : platform === "linux"
+        ? ["xdg-open", [url]]
+        : platform === "win32"
+          ? ["rundll32.exe", ["url.dll,FileProtocolHandler", url]]
+          : undefined
+  if (!launcher) return false
 
   try {
-    await (options.launch ?? launchDetached)(executable, [HOSTED_PROVIDER_INFO[provider].keyURL])
+    await (options.launch ?? launchDetached)(...launcher)
     return true
   } catch {
     return false
@@ -26,7 +34,7 @@ export async function openHostedKeyPage(
 
 function launchDetached(command: string, args: string[]) {
   return new Promise<void>((resolve, reject) => {
-    const child = spawn(command, args, { detached: true, stdio: "ignore" })
+    const child = spawn(command, args, { detached: true, stdio: "ignore", windowsHide: true })
     child.once("error", reject)
     child.once("spawn", () => {
       child.unref()

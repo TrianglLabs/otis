@@ -54,7 +54,8 @@ src/cli
 - `src/core` owns the agent loop, project instruction loading, and conversation compaction.
 - `src/inference` owns hosted-provider, PAIR, and local llama.cpp request serialization, model discovery, hardware fit, the
   human-authored `system-prompt.txt`, prompt assembly and project-context bounds, and SSE parsing.
-- `src/local` owns platform paths, the private provider configuration file, and home-screen statistic derivation.
+- `src/local` owns platform paths, shells and process control, the private provider configuration file, and
+  home-screen statistic derivation.
 - `src/skills` owns portable Agent Skill discovery, manifest validation, precedence, and confined resource reads.
 - `src/storage` owns append-only session events, validation, replay, titles, tool cards, and diffs.
 - `src/tools` owns structured tool contracts, local execution, and the provider-neutral web-tool adapter.
@@ -238,12 +239,13 @@ currently serving label that context `Est.`; the active managed-local row receiv
 and labels it `loaded`.
 
 Selecting a runnable local model downloads its Otis-pinned llama.cpp runtime (Metal on macOS, CUDA on compatible Linux
-NVIDIA systems, Vulkan on other Linux GPU systems, otherwise CPU) and the selected GGUF into the platform local-data
-directory. Normal models use upstream llama.cpp `b11438`. Bonsai 2 uses Prism's
+and Windows NVIDIA systems, Vulkan on other Linux and Windows GPU systems, otherwise CPU) and the selected GGUF into the
+platform local-data directory. Normal models use upstream llama.cpp `b11438`. Bonsai 2 uses Prism's
 `prism-b10685-7dffb15` fork because its ternary formats require Prism's
 loader and kernels. Runtime choice is catalog metadata, so the fork is isolated to the model that needs it and both
-pinned bundles may coexist. macOS and Linux on arm64 and x64 are supported; other targets are disabled before
-selection. Runtime asset sizes and SHA-256 digests are pinned with each release, and the archive is verified while
+pinned bundles may coexist. macOS and Linux on arm64 and x64 and Windows on x64 and arm64 are supported; other targets
+are disabled before selection. Windows bundles are the official zip archives (`llama-server.exe` with its DLLs),
+extracted with Windows' own bsdtar, and the CPU build installs beside the GPU builds as on Linux. Runtime asset sizes and SHA-256 digests are pinned with each release, and the archive is verified while
 streaming to disk. Updating either runtime requires an explicit Otis source change. Existing compatible manifest-v1
 and pre-manifest bundles remain usable for released installations; newly installed bundles record the artifact digest,
 and obsolete known runtime directories are removed after a pinned runtime is available.
@@ -251,7 +253,10 @@ and obsolete known runtime directories are removed after a pinned runtime is ava
 Linux CUDA compatibility checks use glibc, NVIDIA driver version, and every detected GPU's compute capability. The
 official Ubuntu 24.04 CUDA archives require glibc 2.39; CUDA 12.8 (x64) requires driver 570.211.01 and SM 50–120, while
 CUDA 13.4 (x64/arm64) requires the R615 driver branch and SM 75–121. These deliberately require the toolkit's own driver
-branch because upstream ships PTX kernels; CUDA minor-version compatibility alone does not guarantee PTX support.
+branch because upstream ships PTX kernels; CUDA minor-version compatibility alone does not guarantee PTX support. Windows
+has no glibc gate: CUDA 13.4 applies as on Linux, and below it x64 takes the Windows 12.4 build with driver 551.61 and
+SM 50–90, the kernels it ships; the hardware probe reads other vendors' adapters from the PnP registry, where the
+driver records the dedicated memory, taking at most 4 GiB as an integrated carve-out.
 Each CUDA server archive is paired with its official `cudart` archive. Archives download into a persistent
 `downloads` directory under a per-bundle lock, resume by byte range with the same range and hash checks as GGUF
 files, and a verified archive is kept for the retry when its companion fails. Both are size/checksum verified before
@@ -271,8 +276,10 @@ Both device checks and managed Linux servers receive a private child environment
 `LD_LIBRARY_PATH`. Existing entries remain behind it for system/container/WSL driver discovery. `LD_PRELOAD`, `LD_AUDIT`,
 and `GGML_BACKEND_PATH` are removed for these children so inherited overrides cannot supersede the bundle. The child
 environment is built from an allowlist (path, home, temporary directories, locale, loader paths, GPU visibility, and
-display variables, plus `LLAMA_CACHE`); Hugging Face tokens and provider keys are never forwarded. Otis does not
-mutate the parent environment, driver installation, or system CUDA toolkit. `OTIS_LLAMA_SERVER` preserves the custom executable's loader settings and bypasses device checks and fallback.
+display variables, plus `LLAMA_CACHE`, and on Windows the system and profile variables its runtime resolves, matched
+case-insensitively); Hugging Face tokens and provider keys are never forwarded. Otis does not mutate the parent
+environment, driver installation, or system CUDA toolkit. Windows needs no loader path: DLLs beside the executable
+come first in its search order. `OTIS_LLAMA_SERVER` preserves the custom executable's loader settings and bypasses device checks and fallback.
 
 On Linux x64, Bonsai uses Prism's official CUDA 12.8/13.3 binaries with the matching NVIDIA libraries
 from upstream's companion archives; a machine qualified for CUDA 13.4 runs Prism's 13.3 build with the 13.3 companion
@@ -625,9 +632,20 @@ identity/timing metadata were introduced.
 
 ## Distribution
 
-GitHub Actions verifies and cross-compiles the four supported targets. Versioned archives, checksums, the manifest, and
-installer are published as GitHub Release assets. `otis update` resolves the latest or requested release there and
-verifies the archive checksum before replacing the installed binary.
+GitHub Actions verifies and cross-compiles the five supported targets: tarballs for macOS and Linux, a zip for Windows
+x64, which Bun compiles for; Windows on Arm runs it through its x64 emulation. Versioned archives, checksums, the
+manifest, and both installers (`install.sh`, `install.ps1`) are published as GitHub Release assets. `otis update`
+resolves the latest or requested release there, lists and extracts the archive with the system tar (Windows' bsdtar
+reads the zip), and verifies the checksum before replacing the installed binary. Windows locks a running executable
+against overwriting but not renaming, so the current binary moves aside as `.otis-previous.exe`, which the next update
+removes. The desktop app looks for the command in `~/.local/bin`, or `%LOCALAPPDATA%\Programs\otis` on Windows, then
+on the PATH. The Windows desktop build is an NSIS per-user installer that electron-updater updates in place; the PR
+workflow also typechecks and tests on a Windows runner.
+
+The agent's shell tool runs `$SHELL -lc` on POSIX and Git for Windows' bash on Windows, looked up in Git's default
+install locations and then on the PATH (never System32's WSL launcher); without it the tool reports what to install.
+A timeout or abort ends the whole process group on POSIX and the process tree through `taskkill` on Windows. Managed
+skills activate through directory symlinks, junctions on Windows, where creating a symlink needs a privilege.
 
 The Terminal tab's shell runs in the main process behind `node-pty` and keeps the last million characters it printed,
 so a renderer reload attaches to the same shell and replays them. The renderer draws it with `ghostty-web`, Ghostty's
@@ -637,3 +655,5 @@ package for the target Electron and architecture and copies it beside the app's 
 asar; the main process requires it from there when packaged and from `node_modules` in development. node-pty ships
 no prebuilt binaries for Linux, so a Linux checkout needs `python3`, `make` and a C++ compiler for that rebuild, and
 Bun's install drops the execute bit on the macOS prebuilt spawn helper, which `postinstall` restores for development.
+On Windows the tab opens PowerShell 7 when it is on the PATH, else Windows PowerShell, through ConPTY; the packaged
+resources carry node-pty's ConPTY binding and agent beside the binding.

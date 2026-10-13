@@ -1,5 +1,5 @@
 import { appendFile, mkdir } from "node:fs/promises"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 import { createSession, listAllSessions, searchAllSessions } from "../../src/storage/session.js"
 import { sessionRootDirectory } from "../../src/storage/session-files.js"
@@ -34,8 +34,8 @@ async function legacySession(dirName: string, sessionId: string, title: string) 
 describe("global session history", () => {
   it("merges sessions from every workspace, recency-first, tagged with the workspace path", async () => {
     await isolate()
-    const cwdA = "/work/alpha"
-    const cwdB = "/work/beta"
+    const cwdA = resolve("/work/alpha")
+    const cwdB = resolve("/work/beta")
     const a = await createSession({ cwd: cwdA })
     const b = await createSession({ cwd: cwdB })
     await a.admitPrompt({ role: "user", content: "alpha work" })
@@ -71,7 +71,7 @@ describe("global session history", () => {
 
   it("searches titles and content across workspaces with snippets", async () => {
     await isolate()
-    const cwd = "/work/gamma"
+    const cwd = resolve("/work/gamma")
     const byTitle = await createSession({ cwd })
     await byTitle.admitPrompt({ role: "user", content: "zephyr migration plan" })
     const other = await createSession({ cwd: "/work/delta" })
@@ -92,7 +92,7 @@ describe("global session history", () => {
 
   it("stamps new sessions with their workspace path on the start event", async () => {
     await isolate()
-    const cwd = "/work/stamped"
+    const cwd = resolve("/work/stamped")
     const session = await createSession({ cwd })
     const started = session.events.find((event) => event.type === "session_started")
     expect(started && "cwd" in started && started.cwd).toBe(cwd)

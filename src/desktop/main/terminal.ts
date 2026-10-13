@@ -1,5 +1,6 @@
 import { userInfo } from "node:os"
 import type { IPty, spawn } from "node-pty"
+import { findOnPath } from "../../local/paths.js"
 
 export type SpawnPty = typeof spawn
 
@@ -11,9 +12,11 @@ const COLS = 80
 const ROWS = 24
 
 /**
- * The workspace's login shell behind a pseudo-terminal. Output is coalesced per frame before it
- * crosses to the renderer, so a build's stream of small writes does not become a stream of IPC
- * messages, and retained so a renderer that comes back, or comes later, can replay it.
+ * The workspace's shell behind a pseudo-terminal: the login shell, or on Windows PowerShell 7
+ * when installed, else the Windows PowerShell every system has, with its banner off. The agent's
+ * own commands run through Git Bash instead (src/local/paths.ts). Output is coalesced per frame
+ * before it crosses to the renderer, so a build's stream of small writes does not become a stream
+ * of IPC messages, and retained so a renderer that comes back, or comes later, can replay it.
  */
 export class WorkspaceTerminal {
   readonly #pty: IPty
@@ -26,8 +29,13 @@ export class WorkspaceTerminal {
     cwd: string,
     private readonly send: (data: string) => void,
     onExit: () => void,
+    platform: NodeJS.Platform,
   ) {
-    this.#pty = spawnPty(process.env.SHELL || userInfo().shell || "/bin/sh", ["-l"], {
+    const [command, args] =
+      platform === "win32"
+        ? [findOnPath("pwsh.exe") ?? "powershell.exe", ["-NoLogo"]]
+        : [process.env.SHELL || userInfo().shell || "/bin/sh", ["-l"]]
+    this.#pty = spawnPty(command, args, {
       name: "xterm-256color",
       cols: COLS,
       rows: ROWS,

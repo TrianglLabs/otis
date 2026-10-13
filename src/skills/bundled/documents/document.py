@@ -39,9 +39,18 @@ def require(*modules):
 
 
 def office_command():
-    bundled = Path("/Applications/LibreOffice.app/Contents/MacOS/soffice")
     found = shutil.which("soffice") or shutil.which("libreoffice")
-    return found or (str(bundled) if bundled.is_file() else None)
+    if found:
+        return found
+    # The default install locations that are not on PATH.
+    bundled = [
+        Path("/Applications/LibreOffice.app/Contents/MacOS/soffice"),
+        Path(os.environ.get("ProgramFiles", r"C:\Program Files"))
+        / "LibreOffice"
+        / "program"
+        / "soffice.exe",
+    ]
+    return next((str(path) for path in bundled if path.is_file()), None)
 
 
 def check(_args):

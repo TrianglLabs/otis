@@ -106,20 +106,24 @@ describe("session write locking (TUI/GUI concurrency)", () => {
     })
   }
 
-  it("reports a lock that cannot be created instead of calling the session locked", async () => {
-    const { cwd, sessions } = await coordinator()
-    const session = await sessions.ensure()
-    // A second workspace whose session dir cannot be created under the shared root.
-    const elsewhere = join(cwd, "elsewhere")
-    const root = dirname(defaultSessionDirectory(elsewhere))
-    await chmod(root, 0o500)
-    try {
-      const other = await secondCoordinator(elsewhere)
-      await expect(other.select(session.id)).rejects.toMatchObject({ code: "EACCES" })
-    } finally {
-      await chmod(root, 0o700)
-    }
-  })
+  // A read-only directory is a POSIX mode; Windows ACLs are not set this way.
+  it.skipIf(process.platform === "win32")(
+    "reports a lock that cannot be created instead of calling the session locked",
+    async () => {
+      const { cwd, sessions } = await coordinator()
+      const session = await sessions.ensure()
+      // A second workspace whose session dir cannot be created under the shared root.
+      const elsewhere = join(cwd, "elsewhere")
+      const root = dirname(defaultSessionDirectory(elsewhere))
+      await chmod(root, 0o500)
+      try {
+        const other = await secondCoordinator(elsewhere)
+        await expect(other.select(session.id)).rejects.toMatchObject({ code: "EACCES" })
+      } finally {
+        await chmod(root, 0o700)
+      }
+    },
+  )
 
   it("refuses to open a session another Otis instance holds", async () => {
     const { cwd, sessions } = await coordinator()

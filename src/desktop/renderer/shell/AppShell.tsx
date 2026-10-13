@@ -200,7 +200,7 @@ export function AppShell() {
   }, [api, openTerminal])
 
   const readyUpdate = state?.update.status === "ready" ? state.update : undefined
-  const platformClass = state?.platform === "darwin" ? "platform-darwin" : "platform-linux"
+  const platformClass = `platform-${state?.platform ?? "linux"}`
   const settingsClass = settingsOpen ? " settingsOpen" : ""
   const fullscreenClass = windowFullscreen ? " windowFullscreen" : ""
   const installUpdate = () => {

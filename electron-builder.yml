@@ -14,7 +14,8 @@ extraResources:
   # The macOS status bar item reads its template images from the bundled tray folder.
   - from: resources/tray
     to: tray
-  # node-pty lives beside the app rather than in the asar; docs/architecture.md says why.
+  # node-pty lives beside the app rather than in the asar; docs/architecture.md says why. The
+  # filter names every platform's native files; each build has only its own.
   - from: node_modules/node-pty
     to: node-pty
     filter:
@@ -22,8 +23,12 @@ extraResources:
       - lib/**
       - "!lib/*.test.js"
       - "!lib/*.map"
-      - build/Release/pty.node
+      - build/Release/*.node
       - build/Release/spawn-helper
+      # Windows: the ConPTY binding and agent, plus winpty for consoles without ConPTY.
+      - build/Release/*.dll
+      - build/Release/*.exe
+      - build/Release/conpty/**
 # Auto-update feed. Artifacts are still attached by the workflow (--publish never); this only tells
 # electron-builder to emit the latest*.yml manifests electron-updater reads.
 publish:
@@ -60,3 +65,16 @@ linux:
       arch: [x64, arm64]
 deb:
   packageName: otis-desktop
+win:
+  # The sized set composed by scripts/build-windows-icon.ts, compiled into the executable.
+  icon: resources/icon.ico
+  # Authenticode-signed when the CI secrets are present (WIN_CSC_LINK, WIN_CSC_KEY_PASSWORD).
+  target:
+    - target: nsis
+      arch: [x64]
+nsis:
+  # A per-user install under %LOCALAPPDATA%\Programs, no elevation, with a Start menu entry; the
+  # installer offers the folder and the app updates itself in place from the latest.yml feed.
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true

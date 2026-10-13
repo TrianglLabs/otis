@@ -26,6 +26,7 @@ import { deleteSession, openSession } from "../../src/storage/session.js"
 import { executeToolCall } from "../../src/tools/index.js"
 import type { ToolContext } from "../../src/tools/types.js"
 import { minimalDocx, minimalPdf } from "../inference/support/document-fixtures.js"
+import { symlinksSupported } from "../support/symlinks.js"
 
 const directories: string[] = []
 afterEach(async () => {
@@ -400,33 +401,36 @@ describe("artifact publication", () => {
     await expect(readdir(context.artifactDirectory)).rejects.toMatchObject({ code: "ENOENT" })
   })
 
-  it("rejects external paths without authorization and changed symlink targets after approval", async () => {
-    const context = await setup()
-    const external = join(context.root, "external.md")
-    const other = join(context.root, "other.md")
-    await writeFile(external, "Approved content")
-    await writeFile(other, "Unapproved content")
-    await expect(
-      executeToolCall({ name: "publish_artifact", input: { path: external } }, context),
-    ).rejects.toThrow("requires approval")
-    const alias = join(context.cwd, "alias.md")
-    await symlink(external, alias)
-    const decision = await createPermissionPolicy({ cwd: context.cwd, mode: "auto" }).evaluate({
-      name: "publish_artifact",
-      input: { path: alias },
-    })
-    expect(decision.effect).toBe("ask")
-    expect(decision.artifactPath).toBe(await realpath(external))
-    await rm(alias)
-    await symlink(other, alias)
-    await expect(
-      executeToolCall(
-        { name: "publish_artifact", input: { path: alias } },
-        { ...context, authorizedArtifactPath: decision.artifactPath },
-      ),
-    ).rejects.toThrow("path changed")
-    await expect(readdir(context.artifactDirectory)).rejects.toMatchObject({ code: "ENOENT" })
-  })
+  it.skipIf(!symlinksSupported)(
+    "rejects external paths without authorization and changed symlink targets after approval",
+    async () => {
+      const context = await setup()
+      const external = join(context.root, "external.md")
+      const other = join(context.root, "other.md")
+      await writeFile(external, "Approved content")
+      await writeFile(other, "Unapproved content")
+      await expect(
+        executeToolCall({ name: "publish_artifact", input: { path: external } }, context),
+      ).rejects.toThrow("requires approval")
+      const alias = join(context.cwd, "alias.md")
+      await symlink(external, alias)
+      const decision = await createPermissionPolicy({ cwd: context.cwd, mode: "auto" }).evaluate({
+        name: "publish_artifact",
+        input: { path: alias },
+      })
+      expect(decision.effect).toBe("ask")
+      expect(decision.artifactPath).toBe(await realpath(external))
+      await rm(alias)
+      await symlink(other, alias)
+      await expect(
+        executeToolCall(
+          { name: "publish_artifact", input: { path: alias } },
+          { ...context, authorizedArtifactPath: decision.artifactPath },
+        ),
+      ).rejects.toThrow("path changed")
+      await expect(readdir(context.artifactDirectory)).rejects.toMatchObject({ code: "ENOENT" })
+    },
+  )
 
   it("validates persisted references and reports missing or damaged saved copies", async () => {
     const context = await setup()

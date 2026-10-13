@@ -130,7 +130,7 @@ const heading = (id: OtherAgentId) => `## From ${OTHER_AGENTS[id]}`
  */
 async function claudeMemory(agentHome: string, cwd: string) {
   for (let directory = resolve(cwd); ; directory = dirname(directory)) {
-    const root = join(agentHome, "projects", directory.replace(/[/.]/gu, "-"), "memory")
+    const root = join(agentHome, "projects", directory.replace(/[/\\:.]/gu, "-"), "memory")
     const names = await readdir(root).catch(() => undefined)
     if (!names) {
       if (dirname(directory) === directory) return []

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import { loadSkillCatalog, readSkillResource } from "../../src/skills/catalog.js"
+import { symlinksSupported } from "../support/symlinks.js"
 
 const temporaryDirectories: string[] = []
 
@@ -128,22 +129,25 @@ describe("skill resources", () => {
     expect(reference.output).toBe("Check behavior, not implementation details.\n")
   })
 
-  it("rejects traversal and symlinks outside the selected skill", async () => {
-    const home = await temporaryDirectory()
-    const project = await temporaryDirectory()
-    const outside = await temporaryDirectory()
-    const root = join(project, ".agents", "skills", "safe-skill")
-    await mkdir(root, { recursive: true })
-    await writeFile(join(root, "SKILL.md"), "---\nname: safe-skill\ndescription: Safe.\n---\n")
-    await writeFile(join(outside, "secret.txt"), "secret")
-    await symlink(join(outside, "secret.txt"), join(root, "secret.txt"))
-    const catalog = await loadSkillCatalog(project, { home })
+  it.skipIf(!symlinksSupported)(
+    "rejects traversal and symlinks outside the selected skill",
+    async () => {
+      const home = await temporaryDirectory()
+      const project = await temporaryDirectory()
+      const outside = await temporaryDirectory()
+      const root = join(project, ".agents", "skills", "safe-skill")
+      await mkdir(root, { recursive: true })
+      await writeFile(join(root, "SKILL.md"), "---\nname: safe-skill\ndescription: Safe.\n---\n")
+      await writeFile(join(outside, "secret.txt"), "secret")
+      await symlink(join(outside, "secret.txt"), join(root, "secret.txt"))
+      const catalog = await loadSkillCatalog(project, { home })
 
-    await expect(readSkillResource(catalog, "safe-skill", "../secret.txt")).rejects.toThrow(
-      "outside the skill root",
-    )
-    await expect(readSkillResource(catalog, "safe-skill", "secret.txt")).rejects.toThrow(
-      "outside the skill root",
-    )
-  })
+      await expect(readSkillResource(catalog, "safe-skill", "../secret.txt")).rejects.toThrow(
+        "outside the skill root",
+      )
+      await expect(readSkillResource(catalog, "safe-skill", "secret.txt")).rejects.toThrow(
+        "outside the skill root",
+      )
+    },
+  )
 })

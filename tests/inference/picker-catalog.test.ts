@@ -365,7 +365,7 @@ describe("model picker catalog", () => {
   })
 
   it("does not recommend local models on an unsupported runtime target", async () => {
-    await expect(recommendedIds({ ...linuxHardware(64), platform: "win32" })).resolves.toEqual([])
+    await expect(recommendedIds({ ...linuxHardware(64), platform: "freebsd" })).resolves.toEqual([])
     await expect(recommendedIds({ ...linuxHardware(64), arch: "ia32" })).resolves.toEqual([])
   })
 
@@ -603,7 +603,13 @@ describe("model picker catalog", () => {
 
   it("greys out local models on unsupported platforms before selection", async () => {
     const items = await listModelPickerItems({
-      hardware: { ...ample, platform: "win32", arch: "x64", backend: "cpu", unifiedMemory: false },
+      hardware: {
+        ...ample,
+        platform: "freebsd",
+        arch: "x64",
+        backend: "cpu",
+        unifiedMemory: false,
+      },
       dataDirectory: await tempDir(),
     })
     const local = items.filter(
@@ -614,7 +620,7 @@ describe("model picker catalog", () => {
     expect(local.every((item) => !item.recommended)).toBe(true)
     expect(
       local.every(
-        (item) => item.availabilityLabel === "Local inference is not supported on win32/x64.",
+        (item) => item.availabilityLabel === "Local inference is not supported on freebsd/x64.",
       ),
     ).toBe(true)
   })

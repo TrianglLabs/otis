@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process"
+import { terminateProcessTree } from "../local/paths.js"
 
 type DocumentProcessOptions = { cwd: string; signal?: AbortSignal; timeoutMs?: number }
 export type DocumentProcessRunner = typeof runDocumentProcess
@@ -31,15 +32,7 @@ export function runDocumentProcess(
     let stderr = ""
     let failure: Error | undefined
     let killTimer: ReturnType<typeof setTimeout> | undefined
-    const kill = (signal: NodeJS.Signals) => {
-      if (!child.pid) return
-      try {
-        if (process.platform === "win32") child.kill(signal)
-        else process.kill(-child.pid, signal)
-      } catch {
-        // The process may already have exited.
-      }
-    }
+    const kill = (signal: NodeJS.Signals) => terminateProcessTree(child, signal)
     const stop = (error: Error) => {
       if (failure) return
       failure = error

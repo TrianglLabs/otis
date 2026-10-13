@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, parse, resolve, sep } from "node:path"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { type AppEvent, Application, formatWorkspaceLabel } from "../../src/app/application.js"
 import type { ModelSelection } from "../../src/app/models.js"
@@ -1359,20 +1359,24 @@ describe("Application session runtimes", () => {
 describe("workspace label", () => {
   it("abbreviates paths inside the home directory", () => {
     expect(formatWorkspaceLabel("/Users/test", "/Users/test")).toBe("~")
-    expect(formatWorkspaceLabel("/Users/test/work/otis", "/Users/test")).toBe("~/work/otis")
+    expect(formatWorkspaceLabel("/Users/test/work/otis", "/Users/test")).toBe(
+      ["~", "work", "otis"].join(sep),
+    )
   })
 
   it("compacts deep paths while preserving the current directory and its parent", () => {
     expect(formatWorkspaceLabel("/Users/test/code/clients/triangl/otis", "/Users/test")).toBe(
-      "~/…/triangl/otis",
+      ["~", "…", "triangl", "otis"].join(sep),
     )
     expect(formatWorkspaceLabel("/opt/company/projects/otis", "/Users/test")).toBe(
-      "/…/projects/otis",
+      `${parse(resolve("/")).root}${["…", "projects", "otis"].join(sep)}`,
     )
   })
 
   it("does not treat a sibling path as part of the home directory", () => {
-    expect(formatWorkspaceLabel("/Users/test-other/work/otis", "/Users/test")).toBe("/…/work/otis")
+    expect(formatWorkspaceLabel("/Users/test-other/work/otis", "/Users/test")).toBe(
+      `${parse(resolve("/")).root}${["…", "work", "otis"].join(sep)}`,
+    )
   })
 })
 

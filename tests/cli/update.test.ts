@@ -5,8 +5,11 @@ import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { promisify } from "node:util"
+import JSZip from "jszip"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { checkForUpdate, runUpdateCommand } from "../../src/cli/update.js"
+import { tarExecutable } from "../../src/local/paths.js"
+import { symlinksSupported } from "../support/symlinks.js"
 
 const execFileAsync = promisify(execFile)
 const tmpDirs: string[] = []
@@ -161,7 +164,7 @@ describe("runUpdateCommand", () => {
     ).rejects.toThrow("invalid size")
   })
 
-  it("rejects an archive whose otis entry is a symlink", async () => {
+  it.skipIf(!symlinksSupported)("rejects an archive whose otis entry is a symlink", async () => {
     const tmpDir = await makeTmpDir()
     const installDir = path.join(tmpDir, "install")
     const installedBinary = path.join(installDir, "otis")
@@ -172,7 +175,7 @@ describe("runUpdateCommand", () => {
     const archivePath = path.join(tmpDir, "symlink.tar.gz")
     await fs.mkdir(sourceDir)
     await fs.symlink("target", path.join(sourceDir, "otis"))
-    await execFileAsync("tar", ["-czf", archivePath, "-C", sourceDir, "otis"])
+    await execFileAsync(tarExecutable(), ["-czf", archivePath, "-C", sourceDir, "otis"])
     const archive = await fs.readFile(archivePath)
     const sha256 = await sha256File(archivePath)
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -346,7 +349,7 @@ async function makeArchive(tmpDir: string, contents: string) {
   await fs.mkdir(sourceDir, { recursive: true })
   await fs.writeFile(path.join(sourceDir, "otis"), contents)
   await fs.chmod(path.join(sourceDir, "otis"), 0o755)
-  await execFileAsync("tar", ["-czf", archivePath, "-C", sourceDir, "otis"])
+  await execFileAsync(tarExecutable(), ["-czf", archivePath, "-C", sourceDir, "otis"])
   return archivePath
 }
 
@@ -374,3 +377,71 @@ function createOutput() {
     },
   }
 }
+
+// GNU tar reads no zip; the Windows archive is only ever opened by bsdtar (Windows, macOS).
+describe.skipIf(process.platform === "linux")("Windows release archives", () => {
+  it("installs otis.exe from the zip, moving a running executable aside", async () => {
+    const tmpDir = await makeTmpDir()
+    const installDir = path.join(tmpDir, "install")
+    const installedBinary = path.join(installDir, "otis.exe")
+    await fs.mkdir(installDir, { recursive: true })
+    await fs.writeFile(installedBinary, "old")
+    const zip = new JSZip()
+    zip.file("otis.exe", "new")
+    const archive = await zip.generateAsync({ type: "nodebuffer" })
+    const sha256 = crypto.createHash("sha256").update(archive).digest("hex")
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith("/latest/download/manifest.json")) {
+        return jsonResponse({
+          version: "0.1.3",
+          artifacts: { "windows-x64": { path: "otis-windows-x64.zip", sha256 } },
+        })
+      }
+      if (url.endsWith("/latest/download/otis-windows-x64.zip"))
+        return new Response(new Uint8Array(archive))
+      return new Response("not found", { status: 404 })
+    })
+
+    await runUpdateCommand([], {
+      baseURL: "https://example.com/otis",
+      currentVersion: "0.1.2",
+      execPath: installedBinary,
+      fetch: fetchMock as unknown as typeof fetch,
+      stdout: createOutput(),
+      target: "windows-x64",
+      tmpDir,
+    })
+
+    expect(await fs.readFile(installedBinary, "utf8")).toBe("new")
+    expect(await fs.readdir(installDir)).toEqual(["otis.exe"])
+  })
+
+  it("refuses a zip that holds anything but otis.exe", async () => {
+    const tmpDir = await makeTmpDir()
+    const zip = new JSZip()
+    zip.file("otis.exe", "new")
+    zip.file("README.txt", "extra")
+    const archive = await zip.generateAsync({ type: "nodebuffer" })
+    const sha256 = crypto.createHash("sha256").update(archive).digest("hex")
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+      String(input).endsWith("/manifest.json")
+        ? jsonResponse({
+            version: "0.1.3",
+            artifacts: { "windows-x64": { path: "otis-windows-x64.zip", sha256 } },
+          })
+        : new Response(new Uint8Array(archive)),
+    )
+    await expect(
+      runUpdateCommand([], {
+        baseURL: "https://example.com/otis",
+        currentVersion: "0.1.2",
+        execPath: path.join(tmpDir, "otis.exe"),
+        fetch: fetchMock as unknown as typeof fetch,
+        stdout: createOutput(),
+        target: "windows-x64",
+        tmpDir,
+      }),
+    ).rejects.toThrow("must contain only the otis binary")
+  })
+})

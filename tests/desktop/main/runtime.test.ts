@@ -621,7 +621,7 @@ describe("DesktopRuntime subagents", () => {
     })
 
     const pending = runtime.deleteLocalModel("openai/gpt-oss-20b")
-    await new Promise((resolve) => setTimeout(resolve, 10))
+    await vi.waitFor(() => expect(mocks.deleteGguf).toHaveBeenCalled())
 
     // While deletion is pending, prompts are not admitted and other selections are refused.
     const prompt = await runtime.sendPrompt("hello")

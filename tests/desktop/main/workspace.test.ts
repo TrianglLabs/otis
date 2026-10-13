@@ -1,3 +1,4 @@
+import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import { recoverWorkspaceCwd, resolveWorkspaceCwd } from "../../../src/desktop/main/workspace.js"
 
@@ -9,7 +10,7 @@ describe("resolveWorkspaceCwd", () => {
   })
 
   it("falls back to ~/Otis when launched from Finder (cwd is the filesystem root)", () => {
-    expect(resolveWorkspaceCwd({}, "/", "/Users/nik")).toBe("/Users/nik/Otis")
+    expect(resolveWorkspaceCwd({}, "/", "/Users/nik")).toBe(join("/Users/nik", "Otis"))
   })
 
   it("honors OTIS_WORKSPACE over everything, including root", () => {

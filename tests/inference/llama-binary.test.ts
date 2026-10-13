@@ -49,7 +49,7 @@ describe("llama.cpp binary selection", () => {
 
   it("rejects incomplete CUDA targets instead of silently selecting Vulkan", () => {
     expect(() => pinnedLlamaCppAsset({ platform: "linux", arch: "x64", backend: "cuda" })).toThrow(
-      "compatible Linux target",
+      "compatible Linux or Windows target",
     )
     expect(() =>
       pinnedLlamaCppAsset({
@@ -131,9 +131,72 @@ describe("llama.cpp binary selection", () => {
   it("rejects unsupported platforms before a model is selected", () => {
     expect(supportsLlamaCppTarget({ platform: "linux", arch: "x64" })).toBe(true)
     expect(supportsLlamaCppTarget({ platform: "darwin", arch: "arm64" })).toBe(true)
-    expect(supportsLlamaCppTarget({ platform: "win32", arch: "x64" })).toBe(false)
-    expect(() => pinnedLlamaCppAsset({ platform: "win32", arch: "x64", backend: "cpu" })).toThrow(
-      "Local inference is not supported on win32/x64.",
+    expect(supportsLlamaCppTarget({ platform: "win32", arch: "x64" })).toBe(true)
+    expect(supportsLlamaCppTarget({ platform: "freebsd", arch: "x64" })).toBe(false)
+    expect(() => pinnedLlamaCppAsset({ platform: "freebsd", arch: "x64", backend: "cpu" })).toThrow(
+      "Local inference is not supported on freebsd/x64.",
     )
+  })
+})
+
+describe("Windows llama.cpp assets", () => {
+  it("pins the zip builds for CPU, Vulkan, and CUDA with NVIDIA's libraries beside them", () => {
+    expect(pinnedLlamaCppAsset({ platform: "win32", arch: "x64", backend: "cpu" })).toEqual({
+      name: "llama-b11438-bin-win-cpu-x64.zip",
+      url: "https://github.com/ggml-org/llama.cpp/releases/download/b11438/llama-b11438-bin-win-cpu-x64.zip",
+      size: 19_399_367,
+      sha256: "8f9350b0082d1b9052992991456206070e817bfa63cd8d49e7b3bad304306c9e",
+    })
+    expect(pinnedLlamaCppAsset({ platform: "win32", arch: "arm64", backend: "vulkan" }).name).toBe(
+      "llama-b11438-bin-win-vulkan-arm64.zip",
+    )
+    for (const [arch, cudaVersion] of [
+      ["x64", "12.4"],
+      ["x64", "13.4"],
+      ["arm64", "13.4"],
+    ] as const) {
+      const asset = pinnedLlamaCppAsset({ platform: "win32", arch, backend: "cuda", cudaVersion })
+      expect(asset.name).toBe(`llama-b11438-bin-win-cuda-${cudaVersion}-${arch}.zip`)
+      expect(asset.companion?.name).toBe(`cudart-llama-bin-win-cuda-${cudaVersion}-${arch}.zip`)
+      expect(asset.companion?.url).toBe(
+        `https://github.com/ggml-org/llama.cpp/releases/download/b11438/${asset.companion?.name}`,
+      )
+    }
+  })
+
+  it("maps Prism's Windows builds: 13.3 CUDA on x64 with its own cudart, CPU where it has no Vulkan", () => {
+    const x64 = { platform: "win32", arch: "x64", backend: "cuda", cudaVersion: "13.4" } as const
+    const asset = pinnedLlamaCppAsset(x64, "prism")
+    expect(llamaRuntimeTarget(x64, "prism")).toEqual({ ...x64, cudaVersion: "13.3" })
+    expect(asset.name).toBe(`llama-${PRISM_LLAMA_CPP_RELEASE_TAG}-bin-win-cuda-13.3-x64.zip`)
+    expect(asset.companion?.url).toBe(
+      `https://github.com/PrismML-Eng/llama.cpp/releases/download/${PRISM_LLAMA_CPP_RELEASE_TAG}/cudart-llama-bin-win-cuda-13.3-x64.zip`,
+    )
+    const arm64 = {
+      platform: "win32",
+      arch: "arm64",
+      backend: "cuda",
+      cudaVersion: "13.4",
+    } as const
+    expect(llamaRuntimeTarget(arm64, "prism")).toEqual(arm64)
+    expect(pinnedLlamaCppAsset(arm64, "prism").companion?.name).toBe(
+      "cudart-llama-bin-win-cuda-13.4-arm64.zip",
+    )
+    const vulkan = { platform: "win32", arch: "arm64", backend: "vulkan" } as const
+    expect(llamaRuntimeTarget(vulkan, "prism")).toEqual({ ...vulkan, backend: "cpu" })
+    expect(pinnedLlamaCppAsset(vulkan, "prism").name).toBe(
+      `llama-${PRISM_LLAMA_CPP_RELEASE_TAG}-bin-win-cpu-arm64.zip`,
+    )
+  })
+
+  it("has no CUDA build for macOS", () => {
+    expect(() =>
+      pinnedLlamaCppAsset({
+        platform: "darwin",
+        arch: "x64",
+        backend: "cuda",
+        cudaVersion: "12.4",
+      }),
+    ).toThrow("compatible Linux or Windows target")
   })
 })

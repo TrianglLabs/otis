@@ -7,6 +7,7 @@ import { ArtifactStore } from "../../src/app/artifacts.js"
 import type { DocumentContentPart } from "../../src/inference/types.js"
 import { createPermissionPolicy } from "../../src/permissions/policy.js"
 import { executeToolCall, type ToolContext } from "../../src/tools/index.js"
+import { symlinksSupported } from "../support/symlinks.js"
 
 const directories: string[] = []
 afterEach(async () => {
@@ -84,7 +85,7 @@ describe("save_attachment", () => {
     expect(await readdir(cwd)).toEqual(["first.txt"])
   })
 
-  it("enforces workspace boundaries and cancellation", async () => {
+  it.skipIf(!symlinksSupported)("enforces workspace boundaries and cancellation", async () => {
     const cwd = await directory()
     const outside = await directory()
     const attachment = document()
@@ -104,28 +105,31 @@ describe("save_attachment", () => {
     expect(await readdir(outside)).toEqual([])
   })
 
-  it("uses write permissions and matches both lexical and canonical paths", async () => {
-    const cwd = await directory()
-    await writeFile(join(cwd, "protected.txt"), "existing")
-    await symlink(join(cwd, "protected.txt"), join(cwd, "alias.txt"))
-    const call = {
-      name: "save_attachment",
-      input: { attachment: "notes.txt", path: "alias.txt" },
-    } as const
-    expect(await createPermissionPolicy({ cwd, mode: "dontAsk" }).evaluate(call)).toMatchObject({
-      effect: "deny",
-    })
-    expect(await createPermissionPolicy({ cwd, mode: "ask" }).evaluate(call)).toMatchObject({
-      effect: "ask",
-    })
-    expect(
-      await createPermissionPolicy({
-        cwd,
-        mode: "auto",
-        rules: [{ tool: "save_attachment", resource: "protected.txt", effect: "deny" }],
-      }).evaluate(call),
-    ).toMatchObject({ effect: "deny" })
-  })
+  it.skipIf(!symlinksSupported)(
+    "uses write permissions and matches both lexical and canonical paths",
+    async () => {
+      const cwd = await directory()
+      await writeFile(join(cwd, "protected.txt"), "existing")
+      await symlink(join(cwd, "protected.txt"), join(cwd, "alias.txt"))
+      const call = {
+        name: "save_attachment",
+        input: { attachment: "notes.txt", path: "alias.txt" },
+      } as const
+      expect(await createPermissionPolicy({ cwd, mode: "dontAsk" }).evaluate(call)).toMatchObject({
+        effect: "deny",
+      })
+      expect(await createPermissionPolicy({ cwd, mode: "ask" }).evaluate(call)).toMatchObject({
+        effect: "ask",
+      })
+      expect(
+        await createPermissionPolicy({
+          cwd,
+          mode: "auto",
+          rules: [{ tool: "save_attachment", resource: "protected.txt", effect: "deny" }],
+        }).evaluate(call),
+      ).toMatchObject({ effect: "deny" })
+    },
+  )
 
   it("retains session originals independently of model context and clears them on session reset", async () => {
     const cwd = await directory()

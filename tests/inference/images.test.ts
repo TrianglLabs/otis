@@ -1,6 +1,7 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 import { afterEach, describe, expect, it } from "vitest"
 import { parsePastedAttachmentPaths } from "../../src/inference/attachments.js"
 import {
@@ -69,8 +70,8 @@ describe("image attachments", () => {
       "/tmp/first image.jpg",
       "/tmp/second image.PNG",
     ])
-    expect(parsePastedAttachmentPaths("file:///tmp/a%20picture.gif")).toEqual([
-      "/tmp/a picture.gif",
+    expect(parsePastedAttachmentPaths(pathToFileURL(resolve("/tmp/a picture.gif")).href)).toEqual([
+      resolve("/tmp/a picture.gif"),
     ])
   })
 

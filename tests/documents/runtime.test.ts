@@ -5,6 +5,7 @@ import { setTimeout as delay } from "node:timers/promises"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { DocumentProcessRunner } from "../../src/documents/process.js"
 import { checkDocumentRuntime, ensureDocumentRuntime } from "../../src/documents/runtime.js"
+import { symlinksSupported } from "../support/symlinks.js"
 
 const directories: string[] = []
 afterEach(async () => {
@@ -149,23 +150,26 @@ describe("document runtime", () => {
     expect(await readdir(join(fixture.dataDirectory, "document-runtime"))).toEqual([])
   })
 
-  it("recovers an abandoned setup lock and refuses symlinked runtime paths", async () => {
-    const fixture = await setup()
-    const root = join(fixture.dataDirectory, "document-runtime")
-    await mkdir(root)
-    await writeFile(join(root, "setup.lock"), JSON.stringify({ pid: 999999, token: "dead" }))
-    const python = await ensureDocumentRuntime(fixture, fixture.requirements, fixture.run)
-    const env = dirname(dirname(python))
-    await rm(env, { recursive: true })
-    const outside = join(fixture.dataDirectory, "outside")
-    await mkdir(outside)
-    await symlink(outside, env)
-    await expect(ensureDocumentRuntime(fixture, fixture.requirements, fixture.run)).rejects.toThrow(
-      "symlink",
-    )
-    await expect(checkDocumentRuntime(fixture, fixture.run)).rejects.toThrow("symlink")
-    expect(await readdir(outside)).toEqual([])
-  })
+  it.skipIf(!symlinksSupported)(
+    "recovers an abandoned setup lock and refuses symlinked runtime paths",
+    async () => {
+      const fixture = await setup()
+      const root = join(fixture.dataDirectory, "document-runtime")
+      await mkdir(root)
+      await writeFile(join(root, "setup.lock"), JSON.stringify({ pid: 999999, token: "dead" }))
+      const python = await ensureDocumentRuntime(fixture, fixture.requirements, fixture.run)
+      const env = dirname(dirname(python))
+      await rm(env, { recursive: true })
+      const outside = join(fixture.dataDirectory, "outside")
+      await mkdir(outside)
+      await symlink(outside, env)
+      await expect(
+        ensureDocumentRuntime(fixture, fixture.requirements, fixture.run),
+      ).rejects.toThrow("symlink")
+      await expect(checkDocumentRuntime(fixture, fixture.run)).rejects.toThrow("symlink")
+      expect(await readdir(outside)).toEqual([])
+    },
+  )
 
   it("cancels a waiting caller without removing another caller's lock", async () => {
     const fixture = await setup()

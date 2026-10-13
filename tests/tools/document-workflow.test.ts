@@ -6,6 +6,7 @@ import { createPermissionPolicy } from "../../src/permissions/policy.js"
 import * as bundled from "../../src/skills/bundled.js"
 import { executeToolCall } from "../../src/tools/index.js"
 import { parseStructuredToolCall } from "../../src/tools/schema.js"
+import { symlinksSupported } from "../support/symlinks.js"
 
 const mocks = vi.hoisted(() => ({ ensure: vi.fn(), check: vi.fn(), run: vi.fn() }))
 vi.mock("../../src/documents/runtime.js", () => ({
@@ -101,20 +102,23 @@ describe("document tool", () => {
     expect(mocks.run).not.toHaveBeenCalled()
   })
 
-  it("rejects source and output path escapes, including symlinks, before setup", async () => {
-    const context = await setup()
-    await symlink(context.dataDirectory, join(context.cwd, "outside"))
-    await mkdir(context.dataDirectory)
-    for (const input of [
-      { operation: "create", spec_path: "plan.json", output_path: "../outside.pdf" },
-      { operation: "create", spec_path: "plan.json", output_path: "outside/out.pdf" },
-      { operation: "inspect-pdf", path: "../source.pdf" },
-      { operation: "create", spec_path: "plan.json", output_path: "out.md" },
-    ])
-      await expect(executeToolCall(call(input), context)).rejects.toThrow()
-    expect(mocks.ensure).not.toHaveBeenCalled()
-    expect(await readdir(context.dataDirectory)).toEqual([])
-  })
+  it.skipIf(!symlinksSupported)(
+    "rejects source and output path escapes, including symlinks, before setup",
+    async () => {
+      const context = await setup()
+      await symlink(context.dataDirectory, join(context.cwd, "outside"))
+      await mkdir(context.dataDirectory)
+      for (const input of [
+        { operation: "create", spec_path: "plan.json", output_path: "../outside.pdf" },
+        { operation: "create", spec_path: "plan.json", output_path: "outside/out.pdf" },
+        { operation: "inspect-pdf", path: "../source.pdf" },
+        { operation: "create", spec_path: "plan.json", output_path: "out.md" },
+      ])
+        await expect(executeToolCall(call(input), context)).rejects.toThrow()
+      expect(mocks.ensure).not.toHaveBeenCalled()
+      expect(await readdir(context.dataDirectory)).toEqual([])
+    },
+  )
 
   it("passes page selection and rejects a helper failure without reporting success", async () => {
     const context = await setup()

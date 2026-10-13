@@ -35,6 +35,9 @@ with it over a private network using a local token. There is no relay, account, 
 - Distribution: GitHub Actions and GitHub Releases.
 - Remote use: `otis serve` over one WebSocket per client with a pairing token; the client keeps window preferences,
   the daemon owns everything else. Not TLS; private networks only.
+- Platforms: macOS and Linux on arm64 and x64, Windows on x64. On Windows the agent's shell tool runs Git for
+  Windows' bash (the tool's contract is a POSIX shell), the desktop Terminal tab runs PowerShell, configuration lives
+  in `%APPDATA%` and data in `%LOCALAPPDATA%`, and llama.cpp comes from the official Windows zip builds.
 
 Do not introduce a service account, product login, invite flow, telemetry backend, provider-key proxy, Otis-hosted tool
 proxy, or other Otis-owned runtime service without an explicit product decision.

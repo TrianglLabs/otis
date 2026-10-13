@@ -16,7 +16,7 @@ import {
   writeFile,
 } from "node:fs/promises"
 import { homedir } from "node:os"
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path"
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 import { childProcessEnvironment, localDataDirectory } from "../local/paths.js"
 import {
   assertInside,
@@ -28,6 +28,8 @@ import {
 } from "./catalog.js"
 
 const MAX_GIT_OUTPUT = 32_000
+/** Activations are directory links; Windows junctions need no privilege, unlike its symlinks. */
+const LINK_TYPE = process.platform === "win32" ? "junction" : "dir"
 const LOCK_STALE_MS = 30_000
 const SOURCE_ID = /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/u
 
@@ -142,7 +144,7 @@ export class SkillManager {
         await rm(temporaryContainer, { recursive: true, force: true })
         for (const skill of skills) {
           const destination = this.#activationPath(skill.name)
-          await symlink(join(finalSource, skill.relativePath), destination, "dir")
+          await symlink(join(finalSource, skill.relativePath), destination, LINK_TYPE)
           createdLinks.push(destination)
         }
 
@@ -218,7 +220,7 @@ export class SkillManager {
             ) {
               continue
             }
-            await symlink(join(sourceDirectory, next.relativePath), path, "dir")
+            await symlink(join(sourceDirectory, next.relativePath), path, LINK_TYPE)
             createdLinks.push(path)
           }
 
@@ -244,7 +246,7 @@ export class SkillManager {
                 ]
               : []),
             ...createdLinks.map((path) => () => rm(path, { force: true })),
-            ...removedLinks.map((link) => () => symlink(link.target, link.path, "dir")),
+            ...removedLinks.map((link) => () => symlink(link.target, link.path, LINK_TYPE)),
           ])
         }
       }
@@ -283,7 +285,7 @@ export class SkillManager {
       } catch (error) {
         return rollback(error, [
           ...(sourceMoved ? [() => rename(backup, sourceDirectory)] : []),
-          ...removedLinks.map((link) => () => symlink(link.target, link.path, "dir")),
+          ...removedLinks.map((link) => () => symlink(link.target, link.path, LINK_TYPE)),
         ])
       }
       if (sourceMoved) await rm(backup, { recursive: true, force: true }).catch(() => undefined)
@@ -509,7 +511,7 @@ async function discoverManagedSkills(
       throw new Error(`Managed source contains duplicate skill name: ${skill.name}`)
     skills.set(skill.name, {
       name: skill.name,
-      relativePath: relative(canonicalSource, skill.root) || ".",
+      relativePath: relative(canonicalSource, skill.root).split(sep).join("/") || ".",
     })
   }
   return [...skills.values()].sort((left, right) => left.name.localeCompare(right.name))

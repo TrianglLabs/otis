@@ -14,7 +14,7 @@ async function agentsHome() {
   await mkdir(join(cwd, "src"), { recursive: true })
   // Claude Code: a global CLAUDE.md, and the repo's memory folder named after its root.
   const claude = join(home, ".claude")
-  const memory = join(claude, "projects", cwd.replace(/[/.]/gu, "-"), "memory")
+  const memory = join(claude, "projects", cwd.replace(/[/\\:.]/gu, "-"), "memory")
   await mkdir(memory, { recursive: true })
   await writeFile(join(claude, "CLAUDE.md"), "Prefer small commits.\n")
   await writeFile(join(memory, "MEMORY.md"), "- [Verify](verify.md) — run the suite\n")

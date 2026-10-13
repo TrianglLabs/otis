@@ -1,5 +1,5 @@
 import { mkdir, writeFile } from "node:fs/promises"
-import { join } from "node:path"
+import { basename, join, resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 import { createSession } from "../../src/storage/session.js"
 import { defaultSessionDirectory, sessionRootDirectory } from "../../src/storage/session-files.js"
@@ -17,7 +17,7 @@ describe("workspace registry", () => {
     const home = await isolate()
     const dir = join(home, "sessions", "proj-0123456789ab")
     await registerWorkspacePath(dir, "/Users/dev/proj")
-    expect(await readWorkspacePath(dir)).toBe("/Users/dev/proj")
+    expect(await readWorkspacePath(dir)).toBe(resolve("/Users/dev/proj"))
   })
 
   it("reports undefined for missing or corrupt markers instead of throwing", async () => {
@@ -42,13 +42,13 @@ describe("workspace registry", () => {
     expect(dirs).toHaveLength(2)
     const known = dirs.find((entry) => entry.dirName === "known-aaaaaaaaaaaa")
     const legacy = dirs.find((entry) => entry.dirName === "legacy-bbbbbbbbbbbb")
-    expect(known?.workspacePath).toBe("/work/known")
+    expect(known?.workspacePath).toBe(resolve("/work/known"))
     expect(legacy?.workspacePath).toBeUndefined()
   })
 
   it("registers the workspace marker when a session is opened from a known cwd", async () => {
     await isolate()
-    const cwd = "/Users/dev/brand-new-project"
+    const cwd = resolve("/Users/dev/brand-new-project")
     await createSession({ cwd })
     expect(await readWorkspacePath(defaultSessionDirectory(cwd))).toBe(cwd)
   })
@@ -70,7 +70,7 @@ describe("workspace recovery", () => {
     const workspace = join(home, "projects", "otis")
     await mkdir(workspace, { recursive: true })
     // Pre-registration history: a session dir named for the workspace but no workspace.json marker.
-    const dirName = join(defaultSessionDirectory(workspace)).split("/").pop() as string
+    const dirName = basename(defaultSessionDirectory(workspace))
     await mkdir(join(sessionRootDirectory(), dirName), { recursive: true })
 
     const dirs = await listWorkspaceSessionDirs([join(home, "unrelated")])
@@ -87,7 +87,7 @@ describe("workspace recovery", () => {
     const parent = join(home, "Projects.nosync")
     const workspace = join(parent, "otis")
     await mkdir(workspace, { recursive: true })
-    const dirName = join(defaultSessionDirectory(parent)).split("/").pop() as string
+    const dirName = basename(defaultSessionDirectory(parent))
     await mkdir(join(sessionRootDirectory(), dirName), { recursive: true })
 
     const recovered = await listWorkspaceSessionDirs([workspace])
