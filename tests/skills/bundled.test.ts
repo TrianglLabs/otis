@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import { loadSkillCatalog, readSkillResource } from "../../src/skills/catalog.js"
+import { symlinksSupported } from "../support/symlinks.js"
 
 const directories: string[] = []
 afterEach(async () => {
@@ -43,18 +44,21 @@ describe("bundled document skill", () => {
     )
   })
 
-  it("refuses modified cached scripts and symlinked cache directories", async () => {
-    const { catalog, skill } = await setup()
-    await readSkillResource(catalog, "documents")
-    await writeFile(join(skill.root, "document.py"), "changed")
-    await expect(readSkillResource(catalog, "documents")).rejects.toThrow("was modified")
-    await rm(skill.root, { recursive: true })
-    const outside = await mkdtemp(join(tmpdir(), "otis-bundle-outside-"))
-    directories.push(outside)
-    await symlink(outside, skill.root)
-    await expect(readSkillResource(catalog, "documents")).rejects.toThrow("symlink")
-    expect(await readdir(outside)).toEqual([])
-  })
+  it.skipIf(!symlinksSupported)(
+    "refuses modified cached scripts and symlinked cache directories",
+    async () => {
+      const { catalog, skill } = await setup()
+      await readSkillResource(catalog, "documents")
+      await writeFile(join(skill.root, "document.py"), "changed")
+      await expect(readSkillResource(catalog, "documents")).rejects.toThrow("was modified")
+      await rm(skill.root, { recursive: true })
+      const outside = await mkdtemp(join(tmpdir(), "otis-bundle-outside-"))
+      directories.push(outside)
+      await symlink(outside, skill.root)
+      await expect(readSkillResource(catalog, "documents")).rejects.toThrow("symlink")
+      expect(await readdir(outside)).toEqual([])
+    },
+  )
 
   it("lets an explicitly installed project skill override the bundled workflow", async () => {
     const { root } = await setup()

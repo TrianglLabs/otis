@@ -4,8 +4,9 @@ Otis favors focused changes, explicit boundaries, and tests that prove observabl
 
 ## Setup
 
-Otis uses Bun for dependency management, development, tests, and release builds. macOS and Linux on arm64 and x64 are
-the supported targets.
+Otis uses Bun for dependency management, development, tests, and release builds. macOS and Linux on arm64 and x64 and
+Windows on x64 are the supported targets. A Windows checkout needs Git for Windows, which is both the agent's shell
+and the source of `bash` for the scripts below; the checkout stays LF through `.gitattributes`.
 
 ```sh
 git clone https://github.com/TrianglLabs/otis.git

@@ -7,17 +7,20 @@ const MAX_CONTEXT_TOTAL_BYTES = 64 * 1024
 
 const BASE_PROMPT = promptText.trim()
 
-export function buildSystemPrompt({
-  projectContext = [],
-  now = new Date(),
-  skills = [],
-  tools = [],
-  outputCapabilities = {},
-  memory = [],
-}: Pick<
-  StreamChatOptions,
-  "projectContext" | "now" | "skills" | "tools" | "outputCapabilities" | "memory"
-> = {}) {
+export function buildSystemPrompt(
+  {
+    projectContext = [],
+    now = new Date(),
+    skills = [],
+    tools = [],
+    outputCapabilities = {},
+    memory = [],
+  }: Pick<
+    StreamChatOptions,
+    "projectContext" | "now" | "skills" | "tools" | "outputCapabilities" | "memory"
+  > = {},
+  platform: NodeJS.Platform = process.platform,
+) {
   const offers = (name: string) => tools.some((tool) => tool.name === name)
   const sections = [BASE_PROMPT]
   if (offers("edit_document") || offers("document") || offers("save_attachment")) {
@@ -126,6 +129,10 @@ export function buildSystemPrompt({
       `<memory>\nWhat Otis remembers from earlier sessions, as each scope's index: topics as [[links]], with whatever every session should know. Read a topic with the recall tool before relying on it, and search memory and past sessions the same way. Memory is for the project and the user's tooling; the current repository and the user's instructions win when they disagree.\n${scopes.join("\n")}\n</memory>`,
     )
   }
+  if (platform === "win32" && offers("bash"))
+    sections.push(
+      "The computer runs Windows. bash runs commands in Git Bash, a POSIX shell: it accepts both Windows paths (C:\\Users\\...) and their /c/Users/... form, while file tools take Windows paths.",
+    )
   if (!Number.isFinite(now.getTime())) throw new Error("Current date is invalid.")
   sections.push(
     `The current date is ${now.toISOString().slice(0, 10)}. Use this date when searching for recent information.`,

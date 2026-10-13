@@ -23,6 +23,20 @@ describe("system prompt", () => {
     expect(buildSystemPrompt({ now: new Date() })).not.toContain("Document work:")
   })
 
+  it("tells a Windows model that bash is Git Bash, only when bash is offered", () => {
+    const windows = buildSystemPrompt({ now: new Date(), tools: TOOL_DEFINITIONS }, "win32")
+    expect(windows).toContain("The computer runs Windows. bash runs commands in Git Bash")
+    expect(buildSystemPrompt({ now: new Date(), tools: TOOL_DEFINITIONS }, "linux")).not.toContain(
+      "Git Bash",
+    )
+    expect(
+      buildSystemPrompt(
+        { now: new Date(), tools: TOOL_DEFINITIONS.filter((tool) => tool.name !== "bash") },
+        "win32",
+      ),
+    ).not.toContain("Git Bash")
+  })
+
   it("instructs final-path publication only when the tool is offered", () => {
     const withPublication = buildSystemPrompt({ now: new Date(), tools: TOOL_DEFINITIONS })
     expect(withPublication).toContain("call publish_artifact on its final path")

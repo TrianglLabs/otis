@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { WorkspaceTerminal } from "../../../src/desktop/main/terminal.js"
 import { fakePty } from "../support/pty.js"
@@ -11,7 +14,13 @@ describe("WorkspaceTerminal", () => {
     const shell = fakePty()
     const sent: string[] = []
     const onExit = vi.fn()
-    const terminal = new WorkspaceTerminal(shell.spawn, "/work", (d) => sent.push(d), onExit)
+    const terminal = new WorkspaceTerminal(
+      shell.spawn,
+      "/work",
+      (d) => sent.push(d),
+      onExit,
+      "darwin",
+    )
     expect(shell.spawn).toHaveBeenCalledWith(
       "/bin/zsh",
       ["-l"],
@@ -45,11 +54,49 @@ describe("WorkspaceTerminal", () => {
       "/work",
       () => {},
       () => {},
+      "linux",
     )
     const line = (index: number) => `line ${index} ${"x".repeat(990)}\n`
     for (let index = 0; index < 1200; index += 1) shell.print(line(index))
     expect(terminal.history.length).toBeLessThanOrEqual(1_000_000)
     expect(terminal.history.startsWith("line ")).toBe(true)
     expect(terminal.history.endsWith(line(1199))).toBe(true)
+  })
+})
+
+describe("Windows terminal shell", () => {
+  afterEach(() => vi.unstubAllEnvs())
+
+  it("opens PowerShell 7 from the PATH without its banner, else Windows PowerShell", () => {
+    const directory = mkdtempSync(join(tmpdir(), "otis-pwsh-"))
+    try {
+      writeFileSync(join(directory, "pwsh.exe"), "")
+      vi.stubEnv("PATH", directory)
+      const seven = fakePty()
+      new WorkspaceTerminal(
+        seven.spawn,
+        "C:\\work",
+        () => {},
+        () => {},
+        "win32",
+      )
+      expect(seven.spawn).toHaveBeenCalledWith(
+        join(directory, "pwsh.exe"),
+        ["-NoLogo"],
+        expect.objectContaining({ cwd: "C:\\work" }),
+      )
+      vi.stubEnv("PATH", "")
+      const five = fakePty()
+      new WorkspaceTerminal(
+        five.spawn,
+        "C:\\work",
+        () => {},
+        () => {},
+        "win32",
+      )
+      expect(five.spawn).toHaveBeenCalledWith("powershell.exe", ["-NoLogo"], expect.anything())
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
   })
 })

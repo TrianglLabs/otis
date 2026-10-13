@@ -766,18 +766,20 @@ describe("createStatusTray", () => {
       }),
     ).toBeDefined()
     const tray = latestTray()
-    expect((tray.image as MockImage).path).toBe("/app/resources/tray/otisIdleTemplate.png")
+    expect((tray.image as MockImage).path).toBe(join("/app/resources/tray", "otisIdleTemplate.png"))
     expect(tray.setToolTip).toHaveBeenCalledExactlyOnceWith("Otis — ready")
     expect(tray.setIgnoreDoubleClickEvents).toHaveBeenCalledExactlyOnceWith(true)
     for (const file of ["otisIdleTemplate", "otisWorkingTemplate", "otisAlertTemplate"]) {
-      const base = images.find((image) => image.path === `/app/resources/tray/${file}.png`)
-      const retina = images.find((image) => image.path === `/app/resources/tray/${file}@2x.png`)
+      const base = images.find((image) => image.path === join("/app/resources/tray", `${file}.png`))
+      const retina = images.find(
+        (image) => image.path === join("/app/resources/tray", `${file}@2x.png`),
+      )
       expect(base).toBeDefined()
       expect(retina).toBeDefined()
       expect(base?.setTemplateImage).toHaveBeenCalledExactlyOnceWith(true)
       expect(base?.addRepresentation).toHaveBeenCalledExactlyOnceWith({
         scaleFactor: 2,
-        buffer: Buffer.from(`png:/app/resources/tray/${file}@2x.png`),
+        buffer: Buffer.from(`png:${join("/app/resources/tray", `${file}@2x.png`)}`),
       })
     }
   })

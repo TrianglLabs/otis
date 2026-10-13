@@ -1,4 +1,4 @@
-import { join } from "node:path"
+import { resolve } from "node:path"
 import { describe, expect, it, vi } from "vitest"
 import type { Routine } from "../../src/local/routines.js"
 import { createPermissionPolicy } from "../../src/permissions/policy.js"
@@ -94,7 +94,7 @@ describe("routines tool", () => {
     expect(store.save).toHaveBeenCalledExactlyOnceWith({
       name: "Nightly",
       prompt: "Run the suite.",
-      cwd: join("/work/site", "packages/app"),
+      cwd: resolve("/work/site", "packages/app"),
       schedule: { kind: "interval", minutes: 60 },
       model: undefined,
       auto: false,

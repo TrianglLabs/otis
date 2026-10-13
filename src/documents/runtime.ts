@@ -27,7 +27,8 @@ const probe = [
   "    for name in ['docx', 'reportlab', 'pypdf', 'pypdfium2', 'PIL.Image']:",
   "        try: importlib.import_module(name)",
   "        except Exception: missing.append(name)",
-  "office = shutil.which('soffice') or shutil.which('libreoffice') or (os.path.isfile('/Applications/LibreOffice.app/Contents/MacOS/soffice') and '/Applications/LibreOffice.app/Contents/MacOS/soffice')",
+  "bundled = ['/Applications/LibreOffice.app/Contents/MacOS/soffice', os.path.join(os.environ.get('ProgramFiles', r'C:\\Program Files'), 'LibreOffice', 'program', 'soffice.exe')]",
+  "office = shutil.which('soffice') or shutil.which('libreoffice') or any(os.path.isfile(path) for path in bundled)",
   "print(json.dumps({'python': sys.executable, 'version': list(sys.version_info[:3]), 'missing': missing, 'libreoffice': bool(office)}))",
 ].join("\n")
 const PYTHON_REQUIRED =

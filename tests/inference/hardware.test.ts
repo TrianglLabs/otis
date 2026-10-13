@@ -449,3 +449,76 @@ describe("hardware detection", () => {
     expect(inferenceMemoryBudget(hardware)).toEqual({ deviceHeadroomBytes: 2 * 1024 ** 3 })
   })
 })
+
+describe("hardware detection on Windows", () => {
+  it.each([
+    ["x64", "32607, 617.42, 12.0", "13.4"],
+    ["arm64", "[N/A], 617.42, 12.1", "13.4"],
+    ["x64", "24576, 566.36, 8.9", "12.4"],
+    ["x64", "8192, 551.61, 5.0", "12.4"],
+    // CUDA 12.4 has no Blackwell kernels, and 13.4 needs R615: Vulkan serves this RTX 50 series.
+    ["x64", "32607, 580.88, 12.0", undefined],
+    ["x64", "8192, 551.23, 8.9", undefined],
+    ["arm64", "8192, 566.36, 8.9", undefined],
+    ["x64", "8192, 617.42, 3.5", undefined],
+  ] as const)("selects a Windows CUDA build for %s, NVIDIA %s", async (arch, output, cudaVersion) => {
+    const hardware = await detectHardware({
+      env: { platform: "win32", arch, totalMemoryBytes: 64 * 1024 ** 3 },
+      nvidiaSmi: async () => smi(output),
+      // A Linux-only gate; Windows never consults it.
+      glibcVersion: async () => undefined,
+    })
+    expect(hardware).toMatchObject({
+      backend: cudaVersion ? "cuda" : "vulkan",
+      gpuVendor: "nvidia",
+      gpuCount: 1,
+    })
+    expect(hardware.cudaVersion).toBe(cudaVersion)
+  })
+
+  it("budgets a discrete AMD or Intel card by its registered memory", async () => {
+    const hardware = await detectHardware({
+      env: { platform: "win32", arch: "x64", totalMemoryBytes: 64 * 1024 ** 3 },
+      nvidiaSmi: async () => undefined,
+      windowsGraphics: async () => [
+        { vendor: "amd", memoryTotalBytes: 2 * 1024 ** 3, integrated: true },
+        { vendor: "intel", memoryTotalBytes: 16 * 1024 ** 3, integrated: false },
+      ],
+    })
+    expect(hardware).toMatchObject({
+      backend: "vulkan",
+      gpuCount: 1,
+      gpuMemoryBytes: 16 * 1024 ** 3,
+      gpuVendor: "intel",
+      unifiedMemory: false,
+    })
+  })
+
+  it("treats an APU's carve-out as unified memory budgeted from host RAM", async () => {
+    const hardware = await detectHardware({
+      env: { platform: "win32", arch: "x64", totalMemoryBytes: 64 * 1024 ** 3 },
+      nvidiaSmi: async () => undefined,
+      windowsGraphics: async () => [
+        { vendor: "amd", memoryTotalBytes: 2 * 1024 ** 3, integrated: true },
+      ],
+    })
+    expect(hardware).toMatchObject({
+      backend: "vulkan",
+      unifiedMemory: true,
+      gpuCount: 1,
+      gpuMemoryBytes: 64 * 1024 ** 3,
+      gpuVendor: "amd",
+    })
+  })
+
+  it("keeps other vendors' graphics, and no graphics, on the CPU", async () => {
+    for (const windowsGraphics of [async () => [{ integrated: true }], async () => []]) {
+      const hardware = await detectHardware({
+        env: { platform: "win32", arch: "arm64", totalMemoryBytes: 32 * 1024 ** 3 },
+        nvidiaSmi: async () => undefined,
+        windowsGraphics,
+      })
+      expect(hardware).toMatchObject({ backend: "cpu", gpuCount: 0, unifiedMemory: false })
+    }
+  })
+})

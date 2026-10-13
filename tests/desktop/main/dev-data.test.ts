@@ -115,8 +115,8 @@ describe("resolveDevData", () => {
 
   it("sandboxes userData and defaults the Otis data root to the same directory", () => {
     expect(resolveDevData({ ...defaults, otisDevUserData: "/tmp/otis-dev" })).toEqual({
-      userData: "/tmp/otis-dev",
-      otisHome: "/tmp/otis-dev",
+      userData: resolve("/tmp/otis-dev"),
+      otisHome: resolve("/tmp/otis-dev"),
     })
   })
 
@@ -125,11 +125,11 @@ describe("resolveDevData", () => {
       resolveDevData({
         ...defaults,
         otisDevUserData: "/tmp/otis-dev",
-        otisHome: "/tmp/otis-dev-home",
+        otisHome: resolve("/tmp/otis-dev-home"),
       }),
     ).toEqual({
-      userData: "/tmp/otis-dev",
-      otisHome: "/tmp/otis-dev-home",
+      userData: resolve("/tmp/otis-dev"),
+      otisHome: resolve("/tmp/otis-dev-home"),
     })
   })
 
@@ -137,22 +137,22 @@ describe("resolveDevData", () => {
     expect(
       resolveDevData({ ...defaults, otisDevUserData: "/tmp/otis-dev", otisHome: "   " }),
     ).toEqual({
-      userData: "/tmp/otis-dev",
-      otisHome: "/tmp/otis-dev",
+      userData: resolve("/tmp/otis-dev"),
+      otisHome: resolve("/tmp/otis-dev"),
     })
   })
 
   it("trims the sandbox path so stray whitespace can't fork the isolation", () => {
     expect(resolveDevData({ ...defaults, otisDevUserData: "  /tmp/otis-dev  " })).toEqual({
-      userData: "/tmp/otis-dev",
-      otisHome: "/tmp/otis-dev",
+      userData: resolve("/tmp/otis-dev"),
+      otisHome: resolve("/tmp/otis-dev"),
     })
   })
 
   it("honors an explicit Otis home independently of the default Electron profile", () => {
-    expect(resolveDevData({ ...defaults, otisHome: "/tmp/otis-dev-home" })).toEqual({
+    expect(resolveDevData({ ...defaults, otisHome: resolve("/tmp/otis-dev-home") })).toEqual({
       userData: join(defaults.appData, "otis-dev"),
-      otisHome: "/tmp/otis-dev-home",
+      otisHome: resolve("/tmp/otis-dev-home"),
     })
   })
 

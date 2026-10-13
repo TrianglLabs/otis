@@ -1301,6 +1301,7 @@ export class DesktopRuntime {
         this.#terminal = undefined
         this.#markStateDirty()
       },
+      this.options.platform,
     )
     this.#markStateDirty()
     return ""

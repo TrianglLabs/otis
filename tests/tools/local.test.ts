@@ -11,6 +11,7 @@ import {
   minimalPptx,
   minimalXlsx,
 } from "../inference/support/document-fixtures.js"
+import { symlinksSupported } from "../support/symlinks.js"
 
 const tempDirs: string[] = []
 
@@ -406,20 +407,23 @@ describe("executeToolCall", () => {
     expect(result.diff).not.toContain("-const")
   })
 
-  it("refuses path traversal and symlinks that escape the workspace", async () => {
-    const context = await testContext()
-    const outsideDir = await trackedTempDir()
-    const outsideFile = join(outsideDir, "secret.txt")
-    await writeFile(outsideFile, "secret", "utf8")
-    await symlink(outsideFile, join(context.cwd, "secret-link.txt"))
+  it.skipIf(!symlinksSupported)(
+    "refuses path traversal and symlinks that escape the workspace",
+    async () => {
+      const context = await testContext()
+      const outsideDir = await trackedTempDir()
+      const outsideFile = join(outsideDir, "secret.txt")
+      await writeFile(outsideFile, "secret", "utf8")
+      await symlink(outsideFile, join(context.cwd, "secret-link.txt"))
 
-    await expect(
-      executeToolCall({ name: "read", input: { path: "../secret.txt" } }, context),
-    ).rejects.toThrow("Path is outside the workspace")
-    await expect(
-      executeToolCall({ name: "read", input: { path: "secret-link.txt" } }, context),
-    ).rejects.toThrow("Path is outside the workspace")
-  })
+      await expect(
+        executeToolCall({ name: "read", input: { path: "../secret.txt" } }, context),
+      ).rejects.toThrow("Path is outside the workspace")
+      await expect(
+        executeToolCall({ name: "read", input: { path: "secret-link.txt" } }, context),
+      ).rejects.toThrow("Path is outside the workspace")
+    },
+  )
 
   it("runs shell commands through the configured workspace", async () => {
     const context = await testContext()

@@ -47,6 +47,16 @@ describe("configureAppIcon", () => {
     expect(app.dock?.setIcon).not.toHaveBeenCalled()
   })
 
+  it("uses the sized .ico in Windows development and the executable's icon when packaged", () => {
+    expect(configureAppIcon({ ...location, platform: "win32" })).toBe(image)
+    const path = join(repoRoot, "resources", "icon.ico")
+    expect(nativeImage.createFromPath).toHaveBeenCalledExactlyOnceWith(path)
+    expect(existsSync(path)).toBe(true)
+    vi.clearAllMocks()
+    expect(configureAppIcon({ ...location, packaged: true, platform: "win32" })).toBeUndefined()
+    expect(nativeImage.createFromPath).not.toHaveBeenCalled()
+  })
+
   it("leaves the packaged macOS icon entirely to the system, without loading a flat image", () => {
     expect(configureAppIcon({ ...location, packaged: true, platform: "darwin" })).toBeUndefined()
     expect(nativeImage.createFromPath).not.toHaveBeenCalled()
@@ -68,6 +78,26 @@ describe("configureAppIcon", () => {
     } finally {
       warn.mockRestore()
     }
+  })
+})
+
+// Windows draws the title bar, taskbar, and Explorer icons from the .ico entry nearest each size.
+describe("Windows icon", () => {
+  it("holds one PNG entry per export size, 16 to 256, that electron-builder compiles in", () => {
+    const ico = readFileSync(join(repoRoot, "resources", "icon.ico"))
+    expect(ico.readUInt16LE(2)).toBe(1)
+    const entries = Array.from({ length: ico.readUInt16LE(4) }, (_, index) => {
+      const entry = 6 + 16 * index
+      const offset = ico.readUInt32LE(entry + 12)
+      return {
+        size: ico.readUInt8(entry) || 256,
+        png: ico.subarray(offset, offset + 8).equals(Buffer.from("89504e470d0a1a0a", "hex")),
+      }
+    })
+    expect(entries).toEqual([16, 32, 64, 128, 256].map((size) => ({ size, png: true })))
+    expect(readFileSync(join(repoRoot, "electron-builder.yml"), "utf8")).toMatch(
+      /^win:(?:\n {2}.*)*\n {2}icon: resources\/icon\.ico$/m,
+    )
   })
 })
 

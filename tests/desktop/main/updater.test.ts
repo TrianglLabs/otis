@@ -299,6 +299,7 @@ describe("keepCliCurrent", () => {
       keepCliCurrent({
         version: appVersion,
         env: { HOME: home, PATH: "" },
+        platform: "darwin",
         versionOf: async () => version,
         update,
         onState: (state) => states.push(state),
@@ -334,5 +335,29 @@ describe("keepCliCurrent", () => {
       version: "1.2.0",
       message: "Cannot write /opt/otis.",
     })
+  })
+})
+
+describe("keepCliCurrent on Windows", () => {
+  it("looks in the installer's folder under the local profile for otis.exe", async () => {
+    const home = await mkdtemp(join(tmpdir(), "otis-cli-"))
+    try {
+      const localAppData = join(home, "AppData", "Local")
+      const path = join(localAppData, "Programs", "otis", "otis.exe")
+      await mkdir(join(localAppData, "Programs", "otis"), { recursive: true })
+      await writeFile(path, "MZ")
+      const states: (DesktopCliState | null)[] = []
+      await keepCliCurrent({
+        version: "1.2.3",
+        env: { USERPROFILE: home, LOCALAPPDATA: localAppData, PATH: "" },
+        platform: "win32",
+        versionOf: async () => "1.2.3",
+        update: async () => {},
+        onState: (state) => states.push(state),
+      })
+      expect(states).toEqual([{ status: "current", path, version: "1.2.3" }])
+    } finally {
+      await rm(home, { recursive: true, force: true })
+    }
   })
 })

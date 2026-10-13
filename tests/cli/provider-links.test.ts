@@ -17,6 +17,16 @@ describe("provider key links", () => {
     expect(launch).toHaveBeenCalledWith("xdg-open", [HOSTED_PROVIDER_INFO.together.keyURL])
   })
 
+  it("opens the key page through Windows' URL handler, with no shell in between", async () => {
+    const launch = vi.fn(async () => undefined)
+
+    await expect(openHostedKeyPage("baseten", { platform: "win32", launch })).resolves.toBe(true)
+    expect(launch).toHaveBeenCalledWith("rundll32.exe", [
+      "url.dll,FileProtocolHandler",
+      HOSTED_PROVIDER_INFO.baseten.keyURL,
+    ])
+  })
+
   it("keeps every provider's key page on that provider's own site", () => {
     expect(new URL(HOSTED_PROVIDER_INFO.fireworks.keyURL).hostname).toBe("app.fireworks.ai")
     expect(new URL(HOSTED_PROVIDER_INFO.together.keyURL).hostname).toBe("api.together.ai")

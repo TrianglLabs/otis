@@ -8,17 +8,18 @@ computer running Otis.
 
 By default, Otis uses the platform's standard user directories:
 
-| Data | macOS | Linux |
-| --- | --- | --- |
-| Configuration | `~/Library/Application Support/otis/config.json` | `~/.config/otis/config.json` |
-| Sessions and usage | `~/Library/Application Support/otis/` | `~/.local/share/otis/` |
-| Routines | `~/Library/Application Support/otis/routines.json` | `~/.config/otis/routines.json` |
-| Managed skill sources | `~/Library/Application Support/otis/skills/` | `~/.local/share/otis/skills/` |
-| Memory that holds everywhere | `~/Library/Application Support/otis/memory/` | `~/.local/share/otis/memory/` |
-| Memory for one workspace | `~/Library/Application Support/otis/sessions/<workspace>/memory/` | `~/.local/share/otis/sessions/<workspace>/memory/` |
-| `otis serve` pairing token | `~/Library/Application Support/otis/serve-token` | `~/.config/otis/serve-token` |
+| Data | macOS | Linux | Windows |
+| --- | --- | --- | --- |
+| Configuration | `~/Library/Application Support/otis/config.json` | `~/.config/otis/config.json` | `%APPDATA%\otis\config.json` |
+| Sessions and usage | `~/Library/Application Support/otis/` | `~/.local/share/otis/` | `%LOCALAPPDATA%\otis\` |
+| Routines | `~/Library/Application Support/otis/routines.json` | `~/.config/otis/routines.json` | `%APPDATA%\otis\routines.json` |
+| Managed skill sources | `~/Library/Application Support/otis/skills/` | `~/.local/share/otis/skills/` | `%LOCALAPPDATA%\otis\skills\` |
+| Memory that holds everywhere | `~/Library/Application Support/otis/memory/` | `~/.local/share/otis/memory/` | `%LOCALAPPDATA%\otis\memory\` |
+| Memory for one workspace | `~/Library/Application Support/otis/sessions/<workspace>/memory/` | `~/.local/share/otis/sessions/<workspace>/memory/` | `%LOCALAPPDATA%\otis\sessions\<workspace>\memory\` |
+| `otis serve` pairing token | `~/Library/Application Support/otis/serve-token` | `~/.config/otis/serve-token` | `%APPDATA%\otis\serve-token` |
 
-`XDG_CONFIG_HOME` and `XDG_DATA_HOME` are respected on Linux. Set `OTIS_HOME` to keep all Otis state in one specific
+`XDG_CONFIG_HOME` and `XDG_DATA_HOME` are respected on Linux. On Windows, configuration roams with the profile while
+sessions, models and runtimes stay in the local profile. Set `OTIS_HOME` to keep all Otis state in one specific
 directory.
 
 A memory folder may itself be a git repository: make it one, or clone a repository your other agents share into its
@@ -27,7 +28,8 @@ machine only through a remote you configured and a push you make. A repository t
 left alone.
 
 Configuration is written atomically. On macOS and Linux, its directory uses mode `0700` and `config.json` uses mode
-`0600`. State lives outside the executable and survives `otis update`.
+`0600`; on Windows the profile folders carry the user's own access control. State lives outside the executable and
+survives `otis update`.
 
 On Omarchy, Otis also keeps one record for the desktop's agents bar panel at
 `~/.local/state/omarchy/agents/usage/otis.json` (under `XDG_STATE_HOME` when set). It holds prompt and session

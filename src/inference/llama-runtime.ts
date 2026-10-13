@@ -21,6 +21,7 @@ import {
   llamaBinaryDirectory,
   llamaModelCacheDirectory,
   llamaServerRecordsDirectory,
+  tarExecutable,
 } from "../local/paths.js"
 import { LOCAL_MIN_CONTEXT_LENGTH } from "./context-policy.js"
 import { describeError, inferenceResponseError } from "./errors.js"
@@ -92,8 +93,10 @@ const BACKEND_LABEL: Record<HardwareBackend, string> = {
 const BIND_FAILURE =
   /\b(?:couldn't|could not|failed to|unable to) bind\b|\baddress already in use\b|\bEADDRINUSE\b/i
 
-// llama-server needs loader, GPU, locale, and display settings only. Hugging Face and provider
-// credentials in the parent environment never reach the server or its device probe.
+// llama-server needs loader, GPU, locale, and display settings only, plus on Windows the system
+// and profile locations its runtime resolves. Hugging Face and provider credentials in the parent
+// environment never reach the server or its device probe. Windows variable names are
+// case-insensitive, so they are matched in upper case there.
 const SERVER_ENV_NAMES = new Set([
   "PATH",
   "HOME",
@@ -104,6 +107,17 @@ const SERVER_ENV_NAMES = new Set([
   "DISPLAY",
   "WAYLAND_DISPLAY",
   "XDG_RUNTIME_DIR",
+  "SYSTEMROOT",
+  "SYSTEMDRIVE",
+  "WINDIR",
+  "COMSPEC",
+  "PATHEXT",
+  "USERPROFILE",
+  "APPDATA",
+  "LOCALAPPDATA",
+  "PROGRAMDATA",
+  "NUMBER_OF_PROCESSORS",
+  "PROCESSOR_ARCHITECTURE",
 ])
 const SERVER_ENV_PREFIXES = ["LC_", "LD_", "CUDA_", "NVIDIA_", "GGML_", "VK_", "MTL_", "XDG_"]
 
@@ -541,6 +555,7 @@ export class LlamaCppRuntime {
     const child = (this.#options.spawn ?? spawn)(runtime.binaryPath, args, {
       env: this.#serverEnvironment(runtime),
       stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
     })
     this.#process = child
     const logs: ServerLogs = { value: "" }
@@ -603,7 +618,8 @@ export class LlamaCppRuntime {
         : SERVER_ENV_PREFIXES
     const childEnv: NodeJS.ProcessEnv = {}
     for (const [name, value] of Object.entries(env)) {
-      if (SERVER_ENV_NAMES.has(name) || prefixes.some((prefix) => name.startsWith(prefix)))
+      const key = runtime.hardware.platform === "win32" ? name.toUpperCase() : name
+      if (SERVER_ENV_NAMES.has(key) || prefixes.some((prefix) => key.startsWith(prefix)))
         childEnv[name] = value
     }
     childEnv.LLAMA_CACHE = this.#options.dataDirectory
@@ -641,16 +657,16 @@ export class LlamaCppRuntime {
       ? join(this.#options.dataDirectory, "bin")
       : dirname(llamaBinaryDirectory("release"))
     const releaseTag = llamaRuntimeReleaseTag(model.runtime)
-    // Keep CUDA, Vulkan, and the Linux CPU bundle side by side so a failed device probe can
-    // reuse the next backend without redownloading either runtime on every model load.
+    // Keep CUDA, Vulkan, and the CPU bundle side by side so a failed device probe can reuse the
+    // next backend without redownloading either runtime on every model load. macOS has one build.
     const bundleName =
       hardware.backend === "cuda"
         ? `${releaseTag}-cuda-${hardware.cudaVersion}`
-        : hardware.backend === "cpu" && hardware.platform === "linux"
+        : hardware.backend === "cpu" && hardware.platform !== "darwin"
           ? `${releaseTag}-cpu`
           : releaseTag
     const binaryDir = join(binaryRoot, bundleName)
-    const binaryPath = join(binaryDir, "llama-server")
+    const binaryPath = join(binaryDir, serverExecutable(hardware))
     const asset = (this.#options.runtimeAsset ?? pinnedLlamaCppAsset)(
       {
         platform: hardware.platform,
@@ -737,7 +753,7 @@ export class LlamaCppRuntime {
     signal: AbortSignal,
   ) {
     const { asset, hardware, releaseTag, artifactSha256, binaryDir, downloads } = bundle
-    const extract = this.#options.extractArchive ?? extractTarGz
+    const extract = this.#options.extractArchive ?? extractArchive
     const archivePath = await this.#downloadArchive(asset, downloads, signal)
     let extractDir: string | undefined
     let candidateDir: string | undefined
@@ -746,7 +762,7 @@ export class LlamaCppRuntime {
       candidateDir = `${extractDir}.bundle`
       await extract(archivePath, extractDir)
       signal.throwIfAborted()
-      const found = await findNamedFile(extractDir, "llama-server")
+      const found = await findNamedFile(extractDir, serverExecutable(hardware))
       if (!found) throw new Error("llama.cpp archive did not include llama-server.")
       if (asset.companion) {
         const companionPath = await this.#downloadArchive(asset.companion, downloads, signal)
@@ -1098,9 +1114,13 @@ async function checkLlamaGeneration(options: {
   }
 }
 
-async function extractTarGz(archivePath: string, destination: string) {
+/** tar reads the gzip tarballs and, as Windows' bsdtar, the zip archives of the Windows builds. */
+async function extractArchive(archivePath: string, destination: string) {
   await mkdir(destination, { recursive: true })
-  const child = spawn("tar", ["-xzf", archivePath, "-C", destination], { stdio: "pipe" })
+  const child = spawn(tarExecutable(), ["-xf", archivePath, "-C", destination], {
+    stdio: "pipe",
+    windowsHide: true,
+  })
   const status = await new Promise<number>((resolve) =>
     child.once("exit", (code) => resolve(code ?? 1)),
   )
@@ -1148,11 +1168,12 @@ async function publishRuntimeBundle(
     await rename(candidateDir, binaryDir)
     return
   } catch (error) {
-    // Another process may have completed the same install first.
+    // Another process may have completed the same install first. A rename onto an occupied
+    // directory is ENOTEMPTY or EEXIST on POSIX and EPERM on Windows.
     if (await installed()) return
     const code =
       typeof error === "object" && error !== null && "code" in error ? error.code : undefined
-    if (code !== "EEXIST" && code !== "ENOTEMPTY") throw error
+    if (code !== "EEXIST" && code !== "ENOTEMPTY" && code !== "EPERM") throw error
   }
 
   let displaced = false
@@ -1190,7 +1211,7 @@ async function isUsableRuntimeBundle(
   hardware: HardwareProbe,
   artifactSha256: string,
 ) {
-  if (!(await isExecutable(join(bundleDir, "llama-server")))) return false
+  if (!(await isExecutable(join(bundleDir, serverExecutable(hardware))))) return false
 
   let names: string[]
   try {
@@ -1198,12 +1219,18 @@ async function isUsableRuntimeBundle(
   } catch {
     return false
   }
-  const suffix = hardware.platform === "darwin" ? /\.dylib$/ : /\.so(?:\.\d+)*$/
-  const hasLibrary = (prefix: RegExp) =>
-    names.some((name) => prefix.test(name) && suffix.test(name))
-  if (!hasLibrary(/^libllama.*\./) || !hasLibrary(/^libggml.*\./)) return false
+  const windows = hardware.platform === "win32"
+  const suffix = windows
+    ? /\.dll$/
+    : hardware.platform === "darwin"
+      ? /\.dylib$/
+      : /\.so(?:\.\d+)*$/
+  const hasLibrary = (stem: string) =>
+    names.some((name) => name.startsWith(windows ? stem : `lib${stem}`) && suffix.test(name))
+  if (!hasLibrary("llama") || !hasLibrary("ggml")) return false
   if (hardware.backend === "cuda") {
-    if (!hardware.cudaVersion || !names.includes("libggml-cuda.so")) return false
+    if (!hardware.cudaVersion || !names.includes(windows ? "ggml-cuda.dll" : "libggml-cuda.so"))
+      return false
     for (const library of cudaRuntimeLibraries(hardware)) {
       if (
         !names.includes(library) ||
@@ -1243,7 +1270,13 @@ async function isUsableRuntimeBundle(
 function cudaRuntimeLibraries(hardware: HardwareProbe) {
   if (hardware.backend !== "cuda" || !hardware.cudaVersion) return []
   const major = hardware.cudaVersion.split(".")[0]
-  return [`libcudart.so.${major}`, `libcublas.so.${major}`, `libcublasLt.so.${major}`]
+  return hardware.platform === "win32"
+    ? [`cudart64_${major}.dll`, `cublas64_${major}.dll`, `cublasLt64_${major}.dll`]
+    : [`libcudart.so.${major}`, `libcublas.so.${major}`, `libcublasLt.so.${major}`]
+}
+
+function serverExecutable(target: Pick<HardwareProbe, "platform">) {
+  return target.platform === "win32" ? "llama-server.exe" : "llama-server"
 }
 
 async function listRuntimeDevices(
@@ -1261,8 +1294,20 @@ async function listRuntimeDevices(
 }
 
 async function processCommand(pid: number) {
+  const [command, args] =
+    process.platform === "win32"
+      ? [
+          "powershell.exe",
+          [
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            `(Get-CimInstance Win32_Process -Filter 'ProcessId = ${pid}').CommandLine`,
+          ],
+        ]
+      : ["ps", ["-o", "args=", "-p", String(pid)]]
   try {
-    return (await execFileAsync("ps", ["-o", "args=", "-p", String(pid)])).stdout.trim()
+    return (await execFileAsync(command, args, { windowsHide: true })).stdout.trim()
   } catch {
     return ""
   }
@@ -1315,10 +1360,11 @@ async function assertExecutable(path: string) {
   if (!(await isExecutable(path))) throw new Error(`llama-server is not executable: ${path}`)
 }
 
+/** Windows has no execute bit; any regular file named for execution runs. */
 async function isExecutable(path: string) {
   try {
     const info = await stat(path)
-    return info.isFile() && (info.mode & 0o111) !== 0
+    return info.isFile() && (process.platform === "win32" || (info.mode & 0o111) !== 0)
   } catch {
     return false
   }

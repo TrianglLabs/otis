@@ -14,13 +14,16 @@ const METAL_PAGE_BYTES = 16_384
 const UNLIMITED_CGROUP_BYTES = 2 ** 60
 const NVIDIA_SMI_FIELDS = ["index", "uuid", "name", "memory.total"]
 const NVIDIA_SMI_DETAIL_FIELDS = ["driver_version", "compute_cap", "mig.mode.current"]
+/** PCI vendor ids, as Windows' PnP hardware ids spell them. */
+const PCI_VENDORS: Record<string, GpuVendor> = { "10DE": "nvidia", "1002": "amd", "8086": "intel" }
 
 export type HardwareBackend = "metal" | "cuda" | "vulkan" | "cpu"
 /**
- * Upstream's CUDA builds, plus 13.3: only `llamaRuntimeTarget` produces it, for Prism's newest
- * CUDA build on a machine qualified for 13.4.
+ * Upstream's CUDA builds: 12.8 and 13.4 on Linux, 12.4 and 13.4 on Windows, plus 13.3, which only
+ * `llamaRuntimeTarget` produces, for Prism's newest x64 CUDA build on a machine qualified for
+ * 13.4.
  */
-export type CudaVersion = "12.8" | "13.3" | "13.4"
+export type CudaVersion = "12.4" | "12.8" | "13.3" | "13.4"
 export type GpuVendor = "nvidia" | "amd" | "intel"
 
 export type HardwareProbe = {
@@ -33,7 +36,7 @@ export type HardwareProbe = {
   /**
    * Combined GPU capacity; omitted unless every detected device reports memory. With unified
    * memory this is what the GPU may wire: the Metal working set on Apple silicon, or host RAM for
-   * Linux integrated graphics.
+   * integrated graphics.
    */
   gpuMemoryBytes?: number
   backend: HardwareBackend
@@ -72,6 +75,8 @@ type HardwareDetectOptions = {
   cgroupMemoryLimitBytes?: () => Promise<number | undefined>
   glibcVersion?: () => Promise<string | undefined>
   linuxGraphics?: () => Promise<readonly LinuxGraphicsDevice[]>
+  /** The display adapters Windows' PnP registry lists, with the memory their drivers registered. */
+  windowsGraphics?: () => Promise<readonly GraphicsDevice[]>
   /** `sysctl -n iogpu.wired_limit_mb`: zero unless the user raised the Metal working set. */
   metalWiredLimitMiB?: () => Promise<number | undefined>
 }
@@ -82,6 +87,15 @@ type LinuxGraphicsDevice = {
   memoryTotalBytes?: number
   /** amdgpu's GTT aperture into host RAM, which dwarfs an APU's BIOS VRAM carve-out. */
   gttTotalBytes?: number
+}
+
+/** A non-NVIDIA GPU as the Vulkan budget sees it. */
+export type GraphicsDevice = {
+  vendor?: GpuVendor
+  /** Dedicated memory; absent when the driver reports none. */
+  memoryTotalBytes?: number
+  /** Shares host RAM, so the budget is host memory rather than its own. */
+  integrated: boolean
 }
 
 type NvidiaDevice = {
@@ -131,7 +145,7 @@ export async function detectHardware(options: HardwareDetectOptions = {}): Promi
       unifiedMemory: true,
     }
   }
-  if (platform !== "linux") return { ...host, gpuCount: 0, backend: "cpu" }
+  if (platform !== "linux" && platform !== "win32") return { ...host, gpuCount: 0, backend: "cpu" }
 
   const nvidia = await (options.nvidiaSmi ?? defaultNvidiaSmi)().catch(() => undefined)
   const notes: string[] = []
@@ -177,29 +191,28 @@ export async function detectHardware(options: HardwareDetectOptions = {}): Promi
     (options.variables ?? process.env).CUDA_VISIBLE_DEVICES,
   )
   if (devices.length > 0) {
-    const glibc = await (options.glibcVersion ?? defaultGlibcVersion)().catch(() => undefined)
-    // Official CUDA archives target Ubuntu 24.04. Their PTX kernels need the toolkit's own
-    // driver branch, not just CUDA minor-version compatibility: CUDA 13.4 is the R615 branch
-    // (the toolkit no longer bundles a driver), CUDA 12.8 shipped with 570.211.01. CUDA 12.8
-    // includes kernels through SM 120, but not GB10's SM 121.
+    const qualifies = (driver: string, minimum: number, maximum: number) =>
+      devices.every(
+        (device) =>
+          versionAtLeast(device.driver, driver) &&
+          device.compute >= minimum &&
+          device.compute <= maximum,
+      )
+    // Official CUDA archives' PTX kernels need the toolkit's own driver branch, not just CUDA
+    // minor-version compatibility: CUDA 13.4 is the R615 branch (the toolkit no longer bundles
+    // a driver) on both platforms. The Linux archives target Ubuntu 24.04; their 12.8 build
+    // shipped with 570.211.01 and includes kernels through SM 120, but not GB10's SM 121. The
+    // Windows 12.4 build shipped with 551.61 and includes kernels through Hopper's SM 90.
     let cudaVersion: CudaVersion | undefined
-    if (glibc && versionAtLeast(glibc, "2.39") && (arch === "x64" || arch === "arm64")) {
-      if (
-        devices.every(
-          ({ driver, compute }) =>
-            versionAtLeast(driver, "615") && compute >= 7.5 && compute <= 12.1,
-        )
-      ) {
-        cudaVersion = "13.4"
-      } else if (
-        arch === "x64" &&
-        devices.every(
-          ({ driver, compute }) =>
-            versionAtLeast(driver, "570.211.01") && compute >= 5 && compute <= 12,
-        )
-      ) {
-        cudaVersion = "12.8"
+    if (platform === "linux") {
+      const glibc = await (options.glibcVersion ?? defaultGlibcVersion)().catch(() => undefined)
+      if (glibc && versionAtLeast(glibc, "2.39") && (arch === "x64" || arch === "arm64")) {
+        if (qualifies("615", 7.5, 12.1)) cudaVersion = "13.4"
+        else if (arch === "x64" && qualifies("570.211.01", 5, 12)) cudaVersion = "12.8"
       }
+    } else if (arch === "x64" || arch === "arm64") {
+      if (qualifies("615", 7.5, 12.1)) cudaVersion = "13.4"
+      else if (arch === "x64" && qualifies("551.61", 5, 9)) cudaVersion = "12.4"
     }
     const knownMemory = devices.every(({ memory }) => Number.isFinite(memory) && memory > 0)
     const knownCompute = devices.every(({ compute }) => Number.isFinite(compute) && compute > 0)
@@ -217,28 +230,36 @@ export async function detectHardware(options: HardwareDetectOptions = {}): Promi
     }
   }
 
-  const graphics = await (options.linuxGraphics ?? defaultLinuxGraphics)().catch(() => [])
-  if (graphics.length === 0) return { ...host, gpuCount: 0, backend: "cpu" }
   // Integrated graphics share host RAM: an APU reports only its BIOS carve-out as VRAM and Intel
-  // reports none. A discrete card alongside one is the device that matters for budgeting.
-  const integrated = ({
-    driver,
-    memoryTotalBytes: vram,
-    gttTotalBytes: gtt,
-  }: LinuxGraphicsDevice) =>
-    driver === "i915" || driver === "xe"
-      ? vram === undefined
-      : driver === "amdgpu" &&
-        vram !== undefined &&
-        vram <= 4 * GIBIBYTE &&
-        gtt !== undefined &&
-        gtt >= 2 * vram
-  const discrete = graphics.filter((device) => !integrated(device))
-  const vendors = new Set(
-    (discrete.length === 0 ? graphics : discrete).map(({ driver }): GpuVendor | undefined =>
-      driver === "amdgpu" ? "amd" : driver === "i915" || driver === "xe" ? "intel" : undefined,
-    ),
-  )
+  // reports none. A discrete card alongside one is the device that matters for budgeting. Otis
+  // runs Vulkan on AMD and Intel; a Windows Arm machine's Qualcomm graphics stay on the CPU.
+  const graphics =
+    platform === "linux"
+      ? (await (options.linuxGraphics ?? defaultLinuxGraphics)().catch(() => [])).map(
+          ({ driver, memoryTotalBytes: vram, gttTotalBytes: gtt }): GraphicsDevice => ({
+            vendor:
+              driver === "amdgpu"
+                ? "amd"
+                : driver === "i915" || driver === "xe"
+                  ? "intel"
+                  : undefined,
+            memoryTotalBytes: vram,
+            integrated:
+              driver === "i915" || driver === "xe"
+                ? vram === undefined
+                : driver === "amdgpu" &&
+                  vram !== undefined &&
+                  vram <= 4 * GIBIBYTE &&
+                  gtt !== undefined &&
+                  gtt >= 2 * vram,
+          }),
+        )
+      : (await (options.windowsGraphics ?? defaultWindowsGraphics)().catch(() => [])).filter(
+          ({ vendor }) => vendor === "amd" || vendor === "intel",
+        )
+  if (graphics.length === 0) return { ...host, gpuCount: 0, backend: "cpu" }
+  const discrete = graphics.filter((device) => !device.integrated)
+  const vendors = new Set((discrete.length === 0 ? graphics : discrete).map(({ vendor }) => vendor))
   const [vendor] = vendors
   const gpuVendor = vendors.size === 1 && vendor ? { gpuVendor: vendor } : {}
   if (discrete.length === 0) {
@@ -331,7 +352,8 @@ async function defaultNvidiaSmi() {
     try {
       const args = [`--query-gpu=${fields.join(",")}`, "--format=csv,noheader,nounits"]
       // Cold driver initialization without nvidia-persistenced can take several seconds.
-      return (await execFileAsync("nvidia-smi", args, { timeout: 10_000 })).stdout
+      return (await execFileAsync("nvidia-smi", args, { timeout: 10_000, windowsHide: true }))
+        .stdout
     } catch {
       // Try the reduced query, then report no NVIDIA devices.
     }
@@ -341,15 +363,15 @@ async function defaultNvidiaSmi() {
 
 /** `nvidia-smi -L` lists each MIG partition under its GPU; memory comes from a per-partition query. */
 async function defaultMigDevices(gpu: NvidiaDevice): Promise<MigDevice[]> {
-  const listing = (await execFileAsync("nvidia-smi", ["-L"], { timeout: 10_000 })).stdout
+  const smi = (args: string[]) =>
+    execFileAsync("nvidia-smi", args, { timeout: 10_000, windowsHide: true })
+  const listing = (await smi(["-L"])).stdout
   const section = listing.split(/^(?=GPU \d+:)/m).find((block) => block.includes(gpu.uuid)) ?? ""
   const uuids = Array.from(section.matchAll(/\(UUID: (MIG-[^)]+)\)/g), ([, uuid]) => uuid)
   return await Promise.all(
     uuids.map(async (uuid) => {
       const args = ["--query-gpu=memory.total", "--format=csv,noheader,nounits", `--id=${uuid}`]
-      const memoryMiB = Number(
-        (await execFileAsync("nvidia-smi", args, { timeout: 10_000 })).stdout.trim(),
-      )
+      const memoryMiB = Number((await smi(args)).stdout.trim())
       return Number.isFinite(memoryMiB) && memoryMiB > 0 ? { uuid, memoryMiB } : { uuid }
     }),
   )
@@ -430,4 +452,39 @@ async function defaultLinuxGraphics(): Promise<LinuxGraphicsDevice[]> {
       }
     }),
   )
+}
+
+/**
+ * Windows keeps each PCI device's PnP record under its hardware id (`PCI\VEN_1002&DEV_...`); a
+ * display adapter's record names its driver key, where the driver registered the dedicated memory
+ * it manages (`HardwareInformation.qwMemorySize`; the DWORD `MemorySize` beside it saturates at
+ * 4 GiB). An APU's carve-out shows there as dedicated memory too, 2 GiB on a Ryzen 7000's Radeon
+ * Graphics, so as on Linux a device with at most 4 GiB is taken as integrated.
+ */
+async function defaultWindowsGraphics(): Promise<GraphicsDevice[]> {
+  const script = [
+    "$display = '{4d36e968-e325-11ce-bfc1-08002be10318}'",
+    "$adapters = foreach ($device in Get-ChildItem 'HKLM:\\SYSTEM\\CurrentControlSet\\Enum\\PCI' -Depth 1 -ErrorAction SilentlyContinue) {",
+    "  $record = Get-ItemProperty $device.PSPath -ErrorAction SilentlyContinue",
+    "  if (-not ([string]$record.Driver).StartsWith($display, 'OrdinalIgnoreCase')) { continue }",
+    '  $driver = Get-ItemProperty "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\$($record.Driver)" -ErrorAction SilentlyContinue',
+    "  [pscustomobject]@{ hardware = Split-Path $device.PSParentPath -Leaf; memory = [uint64]$driver.'HardwareInformation.qwMemorySize' }",
+    "}",
+    "ConvertTo-Json -InputObject @($adapters) -Compress",
+  ].join("\n")
+  const { stdout } = await execFileAsync(
+    "powershell.exe",
+    ["-NoProfile", "-NonInteractive", "-Command", script],
+    { timeout: 15_000, windowsHide: true, maxBuffer: MEBIBYTE },
+  )
+  const adapters = JSON.parse(stdout) as { hardware: string; memory: number }[]
+  return adapters.map(({ hardware, memory }): GraphicsDevice => {
+    const vendorId = /VEN_([0-9A-F]{4})/i.exec(hardware)?.[1].toUpperCase()
+    const memoryTotalBytes = Number.isSafeInteger(memory) && memory > 0 ? memory : undefined
+    return {
+      vendor: vendorId ? PCI_VENDORS[vendorId] : undefined,
+      memoryTotalBytes,
+      integrated: memoryTotalBytes === undefined || memoryTotalBytes <= 4 * GIBIBYTE,
+    }
+  })
 }

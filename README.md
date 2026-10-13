@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://triangllabs.ai/otis"><b>Download for macOS and Linux</b></a> ·
+  <a href="https://triangllabs.ai/otis"><b>Download for macOS, Windows and Linux</b></a> ·
   <a href="#install">Terminal install</a> ·
   <a href="#a-session-start-to-finish">Tour</a> ·
   <a href="#documentation">Docs</a>
@@ -18,7 +18,7 @@
 <p align="center">
   <a href="https://github.com/TrianglLabs/otis/releases/latest"><img src="https://img.shields.io/github/v/release/TrianglLabs/otis?label=release&color=6b5cff" alt="Latest release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-6b5cff" alt="MIT license"></a>
-  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-6b5cff" alt="macOS and Linux">
+  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-6b5cff" alt="macOS, Windows and Linux">
 </p>
 
 <p align="center">
@@ -40,18 +40,27 @@ connects to the models you already run.
 ## Install
 
 **Desktop app.** [triangllabs.ai/otis](https://triangllabs.ai/otis) or
-[GitHub Releases](https://github.com/TrianglLabs/otis/releases/latest). macOS and Linux, arm64 and x64.
-On Linux, mark the AppImage executable and keep it apart from the terminal command, for example at
+[GitHub Releases](https://github.com/TrianglLabs/otis/releases/latest). macOS and Linux on arm64 and x64, Windows
+on x64. On Linux, mark the AppImage executable and keep it apart from the terminal command, for example at
 `~/.local/bin/otis-desktop`; its launcher entry should point there.
 
-**Terminal.**
+**Terminal.** On macOS and Linux:
 
 ```sh
 curl -fsSL https://github.com/triangllabs/otis/releases/latest/download/install.sh | bash
 otis
 ```
 
-Update an existing CLI installation with `otis update`.
+On Windows, in PowerShell:
+
+```powershell
+irm https://github.com/triangllabs/otis/releases/latest/download/install.ps1 | iex
+otis
+```
+
+Update an existing CLI installation with `otis update`. On Windows the agent runs its shell commands through
+[Git for Windows](https://git-scm.com/download/win), so install that as well; the desktop app's Terminal tab opens
+PowerShell.
 
 ## A session, start to finish
 
@@ -206,7 +215,7 @@ each item and nothing changes on the other agent's side.
 
 **Managed local.** Setup opens a hardware-aware catalog, downloads a curated, checksum-verified GGUF, and runs it
 through an Otis-managed `llama-server` on `127.0.0.1`. For a good experience use Apple silicon with at least 24 GB
-of unified memory, or Linux with at least 24 GB of RAM; compatible NVIDIA GPUs use CUDA and other Linux GPUs use
+of unified memory, or Linux or Windows with at least 24 GB of RAM; compatible NVIDIA GPUs use CUDA and other GPUs use
 Vulkan. See [managed local inference](docs/local-inference.md).
 
 **Local servers.** Connect Ollama or LM Studio through [NVIDIA PAIR](docs/nvidia-pair.md), which routes each request
@@ -292,7 +301,7 @@ vulnerability reporting.
 
 ## Documentation
 
-- [Desktop app and downloads](https://triangllabs.ai/otis) — native macOS and Linux builds
+- [Desktop app and downloads](https://triangllabs.ai/otis) — native macOS, Windows and Linux builds
 - [Managed local inference](docs/local-inference.md) — hardware fit, downloads, context, and model deletion
 - [User-managed servers](docs/local-servers.md) — oMLX, NInfer, Strata, and any OpenAI-compatible server: connection,
   keys, model metadata

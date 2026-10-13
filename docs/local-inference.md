@@ -5,15 +5,19 @@ entirely by Otis and does not require a Fireworks API key, Ollama, LM Studio, or
 
 ## Requirements
 
-Managed local inference supports macOS and Linux on arm64 and x64. For a good experience, use:
+Managed local inference supports macOS and Linux on arm64 and x64, and Windows on x64 and arm64. For a good
+experience, use:
 
 - Apple silicon with at least 24 GB of unified memory; or
-- Linux with at least 24 GB of RAM. A CUDA- or Vulkan-capable GPU improves speed, and 16 GB or more of VRAM is recommended.
+- Linux or Windows with at least 24 GB of RAM. A CUDA- or Vulkan-capable GPU improves speed, and 16 GB or more of VRAM
+  is recommended.
 
-CPU-only inference remains available on supported systems, but it is slower. On Linux, llama.cpp can split a model
-between GPU memory and system RAM, so the complete model does not need to fit in VRAM. Integrated graphics (AMD APUs
-such as Strix Halo, Intel iGPUs) share system RAM and are budgeted from it, like Apple unified memory; Intel iGPUs use
-the CPU recommendation order. `CUDA_VISIBLE_DEVICES` (indexes or UUIDs) limits which NVIDIA GPUs are budgeted. MIG
+CPU-only inference remains available on supported systems, but it is slower. On Linux and Windows, llama.cpp can split
+a model between GPU memory and system RAM, so the complete model does not need to fit in VRAM. Integrated graphics (AMD
+APUs such as Strix Halo, Intel iGPUs) share system RAM and are budgeted from it, like Apple unified memory; Intel iGPUs
+use the CPU recommendation order. Windows reads each display adapter's dedicated memory from its driver record and
+takes an AMD or Intel adapter with at most 4 GiB as integrated; other vendors' adapters, such as a Windows on Arm
+machine's Qualcomm graphics, stay on the CPU. `CUDA_VISIBLE_DEVICES` (indexes or UUIDs) limits which NVIDIA GPUs are budgeted. MIG
 partitions are budgeted individually when their memory is readable, otherwise the whole GPU is budgeted with a note.
 Inside a container, the cgroup memory limit caps the host memory Otis budgets.
 
@@ -39,9 +43,10 @@ Most models use Otis' pinned upstream llama.cpp build. Bonsai 2 uses a separatel
 its ternary GGUFs need Prism's loader and compute kernels. Otis selects that runtime from the model catalog; it
 does not replace the upstream runtime used by other models.
 
-On Linux, compatible NVIDIA GPUs use the official upstream CUDA builds and their matching CUDA runtime/cuBLAS
-libraries. Otis downloads both; installing the CUDA toolkit is not required. The system still needs an NVIDIA driver
-and the normal Linux runtime libraries, including OpenMP (`libgomp1` on Ubuntu).
+On Linux and Windows, compatible NVIDIA GPUs use the official upstream CUDA builds and their matching CUDA
+runtime/cuBLAS libraries. Otis downloads both; installing the CUDA toolkit is not required. The system still needs an
+NVIDIA driver and, on Linux, the normal runtime libraries, including OpenMP (`libgomp1` on Ubuntu). Windows builds are
+the official zip archives, extracted with Windows' own `tar`.
 
 CUDA selection requires glibc 2.39 or newer. CUDA 12.8 is available on x64 with NVIDIA driver 570.211.01 or newer and
 GPU compute capability 5.0–12.0. CUDA 13.4 is preferred on x64 and arm64 with an R615 (615 or newer) driver and compute
@@ -51,6 +56,12 @@ configurations keep Vulkan, as do AMD and Intel GPUs. Otis also checks that the 
 device before loading a model; if it cannot, it uses Vulkan. Bonsai uses Prism's official CUDA binaries on Linux x64,
 paired with the same-version NVIDIA runtime/cuBLAS libraries from the pinned upstream companion archives. Prism does
 not publish a Linux arm64 CUDA binary, so Bonsai keeps Vulkan there.
+
+Windows has no glibc gate. CUDA 13.4 applies as on Linux, on x64 and arm64 with an R615 driver and compute capability
+7.5–12.1. Below that, x64 uses CUDA 12.4 with driver 551.61 or newer and compute capability 5.0–9.0, the kernels that
+build ships; an RTX 50 series card on an older driver therefore runs Vulkan until the driver is updated. Bonsai uses
+Prism's Windows CUDA builds: 13.3 on x64 with Prism's own 13.3 companion archive, 13.4 on arm64, and 12.4 where that is
+the qualifying version; Prism publishes no Windows arm64 Vulkan build, so Bonsai runs on the CPU there without CUDA.
 
 Otis also retries with Vulkan if the CUDA server exits during model loading with a recognizable CUDA backend
 error. Fallback runs strictly CUDA, then Vulkan, then the CPU build: when Vulkan reports no device or exits with a
@@ -64,14 +75,16 @@ managed Linux servers and their device checks, Otis puts the bundle first in the
 preserving the remaining paths for system, container, and WSL drivers. It removes inherited library preloads, loader
 auditing, and external ggml backend overrides from that child only. The server and its device probe receive only an
 allowlist of the parent environment: `PATH`, `HOME`, temporary directories, locale, loader paths (`LD_*`, and `DYLD_*`
-on macOS), GPU visibility (`CUDA_*`, `NVIDIA_*`, `GGML_*`, `VK_*`, `MTL_*`), and display settings. Hugging Face tokens
-and provider keys never reach the server. A custom `OTIS_LLAMA_SERVER` retains its loader settings and bypasses
+on macOS), GPU visibility (`CUDA_*`, `NVIDIA_*`, `GGML_*`, `VK_*`, `MTL_*`), display settings, and on Windows the system
+and profile locations its runtime resolves (`SystemRoot`, `USERPROFILE`, `APPDATA`, and the like). Hugging Face tokens
+and provider keys never reach the server. On Windows the DLLs beside `llama-server.exe` take precedence by the loader's
+own search order, so no path variable is changed. A custom `OTIS_LLAMA_SERVER` retains its loader settings and bypasses
 automatic backend selection.
 
 After updating Otis, the next managed model load downloads the new runtime when needed. Runtime archives download
 to `<data>/llama/downloads` and resume by byte range after an interruption; a verified server archive survives a
 failed CUDA companion download and is reused on the retry; one Otis process downloads a given bundle at a time.
-Existing GGUF downloads and sessions are retained. CUDA, Vulkan, and CPU bundles can coexist (on Linux the CPU build installs beside the others),
+Existing GGUF downloads and sessions are retained. CUDA, Vulkan, and CPU bundles can coexist (on Linux and Windows the CPU build installs beside the others),
 and obsolete runtime releases are cleaned up after the new runtime is available. Both the terminal and desktop use
 this same selection and upgrade path.
 

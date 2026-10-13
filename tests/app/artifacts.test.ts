@@ -16,6 +16,7 @@ import type { ChatMessage } from "../../src/inference/types.js"
 import type { SessionToolActivity } from "../../src/storage/session-events.js"
 import { pdfFixture } from "../desktop/ui/pdf-fixture.js"
 import { minimalDocx, minimalPdf } from "../inference/support/document-fixtures.js"
+import { symlinksSupported } from "../support/symlinks.js"
 
 const tempDirs: string[] = []
 
@@ -520,21 +521,24 @@ describe("ArtifactStore", () => {
     })
   })
 
-  it("refuses a workspace artifact whose path became an escaping symlink", async () => {
-    const cwd = await trackedTempDir()
-    const outside = await trackedTempDir()
-    await writeFile(join(outside, "secret.md"), "secret", "utf8")
-    await symlink(join(outside, "secret.md"), join(cwd, "preview.md"))
-    const artifacts = new ArtifactStore(cwd)
-    artifacts.openWorkspace({ source: "workspace", path: "preview.md", kind: "markdown" })
+  it.skipIf(!symlinksSupported)(
+    "refuses a workspace artifact whose path became an escaping symlink",
+    async () => {
+      const cwd = await trackedTempDir()
+      const outside = await trackedTempDir()
+      await writeFile(join(outside, "secret.md"), "secret", "utf8")
+      await symlink(join(outside, "secret.md"), join(cwd, "preview.md"))
+      const artifacts = new ArtifactStore(cwd)
+      artifacts.openWorkspace({ source: "workspace", path: "preview.md", kind: "markdown" })
 
-    await expect(
-      artifacts.load(artifacts.metadata?.id ?? "", artifacts.metadata?.revision ?? 0),
-    ).rejects.toThrow("outside the workspace")
-    await expect(
-      artifacts.exportFile(artifacts.metadata?.id ?? "", artifacts.metadata?.revision ?? 0),
-    ).rejects.toThrow("outside the workspace")
-  })
+      await expect(
+        artifacts.load(artifacts.metadata?.id ?? "", artifacts.metadata?.revision ?? 0),
+      ).rejects.toThrow("outside the workspace")
+      await expect(
+        artifacts.exportFile(artifacts.metadata?.id ?? "", artifacts.metadata?.revision ?? 0),
+      ).rejects.toThrow("outside the workspace")
+    },
+  )
 })
 
 async function trackedTempDir() {
@@ -544,36 +548,39 @@ async function trackedTempDir() {
 }
 
 describe("Markdown document images", () => {
-  it("serves a working file's relative images from inside the workspace only, while the revision holds", async () => {
-    const cwd = await trackedTempDir()
-    const outside = await trackedTempDir()
-    await writeFile(join(cwd, "docs.md"), "![](img/logo.png)")
-    await mkdir(join(cwd, "img"))
-    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0, 0, 0])
-    await writeFile(join(cwd, "img", "logo.png"), png)
-    await writeFile(join(outside, "secret.png"), png)
-    await symlink(join(outside, "secret.png"), join(cwd, "img", "escape.png"))
-    await writeFile(join(cwd, "img", "notes.txt"), "text")
-    const store = new ArtifactStore(cwd, undefined, 50)
-    try {
-      store.openWorkspace({ source: "workspace", path: "docs.md", kind: "markdown" })
-      const id = store.metadata?.id ?? ""
-      const revision = store.metadata?.revision ?? 0
-      const asset = await store.loadAsset(id, revision, "img/logo.png")
-      expect(asset?.mimeType).toBe("image/png")
-      expect(Buffer.from(asset?.bytes ?? [])).toEqual(png)
-      await expect(store.loadAsset(id, revision, "../outside.png")).rejects.toThrow(
-        "outside the workspace",
-      )
-      await expect(store.loadAsset(id, revision, "img/escape.png")).rejects.toThrow(
-        "outside the workspace",
-      )
-      await expect(store.loadAsset(id, revision, "img/notes.txt")).rejects.toThrow("Not an image")
-      expect(await store.loadAsset(id, revision + 1, "img/logo.png")).toBeUndefined()
-    } finally {
-      store.dispose()
-    }
-  })
+  it.skipIf(!symlinksSupported)(
+    "serves a working file's relative images from inside the workspace only, while the revision holds",
+    async () => {
+      const cwd = await trackedTempDir()
+      const outside = await trackedTempDir()
+      await writeFile(join(cwd, "docs.md"), "![](img/logo.png)")
+      await mkdir(join(cwd, "img"))
+      const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0, 0, 0])
+      await writeFile(join(cwd, "img", "logo.png"), png)
+      await writeFile(join(outside, "secret.png"), png)
+      await symlink(join(outside, "secret.png"), join(cwd, "img", "escape.png"))
+      await writeFile(join(cwd, "img", "notes.txt"), "text")
+      const store = new ArtifactStore(cwd, undefined, 50)
+      try {
+        store.openWorkspace({ source: "workspace", path: "docs.md", kind: "markdown" })
+        const id = store.metadata?.id ?? ""
+        const revision = store.metadata?.revision ?? 0
+        const asset = await store.loadAsset(id, revision, "img/logo.png")
+        expect(asset?.mimeType).toBe("image/png")
+        expect(Buffer.from(asset?.bytes ?? [])).toEqual(png)
+        await expect(store.loadAsset(id, revision, "../outside.png")).rejects.toThrow(
+          "outside the workspace",
+        )
+        await expect(store.loadAsset(id, revision, "img/escape.png")).rejects.toThrow(
+          "outside the workspace",
+        )
+        await expect(store.loadAsset(id, revision, "img/notes.txt")).rejects.toThrow("Not an image")
+        expect(await store.loadAsset(id, revision + 1, "img/logo.png")).toBeUndefined()
+      } finally {
+        store.dispose()
+      }
+    },
+  )
 
   it("resolves no images for saved copies, whose preview never reads the workspace", async () => {
     const cwd = await trackedTempDir()

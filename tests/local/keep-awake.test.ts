@@ -5,7 +5,12 @@ import { holdAwake } from "../../src/local/keep-awake.js"
 const spawned = vi.hoisted(() => [] as { command: string; args: string[]; options: unknown }[])
 const children = vi.hoisted(() => [] as FakeChild[])
 
-type FakeChild = EventEmitter & { pid?: number; exitCode: number | null; unref: () => void }
+type FakeChild = EventEmitter & {
+  pid?: number
+  exitCode: number | null
+  unref: () => void
+  kill: () => void
+}
 
 vi.mock("node:child_process", () => ({
   spawn: (command: string, args: string[], options: unknown) => {
@@ -14,6 +19,7 @@ vi.mock("node:child_process", () => ({
       pid: 4242,
       exitCode: null,
       unref: vi.fn(),
+      kill: vi.fn(),
     }) as FakeChild
     children.push(child)
     return child
@@ -33,7 +39,7 @@ describe("holdAwake", () => {
       {
         command: "caffeinate",
         args: ["-i", "-w", "77"],
-        options: { detached: true, stdio: "ignore" },
+        options: { detached: true, stdio: "ignore", windowsHide: true },
       },
     ])
     expect(children[0].unref).toHaveBeenCalled()
@@ -48,14 +54,29 @@ describe("holdAwake", () => {
       "--who=Otis",
       "--why=Otis is working",
       "tail",
-      "--pid=77",
+      `--pid=77`,
       "-f",
       "/dev/null",
     ])
   })
 
+  it("holds the Win32 execution state from a hidden PowerShell that waits on this process", () => {
+    const release = holdAwake("win32", 77)
+    expect(spawned[0].command).toBe("powershell.exe")
+    expect(spawned[0].args.slice(0, 3)).toEqual(["-NoProfile", "-NonInteractive", "-Command"])
+    const script = spawned[0].args[3]
+    expect(script).toContain("SetThreadExecutionState(0x80000001)")
+    expect(script).toContain("Wait-Process -Id 77")
+    // No process group to signal: the helper itself is ended, and it holds the state alone.
+    expect(spawned[0].options).toEqual({ detached: false, stdio: "ignore", windowsHide: true })
+    const kill = vi.spyOn(process, "kill").mockImplementation(() => true)
+    release?.()
+    expect(children[0].kill).toHaveBeenCalledOnce()
+    expect(kill).not.toHaveBeenCalled()
+  })
+
   it("does nothing on a platform without a helper", () => {
-    expect(holdAwake("win32", 77)).toBeUndefined()
+    expect(holdAwake("freebsd", 77)).toBeUndefined()
     expect(spawned).toEqual([])
   })
 

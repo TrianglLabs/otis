@@ -1404,7 +1404,7 @@ describe("llama.cpp runtime", () => {
     const model = catalogModel()
     const unsupported: HardwareProbe = {
       ...hardware,
-      platform: "win32",
+      platform: "freebsd",
       arch: "x64",
       backend: "cpu",
       unifiedMemory: false,
@@ -1418,7 +1418,7 @@ describe("llama.cpp runtime", () => {
 
     await expect(
       runtime.ensureServing(model, fitLocalModel(model, unsupported), unsupported),
-    ).rejects.toThrow("Local inference is not supported on win32/x64.")
+    ).rejects.toThrow("Local inference is not supported on freebsd/x64.")
     expect(spawnRuntime).not.toHaveBeenCalled()
   })
 
@@ -2376,12 +2376,14 @@ describe("CUDA runtime bundles", () => {
 })
 
 async function cudaRuntimeSetup(
-  cudaVersion: "12.8" | "13.4" = "13.4",
+  cudaVersion: "12.4" | "12.8" | "13.4" = "13.4",
   runtime: LlamaRuntimeKind = "upstream",
+  platform: "linux" | "win32" = "linux",
 ) {
+  const windows = platform === "win32"
   const cudaHardware: HardwareProbe = {
     ...hardware,
-    platform: "linux",
+    platform,
     arch: "x64",
     backend: "cuda",
     cudaVersion,
@@ -2429,12 +2431,15 @@ async function cudaRuntimeSetup(
       const kind = await readFile(archivePath, "utf8")
       const bundle = join(destination, "bundle")
       await mkdir(bundle)
+      const major = cudaVersion.split(".")[0]
       const files =
         kind === "cudart"
-          ? ["libcudart", "libcublas", "libcublasLt"].map(
-              (name) => `${name}.so.${cudaVersion.split(".")[0]}`,
-            )
-          : ["llama-server", "libllama.so", "libggml.so", `libggml-${kind}.so`]
+          ? windows
+            ? [`cudart64_${major}.dll`, `cublas64_${major}.dll`, `cublasLt64_${major}.dll`]
+            : ["libcudart", "libcublas", "libcublasLt"].map((name) => `${name}.so.${major}`)
+          : windows
+            ? ["llama-server.exe", "llama.dll", "ggml.dll", `ggml-${kind}.dll`]
+            : ["llama-server", "libllama.so", "libggml.so", `libggml-${kind}.so`]
       for (const file of files) await writeFile(join(bundle, file), "library")
     },
   }
@@ -2688,3 +2693,110 @@ function runtimeDownloadOptions(
     ...overrides,
   }
 }
+
+describe("Windows runtime bundles", () => {
+  const windowsHardware: HardwareProbe = {
+    platform: "win32",
+    arch: "x64",
+    totalMemoryBytes: 64 * 1024 ** 3,
+    gpuCount: 0,
+    backend: "cpu",
+    unifiedMemory: false,
+  }
+  const windowsAsset = pinnedLlamaCppAsset(windowsHardware)
+  const fakeWindowsAsset: NonNullable<LlamaCppRuntimeOptions["runtimeAsset"]> = () => ({
+    name: windowsAsset.name,
+    url: windowsAsset.url,
+    size: archiveBody.byteLength,
+    sha256: createHash("sha256").update(archiveBody).digest("hex"),
+  })
+
+  it("installs the CPU zip as its own bundle and serves llama-server.exe with its DLLs", async () => {
+    const model = catalogModel()
+    const fit = fitLocalModel(model, windowsHardware)
+    const directory = await tempDir()
+    await cacheWeights(model, directory)
+    const commands: string[] = []
+    let childEnv: NodeJS.ProcessEnv | undefined
+    const runtime = new LlamaCppRuntime({
+      env: { SystemRoot: "C:\\Windows", Path: "C:\\Windows\\System32", HF_TOKEN: "secret" },
+      runtimeAsset: fakeWindowsAsset,
+      dataDirectory: directory,
+      allocatePort: async () => 18764,
+      spawn: ((command, _args, options) => {
+        commands.push(String(command))
+        childEnv = options?.env
+        return fakeChild()
+      }) as LlamaCppRuntimeOptions["spawn"],
+      fetch: (async (input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url === windowsAsset.url) return new Response(archiveBody)
+        if (url.includes("/health")) return new Response("ok")
+        if (url.includes("/props")) return runtimeProperties(fit.contextLength)
+        if (url.endsWith("/v1/chat/completions")) return generationResponse()
+        return new Response("missing", { status: 404 })
+      }) as typeof fetch,
+      extractArchive: async (_archive, destination) => {
+        await mkdir(destination, { recursive: true })
+        for (const name of ["llama-server.exe", "llama.dll", "ggml.dll", "ggml-cpu-x64.dll"])
+          await writeFile(join(destination, name), name)
+      },
+    })
+
+    await runtime.ensureServing(model, fit, windowsHardware)
+
+    const binary = join(directory, "bin", `${LLAMA_CPP_RELEASE_TAG}-cpu`, "llama-server.exe")
+    expect(commands).toEqual([binary])
+    expect(await readFile(join(dirname(binary), "ggml-cpu-x64.dll"), "utf8")).toBe(
+      "ggml-cpu-x64.dll",
+    )
+    await expect(readFile(join(dirname(binary), ".otis-runtime.json"), "utf8")).resolves.toContain(
+      '"platform":"win32"',
+    )
+    // The system and profile variables the runtime resolves, matched case-insensitively, and
+    // nothing else.
+    expect(childEnv).toMatchObject({ SystemRoot: "C:\\Windows", Path: "C:\\Windows\\System32" })
+    expect(childEnv?.HF_TOKEN).toBeUndefined()
+    expect(childEnv?.LD_LIBRARY_PATH).toBeUndefined()
+    await runtime.stop()
+  })
+
+  it("rejects a Windows archive without the DLLs llama-server.exe loads", async () => {
+    const model = catalogModel()
+    const fit = fitLocalModel(model, windowsHardware)
+    const directory = await tempDir()
+    await cacheWeights(model, directory)
+    const runtime = new LlamaCppRuntime({
+      env: {},
+      runtimeAsset: fakeWindowsAsset,
+      dataDirectory: directory,
+      fetch: (async () => new Response(archiveBody)) as typeof fetch,
+      extractArchive: async (_archive, destination) => {
+        await mkdir(destination, { recursive: true })
+        await writeFile(join(destination, "llama-server.exe"), "server")
+        await writeFile(join(destination, "libllama.so"), "wrong platform")
+      },
+    })
+    await expect(runtime.ensureServing(model, fit, windowsHardware)).rejects.toThrow(
+      "did not include the required runtime libraries",
+    )
+  })
+
+  it("installs CUDA 13.4 beside its cudart64 libraries and probes the device", async () => {
+    const setup = await cudaRuntimeSetup("13.4", "upstream", "win32")
+    const runtime = new LlamaCppRuntime(setup.options)
+    await runtime.ensureServing(setup.model, setup.fit, setup.hardware)
+    expect(setup.commands).toEqual([join(setup.cudaDir, "llama-server.exe")])
+    expect((await readdir(setup.cudaDir)).sort()).toEqual([
+      ".otis-runtime.json",
+      "cublas64_13.dll",
+      "cublasLt64_13.dll",
+      "cudart64_13.dll",
+      "ggml-cuda.dll",
+      "ggml.dll",
+      "llama-server.exe",
+      "llama.dll",
+    ])
+    await runtime.stop()
+  })
+})

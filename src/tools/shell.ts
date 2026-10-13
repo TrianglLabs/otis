@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process"
-import { childProcessEnvironment } from "../local/paths.js"
+import { childProcessEnvironment, shellCommand, terminateProcessTree } from "../local/paths.js"
 import type { ToolContext, ToolResult } from "./types.js"
 
 const MAX_OUTPUT = 32_000
@@ -12,15 +12,18 @@ export async function runBash(
   context: ToolContext,
 ): Promise<ToolResult> {
   const { signal } = context
+  const shell = shellCommand()
   const output = await new Promise<string>((resolve) => {
     if (signal?.aborted) {
       resolve("Aborted.")
       return
     }
-    const child = spawn(process.env.SHELL || "/bin/sh", ["-lc", command], {
+    const child = spawn(shell.command, [...shell.args, command], {
       cwd: context.cwd ?? process.cwd(),
       env: childProcessEnvironment(process.env),
+      // Its own process group, so a timeout or abort ends what the command started as well.
       detached: process.platform !== "win32",
+      windowsHide: true,
     })
     let output = ""
     let timedOut = false
@@ -44,24 +47,10 @@ export async function runBash(
           : `Exit code: ${code ?? "unknown"}${closeSignal ? `, signal: ${closeSignal}` : ""}.`
       settle(`${status}\n\n${output}`.trim())
     }
-    const terminate = (termination: NodeJS.Signals) => {
-      if (!child.pid) return
-      try {
-        if (process.platform === "win32") child.kill(termination)
-        else process.kill(-child.pid, termination)
-      } catch (error) {
-        if (error instanceof Error && "code" in error && error.code === "ESRCH") return
-        try {
-          child.kill(termination)
-        } catch {
-          // The process may have exited between group and direct termination.
-        }
-      }
-    }
     const terminateThenForce = () => {
-      terminate("SIGTERM")
+      terminateProcessTree(child, "SIGTERM")
       forceKillTimer = setTimeout(() => {
-        terminate("SIGKILL")
+        terminateProcessTree(child, "SIGKILL")
         report()
       }, KILL_GRACE_MS)
     }

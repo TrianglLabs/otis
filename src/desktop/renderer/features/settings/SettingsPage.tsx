@@ -98,8 +98,11 @@ const PAIR_DEFAULT_ENDPOINTS = {
 }
 
 /** How the command line is installed, from the README; the app and the CLI share releases. */
-const INSTALL_COMMAND =
-  "curl -fsSL https://github.com/triangllabs/otis/releases/latest/download/install.sh | bash"
+const INSTALL_COMMANDS = {
+  posix:
+    "curl -fsSL https://github.com/triangllabs/otis/releases/latest/download/install.sh | bash",
+  windows: "irm https://github.com/triangllabs/otis/releases/latest/download/install.ps1 | iex",
+}
 
 const SETTINGS_TABS = {
   providers: { label: "settings.inference", icon: Cpu },
@@ -166,6 +169,7 @@ export function SettingsPage({
     "pairEndpoints",
     "servers",
     "runtimePlatform",
+    "platform",
     "pairConfigured",
     "hostedConfigured",
     "hiddenModels",
@@ -837,7 +841,11 @@ export function SettingsPage({
                 <div className="settingsGroup">
                   <h2 className="settings-section">{t("settings.server")}</h2>
                   <div className="settingsSurface">
-                    <ServerSettings remote={state.remote} remoteSaved={state.remoteSaved} />
+                    <ServerSettings
+                      remote={state.remote}
+                      remoteSaved={state.remoteSaved}
+                      platform={state.platform}
+                    />
                     {state.serve ? <ServeSettings serve={state.serve} /> : null}
                   </div>
                 </div>
@@ -1072,9 +1080,11 @@ function HostedModelsSettings({
 function ServerSettings({
   remote,
   remoteSaved,
+  platform,
 }: {
   remote: string | null
   remoteSaved: string | null
+  platform: NodeJS.Platform
 }) {
   const { api } = useDesktop()
   const { t } = useI18n()
@@ -1157,7 +1167,10 @@ function ServerSettings({
             <div className="settings-message settings-error settingsProvider-message">{error}</div>
           ) : null}
           <p className="settingsForm-note settingsProvider-message">{t("settings.remoteNote")}</p>
-          <CommandLine label={t("settings.serverInstall")} command={INSTALL_COMMAND} />
+          <CommandLine
+            label={t("settings.serverInstall")}
+            command={INSTALL_COMMANDS[platform === "win32" ? "windows" : "posix"]}
+          />
           <CommandLine
             label={t("settings.serverStart")}
             command="otis serve --host <this machine's private address>"

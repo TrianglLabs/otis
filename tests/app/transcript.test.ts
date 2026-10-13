@@ -1,3 +1,4 @@
+import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 import {
   type TranscriptChange,
@@ -110,7 +111,7 @@ describe("TranscriptStore", () => {
       sha256: "x",
       name: "brief.md",
       kind: "markdown",
-      sourcePath: "/work/brief.md",
+      sourcePath: resolve("/work/brief.md"),
       excerpt: "",
     })
     expect(transcript.finalizeArtifacts()).toBe(true)

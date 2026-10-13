@@ -1,5 +1,5 @@
 import { readdir, readFile, stat } from "node:fs/promises"
-import { basename, dirname, relative, resolve } from "node:path"
+import { basename, dirname, relative, resolve, sep } from "node:path"
 import { isBinary, truncateLine } from "./files.js"
 import type { ToolContext, ToolResult } from "./types.js"
 import { resolveWorkspacePath } from "./workspace.js"
@@ -37,7 +37,7 @@ export async function grepLocalFiles(
   const matches: string[] = []
   const done = () => Boolean(context.signal?.aborted) || matches.length >= max
   const search = async (filePath: string) => {
-    const relativePath = relative(base, filePath)
+    const relativePath = relative(base, filePath).split(sep).join("/")
     // A bare include pattern matches file names at any depth; a path pattern matches the whole
     // path.
     if (
@@ -71,7 +71,7 @@ export async function globLocalFiles(
   const max = maxResults ?? DEFAULT_GLOB_MAX_RESULTS
   const results: string[] = []
   const collect = (filePath: string) => {
-    const relativePath = relative(root, filePath) || basename(filePath)
+    const relativePath = relative(root, filePath).split(sep).join("/") || basename(filePath)
     if (glob.regex.test(relativePath)) results.push(relativePath)
   }
   if ((await stat(root)).isFile()) collect(root)

@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process"
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { basename, join } from "node:path"
 import { promisify } from "node:util"
 import { afterEach, describe, expect, it } from "vitest"
 import { SkillManager } from "../../src/skills/manager.js"
@@ -27,7 +27,7 @@ describe("managed skills", () => {
     const installed = await manager.install(repository)
 
     expect(installed).toMatchObject({
-      id: repository.split("/").at(-1)?.toLowerCase(),
+      id: basename(repository).toLowerCase(),
       url: repository,
     })
     expect(installed.skills.map((skill) => skill.name)).toEqual(["alpha", "beta"])
@@ -87,7 +87,7 @@ describe("managed skills", () => {
     await commit(repository, "replace alpha with beta")
     const [updated] = await manager.update("workflows")
 
-    expect(updated.skills).toEqual([{ name: "beta", relativePath: join("skills", "beta") }])
+    expect(updated.skills).toEqual([{ name: "beta", relativePath: "skills/beta" }])
     await expect(stat(join(paths.activationDirectory, "alpha"))).rejects.toMatchObject({
       code: "ENOENT",
     })
@@ -119,7 +119,7 @@ describe("managed skills", () => {
     expect(await manager.list()).toEqual([
       expect.objectContaining({
         id: "workflows",
-        skills: [{ name: "alpha", relativePath: join("skills", "alpha") }],
+        skills: [{ name: "alpha", relativePath: "skills/alpha" }],
       }),
     ])
   })

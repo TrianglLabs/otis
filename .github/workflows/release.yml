@@ -102,6 +102,7 @@ jobs:
         run: |
           gh release create "v$VERSION" \
             dist/public/install.sh \
+            dist/public/install.ps1 \
             dist/public/releases/latest.txt \
             dist/public/releases/v"$VERSION"/* \
             --title "v$VERSION" \
@@ -121,6 +122,7 @@ jobs:
       # node-pty compiles natively for each target, so Linux builds run on a runner of their own
       # architecture, each naming its targets on the command line since a bare --x64/--arm64 does
       # not override the architectures listed in electron-builder.yml. macOS cross-compiles both.
+      # Windows ships x64 only, like the terminal command.
       matrix:
         include:
           - os: macOS
@@ -135,6 +137,10 @@ jobs:
             label: arm64
             targets: --linux AppImage:arm64 deb:arm64
             runner: ubuntu-24.04-arm
+          - os: Windows
+            label: x64
+            targets: --win nsis:x64
+            runner: windows-latest
 
     steps:
       - name: Checkout
@@ -166,6 +172,8 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           ALLOW_UNSIGNED: ${{ inputs.allow_unsigned }}
           TARGET_OS: ${{ matrix.os }}
+        # Git Bash on the Windows runner too, so one script packages every platform.
+        shell: bash
         run: |
           if [ -n "$CSC_LINK" ]; then
             if [ -n "$APPLE_API_KEY" ]; then
@@ -196,3 +204,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         working-directory: dist/desktop
         run: gh release upload "v$VERSION" ./*.AppImage ./*.deb ./latest-linux*.yml --clobber --repo "$GITHUB_REPOSITORY"
+
+      - name: Attach Windows Artifacts
+        if: matrix.os == 'Windows'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        working-directory: dist/desktop
+        shell: bash
+        run: gh release upload "v$VERSION" ./*.exe ./*.blockmap ./latest.yml --clobber --repo "$GITHUB_REPOSITORY"

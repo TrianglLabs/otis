@@ -4,6 +4,7 @@ import { createReadStream } from "node:fs"
 import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
+import { tarExecutable } from "../local/paths.js"
 
 const DEFAULT_RELEASES_BASE_URL = "https://github.com/triangllabs/otis/releases"
 const CURRENT_VERSION = process.env.OTIS_VERSION ?? "dev"
@@ -72,7 +73,9 @@ export async function runUpdateCommand(args: string[] = [], options: RunUpdateOp
 
   const currentVersion = normalizeVersion(options.currentVersion ?? CURRENT_VERSION)
   if (currentVersion === "dev" && !options.execPath && !cleanEnv(process.env.OTIS_UPDATE_TARGET)) {
-    throw new Error("Cannot update a development build. Install Otis with curl first.")
+    throw new Error(
+      "Cannot update a development build. Install Otis with the install script first.",
+    )
   }
 
   const baseURL = releasesBaseURL(baseURLArgument ?? options.baseURL)
@@ -80,13 +83,18 @@ export async function runUpdateCommand(args: string[] = [], options: RunUpdateOp
   let target = options.target
   if (!target) {
     const platform =
-      process.platform === "darwin" || process.platform === "linux" ? process.platform : undefined
+      process.platform === "win32"
+        ? "windows"
+        : process.platform === "darwin" || process.platform === "linux"
+          ? process.platform
+          : undefined
     const architecture =
       process.arch === "arm64" || process.arch === "x64" ? process.arch : undefined
     if (!platform || !architecture)
       throw new Error(`Unsupported platform: ${process.platform}-${process.arch}`)
     target = `${platform}-${architecture}`
   }
+  const binary = target.startsWith("windows-") ? "otis.exe" : "otis"
   const requestedVersion = version ? normalizeVersion(version) : undefined
   if (requestedVersion) validateVersion("Requested version", requestedVersion)
   const manifestURL = requestedVersion
@@ -153,16 +161,16 @@ export async function runUpdateCommand(args: string[] = [], options: RunUpdateOp
       throw new Error("Downloaded Otis archive failed checksum verification.")
     }
 
-    const entries = (await runCommand("tar", ["-tzf", archivePath]))
+    const entries = (await runCommand(tarExecutable(), ["-tf", archivePath]))
       .split(/\r?\n/)
       .map((entry) => entry.trim())
       .filter(Boolean)
-    if (entries.length !== 1 || (entries[0] !== "otis" && entries[0] !== "./otis")) {
+    if (entries.length !== 1 || (entries[0] !== binary && entries[0] !== `./${binary}`)) {
       throw new Error("Otis release archive must contain only the otis binary.")
     }
     await fs.mkdir(extractDirectory, { recursive: true })
-    await runCommand("tar", ["-xzf", archivePath, "-C", extractDirectory])
-    const binaryPath = path.join(extractDirectory, "otis")
+    await runCommand(tarExecutable(), ["-xf", archivePath, "-C", extractDirectory])
+    const binaryPath = path.join(extractDirectory, binary)
     if (!(await fs.lstat(binaryPath)).isFile()) {
       throw new Error("Otis release archive did not contain a regular binary.")
     }
@@ -174,10 +182,20 @@ export async function runUpdateCommand(args: string[] = [], options: RunUpdateOp
       path.dirname(targetPath),
       `.otis-update-${process.pid}-${Date.now()}`,
     )
+    // Windows locks a running executable against overwriting, not against renaming: the current
+    // binary moves aside first and is removed once nothing runs it, now or at the next update.
+    const previousPath = path.join(path.dirname(targetPath), ".otis-previous.exe")
     try {
       await fs.copyFile(binaryPath, temporaryPath)
       await fs.chmod(temporaryPath, 0o755)
+      if (process.platform === "win32") {
+        await fs.rm(previousPath, { force: true }).catch(() => {})
+        await fs.rename(targetPath, previousPath).catch((error) => {
+          if (error.code !== "ENOENT") throw error
+        })
+      }
       await fs.rename(temporaryPath, targetPath)
+      if (process.platform === "win32") await fs.rm(previousPath, { force: true }).catch(() => {})
     } catch (error) {
       await fs.rm(temporaryPath, { force: true })
       const code = (error as { code?: unknown } | null)?.code
@@ -251,7 +269,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function runCommand(command: string, args: string[]) {
   return new Promise<string>((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] })
+    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true })
     let stdout = ""
     let stderr = ""
     child.stdout.on("data", (chunk) => {
