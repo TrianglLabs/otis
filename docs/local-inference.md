@@ -81,9 +81,14 @@ and provider keys never reach the server. On Windows the DLLs beside `llama-serv
 own search order, so no path variable is changed. A custom `OTIS_LLAMA_SERVER` retains its loader settings and bypasses
 automatic backend selection.
 
+The managed server's output from its last start is kept in `<data>/llama/server.log`; a start that fails on a
+machine without a terminal is read there.
+
 After updating Otis, the next managed model load downloads the new runtime when needed. Runtime archives download
 to `<data>/llama/downloads` and resume by byte range after an interruption; a verified server archive survives a
 failed CUDA companion download and is reused on the retry; one Otis process downloads a given bundle at a time.
+Model files download the same way: a connection that drops, ends early, or goes quiet for two minutes is retried
+twice more from the bytes that arrived, and only then reported.
 Existing GGUF downloads and sessions are retained. CUDA, Vulkan, and CPU bundles can coexist (on Linux and Windows the CPU build installs beside the others),
 and obsolete runtime releases are cleaned up after the new runtime is available. Both the terminal and desktop use
 this same selection and upgrade path.

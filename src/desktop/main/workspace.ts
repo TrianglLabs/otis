@@ -1,10 +1,11 @@
-import { join, parse, resolve } from "node:path"
+import { isAbsolute, join, parse, relative, resolve } from "node:path"
 import { describeError } from "../../inference/errors.js"
 
 /**
  * Where the desktop app works. A terminal launch keeps the shell's cwd; a Finder/Dock launch
- * reports "/" as the cwd, which would scope sessions — and the agent's file tools — to the
- * filesystem root. GUI launches resume the last workspace used in the GUI; first run gets a
+ * reports "/" as the cwd, and a Windows shortcut starts the app in its own install folder, either
+ * of which would scope sessions — and the agent's file tools — to the filesystem root or the
+ * program files. GUI launches resume the last workspace used in the GUI; first run gets a
  * dedicated ~/Otis workspace, created by the caller.
  */
 export function resolveWorkspaceCwd(
@@ -12,9 +13,13 @@ export function resolveWorkspaceCwd(
   cwd: string,
   home: string,
   lastWorkspace?: string,
+  appDirectory?: string,
 ): string {
   if (env.OTIS_WORKSPACE) return env.OTIS_WORKSPACE
-  if (parse(resolve(cwd)).root !== resolve(cwd)) return cwd
+  const resolved = resolve(cwd)
+  const fromApp = appDirectory === undefined ? ".." : relative(appDirectory, resolved)
+  if (parse(resolved).root !== resolved && (fromApp.startsWith("..") || isAbsolute(fromApp)))
+    return cwd
   return lastWorkspace ?? join(home, "Otis")
 }
 

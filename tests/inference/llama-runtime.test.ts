@@ -2761,6 +2761,43 @@ describe("Windows runtime bundles", () => {
     await runtime.stop()
   })
 
+  it("keeps the server's output from its last start in server.log", async () => {
+    const model = catalogModel()
+    const fit = fitLocalModel(model, windowsHardware)
+    const directory = await tempDir()
+    await cacheWeights(model, directory)
+    const runtime = new LlamaCppRuntime({
+      env: {},
+      runtimeAsset: fakeWindowsAsset,
+      dataDirectory: directory,
+      allocatePort: async () => 18764,
+      spawn: (() => {
+        const child = fakeChild()
+        queueMicrotask(() => child.stderr.emit("data", "load_backend: loaded CUDA backend\n"))
+        queueMicrotask(() => child.stdout.emit("data", "main: server is listening\n"))
+        return child
+      }) as unknown as LlamaCppRuntimeOptions["spawn"],
+      fetch: (async (input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url === windowsAsset.url) return new Response(archiveBody)
+        if (url.includes("/health")) return new Response("ok")
+        if (url.includes("/props")) return runtimeProperties(fit.contextLength)
+        if (url.endsWith("/v1/chat/completions")) return generationResponse()
+        return new Response("missing", { status: 404 })
+      }) as typeof fetch,
+      extractArchive: async (_archive, destination) => {
+        await mkdir(destination, { recursive: true })
+        for (const name of ["llama-server.exe", "llama.dll", "ggml.dll"])
+          await writeFile(join(destination, name), name)
+      },
+    })
+    await runtime.ensureServing(model, fit, windowsHardware)
+    await runtime.stop()
+    expect(await readFile(join(directory, "server.log"), "utf8")).toBe(
+      "load_backend: loaded CUDA backend\nmain: server is listening\n",
+    )
+  })
+
   it("rejects a Windows archive without the DLLs llama-server.exe loads", async () => {
     const model = catalogModel()
     const fit = fitLocalModel(model, windowsHardware)

@@ -552,6 +552,10 @@ export class LlamaCppRuntime {
     const mmproj = localMmprojPath(model, this.#options.dataDirectory)
     if (mmproj) args.push("--mmproj", mmproj)
     if (runtime.devices?.length) args.push("--device", runtime.devices.join(","))
+    // The last start's complete output, for a server that fails on a machine without a terminal.
+    const logPath = join(dirname(this.#recordsDirectory()), "server.log")
+    await mkdir(dirname(logPath), { recursive: true, mode: 0o700 })
+    const logFile = await open(logPath, "w", 0o600).catch(() => undefined)
     const child = (this.#options.spawn ?? spawn)(runtime.binaryPath, args, {
       env: this.#serverEnvironment(runtime),
       stdio: ["ignore", "pipe", "pipe"],
@@ -564,6 +568,7 @@ export class LlamaCppRuntime {
     })
     const append = (chunk: Buffer | string) => {
       logs.value = `${logs.value}${String(chunk)}`.slice(-20_000)
+      void logFile?.write(String(chunk)).catch(() => undefined)
     }
     child.stdout?.on("data", append)
     child.stderr?.on("data", append)
@@ -573,6 +578,7 @@ export class LlamaCppRuntime {
       if (this.#process === child && this.#serving)
         this.#exit = { code, signal: exitSignal, tail: logs.value.slice(-EXIT_TAIL_BYTES).trim() }
       void this.#forgetServer(child.pid)
+      void logFile?.close().catch(() => undefined)
     })
 
     const exited = new AbortController()
