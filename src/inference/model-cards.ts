@@ -24,10 +24,10 @@ export const LOCAL_MODEL_CARDS: Readonly<Record<string, LocalModelCard>> = {
     bestAt: [
       "Agentic coding, which Ornith evaluates in the OpenHands and Claude Code harnesses",
       "Tool use inside agent harnesses, measured on Toolathlon and MCP-Atlas",
-      "Image input in a 9B footprint that fits 12 GiB cards and 16 GiB Macs",
+      "Image input in a 9B footprint",
     ],
     worstAt: [
-      "Hard reasoning, where the 27B-class models in this catalog have more headroom",
+      "Heavier work, which Ornith's larger 1.5 models exist for; this is the lightest of the family",
       "Thinking is on or off only, with no effort levels",
     ],
     source: `${HF}ornith-ai/Ornith-1.5-9B`,
@@ -43,9 +43,8 @@ export const LOCAL_MODEL_CARDS: Readonly<Record<string, LocalModelCard>> = {
       "Near full-precision quality at 4 bits, since Google trained the quantized weights",
     ],
     worstAt: [
-      "Hard reasoning, where the 26B and 31B Gemma siblings have more headroom",
+      "Heavier work, which Google tiers toward the 26B A4B and 31B above it",
       "Thinking is on or off only, with no effort levels",
-      "Audio input, which the checkpoint supports but Otis does not send",
     ],
     source: `${HF}google/gemma-4-12B-it`,
   },
@@ -56,7 +55,7 @@ export const LOCAL_MODEL_CARDS: Readonly<Record<string, LocalModelCard>> = {
       "Tool use and multi-step agent tasks for its size: Liquid reports results competitive " +
         "with models four times larger",
       "Data extraction, retrieval-augmented answers, and long-context work",
-      "Fits almost any machine and answers quickly",
+      "Fits almost any machine: a 1.7 GB download",
     ],
     worstAt: [
       "Agentic coding, which Liquid does not recommend it for",
@@ -71,8 +70,8 @@ export const LOCAL_MODEL_CARDS: Readonly<Record<string, LocalModelCard>> = {
       "24B mixture of experts with 2B active per token that always reasons before answering, " +
       "text only, with a 128K context.",
     bestAt: [
-      "Agents that reason and call tools: Liquid reports it ahead of Qwen3.6-35B-A3B on its " +
-        "agentic and tool-use benchmarks",
+      "Agents that reason and call tools: Liquid reports it competitive with Qwen3.6-35B-A3B, " +
+        "a model with about half again as many parameters, on agentic and tool-use tasks",
       "Fast generation for its size, since only 2B parameters run per token",
       "Instruction following and chat across 16 languages",
     ],
@@ -89,7 +88,7 @@ export const LOCAL_MODEL_CARDS: Readonly<Record<string, LocalModelCard>> = {
       "Dense 27B with a vision encoder and a 256K context; the full-precision model that Saluki " +
       "and Bonsai are cut from.",
     bestAt: [
-      "Coding and long-horizon agent work, where Qwen reports its largest gains",
+      "Coding, research, and long-horizon agent work, where Qwen reports substantial gains",
       "Image, document, and diagram understanding",
       "Thinking depth you can tune per request, from off to extra high",
     ],
@@ -114,7 +113,6 @@ export const LOCAL_MODEL_CARDS: Readonly<Record<string, LocalModelCard>> = {
     worstAt: [
       "Tool calling trails Saluki in Underdog's benchmark, 70 of 120 tasks against 88",
       "Low thinking effort is not supported; the model behaves like extra high",
-      "Vulkan GPUs get only the smaller PTQ1 packing",
     ],
     source: `${HF}prism-ml/Ternary-Bonsai-2-27B-gguf`,
   },
@@ -127,7 +125,7 @@ export const LOCAL_MODEL_CARDS: Readonly<Record<string, LocalModelCard>> = {
       "Tool calling at full-model level: Underdog reports 88 of 120 tasks against 84 for the " +
         "54 GB original on its frozen BFCL subset",
       "Parallel tool calls and instruction following",
-      "27B-class capability in the memory of a 9B model",
+      "27B-class capability in under 8 GB of weights",
     ],
     worstAt: [
       "Competition math, keeping roughly 82 to 85 percent of the full model's score",
@@ -144,13 +142,12 @@ export const LOCAL_MODEL_CARDS: Readonly<Record<string, LocalModelCard>> = {
       "sparse attention, a vision encoder, and a 256K context.",
     bestAt: [
       "Agentic coding and real-world tool use, which Qwen reports on SWE-bench and Toolathlon",
-      "Fast generation for a model this large, thanks to sparse attention and few active experts",
+      "Efficiency at scale, which Qwen built the architecture for: 11 of 512 experts run per token",
       "Image input",
     ],
     worstAt: [
       "Memory: an 82 GB download that needs a 96 GiB class GPU or a 128 GiB Mac",
       "Stability, since Qwen labels the architecture an experimental preview",
-      "Fidelity below 192 GiB, where Otis uses a third-party IQ3 conversion instead of Qwen's Q8",
     ],
     source: `${HF}Qwen/Qwen3.8-Flash-Next`,
   },
@@ -184,7 +181,6 @@ export const LOCAL_MODEL_CARDS: Readonly<Record<string, LocalModelCard>> = {
     worstAt: [
       "Memory: about 17 GiB at a 64K context, since every expert stays loaded",
       "Thinking is on or off only, with no effort levels",
-      "Audio input, which the checkpoint supports but Otis does not send",
     ],
     source: `${HF}google/gemma-4-26B-A4B-it`,
   },
@@ -194,14 +190,13 @@ export const LOCAL_MODEL_CARDS: Readonly<Record<string, LocalModelCard>> = {
       "31B dense Gemma 4, the largest of the family, with text and image input and a 256K " +
       "context.",
     bestAt: [
-      "The strongest Gemma for coding, reasoning, and agents",
+      "Google's largest Gemma 4 for coding, reasoning, and agents",
       "Image understanding",
       "Multilingual text",
     ],
     worstAt: [
       "Memory and speed: the most of the Gemma family, and the slowest per token",
       "Thinking is on or off only, with no effort levels",
-      "Audio input, which the checkpoint supports but Otis does not send",
     ],
     source: `${HF}google/gemma-4-31B-it`,
   },
@@ -218,7 +213,8 @@ export const LOCAL_MODEL_CARDS: Readonly<Record<string, LocalModelCard>> = {
     worstAt: [
       "Memory: about 384 GiB of GPU or unified memory, so only the largest machines run it",
       "No image input",
-      "Latency at the default max effort; set low for chat",
+      "Latency at the default max effort; Z.ai offers low and high for faster replies and " +
+        "keeps max for benchmarks",
     ],
     source: `${HF}zai-org/GLM-5.3`,
   },
