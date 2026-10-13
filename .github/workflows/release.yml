@@ -161,8 +161,11 @@ jobs:
       - name: Package Desktop App
         env:
           # macOS signing secrets (see repo docs): base64 Developer ID .p12, its password, App Store Connect API key.
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          # The certificate reaches the macOS build only. On the Windows runner electron-builder would take
+          # CSC_LINK as the Authenticode certificate, sign with a chain Windows cannot trust, and record its
+          # publisher in app-update.yml, after which electron-updater rejects every downloaded update.
+          CSC_LINK: ${{ matrix.os == 'macOS' && secrets.CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ matrix.os == 'macOS' && secrets.CSC_KEY_PASSWORD || '' }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
