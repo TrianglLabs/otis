@@ -188,6 +188,8 @@ partial files, and fails early with the needed and available sizes otherwise. It
 of every completed artifact, and shows `Verifying N%` while hashing a cached or resumed file. Interrupted model
 downloads resume from a partial file, but the final files must still pass verification. A download lock that its holder stops refreshing expires after a minute, so a crashed download
 never blocks the next one. The picker shows download progress and marks cached models as `Downloaded`.
+In the desktop picker, a managed model's row carries an info button that opens its card: the author's own account of
+what the model is best and worst at, with a link to the model card, and the figures for this machine.
 
 The managed server listens only on `127.0.0.1`. Otis starts it with llama.cpp's Jinja chat-template support and keeps
 tool execution in the Otis runtime instead of enabling llama.cpp's built-in tools.

@@ -1,6 +1,17 @@
 /* The composer's model chip and the catalog popover it opens. */
 
-/* The picker is a popover; its list and rows are its own. */
+/* The picker is a popover; its list and rows are its own. The catalog (search, list, footer) and a
+   pushed model card share the popover's height; a hidden catalog keeps its scroll position. */
+.modelPicker-catalog {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.modelPicker-catalog[hidden] {
+  display: none;
+}
+
 .modelPicker-message {
   padding: 8px 20px;
   font-size: var(--text-ui);
@@ -184,5 +195,238 @@
 .modelPicker-confirmText {
   margin-right: auto;
   font-size: var(--text-ui);
+  color: var(--danger);
+}
+
+/* The row's info affordance sits beside the trash and shows on hover or keyboard focus. */
+.modelPicker-info {
+  align-self: center;
+  flex-shrink: 0;
+  margin-right: 6px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.modelPicker-row:hover .modelPicker-info,
+.modelPicker-row:focus-within .modelPicker-info {
+  opacity: 1;
+}
+
+/* The model card pushes over the catalog like a navigation push: a bar with the way back, then
+   the scrolling card with its action beside the name. */
+.modelCard {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  animation: modelCard-push var(--motion);
+}
+
+@keyframes modelCard-push {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+
+.modelCard-bar {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.modelCard-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 8px 4px 4px;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--accent-ink);
+  font: inherit;
+  font-size: var(--text-ui);
+  cursor: pointer;
+}
+
+.modelCard-back:hover {
+  background: var(--bg-hover);
+}
+
+.modelCard-scroll {
+  overflow-y: auto;
+  min-height: 0;
+  padding: 20px 24px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.modelCard-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Name and author on the left, the action on the right, as a store listing places its button. */
+.modelCard-headline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+/* The current model, or one this machine cannot run, states so where the button would be. */
+.modelCard-state {
+  flex-shrink: 0;
+  font-size: var(--text-ui);
+  color: var(--text-dim);
+}
+
+.modelCard-naming {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.modelCard-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  color: var(--text);
+}
+
+.modelCard-author {
+  font-size: var(--text-ui);
+  color: var(--text-dim);
+}
+
+.modelCard-summary {
+  margin: 6px 0 0;
+  font-size: var(--text-body);
+  line-height: 1.5;
+  color: var(--text);
+}
+
+/* The figures strip: equal columns divided by hairlines, label above value, as a store listing
+   lays out its facts. */
+.modelCard-stats {
+  display: flex;
+  margin: 0;
+  padding: 12px 0;
+  border-top: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.modelCard-stat {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 0 6px;
+  text-align: center;
+}
+
+.modelCard-stat + .modelCard-stat {
+  border-left: 1px solid var(--hairline);
+}
+
+.modelCard-stat dt {
+  font-size: var(--text-micro);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.modelCard-stat dd {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  font-size: var(--text-ui);
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.modelCard-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.modelCard-heading {
+  margin: 0;
+  font-size: var(--text-ui);
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* Grouped list, as a settings pane groups rows: one rounded surface, hairlines between rows. */
+.modelCard-group {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-radius: var(--radius-lg);
+  background: var(--bg-elev);
+}
+
+.modelCard-group li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  font-size: var(--text-ui);
+  line-height: 1.45;
+  color: var(--text);
+}
+
+.modelCard-group li + li {
+  border-top: 1px solid var(--hairline);
+}
+
+.modelCard-glyph {
+  display: inline-flex;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.modelCard-glyph.best {
+  color: var(--success);
+}
+
+.modelCard-glyph.worst {
+  color: var(--warning);
+}
+
+.modelCard-source {
+  margin: 0;
+  font-size: var(--text-meta);
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.modelCard-source a {
+  color: var(--accent-ink);
+  text-decoration: none;
+}
+
+.modelCard-source a:hover {
+  text-decoration: underline;
+}
+
+.modelCard-error {
+  margin: 4px 0 0;
+  font-size: var(--text-meta);
   color: var(--danger);
 }
