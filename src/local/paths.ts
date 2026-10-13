@@ -1,7 +1,10 @@
 import { type ChildProcess, spawn } from "node:child_process"
-import { existsSync } from "node:fs"
+import { createWriteStream, existsSync } from "node:fs"
+import { mkdir } from "node:fs/promises"
 import { homedir } from "node:os"
-import { delimiter, join, resolve } from "node:path"
+import { delimiter, dirname, join, resolve } from "node:path"
+import { pipeline } from "node:stream/promises"
+import { openPromise } from "yauzl"
 import { HOSTED_PROVIDER_INFO, HOSTED_PROVIDERS } from "../inference/types.js"
 
 export function localConfigDirectory() {
@@ -50,11 +53,41 @@ export function childProcessEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessE
 }
 
 /**
- * Windows' own bsdtar, which reads zip archives and `C:` paths; Git for Windows puts a GNU tar on
- * the PATH that does neither. Elsewhere the system tar.
+ * Windows' own bsdtar, which reads `C:` paths; Git for Windows puts a GNU tar on the PATH that
+ * does not. Elsewhere the system tar. Only tarballs go through it: see extractZip.
  */
 export function tarExecutable() {
   return process.platform === "win32" ? windowsSystemExecutable("tar.exe") : "tar"
+}
+
+/**
+ * Unpacks a zip's files into `destination` and returns their names. Windows' tar receives its
+ * arguments through the system code page, so a path with a Cyrillic or CJK user name in it never
+ * reaches it; the Windows archives are read in-process instead. yauzl rejects entry names that
+ * leave the destination.
+ */
+export async function extractZip(archivePath: string, destination: string) {
+  const zip = await openPromise(archivePath, {
+    lazyEntries: true,
+    strictFileNames: true,
+    validateEntrySizes: true,
+  })
+  const names: string[] = []
+  try {
+    for await (const entry of zip.eachEntry()) {
+      const path = join(destination, entry.fileName)
+      if (entry.fileName.endsWith("/")) {
+        await mkdir(path, { recursive: true })
+        continue
+      }
+      await mkdir(dirname(path), { recursive: true })
+      await pipeline(await zip.openReadStreamPromise(entry), createWriteStream(path))
+      names.push(entry.fileName)
+    }
+  } finally {
+    zip.close()
+  }
+  return names
 }
 
 function windowsSystemExecutable(name: string) {

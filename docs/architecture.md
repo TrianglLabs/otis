@@ -245,7 +245,8 @@ platform local-data directory. Normal models use upstream llama.cpp `b11438`. Bo
 loader and kernels. Runtime choice is catalog metadata, so the fork is isolated to the model that needs it and both
 pinned bundles may coexist. macOS and Linux on arm64 and x64 and Windows on x64 and arm64 are supported; other targets
 are disabled before selection. Windows bundles are the official zip archives (`llama-server.exe` with its DLLs),
-extracted with Windows' own bsdtar, and the CPU build installs beside the GPU builds as on Linux. Runtime asset sizes and SHA-256 digests are pinned with each release, and the archive is verified while
+read in-process rather than through Windows' tar, whose arguments pass through the system code page and so cannot name a
+path with a Cyrillic or CJK user name, and the CPU build installs beside the GPU builds as on Linux. Runtime asset sizes and SHA-256 digests are pinned with each release, and the archive is verified while
 streaming to disk. Updating either runtime requires an explicit Otis source change. Existing compatible manifest-v1
 and pre-manifest bundles remain usable for released installations; newly installed bundles record the artifact digest,
 and obsolete known runtime directories are removed after a pinned runtime is available.
@@ -635,8 +636,8 @@ identity/timing metadata were introduced.
 GitHub Actions verifies and cross-compiles the five supported targets: tarballs for macOS and Linux, a zip for Windows
 x64, which Bun compiles for; Windows on Arm runs it through its x64 emulation. Versioned archives, checksums, the
 manifest, and both installers (`install.sh`, `install.ps1`) are published as GitHub Release assets. `otis update`
-resolves the latest or requested release there, lists and extracts the archive with the system tar (Windows' bsdtar
-reads the zip), and verifies the checksum before replacing the installed binary. Windows locks a running executable
+resolves the latest or requested release there, verifies the checksum, lists and extracts a tarball with the system tar
+or reads the Windows zip in-process, and then replaces the installed binary. Windows locks a running executable
 against overwriting but not renaming, so the current binary moves aside as `.otis-previous.exe`, which the next update
 removes. The desktop app looks for the command in `~/.local/bin`, or `%LOCALAPPDATA%\Programs\otis` on Windows, then
 on the PATH. The Windows desktop build is an NSIS per-user installer that electron-updater updates in place; the PR

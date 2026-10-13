@@ -378,8 +378,7 @@ function createOutput() {
   }
 }
 
-// GNU tar reads no zip; the Windows archive is only ever opened by bsdtar (Windows, macOS).
-describe.skipIf(process.platform === "linux")("Windows release archives", () => {
+describe("Windows release archives", () => {
   it("installs otis.exe from the zip, moving a running executable aside", async () => {
     const tmpDir = await makeTmpDir()
     const installDir = path.join(tmpDir, "install")
