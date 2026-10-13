@@ -272,6 +272,77 @@ describe("local GGUF cache", () => {
     await expect(stat(`${dest}.partial`)).rejects.toMatchObject({ code: "ENOENT" })
   })
 
+  it("retries a connection that drops mid-file, resuming from the bytes that arrived", async () => {
+    const body = new Uint8Array([1, 2, 3, 4, 5, 6])
+    const model = tinyModel(body)
+    const directory = await tempDir()
+    let requests = 0
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requests += 1
+      if (requests === 1) {
+        // The first chunk arrives, then the connection resets.
+        const stream = new ReadableStream<Uint8Array>({
+          start: (controller) => controller.enqueue(body.slice(0, 3)),
+          pull: (controller) =>
+            controller.error(Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" })),
+        })
+        return new Response(stream, { status: 200, headers: { "content-length": "6" } })
+      }
+      expect(new Headers(init?.headers).get("range")).toBe("bytes=3-")
+      return new Response(body.slice(3), {
+        status: 206,
+        headers: { "content-length": "3", "content-range": "bytes 3-5/6" },
+      })
+    }) as unknown as typeof fetch
+    const progress: Array<{ phase: string; percent: number }> = []
+
+    await ensureLocalGguf(model, {
+      dataDirectory: directory,
+      fetch: fetchImpl,
+      onProgress: (event) => progress.push(event),
+    })
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    // The kept prefix is hashed again before the range response is appended to it.
+    expect(progress).toEqual([
+      { phase: "download", percent: 0 },
+      { phase: "download", percent: 50 },
+      { phase: "verifying", percent: 50 },
+      { phase: "download", percent: 50 },
+      { phase: "download", percent: 100 },
+    ])
+    expect(await readFile(localGgufPath(model, directory))).toEqual(Buffer.from(body))
+  })
+
+  it("retries a body that ends early and a server that stops sending, then names the download", async () => {
+    const body = new Uint8Array([1, 2, 3, 4])
+    const model = tinyModel(body)
+    const directory = await tempDir()
+    const silent = () =>
+      new Response(new ReadableStream<Uint8Array>({ start: () => {} }), {
+        status: 200,
+        headers: { "content-length": "4" },
+      })
+    const stalled = vi.fn(async () => silent()) as unknown as typeof fetch
+    await expect(
+      ensureLocalGguf(model, { dataDirectory: directory, fetch: stalled, stallTimeoutMs: 20 }),
+    ).rejects.toThrow(`Could not download ${model.displayName}: The server stopped sending data.`)
+    expect(stalled).toHaveBeenCalledTimes(3)
+
+    const truncated = vi.fn(
+      async () =>
+        new Response(body.slice(0, 2), { status: 200, headers: { "content-length": "4" } }),
+    ) as unknown as typeof fetch
+    await expect(
+      ensureLocalGguf(model, { dataDirectory: directory, fetch: truncated }),
+    ).rejects.toThrow(`Could not download ${model.displayName}: expected 4 bytes but received 2.`)
+    expect(truncated).toHaveBeenCalledTimes(3)
+    // The partial survives for the next attempt.
+    await expect(readFile(`${localGgufPath(model, directory)}.partial`)).resolves.toEqual(
+      Buffer.from([1, 2]),
+    )
+  })
+
   it("restarts cleanly when a server ignores the requested range", async () => {
     const body = new Uint8Array([1, 2, 3, 4])
     const model = tinyModel(body)

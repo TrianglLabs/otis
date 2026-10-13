@@ -13,6 +13,23 @@ describe("resolveWorkspaceCwd", () => {
     expect(resolveWorkspaceCwd({}, "/", "/Users/nik")).toBe(join("/Users/nik", "Otis"))
   })
 
+  it("falls back when a Windows shortcut starts the app in its own install folder", () => {
+    const app = join("/Program Files", "Otis")
+    expect(resolveWorkspaceCwd({}, app, "/Users/nik", undefined, app)).toBe(
+      join("/Users/nik", "Otis"),
+    )
+    expect(resolveWorkspaceCwd({}, join(app, "resources"), "/Users/nik", "/work", app)).toBe(
+      "/work",
+    )
+    // A folder beside the install, or the install's parent, is a real cwd.
+    expect(
+      resolveWorkspaceCwd({}, join("/Program Files", "Other"), "/Users/nik", undefined, app),
+    ).toBe(join("/Program Files", "Other"))
+    expect(resolveWorkspaceCwd({}, "/Program Files", "/Users/nik", undefined, app)).toBe(
+      "/Program Files",
+    )
+  })
+
   it("honors OTIS_WORKSPACE over everything, including root", () => {
     expect(resolveWorkspaceCwd({ OTIS_WORKSPACE: "/tmp/picked" }, "/", "/Users/nik")).toBe(
       "/tmp/picked",

@@ -15,7 +15,9 @@ import {
   writeFile,
 } from "node:fs/promises"
 import { dirname, join } from "node:path"
+import { setTimeout as delay } from "node:timers/promises"
 import { llamaModelCacheDirectory } from "../local/paths.js"
+import { describeError } from "./errors.js"
 import {
   LOCAL_MODELS,
   type LocalGgufFile,
@@ -27,6 +29,14 @@ import {
 } from "./local-catalog.js"
 
 const DOWNLOAD_LOCK_POLL_MS = 250
+/** A dropped or stalled connection is retried this many times, resuming the partial file. */
+const DOWNLOAD_ATTEMPTS = 3
+const DOWNLOAD_RETRY_BASE_MS = 500
+/** Maximum wait for response headers or further bytes, not a total transfer deadline. */
+const DOWNLOAD_STALL_MS = 2 * 60 * 1000
+
+/** The connection failed before the file was complete; the next attempt resumes the partial. */
+class RetryableDownloadError extends Error {}
 /** A live holder refreshes the lock's mtime; after a reboot its pid may belong to anything. */
 const DOWNLOAD_LOCK_HEARTBEAT_MS = 15_000
 const DOWNLOAD_LOCK_STALE_MS = 60_000
@@ -165,6 +175,7 @@ type DownloadGgufOptions = {
   signal?: AbortSignal
   onProgress?: (progress: GgufProgress) => void
   statfs?: (path: string) => Promise<{ bavail: number | bigint; bsize: number | bigint }>
+  stallTimeoutMs?: number
 }
 
 export async function ensureLocalGguf(model: LocalModelSpec, options: DownloadGgufOptions = {}) {
@@ -239,16 +250,30 @@ export async function ensureLocalGguf(model: LocalModelSpec, options: DownloadGg
       const work = pending.find((entry) => entry.dest === dest)
       if (work) {
         const expectedSha256 = normalizedSha256(pinnedFile.sha256)
-        if (work.resumedBytes !== pinnedFile.size) {
-          await downloadGgufFile(
-            model,
-            pinnedFile,
-            work.partial,
-            work.resumedBytes,
-            expectedSha256,
-            options,
-            (phase, fileBytes) => report(phase, completedBytes + fileBytes),
-          )
+        // A CDN that drops or stalls a multi-gigabyte transfer gets another go from the bytes
+        // that arrived; anything else about the response is final.
+        for (let attempt = 1; work.resumedBytes !== pinnedFile.size; attempt += 1) {
+          try {
+            await downloadGgufFile(
+              model,
+              pinnedFile,
+              work.partial,
+              work.resumedBytes,
+              expectedSha256,
+              options,
+              (phase, fileBytes) => report(phase, completedBytes + fileBytes),
+            )
+            break
+          } catch (error) {
+            if (!(error instanceof RetryableDownloadError)) throw error
+            if (attempt >= DOWNLOAD_ATTEMPTS)
+              throw new Error(`Could not download ${model.displayName}: ${error.message}`)
+            work.resumedBytes = await stat(work.partial).then(
+              (info) => info.size,
+              () => 0,
+            )
+            await delay(DOWNLOAD_RETRY_BASE_MS * attempt, undefined, { signal: options.signal })
+          }
         }
         await rename(work.partial, dest)
         await writeGgufManifest(dest, model, pinnedFile, expectedSha256)
@@ -283,10 +308,35 @@ async function downloadGgufFile(
   if (token) headers.authorization = `Bearer ${token}`
   if (resumedBytes > 0) headers.range = `bytes=${resumedBytes}-`
   const source = localFileSource(model, pinnedFile)
-  const response = await (options.fetch ?? fetch)(
-    `https://huggingface.co/${source.repo}/resolve/${source.revision}/${pinnedFile.name}`,
-    { headers, signal: options.signal, redirect: "follow" },
-  )
+  // The stall timer rearms on every chunk; a user's abort keeps its own reason.
+  const stall = new AbortController()
+  const signal = options.signal ? AbortSignal.any([options.signal, stall.signal]) : stall.signal
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const rearm = () => {
+    clearTimeout(timer)
+    timer = setTimeout(
+      () => stall.abort(new RetryableDownloadError("The server stopped sending data.")),
+      options.stallTimeoutMs ?? DOWNLOAD_STALL_MS,
+    )
+  }
+  const transient = (error: unknown) => {
+    options.signal?.throwIfAborted()
+    return stall.signal.aborted
+      ? stall.signal.reason
+      : new RetryableDownloadError(describeError(error))
+  }
+  rearm()
+  let response: Response
+  try {
+    response = await (options.fetch ?? fetch)(
+      `https://huggingface.co/${source.repo}/resolve/${source.revision}/${pinnedFile.name}`,
+      { headers, signal, redirect: "follow" },
+    )
+  } catch (error) {
+    throw transient(error)
+  }
+  // Headers arrived; the timer runs again once the body is read.
+  clearTimeout(timer)
   if (!response.ok || !response.body) {
     throw new Error(`Could not download ${model.displayName} (HTTP ${response.status}).`)
   }
@@ -324,10 +374,24 @@ async function downloadGgufFile(
   let received = start
   let discardPartial = false
   progress("download", received)
+  // A read waits on the body or on the abort, whichever comes first: a stalled body never
+  // delivers the abort by itself.
+  const aborted = new Promise<never>((_, reject) =>
+    signal.addEventListener("abort", () => reject(signal.reason), { once: true }),
+  )
+  aborted.catch(() => undefined)
+  const reader = response.body.getReader()
   try {
-    const reader = response.body.getReader()
+    rearm()
     for (;;) {
-      const { done, value } = await reader.read()
+      let chunk: ReadableStreamReadResult<Uint8Array>
+      try {
+        chunk = await Promise.race([reader.read(), aborted])
+      } catch (error) {
+        throw transient(error)
+      }
+      rearm()
+      const { done, value } = chunk
       if (done) break
       options.signal?.throwIfAborted()
       if (!value?.byteLength) continue
@@ -343,16 +407,18 @@ async function downloadGgufFile(
       progress("download", received)
     }
     options.signal?.throwIfAborted()
-    if (received !== pinnedFile.size) {
-      throw new Error(
-        `Could not download ${model.displayName}: expected ${pinnedFile.size} bytes but received ${received}.`,
+    // A body that ends early is a connection cut short, not a wrong file.
+    if (received !== pinnedFile.size)
+      throw new RetryableDownloadError(
+        `expected ${pinnedFile.size} bytes but received ${received}.`,
       )
-    }
     if (hash.digest("hex") !== expectedSha256) {
       discardPartial = true
       throw new Error(`Could not download ${model.displayName}: SHA-256 verification failed.`)
     }
   } finally {
+    clearTimeout(timer)
+    await reader.cancel().catch(() => undefined)
     await file.close().catch(() => undefined)
     if (discardPartial) await rm(partial, { force: true }).catch(() => undefined)
   }

@@ -1,8 +1,8 @@
-import { mkdirSync } from "node:fs"
+import { appendFileSync, mkdirSync } from "node:fs"
 import { mkdir } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { homedir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
 import { app, BrowserWindow, dialog, Notification, shell } from "electron"
 import electronUpdater from "electron-updater"
@@ -44,13 +44,24 @@ app.setName(app.isPackaged ? "Otis" : "Otis Dev")
 if (process.platform === "linux") app.setDesktopName("ai.triangllabs.otis.desktop")
 
 // A crash must not orphan a multi-gigabyte llama-server: stop it through the runtime's shutdown
-// path, then exit with the original error instead of Electron's default of staying open.
+// path, then exit with the original error instead of Electron's default of staying open. A GUI
+// launch has no terminal to print to, so the error also lands in crash.log beside the profile.
 const crash = (error: unknown) => {
   process.off("uncaughtException", crash)
   process.off("unhandledRejection", crash)
   quitting = true
   const exit = () => {
     console.error(error)
+    try {
+      const detail = error instanceof Error ? (error.stack ?? error.message) : String(error)
+      appendFileSync(
+        join(app.getPath("userData"), "crash.log"),
+        `${new Date().toISOString()} ${detail}
+`,
+      )
+    } catch {
+      // The profile directory may be the problem.
+    }
     try {
       dialog.showErrorBox("Otis has to quit", describeError(error))
     } catch {
@@ -97,11 +108,13 @@ if (devData) {
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
+  // A second launch brings the window forward, including one not yet shown because startup is
+  // still under way.
   app.on("second-instance", () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore()
-      mainWindow.focus()
-    }
+    if (!mainWindow) return
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+    mainWindow.focus()
   })
 
   void app.whenReady().then(async () => {
@@ -126,12 +139,14 @@ if (!app.requestSingleInstanceLock()) {
     })
 
     const settings = await loadLocalSettings()
-    // The last GUI workspace only applies when the shell handed us no cwd (Finder/Dock relaunch).
+    // The last GUI workspace only applies when the shell handed us no cwd (a Finder/Dock relaunch,
+    // or a Windows shortcut starting in the install folder).
     let cwd: string | undefined = resolveWorkspaceCwd(
       process.env,
       process.cwd(),
       homedir(),
       settings.lastWorkspace,
+      dirname(process.execPath),
     )
     try {
       await mkdir(cwd, { recursive: true })
