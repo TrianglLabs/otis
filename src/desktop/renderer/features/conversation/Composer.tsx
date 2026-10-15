@@ -167,11 +167,9 @@ export const Composer = memo(function Composer({ installing = false }: { install
   const menuItems =
     commandPrefix === undefined || menuDismissed || modelState !== "ready"
       ? []
-      : (skills ?? [])
-          .filter(
-            (skill) => skill.userInvocable && !skill.hidden && skill.name.startsWith(commandPrefix),
-          )
-          .slice(0, 8)
+      : (skills ?? []).filter(
+          (skill) => skill.userInvocable && !skill.hidden && skill.name.startsWith(commandPrefix),
+        )
   const menuSelected = menuItems[Math.min(menuIndex, menuItems.length - 1)]
   useEffect(() => {
     if (commandPrefix === undefined) {
@@ -513,10 +511,22 @@ export const Composer = memo(function Composer({ installing = false }: { install
             }}
           />
           {menuItems.length > 0 ? (
-            <div className="composer-commands" role="listbox" aria-label={t("composer.skillMenu")}>
+            <div
+              // Driven from the keyboard, the menu keeps its thumb in view while open: the app's
+              // "scrolling" state, held rather than flashed.
+              className="composer-commands scrolling"
+              role="listbox"
+              aria-label={t("composer.skillMenu")}
+            >
               {menuItems.map((skill, index) => (
                 <button
                   key={skill.name}
+                  // The list scrolls past the box's height; the highlighted row stays in view.
+                  ref={
+                    skill === menuSelected
+                      ? (row) => row?.scrollIntoView({ block: "nearest" })
+                      : undefined
+                  }
                   type="button"
                   role="option"
                   tabIndex={-1}
