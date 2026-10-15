@@ -161,6 +161,8 @@ describe("system prompt", () => {
           description: "Review code & explain <risks>.",
           root: "/skills/review",
           instructionsPath: "/skills/review/SKILL.md",
+          modelInvocable: true,
+          userInvocable: true,
         },
       ],
     })

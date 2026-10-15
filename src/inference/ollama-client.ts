@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { requireLocalContextLength } from "./context-policy.js"
 import { ContextOverflowError, inferenceError, inferenceResponseError } from "./errors.js"
-import { formatDocumentForModel, textContent } from "./messages.js"
+import { formatDocumentForModel, formatSkillForModel, textContent } from "./messages.js"
 import {
   collectCompletionText,
   fetchWithIdleTimeout,
@@ -80,7 +80,11 @@ export class OllamaClient implements InferenceClient {
                     content: message.content
                       .filter((part) => part.type !== "image")
                       .map((part) =>
-                        part.type === "document" ? formatDocumentForModel(part) : part.text,
+                        part.type === "document"
+                          ? formatDocumentForModel(part)
+                          : part.type === "skill"
+                            ? formatSkillForModel(part)
+                            : part.text,
                       )
                       .join("\n"),
                     images: message.content

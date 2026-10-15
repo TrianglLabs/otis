@@ -325,6 +325,8 @@ describe("runHeadlessCommand", () => {
       description: "Review code changes.",
       root: "/skills/review",
       instructionsPath: "/skills/review/SKILL.md",
+      modelInvocable: true,
+      userInvocable: true,
     }
     mocks.loadSkillCatalog.mockResolvedValue({
       skills: [skill],

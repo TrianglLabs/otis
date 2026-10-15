@@ -152,3 +152,33 @@ describe("adjacent user messages", () => {
     })
   })
 })
+
+describe("invoked skills", () => {
+  it("serializes an invoked skill as the instructions the model reads", () => {
+    const messages: ChatMessage[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "skill",
+            name: "tdd",
+            arguments: "fix the lock",
+            instructions: "Write a failing test for $ARGUMENTS first.",
+          },
+        ],
+      },
+    ]
+    const wire = openaiChatCompletionRequest("test", { messages })
+    expect(wire.messages[1]).toEqual({
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text:
+            "The user ran the tdd skill. Follow its instructions for this request.\n\n" +
+            "Write a failing test for fix the lock first.",
+        },
+      ],
+    })
+  })
+})

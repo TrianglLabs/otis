@@ -17,6 +17,7 @@ import {
 } from "node:fs/promises"
 import { homedir } from "node:os"
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
+import { describeError } from "../inference/errors.js"
 import { childProcessEnvironment, localDataDirectory } from "../local/paths.js"
 import {
   assertInside,
@@ -25,6 +26,7 @@ import {
   type ManagedSkillSource,
   SKILL_NAME,
   type SkillManagerManifest,
+  type SkillPlugin,
 } from "./catalog.js"
 
 const MAX_GIT_OUTPUT = 32_000
@@ -130,6 +132,7 @@ export class SkillManager {
         ])
         const skills = await discoverManagedSkills(temporarySource, path)
         if (skills.length === 0) throw new Error(`No Agent Skills were found in ${cleanURL}.`)
+        const plugin = await readPlugin(path ? join(temporarySource, path) : temporarySource)
         await ensurePrivateDirectory(this.activationDirectory)
         for (const skill of skills) {
           if (await pathExists(this.#activationPath(skill.name), { includeBrokenSymlink: true })) {
@@ -148,7 +151,14 @@ export class SkillManager {
           createdLinks.push(destination)
         }
 
-        const source = { id, url: cleanURL, path, installedAt: new Date().toISOString(), skills }
+        const source = {
+          id,
+          url: cleanURL,
+          path,
+          installedAt: new Date().toISOString(),
+          skills,
+          ...(plugin ? { plugin } : {}),
+        }
         await writeManifest(this.rootDirectory, {
           version: 1,
           sources: sortedSources([...manifest.sources, source]),
@@ -224,7 +234,10 @@ export class SkillManager {
             createdLinks.push(path)
           }
 
-          const updatedSource = { ...source, skills }
+          const plugin = await readPlugin(
+            source.path ? join(sourceDirectory, source.path) : sourceDirectory,
+          )
+          const updatedSource = { ...source, skills, plugin }
           manifest = {
             version: 1,
             sources: sortedSources(
@@ -440,11 +453,16 @@ async function readManifest(root: string): Promise<SkillManagerManifest> {
       }
       return { name, relativePath }
     })
+    const plugin =
+      rawSource.plugin === undefined
+        ? undefined
+        : validPlugin(rawSource.plugin, `Invalid managed skills manifest: sources[${sourceIndex}]`)
     return {
       id,
       url,
       path,
       installedAt,
+      ...(plugin ? { plugin } : {}),
       skills: skills.sort((left, right) => left.name.localeCompare(right.name)),
     }
   })
@@ -515,6 +533,48 @@ async function discoverManagedSkills(
     })
   }
   return [...skills.values()].sort((left, right) => left.name.localeCompare(right.name))
+}
+
+/**
+ * The Agent Plugins manifest at a source's root, when the folder is a plugin: its name, version,
+ * and description are what Otis shows for the source. Skills are still found by the layout, so a
+ * plain collection without a manifest installs the same way; a manifest that is present must
+ * parse.
+ */
+async function readPlugin(root: string): Promise<SkillPlugin | undefined> {
+  const path = join(root, "plugin.json")
+  let contents: string
+  try {
+    contents = await readFile(path, "utf8")
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") return undefined
+    throw error
+  }
+  let value: unknown
+  try {
+    value = JSON.parse(contents)
+  } catch (error) {
+    throw new Error(`Invalid plugin.json at ${path}: ${describeError(error)}`)
+  }
+  return validPlugin(value, `Invalid plugin.json at ${path}`)
+}
+
+function validPlugin(value: unknown, label: string): SkillPlugin {
+  if (!isRecord(value) || typeof value.name !== "string" || !value.name.trim())
+    throw new Error(`${label}: plugin name must be a non-empty string.`)
+  const optional = (key: "version" | "description") => {
+    const raw = value[key]
+    if (raw !== undefined && typeof raw !== "string")
+      throw new Error(`${label}: plugin ${key} must be a string.`)
+    return raw?.trim() || undefined
+  }
+  const version = optional("version")
+  const description = optional("description")
+  return {
+    name: value.name.trim(),
+    ...(version ? { version } : {}),
+    ...(description ? { description } : {}),
+  }
 }
 
 function validSourceId(value: unknown, label = "Skill source name") {

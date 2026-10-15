@@ -27,6 +27,49 @@ const themeRowIDs = THEME_NAMES.slice(0, MAX_VISIBLE_ROWS).map(
 describe("chat UI input", () => {
   const setup = useChatHarness()
 
+  it("cuts a long description to one line of the terminal, keeping the scroll marker", async () => {
+    const long = "A description that goes on and on ".repeat(6).trim()
+    const commands = Array.from({ length: 20 }, (_, index) => ({
+      name: `/skill-${String(index).padStart(2, "0")}`,
+      description: long,
+    }))
+    const harness = await setup({ commands })
+    harness.ui.showChatLayout()
+    await harness.renderOnce()
+    harness.setChatInput("/")
+    const rows = harness.childIds("command-menu").length
+    const first = harness.text("command-row-0-meta")
+    // 100 columns less the frame, padding, and indent.
+    expect(first.length).toBeLessThanOrEqual(2 + 92)
+    expect(first.endsWith("…")).toBe(true)
+    // The overflow marker is its own line at the bottom, not a suffix on the last row.
+    expect(harness.text(`command-row-${rows - 1}`)).toBe(`↓ ${20 - (rows - 1)} more`)
+    expect(harness.text(`command-row-${rows - 2}-meta`)).not.toContain("more")
+  })
+
+  it("shows fewer rows on the home screen than the chat layout, so the menu stays on screen", async () => {
+    const commands = Array.from({ length: 20 }, (_, index) => ({
+      name: `/skill-${String(index).padStart(2, "0")}`,
+      description: `Skill ${index}.`,
+    }))
+    const harness = await setup({ commands })
+    // The home screen's input sits mid-screen; a 30-row terminal has room for a few rows above it.
+    await harness.renderOnce()
+    harness.setChatInput("/")
+    const home = harness.childIds("command-menu").length
+    expect(home).toBeGreaterThan(1)
+    expect(home).toBeLessThan(MAX_VISIBLE_ROWS)
+    expect(harness.text(`command-row-${home - 1}`)).toBe(`↓ ${20 - (home - 1)} more`)
+
+    harness.press("escape")
+    harness.ui.showChatLayout()
+    await harness.renderOnce()
+    harness.setChatInput("/")
+    const chat = harness.childIds("command-menu").length
+    expect(chat).toBeGreaterThan(home)
+    expect(chat).toBeLessThanOrEqual(MAX_VISIBLE_ROWS)
+  })
+
   it("filters slash commands and submits the keyboard selection", async () => {
     const onSubmit = vi.fn()
     const harness = await setup({
@@ -83,6 +126,8 @@ describe("chat UI input", () => {
     harness.press("return")
 
     expect(harness.get<TextareaRenderable>("otis-input").plainText).toBe("/queue ")
+    // The cursor follows the draft, so what is typed next becomes the arguments.
+    expect(harness.get<TextareaRenderable>("otis-input").cursorOffset).toBe("/queue ".length)
     expect(onSubmit).not.toHaveBeenCalled()
   })
 
@@ -150,7 +195,7 @@ describe("chat UI input", () => {
     expect(harness.find("command-menu")).toBeUndefined()
   })
 
-  it("windows a long submenu to twelve rows that slide with the selection", async () => {
+  it("windows a long submenu to the rows that fit, counting the overflow on its own lines", async () => {
     const onSubmit = vi.fn()
     const harness = await setup({ onSubmit })
     const rows = Array.from({ length: 20 }, (_, index) => ({
@@ -162,28 +207,27 @@ describe("chat UI input", () => {
 
     const visible = (count: number) =>
       Array.from({ length: count }, (_, index) => `command-row-${index}-box`)
+    // Eleven rows and a line for what lies below.
     expect(harness.childIds("command-menu")).toEqual(visible(12))
     expect(harness.text("command-row-0")).toBe("› Model 0")
     expect(harness.text("command-row-0-meta")).toBe("  Shown")
-    expect(harness.text("command-row-11")).toBe("  Model 11")
-    // The last visible row counts what is hidden below it alongside its own description.
-    expect(harness.text("command-row-11-meta")).toBe("  ↓ 8 more")
-    expect(harness.get<TextRenderable>("command-row-11-meta").visible).toBe(true)
+    expect(harness.text("command-row-10")).toBe("  Model 10")
+    expect(harness.text("command-row-11")).toBe("↓ 9 more")
+    expect(harness.get<TextRenderable>("command-row-11-meta").visible).toBe(false)
 
-    // Moving past the bottom edge slides the window one row and reports both directions.
+    // Moving past the bottom edge slides the window; only what lies below is counted.
     for (let i = 0; i < 12; i++) harness.press("down")
     expect(harness.childIds("command-menu")).toEqual(visible(12))
-    expect(harness.text("command-row-0")).toBe("  Model 1")
-    expect(harness.text("command-row-0-meta")).toBe("  ↑ 1 more")
-    expect(harness.text("command-row-11")).toBe("› Model 12")
-    expect(harness.text("command-row-11-meta")).toBe("  Shown · ↓ 7 more")
+    expect(harness.text("command-row-0")).toBe("  Model 2")
+    expect(harness.text("command-row-10")).toBe("› Model 12")
+    expect(harness.text("command-row-10-meta")).toBe("  Shown")
+    expect(harness.text("command-row-11")).toBe("↓ 7 more")
 
-    // The window stops at the end of the list, with only the hidden rows above reported.
+    // The window stops at the end of the list, and the count goes away.
     for (let i = 0; i < 7; i++) harness.press("down")
-    expect(harness.text("command-row-0")).toBe("  Model 8")
-    expect(harness.text("command-row-0-meta")).toBe("  Shown · ↑ 8 more")
-    expect(harness.text("command-row-11")).toBe("› Model 19")
-    expect(harness.get<TextRenderable>("command-row-11-meta").visible).toBe(false)
+    expect(harness.childIds("command-menu")).toEqual(visible(11))
+    expect(harness.text("command-row-0")).toBe("  Model 9")
+    expect(harness.text("command-row-10")).toBe("› Model 19")
 
     harness.press("return")
     expect(onSubmit).toHaveBeenCalledWith("/settings toggle-model fireworks:model-19")

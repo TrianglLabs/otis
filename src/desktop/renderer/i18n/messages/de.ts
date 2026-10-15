@@ -187,6 +187,7 @@ export const de: Messages = {
   "composer.sendFollowUpTitle": "Folgeanfrage senden (Enter)",
   "composer.sendTitle": "Senden (Enter)",
   "composer.followUp": "Folgeanfrage",
+  "composer.skillMenu": "Skills",
   "home.noModel": "Noch kein Modell eingerichtet.",
   "home.setupHint":
     "Führe otis einmal in diesem Arbeitsbereich aus, um die Inferenz einzurichten; die Desktop-App verwendet dieselbe Konfiguration und dieselben Sitzungen.",
@@ -515,6 +516,8 @@ export const de: Messages = {
   "settings.skillInstall": "Installieren",
   "settings.skillUpdate": "Aktualisieren",
   "settings.skillRemove": "Entfernen",
+  "settings.skillManual": "Manuell",
+  "settings.skillManualHint": "Läuft nur, wenn du /{{name}} eingibst",
   "settings.showSkill": "{{name}} dem Modell anbieten",
   "settings.skillsShown": "{{shown}} von {{total}} Skills",
   "settings.skillsMore": "Mehr anzeigen",

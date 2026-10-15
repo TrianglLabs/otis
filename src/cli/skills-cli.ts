@@ -78,7 +78,8 @@ export async function runSkillsCommand(
 
 export function formatSource(source: ManagedSkillSource) {
   const names = source.skills.map((skill) => skill.name).join(", ")
-  return `${source.id} (${skillCount(source.skills.length)}: ${names})`
+  const version = source.plugin?.version ? ` ${source.plugin.version}` : ""
+  return `${source.id}${version} (${skillCount(source.skills.length)}: ${names})`
 }
 
 export function skillCount(count: number) {

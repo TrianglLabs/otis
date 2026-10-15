@@ -188,6 +188,7 @@ export const ptBR: Messages = {
   "composer.sendFollowUpTitle": "Enviar continuação (Enter)",
   "composer.sendTitle": "Enviar (Enter)",
   "composer.followUp": "Continuar",
+  "composer.skillMenu": "Habilidades",
   "home.noModel": "Nenhum modelo foi configurado ainda.",
   "home.setupHint":
     "Execute otis uma vez neste espaço de trabalho para configurar a inferência; o aplicativo usa a mesma configuração e sessões.",
@@ -514,6 +515,8 @@ export const ptBR: Messages = {
   "settings.skillInstall": "Instalar",
   "settings.skillUpdate": "Atualizar",
   "settings.skillRemove": "Remover",
+  "settings.skillManual": "Manual",
+  "settings.skillManualHint": "Executa apenas quando você digita /{{name}}",
   "settings.showSkill": "Oferecer {{name}} ao modelo",
   "settings.skillsShown": "{{shown}} de {{total}} skills",
   "settings.skillsMore": "Mostrar mais",

@@ -168,6 +168,52 @@ describe("managed skills", () => {
     ])
   })
 
+  it("records an Agent Plugin's manifest and refuses one that does not parse", async () => {
+    const repository = await gitRepository()
+    await writeSkill(repository, "tdd", "Test first.")
+    await writeFile(
+      join(repository, "plugin.json"),
+      JSON.stringify({
+        $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+        name: "pstack",
+        version: "0.15.24",
+        description: "rigorous agent workflows",
+        keywords: ["workflow"],
+      }),
+    )
+    await commit(repository, "add plugin")
+    const paths = await managerPaths()
+    const manager = new SkillManager(paths)
+
+    const installed = await manager.install(repository, "pstack")
+
+    expect(installed.plugin).toEqual({
+      name: "pstack",
+      version: "0.15.24",
+      description: "rigorous agent workflows",
+    })
+    expect(await manager.list()).toEqual([installed])
+    expect(JSON.parse(await readFile(join(paths.rootDirectory, "manifest.json"), "utf8"))).toEqual({
+      version: 1,
+      sources: [installed],
+    })
+
+    await writeFile(
+      join(repository, "plugin.json"),
+      JSON.stringify({ name: "pstack", version: 15 }),
+    )
+    await commit(repository, "break manifest")
+    await expect(manager.update("pstack")).rejects.toThrow("plugin version must be a string")
+    expect((await manager.list())[0]?.plugin?.version).toBe("0.15.24")
+
+    const broken = await gitRepository()
+    await writeSkill(broken, "alpha", "Alpha.")
+    await writeFile(join(broken, "plugin.json"), "{not json")
+    await commit(broken, "broken manifest")
+    await expect(manager.install(broken, "broken")).rejects.toThrow("Invalid plugin.json")
+    expect(await directoryEntries(join(paths.rootDirectory, "sources"))).toEqual(["pstack"])
+  })
+
   it("installs one folder of a repository from its tree link", async () => {
     const repository = await gitRepository()
     await writeSkill(repository, "elsewhere", "Not part of the folder.")

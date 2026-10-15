@@ -191,6 +191,7 @@ export const fr: Messages = {
   "composer.sendFollowUpTitle": "Envoyer le suivi (Entrée)",
   "composer.sendTitle": "Envoyer (Entrée)",
   "composer.followUp": "Suivi",
+  "composer.skillMenu": "Compétences",
   "home.noModel": "Aucun modèle n’est encore configuré.",
   "home.setupHint":
     "Exécutez otis une fois dans cet espace de travail pour configurer l’inférence ; l’application de bureau utilise les mêmes réglages et sessions.",
@@ -521,6 +522,8 @@ export const fr: Messages = {
   "settings.skillInstall": "Installer",
   "settings.skillUpdate": "Mettre à jour",
   "settings.skillRemove": "Retirer",
+  "settings.skillManual": "Manuel",
+  "settings.skillManualHint": "Ne s'exécute que lorsque vous tapez /{{name}}",
   "settings.showSkill": "Proposer {{name}} au modèle",
   "settings.skillsShown": "{{shown}} skills sur {{total}}",
   "settings.skillsMore": "Afficher plus",

@@ -1871,6 +1871,8 @@ describe("DesktopRuntime sessions", () => {
         description: "Prepare release notes.",
         origin: { collection: "acme" },
         hidden: false,
+        modelInvocable: true,
+        userInvocable: true,
       })
       expect(listed.problems).toEqual([])
       expect(listed.skills.find((entry) => entry.name === "documents")?.origin).toBe("bundled")

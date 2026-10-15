@@ -24,6 +24,7 @@ import {
   type UserChatMessage,
   type UserContentPart,
 } from "../inference/types.js"
+import { MAX_SKILL_FILE_BYTES, SKILL_NAME } from "../skills/catalog.js"
 import {
   isToolAction,
   isToolActivityKind,
@@ -692,6 +693,15 @@ function isUserContent(value: unknown): value is UserChatMessage["content"] {
 function isUserContentPart(value: unknown): value is UserContentPart {
   if (!isRecord(value)) return false
   if (value.type === "text") return typeof value.text === "string"
+  if (value.type === "skill") {
+    return (
+      typeof value.name === "string" &&
+      SKILL_NAME.test(value.name) &&
+      typeof value.arguments === "string" &&
+      typeof value.instructions === "string" &&
+      value.instructions.length <= MAX_SKILL_FILE_BYTES
+    )
+  }
   if (value.type !== "image" && value.type !== "document") return false
   if (
     typeof value.data !== "string" ||

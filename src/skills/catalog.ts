@@ -19,8 +19,9 @@ const OTHER_AGENT_SKILLS = [".claude", ".cursor", ".gemini", ".github"].map((dir
 const OTHER_AGENT_HOME_SKILLS = [".claude", ".cursor", ".gemini", ".copilot"].map((dir) =>
   join(dir, "skills"),
 )
-const MAX_SKILL_FILE_BYTES = 1024 * 1024
+export const MAX_SKILL_FILE_BYTES = 1024 * 1024
 const MAX_DESCRIPTION_LENGTH = 1024
+const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u
 export const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u
 
 export async function loadSkillCatalog(
@@ -94,7 +95,7 @@ export async function loadSkillPackage(directory: string): Promise<Skill | undef
     path,
     `Invalid skill ${instructionsPath}: SKILL.md resolves outside its skill.`,
   )
-  const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u.exec(contents)
+  const match = FRONTMATTER.exec(contents)
   if (!match) throw new Error(`Invalid skill ${path}: closed YAML frontmatter is required.`)
   const document = parseDocument(match[1], { uniqueKeys: true })
   if (document.errors.length > 0)
@@ -121,7 +122,29 @@ export async function loadSkillPackage(directory: string): Promise<Skill | undef
       `Invalid skill ${path}: description must be 1-${MAX_DESCRIPTION_LENGTH} characters.`,
     )
   }
-  return { name: slug, description: description.trim(), root, instructionsPath: path }
+  // Claude Code and Cursor's switches: a manual-only skill stays out of the model's offer and
+  // is run by its /name; a model-only one is kept off the user's menu.
+  const flag = (key: string) => {
+    const raw = value[key]
+    if (raw !== undefined && typeof raw !== "boolean")
+      throw new Error(`Invalid skill ${path}: ${key} must be true or false.`)
+    return raw
+  }
+  return {
+    name: slug,
+    description: description.trim(),
+    root,
+    instructionsPath: path,
+    modelInvocable: flag("disable-model-invocation") !== true,
+    userInvocable: flag("user-invocable") !== false,
+  }
+}
+
+/** The instructions an invoked skill hands the model: SKILL.md without its frontmatter. */
+export async function skillInstructions(skill: Skill): Promise<string> {
+  if (skill.bundled) await materializeBundledSkill(skill)
+  const contents = await readFile(skill.instructionsPath, "utf8")
+  return contents.replace(FRONTMATTER, "").trim()
 }
 
 export function assertInside(root: string, target: string, message: string) {
@@ -186,6 +209,10 @@ export type Skill = {
   description: string
   root: string
   instructionsPath: string
+  /** Offered to the model in its prompt; off for a skill marked `disable-model-invocation`. */
+  modelInvocable: boolean
+  /** Runnable by the user as `/name`; off for a skill marked `user-invocable: false`. */
+  userInvocable: boolean
   /** Embedded first-party resources, materialized only when this skill is loaded. */
   bundled?: boolean
 }
@@ -205,6 +232,8 @@ export type SkillSummary = {
   origin: "bundled" | "personal" | "project" | { collection: string }
   /** Switched off in settings: loaded, but not offered to the model. */
   hidden: boolean
+  modelInvocable: boolean
+  userInvocable: boolean
 }
 
 export type SkillsSummary = {
@@ -213,9 +242,13 @@ export type SkillsSummary = {
   problems: readonly string[]
 }
 
+/** The identity an Agent Plugin declares in its root `plugin.json`. */
+export type SkillPlugin = { name: string; version?: string; description?: string }
 export type ManagedSkillSource = {
   id: string
   url: string
+  /** Present when the installed folder is an Agent Plugin. */
+  plugin?: SkillPlugin
   /** The folder of a repository that holds the skills, from a `…/tree/<ref>/<folder>` URL. */
   path?: string
   /** Absent on collections installed before it was recorded. */

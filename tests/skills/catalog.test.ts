@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { loadSkillCatalog, readSkillResource } from "../../src/skills/catalog.js"
+import { loadSkillCatalog, readSkillResource, skillInstructions } from "../../src/skills/catalog.js"
 import { symlinksSupported } from "../support/symlinks.js"
 
 const temporaryDirectories: string[] = []
@@ -150,4 +150,48 @@ describe("skill resources", () => {
       )
     },
   )
+})
+
+describe("skill invocation", () => {
+  it("reads the manual-only and model-only switches, and rejects a value that is not a boolean", async () => {
+    const home = await temporaryDirectory()
+    const project = await temporaryDirectory()
+    await writeSkill(project, "plain", "Plain skill.", "Do it.")
+    const manual = join(project, ".agents", "skills", "tdd")
+    await mkdir(manual, { recursive: true })
+    await writeFile(
+      join(manual, "SKILL.md"),
+      "---\nname: tdd\ndescription: Test first.\ndisable-model-invocation: true\n---\n\nWrite a failing test for $ARGUMENTS first.\n",
+    )
+    const background = join(project, ".agents", "skills", "house-style")
+    await mkdir(background, { recursive: true })
+    await writeFile(
+      join(background, "SKILL.md"),
+      "---\nname: house-style\ndescription: How we write.\nuser-invocable: false\n---\n\nShort sentences.\n",
+    )
+    const broken = join(project, ".agents", "skills", "broken")
+    await mkdir(broken, { recursive: true })
+    await writeFile(
+      join(broken, "SKILL.md"),
+      "---\nname: broken\ndescription: Bad flag.\ndisable-model-invocation: yes please\n---\n",
+    )
+
+    const catalog = await loadSkillCatalog(project, { home })
+
+    expect(catalog.byName.get("plain")).toMatchObject({ modelInvocable: true, userInvocable: true })
+    expect(catalog.byName.get("tdd")).toMatchObject({ modelInvocable: false, userInvocable: true })
+    expect(catalog.byName.get("house-style")).toMatchObject({
+      modelInvocable: true,
+      userInvocable: false,
+    })
+    expect(catalog.byName.has("broken")).toBe(false)
+    expect(catalog.problems).toEqual([
+      expect.stringContaining("disable-model-invocation must be true or false"),
+    ])
+
+    // The model reads the body without the frontmatter.
+    const tdd = catalog.byName.get("tdd")
+    if (!tdd) throw new Error("missing tdd")
+    expect(await skillInstructions(tdd)).toBe("Write a failing test for $ARGUMENTS first.")
+  })
 })

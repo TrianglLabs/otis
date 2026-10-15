@@ -844,6 +844,34 @@ describe("runAgent", () => {
     expect(events.find((event) => event.type === "complete")).toBeDefined()
   })
 
+  it("offers the model only skills open to it, keeping the skill tool for the ones the user runs", async () => {
+    const skill = (name: string, modelInvocable: boolean) => ({
+      name,
+      description: `${name} skill.`,
+      root: `/skills/${name}`,
+      instructionsPath: `/skills/${name}/SKILL.md`,
+      modelInvocable,
+      userInvocable: true,
+    })
+    const skills = [skill("review", true), skill("tdd", false)]
+    streamAgentMock.mockImplementationOnce(async function* (request) {
+      expect(request.systemPrompt).toContain('<skill name="review">')
+      expect(request.systemPrompt).not.toContain('<skill name="tdd">')
+      expect(request.tools).toEqual(
+        expect.arrayContaining([expect.objectContaining({ name: "skill" })]),
+      )
+      yield { type: "text_delta", text: "Done." }
+    })
+
+    await collect(
+      runAgent("hello", [], {
+        client,
+        skills: { skills, byName: new Map(skills.map((s) => [s.name, s])), problems: [] },
+      }),
+    )
+    expect(streamAgentMock).toHaveBeenCalledTimes(1)
+  })
+
   it("does not expose the skill tool when no skills are available", async () => {
     streamAgentMock.mockImplementationOnce(async function* (request) {
       expect(request.tools).not.toEqual(

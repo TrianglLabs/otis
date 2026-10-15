@@ -859,6 +859,18 @@
   flex-shrink: 0;
 }
 
+/* A skill its author reserved for the user's /name, never offered to the model on its own. */
+.settingsSkill-tag {
+  margin-left: 8px;
+  padding: 1px 7px;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  font-size: var(--text-micro);
+  font-weight: 500;
+  color: var(--text-dim);
+  vertical-align: 1px;
+}
+
 .settingsSkills-actions {
   display: flex;
   flex-shrink: 0;

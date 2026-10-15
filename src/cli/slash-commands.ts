@@ -68,6 +68,8 @@ const SETTINGS = [
   "theme",
 ] as const
 
+const SUMMARY_LENGTH = 60
+
 const CATALOG: readonly CatalogCommand[] = [
   { type: "home", name: "/home", description: "Return to home screen" },
   { type: "new", name: "/new", description: "Start a new session" },
@@ -84,17 +86,42 @@ const CATALOG: readonly CatalogCommand[] = [
   { type: "exit", name: "/exit", description: "Exit Otis" },
 ]
 
-/** The catalog as the menu lists it; `/fast` and `/effort` only when the selected model has them. */
+/**
+ * The catalog as the menu lists it: `/fast` and `/effort` only when the selected model has them,
+ * then the skills the user may run as `/name`, which a built-in name shadows.
+ */
 export function slashCommands(
-  options: { fast?: boolean; effort?: boolean } = {},
+  options: {
+    fast?: boolean
+    effort?: boolean
+    skills?: readonly { name: string; description: string }[]
+  } = {},
 ): CommandSuggestion[] {
-  return CATALOG.filter(
+  const builtIn = CATALOG.filter(
     (command) => (command.type !== "fast" && command.type !== "effort") || options[command.type],
   ).map((command) => ({
     name: command.name,
     description: command.description,
     ...(command.type === "queue" ? { draft: "/queue " } : {}),
   }))
+  const taken = new Set(CATALOG.map((command) => command.name))
+  const skills = (options.skills ?? [])
+    .filter((skill) => !taken.has(`/${skill.name}`))
+    .map((skill) => {
+      // The menu line stays near the built-in commands' length: the description's first
+      // sentence when that is short, else a cut at a word boundary with an ellipsis.
+      const text = skill.description.replace(/\s+/gu, " ").trim()
+      const sentenceEnd = text.search(/[.!?](?=\s|$)/u)
+      const cut = text.slice(0, SUMMARY_LENGTH)
+      const description =
+        text.length <= SUMMARY_LENGTH
+          ? text
+          : sentenceEnd >= 0 && sentenceEnd < SUMMARY_LENGTH
+            ? text.slice(0, sentenceEnd + 1)
+            : `${cut.slice(0, Math.max(cut.lastIndexOf(" "), SUMMARY_LENGTH - 12)).trimEnd()}…`
+      return { name: `/${skill.name}`, description, draft: `/${skill.name} ` }
+    })
+  return [...builtIn, ...skills]
 }
 
 export function parseSlashCommand(value: string): SlashCommand | undefined {

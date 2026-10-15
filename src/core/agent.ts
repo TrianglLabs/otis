@@ -302,7 +302,10 @@ export async function* runAgent(
     const tools = (options.tools ?? TOOL_DEFINITIONS).filter(
       (tool) => tool.name !== "skill" || skills.skills.length > 0,
     )
-    const modelSkills = tools.some((tool) => tool.name === "skill") ? skills.skills : []
+    // Manual-only skills stay out of the offer; the tool still loads them when the user ran one.
+    const modelSkills = tools.some((tool) => tool.name === "skill")
+      ? skills.skills.filter((skill) => skill.modelInvocable)
+      : []
     const { outputCapabilities } = options
     const systemPrompt = buildSystemPrompt({
       projectContext,

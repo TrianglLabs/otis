@@ -184,6 +184,7 @@ export const en = {
   "composer.sendFollowUpTitle": "Send as follow-up (Enter)",
   "composer.sendTitle": "Send (Enter)",
   "composer.followUp": "Follow up",
+  "composer.skillMenu": "Skills",
   "home.noModel": "No model is configured yet.",
   "home.setupHint":
     "Run otis in this workspace once to set up inference — the desktop app uses the same configuration and sessions.",
@@ -509,6 +510,8 @@ export const en = {
   "settings.skillInstall": "Install",
   "settings.skillUpdate": "Update",
   "settings.skillRemove": "Remove",
+  "settings.skillManual": "Manual",
+  "settings.skillManualHint": "Runs only when you type /{{name}}",
   "settings.showSkill": "Offer {{name}} to the model",
   "settings.skillsShown": "{{shown}} of {{total}} skills",
   "settings.skillsMore": "Show more",

@@ -938,17 +938,47 @@ const DEMO_VIEW = {
 /** The first sentence of each demo collection skill's own description. */
 const DEMO_SKILL_DESCRIPTIONS: Record<string, string> = {
   architect:
-    "Sketch types, signatures, and module structure before code, then stay in the loop while…",
-  arena: "Spawn N parallel candidates at the same task, pick a base, graft the strongest parts of…",
-  "automate-me": 'Use for "automate me", "create/update/refresh my -mode skill", "turn/capture my…',
+    "Sketch types, signatures, and module structure before code, then stay in the loop while implementation fills in. Use for /architect, 'architect this', 'design this', or non-trivial work where jumping to code would lock in the wrong shape.",
+  arena:
+    "Spawn N parallel candidates at the same task, pick a base, graft the strongest parts of the losers into it. Use for /arena, 'arena this', 'throw it in the arena', or when one attempt at a non-trivial artifact would lock in the wrong shape.",
+  "automate-me":
+    'Use for "automate me", "create/update/refresh my -mode skill", "turn/capture my preferences or working style into a skill", or wanting agents to follow how the user works. Drafts or revises a personal -mode skill via create-skill + unslop, optionally pulling fresh evidence from recent transcripts.',
+  "blast-radius":
+    "Find what a change could break somewhere else before it ships, beyond the diff, and prove the one fact it's safe because of by running real code instead of writing it up. Use for 'blast radius of X', 'what could this break', or reviewing a small diff you don't trust.",
+  bro: "Restate the last message in plain human language, with no jargon.",
+  "figure-it-out":
+    "Design an auditable playbook when no narrower one fits: a large migration, an ambitious multi-part change, or work a human reviews after stepping away. Scales rigor to the task, runs a hypothesis loop, and logs decisions. Use for /figure-it-out or 'figure it out'.",
+  how: 'Use for "how does X work", code walkthroughs before changing something, and placement / ownership / layering questions ("where should this live", "which package owns this", "is this the right layer"). Explains subsystem architecture, runtime flow, onboarding mental models. Use why for motivation.',
+  interrogate:
+    'Use for "interrogate", "adversarial review", "multi-model review", "challenge this", "stress test this code", "find blind spots", or "tear this apart". Multiple LLM reviewers challenge changes from independent angles.',
+  "make-bot-ui":
+    "Use when building a custom UI (page, dashboard, buttons) that should wake a Grok Bot over a webhook, when the user must provide a webhook sender key, or when exposing that UI on Tailscale.",
+  "no-comments":
+    "Spawn Comment Sicko, fix accepted findings, and offer encodings for claimed constraints.",
+  "poteto-mode":
+    "poteto's agent style for concise, detailed responses, deliberate subagents, unslopped prose, simple code, and verified work. Use for poteto, /poteto-mode, or requests to work in this style.",
+  recall:
+    "Reconstruct your recent working context from your own chat history, live state, and the shared record (user reports, prior fixes, incidents), then hand back a tight current-state brief. Use for 'recall my work on X', 'catch me up', 'what have I been working on', 'where did I leave off', before starting or resuming work.",
+  reflect:
+    "Spawn three parallel review subagents over the active transcript, surface learnings, and route each to a concrete edit on an existing skill. Use when the user says reflect.",
+  "setup-pstack":
+    'Configure which models pstack uses per role and at what reasoning budget. Detects your available models and writes an always-applied rule that overrides the skill defaults. Use for /setup-pstack, "configure pstack models", "pstack budget", or changing pstack\'s model choices.',
+  "show-me-your-work":
+    "Keep a reviewable decision trail for long-running or unattended work: a TSV log with one row per decision (what, why, evidence, result). Local by default; commit it when a reviewer needs the trail to trust the result. Use for /show-me-your-work, autonomous or multi-phase runs, or work a human reviews after stepping away.",
+  swarm:
+    "Fan out N parallel workers, drain them, and return one report. Use for /swarm, 'swarm this', or parallel coverage, races, gauntlets, and exploration.",
+  tdd: "Use only when the user explicitly asks for TDD, a failing test, or a regression test, OR when the bug has an obvious cheap local test target. Skip when the test path is unclear, expensive, integration-heavy, or not requested.",
+  teach:
+    "Explain a body of work plainly so a person actually understands it. Runs the `how` and `why` skills and weaves what they find into one clear explanation. Use for 'teach me this', 'help me really understand X', 'explain this change or subsystem to me'.",
+  "technical-writing":
+    "Layered technical-writing standard: Diátaxis structure, Google developer style sentences, STE instruction rules, Global English syntax. Use for /technical-writing or when writing or reviewing docs, RFCs, readmes, PR descriptions, or commit messages.",
+  unslop: "Cut AI tells from any writing.",
+  why: "Use for 'why does X work this way', 'why we picked Y', design rationale, regressions, postmortems, or data-backed thresholds. Discovers available MCPs and queries each evidence category (source control, issue tracker, long-form docs, real-time chat, infrastructure observability, error tracking, product analytics warehouse) in parallel, then returns a cited read on decisions and tradeoffs. Use how for runtime behavior.",
   autoplan:
     "Auto-review pipeline — reads the full CEO, design, eng, and DX review skills from disk…",
   benchmark: "Performance regression detection using the browse daemon.",
   "benchmark-models": "Cross-model benchmark for gstack skills.",
-  "blast-radius":
-    "Find what a change could break somewhere else before it ships, beyond the diff, and…",
   brainstorming: "Explore requirements and alternatives with the user before any code is written.",
-  bro: "Restate the last message in plain human language, with no jargon.",
   browse: "Fast headless browser for QA testing and site dogfooding.",
   canary: "Post-deploy canary monitoring.",
   careful: "Safety guardrails for destructive commands.",
@@ -970,14 +1000,10 @@ const DEMO_SKILL_DESCRIPTIONS: Record<string, string> = {
     "Generate missing documentation from scratch for a feature, module, or entire project.",
   "document-release": "Post-ship documentation update.",
   "executing-plans": "Work a plan step by step, checking each result before the next.",
-  "figure-it-out":
-    "Design an auditable playbook when no narrower one fits: a large migration, an ambitious…",
   freeze: "Restrict file edits to a specific directory for the session.",
   "gstack-upgrade": "Upgrade gstack to the latest version.",
   guard: "Full safety mode: destructive command warnings + directory-scoped edits.",
   health: "Code quality dashboard.",
-  how: 'Use for "how does X work", code walkthroughs before changing something, and placement…',
-  interrogate: 'Use for "interrogate", "adversarial review", "multi-model review", "challenge…',
   investigate: "Systematic debugging with root cause investigation.",
   "ios-clean": "Remove the DebugBridge SPM package and all #if DEBUG wiring from an iOS app.",
   "ios-design-review": "Visual design audit for iOS apps on real hardware.",
@@ -987,10 +1013,7 @@ const DEMO_SKILL_DESCRIPTIONS: Record<string, string> = {
   "land-and-deploy": "Land and deploy workflow.",
   "landing-report": "Read-only queue dashboard for workspace-aware ship.",
   learn: "Manage project learnings.",
-  "make-bot-ui": ">-.",
   "make-pdf": "Turn any markdown file into a publication-quality PDF.",
-  "no-comments":
-    "Spawn Comment Sicko, fix accepted findings, and offer encodings for claimed constraints.",
   "office-hours": "YC Office Hours — two modes.",
   "open-gstack-browser":
     "Launch GStack Browser — AI-controlled Chromium with the sidebar extension baked in.",
@@ -1001,14 +1024,9 @@ const DEMO_SKILL_DESCRIPTIONS: Record<string, string> = {
   "plan-eng-review": "Eng manager-mode plan review.",
   "plan-tune":
     "Self-tuning question sensitivity + developer psychographic for gstack (v1: observational).",
-  "poteto-mode":
-    "poteto's agent style for concise, detailed responses, deliberate subagents, unslopped…",
   qa: "Systematically QA test a web application and fix bugs found.",
   "qa-only": "Report-only QA testing.",
-  recall:
-    "Reconstruct your recent working context from your own chat history, live state, and the…",
   "receiving-code-review": "Take review feedback as evidence, not as instruction to obey.",
-  reflect: "Spawn three parallel review subagents over the active transcript, surface learnings…",
   "requesting-code-review": "Ask for review with the context a reviewer needs.",
   retro: "Weekly engineering retrospective.",
   review: "Pre-landing PR review.",
@@ -1018,28 +1036,18 @@ const DEMO_SKILL_DESCRIPTIONS: Record<string, string> = {
   "setup-deploy": "Configure deployment settings for /land-and-deploy.",
   "setup-gbrain":
     "Set up gbrain for this coding agent: install the CLI, initialize a local PGLite or…",
-  "setup-pstack": "Configure which models pstack uses per role and at what reasoning budget.",
   ship: "Ship workflow: detect + merge base branch, run tests, review diff, bump VERSION…",
-  "show-me-your-work":
-    "Keep a reviewable decision trail for long-running or unattended work: a TSV log with…",
   skillify:
     "Codify the most recent successful /scrape flow into a permanent browser-skill on disk.",
   spec: "Turn vague intent into a precise, executable spec in five phases.",
   "subagent-driven-development": "Delegate bounded tasks to subagents and review what comes back.",
-  swarm: "Fan out N parallel workers, drain them, and return one report.",
   "sync-gbrain":
     "Keep gbrain current with this repo's code and refresh agent search guidance in CLAUDE.md.",
   "systematic-debugging": "Find the root cause with evidence before changing anything.",
-  tdd: "Use only when the user explicitly asks for TDD, a failing test, or a regression test…",
-  teach: "Explain a body of work plainly so a person actually understands it.",
-  "technical-writing":
-    "Layered technical-writing standard: Diátaxis structure, Google developer style…",
   "test-driven-development":
     "Write the failing test first, then the smallest change that makes it pass.",
   unfreeze: "Clear the freeze boundary set by /freeze, allowing edits to all directories again.",
-  unslop: "Cut AI tells from any writing.",
   "using-git-worktrees": "Isolate a task in its own worktree so parallel work never collides.",
-  why: "Use for 'why does X work this way', 'why we picked Y', design rationale, regressions…",
   "writing-plans": "Turn an agreed design into a plan with verifiable steps.",
 }
 
@@ -2463,6 +2471,8 @@ class DemoRuntime implements DesktopApi {
         name: skill.name,
         description: DEMO_SKILL_DESCRIPTIONS[skill.name] ?? `From ${source.id}.`,
         origin: { collection: source.id },
+        modelInvocable: true,
+        userInvocable: true,
       })),
     )
     const skills: Omit<SkillSummary, "hidden">[] = [
@@ -2470,11 +2480,15 @@ class DemoRuntime implements DesktopApi {
         name: "documents",
         description: "Read, edit, and generate PDF and Word documents.",
         origin: "bundled",
+        modelInvocable: true,
+        userInvocable: true,
       },
       {
         name: "release-notes",
         description: "Prepare release notes from shipped changes.",
         origin: "project",
+        modelInvocable: false,
+        userInvocable: true,
       },
       ...managed,
     ]

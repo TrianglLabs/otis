@@ -182,3 +182,39 @@ describe("slash commands", () => {
     }
   })
 })
+
+describe("skill commands", () => {
+  it("lists the skills the user may run after the built-ins, which keep their names", () => {
+    const commands = slashCommands({
+      skills: [
+        { name: "tdd", description: "Test first." },
+        { name: "skills", description: "Shadowed by the built-in." },
+      ],
+    })
+    expect(commands.at(-1)).toEqual({ name: "/tdd", description: "Test first.", draft: "/tdd " })
+    // A long description reads as its first short sentence, or a cut that fits a menu line.
+    const [first, second] = slashCommands({
+      skills: [
+        {
+          name: "architect",
+          description:
+            "Sketch types, signatures, and module structure before code, then stay in the loop " +
+            "while implementation fills in. Use for /architect or non-trivial work.",
+        },
+        {
+          name: "why",
+          description: "Ask why.\n\nUse when a decision needs its reasons spelled out at length.",
+        },
+      ],
+    }).slice(-2)
+    // A long first sentence is cut at a word boundary, near the built-in commands' length.
+    expect(first?.description).toBe("Sketch types, signatures, and module structure before code,…")
+    expect(first?.description.length).toBeLessThanOrEqual(61)
+    expect(second?.description).toBe("Ask why.")
+    expect(commands.filter((command) => command.name === "/skills")).toEqual([
+      { name: "/skills", description: "List and install Agent Skills" },
+    ])
+    // The parser leaves a skill's command to the prompt path, which runs the skill.
+    expect(parseSlashCommand("/tdd fix the lock")).toBeUndefined()
+  })
+})

@@ -186,6 +186,7 @@ export const ko: Messages = {
   "composer.sendFollowUpTitle": "후속 메시지 보내기 (Enter)",
   "composer.sendTitle": "보내기 (Enter)",
   "composer.followUp": "후속 메시지",
+  "composer.skillMenu": "스킬",
   "home.noModel": "아직 모델이 설정되지 않았습니다.",
   "home.setupHint":
     "이 작업 공간에서 otis를 한 번 실행해 추론을 설정하세요. 데스크톱 앱은 같은 설정과 세션을 사용합니다.",
@@ -512,6 +513,8 @@ export const ko: Messages = {
   "settings.skillInstall": "설치",
   "settings.skillUpdate": "업데이트",
   "settings.skillRemove": "제거",
+  "settings.skillManual": "수동",
+  "settings.skillManualHint": "/{{name}}을(를) 입력할 때만 실행됩니다",
   "settings.showSkill": "모델에 {{name}} 제공",
   "settings.skillsShown": "스킬 {{total}}개 중 {{shown}}개",
   "settings.skillsMore": "더 보기",

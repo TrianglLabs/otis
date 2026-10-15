@@ -1187,6 +1187,57 @@ button.composer-model-failed {
   pointer-events: none;
 }
 
+/* The /name completion: the skills the user may run, floated above the box as the draft is typed,
+   so the composer and the home screen around it hold still. One grid for the whole list keeps the
+   names in a column and every row one line tall. */
+.composer-commands {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 1;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elev);
+}
+
+.composer-command {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: baseline;
+  column-gap: 14px;
+  padding: 7px 10px;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.composer-command.selected {
+  background: var(--bg-selected);
+}
+
+.composer-commandName {
+  font-size: var(--text-ui);
+  font-weight: 500;
+  color: var(--text);
+}
+
+.composer-commandDescription {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-meta);
+  color: var(--text-dim);
+}
+
 .composer-hint {
   margin-top: 6px;
   text-align: center;

@@ -37,6 +37,13 @@ describe("skills CLI", () => {
     await runSkillsCommand(["list"], { manager, stdout: listOutput.stream })
     expect(listOutput.text()).toContain("superpowers (1 skill: brainstorming)")
     expect(listOutput.text()).toContain(source.url)
+    // A plugin's version follows its source name.
+    manager.list.mockResolvedValue([
+      { ...source, plugin: { name: "superpowers", version: "2.1.0" } },
+    ])
+    const versioned = writable()
+    await runSkillsCommand(["list"], { manager, stdout: versioned.stream })
+    expect(versioned.text()).toContain("superpowers 2.1.0 (1 skill: brainstorming)")
 
     await runSkillsCommand(["update", "superpowers"], { manager, stdout: writable().stream })
     expect(manager.update).toHaveBeenCalledWith("superpowers")

@@ -489,7 +489,9 @@ Interactive and headless execution share one Agent Skills catalog. Otis discover
 `~/.agents/skills` and project skills under `.agents/skills` at each ancestor of the working directory. Sources are
 applied after embedded first-party skills, then global-first and root-first, with the nearest project definition winning on duplicate names. Every discovered
 `SKILL.md` is parsed as YAML plus Markdown and validated against the portable name and description constraints before
-inference begins.
+inference begins. The prompt offers only skills without `disable-model-invocation`; a `/name` the user types becomes a
+`skill` content part of the user message, which providers serialize as the skill's instructions and transcripts show
+as the command.
 
 The first-party document skill embeds its instructions and helper resources as text in both release formats. Discovery
 advertises metadata only. The first resource read materializes the bundle in a private directory keyed by its content

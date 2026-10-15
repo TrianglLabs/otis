@@ -65,7 +65,17 @@ export type DocumentContentPart = {
 }
 
 export type AttachmentContentPart = ImageContentPart | DocumentContentPart
-export type UserContentPart = { type: "text"; text: string } | AttachmentContentPart
+/** A skill the user ran by name: the model reads its instructions, the transcript the command. */
+export type SkillContentPart = {
+  type: "skill"
+  name: string
+  arguments: string
+  instructions: string
+}
+export type UserContentPart =
+  | { type: "text"; text: string }
+  | SkillContentPart
+  | AttachmentContentPart
 export type UserChatMessage = { role: "user"; content: string | UserContentPart[] }
 
 export type ChatMessage =
