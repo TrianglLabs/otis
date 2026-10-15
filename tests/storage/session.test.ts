@@ -305,6 +305,33 @@ describe("JsonlSession", () => {
     })
   })
 
+  it("persists an invoked skill and replays it", async () => {
+    const cwd = await trackedTempDir()
+    const directory = join(cwd, "sessions")
+    const session = await openSession({ cwd, directory })
+    const message = {
+      role: "user" as const,
+      content: [
+        {
+          type: "skill" as const,
+          name: "tdd",
+          arguments: "fix the lock",
+          instructions: "Write a failing test first.",
+        },
+      ],
+    }
+    const admission = await session.admitPrompt(message)
+    const turnMessages: ChatMessage[] = [
+      message,
+      { role: "assistant", content: [{ type: "text", text: "Test written." }] },
+    ]
+
+    await session.completeTurn(admission, turnMessages)
+    const reopened = await openSession({ cwd, directory })
+
+    expect(reopened.replayMessages()).toEqual(turnMessages)
+  })
+
   it("persists original document assets and extracted text without duplication", async () => {
     const cwd = await trackedTempDir()
     const directory = join(cwd, "sessions")

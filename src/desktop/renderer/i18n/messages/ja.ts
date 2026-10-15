@@ -186,6 +186,7 @@ export const ja: Messages = {
   "composer.sendFollowUpTitle": "フォローアップを送信 (Enter)",
   "composer.sendTitle": "送信 (Enter)",
   "composer.followUp": "フォローアップ",
+  "composer.skillMenu": "スキル",
   "home.noModel": "モデルがまだ設定されていません。",
   "home.setupHint":
     "このワークスペースで一度 otis を実行して推論を設定してください。デスクトップアプリは同じ設定とセッションを使用します。",
@@ -513,6 +514,8 @@ export const ja: Messages = {
   "settings.skillInstall": "インストール",
   "settings.skillUpdate": "更新",
   "settings.skillRemove": "削除",
+  "settings.skillManual": "手動",
+  "settings.skillManualHint": "/{{name}} と入力したときだけ実行されます",
   "settings.showSkill": "{{name}} をモデルに提供",
   "settings.skillsShown": "{{total}} 個中 {{shown}} 個のスキル",
   "settings.skillsMore": "さらに表示",

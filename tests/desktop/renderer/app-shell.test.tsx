@@ -416,18 +416,24 @@ describe("AppShell settings navigation", () => {
           name: "documents",
           description: "PDF and Word deliverables.",
           origin: "bundled" as const,
+          modelInvocable: true,
+          userInvocable: true,
           hidden: false,
         },
         {
           name: "brainstorming",
           description: "Explore before building.",
           origin: { collection: "superpowers" },
+          modelInvocable: true,
+          userInvocable: true,
           hidden: true,
         },
         {
           name: "release-notes",
           description: "Changelogs.",
           origin: "project" as const,
+          modelInvocable: true,
+          userInvocable: true,
           hidden: false,
         },
       ],
@@ -487,11 +493,141 @@ describe("AppShell settings navigation", () => {
     expect(listSkills).toHaveBeenCalledTimes(3)
   })
 
+  it("marks manual-only skills and shows a plugin's version in the Extensions tab", async () => {
+    const listSkills = vi.fn(async () => ({
+      skills: [
+        {
+          name: "tdd",
+          description: "Test first.",
+          origin: { collection: "pstack" },
+          hidden: false,
+          modelInvocable: false,
+          userInvocable: true,
+        },
+        {
+          name: "review",
+          description: "Review changes.",
+          origin: "project" as const,
+          hidden: false,
+          modelInvocable: true,
+          userInvocable: true,
+        },
+      ],
+      sources: [
+        {
+          id: "pstack",
+          url: "https://github.com/cursor/plugins/tree/main/pstack",
+          path: "pstack",
+          plugin: { name: "pstack", version: "0.15.24", description: "rigorous workflows" },
+          skills: [{ name: "tdd", relativePath: "pstack/skills/tdd" }],
+        },
+      ],
+      problems: [],
+    }))
+    await renderApp(fakeApi({ listSkills }))
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }))
+    fireEvent.click(screen.getByRole("tab", { name: "Extensions" }))
+    await act(async () => {})
+
+    const panel = within(screen.getByRole("tabpanel", { name: "Extensions" }))
+    const manual = panel.getByText("Manual")
+    expect(manual.getAttribute("title")).toBe("Runs only when you type /tdd")
+    expect(manual.closest(".settingsRow")?.textContent).toContain("tdd")
+    expect(panel.getByText("review").closest(".settingsRow")?.textContent).not.toContain("Manual")
+    expect(
+      panel.getByText("1 skill · https://github.com/cursor/plugins/tree/main/pstack").parentElement
+        ?.textContent,
+    ).toContain("pstack 0.15.24")
+  })
+
+  it("completes a skill's /name in the composer and sends the command", async () => {
+    const listSkills = vi.fn(async () => ({
+      skills: [
+        {
+          name: "tdd",
+          description: "Test first.",
+          origin: "project" as const,
+          hidden: false,
+          modelInvocable: false,
+          userInvocable: true,
+        },
+        {
+          name: "teach",
+          description: "Explain the change.",
+          origin: "project" as const,
+          hidden: false,
+          modelInvocable: true,
+          userInvocable: true,
+        },
+        {
+          name: "house-style",
+          description: "Model only.",
+          origin: "project" as const,
+          hidden: false,
+          modelInvocable: true,
+          userInvocable: false,
+        },
+        {
+          name: "hidden-one",
+          description: "Switched off.",
+          origin: "project" as const,
+          hidden: true,
+          modelInvocable: true,
+          userInvocable: true,
+        },
+      ],
+      sources: [],
+      problems: [],
+    }))
+    const sendPrompt = vi.fn<DesktopApi["sendPrompt"]>(async () => ({
+      accepted: true,
+      delivery: "started",
+    }))
+    await renderApp(fakeApi({ listSkills, sendPrompt }))
+    const textarea = screen.getByLabelText("Prompt") as HTMLTextAreaElement
+
+    fireEvent.change(textarea, { target: { value: "/" } })
+    await act(async () => {})
+    const menu = within(screen.getByRole("listbox", { name: "Skills" }))
+    // Only skills the user may run, and only shown ones.
+    expect(menu.getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "/tddTest first.",
+      "/teachExplain the change.",
+    ])
+    fireEvent.change(textarea, { target: { value: "/te" } })
+    expect(menu.getAllByRole("option")).toHaveLength(1)
+    // Enter completes the name, then Enter on the full name sends it.
+    fireEvent.keyDown(textarea, { key: "Enter" })
+    expect(textarea.value).toBe("/teach ")
+    expect(sendPrompt).not.toHaveBeenCalled()
+    fireEvent.change(textarea, { target: { value: "/teach the lock fix" } })
+    expect(screen.queryByRole("listbox", { name: "Skills" })).toBeNull()
+    fireEvent.keyDown(textarea, { key: "Enter" })
+    expect(sendPrompt).toHaveBeenCalledExactlyOnceWith("/teach the lock fix", [])
+
+    // Arrow keys pick, Escape puts the menu away, and an exact name sends on Enter.
+    fireEvent.change(textarea, { target: { value: "/t" } })
+    await act(async () => {})
+    fireEvent.keyDown(textarea, { key: "ArrowDown" })
+    expect(
+      screen.getByRole("listbox", { name: "Skills" }).querySelector('[aria-selected="true"]')
+        ?.textContent,
+    ).toBe("/teachExplain the change.")
+    fireEvent.keyDown(textarea, { key: "Escape" })
+    expect(screen.queryByRole("listbox", { name: "Skills" })).toBeNull()
+    fireEvent.change(textarea, { target: { value: "/tdd" } })
+    await act(async () => {})
+    fireEvent.keyDown(textarea, { key: "Enter" })
+    expect(sendPrompt).toHaveBeenLastCalledWith("/tdd", [])
+  })
+
   it("pages a long skills list", async () => {
     const skills = Array.from({ length: 60 }, (_, index) => ({
       name: `skill-${String(index).padStart(2, "0")}`,
       description: "One of many.",
       origin: "project" as const,
+      modelInvocable: true,
+      userInvocable: true,
       hidden: false,
     }))
     const api = fakeApi({

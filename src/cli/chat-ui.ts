@@ -14,7 +14,7 @@ import type { SubagentTrace } from "../app/subagents.js"
 import { isThemeName, THEME_NAMES, type ThemeName } from "../local/settings.js"
 import { colors, type ThemeColors } from "./theme.js"
 import { AgentStatus } from "./ui/agent-status.js"
-import { CommandMenu } from "./ui/command-menu.js"
+import { CommandMenu, MAX_VISIBLE_ROWS } from "./ui/command-menu.js"
 import { CHAT_KEY_HINT, CHAT_KEY_HINT_DURATION_MS, formatContextLabel } from "./ui/format.js"
 import { HomeStats } from "./ui/home-stats.js"
 import { InputController } from "./ui/input-controller.js"
@@ -406,6 +406,8 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
   function selectCommand(command: CommandSuggestion | undefined, fallback: string) {
     if (command?.draft !== undefined) {
       input.setText(command.draft)
+      // setText leaves the cursor at the start; the arguments go after the draft.
+      input.gotoBufferEnd()
       options.onInputChange?.(command.draft)
       inputController.focus()
       return
@@ -422,7 +424,13 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
   function updateCommandMenu(value: string) {
     submenuOpen = false
     submenuBack = undefined
-    if (commands.update(value, showingWelcome, activeTheme)) showCommandMenu()
+    // Rows the menu can show above the input: on the home screen the input sits mid-screen, so
+    // a long catalog must not run off the top. Two lines per row, after the box's frame and
+    // offset; before the first layout the input has no position and the full count applies.
+    const room = inputArea.y + inputArea.height - 7
+    const rows =
+      room > 0 ? Math.max(1, Math.min(MAX_VISIBLE_ROWS, Math.floor(room / 2))) : MAX_VISIBLE_ROWS
+    if (commands.update(value, showingWelcome, activeTheme, rows)) showCommandMenu()
     else hideCommandMenu()
   }
 

@@ -89,7 +89,12 @@ import {
   type PermissionMode,
   type PermissionRule,
 } from "../permissions/policy.js"
-import { loadSkillCatalog, type SkillCatalog, type SkillsSummary } from "../skills/catalog.js"
+import {
+  loadSkillCatalog,
+  type SkillCatalog,
+  type SkillsSummary,
+  skillInstructions,
+} from "../skills/catalog.js"
 import type { SkillManager } from "../skills/manager.js"
 import { sessionFile } from "../storage/session-files.js"
 import { providerTools } from "../tools/index.js"
@@ -484,6 +489,15 @@ export class Application {
     return this.#focused.workspace.skills
   }
 
+  /** The folder's catalog less the skills switched off in settings. */
+  get offeredSkills(): SkillCatalog {
+    const catalog = this.#focused.workspace.skills
+    const hidden = this.settings.hiddenSkills ?? []
+    if (hidden.length === 0) return catalog
+    const skills = catalog.skills.filter((skill) => !hidden.includes(skill.name))
+    return { ...catalog, skills, byName: new Map(skills.map((skill) => [skill.name, skill])) }
+  }
+
   get memory() {
     return this.#focused.workspace.memory
   }
@@ -548,17 +562,7 @@ export class Application {
       },
       projectContext: () => workspace.projectContext,
       memory: () => workspace.memory,
-      // The folder's catalog less the skills switched off in settings.
-      skills: () => {
-        const hidden = this.settings.hiddenSkills ?? []
-        if (hidden.length === 0) return workspace.skills
-        const skills = workspace.skills.skills.filter((skill) => !hidden.includes(skill.name))
-        return {
-          ...workspace.skills,
-          skills,
-          byName: new Map(skills.map((skill) => [skill.name, skill])),
-        }
-      },
+      skills: () => this.offeredSkills,
       routines: () => this.routines ?? { error: this.routinesError ?? ROUTINES_UNAVAILABLE },
       permissionPolicy: () => this.createPermissionPolicy(workspace, permissionMode),
       broker: this.permissions,
@@ -703,6 +707,8 @@ export class Application {
           name: skill.name,
           description: skill.description,
           hidden: this.settings.hiddenSkills?.includes(skill.name) ?? false,
+          modelInvocable: skill.modelInvocable,
+          userInvocable: skill.userInvocable,
           // Personal: from the home folder, Otis' own or another agent's; project: from a folder
           // on the way to the workspace.
           origin: collection
@@ -1085,7 +1091,25 @@ export class Application {
     options: { history?: readonly ChatMessage[]; signal?: AbortSignal } = {},
   ): Promise<UserChatMessage> {
     validateAttachments(attachments)
-    const message = createUserMessage(text, attachments)
+    // `/name arguments` runs a skill the user may invoke: the model gets its instructions, the
+    // transcript the command. Any other slash text is the user's own words.
+    const match = /^\/([a-z0-9-]+)(?:\s+([\s\S]*))?$/u.exec(text.trim())
+    const skill = match && this.offeredSkills.byName.get(match[1])
+    const message: UserChatMessage =
+      match && skill?.userInvocable
+        ? {
+            role: "user",
+            content: [
+              ...attachments,
+              {
+                type: "skill",
+                name: skill.name,
+                arguments: match[2]?.trim() ?? "",
+                instructions: await skillInstructions(skill),
+              },
+            ],
+          }
+        : createUserMessage(text, attachments)
     const images = imageAttachmentsFromMessages([
       ...(options.history ?? this.transcript.history),
       message,

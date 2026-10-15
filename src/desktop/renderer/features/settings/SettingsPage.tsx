@@ -1693,8 +1693,13 @@ function SkillsSettings() {
           {summary?.sources.map((source) => (
             <div className="settingsRow" key={source.id}>
               <span className="settingsRow-label">
-                <span>{source.id}</span>
-                <span className="settingsRow-meta">
+                <span>
+                  {source.id}
+                  {source.plugin?.version ? (
+                    <span className="settingsRow-meta"> {source.plugin.version}</span>
+                  ) : null}
+                </span>
+                <span className="settingsRow-meta" title={source.plugin?.description}>
                   {t("settings.skillCollectionSkills", { count: source.skills.length })} ·{" "}
                   {source.url}
                 </span>
@@ -1761,7 +1766,17 @@ function SkillsSettings() {
           {summary?.skills.slice(0, limit).map((skill) => (
             <div className="settingsRow" key={skill.name}>
               <span className="settingsRow-label settingsSkill">
-                <span>{skill.name}</span>
+                <span>
+                  {skill.name}
+                  {skill.modelInvocable ? null : (
+                    <span
+                      className="settingsSkill-tag"
+                      title={t("settings.skillManualHint", { name: skill.name })}
+                    >
+                      {t("settings.skillManual")}
+                    </span>
+                  )}
+                </span>
                 <span className="settingsRow-meta settingsRow-truncate" title={skill.description}>
                   {skill.description}
                 </span>

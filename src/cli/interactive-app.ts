@@ -76,10 +76,6 @@ type PendingAction =
   | { type: "session-deletion"; sessionId: string }
   | { type: "new-session" }
 
-/** The slash commands a status allows: Fast serving and thinking effort only where the model has them. */
-const commandsFor = (status: { fastServing: { available: boolean }; localThinking: unknown }) =>
-  slashCommands({ fast: status.fastServing.available, effort: status.localThinking !== null })
-
 export class InteractiveApp {
   #app!: Application
   #attachments!: AttachmentFlow
@@ -151,7 +147,7 @@ export class InteractiveApp {
     this.#ui = createChatUI(this.#renderer, {
       configured: this.#configured,
       localInferenceUnavailableReason,
-      commands: commandsFor(status),
+      commands: this.#commands(status),
       contextLabel: formatContextUsage(
         contextUsage(
           this.#app.contextEstimator()(this.#app.transcript.history),
@@ -761,7 +757,7 @@ export class InteractiveApp {
       prev.fastServing.available !== next.fastServing.available ||
       (prev.localThinking === null) !== (next.localThinking === null)
     )
-      ui.setCommands(commandsFor(next))
+      ui.setCommands(this.#commands(next))
     if (prev.modelLoad !== next.modelLoad) {
       if (prev.modelLoad && prev.modelLoad.modelId !== next.modelLoad?.modelId)
         ui.setModelPickerStatus(prev.modelLoad.modelId, undefined)
@@ -860,6 +856,18 @@ export class InteractiveApp {
    * its own Update and Remove rows. The loaded skills print to the transcript, where a long list
    * reads better than a menu.
    */
+  /**
+   * The slash commands a status allows: Fast serving and thinking effort only where the model
+   * has them, then every skill the user may run as `/name`.
+   */
+  #commands(status: { fastServing: { available: boolean }; localThinking: unknown }) {
+    return slashCommands({
+      fast: status.fastServing.available,
+      effort: status.localThinking !== null,
+      skills: this.#app.offeredSkills.skills.filter((skill) => skill.userInvocable),
+    })
+  }
+
   async #runSkillsCommand(command: Extract<SlashCommand, { type: "skills" }>) {
     if (
       command.action === "install" ||
@@ -879,6 +887,7 @@ export class InteractiveApp {
           text = `Removed ${source.id} and ${skillCount(source.skills.length)}.`
         }
         await this.#app.reloadSkills()
+        this.#ui.setCommands(this.#commands(this.#app.status()))
       } catch (error) {
         this.#ui.showTransientHint(` ${describeError(error)} `)
         this.#ui.focusInput()
@@ -892,7 +901,10 @@ export class InteractiveApp {
       const name = command.target
       const known = this.#app.skills.byName.has(name)
       const hidden = !this.#app.settings.hiddenSkills?.includes(name)
-      if (known) await this.#app.setSkillHidden(name, hidden)
+      if (known) {
+        await this.#app.setSkillHidden(name, hidden)
+        this.#ui.setCommands(this.#commands(this.#app.status()))
+      }
       this.#ui.showTransientHint(
         known ? ` ${name} ${hidden ? "off" : "on"} ` : ` No skill named ${name}. `,
       )

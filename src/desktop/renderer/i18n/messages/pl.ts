@@ -192,6 +192,7 @@ export const pl: Messages = {
   "composer.sendFollowUpTitle": "Wyślij jako kolejne polecenie (Enter)",
   "composer.sendTitle": "Wyślij (Enter)",
   "composer.followUp": "Kolejne polecenie",
+  "composer.skillMenu": "Umiejętności",
   "home.noModel": "Nie skonfigurowano jeszcze modelu.",
   "home.setupHint":
     "Uruchom raz Otis w tym obszarze roboczym, aby skonfigurować inferencję — aplikacja komputerowa używa tej samej konfiguracji i sesji.",
@@ -580,6 +581,8 @@ export const pl: Messages = {
   "settings.skillInstall": "Zainstaluj",
   "settings.skillUpdate": "Aktualizuj",
   "settings.skillRemove": "Usuń",
+  "settings.skillManual": "Ręczna",
+  "settings.skillManualHint": "Uruchamia się tylko po wpisaniu /{{name}}",
   "settings.showSkill": "Udostępniaj {{name}} modelowi",
   "settings.skillsShown": "{{shown}} z {{total}} umiejętności",
   "settings.skillsMore": "Pokaż więcej",

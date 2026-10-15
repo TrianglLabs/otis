@@ -4,6 +4,7 @@ import type {
   ChatMessage,
   DocumentContentPart,
   ImageContentPart,
+  SkillContentPart,
   UserChatMessage,
   UserContentPart,
 } from "./types.js"
@@ -57,12 +58,32 @@ export function createUserMessage(
   }
 }
 
+/** What the model reads for an invoked skill: its instructions with the arguments in place. */
+export function formatSkillForModel(part: SkillContentPart) {
+  const instructions = part.instructions.includes("$ARGUMENTS")
+    ? part.instructions.replaceAll("$ARGUMENTS", part.arguments)
+    : part.arguments
+      ? `${part.instructions}\n\n${part.arguments}`
+      : part.instructions
+  return `The user ran the ${part.name} skill. Follow its instructions for this request.\n\n${instructions}`
+}
+
 export function textContent(parts: readonly (UserContentPart | AssistantContentPart)[]) {
   return parts.map((part) => (part.type === "text" ? part.text : "")).join("")
 }
 
+/** A message's words; an invoked skill reads as the command the user typed. */
 export function userMessageText(message: UserChatMessage): string {
-  return typeof message.content === "string" ? message.content : textContent(message.content)
+  if (typeof message.content === "string") return message.content
+  return message.content
+    .map((part) =>
+      part.type === "text"
+        ? part.text
+        : part.type === "skill"
+          ? `/${part.name}${part.arguments ? ` ${part.arguments}` : ""}`
+          : "",
+    )
+    .join("")
 }
 
 /** Text of the most recent assistant message, which is the final answer of a completed turn. */
@@ -89,7 +110,7 @@ export function userMessageDocuments(message: UserChatMessage): DocumentContentP
 export function userMessageAttachments(message: UserChatMessage): AttachmentContentPart[] {
   return typeof message.content === "string"
     ? []
-    : message.content.filter((part) => part.type !== "text")
+    : message.content.filter((part) => part.type === "image" || part.type === "document")
 }
 
 export function messagesContainImages(messages: readonly ChatMessage[]): boolean {

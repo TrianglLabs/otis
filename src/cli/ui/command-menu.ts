@@ -1,6 +1,11 @@
 import type { BoxRenderable } from "@opentui/core"
 import { colors } from "../theme.js"
-import { type PickerRow, type PickerRowSpec, syncPickerRows } from "./picker-row.js"
+import {
+  type PickerRow,
+  type PickerRowSpec,
+  syncPickerRows,
+  truncatePickerLabel,
+} from "./picker-row.js"
 import { type CommandSuggestion, type Renderer, stopKey, type UIKey } from "./types.js"
 
 /** Rows shown at once; longer lists scroll under the selection. */
@@ -17,6 +22,7 @@ export class CommandMenu {
   #items: CommandSuggestion[] = []
   #commands: readonly CommandSuggestion[]
   #selectedIndex = 0
+  #maxRows = MAX_VISIBLE_ROWS
 
   constructor(
     private readonly renderer: Renderer,
@@ -33,11 +39,18 @@ export class CommandMenu {
   showSubmenu(items: readonly CommandSuggestion[]) {
     this.#items = [...items]
     this.#selectedIndex = 0
+    this.#maxRows = MAX_VISIBLE_ROWS
     this.render()
   }
 
-  update(value: string, showingWelcome: boolean, activeTheme?: string) {
+  update(
+    value: string,
+    showingWelcome: boolean,
+    activeTheme?: string,
+    maxRows: number = MAX_VISIBLE_ROWS,
+  ) {
     if (!value.startsWith("/") || (/\s/.test(value) && !value.startsWith("/theme "))) return false
+    this.#maxRows = maxRows
 
     const visibleCommands = this.#commands.filter((command) => {
       if (!showingWelcome) return true
@@ -100,31 +113,34 @@ export class CommandMenu {
 
   private render() {
     // A window of rows that slides to keep the selection in view, so a long catalog never
-    // outgrows the screen.
+    // outgrows the screen; a list that overflows gives one row's height to the count below.
+    const rows = this.#items.length > this.#maxRows ? this.#maxRows - 1 : this.#maxRows
     const start = Math.min(
-      Math.max(0, this.#selectedIndex - MAX_VISIBLE_ROWS + 1),
-      Math.max(0, this.#items.length - MAX_VISIBLE_ROWS),
+      Math.max(0, this.#selectedIndex - rows + 1),
+      Math.max(0, this.#items.length - rows),
     )
-    const visible = this.#items.slice(start, start + MAX_VISIBLE_ROWS)
+    const visible = this.#items.slice(start, start + rows)
     const below = this.#items.length - start - visible.length
+    // One line per row: the frame, padding, and indent take 8 columns of the terminal's width.
+    const width = Math.max(16, this.renderer.terminalWidth - 8)
     const specs: PickerRowSpec[] =
       this.#items.length === 0
         ? [{ title: "No matching commands", fg: colors.muted, selected: false }]
-        : visible.map((command, index) => ({
-            title: command.name.startsWith("/theme ")
-              ? command.name.slice("/theme ".length)
-              : command.name,
-            meta:
-              [
-                command.description || undefined,
-                index === 0 && start ? `↑ ${start} more` : undefined,
-                index === visible.length - 1 && below ? `↓ ${below} more` : undefined,
-              ]
-                .filter(Boolean)
-                .join(" · ") || undefined,
-            fg: colors.text,
-            selected: start + index === this.#selectedIndex,
-          }))
+        : [
+            ...visible.map((command, index) => ({
+              title: command.name.startsWith("/theme ")
+                ? command.name.slice("/theme ".length)
+                : command.name,
+              meta: command.description
+                ? truncatePickerLabel(command.description, width)
+                : undefined,
+              fg: colors.text,
+              selected: start + index === this.#selectedIndex,
+            })),
+            ...(below
+              ? [{ title: `↓ ${below} more`, fg: colors.muted, selected: false, header: true }]
+              : []),
+          ]
     syncPickerRows(this.renderer, this.container, this.#rows, specs, "command-row", () => ({
       bg: "background",
     }))

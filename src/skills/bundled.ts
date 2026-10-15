@@ -28,6 +28,8 @@ export function bundledSkills(dataDirectory = localDataDirectory()): Skill[] {
       root,
       instructionsPath: join(root, "SKILL.md"),
       bundled: true,
+      modelInvocable: true,
+      userInvocable: true,
     },
   ]
 }

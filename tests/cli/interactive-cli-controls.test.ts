@@ -394,6 +394,8 @@ describe("CLI skills", () => {
           description: "Ask why.",
           root: "/managed/pstack/pstack/skills/why",
           instructionsPath: "/managed/pstack/pstack/skills/why/SKILL.md",
+          modelInvocable: true,
+          userInvocable: true,
         },
       ],
       byName: new Map(),

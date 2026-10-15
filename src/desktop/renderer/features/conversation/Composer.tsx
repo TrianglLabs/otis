@@ -19,6 +19,7 @@ import {
   SERVER_INFO,
   SUPPORTED_IMAGE_EXTENSIONS,
 } from "../../../../inference/types.js"
+import type { SkillSummary } from "../../../../skills/catalog.js"
 import type { DesktopAttachmentInput } from "../../../contracts.js"
 import { Button } from "../../components/Button.js"
 import { FileTypeIcon } from "../../components/FileTypeIcon.js"
@@ -131,6 +132,11 @@ export const Composer = memo(function Composer({ installing = false }: { install
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([])
   const [addingAttachments, setAddingAttachments] = useState(false)
   const [dragActive, setDragActive] = useState(false)
+  // The skills the user may run as /name, read when a slash is typed; Escape hides the menu until
+  // the draft changes again.
+  const [skills, setSkills] = useState<SkillSummary[]>()
+  const [menuIndex, setMenuIndex] = useState(0)
+  const [menuDismissed, setMenuDismissed] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const pendingAttachmentsRef = useRef<PendingAttachment[]>([])
@@ -155,6 +161,42 @@ export const Composer = memo(function Composer({ installing = false }: { install
   const replacePendingAttachments = (attachments: PendingAttachment[]) => {
     pendingAttachmentsRef.current = attachments
     setPendingAttachments(attachments)
+  }
+
+  const commandPrefix = /^\/([a-z0-9-]*)$/u.exec(draft)?.[1]
+  const menuItems =
+    commandPrefix === undefined || menuDismissed || modelState !== "ready"
+      ? []
+      : (skills ?? [])
+          .filter(
+            (skill) => skill.userInvocable && !skill.hidden && skill.name.startsWith(commandPrefix),
+          )
+          .slice(0, 8)
+  const menuSelected = menuItems[Math.min(menuIndex, menuItems.length - 1)]
+  useEffect(() => {
+    if (commandPrefix === undefined) {
+      setSkills(undefined)
+      setMenuDismissed(false)
+      return
+    }
+    if (skills) return
+    let cancelled = false
+    api
+      .listSkills()
+      .then((summary) => {
+        if (!cancelled) setSkills(summary.skills)
+      })
+      .catch(() => {
+        if (!cancelled) setSkills([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [api, commandPrefix, skills])
+  const acceptCommand = (skill: SkillSummary) => {
+    setDraft(`/${skill.name} `)
+    setMenuIndex(0)
+    textareaRef.current?.focus()
   }
 
   useEffect(() => {
@@ -439,6 +481,28 @@ export const Composer = memo(function Composer({ installing = false }: { install
               setSendError(null)
             }}
             onKeyDown={(event) => {
+              if (menuSelected && !event.nativeEvent.isComposing) {
+                // Enter on a name typed out in full sends; otherwise it completes the name.
+                const completes =
+                  event.key === "Tab" ||
+                  (event.key === "Enter" && !event.shiftKey && draft !== `/${menuSelected.name}`)
+                if (completes) {
+                  event.preventDefault()
+                  acceptCommand(menuSelected)
+                  return
+                }
+                if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                  event.preventDefault()
+                  const step = event.key === "ArrowDown" ? 1 : -1
+                  setMenuIndex((menuIndex + step + menuItems.length) % menuItems.length)
+                  return
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault()
+                  setMenuDismissed(true)
+                  return
+                }
+              }
               if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                 event.preventDefault()
                 void submit()
@@ -448,6 +512,28 @@ export const Composer = memo(function Composer({ installing = false }: { install
               }
             }}
           />
+          {menuItems.length > 0 ? (
+            <div className="composer-commands" role="listbox" aria-label={t("composer.skillMenu")}>
+              {menuItems.map((skill, index) => (
+                <button
+                  key={skill.name}
+                  type="button"
+                  role="option"
+                  tabIndex={-1}
+                  aria-selected={skill === menuSelected}
+                  className={`composer-command${skill === menuSelected ? " selected" : ""}`}
+                  onMouseEnter={() => setMenuIndex(index)}
+                  onMouseDown={(event) => {
+                    event.preventDefault()
+                    acceptCommand(skill)
+                  }}
+                >
+                  <span className="composer-commandName">/{skill.name}</span>
+                  <span className="composer-commandDescription">{skill.description}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
           <div className="composer-footer">
             <span className="composer-context">
               {state?.model ? (

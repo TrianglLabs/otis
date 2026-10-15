@@ -7,6 +7,7 @@ import type { ModelSelection } from "../../src/app/models.js"
 import { SESSION_REASONS } from "../../src/app/sessions.js"
 import type { TurnResult, TurnRunnerOptions } from "../../src/app/turn-runner.js"
 import { findLocalModel } from "../../src/inference/local-catalog.js"
+import { userMessageText } from "../../src/inference/messages.js"
 import type {
   HostedPickerChoice,
   LocalPickerChoice,
@@ -27,6 +28,7 @@ import { loadLocalSettings, saveSelectedModel } from "../../src/local/settings.j
 import { remember } from "../../src/memory/memory.js"
 import type { PermissionRequest } from "../../src/permissions/policy.js"
 import type { SkillCatalog } from "../../src/skills/catalog.js"
+import { SkillManager } from "../../src/skills/manager.js"
 import { createSession, listSessions } from "../../src/storage/session.js"
 import { defaultSessionDirectory } from "../../src/storage/session-files.js"
 import { acquireSessionLock } from "../../src/storage/session-lock.js"
@@ -1539,6 +1541,72 @@ describe("Application memory", () => {
 })
 
 describe("Application skills", () => {
+  it("runs /name arguments as that skill: the model reads its instructions, the transcript the command", async () => {
+    const app = await ready("otis-app-skill-run-")
+    const write = async (name: string, frontmatter: string, body: string) => {
+      const directory = join(app.cwd, ".agents", "skills", name)
+      await mkdir(directory, { recursive: true })
+      await writeFile(
+        join(directory, "SKILL.md"),
+        `---\nname: ${name}\ndescription: ${name}.\n${frontmatter}---\n\n${body}\n`,
+      )
+    }
+    await write("review", "disable-model-invocation: true\n", "Look closely at $ARGUMENTS.")
+    await write("house-style", "user-invocable: false\n", "Short sentences.")
+    await app.reloadSkills()
+
+    const message = await app.buildPrompt("/review the lock", [])
+    expect(message).toEqual({
+      role: "user",
+      content: [
+        {
+          type: "skill",
+          name: "review",
+          arguments: "the lock",
+          instructions: "Look closely at $ARGUMENTS.",
+        },
+      ],
+    })
+    expect(userMessageText(message)).toBe("/review the lock")
+    // Surrounding space is dropped, arguments may span lines, and a bare name has none.
+    expect(await app.buildPrompt("  /review\nthe lock  ", [])).toMatchObject({
+      content: [{ type: "skill", arguments: "the lock" }],
+    })
+    expect(await app.buildPrompt("/review", [])).toMatchObject({
+      content: [{ type: "skill", arguments: "" }],
+    })
+    // A model-only skill, a hidden skill, an unknown name, and a name mid-sentence are the
+    // user's own words.
+    expect(await app.buildPrompt("review please", [])).toEqual({
+      role: "user",
+      content: "review please",
+    })
+    expect(await app.buildPrompt("/house-style tighten", [])).toEqual({
+      role: "user",
+      content: "/house-style tighten",
+    })
+    await app.setSkillHidden("review", true)
+    expect(await app.buildPrompt("/review the lock", [])).toEqual({
+      role: "user",
+      content: "/review the lock",
+    })
+    expect(await app.buildPrompt("/nothing here", [])).toEqual({
+      role: "user",
+      content: "/nothing here",
+    })
+    expect((await app.listSkills(new SkillManager())).skills).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "review", modelInvocable: false, userInvocable: true }),
+        expect.objectContaining({
+          name: "house-style",
+          modelInvocable: true,
+          userInvocable: false,
+        }),
+      ]),
+    )
+    await app.shutdown()
+  })
+
   it("rereads the skills on disk so a new one is available without a restart", async () => {
     const app = await ready()
     expect(app.skills.byName.has("release-notes")).toBe(false)

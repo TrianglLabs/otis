@@ -34,6 +34,22 @@ Otis validates the YAML frontmatter at startup. It initially gives the model onl
 When a task matches, the model uses the read-only `skill` tool to load the full instructions and any referenced text
 resources it needs.
 
+## Run a skill yourself
+
+Type `/<name>` followed by any arguments, in the terminal or the desktop composer, to run a skill on purpose: the
+model receives the skill's instructions with the arguments in place of `$ARGUMENTS` (or appended when the skill has
+no placeholder), and the transcript shows the command as you typed it. Both composers complete skill names after a
+slash; a built-in command such as `/skills` keeps its name over a skill called the same.
+
+Two frontmatter switches, shared with Claude Code and Cursor, decide who may start a skill:
+
+- `disable-model-invocation: true` keeps the skill out of the model's offer, so only your `/<name>` runs it. The
+  skill still loads by name through the `skill` tool, so a skill that points at it keeps working. Settings marks
+  such a skill **Manual**.
+- `user-invocable: false` keeps the skill off your `/` menu, so only the model picks it.
+
+A skill switched off in Settings is neither offered nor runnable.
+
 Bundled skills load first, followed by personal skills. Repository skill directories then load from the filesystem root toward the current working
 directory, so the nearest project definition wins when names collide.
 
@@ -62,7 +78,9 @@ otis skills remove superpowers
 
 An installed repository may contain one skill at its root, skill directories at its root, a `skills/*` collection, an
 `.agents/skills/*` collection, or a combination of those layouts; a directory in a collection that is not a valid
-skill is skipped. A folder link such as `https://github.com/cursor/plugins/tree/main/pstack` installs only that
+skill is skipped. An [Agent Plugin](https://agent-plugins.org) installs the same way: its `skills/` folder is read
+by layout, and its `plugin.json` name, version, and description are recorded and shown with the source. A plugin's
+`mcp.json` is not supported; Otis has no general MCP client. A folder link such as `https://github.com/cursor/plugins/tree/main/pstack` installs only that
 folder of the repository, so suites such as [gstack](https://github.com/garrytan/gstack) and
 [pstack](https://github.com/cursor/plugins/tree/main/pstack) install as they are published. Use
 `--name <source-name>` when the repository name is not the desired local source name.

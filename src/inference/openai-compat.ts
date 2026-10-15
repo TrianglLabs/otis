@@ -4,6 +4,7 @@ import { ContextOverflowError, inferenceResponseError } from "./errors.js"
 import { validateImageAttachments } from "./images.js"
 import {
   formatDocumentForModel,
+  formatSkillForModel,
   imageAttachmentsFromMessages,
   textContent,
   userMessageDocuments,
@@ -159,8 +160,10 @@ export function openaiChatCompletionRequest(
                   image_url: { url: `data:${part.mimeType};base64,${part.data}` },
                 }
               }
-              return part.type === "document"
-                ? { type: "text", text: formatDocumentForModel(part) }
+              if (part.type === "document")
+                return { type: "text", text: formatDocumentForModel(part) }
+              return part.type === "skill"
+                ? { type: "text", text: formatSkillForModel(part) }
                 : part
             }),
           }

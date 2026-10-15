@@ -193,6 +193,7 @@ export const uk: Messages = {
   "composer.sendFollowUpTitle": "Надіслати як наступний запит (Enter)",
   "composer.sendTitle": "Надіслати (Enter)",
   "composer.followUp": "Наступний запит",
+  "composer.skillMenu": "Навички",
   "home.noModel": "Модель ще не налаштована.",
   "home.setupHint":
     "Запустіть Otis у цьому робочому просторі один раз, щоб налаштувати інференс — настільний застосунок використовує ті самі налаштування й сеанси.",
@@ -581,6 +582,8 @@ export const uk: Messages = {
   "settings.skillInstall": "Установити",
   "settings.skillUpdate": "Оновити",
   "settings.skillRemove": "Вилучити",
+  "settings.skillManual": "Вручну",
+  "settings.skillManualHint": "Запускається лише коли ви вводите /{{name}}",
   "settings.showSkill": "Пропонувати {{name}} моделі",
   "settings.skillsShown": "{{shown}} з {{total}} навичок",
   "settings.skillsMore": "Показати більше",
