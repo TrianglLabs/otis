@@ -13,7 +13,7 @@ import {
   userMessageText,
 } from "../inference/messages.js"
 import type { ChatMessage, InferenceClient, UserChatMessage } from "../inference/types.js"
-import type { SessionToolActivity, SessionTurnSegment } from "../storage/session-events.js"
+import type { ReplayTurnSegment, SessionToolActivity } from "../storage/session-events.js"
 import { describeToolCall, type ToolAction, type ToolActivityKind } from "../tools/activity.js"
 import { parseSerializedToolCall } from "../tools/schema.js"
 
@@ -62,6 +62,11 @@ export type TranscriptEntry = {
   images?: string[]
   streaming?: boolean
   delivery?: TranscriptDelivery
+  /**
+   * On a user message whose turn has ended: the session seq of the event that ended it, the
+   * point a branch of the conversation can be cut at.
+   */
+  turnSeq?: number
 }
 
 /**
@@ -140,7 +145,7 @@ export class TranscriptStore {
     this.loadEntries(messages, toolActivities)
   }
 
-  replaceMessages(messages: ChatMessage[], turns: readonly SessionTurnSegment[] = [{ messages }]) {
+  replaceMessages(messages: ChatMessage[], turns: readonly ReplayTurnSegment[] = [{ messages }]) {
     this.historyRevision += 1
     this.entries.length = 0
     this.history.length = 0
@@ -149,7 +154,16 @@ export class TranscriptStore {
     this.pendingArtifacts.clear()
     this.emit({ op: "reset" })
     this.history.push(...messages)
-    for (const turn of turns) this.loadEntries(turn.messages, turn.toolActivities ?? [])
+    for (const turn of turns)
+      this.loadEntries(turn.messages, turn.toolActivities ?? [], turn.throughSeq)
+  }
+
+  /** The user message that opened a turn learns where the session recorded the turn's end. */
+  markTurnEnded(id: number, turnSeq: number) {
+    const entry = this.entries.find((entry) => entry.id === id)
+    if (!entry) return
+    entry.turnSeq = turnSeq
+    this.emit({ op: "upsert", id })
   }
 
   /** Replace model context while keeping the user's scrollback and pending entries intact. */
@@ -345,11 +359,19 @@ export class TranscriptStore {
     return activities.reverse()
   }
 
-  private loadEntries(messages: ChatMessage[], toolActivities: SessionToolActivity[]) {
+  private loadEntries(
+    messages: ChatMessage[],
+    toolActivities: SessionToolActivity[],
+    throughSeq?: number,
+  ) {
     const activities = groupToolActivities(toolActivities)
+    let opened = false
     for (const message of messages) {
-      if (message.role === "user" && !isCompactionSummary(message) && !isCoworkerReport(message))
-        this.addUserMessage(message)
+      if (message.role === "user" && !isCompactionSummary(message) && !isCoworkerReport(message)) {
+        // The turn's first prompt carries its end; steering that joined later does not.
+        this.addUserEntry(message, undefined, opened ? undefined : throughSeq)
+        opened = true
+      }
       if (message.role !== "assistant") continue
       for (const part of message.content) {
         if (part.type === "text" && part.text) this.addAssistantMessage(part.text)
@@ -397,7 +419,11 @@ export class TranscriptStore {
     this.finalizeArtifacts()
   }
 
-  private addUserEntry(message: string | UserChatMessage, delivery?: TranscriptDelivery) {
+  private addUserEntry(
+    message: string | UserChatMessage,
+    delivery?: TranscriptDelivery,
+    turnSeq?: number,
+  ) {
     const text = typeof message === "string" ? message : displayUserMessage(message)
     const documents = typeof message === "string" ? [] : userMessageDocuments(message)
     const images =
@@ -413,6 +439,7 @@ export class TranscriptStore {
       ...(images.length > 0 ? { images } : {}),
       ...(documents.length > 0 ? { artifacts: documents.map(attachmentArtifactReference) } : {}),
       ...(delivery ? { delivery } : {}),
+      ...(turnSeq === undefined ? {} : { turnSeq }),
     }
     this.entries.push(entry)
     this.emit({ op: "upsert", id: entry.id })

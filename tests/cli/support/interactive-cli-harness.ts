@@ -446,10 +446,10 @@ function baseSession() {
       const text = typeof message.content === "string" ? message.content : "image"
       return { promptId: `prompt_${text}`, message }
     }),
-    completeTurn: vi.fn(async () => undefined),
+    completeTurn: vi.fn(async () => ({ seq: 4 })),
     startTurn: vi.fn(async () => undefined),
     compactTurn: vi.fn(async () => undefined),
-    interruptTurn: vi.fn(async () => undefined),
+    interruptTurn: vi.fn(async () => ({ seq: 4 })),
     steerPrompt: vi.fn(async (_admission: unknown, message: UserChatMessage) => message),
     hasTitle: vi.fn(() => false),
     id: "session_test",

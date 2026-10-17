@@ -1,4 +1,4 @@
-import { CalendarClock, ChevronLeft, ChevronRight, FolderOpen, Pencil, Plus } from "lucide-react"
+import { CalendarClock, FolderOpen, Pencil, Plus } from "lucide-react"
 import { useEffect, useState } from "react"
 import type {
   ModelPickerItem,
@@ -8,7 +8,7 @@ import type {
   RoutineStatus,
   SessionOpResult,
 } from "../../../contracts.js"
-import { Button, IconButton, Toggle } from "../../components/Button.js"
+import { Button, IconButton, Pager, Toggle, usePage } from "../../components/Button.js"
 import { Icon } from "../../components/Icon.js"
 import { MatrixLoader } from "../../components/MatrixLoader.js"
 import { TabStrip } from "../../components/TabStrip.js"
@@ -90,12 +90,9 @@ export function RoutinesHome() {
     const timer = setTimeout(() => setNotice(undefined), 4000)
     return () => clearTimeout(timer)
   }, [notice])
-  const [pageIndex, setPage] = useState(0)
+  const { shown, pager } = usePage(state?.routines ?? [], ROUTINES_PAGE)
   if (!state) return null
   const routines = state.routines
-  const pages = Math.max(1, Math.ceil(routines.length / ROUTINES_PAGE))
-  const page = Math.min(pageIndex, pages - 1)
-  const shown = routines.slice(page * ROUTINES_PAGE, (page + 1) * ROUTINES_PAGE)
   // A time today reads as a time; a later one carries its day.
   const when = (iso: string) => {
     const date = new Date(iso)
@@ -129,25 +126,7 @@ export function RoutinesHome() {
     <div className="home-recents">
       <span className="home-heading">
         {t("home.routines")}
-        {pages > 1 ? (
-          <span className="home-pager">
-            <IconButton
-              icon={ChevronLeft}
-              label={t("home.previousPage")}
-              size={22}
-              disabled={page === 0}
-              onClick={() => setPage(page - 1)}
-            />
-            {t("home.page", { page: page + 1, pages })}
-            <IconButton
-              icon={ChevronRight}
-              label={t("home.nextPage")}
-              size={22}
-              disabled={page === pages - 1}
-              onClick={() => setPage(page + 1)}
-            />
-          </span>
-        ) : null}
+        <Pager {...pager} />
       </span>
       <div className="home-grid home-grid-sessions">
         <button
@@ -196,7 +175,7 @@ export function RoutinesHome() {
           return (
             <div
               key={routine.id}
-              className={`home-card home-card-routine${grouped ? " home-card-grouped" : ""}`}
+              className={`home-card home-card-split${grouped ? " home-card-grouped" : ""}`}
             >
               <button
                 type="button"
@@ -336,7 +315,7 @@ function RoutineEditor({
         onClick={onClose}
       />
       <div
-        className="routineSheet noDrag"
+        className="sheet noDrag"
         role="dialog"
         aria-modal="true"
         aria-label={title}
@@ -344,7 +323,7 @@ function RoutineEditor({
           if (event.key === "Escape") onClose()
         }}
       >
-        <h2 className="routineSheet-title">{title}</h2>
+        <h2 className="sheet-title">{title}</h2>
         {summary ? <p className="routineSheet-summary">{summary}</p> : null}
         <label className="routineSheet-label" htmlFor="routine-name">
           {t("routine.name")}
@@ -379,7 +358,7 @@ function RoutineEditor({
         </label>
         <textarea
           id="routine-prompt"
-          className="field routineSheet-prompt"
+          className="field sheet-textarea"
           value={routine.prompt}
           rows={4}
           onChange={(event) => onChange({ ...routine, prompt: event.target.value })}
@@ -511,10 +490,10 @@ function RoutineEditor({
           />
           <span>
             {t("routine.auto")}
-            <span className="routineSheet-hint">{t("routine.autoHint")}</span>
+            <span className="sheet-hint">{t("routine.autoHint")}</span>
           </span>
         </div>
-        <div className="routineSheet-actions">
+        <div className="sheet-actions">
           {status ? (
             <>
               {status.runtime !== undefined ? (
@@ -536,7 +515,7 @@ function RoutineEditor({
               </Button>
             </>
           ) : null}
-          <span className="routineSheet-spacer" />
+          <span className="sheet-spacer" />
           <Button variant="ghost" size="sm" onClick={onClose}>
             {t("common.cancel")}
           </Button>

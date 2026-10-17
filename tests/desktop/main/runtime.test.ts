@@ -1933,6 +1933,60 @@ describe("DesktopRuntime sessions", () => {
   })
 })
 
+describe("DesktopRuntime projects", () => {
+  it("lists this workspace as a project and keeps its name, pin, and instructions", async () => {
+    const { app, runtime } = await setup()
+    await app.sessions.ensure()
+    runtime.refreshSessions()
+    const { dirName, cwd } = app.focused.workspace
+    const projects = (await runtime.snapshot()).projects
+    // A project is named after its folder; the header abbreviates the path instead.
+    expect(projects.find((project) => project.dirName === dirName)).toMatchObject({
+      path: cwd,
+      label: "workspace",
+      pinned: false,
+      sessions: 1,
+      open: true,
+    })
+    await runtime.setProject(dirName, { name: "  Mine  ", pinned: true })
+    const snapshot = await runtime.snapshot()
+    expect(snapshot.projects[0]).toMatchObject({ dirName, label: "Mine", pinned: true })
+    expect(snapshot.workspace.label).toBe("Mine")
+    expect(snapshot.sessions.every((session) => session.workspaceLabel === "Mine")).toBe(true)
+    // A pinned session carries its pin on every listing until unpinned.
+    const [session] = snapshot.sessions
+    await runtime.pinSession(session.id, session.dirName, true)
+    expect((await runtime.snapshot()).sessions[0]).toMatchObject({ id: session.id, pinned: true })
+    expect((await runtime.searchSessions(""))[0]?.pinned).toBe(true)
+    await runtime.pinSession(session.id, session.dirName, false)
+    expect((await runtime.snapshot()).sessions[0]?.pinned).toBeUndefined()
+    expect(await runtime.readProjectInstructions(dirName)).toBe("")
+    await runtime.writeProjectInstructions(dirName, "Keep answers short.")
+    expect(await runtime.readProjectInstructions(dirName)).toBe("Keep answers short.")
+    expect(app.projectContext.at(-1)?.content).toBe("Keep answers short.")
+  })
+})
+
+describe("DesktopRuntime session branching", () => {
+  it("branches a stored session of this workspace and shows the branch in the active card", async () => {
+    const { app, runtime } = await setup()
+    const saved = await createSession({ cwd: app.cwd })
+    const admission = await saved.admitPrompt("hello")
+    await saved.completeTurn(admission, [
+      { role: "assistant", content: [{ type: "text", text: "hi" }] },
+    ])
+    expect((await runtime.forkSession(saved.id)).ok).toBe(true)
+    const current = app.sessions.current
+    expect(current?.id).not.toBe(saved.id)
+    expect(current?.events.at(-1)).toMatchObject({ type: "session_forked", from: { id: saved.id } })
+    expect((await runtime.snapshot()).session?.id).toBe(current?.id)
+    // A store whose folder is unknown has nowhere to open the branch.
+    const refused = await runtime.forkSession(saved.id, "nowhere-000000000000")
+    expect(refused.ok).toBe(false)
+    expect((await runtime.forkSession("")).ok).toBe(false)
+  })
+})
+
 describe("DesktopRuntime model selection", () => {
   const localChoice: LocalPickerChoice = {
     kind: "model",

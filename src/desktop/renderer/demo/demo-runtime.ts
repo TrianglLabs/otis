@@ -47,6 +47,7 @@ import {
   type PaneDrop,
   type PaneOps,
   type PaneSide,
+  type ProjectSummary,
   type RoutineInput,
   type RoutineStatus,
   type RuntimeSummary,
@@ -93,6 +94,43 @@ export function createDemoRuntime(hostApi?: DemoHostApi, start = ""): DesktopApi
 
 /** The folder every demo session works in. */
 const DEMO_WORKSPACE = { label: "otis", path: "/Users/you/otis" }
+const DEMO_PROJECTS: ProjectSummary[] = [
+  {
+    dirName: "otis-demo",
+    path: "/Users/dev/Projects/otis",
+    label: "otis",
+    pinned: true,
+    sessions: 6,
+    updatedAt: new Date().toISOString(),
+    open: true,
+  },
+  {
+    dirName: "notes-demo",
+    path: "/Users/dev/Projects/notes",
+    label: "notes",
+    pinned: false,
+    sessions: 1,
+    updatedAt: new Date(Date.now() - 2 * 86_400_000).toISOString(),
+    open: false,
+  },
+  {
+    dirName: "oldstuff-demo",
+    path: "/Users/dev/Projects/oldstuff",
+    label: "oldstuff",
+    pinned: false,
+    sessions: 1,
+    updatedAt: new Date(Date.now() - 20 * 86_400_000).toISOString(),
+    open: false,
+  },
+]
+/** A project's instructions, as the demo would read them from Otis's data folder. */
+const DEMO_INSTRUCTIONS = new Map<string, string>([
+  [
+    "otis-demo",
+    "Prefer bun over npm. Run the relevant tests before declaring work complete, and keep the\n" +
+      "terminal UI as the center of the product.",
+  ],
+])
 
 const DEMO_ROUTINE: RoutineStatus = {
   id: "routine_demo",
@@ -1361,6 +1399,7 @@ class DemoRuntime implements DesktopApi {
     panes: [1],
     paneAxis: "row",
     recentArtifacts: DEMO_RECENT_ARTIFACTS,
+    projects: DEMO_PROJECTS,
     stats: {
       streak: 3,
       totalTokens: 24_909_600,
@@ -1544,6 +1583,45 @@ class DemoRuntime implements DesktopApi {
       },
       freshAchievements: [...this.#state.freshAchievements, next],
     }
+  }
+
+  async pinSession(id: string, dirName: string, pinned: boolean): Promise<void> {
+    this.#state = {
+      ...this.#state,
+      sessions: this.#state.sessions.map((session) => {
+        if (session.id !== id || session.dirName !== dirName) return session
+        const { pinned: _, ...rest } = session
+        return pinned ? { ...rest, pinned: true as const } : rest
+      }),
+    }
+    this.#emitStatus()
+  }
+
+  async setProject(dirName: string, project: { name?: string; pinned?: boolean }): Promise<void> {
+    this.#state = {
+      ...this.#state,
+      projects: this.#state.projects.map((entry) =>
+        entry.dirName === dirName
+          ? {
+              ...entry,
+              ...(project.name === undefined
+                ? {}
+                : { label: project.name.trim() || (entry.path.split("/").pop() ?? entry.path) }),
+              ...(project.pinned === undefined ? {} : { pinned: project.pinned }),
+            }
+          : entry,
+      ),
+    }
+    this.#emitStatus()
+  }
+
+  async readProjectInstructions(dirName: string): Promise<string> {
+    return DEMO_INSTRUCTIONS.get(dirName) ?? ""
+  }
+
+  async writeProjectInstructions(dirName: string, text: string): Promise<void> {
+    if (text.trim()) DEMO_INSTRUCTIONS.set(dirName, text)
+    else DEMO_INSTRUCTIONS.delete(dirName)
   }
 
   async setThinkingVisible(visible: boolean): Promise<void> {
@@ -2145,8 +2223,20 @@ class DemoRuntime implements DesktopApi {
     return { ok: true }
   }
 
+  /** A fresh session in the folder, as the application opens one. */
   async openWorkspace(path: string): Promise<SessionOpResult> {
-    return this.openSessionAt(path, "session_demo3")
+    const result = await this.startNewSession()
+    if (!result.ok) return result
+    const workspace = { label: `~/Projects/${path.split("/").pop()}`, path }
+    this.#state = {
+      ...this.#state,
+      workspace,
+      runtimes: this.#state.runtimes.map((entry) =>
+        entry.focused ? { ...entry, workspace } : entry,
+      ),
+    }
+    this.#emitStatus()
+    return result
   }
 
   async pickWorkspaceFolder(): Promise<string | undefined> {
@@ -2452,6 +2542,33 @@ class DemoRuntime implements DesktopApi {
     }
     this.#emitStatus([{ op: "reset", entries: [] }])
     return { ok: true }
+  }
+
+  /**
+   * Branches a session: its transcript through the turn at `throughSeq` (all of it by default)
+   * becomes a new session, opened in place, as the real runtime does with the session file.
+   */
+  async forkSession(id: string, _dirName?: string, throughSeq?: number): Promise<SessionOpResult> {
+    if (this.#state.busy)
+      return { ok: false, reason: "Finish the current work before branching sessions." }
+    const source = this.#state.sessions.find((session) => session.id === id)
+    if (!source) return { ok: false, reason: "Unknown session." }
+    const entries = this.#state.session?.id === id ? this.#state.entries : sessionTranscript(id)
+    const end = throughSeq === undefined ? -1 : entries.findIndex((e) => e.turnSeq === throughSeq)
+    const next = entries.findIndex(
+      (entry, index) => index > end && entry.kind === "message" && entry.speaker === "You",
+    )
+    const kept = end < 0 ? entries : entries.slice(0, next < 0 ? undefined : next)
+    const forkId = `${id}_branch_${this.#nextId++}`
+    forkedTranscripts.set(forkId, kept)
+    this.#state = {
+      ...this.#state,
+      sessions: [
+        demoSession(forkId, source.title, "now", source.workspaceLabel),
+        ...this.#state.sessions,
+      ],
+    }
+    return this.selectSession(forkId)
   }
 
   async deleteSession(id: string): Promise<SessionOpResult> {
@@ -3013,6 +3130,11 @@ class DemoRuntime implements DesktopApi {
   #finishTurn(generation: number, text: string) {
     this.#streamText(this.#pushAssistant("", true).id, text, generation, () => {
       this.#setBusy(false, "idle")
+      // The turn's user message learns the turn has ended, so it can be branched from.
+      const opened = this.#state.entries.findLast(
+        (entry) => entry.kind === "message" && entry.speaker === "You" && !entry.turnSeq,
+      )
+      if (opened) this.#patch(opened.id, { turnSeq: opened.id })
       this.#state.contextTokens = (this.#state.contextTokens ?? 0) + 3_800
       // Usage settles the estimate into the exact figure, with the time to the first token.
       this.#state.speed = { tokensPerSecond: 38.4, prefillMs: 1420, exact: true }
@@ -3171,10 +3293,14 @@ class DemoRuntime implements DesktopApi {
 type CannedReply = { reasoning: string; intro: string; denied: string; final: string }
 
 let fixtureId = 1
-const fixture = (entry: Omit<TranscriptEntry, "id">): TranscriptEntry => ({
-  id: fixtureId++,
-  ...entry,
-})
+// Every fixture user turn has ended, so each carries a turn seq a branch can be cut at.
+const fixture = (entry: Omit<TranscriptEntry, "id">): TranscriptEntry => {
+  const id = fixtureId++
+  const ended = entry.kind === "message" && entry.speaker === "You" && !entry.delivery
+  return { id, ...entry, ...(ended ? { turnSeq: id } : {}) }
+}
+/** Transcripts of sessions branched during the demo, by the branch's id. */
+const forkedTranscripts = new Map<string, TranscriptEntry[]>()
 const tool = (action: ToolAction, subject: string, toolCallId: string, diff?: string) => {
   const { kind, label } = describeToolAction(action, subject)
   return fixture({
@@ -3232,6 +3358,7 @@ function sessionTranscript(id: string | undefined): TranscriptEntry[] {
     case "session_old":
       return legacyImportTranscript()
     default:
+      if (id !== undefined && forkedTranscripts.has(id)) return forkedTranscripts.get(id) ?? []
       return id !== undefined && DEMO_ARTIFACTS_BY_SESSION.has(id) ? demoTranscript() : []
   }
 }

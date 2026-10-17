@@ -48,6 +48,7 @@ const SNAPSHOT: DesktopSnapshot = {
   needsWorkspace: false,
   sessions: [],
   recentArtifacts: [],
+  projects: [],
   contextTokens: undefined,
   contextLimit: 32_768,
   diffs: { added: 0, removed: 0 },
@@ -136,7 +137,7 @@ async function renderConversation(pending: PendingPermission) {
   await store.start()
   const view = render(
     <DesktopProvider value={{ api, store }}>
-      <ConversationView homeView="home" />
+      <ConversationView homeView="home" onHomeView={() => {}} />
     </DesktopProvider>,
   )
   return {

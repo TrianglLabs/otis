@@ -150,6 +150,7 @@ export const TranscriptList = memo(function TranscriptList({
   find,
   onFindCount,
   rail = false,
+  onBranch,
 }: {
   entries: TranscriptEntry[]
   thinkingVisible: boolean
@@ -160,6 +161,8 @@ export const TranscriptList = memo(function TranscriptList({
   onFindCount?: (count: number) => void
   /** The turn rail at the edge: one mark per user turn, for a session shown on its own. */
   rail?: boolean
+  /** Branches the pane's session at a finished turn; absent where branching is not offered. */
+  onBranch?: (turnSeq: number) => void
 }) {
   const { t } = useI18n()
   const visible = useMemo(
@@ -354,11 +357,12 @@ export const TranscriptList = memo(function TranscriptList({
             thinkingVisible={thinkingVisible}
             expanded={expanded.has(item.id)}
             onExpandedChange={setEntryExpanded}
+            onBranch={onBranch}
           />
         </div>
       )
     },
-    [busy, items, thinkingVisible, expanded, expandedEntries, setEntryExpanded, current],
+    [busy, items, thinkingVisible, expanded, expandedEntries, setEntryExpanded, current, onBranch],
   )
 
   return (

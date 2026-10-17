@@ -1,6 +1,6 @@
 import { stat } from "node:fs/promises"
 import { homedir } from "node:os"
-import { isAbsolute, parse, relative, resolve, sep } from "node:path"
+import { basename, isAbsolute, parse, relative, resolve, sep } from "node:path"
 import { requestContextEstimator } from "../core/compaction.js"
 import { loadProjectContext } from "../core/context.js"
 import { validateAttachments } from "../inference/attachments.js"
@@ -69,6 +69,7 @@ import {
   hostedApiKeys,
   type LocalSettings,
   loadLocalSettings,
+  type ProjectSettings,
   saveFastServingSelection,
   saveHiddenModels,
   saveHiddenSkills,
@@ -78,7 +79,10 @@ import {
   saveLocalThinking,
   savePermissionMode,
   savePrimeTeamId,
+  saveProject,
   saveSelectedModel,
+  saveSessionPin,
+  sessionPinKey,
 } from "../local/settings.js"
 import { publishOmarchyUsage } from "../local/stats.js"
 import { memoryIndex } from "../memory/memory.js"
@@ -96,7 +100,13 @@ import {
   skillInstructions,
 } from "../skills/catalog.js"
 import type { SkillManager } from "../skills/manager.js"
-import { sessionFile } from "../storage/session-files.js"
+import { forkSession } from "../storage/session.js"
+import { defaultSessionDirectory, sessionFile } from "../storage/session-files.js"
+import {
+  projectInstructionsFile,
+  readProjectInstructions,
+  writeProjectInstructions,
+} from "../storage/workspace-registry.js"
 import { providerTools } from "../tools/index.js"
 import { ParallelClient } from "../web/client.js"
 import { ArtifactStore } from "./artifacts.js"
@@ -269,6 +279,8 @@ function hostedCatalogModel(choice: HostedPickerChoice): HostedModel {
  */
 export class Workspace {
   readonly label: string
+  /** The name of this folder's session store: how settings and history refer to the project. */
+  readonly dirName: string
 
   private constructor(
     readonly cwd: string,
@@ -283,17 +295,26 @@ export class Workspace {
     readonly rules: PermissionRule[],
   ) {
     this.label = formatWorkspaceLabel(cwd)
+    this.dirName = basename(defaultSessionDirectory(cwd))
   }
 
   /** `otherAgents` reads other agents' instruction files and skills in place. */
   static async load(cwd: string, otherAgents = true) {
     return new Workspace(
       cwd,
-      loadProjectContext(cwd, otherAgents),
+      await Workspace.context(cwd, otherAgents),
       await loadSkillCatalog(cwd, { otherAgents }),
       await memoryIndex(cwd),
       await loadProjectPermissionRules(cwd),
     )
+  }
+
+  /** The folder's instruction files, then the project's own instructions from Otis's data. */
+  static async context(cwd: string, otherAgents: boolean) {
+    const files = loadProjectContext(cwd, otherAgents)
+    const store = defaultSessionDirectory(cwd)
+    const content = await readProjectInstructions(store)
+    return content.trim() ? [...files, { path: projectInstructionsFile(store), content }] : files
   }
 }
 
@@ -673,7 +694,8 @@ export class Application {
       const workspace = await loading
       workspace.skills = await loadSkillCatalog(workspace.cwd, { otherAgents })
       workspace.memory = await memoryIndex(workspace.cwd)
-      if (instructions) workspace.projectContext = loadProjectContext(workspace.cwd, otherAgents)
+      if (instructions)
+        workspace.projectContext = await Workspace.context(workspace.cwd, otherAgents)
     }
   }
 
@@ -918,7 +940,25 @@ export class Application {
     const result = await runtime.sessions.delete(sessionId, storage)
     if (result === "busy") return "working"
     if (result === "deleted" && !runtime.sessions.current) runtime.readOnly = undefined
+    // A deleted session's pin goes with it.
+    const dirName = storage ? basename(storage.directory) : runtime.workspace.dirName
+    if (result === "deleted" && this.pinnedSessions.has(sessionPinKey(sessionId, dirName)))
+      await this.pinSession(sessionId, dirName, false)
     return result
+  }
+
+  /**
+   * Branches a stored session at the end of one of its turns (its last by default) into a new
+   * session in the same store, and opens the branch where `openSession` would.
+   */
+  async forkSession(
+    sessionId: string,
+    storage?: { directory?: string; cwd?: string },
+    throughSeq?: number,
+  ): Promise<{ id: string; result: "focused" | "opened" | "locked" }> {
+    const cwd = storage?.cwd ?? this.#focused.workspace.cwd
+    const id = await forkSession({ cwd, directory: storage?.directory, sessionId }, throughSeq)
+    return { id, result: await this.openSession(id, storage) }
   }
 
   /** Compacts a runtime's context; returns the reason when it is mid-turn. */
@@ -990,7 +1030,7 @@ export class Application {
             current && currentDirName
               ? { id: current.id, title: runtime.sessions.activeLabel(), dirName: currentDirName }
               : null,
-          workspace: { label: runtime.workspace.label, path: runtime.workspace.cwd },
+          workspace: { label: this.labelFor(runtime.workspace), path: runtime.workspace.cwd },
           focused: runtime === this.#focused,
           busy: runtime.busy,
           unseen: runtime.unseen,
@@ -1534,6 +1574,50 @@ export class Application {
     this.settings.hiddenModels = next.length ? next : undefined
     await saveHiddenModels(next)
     this.#notify({ type: "status" })
+  }
+
+  /** The user's name for the workspace, else its folder's. */
+  labelFor(workspace: Workspace) {
+    return this.projectNames[workspace.dirName] ?? workspace.label
+  }
+
+  /** What the user calls each workspace, by session store dir name. */
+  get projectNames(): Record<string, string> {
+    return Object.fromEntries(
+      Object.entries(this.settings.projects ?? {}).flatMap(([dirName, project]) =>
+        project.name ? [[dirName, project.name]] : [],
+      ),
+    )
+  }
+
+  /** Names or pins a project, from now on; blank name and no pin drop the entry. */
+  async setProject(dirName: string, project: ProjectSettings) {
+    this.settings.projects = await saveProject(dirName, project)
+    this.#notify({ type: "status" })
+  }
+
+  /** The sessions kept on the desktop's home screen, by `sessionPinKey`. */
+  get pinnedSessions(): ReadonlySet<string> {
+    return new Set(this.settings.pinnedSessions)
+  }
+
+  async pinSession(id: string, dirName: string, pinned: boolean) {
+    this.settings.pinnedSessions = await saveSessionPin(id, dirName, pinned)
+    this.#notify({ type: "status" })
+  }
+
+  /**
+   * Writes a project's instructions into its session store; sessions open in that folder read
+   * them next turn.
+   */
+  async writeProjectInstructions(sessionDir: string, text: string) {
+    await writeProjectInstructions(sessionDir, text)
+    const otherAgents = this.settings.otherAgents ?? true
+    for (const loading of this.#workspaces.values()) {
+      const workspace = await loading
+      if (workspace.dirName === basename(sessionDir))
+        workspace.projectContext = await Workspace.context(workspace.cwd, otherAgents)
+    }
   }
 
   /** Bills Prime Intellect requests to `teamId`'s wallet (blank: the personal one) from now on. */

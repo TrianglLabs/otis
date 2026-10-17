@@ -177,6 +177,22 @@ machine that runs `otis serve`; the terminal can save and list them through the 
 them. You can also ask in chat: "run the test suite here every night at two" and Otis saves the routine, after asking
 you first. The model cannot grant a routine tools without asking; that switch is yours, in the editor.
 
+## Projects
+
+Every folder you open is a project. The home screen's Projects tab lists them, pinned ones first, with their
+sessions and last activity. Each card carries its pin. A project page lets you name it, start a session in it, and write
+instructions that Otis reads at the start of every session in that folder, after the folder's own AGENTS.md. The
+instructions live in Otis' data folder beside the project's sessions, so a folder that is not a repository, or one you
+do not want to add files to, still gets them. The name shows wherever the folder is named: the palette, the home
+cards, and the header. A session can be pinned too, from its card on Home or from its ⌘K menu; pinned sessions
+keep a row of their own above the recents.
+
+A conversation can branch. In the desktop app, hover a message you sent and choose "New session from here", or
+right-click a session in the ⌘K palette and choose "Duplicate session"; in the terminal, `/fork` branches the current
+session at its end. The branch is a new session in the same folder that holds the conversation through that turn and
+continues from there, while the original keeps its later turns. A branch rewinds the conversation, not the folder: files
+the original went on to change are as it left them.
+
 ## Work on another machine
 
 A machine that stays on can serve its Otis runtime to the desktop app on your other devices. In the app on that
@@ -242,6 +258,7 @@ Each provider you add gets its own section in `/model`; type to search the list.
 | --- | --- |
 | `/home` | Return to the home screen |
 | `/new` | Start a new session |
+| `/fork` | Branch this session into a new one that continues from here |
 | `/history` | Browse, open, or delete local sessions |
 | `/model` | Choose a managed-local, local-server, or hosted model |
 | `/settings` | Add hosted provider keys, hide hosted models from the picker, configure local servers, delete local models, toggle debug mode, or keep the machine awake while working |

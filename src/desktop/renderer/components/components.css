@@ -12,6 +12,79 @@
   animation: overlay-fade var(--motion);
 }
 
+/* A sheet: a centered form over the backdrop, as the routine editor and project instructions
+   use. Its title, textarea, hint, and action row share one type so the forms read alike. */
+.sheet {
+  position: fixed;
+  top: 8vh;
+  left: 50%;
+  translate: -50% 0;
+  z-index: var(--z-overlay);
+  width: min(520px, calc(100vw - 32px));
+  max-height: 84vh;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px 18px 16px;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  animation: overlay-enter var(--motion);
+}
+
+.sheet-title {
+  margin: 0 0 6px;
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+
+/* The field's frame on a textarea: the same border and fill, the input's own type. */
+.sheet-textarea {
+  display: block;
+  min-height: 72px;
+  resize: vertical;
+  font: inherit;
+  font-size: var(--text-ui);
+  line-height: 1.45;
+  color: var(--text);
+  outline: none;
+}
+
+.sheet-hint {
+  font-size: var(--text-meta);
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+.sheet-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.sheet-spacer {
+  flex: 1;
+}
+
+/* The way back from a detail view to its list: a chevron and the list's name in the accent ink,
+   on nothing, as the model card and a project's page draw theirs. */
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent-ink);
+  font: inherit;
+  font-size: var(--text-ui);
+  font-weight: 600;
+  cursor: pointer;
+}
+
 /* A popover: the model picker and the ⌘K palette share one frame, a search field with its
    icon under a hairline, section labels, and a footer of keys, so the two read as one control. */
 .popover {
@@ -164,8 +237,8 @@
 }
 
 .btn-sm {
-  height: 22px;
-  padding: 0 8px;
+  height: 24px;
+  padding: 0 9px;
   font-size: var(--text-meta);
 }
 
@@ -178,13 +251,14 @@
   background: color-mix(in srgb, var(--accent) 88%, #fff);
 }
 
-.btn-outline {
-  border-color: var(--border);
+/* The secondary button: a wash of the text colour with no outline, as System Settings and the
+   composer's chips draw theirs; it deepens under the pointer. */
+.btn-tinted {
   color: var(--text);
-  background: transparent;
+  background: color-mix(in srgb, var(--text) 6%, transparent);
 }
 
-.btn-outline:hover:not(:disabled) {
+.btn-tinted:hover:not(:disabled) {
   background: var(--bg-hover);
 }
 
@@ -265,7 +339,7 @@
   font-size: var(--text-body);
 }
 
-/* A range input with an accent fill up to `--slider-fill`; thinking effort and text size use it. */
+/* A range input with an accent fill up to `--slider-fill`; the text size setting uses it. */
 .slider {
   width: 100%;
   margin: 0;
@@ -319,6 +393,16 @@
   transition:
     background-color var(--motion),
     color var(--motion);
+}
+
+/* Page controls in a heading's hint slot. The buttons stand taller than the heading's line and
+   overflow it, so the heading keeps its height. */
+.pager {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  gap: 4px;
+  height: 1.45em;
 }
 
 .iconBtn:hover:not(:disabled) {

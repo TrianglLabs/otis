@@ -1,11 +1,12 @@
-import { LoaderCircle, type LucideIcon } from "lucide-react"
-import type { ButtonHTMLAttributes, ReactNode } from "react"
+import { ChevronLeft, ChevronRight, LoaderCircle, type LucideIcon } from "lucide-react"
+import { type ButtonHTMLAttributes, type ReactNode, useState } from "react"
+import { useI18n } from "../i18n/index.js"
 import { Icon } from "./Icon"
 
-type ButtonVariant = "primary" | "outline" | "ghost" | "danger"
+type ButtonVariant = "primary" | "tinted" | "ghost" | "danger"
 
 export function Button({
-  variant = "outline",
+  variant = "tinted",
   size = "md",
   icon,
   iconAfter,
@@ -60,6 +61,53 @@ export function IconButton({
     >
       <Icon icon={icon} size={14} />
     </button>
+  )
+}
+
+/**
+ * A list shown a page at a time: the page's slice, and the pager's props. The page stays in range
+ * as the list shrinks under it.
+ */
+export function usePage<T>(items: readonly T[], size: number) {
+  const [index, setIndex] = useState(0)
+  const pages = Math.max(1, Math.ceil(items.length / size))
+  const page = Math.min(index, pages - 1)
+  return {
+    shown: items.slice(page * size, (page + 1) * size),
+    pager: { page, pages, onPage: setIndex },
+  }
+}
+
+/** A home list's page controls, the chevrons and "1 of 3", shown once there is a second page. */
+export function Pager({
+  page,
+  pages,
+  onPage,
+}: {
+  page: number
+  pages: number
+  onPage: (page: number) => void
+}) {
+  const { t } = useI18n()
+  if (pages <= 1) return null
+  return (
+    <span className="pager">
+      <IconButton
+        icon={ChevronLeft}
+        label={t("home.previousPage")}
+        size={22}
+        disabled={page === 0}
+        onClick={() => onPage(page - 1)}
+      />
+      {t("home.page", { page: page + 1, pages })}
+      <IconButton
+        icon={ChevronRight}
+        label={t("home.nextPage")}
+        size={22}
+        disabled={page === pages - 1}
+        onClick={() => onPage(page + 1)}
+      />
+    </span>
   )
 }
 

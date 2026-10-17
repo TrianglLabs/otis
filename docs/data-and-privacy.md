@@ -16,6 +16,7 @@ By default, Otis uses the platform's standard user directories:
 | Managed skill sources | `~/Library/Application Support/otis/skills/` | `~/.local/share/otis/skills/` | `%LOCALAPPDATA%\otis\skills\` |
 | Memory that holds everywhere | `~/Library/Application Support/otis/memory/` | `~/.local/share/otis/memory/` | `%LOCALAPPDATA%\otis\memory\` |
 | Memory for one workspace | `~/Library/Application Support/otis/sessions/<workspace>/memory/` | `~/.local/share/otis/sessions/<workspace>/memory/` | `%LOCALAPPDATA%\otis\sessions\<workspace>\memory\` |
+| Project instructions | `~/Library/Application Support/otis/sessions/<workspace>/instructions.md` | `~/.local/share/otis/sessions/<workspace>/instructions.md` | `%LOCALAPPDATA%\otis\sessions\<workspace>\instructions.md` |
 | `otis serve` pairing token | `~/Library/Application Support/otis/serve-token` | `~/.config/otis/serve-token` | `%APPDATA%\otis\serve-token` |
 
 `XDG_CONFIG_HOME` and `XDG_DATA_HOME` are respected on Linux. On Windows, configuration roams with the profile while

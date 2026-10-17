@@ -5,8 +5,11 @@ import { createSession } from "../../src/storage/session.js"
 import { defaultSessionDirectory, sessionRootDirectory } from "../../src/storage/session-files.js"
 import {
   listWorkspaceSessionDirs,
+  projectInstructionsFile,
+  readProjectInstructions,
   readWorkspacePath,
   registerWorkspacePath,
+  writeProjectInstructions,
 } from "../../src/storage/workspace-registry.js"
 import { useOtisHome } from "../app/support/otis-home.js"
 
@@ -101,5 +104,18 @@ describe("workspace recovery", () => {
     expect(
       recovered.find((entry) => entry.dirName === "elsewhere-deadbeef00aa")?.workspacePath,
     ).toBeUndefined()
+  })
+})
+
+describe("project instructions", () => {
+  it("reads blank before any are written, keeps them beside the sessions, and removes blank ones", async () => {
+    const home = await isolate()
+    const dir = join(home, "sessions", "proj-0123456789ab")
+    expect(await readProjectInstructions(dir)).toBe("")
+    await writeProjectInstructions(dir, "Prefer bun.\n")
+    expect(await readProjectInstructions(dir)).toBe("Prefer bun.\n")
+    expect(projectInstructionsFile(dir)).toBe(join(resolve(dir), "instructions.md"))
+    await writeProjectInstructions(dir, "  \n")
+    expect(await readProjectInstructions(dir)).toBe("")
   })
 })

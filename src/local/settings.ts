@@ -94,7 +94,13 @@ export type LocalSettings = Partial<Record<ServerProvider, ServerSettings>> & {
   /** Skills by name that stay loaded but are not offered to the model. */
   hiddenSkills?: string[]
   permissions?: PermissionConfig
+  /** What the user calls each workspace and which ones are pinned, by session store dir name. */
+  projects?: Record<string, ProjectSettings>
+  /** The sessions kept on the desktop's home screen, each as `sessionPinKey` spells it. */
+  pinnedSessions?: string[]
 }
+
+export type ProjectSettings = { name?: string; pinned?: boolean }
 
 export const THEME_NAMES = [
   "default",
@@ -391,6 +397,43 @@ export async function saveHiddenModels(hiddenModels: string[], options: Settings
   )
 }
 
+/** Merges a project's name or pin, dropping an entry with neither; returns what is saved. */
+export async function saveProject(
+  dirName: string,
+  project: ProjectSettings,
+  options: SettingsFileOptions = {},
+) {
+  const saved = await updateSettings(options, (saved) => {
+    const projects = { ...saved.projects }
+    const next = defined({ ...projects[dirName], ...project })
+    if (next.name === undefined && !next.pinned) delete projects[dirName]
+    else projects[dirName] = next
+    return defined({ ...saved, projects: Object.keys(projects).length ? projects : undefined })
+  })
+  return saved.projects
+}
+
+/** A pinned session's key: its store dir name and its id. */
+export function sessionPinKey(id: string, dirName: string) {
+  return `${dirName}/${id}`
+}
+
+export async function saveSessionPin(
+  id: string,
+  dirName: string,
+  pinned: boolean,
+  options: SettingsFileOptions = {},
+) {
+  const saved = await updateSettings(options, (saved) => {
+    const key = sessionPinKey(id, dirName)
+    const keys = saved.pinnedSessions ?? []
+    if (keys.includes(key) === pinned) return saved
+    const next = pinned ? [...keys, key] : keys.filter((entry) => entry !== key)
+    return defined({ ...saved, pinnedSessions: next.length ? next : undefined })
+  })
+  return saved.pinnedSessions
+}
+
 export async function saveHiddenSkills(hiddenSkills: string[], options: SettingsFileOptions = {}) {
   await updateSettings(options, (saved) =>
     defined({ ...saved, hiddenSkills: hiddenSkills.length ? hiddenSkills : undefined }),
@@ -530,6 +573,8 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
   const modelFastId = optionalString(value.modelFastId, "modelFastId")
   const hiddenModels = optionalStringList(value.hiddenModels, "hiddenModels")
   const hiddenSkills = optionalStringList(value.hiddenSkills, "hiddenSkills")
+  const projects = parseProjects(value.projects)
+  const pinnedSessions = optionalStringList(value.pinnedSessions, "pinnedSessions")
   const modelProvider = value.modelProvider
   if (modelProvider !== undefined && !isModelProvider(modelProvider))
     throw new Error("Invalid Otis config: modelProvider is not a known provider.")
@@ -590,10 +635,27 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
     modelFastId,
     hiddenModels,
     hiddenSkills,
+    projects,
+    pinnedSessions,
     permissions,
     remote,
     serve,
   })
+}
+
+function parseProjects(value: unknown) {
+  if (value === undefined) return undefined
+  if (!isRecord(value)) throw new Error("Invalid Otis config: projects must be an object.")
+  const projects: Record<string, ProjectSettings> = {}
+  for (const [dirName, entry] of Object.entries(value)) {
+    if (!isRecord(entry))
+      throw new Error(`Invalid Otis config: projects.${dirName} must be an object.`)
+    projects[dirName] = defined({
+      name: optionalString(entry.name, `projects.${dirName}.name`),
+      pinned: optionalBoolean(entry.pinned, `projects.${dirName}.pinned`),
+    })
+  }
+  return projects
 }
 
 function writeSettingsFile(settings: SettingsFile, options: SettingsFileOptions) {

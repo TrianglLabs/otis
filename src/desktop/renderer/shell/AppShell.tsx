@@ -276,6 +276,7 @@ export function AppShell() {
                   <ConversationView
                     installing={installing}
                     homeView={homeView}
+                    onHomeView={setHomeView}
                     findFocus={findFocus}
                   />
                 </>

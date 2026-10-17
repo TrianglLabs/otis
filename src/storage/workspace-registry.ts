@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
 import type { Dirent } from "node:fs"
-import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises"
+import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { basename, dirname, join, resolve } from "node:path"
 import { defaultSessionDirectory, sessionRootDirectory } from "./session-files.js"
 
@@ -26,6 +26,31 @@ export async function registerWorkspacePath(
   const tmp = join(dir, `.${MARKER}.${randomUUID()}.tmp`)
   await writeFile(tmp, `${JSON.stringify({ path: resolve(workspacePath) })}\n`, { mode: 0o600 })
   await rename(tmp, join(dir, MARKER))
+}
+
+/**
+ * The project's own instructions, kept beside its sessions in Otis's data folder rather than in
+ * the workspace, so a folder that is not a repository still has them. Read into the system
+ * prompt after the folder's AGENTS.md files.
+ */
+export function projectInstructionsFile(sessionDir: string) {
+  return join(resolve(sessionDir), "instructions.md")
+}
+
+export async function readProjectInstructions(sessionDir: string): Promise<string> {
+  try {
+    return await readFile(projectInstructionsFile(sessionDir), "utf8")
+  } catch {
+    return ""
+  }
+}
+
+/** Writes the instructions, or removes the file when they are blank. */
+export async function writeProjectInstructions(sessionDir: string, text: string) {
+  const file = projectInstructionsFile(sessionDir)
+  if (!text.trim()) return rm(file, { force: true })
+  await mkdir(resolve(sessionDir), { recursive: true, mode: 0o700 })
+  await writeFile(file, text, { mode: 0o600 })
 }
 
 /** The registered workspace path for a session directory; undefined before registration. */

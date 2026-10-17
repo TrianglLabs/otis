@@ -182,6 +182,47 @@ export function desktopCall(runtime: DesktopRuntime) {
         throw new Error("deleteSession expects a dir name")
       return runtime.deleteSession(id, dirName)
     },
+    forkSession: (id: unknown, dirName: unknown, throughSeq: unknown) => {
+      if (typeof id !== "string") throw new Error("forkSession expects a string id")
+      if (dirName !== undefined && typeof dirName !== "string")
+        throw new Error("forkSession expects a dir name")
+      if (throughSeq !== undefined && typeof throughSeq !== "number")
+        throw new Error("forkSession expects a positive integer throughSeq")
+      if (throughSeq !== undefined && (!Number.isInteger(throughSeq) || throughSeq < 1))
+        throw new Error("forkSession expects a positive integer throughSeq")
+      return runtime.forkSession(id, dirName, throughSeq)
+    },
+    pinSession: (id: unknown, dirName: unknown, pinned: unknown) => {
+      if (typeof id !== "string" || !id) throw new Error("pinSession expects a session id")
+      if (typeof dirName !== "string" || !dirName) throw new Error("pinSession expects a dir name")
+      if (typeof pinned !== "boolean") throw new Error("pinSession expects a boolean pinned")
+      return runtime.pinSession(id, dirName, pinned)
+    },
+    setProject: (dirName: unknown, project: unknown) => {
+      if (typeof dirName !== "string" || !dirName) throw new Error("setProject expects a dir name")
+      if (typeof project !== "object" || project === null)
+        throw new Error("setProject expects a project")
+      const { name, pinned } = project as { name?: unknown; pinned?: unknown }
+      if (name !== undefined && typeof name !== "string")
+        throw new Error("setProject expects a string name")
+      if (pinned !== undefined && typeof pinned !== "boolean")
+        throw new Error("setProject expects a boolean pinned")
+      return runtime.setProject(dirName, {
+        ...(name === undefined ? {} : { name }),
+        ...(pinned === undefined ? {} : { pinned }),
+      })
+    },
+    readProjectInstructions: (dirName: unknown) => {
+      if (typeof dirName !== "string" || !dirName)
+        throw new Error("readProjectInstructions expects a dir name")
+      return runtime.readProjectInstructions(dirName)
+    },
+    writeProjectInstructions: (dirName: unknown, text: unknown) => {
+      if (typeof dirName !== "string" || !dirName)
+        throw new Error("writeProjectInstructions expects a dir name")
+      if (typeof text !== "string") throw new Error("writeProjectInstructions expects text")
+      return runtime.writeProjectInstructions(dirName, text)
+    },
     listModels: () => runtime.listModels(),
     listHostedCatalogs: () => runtime.listHostedCatalogs(),
     setModelHidden: (provider: unknown, id: unknown, hidden: unknown) => {

@@ -1,6 +1,7 @@
 import {
   CalendarClock,
   ChevronsLeft,
+  Folders,
   House,
   Monitor,
   Search,
@@ -18,11 +19,11 @@ import { useI18n } from "../i18n/index.js"
 import { useDesktop, useDesktopSelector, useDesktopState } from "../runtime.js"
 import { isChange } from "./WorkspacePanel.js"
 
-/** What the home screen shows: recent work, or the routines. */
-export type HomeView = "home" | "routines"
+/** What the home screen shows: recent work, the projects, or the routines. */
+export type HomeView = "home" | "projects" | "routines"
 
 /**
- * The compact bar above the conversation: session title centered (the Home / Routines control on
+ * The compact bar above the conversation: session title centered (the Home / Projects / Routines control on
  * the home screen), session metadata (diffs, context) plus search and settings on the right.
  * Session navigation lives in the ⌘K palette.
  */
@@ -105,6 +106,7 @@ export function WorkspaceHeader({
           <TabStrip
             tabs={[
               ["home", t("home.home"), House],
+              ["projects", t("home.projects"), Folders],
               [
                 "routines",
                 <>

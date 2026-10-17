@@ -1,4 +1,4 @@
-import { ChevronRight, ListEnd, ShipWheel } from "lucide-react"
+import { ChevronRight, GitBranch, ListEnd, ShipWheel } from "lucide-react"
 import { memo, useContext, useLayoutEffect, useRef } from "react"
 import { ThinkingOrb } from "thinking-orbs"
 import type { TranscriptEntry } from "../../../../app/transcript.js"
@@ -21,12 +21,15 @@ export const EntryView = memo(function EntryView({
   thinkingVisible,
   expanded,
   onExpandedChange,
+  onBranch,
 }: {
   entry: TranscriptEntry
   active: boolean
   thinkingVisible: boolean
   expanded: boolean
   onExpandedChange: (id: number, expanded: boolean) => void
+  /** Branches the pane's session at a finished turn; absent where branching is not offered. */
+  onBranch?: (turnSeq: number) => void
 }) {
   const { t } = useI18n()
   if (entry.kind === "tool") return <ToolCard entry={entry} active={active} />
@@ -78,12 +81,11 @@ export const EntryView = memo(function EntryView({
   if (entry.speaker === "You") {
     const steering = entry.delivery === "steering"
     const queued = entry.delivery === "queued"
+    const turnSeq = entry.turnSeq
     const text = entry.messageText ?? entry.text
     const attached = Boolean(entry.images?.length || entry.artifacts?.length)
-    const steeringClass = steering ? " userRow-steering" : ""
-    const queuedClass = queued ? " userRow-queued" : ""
     return (
-      <div className={`userRow${steeringClass}${queuedClass}`}>
+      <div className="userRow">
         {steering ? (
           <span
             className="steeringIndicator"
@@ -103,6 +105,18 @@ export const EntryView = memo(function EntryView({
           >
             <Icon icon={ListEnd} size={16} />
           </span>
+        ) : null}
+        {/* A finished turn can be branched: the session through this turn becomes a new one. */}
+        {onBranch && turnSeq !== undefined && !steering && !queued ? (
+          <button
+            type="button"
+            className="userRow-branch"
+            aria-label={t("transcript.branch")}
+            title={t("transcript.branch")}
+            onClick={() => onBranch(turnSeq)}
+          >
+            <Icon icon={GitBranch} size={13} />
+          </button>
         ) : null}
         <div className={`userMessage${attached ? " userMessage-artifacts" : ""}`}>
           {text ? <span>{text}</span> : null}

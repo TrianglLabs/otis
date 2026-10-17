@@ -71,11 +71,16 @@ export const DESKTOP_CHANNELS = {
   startNewSession: "desktop:start-new-session",
   openSessionAt: "desktop:open-session-at",
   openWorkspace: "desktop:open-workspace",
+  setProject: "desktop:set-project",
+  pinSession: "desktop:pin-session",
+  readProjectInstructions: "desktop:read-project-instructions",
+  writeProjectInstructions: "desktop:write-project-instructions",
   locateWorkspace: "desktop:locate-workspace",
   pickWorkspaceFolder: "desktop:pick-workspace-folder",
   registerWorkspace: "desktop:register-workspace",
   refreshSessions: "desktop:refresh-sessions",
   deleteSession: "desktop:delete-session",
+  forkSession: "desktop:fork-session",
   listModels: "desktop:list-models",
   listHostedCatalogs: "desktop:list-hosted-catalogs",
   setModelHidden: "desktop:set-model-hidden",
@@ -160,6 +165,20 @@ export type DesktopUpdateState =
   | { status: "downloading" | "ready"; version: string }
   | { status: "error"; message: string }
 
+/** A workspace as the home screen lists it: its folder, the user's name for it, its activity. */
+export type ProjectSummary = {
+  /** The session store's dir name: the key settings and history use for the workspace. */
+  dirName: string
+  path: string
+  /** The user's name for it, else the folder's name. */
+  label: string
+  pinned: boolean
+  sessions: number
+  updatedAt?: string
+  /** A session of this project is open in this window. */
+  open: boolean
+}
+
 /**
  * The mutable application state outside the transcript. A snapshot carries it whole; a status
  * event carries the fields that changed since the last one.
@@ -193,6 +212,8 @@ export type DesktopStatus = {
   sessions: GlobalSessionPickerItem[]
   /** The newest Canvas documents across every workspace, scanned together with the sessions. */
   recentArtifacts: RecentArtifact[]
+  /** Every workspace as a project, by last activity. */
+  projects: ProjectSummary[]
   /** The workspace this window is working in. */
   workspace: { label: string; path: string }
   contextTokens: number | undefined
@@ -430,6 +451,11 @@ export type DesktopApi = {
   startNewSession(): Promise<SessionOpResult>
   deleteSession(id: string, dirName?: string): Promise<SessionOpResult>
   /**
+   * Branches a stored session into a new one holding its events through `throughSeq` (a user
+   * message's `turnSeq`; the whole session when omitted), and opens the branch in place.
+   */
+  forkSession(id: string, dirName?: string, throughSeq?: number): Promise<SessionOpResult>
+  /**
    * Recomputes the global session list; the palette calls this when it opens so external (TUI)
    * sessions appear.
    */
@@ -447,6 +473,13 @@ export type DesktopApi = {
   ): Promise<SessionOpResult>
   /** Switches the window to another workspace (validated, refused during active work). */
   openWorkspace(path: string): Promise<SessionOpResult>
+  /** Names a project (blank restores the folder's name) or pins it to the front of the list. */
+  setProject(dirName: string, project: { name?: string; pinned?: boolean }): Promise<void>
+  /** Keeps a session on the home screen, or lets it fall back among the recents. */
+  pinSession(id: string, dirName: string, pinned: boolean): Promise<void>
+  /** The project's own instructions, read into every session in its folder; blank when none. */
+  readProjectInstructions(dirName: string): Promise<string>
+  writeProjectInstructions(dirName: string, text: string): Promise<void>
   /** Locates the working folder for a read-only pending session and completes its recovery. */
   locateWorkspace(path: string): Promise<SessionOpResult>
   /** Native folder picker; undefined when cancelled. */

@@ -504,6 +504,10 @@ export class InteractiveApp {
         this.#attachments.clear()
         this.#startNewSession()
         return
+      case "fork":
+        this.#ui.clearInput()
+        await this.#forkSession()
+        return
       case "home":
         this.#ui.clearInput()
         this.#ui.showHomeLayout()
@@ -720,6 +724,20 @@ export class InteractiveApp {
     this.#ui.hideSessionPicker()
     this.#reflectSession()
     this.#ui.focusInput()
+  }
+
+  /** Branches the current session at its end and continues in the branch. */
+  async #forkSession() {
+    const current = this.#app.sessions.current
+    if (this.#busy || !current) return
+    try {
+      const { result } = await this.#app.forkSession(current.id)
+      if (result === "locked") this.#ui.showTransientHint(SESSION_REASONS.locked)
+    } catch (error) {
+      this.#reportSessionError("Could not branch the session", error)
+      return
+    }
+    this.#reflectSession()
   }
 
   /** Shows the focused session, whichever runtime it lives in and whether or not it is mid-turn. */

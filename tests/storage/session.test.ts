@@ -7,6 +7,7 @@ import { type ChatMessage, emptyUsage } from "../../src/inference/types.js"
 import {
   createSession,
   deleteSession,
+  forkSession,
   listSessions,
   openSession,
 } from "../../src/storage/session.js"
@@ -846,5 +847,127 @@ describe("session state", () => {
       waiting: "pending",
       recovered: "complete",
     })
+  })
+})
+
+describe("forkSession", () => {
+  async function parentWithTwoTurns() {
+    const cwd = await trackedTempDir()
+    const options = { cwd, directory: join(cwd, "sessions") }
+    const parent = await createSession(options)
+    const first = await parent.admitPrompt("first question")
+    await parent.startTurn(first)
+    await parent.completeTurn(first, [
+      { role: "assistant", content: [{ type: "text", text: "first answer" }] },
+    ])
+    await parent.recordUsage({ promptTokens: 3, completionTokens: 2, totalTokens: 5 }, "agent", {
+      promptId: first.promptId,
+    })
+    await parent.renameTitle("Two questions")
+    const second = await parent.admitPrompt("second question")
+    await parent.startTurn(second)
+    await parent.completeTurn(second, [
+      { role: "assistant", content: [{ type: "text", text: "second answer" }] },
+    ])
+    await mkdir(parent.artifactDirectory, { recursive: true })
+    await writeFile(join(parent.artifactDirectory, "note.txt"), "kept")
+    const firstTurnEnd = parent.events.find((event) => event.type === "turn_completed")?.seq
+    if (firstTurnEnd === undefined) throw new Error("expected a completed turn")
+    return { options, parent, firstTurnEnd }
+  }
+
+  it("copies the parent through a turn, renumbered, with its artifacts and a provenance event", async () => {
+    const { options, parent, firstTurnEnd } = await parentWithTwoTurns()
+    const forkId = await forkSession({ ...options, sessionId: parent.id }, firstTurnEnd)
+    expect(forkId).not.toBe(parent.id)
+    const fork = await openSession({ ...options, sessionId: forkId })
+    expect(fork.events.map((event) => event.type)).toEqual([
+      "session_started",
+      "prompt_admitted",
+      "turn_started",
+      "turn_completed",
+      "session_forked",
+    ])
+    expect(fork.events.map((event) => event.seq)).toEqual([1, 2, 3, 4, 5])
+    expect(fork.events.every((event) => event.sessionId === fork.id)).toBe(true)
+    expect(fork.events.at(-1)).toMatchObject({
+      type: "session_forked",
+      from: { id: parent.id, dirName: "sessions" },
+      throughSeq: firstTurnEnd,
+    })
+    // The branch replays the first exchange only.
+    expect(replaySessionMessages(fork.events).map((m) => m.role)).toEqual(["user", "assistant"])
+    expect(fork.title()).toBe("first question")
+    expect(await readFile(join(fork.artifactDirectory, "note.txt"), "utf8")).toBe("kept")
+    // The parent is untouched.
+    expect((await openSession({ ...options, sessionId: parent.id })).events).toEqual(parent.events)
+  })
+
+  it("leaves queued prompts with the parent and points a compaction at the nearest kept event", async () => {
+    const { options, parent } = await parentWithTwoTurns()
+    // A third prompt admitted, a usage record after it, then the turn begins and a checkpoint
+    // names that usage event. The fork drops usage, so the checkpoint must move to the nearest
+    // kept event before it (the admitted prompt), or the branch file would not parse.
+    const third = await parent.admitPrompt("third question")
+    await parent.recordUsage({ promptTokens: 1, completionTokens: 1, totalTokens: 2 }, "agent")
+    const usageSeq = parent.events.at(-1)?.seq ?? 0
+    const secondEnd = parent.events.findLast((event) => event.type === "turn_completed")?.seq
+    // Through the second turn's end, the queued third prompt stays behind.
+    const early = await openSession({
+      ...options,
+      sessionId: await forkSession({ ...options, sessionId: parent.id }, secondEnd),
+    })
+    expect(early.events.map((event) => event.type)).not.toContain("usage_recorded")
+    expect(
+      early.events.some(
+        (event) => event.type === "prompt_admitted" && event.promptId === third.promptId,
+      ),
+    ).toBe(false)
+    expect(early.events.at(-1)?.type).toBe("session_forked")
+    await parent.startTurn(third)
+    await parent.compact("Summary so far", [], {}, usageSeq)
+    // Through the checkpoint, the started prompt comes along and the checkpoint names it.
+    const late = await openSession({
+      ...options,
+      sessionId: await forkSession({ ...options, sessionId: parent.id }),
+    })
+    const admitted = late.events.find(
+      (event) => event.type === "prompt_admitted" && event.promptId === third.promptId,
+    )
+    const compacted = late.events.findLast((event) => event.type === "compacted")
+    expect(admitted).toBeDefined()
+    expect(compacted && "throughSeq" in compacted ? compacted.throughSeq : undefined).toBe(
+      admitted?.seq,
+    )
+  })
+
+  it("branches from the end by default and moves a compaction's throughSeq with its prompt", async () => {
+    const { options, parent } = await parentWithTwoTurns()
+    const admission = await parent.admitPrompt("third question")
+    await parent.startTurn(admission)
+    // A mid-turn checkpoint names the admitted prompt's seq, which the renumbering must track
+    // once the usage event before it is dropped.
+    const admittedSeq = parent.events.find(
+      (event) => event.type === "prompt_admitted" && event.promptId === admission.promptId,
+    )?.seq
+    if (admittedSeq === undefined) throw new Error("expected the admitted prompt")
+    await parent.compactTurn(admission, "Summary so far", [], {}, 0, { messages: [] })
+    await parent.completeTurn(admission, [
+      { role: "assistant", content: [{ type: "text", text: "third answer" }] },
+    ])
+    const fork = await openSession({
+      ...options,
+      sessionId: await forkSession({ ...options, sessionId: parent.id }),
+    })
+    const compacted = fork.events.find((event) => event.type === "compacted")
+    const forkAdmitted = fork.events.find(
+      (event) => event.type === "prompt_admitted" && event.promptId === admission.promptId,
+    )
+    expect(compacted && "throughSeq" in compacted ? compacted.throughSeq : undefined).toBe(
+      forkAdmitted?.seq,
+    )
+    expect(fork.events.some((event) => event.type === "usage_recorded")).toBe(false)
+    expect(fork.title()).toBe("Two questions")
+    expect(replaySessionMessages(fork.events).at(-1)).toMatchObject({ role: "assistant" })
   })
 })

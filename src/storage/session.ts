@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
-import { readdir, rm } from "node:fs/promises"
-import { join } from "node:path"
+import { cp, mkdir, readdir, rm, writeFile } from "node:fs/promises"
+import { basename, join } from "node:path"
 import { createUserMessage } from "../inference/messages.js"
 import {
   addUsage,
@@ -292,11 +292,76 @@ export async function openSession(options: SessionOptions) {
 }
 
 export function createSession(options: Omit<SessionOptions, "sessionId">) {
+  return openSession({ ...options, sessionId: newSessionId() })
+}
+
+function newSessionId() {
   const timestamp = new Date()
     .toISOString()
     .replace(/[-:]/g, "")
     .replace(/\.\d{3}Z$/, "Z")
-  return openSession({ ...options, sessionId: `session_${timestamp}_${randomUUID().slice(0, 8)}` })
+  return `session_${timestamp}_${randomUUID().slice(0, 8)}`
+}
+
+/**
+ * Writes a new session in the same store as `options.sessionId`, holding that session's events
+ * through `throughSeq` (its last event by default): a branch of the conversation up to that turn.
+ * Usage, screen arrangement, and prompts queued for turns not yet begun stay with the parent, so
+ * the kept events are renumbered and a compaction's `throughSeq` names the nearest kept event at
+ * or before the one it named. The parent's owned artifact copies are duplicated so the branch's
+ * attachments and documents still resolve. The branch ends with a record of where it came from.
+ * Returns the branch's id.
+ */
+export async function forkSession(options: SessionOptions, throughSeq?: number) {
+  const parentId = options.sessionId ?? DEFAULT_SESSION_ID
+  assertSessionId(parentId)
+  const parentFile = sessionFile(options, parentId)
+  const parent = await readSessionEvents(parentFile)
+  const cut = throughSeq ?? parent.at(-1)?.seq ?? 0
+  // The prompts whose turns the cut reaches: anything after admission names the prompt.
+  const begun = new Set(
+    parent.flatMap((event) =>
+      event.seq <= cut && event.type !== "prompt_admitted" && "promptId" in event
+        ? [event.promptId]
+        : [],
+    ),
+  )
+  const kept = parent.filter(
+    (event) =>
+      event.seq <= cut &&
+      event.type !== "usage_recorded" &&
+      event.type !== "view_arranged" &&
+      (event.type !== "prompt_admitted" || begun.has(event.promptId)),
+  )
+  if (kept[0]?.type !== "session_started") throw new Error(`Session ${parentId} has no events.`)
+  const id = newSessionId()
+  const events = kept.map((event, index): SessionEvent => {
+    const copy = { ...event, seq: index + 1, sessionId: id }
+    if (copy.type === "compacted" && copy.throughSeq !== undefined) {
+      const through = copy.throughSeq
+      copy.throughSeq = kept.filter((event) => event.seq <= through).length
+    }
+    return copy
+  })
+  events.push({
+    seq: events.length + 1,
+    sessionId: id,
+    at: new Date().toISOString(),
+    type: "session_forked",
+    from: { id: parentId, dirName: basename(sessionDirectory(options)) },
+    throughSeq: cut,
+  })
+  const filePath = sessionFile(options, id)
+  await mkdir(sessionDirectory(options), { recursive: true, mode: 0o700 })
+  await writeFile(filePath, events.map((event) => `${JSON.stringify(event)}\n`).join(""), {
+    mode: 0o600,
+  })
+  try {
+    await cp(`${parentFile}.artifacts`, `${filePath}.artifacts`, { recursive: true })
+  } catch (error) {
+    if (!isNotFoundError(error)) throw error
+  }
+  return id
 }
 
 export async function deleteSession(options: SessionOptions) {
@@ -327,7 +392,7 @@ export async function searchSessions(
 export async function listAllSessions(
   options: { seeds?: string[] } = {},
 ): Promise<GlobalSessionSummary[]> {
-  return (await digestAllSessions(options.seeds)).map((session) => session.summary)
+  return (await digestAllSessions(options.seeds)).sessions.map((session) => session.summary)
 }
 
 /** With `words`, every word of the query counts on its own, as recall asks; else the phrase. */
@@ -335,7 +400,8 @@ export async function searchAllSessions(
   query: string,
   options: { seeds?: string[]; words?: boolean } = {},
 ): Promise<GlobalSessionSearchResult[]> {
-  return matchSessions(await digestAllSessions(options.seeds, true), query, options.words)
+  const { sessions } = await digestAllSessions(options.seeds, true)
+  return matchSessions(sessions, query, options.words)
 }
 
 /**
@@ -379,7 +445,10 @@ async function digestSessions(options: Omit<SessionOptions, "sessionId">, texts 
   return sessions.sort((left, right) => byRecency(left.summary, right.summary))
 }
 
-/** Every workspace's sessions with their digests, newest first across workspaces. */
+/**
+ * Every workspace's session store, and every session in them with its digest, newest first
+ * across workspaces.
+ */
 export async function digestAllSessions(seeds: string[] | undefined, texts = false) {
   const dirs = await listWorkspaceSessionDirs(seeds)
   const grouped = await Promise.all(
@@ -395,7 +464,10 @@ export async function digestAllSessions(seeds: string[] | undefined, texts = fal
       }
     }),
   )
-  return grouped.flat().sort((left, right) => byRecency(left.summary, right.summary))
+  return {
+    dirs,
+    sessions: grouped.flat().sort((left, right) => byRecency(left.summary, right.summary)),
+  }
 }
 
 /**

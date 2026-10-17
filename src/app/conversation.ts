@@ -468,9 +468,10 @@ export class Conversation {
       })
       active.steering = steering
 
-      if (!queued || !transcript.activatePendingUserMessage(queued.transcriptEntryId)) {
-        transcript.addUserMessage(userMessage)
-      }
+      const userEntryId =
+        queued && transcript.activatePendingUserMessage(queued.transcriptEntryId)
+          ? queued.transcriptEntryId
+          : transcript.addUserMessage(userMessage).id
       if (!queued) artifacts.observeMessage(userMessage)
       try {
         await session.startTurn(admission)
@@ -683,7 +684,8 @@ export class Conversation {
         }
         const ended = result.status === "complete" ? "completeTurn" : "interruptTurn"
         try {
-          await session[ended](admission, result.messages, result.details)
+          const saved = await session[ended](admission, result.messages, result.details)
+          transcript.markTurnEnded(userEntryId, saved.seq)
         } catch (error) {
           const what = result.status === "complete" ? "turn" : "interrupted turn"
           transcript.addAssistantMessage(`Could not save the ${what}: ${describeError(error)}`)

@@ -456,8 +456,8 @@ function ModelCard({
   return (
     <article className="modelCard" aria-label={item.displayName}>
       <div className="modelCard-bar">
-        <button type="button" className="modelCard-back" onClick={onBack}>
-          <Icon icon={ChevronLeft} size={16} />
+        <button type="button" className="backLink" onClick={onBack}>
+          <Icon icon={ChevronLeft} size={13} />
           {t("models.cardBack")}
         </button>
       </div>
