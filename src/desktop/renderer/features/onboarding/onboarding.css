@@ -439,6 +439,13 @@
   color: var(--danger);
 }
 
+/* A measured download: a wide bar under the picked model. */
+.onboarding-pickProgress {
+  width: 240px;
+  max-width: 100%;
+  margin-top: 10px;
+}
+
 .onboarding-error {
   margin: 0;
   font-size: var(--text-body);

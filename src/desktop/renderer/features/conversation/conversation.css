@@ -312,30 +312,28 @@
   scrollbar-width: none;
 }
 
-/* The same quiet control as the composer's model and workspace chips. */
+/* The same quiet control as the composer's model and workspace chips: a wash, no outline. */
 .sessionStrip-chip {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   height: 24px;
-  padding: 0 8px;
+  padding: 0 9px;
   flex-shrink: 0;
   max-width: 180px;
-  border: 1px solid var(--hairline);
+  border: none;
   border-radius: var(--radius);
-  background: transparent;
+  background: color-mix(in srgb, var(--text) 6%, transparent);
   font-family: var(--font-ui);
   font-size: var(--text-meta);
   color: var(--text-dim);
   cursor: pointer;
   transition:
     background var(--motion),
-    border-color var(--motion),
     color var(--motion);
 }
 
 .sessionStrip-chip:hover {
-  border-color: var(--border);
   background: var(--bg-hover);
   color: var(--text);
 }
@@ -924,13 +922,14 @@ button.reasoning-header:hover {
   width: 100%;
 }
 
+/* One rounded sheet inside an even hairline. Focus brightens the edge; the caret does the rest. */
 .composer-box {
   position: relative;
   min-width: 0;
   margin: 0;
   padding: 0;
   border: 1px solid var(--hairline);
-  border-radius: var(--radius-lg);
+  border-radius: 20px;
   background: var(--bg-elev);
   transition:
     border-color var(--motion),
@@ -938,8 +937,7 @@ button.reasoning-header:hover {
 }
 
 .composer-box:focus-within {
-  /* Focus is a faint grey lift, not the accent ring: the caret already signals the active composer. */
-  border-color: color-mix(in srgb, var(--border), var(--text) 14%);
+  border-color: color-mix(in srgb, var(--text) 18%, transparent);
 }
 
 .composer-boxDisabled {
@@ -957,7 +955,7 @@ button.reasoning-header:hover {
   z-index: 2;
   display: grid;
   place-items: center;
-  border-radius: var(--radius-lg);
+  border-radius: 20px;
   color: var(--text);
   background: color-mix(in srgb, var(--bg-elev) 90%, transparent);
   backdrop-filter: blur(4px);
@@ -1028,7 +1026,7 @@ button.reasoning-header:hover {
   border: none;
   background: transparent;
   resize: none;
-  padding: 12px 12px 6px;
+  padding: 14px 18px 6px;
   font-size: var(--text-prose);
   line-height: 1.5;
   max-height: var(--composer-max);
@@ -1042,12 +1040,12 @@ button.reasoning-header:hover {
 .composer-footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 4px 8px 8px 12px;
+  gap: 8px;
+  padding: 4px 10px 10px;
 }
 
-/* Model and workspace chips sit together on the left; space-between only separates them from the
-   actions. In a narrow column the chips give way with an ellipsis instead of pushing past it. */
+/* Model and workspace chips sit together on the left and take the room up to the actions. In a
+   narrow column the chips give way with an ellipsis instead of pushing past it. */
 .composer-context {
   display: inline-flex;
   align-items: center;
@@ -1096,18 +1094,62 @@ button.reasoning-header:hover {
   }
 }
 
-/* Generation speed for local models: a read-only readout beside the chips, no control border. */
+/* Generation speed for local models: a read-only readout beside the chips. A small dial leads,
+   then the figure in tabular numerals that tick in as they change, then the unit, dim. The
+   prefill time lives in the tooltip. */
 .composer-speed {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  height: 22px;
+  gap: 4px;
+  height: 24px;
   padding: 0 4px;
   flex-shrink: 0;
   font-family: var(--font-mono);
   font-size: var(--text-meta);
-  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
   white-space: nowrap;
+}
+
+.composer-gauge {
+  width: 18px;
+  height: 18px;
+  margin-right: 2px;
+  fill: none;
+  stroke-linecap: round;
+}
+
+.composer-gaugeTrack {
+  stroke: color-mix(in srgb, var(--text) 18%, transparent);
+  stroke-width: 2;
+}
+
+.composer-gaugeNeedle {
+  stroke: var(--accent);
+  stroke-width: 1.8;
+  transform-origin: 10px 10px;
+  transition: transform var(--motion);
+}
+
+.composer-gaugeHub {
+  fill: var(--accent);
+}
+
+.composer-speedValue {
+  display: inline-block;
+  font-weight: 500;
+  animation: composer-speedTick var(--motion);
+}
+
+@keyframes composer-speedTick {
+  from {
+    opacity: 0;
+    transform: translateY(0.45em);
+  }
+}
+
+.composer-speedDim {
+  color: var(--text-dim);
 }
 
 /* Fast-serving bolt, amber like the picker's recommended star. */
@@ -1116,18 +1158,15 @@ button.reasoning-header:hover {
   flex-shrink: 0;
 }
 
-/* The interactive chip is a hairline control matching the footer buttons' metrics; the border carries model
-   state instead of a status dot. */
+/* The interactive chips are quiet tinted controls, no outline: a wash of the text colour that
+   deepens under the pointer. The wash carries model state instead of a status dot. */
 button.composer-model,
 button.composer-workspace {
-  /* 12px footer padding minus 4px: with the box border, the chip sits 9px out — the send button's inset. */
-  margin-left: -4px;
-  height: 22px;
-  padding: 0 8px;
-  line-height: 1;
-  border: 1px solid var(--hairline);
+  margin-left: 0;
+  height: 24px;
+  padding: 0 9px;
+  background: color-mix(in srgb, var(--text) 6%, transparent);
   transition:
-    border-color var(--motion),
     color var(--motion),
     background var(--motion);
 }
@@ -1135,35 +1174,26 @@ button.composer-workspace {
 button.composer-model:hover,
 button.composer-model[aria-expanded="true"],
 button.composer-workspace:hover {
-  border-color: var(--border);
-  background: var(--bg-hover);
-  color: var(--text);
-}
-
-button.composer-model:hover,
-button.composer-model[aria-expanded="true"] {
-  border-color: var(--border);
   background: var(--bg-hover);
   color: var(--text);
 }
 
 button.composer-model-starting {
-  border-color: color-mix(in srgb, var(--warning) 40%, transparent);
   animation: composer-model-starting 1.2s ease-in-out infinite;
 }
 
 button.composer-model-failed {
-  border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
   color: var(--danger);
 }
 
 @keyframes composer-model-starting {
   0%,
   100% {
-    border-color: color-mix(in srgb, var(--warning) 18%, transparent);
+    background: color-mix(in srgb, var(--warning) 8%, transparent);
   }
   50% {
-    border-color: color-mix(in srgb, var(--warning) 55%, transparent);
+    background: color-mix(in srgb, var(--warning) 22%, transparent);
   }
 }
 
@@ -1171,20 +1201,76 @@ button.composer-model-failed {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
-.composer-uploadWrap {
+/* The round actions: add at the left, stop and send at the right, each a 26px disc the glyph
+   sits in the middle of, as Messages draws its send; the header's icon buttons share the box. */
+.composer-round {
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-pill);
+  transition:
+    background var(--motion),
+    color var(--motion),
+    transform var(--motion);
 }
 
-.composer-upload {
-  width: 22px;
-  height: 22px;
+.composer-round:active:not(:disabled) {
+  transform: scale(0.94);
 }
 
-.composer-upload:disabled {
+.composer-attachWrap {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.composer-attach {
+  color: var(--text-dim);
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+.composer-attach:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.composer-attach:disabled {
+  opacity: 0.4;
   pointer-events: none;
+}
+
+.composer-send {
+  color: var(--on-accent);
+  background: var(--accent);
+}
+
+.composer-send:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 88%, #fff);
+}
+
+.composer-send:disabled {
+  color: var(--text-dim);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.composer-stop {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+
+.composer-stop:hover {
+  background: color-mix(in srgb, var(--danger) 24%, transparent);
+}
+
+.composer-stopGlyph {
+  fill: currentColor;
 }
 
 /* The /name completion: the skills the user may run, floated above the box as the draft is typed,

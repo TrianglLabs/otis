@@ -22,7 +22,7 @@ import {
 import { formatMemoryLabel } from "../inference/local-fit.js"
 import { createUserMessage } from "../inference/messages.js"
 import type { ModelPickerItem } from "../inference/picker-catalog.js"
-import { hiddenModelKey } from "../inference/picker-filter.js"
+import { modelKey } from "../inference/picker-filter.js"
 import { isFastFireworksModel } from "../inference/serving-path.js"
 import {
   HOSTED_PROVIDER_INFO,
@@ -467,7 +467,7 @@ export class InteractiveApp {
           if (command.provider) await this.#openHostedModelsMenu(command.provider)
           else this.#openProviderMenu("models")
         } else if (command.setting === "toggle-model" && command.provider && command.modelId) {
-          const key = hiddenModelKey(command.provider, command.modelId)
+          const key = modelKey(command.provider, command.modelId)
           const hidden = !this.#app.settings.hiddenModels?.includes(key)
           await this.#app.setModelHidden(command.provider, command.modelId, hidden)
           await this.#openHostedModelsMenu(command.provider)
@@ -1077,7 +1077,7 @@ export class InteractiveApp {
     this.#ui.clearInput()
     this.#ui.showCommandSubmenu(
       models.map((model) => {
-        const key = hiddenModelKey(provider, model.id)
+        const key = modelKey(provider, model.id)
         const active =
           selected?.provider === provider && selected.id === model.id ? "Active · " : ""
         return {

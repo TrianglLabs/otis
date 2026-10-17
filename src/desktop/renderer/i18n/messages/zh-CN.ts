@@ -144,7 +144,7 @@ export const zhCN: Messages = {
   "composer.modelFailed": "模型无法启动：{{error}}",
   "composer.label": "消息编辑器",
   "composer.speedLabel": "生成速度",
-  "speed.tokensPerSecond": "{{rate}} tok/s",
+  "speed.unit": "tok/s",
   "speed.prefill": "预填充 {{seconds}} 秒",
   "composer.dropFiles": "将文件拖放到这里",
   "composer.attachedFiles": "已附加的文件",

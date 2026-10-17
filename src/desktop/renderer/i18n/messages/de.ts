@@ -146,7 +146,7 @@ export const de: Messages = {
   "composer.modelFailed": "Das Modell konnte nicht starten: {{error}}",
   "composer.label": "Nachrichteneingabe",
   "composer.speedLabel": "Generierungsgeschwindigkeit",
-  "speed.tokensPerSecond": "{{rate}} Tok/s",
+  "speed.unit": "Tok/s",
   "speed.prefill": "{{seconds}}s Prefill",
   "composer.dropFiles": "Dateien hier ablegen",
   "composer.attachedFiles": "Angehängte Dateien",

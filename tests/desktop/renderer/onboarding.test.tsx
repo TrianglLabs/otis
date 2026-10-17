@@ -240,7 +240,7 @@ describe("OnboardingPage", () => {
     expect(screen.queryByText("Qwen 3.5 9B")).toBeNull()
     expect(screen.queryByText("Kimi K2.5 on Together")).toBeNull()
     fireEvent.click(row)
-    expect(api.selectModel).toHaveBeenCalledWith("accounts/fireworks/models/kimi-k2p6")
+    expect(api.selectModel).toHaveBeenCalledWith("fireworks:accounts/fireworks/models/kimi-k2p6")
   })
 
   it("cloud path without a key shows the key form and saves it", async () => {
@@ -296,7 +296,7 @@ describe("OnboardingPage", () => {
     const row = rowButton(await screen.findByText("Kimi K2.5 on Together"))
     expect(screen.queryByText("Kimi K2.6")).toBeNull()
     fireEvent.click(row)
-    expect(api.selectModel).toHaveBeenCalledWith("moonshotai/Kimi-K2.5")
+    expect(api.selectModel).toHaveBeenCalledWith("together:moonshotai/Kimi-K2.5")
   })
 
   it("reloads the catalog when saving the key flips hostedConfigured", async () => {
@@ -347,7 +347,7 @@ describe("OnboardingPage", () => {
     expect(screen.queryByText("Kimi K2.6")).toBeNull()
     expect(screen.queryByText("PAIR cluster model")).toBeNull()
     fireEvent.click(screen.getByRole("button", { name: /Download and continue/ }))
-    expect(api.selectModel).toHaveBeenCalledWith("Qwen/Qwen3.5-9B")
+    expect(api.selectModel).toHaveBeenCalledWith("local:Qwen/Qwen3.5-9B")
   })
 
   it("falls back to the first selectable local row when nothing is recommended", async () => {
@@ -365,7 +365,7 @@ describe("OnboardingPage", () => {
     expect(screen.queryByText("Qwen 3.5 9B")).toBeNull()
     expect(screen.queryByText(/download/)).toBeNull()
     fireEvent.click(screen.getByRole("button", { name: /^Continue/ }))
-    expect(api.selectModel).toHaveBeenCalledWith("Qwen/Qwen3.5-27B")
+    expect(api.selectModel).toHaveBeenCalledWith("local:Qwen/Qwen3.5-27B")
   })
 
   it("marks a model that spills layers to the CPU with a chip icon, not label text", async () => {
@@ -447,13 +447,35 @@ describe("OnboardingPage", () => {
     expect(message.closest(".onboarding-local")).toBeTruthy()
   })
 
+  it("draws a measured managed download as a bar under the picked model", async () => {
+    const api = fakeApi({
+      getSnapshot: vi.fn(async () => ({
+        ...SNAPSHOT,
+        modelLoad: {
+          modelId: `local:${LOCAL_ITEM.id}`,
+          status: { label: "Downloading 42%", kind: "progress" as const, percent: 42 },
+        },
+      })),
+    })
+    await renderApp(api)
+    fireEvent.click(await screen.findByRole("button", { name: /^Local/ }))
+    fireEvent.click(await screen.findByRole("button", { name: /Managed by Otis/ }))
+    const pick = (await screen.findByText("Downloading 42%")).closest(
+      ".onboarding-localPick",
+    ) as HTMLElement
+    const bar = within(pick).getByRole("progressbar", { name: "Downloading 42%" })
+    expect(bar.getAttribute("aria-valuenow")).toBe("42")
+    expect(bar.classList.contains("onboarding-pickProgress")).toBe(true)
+    expect(pick.querySelector(".onboarding-specs")).toBeNull()
+  })
+
   it("deduplicates the managed load status and final action error below the button", async () => {
     const failure = "Could not download llama.cpp (HTTP 504)."
     const api = fakeApi({
       getSnapshot: vi.fn(async () => ({
         ...SNAPSHOT,
         modelLoad: {
-          modelId: LOCAL_ITEM.id,
+          modelId: `local:${LOCAL_ITEM.id}`,
           status: { label: `Failed: ${failure}`, kind: "error" as const },
         },
       })),

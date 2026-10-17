@@ -66,8 +66,8 @@
      floating badges that sit over content. */
   --radius-sm: 4px; /* inline chips: code spans, swatches */
   --radius: 8px; /* buttons, chips, inputs, selects, menus, list rows, tabs, sidebar items */
-  --radius-lg: 16px; /* cards, overlays, the composer box */
-  --radius-pill: 999px; /* switches, meter tracks, status dots, floating badges */
+  --radius-lg: 16px; /* cards, overlays; the composer box rounds further, to 20px */
+  --radius-pill: 999px; /* switches, meter tracks, status dots, floating badges, round actions */
   --row-inset: 6px; /* horizontal inset for list-row highlights */
   --row-gap: 2px; /* vertical separation between rounded interactive list rows */
   --header-height: 48px;

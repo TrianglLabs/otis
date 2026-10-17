@@ -1127,11 +1127,12 @@ describe("interactive CLI setup", () => {
     expect(mocks.ensureLocalServing).toHaveBeenCalled()
     expect(mocks.ui.showTransientHint).not.toHaveBeenCalledWith(expect.stringMatching(/Starting /))
     expect(mocks.ui.showHomeLayout).not.toHaveBeenCalled()
-    expect(mocks.ui.setModelPickerStatus).toHaveBeenCalledWith("openai/gpt-oss-20b", {
+    expect(mocks.ui.setModelPickerStatus).toHaveBeenCalledWith("local:openai/gpt-oss-20b", {
       label: "Downloading 47%",
       kind: "progress",
+      percent: 47,
     })
-    expect(mocks.ui.setModelPickerStatus).toHaveBeenCalledWith("openai/gpt-oss-20b", {
+    expect(mocks.ui.setModelPickerStatus).toHaveBeenCalledWith("local:openai/gpt-oss-20b", {
       label: "Loading",
       kind: "progress",
     })
@@ -1303,7 +1304,7 @@ describe("interactive CLI setup", () => {
     expect(mocks.saveSelectedModel).not.toHaveBeenCalled()
     expect(mocks.ui.hideModelPicker).not.toHaveBeenCalled()
     expect(mocks.ui.setModelLabel).not.toHaveBeenCalledWith("gpt-oss 20B · Local")
-    expect(mocks.ui.setModelPickerStatus).toHaveBeenLastCalledWith(local.id, {
+    expect(mocks.ui.setModelPickerStatus).toHaveBeenLastCalledWith(`local:${local.id}`, {
       label: "Failed: model failed to load",
       kind: "error",
     })
@@ -1328,7 +1329,7 @@ describe("interactive CLI setup", () => {
     expect(mocks.stopLocalRuntime).toHaveBeenCalledOnce()
     expect(mocks.ui.hideModelPicker).not.toHaveBeenCalled()
     expect(mocks.ui.setModelLabel).not.toHaveBeenCalledWith("gpt-oss 20B · Local")
-    expect(mocks.ui.setModelPickerStatus).toHaveBeenLastCalledWith(local.id, {
+    expect(mocks.ui.setModelPickerStatus).toHaveBeenLastCalledWith(`local:${local.id}`, {
       label: "Failed: config is read-only",
       kind: "error",
     })

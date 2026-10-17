@@ -18,6 +18,7 @@ import type {
   listModelPickerItems,
   ModelPickerItem,
 } from "../../../src/inference/picker-catalog.js"
+import { pickerItemKey } from "../../../src/inference/picker-filter.js"
 import type {
   CatalogModel,
   ChatMessage,
@@ -267,7 +268,7 @@ describe("DesktopRuntime model startup", () => {
     expect(app.selection?.client).toBeUndefined()
 
     const prepare = preparing(app)
-    const result = await runtime.selectModel(activeRow.id)
+    const result = await runtime.selectModel(pickerItemKey(activeRow))
     expect(result).toEqual({ ok: true })
     // The failed startup and the retry: the active row is not a dead shortcut.
     expect(prepare).toHaveBeenCalledTimes(2)
@@ -628,7 +629,7 @@ describe("DesktopRuntime subagents", () => {
     expect(prompt.accepted).toBe(false)
     if (!prompt.accepted)
       expect(prompt.reason).toBe("A model switch is in progress. Try again in a moment.")
-    expect(await runtime.selectModel(fireworksChoice.id)).toEqual({
+    expect(await runtime.selectModel(pickerItemKey(fireworksChoice))).toEqual({
       ok: false,
       reason: "Finish the current work before switching models.",
     })
@@ -2018,6 +2019,41 @@ describe("DesktopRuntime model selection", () => {
     await runtime.shutdown()
   })
 
+  it("tells a hosted model apart from the local one that shares its id", async () => {
+    const localGlm: LocalPickerChoice = {
+      ...localChoice,
+      id: "zai-org/GLM-5.3",
+      displayName: "GLM-5.3",
+      available: false,
+      availabilityLabel: "Needs 390 GB",
+    }
+    const hostedGlm: HostedPickerChoice = {
+      kind: "model",
+      provider: "together",
+      id: "zai-org/GLM-5.3",
+      displayName: "GLM-5.3",
+      supportsImageInput: false,
+      available: true,
+      active: false,
+    }
+    const { runtime, app } = await setupWithCatalog([localGlm, hostedGlm])
+    app.hostedApiKeys.together = "tg-key"
+    const persist = vi.spyOn(app.models, "persistSelection")
+
+    expect(await runtime.selectModel("local:zai-org/GLM-5.3")).toEqual({
+      ok: false,
+      reason: "Needs 390 GB",
+    })
+    expect(persist).not.toHaveBeenCalled()
+    // The hosted row resolves to itself; the local row listed first no longer shadows it.
+    await runtime.selectModel("together:zai-org/GLM-5.3")
+    expect(persist).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: "together", id: "zai-org/GLM-5.3" }),
+      expect.anything(),
+    )
+    await runtime.shutdown()
+  })
+
   it("rejects unknown and unavailable models without touching the model host", async () => {
     const unavailable = {
       ...localChoice,
@@ -2031,7 +2067,10 @@ describe("DesktopRuntime model selection", () => {
       ok: false,
       reason: "That model is no longer in the catalog.",
     })
-    expect(await runtime.selectModel(localChoice.id)).toEqual({ ok: false, reason: "Needs 48 GB" })
+    expect(await runtime.selectModel(pickerItemKey(localChoice))).toEqual({
+      ok: false,
+      reason: "Needs 48 GB",
+    })
     expect(persist).not.toHaveBeenCalled()
     await runtime.shutdown()
   })
@@ -2045,7 +2084,7 @@ describe("DesktopRuntime model selection", () => {
       await new Promise((resolve) => setTimeout(resolve, 60))
     })
 
-    const result = await runtime.selectModel(localChoice.id)
+    const result = await runtime.selectModel(pickerItemKey(localChoice))
     expect(result).toEqual({ ok: true })
 
     expect(prepare).toHaveBeenCalledOnce()
@@ -2063,8 +2102,8 @@ describe("DesktopRuntime model selection", () => {
     const statuses = sent.filter((event) => event.type === "status").map((event) => event.status)
     const progress = statuses.find((status) => status.modelLoad?.status.kind === "progress")
     expect(progress?.modelLoad).toEqual({
-      modelId: localChoice.id,
-      status: { label: "Downloading 42%", kind: "progress" },
+      modelId: pickerItemKey(localChoice),
+      status: { label: "Downloading 42%", kind: "progress", percent: 42 },
     })
     expect(latestStatus(sent)).toMatchObject({ modelLoad: null, modelState: "ready" })
     expect((await runtime.snapshot()).model).toEqual({
@@ -2094,7 +2133,7 @@ describe("DesktopRuntime model selection", () => {
       })
     })
 
-    const pending = runtime.selectModel(localChoice.id)
+    const pending = runtime.selectModel(pickerItemKey(localChoice))
     await started
     const rejected = await runtime.sendPrompt("during the switch")
     expect(rejected).toEqual({
@@ -2122,7 +2161,7 @@ describe("DesktopRuntime model selection", () => {
     })
     await app.conversation.queue({ role: "user", content: "queued without a driver" })
 
-    const selection = runtime.selectModel(localChoice.id)
+    const selection = runtime.selectModel(pickerItemKey(localChoice))
     // The backlog stays parked while preparation is in flight.
     await flush()
     expect(mocks.executeTurn).not.toHaveBeenCalled()
@@ -2190,7 +2229,7 @@ describe("DesktopRuntime model selection", () => {
 
     // Start the switch, then let the admission land: it must park, not start a turn on the model
     // being replaced.
-    const selection = runtime.selectModel(localChoice.id)
+    const selection = runtime.selectModel(pickerItemKey(localChoice))
     await preparationStarted
     releaseAdmission()
     expect(await followUp).toEqual({ accepted: true, delivery: "queued" })
@@ -2226,8 +2265,8 @@ describe("DesktopRuntime model selection", () => {
     await runtime.listModels()
     preparing(app)
 
-    const first = runtime.selectModel(older.id)
-    const second = runtime.selectModel(newer.id)
+    const first = runtime.selectModel(pickerItemKey(older))
+    const second = runtime.selectModel(pickerItemKey(newer))
     expect(await first).toEqual({ ok: false, reason: "The selection was superseded." })
     expect(await second).toEqual({ ok: true })
     expect(app.selection?.model.id).toBe(newer.id)
@@ -2247,7 +2286,7 @@ describe("DesktopRuntime model selection", () => {
         }),
     )
 
-    const pending = runtime.selectModel(localChoice.id)
+    const pending = runtime.selectModel(pickerItemKey(localChoice))
     await vi.waitFor(async () => {
       expect((await runtime.snapshot()).modelLoad?.status.label).toBe("Loading")
     })

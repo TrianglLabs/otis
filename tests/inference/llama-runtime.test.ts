@@ -20,7 +20,11 @@ import {
   llamaRuntimeReleaseTag,
   pinnedLlamaCppAsset,
 } from "../../src/inference/llama-binary.js"
-import { formatLocalLoadStatus, LlamaCppRuntime } from "../../src/inference/llama-runtime.js"
+import {
+  LlamaCppRuntime,
+  type LocalLoadProgress,
+  localLoadStatus,
+} from "../../src/inference/llama-runtime.js"
 import {
   findLocalModel,
   type LocalModelSpec,
@@ -66,11 +70,22 @@ afterEach(async () => {
 })
 
 describe("llama.cpp runtime", () => {
-  it("labels the runtime download, verification, and loading phases", () => {
-    expect(formatLocalLoadStatus({ phase: "runtime-download" })).toBe("Downloading llama.cpp")
-    expect(formatLocalLoadStatus({ phase: "download", percent: 42 })).toBe("Downloading 42%")
-    expect(formatLocalLoadStatus({ phase: "verifying", percent: 7 })).toBe("Verifying 7%")
-    expect(formatLocalLoadStatus({ phase: "loading" })).toBe("Loading")
+  it("labels the runtime download, verification, and loading phases, with a percent when measured", () => {
+    expect(localLoadStatus({ phase: "runtime-download" })).toEqual({
+      label: "Downloading llama.cpp",
+      kind: "progress",
+    })
+    expect(localLoadStatus({ phase: "download", percent: 42 })).toEqual({
+      label: "Downloading 42%",
+      kind: "progress",
+      percent: 42,
+    })
+    expect(localLoadStatus({ phase: "verifying", percent: 7 })).toEqual({
+      label: "Verifying 7%",
+      kind: "progress",
+      percent: 7,
+    })
+    expect(localLoadStatus({ phase: "loading" })).toEqual({ label: "Loading", kind: "progress" })
   })
 
   it("reports verification of a legacy cached GGUF before loading", async () => {
@@ -82,7 +97,7 @@ describe("llama.cpp runtime", () => {
     await mkdir(join(directory, "models"), { recursive: true })
     await writeFile(localGgufPath(tiny, directory), body)
     await installFakeBinary(directory, LLAMA_CPP_RELEASE_TAG)
-    const progress: Parameters<typeof formatLocalLoadStatus>[0][] = []
+    const progress: LocalLoadProgress[] = []
     const runtime = new LlamaCppRuntime({
       env: {},
       dataDirectory: directory,
@@ -389,7 +404,7 @@ describe("llama.cpp runtime", () => {
     await cacheWeights(model, directory)
     let downloads = 0
     const delays: number[] = []
-    const progress: Parameters<typeof formatLocalLoadStatus>[0][] = []
+    const progress: LocalLoadProgress[] = []
     const runtime = new LlamaCppRuntime(
       runtimeDownloadOptions(
         directory,

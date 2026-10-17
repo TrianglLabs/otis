@@ -18,8 +18,9 @@ import type {
   HostedPickerChoice,
   ModelPickerChoice,
   ModelPickerItem,
+  ModelPickerStatus,
 } from "../../../inference/picker-catalog.js"
-import { hiddenModelKey } from "../../../inference/picker-filter.js"
+import { modelKey, pickerItemKey } from "../../../inference/picker-filter.js"
 import {
   HOSTED_PROVIDER_INFO,
   HOSTED_PROVIDERS,
@@ -1068,9 +1069,11 @@ class DemoRuntime implements DesktopApi {
     start = "",
   ) {
     if (start === "onboarding") {
+      // A first launch: nothing configured and no weights on disk yet.
       this.#state.model = null
       this.#state.modelState = "unconfigured"
       this.#state.hostedConfigured = NO_HOSTED_KEYS
+      this.#downloadedLocalIds.clear()
     } else if (start === "failed") {
       // The selected model could not be prepared: the banner above the composer says why.
       this.#state.modelState = "failed"
@@ -2722,7 +2725,7 @@ class DemoRuntime implements DesktopApi {
         const hosted = rows.filter(
           (item) =>
             item.provider === provider &&
-            (item.active || !this.#state.hiddenModels.includes(hiddenModelKey(provider, item.id))),
+            (item.active || !this.#state.hiddenModels.includes(modelKey(provider, item.id))),
         )
         if (!hosted.length) return []
         return [
@@ -2754,7 +2757,7 @@ class DemoRuntime implements DesktopApi {
   }
 
   async setModelHidden(provider: HostedProvider, id: string, hidden: boolean): Promise<void> {
-    const key = hiddenModelKey(provider, id)
+    const key = modelKey(provider, id)
     const hiddenModels = this.#state.hiddenModels.filter((entry) => entry !== key)
     if (hidden) hiddenModels.push(key)
     this.#state = { ...this.#state, hiddenModels }
@@ -2765,9 +2768,7 @@ class DemoRuntime implements DesktopApi {
     if (this.#state.busy)
       return { ok: false, reason: "Finish the current work before switching models." }
     const item = (await this.listModels()).find(
-      (entry): entry is ModelPickerChoice =>
-        entry.kind === "model" &&
-        ("selectionKey" in entry ? entry.selectionKey === id : entry.id === id),
+      (entry): entry is ModelPickerChoice => entry.kind === "model" && pickerItemKey(entry) === id,
     )
     if (!item) return { ok: false, reason: "That model is no longer in the catalog." }
     if (item.active) return { ok: true }
@@ -2778,7 +2779,13 @@ class DemoRuntime implements DesktopApi {
     // Only a managed local model that still needs its weights shows a visible load, like the real
     // runtime.
     if (item.provider === "local" && "downloaded" in item && !item.downloaded) {
-      const steps = ["Downloading 12%", "Downloading 45%", "Downloading 78%", "Loading"]
+      const steps: ModelPickerStatus[] = [
+        { label: "Downloading 12%", kind: "progress", percent: 12 },
+        { label: "Downloading 45%", kind: "progress", percent: 45 },
+        { label: "Downloading 78%", kind: "progress", percent: 78 },
+        { label: "Downloading 100%", kind: "progress", percent: 100 },
+        { label: "Loading", kind: "progress" },
+      ]
       return new Promise((resolve) => {
         let index = 0
         const step = () => {
@@ -2792,7 +2799,7 @@ class DemoRuntime implements DesktopApi {
           }
           this.#state = {
             ...this.#state,
-            modelLoad: { modelId: item.id, status: { label: steps[index], kind: "progress" } },
+            modelLoad: { modelId: pickerItemKey(item), status: steps[index] },
           }
           this.#emitStatus()
           index += 1
@@ -2863,6 +2870,8 @@ class DemoRuntime implements DesktopApi {
 
   #runTurn(prompt: string, generation: number) {
     this.#setBusy(true, "thinking")
+    // A new request: the speed readout starts over, as the real runtime clears it.
+    this.#state = { ...this.#state, speed: null }
     this.#emitStatus()
 
     const reply: CannedReply = {
@@ -3005,6 +3014,8 @@ class DemoRuntime implements DesktopApi {
     this.#streamText(this.#pushAssistant("", true).id, text, generation, () => {
       this.#setBusy(false, "idle")
       this.#state.contextTokens = (this.#state.contextTokens ?? 0) + 3_800
+      // Usage settles the estimate into the exact figure, with the time to the first token.
+      this.#state.speed = { tokensPerSecond: 38.4, prefillMs: 1420, exact: true }
       this.#earnNext()
       this.#emitStatus()
       const queued = this.#queued.shift()
@@ -3055,10 +3066,17 @@ class DemoRuntime implements DesktopApi {
 
   #streamText(entryId: number, text: string, generation: number, done: () => void) {
     let index = 0
+    let ticks = 0
     const step = () => {
       if (generation !== this.#generation) return
       index = Math.min(text.length, index + 14)
       this.#patch(entryId, { text: text.slice(0, index), streaming: index < text.length })
+      // An estimate every quarter second of streaming, wandering around the local model's rate.
+      if (++ticks % 7 === 0) {
+        const tokensPerSecond = 38.4 + 6 * Math.sin(ticks / 5) + (index % 5) - 2
+        this.#state = { ...this.#state, speed: { tokensPerSecond, exact: false } }
+        this.#emitStatus()
+      }
       if (index < text.length) this.#after(generation, 36, step)
       else done()
     }

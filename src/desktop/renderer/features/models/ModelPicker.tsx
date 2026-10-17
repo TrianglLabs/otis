@@ -12,9 +12,8 @@ import {
   Star,
   Text,
   Trash2,
-  X,
 } from "lucide-react"
-import { Fragment, useCallback, useEffect, useRef, useState } from "react"
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { localThinkingCapability } from "../../../../inference/local-thinking.js"
 import { type LocalModelCard, localModelCard } from "../../../../inference/model-cards.js"
 import type {
@@ -22,9 +21,10 @@ import type {
   ModelPickerChoice,
   ModelPickerItem,
 } from "../../../../inference/picker-catalog.js"
-import { filterModelPickerItems } from "../../../../inference/picker-filter.js"
+import { filterModelPickerItems, pickerItemKey } from "../../../../inference/picker-filter.js"
 import { Button, IconButton } from "../../components/Button.js"
 import { Icon } from "../../components/Icon.js"
+import { ProgressStop } from "../../components/Progress.js"
 import { formatContextWindow, formatMemory } from "../../format.js"
 import { useI18n } from "../../i18n/index.js"
 import { useDesktop, useDesktopState, useScrollbarFlash } from "../../runtime.js"
@@ -33,7 +33,6 @@ import {
   localModelFacts,
   mergeModelLoad,
   pickerDetailParts,
-  pickerItemKey,
 } from "./model-list.js"
 
 /**
@@ -64,6 +63,7 @@ export function ModelPicker({ open, onClose }: { open: boolean; onClose: () => v
   const modelLoad = state?.modelLoad ?? null
   const scrollbar = useScrollbarFlash()
   const inputRef = useRef<HTMLInputElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
 
   const load = useCallback(async () => {
     try {
@@ -87,6 +87,14 @@ export function ModelPicker({ open, onClose }: { open: boolean; onClose: () => v
     setConfirmingDeleteKey(undefined)
     setDetailKey(undefined)
   }, [open, load])
+
+  // The list opens on the active model, as a menu opens on its checked item: once on the rows
+  // kept from the last open, and again when the fresh catalog lands. Before paint, so no frame
+  // shows the top first.
+  useLayoutEffect(() => {
+    if (!open) return
+    listRef.current?.querySelector(".modelPicker-row.active")?.scrollIntoView({ block: "center" })
+  }, [open, items])
 
   // A finished load changes downloaded flags and availability labels; refresh the catalog once it
   // settles.
@@ -190,6 +198,7 @@ export function ModelPicker({ open, onClose }: { open: boolean; onClose: () => v
           ) : null}
           {/* The thumb appears on hover and flashes while scrolling, like the transcript. */}
           <div
+            ref={listRef}
             className={`modelPicker-list${scrollbar.scrolling ? " scrolling" : ""}`}
             onScroll={scrollbar.onScroll}
           >
@@ -290,11 +299,6 @@ export function ModelPicker({ open, onClose }: { open: boolean; onClose: () => v
                             ) : null}
                           </span>
                           <span className={detailClass}>
-                            {loading ? (
-                              <span className="modelPicker-spinner">
-                                {<Icon icon={Loader2} size={11} />}
-                              </span>
-                            ) : null}
                             {status?.label ?? <ModelDetail item={item} />}
                           </span>
                         </span>
@@ -324,11 +328,11 @@ export function ModelPicker({ open, onClose }: { open: boolean; onClose: () => v
                           }}
                         />
                       ) : null}
+                      {/* The stop control carries the download's progress as its ring. */}
                       {loading ? (
-                        <IconButton
-                          icon={X}
+                        <ProgressStop
+                          percent={status.percent}
                           label={t("common.cancelModelLoad")}
-                          size={22}
                           className="modelPicker-cancel"
                           onClick={() => void api.cancelModelSelection()}
                         />

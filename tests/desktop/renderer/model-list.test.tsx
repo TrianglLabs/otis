@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest"
 import {
   mergeModelLoad,
   pickerDetailLabel,
-  pickerItemKey,
 } from "../../../src/desktop/renderer/features/models/model-list.js"
 import type {
   HostedPickerChoice,
@@ -10,6 +9,7 @@ import type {
   ModelPickerItem,
   PairPickerChoice,
 } from "../../../src/inference/picker-catalog.js"
+import { pickerItemKey } from "../../../src/inference/picker-filter.js"
 
 const localItem: ModelPickerItem = {
   kind: "model",
@@ -51,10 +51,16 @@ const fireworksItem: ModelPickerItem = {
 }
 
 describe("pickerItemKey", () => {
-  it("uses the selectionKey for PAIR entries and the plain id otherwise", () => {
+  it("uses the selectionKey for PAIR entries and the provider-qualified id otherwise", () => {
     expect(pickerItemKey(pairItem as never)).toBe("ollama:qwen3:32b")
-    expect(pickerItemKey(localItem as never)).toBe("Qwen/Qwen3.8-27B")
-    expect(pickerItemKey(fireworksItem as never)).toBe("accounts/fireworks/models/kimi-k2p5-turbo")
+    expect(pickerItemKey(localItem as never)).toBe("local:Qwen/Qwen3.8-27B")
+    expect(pickerItemKey(fireworksItem as never)).toBe(
+      "fireworks:accounts/fireworks/models/kimi-k2p5-turbo",
+    )
+    // A hosted catalog can list the id a local model uses; the rows still key apart.
+    expect(pickerItemKey({ ...localItem, provider: "together" } as never)).not.toBe(
+      pickerItemKey(localItem as never),
+    )
   })
 })
 
@@ -151,7 +157,7 @@ describe("mergeModelLoad", () => {
 
   it("can place an error on a hosted row", () => {
     const merged = mergeModelLoad([fireworksItem], {
-      modelId: "accounts/fireworks/models/kimi-k2p5-turbo",
+      modelId: "fireworks:accounts/fireworks/models/kimi-k2p5-turbo",
       status: { label: "Failed: quota", kind: "error" },
     })
     expect(merged[0]).toMatchObject({ status: { label: "Failed: quota", kind: "error" } })

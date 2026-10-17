@@ -31,6 +31,7 @@ import {
   type ModelPickerChoice,
   type ModelPickerItem,
 } from "../../inference/picker-catalog.js"
+import { pickerItemKey } from "../../inference/picker-filter.js"
 import type { discoverServerModels } from "../../inference/servers.js"
 import { baseFireworksModelId } from "../../inference/serving-path.js"
 import {
@@ -1057,8 +1058,7 @@ export class DesktopRuntime {
   ): Promise<{ ok: true; choice: ModelPickerChoice } | { ok: false; reason: string }> {
     if (!id) return { ok: false, reason: "Invalid model id." }
     const match = (entry: ModelPickerItem): entry is ModelPickerChoice =>
-      entry.kind === "model" &&
-      ("selectionKey" in entry ? entry.selectionKey === id : entry.id === id)
+      entry.kind === "model" && pickerItemKey(entry) === id
     let item = this.#lastPickerItems?.find(match)
     if (!item) {
       try {

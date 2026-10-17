@@ -6,7 +6,7 @@ import { supportsLlamaCppTarget, unsupportedLlamaCppTargetMessage } from "./llam
 import { findLocalModel, isLocalModelId, LOCAL_MODELS } from "./local-catalog.js"
 import { fitLocalModel, formatMemoryLabel, memoryRequiredFor } from "./local-fit.js"
 import { pairModelKey } from "./pair.js"
-import { hiddenModelKey, providerLabel } from "./picker-filter.js"
+import { modelKey, providerLabel } from "./picker-filter.js"
 import { matchesHostedModel } from "./serving-path.js"
 import {
   HOSTED_PROVIDERS,
@@ -34,6 +34,8 @@ export type ModelPickerHeader = {
 export type ModelPickerStatus = {
   label: string
   kind: "progress" | "error"
+  /** 0 to 100 while a download or verification can measure itself; absent otherwise. */
+  percent?: number
 }
 
 export type LocalPickerChoice = LocalCatalogModel & {
@@ -91,7 +93,7 @@ export type ModelPickerChoice =
 
 type ListModelPickerOptions = {
   hostedApiKeys?: HostedApiKeys
-  /** Hosted models the user hid from the picker (`hiddenModelKey`); the active one still shows. */
+  /** Hosted models the user hid from the picker (`modelKey`); the active one still shows. */
   hiddenModels?: ReadonlySet<string>
   currentModel?: string
   currentProvider?: ModelProvider
@@ -235,8 +237,7 @@ export async function listModelPickerItems(
           downloaded,
           hasDownloadedPacking,
           cpuOffload: fit.available && fit.requiresCpuOffload,
-          status:
-            options.loadStatus?.modelId === selected.id ? options.loadStatus.status : undefined,
+          ...status(modelKey("local", selected.id)),
           active: currentLocalModel === selected.id,
         }
       }),
@@ -268,7 +269,7 @@ export async function listModelPickerItems(
             active: current !== undefined && matchesHostedModel(model, current),
           }),
         )
-        .filter((row) => row.active || !options.hiddenModels?.has(hiddenModelKey(provider, row.id)))
+        .filter((row) => row.active || !options.hiddenModels?.has(modelKey(provider, row.id)))
       return rows.length ? [header(provider), ...rows] : []
     }),
   )

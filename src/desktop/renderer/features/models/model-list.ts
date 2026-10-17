@@ -3,16 +3,12 @@ import type {
   ModelPickerChoice,
   ModelPickerItem,
 } from "../../../../inference/picker-catalog.js"
+import { pickerItemKey } from "../../../../inference/picker-filter.js"
 import { isServerProvider, SERVER_INFO } from "../../../../inference/types.js"
 import type { DesktopStatus } from "../../../contracts.js"
 import { formatContextWindow, formatMemory } from "../../format.js"
 import { englishT } from "../../i18n/index.js"
 import type { Translate } from "../../i18n/messages/en.js"
-
-/** The identifier `selectModel` expects: the item id, or the selectionKey for PAIR entries. */
-export function pickerItemKey(item: ModelPickerChoice): string {
-  return "selectionKey" in item ? item.selectionKey : item.id
-}
 
 /**
  * Overlays an in-flight load's progress or terminal error onto its catalog row. The catalog is

@@ -1,5 +1,5 @@
 import { BorderBeam } from "border-beam"
-import { ArrowUp, ChevronsUpDown, FolderOpen, Gauge, Paperclip, Square, X, Zap } from "lucide-react"
+import { ArrowUp, ChevronsUpDown, FolderOpen, Plus, Square, X, Zap } from "lucide-react"
 import { memo, useEffect, useRef, useState } from "react"
 import {
   MAX_DOCUMENTS_PER_MESSAGE,
@@ -21,7 +21,6 @@ import {
 } from "../../../../inference/types.js"
 import type { SkillSummary } from "../../../../skills/catalog.js"
 import type { DesktopAttachmentInput } from "../../../contracts.js"
-import { Button } from "../../components/Button.js"
 import { FileTypeIcon } from "../../components/FileTypeIcon.js"
 import { Icon } from "../../components/Icon.js"
 import { useI18n } from "../../i18n/index.js"
@@ -64,6 +63,9 @@ function fileExtension(name: string) {
   const dot = name.lastIndexOf(".")
   return dot === -1 ? "" : name.slice(dot).toLowerCase()
 }
+
+/** The dial's arc: from eight o'clock clockwise round to four, in a 20-unit box. */
+const GAUGE_ARC = "M 4.697 15.303 A 7.5 7.5 0 1 1 15.303 15.303"
 
 /**
  * The beam's three layers repainted in the theme's accent: the library breathes a grey palette,
@@ -123,7 +125,13 @@ export const Composer = memo(function Composer({ installing = false }: { install
     "speed",
   )
   const speed = state?.speed ?? null
-  const rate = speed ? t("speed.tokensPerSecond", { rate: Math.round(speed.tokensPerSecond) }) : ""
+  // The dial reads against the fastest rate this session has seen, so it climbs and settles
+  // like a speedometer instead of sitting pinned at full.
+  const [peak, setPeak] = useState(0)
+  useEffect(() => {
+    if (speed) setPeak((prev) => Math.max(prev, speed.tokensPerSecond))
+  }, [speed])
+  const needle = speed ? -135 + 270 * Math.min(1, speed.tokensPerSecond / peak) : 0
   const [draft, setDraft] = useState("")
   const [sendError, setSendError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
@@ -545,6 +553,29 @@ export const Composer = memo(function Composer({ installing = false }: { install
             </div>
           ) : null}
           <div className="composer-footer">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={FILE_ACCEPT}
+              multiple
+              hidden
+              onChange={(event) => {
+                void addFiles(Array.from(event.target.files ?? []))
+                event.target.value = ""
+              }}
+            />
+            {/* The wrapper carries the tooltip, which a disabled button would not show. */}
+            <span className="composer-attachWrap" title={t("composer.addFiles")}>
+              <button
+                type="button"
+                className="composer-round composer-attach"
+                aria-label={t("composer.addFiles")}
+                disabled={!canAttach}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Icon icon={Plus} />
+              </button>
+            </span>
             <span className="composer-context">
               {state?.model ? (
                 <>
@@ -608,60 +639,61 @@ export const Composer = memo(function Composer({ installing = false }: { install
               ) : null}
               {/* Hosted serving is not the user's hardware; only local models show speed. */}
               {speed && state?.model && !isHostedProvider(state.model.provider) ? (
-                <span className="composer-speed" title={t("composer.speedLabel")}>
-                  <Icon icon={Gauge} size={12} />
-                  {speed.exact
-                    ? speed.prefillMs === undefined
-                      ? rate
-                      : `${rate} · ${t("speed.prefill", { seconds: (speed.prefillMs / 1000).toFixed(1) })}`
-                    : `~${rate}`}
+                <span
+                  className="composer-speed"
+                  title={[
+                    t("composer.speedLabel"),
+                    speed.exact && speed.prefillMs !== undefined
+                      ? t("speed.prefill", { seconds: (speed.prefillMs / 1000).toFixed(1) })
+                      : undefined,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                >
+                  {/* A 270° dial: a hairline track, and a needle from the hub that swings from
+                      eight o'clock round to four as the rate climbs to the session's peak. */}
+                  <svg className="composer-gauge" viewBox="0 0 20 20" aria-hidden="true">
+                    <path d={GAUGE_ARC} className="composer-gaugeTrack" />
+                    <line
+                      x1="10"
+                      y1="10"
+                      x2="10"
+                      y2="4"
+                      className="composer-gaugeNeedle"
+                      style={{ transform: `rotate(${needle}deg)` }}
+                    />
+                    <circle cx="10" cy="10" r="1.6" className="composer-gaugeHub" />
+                  </svg>
+                  {/* Keyed on the figure: a change remounts it, and it ticks in from below. */}
+                  <span key={Math.round(speed.tokensPerSecond)} className="composer-speedValue">
+                    {speed.exact ? "" : "~"}
+                    {Math.round(speed.tokensPerSecond)}
+                  </span>{" "}
+                  <span className="composer-speedDim">{t("speed.unit")}</span>
                 </span>
               ) : null}
             </span>
             <span className="composer-actions">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept={FILE_ACCEPT}
-                multiple
-                hidden
-                onChange={(event) => {
-                  void addFiles(Array.from(event.target.files ?? []))
-                  event.target.value = ""
-                }}
-              />
-              <span className="composer-uploadWrap" title={t("composer.addFiles")}>
+              {busy ? (
                 <button
                   type="button"
-                  className="composer-upload iconBtn"
-                  aria-label={t("composer.addFiles")}
-                  disabled={!canAttach}
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <Icon icon={Paperclip} size={14} />
-                </button>
-              </span>
-              {busy ? (
-                <Button
-                  variant="danger"
-                  size="sm"
-                  icon={Square}
-                  onClick={() => void api.stop()}
+                  className="composer-round composer-stop"
+                  aria-label={t("composer.stop")}
                   title={t("composer.stopTitle")}
+                  onClick={() => void api.stop()}
                 >
-                  {t("composer.stop")}
-                </Button>
+                  <Icon icon={Square} size={10} className="composer-stopGlyph" />
+                </button>
               ) : null}
-              <Button
+              <button
                 type="submit"
-                variant="primary"
-                size="sm"
-                iconAfter={ArrowUp}
-                disabled={!canSend}
+                className="composer-round composer-send"
+                aria-label={busy ? t("composer.followUp") : t("composer.send")}
                 title={busy ? t("composer.sendFollowUpTitle") : t("composer.sendTitle")}
+                disabled={!canSend}
               >
-                {busy ? t("composer.followUp") : t("composer.send")}
-              </Button>
+                <Icon icon={ArrowUp} />
+              </button>
             </span>
           </div>
         </form>

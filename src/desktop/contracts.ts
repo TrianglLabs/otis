@@ -257,7 +257,7 @@ export type DesktopStatus = {
   fastServing: { available: boolean; enabled: boolean }
   /** Which hosted providers have an API key. The keys themselves are never sent to the renderer. */
   hostedConfigured: Record<HostedProvider, boolean>
-  /** Hosted models hidden from the picker, as `hiddenModelKey` strings; persisted in settings. */
+  /** Hosted models hidden from the picker, as `modelKey` strings; persisted in settings. */
   hiddenModels: string[]
   /** The Prime Intellect team billed for inference, or null for the personal wallet. */
   primeTeamId: string | null
@@ -473,9 +473,9 @@ export type DesktopApi = {
   /** Bills Prime Intellect requests to this team's wallet; blank returns to the personal one. */
   setPrimeTeamId(teamId: string): Promise<void>
   /**
-   * Selects a picker item, downloading and loading a managed local model when needed. `id` is the
-   * item id, or the selectionKey for PAIR entries whose plain ids collide across engines. Resolves
-   * when the switch finishes.
+   * Selects a picker item by its key (`pickerItemKey`: the provider-qualified id, or the row's
+   * selectionKey), downloading and loading a managed local model when needed. Resolves when the
+   * switch finishes.
    */
   selectModel(id: string): Promise<ModelSelectResult>
   /** Cancels an in-flight model selection; a completed or absent selection is a no-op. */
