@@ -76,8 +76,11 @@ export type SessionReplay = {
   subagents: SessionSubagentRun[]
 }
 
+/** A replayed turn: its segment, and the seq of the event that ended it once it has one. */
+export type ReplayTurnSegment = SessionTurnSegment & { throughSeq?: number }
+
 /** Human scrollback retains admitted turn boundaries even through steering and compaction. */
-export type SessionTranscriptReplay = SessionReplay & { turns: SessionTurnSegment[] }
+export type SessionTranscriptReplay = SessionReplay & { turns: ReplayTurnSegment[] }
 
 export type UsagePurpose = "agent" | "compaction" | "title"
 
@@ -109,6 +112,8 @@ export type NewSessionEvent =
     }
   | { type: "title_renamed"; title: string }
   | ({ type: "view_arranged" } & SessionView)
+  /** This session began as a copy of another's events through `throughSeq` of that session. */
+  | { type: "session_forked"; from: { id: string; dirName: string }; throughSeq: number }
 
 export type SessionEvent = BaseSessionEvent & NewSessionEvent
 
@@ -166,6 +171,7 @@ export async function readSessionEvents(filePath: string): Promise<SessionEvent[
 type ReplayTurn = {
   promptId?: string
   admittedSeq?: number
+  throughSeq?: number
   continuation?: boolean
   /** All steering admitted for this turn, so a checkpoint can preserve the unconsumed suffix. */
   steered?: UserChatMessage[]
@@ -307,14 +313,16 @@ export function replaySessionTranscript(events: readonly SessionEvent[]): Sessio
           ...(event.toolActivities ?? []),
         ]
         turn.subagents = [...(turn.archived?.subagents ?? []), ...(event.subagents ?? [])]
-      } else turns.push(replayTurn([...event.messages], event))
+        turn.throughSeq = event.seq
+      } else turns.push({ ...replayTurn([...event.messages], event), throughSeq: event.seq })
     }
   }
   return {
-    turns: turns.map(({ messages, toolActivities, subagents }) => ({
+    turns: turns.map(({ messages, toolActivities, subagents, throughSeq }) => ({
       messages,
       toolActivities,
       subagents,
+      ...(throughSeq === undefined ? {} : { throughSeq }),
     })),
     messages: turns.flatMap((turn) => turn.messages),
     toolActivities: turns.flatMap((turn) => turn.toolActivities),
@@ -551,6 +559,16 @@ function parseSessionEvent(value: unknown, line: number): SessionEvent {
       members: members.map((member) => ({ id: member.id, dirName: member.dirName })),
       axis,
     }
+  }
+  if (type === "session_forked") {
+    const { from, throughSeq } = value
+    if (!isRecord(from) || typeof from.id !== "string" || !from.id)
+      throw invalidEvent(line, "from.id must be a string")
+    if (typeof from.dirName !== "string" || !from.dirName)
+      throw invalidEvent(line, "from.dirName must be a string")
+    if (typeof throughSeq !== "number" || !Number.isInteger(throughSeq) || throughSeq < 1)
+      throw invalidEvent(line, "throughSeq must be a positive integer")
+    return { ...base, type, from: { id: from.id, dirName: from.dirName }, throughSeq }
   }
   throw invalidEvent(line, "unknown event type")
 }

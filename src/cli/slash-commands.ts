@@ -28,6 +28,7 @@ export type SlashCommand =
   | { type: "fast" }
   | { type: "history" }
   | { type: "new" }
+  | { type: "fork" }
   | { type: "home" }
   | { type: "thinking" }
   | { type: "effort"; level?: string }
@@ -52,6 +53,7 @@ const IMMEDIATE_TYPES = new Set<SlashCommand["type"]>([
   "exit",
   "history",
   "home",
+  "fork",
   "model",
   "new",
   "thinking",
@@ -73,6 +75,7 @@ const SUMMARY_LENGTH = 60
 const CATALOG: readonly CatalogCommand[] = [
   { type: "home", name: "/home", description: "Return to home screen" },
   { type: "new", name: "/new", description: "Start a new session" },
+  { type: "fork", name: "/fork", description: "Branch this session into a new one" },
   { type: "history", name: "/history", description: "Open session history" },
   { type: "model", name: "/model", description: "Choose a model" },
   { type: "settings", name: "/settings", description: "Configure Otis" },

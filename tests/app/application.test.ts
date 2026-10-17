@@ -1193,6 +1193,69 @@ describe("Application session runtimes", () => {
     return session
   }
 
+  it("names a project over its folder and reads its instructions into every session there", async () => {
+    const app = await ready("otis-app-project-")
+    const { workspace } = app.focused
+    expect(app.labelFor(workspace)).toBe(workspace.label)
+    await app.setProject(workspace.dirName, { name: "Side quest", pinned: true })
+    expect(app.settings.projects).toEqual({
+      [workspace.dirName]: { name: "Side quest", pinned: true },
+    })
+    expect(app.projectNames).toEqual({ [workspace.dirName]: "Side quest" })
+    expect(app.status().runtimes[0]?.workspace.label).toBe("Side quest")
+    // Clearing the name keeps the pin and the folder's own label returns; neither drops the entry.
+    await app.setProject(workspace.dirName, { name: undefined })
+    expect(app.settings.projects?.[workspace.dirName]).toEqual({ pinned: true })
+    expect(app.labelFor(workspace)).toBe(workspace.label)
+    await app.setProject(workspace.dirName, { pinned: false })
+    expect(app.settings.projects).toBeUndefined()
+    // Session pins are kept the same way, keyed by store and id.
+    await app.pinSession("s1", workspace.dirName, true)
+    expect(app.pinnedSessions.has(`${workspace.dirName}/s1`)).toBe(true)
+    await app.pinSession("s1", workspace.dirName, false)
+    expect(app.settings.pinnedSessions).toBeUndefined()
+    // Instructions reach the prompt context of the open folder on the next turn.
+    const before = app.projectContext.length
+    await app.writeProjectInstructions(
+      defaultSessionDirectory(workspace.cwd),
+      "Prefer bun over npm.",
+    )
+    expect(app.projectContext).toHaveLength(before + 1)
+    expect(app.projectContext.at(-1)).toMatchObject({ content: "Prefer bun over npm." })
+    await app.writeProjectInstructions(defaultSessionDirectory(workspace.cwd), "")
+    expect(app.projectContext).toHaveLength(before)
+    await app.shutdown()
+  })
+
+  it("branches a stored session at a turn and continues in the branch", async () => {
+    const app = await ready("otis-app-fork-")
+    const saved = await stored(app.cwd, "stored question", "stored answer")
+    const second = await saved.admitPrompt("second question")
+    await saved.completeTurn(second, [
+      { role: "assistant", content: [{ type: "text", text: "second answer" }] },
+    ])
+    expect(await app.openSession(saved.id)).toBe("opened")
+    // Replay hands each finished prompt the seq that ended its turn.
+    const prompts = app.transcript.entries.filter((entry) => entry.speaker === "You")
+    expect(prompts.map((entry) => entry.turnSeq)).toEqual([3, 5])
+
+    const { id, result } = await app.forkSession(saved.id, undefined, 3)
+    expect(result).toBe("opened")
+    expect(id).not.toBe(saved.id)
+    expect(app.sessions.current?.id).toBe(id)
+    expect(app.transcript.entries.map((entry) => entry.text)).toEqual([
+      "stored question",
+      "stored answer",
+    ])
+    expect(app.transcript.history).toHaveLength(2)
+    expect(app.sessions.current?.events.at(-1)).toMatchObject({
+      type: "session_forked",
+      from: { id: saved.id },
+      throughSeq: 3,
+    })
+    await app.shutdown()
+  })
+
   it("marks an unfocused session whose turn failed, until it is shown", async () => {
     const app = await ready("otis-app-failed-")
     const first = app.focused

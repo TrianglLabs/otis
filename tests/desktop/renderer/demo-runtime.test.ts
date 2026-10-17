@@ -438,3 +438,53 @@ describe("demo runtime model lifecycle", () => {
     expect(await localRow(api, id)).toMatchObject({ downloaded: true, hasDownloadedPacking: true })
   })
 })
+
+describe("demo session branching", () => {
+  it("branches the active session through a turn and opens the branch", async () => {
+    const api = createDemoRuntime(undefined, "local")
+    const before = await api.getSnapshot()
+    const source = before.session
+    if (!source) throw new Error("The local demo starts in a session")
+    const prompts = before.entries.filter((entry) => entry.speaker === "You")
+    expect(prompts.every((entry) => entry.turnSeq !== undefined)).toBe(true)
+    const result = await api.forkSession(source.id, undefined, prompts[0]?.turnSeq)
+    expect(result.ok).toBe(true)
+    const after = await api.getSnapshot()
+    expect(after.session?.id).not.toBe(source.id)
+    expect(after.session?.title).toBe(source.title)
+    expect(after.sessions[0]?.id).toBe(after.session?.id)
+    // The branch holds the first turn only: the opening prompt and what followed it before the next.
+    const second = before.entries.findIndex((entry, index) => index > 0 && entry.speaker === "You")
+    expect(after.entries).toEqual(second < 0 ? before.entries : before.entries.slice(0, second))
+  })
+})
+
+describe("demo projects", () => {
+  it("lists projects pinned first, renames and pins them, and keeps instructions per project", async () => {
+    const api = createDemoRuntime()
+    const before = await api.getSnapshot()
+    expect(before.projects[0]).toMatchObject({ dirName: "otis-demo", pinned: true, open: true })
+    expect(await api.readProjectInstructions("otis-demo")).toContain("Prefer bun")
+    await api.setProject("notes-demo", { name: "Reading", pinned: true })
+    const after = await api.getSnapshot()
+    expect(after.projects.find((p) => p.dirName === "notes-demo")).toMatchObject({
+      label: "Reading",
+      pinned: true,
+    })
+    await api.writeProjectInstructions("notes-demo", "Summaries only.")
+    expect(await api.readProjectInstructions("notes-demo")).toBe("Summaries only.")
+    await api.writeProjectInstructions("notes-demo", " ")
+    expect(await api.readProjectInstructions("notes-demo")).toBe("")
+  })
+
+  it("pins and unpins a session", async () => {
+    const api = createDemoRuntime()
+    const [first, second] = (await api.getSnapshot()).sessions
+    await api.pinSession(second.id, second.dirName, true)
+    const pinned = (await api.getSnapshot()).sessions
+    expect(pinned.find((session) => session.id === second.id)?.pinned).toBe(true)
+    expect(pinned.find((session) => session.id === first.id)?.pinned).toBeUndefined()
+    await api.pinSession(second.id, second.dirName, false)
+    expect((await api.getSnapshot()).sessions.some((session) => session.pinned)).toBe(false)
+  })
+})

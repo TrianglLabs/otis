@@ -410,3 +410,23 @@ describe("tool runs", () => {
     expect(found()).toBeNull()
   })
 })
+
+describe("branching", () => {
+  it("offers a branch on finished turns only, naming the turn", async () => {
+    const onBranch = vi.fn()
+    const entries = [
+      message({ speaker: "You", text: "done turn", turnSeq: 4 }),
+      message({ text: "reply" }),
+      message({ speaker: "You", text: "live turn" }),
+      message({ speaker: "You", text: "queued", delivery: "queued", turnSeq: 9 }),
+    ]
+    const { getAllByRole } = render(
+      <TranscriptList entries={entries} thinkingVisible={false} busy={false} onBranch={onBranch} />,
+    )
+    // Only the finished, delivered turn can be branched from.
+    const buttons = getAllByRole("button", { name: "New session from here" })
+    expect(buttons).toHaveLength(1)
+    fireEvent.click(buttons[0])
+    expect(onBranch).toHaveBeenCalledWith(4)
+  })
+})

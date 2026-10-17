@@ -161,21 +161,19 @@
   align-items: center;
   gap: 14px;
   padding: 16px 18px;
-  border: 1px solid var(--hairline);
+  border: 0;
   border-radius: var(--radius-lg);
-  background: var(--bg-surface);
+  background: var(--bg-elev);
   color: var(--text);
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transition:
-    border-color var(--motion) ease,
-    background var(--motion) ease;
+  transition: background var(--motion) ease;
 }
 
+/* The same card as the home screen's: its surface, inked a little under the pointer. */
 .onboarding-card:hover {
-  border-color: var(--border);
-  background: var(--bg-hover);
+  background: var(--bg-card-hover);
 }
 
 .onboarding-cardChevron {

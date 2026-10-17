@@ -1,4 +1,13 @@
-import { CornerDownLeft, FilePlus2, FolderOpen, Search, Trash2 } from "lucide-react"
+import {
+  CornerDownLeft,
+  FilePlus2,
+  FolderOpen,
+  GitBranch,
+  Pin,
+  PinOff,
+  Search,
+  Trash2,
+} from "lucide-react"
 import { Fragment, useEffect, useRef, useState } from "react"
 import type { GlobalSessionPickerItem } from "../../../../app/global-sessions.js"
 import { Button } from "../../components/Button.js"
@@ -292,6 +301,13 @@ export function CommandPalette({
 
   const searching = Boolean(needle) && currentResults === undefined
 
+  // The session under the open menu, for both of its items.
+  const menuRow =
+    menu &&
+    rows.find(
+      (row): row is PaletteRow & { kind: "session" } =>
+        row.kind === "session" && rowKey(row.item) === menu.key,
+    )
   return (
     <>
       <button
@@ -445,7 +461,7 @@ export function CommandPalette({
           <Icon icon={CornerDownLeft} size={11} /> {t("popover.footer")}
         </div>
       </div>
-      {menu ? (
+      {menu && menuRow ? (
         // Rendered outside the dialog: the dialog's translateX transform would trap position:fixed
         // inside it.
         <div
@@ -462,6 +478,34 @@ export function CommandPalette({
             type="button"
             role="menuitem"
             className="palette-menuItem"
+            onClick={() => {
+              setMenu(undefined)
+              const { id, dirName, pinned } = menuRow.item
+              void api.pinSession(id, dirName, !pinned)
+            }}
+          >
+            <Icon icon={menuRow.item.pinned ? PinOff : Pin} size={12} />
+            {t(menuRow.item.pinned ? "palette.unpinSession" : "palette.pinSession")}
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="palette-menuItem"
+            onClick={() => {
+              setMenu(undefined)
+              void api.forkSession(menuRow.item.id, menuRow.item.dirName).then((result) => {
+                if (result.ok) onClose()
+                else setActionError(result.reason)
+              })
+            }}
+          >
+            <Icon icon={GitBranch} size={12} />
+            {t("palette.branchSession")}
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="palette-menuItem palette-menuItem-danger"
             onClick={() => {
               setMenu(undefined)
               setConfirmingDeleteKey(menu.key)

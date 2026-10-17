@@ -117,6 +117,7 @@ function statusFixture(overrides: Partial<DesktopStatus> = {}): DesktopStatus {
     needsWorkspace: false,
     sessions: [],
     recentArtifacts: [],
+    projects: [],
     workspace: { label: "otis", path: "/Users/n/dev/otis" },
     contextTokens: 41_234,
     contextLimit: 200_000,

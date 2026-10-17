@@ -1,8 +1,17 @@
 import { Maximize2, MessagesSquare, Shield, X } from "lucide-react"
-import { type DragEvent, memo, useEffect, useId, useMemo, useRef, useState } from "react"
+import {
+  type DragEvent,
+  memo,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import type { TranscriptEntry } from "../../../../app/transcript.js"
 import type { PaneDrop, PaneSide, PendingPermission, SessionOpResult } from "../../../contracts.js"
-import { Button } from "../../components/Button.js"
+import { Button, Pager, usePage } from "../../components/Button.js"
 import { FileTypeIcon } from "../../components/FileTypeIcon.js"
 import { Icon } from "../../components/Icon.js"
 import { MatrixLoader } from "../../components/MatrixLoader.js"
@@ -13,6 +22,7 @@ import { useDesktop, useDesktopSelector, useDesktopState } from "../../runtime.j
 import type { HomeView } from "../../shell/WorkspaceHeader.js"
 import { PaneRuntimeContext } from "../canvas/canvas-context.js"
 import { FindBar, useFind } from "../canvas/find.js"
+import { ProjectsHome, SessionCard } from "../projects/ProjectsHome.js"
 import { RoutinesHome } from "../routines/RoutinesHome.js"
 import { Composer } from "./Composer.js"
 import { TranscriptList } from "./TranscriptList.js"
@@ -50,14 +60,16 @@ export const SESSION_DRAG_TYPE = "application/x-otis-session"
 export const ConversationView = memo(function ConversationView({
   installing = false,
   homeView,
+  onHomeView,
   findFocus,
 }: {
   installing?: boolean
   homeView: HomeView
+  onHomeView: (view: HomeView) => void
   /** When find in session was last asked for; a change opens the active pane's find bar. */
   findFocus?: number
 }) {
-  const { api } = useDesktop()
+  const { api, store } = useDesktop()
   const state = useDesktopSelector((snapshot) => ({
     focused: snapshot?.runtimes.find((entry) => entry.focused)?.runtime,
     panes: snapshot?.panes ?? emptyPanes,
@@ -71,8 +83,19 @@ export const ConversationView = memo(function ConversationView({
   // A drop lands in an edge band of the conversation, which puts the session on that side, or on
   // a card, which puts it in that card's place.
   const [drop, setDrop] = useState<PaneDrop>()
-  // Why the last dropped palette row was refused, until the next drop.
+  // Why the last dropped palette row, or the last branch, was refused, until the next one.
   const [refused, setRefused] = useState<string>()
+  // Branching reads the pane's session when clicked, so no row subscribes to runtime changes.
+  const branch = useCallback(
+    (runtime: number, turnSeq: number) => {
+      const session = store.getState()?.runtimes.find((entry) => entry.runtime === runtime)?.session
+      if (!session) return
+      void api
+        .forkSession(session.id, session.dirName, turnSeq)
+        .then((result) => setRefused(result.ok ? undefined : result.reason))
+    },
+    [api, store],
+  )
   const dropOf = (event: DragEvent<HTMLDivElement>): PaneDrop => {
     const { left, top, width, height } = event.currentTarget.getBoundingClientRect()
     const x = (event.clientX - left) / width
@@ -134,7 +157,9 @@ export const ConversationView = memo(function ConversationView({
             split={panes.length > 1}
             dropTarget={drop !== undefined && "replace" in drop && drop.replace === runtime}
             homeView={homeView}
+            onHomeView={onHomeView}
             findFocus={findFocus}
+            onBranch={branch}
           />
         ))}
         {drop && "side" in drop ? (
@@ -168,7 +193,9 @@ const ConversationPane = memo(function ConversationPane({
   split,
   dropTarget,
   homeView,
+  onHomeView,
   findFocus,
+  onBranch,
 }: {
   runtime: number
   active: boolean
@@ -176,9 +203,12 @@ const ConversationPane = memo(function ConversationPane({
   /** A dragged session hovering over this card would take its place. */
   dropTarget: boolean
   homeView: HomeView
+  onHomeView: (view: HomeView) => void
   findFocus: number | undefined
+  onBranch: (runtime: number, turnSeq: number) => void
 }) {
   const { api } = useDesktop()
+  const branch = useCallback((turnSeq: number) => onBranch(runtime, turnSeq), [onBranch, runtime])
   const { locale, t } = useI18n()
   const state = useDesktopSelector((snapshot) => {
     const own = snapshot?.runtimes.find((entry) => entry.runtime === runtime)
@@ -330,7 +360,7 @@ const ConversationPane = memo(function ConversationPane({
         />
       ) : null}
       {!split && state.entries.length === 0 && !state.permission ? (
-        <EmptyState view={homeView} />
+        <EmptyState view={homeView} onView={onHomeView} />
       ) : (
         <PaneRuntimeContext.Provider value={runtime}>
           <TranscriptList
@@ -342,6 +372,7 @@ const ConversationPane = memo(function ConversationPane({
             find={finder.request}
             onFindCount={finder.setMatchCount}
             rail={!split}
+            onBranch={branch}
           />
         </PaneRuntimeContext.Provider>
       )}
@@ -388,30 +419,48 @@ export const SessionStrip = memo(function SessionStrip() {
   )
 })
 
-const RECENT_SESSIONS = 4
+// Each home row shows four cards: the recents stop there, the pinned sessions page.
+const HOME_CARDS = 4
 
 /**
  * A quiet home screen: the mark and any setup guidance, then cards on the composer's width for
- * recent sessions and recent Canvas documents, each document with its opening set on a page.
+ * pinned sessions, recent sessions, and recent Canvas documents, each document with its opening
+ * set on a page. A session's pin, at its card's edge, moves it between the first two rows.
  * First run — no history anywhere — shows only the mark and any setup guidance.
  */
-function EmptyState({ view }: { view: HomeView }) {
+function EmptyState({ view, onView }: { view: HomeView; onView: (view: HomeView) => void }) {
   const { api } = useDesktop()
   const { locale, t } = useI18n()
   const state = useDesktopState("sessions", "recentArtifacts", "modelState")
   const [error, setError] = useState<string>()
   // Hovering a session lights the others it was last on screen with; opening it brings them.
   const [hovered, setHovered] = useState<NonNullable<typeof state>["sessions"][number]>()
+  const pinned = usePage(state?.sessions.filter((session) => session.pinned) ?? [], HOME_CARDS)
   if (!state) return null
   const documents = state.recentArtifacts
-
-  const recents = state.sessions.filter((session) => !session.active).slice(0, RECENT_SESSIONS)
+  const recents = state.sessions
+    .filter((session) => !session.active && !session.pinned)
+    .slice(0, HOME_CARDS)
   const open = async (run: () => Promise<SessionOpResult>) => {
     setError(undefined)
     const result = await run()
     if (!result.ok) setError(result.reason)
   }
-  const firstRun = recents.length === 0 && documents.length === 0
+  const firstRun = pinned.shown.length === 0 && recents.length === 0 && documents.length === 0
+  const cards = (sessions: typeof recents) => (
+    <div className="home-grid home-grid-sessions">
+      {sessions.map((session) => (
+        <SessionCard
+          key={`${session.dirName}:${session.id}`}
+          session={session}
+          meta={`${session.workspaceLabel} · ${formatSessionDetail(session.detail, locale)}`}
+          grouped={inView(hovered, session)}
+          onHover={setHovered}
+          onOpen={() => void open(() => api.selectSession(session.id, session.dirName))}
+        />
+      ))}
+    </div>
+  )
 
   return (
     <div className="home">
@@ -427,38 +476,28 @@ function EmptyState({ view }: { view: HomeView }) {
       </div>
       {view === "routines" ? (
         <RoutinesHome />
+      ) : view === "projects" ? (
+        <ProjectsHome onHome={() => onView("home")} />
       ) : firstRun ? null : (
         <div className="home-recents">
-          <span className="home-heading">
-            {t("home.recent")}
-            <span>{t("home.searchSessions")}</span>
-          </span>
-          <div className="home-grid home-grid-sessions">
-            {recents.map((session) => (
-              <button
-                key={`${session.dirName}:${session.id}`}
-                type="button"
-                className={`home-card${inView(hovered, session) ? " home-card-grouped" : ""}`}
-                title={session.title}
-                onMouseEnter={() => setHovered(session)}
-                onMouseLeave={() => setHovered(undefined)}
-                onClick={() => void open(() => api.selectSession(session.id, session.dirName))}
-              >
-                <span className="home-cardTile">
-                  {session.working ? <MatrixLoader /> : <Icon icon={MessagesSquare} size={15} />}
-                  {!session.working && (session.unseen || session.resumable) ? (
-                    <span className="stateDot home-cardDot" />
-                  ) : null}
-                </span>
-                <span className="home-cardText">
-                  <span className="home-cardTitle">{session.title}</span>
-                  <span className="home-cardMeta">
-                    {session.workspaceLabel} · {formatSessionDetail(session.detail, locale)}
-                  </span>
-                </span>
-              </button>
-            ))}
-          </div>
+          {pinned.shown.length ? (
+            <>
+              <span className="home-heading">
+                {t("home.pinned")}
+                <Pager {...pinned.pager} />
+              </span>
+              {cards(pinned.shown)}
+            </>
+          ) : null}
+          {recents.length ? (
+            <>
+              <span className="home-heading">
+                {t("home.recent")}
+                <span>{t("home.searchSessions")}</span>
+              </span>
+              {cards(recents)}
+            </>
+          ) : null}
           {documents.length ? (
             <>
               <span className="home-heading">{t("home.documents")}</span>
@@ -567,7 +606,7 @@ function PermissionCard({
         ) : null}
       </div>
       <div className="permissionCard-actions">
-        <Button variant="outline" size="sm" onClick={() => onRespond(permission.id, false)}>
+        <Button size="sm" onClick={() => onRespond(permission.id, false)}>
           {t("permission.deny")}
         </Button>
         <Button variant="primary" size="sm" onClick={() => onRespond(permission.id, true)}>

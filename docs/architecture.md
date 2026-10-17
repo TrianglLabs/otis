@@ -58,6 +58,13 @@ src/cli
   home-screen statistic derivation.
 - `src/skills` owns portable Agent Skill discovery, manifest validation, precedence, and confined resource reads.
 - `src/storage` owns append-only session events, validation, replay, titles, tool cards, and diffs.
+  A branch (`/fork` in the terminal, "Branch from here" on a finished turn or "Branch session" in the
+  desktop palette) is a new session file in the same store holding the parent's events through the
+  turn's end, renumbered, with the parent's artifact copies duplicated and a `session_forked` event
+  naming the parent and the cut. Usage and screen-arrangement events stay with the parent.
+  A workspace is a project: `settings.projects` keeps the user's name and pin for it by its session
+  store's dir name, and `instructions.md` beside its sessions holds instructions `Workspace.context`
+  reads into the system prompt after the folder's own instruction files.
 - `src/tools` owns structured tool contracts, local execution, and the provider-neutral web-tool adapter.
 - `src/web` owns Parallel request serialization, response validation, and error handling.
 

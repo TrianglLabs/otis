@@ -377,18 +377,42 @@
 
 /* User message */
 
+/* The bubble at the right; what leads it (a delivery mark, the branch action) sits to its left. */
 .userRow {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 4px;
-}
-
-.userRow-steering {
-  flex-direction: row;
   justify-content: flex-end;
   align-items: center;
   gap: 8px;
+}
+
+/* Branching from a finished turn: a quiet disc that appears when the row is hovered or focused. */
+.userRow-branch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-dim);
+  opacity: 0;
+  transition:
+    opacity 120ms ease,
+    background var(--motion),
+    color var(--motion);
+}
+
+.userRow:hover .userRow-branch,
+.userRow-branch:focus-visible {
+  opacity: 1;
+}
+
+.userRow-branch:hover {
+  color: var(--text);
+  background: var(--bg-hover);
 }
 
 .steeringIndicator {
@@ -401,13 +425,6 @@
 .conversation-busy .steeringIndicator svg,
 .agentTrace-running .steeringIndicator svg {
   animation: spin 6s linear infinite;
-}
-
-.userRow-queued {
-  flex-direction: row;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 8px;
 }
 
 /* Same slot and treatment as the steering wheel — it leads the message — minus the spin: queued
@@ -1576,6 +1593,44 @@ button.composer-model-failed {
   transform: scale(0.985);
 }
 
+/* A card with two targets: the body opens it, and a small button at its edge acts on it (a
+   routine's pencil, a session's or project's pin), shown while the card is hovered. */
+.home-card-split {
+  padding: 0;
+  cursor: default;
+}
+
+.home-card-split:active {
+  transform: none;
+}
+
+.home-cardOpen {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px 0 12px 14px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.home-cardEdit {
+  flex-shrink: 0;
+  margin: 0 10px;
+  opacity: 0;
+  transition: opacity var(--motion);
+}
+
+.home-card-split:hover .home-cardEdit,
+.home-cardEdit:focus-visible {
+  opacity: 1;
+}
+
 .home-cardTile {
   position: relative;
   display: grid;
@@ -1633,7 +1688,8 @@ button.composer-model-failed {
 
 /* The document's opening on a small page, in the page colour under the card's, fading out below. */
 .home-page {
-  aspect-ratio: 16 / 9;
+  /* A glimpse of the page, wide and short, so Home's rows stay on one screen above the composer. */
+  aspect-ratio: 21 / 9;
   padding: 10px 12px;
   border-radius: 8px;
   background: var(--bg);

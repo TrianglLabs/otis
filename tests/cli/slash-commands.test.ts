@@ -149,6 +149,7 @@ describe("slash commands", () => {
     expect(names).toEqual([
       "/home",
       "/new",
+      "/fork",
       "/history",
       "/model",
       "/settings",

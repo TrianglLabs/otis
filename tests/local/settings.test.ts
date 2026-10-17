@@ -18,10 +18,12 @@ import {
   saveLocalThinking,
   savePermissionMode,
   savePrimeTeamId,
+  saveProject,
   saveRemote,
   saveSelectedModel,
   saveSelectedTheme,
   saveServe,
+  saveSessionPin,
   saveSubagentPanelVisible,
   saveTextSize,
   saveThinkingVisible,
@@ -932,5 +934,43 @@ describe("settings write path pinning", () => {
     } finally {
       delete process.env.OTIS_HOME
     }
+  })
+})
+
+describe("project settings", () => {
+  it("names and pins projects by store dir, dropping entries with neither", async () => {
+    const file = join(await tempDirectory(), "config.json")
+    await saveProject("otis-0123456789ab", { name: "Otis" }, { file })
+    await saveProject("otis-0123456789ab", { pinned: true }, { file })
+    await saveProject("notes-0123456789ab", { pinned: true }, { file })
+    expect((await loadLocalSettings({ file, env: {} })).projects).toEqual({
+      "otis-0123456789ab": { name: "Otis", pinned: true },
+      "notes-0123456789ab": { pinned: true },
+    })
+    await saveProject("notes-0123456789ab", { pinned: false }, { file })
+    await saveProject("otis-0123456789ab", { name: undefined, pinned: false }, { file })
+    expect(JSON.parse(await readFile(file, "utf8")).projects).toBeUndefined()
+    await writeFile(file, JSON.stringify({ version: 1, projects: { a: { name: 3 } } }), "utf8")
+    await expect(loadLocalSettings({ file, env: {} })).rejects.toThrow("projects.a.name")
+  })
+
+  it("pins sessions by store dir and id, in the order pinned, and drops the list when empty", async () => {
+    const file = join(await tempDirectory(), "config.json")
+    await saveSessionPin("s1", "otis-0123456789ab", true, { file })
+    expect(await saveSessionPin("s1", "notes-0123456789ab", true, { file })).toEqual([
+      "otis-0123456789ab/s1",
+      "notes-0123456789ab/s1",
+    ])
+    // Pinning again neither repeats nor reorders.
+    await saveSessionPin("s1", "otis-0123456789ab", true, { file })
+    expect((await loadLocalSettings({ file, env: {} })).pinnedSessions).toEqual([
+      "otis-0123456789ab/s1",
+      "notes-0123456789ab/s1",
+    ])
+    await saveSessionPin("s1", "otis-0123456789ab", false, { file })
+    expect(await saveSessionPin("s1", "notes-0123456789ab", false, { file })).toBeUndefined()
+    expect(JSON.parse(await readFile(file, "utf8")).pinnedSessions).toBeUndefined()
+    await writeFile(file, JSON.stringify({ version: 1, pinnedSessions: "s1" }), "utf8")
+    await expect(loadLocalSettings({ file, env: {} })).rejects.toThrow("pinnedSessions")
   })
 })

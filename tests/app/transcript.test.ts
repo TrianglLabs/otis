@@ -858,3 +858,52 @@ describe("TranscriptProjector", () => {
     ).toEqual([{ ...artifact, version: 2 }])
   })
 })
+
+describe("TranscriptStore turn ends", () => {
+  it("marks the prompt that opened each replayed turn with the seq that ended it", () => {
+    const transcript = new TranscriptStore("/work")
+    const reply = (text: string) => ({
+      role: "assistant" as const,
+      content: [{ type: "text" as const, text }],
+    })
+    transcript.replaceMessages(
+      [],
+      [
+        { messages: [{ role: "user", content: "first" }, reply("one")], throughSeq: 4 },
+        // Steering joined the second turn; only the prompt that opened it carries the end.
+        {
+          messages: [
+            { role: "user", content: "second" },
+            { role: "user", content: "and also" },
+            reply("two"),
+          ],
+          throughSeq: 9,
+        },
+        { messages: [{ role: "user", content: "pending" }] },
+      ],
+    )
+    expect(
+      transcript.entries
+        .filter((entry) => entry.speaker === "You")
+        .map((entry) => [entry.text, entry.turnSeq]),
+    ).toEqual([
+      ["first", 4],
+      ["second", 9],
+      ["and also", undefined],
+      ["pending", undefined],
+    ])
+  })
+
+  it("lets a live turn's prompt learn its end and tells listeners", () => {
+    const transcript = new TranscriptStore("/work")
+    const prompt = transcript.addUserMessage("live")
+    const changes: TranscriptChange[] = []
+    transcript.subscribe((change) => changes.push(change))
+    transcript.markTurnEnded(prompt.id, 12)
+    expect(transcript.entries[0]).toMatchObject({ text: "live", turnSeq: 12 })
+    expect(changes).toEqual([{ op: "upsert", id: prompt.id }])
+    // An unknown id is ignored rather than inventing an entry.
+    transcript.markTurnEnded(99, 13)
+    expect(transcript.entries).toHaveLength(1)
+  })
+})

@@ -1,6 +1,7 @@
 import { basename } from "node:path"
 import { isCanvasArtifact } from "../artifacts/canvas.js"
 import type { ArtifactKind, PublishedArtifactReference } from "../artifacts/types.js"
+import { sessionPinKey } from "../local/settings.js"
 import { digestAllSessions, listAllSessions, searchAllSessions } from "../storage/session.js"
 import { type OpenSession, type SessionPickerItem, toSessionPickerItem } from "./sessions.js"
 
@@ -14,6 +15,8 @@ export type GlobalSessionPickerItem = SessionPickerItem & {
   dirName: string
   workspaceLabel: string
   workspacePath?: string
+  /** Kept on the home screen. */
+  pinned?: true
 }
 
 type GlobalOptions = {
@@ -24,6 +27,10 @@ type GlobalOptions = {
   open?: readonly OpenSession[]
   /** Workspace candidates for recovering pre-registration dirs (typically the current one). */
   seeds?: string[]
+  /** What the user calls a workspace, by session store dir name, over its folder name. */
+  names?: Readonly<Record<string, string>>
+  /** The sessions kept on the home screen, by `sessionPinKey`. */
+  pinned?: ReadonlySet<string>
 }
 
 /** A Canvas document published by a tool in any workspace's session, at its latest version. */
@@ -37,8 +44,17 @@ export type RecentArtifact = {
   updatedAt: string
 }
 
-/** Unregistered dirs: strip the content hash suffix for a readable stand-in label. */
-function workspaceLabel(dirName: string, workspacePath?: string) {
+/**
+ * The user's name for the workspace when given; else the folder's name; for unregistered dirs,
+ * the dir name without its content hash suffix.
+ */
+export function workspaceLabel(
+  dirName: string,
+  workspacePath?: string,
+  names?: Readonly<Record<string, string>>,
+) {
+  const name = names?.[dirName]
+  if (name) return name
   return workspacePath
     ? basename(workspacePath) || workspacePath
     : dirName.replace(/-[0-9a-f]{12}$/, "") || dirName
@@ -55,9 +71,18 @@ function toGlobalItem(
     ...toSessionPickerItem(summary, open),
     ...(snippet !== undefined ? { snippet } : {}),
     dirName,
-    workspaceLabel: workspaceLabel(dirName, workspacePath),
+    workspaceLabel: workspaceLabel(dirName, workspacePath, options.names),
     ...(workspacePath !== undefined ? { workspacePath } : {}),
+    ...(options.pinned?.has(sessionPinKey(summary.id, dirName)) ? { pinned: true as const } : {}),
   }
+}
+
+/** A workspace's session store: where it is, how many sessions it holds, and its last activity. */
+export type WorkspaceHistory = {
+  dirName: string
+  path?: string
+  sessions: number
+  updatedAt?: string
 }
 
 export async function listGlobalSessionPickerItems(
@@ -80,6 +105,8 @@ export type GlobalHistory = {
   sessions: GlobalSessionPickerItem[]
   /** The newest Canvas documents across every workspace, one per artifact at its latest version. */
   artifacts: RecentArtifact[]
+  /** Every workspace with a session store, including ones that have no sessions yet. */
+  workspaces: WorkspaceHistory[]
 }
 
 /**
@@ -91,8 +118,21 @@ export async function listGlobalHistory(
   artifactLimit: number,
   options: GlobalOptions,
 ): Promise<GlobalHistory> {
-  const sessions = await digestAllSessions(options.seeds)
+  const { dirs, sessions } = await digestAllSessions(options.seeds)
   const summaries = sessions.map((session) => session.summary)
+  const workspaces = dirs.map(({ dirName, workspacePath }): WorkspaceHistory => {
+    const own = summaries.filter((summary) => summary.dirName === dirName)
+    const updatedAt = own
+      .map((summary) => summary.updatedAt)
+      .sort()
+      .at(-1)
+    return {
+      dirName,
+      ...(workspacePath === undefined ? {} : { path: workspacePath }),
+      sessions: own.length,
+      ...(updatedAt === undefined ? {} : { updatedAt }),
+    }
+  })
   const latest = new Map<string, RecentArtifact>()
   for (const { summary, artifacts } of sessions)
     for (const { reference, endedAt } of artifacts) {
@@ -103,7 +143,7 @@ export async function listGlobalHistory(
         kind: reference.kind,
         sessionId: summary.id,
         dirName: summary.dirName,
-        workspaceLabel: workspaceLabel(summary.dirName, summary.workspacePath),
+        workspaceLabel: workspaceLabel(summary.dirName, summary.workspacePath, options.names),
         updatedAt: endedAt ?? summary.updatedAt,
       }
       const known = latest.get(reference.artifactId)
@@ -115,5 +155,6 @@ export async function listGlobalHistory(
     artifacts: [...latest.values()]
       .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))
       .slice(0, artifactLimit),
+    workspaces,
   }
 }

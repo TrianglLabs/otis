@@ -583,7 +583,6 @@ describe("user delivery markers", () => {
         onExpandedChange={() => {}}
       />,
     )
-    expect(view.container.querySelector(".userRow-queued")).toBeTruthy()
     expect(screen.getByRole("img", { name: "Queued" })).toBeTruthy()
     expect(view.container.querySelector(".deliveryTag")).toBeNull()
     const row = view.container.querySelector(".userRow") as HTMLElement
@@ -608,7 +607,6 @@ describe("user delivery markers", () => {
         onExpandedChange={() => {}}
       />,
     )
-    expect(view.container.querySelector(".userRow-steering")).toBeTruthy()
     expect(screen.getByRole("img", { name: "Steering" })).toBeTruthy()
     const row = view.container.querySelector(".userRow") as HTMLElement
     expect(row.firstElementChild?.className).toContain("steeringIndicator")

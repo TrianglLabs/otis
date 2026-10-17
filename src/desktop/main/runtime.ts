@@ -3,7 +3,6 @@ import { basename, extname, join, resolve } from "node:path"
 import { isDeepStrictEqual } from "node:util"
 import {
   Application,
-  formatWorkspaceLabel,
   NO_FAST_SERVING,
   SELECTION_SUPERSEDED,
   type SessionRuntime,
@@ -13,6 +12,8 @@ import {
   type GlobalSessionPickerItem,
   listGlobalHistory,
   searchGlobalSessionPickerItems,
+  type WorkspaceHistory,
+  workspaceLabel,
 } from "../../app/global-sessions.js"
 import type { LocalServerInputs } from "../../app/local-servers.js"
 import { isAbortError } from "../../app/models.js"
@@ -70,7 +71,11 @@ import {
   sessionFile,
   sessionRootDirectory,
 } from "../../storage/session-files.js"
-import { readWorkspacePath, registerWorkspacePath } from "../../storage/workspace-registry.js"
+import {
+  readProjectInstructions,
+  readWorkspacePath,
+  registerWorkspacePath,
+} from "../../storage/workspace-registry.js"
 import {
   type ArtifactAssetResult,
   type ArtifactResult,
@@ -83,6 +88,7 @@ import {
   type PaneAxis,
   type PaneDrop,
   type PaneSide,
+  type ProjectSummary,
   type SendPromptResult,
   type ServeStatus,
   type SessionOpResult,
@@ -933,6 +939,8 @@ export class DesktopRuntime {
     return searchGlobalSessionPickerItems(query, {
       open: this.app.openSessions(this.#panes),
       seeds: [this.app.cwd],
+      names: this.app.projectNames,
+      pinned: this.app.pinnedSessions,
     })
   }
 
@@ -973,6 +981,92 @@ export class DesktopRuntime {
     void this.#refreshStats()
     this.#markStateDirty()
     return { ok: true }
+  }
+
+  /**
+   * The workspaces with a known folder as projects: the user's name and pin from settings, the
+   * session count and last activity from history; the most recent first, then by name.
+   */
+  #projects(workspaces: WorkspaceHistory[]): ProjectSummary[] {
+    const settings = this.app.settings.projects ?? {}
+    const names = this.app.projectNames
+    const openDirs = new Set(this.app.runtimes.map((runtime) => runtime.workspace.dirName))
+    return workspaces
+      .flatMap(({ dirName, path, sessions, updatedAt }): ProjectSummary[] =>
+        path === undefined
+          ? []
+          : [
+              {
+                dirName,
+                path,
+                label: workspaceLabel(dirName, path, names),
+                pinned: settings[dirName]?.pinned === true,
+                sessions,
+                ...(updatedAt === undefined ? {} : { updatedAt }),
+                open: openDirs.has(dirName),
+              },
+            ],
+      )
+      .sort(
+        (left, right) =>
+          (right.updatedAt ?? "").localeCompare(left.updatedAt ?? "") ||
+          left.label.localeCompare(right.label),
+      )
+  }
+
+  async setProject(dirName: string, project: { name?: string; pinned?: boolean }) {
+    await this.app.setProject(dirName, {
+      ...(project.name === undefined ? {} : { name: project.name.trim() || undefined }),
+      ...(project.pinned === undefined ? {} : { pinned: project.pinned }),
+    })
+    // Labels ride on every history row, so the scan is redone.
+    this.#historyCache = undefined
+    this.#markStateDirty()
+  }
+
+  async pinSession(id: string, dirName: string, pinned: boolean) {
+    await this.app.pinSession(id, dirName, pinned)
+    this.#historyCache = undefined
+    this.#markStateDirty()
+  }
+
+  readProjectInstructions(dirName: string) {
+    return readProjectInstructions(sessionDir(dirName))
+  }
+
+  writeProjectInstructions(dirName: string, text: string) {
+    return this.app.writeProjectInstructions(sessionDir(dirName), text)
+  }
+
+  /** Branches a stored session at one of its turns and shows the branch in the active card. */
+  async forkSession(
+    sessionId: string,
+    dirName?: string,
+    throughSeq?: number,
+  ): Promise<SessionOpResult> {
+    if (this.#disposed) return { ok: false, reason: RESTARTING }
+    if (this.#locating) return { ok: false, reason: LOCATING }
+    if (!sessionId) return { ok: false, reason: "Invalid session id." }
+    const folder = await this.#storeFolder(dirName)
+    if (!folder) return { ok: false, reason: SESSION_REASONS.unlocated }
+    this.#sessionSelecting += 1
+    try {
+      this.#recordView([this.app.focused])
+      const { result } = await this.app.forkSession(
+        sessionId,
+        { directory: dirName === undefined ? undefined : sessionDir(dirName), cwd: folder },
+        throughSeq,
+      )
+      if (result === "locked") return { ok: false, reason: SESSION_REASONS.locked }
+      this.soloPane(this.app.focused.id)
+      this.#historyCache = undefined
+      this.#markStateDirty()
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, reason: error instanceof Error ? error.message : String(error) }
+    } finally {
+      this.#sessionSelecting -= 1
+    }
   }
 
   /**
@@ -1590,6 +1684,8 @@ export class DesktopRuntime {
       const pending = listGlobalHistory(RECENT_ARTIFACTS, {
         open: app.openSessions(this.#panes),
         seeds: [...new Set(app.runtimes.map((runtime) => runtime.workspace.cwd))],
+        names: app.projectNames,
+        pinned: app.pinnedSessions,
       })
       this.#historyCache = pending
       void pending.catch(() => {
@@ -1623,7 +1719,7 @@ export class DesktopRuntime {
       paneAxis: this.#paneAxis,
       needsWorkspace: this.#pendingWorkspace !== undefined,
       routines: this.app.routines?.list() ?? [],
-      workspace: { label: formatWorkspaceLabel(app.cwd), path: app.cwd },
+      workspace: { label: app.labelFor(app.focused.workspace), path: app.cwd },
       stats: this.#stats,
       freshAchievements: (Object.keys(this.#stats?.achievements ?? {}) as AchievementId[]).filter(
         (id) => !app.settings.achievementsSeen?.includes(id),
@@ -1649,9 +1745,10 @@ export class DesktopRuntime {
       runtimePlatform: this.options.platform,
       // Capture all live fields before yielding so a slow history scan cannot mix two sessions'
       // metadata.
-      ...(await this.#historyCache.then(({ sessions, artifacts }) => ({
+      ...(await this.#historyCache.then(({ sessions, artifacts, workspaces }) => ({
         sessions,
         recentArtifacts: artifacts,
+        projects: this.#projects(workspaces),
       }))),
     }
   }

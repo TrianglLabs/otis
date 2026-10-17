@@ -1,8 +1,9 @@
 import { appendFile, mkdir } from "node:fs/promises"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 import { listGlobalHistory, listGlobalSessionPickerItems } from "../../src/app/global-sessions.js"
 import { sessionRootDirectory } from "../../src/storage/session-files.js"
+import { registerWorkspacePath } from "../../src/storage/workspace-registry.js"
 import { useOtisHome } from "./support/otis-home.js"
 
 const isolate = useOtisHome()
@@ -139,5 +140,38 @@ describe("global history", () => {
     ])
     expect(history.artifacts[1]?.workspaceLabel).toBe("alpha")
     expect((await listGlobalHistory(1, {})).artifacts.map((row) => row.name)).toEqual(["site.html"])
+  })
+})
+
+describe("workspaces as projects", () => {
+  it("lists every store with its folder, session count, and last activity, under the user's names", async () => {
+    await isolate("otis-projects-")
+    await sessionWithText("alpha-000000000001", "s1", "first")
+    await sessionWithText("alpha-000000000001", "s2", "second")
+    await sessionWithText("beta-000000000002", "s3", "third")
+    await registerWorkspacePath(
+      join(sessionRootDirectory(), "alpha-000000000001"),
+      "/Users/dev/alpha",
+    )
+    const history = await listGlobalHistory(5, {
+      names: { "alpha-000000000001": "Alpha work" },
+      pinned: new Set(["beta-000000000002/s3"]),
+    })
+    // The pin rides on its row alone; ids repeat across stores, so the store is part of the key.
+    expect(history.sessions.filter((session) => session.pinned)).toEqual([
+      expect.objectContaining({ id: "s3", dirName: "beta-000000000002", pinned: true }),
+    ])
+    const alpha = history.workspaces.find((entry) => entry.dirName === "alpha-000000000001")
+    expect(alpha).toMatchObject({ path: resolve("/Users/dev/alpha"), sessions: 2 })
+    expect(alpha?.updatedAt).toBeDefined()
+    // A store with no marker is listed without a path, so the GUI can offer to locate it.
+    expect(history.workspaces.find((entry) => entry.dirName === "beta-000000000002")).toEqual({
+      dirName: "beta-000000000002",
+      sessions: 1,
+      updatedAt: expect.any(String),
+    })
+    // The name rides on the session rows too; an unnamed store keeps its folder name.
+    expect(history.sessions.find((s) => s.id === "s1")?.workspaceLabel).toBe("Alpha work")
+    expect(history.sessions.find((s) => s.id === "s3")?.workspaceLabel).toBe("beta")
   })
 })

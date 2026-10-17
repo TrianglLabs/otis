@@ -232,26 +232,8 @@
   display: flex;
   align-items: center;
   flex-shrink: 0;
-  padding: 8px 10px;
+  padding: 12px 14px;
   border-bottom: 1px solid var(--hairline);
-}
-
-.modelCard-back {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 4px 8px 4px 4px;
-  border: none;
-  border-radius: var(--radius);
-  background: transparent;
-  color: var(--accent-ink);
-  font: inherit;
-  font-size: var(--text-ui);
-  cursor: pointer;
-}
-
-.modelCard-back:hover {
-  background: var(--bg-hover);
 }
 
 .modelCard-scroll {

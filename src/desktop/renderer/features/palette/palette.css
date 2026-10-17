@@ -88,7 +88,7 @@
   border: none;
   border-radius: var(--radius-sm);
   background: none;
-  color: var(--danger);
+  color: var(--text);
   font: inherit;
   font-size: var(--text-ui);
   text-align: left;
@@ -97,6 +97,11 @@
 
 .palette-menuItem:hover {
   background: var(--bg-hover);
+}
+
+/* Deleting is the one destructive item; it alone reads in the danger colour. */
+.palette-menuItem-danger {
+  color: var(--danger);
 }
 
 .palette-confirm {

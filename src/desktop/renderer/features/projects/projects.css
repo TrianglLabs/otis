@@ -1,0 +1,96 @@
+/* The heading's right slot: the pager, then the folder picker. */
+.project-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* The project's card: its mark, name, folder and actions on one row, and its instructions on
+   a second under a hairline. */
+.project-head {
+  display: flex;
+  flex-direction: column;
+  padding: 0 14px;
+  border-radius: 14px;
+  background: var(--bg-elev);
+}
+
+.project-headRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 0;
+}
+
+.project-brief {
+  gap: 16px;
+  padding: 10px 0;
+  border-top: 1px solid var(--hairline);
+}
+
+.project-tile {
+  width: 40px;
+  height: 40px;
+}
+
+.project-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.project-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+
+/* Renaming hides behind the pencil until the card is hovered or the pencil focused. */
+.project-edit {
+  opacity: 0;
+  transition: opacity var(--motion);
+}
+
+.project-head:hover .project-edit,
+.project-edit:focus-visible {
+  opacity: 1;
+}
+
+/* The folder under the name, and the instructions' first line: one dim line each, cut short. */
+.project-path,
+.project-briefMeta {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--text-meta);
+  color: var(--text-dim);
+}
+
+.project-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* The instructions row: the label over their first line, and Edit, which opens the sheet. */
+.project-briefLabel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: var(--text-ui);
+}
+
+.project-hint {
+  margin: 6px 4px 0;
+  font-size: var(--text-meta);
+  line-height: 1.45;
+  color: var(--text-dim);
+}

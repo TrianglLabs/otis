@@ -48,6 +48,13 @@ const api: DesktopApi = {
   pickWorkspaceFolder: () => invoke(DESKTOP_CHANNELS.pickWorkspaceFolder),
   registerWorkspace: (dirName, path) => invoke(DESKTOP_CHANNELS.registerWorkspace, dirName, path),
   deleteSession: (id, dirName) => invoke(DESKTOP_CHANNELS.deleteSession, id, dirName),
+  forkSession: (id, dirName, throughSeq) =>
+    invoke(DESKTOP_CHANNELS.forkSession, id, dirName, throughSeq),
+  setProject: (dirName, project) => invoke(DESKTOP_CHANNELS.setProject, dirName, project),
+  pinSession: (id, dirName, pinned) => invoke(DESKTOP_CHANNELS.pinSession, id, dirName, pinned),
+  readProjectInstructions: (dirName) => invoke(DESKTOP_CHANNELS.readProjectInstructions, dirName),
+  writeProjectInstructions: (dirName, text) =>
+    invoke(DESKTOP_CHANNELS.writeProjectInstructions, dirName, text),
   refreshSessions: () => invoke(DESKTOP_CHANNELS.refreshSessions),
   listModels: () => invoke(DESKTOP_CHANNELS.listModels),
   listHostedCatalogs: () => invoke(DESKTOP_CHANNELS.listHostedCatalogs),

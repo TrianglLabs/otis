@@ -168,20 +168,27 @@ describe("local thinking control", () => {
     localThinking,
   }
 
-  it("saves supported slider steps, resets to default, and closes with Escape", async () => {
+  it("saves the chosen segment, follows the default on the model's own, and closes with Escape", async () => {
     const api = fakeApi({ getSnapshot: vi.fn(async () => snapshot) })
     await renderApp(api)
     fireEvent.click(screen.getByRole("button", { name: /Thinking Extra High/ }))
-    const slider = screen.getByRole("slider", { name: "Thinking effort" })
-    expect(document.activeElement).toBe(slider)
-    fireEvent.change(slider, { target: { value: "2" } })
-    await act(async () => fireEvent.keyUp(slider, { key: "ArrowLeft" }))
+    const dialog = screen.getByRole("dialog", { name: "Thinking effort" })
+    const tab = (name: string) => within(dialog).getByRole("tab", { name })
+    // Every level is a segment; the pill opens on the current one, tagged as the default.
+    expect(
+      within(dialog)
+        .getAllByRole("tab")
+        .map((t) => t.textContent),
+    ).toEqual(["Off", "Low", "Medium", "Extra High"])
+    expect(document.activeElement).toBe(tab("Extra High"))
+    expect(within(dialog).getByText("Default")).toBeTruthy()
+    await act(async () => fireEvent.click(tab("Medium")))
     expect(api.setLocalThinking).toHaveBeenLastCalledWith(localThinking.modelId, "medium")
-    await act(async () =>
-      fireEvent.click(screen.getByRole("button", { name: "Use model default" })),
-    )
+    expect(tab("Medium").getAttribute("aria-selected")).toBe("true")
+    expect(within(dialog).queryByText("Default")).toBeNull()
+    await act(async () => fireEvent.click(tab("Extra High")))
     expect(api.setLocalThinking).toHaveBeenLastCalledWith(localThinking.modelId, "default")
-    fireEvent.keyDown(slider, { key: "Escape" })
+    fireEvent.keyDown(tab("Extra High"), { key: "Escape" })
     expect(screen.queryByRole("dialog", { name: "Thinking effort" })).toBeNull()
   })
 
@@ -194,11 +201,11 @@ describe("local thinking control", () => {
     })
     await renderApp(api)
     fireEvent.click(screen.getByRole("button", { name: /Thinking Extra High/ }))
-    const slider = screen.getByRole("slider")
-    fireEvent.change(slider, { target: { value: "1" } })
-    await act(async () => fireEvent.pointerUp(slider))
+    await act(async () => fireEvent.click(screen.getByRole("tab", { name: "Low" })))
     expect(screen.getByRole("alert").textContent).toContain("Could not save preference")
-    expect((slider as HTMLInputElement).value).toBe("3")
+    expect(screen.getByRole("tab", { name: "Extra High" }).getAttribute("aria-selected")).toBe(
+      "true",
+    )
   })
 
   it("hides unsupported controls and prevents changes while busy", async () => {
@@ -263,7 +270,8 @@ describe("session views in history", () => {
     await renderApp(api)
 
     const tile = (title: string) => screen.getByRole("button", { name: new RegExp(title) })
-    const grouped = (title: string) => tile(title).classList.contains("home-card-grouped")
+    const grouped = (title: string) =>
+      tile(title).closest(".home-card")?.classList.contains("home-card-grouped") === true
     fireEvent.mouseEnter(tile("Alpha work"))
     expect([grouped("Alpha work"), grouped("Beta work"), grouped("Gamma work")]).toEqual([
       false,
@@ -2792,6 +2800,63 @@ describe("AppShell settings navigation", () => {
     fireEvent.click(palette.getByRole("button", { name: "Delete" }))
     await act(async () => {})
     expect(api.deleteSession).toHaveBeenCalledWith("session-1", "ws-0123456789ab")
+  })
+})
+
+describe("pinned sessions", () => {
+  it("keeps pinned sessions in their own row above the recents, four a page, with a pin on every card", async () => {
+    const pinned = Array.from({ length: 5 }, (_, i) => ({
+      ...sessionItem({ id: `p${i}`, title: `Pinned work ${i}`, detail: "3d ago" }),
+      pinned: true as const,
+    }))
+    const recent = sessionItem({ id: "r", title: "Recent work", detail: "1h ago" })
+    const api = fakeApi({
+      getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, sessions: [recent, ...pinned] })),
+    })
+    await renderApp(api)
+    const headings = [...document.querySelectorAll(".home-heading")].map(
+      (heading) => heading.firstChild?.textContent,
+    )
+    expect(headings.slice(0, 2)).toEqual(["Pinned", "Recent"])
+    const card = (title: string) =>
+      screen.getByRole("button", { name: new RegExp(title) }).closest(".home-card") as HTMLElement
+    expect(card("Pinned work 0").compareDocumentPosition(card("Recent work"))).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    )
+    // Four pinned sessions a page; the recents stay as they are.
+    expect(screen.queryByRole("button", { name: /Pinned work 4/ })).toBeNull()
+    expect(screen.getByText("1 of 2")).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }))
+    expect(card("Pinned work 4")).toBeTruthy()
+    expect(screen.queryByRole("button", { name: /Pinned work 0/ })).toBeNull()
+    expect(card("Recent work")).toBeTruthy()
+    fireEvent.click(within(card("Pinned work 4")).getByRole("button", { name: "Unpin" }))
+    expect(api.pinSession).toHaveBeenCalledWith("p4", "ws-0123456789ab", false)
+    fireEvent.click(within(card("Recent work")).getByRole("button", { name: "Pin" }))
+    expect(api.pinSession).toHaveBeenCalledWith("r", "ws-0123456789ab", true)
+    // The palette's menu offers the same, worded for the home screen.
+    fireEvent.keyDown(window, { key: "k", metaKey: true })
+    const palette = within(screen.getByRole("dialog"))
+    fireEvent.contextMenu(palette.getByText("Pinned work 0"))
+    fireEvent.click(screen.getByRole("menuitem", { name: "Unpin from Home" }))
+    expect(api.pinSession).toHaveBeenLastCalledWith("p0", "ws-0123456789ab", false)
+    fireEvent.contextMenu(palette.getByText("Recent work"))
+    fireEvent.click(screen.getByRole("menuitem", { name: "Pin to Home" }))
+    expect(api.pinSession).toHaveBeenLastCalledWith("r", "ws-0123456789ab", true)
+  })
+})
+
+describe("session branching from the palette", () => {
+  it("branches a session from its right-click menu and closes on success", async () => {
+    const api = fakeApi()
+    await renderApp(api)
+    fireEvent.keyDown(window, { key: "k", metaKey: true })
+    const palette = within(screen.getByRole("dialog"))
+    fireEvent.contextMenu(palette.getByText("Test session"))
+    fireEvent.click(screen.getByRole("menuitem", { name: "Duplicate session" }))
+    await act(async () => {})
+    expect(api.forkSession).toHaveBeenCalledWith("session-1", "ws-0123456789ab")
+    expect(screen.queryByRole("dialog")).toBeNull()
   })
 })
 
