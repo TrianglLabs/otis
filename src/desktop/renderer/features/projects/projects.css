@@ -1,4 +1,4 @@
-/* The heading's right slot: the pager, then the folder picker. */
+/* The heading's right slot: the folder picker, then the pager. */
 .project-tools {
   display: inline-flex;
   align-items: center;

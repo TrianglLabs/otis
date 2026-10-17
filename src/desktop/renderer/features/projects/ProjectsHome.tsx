@@ -160,7 +160,6 @@ export function ProjectsHome({ onHome }: { onHome: () => void }) {
       <span className="home-heading">
         {t("home.projects")}
         <span className="project-tools">
-          <Pager {...rest.pager} />
           <Button
             variant="ghost"
             size="sm"
@@ -173,6 +172,7 @@ export function ProjectsHome({ onHome }: { onHome: () => void }) {
           >
             {t("projects.openFolder")}
           </Button>
+          <Pager {...rest.pager} />
         </span>
       </span>
       {rest.shown.length === 0 ? (
