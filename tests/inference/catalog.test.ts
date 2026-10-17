@@ -255,7 +255,7 @@ describe("listHostedModels for Together AI", () => {
 })
 
 describe("listHostedModels for Baseten", () => {
-  it("keeps every Model API row and reads vision from supported features", async () => {
+  it("keeps every Model API row and reads vision from its input modalities or features", async () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
       Response.json({
         data: [
@@ -266,6 +266,16 @@ describe("listHostedModels for Baseten", () => {
             max_completion_tokens: 32_768,
             supported_features: ["vision", "reasoning", "reasoning_effort"],
             pricing: { input: 0.6, output: 2.5 },
+          },
+          // Baseten's rows carry modality at the top level, beside features that never say vision.
+          {
+            id: "moonshotai/Kimi-K3",
+            name: "Kimi K3",
+            context_length: 262_144,
+            input_modalities: ["text", "image"],
+            output_modalities: ["text"],
+            supported_features: ["tools", "json_mode", "structured_outputs", "reasoning"],
+            specs: null,
           },
           {
             id: "deepseek-ai/DeepSeek-V3.2",
@@ -304,6 +314,13 @@ describe("listHostedModels for Baseten", () => {
         provider: "baseten",
         id: "moonshotai/Kimi-K2.5",
         displayName: "Kimi K2.5",
+        contextLength: 262_144,
+        supportsImageInput: true,
+      },
+      {
+        provider: "baseten",
+        id: "moonshotai/Kimi-K3",
+        displayName: "Kimi K3",
         contextLength: 262_144,
         supportsImageInput: true,
       },
