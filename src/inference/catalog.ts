@@ -99,9 +99,13 @@ export async function listHostedModels(
       if (provider === "primeintellect" && !parameters.includes("tools")) continue
       seen.add(id)
       const features = Array.isArray(row.supported_features) ? row.supported_features : []
+      // Prime Intellect nests a model's input modalities under its specs; Baseten lists them on
+      // the row.
       const specs = isRecord(row.specs) ? row.specs : {}
       const modalities = isRecord(specs.modalities) ? specs.modalities : {}
-      const inputs = Array.isArray(modalities.input) ? modalities.input : []
+      const imageInput = [modalities.input, row.input_modalities].some(
+        (inputs) => Array.isArray(inputs) && inputs.includes("image"),
+      )
       models.push({
         provider,
         id,
@@ -112,7 +116,7 @@ export async function listHostedModels(
           id,
         ...contextLengthField(row.context_length ?? row.context_window ?? curated?.contextLength),
         supportsImageInput:
-          curated?.supportsImageInput ?? (features.includes("vision") || inputs.includes("image")),
+          curated?.supportsImageInput ?? (features.includes("vision") || imageInput),
       })
     }
     return models.sort(byName)
