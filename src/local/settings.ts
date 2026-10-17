@@ -89,7 +89,7 @@ export type LocalSettings = Partial<Record<ServerProvider, ServerSettings>> & {
   serve?: { enabled: boolean; host: string }
   fastServingModels?: string[]
   modelFastId?: string
-  /** Hosted models hidden from the picker, as `hiddenModelKey` strings. */
+  /** Hosted models hidden from the picker, as `modelKey` strings. */
   hiddenModels?: string[]
   /** Skills by name that stay loaded but are not offered to the model. */
   hiddenSkills?: string[]

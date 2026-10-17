@@ -31,7 +31,7 @@ import {
 } from "../../src/inference/picker-catalog.js"
 import {
   filterModelPickerItems,
-  hiddenModelKey,
+  modelKey,
   providerLabel,
 } from "../../src/inference/picker-filter.js"
 import {
@@ -465,11 +465,11 @@ describe("model picker catalog", () => {
       hostedApiKeys: { together: "tg", baseten: "bt" },
       listHosted: list,
       hiddenModels: new Set([
-        hiddenModelKey("together", "a/hidden"),
-        hiddenModelKey("together", "a/active-hidden"),
-        hiddenModelKey("baseten", "a/kept"),
-        hiddenModelKey("baseten", "a/hidden"),
-        hiddenModelKey("baseten", "a/active-hidden"),
+        modelKey("together", "a/hidden"),
+        modelKey("together", "a/active-hidden"),
+        modelKey("baseten", "a/kept"),
+        modelKey("baseten", "a/hidden"),
+        modelKey("baseten", "a/active-hidden"),
       ]),
     }
     const items = await listModelPickerItems({
@@ -696,7 +696,7 @@ describe("model picker catalog", () => {
       hardware: ample,
       dataDirectory: await tempDir(),
       loadStatus: {
-        modelId: "openai/gpt-oss-20b",
+        modelId: "local:openai/gpt-oss-20b",
         status: { label: "Downloading 47%", kind: "progress" },
       },
     })
@@ -1015,9 +1015,13 @@ describe("model picker catalog", () => {
       "fireworks:accounts/fireworks/models/kimi-k3",
       "together:moonshotai/Kimi-K3",
     ])
-    expect(ids(filterModelPickerItems(items, "zai-org"))).toEqual([
+    expect(ids(filterModelPickerItems(items, "glm 5.3 flash"))).toEqual([
       "together:zai-org/GLM-5.3-Flash",
     ])
+    // Words must begin a word of the name, id slug, or provider: an id's organization or the
+    // `models` folder of a Fireworks id never match on their own.
+    expect(ids(filterModelPickerItems(items, "zai-org"))).toEqual([])
+    expect(ids(filterModelPickerItems(items, "models"))).toEqual([])
     expect(ids(filterModelPickerItems(items, "glm-5p3"))).toEqual([
       "fireworks:accounts/fireworks/models/glm-5p3",
     ])

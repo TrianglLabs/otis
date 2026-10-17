@@ -811,3 +811,82 @@
 ::highlight(otis-find-current) {
   background: color-mix(in srgb, var(--orange) 60%, transparent);
 }
+
+/* Determinate progress as a thin capsule, the fill eased so one-percent steps read as motion. */
+.progressBar {
+  display: inline-block;
+  flex-shrink: 0;
+  height: 4px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+  overflow: hidden;
+}
+
+.progressBar-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width var(--motion);
+}
+
+/* A stop square inside a ring that fills clockwise from twelve; unmeasured, a short arc spins.
+   The ring is drawn at the rail glyphs' 16px inside the same 22px box. */
+.progressStop {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.progressStop:hover {
+  color: var(--accent-ink);
+}
+
+.progressStop-ring {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  transform: rotate(-90deg);
+}
+
+.progressStop-track {
+  stroke: color-mix(in srgb, var(--text) 14%, transparent);
+}
+
+.progressStop-arc {
+  stroke: currentColor;
+  stroke-dasharray: 1;
+  transition: stroke-dashoffset var(--motion);
+}
+
+.progressStop-ring.indeterminate {
+  animation: progressStop-spin 1s linear infinite;
+}
+
+.progressStop-ring.indeterminate .progressStop-arc {
+  stroke-dashoffset: 0.75;
+}
+
+@keyframes progressStop-spin {
+  to {
+    transform: rotate(270deg);
+  }
+}
+
+.progressStop-square {
+  width: 5px;
+  height: 5px;
+  border-radius: 1px;
+  background: currentColor;
+}

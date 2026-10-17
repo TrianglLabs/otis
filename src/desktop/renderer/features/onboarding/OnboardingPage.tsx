@@ -20,6 +20,7 @@ import {
 import { type KeyboardEvent, useCallback, useEffect, useState } from "react"
 import type { ServerInput } from "../../../../app/local-servers.js"
 import type { ModelPickerChoice, ModelPickerItem } from "../../../../inference/picker-catalog.js"
+import { pickerItemKey } from "../../../../inference/picker-filter.js"
 import {
   HOSTED_PROVIDER_INFO,
   HOSTED_PROVIDERS,
@@ -38,6 +39,7 @@ import omlxIcon from "../../assets/omlx.svg"
 import { Button, IconButton } from "../../components/Button.js"
 import { Icon, RetentionBadge } from "../../components/Icon.js"
 import { OtisMark } from "../../components/OtisMark.js"
+import { ProgressBar, ProgressStop } from "../../components/Progress.js"
 import { TabStrip } from "../../components/TabStrip.js"
 import { TextField } from "../../components/TextField.js"
 import { useI18n } from "../../i18n/index.js"
@@ -47,7 +49,6 @@ import {
   localModelFacts,
   mergeModelLoad,
   pickerDetailLabel,
-  pickerItemKey,
 } from "../models/model-list.js"
 
 const LOCAL_SERVER_DEFAULTS = {
@@ -516,9 +517,18 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                     ) : null}
                   </span>
                   {pickLoading || pick.provider !== "local" ? (
-                    <span className="onboarding-rowDetail">
-                      {pickLoading ? pickStatus.label : pickerDetailLabel(pick, t)}
-                    </span>
+                    <>
+                      <span className="onboarding-rowDetail">
+                        {pickLoading ? pickStatus.label : pickerDetailLabel(pick, t)}
+                      </span>
+                      {pickLoading && pickStatus.percent !== undefined ? (
+                        <ProgressBar
+                          percent={pickStatus.percent}
+                          label={pickStatus.label}
+                          className="onboarding-pickProgress"
+                        />
+                      ) : null}
+                    </>
                   ) : (
                     <dl className="onboarding-specs">
                       {localModelFacts(pick, t, locale).map((fact) => (
@@ -730,15 +740,13 @@ export function OnboardingPage({ onOpenSettings }: { onOpenSettings: () => void 
                     <span
                       className={`onboarding-rowDetail${status?.kind === "error" ? " error" : ""}`}
                     >
-                      {loading ? <Icon icon={Loader2} size={11} className="spin" /> : null}
                       {status?.label ?? pickerDetailLabel(item, t)}
                     </span>
                   </button>
                   {loading ? (
-                    <IconButton
-                      icon={X}
+                    <ProgressStop
+                      percent={status.percent}
                       label={t("common.cancelModelLoad")}
-                      size={22}
                       className="onboarding-cancel"
                       onClick={() => void api.cancelModelSelection()}
                     />

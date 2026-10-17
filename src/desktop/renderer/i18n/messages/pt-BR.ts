@@ -147,7 +147,7 @@ export const ptBR: Messages = {
   "composer.modelFailed": "Não foi possível iniciar o modelo: {{error}}",
   "composer.label": "Editor de mensagem",
   "composer.speedLabel": "Velocidade de geração",
-  "speed.tokensPerSecond": "{{rate}} tok/s",
+  "speed.unit": "tok/s",
   "speed.prefill": "{{seconds}}s de prefill",
   "composer.dropFiles": "Solte os arquivos aqui",
   "composer.attachedFiles": "Arquivos anexados",

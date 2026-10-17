@@ -746,7 +746,10 @@ describe("Application model transactions", () => {
     // A restored previous model stays ready; the failure stays on the row.
     expect(app.status()).toMatchObject({
       modelState: "ready",
-      modelLoad: { modelId: localChoice.id, status: { label: "Failed: server did not start" } },
+      modelLoad: {
+        modelId: `local:${localChoice.id}`,
+        status: { label: "Failed: server did not start" },
+      },
     })
 
     expect(await app.selectModel(localChoice)).toEqual({ ok: true })

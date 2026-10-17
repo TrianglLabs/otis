@@ -32,7 +32,7 @@ import {
 } from "react"
 import type { ServerInput } from "../../../../app/local-servers.js"
 import type { PairPickerChoice, ServerPickerChoice } from "../../../../inference/picker-catalog.js"
-import { hiddenModelKey } from "../../../../inference/picker-filter.js"
+import { modelKey } from "../../../../inference/picker-filter.js"
 import {
   HOSTED_PROVIDER_INFO,
   HOSTED_PROVIDERS,
@@ -1057,7 +1057,7 @@ function HostedModelsSettings({
                 </span>
                 <Toggle
                   label={t("settings.showModel", { name: model.displayName })}
-                  checked={!hiddenModels.includes(hiddenModelKey(provider, model.id))}
+                  checked={!hiddenModels.includes(modelKey(provider, model.id))}
                   onChange={(shown) => void api.setModelHidden(provider, model.id, !shown)}
                 />
               </div>

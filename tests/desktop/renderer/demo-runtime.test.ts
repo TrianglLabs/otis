@@ -237,7 +237,7 @@ describe("demo runtime model lifecycle", () => {
     expect(items.find((item) => item.id === "header-fireworks")?.displayName).toBe("Fireworks AI")
     expect(items.some((item) => item.id === "header-hosted")).toBe(false)
     const id = "accounts/fireworks/models/kimi-k3"
-    expect(await settle(api.selectModel(id))).toEqual({ ok: true })
+    expect(await settle(api.selectModel(`fireworks:${id}`))).toEqual({ ok: true })
     expect(await api.getSnapshot()).toMatchObject({ model: { id }, modelState: "ready" })
   })
 
@@ -419,7 +419,7 @@ describe("demo runtime model lifecycle", () => {
 
     // Re-selecting runs the simulated download; success means the weights are cached on disk again,
     // so the row must report as downloaded — and be deletable — once more.
-    expect(await settle(api.selectModel(QWEN_27B))).toEqual({ ok: true })
+    expect(await settle(api.selectModel(`local:${QWEN_27B}`))).toEqual({ ok: true })
     const restored = await localRow(api, QWEN_27B)
     expect(restored.downloaded).toBe(true)
     expect(restored.hasDownloadedPacking).toBe(true)
@@ -434,7 +434,7 @@ describe("demo runtime model lifecycle", () => {
       downloaded: false,
       hasDownloadedPacking: false,
     })
-    expect(await settle(api.selectModel(id))).toEqual({ ok: true })
+    expect(await settle(api.selectModel(`local:${id}`))).toEqual({ ok: true })
     expect(await localRow(api, id)).toMatchObject({ downloaded: true, hasDownloadedPacking: true })
   })
 })

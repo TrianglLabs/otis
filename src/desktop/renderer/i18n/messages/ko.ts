@@ -145,7 +145,7 @@ export const ko: Messages = {
   "composer.modelFailed": "모델을 시작할 수 없습니다: {{error}}",
   "composer.label": "메시지 작성기",
   "composer.speedLabel": "생성 속도",
-  "speed.tokensPerSecond": "{{rate}} tok/s",
+  "speed.unit": "tok/s",
   "speed.prefill": "프리필 {{seconds}}초",
   "composer.dropFiles": "여기에 파일 놓기",
   "composer.attachedFiles": "첨부 파일",

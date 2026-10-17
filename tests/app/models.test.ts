@@ -466,7 +466,7 @@ describe("ModelHost", () => {
     ).rejects.toThrow("no space left")
     expect(seen).toContainEqual({
       modelId: model.id,
-      status: { label: "Downloading 42%", kind: "progress" },
+      status: { label: "Downloading 42%", kind: "progress", percent: 42 },
     })
     expect(host.load).toEqual({
       modelId: model.id,

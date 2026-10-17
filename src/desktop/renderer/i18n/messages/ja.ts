@@ -145,7 +145,7 @@ export const ja: Messages = {
   "composer.modelFailed": "モデルを起動できませんでした：{{error}}",
   "composer.label": "メッセージ入力",
   "composer.speedLabel": "生成速度",
-  "speed.tokensPerSecond": "{{rate}} tok/s",
+  "speed.unit": "tok/s",
   "speed.prefill": "プリフィル {{seconds}}秒",
   "composer.dropFiles": "ここにファイルをドロップ",
   "composer.attachedFiles": "添付ファイル",

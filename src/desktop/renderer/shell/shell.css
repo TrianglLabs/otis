@@ -285,13 +285,14 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* The same borderless capsule as the app's progress bars, with a quiet grey fill. */
 .contextMeter-track {
   width: 64px;
-  height: 5px;
-  background: var(--bg-code);
-  border: 1px solid var(--hairline);
+  height: 4px;
+  background: color-mix(in srgb, var(--text) 12%, transparent);
   display: inline-block;
   border-radius: var(--radius-pill);
+  overflow: hidden;
 }
 
 .contextMeter-fill {

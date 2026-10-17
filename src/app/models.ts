@@ -4,9 +4,9 @@ import { compactionContextLength, requireLocalContextLength } from "../inference
 import { describeError } from "../inference/errors.js"
 import { detectHardware, type HardwareProbe } from "../inference/hardware.js"
 import {
-  formatLocalLoadStatus,
   LlamaCppRuntime,
   type LocalLoadProgress,
+  localLoadStatus,
 } from "../inference/llama-runtime.js"
 import {
   catalogModelFromSpec,
@@ -537,10 +537,7 @@ export class ModelHost {
       prepared = await this.prepare(selected, {
         ...options,
         onLocalProgress: (progress) => {
-          this.setLoad({
-            modelId,
-            status: { label: formatLocalLoadStatus(progress), kind: "progress" },
-          })
+          this.setLoad({ modelId, status: localLoadStatus(progress) })
           options.onLocalProgress?.(progress)
         },
       })

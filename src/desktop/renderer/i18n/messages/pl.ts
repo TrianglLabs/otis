@@ -151,7 +151,7 @@ export const pl: Messages = {
   "composer.modelFailed": "Nie udało się uruchomić modelu: {{error}}",
   "composer.label": "Edytor wiadomości",
   "composer.speedLabel": "Szybkość generowania",
-  "speed.tokensPerSecond": "{{rate}} tok/s",
+  "speed.unit": "tok/s",
   "speed.prefill": "{{seconds}}s prefill",
   "composer.dropFiles": "Upuść pliki tutaj",
   "composer.attachedFiles": "Załączone pliki",

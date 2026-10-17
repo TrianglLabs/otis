@@ -8,7 +8,7 @@ import {
   type ModelPickerItem,
   type ModelPickerStatus,
 } from "../../inference/picker-catalog.js"
-import { filterModelPickerItems } from "../../inference/picker-filter.js"
+import { filterModelPickerItems, pickerItemKey } from "../../inference/picker-filter.js"
 import { isHostedProvider, isServerProvider } from "../../inference/types.js"
 import { colors } from "../theme.js"
 import { SelectionPulse } from "./color-pulse.js"
@@ -52,7 +52,7 @@ export class ModelPicker {
 
   setItemStatus(id: string, status: ModelPickerStatus | undefined) {
     const item = this.#items.find(
-      (candidate) => candidate.kind === "model" && modelPickerKey(candidate) === id,
+      (candidate) => candidate.kind === "model" && pickerItemKey(candidate) === id,
     )
     if (!item || item.kind === "header" || isHostedProvider(item.provider)) return
     item.status = status
@@ -121,11 +121,11 @@ export class ModelPicker {
   /** Filters the rows and keeps the selected row when it survives, else selects the active one. */
   #applyQuery() {
     const selected = this.#visible[this.#selectedIndex]
-    const keepKey = selected && selected.kind !== "header" ? modelPickerKey(selected) : undefined
+    const keepKey = selected && selected.kind !== "header" ? pickerItemKey(selected) : undefined
     const rows = filterModelPickerItems(this.#items, this.#query)
     this.#visible = rows
     const keptIndex = keepKey
-      ? rows.findIndex((item) => item.kind !== "header" && modelPickerKey(item) === keepKey)
+      ? rows.findIndex((item) => item.kind !== "header" && pickerItemKey(item) === keepKey)
       : -1
     const activeIndex = rows.findIndex((item) => item.kind !== "header" && item.active)
     this.#selectedIndex =
@@ -235,10 +235,6 @@ function modelMeta(item: ModelPickerChoice) {
   parts.push(item.supportsImageInput ? "Vision" : "Text")
   if (item.provider === "fireworks" && item.fastId) parts.push(FAST_MODE_LABEL)
   return parts.join(" · ")
-}
-
-function modelPickerKey(item: ModelPickerChoice) {
-  return "selectionKey" in item ? item.selectionKey : item.id
 }
 
 function firstSelectableIndex(items: readonly ModelPickerItem[]) {

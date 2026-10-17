@@ -907,11 +907,14 @@ describe("chat UI rendering", () => {
     expect(downloaded?.fg?.equals(RGBA.fromHex(colors.muted))).toBe(true)
     expect(harness.text("model-row-1-meta")).toBe("  128K · MXFP4 · 16 GB · Text")
 
-    harness.ui.setModelPickerStatus(local.id, { label: "Downloading 47%", kind: "progress" })
+    harness.ui.setModelPickerStatus(`local:${local.id}`, {
+      label: "Downloading 47%",
+      kind: "progress",
+    })
     expect(harness.text("model-row-1")).toBe("› gpt-oss 20B *  Downloading 47%")
     expect(harness.text("model-row-1-meta")).toBe("  128K · MXFP4 · 16 GB · Text")
 
-    harness.ui.setModelPickerStatus(local.id, { label: "Loading", kind: "progress" })
+    harness.ui.setModelPickerStatus(`local:${local.id}`, { label: "Loading", kind: "progress" })
     expect(harness.text("model-row-1")).toBe("› gpt-oss 20B *  Loading")
   })
 
@@ -939,7 +942,7 @@ describe("chat UI rendering", () => {
       { kind: "header", id: "header-local", displayName: "Local" },
       local,
     ])
-    harness.ui.setModelPickerStatus(local.id, { label, kind: "progress" })
+    harness.ui.setModelPickerStatus(`local:${local.id}`, { label, kind: "progress" })
 
     const first = statusLetterColors(harness.get<TextRenderable>("model-row-1"), label)
     expect(first.map((letter) => letter.text).join("")).toBe(label)

@@ -58,6 +58,7 @@ import type {
   DesktopApi,
   DesktopEvent,
   DesktopSnapshot,
+  DesktopStatus,
   DesktopUpdateState,
   PendingPermission,
 } from "../../../src/desktop/contracts.js"
@@ -3164,6 +3165,47 @@ describe("header context meter", () => {
     expect((document.querySelector(".contextMeter-fill") as HTMLElement).style.width).toBe("50%")
   })
 
+  it("swings the speed needle against the session's peak and settles on the exact figure", async () => {
+    let emit!: (event: DesktopEvent) => void
+    const snapshot = {
+      ...SNAPSHOT,
+      model: { id: "local/model", provider: "local" as const, supportsImageInput: false },
+    }
+    await renderApp(
+      fakeApi({
+        getSnapshot: vi.fn(async () => snapshot),
+        subscribe: vi.fn((listener) => {
+          emit = listener
+          return () => {}
+        }),
+      }),
+    )
+    expect(document.querySelector(".composer-speed")).toBeNull()
+    const status = (revision: number, speed: DesktopStatus["speed"]) =>
+      act(() => emit({ type: "status", revision, status: { ...snapshot, speed } }))
+    status(2, { tokensPerSecond: 30, exact: false })
+    status(3, { tokensPerSecond: 40, exact: false })
+    const readout = () => document.querySelector(".composer-speed") as HTMLElement
+    expect(readout().textContent).toBe("~40 tok/s")
+    // The needle swings from -135° at rest to +135° at the session's peak.
+    const needle = () =>
+      Number(
+        (readout().querySelector(".composer-gaugeNeedle") as SVGElement).style.transform.match(
+          /rotate\((-?[\d.]+)deg\)/,
+        )?.[1],
+      )
+    expect(needle()).toBe(135)
+    status(4, { tokensPerSecond: 38.4, prefillMs: 1_420, exact: true })
+    expect(readout().textContent).toBe("38 tok/s")
+    expect(readout().getAttribute("title")).toBe("Generation speed · 1.4s prefill")
+    expect(needle()).toBeCloseTo(124.2)
+    // The next request starts the readout over; the dial keeps the session's peak.
+    status(5, null)
+    expect(document.querySelector(".composer-speed")).toBeNull()
+    status(6, { tokensPerSecond: 20, exact: false })
+    expect(needle()).toBe(0)
+  })
+
   it("breaks the session's tokens down in its popover", async () => {
     const usage = {
       last: {
@@ -3223,7 +3265,10 @@ describe("header context meter", () => {
       ],
     ])
     // Speed stays the composer's readout, for local models only.
-    expect(document.querySelector(".composer-speed")?.textContent).toBe("42 tok/s · 0.3s prefill")
+    expect(document.querySelector(".composer-speed")?.textContent).toBe("42 tok/s")
+    expect(document.querySelector(".composer-speed")?.getAttribute("title")).toBe(
+      "Generation speed · 0.3s prefill",
+    )
     cleanup()
 
     // Hosted serving is not the user's hardware, so its speed is not shown; a request whose server

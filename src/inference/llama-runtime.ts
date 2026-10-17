@@ -50,6 +50,7 @@ import {
 import { type LocalModelSpec, localModelFiles } from "./local-catalog.js"
 import { fitLocalModel, type LocalModelFit } from "./local-fit.js"
 import { localThinkingParameters, minimalLocalThinkingLevel } from "./local-thinking.js"
+import type { ModelPickerStatus } from "./picker-catalog.js"
 import { parseChatCompletionStream } from "./stream-parser.js"
 
 const DEFAULT_READY_TIMEOUT_MS = 30 * 60 * 1000
@@ -178,14 +179,15 @@ const LOCAL_VERIFYING_LABEL = "Verifying"
 const LOCAL_LOADING_LABEL = "Loading"
 
 /**
- * Short picker-row label for a managed local model being downloaded, verified, or loaded. Shared
- * by the TUI and desktop.
+ * Picker-row status for a managed local model being downloaded, verified, or loaded: a short
+ * label, and the percentage when the phase can measure itself. Shared by the TUI and desktop.
  */
-export function formatLocalLoadStatus(progress: LocalLoadProgress) {
-  if (progress.phase === "runtime-download") return LOCAL_RUNTIME_DOWNLOADING_LABEL
-  if (progress.phase === "download") return `${LOCAL_DOWNLOADING_LABEL} ${progress.percent}%`
-  if (progress.phase === "verifying") return `${LOCAL_VERIFYING_LABEL} ${progress.percent}%`
-  return LOCAL_LOADING_LABEL
+export function localLoadStatus(progress: LocalLoadProgress): ModelPickerStatus {
+  if (progress.phase === "runtime-download")
+    return { label: LOCAL_RUNTIME_DOWNLOADING_LABEL, kind: "progress" }
+  if (progress.phase === "loading") return { label: LOCAL_LOADING_LABEL, kind: "progress" }
+  const verb = progress.phase === "download" ? LOCAL_DOWNLOADING_LABEL : LOCAL_VERIFYING_LABEL
+  return { label: `${verb} ${progress.percent}%`, kind: "progress", percent: progress.percent }
 }
 
 type EnsureServingOptions = {

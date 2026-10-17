@@ -149,7 +149,7 @@ export const fr: Messages = {
   "composer.modelFailed": "Le modèle n’a pas pu démarrer : {{error}}",
   "composer.label": "Éditeur de message",
   "composer.speedLabel": "Vitesse de génération",
-  "speed.tokensPerSecond": "{{rate}} tok/s",
+  "speed.unit": "tok/s",
   "speed.prefill": "{{seconds}}s de prefill",
   "composer.dropFiles": "Déposez les fichiers ici",
   "composer.attachedFiles": "Fichiers joints",

@@ -143,7 +143,7 @@ export const en = {
   "composer.modelFailed": "The model could not start: {{error}}",
   "composer.label": "Message composer",
   "composer.speedLabel": "Generation speed",
-  "speed.tokensPerSecond": "{{rate}} tok/s",
+  "speed.unit": "tok/s",
   "speed.prefill": "{{seconds}}s prefill",
   "composer.dropFiles": "Drop files here",
   "composer.attachedFiles": "Attached files",

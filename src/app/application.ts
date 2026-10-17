@@ -9,7 +9,7 @@ import { requireLocalContextLength } from "../inference/context-policy.js"
 import { describeError } from "../inference/errors.js"
 import { deleteLocalGguf, listDownloadedLocalModels } from "../inference/gguf-cache.js"
 import { validateImageAttachments } from "../inference/images.js"
-import { formatLocalLoadStatus } from "../inference/llama-runtime.js"
+import { localLoadStatus } from "../inference/llama-runtime.js"
 import {
   catalogModelFromSpec,
   findLocalModel,
@@ -32,7 +32,7 @@ import {
   toPairCatalogModel,
   toServerCatalogModel,
 } from "../inference/picker-catalog.js"
-import { hiddenModelKey } from "../inference/picker-filter.js"
+import { modelKey } from "../inference/picker-filter.js"
 import {
   baseFireworksModelId,
   findHostedModel,
@@ -198,7 +198,7 @@ export type AppStatus = {
   /** Fast serving for the selected hosted model: whether it has a fast path, and whether it is on. */
   fastServing: { available: boolean; enabled: boolean }
   hostedConfigured: Record<HostedProvider, boolean>
-  /** Hosted models hidden from the picker, as `hiddenModelKey` strings. */
+  /** Hosted models hidden from the picker, as `modelKey` strings. */
   hiddenModels: string[]
   /** The Prime Intellect team billed for inference, or null for the personal wallet. */
   primeTeamId: string | null
@@ -261,12 +261,6 @@ export function isSelectionCancelled(result: SelectionResult) {
 function hostedCatalogModel(choice: HostedPickerChoice): HostedModel {
   const { kind: _kind, available: _available, active: _active, status: _status, ...model } = choice
   return model
-}
-
-/** Picker rows are keyed the way the list keys them: servers and PAIR by selectionKey. */
-function pickerKey(model: CatalogModel) {
-  if (isServerProvider(model.provider)) return `${model.provider}:${model.id}`
-  return model.provider === "pair" ? pairModelKey(model) : model.id
 }
 
 /**
@@ -1339,10 +1333,7 @@ export class Application {
       signal,
       isExiting,
       onLocalProgress: (progress) => {
-        models.setLoad({
-          modelId: model.id,
-          status: { label: formatLocalLoadStatus(progress), kind: "progress" },
-        })
+        models.setLoad({ modelId: model.id, status: localLoadStatus(progress) })
       },
     })
     if (signal.aborted) {
@@ -1425,7 +1416,11 @@ export class Application {
             hostedApiKeys: { ...this.hostedApiKeys, ...unsavedKey },
             keepLocal: this.#localElsewhere(runtime),
             persist: options.persist ?? ((serving) => saveSelectedModel(serving)),
-            loadKey: pickerKey(selected),
+            // The picker row's key, under which the selection reports its load progress.
+            loadKey:
+              selected.provider === "pair"
+                ? pairModelKey(selected)
+                : modelKey(selected.provider, selected.id),
           })
         } catch (error) {
           if (signal.aborted || isAbortError(error)) return CANCELLED
@@ -1531,7 +1526,7 @@ export class Application {
 
   /** Hides a hosted model from the picker, or shows it again; the active model stays listed. */
   async setModelHidden(provider: HostedProvider, id: string, hidden: boolean) {
-    const key = hiddenModelKey(provider, id)
+    const key = modelKey(provider, id)
     const hiddenModels = new Set(this.settings.hiddenModels ?? [])
     if (hidden) hiddenModels.add(key)
     else hiddenModels.delete(key)

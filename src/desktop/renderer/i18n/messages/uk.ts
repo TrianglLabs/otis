@@ -151,7 +151,7 @@ export const uk: Messages = {
   "composer.modelFailed": "Не вдалося запустити модель: {{error}}",
   "composer.label": "Редактор повідомлення",
   "composer.speedLabel": "Швидкість генерації",
-  "speed.tokensPerSecond": "{{rate}} ток/с",
+  "speed.unit": "ток/с",
   "speed.prefill": "{{seconds}}с prefill",
   "composer.dropFiles": "Перетягніть файли сюди",
   "composer.attachedFiles": "Прикріплені файли",

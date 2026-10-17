@@ -115,7 +115,7 @@ describe("model card", () => {
     expect(dialog.querySelector(".modelPicker-catalog")?.hasAttribute("hidden")).toBe(true)
     fireEvent.click(within(card).getByRole("button", { name: "Use this model" }))
     await act(async () => {})
-    expect(api.selectModel).toHaveBeenCalledWith("Qwen/Qwen3.8-27B")
+    expect(api.selectModel).toHaveBeenCalledWith("local:Qwen/Qwen3.8-27B")
   })
 
   it("offers no card for hosted rows, and Escape returns to the list before clearing the query", async () => {
@@ -131,7 +131,58 @@ describe("model card", () => {
   })
 })
 
+describe("ModelPicker download progress", () => {
+  const loading = (status: { label: string; percent?: number }) =>
+    openPicker({
+      getSnapshot: vi.fn(async () => ({
+        ...SNAPSHOT,
+        modelLoad: {
+          modelId: "local:Qwen/Qwen3.8-27B",
+          status: { kind: "progress" as const, ...status },
+        },
+      })),
+    })
+
+  it("rings the stop control with a measured download's progress", async () => {
+    const { api, list } = await loading({ label: "Downloading 42%", percent: 42 })
+    const row = within(list).getByText("Qwen3.8 27B").closest(".modelPicker-row") as HTMLElement
+    const stop = within(row).getByRole("button", { name: "Cancel model load" })
+    expect(stop.getAttribute("title")).toBe("Cancel model load · 42%")
+    const arc = stop.querySelector(".progressStop-arc") as SVGElement
+    expect(Number(arc.style.strokeDashoffset)).toBeCloseTo(0.58)
+    expect(stop.querySelector(".progressStop-ring.indeterminate")).toBeNull()
+    expect((row.querySelector(".modelPicker-select") as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(stop)
+    expect(api.cancelModelSelection).toHaveBeenCalled()
+  })
+
+  it("spins the ring for a phase that cannot measure itself", async () => {
+    const { list } = await loading({ label: "Downloading llama.cpp" })
+    const row = within(list).getByText("Qwen3.8 27B").closest(".modelPicker-row") as HTMLElement
+    const stop = within(row).getByRole("button", { name: "Cancel model load" })
+    expect(stop.getAttribute("title")).toBe("Cancel model load")
+    expect(stop.querySelector(".progressStop-ring.indeterminate")).toBeTruthy()
+    expect(within(row).getByText("Downloading llama.cpp")).toBeTruthy()
+  })
+})
+
 describe("ModelPicker search", () => {
+  it("lands on the active model each time it opens", async () => {
+    const scrollIntoView = vi.spyOn(Element.prototype, "scrollIntoView")
+    const { list } = await openPicker()
+    const active = list.querySelector(".modelPicker-row.active") as HTMLElement
+    expect(within(active).getByText("Kimi K2.6")).toBeTruthy()
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "center" })
+    expect(scrollIntoView.mock.instances).toEqual([active])
+    // The rows stay mounted while closed, so a reopen lands on them again before the reload.
+    fireEvent.keyDown(window, { key: "Escape" })
+    scrollIntoView.mockClear()
+    fireEvent.click(screen.getByRole("button", { name: "Kimi K2.6" }))
+    await act(async () => {})
+    expect(scrollIntoView.mock.instances).toEqual([active])
+    scrollIntoView.mockRestore()
+  })
+
   it("opens focused on the search box and lists every provider under its own header", async () => {
     const { dialog, search } = await openPicker()
     expect(document.activeElement).toBe(search)
@@ -157,9 +208,12 @@ describe("ModelPicker search", () => {
     expect(within(list).getByText("Kimi K2.5")).toBeTruthy()
     expect(within(list).queryByText("Kimi K2.6")).toBeNull()
 
-    fireEvent.change(search, { target: { value: "accounts/fireworks" } })
+    // An id's slug matches; its folders and organization do not.
+    fireEvent.change(search, { target: { value: "k2p6" } })
     expect(within(list).getByText("Kimi K2.6")).toBeTruthy()
     expect(within(list).queryByText("Kimi K2.5")).toBeNull()
+    fireEvent.change(search, { target: { value: "accounts" } })
+    expect(within(dialog).getByText("No models match")).toBeTruthy()
 
     fireEvent.change(search, { target: { value: "no such model" } })
     expect(within(dialog).getByText("No models match")).toBeTruthy()
@@ -179,7 +233,7 @@ describe("ModelPicker search", () => {
     fireEvent.change(search, { target: { value: "k2.5" } })
     fireEvent.click(within(list).getByText("Kimi K2.5"))
     await act(async () => {})
-    expect(api.selectModel).toHaveBeenCalledWith("moonshotai/Kimi-K2.5")
+    expect(api.selectModel).toHaveBeenCalledWith("together:moonshotai/Kimi-K2.5")
   })
 
   it("Escape clears the query before it closes the catalog", async () => {
