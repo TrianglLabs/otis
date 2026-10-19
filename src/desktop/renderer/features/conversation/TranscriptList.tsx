@@ -37,11 +37,12 @@ type TranscriptItem = TranscriptEntry | ToolRun
 /**
  * Empty assistant deltas have no visible content: keeping their wrappers would add blank space and
  * split consecutive tool runs. Thinking traces also leave the transcript when hidden, except for
- * the live status.
+ * the live status, and so does a tool call that found nothing.
  */
 function visibleEntries(entries: TranscriptEntry[], thinkingVisible: boolean): TranscriptEntry[] {
   const visible = entries.filter((entry) => {
     if (entry.kind === "reasoning") return thinkingVisible || entry.streaming === true
+    if (entry.kind === "tool") return entry.outcome !== "empty"
     if (entry.kind === "message" && entry.speaker === "Otis")
       return !!entry.text.trim() || !!entry.artifacts?.length
     return true

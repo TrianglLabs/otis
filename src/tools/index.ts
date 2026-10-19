@@ -1,5 +1,5 @@
 import { describeSchedule, ROUTINES_UNAVAILABLE } from "../local/routines.js"
-import { forget, type MemoryEntry, recall, remember } from "../memory/memory.js"
+import { forget, type MemoryEntry, NOTHING_RECALLED, recall, remember } from "../memory/memory.js"
 import { readSkillResource } from "../skills/catalog.js"
 import { runDocumentWorkflow } from "./document-workflow.js"
 import { editLocalDocument } from "./documents.js"
@@ -92,11 +92,14 @@ export async function executeToolCall(
       return runBash(call.input.command, call.input.timeoutMs, context)
     case "publish_artifact":
       return publishArtifact(call.input.path, call.input.artifactId, context)
-    case "recall":
+    case "recall": {
+      const output = await recall(call.input.query, context.cwd ?? process.cwd(), context.sessionId)
       return {
         title: `Recall: ${call.input.query}`,
-        output: await recall(call.input.query, context.cwd ?? process.cwd(), context.sessionId),
+        output,
+        ...(output === NOTHING_RECALLED ? { empty: true as const } : {}),
       }
+    }
     case "remember": {
       const { scope, fact, topic } = call.input
       const cwd = context.cwd ?? process.cwd()

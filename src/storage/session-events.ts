@@ -47,6 +47,8 @@ export type SessionToolActivity = {
   label: string
   diff?: string
   artifact?: FileArtifactReference
+  /** The call found nothing, a recall with no match; the transcript shows no row for it. */
+  outcome?: "empty"
 }
 
 export type SessionSubagentStatus = "complete" | "failed" | "interrupted"
@@ -635,7 +637,7 @@ function parseToolActivities(
   const remainingCalls = toolCallCounts(messages)
   return value.map((activity): SessionToolActivity => {
     if (!isRecord(activity)) throw invalidEvent(line, "toolActivities entries must be objects")
-    const { toolCallId, activityKind, action, subject, label, diff, artifact } = activity
+    const { toolCallId, activityKind, action, subject, label, diff, artifact, outcome } = activity
     if (typeof toolCallId !== "string" || !toolCallId) {
       throw invalidEvent(line, "tool activity toolCallId must be a non-empty string")
     }
@@ -653,6 +655,8 @@ function parseToolActivities(
     if (artifact !== undefined && !isFileArtifactReference(artifact)) {
       throw invalidEvent(line, "tool activity artifact was invalid")
     }
+    if (outcome !== undefined && outcome !== "empty")
+      throw invalidEvent(line, "tool activity outcome was invalid")
     const remaining = remainingCalls.get(toolCallId) ?? 0
     if (remaining === 0) throw invalidEvent(line, "tool activity did not match a tool call")
     remainingCalls.set(toolCallId, remaining - 1)
@@ -664,6 +668,7 @@ function parseToolActivities(
       label,
       ...(diff === undefined ? {} : { diff }),
       ...(artifact === undefined ? {} : { artifact }),
+      ...(outcome === undefined ? {} : { outcome }),
     }
   })
 }

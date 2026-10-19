@@ -640,6 +640,29 @@ describe("TranscriptStore change notifications", () => {
 })
 
 describe("TranscriptProjector", () => {
+  it("marks a tool row whose call found nothing, and ignores an end with nothing new", () => {
+    const transcript = new TranscriptStore("/work")
+    const projector = new TranscriptProjector(transcript)
+    const recall = {
+      type: "tool" as const,
+      toolCallId: "call_recall",
+      name: "recall" as const,
+      activityKind: "memory" as const,
+      subject: "limiter",
+      label: "Recalling: limiter",
+    }
+    projector.apply({ ...recall, phase: "start", action: "recall" })
+    expect(
+      projector.apply({ ...recall, phase: "end", action: "recall", outcome: "completed" }),
+    ).toBe(false)
+    expect(projector.apply({ ...recall, phase: "end", action: "recall", outcome: "empty" })).toBe(
+      true,
+    )
+    expect(transcript.entries).toMatchObject([
+      { kind: "tool", activityAction: "recall", activitySubject: "limiter", outcome: "empty" },
+    ])
+  })
+
   it("separates partial output from the next model attempt without adding an error message", () => {
     const transcript = new TranscriptStore("/work")
     const projector = new TranscriptProjector(transcript)

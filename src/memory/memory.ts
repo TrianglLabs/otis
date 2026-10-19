@@ -301,6 +301,9 @@ export async function forget(
   return { ...entry, ...(commit ? { commit } : {}) }
 }
 
+/** What `recall` answers when neither memory nor past sessions match. */
+export const NOTHING_RECALLED = "Nothing remembered or recorded matches."
+
 /**
  * What memory and past sessions know about a query, by its words: the facts any word matches,
  * most words first, a topic's name counting as one of them so the index's topics read whole;
@@ -335,5 +338,5 @@ export async function recall(query: string, cwd: string, session?: string): Prom
         })
         .join("\n")}`,
     )
-  return redactPrivate(sections.join("\n\n") || "Nothing remembered or recorded matches.")
+  return sections.length ? redactPrivate(sections.join("\n\n")) : NOTHING_RECALLED
 }

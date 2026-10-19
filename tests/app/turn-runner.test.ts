@@ -152,11 +152,25 @@ describe("executeTurn", () => {
       toolEvent("end", "call_edit", "Editing file: b.ts", {
         name: "edit",
         activityKind: "file_edit",
-        action: "agent",
+        action: "edit",
         subject: "x",
         diff: "--- b.ts\n+++ b.ts\n-old\n+new",
         artifact: { source: "workspace", path: "notes.md", kind: "markdown" },
         outcome: "completed",
+      }),
+      // A call that found nothing records so, and the transcript shows no row for it.
+      toolEvent("start", "call_recall", "Recalling: limiter", {
+        name: "recall",
+        activityKind: "memory",
+        action: "recall",
+        subject: "limiter",
+      }),
+      toolEvent("end", "call_recall", "Recalling: limiter", {
+        name: "recall",
+        activityKind: "memory",
+        action: "recall",
+        subject: "limiter",
+        outcome: "empty",
       }),
       { type: "complete", messages: [] },
     ]
@@ -193,6 +207,14 @@ describe("executeTurn", () => {
             label: "Editing file: b.ts",
             diff: "--- b.ts\n+++ b.ts\n-old\n+new",
             artifact: { source: "workspace", path: "notes.md", kind: "markdown" },
+          },
+          {
+            toolCallId: "call_recall",
+            activityKind: "memory",
+            action: "recall",
+            subject: "limiter",
+            label: "Recalling: limiter",
+            outcome: "empty",
           },
         ],
         subagents: [

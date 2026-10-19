@@ -107,6 +107,27 @@ describe("TranscriptList", () => {
   })
 })
 
+describe("memory rows", () => {
+  it("shows a recall that found something and drops one that found nothing", () => {
+    const found = tool({
+      text: "Recalling: limiter",
+      activityKind: "memory",
+      activityAction: "recall",
+      activitySubject: "limiter",
+    })
+    const empty = tool({
+      text: "Recalling: deploy runbook",
+      activityKind: "memory",
+      activityAction: "recall",
+      activitySubject: "deploy runbook",
+      outcome: "empty",
+    })
+    const { container } = renderList([message({ text: "Checking." }), found, empty])
+    expect(container.textContent).toContain("limiter")
+    expect(container.textContent).not.toContain("deploy runbook")
+  })
+})
+
 describe("turn rail", () => {
   const you = (text: string, extra: Partial<TranscriptEntry> = {}) =>
     message({ speaker: "You", text, ...extra })
