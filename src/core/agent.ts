@@ -67,7 +67,7 @@ export type AgentEvent =
       label: string
       diff?: string
       artifact?: ToolResult["artifact"]
-      outcome?: "completed" | "denied" | "failed"
+      outcome?: "completed" | "denied" | "failed" | "empty"
     }
   /** An event from a delegated child run, identified by the parent's `agent` tool call. */
   | { type: "subagent"; toolCallId: string; title: string; event: AgentEvent }
@@ -744,7 +744,7 @@ async function* executeSingleToolCall(
   yield { type: "tool", phase: "start", ...toolEvent }
 
   let result: ToolResult | undefined
-  let outcome: "completed" | "denied" | "failed" = "completed"
+  let outcome: "completed" | "denied" | "failed" | "empty" = "completed"
   try {
     if (context.signal?.aborted) return interrupted()
 
@@ -818,6 +818,7 @@ async function* executeSingleToolCall(
         executeToolCall(call, { ...context, authorizedArtifactPath: permission?.artifactPath }),
       )
     }
+    if (result.empty) outcome = "empty"
     const output =
       result.output.length <= MAX_TOOL_OUTPUT_CHARS
         ? result.output

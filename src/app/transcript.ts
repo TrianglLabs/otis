@@ -47,6 +47,8 @@ export type TranscriptEntry = {
   durationMs?: number
   diff?: string
   artifact?: FileArtifactReference
+  /** A tool call that found nothing, a recall with no match: shown as no row. */
+  outcome?: "empty"
   /**
    * Artifact cards stay folded into tool activity until the turn chooses the last revision to
    * present.
@@ -230,6 +232,7 @@ export class TranscriptStore {
       activitySubject?: string
       diff?: string
       artifact?: FileArtifactReference
+      outcome?: "empty"
     } = {},
   ) {
     const entry = {
@@ -353,6 +356,7 @@ export class TranscriptStore {
         label: entry.text,
         ...(entry.diff !== undefined ? { diff: entry.diff } : {}),
         ...(entry.artifact !== undefined ? { artifact: entry.artifact } : {}),
+        ...(entry.outcome === undefined ? {} : { outcome: entry.outcome }),
       })
       remaining.set(toolCallId, count - 1)
     }
@@ -412,6 +416,7 @@ export class TranscriptStore {
           ...(activity.action === undefined ? {} : { activityAction: activity.action }),
           ...(activity.subject === undefined ? {} : { activitySubject: activity.subject }),
           ...(activity.diff !== undefined ? { diff: activity.diff } : {}),
+          ...(activity.outcome === undefined ? {} : { outcome: activity.outcome }),
         })
         if (activity.artifact !== undefined) this.stageArtifact(entry.id, activity.artifact)
       }
@@ -516,12 +521,15 @@ export class TranscriptProjector {
       this.#tools.set(event.toolCallId, entry.id)
       return true
     }
-    if (!event.diff && !event.artifact) return false
     const entryId = this.#tools.get(event.toolCallId)
-    if (entryId !== undefined) {
-      if (event.diff) transcript.updateEntry(entryId, { diff: event.diff })
-      if (event.artifact) transcript.stageArtifact(entryId, event.artifact)
-    }
+    const empty = event.outcome === "empty"
+    if (entryId === undefined || (!event.diff && !event.artifact && !empty)) return false
+    if (event.diff || empty)
+      transcript.updateEntry(entryId, {
+        ...(event.diff ? { diff: event.diff } : {}),
+        ...(empty ? { outcome: "empty" as const } : {}),
+      })
+    if (event.artifact) transcript.stageArtifact(entryId, event.artifact)
     return true
   }
 

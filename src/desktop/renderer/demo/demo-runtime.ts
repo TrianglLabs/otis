@@ -3421,6 +3421,7 @@ function toolActivityTranscript(): TranscriptEntry[] {
     tool("command", "bun test tests/desktop/renderer", "t25"),
     fixture({ kind: "message", speaker: "Otis", text: "Memory across sessions:" }),
     tool("recall", "session lock flakiness", "t26"),
+    { ...tool("recall", "the deploy runbook", "t26b"), outcome: "empty" },
     tool("remember", "Session locks live in src/storage/session-lock.ts.", "t27"),
     tool("forget", "The lock test is flaky.", "t28"),
     fixture({ kind: "message", speaker: "Otis", text: "Routines, from chat:" }),

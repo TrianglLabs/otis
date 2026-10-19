@@ -104,6 +104,8 @@ export type ToolCall =
 export type ToolResult = {
   title: string
   output: string
+  /** The call ran and found nothing: a recall with no match. */
+  empty?: true
   diff?: string
   /** Live workspace file or explicitly published preview copy. */
   artifact?: FileArtifactReference

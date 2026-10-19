@@ -47,11 +47,13 @@ class ToolActivityRecorder {
       return
     }
     const index = this.#indexes.get(event.toolCallId)
-    if (index === undefined || (!event.diff && !event.artifact)) return
+    const empty = event.outcome === "empty"
+    if (index === undefined || (!event.diff && !event.artifact && !empty)) return
     this.activities[index] = {
       ...this.activities[index],
       ...(event.diff ? { diff: event.diff } : {}),
       ...(event.artifact ? { artifact: event.artifact } : {}),
+      ...(empty ? { outcome: "empty" as const } : {}),
     }
   }
 }

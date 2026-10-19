@@ -115,7 +115,10 @@ export class TranscriptView {
     for (const reasoningId of this.#expandedReasoningIDs) {
       if (!reasoningIDs.has(reasoningId)) this.#expandedReasoningIDs.delete(reasoningId)
     }
-    const visible = entries.filter((entry) => entry.kind !== "reasoning" || this.thinkingVisible)
+    // Hidden thinking and a tool call that found nothing leave no row.
+    const visible = entries.filter(
+      (entry) => (entry.kind !== "reasoning" || this.thinkingVisible) && entry.outcome !== "empty",
+    )
     const settled = visible.filter((entry) => !entry.delivery)
     const visibleEntries = [...settled, ...visible.filter((entry) => entry.delivery)]
     const entryIDs = new Set(visibleEntries.map((entry) => entry.id))

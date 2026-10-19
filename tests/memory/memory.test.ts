@@ -6,6 +6,7 @@ import {
   listMemory,
   memoryIndex,
   memoryTopic,
+  NOTHING_RECALLED,
   recall,
   redactPrivate,
   remember,
@@ -259,7 +260,16 @@ describe("memory", () => {
     expect(output).toContain("2026-09-10 · Tune the limiter (workspace)")
     expect(output).toContain("[redacted]")
     expect(output).not.toContain("Limiter again")
-    expect(await recall("zzz", cwd)).toBe("Nothing remembered or recorded matches.")
+    expect(await recall("zzz", cwd)).toBe(NOTHING_RECALLED)
+    // The tool result says so, so the transcript row can say so too.
+    expect(await executeToolCall({ name: "recall", input: { query: "zzz" } }, { cwd })).toEqual({
+      title: "Recall: zzz",
+      output: NOTHING_RECALLED,
+      empty: true,
+    })
+    expect(
+      await executeToolCall({ name: "recall", input: { query: "limiter" } }, { cwd }),
+    ).not.toHaveProperty("empty")
   })
 
   it("answers a question in other words than the facts, by any word, whole, most words first", async () => {

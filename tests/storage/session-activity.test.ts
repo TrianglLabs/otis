@@ -52,6 +52,31 @@ describe("session tool activity", () => {
       transcript.toolActivitiesFor(replay.messages).filter((entry) => entry.artifact),
     ).toHaveLength(3)
   })
+  it("keeps a call that found nothing out of the replayed transcript and rejects other outcomes", async () => {
+    const cwd = await trackedTempDir()
+    const options = { cwd, directory: join(cwd, "sessions") }
+    const session = await openSession(options)
+    const admission = await session.admitPrompt("what do we know about the limiter?")
+    await session.completeTurn(admission, toolMessages("recall_1", "limiter"), {
+      toolActivities: [{ ...toolActivity("recall_1", "limiter", "diff"), outcome: "empty" }],
+    })
+    const reopened = await openSession(options)
+    const transcript = new TranscriptStore("/work")
+    transcript.replaceMessages(reopened.replay().messages, reopened.replayTranscript().turns)
+    expect(transcript.entries.filter((entry) => entry.kind === "tool")).toMatchObject([
+      { toolCallId: "recall_1", outcome: "empty" },
+    ])
+    expect(transcript.toolActivitiesFor(reopened.replay().messages)).toMatchObject([
+      { toolCallId: "recall_1", outcome: "empty" },
+    ])
+    // Only "empty" is an outcome worth keeping; anything else is a corrupt line.
+    const file = join(options.directory, "default.jsonl")
+    const lines = (await readSessionEvents(file)).map((event) => JSON.stringify(event))
+    const last = JSON.parse(lines.at(-1) as string)
+    last.toolActivities[0].outcome = "later"
+    await writeFile(file, [...lines.slice(0, -1), JSON.stringify(last)].join("\n").concat("\n"))
+    await expect(readSessionEvents(file)).rejects.toThrow("tool activity outcome was invalid")
+  })
   it("archives active-turn tool cards and subagent traces independently of retained model context", async () => {
     const cwd = await trackedTempDir()
     const options = { cwd, directory: join(cwd, "sessions") }
