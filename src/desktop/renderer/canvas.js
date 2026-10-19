@@ -171,8 +171,6 @@ async function render(source, colors, requestId, keepView) {
     const result = await mermaid.render(`otis-canvas-${renderId++}`, source)
     if (requestId !== latestRequest) return
     root.innerHTML = result.svg
-    if (keepView) applyView()
-    else resetView()
     const svg = root.querySelector("svg")
     if (svg) {
       const viewBoxWidth = Number(svg.getAttribute("viewBox")?.split(/\s+/)[2])
@@ -183,7 +181,10 @@ async function render(source, colors, requestId, keepView) {
       svg.style.height = "auto"
       svg.style.margin = "0 auto"
     }
+    // Shown and sized before the view is applied, so its bounds can be measured.
     root.hidden = false
+    if (keepView) applyView()
+    else resetView()
     parent.postMessage(
       {
         type: "otis-canvas-render",
@@ -212,8 +213,25 @@ function resetView() {
   applyView()
 }
 
+// A corner of the drawing always stays this far inside the viewport, so a pan or a zoom cannot
+// lose it. A frame not yet laid out has no viewport to measure against and keeps the view as is.
+const PAN_MARGIN = 48
+
+function clampPan() {
+  const { clientWidth, clientHeight } = viewport
+  if (!clientWidth || !clientHeight) return
+  const width = root.offsetWidth * scale
+  const height = root.offsetHeight * scale
+  // The drawing scales about its top centre, or its centre when large.
+  const left = root.offsetLeft + (root.offsetWidth - width) / 2
+  const top = root.offsetTop + (large ? (root.offsetHeight - height) / 2 : 0)
+  panX = Math.min(clientWidth - PAN_MARGIN - left, Math.max(PAN_MARGIN - left - width, panX))
+  panY = Math.min(clientHeight - PAN_MARGIN - top, Math.max(PAN_MARGIN - top - height, panY))
+}
+
 // The parent shows the level in its pill, so every change of view reports the scale.
 function applyView() {
+  clampPan()
   root.style.transform = `translate3d(${panX}px, ${panY}px, 0) scale(${scale})`
   parent.postMessage({ type: "otis-canvas-view", scale }, "*")
 }
