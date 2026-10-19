@@ -83,9 +83,9 @@ describe("system prompt", () => {
         math: true,
       },
     })
-    expect(canvas).toContain("Markdown files opened in Canvas render TeX math")
+    expect(canvas).toContain("Replies render TeX math")
     // Chat shows TeX literally, so formula-heavy answers are steered into a published document.
-    expect(canvas).toContain("Chat replies show the markup as plain text")
+    expect(canvas).toContain("Single-dollar `$…$` stays plain text in chat")
     expect(canvas).toContain("publish it with publish_artifact")
     expect(canvas).not.toContain("Avoid TeX math markup")
   })

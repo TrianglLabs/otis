@@ -331,16 +331,27 @@ describe("stable message rendering", () => {
     expect(openCanvas).toHaveBeenCalledExactlyOnceWith("flowchart LR\n  A --> B")
   })
 
-  it("renders TeX math only for documents, leaving chat dollar signs literal", () => {
+  it("renders TeX math in chat except between single dollars, and all of it in documents", () => {
     const text =
       "Costs $5.\n\nInline $E = mc^2$ or \\(a^2\\) and display\n\n$$\n\\int_0^1 x\\,dx\n$$\n\n\\[\\sum_i i\\]"
     const chat = render(<Markdown text={text} />)
-    expect(chat.container.querySelector(".katex")).toBeNull()
+    expect(chat.container.querySelectorAll(".katex")).toHaveLength(3)
+    expect(chat.container.querySelectorAll(".katex-display")).toHaveLength(2)
     expect(chat.container.textContent).toContain("Costs $5.")
     expect(chat.container.textContent).toContain("$E = mc^2$")
-    // CommonMark reads `\(` as an escaped parenthesis in chat.
-    expect(chat.container.textContent).toContain("or (a^2) and")
+    expect(chat.container.querySelector(".katex-error")).toBeNull()
     chat.unmount()
+    // A one-line `$$…$$` paragraph, as models write it, is display math beside literal prices.
+    const oneLine = "Costs ~$2.43/hr vs ~$3.14/hr.\n\n$$\\mathcal{L} = -\\log p(x)$$\n\nDone."
+    const line = render(<Markdown text={oneLine} />)
+    expect(line.container.querySelectorAll(".katex-display")).toHaveLength(1)
+    expect(line.container.textContent).toContain("~$2.43/hr vs ~$3.14/hr")
+    line.unmount()
+    // A streaming tail fades in by the word, but typeset math stays whole.
+    const streaming = render(<Markdown text="Area \\(\\pi r^2\\) grows" streaming />)
+    expect(streaming.container.querySelectorAll(".streamWord").length).toBeGreaterThan(0)
+    expect(streaming.container.querySelector(".katex .streamWord")).toBeNull()
+    streaming.unmount()
 
     const doc = render(
       <Markdown text={text} document={{ runtime: 1, id: "doc.md", revision: 1 }} />,
