@@ -16,7 +16,7 @@ import rehypeHighlight from "rehype-highlight"
 import rehypeKatex from "rehype-katex"
 import remarkGfm from "remark-gfm"
 import remarkMath from "remark-math-extended"
-import type { Processor } from "unified"
+import type { PluggableList, Processor } from "unified"
 import { PaneRuntimeContext, useOpenCanvas } from "../features/canvas/canvas-context.js"
 import { MermaidFrame } from "../features/canvas/MermaidFrame.js"
 import { useI18n } from "../i18n/index.js"
@@ -26,17 +26,22 @@ import { IconButton } from "./Button.js"
 
 /**
  * A Markdown file shown as a Canvas document. It renders TeX math and Mermaid inline and resolves
- * images relative to itself; chat Markdown keeps dollars literal and offers diagrams as cards.
+ * images relative to itself; chat Markdown offers diagrams as cards.
  */
 export type DocumentSource = { runtime: number; id: string; revision: number }
 
-/** Assistant-facing Markdown: GFM, external links in the system browser, copyable code blocks. */
-const remarkPlugins = [remarkGfm]
-// Documents opt into TeX math in dollar and `\(…\)` / `\[…\]` form; chat stays literal so
-// prices are not equations.
-const documentRemarkPlugins = [remarkGfm, remarkMath, pandocMath]
-const rehypePlugins = [trimCodeNewline, rehypeHighlight]
-const documentRehypePlugins = [trimCodeNewline, rehypeHighlight, rehypeKatex]
+/**
+ * Assistant-facing Markdown: GFM, external links in the system browser, copyable code blocks, and
+ * TeX math in `$$…$$`, `\(…\)` and `\[…\]` form. Chat leaves single dollars literal so prices
+ * are not equations; a document, written for it, reads `$…$` too.
+ */
+const remarkPlugins: PluggableList = [
+  remarkGfm,
+  [remarkMath, { singleDollarTextMath: false }],
+  pandocMath,
+]
+const documentRemarkPlugins: PluggableList = [remarkGfm, remarkMath, pandocMath]
+const rehypePlugins = [trimCodeNewline, rehypeHighlight, rehypeKatex]
 const DocumentContext = createContext<DocumentSource | undefined>(undefined)
 const CardsContext = createContext(true)
 // Component types must survive text updates, otherwise React remounts code/table subtrees and loses
@@ -95,9 +100,7 @@ const Blocks = memo(function Blocks({
   return (
     <ReactMarkdown
       remarkPlugins={document ? documentRemarkPlugins : remarkPlugins}
-      rehypePlugins={
-        document ? documentRehypePlugins : streaming ? streamingRehypePlugins : rehypePlugins
-      }
+      rehypePlugins={streaming ? streamingRehypePlugins : rehypePlugins}
       components={components}
       urlTransform={urlTransform}
     >
@@ -108,14 +111,17 @@ const Blocks = memo(function Blocks({
 
 /**
  * Wraps each word of a streaming tail so it fades in as it arrives. Positions stay stable while
- * words append, so React keeps the earlier spans and only the new ones animate. Code stays whole.
+ * words append, so React keeps the earlier spans and only the new ones animate. Code and typeset
+ * math stay whole.
  */
 const streamingRehypePlugins = [...rehypePlugins, () => (tree: Root) => splitWords(tree)]
 
 function splitWords(node: Root | Element) {
   node.children = (node.children as ElementContent[]).flatMap((child): ElementContent[] => {
     if (child.type === "element") {
-      if (child.tagName !== "code") splitWords(child)
+      const classes = child.properties?.className
+      const typeset = Array.isArray(classes) && classes.some((name) => String(name) === "katex")
+      if (child.tagName !== "code" && !typeset) splitWords(child)
       return [child]
     }
     if (child.type !== "text") return [child]
