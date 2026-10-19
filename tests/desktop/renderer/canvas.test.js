@@ -148,3 +148,62 @@ it("takes its full width when large and asks to close on Escape only then", asyn
   vi.unstubAllGlobals()
   document.body.innerHTML = ""
 })
+
+it("stops a pan or zoom where the drawing would leave the viewport", async () => {
+  document.body.innerHTML =
+    '<div id="diagram"></div><div id="error"></div><div id="viewport"></div>'
+  vi.resetModules()
+  const listen = vi.spyOn(window, "addEventListener")
+  await import("../../../src/desktop/renderer/canvas.js")
+  const receive = listen.mock.calls.find(([type]) => type === "message")[1]
+  listen.mockRestore()
+  const notify = vi.spyOn(window.parent, "postMessage").mockImplementation(() => {})
+  vi.stubGlobal("mermaid", {
+    initialize: vi.fn(),
+    render: vi.fn(async () => ({ svg: '<svg viewBox="0 0 320 120"></svg>' })),
+  })
+  // A laid-out frame: an 800×600 viewport with a 320×120 drawing centred near its top. Hidden,
+  // the drawing measures nothing, as in a browser.
+  const viewport = document.getElementById("viewport")
+  const diagram = document.getElementById("diagram")
+  Object.defineProperties(viewport, { clientWidth: { value: 800 }, clientHeight: { value: 600 } })
+  const laidOut = (value) => ({ get: () => (diagram.hidden ? 0 : value) })
+  Object.defineProperties(diagram, {
+    offsetWidth: laidOut(320),
+    offsetHeight: laidOut(120),
+    offsetLeft: laidOut(240),
+    offsetTop: laidOut(24),
+  })
+  receive({
+    source: window.parent,
+    data: {
+      type: "otis-canvas-source",
+      source: "graph TD; A-->B",
+      colors: {
+        background: "white",
+        surface: "white",
+        text: "black",
+        muted: "gray",
+        accent: "blue",
+        border: "gray",
+      },
+    },
+  })
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  // A fresh render starts at rest: the drawing was shown and measured before the view applied.
+  expect(diagram.style.transform).toBe("translate3d(0px, 0px, 0) scale(1)")
+  const wheel = (deltaX, deltaY) =>
+    viewport.dispatchEvent(new WheelEvent("wheel", { deltaX, deltaY, cancelable: true }))
+  // Far left and far down: 48px of the drawing stay inside on each axis.
+  wheel(5000, 0)
+  expect(diagram.style.transform).toBe("translate3d(-512px, 0px, 0) scale(1)")
+  wheel(0, -5000)
+  expect(diagram.style.transform).toBe("translate3d(-512px, 528px, 0) scale(1)")
+  // Back within range, the pan is taken as asked.
+  wheel(-100, 100)
+  expect(diagram.style.transform).toBe("translate3d(-412px, 428px, 0) scale(1)")
+  window.removeEventListener("message", receive)
+  notify.mockRestore()
+  vi.unstubAllGlobals()
+  document.body.innerHTML = ""
+})
