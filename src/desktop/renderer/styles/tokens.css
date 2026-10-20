@@ -63,10 +63,11 @@
 
   /* Geometry, in the macOS manner: every control is one rounded rectangle, surfaces that hold
      content take the large radius, and capsules are kept for switches, tracks, dots, and the
-     floating badges that sit over content. */
+     floating badges that sit over content. The radii stay small, so a corner reads as a corner. */
   --radius-sm: 4px; /* inline chips: code spans, swatches */
-  --radius: 8px; /* buttons, chips, inputs, selects, menus, list rows, tabs, sidebar items */
-  --radius-lg: 16px; /* cards, overlays; the composer box rounds further, to 20px */
+  --radius: 6px; /* buttons, chips, inputs, selects, menus, list rows, tabs, sidebar items */
+  --radius-lg: 10px; /* cards, panes, code blocks, grouped lists */
+  --radius-xl: 14px; /* the composer box and the floating overlays */
   --radius-pill: 999px; /* switches, meter tracks, status dots, floating badges, round actions */
   --row-inset: 6px; /* horizontal inset for list-row highlights */
   --row-gap: 2px; /* vertical separation between rounded interactive list rows */

@@ -28,7 +28,7 @@ describe("inline Canvas build", () => {
 
     const html = await server.transformIndexHtml("/canvas.html", await readFile(canvasHtml, "utf8"))
     expect(html).not.toContain("/@vite/client")
-    expect(html).toContain('data-otis-canvas-script="mermaid"')
+    expect(html).toContain('data-otis-canvas-script="pele"')
     expect(html).toContain('data-otis-canvas-script="renderer"')
     // It executes as a classic inline script, with no module loader inside the opaque-origin frame.
     expect(

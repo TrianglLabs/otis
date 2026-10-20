@@ -596,7 +596,7 @@ export const en = {
   "canvas.zoomIn": "Zoom in",
   "canvas.enlarge": "Open larger",
   "canvas.renderFailed": "Could not render this Mermaid diagram.",
-  "canvas.loadFailed": "Mermaid failed to load.",
+  "canvas.loadFailed": "The diagram renderer failed to load.",
   "canvas.emptySource": "The Mermaid block is empty.",
   "canvas.tooLarge": "This Mermaid diagram is too large to render. The limit is 50,000 characters.",
   "canvas.sheets": "Sheets",

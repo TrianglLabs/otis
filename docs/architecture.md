@@ -172,9 +172,9 @@ previews render relative image references as-is; only data: URIs and bundled ass
 no workspace file access, except that a Markdown working file's relative image paths are served through the
 artifact store: only image types, only from inside the workspace, and only while the tab still shows that revision.
 Saved copies and attachments resolve no images. Markdown previews render TeX math (`$…$`, `$$…$$`, `\(…\)`,
-`\[…\]`) with KaTeX and Mermaid blocks inline in the sandboxed canvas frame; chat Markdown renders the same math
-except single-dollar `$…$`, which stays literal so prices are not parsed as equations, and offers diagrams as
-cards. The system prompt advertises math and Mermaid only to adapters that report them as output capabilities. Code blocks everywhere are colored by highlight.js grammars with
+`\[…\]`) with KaTeX and Mermaid blocks, drawn by Pele, inline in the sandboxed canvas frame; chat Markdown
+renders the same math except single-dollar `$…$`, which stays literal so prices are not parsed as equations, and
+offers diagrams as cards. The system prompt advertises math and Mermaid only to adapters that report them as output capabilities. Code blocks everywhere are colored by highlight.js grammars with
 the theme palette. Markdown previews stop at 512 KB while the 2 MB store cap still applies to export.
 Every document kind shares one find bar and zoom control: Markdown and PDF matches are painted with the CSS Custom
 Highlight API in this window, while HTML and Word previews answer through an agent injected beside the source in the

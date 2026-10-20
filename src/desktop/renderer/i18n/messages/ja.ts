@@ -599,7 +599,7 @@ export const ja: Messages = {
   "canvas.zoomIn": "拡大",
   "canvas.enlarge": "大きく表示",
   "canvas.renderFailed": "この Mermaid 図を表示できませんでした。",
-  "canvas.loadFailed": "Mermaid を読み込めませんでした。",
+  "canvas.loadFailed": "図のレンダラーを読み込めませんでした。",
   "canvas.emptySource": "Mermaid ブロックが空です。",
   "canvas.tooLarge": "この Mermaid 図は大きすぎます。上限は 50,000 文字です。",
   "canvas.sheets": "シート",

@@ -669,7 +669,7 @@ export const uk: Messages = {
   "canvas.zoomIn": "Збільшити",
   "canvas.enlarge": "Відкрити більшим",
   "canvas.renderFailed": "Не вдалося відобразити цю діаграму Mermaid.",
-  "canvas.loadFailed": "Не вдалося завантажити Mermaid.",
+  "canvas.loadFailed": "Не вдалося завантажити засіб відображення діаграм.",
   "canvas.emptySource": "Блок Mermaid порожній.",
   "canvas.tooLarge": "Ця діаграма Mermaid завелика. Обмеження — 50 000 символів.",
   "canvas.sheets": "Аркуші",

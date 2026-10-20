@@ -3,7 +3,7 @@
 let labels = {
   viewport: "Diagram canvas. Drag to pan; use the controls to zoom.",
   renderFailed: "Could not render this Mermaid diagram.",
-  loadFailed: "Mermaid failed to load.",
+  loadFailed: "The diagram renderer failed to load.",
   emptySource: "The Mermaid block is empty.",
   tooLarge: "This Mermaid diagram is too large to render. The limit is 50,000 characters.",
 }
@@ -12,13 +12,15 @@ const root = requiredElement("diagram")
 const errorView = requiredElement("error")
 const viewport = requiredElement("viewport")
 
-let renderId = 0
 let scale = 1
 let panX = 0
 let panY = 0
 let drag
-let latestRequest = 0
 let lastSource
+// The label size the parent asks for: the document's text inline, the prose size in a tab.
+let fontSize
+// The viewport width the drawing on screen was laid out for.
+let laidOut
 // Inline, the diagram sits in a document: no pan or zoom, and the frame reports its height.
 let inline = false
 // Large, the frame fills a dialog over the window; the parent opens and closes it.
@@ -102,86 +104,87 @@ window.addEventListener("message", (event) => {
   const validColors =
     !!colors &&
     typeof colors === "object" &&
-    ["background", "surface", "text", "muted", "accent", "border"].every(
-      (name) => typeof colors[name] === "string" && colors[name].length <= 100,
-    )
+    [
+      "background",
+      "surface",
+      "text",
+      "muted",
+      "accent",
+      "border",
+      "cyan",
+      "green",
+      "orange",
+      "pink",
+      "yellow",
+    ].every((name) => typeof colors[name] === "string" && colors[name].length <= 100)
   if (!validColors) return
-  const requestId = ++latestRequest
   // A re-render of the same diagram (a theme or language change) keeps the user's zoom and pan.
   const keepView = request.source === lastSource
   lastSource = request.source
+  fontSize = request.fontSize
   inline = request.inline === true
   large = request.large === true
   document.documentElement.classList.toggle("inline", inline)
   document.documentElement.classList.toggle("large", large)
   viewport.tabIndex = inline ? -1 : 0
-  document.body.style.color = colors.text
-  document.documentElement.style.setProperty("--canvas-surface", colors.surface)
-  document.documentElement.style.setProperty("--canvas-border", colors.border)
-  document.documentElement.style.setProperty("--canvas-text", colors.text)
-  document.documentElement.style.setProperty("--canvas-muted", colors.muted)
-  document.documentElement.style.setProperty("--canvas-hover", colors.background)
-  errorView.style.color = colors.muted
+  // Pele draws with these, and the page's text takes the same ink; a theme change recolours a
+  // drawing already on screen. Chart series, branches and sections cycle the theme's palette,
+  // then its dim and its ink for the seventh and eighth.
+  for (const [name, value] of [
+    ["bg", colors.background],
+    ["fg", colors.text],
+    ["muted", colors.muted],
+    ["line", colors.muted],
+    ["surface", colors.surface],
+    ["surface-alt", colors.background],
+    ["border", colors.border],
+    ["accent", colors.accent],
+    ["series-1", colors.accent],
+    ["series-2", colors.cyan],
+    ["series-3", colors.orange],
+    ["series-4", colors.green],
+    ["series-5", colors.pink],
+    ["series-6", colors.yellow],
+    ["series-7", colors.muted],
+    ["series-8", colors.text],
+  ])
+    document.documentElement.style.setProperty(`--pele-${name}`, value)
   root.hidden = true
   root.innerHTML = ""
   errorView.hidden = true
   errorView.textContent = ""
   lastError = undefined
-  if (request.source.length === 0) showError("emptySource", requestId)
-  else if (request.source.length > 50_000) showError("tooLarge", requestId)
-  else void render(request.source, colors, requestId, keepView)
+  if (request.source.length === 0) showError("emptySource")
+  else if (request.source.length > 50_000) showError("tooLarge")
+  else render(request.source, keepView)
 })
 
-async function render(source, colors, requestId, keepView) {
-  const mermaid = globalThis.mermaid
-  if (!mermaid) return showError("loadFailed", requestId)
+// The frame's own fonts, which the drawing is measured and set in; the sandbox loads no other.
+const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+const FONT_MONO = 'ui-monospace, "SF Mono", Menlo, monospace'
 
+// Pele parses the Mermaid source and lays the drawing out itself, in one synchronous call, so a
+// render is done before the next message can arrive. The layout knows the width it has, the
+// frame's less the margins a tab and the dialog keep and the tab's cap, so a wide flowchart turns
+// top-to-bottom in a narrow panel instead of shrinking. Links and images stay off: the source is
+// the model's, and the frame may reach nothing anyway.
+function render(source, keepView) {
+  const pele = globalThis.pele
+  if (!pele) return showError("loadFailed")
+
+  laidOut = viewport.clientWidth
   try {
-    mermaid.initialize({
-      startOnLoad: false,
-      securityLevel: "strict",
-      suppressErrorRendering: true,
-      maxTextSize: 50_000,
-      htmlLabels: false,
-      flowchart: { htmlLabels: false },
-      theme: "base",
-      look: "classic",
-      themeCSS: "* { filter: none; box-shadow: none; }",
-      themeVariables: {
-        background: colors.background,
-        primaryColor: colors.surface,
-        primaryTextColor: colors.text,
-        primaryBorderColor: colors.border,
-        lineColor: colors.muted,
-        secondaryColor: colors.surface,
-        tertiaryColor: colors.background,
-        actorBkg: colors.surface,
-        actorBorder: colors.border,
-        actorTextColor: colors.text,
-        signalColor: colors.text,
-        signalTextColor: colors.text,
-        labelBoxBkgColor: colors.surface,
-        labelBoxBorderColor: colors.border,
-        labelTextColor: colors.text,
-        noteBkgColor: colors.surface,
-        noteBorderColor: colors.accent,
-        noteTextColor: colors.text,
-      },
+    const result = pele.render(source, {
+      maxWidth: inline ? laidOut : Math.min(laidOut - 48, large ? Infinity : 760),
+      fontFamily: FONT,
+      fontFamilyMono: FONT_MONO,
+      fontSize,
+      links: false,
+      images: false,
     })
-    const result = await mermaid.render(`otis-canvas-${renderId++}`, source)
-    if (requestId !== latestRequest) return
     root.innerHTML = result.svg
     const svg = root.querySelector("svg")
-    if (svg) {
-      const viewBoxWidth = Number(svg.getAttribute("viewBox")?.split(/\s+/)[2])
-      const naturalWidth = Number.isFinite(viewBoxWidth) && viewBoxWidth > 0 ? viewBoxWidth : 480
-      const width = large ? naturalWidth : Math.min(naturalWidth, inline ? 720 : 480)
-      svg.style.width = `min(100%, ${width}px)`
-      svg.style.maxWidth = "100%"
-      svg.style.height = "auto"
-      svg.style.margin = "0 auto"
-    }
-    // Shown and sized before the view is applied, so its bounds can be measured.
+    // Shown before the view is applied, so its bounds can be measured.
     root.hidden = false
     if (keepView) applyView()
     else resetView()
@@ -189,14 +192,14 @@ async function render(source, colors, requestId, keepView) {
       {
         type: "otis-canvas-render",
         ok: true,
-        width: svg?.getBoundingClientRect().width,
-        diagramBottom: svg?.getBoundingClientRect().bottom,
+        width: svg.getBoundingClientRect().width,
+        diagramBottom: svg.getBoundingClientRect().bottom,
         height: inline ? root.getBoundingClientRect().bottom : undefined,
       },
       "*",
     )
   } catch (reason) {
-    showError(reason instanceof Error ? reason.message : String(reason), requestId)
+    showError(reason instanceof Error ? reason.message : String(reason))
   }
 }
 
@@ -243,8 +246,7 @@ function endDrag(event) {
   if (viewport.hasPointerCapture(event.pointerId)) viewport.releasePointerCapture(event.pointerId)
 }
 
-function showError(message, requestId) {
-  if (requestId !== latestRequest) return
+function showError(message) {
   root.hidden = true
   root.innerHTML = ""
   errorView.hidden = false
@@ -261,13 +263,12 @@ function showError(message, requestId) {
   )
 }
 
-// A document's width follows the panel, so an inline drawing's height changes with it.
+// The frame's width follows the panel, so a drawing on screen is laid out again for it, keeping
+// the user's view. A change of height alone, which the parent makes to fit an inline drawing,
+// changes nothing.
 window.addEventListener("resize", () => {
-  if (!inline || root.hidden) return
-  parent.postMessage(
-    { type: "otis-canvas-render", ok: true, height: root.getBoundingClientRect().bottom },
-    "*",
-  )
+  if (root.hidden || viewport.clientWidth === laidOut) return
+  render(lastSource, true)
 })
 
 function renderError() {

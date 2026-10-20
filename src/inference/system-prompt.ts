@@ -80,8 +80,8 @@ export function buildSystemPrompt(
           "- This interface lets the user open fenced Mermaid diagrams in a visual Canvas.",
           "- When brainstorming or completing new, complex functionality, use a ```mermaid fenced block when it materially clarifies architecture, state, or information flow.",
           "- Choose the diagram type that best matches the information; use sequenceDiagram only for time-ordered interactions.",
-          "- Canvas does not support Mermaid mindmap or architecture diagrams; use another supported diagram type instead.",
-          "- Keep the surrounding explanation self-contained. Do not use click directives, HTML labels, or external resources.",
+          "- Every Mermaid diagram type renders, including mindmap, timeline, gantt, gitGraph, and architecture; an architecture diagram's built-in icons draw, other icon names show as text.",
+          "- Keep the surrounding explanation self-contained. Do not use click directives, HTML labels, links, or external resources.",
         ].join("\n")
       : "- Avoid mermaid diagrams; this interface cannot render them.",
   )

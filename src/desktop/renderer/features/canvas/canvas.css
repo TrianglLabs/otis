@@ -359,7 +359,7 @@
   flex-direction: column;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-xl);
   box-shadow: var(--shadow-float);
   overflow: hidden;
   animation: overlay-enter var(--motion);

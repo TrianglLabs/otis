@@ -584,7 +584,7 @@ export const zhCN: Messages = {
   "canvas.zoomIn": "放大",
   "canvas.enlarge": "放大打开",
   "canvas.renderFailed": "无法渲染此 Mermaid 图表。",
-  "canvas.loadFailed": "Mermaid 加载失败。",
+  "canvas.loadFailed": "图表渲染器加载失败。",
   "canvas.emptySource": "Mermaid 代码块为空。",
   "canvas.tooLarge": "此 Mermaid 图表过大，最多支持 50,000 个字符。",
   "canvas.sheets": "工作表",

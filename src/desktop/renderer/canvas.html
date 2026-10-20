@@ -24,7 +24,7 @@
       body {
         position: relative;
         overflow: hidden;
-        color: var(--canvas-text, #d8dee9);
+        color: var(--pele-fg, #d8dee9);
       }
       #viewport {
         position: absolute;
@@ -37,8 +37,10 @@
       #viewport.dragging {
         cursor: grabbing;
       }
-      /* The parent's zoom pill floats over the foot; the drawing keeps clear of it at rest. */
+      /* The parent's zoom pill floats over the foot; the drawing keeps clear of it at rest. The
+         corner radius mirrors the app's --radius, which the sandbox cannot read. */
       #diagram {
+        --pele-radius: 6px;
         width: calc(100% - 48px);
         max-width: 760px;
         margin: 24px auto 56px;
@@ -49,19 +51,17 @@
       #viewport.dragging #diagram {
         transition: none;
       }
+      /* The drawing comes at its own width and shrinks to fit; it sits in the middle. */
       #diagram svg {
         display: block;
-        width: auto;
         max-width: 100%;
         height: auto;
-      }
-      #diagram svg * {
-        filter: none;
-        box-shadow: none;
+        margin: 0 auto;
       }
       #error {
         margin: 56px 24px 24px;
         max-width: 36rem;
+        color: var(--pele-muted, #808080);
         white-space: pre-wrap;
         font: 12px/1.5 ui-monospace, "SF Mono", Menlo, monospace;
       }
@@ -104,7 +104,7 @@
   <body>
     <!-- biome-ignore lint/a11y/noNoninteractiveTabindex: the canvas accepts keyboard pan and zoom commands -->
     <div id="viewport" role="application" tabindex="0" aria-label="Diagram canvas. Drag to pan; use the controls to zoom.">
-      <div id="diagram" role="img"></div>
+      <div id="diagram" role="img" hidden></div>
       <pre id="error" hidden></pre>
     </div>
     <template id="otis-canvas-runtime"></template>

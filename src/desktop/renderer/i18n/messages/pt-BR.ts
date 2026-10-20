@@ -604,7 +604,7 @@ export const ptBR: Messages = {
   "canvas.zoomIn": "Ampliar",
   "canvas.enlarge": "Abrir maior",
   "canvas.renderFailed": "Não foi possível exibir este diagrama Mermaid.",
-  "canvas.loadFailed": "Não foi possível carregar o Mermaid.",
+  "canvas.loadFailed": "Não foi possível carregar o renderizador de diagramas.",
   "canvas.emptySource": "O bloco Mermaid está vazio.",
   "canvas.tooLarge": "Este diagrama Mermaid é grande demais. O limite é de 50.000 caracteres.",
   "canvas.sheets": "Planilhas",
