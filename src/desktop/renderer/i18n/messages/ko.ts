@@ -598,7 +598,7 @@ export const ko: Messages = {
   "canvas.zoomIn": "확대",
   "canvas.enlarge": "크게 열기",
   "canvas.renderFailed": "이 Mermaid 다이어그램을 표시할 수 없습니다.",
-  "canvas.loadFailed": "Mermaid를 불러오지 못했습니다.",
+  "canvas.loadFailed": "다이어그램 렌더러를 불러오지 못했습니다.",
   "canvas.emptySource": "Mermaid 블록이 비어 있습니다.",
   "canvas.tooLarge": "이 Mermaid 다이어그램이 너무 큽니다. 최대 50,000자까지 가능합니다.",
   "canvas.sheets": "시트",

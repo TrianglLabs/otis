@@ -609,7 +609,7 @@ export const es: Messages = {
   "canvas.zoomIn": "Ampliar",
   "canvas.enlarge": "Abrir más grande",
   "canvas.renderFailed": "No se pudo mostrar este diagrama Mermaid.",
-  "canvas.loadFailed": "No se pudo cargar Mermaid.",
+  "canvas.loadFailed": "No se pudo cargar el renderizador de diagramas.",
   "canvas.emptySource": "El bloque Mermaid está vacío.",
   "canvas.tooLarge":
     "Este diagrama Mermaid es demasiado grande. El límite es de 50.000 caracteres.",

@@ -3906,6 +3906,59 @@ Working --> Idle: Complete
     }),
     fixture({
       kind: "message",
+      speaker: "You",
+      text: "And the release plan, the history, and how the work breaks down?",
+    }),
+    fixture({
+      kind: "message",
+      speaker: "Otis",
+      text: `Here they are, one card each:
+\`\`\`mermaid
+flowchart LR
+  Prompt[User prompt] --> Model[Model reply] --> Blocks[Mermaid blocks] --> Cards[Cards in chat] --> Canvas[Canvas tab] --> Export[Saved SVG]
+\`\`\`
+\`\`\`mermaid
+gantt
+  title Canvas release
+  dateFormat YYYY-MM-DD
+  section Build
+  Pane layout      :done, a1, 2026-10-01, 6d
+  Saved versions   :active, a2, after a1, 5d
+  section Ship
+  Beta             :a3, after a2, 4d
+  Release          :milestone, after a3, 0d
+\`\`\`
+\`\`\`mermaid
+timeline
+  title Otis Canvas
+  2026-09 : Markdown previews : Mermaid diagrams
+  2026-10 : Word and PDF : Saved versions
+  2026-11 : Spreadsheets : Slides
+\`\`\`
+\`\`\`mermaid
+gitGraph
+  commit id: "v0.2.41"
+  branch feat/canvas
+  commit id: "panes"
+  commit id: "versions"
+  checkout main
+  merge feat/canvas id: "v0.2.42"
+\`\`\`
+\`\`\`mermaid
+mindmap
+  root((Canvas))
+    Documents
+      Markdown
+      Word
+      PDF
+    Diagrams
+      Inline
+      Tabs
+    Versions
+\`\`\``,
+    }),
+    fixture({
+      kind: "message",
       speaker: "Otis",
       text: "Document and webpage outputs stay compact in the conversation. Open any artifact in Canvas:",
       artifacts: [

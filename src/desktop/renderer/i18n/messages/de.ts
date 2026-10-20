@@ -604,7 +604,7 @@ export const de: Messages = {
   "canvas.zoomIn": "Vergrößern",
   "canvas.enlarge": "Größer öffnen",
   "canvas.renderFailed": "Dieses Mermaid-Diagramm konnte nicht dargestellt werden.",
-  "canvas.loadFailed": "Mermaid konnte nicht geladen werden.",
+  "canvas.loadFailed": "Der Diagramm-Renderer konnte nicht geladen werden.",
   "canvas.emptySource": "Der Mermaid-Block ist leer.",
   "canvas.tooLarge": "Dieses Mermaid-Diagramm ist zu groß. Die Grenze liegt bei 50.000 Zeichen.",
   "canvas.sheets": "Tabellenblätter",

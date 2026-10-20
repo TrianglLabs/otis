@@ -29,7 +29,7 @@
   overflow-y: auto;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-xl);
   animation: overlay-enter var(--motion);
 }
 
@@ -99,7 +99,7 @@
   flex-direction: column;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-xl);
   box-shadow: var(--shadow-float);
   overflow: hidden;
   animation: overlay-enter var(--motion);
@@ -293,7 +293,7 @@
   display: flex;
   width: fit-content;
   padding: 2px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--text) 8%, transparent);
 }
 
@@ -302,7 +302,7 @@
   top: 2px;
   bottom: 2px;
   left: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   /* The app's selection tint: defined against the text color, so it reads on every theme. */
   background: var(--bg-selected);
   transition:
@@ -319,7 +319,7 @@
   height: 28px;
   padding: 0 12px;
   border: none;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: none;
   color: var(--text-dim);
   font: inherit;

@@ -614,7 +614,7 @@ export const fr: Messages = {
   "canvas.zoomIn": "Zoomer",
   "canvas.enlarge": "Ouvrir en grand",
   "canvas.renderFailed": "Impossible d’afficher ce diagramme Mermaid.",
-  "canvas.loadFailed": "Impossible de charger Mermaid.",
+  "canvas.loadFailed": "Impossible de charger le moteur de rendu des diagrammes.",
   "canvas.emptySource": "Le bloc Mermaid est vide.",
   "canvas.tooLarge":
     "Ce diagramme Mermaid est trop volumineux. La limite est de 50 000 caractères.",

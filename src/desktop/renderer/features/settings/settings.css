@@ -864,7 +864,7 @@
   margin-left: 8px;
   padding: 1px 7px;
   border: 1px solid var(--hairline);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: var(--text-micro);
   font-weight: 500;
   color: var(--text-dim);

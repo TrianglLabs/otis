@@ -6,7 +6,7 @@ import type { Plugin } from "vite"
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const canvasHtmlPath = resolve(repositoryRoot, "src/desktop/renderer/canvas.html")
 const runtimePath = resolve(repositoryRoot, "src/desktop/renderer/canvas.js")
-const mermaidPath = resolve(repositoryRoot, "node_modules/@mermaid-js/tiny/dist/mermaid.tiny.js")
+const pelePath = resolve(repositoryRoot, "node_modules/pele/dist/pele.global.js")
 const canvasMarker = '<template id="otis-canvas-runtime"></template>'
 const canvasReloadEvent = "otis:canvas-reload"
 
@@ -36,19 +36,19 @@ export function inlineCanvas(): Plugin {
       if (context.server)
         html = html.replace(/<script type="module" src="[^"]*\/@vite\/client"><\/script>\s*/i, "")
       if (html.includes("data-otis-canvas-script")) return html
-      const [mermaid, runtime] = await Promise.all([
-        readFile(mermaidPath, "utf8"),
+      const [pele, runtime] = await Promise.all([
+        readFile(pelePath, "utf8"),
         readFile(runtimePath, "utf8"),
       ])
       if (!html.includes(canvasMarker))
         throw new Error("Canvas HTML is missing its runtime marker.")
-      const scripts = [mermaid, runtime].map((source) =>
+      const scripts = [pele, runtime].map((source) =>
         source.replaceAll(/<\/script/gi, "<\\/script"),
       )
       return html.replace(
         canvasMarker,
         () =>
-          `<script data-otis-canvas-script="mermaid">${scripts[0]}</script>\n    <script data-otis-canvas-script="renderer">${scripts[1]}</script>`,
+          `<script data-otis-canvas-script="pele">${scripts[0]}</script>\n    <script data-otis-canvas-script="renderer">${scripts[1]}</script>`,
       )
     },
   }

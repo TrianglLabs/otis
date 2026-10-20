@@ -85,7 +85,7 @@ describe("document tool", () => {
     })
     expect(mocks.ensure).not.toHaveBeenCalled()
     expect(mocks.run).not.toHaveBeenCalled()
-    expect(await readdir(context.cwd)).toEqual(["plan.json", "source.pdf"])
+    expect((await readdir(context.cwd)).sort()).toEqual(["plan.json", "source.pdf"])
   })
 
   it("reports missing LibreOffice before installing packages for conversion", async () => {
@@ -141,7 +141,7 @@ describe("document tool", () => {
         context,
       ),
     ).rejects.toThrow("original space")
-    expect(await readdir(context.cwd)).toEqual(["plan.json", "source.pdf"])
+    expect((await readdir(context.cwd)).sort()).toEqual(["plan.json", "source.pdf"])
   })
 
   it("checks every document path against policy and restricts preparation under non-auto modes", async () => {

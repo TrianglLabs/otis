@@ -946,7 +946,7 @@ button.reasoning-header:hover {
   margin: 0;
   padding: 0;
   border: 1px solid var(--hairline);
-  border-radius: 20px;
+  border-radius: var(--radius-xl);
   background: var(--bg-elev);
   transition:
     border-color var(--motion),
@@ -972,7 +972,7 @@ button.reasoning-header:hover {
   z-index: 2;
   display: grid;
   place-items: center;
-  border-radius: 20px;
+  border-radius: var(--radius-xl);
   color: var(--text);
   background: color-mix(in srgb, var(--bg-elev) 90%, transparent);
   backdrop-filter: blur(4px);
@@ -1572,7 +1572,7 @@ button.composer-model-failed {
   min-width: 0;
   padding: 12px 14px;
   border: 0;
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   background: var(--bg-elev);
   color: var(--text);
   font: inherit;
@@ -1638,7 +1638,7 @@ button.composer-model-failed {
   flex-shrink: 0;
   width: 34px;
   height: 34px;
-  border-radius: 10px;
+  border-radius: var(--radius);
   background: var(--bg-code);
   color: var(--text-dim);
 }
@@ -1691,7 +1691,7 @@ button.composer-model-failed {
   /* A glimpse of the page, wide and short, so Home's rows stay on one screen above the composer. */
   aspect-ratio: 21 / 9;
   padding: 10px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--bg);
   overflow: hidden;
   font-size: 7.5px;
@@ -1717,7 +1717,7 @@ button.composer-model-failed {
 
 .home-logo {
   display: block;
-  width: 88px;
+  width: 64px;
   height: auto;
   color: var(--text-dim);
   user-select: none;

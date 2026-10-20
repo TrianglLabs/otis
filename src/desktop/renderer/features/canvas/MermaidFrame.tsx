@@ -35,6 +35,7 @@ export function MermaidFrame({
 }) {
   const { locale, t } = useI18n()
   const theme = useDesktopSelector((state) => state?.theme)
+  const textSize = useDesktopSelector((state) => state?.textSize)
   const frame = useRef<HTMLIFrameElement>(null)
   const [frameRevision, setFrameRevision] = useState(0)
   const [renderError, setRenderError] = useState<string>()
@@ -63,7 +64,8 @@ export function MermaidFrame({
   }, [enlarged])
   const closeLabel = t("canvas.closeTab", { title: t("canvas.diagram") })
   const sendSource = useCallback(() => {
-    // Diagram colors come from the app theme as it is when the frame is (re)painted.
+    // Diagram colors come from the app theme as it is when the frame is (re)painted; charts
+    // and branches take the theme's semantic palette as their series.
     const styles = getComputedStyle(document.documentElement)
     const color = (name: string, fallback: string) =>
       styles.getPropertyValue(name).trim() || fallback
@@ -74,8 +76,19 @@ export function MermaidFrame({
       muted: color("--text-dim", "#808080"),
       accent: color("--accent", "#8b7cff"),
       border: color("--border", "#444444"),
+      cyan: color("--cyan", "#7dd3fc"),
+      green: color("--green", "#a7f3d0"),
+      orange: color("--orange", "#fdba74"),
+      pink: color("--pink", "#fda4af"),
+      yellow: color("--yellow", "#fde68a"),
     }
-    post({ type: "otis-canvas-source", source, inline, large, colors })
+    // Labels take the document's text size inline, and the prose size in a tab or the dialog.
+    const fontSize = parseFloat(
+      inline && frame.current
+        ? getComputedStyle(frame.current).fontSize
+        : styles.getPropertyValue("--text-prose"),
+    )
+    post({ type: "otis-canvas-source", source, inline, large, colors, fontSize })
   }, [post, source, inline, large])
   const sendLanguage = useCallback(() => {
     post({
@@ -95,7 +108,7 @@ export function MermaidFrame({
   useEffect(() => {
     setRenderError(undefined)
     sendSource()
-  }, [sendSource, theme])
+  }, [sendSource, theme, textSize])
   useEffect(() => {
     const reload = () => setFrameRevision((revision) => revision + 1)
     window.addEventListener(canvasReloadEvent, reload)

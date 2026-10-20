@@ -68,7 +68,7 @@ describe("system prompt", () => {
     expect(prompt).toContain("lets the user open fenced Mermaid diagrams in a visual Canvas")
     expect(prompt).toContain("```mermaid")
     expect(prompt).toContain("use sequenceDiagram only for time-ordered interactions")
-    expect(prompt).toContain("does not support Mermaid mindmap or architecture diagrams")
+    expect(prompt).toContain("Every Mermaid diagram type renders, including mindmap")
     expect(prompt).not.toContain("Avoid mermaid diagrams")
   })
 
