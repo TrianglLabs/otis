@@ -1,4 +1,9 @@
-import type { BaseRenderable, InputRenderable, TextareaRenderable } from "@opentui/core"
+import type {
+  BaseRenderable,
+  InputRenderable,
+  TextareaRenderable,
+  TreeSitterClient,
+} from "@opentui/core"
 import { createTestRenderer, type TestRendererSetup } from "@opentui/core/testing"
 import { afterEach, vi } from "vitest"
 import { createChatUI } from "../../../src/cli/chat-ui.js"
@@ -38,6 +43,13 @@ export function useChatHarness() {
   }
 }
 
+// Highlighting without OpenTUI's parser worker. The shared client is torn down with the last
+// renderer, so each test would spawn a worker and kill it, and Bun crashes when the kill lands
+// while the worker is reading a parser from disk.
+const treeSitterClient = {
+  highlightOnce: async () => ({ highlights: [] }),
+} as unknown as TreeSitterClient
+
 async function createChatHarness(overrides: Partial<ChatUIOptions>): Promise<ChatUIHarness> {
   const testRenderer = await createTestRenderer({
     width: 100,
@@ -53,6 +65,7 @@ async function createChatHarness(overrides: Partial<ChatUIOptions>): Promise<Cha
     modeLabel: "› auto",
     sessionLabel: "default",
     workspaceLabel: "~/work/otis",
+    treeSitterClient,
     onSubmit: vi.fn(),
     ...overrides,
   }
