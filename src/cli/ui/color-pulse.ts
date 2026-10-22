@@ -157,7 +157,7 @@ function colorStep(intensity: number) {
   return Math.round(clamp(intensity, 0, 1) * (WAVE_COLOR_STEPS - 1))
 }
 
-function mixHex(from: string, to: string, amount: number) {
+export function mixHex(from: string, to: string, amount: number) {
   const start = RGBA.fromHex(from).toInts()
   const end = RGBA.fromHex(to).toInts()
   const t = clamp(amount, 0, 1)

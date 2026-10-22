@@ -102,7 +102,6 @@ export const DESKTOP_CHANNELS = {
   setAlertSound: "desktop:set-alert-sound",
   setLocalThinking: "desktop:set-local-thinking",
   setPermissionMode: "desktop:set-permission-mode",
-  setFastServing: "desktop:set-fast-serving",
   openHostedKeyPage: "desktop:open-hosted-key-page",
   setHostedApiKey: "desktop:set-hosted-api-key",
   connectLocalServers: "desktop:connect-local-servers",
@@ -271,11 +270,6 @@ export type DesktopStatus = {
   localThinking: LocalThinkingState | null
   /** Permission behavior for mutating tools. Interactive controls offer ask and auto. */
   permissionMode: PermissionMode
-  /**
-   * Fast serving for the selected hosted model: whether it has a fast path, and whether that path
-   * is active.
-   */
-  fastServing: { available: boolean; enabled: boolean }
   /** Which hosted providers have an API key. The keys themselves are never sent to the renderer. */
   hostedConfigured: Record<HostedProvider, boolean>
   /** Hosted models hidden from the picker, as `modelKey` strings; persisted in settings. */
@@ -539,11 +533,6 @@ export type DesktopApi = {
   setLocalThinking(model: string, level: LocalThinkingSelection): Promise<void>
   /** Persists the permission behavior used by subsequent tool calls. */
   setPermissionMode(mode: "ask" | "auto"): Promise<void>
-  /**
-   * Toggles Fast serving for the selected hosted model, re-selecting it on the fast or standard
-   * path.
-   */
-  setFastServing(fast: boolean): Promise<ModelSelectResult>
   /** Opens the provider's API-key page in the system browser. */
   openHostedKeyPage(provider: HostedProvider): Promise<void>
   /** Validates a provider's API key against its catalog, then persists and activates it. */

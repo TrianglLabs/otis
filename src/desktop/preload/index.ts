@@ -90,7 +90,6 @@ const api: DesktopApi = {
   setAlertSound: (enabled) => invoke(DESKTOP_CHANNELS.setAlertSound, enabled),
   setLocalThinking: (model, level) => invoke(DESKTOP_CHANNELS.setLocalThinking, model, level),
   setPermissionMode: (mode) => invoke(DESKTOP_CHANNELS.setPermissionMode, mode),
-  setFastServing: (fast) => invoke(DESKTOP_CHANNELS.setFastServing, fast),
   openHostedKeyPage: (provider) => invoke(DESKTOP_CHANNELS.openHostedKeyPage, provider),
   setHostedApiKey: (provider, apiKey) => invoke(DESKTOP_CHANNELS.setHostedApiKey, provider, apiKey),
   connectLocalServers: (endpoints) => invoke(DESKTOP_CHANNELS.connectLocalServers, endpoints),

@@ -593,7 +593,6 @@ describe("Application status", () => {
     displayName: "Kimi",
     contextLength: 128_000,
     supportsImageInput: true,
-    fastId: "accounts/fireworks/routers/kimi-fast",
   }
 
   it("reports the saved hosted selection as ready with its display metadata", async () => {
@@ -615,7 +614,6 @@ describe("Application status", () => {
       permissionQueue: 0,
       localThinking: null,
       permissionMode: "auto",
-      fastServing: { available: true, enabled: false },
       hostedConfigured: {
         fireworks: true,
         together: false,
@@ -945,7 +943,7 @@ describe("Application model transactions", () => {
     ).rejects.toThrow("HTTP 401")
     expect((await loadLocalSettings()).fireworksApiKey).toBeUndefined()
 
-    const catalog = [{ ...kimiChoice, fastId: "accounts/fireworks/routers/kimi-fast" }]
+    const catalog = [kimiChoice]
     const list = vi.fn(async () => catalog as never)
     expect(await app.setHostedApiKey("fireworks", " good ", { list })).toBe(catalog)
     expect(list).toHaveBeenCalledWith("fireworks", "good", { signal: undefined })

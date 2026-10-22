@@ -9,10 +9,8 @@ import {
 } from "../inference/local-thinking.js"
 import { normalizePairEndpoints, type PairEndpoints } from "../inference/pair.js"
 import { normalizeServerSettings } from "../inference/servers.js"
-import { baseFireworksModelId, isFastFireworksModel } from "../inference/serving-path.js"
 import {
   type CatalogModel,
-  type FireworksModel,
   HOSTED_PROVIDER_INFO,
   HOSTED_PROVIDERS,
   type HostedApiKeys,
@@ -87,8 +85,6 @@ export type LocalSettings = Partial<Record<ServerProvider, ServerSettings>> & {
    * one of this machine's, or 0.0.0.0 for every network.
    */
   serve?: { enabled: boolean; host: string }
-  fastServingModels?: string[]
-  modelFastId?: string
   /** Hosted models hidden from the picker, as `modelKey` strings. */
   hiddenModels?: string[]
   /** Skills by name that stay loaded but are not offered to the model. */
@@ -145,17 +141,12 @@ type SettingsFileOptions = {
   env?: Record<string, string | undefined>
 }
 
-type SettingsFile = LocalSettings & {
-  version: 1
-  /** Read only to migrate the released global preference to the selected model. */
-  fastMode?: boolean
-}
+type SettingsFile = LocalSettings & { version: 1 }
 
 export async function loadLocalSettings(options: SettingsFileOptions = {}): Promise<LocalSettings> {
   const env = options.env ?? process.env
   const saved = (await readSettingsFile(options)) ?? { version: 1 }
-  const { version: _version, fastMode: _fastMode, ...settings } = saved
-  const fastServingModels = migratedFastServingModels(saved)
+  const { version: _version, ...settings } = saved
   const keys: LocalSettings = {}
   for (const provider of HOSTED_PROVIDERS) {
     const field = hostedApiKeyField(provider)
@@ -165,7 +156,6 @@ export async function loadLocalSettings(options: SettingsFileOptions = {}): Prom
     ...defined({
       ...settings,
       modelProvider: saved.modelProvider ?? inferModelProvider(saved.model),
-      fastServingModels: fastServingModels.length > 0 ? fastServingModels : undefined,
     }),
     ...keys,
     primeintellectTeamId: env.PRIME_TEAM_ID?.trim() || saved.primeintellectTeamId,
@@ -440,21 +430,6 @@ export async function saveHiddenSkills(hiddenSkills: string[], options: Settings
   )
 }
 
-export async function saveFastServingSelection(
-  model: FireworksModel,
-  fast: boolean,
-  options: SettingsFileOptions = {},
-) {
-  await updateSettings(options, (saved) => {
-    const selected = selectedModelSettings(saved, model)
-    const fastServingModels = new Set(selected.fastServingModels)
-    const modelId = baseFireworksModelId(model.id)
-    if (fast) fastServingModels.add(modelId)
-    else fastServingModels.delete(modelId)
-    return { ...selected, fastServingModels: [...fastServingModels].sort() }
-  })
-}
-
 async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsFile | undefined> {
   let content: string
   try {
@@ -568,9 +543,6 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
     throw new Error("Invalid Otis config: achievementsSeen must be an array.")
   }
   const achievementsSeen = value.achievementsSeen?.filter(isAchievementId)
-  const fastMode = optionalBoolean(value.fastMode, "fastMode")
-  const fastServingModels = optionalStringList(value.fastServingModels, "fastServingModels")
-  const modelFastId = optionalString(value.modelFastId, "modelFastId")
   const hiddenModels = optionalStringList(value.hiddenModels, "hiddenModels")
   const hiddenSkills = optionalStringList(value.hiddenSkills, "hiddenSkills")
   const projects = parseProjects(value.projects)
@@ -630,9 +602,6 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
     subagentPanelVisible,
     workspacePanelWidths,
     achievementsSeen,
-    fastMode,
-    fastServingModels,
-    modelFastId,
     hiddenModels,
     hiddenSkills,
     projects,
@@ -682,15 +651,13 @@ export async function writePrivateJson(filePath: string, value: unknown) {
 
 /**
  * The settings with the model fields replaced by `model`, or cleared when no model is given.
- * Every other field is carried through untouched; the legacy `fastMode` flag is folded into
- * `fastServingModels`.
+ * Every other field is carried through untouched.
  */
 function selectedModelSettings(settings: SettingsFile, model?: CatalogModel): SettingsFile {
   const contextLength = model && model.provider !== "pair" ? model.contextLength : undefined
   if (contextLength !== undefined && (!Number.isSafeInteger(contextLength) || contextLength <= 0)) {
     throw new Error("model context length must be a positive integer.")
   }
-  const fastServingModels = migratedFastServingModels(settings)
   const pairEndpoints = persistedPairEndpoints(
     model?.provider === "pair"
       ? {
@@ -700,14 +667,12 @@ function selectedModelSettings(settings: SettingsFile, model?: CatalogModel): Se
       : settings.pairEndpoints,
   )
   const {
-    fastMode,
     pairEngine: _pairEngine,
     model: _model,
     modelDisplayName: _modelDisplayName,
     modelProvider: _modelProvider,
     modelContextLength: _modelContextLength,
     modelSupportsImageInput: _modelSupportsImageInput,
-    modelFastId: _modelFastId,
     ...rest
   } = settings
   return defined({
@@ -721,30 +686,9 @@ function selectedModelSettings(settings: SettingsFile, model?: CatalogModel): Se
           modelProvider: model.provider,
           modelContextLength: contextLength,
           modelSupportsImageInput: model.supportsImageInput,
-          modelFastId: model.provider === "fireworks" && model.fastId ? model.fastId : undefined,
         }
       : {}),
-    fastServingModels:
-      fastServingModels.length > 0 ||
-      settings.fastServingModels !== undefined ||
-      fastMode !== undefined
-        ? fastServingModels
-        : undefined,
   })
-}
-
-function migratedFastServingModels(settings: SettingsFile) {
-  if (settings.fastServingModels !== undefined) {
-    return [...new Set(settings.fastServingModels.map(baseFireworksModelId))].sort()
-  }
-  if (
-    !settings.model ||
-    (settings.modelProvider ?? inferModelProvider(settings.model)) !== "fireworks"
-  )
-    return []
-  return settings.fastMode === true || isFastFireworksModel(settings.model)
-    ? [baseFireworksModelId(settings.model)]
-    : []
 }
 
 function inferModelProvider(modelId: string | undefined): ModelProvider | undefined {

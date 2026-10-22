@@ -3,7 +3,7 @@ import { resolve } from "node:path"
 import { parseArgs } from "node:util"
 import { Application } from "../app/application.js"
 import { sessionArtifactPublisher } from "../app/artifacts.js"
-import { resolveHostedServing } from "../app/models.js"
+import { resolveHostedModel } from "../app/models.js"
 import { executeTurn } from "../app/turn-runner.js"
 import { autoCompactThreshold } from "../core/compaction.js"
 import { loadAttachmentFiles } from "../inference/attachments.js"
@@ -20,7 +20,6 @@ import {
   userMessageAttachments,
 } from "../inference/messages.js"
 import { pairEndpointForEngine } from "../inference/pair.js"
-import { baseFireworksModelId } from "../inference/serving-path.js"
 import {
   addUsage,
   emptyUsage,
@@ -130,19 +129,17 @@ export async function runHeadlessCommand(
     if (!model)
       throw new Error("A model is not configured. Run Otis interactively or pass --model.")
 
-    const resolveServing = async (hosted: { provider: HostedProvider; apiKey: string }) => {
-      const resolved = await resolveHostedServing(hosted.provider, hosted.apiKey, model, {
-        fast: parsed.model
-          ? undefined
-          : settings.fastServingModels?.includes(baseFireworksModelId(model)),
-        signal: controller.signal,
-      })
-      model = resolved.serving.id
-      modelName = resolved.serving.displayName
-      modelContextLength = resolved.serving.contextLength
-      modelSupportsImageInput = resolved.serving.supportsImageInput
-      if (!parsed.model && settings.model === resolved.selected.id)
-        await saveSelectedModel(resolved.serving)
+    const resolveHosted = async (hosted: { provider: HostedProvider; apiKey: string }) => {
+      const resolved = await resolveHostedModel(
+        hosted.provider,
+        hosted.apiKey,
+        model,
+        controller.signal,
+      )
+      modelName = resolved.displayName
+      modelContextLength = resolved.contextLength
+      modelSupportsImageInput = resolved.supportsImageInput
+      if (!parsed.model && settings.model === resolved.id) await saveSelectedModel(resolved)
     }
 
     let client: InferenceClient
@@ -185,7 +182,7 @@ export async function runHeadlessCommand(
         throw new Error(`${HOSTED_PROVIDER_INFO[modelProvider].name} API key is not configured.`)
       hosted = { provider: modelProvider, apiKey }
       if (parsed.model || (hasImages && modelSupportsImageInput === undefined))
-        await resolveServing(hosted)
+        await resolveHosted(hosted)
       const connected = await app.connectModel({
         provider: modelProvider,
         modelId: model,
@@ -213,7 +210,7 @@ export async function runHeadlessCommand(
     }
     const sessionContainsImages = session ? messagesContainImages(session.replayMessages()) : false
     if (sessionContainsImages && modelSupportsImageInput === undefined && hosted)
-      await resolveServing(hosted)
+      await resolveHosted(hosted)
     modelContextLength = compactionContextLength({
       provider: modelProvider,
       contextLength: modelContextLength,

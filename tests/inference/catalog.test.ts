@@ -60,7 +60,7 @@ describe("listHostedModels for Fireworks", () => {
     expect(fetchMock.mock.calls[0][1]?.headers).toEqual({ authorization: "Bearer fw_test_key" })
   })
 
-  it("marks matching catalog models with their Fast serving path", async () => {
+  it("lists tool-capable Fast routers as models of their own", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       if (String(input).includes("/inference/v1/models")) {
         return Response.json({
@@ -92,7 +92,13 @@ describe("listHostedModels for Fireworks", () => {
         displayName: "Kimi K3",
         contextLength: 1_048_576,
         supportsImageInput: true,
-        fastId: "accounts/fireworks/routers/kimi-k3-fast",
+      },
+      {
+        provider: "fireworks",
+        id: "accounts/fireworks/routers/kimi-k3-fast",
+        displayName: "Kimi K3 Fast",
+        contextLength: 1_048_576,
+        supportsImageInput: true,
       },
     ])
   })

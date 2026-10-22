@@ -104,7 +104,7 @@ describe("pickerDetailLabel", () => {
     )
   })
 
-  it("shows exact hosted context without Est., plus modality and fast mode", () => {
+  it("shows exact hosted context without Est., plus modality", () => {
     const hosted: HostedPickerChoice = {
       kind: "model",
       provider: "fireworks",
@@ -117,25 +117,7 @@ describe("pickerDetailLabel", () => {
     }
     expect(pickerDetailLabel(hosted)).toBe("256K · Text")
     expect(pickerDetailLabel({ ...hosted, supportsImageInput: true })).toBe("256K · Vision")
-    expect(
-      pickerDetailLabel({ ...hosted, fastId: "accounts/fireworks/models/kimi-k2p5-turbo-fast" }),
-    ).toBe("256K · Text · Fast mode")
     expect(pickerDetailLabel({ ...hosted, contextLength: undefined })).toBe("Text")
-  })
-
-  it("never shows Fast mode for a hosted provider other than Fireworks", () => {
-    const together: HostedPickerChoice = {
-      kind: "model",
-      provider: "together",
-      id: "moonshotai/Kimi-K2.5",
-      displayName: "Kimi K2.5",
-      supportsImageInput: false,
-      available: true,
-      active: false,
-      contextLength: 262_144,
-      fastId: "never-published",
-    }
-    expect(pickerDetailLabel(together)).toBe("256K · Text")
   })
 })
 

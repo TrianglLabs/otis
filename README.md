@@ -267,7 +267,6 @@ The desktop app has the same under Settings → Inference (a switch per hosted m
 usage by day and model.
 | `/skills` | List loaded Agent Skills; install, update, or remove Git collections |
 | `/memory` | See what Otis remembers for this workspace; add or forget a fact |
-| `/fast` | Toggle Fast serving when the current model supports it |
 | `/compact [instructions]` | Summarize older conversation and free context |
 | `/thinking` | Toggle model-provided thinking traces |
 | `/exit` | Exit Otis |

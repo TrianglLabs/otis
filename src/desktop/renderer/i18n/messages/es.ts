@@ -115,7 +115,6 @@ export const es: Messages = {
   "models.deleteName": "Eliminar {{name}}",
   "models.vision": "Visión",
   "models.text": "Texto",
-  "models.fastMode": "Modo rápido",
   "models.context": "Contexto de {{count}}",
   "models.modelMax": "Máximo del modelo: {{count}}",
   "models.contextUnavailable": "Contexto no disponible",
@@ -168,7 +167,6 @@ export const es: Messages = {
   "composer.stop": "Detener",
   "composer.send": "Enviar",
   "composer.openModelPicker": "Elegir un modelo",
-  "composer.fast": "Rápido",
   "composer.messageKept": "Tu mensaje se ha conservado.",
   "composer.imageUnsupported": "{{name}} no es un tipo de imagen compatible.",
   "composer.imageTooLarge":
@@ -186,8 +184,7 @@ export const es: Messages = {
   "composer.imagesRequestLimit":
     "Las imágenes adjuntas son demasiado grandes en conjunto. El total debe ser inferior a 10 MB.",
   "composer.fileReadFailed": "No se pudo leer el archivo.",
-  "composer.fastServing": "Inferencia rápida",
-  "composer.modelTitle": "{{id}} · {{provider}}{{fast}} — seleccionar un modelo",
+  "composer.modelTitle": "{{id}} · {{provider}} — seleccionar un modelo",
   "composer.openDifferentFolder": "abrir otra carpeta",
   "composer.addFiles": "Añadir archivos",
   "composer.stopTitle": "Detener (Esc)",
@@ -579,9 +576,6 @@ export const es: Messages = {
   "settings.keepAwakeDetail": "Las pantallas pueden apagarse igualmente",
   "settings.toggleKeepAwake":
     "Evita que el equipo entre en reposo mientras una sesión o rutina trabaja",
-  "settings.fastServing": "Inferencia rápida",
-  "settings.fastUnavailable": "La inferencia rápida no está disponible para este modelo",
-  "settings.toggleFast": "Alternar inferencia rápida",
   "settings.debugMode": "Modo de depuración",
   "settings.debugHint": "Solo esta sesión; se aplica desde el próximo turno",
   "settings.toggleDebug": "Alternar modo de depuración",

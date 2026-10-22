@@ -1,12 +1,7 @@
 import { stat } from "node:fs/promises"
 import { basename, extname, join, resolve } from "node:path"
 import { isDeepStrictEqual } from "node:util"
-import {
-  Application,
-  NO_FAST_SERVING,
-  SELECTION_SUPERSEDED,
-  type SessionRuntime,
-} from "../../app/application.js"
+import { Application, SELECTION_SUPERSEDED, type SessionRuntime } from "../../app/application.js"
 import {
   type GlobalHistory,
   type GlobalSessionPickerItem,
@@ -27,14 +22,12 @@ import { listHostedModels } from "../../inference/catalog.js"
 import { describeError } from "../../inference/errors.js"
 import { discoverPairModels, type PairDiscovery } from "../../inference/pair.js"
 import {
-  type HostedPickerChoice,
   listModelPickerItems,
   type ModelPickerChoice,
   type ModelPickerItem,
 } from "../../inference/picker-catalog.js"
 import { pickerItemKey } from "../../inference/picker-filter.js"
 import type { discoverServerModels } from "../../inference/servers.js"
-import { baseFireworksModelId } from "../../inference/serving-path.js"
 import {
   type AttachmentContentPart,
   HOSTED_PROVIDERS,
@@ -172,7 +165,7 @@ export class DesktopRuntime {
    * session.
    */
   #locating = false
-  /** The most recent picker listing; feeds fast-serving availability without a fetch per status. */
+  /** The most recent picker listing, which spares a fetch when a picker choice is re-read. */
   #lastPickerItems: ModelPickerItem[] | undefined
   /** What the renderer holds; the next status event carries only the fields that differ. */
   #sentStatus: DesktopStatus | undefined
@@ -1227,30 +1220,6 @@ export class DesktopRuntime {
     this.#markStateDirty()
   }
 
-  /** Toggles Fast serving for the selected hosted model; the last listing spares a catalog fetch. */
-  async setFastServing(fast: boolean): Promise<ModelSelectResult> {
-    const model = this.app.selection?.model
-    if (model?.provider !== "fireworks") return { ok: false, reason: NO_FAST_SERVING }
-    const baseId = baseFireworksModelId(model.id) ?? model.id
-    const hostedRow = (items: ModelPickerItem[]) =>
-      items.find(
-        (entry): entry is HostedPickerChoice =>
-          entry.kind === "model" && entry.provider === "fireworks" && entry.id === baseId,
-      )
-    let catalog: HostedModel[] | undefined
-    const listed = hostedRow(this.#lastPickerItems ?? [])
-    if (listed?.fastId) catalog = [listed]
-    else {
-      try {
-        const row = hostedRow(await this.listModels())
-        if (row) catalog = [row]
-      } catch (error) {
-        return { ok: false, reason: describeError(error) }
-      }
-    }
-    return this.app.setFastServing(fast, { catalog })
-  }
-
   /** Validates a provider's API key against its catalog, then persists and activates it. */
   setHostedApiKey(provider: HostedProvider, apiKey: string): Promise<ModelSelectResult> {
     return attempt(async () => {
@@ -1693,25 +1662,8 @@ export class DesktopRuntime {
       })
     }
     const status = app.status()
-    // The last picker listing also knows Fast availability, without a catalog fetch per status.
-    const selectedId = status.model?.id
-    const baseId = selectedId && (baseFireworksModelId(selectedId) ?? selectedId)
-    const fastServing = {
-      ...status.fastServing,
-      available:
-        status.fastServing.available ||
-        (status.model?.provider === "fireworks" &&
-          this.#lastPickerItems?.some(
-            (entry) =>
-              entry.kind === "model" &&
-              entry.provider === "fireworks" &&
-              entry.id === baseId &&
-              Boolean(entry.fastId),
-          ) === true),
-    }
     return {
       ...status,
-      fastServing,
       artifacts: this.#panes.flatMap((runtime) =>
         runtime.artifacts.tabs.map((tab) => ({ runtime: runtime.id, ...tab })),
       ),

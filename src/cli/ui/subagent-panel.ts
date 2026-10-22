@@ -1,22 +1,16 @@
 import {
-  type BoxRenderable,
+  BoxRenderable,
   fg,
   MouseButton,
   type ScrollBoxRenderable,
   StyledText,
-  type TextRenderable,
+  TextRenderable,
   t,
 } from "@opentui/core"
 import type { SubagentStatus, SubagentTrace } from "../../app/subagents.js"
 import { colors } from "../theme.js"
 import { SelectionPulse, shimmerText } from "./color-pulse.js"
 import { formatElapsed } from "./format.js"
-import {
-  createPickerRow,
-  type PickerRow,
-  pickerRowBoxId,
-  truncatePickerLabel,
-} from "./picker-row.js"
 import { type Renderer, stopKey, type UIKey } from "./types.js"
 
 /**
@@ -24,7 +18,6 @@ import { type Renderer, stopKey, type UIKey } from "./types.js"
  * in the conversation.
  */
 const SUBAGENT_PANEL_MIN_TERMINAL_WIDTH = 96
-const TITLE_WIDTH = 28
 const STATUS_GLYPHS: Record<SubagentStatus, string> = {
   running: "◇",
   complete: "✓",
@@ -37,6 +30,14 @@ const FOOTER_OPEN = "[esc] back to chat"
 
 function subagentRowId(toolCallId: string) {
   return `subagent-${toolCallId}`
+}
+
+/** A run's row: the focus caret and status glyph beside a wrapping title over its progress. */
+type Row = {
+  box: BoxRenderable
+  glyph: TextRenderable
+  title: TextRenderable
+  meta: TextRenderable
 }
 
 export function subagentGlyph(status: SubagentStatus) {
@@ -72,7 +73,7 @@ type SubagentPanelOptions = {
 
 /** Lists the session's delegated runs beside the transcript, shimmering titles while they work. */
 export class SubagentPanel {
-  readonly #rows = new Map<string, PickerRow>()
+  readonly #rows = new Map<string, Row>()
   readonly #pulse: SelectionPulse
   #traces: readonly SubagentTrace[] = []
   #selectedId: string | undefined
@@ -166,6 +167,7 @@ export class SubagentPanel {
   refreshTheme() {
     for (const row of this.#rows.values()) {
       row.box.backgroundColor = colors.surface
+      row.glyph.bg = colors.surface
       row.title.bg = colors.surface
       row.meta.bg = colors.surface
     }
@@ -215,7 +217,7 @@ export class SubagentPanel {
 
   private scrollFocusedIntoView() {
     const id = this.#traces[this.#focusIndex]?.toolCallId
-    if (id) this.options.rows.scrollChildIntoView(pickerRowBoxId(subagentRowId(id)))
+    if (id) this.options.rows.scrollChildIntoView(`${subagentRowId(id)}-box`)
   }
 
   private syncRows() {
@@ -227,37 +229,72 @@ export class SubagentPanel {
     }
     this.#traces.forEach((trace, index) => {
       if (this.#rows.has(trace.toolCallId)) return
-      const row = createPickerRow(this.options.renderer, subagentRowId(trace.toolCallId), {
-        bg: "surface",
+      const id = subagentRowId(trace.toolCallId)
+      const text = { bg: colors.surface, selectable: false }
+      const box = new BoxRenderable(this.options.renderer, {
+        id: `${id}-box`,
+        flexDirection: "row",
+        width: "100%",
+        flexShrink: 0,
+        paddingRight: 1,
+        backgroundColor: colors.surface,
       })
-      row.meta.visible = true
-      row.box.onMouseDown = (event) => {
+      const glyph = new TextRenderable(this.options.renderer, {
+        id: `${id}-glyph`,
+        flexShrink: 0,
+        ...text,
+      })
+      const column = new BoxRenderable(this.options.renderer, {
+        id: `${id}-text`,
+        flexDirection: "column",
+        flexGrow: 1,
+        flexShrink: 1,
+        minWidth: 0,
+        backgroundColor: colors.surface,
+      })
+      const title = new TextRenderable(this.options.renderer, {
+        id,
+        wrapMode: "word",
+        width: "100%",
+        ...text,
+      })
+      const meta = new TextRenderable(this.options.renderer, {
+        id: `${id}-meta`,
+        fg: colors.muted,
+        truncate: true,
+        width: "100%",
+        ...text,
+      })
+      column.add(title)
+      column.add(meta)
+      box.add(glyph)
+      box.add(column)
+      box.onMouseDown = (event) => {
         if (event.button !== MouseButton.LEFT) return
         event.preventDefault()
         event.stopPropagation()
         this.options.onSelect(trace.toolCallId)
       }
-      row.box.onMouseOver = () => this.options.renderer.setMousePointer("pointer")
-      row.box.onMouseOut = () => this.options.renderer.setMousePointer("default")
-      this.#rows.set(trace.toolCallId, row)
-      this.options.rows.add(row.box, index)
+      box.onMouseOver = () => this.options.renderer.setMousePointer("pointer")
+      box.onMouseOut = () => this.options.renderer.setMousePointer("default")
+      this.#rows.set(trace.toolCallId, { box, glyph, title, meta })
+      this.options.rows.add(box, index)
     })
   }
 
   private paint(elapsedMs: number) {
     this.#traces.forEach((trace, index) => {
-      const row = this.#rows.get(trace.toolCallId) as PickerRow
+      const row = this.#rows.get(trace.toolCallId) as Row
       const selected =
         trace.toolCallId === this.#selectedId ||
         (this.#focused && !this.#selectedId && index === this.#focusIndex)
-      const title = truncatePickerLabel(trace.title, TITLE_WIDTH)
       const glyph = fg(subagentGlyphColor(trace.status))(subagentGlyph(trace.status))
-      const chunks = [...t`${selected ? fg(colors.accent)("›") : " "} ${glyph} `.chunks]
-      if (trace.status === "running")
-        chunks.push(...shimmerText(title, elapsedMs, colors.text).chunks)
-      else chunks.push(...t`${fg(selected ? colors.accent : colors.text)(title)}`.chunks)
-      row.title.content = new StyledText(chunks)
-      row.meta.content = `   ${subagentSummary(trace)}`
+      row.glyph.content = t`${selected ? fg(colors.accent)("›") : " "} ${glyph} `
+      row.title.content =
+        trace.status === "running"
+          ? shimmerText(trace.title, elapsedMs, colors.text)
+          : new StyledText([fg(selected ? colors.accent : colors.text)(trace.title)])
+      row.meta.content = subagentSummary(trace)
       row.meta.fg = colors.muted
     })
   }

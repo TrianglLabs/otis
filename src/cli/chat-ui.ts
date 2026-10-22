@@ -20,7 +20,7 @@ import { HomeStats } from "./ui/home-stats.js"
 import { InputController } from "./ui/input-controller.js"
 import { createUILayout, setTopBarSideMinWidth, setWelcomePanelExpanded } from "./ui/layout.js"
 import { ModelPicker } from "./ui/model-picker.js"
-import { createScrollbarOptions } from "./ui/panels.js"
+import { createScrollbarOptions, markArt } from "./ui/panels.js"
 import { SessionPicker } from "./ui/session-picker.js"
 import { SubagentPanel } from "./ui/subagent-panel.js"
 import { SubagentTraceView } from "./ui/subagent-trace-view.js"
@@ -80,6 +80,9 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     setupInput,
     statBoxes,
     statsRow,
+    chart,
+    range,
+    today,
     subagentPanel,
     subagentPanelFooter,
     subagentRowsBox,
@@ -88,6 +91,8 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     topBarStart,
     updateHint,
     welcome,
+    welcomeBrandArt,
+    welcomeModel,
     welcomePanel,
   } = layout
   const commands = new CommandMenu(renderer, commandMenu, options.commands ?? [])
@@ -120,7 +125,14 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
     isOverlayVisible: () => commandMenuVisible || permissionVisible,
     onInterrupt: options.onInterrupt,
   })
-  const homeStats = new HomeStats({ renderer, statBoxes, isWelcomeVisible: () => showingWelcome })
+  const homeStats = new HomeStats({
+    renderer,
+    statBoxes,
+    chart,
+    range,
+    today,
+    isWelcomeVisible: () => showingWelcome,
+  })
   refreshInputHint()
   const inputController = new InputController({
     renderer,
@@ -267,7 +279,8 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
   })
 
   function refreshInputHint(welcome = showingWelcome) {
-    if (welcome) status.setInputHint(selectedModelName ? ` ${selectedModelName} ` : "")
+    welcomeModel.content = selectedModelName
+    if (welcome) status.setInputHint("")
     else
       status.setInputHint(
         ` ${selectedModelName || "No model selected"} · ${options.workspaceLabel} `,
@@ -611,6 +624,8 @@ export function createChatUI(renderer: Renderer, options: ChatUIOptions): ChatUI
       box.verticalScrollbarOptions = createScrollbarOptions()
     }
     renderer.setBackgroundColor(colors.background)
+    welcomeBrandArt.content = markArt()
+    homeStats.refreshTheme()
     status.refreshTheme(previous)
     transcriptView.refreshTheme()
     traceView.refreshTheme()

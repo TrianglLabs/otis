@@ -302,10 +302,6 @@ export function desktopCall(runtime: DesktopRuntime) {
       if (mode !== "ask" && mode !== "auto") throw new Error("Invalid permission mode.")
       return runtime.setPermissionMode(mode)
     },
-    setFastServing: (fast: unknown) => {
-      if (typeof fast !== "boolean") throw new Error("Invalid Fast serving flag.")
-      return runtime.setFastServing(fast)
-    },
     setHostedApiKey: (provider: unknown, apiKey: unknown) => {
       if (!isHostedProvider(provider)) throw new Error("Invalid hosted provider.")
       if (typeof apiKey !== "string") throw new Error("Invalid API key.")

@@ -146,7 +146,6 @@ function statusFixture(overrides: Partial<DesktopStatus> = {}): DesktopStatus {
     cli: null,
     permissionMode: "ask",
     localThinking: null,
-    fastServing: { available: false, enabled: false },
     hostedConfigured: {
       fireworks: true,
       together: false,

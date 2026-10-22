@@ -821,12 +821,9 @@ describe("model picker catalog", () => {
     )
   })
 
-  it("marks a hosted row active only for the current provider, matching Fast ids on Fireworks", async () => {
+  it("marks a hosted row active only for the current provider", async () => {
     const list = async (provider: HostedProvider): Promise<HostedModel[]> => [
-      {
-        ...hostedModel(provider, "shared/model", "Shared"),
-        ...(provider === "fireworks" ? { fastId: "accounts/fireworks/routers/shared-fast" } : {}),
-      },
+      hostedModel(provider, "shared/model", "Shared"),
     ]
     const hostedRows = async (currentProvider: HostedProvider, currentModel: string) => {
       const items = await listModelPickerItems({
@@ -854,7 +851,7 @@ describe("model picker catalog", () => {
       primeintellect: false,
       river: false,
     })
-    expect(await hostedRows("fireworks", "accounts/fireworks/routers/shared-fast")).toEqual({
+    expect(await hostedRows("fireworks", "shared/model")).toEqual({
       fireworks: true,
       together: false,
       baseten: false,
