@@ -25,11 +25,6 @@ import { createPairClient, pairEndpointForEngine } from "../inference/pair.js"
 import type { ModelPickerStatus } from "../inference/picker-catalog.js"
 import { discoverServerModels, ServerClient } from "../inference/servers.js"
 import {
-  findHostedModel,
-  fireworksServingModel,
-  useFastServingPath,
-} from "../inference/serving-path.js"
-import {
   type CatalogModel,
   type ChatMessage,
   type CompleteOptions,
@@ -425,7 +420,7 @@ export class ModelHost {
       const client = baseURL ? createPairClient({ baseURL, model: id, engine }) : undefined
       return { model, supportsImageInput, client }
     }
-    const model: CatalogModel = { provider, ...shared, fastId: settings.modelFastId }
+    const model: CatalogModel = { provider, ...shared }
     const apiKey = hostedApiKeys(settings)[provider]
     const client = apiKey ? this.hostedClient(provider, apiKey, id) : undefined
     return { model, supportsImageInput, client }
@@ -757,10 +752,8 @@ export class ModelHost {
     // window is better when it can be fetched, so refresh it best-effort before activation.
     if (contextLength === undefined) {
       try {
-        const { serving } = await resolveHostedServing(provider, apiKey, modelId, {
-          signal: options.signal,
-        })
-        contextLength = serving.contextLength
+        const listed = await resolveHostedModel(provider, apiKey, modelId, options.signal)
+        contextLength = listed.contextLength
       } catch {
         options.signal?.throwIfAborted()
       }
@@ -812,23 +805,20 @@ export class ModelHost {
   }
 }
 
-/** The catalog entry behind a hosted model id, and the id it serves under (Fast or standard). */
-export async function resolveHostedServing(
+/** The verified catalog entry behind a hosted model id. */
+export async function resolveHostedModel(
   provider: HostedProvider,
   apiKey: string,
   modelId: string,
-  options: { fast?: boolean; signal?: AbortSignal },
+  signal?: AbortSignal,
 ) {
-  const models = await listHostedModels(provider, apiKey, { signal: options.signal })
-  const selected = findHostedModel(models, modelId)
+  const models = await listHostedModels(provider, apiKey, { signal })
+  const selected = models.find((model) => model.id === modelId)
   if (!selected) {
     const { name } = HOSTED_PROVIDER_INFO[provider]
     throw new Error(`Model is not a tool-capable ${name} model: ${modelId}`)
   }
-  return {
-    selected,
-    serving: fireworksServingModel(selected, useFastServingPath(modelId, options.fast)),
-  }
+  return selected
 }
 
 export function isAbortError(error: unknown) {

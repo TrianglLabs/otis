@@ -1,6 +1,6 @@
 import { inferenceResponseError, isRecord } from "./errors.js"
 import { inferenceEndpointURL } from "./openai-compat.js"
-import { isFastFireworksModel, withFastServingPaths } from "./serving-path.js"
+import { isFastFireworksModel } from "./serving-path.js"
 import {
   type FireworksModel,
   HOSTED_PROVIDER_INFO,
@@ -163,28 +163,32 @@ export async function listHostedModels(
     return models
   }
 
-  // Fast is an additive serving path. Keep the verified serverless catalog if this list is
-  // unavailable.
+  // Fast serving paths are routers over verified catalog models; each tool-capable one is listed
+  // as a model of its own. Keep the serverless catalog if this list is unavailable.
   const listFastIds = async () => {
+    const ids = new Set<string>()
     try {
       const response = await fetchImpl(inferenceURL, init)
-      if (!response.ok) return []
+      if (!response.ok) return ids
       const body: unknown = await response.json()
-      if (!isRecord(body) || !Array.isArray(body.data)) return []
-      const ids: string[] = []
+      if (!isRecord(body) || !Array.isArray(body.data)) return ids
       for (const item of body.data) {
         if (!isRecord(item) || item.supports_tools !== true) continue
         const id = nonEmptyString(item.id)
-        if (id && isFastFireworksModel(id)) ids.push(id)
+        if (id && isFastFireworksModel(id)) ids.add(id)
       }
-      return ids
-    } catch {
-      return []
-    }
+    } catch {}
+    return ids
   }
 
   const [models, fastIds] = await Promise.all([listServerless(), listFastIds()])
-  return withFastServingPaths(models, fastIds).sort(byName)
+  const byId = new Map(models.map((model) => [model.id, model]))
+  for (const fastId of fastIds) {
+    const name = fastId.slice(fastId.lastIndexOf("/") + 1, -"-fast".length)
+    const base = byId.get(`accounts/fireworks/models/${name}`)
+    if (base) models.push({ ...base, id: fastId, displayName: `${base.displayName} Fast` })
+  }
+  return models.sort(byName)
 }
 
 function contextLengthField(value: unknown) {

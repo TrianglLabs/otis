@@ -23,7 +23,6 @@ import { formatMemoryLabel } from "../inference/local-fit.js"
 import { createUserMessage } from "../inference/messages.js"
 import type { ModelPickerItem } from "../inference/picker-catalog.js"
 import { modelKey } from "../inference/picker-filter.js"
-import { isFastFireworksModel } from "../inference/serving-path.js"
 import {
   HOSTED_PROVIDER_INFO,
   HOSTED_PROVIDERS,
@@ -62,7 +61,6 @@ import {
   formatContextUsage,
   formatModeLabel,
   formatModelName,
-  withFastModelMark,
 } from "./ui/format.js"
 import type { ChatUI, Renderer } from "./ui/types.js"
 import { checkForUpdate } from "./update.js"
@@ -157,7 +155,6 @@ export class InteractiveApp {
       modelLabel: modelLabel(
         this.#app.selection?.model.provider,
         this.#app.selection?.model.displayName,
-        this.#app.selection?.model.id ?? "",
       ),
       modeLabel: formatModeLabel(this.#app.permissionMode),
       sessionLabel: "Current session",
@@ -488,9 +485,6 @@ export class InteractiveApp {
         }
         return
       }
-      case "fast":
-        await this.#toggleFastServing()
-        return
       case "history":
         this.#ui.clearInput()
         try {
@@ -768,13 +762,10 @@ export class InteractiveApp {
     if (!prev) return
     const ui = this.#ui
     const label = (model: AppStatus["model"]) =>
-      model ? modelLabel(model.provider, model.displayName ?? model.id, model.id) : "No model"
+      model ? modelLabel(model.provider, model.displayName ?? model.id) : "No model"
     if (label(prev.model) !== label(next.model)) ui.setModelLabel(label(next.model))
     if (next.modelState === "ready") this.#configured = true
-    if (
-      prev.fastServing.available !== next.fastServing.available ||
-      (prev.localThinking === null) !== (next.localThinking === null)
-    )
+    if ((prev.localThinking === null) !== (next.localThinking === null))
       ui.setCommands(this.#commands(next))
     if (prev.modelLoad !== next.modelLoad) {
       if (prev.modelLoad && prev.modelLoad.modelId !== next.modelLoad?.modelId)
@@ -870,22 +861,21 @@ export class InteractiveApp {
   }
 
   /**
-   * `/skills` lists the collections Otis manages with a row to install more; a collection opens
-   * its own Update and Remove rows. The loaded skills print to the transcript, where a long list
-   * reads better than a menu.
+   * The slash commands a status allows: thinking effort only where the model has it, then every
+   * skill the user may run as `/name`.
    */
-  /**
-   * The slash commands a status allows: Fast serving and thinking effort only where the model
-   * has them, then every skill the user may run as `/name`.
-   */
-  #commands(status: { fastServing: { available: boolean }; localThinking: unknown }) {
+  #commands(status: { localThinking: unknown }) {
     return slashCommands({
-      fast: status.fastServing.available,
       effort: status.localThinking !== null,
       skills: this.#app.offeredSkills.skills.filter((skill) => skill.userInvocable),
     })
   }
 
+  /**
+   * `/skills` lists the collections Otis manages with a row to install more; a collection opens
+   * its own Update and Remove rows. The loaded skills print to the transcript, where a long list
+   * reads better than a menu.
+   */
   async #runSkillsCommand(command: Extract<SlashCommand, { type: "skills" }>) {
     if (
       command.action === "install" ||
@@ -1203,23 +1193,6 @@ export class InteractiveApp {
     this.#ui.setTheme(theme, previous)
   }
 
-  async #toggleFastServing() {
-    if (!this.#configured || !this.#app.hostedApiKeys.fireworks || !this.#app.selection) {
-      this.#setupFlow.begin()
-      return
-    }
-
-    this.#ui.clearInput()
-    const result = await this.#setupFlow.toggleFastServing()
-    this.#ui.focusInput()
-    if (result === "error") return
-    if (result === "unavailable") {
-      this.#ui.showTransientHint(" Fast serving is not available for this model ")
-      return
-    }
-    this.#ui.showTransientHint(result === "on" ? " Fast serving on " : " Fast serving off ")
-  }
-
   /** Thinking traces and the subagent panel share one persisted-toggle lifecycle. */
   async #setPanelVisible(panel: "thinking" | "subagents", visible: boolean) {
     const previous = panel === "thinking" ? this.#thinkingVisible : this.#subagentPanelVisible
@@ -1258,16 +1231,11 @@ export class InteractiveApp {
   }
 }
 
-function modelLabel(
-  provider: ModelProvider | undefined,
-  displayName: string | undefined,
-  id: string,
-) {
+function modelLabel(provider: ModelProvider | undefined, displayName: string | undefined) {
   const name = formatModelName(displayName)
   if (isServerProvider(provider)) return `${name} · ${SERVER_INFO[provider].name}`
   if (provider === "pair") return `${name} · NVIDIA PAIR`
   if (provider === "local") return `${name} · Local`
-  if (provider === "fireworks") return withFastModelMark(name, isFastFireworksModel(id))
   return isHostedProvider(provider) ? `${name} · ${HOSTED_PROVIDER_INFO[provider].name}` : name
 }
 

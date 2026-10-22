@@ -115,7 +115,6 @@ export const fr: Messages = {
   "models.deleteName": "Supprimer {{name}}",
   "models.vision": "Vision",
   "models.text": "Texte",
-  "models.fastMode": "Mode rapide",
   "models.context": "Contexte de {{count}}",
   "models.modelMax": "Maximum du modèle : {{count}}",
   "models.contextUnavailable": "Contexte indisponible",
@@ -170,7 +169,6 @@ export const fr: Messages = {
   "composer.stop": "Arrêter",
   "composer.send": "Envoyer",
   "composer.openModelPicker": "Choisir un modèle",
-  "composer.fast": "Rapide",
   "composer.messageKept": "Votre message a été conservé.",
   "composer.imageUnsupported": "{{name}} n’est pas un type d’image pris en charge.",
   "composer.imageTooLarge":
@@ -188,8 +186,7 @@ export const fr: Messages = {
   "composer.imagesRequestLimit":
     "Les images jointes sont trop volumineuses ensemble. Le total doit rester sous 10 Mo.",
   "composer.fileReadFailed": "Impossible de lire le fichier.",
-  "composer.fastServing": "Inférence rapide",
-  "composer.modelTitle": "{{id}} · {{provider}}{{fast}} — sélectionner un modèle",
+  "composer.modelTitle": "{{id}} · {{provider}} — sélectionner un modèle",
   "composer.openDifferentFolder": "ouvrir un autre dossier",
   "composer.addFiles": "Ajouter des fichiers",
   "composer.stopTitle": "Arrêter (Échap)",
@@ -583,9 +580,6 @@ export const fr: Messages = {
   "settings.keepAwakeDetail": "Les écrans peuvent quand même se mettre en veille",
   "settings.toggleKeepAwake":
     "Empêche la mise en veille de l'ordinateur pendant qu'une session ou une routine travaille",
-  "settings.fastServing": "Inférence rapide",
-  "settings.fastUnavailable": "L’inférence rapide n’est pas disponible pour ce modèle",
-  "settings.toggleFast": "Activer ou désactiver l’inférence rapide",
   "settings.debugMode": "Mode de débogage",
   "settings.debugHint": "Session uniquement — appliqué dès le prochain tour",
   "settings.toggleDebug": "Activer ou désactiver le débogage",

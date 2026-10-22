@@ -442,78 +442,6 @@ describe("DesktopRuntime subagents", () => {
     await runtime.shutdown()
   })
 
-  it("rejects Fast serving for a local model", async () => {
-    const home = await isolate("otis-desktop-")
-    const cwd = join(home, "workspace")
-    await mkdir(cwd, { recursive: true })
-    const app = await Application.create({ cwd })
-    app.focused.selection = served(local("openai/gpt-oss-20b"))
-    const runtime = DesktopRuntime.forApplication(app, {
-      cwd,
-      version: "test",
-      platform: "darwin",
-      send: () => {},
-      sendTerminal: () => {},
-      spawnPty: () => {
-        throw new Error("The tests run no shell.")
-      },
-    })
-
-    const result = await runtime.setFastServing(true)
-    expect(result).toEqual({ ok: false, reason: "Fast serving is not available for this model." })
-    expect((await runtime.snapshot()).fastServing).toEqual({ available: false, enabled: false })
-    await runtime.shutdown()
-  })
-
-  it("toggles Fast serving by re-selecting the model on its fast path", async () => {
-    const home = await isolate("otis-desktop-")
-    const cwd = join(home, "workspace")
-    await mkdir(cwd, { recursive: true })
-    const app = await Application.create({ cwd })
-    app.focused.selection = served(hosted("accounts/fireworks/models/kimi"))
-    preparing(app)
-    const fireworksChoice: HostedPickerChoice = {
-      kind: "model",
-      provider: "fireworks",
-      id: "accounts/fireworks/models/kimi",
-      displayName: "Kimi",
-      supportsImageInput: false,
-      available: true,
-      active: true,
-      fastId: "accounts/fireworks/routers/kimi-fast",
-    }
-    const runtime = DesktopRuntime.forApplication(app, {
-      cwd,
-      version: "test",
-      platform: "darwin",
-      send: () => {},
-      sendTerminal: () => {},
-      spawnPty: () => {
-        throw new Error("The tests run no shell.")
-      },
-      listPickerItems: async () => [fireworksChoice],
-    })
-
-    const on = await runtime.setFastServing(true)
-    expect(on).toEqual({ ok: true })
-    expect(app.selection?.model.id).toBe("accounts/fireworks/routers/kimi-fast")
-    let snapshot = await runtime.snapshot()
-    expect(snapshot.fastServing).toEqual({ available: true, enabled: true })
-    let saved = await loadLocalSettings()
-    expect(saved.model).toBe("accounts/fireworks/routers/kimi-fast")
-    expect(saved.fastServingModels).toEqual(["accounts/fireworks/models/kimi"])
-
-    const off = await runtime.setFastServing(false)
-    expect(off).toEqual({ ok: true })
-    expect(app.selection?.model.id).toBe("accounts/fireworks/models/kimi")
-    snapshot = await runtime.snapshot()
-    expect(snapshot.fastServing).toEqual({ available: true, enabled: false })
-    saved = await loadLocalSettings()
-    expect(saved.model).toBe("accounts/fireworks/models/kimi")
-    expect(saved.fastServingModels ?? []).toEqual([])
-    await runtime.shutdown()
-  })
-
   it("connects NVIDIA PAIR endpoints, keeping only the engines that respond", async () => {
     const home = await isolate("otis-desktop-")
     const cwd = join(home, "workspace")
@@ -845,37 +773,6 @@ describe("DesktopRuntime subagents", () => {
     const snapshot = await runtime.snapshot()
     expect(snapshot.modelState).toBe("failed")
     expect(snapshot.modelError).toContain("no longer available")
-    await runtime.shutdown()
-  })
-
-  it("reports fast serving availability from the saved selection at launch", async () => {
-    const home = await isolate("otis-desktop-")
-    const cwd = join(home, "workspace")
-    await mkdir(cwd, { recursive: true })
-    await saveSelectedModel({
-      provider: "fireworks",
-      id: "accounts/fireworks/models/kimi",
-      displayName: "Kimi",
-      contextLength: 128_000,
-      supportsImageInput: false,
-      fastId: "accounts/fireworks/routers/kimi-fast",
-    } as never)
-    const app = await Application.create({ cwd })
-    const runtime = DesktopRuntime.forApplication(app, {
-      cwd,
-      version: "test",
-      platform: "darwin",
-      send: () => {},
-      sendTerminal: () => {},
-      spawnPty: () => {
-        throw new Error("The tests run no shell.")
-      },
-    })
-
-    // No picker fetch has happened; the persisted fast id alone makes the toggle available.
-    const snapshot = await runtime.snapshot()
-    expect(snapshot.fastServing).toEqual({ available: true, enabled: false })
-    expect(snapshot.model?.displayName).toBe("Kimi")
     await runtime.shutdown()
   })
 

@@ -5,7 +5,6 @@ import { createChatUI } from "../../../src/cli/chat-ui.js"
 import { contextUsage, formatContextUsage } from "../../../src/cli/ui/format.js"
 import type { ChatUI, ChatUIOptions } from "../../../src/cli/ui/types.js"
 import type { HostedPickerChoice } from "../../../src/inference/picker-catalog.js"
-import { matchesHostedModel } from "../../../src/inference/serving-path.js"
 import type { HostedModel, HostedProvider } from "../../../src/inference/types.js"
 
 export type ChatUIHarness = TestRendererSetup & {
@@ -128,6 +127,6 @@ export function hostedChoice(
     kind: "model",
     ...hosted,
     available: true,
-    active: currentModel ? matchesHostedModel(hosted, currentModel) : false,
+    active: currentModel === hosted.id,
   }
 }

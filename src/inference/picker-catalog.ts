@@ -7,7 +7,6 @@ import { findLocalModel, isLocalModelId, LOCAL_MODELS } from "./local-catalog.js
 import { fitLocalModel, formatMemoryLabel, memoryRequiredFor } from "./local-fit.js"
 import { pairModelKey } from "./pair.js"
 import { modelKey, providerLabel } from "./picker-filter.js"
-import { matchesHostedModel } from "./serving-path.js"
 import {
   HOSTED_PROVIDERS,
   type HostedApiKeys,
@@ -266,7 +265,7 @@ export async function listModelPickerItems(
             kind: "model",
             ...model,
             available: true,
-            active: current !== undefined && matchesHostedModel(model, current),
+            active: current === model.id,
           }),
         )
         .filter((row) => row.active || !options.hiddenModels?.has(modelKey(provider, row.id)))

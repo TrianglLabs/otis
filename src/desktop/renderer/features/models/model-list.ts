@@ -74,8 +74,6 @@ export function pickerDetailParts(
     : []
   if (item.contextLength) parts.push({ label: formatContextWindow(item.contextLength) })
   parts.push(modality)
-  // Fast serving is a Fireworks path; other hosted providers never publish a fastId.
-  if (item.provider === "fireworks" && item.fastId) parts.push({ label: t("models.fastMode") })
   return parts
 }
 

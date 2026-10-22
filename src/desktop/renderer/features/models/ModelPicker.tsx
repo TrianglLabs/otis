@@ -363,7 +363,7 @@ export function ModelPicker({ open, onClose }: { open: boolean; onClose: () => v
   )
 }
 
-/** A row's detail line — context, modality with its icon, Fast mode — shared with Settings. */
+/** A row's detail line — context, modality with its icon — shared with Settings. */
 export function ModelDetail({ item }: { item: ModelPickerChoice }) {
   const { t } = useI18n()
   return pickerDetailParts(item, t).map((part, index) => (

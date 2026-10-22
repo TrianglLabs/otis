@@ -280,7 +280,7 @@
   --fade-bottom: 56px;
 }
 
-/* The viewport is the container the rail's dots query. That containment also makes it the box any
+/* The viewport is the container the rail's width query reads. That containment also makes it the box any
    fixed-position descendant would position against; nothing in a transcript row is fixed. */
 .transcriptViewport {
   position: relative;
@@ -1169,12 +1169,6 @@ button.reasoning-header:hover {
   color: var(--text-dim);
 }
 
-/* Fast-serving bolt, amber like the picker's recommended star. */
-.composer-fast {
-  color: var(--warning);
-  flex-shrink: 0;
-}
-
 /* The interactive chips are quiet tinted controls, no outline: a wash of the text colour that
    deepens under the pointer. The wash carries model state instead of a status dot. */
 button.composer-model,
@@ -1472,31 +1466,11 @@ button.composer-model-failed {
 }
 
 /* The rail lives in the margin beside the text column, which begins 28px into the 780px content
-   width. Below this the margin is narrower than the lines, so they become dots and stay. */
+   width. Below this the margin cannot hold the lines, so the rail goes; scrolling and Latest
+   remain. */
 @container (width < 812px) {
   .turnRail {
-    left: 11px;
-  }
-
-  .turnRail-tick {
-    width: 10px;
-  }
-
-  /* A dot has a quarter of a line's area, so the resting ones take the hover tone to read. */
-  .turnRail-tick::before,
-  .turnRail-tick:hover::before,
-  .turnRail-tick:focus-visible::before,
-  .turnRail-tick-current::before {
-    width: 4px;
-    height: 4px;
-  }
-
-  .turnRail-tick::before {
-    background: var(--text-dim);
-  }
-
-  .turnRail-tick-current::before {
-    background: var(--text);
+    display: none;
   }
 }
 

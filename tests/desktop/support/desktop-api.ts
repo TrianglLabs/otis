@@ -59,7 +59,6 @@ export const STATUS: DesktopStatus = {
   cli: null,
   permissionMode: "auto",
   localThinking: null,
-  fastServing: { available: false, enabled: false },
   hostedConfigured: {
     fireworks: false,
     together: false,
@@ -163,7 +162,6 @@ export function fakeApi(
     setAlertSound: vi.fn(async () => {}),
     setLocalThinking: vi.fn(async () => {}),
     setPermissionMode: vi.fn(async () => {}),
-    setFastServing: vi.fn(async () => ({ ok: true as const })),
     openHostedKeyPage: vi.fn(async () => {}),
     setHostedApiKey: vi.fn(async () => ({ ok: true as const })),
     connectLocalServers: vi.fn(async () => ({ ok: true as const })),

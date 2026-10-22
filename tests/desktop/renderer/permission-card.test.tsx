@@ -88,7 +88,6 @@ const SNAPSHOT: DesktopSnapshot = {
   cli: null,
   permissionMode: "ask",
   localThinking: null,
-  fastServing: { available: false, enabled: false },
   hostedConfigured: {
     fireworks: true,
     together: false,

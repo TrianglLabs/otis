@@ -1,9 +1,11 @@
 import type { TextRenderable } from "@opentui/core"
 import type { LocalStats } from "../../local/stats.js"
-import { formatStats } from "./format.js"
+import { formatStats, formatTokenCount } from "./format.js"
+import { ACTIVITY_DAYS, activityArt } from "./panels.js"
 import type { Renderer } from "./types.js"
 
 const STAT_COUNT_DURATION_MS = 900
+const SHORT_DATE = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" })
 const STAT_COUNT_STAGGER_MS = 70
 const STAT_COUNT_FRAME_MS = 50
 
@@ -27,6 +29,9 @@ const ZERO_STATS: LocalStats = {
 type HomeStatsOptions = {
   renderer: Renderer
   statBoxes: { value: TextRenderable; label: TextRenderable }[]
+  chart: TextRenderable
+  range: TextRenderable
+  today: TextRenderable
   isWelcomeVisible: () => boolean
 }
 
@@ -96,14 +101,36 @@ export class HomeStats {
     if (elapsed >= lastStart + STAT_COUNT_DURATION_MS) this.stop()
   }
 
+  /** Repaints the chart in the current theme colours. */
+  refreshTheme() {
+    this.paint("rest")
+  }
+
   private paint(elapsedOrRest: number | "rest") {
-    for (let index = 0; index < this.options.statBoxes.length; index += 1) {
-      const amount = elapsedOrRest === "rest" ? 1 : easeOutCubic(progress(elapsedOrRest, index))
+    const { statBoxes, chart, range, today } = this.options
+    const lastStart = STAT_COUNT_STAGGER_MS * (statBoxes.length - 1)
+    for (let index = 0; index < statBoxes.length; index += 1) {
+      const amount =
+        elapsedOrRest === "rest"
+          ? 1
+          : easeOutCubic(progress(elapsedOrRest, index * STAT_COUNT_STAGGER_MS))
       const items = formatStats(interpolateStats(this.from, this.to, amount))
-      const card = this.options.statBoxes[index]
-      card.value.content = items[index].value
-      card.label.content = items[index].label
+      statBoxes[index].value.content = items[index].value
+      statBoxes[index].label.content = items[index].label
     }
+    // Bars grow left to right across the same window as the cards.
+    const activity = this.to.recentActivity
+    const grown = Array.from({ length: ACTIVITY_DAYS }, (_, day) =>
+      elapsedOrRest === "rest"
+        ? 1
+        : easeOutCubic(progress(elapsedOrRest, (lastStart * day) / (ACTIVITY_DAYS - 1))),
+    )
+    chart.content = activityArt(activity, grown)
+    // `Sep 25 – Oct 22`: the first and last charted day, blank with no history.
+    const first = activity[0]
+    const last = activity.at(-1)
+    range.content = first && last ? `${shortDate(first.date)} – ${shortDate(last.date)}` : ""
+    today.content = `today ${formatTokenCount(this.to.todayTokens)}`
     this.options.renderer.requestRender()
   }
 }
@@ -119,13 +146,18 @@ function interpolateStats(from: LocalStats, to: LocalStats, amount: number) {
   }
 }
 
+function shortDate(date: string) {
+  const [year, month, day] = date.split("-").map(Number)
+  return SHORT_DATE.format(new Date(year, month - 1, day))
+}
+
 function easeOutCubic(amount: number) {
   const t = clamp(amount, 0, 1)
   return 1 - (1 - t) ** 3
 }
 
-function progress(elapsedMs: number, index: number) {
-  return clamp((elapsedMs - index * STAT_COUNT_STAGGER_MS) / STAT_COUNT_DURATION_MS, 0, 1)
+function progress(elapsedMs: number, startMs: number) {
+  return clamp((elapsedMs - startMs) / STAT_COUNT_DURATION_MS, 0, 1)
 }
 
 function lerp(from: number, to: number, amount: number) {

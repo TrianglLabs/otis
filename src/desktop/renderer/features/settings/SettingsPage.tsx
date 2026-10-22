@@ -142,7 +142,7 @@ const TEXT_SIZE_LABELS = {
 /**
  * The settings page, opened from the header's gear button or the ⌘K palette. It takes over the
  * whole window. Mirrors the TUI's /settings submenu: hosted API keys, local model-server endpoints,
- * theme, plus /thinking and /fast toggles; the /debug toggle is development-only and never renders
+ * theme, plus the /thinking toggle; the /debug toggle is development-only and never renders
  * in production builds. Model selection and local-model deletion live in the composer's model
  * picker. Every control writes through the main process; status events update the UI.
  */
@@ -163,7 +163,6 @@ export function SettingsPage({
   const { locale, systemLocale, t } = useI18n()
   const state = useDesktopState(
     "freshAchievements",
-    "fastServing",
     "busy",
     "working",
     "pairEndpoints",
@@ -233,7 +232,6 @@ export function SettingsPage({
   const [pairModels, setPairModels] = useState<(PairPickerChoice | ServerPickerChoice)[]>()
   const [pairCatalogReload, setPairCatalogReload] = useState(0)
 
-  const [fastError, setFastError] = useState<string>()
   // Hidden, not unmounted, while closed (see AppShell). Closing leaves the tab, so a tab's
   // leave effects such as marking achievements seen still run, and drops open forms; each open
   // lands on the requested tab.
@@ -243,9 +241,7 @@ export function SettingsPage({
     setOpenForm(undefined)
     setHostedOpen(false)
     setPairError(undefined)
-    setFastError(undefined)
   }, [open, initialTab])
-  const [fastPending, setFastPending] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -284,8 +280,6 @@ export function SettingsPage({
   }, [activeTab, openForm, state?.pairConfigured, state?.servers, pairCatalogReload, api])
 
   if (!state) return null
-  const { fastServing } = state
-  const fastDisabled = fastPending || !fastServing.available || state.busy || state.working > 0
   const textSizeIndex = TEXT_SIZES.indexOf(state.textSize)
 
   const toggleForm = (form: "pair" | HostedProvider) => {
@@ -788,40 +782,6 @@ export function SettingsPage({
                         onChange={(enabled) => void api.setKeepAwake(enabled)}
                       />
                     </div>
-                    <div
-                      className="settingsRow"
-                      title={fastServing.available ? undefined : t("settings.fastUnavailable")}
-                    >
-                      <span className="settingsRow-label">
-                        {t("settings.fastServing")}
-                        {state.model && fastServing.available ? (
-                          <span className="settingsRow-meta">
-                            {state.model.displayName ?? state.model.id.split("/").pop()}
-                          </span>
-                        ) : null}
-                      </span>
-                      <Toggle
-                        label={t("settings.toggleFast")}
-                        checked={fastServing.enabled}
-                        disabled={fastDisabled}
-                        onChange={async (fast) => {
-                          setFastError(undefined)
-                          setFastPending(true)
-                          try {
-                            const result = await api.setFastServing(fast)
-                            if (
-                              !result.ok &&
-                              result.reason !== "The selection was cancelled." &&
-                              result.reason !== "The selection was superseded."
-                            ) {
-                              setFastError(result.reason)
-                            }
-                          } finally {
-                            setFastPending(false)
-                          }
-                        }}
-                      />
-                    </div>
                     {!import.meta.env.PROD ? (
                       <div className="settingsRow" title={t("settings.debugHint")}>
                         <span className="settingsRow-label">{t("settings.debugMode")}</span>
@@ -831,9 +791,6 @@ export function SettingsPage({
                           onChange={(on) => void api.setDebugMode(on)}
                         />
                       </div>
-                    ) : null}
-                    {fastError ? (
-                      <div className="settings-message settings-error">{fastError}</div>
                     ) : null}
                   </div>
                 </div>

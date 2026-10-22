@@ -285,11 +285,7 @@ type SharedModelFields = {
   supportsImageInput: boolean
 }
 
-export type HostedModel = SharedModelFields & {
-  provider: HostedProvider
-  /** Fast serving-path ID when Fireworks publishes one for this model; Fireworks only. */
-  fastId?: string
-}
+export type HostedModel = SharedModelFields & { provider: HostedProvider }
 
 export type FireworksModel = HostedModel & { provider: "fireworks" }
 

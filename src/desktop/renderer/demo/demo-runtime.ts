@@ -1500,7 +1500,6 @@ class DemoRuntime implements DesktopApi {
     cli: { status: "current", path: "~/.local/bin/otis", version: "0.1.35" },
     localThinking: null,
     permissionMode: "auto",
-    fastServing: { available: true, enabled: false },
     hostedConfigured: { ...NO_HOSTED_KEYS, fireworks: true, together: true, baseten: true },
     hiddenModels: [],
     primeTeamId: null,
@@ -1937,28 +1936,6 @@ class DemoRuntime implements DesktopApi {
   async setDebugMode(enabled: boolean): Promise<void> {
     this.#state = { ...this.#state, debug: enabled }
     this.#emitStatus()
-  }
-
-  /** Pretends to re-select the demo model on its other serving path, chip state pulse included. */
-  async setFastServing(fast: boolean): Promise<ModelSelectResult> {
-    if (this.#state.busy)
-      return { ok: false, reason: "Finish the current work before changing Fast serving." }
-    this.#state = { ...this.#state, modelState: "starting" }
-    this.#emitStatus()
-    await new Promise((resolve) => setTimeout(resolve, 900))
-    this.#state = {
-      ...this.#state,
-      modelState: "ready",
-      fastServing: { available: true, enabled: fast },
-      model: {
-        id: fast ? "accounts/fireworks/routers/glm-5p3-fast" : "accounts/fireworks/models/glm-5p3",
-        provider: "fireworks",
-        displayName: "GLM-5.3",
-        supportsImageInput: false,
-      },
-    }
-    this.#emitStatus()
-    return { ok: true }
   }
 
   async getSubagentTrace(toolCallId: string, seen?: number): Promise<SubagentTraceView> {

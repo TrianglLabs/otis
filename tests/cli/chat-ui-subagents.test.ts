@@ -59,6 +59,29 @@ function startedTraces() {
 describe("chat UI subagents", () => {
   const setup = useChatHarness()
 
+  it("wraps a long title onto further lines under the glyph instead of cutting it off", async () => {
+    const harness = await setup()
+    harness.ui.showChatLayout()
+    const traces = new SubagentTraces("/work")
+    const title = "Survey every provider catalog for tool-calling support"
+    traces.apply(envelope("call_a", title, { type: "model", phase: "start" }))
+    harness.ui.renderSubagents(traces.all)
+    await harness.renderOnce()
+
+    const row = harness.get<BoxRenderable>(`${subagentRowId("call_a")}-box`)
+    const glyph = harness.get<TextRenderable>(`${subagentRowId("call_a")}-glyph`)
+    const text = harness.get<TextRenderable>(subagentRowId("call_a"))
+    const meta = harness.get<TextRenderable>(`${subagentRowId("call_a")}-meta`)
+    expect(text.height).toBeGreaterThan(1)
+    expect(text.x).toBe(glyph.x + glyph.width)
+    expect(meta.x).toBe(text.x)
+    expect(meta.y).toBe(text.y + text.height)
+    expect(row.height).toBe(text.height + 1)
+    const frame = harness.captureCharFrame()
+    for (const word of title.split(" ")) expect(frame).toContain(word)
+    expect(frame).not.toContain("…")
+  })
+
   it("lists delegated runs beside the transcript only while there are any and the terminal is wide", async () => {
     const harness = await setup()
     harness.ui.showChatLayout()
@@ -73,9 +96,10 @@ describe("chat UI subagents", () => {
       `${subagentRowId("call_a")}-box`,
       `${subagentRowId("call_b")}-box`,
     ])
-    expect(harness.text(subagentRowId("call_a"))).toBe("  ◇ Map the notes")
-    expect(harness.text(`${subagentRowId("call_a")}-meta`)).toBe("   1 tool · running")
-    expect(harness.text(`${subagentRowId("call_b")}-meta`)).toBe("   0 tools · running")
+    expect(harness.text(`${subagentRowId("call_a")}-glyph`)).toBe("  ◇ ")
+    expect(harness.text(subagentRowId("call_a"))).toBe("Map the notes")
+    expect(harness.text(`${subagentRowId("call_a")}-meta`)).toBe("1 tool · running")
+    expect(harness.text(`${subagentRowId("call_b")}-meta`)).toBe("0 tools · running")
     expect(harness.captureCharFrame()).toContain("Subagents")
 
     harness.resize(80, 30)
@@ -108,12 +132,14 @@ describe("chat UI subagents", () => {
     traces.apply(envelope("call_b", "Check the docs", { type: "error", message: "boom" }))
     harness.ui.renderSubagents(traces.all)
 
-    expect(harness.text(subagentRowId("call_a"))).toBe("  ✓ Map the notes")
-    expect(harness.text(`${subagentRowId("call_a")}-meta`)).toBe("   1 tool · 2s")
+    expect(harness.text(`${subagentRowId("call_a")}-glyph`)).toBe("  ✓ ")
+    expect(harness.text(subagentRowId("call_a"))).toBe("Map the notes")
+    expect(harness.text(`${subagentRowId("call_a")}-meta`)).toBe("1 tool · 2s")
     // A settled title is one uniformly colored chunk instead of per-letter shimmer.
     expect(row.chunks.at(-1)?.text).toBe("Map the notes")
-    expect(harness.text(subagentRowId("call_b"))).toBe("  ✗ Check the docs")
-    expect(harness.text(`${subagentRowId("call_b")}-meta`)).toBe("   0 tools · 2s · failed")
+    expect(harness.text(`${subagentRowId("call_b")}-glyph`)).toBe("  ✗ ")
+    expect(harness.text(subagentRowId("call_b"))).toBe("Check the docs")
+    expect(harness.text(`${subagentRowId("call_b")}-meta`)).toBe("0 tools · 2s · failed")
   })
 
   it("opens a run's full trace in place of the conversation and returns on escape", async () => {
@@ -132,7 +158,8 @@ describe("chat UI subagents", () => {
 
     expect(harness.childIds("chat-body")).toEqual(["subagent-trace", "subagent-panel"])
     expect(harness.text("subagent-trace-header")).toBe("◇ Map the notes · 1 tool · running")
-    expect(harness.text(subagentRowId("call_a"))).toBe("› ◇ Map the notes")
+    expect(harness.text(`${subagentRowId("call_a")}-glyph`)).toBe("› ◇ ")
+    expect(harness.text(subagentRowId("call_a"))).toBe("Map the notes")
     expect(harness.text("subagent-panel-footer")).toBe("[esc] back to chat")
     const frame = harness.captureCharFrame()
     // The child has moved on to its report, so the read has settled into the past tense.
@@ -149,7 +176,8 @@ describe("chat UI subagents", () => {
     harness.press("escape")
     await harness.renderOnce()
     expect(harness.childIds("chat-body")).toEqual(["messages", "subagent-panel"])
-    expect(harness.text(subagentRowId("call_a"))).toBe("  ✓ Map the notes")
+    expect(harness.text(`${subagentRowId("call_a")}-glyph`)).toBe("  ✓ ")
+    expect(harness.text(subagentRowId("call_a"))).toBe("Map the notes")
     expect(harness.text("subagent-panel-footer")).toBe("[→] focus")
     expect(harness.captureCharFrame()).toContain("Delegating: Map the notes")
     expect(traceCard.isDestroyed).toBe(true)
@@ -207,16 +235,20 @@ describe("chat UI subagents", () => {
     harness.ui.renderSubagents(traces.all)
     await harness.renderOnce()
 
-    expect(harness.text(subagentRowId("call_a"))).toBe("  ◇ Map the notes")
+    expect(harness.text(`${subagentRowId("call_a")}-glyph`)).toBe("  ◇ ")
+    expect(harness.text(subagentRowId("call_a"))).toBe("Map the notes")
     harness.press("right")
     await harness.renderOnce()
-    expect(harness.text(subagentRowId("call_a"))).toBe("› ◇ Map the notes")
+    expect(harness.text(`${subagentRowId("call_a")}-glyph`)).toBe("› ◇ ")
+    expect(harness.text(subagentRowId("call_a"))).toBe("Map the notes")
     expect(harness.text("subagent-panel-footer")).toBe("[↑↓] move · [enter] inspect")
 
     harness.press("down")
     await harness.renderOnce()
-    expect(harness.text(subagentRowId("call_a"))).toBe("  ◇ Map the notes")
-    expect(harness.text(subagentRowId("call_b"))).toBe("› ◇ Check the docs")
+    expect(harness.text(`${subagentRowId("call_a")}-glyph`)).toBe("  ◇ ")
+    expect(harness.text(subagentRowId("call_a"))).toBe("Map the notes")
+    expect(harness.text(`${subagentRowId("call_b")}-glyph`)).toBe("› ◇ ")
+    expect(harness.text(subagentRowId("call_b"))).toBe("Check the docs")
 
     harness.press("enter")
     await harness.renderOnce()
@@ -227,7 +259,8 @@ describe("chat UI subagents", () => {
     harness.press("escape")
     await harness.renderOnce()
     expect(harness.childIds("chat-body")).toEqual(["messages", "subagent-panel"])
-    expect(harness.text(subagentRowId("call_b"))).toBe("  ◇ Check the docs")
+    expect(harness.text(`${subagentRowId("call_b")}-glyph`)).toBe("  ◇ ")
+    expect(harness.text(subagentRowId("call_b"))).toBe("Check the docs")
     expect(harness.text("subagent-panel-footer")).toBe("[→] focus")
   })
 
@@ -239,27 +272,33 @@ describe("chat UI subagents", () => {
 
     harness.press("down")
     await harness.renderOnce()
-    expect(harness.text(subagentRowId("call_a"))).toBe("› ◇ Map the notes")
+    expect(harness.text(`${subagentRowId("call_a")}-glyph`)).toBe("› ◇ ")
+    expect(harness.text(subagentRowId("call_a"))).toBe("Map the notes")
 
     harness.press("left")
     await harness.renderOnce()
-    expect(harness.text(subagentRowId("call_a"))).toBe("  ◇ Map the notes")
+    expect(harness.text(`${subagentRowId("call_a")}-glyph`)).toBe("  ◇ ")
+    expect(harness.text(subagentRowId("call_a"))).toBe("Map the notes")
     expect(harness.text("subagent-panel-footer")).toBe("[→] focus")
 
     harness.press("up")
     await harness.renderOnce()
-    expect(harness.text(subagentRowId("call_a"))).toBe("› ◇ Map the notes")
+    expect(harness.text(`${subagentRowId("call_a")}-glyph`)).toBe("› ◇ ")
+    expect(harness.text(subagentRowId("call_a"))).toBe("Map the notes")
     harness.press("escape")
     await harness.renderOnce()
-    expect(harness.text(subagentRowId("call_a"))).toBe("  ◇ Map the notes")
+    expect(harness.text(`${subagentRowId("call_a")}-glyph`)).toBe("  ◇ ")
+    expect(harness.text(subagentRowId("call_a"))).toBe("Map the notes")
 
     harness.setChatInput("draft")
     harness.press("right")
     harness.press("up")
     harness.press("down")
     await harness.renderOnce()
-    expect(harness.text(subagentRowId("call_a"))).toBe("  ◇ Map the notes")
-    expect(harness.text(subagentRowId("call_b"))).toBe("  ◇ Check the docs")
+    expect(harness.text(`${subagentRowId("call_a")}-glyph`)).toBe("  ◇ ")
+    expect(harness.text(subagentRowId("call_a"))).toBe("Map the notes")
+    expect(harness.text(`${subagentRowId("call_b")}-glyph`)).toBe("  ◇ ")
+    expect(harness.text(subagentRowId("call_b"))).toBe("Check the docs")
   })
 
   it("switches the open trace when arrowing to another run", async () => {
@@ -277,7 +316,8 @@ describe("chat UI subagents", () => {
     await harness.renderOnce()
     expect(harness.childIds("chat-body")).toEqual(["subagent-trace", "subagent-panel"])
     expect(harness.text("subagent-trace-header")).toBe("◇ Check the docs · 0 tools · running")
-    expect(harness.text(subagentRowId("call_b"))).toBe("› ◇ Check the docs")
+    expect(harness.text(`${subagentRowId("call_b")}-glyph`)).toBe("› ◇ ")
+    expect(harness.text(subagentRowId("call_b"))).toBe("Check the docs")
   })
 
   it("does not let escape interrupt the agent while a trace is open", async () => {

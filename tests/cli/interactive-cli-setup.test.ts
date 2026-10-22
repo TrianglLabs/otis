@@ -74,7 +74,7 @@ describe("interactive CLI setup", () => {
     })
     expect(mocks.ui.showModelPicker).not.toHaveBeenCalled()
     expect(mocks.saveHostedApiKey).toHaveBeenCalledWith("fireworks", "fw_new_key", muse)
-    expect(mocks.ui.setModelLabel).toHaveBeenLastCalledWith("Muse Glimmer 30B")
+    expect(mocks.ui.setModelLabel).toHaveBeenLastCalledWith("Muse Glimmer 30B · Fireworks AI")
     expect(mocks.ui.setConfigured).toHaveBeenCalledOnce()
     expect(mocks.ParallelClient).toHaveBeenCalledOnce()
   })
@@ -513,9 +513,6 @@ describe("interactive CLI setup", () => {
     )
     expect(mocks.ui.setModelLabel).toHaveBeenLastCalledWith("Kimi K3 · Together AI")
     expect(mocks.ui.setConfigured).toHaveBeenCalledOnce()
-    expect(mocks.ui.setCommands).not.toHaveBeenCalledWith(
-      expect.arrayContaining([expect.objectContaining({ name: "/fast" })]),
-    )
   })
 
   it("opens the Baseten key input directly from /settings hosted baseten", async () => {
@@ -781,7 +778,7 @@ describe("interactive CLI setup", () => {
     await settle()
 
     expect(mocks.saveSelectedModel).toHaveBeenCalledWith(first)
-    expect(mocks.ui.setModelLabel).toHaveBeenLastCalledWith("First Verified")
+    expect(mocks.ui.setModelLabel).toHaveBeenLastCalledWith("First Verified · Fireworks AI")
   })
 
   it("keeps setup disabled when Fireworks has no verified tool-capable model", async () => {
@@ -844,7 +841,6 @@ describe("interactive CLI setup", () => {
     expect(mocks.uiOptions?.configured).toBe(true)
     expect(mocks.ui.showSetupInput).not.toHaveBeenCalled()
     expect(mocks.ParallelClient).toHaveBeenCalledOnce()
-    expect(commandNames()).not.toContain("/fast")
     // A hosted model has no local thinking levels to set.
     expect(commandNames()).not.toContain("/effort")
     expect(commandNames()).not.toContain("/delete-model")
@@ -871,18 +867,6 @@ describe("interactive CLI setup", () => {
     // gpt-oss has thinking levels, so /effort is offered.
     expect(commandNames()).toContain("/effort")
     expect(mocks.ui.setConfigured).not.toHaveBeenCalled()
-  })
-
-  it("advertises /fast when the saved model has a Fast serving path", async () => {
-    mocks.loadLocalSettings.mockResolvedValue(
-      localSettings({
-        model: "accounts/fireworks/models/kimi-k3",
-        modelDisplayName: "Kimi K3",
-        modelFastId: "accounts/fireworks/routers/kimi-k3-fast",
-      }),
-    )
-    await loadCli()
-    expect(commandNames()).toContain("/fast")
   })
 
   it("offers local model deletion from settings only when a model is downloaded", async () => {
@@ -1017,14 +1001,18 @@ describe("interactive CLI setup", () => {
     expect(mocks.ui.showSetupError).not.toHaveBeenCalled()
   })
 
-  it("keeps the catalog serving path when Fast mode is unset", async () => {
+  it("selects a Fast router like any other catalog model", async () => {
     const kimi = testModel({
       id: "accounts/fireworks/models/kimi-k3",
       displayName: "Kimi K3",
-      fastId: "accounts/fireworks/routers/kimi-k3-fast",
       supportsImageInput: true,
     })
-    mocks.listHostedModels.mockResolvedValue([kimi])
+    const fast = testModel({
+      id: "accounts/fireworks/routers/kimi-k3-fast",
+      displayName: "Kimi K3 Fast",
+      supportsImageInput: true,
+    })
+    mocks.listHostedModels.mockResolvedValue([kimi, fast])
     mocks.loadLocalSettings.mockResolvedValue(
       localSettings({
         fireworksApiKey: "fw_env_key",
@@ -1038,71 +1026,25 @@ describe("interactive CLI setup", () => {
     await settle()
 
     expect(mocks.saveSelectedModel).toHaveBeenCalledWith(kimi)
-    expect(mocks.ui.setModelLabel).toHaveBeenLastCalledWith("Kimi K3")
+    expect(mocks.ui.setModelLabel).toHaveBeenLastCalledWith("Kimi K3 · Fireworks AI")
     expect(mocks.HostedClient).toHaveBeenCalledWith(
       expect.objectContaining({ model: "accounts/fireworks/models/kimi-k3" }),
     )
-  })
 
-  it("marks the catalog row active when the saved model is its Fast serving path", async () => {
-    const kimi = testModel({
-      id: "accounts/fireworks/models/kimi-k3",
-      displayName: "Kimi K3",
-      fastId: "accounts/fireworks/routers/kimi-k3-fast",
-    })
-    mocks.listHostedModels.mockResolvedValue([kimi])
-    mocks.loadLocalSettings.mockResolvedValue(
-      localSettings({
-        model: kimi.fastId,
-        modelDisplayName: "Kimi K3",
-      }),
-    )
-
-    await loadCli()
     await submit("/model")
-
     expect(mocks.ui.showModelPicker).toHaveBeenCalledWith(
       expect.arrayContaining([
         expect.objectContaining({ ...kimi, provider: "fireworks", active: true }),
+        expect.objectContaining({ ...fast, provider: "fireworks", active: false }),
       ]),
     )
-  })
-
-  it.each([
-    {
-      fast: "on",
-      fastServingModels: ["accounts/fireworks/models/kimi-k3"],
-      id: "accounts/fireworks/routers/kimi-k3-fast",
-      label: "Kimi K3 Fast",
-    },
-    {
-      fast: "off",
-      fastServingModels: [],
-      id: "accounts/fireworks/models/kimi-k3",
-      label: "Kimi K3",
-    },
-  ])("saves the serving path for Fast mode $fast when a labeled catalog model is selected", async ({
-    fastServingModels,
-    id,
-    label,
-  }) => {
-    const kimi = testModel({
-      id: "accounts/fireworks/models/kimi-k3",
-      displayName: "Kimi K3",
-      fastId: "accounts/fireworks/routers/kimi-k3-fast",
-    })
-    mocks.listHostedModels.mockResolvedValue([kimi])
-    mocks.loadLocalSettings.mockResolvedValue(localSettings({ fastServingModels }))
-    await loadCli()
-    await submit("/model")
-
-    mocks.uiOptions?.onSelectModel?.(hostedChoice("fireworks", kimi))
+    mocks.uiOptions?.onSelectModel?.(hostedChoice("fireworks", fast))
     await settle()
 
-    expect(mocks.saveSelectedModel).toHaveBeenCalledWith({ ...kimi, id })
-    expect(mocks.ui.setModelLabel).toHaveBeenLastCalledWith(label)
-    expect(mocks.ui.setCommands).toHaveBeenCalledWith(
-      expect.arrayContaining([expect.objectContaining({ name: "/fast" })]),
+    expect(mocks.saveSelectedModel).toHaveBeenLastCalledWith(fast)
+    expect(mocks.ui.setModelLabel).toHaveBeenLastCalledWith("Kimi K3 Fast · Fireworks AI")
+    expect(mocks.HostedClient).toHaveBeenLastCalledWith(
+      expect.objectContaining({ model: "accounts/fireworks/routers/kimi-k3-fast" }),
     )
   })
 

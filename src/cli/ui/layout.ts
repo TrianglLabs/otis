@@ -16,7 +16,7 @@ import {
 import { colors } from "../theme.js"
 import { formatContextLabel } from "./format.js"
 import { MODEL_PICKER_HINT } from "./model-picker.js"
-import { createMessagesView, createSidePanel, createStatsRow } from "./panels.js"
+import { createMessagesView, createSidePanel, createStatsRow, markArt } from "./panels.js"
 import type { ChatUIOptions, Renderer } from "./types.js"
 
 const version = process.env.OTIS_VERSION ?? "dev"
@@ -49,10 +49,10 @@ export function createUILayout(
   renderer: Renderer,
   options: Pick<
     ChatUIOptions,
-    "configured" | "contextLabel" | "modeLabel" | "sessionLabel" | "platform"
+    "configured" | "contextLabel" | "modeLabel" | "modelLabel" | "sessionLabel" | "platform"
   >,
 ) {
-  const { statsRow, statBoxes } = createStatsRow(renderer)
+  const { statsRow, statBoxes, chart, range, today } = createStatsRow(renderer)
   const { panel: sessionPanel, rows: sessionRowsBox } = createSidePanel(renderer, {
     id: "session",
     header: "Sessions",
@@ -399,12 +399,31 @@ export function createUILayout(
     marginTop: 2,
     gap: 1,
   })
+  // Under the input box: the selected model on the left, the command helper on the right.
+  const welcomeFooter = new BoxRenderable(renderer, {
+    id: "welcome-footer",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    width: "100%",
+    gap: 2,
+  })
+  const welcomeModel = new TextRenderable(renderer, {
+    id: "welcome-model",
+    content: options.configured === false ? "" : options.modelLabel,
+    fg: colors.muted,
+    flexShrink: 1,
+    minWidth: 0,
+    truncate: true,
+    selectable: false,
+  })
   const welcomeQuit = new TextRenderable(renderer, {
     id: "welcome-quit",
     content: options.configured === false ? " " : "/ for commands",
     fg: colors.muted,
-    alignSelf: "center",
+    flexShrink: 0,
   })
+  welcomeFooter.add(welcomeModel)
+  welcomeFooter.add(welcomeQuit)
   // The spacers split free space equally to center the content when it fits.
   // When the input grows past the available height, they collapse to zero and
   // flex-end anchoring clips the decorative top (brand, then stats) while the
@@ -441,7 +460,7 @@ export function createUILayout(
   })
   inputArea.add(options.configured === false ? setupButtonBox : inputBox)
   welcomePanel.add(inputArea)
-  welcomePanel.add(welcomeQuit)
+  welcomePanel.add(welcomeFooter)
   welcome.add(welcomeTopSpacer)
   // The art is wrapped in a box because a bare TextRenderable child adds a
   // phantom row to the following gap in a gapped column; boxing it keeps the
@@ -452,19 +471,12 @@ export function createUILayout(
     alignSelf: "center",
     flexShrink: 0,
   })
-  welcomeBrand.add(
-    new TextRenderable(renderer, {
-      id: "welcome-brand-art",
-      content: [
-        "   ____  _______________",
-        "  / __ \\/_  __/  _/ ___/",
-        " / / / / / /  / / \\__ \\",
-        "/ /_/ / / / _/ / ___/ /",
-        "\\____/ /_/ /___//____/",
-      ].join("\n"),
-      fg: colors.accent,
-    }),
-  )
+  const welcomeBrandArt = new TextRenderable(renderer, {
+    id: "welcome-brand-art",
+    content: markArt(),
+    selectable: false,
+  })
+  welcomeBrand.add(welcomeBrandArt)
   welcome.add(welcomeBrand)
   if (options.configured !== false) welcome.add(statsRow)
   welcome.add(welcomePanel)
@@ -692,6 +704,9 @@ export function createUILayout(
     setupStatusBox,
     statBoxes,
     statsRow,
+    chart,
+    range,
+    today,
     subagentPanel,
     subagentPanelFooter,
     subagentRowsBox,
@@ -700,7 +715,9 @@ export function createUILayout(
     topBarStart,
     updateHint,
     welcome,
+    welcomeBrandArt,
     welcomePanel,
+    welcomeModel,
     welcomeQuit,
   }
 }

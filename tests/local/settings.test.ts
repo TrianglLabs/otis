@@ -9,7 +9,6 @@ import {
   loadLocalSettings,
   saveAchievementsSeen,
   saveAlertSound,
-  saveFastServingSelection,
   saveHiddenModels,
   saveHiddenSkills,
   saveHostedApiKey,
@@ -91,7 +90,6 @@ describe("local settings", () => {
       theme: "nord",
       model: "accounts/fireworks/models/org/second",
     })
-    expect(saved.fastMode).toBeUndefined()
   })
   it("remembers thinking per model through model changes, reset, and unrelated saves", async () => {
     const file = join(await tempDirectory(), "config.json")
@@ -418,7 +416,6 @@ describe("local settings", () => {
     })
     await saveSelectedTheme("nord", { file })
     await saveThinkingVisible(true, { file })
-    await saveFastServingSelection(model("tool-model", "Tool Model"), false, { file })
 
     await clearSelectedModel({ file })
 
@@ -427,7 +424,6 @@ describe("local settings", () => {
       fireworksApiKey: "fw_test_key",
       theme: "nord",
       thinkingVisible: true,
-      fastServingModels: [],
     })
   })
 
@@ -535,71 +531,32 @@ describe("local settings", () => {
     await expect(loadLocalSettings({ file, env: {} })).rejects.toThrow(/alertSound/)
   })
 
-  it("stores a model's Fast serving path without selecting it", async () => {
-    const file = join(await tempDirectory(), "config.json")
-    await saveSelectedModel(
-      {
-        provider: "fireworks",
-        id: "accounts/fireworks/models/kimi-k3",
-        displayName: "Kimi K3",
-        supportsImageInput: false,
-        fastId: "accounts/fireworks/routers/kimi-k3-fast",
-      },
-      { file },
-    )
-
-    await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({
-      model: "accounts/fireworks/models/kimi-k3",
-      modelFastId: "accounts/fireworks/routers/kimi-k3-fast",
-    })
-
-    await saveSelectedModel(model("tool-model", "Tool Model"), { file })
-    expect(JSON.parse(await readFile(file, "utf8"))).not.toHaveProperty("modelFastId")
-  })
-
-  it("stores Fast serving preferences per model", async () => {
-    const file = join(await tempDirectory(), "config.json")
-    const alpha = fastModel("alpha", "Alpha")
-    const beta = fastModel("beta", "Beta")
-    await saveHostedApiKey("fireworks", "fw_test_key", alpha, { file })
-    await saveFastServingSelection({ ...alpha, id: alpha.fastId }, true, { file })
-    await saveFastServingSelection({ ...beta, id: beta.fastId }, true, { file })
-    await saveFastServingSelection(alpha, false, { file })
-
-    await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({
-      model: alpha.id,
-      fastServingModels: [beta.id],
-    })
-    expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({
-      fireworksApiKey: "fw_test_key",
-      model: alpha.id,
-      fastServingModels: [beta.id],
-    })
-  })
-
-  it("migrates the released global Fast preference to the selected model", async () => {
+  it("drops the retired Fast serving fields on the next write", async () => {
     const file = join(await tempDirectory(), "config.json")
     await writeFile(
       file,
       JSON.stringify({
         version: 1,
-        model: "accounts/fireworks/models/alpha",
+        model: "accounts/fireworks/routers/alpha-fast",
         modelProvider: "fireworks",
+        modelFastId: "accounts/fireworks/routers/alpha-fast",
         fastMode: true,
+        fastServingModels: ["accounts/fireworks/models/alpha"],
       }),
       "utf8",
     )
 
-    await expect(loadLocalSettings({ file, env: {} })).resolves.toMatchObject({
-      fastServingModels: ["accounts/fireworks/models/alpha"],
-    })
+    const loaded = await loadLocalSettings({ file, env: {} })
+    expect(loaded.model).toBe("accounts/fireworks/routers/alpha-fast")
+    expect(loaded).not.toHaveProperty("modelFastId")
+    expect(loaded).not.toHaveProperty("fastServingModels")
 
-    await saveSelectedModel(model("beta", "Beta"), { file })
-    expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({
-      model: "accounts/fireworks/models/beta",
-      fastServingModels: ["accounts/fireworks/models/alpha"],
-    })
-    expect(JSON.parse(await readFile(file, "utf8"))).not.toHaveProperty("fastMode")
+    await saveThinkingVisible(true, { file })
+    const saved = JSON.parse(await readFile(file, "utf8"))
+    expect(saved.model).toBe("accounts/fireworks/routers/alpha-fast")
+    expect(saved).not.toHaveProperty("modelFastId")
+    expect(saved).not.toHaveProperty("fastMode")
+    expect(saved).not.toHaveProperty("fastServingModels")
   })
 
   it("loads and preserves permission policy while changing other settings", async () => {
@@ -681,7 +638,6 @@ describe("local settings", () => {
       modelProvider: "local",
       modelContextLength: 32_768,
     })
-    expect(JSON.parse(await readFile(file, "utf8"))).not.toHaveProperty("modelFastId")
   })
 
   it("stores the selected PAIR engine and preserves configured endpoints across provider changes", async () => {
@@ -825,8 +781,6 @@ describe("local settings", () => {
     const invalidThinking = join(directory, "invalid-thinking.json")
     const invalidSubagentPanel = join(directory, "invalid-subagent-panel.json")
     const invalidPanelWidth = join(directory, "invalid-panel-width.json")
-    const invalidFastMode = join(directory, "invalid-fast-mode.json")
-    const invalidFastServingModels = join(directory, "invalid-fast-serving-models.json")
     const invalidPairEndpoints = join(directory, "invalid-pair-endpoints.json")
     const invalidPairEngine = join(directory, "invalid-pair-engine.json")
     await writeFile(malformed, "{broken", "utf8")
@@ -845,12 +799,6 @@ describe("local settings", () => {
     await writeFile(
       invalidPanelWidth,
       JSON.stringify({ version: 1, workspacePanelWidths: { canvas: -1 } }),
-      "utf8",
-    )
-    await writeFile(invalidFastMode, JSON.stringify({ version: 1, fastMode: "sometimes" }), "utf8")
-    await writeFile(
-      invalidFastServingModels,
-      JSON.stringify({ version: 1, fastServingModels: [false] }),
       "utf8",
     )
     await writeFile(invalidPairEndpoints, JSON.stringify({ version: 1, pairEndpoints: [] }), "utf8")
@@ -878,12 +826,6 @@ describe("local settings", () => {
     await expect(loadLocalSettings({ file: invalidPanelWidth, env: {} })).rejects.toThrow(
       "workspacePanelWidths.canvas must be",
     )
-    await expect(loadLocalSettings({ file: invalidFastMode, env: {} })).rejects.toThrow(
-      "fastMode must be",
-    )
-    await expect(loadLocalSettings({ file: invalidFastServingModels, env: {} })).rejects.toThrow(
-      "fastServingModels must be",
-    )
     await expect(loadLocalSettings({ file: invalidPairEndpoints, env: {} })).rejects.toThrow(
       "pairEndpoints must be an object",
     )
@@ -906,13 +848,6 @@ function model(name: string, displayName: string, contextLength?: number) {
     displayName,
     supportsImageInput: false,
     ...(contextLength ? { contextLength } : {}),
-  }
-}
-
-function fastModel(name: string, displayName: string) {
-  return {
-    ...model(name, displayName),
-    fastId: `accounts/fireworks/routers/${name}-fast`,
   }
 }
 

@@ -25,7 +25,6 @@ export type SlashCommand =
        */
       provider?: HostedProvider
     }
-  | { type: "fast" }
   | { type: "history" }
   | { type: "new" }
   | { type: "fork" }
@@ -81,7 +80,6 @@ const CATALOG: readonly CatalogCommand[] = [
   { type: "settings", name: "/settings", description: "Configure Otis" },
   { type: "skills", name: "/skills", description: "List and install Agent Skills" },
   { type: "memory", name: "/memory", description: "See, add, or forget remembered facts" },
-  { type: "fast", name: "/fast", description: "Toggle Fast serving" },
   { type: "queue", name: "/queue", description: "Queue a separate follow-up" },
   { type: "compact", name: "/compact", description: "Summarize old conversation to free context" },
   { type: "thinking", name: "/thinking", description: "Show or hide model thinking traces" },
@@ -90,23 +88,19 @@ const CATALOG: readonly CatalogCommand[] = [
 ]
 
 /**
- * The catalog as the menu lists it: `/fast` and `/effort` only when the selected model has them,
- * then the skills the user may run as `/name`, which a built-in name shadows.
+ * The catalog as the menu lists it: `/effort` only when the selected model has it, then the
+ * skills the user may run as `/name`, which a built-in name shadows.
  */
 export function slashCommands(
-  options: {
-    fast?: boolean
-    effort?: boolean
-    skills?: readonly { name: string; description: string }[]
-  } = {},
+  options: { effort?: boolean; skills?: readonly { name: string; description: string }[] } = {},
 ): CommandSuggestion[] {
-  const builtIn = CATALOG.filter(
-    (command) => (command.type !== "fast" && command.type !== "effort") || options[command.type],
-  ).map((command) => ({
-    name: command.name,
-    description: command.description,
-    ...(command.type === "queue" ? { draft: "/queue " } : {}),
-  }))
+  const builtIn = CATALOG.filter((command) => command.type !== "effort" || options.effort).map(
+    (command) => ({
+      name: command.name,
+      description: command.description,
+      ...(command.type === "queue" ? { draft: "/queue " } : {}),
+    }),
+  )
   const taken = new Set(CATALOG.map((command) => command.name))
   const skills = (options.skills ?? [])
     .filter((skill) => !taken.has(`/${skill.name}`))

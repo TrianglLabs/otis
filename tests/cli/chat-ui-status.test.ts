@@ -1,6 +1,7 @@
 import {
   type BoxRenderable,
   RGBA,
+  type StyledText,
   type TextareaRenderable,
   type TextRenderable,
 } from "@opentui/core"
@@ -14,6 +15,7 @@ import {
   contextUsage,
   formatContextUsage,
 } from "../../src/cli/ui/format.js"
+import { ACTIVITY_WIDTH } from "../../src/cli/ui/panels.js"
 import type { LocalStats } from "../../src/local/stats.js"
 import { useChatHarness } from "./support/chat-ui-harness.js"
 
@@ -42,6 +44,11 @@ const sampleStats = {
   avgSessionSeconds: 420,
 }
 
+const sampleActivity = Array.from({ length: 28 }, (_, index) => ({
+  date: `2026-10-${String(index + 1).padStart(2, "0")}`,
+  tokens: index % 5 === 0 ? 0 : index * 1_000,
+}))
+
 /** Each card counts for 900ms, staggered 70ms apart, on a 50ms frame. */
 function settleStats() {
   vi.advanceTimersByTime(900 + 70 * 3 + 50)
@@ -53,8 +60,8 @@ describe("chat UI status and prompts", () => {
   it("shows the selected model at home and the model with workspace in chat", async () => {
     const harness = await setup({ modelLabel: "Tool Model" })
 
-    expect(harness.text("input-hint")).toBe(" Tool Model ")
-    expect(harness.find("welcome-model")).toBeUndefined()
+    expect(harness.text("input-hint")).toBe("")
+    expect(harness.text("welcome-model")).toBe("Tool Model")
 
     harness.ui.showChatLayout()
     expect(harness.text("input-hint")).toBe(" Tool Model · ~/work/otis ")
@@ -67,7 +74,15 @@ describe("chat UI status and prompts", () => {
     harness.ui.setThinkingVisible(true)
     expect(harness.text("input-hint")).toBe(" Replacement · ~/work/otis ")
     harness.ui.showHomeLayout()
-    expect(harness.text("input-hint")).toBe(" Replacement ")
+    expect(harness.text("input-hint")).toBe("")
+    expect(harness.text("welcome-model")).toBe("Replacement")
+    const footer = harness.get<BoxRenderable>("welcome-footer")
+    const model = harness.get<TextRenderable>("welcome-model")
+    const quit = harness.get<TextRenderable>("welcome-quit")
+    await harness.renderOnce()
+    expect(model.x).toBe(footer.x)
+    expect(quit.x + quit.width).toBe(footer.x + footer.width)
+    expect(model.y).toBe(quit.y)
   })
 
   it("briefly reveals the keyboard controls when the chat hint is clicked", async () => {
@@ -98,7 +113,7 @@ describe("chat UI status and prompts", () => {
     const hint = harness.get<TextRenderable>("input-hint")
 
     await harness.mockMouse.click(hint.x, hint.y)
-    expect(harness.text("input-hint")).toBe(" Tool Model ")
+    expect(harness.text("input-hint")).toBe("")
   })
 
   it("formats local stats and keeps labeled zero values", async () => {
@@ -125,7 +140,7 @@ describe("chat UI status and prompts", () => {
     expect(harness.text("welcome-stat-value-0")).toBe("0")
     expect(harness.text("welcome-stat-label-0")).toBe("day streak")
     expect(harness.text("welcome-stat-value-1")).toBe("0")
-    expect(harness.text("welcome-stat-label-1")).toBe("all-time tokens")
+    expect(harness.text("welcome-stat-label-1")).toBe("total tokens")
     expect(harness.text("welcome-stat-value-2")).toBe("0")
     expect(harness.text("welcome-stat-label-2")).toBe("tokens/session")
     expect(harness.text("welcome-stat-value-3")).toBe("0S")
@@ -203,7 +218,7 @@ describe("chat UI status and prompts", () => {
     expect(harness.text("input-hint")).toBe(" Tool Model · ~/work/otis ")
   })
 
-  it("lays out stat cards evenly and centers each value within its card", async () => {
+  it("spreads the metrics across the chart and keeps the block seven rows tall", async () => {
     vi.useFakeTimers()
     const harness = await setup()
     harness.ui.setStats({
@@ -213,28 +228,40 @@ describe("chat UI status and prompts", () => {
       sessionCount: 40,
       avgTokensPerSession: 983,
       avgSessionSeconds: 15_082,
+      todayTokens: 4_200,
+      recentActivity: sampleActivity,
     })
     settleStats()
     await harness.renderOnce()
 
+    const block = harness.get<BoxRenderable>("welcome-stats-row")
+    const chart = harness.get<TextRenderable>("welcome-stats-chart")
     const cards = [0, 1, 2, 3].map((index) => harness.get<BoxRenderable>(`welcome-stat-${index}`))
-
-    const widths = cards.map((card) => card.width)
-    expect(new Set(widths).size).toBe(1)
+    const metrics = harness.get<BoxRenderable>("welcome-stats-metrics")
+    expect(block.width).toBe(metrics.width)
+    expect(block.height).toBe(7)
+    expect(chart.width).toBe(ACTIVITY_WIDTH)
+    expect(chart.height).toBe(3)
+    expect(chart.x - block.x).toBe(Math.floor((block.width - ACTIVITY_WIDTH) / 2))
+    expect(cards[0].x).toBe(block.x)
+    expect(cards[3].x + cards[3].width).toBe(block.x + block.width)
     for (let index = 1; index < cards.length; index += 1) {
       const previous = cards[index - 1]
-      expect(cards[index].x - (previous.x + previous.width)).toBe(1)
+      const divider = harness.get<TextRenderable>(`welcome-stat-divider-${index}`)
+      expect(divider.height).toBe(2)
+      expect(divider.fg.equals(RGBA.fromHex(colors.border))).toBe(true)
+      expect(divider.x).toBe(previous.x + previous.width + 1)
+      expect(cards[index].x).toBe(divider.x + 2)
     }
-
-    for (let index = 0; index < cards.length; index += 1) {
-      const card = cards[index]
-      const value = harness.get<TextRenderable>(`welcome-stat-value-${index}`)
-      const contentLeft = card.x + 2
-      const contentRight = card.x + card.width - 2
-      const leftGap = value.x - contentLeft
-      const rightGap = contentRight - (value.x + value.width)
-      expect(Math.abs(leftGap - rightGap)).toBeLessThanOrEqual(1)
-    }
+    expect(harness.text("welcome-stats-range")).toMatch(/^\w+ \d+ – \w+ \d+$/)
+    expect(harness.text("welcome-stats-today")).toBe("today 4K")
+    const rows = (chart.content as StyledText).chunks
+      .map((chunk) => chunk.text)
+      .join("")
+      .split("\n")
+    expect(rows).toHaveLength(3)
+    expect(rows.every((row) => row.length === ACTIVITY_WIDTH)).toBe(true)
+    expect(rows[2]).toMatch(/^([\u2581-\u2588] )+[\u2581-\u2588]$/)
   })
 
   it("hides stats until configured and reveals labeled zeros after setup", async () => {
@@ -282,13 +309,13 @@ describe("chat UI status and prompts", () => {
         if (!renderable) throw new Error(`Renderable not found: ${id}`)
         return renderable
       }
-      expect(find("welcome-brand").height).toBe(5)
-      expect(find("welcome-stats-row").height).toBe(6)
-      expect(find("welcome-stat-0").height).toBe(6)
+      expect(find("welcome-brand").height).toBe(10)
+      expect(find("welcome-stats-row").height).toBe(7)
+      expect(find("welcome-stats-chart").height).toBe(3)
 
       const frame = testRenderer.captureCharFrame()
       expect(frame).toContain("1.2M")
-      expect(frame).toContain("all-time tokens")
+      expect(frame).toContain("total tokens")
       expect(frame).toContain("Model: test")
       expect(frame).toContain("/ for commands")
     } finally {
@@ -297,7 +324,7 @@ describe("chat UI status and prompts", () => {
   })
 
   it("keeps home content vertically centered when everything fits", async () => {
-    const testRenderer = await createTestRenderer({ width: 80, height: 24, kittyKeyboard: true })
+    const testRenderer = await createTestRenderer({ width: 80, height: 30, kittyKeyboard: true })
     const ui = createChatUI(testRenderer.renderer, {
       contextLabel: formatContextUsage(contextUsage(0, 1)),
       modelLabel: "Model: test",
@@ -329,7 +356,7 @@ describe("chat UI status and prompts", () => {
       const statsRow = find("welcome-stats-row")
       const panel = find("welcome-panel")
 
-      expect(statsRow.y - (brand.y + brand.height)).toBe(2)
+      expect(statsRow.y - (brand.y + brand.height)).toBe(3)
       expect(panel.y - (statsRow.y + statsRow.height)).toBe(2)
       const topSpace = brand.y - welcome.y
       const bottomSpace = welcome.y + welcome.height - (panel.y + panel.height)
@@ -515,7 +542,11 @@ describe("chat UI status and prompts", () => {
 
     harness.ui.showUpdateHint()
     expect(harness.text("update-hint")).toContain("otis update")
-    expect(harness.childIds("welcome-panel")).toEqual(["input-area", "welcome-quit", "update-hint"])
+    expect(harness.childIds("welcome-panel")).toEqual([
+      "input-area",
+      "welcome-footer",
+      "update-hint",
+    ])
     expect(harness.childIds("input-area")).toEqual(["input-box"])
 
     harness.ui.hideUpdateHint()

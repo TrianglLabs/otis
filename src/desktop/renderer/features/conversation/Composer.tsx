@@ -1,5 +1,5 @@
 import { BorderBeam } from "border-beam"
-import { ArrowUp, ChevronsUpDown, FolderOpen, Plus, Square, X, Zap } from "lucide-react"
+import { ArrowUp, ChevronsUpDown, FolderOpen, Plus, Square, X } from "lucide-react"
 import { memo, useEffect, useRef, useState } from "react"
 import {
   MAX_DOCUMENTS_PER_MESSAGE,
@@ -120,7 +120,6 @@ export const Composer = memo(function Composer({ installing = false }: { install
     "needsWorkspace",
     "modelError",
     "model",
-    "fastServing",
     "workspace",
     "speed",
   )
@@ -594,14 +593,10 @@ export const Composer = memo(function Composer({ installing = false }: { install
                                 ? "models.local"
                                 : "models.localServers",
                             ),
-                      fast: state.fastServing.enabled ? ` · ${t("composer.fastServing")}` : "",
                     })}
                     aria-haspopup="dialog"
                     aria-expanded={pickerOpen}
                   >
-                    {state.fastServing.enabled ? (
-                      <Icon icon={Zap} size={11} className="composer-fast" />
-                    ) : null}
                     {/* The short model id is the last path segment; mirrored in
                       src/desktop/main/tray.ts. */}
                     <span className="composer-chipLabel">

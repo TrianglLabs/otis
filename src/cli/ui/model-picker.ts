@@ -12,7 +12,7 @@ import { filterModelPickerItems, pickerItemKey } from "../../inference/picker-fi
 import { isHostedProvider, isServerProvider } from "../../inference/types.js"
 import { colors } from "../theme.js"
 import { SelectionPulse } from "./color-pulse.js"
-import { CPU_OFFLOAD_MODEL_MARK, FAST_MODE_LABEL, RECOMMENDED_MODEL_MARK } from "./format.js"
+import { CPU_OFFLOAD_MODEL_MARK, RECOMMENDED_MODEL_MARK } from "./format.js"
 import {
   type PickerRow,
   type PickerRowSpec,
@@ -233,7 +233,6 @@ function modelMeta(item: ModelPickerChoice) {
   const parts: string[] = []
   if (item.contextLength) parts.push(formatContextWindow(item.contextLength))
   parts.push(item.supportsImageInput ? "Vision" : "Text")
-  if (item.provider === "fireworks" && item.fastId) parts.push(FAST_MODE_LABEL)
   return parts.join(" · ")
 }
 

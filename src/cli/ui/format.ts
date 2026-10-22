@@ -6,7 +6,6 @@ import { colors } from "../theme.js"
 /** Keyboard hints, shown briefly when the chat input hint is clicked. */
 export const CHAT_KEY_HINT = " [TAB] mode · [ESC] interrupt "
 export const CHAT_KEY_HINT_DURATION_MS = 3000
-export const FAST_MODE_LABEL = "Fast mode"
 export const RECOMMENDED_MODEL_MARK = "*"
 /** Some layers run on the CPU; shown after a local model name. */
 export const CPU_OFFLOAD_MODEL_MARK = "◐"
@@ -34,13 +33,13 @@ export function formatElapsed(durationMs: number) {
 export function formatStats(stats: LocalStats) {
   return [
     { value: String(stats.streak), label: "day streak" },
-    { value: formatTokenCount(stats.totalTokens), label: "all-time tokens" },
+    { value: formatTokenCount(stats.totalTokens), label: "total tokens" },
     { value: formatTokenCount(Math.round(stats.avgTokensPerSession)), label: "tokens/session" },
     { value: formatDuration(stats.avgSessionSeconds), label: "time/session" },
   ]
 }
 
-function formatTokenCount(tokens: number) {
+export function formatTokenCount(tokens: number) {
   if (tokens >= 1_000_000_000) return `${(tokens / 1_000_000_000).toFixed(1)}B`
   if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`
   if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}K`
@@ -61,11 +60,6 @@ export function formatModeLabel(mode: PermissionMode) {
 
 export function formatModelName(model: string | undefined) {
   return model ? model.slice(model.lastIndexOf("/") + 1) : ""
-}
-
-export function withFastModelMark(name: string, fast: boolean) {
-  if (!name || !fast) return name
-  return `${name} Fast`
 }
 
 type ContextUsage = {

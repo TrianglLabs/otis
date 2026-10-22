@@ -595,7 +595,7 @@ describe("chat UI rendering", () => {
     expect(harness.find("model-panel")).toBeUndefined()
   })
 
-  it("labels models that have a Fast serving path", async () => {
+  it("lists a Fast router as a model of its own", async () => {
     const harness = await setup()
     harness.ui.showModelPicker([
       fireworksRow(
@@ -603,21 +603,20 @@ describe("chat UI rendering", () => {
           id: "accounts/fireworks/models/kimi-k3",
           displayName: "Kimi K3",
           supportsImageInput: true,
-          fastId: "accounts/fireworks/routers/kimi-k3-fast",
         },
         true,
       ),
       fireworksRow({
-        id: "accounts/fireworks/models/inkling",
-        displayName: "Inkling",
-        supportsImageInput: false,
+        id: "accounts/fireworks/routers/kimi-k3-fast",
+        displayName: "Kimi K3 Fast",
+        supportsImageInput: true,
       }),
     ])
 
     expect(harness.text("model-row-0")).toBe("› Kimi K3")
-    expect(harness.text("model-row-0-meta")).toBe("  Vision · Fast mode")
-    expect(harness.text("model-row-1")).toBe("  Inkling")
-    expect(harness.text("model-row-1-meta")).toBe("  Text")
+    expect(harness.text("model-row-0-meta")).toBe("  Vision")
+    expect(harness.text("model-row-1")).toBe("  Kimi K3 Fast")
+    expect(harness.text("model-row-1-meta")).toBe("  Vision")
     expect(harness.find("model-panel-header-helper")).toBeUndefined()
   })
 

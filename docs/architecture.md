@@ -239,9 +239,9 @@ which `nvidia-smi` rows are summed, by index or UUID; a MIG-enabled GPU is repla
 memory is readable, otherwise budgeted whole with a note on the probe. On Linux the host total is the smaller of
 physical memory and the cgroup limit. If no render device is present, Otis uses the CPU build.
 
-Picker and settings rows are a provider-tagged catalog: Fireworks entries may include a Fast serving path; other hosted
-entries never do; managed-local
-entries carry a fitted context and never a `fastId`; PAIR entries carry their endpoint identity. Managed-local rows not
+Picker and settings rows are a provider-tagged catalog: Fireworks lists each tool-capable Fast serving router as a
+model of its own, named after its base model; managed-local entries carry a fitted context; PAIR entries carry
+their endpoint identity. Managed-local rows not
 currently serving label that context `Est.`; the active managed-local row receives the context returned by llama.cpp
 and labels it `loaded`.
 

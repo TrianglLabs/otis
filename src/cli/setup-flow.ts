@@ -1,7 +1,6 @@
 import {
   type Application,
   isSelectionCancelled,
-  NO_FAST_SERVING,
   NO_TOOL_MODELS,
   type SelectionResult,
 } from "../app/application.js"
@@ -23,7 +22,6 @@ import {
   HOSTED_PROVIDER_INFO,
   HOSTED_PROVIDERS,
   type HostedApiKeys,
-  type HostedModel,
   type HostedProvider,
   isHostedModel,
   isHostedProvider,
@@ -66,8 +64,6 @@ export class SetupFlow {
   #hostedProvider: HostedProvider = "fireworks"
   #pairModels: PairCatalogModel[] = []
   #serverModels: Partial<Record<ServerProvider, ServerCatalogModel[]>> = {}
-  /** The verified Fireworks catalog, which the Fast toggle consults. */
-  #fireworksModels: HostedModel[] = []
   #credentialPurpose: "onboarding" | "settings" = "onboarding"
   #modelPickerBackTarget: "choice" | "local" = "choice"
   #wasConfigured = false
@@ -151,7 +147,6 @@ export class SetupFlow {
     }
     // A rejected hosted key draft does not follow the user into local setup.
     this.#candidate = undefined
-    this.#fireworksModels = []
     this.#openedKeyPage = undefined
     this.#modelPickerBackTarget = "local"
     void this.openModelPicker(false, { sources: "managed" })
@@ -194,8 +189,7 @@ export class SetupFlow {
       this.options.setBusy(true)
       this.options.ui.showSetupStatus(`Checking ${name}...`)
       try {
-        const models = await this.#app.setHostedApiKey(provider, apiKey, { signal })
-        if (provider === "fireworks") this.#fireworksModels = models
+        await this.#app.setHostedApiKey(provider, apiKey, { signal })
         if (this.#closed) return
         this.options.onCredentialsChanged()
         this.options.ui.setConfigured()
@@ -315,26 +309,6 @@ export class SetupFlow {
     this.finish()
   }
 
-  async toggleFastServing(): Promise<"on" | "off" | "unavailable" | "error"> {
-    const model = this.#app.selection?.model
-    if (this.#closed || this.options.isBusy() || !this.#app.hostedApiKeys.fireworks || !model)
-      return "unavailable"
-    if (model.provider !== "fireworks") return "unavailable"
-    const fast = !model.id.includes("/routers/")
-    this.options.setBusy(true)
-    try {
-      const result = await this.#app.setFastServing(fast, { catalog: this.#fireworksModels })
-      if (result.ok) return fast ? "on" : "off"
-      if (isSelectionCancelled(result) || result.reason === NO_FAST_SERVING) return "unavailable"
-      if (!this.#closed) {
-        this.options.ui.showTransientHint(` Could not change Fast serving: ${result.reason} `)
-      }
-      return "error"
-    } finally {
-      this.options.setBusy(false)
-    }
-  }
-
   closeModelPicker() {
     if (this.#closed) return
     if (this.#wasConfigured) {
@@ -429,7 +403,6 @@ export class SetupFlow {
   private async loadVerifiedModels(provider: HostedProvider, apiKey: string, signal?: AbortSignal) {
     const models = await listHostedModels(provider, apiKey, { signal })
     if (models.length === 0) throw new Error(NO_TOOL_MODELS)
-    if (provider === "fireworks") this.#fireworksModels = models
     return models
   }
 

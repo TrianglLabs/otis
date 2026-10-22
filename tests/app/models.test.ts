@@ -273,7 +273,6 @@ describe("ModelHost", () => {
       displayName: "Model",
       contextLength: 200_000,
       supportsImageInput: false,
-      fastId: undefined,
     })
     expect(withoutKey?.client).toBeUndefined()
 

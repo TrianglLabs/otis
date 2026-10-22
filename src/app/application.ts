@@ -34,17 +34,10 @@ import {
 } from "../inference/picker-catalog.js"
 import { modelKey } from "../inference/picker-filter.js"
 import {
-  baseFireworksModelId,
-  findHostedModel,
-  fireworksServingModel,
-  isFastFireworksModel,
-} from "../inference/serving-path.js"
-import {
   type AttachmentContentPart,
   type CatalogModel,
   type ChatMessage,
   type ContextFile,
-  type FireworksModel,
   HOSTED_PROVIDER_INFO,
   HOSTED_PROVIDERS,
   type HostedApiKeys,
@@ -70,7 +63,6 @@ import {
   type LocalSettings,
   loadLocalSettings,
   type ProjectSettings,
-  saveFastServingSelection,
   saveHiddenModels,
   saveHiddenSkills,
   saveHostedApiKey,
@@ -129,7 +121,7 @@ import {
   type ModelLoad,
   type ModelSelection,
   type ModelState,
-  resolveHostedServing,
+  resolveHostedModel,
 } from "./models.js"
 import { Routines } from "./routines.js"
 import { type OpenSession, SESSION_REASONS, SessionCoordinator } from "./sessions.js"
@@ -205,8 +197,6 @@ export type AppStatus = {
   permissionQueue: number
   localThinking: LocalThinkingState | null
   permissionMode: PermissionMode
-  /** Fast serving for the selected hosted model: whether it has a fast path, and whether it is on. */
-  fastServing: { available: boolean; enabled: boolean }
   hostedConfigured: Record<HostedProvider, boolean>
   /** Hosted models hidden from the picker, as `modelKey` strings. */
   hiddenModels: string[]
@@ -256,7 +246,6 @@ const MODEL_SWITCHING = "A model switch is in progress. Try again in a moment."
 const NO_MODEL = "No model is configured. Set up inference with the Otis CLI first."
 export const SELECTION_CANCELLED = "The selection was cancelled."
 export const SELECTION_SUPERSEDED = "The selection was superseded."
-export const NO_FAST_SERVING = "Fast serving is not available for this model."
 export const NO_TOOL_MODELS = "The hosted provider returned no public models with tool support."
 const CANCELLED: SelectionResult = { ok: false, reason: SELECTION_CANCELLED }
 const SUPERSEDED: SelectionResult = { ok: false, reason: SELECTION_SUPERSEDED }
@@ -972,14 +961,6 @@ export class Application {
     const { models, sessions, conversation } = this
     const selection = this.#focused.selection
     const model = selection?.model
-    const fastServing = { available: false, enabled: false }
-    if (model?.provider === "fireworks") {
-      fastServing.enabled = isFastFireworksModel(model.id)
-      fastServing.available =
-        fastServing.enabled ||
-        model.fastId !== undefined ||
-        this.settings.fastServingModels?.includes(baseFireworksModelId(model.id)) === true
-    }
     return {
       busy: conversation.busy,
       phase: conversation.phase,
@@ -1004,7 +985,6 @@ export class Application {
       permissionQueue: Math.max(0, this.permissions.pending.length - 1),
       localThinking: models.thinkingState(model),
       permissionMode: this.permissionMode,
-      fastServing,
       hostedConfigured: this.hostedConfigured(),
       hiddenModels: [...(this.settings.hiddenModels ?? [])],
       primeTeamId: models.primeTeamId ?? null,
@@ -1179,14 +1159,11 @@ export class Application {
     }
     if (this.#imageSupport?.modelId !== model.id) {
       const promise = (async () => {
-        const { serving } = await resolveHostedServing(model.provider, apiKey, model.id, {
-          fast: isFastFireworksModel(model.id),
-          signal,
-        })
+        const listed = await resolveHostedModel(model.provider, apiKey, model.id, signal)
         if (runtime.selection !== selection)
           throw new Error("The selected model changed while checking image support.")
-        selection.supportsImageInput = serving.supportsImageInput
-        await saveSelectedModel(serving)
+        selection.supportsImageInput = listed.supportsImageInput
+        await saveSelectedModel(listed)
         this.#notify({ type: "status" })
       })().finally(() => {
         if (this.#imageSupport?.promise === promise) this.#imageSupport = undefined
@@ -1442,10 +1419,7 @@ export class Application {
               ? toPairCatalogModel(choice)
               : isServerPickerChoice(choice)
                 ? toServerCatalogModel(choice)
-                : fireworksServingModel(
-                    hostedCatalogModel(choice),
-                    this.fastServingEnabled(choice.id),
-                  )
+                : hostedCatalogModel(choice)
         const unsavedKey =
           options.hostedApiKey && isHostedModel(selected)
             ? { [selected.provider]: options.hostedApiKey }
@@ -1498,70 +1472,6 @@ export class Application {
     if (this.#deleting || affected.some((other) => other.busy))
       return { ok: false, reason: "Finish the current work before switching models." }
     return undefined
-  }
-
-  fastServingEnabled(modelId: string) {
-    return this.settings.fastServingModels?.includes(baseFireworksModelId(modelId)) === true
-  }
-
-  /**
-   * Toggles Fast serving for the selected hosted model: it is re-selected on its fast or standard
-   * path and the preference is persisted per base model id. The caller's catalog spares a fetch
-   * when it already lists the model.
-   */
-  async setFastServing(
-    fast: boolean,
-    options: { catalog?: readonly HostedModel[]; signal?: AbortSignal } = {},
-  ): Promise<SelectionResult> {
-    const runtime = this.#focused
-    if (this.#deleting || runtime.busy)
-      return { ok: false, reason: "Finish the current work before changing Fast serving." }
-    const models = this.models
-    if (runtime.selection?.model.provider !== "fireworks")
-      return { ok: false, reason: NO_FAST_SERVING }
-    this.#switching.add(runtime)
-    const selection = await models
-      .enqueueSelection(async (queued): Promise<SelectionResult> => {
-        const signal = options.signal ? AbortSignal.any([queued, options.signal]) : queued
-        const current = runtime.selection?.model
-        const apiKey = this.hostedApiKeys.fireworks
-        if (current?.provider !== "fireworks") return { ok: false, reason: NO_FAST_SERVING }
-        const selectedId = current.id
-        if (isFastFireworksModel(selectedId) === fast) return { ok: true }
-        if (signal.aborted) return SUPERSEDED
-        let catalog = options.catalog
-        try {
-          if (!catalog?.length) {
-            if (!apiKey) return { ok: false, reason: NO_FAST_SERVING }
-            catalog = await listHostedModels("fireworks", apiKey, { signal })
-          }
-        } catch (error) {
-          return { ok: false, reason: describeError(error) }
-        }
-        const model = findHostedModel(catalog, selectedId)
-        if (!model?.fastId) return { ok: false, reason: NO_FAST_SERVING }
-        const serving = fireworksServingModel(model, fast)
-        try {
-          runtime.selection = await models.persistSelection(serving, {
-            signal,
-            hostedApiKeys: this.hostedApiKeys,
-            keepLocal: this.#localElsewhere(runtime),
-            persist: (saved) => saveFastServingSelection(saved as FireworksModel, fast),
-          })
-        } catch (error) {
-          if (signal.aborted || isAbortError(error)) return CANCELLED
-          return { ok: false, reason: describeError(error) }
-        }
-        const enabled = new Set(this.settings.fastServingModels ?? [])
-        if (fast) enabled.add(model.id)
-        else enabled.delete(model.id)
-        this.settings.fastServingModels = [...enabled].sort()
-        runtime.conversation.clearSpeed()
-        this.#notify({ type: "status" })
-        return { ok: true }
-      })
-      .finally(() => this.#switching.delete(runtime))
-    return selection ?? SUPERSEDED
   }
 
   /** Hides a hosted model from the picker, or shows it again; the active model stays listed. */

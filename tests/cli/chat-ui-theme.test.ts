@@ -2,6 +2,7 @@ import {
   type BoxRenderable,
   RGBA,
   type ScrollBoxRenderable,
+  type StyledText,
   TextareaRenderable,
   type TextRenderable,
 } from "@opentui/core"
@@ -263,9 +264,13 @@ describe("chat UI theme switching", () => {
         .get<BoxRenderable>("welcome-panel")
         .backgroundColor.equals(RGBA.fromHex(colors.background)),
     ).toBe(true)
-    expect(
-      harness.get<TextRenderable>("welcome-brand-art").fg.equals(RGBA.fromHex(colors.accent)),
-    ).toBe(true)
+    const art = harness.get<TextRenderable>("welcome-brand-art").content as StyledText
+    const inks = art.chunks.map((chunk) => (chunk.fg as RGBA).toInts())
+    const distance = (hex: string) => {
+      const [r, g, b] = RGBA.fromHex(hex).toInts()
+      return Math.min(...inks.map(([x, y, z]) => Math.hypot(x - r, y - g, z - b)))
+    }
+    expect(distance(colors.accent)).toBeLessThan(distance(previous.accent))
     expect(harness.get<TextRenderable>("welcome-quit").fg.equals(RGBA.fromHex(colors.muted))).toBe(
       true,
     )
@@ -275,8 +280,9 @@ describe("chat UI theme switching", () => {
     expect(
       harness.get<TextRenderable>("welcome-stat-value-0").fg.equals(RGBA.fromHex(colors.accent)),
     ).toBe(true)
+    const chart = harness.get<TextRenderable>("welcome-stats-chart").content as StyledText
     expect(
-      harness.get<BoxRenderable>("welcome-stat-0").borderColor.equals(RGBA.fromHex(colors.border)),
+      chart.chunks.some((chunk) => (chunk.fg as RGBA).equals(RGBA.fromHex(colors.border))),
     ).toBe(true)
   })
 

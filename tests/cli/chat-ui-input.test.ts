@@ -286,7 +286,7 @@ describe("chat UI input", () => {
     expect(harness.find("command-menu")).toBeUndefined()
   })
 
-  it("hides /fast unless the command list includes it", async () => {
+  it("hides /effort unless the command list includes it", async () => {
     const harness = await setup({
       commands: [
         { name: "/model", description: "Choose a model" },
@@ -294,15 +294,15 @@ describe("chat UI input", () => {
       ],
     })
     harness.ui.showChatLayout()
-    harness.setChatInput("/f")
+    harness.setChatInput("/ef")
     expect(harness.text("command-row-0")).toBe("  No matching commands")
 
     harness.ui.setCommands([
-      { name: "/fast", description: "Toggle Fast serving" },
+      { name: "/effort", description: "Set reasoning effort" },
       { name: "/model", description: "Choose a model" },
     ])
-    harness.setChatInput("/f")
-    expect(harness.text("command-row-0")).toBe("› /fast")
+    harness.setChatInput("/ef")
+    expect(harness.text("command-row-0")).toBe("› /effort")
   })
 
   it("hides home-only commands on the welcome screen", async () => {
@@ -408,7 +408,7 @@ describe("chat UI input", () => {
   it("moves the input between welcome and chat layouts without duplicating ownership", async () => {
     const harness = await setup()
 
-    expect(harness.childIds("welcome-panel")).toEqual(["input-area", "welcome-quit"])
+    expect(harness.childIds("welcome-panel")).toEqual(["input-area", "welcome-footer"])
 
     harness.ui.showChatLayout()
     expect(harness.childIds("root")).toEqual(["top-bar", "chat-body", "input-area"])
@@ -416,7 +416,7 @@ describe("chat UI input", () => {
 
     harness.ui.showHomeLayout()
     expect(harness.childIds("root")).toEqual(["welcome"])
-    expect(harness.childIds("welcome-panel")).toEqual(["input-area", "welcome-quit"])
+    expect(harness.childIds("welcome-panel")).toEqual(["input-area", "welcome-footer"])
 
     harness.ui.showChatLayout()
     expect(harness.childIds("chat-body")).toEqual(["messages"])
@@ -812,7 +812,7 @@ describe("chat UI input", () => {
     await harness.renderOnce()
 
     const frame = harness.captureCharFrame()
-    expect(frame).toContain("____  _______________")
+    expect(frame).toMatch(/[\u2800-\u28ff]{4}/)
     expect(
       frame
         .split("\n")
@@ -954,7 +954,7 @@ describe("chat UI input", () => {
   })
 
   it.each([
-    { layout: "home", hintText: " Model: test " },
+    { layout: "home", hintText: "" },
     { layout: "chat", hintText: " Tool Model · ~/work/otis " },
   ])("keeps the mode label and hint fixed on one line when the $layout input grows", async ({
     layout,
@@ -978,7 +978,10 @@ describe("chat UI input", () => {
     expect(hint.height).toBe(1)
     expect(mode.y).toBe(input.y)
     expect(hint.y).toBe(input.y)
-    expect(hint.width).toBe(hintText.length)
-    expect(harness.captureCharFrame()).toContain(hintText.trim())
+    if (!hintText) expect(harness.text("input-hint")).toBe("")
+    else {
+      expect(hint.width).toBe(hintText.length)
+      expect(harness.captureCharFrame()).toContain(hintText.trim())
+    }
   })
 })
