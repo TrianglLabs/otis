@@ -716,8 +716,15 @@ button.reasoning-header:hover {
 }
 
 .toolRun-header:hover .toolCard-label,
-.toolRun-header:hover .chevron {
+.toolRun-header:hover .chevron,
+.toolCard-toggle:hover .chevron {
   color: var(--text);
+}
+
+/* An edit's row is its disclosure: the patch unfolds beneath it. */
+.toolCard-toggle {
+  width: 100%;
+  text-align: left;
 }
 
 /* An expanded run's entries are ordinary virtualized rows, indented under the run's row. No enter animation
@@ -737,10 +744,6 @@ button.reasoning-header:hover {
   font-size: var(--text-code);
   line-height: 1.6;
   border-radius: var(--radius-lg);
-}
-
-.toolCard-artifact .diffView {
-  margin-left: 0;
 }
 
 .diffView-inner {

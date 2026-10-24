@@ -60,6 +60,8 @@ export const ptBR: Messages = {
   "panel.canvas": "Tela",
   "panel.terminal": "Terminal",
   "panel.changes": "Alterações",
+  "panel.documents": "Documentos",
+  "panel.savedVersion": "Salvo · versão {{number}}",
   "panel.closeTerminal": "Fechar terminal",
   "panel.hideSidePanel": "Ocultar painel lateral",
   "panel.resizeSidePanel": "Redimensionar painel lateral",

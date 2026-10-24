@@ -31,7 +31,13 @@ import {
 import { localConfigDirectory } from "./paths.js"
 import { type AchievementId, isAchievementId } from "./stats.js"
 
-export const WORKSPACE_PANEL_TABS = ["coworkers", "canvas", "changes", "terminal"] as const
+export const WORKSPACE_PANEL_TABS = [
+  "coworkers",
+  "canvas",
+  "documents",
+  "changes",
+  "terminal",
+] as const
 export type WorkspacePanelTab = (typeof WORKSPACE_PANEL_TABS)[number]
 export type WorkspacePanelWidths = Partial<Record<WorkspacePanelTab, number>>
 

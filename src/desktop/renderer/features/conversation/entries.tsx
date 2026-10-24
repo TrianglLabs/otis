@@ -32,7 +32,15 @@ export const EntryView = memo(function EntryView({
   onBranch?: (turnSeq: number) => void
 }) {
   const { t } = useI18n()
-  if (entry.kind === "tool") return <ToolCard entry={entry} active={active} />
+  if (entry.kind === "tool")
+    return (
+      <ToolCard
+        entry={entry}
+        active={active}
+        expanded={expanded}
+        onExpandedChange={onExpandedChange}
+      />
+    )
   if (entry.kind === "debug") return <div className="debugLine">{entry.text}</div>
   if (entry.kind === "reasoning") {
     // Traces off: only live thinking reaches here (finished traces are filtered upstream) — a quiet

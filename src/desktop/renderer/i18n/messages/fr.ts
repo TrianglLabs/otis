@@ -60,6 +60,8 @@ export const fr: Messages = {
   "panel.canvas": "Canevas",
   "panel.terminal": "Terminal",
   "panel.changes": "Modifications",
+  "panel.documents": "Documents",
+  "panel.savedVersion": "Enregistré · version {{number}}",
   "panel.closeTerminal": "Fermer le terminal",
   "panel.hideSidePanel": "Masquer le panneau latéral",
   "panel.resizeSidePanel": "Redimensionner le panneau latéral",

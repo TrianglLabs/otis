@@ -60,6 +60,8 @@ export const es: Messages = {
   "panel.canvas": "Lienzo",
   "panel.terminal": "Terminal",
   "panel.changes": "Cambios",
+  "panel.documents": "Documentos",
+  "panel.savedVersion": "Guardado · versión {{number}}",
   "panel.closeTerminal": "Cerrar terminal",
   "panel.hideSidePanel": "Ocultar panel lateral",
   "panel.resizeSidePanel": "Cambiar tamaño del panel lateral",

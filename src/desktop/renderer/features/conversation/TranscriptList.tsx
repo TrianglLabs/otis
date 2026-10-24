@@ -24,7 +24,7 @@ import {
   textRanges,
 } from "../canvas/find.js"
 import { artifactTitle, EntryView } from "./entries.js"
-import { parseDiffDisplay, ToolRunCard } from "./ToolCard.js"
+import { parseDiffDisplay, shownArtifact, ToolRunCard } from "./ToolCard.js"
 import { isAtBottom, useTranscriptScroll } from "./useTranscriptScroll.js"
 
 /**
@@ -51,14 +51,11 @@ function visibleEntries(entries: TranscriptEntry[], thinkingVisible: boolean): T
 }
 
 /**
- * A tool entry carrying a diff or a ready artifact is content, not a summary; the rest is
- * condensable activity.
+ * A tool entry carrying a diff or a ready artifact stands on its own: the edit's row shows its
+ * file and line counts, the artifact its card. The rest is condensable activity.
  */
 function isActivity(entry: TranscriptEntry): boolean {
-  if (entry.kind !== "tool") return false
-  const displaysArtifact =
-    entry.artifact && entry.artifactDisplay !== "pending" && entry.artifactDisplay !== "superseded"
-  return !entry.diff && !displaysArtifact
+  return entry.kind === "tool" && !entry.diff && !shownArtifact(entry)
 }
 
 /**
@@ -244,20 +241,22 @@ export const TranscriptList = memo(function TranscriptList({
   )
 
   // Occurrences are counted per row over the rows' data, since only the visible slice is in the
-  // DOM, and over what a row shows: a folded run or thought stays out until it is opened. The
-  // current occurrence's row scrolls to the middle of the view and following the tail stops.
+  // DOM, and over what a row shows: a folded run, thought or patch stays out until it is opened.
+  // The current occurrence's row scrolls to the middle of the view and following the tail stops.
   const query = find?.query ?? ""
   const counts = useMemo(() => {
     if (!query) return NO_MATCHES
     return items.map((item) => {
       if (item.kind === "toolRun" || (item.kind === "reasoning" && !expanded.has(item.id))) return 0
       const shown = item.diff
-        ? [item.text, ...parseDiffDisplay(item.diff).map((row) => ("text" in row ? row.text : ""))]
+        ? [item.text]
         : [
             item.messageText ?? item.text,
             ...(item.images ?? []),
             ...(item.artifacts ?? []).map(artifactTitle),
           ]
+      if (item.diff && expanded.has(item.id))
+        shown.push(...parseDiffDisplay(item.diff).map((row) => ("text" in row ? row.text : "")))
       return matchOffsets(shown.join("\n"), query).length
     })
   }, [items, query, expanded])

@@ -60,6 +60,8 @@ export const ja: Messages = {
   "panel.canvas": "キャンバス",
   "panel.terminal": "ターミナル",
   "panel.changes": "変更",
+  "panel.documents": "ドキュメント",
+  "panel.savedVersion": "保存済み · バージョン {{number}}",
   "panel.closeTerminal": "ターミナルを閉じる",
   "panel.hideSidePanel": "サイドパネルを隠す",
   "panel.resizeSidePanel": "サイドパネルのサイズを変更",

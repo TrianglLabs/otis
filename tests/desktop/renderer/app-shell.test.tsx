@@ -2760,6 +2760,115 @@ describe("AppShell settings navigation", () => {
     expect(screen.getByRole("tab", { name: "Canvas" }).getAttribute("aria-selected")).toBe("true")
   })
 
+  it("opens a live reply's last Mermaid diagram when the reply finishes, never a past one", async () => {
+    let emit!: (event: DesktopEvent) => void
+    const past: TranscriptEntry = {
+      id: 1,
+      kind: "message",
+      speaker: "Otis",
+      text: "```mermaid\nflowchart LR\nOld --> Diagram\n```",
+      streaming: false,
+    }
+    // The session is opened while its agent is already working: the finished reply stays closed.
+    const working = { ...SNAPSHOT, runtimes: [{ ...SNAPSHOT.runtimes[0], busy: true }] }
+    const api = fakeApi({
+      getSnapshot: vi.fn(async () => ({ ...working, entries: [past] })),
+      subscribe: vi.fn((fn: (event: DesktopEvent) => void) => {
+        emit = fn
+        return () => {}
+      }),
+    })
+    await renderApp(api)
+    expect(screen.queryByLabelText("Workspace panel")).toBeNull()
+
+    const text = [
+      "Two views.",
+      "```mermaid\nflowchart LR\n  A --> B\n```",
+      "- In a list:\n\n  ~~~~ Mermaid\n  sequenceDiagram\n    Alice->>Bob: Hi\n  ~~~~",
+      "```ts\nconst after = 1\n```",
+    ].join("\n\n")
+    // A short reply can land finished between two updates; arriving while working is enough.
+    const done: TranscriptEntry = {
+      id: 2,
+      kind: "message",
+      speaker: "Otis",
+      text,
+      streaming: false,
+    }
+    act(() => emit({ type: "transcript", revision: 3, ops: [{ op: "upsert", entry: done }] }))
+    const panel = screen.getByLabelText("Workspace panel")
+    expect(within(panel).getByRole("tab", { name: "Canvas" }).getAttribute("aria-selected")).toBe(
+      "true",
+    )
+    const frame = within(panel).getByTitle("Mermaid diagram") as HTMLIFrameElement
+    const postMessage = vi.spyOn(frame.contentWindow as Window, "postMessage")
+    fireEvent.load(frame)
+    expect(postMessage.mock.calls.at(-1)?.[0]).toMatchObject({
+      type: "otis-canvas-source",
+      source: "sequenceDiagram\n  Alice->>Bob: Hi",
+    })
+
+    // A reply opens once: a later update to it leaves the diagram as it is.
+    act(() => emit({ type: "transcript", revision: 4, ops: [{ op: "upsert", entry: done }] }))
+    expect(within(panel).getByTitle("Mermaid diagram")).toBe(frame)
+  })
+
+  it("lists the documents the session produced, each once at its latest revision", async () => {
+    const report = (version: number) => ({
+      source: "published" as const,
+      artifactId: "report",
+      version,
+      sha256: String(version).repeat(64),
+      name: "report.pdf",
+      kind: "pdf" as const,
+      sourcePath: "/ws/report.pdf",
+    })
+    const workspace = (path: string) => ({
+      source: "workspace" as const,
+      path,
+      kind: "markdown" as const,
+    })
+    const tool = (
+      id: number,
+      activityKind: TranscriptEntry["activityKind"],
+      artifact: TranscriptEntry["artifact"],
+      artifactDisplay: TranscriptEntry["artifactDisplay"] = "ready",
+    ): TranscriptEntry => ({
+      id,
+      kind: "tool",
+      speaker: "Tool",
+      text: "",
+      activityKind,
+      artifact,
+      artifactDisplay,
+    })
+    const entries = [
+      tool(1, "file_write", workspace("docs/plan.md")),
+      // Read, not produced.
+      tool(2, "file_read", workspace("notes.md")),
+      tool(3, "file_read", report(1)),
+      tool(4, "file_edit", workspace("docs/plan.md")),
+      tool(5, "file_read", report(2)),
+      // Still in flight, and an earlier revision from the same turn.
+      tool(6, "file_write", workspace("draft.md"), "pending"),
+      tool(7, "file_write", workspace("old.md"), "superseded"),
+    ]
+    const openArtifact = vi.fn(async () => ({ ok: true as const }))
+    await renderApp(
+      fakeApi({ getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, entries })), openArtifact }),
+    )
+
+    fireEvent.click(screen.getByRole("tab", { name: "Documents" }))
+    const view = document.querySelector(".workspaceRail-view-documents") as HTMLElement
+    const rows = within(view).getAllByRole("button")
+    expect(rows.map((row) => row.textContent)).toEqual([
+      "report.pdfSaved · version 2",
+      "plan.mddocs/plan.md",
+    ])
+    fireEvent.click(rows[0])
+    expect(openArtifact).toHaveBeenCalledExactlyOnceWith(report(2))
+  })
+
   it("rings the composer while the agent is working, and only then", async () => {
     await renderApp(fakeApi())
     expect(document.querySelector(".composer-beam")?.hasAttribute("data-active")).toBe(false)
@@ -3455,10 +3564,17 @@ describe("tool run condensing", () => {
     expect(screen.queryByText("Searching files: keydown")).toBeNull()
     expect(screen.queryByText("Reading files: AppShell.tsx")).toBeNull()
 
-    // The edit's diff is content, not a summary: it stays standalone outside the run.
-    // The side panel's Changes tab names the file too; the card is the one in the transcript.
+    // The edit stays standalone outside the run as a row with its line counts; its patch unfolds
+    // on click. The side panel's Changes tab names the file too; the row is the one in the
+    // transcript.
     const transcript = document.querySelector(".conversation") as HTMLElement
-    expect(within(transcript).getByText("Editing file: AppShell.tsx")).toBeTruthy()
+    const edit = within(transcript).getByRole("button", { name: /Editing file: AppShell.tsx/ })
+    expect(edit.querySelector(".headerDiff")?.textContent).toBe("+1−1")
+    expect(transcript.querySelector(".diffLine")).toBeNull()
+    fireEvent.click(edit)
+    expect(transcript.querySelectorAll(".diffLine")).toHaveLength(2)
+    fireEvent.click(edit)
+    expect(transcript.querySelector(".diffLine")).toBeNull()
 
     fireEvent.click(run)
     // Expanding flattens the actions into ordinary virtualized rows beside the run's row, indented
