@@ -3299,17 +3299,26 @@ function savedVersionsTranscript(): TranscriptEntry[] {
       speaker: "You",
       text: "Show me the three saved versions of the launch plan.",
     }),
+    {
+      ...tool("publish_artifact", "launch-plan.docx", "call_publish_plan"),
+      artifact: DEMO_LATEST_WORD.metadata.publication.reference,
+      artifactDisplay: "ready",
+    },
     fixture({
       kind: "message",
       speaker: "Otis",
       text: "The launch plan has three saved versions: initial draft, review, and approved. Canvas opens on the latest. Use the selector in its header to compare them; this card always reopens the latest version.",
-      artifacts: [DEMO_LATEST_WORD.metadata.publication.reference],
     }),
+    tool("edit", "src/desktop/renderer/shell/AppShell.tsx", "call_edit_shell", SAMPLE_DIFF),
+    {
+      ...tool("write", "launch-plan.docx", "call_write_plan"),
+      artifact: { source: "workspace", path: "launch-plan.docx", kind: "docx" },
+      artifactDisplay: "ready",
+    },
     fixture({
       kind: "message",
       speaker: "Otis",
-      text: "For comparison, this is a working-file preview, separate from the saved copies:",
-      artifacts: [{ source: "workspace", path: "launch-plan.docx", kind: "docx" }],
+      text: "For comparison, that is the working file, separate from the saved copies.",
     }),
   ]
 }

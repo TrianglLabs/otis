@@ -42,6 +42,8 @@ function displayed(diff: string): Row[] {
     <DesktopProvider value={{ api: {} as DesktopApi, store: {} as DesktopViewStore }}>
       <ToolCard
         entry={{ id: 1, kind: "tool", speaker: "Tool", text: "Editing app.ts", diff }}
+        expanded={true}
+        onExpandedChange={() => {}}
         active={false}
       />
     </DesktopProvider>,

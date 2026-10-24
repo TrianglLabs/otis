@@ -20,7 +20,7 @@ import { formatAge, formatSessionDetail, formatTokenCount, inView } from "../../
 import { useI18n } from "../../i18n/index.js"
 import { useDesktop, useDesktopSelector, useDesktopState } from "../../runtime.js"
 import type { HomeView } from "../../shell/WorkspaceHeader.js"
-import { PaneRuntimeContext } from "../canvas/canvas-context.js"
+import { PaneRuntimeContext, useOpenCanvas } from "../canvas/canvas-context.js"
 import { FindBar, useFind } from "../canvas/find.js"
 import { ProjectsHome, SessionCard } from "../projects/ProjectsHome.js"
 import { RoutinesHome } from "../routines/RoutinesHome.js"
@@ -28,6 +28,13 @@ import { Composer } from "./Composer.js"
 import { TranscriptList } from "./TranscriptList.js"
 
 const emptyEntries: TranscriptEntry[] = []
+/**
+ * A Mermaid fence as CommonMark reads it: three or more backticks or tildes, closed by a run of
+ * the same character at least as long, with no info string. The fence's indentation is taken off
+ * each content line.
+ */
+const MERMAID_FENCE =
+  /^([ \t]*)(`{3,}|~{3,})[ \t]*mermaid\b[^\n]*\n([\s\S]*?)\n[ \t]*\2[`~]*[ \t]*$/gim
 const noDiffs = { added: 0, removed: 0 }
 const emptyPanes: number[] = []
 /** The fraction of the conversation's width or height, from each edge, that inserts a session. */
@@ -245,6 +252,32 @@ const ConversationPane = memo(function ConversationPane({
     finder.open()
   }, [findFocus, searchable, finder.finding, finder.open])
   useEffect(() => finder.close(), [state.listKey, finder.close])
+  // A reply's last Mermaid diagram takes the Canvas when the reply finishes, as a written document
+  // does. A reply is live when it is seen streaming, or arrives while the pane is working after
+  // the session's entries were first seen here; a session opened mid-run opens nothing from its
+  // finished replies. Each live reply opens once.
+  const openCanvas = useOpenCanvas()
+  const replies = useRef({ listKey: "", live: new Map<number, boolean>() })
+  useEffect(() => {
+    const first = replies.current.listKey !== state.listKey
+    if (first) replies.current = { listKey: state.listKey, live: new Map() }
+    const { live } = replies.current
+    for (const entry of state.entries) {
+      if (entry.kind !== "message" || entry.speaker !== "Otis") continue
+      if (!live.has(entry.id))
+        live.set(entry.id, entry.streaming === true || (!first && state.busy))
+      if (entry.streaming || !live.get(entry.id)) continue
+      live.set(entry.id, false)
+      const fence = [...entry.text.matchAll(MERMAID_FENCE)].at(-1)
+      if (!fence) continue
+      const indent = fence[1].length
+      const source = fence[3]
+        .split("\n")
+        .map((line) => line.slice(Math.min(indent, line.length - line.trimStart().length)))
+        .join("\n")
+      if (source.trim()) openCanvas?.(source)
+    }
+  }, [state.entries, state.listKey, state.busy, openCanvas])
   const closeFind = () => {
     finder.close()
     if (findReturn.current instanceof HTMLElement) findReturn.current.focus()

@@ -60,6 +60,8 @@ export const de: Messages = {
   "panel.canvas": "Canvas",
   "panel.terminal": "Terminal",
   "panel.changes": "Änderungen",
+  "panel.documents": "Dokumente",
+  "panel.savedVersion": "Gespeichert · Version {{number}}",
   "panel.closeTerminal": "Terminal schließen",
   "panel.hideSidePanel": "Seitenleiste ausblenden",
   "panel.resizeSidePanel": "Größe der Seitenleiste ändern",

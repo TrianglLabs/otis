@@ -34,6 +34,7 @@ import {
   IconMarkdown,
   IconPhoto,
   IconSettings,
+  IconSitemap,
   IconTerminal2,
   type Icon as TablerIcon,
 } from "@tabler/icons-react"
@@ -50,7 +51,7 @@ const KIND_GLYPHS: Record<FileVisualKind, TablerIcon> = {
   csv: IconFileTypeCsv,
   xlsx: IconFileSpreadsheet,
   pptx: IconFileTypePpt,
-  mermaid: IconFile,
+  mermaid: IconSitemap,
 }
 
 /** Tabler's marks by extension; code without a mark of its own gets the generic code file. */

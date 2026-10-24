@@ -120,6 +120,8 @@ describe("stable message rendering", () => {
             activityKind: "file_read",
             artifact,
           }}
+          expanded={false}
+          onExpandedChange={() => {}}
           active={false}
         />
       </DesktopProvider>,
@@ -143,7 +145,7 @@ describe("stable message rendering", () => {
     }
     const view = render(
       <DesktopProvider value={runtime}>
-        <ToolCard entry={entry} active={true} />
+        <ToolCard entry={entry} expanded={false} onExpandedChange={() => {}} active={true} />
       </DesktopProvider>,
     )
     expect(view.container.querySelector(".toolCard-verb")?.textContent).toBe("Editing")
@@ -156,7 +158,7 @@ describe("stable message rendering", () => {
 
     view.rerender(
       <DesktopProvider value={runtime}>
-        <ToolCard entry={entry} active={false} />
+        <ToolCard entry={entry} expanded={false} onExpandedChange={() => {}} active={false} />
       </DesktopProvider>,
     )
     expect(view.container.querySelector(".toolCard-verb")?.textContent).toBe("Edited")
@@ -176,6 +178,8 @@ describe("stable message rendering", () => {
             activityAction: "command",
             activitySubject: "bun test tests/desktop",
           }}
+          expanded={false}
+          onExpandedChange={() => {}}
           active={false}
         />
         <ToolCard
@@ -186,6 +190,8 @@ describe("stable message rendering", () => {
             text: "Reading files: notes.md",
             activityKind: "file_read",
           }}
+          expanded={false}
+          onExpandedChange={() => {}}
           active={false}
         />
       </DesktopProvider>,
@@ -250,6 +256,8 @@ describe("stable message rendering", () => {
             artifact: { source: "workspace", path: "final.html", kind: "html" },
             artifactDisplay: "pending",
           }}
+          expanded={false}
+          onExpandedChange={() => {}}
           active={true}
         />
       </DesktopProvider>,
@@ -551,7 +559,7 @@ describe("stable message rendering", () => {
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith("const answer = 42")
   })
 
-  it("does not reparse a completed diff when the tool's activity status changes", async () => {
+  it("folds an edit's patch behind its row, and does not reparse it on a status change", async () => {
     const runtime = await testRuntime()
     const entry = {
       id: 1,
@@ -560,12 +568,26 @@ describe("stable message rendering", () => {
       text: "Edit",
       diff: "@@ -1 +1 @@\n-old\n+new",
     }
-    const card = (props: Partial<typeof entry>, active: boolean) => (
+    const onExpandedChange = vi.fn()
+    const card = (props: Partial<typeof entry>, active: boolean, expanded = true) => (
       <DesktopProvider value={runtime}>
-        <ToolCard entry={{ ...entry, ...props }} active={active} />
+        <ToolCard
+          entry={{ ...entry, ...props }}
+          active={active}
+          expanded={expanded}
+          onExpandedChange={onExpandedChange}
+        />
       </DesktopProvider>
     )
-    const view = render(card({}, true))
+    const view = render(card({}, true, false))
+    // Folded: the row shows the file's line counts and no patch; the row itself opens it.
+    expect(view.container.querySelector(".diffLine")).toBeNull()
+    const row = screen.getByRole("button", { expanded: false })
+    expect(row.querySelector(".headerDiff")?.textContent).toBe("+1−1")
+    fireEvent.click(row)
+    expect(onExpandedChange).toHaveBeenCalledExactlyOnceWith(1, true)
+
+    view.rerender(card({}, true))
     const line = view.container.querySelector(".diffLine")
     expect(line).toBeTruthy()
     view.rerender(card({ text: "Edited file" }, false))

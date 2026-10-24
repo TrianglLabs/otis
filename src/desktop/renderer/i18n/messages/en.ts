@@ -52,6 +52,8 @@ export const en = {
   "panel.canvas": "Canvas",
   "panel.terminal": "Terminal",
   "panel.changes": "Changes",
+  "panel.documents": "Documents",
+  "panel.savedVersion": "Saved · version {{number}}",
   "panel.closeTerminal": "Close terminal",
   "panel.hideSidePanel": "Hide side panel",
   "panel.resizeSidePanel": "Resize side panel",

@@ -59,6 +59,8 @@ export const zhCN: Messages = {
   "panel.canvas": "画布",
   "panel.terminal": "终端",
   "panel.changes": "更改",
+  "panel.documents": "文档",
+  "panel.savedVersion": "已保存 · 版本 {{number}}",
   "panel.closeTerminal": "关闭终端",
   "panel.hideSidePanel": "隐藏侧边面板",
   "panel.resizeSidePanel": "调整侧边面板大小",

@@ -60,6 +60,8 @@ export const ko: Messages = {
   "panel.canvas": "캔버스",
   "panel.terminal": "터미널",
   "panel.changes": "변경 사항",
+  "panel.documents": "문서",
+  "panel.savedVersion": "저장됨 · 버전 {{number}}",
   "panel.closeTerminal": "터미널 닫기",
   "panel.hideSidePanel": "사이드 패널 숨기기",
   "panel.resizeSidePanel": "사이드 패널 크기 조절",

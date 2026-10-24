@@ -344,7 +344,7 @@ describe("demo runtime model lifecycle", () => {
       followingLatest: true,
       reference: { version: 3 },
     })
-    expect(restored.entries.flatMap((entry) => entry.artifacts ?? [])).toContainEqual(reference)
+    expect(restored.entries.map((entry) => entry.artifact)).toContainEqual(reference)
   })
 
   it("exposes PDF, Word, webpage, and Markdown Canvas fixtures without embedding their content in status", async () => {

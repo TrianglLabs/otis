@@ -17,7 +17,12 @@ import { memo, useContext, useMemo } from "react"
 import { Virtuoso } from "react-virtuoso"
 import type { TranscriptEntry } from "../../../../app/transcript.js"
 import { isCanvasArtifact } from "../../../../artifacts/canvas.js"
-import { splitSubject, type ToolAction, type ToolActivityKind } from "../../../../tools/activity.js"
+import {
+  countDiffLines,
+  splitSubject,
+  type ToolAction,
+  type ToolActivityKind,
+} from "../../../../tools/activity.js"
 import { ArtifactCard } from "../../components/ArtifactCard.js"
 import { Icon } from "../../components/Icon.js"
 import { useI18n } from "../../i18n/index.js"
@@ -106,24 +111,49 @@ function runSummary(run: ToolRun, t: Translate) {
   return [...counts].map(([key, count]) => t(key, { count })).join(" · ")
 }
 
+/** The Canvas document a tool entry presents: the turn's last revision, once the turn settled. */
+export function shownArtifact(entry: TranscriptEntry) {
+  const { artifact, artifactDisplay } = entry
+  return artifact &&
+    isCanvasArtifact(artifact.kind) &&
+    artifactDisplay !== "pending" &&
+    artifactDisplay !== "superseded"
+    ? artifact
+    : undefined
+}
+
 /**
- * One tool activity row: icon, label, status. When the tool produced a diff it is rendered inline,
- * always expanded — edited code is content, not a disclosure. A ready Canvas artifact replaces the
- * row with its card.
+ * One tool activity row: icon, label, status. An edit's row names the file with its line counts
+ * and unfolds the patch on click; the Changes tab holds every patch of the session. A ready Canvas
+ * artifact replaces the row with its card, and the document is reviewed in Canvas rather than as
+ * a patch.
  */
-export function ToolCard({ entry, active }: { entry: TranscriptEntry; active: boolean }) {
+export function ToolCard({
+  entry,
+  active,
+  expanded,
+  onExpandedChange,
+}: {
+  entry: TranscriptEntry
+  active: boolean
+  expanded: boolean
+  onExpandedChange: (id: number, expanded: boolean) => void
+}) {
   const { api } = useDesktop()
   const runtime = useContext(PaneRuntimeContext)
   const { t } = useI18n()
-  const artifact =
-    entry.artifact &&
-    isCanvasArtifact(entry.artifact.kind) &&
-    entry.artifactDisplay !== "pending" &&
-    entry.artifactDisplay !== "superseded"
-      ? entry.artifact
-      : undefined
+  const artifact = shownArtifact(entry)
   const artifactClass = artifact ? " toolCard-artifact" : ""
   const activeClass = active ? " toolCard-active" : ""
+  const lines = entry.diff === undefined ? undefined : countDiffLines(entry.diff)
+  const header = (
+    <>
+      <span className="toolCard-icon">
+        <Icon icon={KIND_ICONS[entry.activityKind ?? "shell"]} size={13} />
+      </span>
+      <ActivityText entry={entry} done={!active} />
+    </>
+  )
   return (
     <div className={`toolCard${artifactClass}${activeClass}`}>
       {artifact ? (
@@ -140,15 +170,29 @@ export function ToolCard({ entry, active }: { entry: TranscriptEntry; active: bo
           )}
           onOpen={() => api.openArtifact(artifact, undefined, runtime)}
         />
+      ) : lines ? (
+        <button
+          type="button"
+          className="toolCard-header toolCard-toggle"
+          title={entry.text}
+          onClick={() => onExpandedChange(entry.id, !expanded)}
+          aria-expanded={expanded}
+        >
+          {header}
+          <span className="headerDiff">
+            <span className="headerDiff-add">+{lines.added}</span>
+            <span className="headerDiff-remove">−{lines.removed}</span>
+          </span>
+          <span className="chevron">
+            <ChevronRight size={13} aria-hidden />
+          </span>
+        </button>
       ) : (
         <div className="toolCard-header" title={entry.text}>
-          <span className="toolCard-icon">
-            <Icon icon={KIND_ICONS[entry.activityKind ?? "shell"]} size={13} />
-          </span>
-          <ActivityText entry={entry} done={!active} />
+          {header}
         </div>
       )}
-      {entry.diff ? <DiffView diff={entry.diff} /> : null}
+      {entry.diff && !artifact && expanded ? <DiffView diff={entry.diff} /> : null}
     </div>
   )
 }

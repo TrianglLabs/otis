@@ -55,6 +55,8 @@ export const uk: Messages = {
   "panel.canvas": "Полотно",
   "panel.terminal": "Термінал",
   "panel.changes": "Зміни",
+  "panel.documents": "Документи",
+  "panel.savedVersion": "Збережено · версія {{number}}",
   "panel.closeTerminal": "Закрити термінал",
   "panel.hideSidePanel": "Сховати бічну панель",
   "panel.resizeSidePanel": "Змінити розмір бічної панелі",

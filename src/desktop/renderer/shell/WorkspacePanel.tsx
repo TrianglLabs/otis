@@ -3,6 +3,7 @@ import {
   ChevronRight,
   ChevronsRight,
   FileDiff,
+  Files,
   Frame,
   type LucideIcon,
   SquareTerminal,
@@ -20,6 +21,7 @@ import {
   useState,
 } from "react"
 import type { TranscriptEntry } from "../../../app/transcript.js"
+import type { FileArtifactReference } from "../../../artifacts/types.js"
 import { countDiffLines, splitSubject } from "../../../tools/activity.js"
 import type {
   SubagentSummary,
@@ -37,7 +39,8 @@ import {
 } from "../features/agents/AgentTraceOverlay.js"
 import { CanvasPanel } from "../features/canvas/CanvasPanel.js"
 import type { CanvasView } from "../features/canvas/canvas-context.js"
-import { DiffView } from "../features/conversation/ToolCard.js"
+import { artifactTitle } from "../features/conversation/entries.js"
+import { DiffView, shownArtifact } from "../features/conversation/ToolCard.js"
 import { TerminalView } from "../features/terminal/TerminalView.js"
 import { useI18n } from "../i18n/index.js"
 import { useDesktop, useDesktopSelector, useScrollbarFlash } from "../runtime.js"
@@ -46,8 +49,17 @@ import { useDesktop, useDesktopSelector, useScrollbarFlash } from "../runtime.js
 type Change = TranscriptEntry & { diff: string; activitySubject: string }
 export const isChange = (entry: TranscriptEntry): entry is Change =>
   entry.kind === "tool" && entry.diff !== undefined && entry.activitySubject !== undefined
+/**
+ * A tool entry whose document the session produced: written, edited or published, shown as a card
+ * in the transcript. A file the agent only read is not the session's work.
+ */
+type Produced = TranscriptEntry & { artifact: FileArtifactReference }
+const isProduced = (entry: TranscriptEntry): entry is Produced =>
+  shownArtifact(entry) !== undefined &&
+  (entry.artifact?.source === "published" || entry.activityKind !== "file_read")
 const EMPTY_RUNS: SubagentSummary[] = []
 const NO_CHANGES: Change[] = []
+const NO_DOCUMENTS: Produced[] = []
 const PANEL_MIN_WIDTH = 240
 const PANEL_MAX_WIDTH = 720
 const MAIN_MIN_WIDTH = 480
@@ -75,6 +87,9 @@ export function WorkspacePanel({
   const changes = useDesktopSelector((snapshot) =>
     (snapshot?.entries ?? NO_CHANGES).filter(isChange),
   )
+  const produced = useDesktopSelector((snapshot) =>
+    (snapshot?.entries ?? NO_DOCUMENTS).filter(isProduced),
+  )
   const state = useDesktopSelector((snapshot) => ({
     runs: snapshot?.subagents ?? EMPTY_RUNS,
     visible: snapshot?.agentsPanelVisible ?? true,
@@ -86,6 +101,7 @@ export function WorkspacePanel({
   return (
     <SessionWorkspacePanel
       changes={changes}
+      produced={produced}
       {...panel}
       views={views}
       onCloseDiagram={onCloseDiagram}
@@ -113,6 +129,7 @@ function SessionWorkspacePanel({
   localWidth,
   onRailWidthChange,
   changes,
+  produced,
 }: {
   runs: SubagentSummary[]
   views: CanvasView[]
@@ -125,6 +142,7 @@ function SessionWorkspacePanel({
   localWidth: RailWidth | undefined
   onRailWidthChange: (width: RailWidth) => void
   changes: Change[]
+  produced: Produced[]
 }) {
   const { api } = useDesktop()
   const { t } = useI18n()
@@ -140,10 +158,25 @@ function SessionWorkspacePanel({
   const selected =
     latest &&
     ((chosen && chosen.at >= latest.activated && views.find((v) => v.key === chosen.key)) || latest)
+  // Each document once, at its latest revision, the most recently produced first, keyed by its
+  // Canvas tab id so the one in view can be marked.
+  const documents = useMemo(() => {
+    const latest = new Map<string, FileArtifactReference>()
+    for (const { artifact } of produced) {
+      const id =
+        artifact.source === "published"
+          ? `published:${artifact.artifactId}`
+          : `workspace:${artifact.path}`
+      latest.delete(id)
+      latest.set(id, artifact)
+    }
+    return [...latest].reverse()
+  }, [produced])
   // A tab exists while it has something to show; the rail itself leaves with the last one.
   const openTabs: readonly WorkspacePanelTab[] = [
     ...(runs.length > 0 ? ["coworkers" as const] : []),
     ...(selected ? ["canvas" as const] : []),
+    ...(documents.length > 0 ? ["documents" as const] : []),
     ...(changes.length > 0 ? ["changes" as const] : []),
     ...(terminal ? ["terminal" as const] : []),
   ]
@@ -240,7 +273,9 @@ function SessionWorkspacePanel({
     Math.min(PANEL_MAX_WIDTH, viewportWidth - MAIN_MIN_WIDTH),
   )
   const defaultWidth =
-    activeTab === "coworkers" ? 320 : Math.min(560, Math.max(280, Math.round(viewportWidth * 0.38)))
+    activeTab === "coworkers" || activeTab === "documents"
+      ? 320
+      : Math.min(560, Math.max(280, Math.round(viewportWidth * 0.38)))
   const clampWidth = (width: number) =>
     Math.min(maxWidth, Math.max(contentMinWidth, Math.round(width)))
   const railWidth = localWidth?.tab === activeTab ? localWidth.width : savedWidths[activeTab]
@@ -390,6 +425,7 @@ function SessionWorkspacePanel({
           >
             {runs.length > 0 ? tab("coworkers", Box, t("panel.coworkers")) : null}
             {selected ? tab("canvas", Frame, t("panel.canvas")) : null}
+            {documents.length > 0 ? tab("documents", Files, t("panel.documents")) : null}
             {changes.length > 0 ? tab("changes", FileDiff, t("panel.changes")) : null}
             {terminal ? (
               <div className="workspaceRail-tab" data-selected={activeTab === "terminal"}>
@@ -480,6 +516,39 @@ function SessionWorkspacePanel({
                 </div>
               ) : null}
               <CanvasPanel view={selected} />
+            </div>
+          ) : null}
+          {documents.length > 0 ? (
+            <div {...view("documents")}>
+              <ul className="agentsRail-list">
+                {documents.map(([id, artifact]) => {
+                  const title = artifactTitle(artifact)
+                  return (
+                    <li key={id} className="agentsRail-item">
+                      <button
+                        type="button"
+                        className={`agentsRow noDrag${
+                          selected?.artifact.id === id ? " agentsRow-open" : ""
+                        }`}
+                        onClick={() => void api.openArtifact(artifact)}
+                        title={title}
+                      >
+                        <span className="agentsRow-status">
+                          <FileTypeIcon name={title} size="xs" />
+                        </span>
+                        <span className="agentsRow-text">
+                          <span className="agentsRow-title">{title}</span>
+                          <span className="agentsRow-detail">
+                            {artifact.source === "published"
+                              ? t("panel.savedVersion", { number: artifact.version })
+                              : artifact.path}
+                          </span>
+                        </span>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
             </div>
           ) : null}
           {changes.length > 0 ? (
