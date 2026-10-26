@@ -11,6 +11,11 @@ files:
 extraResources:
   - from: resources/icon.png
     to: icon.png
+  # The alternate icons Appearance offers; the SVG sources stay in the repository.
+  - from: resources/app-icons
+    to: app-icons
+    filter:
+      - "*.png"
   # The macOS status bar item reads its template images from the bundled tray folder.
   - from: resources/tray
     to: tray

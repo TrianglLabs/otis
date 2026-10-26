@@ -31,6 +31,7 @@ function client(url: string, token: string, onEvent = (_event: DesktopEvent) => 
     { url, token },
     {
       platform: "linux",
+      appIconSupported: true,
       version: "1.0.0",
       onEvent,
       onTerminal: () => {},
@@ -52,6 +53,7 @@ describe("otis serve", () => {
         { url: server.urls[0].url, token: "wrong" },
         {
           platform: "linux",
+          appIconSupported: true,
           version: "1.0.0",
           onEvent: () => {},
           onTerminal: () => {},
@@ -75,6 +77,7 @@ describe("otis serve", () => {
         { url: server.urls[0].url, token: "secret-token" },
         {
           platform: "linux",
+          appIconSupported: true,
           version,
           onEvent: () => {},
           onTerminal: () => {},
@@ -113,6 +116,7 @@ describe("otis serve", () => {
       { url: server.urls[0].url, token: "secret-token" },
       {
         platform: "linux",
+        appIconSupported: true,
         version: "1.0.0",
         onEvent: () => {},
         onTerminal: () => {},

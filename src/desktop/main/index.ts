@@ -4,15 +4,15 @@ import { createRequire } from "node:module"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
-import { app, BrowserWindow, dialog, Notification, shell } from "electron"
+import { app, BrowserWindow, dialog, Notification, nativeTheme, shell } from "electron"
 import electronUpdater from "electron-updater"
 import { describeError } from "../../inference/errors.js"
 import { localConfigDirectory, localDataDirectory } from "../../local/paths.js"
-import { loadLocalSettings, saveRemote } from "../../local/settings.js"
+import { DEFAULT_APP_ICON, loadLocalSettings, saveRemote } from "../../local/settings.js"
 import { DESKTOP_CHANNELS, type DesktopEvent, type DesktopSnapshot } from "../contracts.js"
 import type { SessionNotice } from "../wire.js"
 import { type DesktopBackend, localBackend } from "./api.js"
-import { configureAppIcon } from "./app-icon.js"
+import { appIconSupported, createAppIcon } from "./app-icon.js"
 import { initializeDevProfile, resolveDevData, shouldInitializeDevProfile } from "./dev-data.js"
 import { registerDesktopIpc } from "./ipc.js"
 import { guardFrameNavigation, handleRendererFailure, sendToRenderer } from "./renderer.js"
@@ -131,14 +131,22 @@ if (!app.requestSingleInstanceLock()) {
         return
       }
     }
-    const appIcon = configureAppIcon({
-      packaged: app.isPackaged,
-      resourcesPath: process.resourcesPath,
-      mainDir: __dirname,
-      platform: process.platform,
-    })
-
     const settings = await loadLocalSettings()
+    // The icon is this app's preference, so it comes from local settings even when paired.
+    const showAppIcon = createAppIcon(
+      {
+        packaged: app.isPackaged,
+        resourcesPath: process.resourcesPath,
+        mainDir: __dirname,
+        platform: process.platform,
+      },
+      () => nativeTheme.shouldUseDarkColors,
+    )
+    const iconSupported = appIconSupported(process.platform, process.env)
+    let appIconChoice = settings.appIcon ?? DEFAULT_APP_ICON
+    const appIcon = showAppIcon(appIconChoice)
+    // The Obsidian pairing swaps plates with the system appearance.
+    nativeTheme.on("updated", () => showAppIcon(appIconChoice, mainWindow))
     // The last GUI workspace only applies when the shell handed us no cwd (a Finder/Dock relaunch,
     // or a Windows shortcut starting in the install folder).
     let cwd: string | undefined = resolveWorkspaceCwd(
@@ -198,7 +206,12 @@ if (!app.requestSingleInstanceLock()) {
       if (mainWindow) sendToRenderer(mainWindow.webContents, DESKTOP_CHANNELS.event, event)
       // The status bar item rides the same ordered stream the renderer sees, so it can never
       // drift.
-      if (event.type === "status") statusTrayGate?.applyLive(event.status)
+      if (event.type !== "status") return
+      statusTrayGate?.applyLive(event.status)
+      if (event.status.appIcon) {
+        appIconChoice = event.status.appIcon
+        showAppIcon(appIconChoice, mainWindow)
+      }
     }
     const sendTerminal = (data: string) => {
       if (mainWindow) sendToRenderer(mainWindow.webContents, DESKTOP_CHANNELS.terminal, data)
@@ -233,6 +246,7 @@ if (!app.requestSingleInstanceLock()) {
           installUpdate,
           version: app.getVersion(),
           platform: process.platform,
+          appIconSupported: iconSupported,
           notify,
           send,
           sendTerminal,
@@ -248,6 +262,7 @@ if (!app.requestSingleInstanceLock()) {
     const startRemote = async (remote: { url: string; token: string }, onClose: () => void) =>
       (await import("./remote.js")).connectRemote(remote, {
         platform: process.platform,
+        appIconSupported: iconSupported,
         version: app.getVersion(),
         onEvent: send,
         onTerminal: sendTerminal,

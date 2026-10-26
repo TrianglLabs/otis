@@ -1,9 +1,9 @@
 import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { app, type NativeImage, nativeImage } from "electron"
+import { app, type BrowserWindow, type NativeImage, nativeImage } from "electron"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { configureAppIcon } from "../../../src/desktop/main/app-icon.js"
+import { appIconSupported, createAppIcon } from "../../../src/desktop/main/app-icon.js"
 
 vi.mock("electron", () => ({
   app: { dock: { setIcon: vi.fn() } },
@@ -16,67 +16,118 @@ const location = {
   resourcesPath: "/unused",
   mainDir: join(repoRoot, "out", "main"),
 }
+const resourcesPath = join("/Applications", "Otis.app", "Contents", "Resources")
+const packaged = { packaged: true, resourcesPath, mainDir: join("/anywhere", "out", "main") }
 const image = { isEmpty: () => false } as NativeImage
+const light = () => false
 
-describe("configureAppIcon", () => {
+describe("createAppIcon", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(nativeImage.createFromPath).mockReturnValue(image)
   })
 
-  it("resolves the repo's resources/icon.png from the dev bundle in out/main", () => {
-    expect(configureAppIcon({ ...location, platform: "linux" })).toBe(image)
-    const path = join(repoRoot, "resources", "icon.png")
-    expect(nativeImage.createFromPath).toHaveBeenCalledExactlyOnceWith(path)
-    // Development and Linux builds need the checked-in export without Apple tooling at runtime.
-    expect(existsSync(path)).toBe(true)
-    expect(app.dock?.setIcon).not.toHaveBeenCalled()
-  })
-
-  it("resolves inside Electron's resources directory in a packaged build", () => {
-    const resourcesPath = join("/Applications", "Otis.app", "Contents", "Resources")
-    configureAppIcon({
-      packaged: true,
-      resourcesPath,
-      mainDir: join("/anywhere", "out", "main"),
-      platform: "linux",
-    })
-    expect(nativeImage.createFromPath).toHaveBeenCalledExactlyOnceWith(
-      join(resourcesPath, "icon.png"),
-    )
-    expect(app.dock?.setIcon).not.toHaveBeenCalled()
-  })
-
-  it("uses the sized .ico in Windows development and the executable's icon when packaged", () => {
-    expect(configureAppIcon({ ...location, platform: "win32" })).toBe(image)
-    const path = join(repoRoot, "resources", "icon.ico")
+  it("resolves the repo's resources/app-icons from the dev bundle in out/main", () => {
+    expect(createAppIcon({ ...location, platform: "darwin" }, light)("obsidian-dark")).toBe(image)
+    const path = join(repoRoot, "resources", "app-icons", "obsidian.png")
     expect(nativeImage.createFromPath).toHaveBeenCalledExactlyOnceWith(path)
     expect(existsSync(path)).toBe(true)
-    vi.clearAllMocks()
-    expect(configureAppIcon({ ...location, packaged: true, platform: "win32" })).toBeUndefined()
-    expect(nativeImage.createFromPath).not.toHaveBeenCalled()
-  })
-
-  it("leaves the packaged macOS icon entirely to the system, without loading a flat image", () => {
-    expect(configureAppIcon({ ...location, packaged: true, platform: "darwin" })).toBeUndefined()
-    expect(nativeImage.createFromPath).not.toHaveBeenCalled()
-    expect(app.dock?.setIcon).not.toHaveBeenCalled()
-  })
-
-  it("uses the exported icon in macOS development, where the bundle belongs to Electron", () => {
-    expect(configureAppIcon({ ...location, platform: "darwin" })).toBe(image)
     expect(app.dock?.setIcon).toHaveBeenCalledExactlyOnceWith(image)
   })
 
-  it("does not replace the development icon with an empty image when the export is missing", () => {
+  it("resolves inside Electron's resources directory in a packaged build", () => {
+    createAppIcon({ ...packaged, platform: "darwin" }, light)("macro")
+    expect(nativeImage.createFromPath).toHaveBeenCalledExactlyOnceWith(
+      join(resourcesPath, "app-icons", "macro.png"),
+    )
+    expect(app.dock?.setIcon).toHaveBeenCalledExactlyOnceWith(image)
+  })
+
+  it("shows the Obsidian pairing's dark plate on a light appearance and its light one on dark", () => {
+    let dark = false
+    const show = createAppIcon({ ...location, platform: "darwin" }, () => dark)
+    show("obsidian")
+    dark = true
+    show("obsidian")
+    const dir = join(repoRoot, "resources", "app-icons")
+    expect(vi.mocked(nativeImage.createFromPath).mock.calls).toEqual([
+      [join(dir, "obsidian.png")],
+      [join(dir, "obsidian-pearl.png")],
+    ])
+    expect(app.dock?.setIcon).toHaveBeenCalledTimes(2)
+  })
+
+  it("keeps the dark Obsidian plate in both appearances and does not reload an unchanged image", () => {
+    let dark = false
+    const show = createAppIcon({ ...location, platform: "darwin" }, () => dark)
+    show("obsidian-dark")
+    dark = true
+    show("obsidian-dark")
+    show("night")
+    show("aqua")
+    show("ember")
+    const dir = join(repoRoot, "resources", "app-icons")
+    expect(vi.mocked(nativeImage.createFromPath).mock.calls).toEqual([
+      [join(dir, "obsidian.png")],
+      [join(dir, "night.png")],
+      [join(dir, "aqua.png")],
+      [join(dir, "ember.png")],
+    ])
+  })
+
+  it("sets the window icon outside macOS", () => {
+    const window = { setIcon: vi.fn() } as unknown as BrowserWindow
+    const show = createAppIcon({ ...packaged, platform: "win32" }, light)
+    expect(show("obsidian-dark")).toBe(image)
+    show("night", window)
+    expect(window.setIcon).toHaveBeenCalledExactlyOnceWith(image)
+    expect(app.dock?.setIcon).not.toHaveBeenCalled()
+  })
+
+  it("keeps the current icon instead of showing an empty image when an export is missing", () => {
     vi.mocked(nativeImage.createFromPath).mockReturnValue({ isEmpty: () => true } as NativeImage)
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     try {
-      expect(configureAppIcon({ ...location, platform: "darwin" })).toBeUndefined()
+      expect(createAppIcon({ ...location, platform: "darwin" }, light)("macro")).toBeUndefined()
       expect(app.dock?.setIcon).not.toHaveBeenCalled()
       expect(warn).toHaveBeenCalledOnce()
     } finally {
       warn.mockRestore()
+    }
+  })
+})
+
+describe("appIconSupported", () => {
+  it("offers icons on macOS, Windows, and Linux X11 but not in a Linux Wayland session", () => {
+    expect(appIconSupported("darwin", { XDG_SESSION_TYPE: "wayland" })).toBe(true)
+    expect(appIconSupported("win32", {})).toBe(true)
+    expect(appIconSupported("linux", { XDG_SESSION_TYPE: "x11" })).toBe(true)
+    expect(appIconSupported("linux", { XDG_SESSION_TYPE: "wayland" })).toBe(false)
+    // A compositor started from a console reports tty, or nothing, with the socket set.
+    expect(appIconSupported("linux", { WAYLAND_DISPLAY: "wayland-1" })).toBe(false)
+    expect(
+      appIconSupported("linux", { XDG_SESSION_TYPE: "tty", WAYLAND_DISPLAY: "wayland-1" }),
+    ).toBe(false)
+    expect(
+      appIconSupported("linux", { XDG_SESSION_TYPE: "x11", WAYLAND_DISPLAY: "wayland-1" }),
+    ).toBe(true)
+    expect(appIconSupported("linux", {})).toBe(true)
+  })
+})
+
+// The alternates ship beside the bundled icon and carry the same margin, so the Dock sizes them
+// alike.
+describe("Alternate app icons", () => {
+  it("packages a 1024-pixel PNG with transparent margins for every alternate", () => {
+    expect(readFileSync(join(repoRoot, "electron-builder.yml"), "utf8")).toMatch(
+      /- from: resources\/app-icons\n {4}to: app-icons\n/,
+    )
+    for (const name of ["obsidian", "obsidian-pearl", "macro", "aqua", "night", "ember"]) {
+      const png = readFileSync(join(repoRoot, "resources", "app-icons", `${name}.png`))
+      expect(png.subarray(1, 4).toString()).toBe("PNG")
+      expect([png.readUInt32BE(16), png.readUInt32BE(20)], name).toEqual([1024, 1024])
+      // RGBA: Electron's capture keeps the transparent margin.
+      expect(png.readUInt8(25), name).toBe(6)
     }
   })
 })

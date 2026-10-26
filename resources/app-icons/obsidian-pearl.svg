@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+<defs>
+<filter id="plate" x="-10%" y="-10%" width="120%" height="125%"><feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#000000" flood-opacity="0.3"/></filter>
+<linearGradient id="bgL" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#EEEEF2"/><stop offset="1" stop-color="#E2E2E8"/></linearGradient>
+<linearGradient id="edgeL" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF" stop-opacity="1"/><stop offset="0.6" stop-color="#FFFFFF" stop-opacity="0.2"/><stop offset="1" stop-color="#000000" stop-opacity="0.1"/></linearGradient>
+<clipPath id="clipL"><rect width="1024" height="1024" rx="229"/></clipPath>
+<filter id="shadowL" x="-25%" y="-25%" width="150%" height="160%"><feDropShadow dx="0" dy="1.2" stdDeviation="1.4" flood-color="#1A1440" flood-opacity="0.22"/></filter>
+<symbol id="iconL" viewBox="0 0 1024 1024">
+<g clip-path="url(#clipL)">
+<rect width="1024" height="1024" fill="url(#bgL)"/>
+<g filter="url(#shadowL)" transform="translate(89.475728155340 33.139158576052) scale(7.042071197411)">
+<g transform="matrix(.866025 .5 -.866025 .5 60 8)" fill="#A0A0AC">
+<rect x="2" y="2" width="16" height="16" rx="2"/><rect x="22" y="2" width="16" height="16" rx="2"/><rect x="42" y="2" width="16" height="16" rx="2"/>
+<rect x="2" y="22" width="16" height="16" rx="2"/><rect x="22" y="22" width="16" height="16" rx="2"/><rect x="42" y="22" width="16" height="16" rx="2"/>
+<rect x="2" y="42" width="16" height="16" rx="2"/><rect x="22" y="42" width="16" height="16" rx="2"/><rect x="42" y="42" width="16" height="16" rx="2"/>
+</g>
+<g transform="matrix(.866025 .5 0 1 8.0385 38)" fill="#94949F">
+<rect x="2" y="2" width="16" height="16" rx="2"/><rect x="22" y="2" width="16" height="16" rx="2"/><rect x="42" y="2" width="16" height="16" rx="2"/>
+<rect x="2" y="22" width="16" height="16" rx="2"/><rect x="22" y="22" width="16" height="16" rx="2"/><rect x="42" y="22" width="16" height="16" rx="2"/>
+<rect x="2" y="42" width="16" height="16" rx="2"/><rect x="22" y="42" width="16" height="16" rx="2"/><rect x="42" y="42" width="16" height="16" rx="2"/>
+</g>
+<g transform="matrix(.866025 -.5 0 1 60 68)" fill="#7564F0">
+<rect x="2" y="2" width="16" height="16" rx="2"/><rect x="22" y="2" width="16" height="16" rx="2"/><rect x="42" y="2" width="16" height="16" rx="2"/>
+<rect x="2" y="22" width="16" height="16" rx="2"/><rect x="42" y="22" width="16" height="16" rx="2"/>
+<rect x="2" y="42" width="16" height="16" rx="2"/><rect x="22" y="42" width="16" height="16" rx="2"/><rect x="42" y="42" width="16" height="16" rx="2"/>
+</g>
+</g>
+</g>
+<rect x="3" y="3" width="1018" height="1018" rx="226" fill="none" stroke="url(#edgeL)" stroke-width="6"/>
+</symbol>
+</defs>
+<g filter="url(#plate)"><use href="#iconL" x="100" y="100" width="824" height="824"/></g>
+</svg>

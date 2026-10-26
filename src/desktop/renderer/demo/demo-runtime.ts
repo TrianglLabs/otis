@@ -30,6 +30,7 @@ import {
 import type { ManagedSkillSource } from "../../../skills/catalog.js"
 import { describeToolAction, type ToolAction } from "../../../tools/activity.js"
 import {
+  type AppIcon,
   type ArtifactAssetResult,
   type ArtifactResult,
   type DesktopApi,
@@ -1491,6 +1492,7 @@ class DemoRuntime implements DesktopApi {
     workspacePanelWidths: {},
     theme: "default",
     textSize: "default",
+    appIcon: "obsidian",
     language: "system",
     thinkingVisible: true,
     notifyOnCompletion: true,
@@ -1874,6 +1876,11 @@ class DemoRuntime implements DesktopApi {
     this.#emitStatus()
   }
 
+  async setAppIcon(appIcon: AppIcon): Promise<void> {
+    this.#state = { ...this.#state, appIcon }
+    this.#emitStatus()
+  }
+
   async setTextSize(textSize: TextSize): Promise<void> {
     this.#state = { ...this.#state, textSize }
     this.#emitStatus()
@@ -1979,6 +1986,7 @@ class DemoRuntime implements DesktopApi {
       // Native previews use the actual host; standalone fixtures retain their deterministic
       // platform.
       platform: this.hostApi ? (await this.hostApi.getSnapshot()).platform : "darwin",
+      appIconSupported: true,
       version: "0.1.35",
       revision: this.#revision,
       entries: [...this.#state.entries],

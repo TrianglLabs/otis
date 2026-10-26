@@ -83,6 +83,7 @@ const api: DesktopApi = {
   setOtherAgentsEnabled: (enabled) => invoke(DESKTOP_CHANNELS.setOtherAgentsEnabled, enabled),
   setTheme: (theme) => invoke(DESKTOP_CHANNELS.setTheme, theme),
   setTextSize: (textSize) => invoke(DESKTOP_CHANNELS.setTextSize, textSize),
+  setAppIcon: (appIcon) => invoke(DESKTOP_CHANNELS.setAppIcon, appIcon),
   setLanguage: (language) => invoke(DESKTOP_CHANNELS.setLanguage, language),
   setThinkingVisible: (visible) => invoke(DESKTOP_CHANNELS.setThinkingVisible, visible),
   setNotifyOnCompletion: (enabled) => invoke(DESKTOP_CHANNELS.setNotifyOnCompletion, enabled),

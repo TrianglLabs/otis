@@ -9,6 +9,7 @@ import {
   loadLocalSettings,
   saveAchievementsSeen,
   saveAlertSound,
+  saveAppIcon,
   saveHiddenModels,
   saveHiddenSkills,
   saveHostedApiKey,
@@ -48,6 +49,13 @@ describe("local settings", () => {
     await expect(loadLocalSettings({ file, env: {} })).rejects.toThrow(
       "textSize must be one of small, default, large, larger",
     )
+  })
+  it("keeps the app icon and falls back to the bundled one for a name it no longer knows", async () => {
+    const file = join(await tempDirectory(), "config.json")
+    await saveAppIcon("macro", { file })
+    expect((await loadLocalSettings({ file, env: {} })).appIcon).toBe("macro")
+    await writeFile(file, JSON.stringify({ version: 1, appIcon: "aurora" }), "utf8")
+    expect((await loadLocalSettings({ file, env: {} })).appIcon).toBeUndefined()
   })
   it("keeps the Prime Intellect team id, lets the environment override it, and clears it", async () => {
     const file = join(await tempDirectory(), "config.json")

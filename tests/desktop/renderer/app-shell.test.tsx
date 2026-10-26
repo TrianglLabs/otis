@@ -3500,6 +3500,37 @@ describe("text size", () => {
   })
 })
 
+describe("app icon", () => {
+  it("picks the app icon from tiles in Appearance", async () => {
+    const api = fakeApi({
+      getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, appIcon: "obsidian" as const })),
+    })
+    await renderApp(api)
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }))
+    fireEvent.click(screen.getByRole("tab", { name: "Appearance" }))
+    await act(async () => {})
+    const panel = within(screen.getByRole("tabpanel", { name: "Appearance" }))
+    const pressed = (name: string) =>
+      panel.getByRole("button", { name }).getAttribute("aria-pressed")
+    expect(
+      ["Obsidian", "Obsidian dark", "Macro", "Aqua", "Night", "Ember"].map((name) => pressed(name)),
+    ).toEqual(["true", "false", "false", "false", "false", "false"])
+    fireEvent.click(panel.getByRole("button", { name: "Macro" }))
+    expect(api.setAppIcon).toHaveBeenCalledWith("macro")
+  })
+  it("leaves the app icon out of Appearance where the system ignores it", async () => {
+    await renderApp(
+      fakeApi({ getSnapshot: vi.fn(async () => ({ ...SNAPSHOT, appIconSupported: false })) }),
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }))
+    fireEvent.click(screen.getByRole("tab", { name: "Appearance" }))
+    await act(async () => {})
+    const panel = within(screen.getByRole("tabpanel", { name: "Appearance" }))
+    expect(panel.queryByText("App icon")).toBeNull()
+    expect(panel.getByText("Theme")).toBeTruthy()
+  })
+})
+
 describe("theme application", () => {
   it("applies the workspace theme to the document and remembers it for the next boot", async () => {
     const storage = new Map<string, string>()

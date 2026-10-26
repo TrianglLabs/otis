@@ -18,6 +18,7 @@
     "build:desktop:icons": "bun run scripts/build-desktop-icons.ts",
     "build:desktop:tray": "bun run scripts/build-tray-icons.ts",
     "build:desktop:ico": "bun run scripts/build-windows-icon.ts",
+    "build:desktop:app-icons": "electron scripts/render-app-icons.mjs",
     "pack:desktop": "bun run build:desktop && electron-builder --dir",
     "format": "biome format --write .",
     "lint": "biome lint .",
