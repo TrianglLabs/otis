@@ -3,7 +3,12 @@ import { isArtifactReference } from "../../artifacts/types.js"
 import { isOtherAgentId } from "../../core/context.js"
 import { isRecord } from "../../inference/errors.js"
 import { isHostedProvider, isServerProvider } from "../../inference/types.js"
-import { TEXT_SIZES, WORKSPACE_PANEL_TABS, type WorkspacePanelTab } from "../../local/settings.js"
+import {
+  APP_ICONS,
+  TEXT_SIZES,
+  WORKSPACE_PANEL_TABS,
+  type WorkspacePanelTab,
+} from "../../local/settings.js"
 import { isMemoryScope } from "../../memory/memory.js"
 import type {
   DesktopAttachmentInput,
@@ -267,6 +272,11 @@ export function desktopCall(runtime: DesktopRuntime) {
     setTheme: (theme: unknown) => {
       if (typeof theme !== "string") throw new Error("Invalid theme.")
       return runtime.setTheme(theme)
+    },
+    setAppIcon: (appIcon: unknown) => {
+      const icon = APP_ICONS.find((known) => known === appIcon)
+      if (!icon) throw new Error("Invalid app icon.")
+      return runtime.setAppIcon(icon)
     },
     setTextSize: (textSize: unknown) => {
       const size = TEXT_SIZES.find((known) => known === textSize)

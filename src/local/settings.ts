@@ -58,6 +58,8 @@ export type LocalSettings = Partial<Record<ServerProvider, ServerSettings>> & {
   modelProvider?: ModelProvider
   theme?: ThemeName
   textSize?: TextSize
+  /** The desktop app icon; omitted shows DEFAULT_APP_ICON. */
+  appIcon?: AppIcon
   language?: UiLanguage
   lastWorkspace?: string
   thinkingVisible?: boolean
@@ -122,6 +124,15 @@ export const THEME_NAMES = [
   "handheld",
 ] as const
 export type ThemeName = (typeof THEME_NAMES)[number]
+
+/**
+ * Desktop app icons: the Obsidian pairing, the default (its dark plate on a light system
+ * appearance, its light plate on a dark one), the dark plate alone, Macro (the cube cropped past
+ * the plate), Aqua, a starry Night, and Ember.
+ */
+export const APP_ICONS = ["obsidian", "obsidian-dark", "macro", "aqua", "night", "ember"] as const
+export type AppIcon = (typeof APP_ICONS)[number]
+export const DEFAULT_APP_ICON: AppIcon = "obsidian"
 
 /** Chat prose sizes; the UI chrome keeps its own scale. */
 export const TEXT_SIZES = ["small", "default", "large", "larger"] as const
@@ -273,6 +284,10 @@ export async function clearSelectedModel(options: SettingsFileOptions = {}) {
 
 export async function saveSelectedTheme(theme: ThemeName, options: SettingsFileOptions = {}) {
   await updateSettings(options, (saved) => ({ ...saved, theme }))
+}
+
+export async function saveAppIcon(appIcon: AppIcon, options: SettingsFileOptions = {}) {
+  await updateSettings(options, (saved) => ({ ...saved, appIcon }))
 }
 
 export async function saveTextSize(textSize: TextSize, options: SettingsFileOptions = {}) {
@@ -596,6 +611,8 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
     // The theme list changes across releases; an unrecognized saved name (e.g. a removed theme)
     // falls back to the default rather than blocking startup over a cosmetic preference.
     theme: isThemeName(value.theme) ? value.theme : undefined,
+    // Same for an icon a later release removed.
+    appIcon: APP_ICONS.find((icon) => icon === value.appIcon),
     textSize,
     language,
     lastWorkspace,

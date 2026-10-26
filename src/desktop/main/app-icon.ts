@@ -1,32 +1,47 @@
 import { join } from "node:path"
-import { app, type NativeImage, nativeImage } from "electron"
+import { app, type BrowserWindow, type NativeImage, nativeImage } from "electron"
+import type { AppIcon } from "../../local/settings.js"
 
 /**
- * Packaged macOS apps use the native asset catalog and packaged Windows apps the icon compiled
- * into the executable; Linux and Electron dev use the static exports, the sized .ico on Windows.
- * The main bundle lives in out/main; electron-builder copies the icons into the packaged
- * resources directory.
+ * Whether the system shows the icon a running app sets. Linux Wayland sessions do not: GNOME's
+ * dock and Hyprland desktops such as Omarchy read the icon of the installed desktop entry, and
+ * Hyprland does not take window icons at all. A compositor started from a console reports the
+ * session as tty, so the Wayland socket decides when the session type does not.
  */
-export function configureAppIcon(options: {
-  packaged: boolean
-  resourcesPath: string
-  mainDir: string
-  platform: NodeJS.Platform
-}): NativeImage | undefined {
-  // A Dock image override would replace the system's Liquid Glass rendering and appearance
-  // selection; a Windows window without an icon of its own shows its executable's.
-  if (options.packaged && (options.platform === "darwin" || options.platform === "win32"))
-    return undefined
+export function appIconSupported(platform: NodeJS.Platform, env: NodeJS.ProcessEnv): boolean {
+  if (platform !== "linux") return true
+  if (env.XDG_SESSION_TYPE === "x11") return true
+  return env.XDG_SESSION_TYPE !== "wayland" && !env.WAYLAND_DISPLAY
+}
 
-  const root = options.packaged
-    ? options.resourcesPath
-    : join(options.mainDir, "..", "..", "resources")
-  const path = join(root, options.platform === "win32" ? "icon.ico" : "icon.png")
-  const image = nativeImage.createFromPath(path)
-  if (image.isEmpty()) {
-    console.warn(`Unable to load the desktop icon: ${path}`)
-    return undefined
+/**
+ * Shows the chosen icon in the Dock on macOS and as the window icon elsewhere, and returns the
+ * image for a window still to be created. The Obsidian pairing shows its dark plate on a light
+ * system appearance and its light plate on a dark one; a choice that leaves the image as it is
+ * does not reload it.
+ */
+export function createAppIcon(
+  host: { packaged: boolean; resourcesPath: string; mainDir: string; platform: NodeJS.Platform },
+  dark: () => boolean,
+) {
+  // The main bundle lives in out/main; electron-builder copies the icons into the packaged
+  // resources directory.
+  const dir = host.packaged
+    ? join(host.resourcesPath, "app-icons")
+    : join(host.mainDir, "..", "..", "resources", "app-icons")
+  let shown: string | undefined
+  return (choice: AppIcon, window?: BrowserWindow): NativeImage | undefined => {
+    const file = choice === "obsidian" ? (dark() ? "obsidian-pearl" : "obsidian") : choice
+    const path = join(dir, `${file === "obsidian-dark" ? "obsidian" : file}.png`)
+    if (path === shown) return undefined
+    shown = path
+    const image = nativeImage.createFromPath(path)
+    if (image.isEmpty()) {
+      console.warn(`Unable to load the desktop icon: ${path}`)
+      return undefined
+    }
+    if (host.platform === "darwin") app.dock?.setIcon(image)
+    else window?.setIcon(image)
+    return image
   }
-  if (options.platform === "darwin") app.dock?.setIcon(image)
-  return image
 }

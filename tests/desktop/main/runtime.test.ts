@@ -397,6 +397,11 @@ describe("DesktopRuntime subagents", () => {
     expect((await loadLocalSettings()).keepAwake).toBe(true)
     await runtime.setKeepAwake(false)
 
+    expect((await runtime.snapshot()).appIcon).toBe("obsidian")
+    await runtime.setAppIcon("ember")
+    expect((await runtime.snapshot()).appIcon).toBe("ember")
+    expect((await loadLocalSettings()).appIcon).toBe("ember")
+
     expect((await runtime.snapshot()).alertSound).toBe(false)
     await runtime.setAlertSound(true)
     expect((await runtime.snapshot()).alertSound).toBe(true)
@@ -2652,6 +2657,7 @@ describe("serving other devices", () => {
       { url: serve?.listening?.urls[0].url ?? "", token: serve?.listening?.token ?? "" },
       {
         platform: "linux",
+        appIconSupported: true,
         version: "test",
         onEvent: (event) => events.push(event),
         onTerminal: () => {},

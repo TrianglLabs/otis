@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+<defs>
+<filter id="dither" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="1" seed="4" stitchTiles="stitch"/><feColorMatrix type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0.09 0 0 0 -0.03"/></filter>
+<filter id="plate" x="-10%" y="-10%" width="120%" height="125%"><feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#000000" flood-opacity="0.3"/></filter>
+<linearGradient id="bgB" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#262626"/><stop offset="1" stop-color="#1A1A1A"/></linearGradient>
+<radialGradient id="sheenB" cx="0.5" cy="0" r="0.8"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.16"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/></radialGradient>
+<linearGradient id="edgeB" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.35"/><stop offset="0.5" stop-color="#FFFFFF" stop-opacity="0.04"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.1"/></linearGradient>
+<clipPath id="clipB"><rect width="1024" height="1024" rx="229"/></clipPath>
+<symbol id="iconB" viewBox="0 0 1024 1024">
+<g clip-path="url(#clipB)">
+<rect width="1024" height="1024" fill="url(#bgB)"/><rect width="1024" height="1024" filter="url(#dither)"/>
+<ellipse cx="512" cy="-140" rx="860" ry="560" fill="url(#sheenB)"/>
+<g transform="translate(89.475728155340 33.139158576052) scale(7.042071197411)">
+<g transform="matrix(.866025 .5 -.866025 .5 60 8)" fill="#616161">
+<rect x="2" y="2" width="16" height="16" rx="2"/><rect x="22" y="2" width="16" height="16" rx="2"/><rect x="42" y="2" width="16" height="16" rx="2"/>
+<rect x="2" y="22" width="16" height="16" rx="2"/><rect x="22" y="22" width="16" height="16" rx="2"/><rect x="42" y="22" width="16" height="16" rx="2"/>
+<rect x="2" y="42" width="16" height="16" rx="2"/><rect x="22" y="42" width="16" height="16" rx="2"/><rect x="42" y="42" width="16" height="16" rx="2"/>
+</g>
+<g transform="matrix(.866025 .5 0 1 8.0385 38)" fill="#484848">
+<rect x="2" y="2" width="16" height="16" rx="2"/><rect x="22" y="2" width="16" height="16" rx="2"/><rect x="42" y="2" width="16" height="16" rx="2"/>
+<rect x="2" y="22" width="16" height="16" rx="2"/><rect x="22" y="22" width="16" height="16" rx="2"/><rect x="42" y="22" width="16" height="16" rx="2"/>
+<rect x="2" y="42" width="16" height="16" rx="2"/><rect x="22" y="42" width="16" height="16" rx="2"/><rect x="42" y="42" width="16" height="16" rx="2"/>
+</g>
+<g transform="matrix(.866025 -.5 0 1 60 68)" fill="#8B7CFF">
+<rect x="2" y="2" width="16" height="16" rx="2"/><rect x="22" y="2" width="16" height="16" rx="2"/><rect x="42" y="2" width="16" height="16" rx="2"/>
+<rect x="2" y="22" width="16" height="16" rx="2"/><rect x="42" y="22" width="16" height="16" rx="2"/>
+<rect x="2" y="42" width="16" height="16" rx="2"/><rect x="22" y="42" width="16" height="16" rx="2"/><rect x="42" y="42" width="16" height="16" rx="2"/>
+</g>
+</g>
+</g>
+<rect x="3" y="3" width="1018" height="1018" rx="226" fill="none" stroke="url(#edgeB)" stroke-width="6"/>
+</symbol>
+
+</defs>
+<g filter="url(#plate)"><use href="#iconB" x="100" y="100" width="824" height="824"/></g>
+</svg>

@@ -1,9 +1,12 @@
 import { WebSocket } from "ws"
 import {
+  APP_ICONS,
+  DEFAULT_APP_ICON,
   isThemeName,
   type LocalSettings,
   loadLocalSettings,
   saveAlertSound,
+  saveAppIcon,
   saveSelectedTheme,
   saveSubagentPanelVisible,
   saveTextSize,
@@ -32,6 +35,7 @@ export async function connectRemote(
   remote: RemoteConnection,
   handlers: {
     platform: NodeJS.Platform
+    appIconSupported: boolean
     version: string
     onEvent(event: DesktopEvent): void
     onTerminal(data: string): void
@@ -59,6 +63,7 @@ export async function connectRemote(
     serve: null,
     theme: local.theme ?? "default",
     textSize: local.textSize ?? "default",
+    appIcon: local.appIcon ?? DEFAULT_APP_ICON,
     language: local.language ?? "system",
     thinkingVisible: local.thinkingVisible ?? false,
     alertSound: local.alertSound ?? false,
@@ -151,17 +156,23 @@ export async function connectRemote(
       const snapshot = (await forward("getSnapshot", [])) as DesktopSnapshot
       const { revision } = snapshot
       last = Math.max(last ?? 0, revision)
-      // The window's platform and version are this app's.
+      // The window's platform, icon support, and version are this app's.
       return {
         ...overlay(snapshot),
         revision: revision + bumps,
         platform: handlers.platform,
+        appIconSupported: handlers.appIconSupported,
         version: handlers.version,
       }
     },
     setTheme: (theme) => {
       if (!isThemeName(theme)) throw new Error("Invalid theme.")
       return keep("theme", theme, () => saveSelectedTheme(theme))
+    },
+    setAppIcon: (appIcon) => {
+      const icon = APP_ICONS.find((known) => known === appIcon)
+      if (!icon) throw new Error("Invalid app icon.")
+      return keep("appIcon", icon, () => saveAppIcon(icon))
     },
     setTextSize: (textSize) => {
       const size = TEXT_SIZES.find((known) => known === textSize)

@@ -38,9 +38,12 @@ import {
 } from "../../inference/types.js"
 import { ROUTINES_UNAVAILABLE, type RoutineInput } from "../../local/routines.js"
 import {
+  type AppIcon,
+  DEFAULT_APP_ICON,
   isThemeName,
   saveAchievementsSeen,
   saveAlertSound,
+  saveAppIcon,
   saveLastWorkspace,
   saveNotifyOnCompletion,
   saveOtherAgents,
@@ -98,6 +101,8 @@ type DesktopRuntimeOptions = {
   cwd: string
   version: string
   platform: NodeJS.Platform
+  /** Whether this app's window can change its icon; a daemon has no window and leaves it off. */
+  appIconSupported?: boolean
   /** Delivers the ordered event stream to the renderer. */
   send: (event: DesktopEvent) => void
   /** Delivers the workspace shell's output; not state, so it rides its own channel. */
@@ -489,6 +494,7 @@ export class DesktopRuntime {
     this.#sentStatus = undefined
     return {
       platform: this.options.platform,
+      appIconSupported: this.options.appIconSupported ?? false,
       version: this.options.version,
       entries: [...this.app.transcript.entries],
       transcripts: Object.fromEntries(
@@ -1167,6 +1173,12 @@ export class DesktopRuntime {
     this.#markStateDirty()
   }
 
+  async setAppIcon(appIcon: AppIcon) {
+    await saveAppIcon(appIcon)
+    this.app.settings.appIcon = appIcon
+    this.#markStateDirty()
+  }
+
   async setTextSize(textSize: TextSize) {
     await saveTextSize(textSize)
     this.app.settings.textSize = textSize
@@ -1681,6 +1693,7 @@ export class DesktopRuntime {
       workspacePanelWidths: app.settings.workspacePanelWidths ?? {},
       theme: app.settings.theme ?? "default",
       textSize: app.settings.textSize ?? "default",
+      appIcon: app.settings.appIcon ?? DEFAULT_APP_ICON,
       language: app.settings.language ?? "system",
       thinkingVisible: app.settings.thinkingVisible ?? false,
       otherAgentsEnabled: app.settings.otherAgents ?? true,

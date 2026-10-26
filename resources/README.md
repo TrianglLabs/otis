@@ -12,6 +12,19 @@ and in Electron development builds; `icons/` holds the 16 to 512 pixel rendition
 hicolor icon theme, which is how launchers and docks find the app icon. Native Liquid Glass and system appearance
 selection require a packaged macOS app.
 
+## Desktop app icons
+
+`app-icons/` holds the icons the desktop app shows, picked in Appearance settings: the Obsidian pairing, the default
+(`obsidian.svg` on a light system appearance, `obsidian-pearl.svg` on a dark one); Obsidian dark (`obsidian.svg` in
+both appearances); Macro (`macro.svg`); Aqua (`aqua.svg`); Night (`night.svg`); and Ember (`ember.svg`). The app
+shows the chosen one in the Dock on macOS and as the window icon elsewhere while it runs; Finder, Launchpad,
+installers, and Linux launchers show the bundled icon above. The SVGs are the sources; after changing one, run
+
+    bun run build:desktop:app-icons
+
+which renders the 1024 pixel PNGs here with the app's own Electron, and the settings previews in
+`src/desktop/renderer/assets/app-icons/`.
+
 ## macOS status bar icons
 
 `tray/` holds the template images for the macOS status bar item: the idle, working, and alert cube variants at

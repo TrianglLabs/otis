@@ -50,6 +50,7 @@ export const STATUS: DesktopStatus = {
   workspacePanelWidths: {},
   theme: "default",
   textSize: "default",
+  appIcon: "obsidian",
   language: "system",
   thinkingVisible: false,
   notifyOnCompletion: true,
@@ -97,6 +98,7 @@ export function snapshotFixture(overrides: Partial<DesktopSnapshot> = {}): Deskt
   return {
     ...STATUS,
     platform: "darwin",
+    appIconSupported: true,
     version: "0.0.0-test",
     entries: [],
     transcripts: {},
@@ -155,6 +157,7 @@ export function fakeApi(
     markAchievementsSeen: vi.fn(async () => {}),
     setTheme: vi.fn(async () => {}),
     setTextSize: vi.fn(async () => {}),
+    setAppIcon: vi.fn(async () => {}),
     setLanguage: vi.fn(async () => {}),
     setThinkingVisible: vi.fn(async () => {}),
     setNotifyOnCompletion: vi.fn(async () => {}),

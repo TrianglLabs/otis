@@ -24,6 +24,7 @@ import type {
 } from "../inference/types.js"
 import type { RoutineInput } from "../local/routines.js"
 import type {
+  AppIcon,
   TextSize,
   ThemeName,
   UiLanguage,
@@ -40,6 +41,7 @@ export type { RecentArtifact } from "../app/global-sessions.js"
 export type { ModelState } from "../app/models.js"
 export type { HostedModel, HostedProvider, ServerProvider } from "../inference/types.js"
 export type {
+  AppIcon,
   TextSize,
   ThemeName,
   UiLanguage,
@@ -95,6 +97,7 @@ export const DESKTOP_CHANNELS = {
   markAchievementsSeen: "desktop:mark-achievements-seen",
   setTheme: "desktop:set-theme",
   setTextSize: "desktop:set-text-size",
+  setAppIcon: "desktop:set-app-icon",
   setLanguage: "desktop:set-language",
   setThinkingVisible: "desktop:set-thinking-visible",
   setNotifyOnCompletion: "desktop:set-notify-on-completion",
@@ -252,6 +255,8 @@ export type DesktopStatus = {
   theme: ThemeName
   /** Chat prose size from Appearance; the UI chrome keeps its own scale. */
   textSize: TextSize
+  /** This app's icon from Appearance; a paired daemon does not share it. */
+  appIcon: AppIcon
   /** Desktop interface language; system follows the operating system locale. */
   language: UiLanguage
   /**
@@ -313,6 +318,8 @@ export type CanvasTab = { runtime: number; artifact: ArtifactMetadata; activated
 
 export type DesktopSnapshot = DesktopStatus & {
   platform: NodeJS.Platform
+  /** Whether this system shows the icon a running app sets; Appearance offers icons only then. */
+  appIconSupported: boolean
   version: string
   entries: TranscriptEntry[]
   /** The transcripts of the other sessions on screen, by runtime id. */
@@ -523,6 +530,8 @@ export type DesktopApi = {
   /** Applies and persists a color theme. Unknown theme names are ignored. */
   setTheme(theme: ThemeName): Promise<void>
   setTextSize(textSize: TextSize): Promise<void>
+  /** Applies and persists the app icon; the Dock or taskbar changes at once. */
+  setAppIcon(appIcon: AppIcon): Promise<void>
   /** Applies and persists the desktop interface language. */
   setLanguage(language: UiLanguage): Promise<void>
   /** Shows thinking as trace cards or as plain muted text; persisted in local settings. */

@@ -533,6 +533,15 @@
   border-radius: var(--radius);
 }
 
+/* The icon art carries its own margin and shadow, so the tile shows it bare. */
+.appIconTile-preview {
+  flex-shrink: 0;
+}
+
+.appIconTile-preview img {
+  display: block;
+}
+
 /* Preference rows */
 
 .settingsRow {

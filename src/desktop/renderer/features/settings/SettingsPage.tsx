@@ -47,6 +47,7 @@ import {
 } from "../../../../inference/types.js"
 import type { LocalStats } from "../../../../local/stats.js"
 import type {
+  AppIcon,
   DesktopApi,
   OtherAgentId,
   OtherAgentImport,
@@ -56,6 +57,12 @@ import type {
   ThemeName,
   UiLanguage,
 } from "../../../contracts.js"
+import aquaIcon from "../../assets/app-icons/aqua.png"
+import emberIcon from "../../assets/app-icons/ember.png"
+import macroIcon from "../../assets/app-icons/macro.png"
+import nightIcon from "../../assets/app-icons/night.png"
+import obsidianIcon from "../../assets/app-icons/obsidian.png"
+import obsidianPearlIcon from "../../assets/app-icons/obsidian-pearl.png"
 import { Button, IconButton, Toggle } from "../../components/Button.js"
 import { Icon, RetentionBadge } from "../../components/Icon.js"
 import { TabStrip } from "../../components/TabStrip.js"
@@ -130,6 +137,29 @@ const SKILL_ORIGINS = {
 } as const
 const SETTINGS_TAB_IDS = Object.keys(SETTINGS_TABS) as SettingsTab[]
 
+/**
+ * Mirrors APP_ICONS in src/local/settings.ts, for the same reason as THEME_NAMES. The Obsidian
+ * pairing previews the plate the app shows in the current system appearance.
+ */
+const APP_ICONS = [
+  {
+    icon: "obsidian",
+    label: "settings.appIconObsidian",
+    light: obsidianIcon,
+    dark: obsidianPearlIcon,
+  },
+  {
+    icon: "obsidian-dark",
+    label: "settings.appIconObsidianDark",
+    light: obsidianIcon,
+    dark: obsidianIcon,
+  },
+  { icon: "macro", label: "settings.appIconMacro", light: macroIcon, dark: macroIcon },
+  { icon: "aqua", label: "settings.appIconAqua", light: aquaIcon, dark: aquaIcon },
+  { icon: "night", label: "settings.appIconNight", light: nightIcon, dark: nightIcon },
+  { icon: "ember", label: "settings.appIconEmber", light: emberIcon, dark: emberIcon },
+] as const satisfies readonly { icon: AppIcon; label: string; light: string; dark: string }[]
+
 /** Mirrors TEXT_SIZES in src/local/settings.ts, for the same reason as THEME_NAMES. */
 const TEXT_SIZES: TextSize[] = ["small", "default", "large", "larger"]
 const TEXT_SIZE_LABELS = {
@@ -174,6 +204,8 @@ export function SettingsPage({
     "hiddenModels",
     "theme",
     "textSize",
+    "appIcon",
+    "appIconSupported",
     "language",
     "thinkingVisible",
     "notifyOnCompletion",
@@ -700,6 +732,32 @@ export function SettingsPage({
                     ))}
                   </div>
                 </div>
+
+                {state.appIconSupported ? (
+                  <div className="settingsGroup">
+                    <h2 className="settings-section">{t("settings.appIcon")}</h2>
+                    <div className="themeGrid settingsSurface">
+                      {APP_ICONS.map(({ icon, label, light, dark }) => (
+                        <button
+                          key={icon}
+                          type="button"
+                          className={`themeTile${icon === state.appIcon ? " themeTile-active" : ""}`}
+                          onClick={() => void api.setAppIcon(icon)}
+                          aria-pressed={icon === state.appIcon}
+                        >
+                          <picture className="appIconTile-preview">
+                            <source srcSet={dark} media="(prefers-color-scheme: dark)" />
+                            <img src={light} alt="" width={40} height={40} />
+                          </picture>
+                          <span className="themeTile-name">
+                            {t(label)}
+                            {icon === state.appIcon ? <Icon icon={Check} size={11} /> : null}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
               </>
             ) : null}
 

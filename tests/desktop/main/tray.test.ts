@@ -137,6 +137,7 @@ function statusFixture(overrides: Partial<DesktopStatus> = {}): DesktopStatus {
     workspacePanelWidths: {},
     theme: "default",
     textSize: "default",
+    appIcon: "obsidian",
     language: "system",
     thinkingVisible: true,
     notifyOnCompletion: true,
