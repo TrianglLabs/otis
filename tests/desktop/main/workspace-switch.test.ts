@@ -299,9 +299,11 @@ describe("DesktopRuntime workspace switching", () => {
       expect(fresh).toHaveLength(1)
       expect(fresh).not.toContain(alpha.id)
       expect(await runtime.selectSession(foreign.id, dirName)).toEqual({ ok: true })
-      await flush()
-      snapshot = await runtime.snapshot()
-      expect(snapshot.panes).toHaveLength(2)
+      // The session read from history lands when the disk does; the pane follows it.
+      await vi.waitFor(async () => {
+        snapshot = await runtime.snapshot()
+        expect(snapshot.panes).toHaveLength(2)
+      })
       expect(snapshot.workspace.path).toBe(resolve(otherCwd))
       const restored = app.runtimes.map((entry) => ({
         folder: entry.workspace.cwd,

@@ -1668,7 +1668,7 @@ describe("DesktopRuntime sessions", () => {
       runtime.closePane(first.id)
       await flush()
       await vi.waitFor(() => expect(ids(first)).toEqual([pair[0]]))
-      expect(ids(second)).toEqual([pair[1]])
+      await vi.waitFor(() => expect(ids(second)).toEqual([pair[1]]))
       expect(await runtime.selectSession(pair[0] ?? "")).toEqual({ ok: true })
       await flush()
       expect((await runtime.snapshot()).panes).toEqual([first.id])
