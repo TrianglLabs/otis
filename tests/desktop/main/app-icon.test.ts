@@ -43,6 +43,24 @@ describe("createAppIcon", () => {
     expect(app.dock?.setIcon).toHaveBeenCalledExactlyOnceWith(image)
   })
 
+  it("leaves a packaged Mac's bundle icon, which is the Obsidian pairing, until another is shown", () => {
+    let dark = false
+    const show = createAppIcon({ ...packaged, platform: "darwin" }, () => dark)
+    expect(show("obsidian")).toBeUndefined()
+    dark = true
+    show("obsidian")
+    expect(app.dock?.setIcon).not.toHaveBeenCalled()
+    show("macro")
+    show("obsidian")
+    expect(vi.mocked(nativeImage.createFromPath).mock.calls).toEqual([
+      [join(resourcesPath, "app-icons", "macro.png")],
+      [join(resourcesPath, "app-icons", "obsidian-pearl.png")],
+    ])
+    // Development builds show Electron's own icon, so the pairing is drawn there.
+    createAppIcon({ ...location, platform: "darwin" }, () => false)("obsidian")
+    expect(app.dock?.setIcon).toHaveBeenCalledTimes(3)
+  })
+
   it("shows the Obsidian pairing's dark plate on a light appearance and its light one on dark", () => {
     let dark = false
     const show = createAppIcon({ ...location, platform: "darwin" }, () => dark)
