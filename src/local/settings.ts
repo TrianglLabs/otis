@@ -126,8 +126,8 @@ export const THEME_NAMES = [
 export type ThemeName = (typeof THEME_NAMES)[number]
 
 /**
- * Desktop app icons: the Obsidian pairing, the default (its dark plate on a light system
- * appearance, its light plate on a dark one), the dark plate alone, Macro (the cube cropped past
+ * Desktop app icons: the Obsidian pairing, the default (its pearl plate on a light system
+ * appearance, its dark plate on a dark one), the dark plate alone, Macro (the cube cropped past
  * the plate), Aqua, a starry Night, and Ember.
  */
 export const APP_ICONS = ["obsidian", "obsidian-dark", "macro", "aqua", "night", "ember"] as const

@@ -54,14 +54,14 @@ describe("createAppIcon", () => {
     show("obsidian")
     expect(vi.mocked(nativeImage.createFromPath).mock.calls).toEqual([
       [join(resourcesPath, "app-icons", "macro.png")],
-      [join(resourcesPath, "app-icons", "obsidian-pearl.png")],
+      [join(resourcesPath, "app-icons", "obsidian.png")],
     ])
     // Development builds show Electron's own icon, so the pairing is drawn there.
     createAppIcon({ ...location, platform: "darwin" }, () => false)("obsidian")
     expect(app.dock?.setIcon).toHaveBeenCalledTimes(3)
   })
 
-  it("shows the Obsidian pairing's dark plate on a light appearance and its light one on dark", () => {
+  it("shows the Obsidian pairing's pearl plate on a light appearance and its dark one on dark", () => {
     let dark = false
     const show = createAppIcon({ ...location, platform: "darwin" }, () => dark)
     show("obsidian")
@@ -69,8 +69,8 @@ describe("createAppIcon", () => {
     show("obsidian")
     const dir = join(repoRoot, "resources", "app-icons")
     expect(vi.mocked(nativeImage.createFromPath).mock.calls).toEqual([
-      [join(dir, "obsidian.png")],
       [join(dir, "obsidian-pearl.png")],
+      [join(dir, "obsidian.png")],
     ])
     expect(app.dock?.setIcon).toHaveBeenCalledTimes(2)
   })
