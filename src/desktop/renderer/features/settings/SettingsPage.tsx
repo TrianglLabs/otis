@@ -74,26 +74,26 @@ import { AchievementsTab } from "../achievements/Achievements.js"
 import { ModelDetail } from "../models/ModelPicker.js"
 
 /**
- * Mirrors THEME_NAMES in src/local/settings.ts; that module reads the filesystem and cannot be
- * bundled here.
+ * Mirrors THEME_NAMES in src/local/settings.ts, with each theme's label; that module reads the
+ * filesystem and cannot be bundled here.
  */
-const THEME_NAMES: ThemeName[] = [
-  "default",
-  "nord",
-  "bright",
-  "matrix",
-  "midnight",
-  "graphite",
-  "beige",
-  "vice",
-  "eagan",
-  "pearl",
-  "sage",
-  "titanium",
-  "porcelain",
-  "arcade",
-  "handheld",
-]
+const THEMES = [
+  { theme: "default", label: "settings.themeDefault" },
+  { theme: "nord", label: "settings.themeNord" },
+  { theme: "bright", label: "settings.themeBright" },
+  { theme: "matrix", label: "settings.themeMatrix" },
+  { theme: "midnight", label: "settings.themeMidnight" },
+  { theme: "graphite", label: "settings.themeGraphite" },
+  { theme: "beige", label: "settings.themeBeige" },
+  { theme: "vice", label: "settings.themeVice" },
+  { theme: "eagan", label: "settings.themeEagan" },
+  { theme: "pearl", label: "settings.themePearl" },
+  { theme: "ember", label: "settings.themeEmber" },
+  { theme: "titanium", label: "settings.themeTitanium" },
+  { theme: "porcelain", label: "settings.themePorcelain" },
+  { theme: "arcade", label: "settings.themeArcade" },
+  { theme: "handheld", label: "settings.themeHandheld" },
+] as const satisfies readonly { theme: ThemeName; label: string }[]
 
 /**
  * Mirrors PAIR_DEFAULT_ENDPOINTS in src/inference/pair.ts; that module's discovery code is not
@@ -138,7 +138,7 @@ const SKILL_ORIGINS = {
 const SETTINGS_TAB_IDS = Object.keys(SETTINGS_TABS) as SettingsTab[]
 
 /**
- * Mirrors APP_ICONS in src/local/settings.ts, for the same reason as THEME_NAMES. The Obsidian
+ * Mirrors APP_ICONS in src/local/settings.ts, for the same reason as THEMES. The Obsidian
  * pairing previews the plate the app shows in the current system appearance.
  */
 const APP_ICONS = [
@@ -160,7 +160,7 @@ const APP_ICONS = [
   { icon: "ember", label: "settings.appIconEmber", light: emberIcon, dark: emberIcon },
 ] as const satisfies readonly { icon: AppIcon; label: string; light: string; dark: string }[]
 
-/** Mirrors TEXT_SIZES in src/local/settings.ts, for the same reason as THEME_NAMES. */
+/** Mirrors TEXT_SIZES in src/local/settings.ts, for the same reason as THEMES. */
 const TEXT_SIZES: TextSize[] = ["small", "default", "large", "larger"]
 const TEXT_SIZE_LABELS = {
   small: "settings.textSizeSmall",
@@ -691,7 +691,7 @@ export function SettingsPage({
                 <div className="settingsGroup">
                   <h2 className="settings-section">{t("settings.theme")}</h2>
                   <div className="themeGrid settingsSurface">
-                    {THEME_NAMES.map((theme) => (
+                    {THEMES.map(({ theme, label }) => (
                       <button
                         key={theme}
                         type="button"
@@ -725,7 +725,7 @@ export function SettingsPage({
                           </svg>
                         </span>
                         <span className="themeTile-name">
-                          {theme}
+                          {t(label)}
                           {theme === state.theme ? <Icon icon={Check} size={11} /> : null}
                         </span>
                       </button>

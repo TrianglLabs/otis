@@ -3510,13 +3510,29 @@ describe("app icon", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Appearance" }))
     await act(async () => {})
     const panel = within(screen.getByRole("tabpanel", { name: "Appearance" }))
+    // The Ember theme tile shares its name with the Ember icon tile.
+    const icons = within(
+      panel.getByRole("heading", { name: "App icon" }).closest(".settingsGroup") as HTMLElement,
+    )
     const pressed = (name: string) =>
-      panel.getByRole("button", { name }).getAttribute("aria-pressed")
+      icons.getByRole("button", { name }).getAttribute("aria-pressed")
     expect(
       ["Obsidian", "Obsidian dark", "Macro", "Aqua", "Night", "Ember"].map((name) => pressed(name)),
     ).toEqual(["true", "false", "false", "false", "false", "false"])
-    fireEvent.click(panel.getByRole("button", { name: "Macro" }))
+    fireEvent.click(icons.getByRole("button", { name: "Macro" }))
     expect(api.setAppIcon).toHaveBeenCalledWith("macro")
+  })
+  it("names every theme in the interface language, as a word, and applies the one chosen", async () => {
+    const api = fakeApi({ setTheme: vi.fn(async () => {}) })
+    await renderApp(api)
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }))
+    fireEvent.click(screen.getByRole("tab", { name: "Appearance" }))
+    await act(async () => {})
+    const panel = within(screen.getByRole("tabpanel", { name: "Appearance" }))
+    expect(panel.getByRole("button", { name: "Default" }).getAttribute("aria-pressed")).toBe("true")
+    expect(panel.queryByRole("button", { name: "midnight" })).toBeNull()
+    fireEvent.click(panel.getByRole("button", { name: "Midnight" }))
+    expect(api.setTheme).toHaveBeenCalledWith("midnight")
   })
   it("leaves the app icon out of Appearance where the system ignores it", async () => {
     await renderApp(
