@@ -1616,6 +1616,35 @@ describe("DesktopRuntime sessions", () => {
     }
   })
 
+  it("brings a pair back while its arrangement is still on its way to disk", async () => {
+    const { runtime, app } = await setup()
+    try {
+      mocks.executeTurn.mockImplementation(turnEvents("ok"))
+      await runtime.sendPrompt("first")
+      const first = app.focused
+      const second = app.openNew()
+      await runtime.sendPrompt("second")
+      await vi.waitFor(() => expect(second.busy).toBe(false))
+      // A slow disk: every arrangement record lands late.
+      for (const entry of [first, second]) {
+        const session = entry.sessions.current
+        if (!session) throw new Error("Expected an open session")
+        const arrange = session.arrangeView.bind(session)
+        vi.spyOn(session, "arrangeView").mockImplementation(async (view) => {
+          await new Promise((resolve) => setTimeout(resolve, 150))
+          await arrange(view)
+        })
+      }
+      runtime.openPane(first.id, "left")
+      expect(runtime.startNewSession()).toEqual({ ok: true })
+      const id = second.sessions.current?.id ?? ""
+      expect(await runtime.selectSession(id)).toEqual({ ok: true })
+      expect((await runtime.snapshot()).panes).toEqual([first.id, second.id])
+    } finally {
+      await runtime.shutdown()
+    }
+  })
+
   it("records how sessions sit on screen and brings them back together", async () => {
     const { runtime, app, cwd } = await setup()
     try {

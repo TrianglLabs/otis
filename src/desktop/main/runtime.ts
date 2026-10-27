@@ -203,6 +203,8 @@ export class DesktopRuntime {
   #stateDirty = false
   #flushTimer: ReturnType<typeof setTimeout> | undefined
   #flushing: Promise<void> | undefined
+  /** The arrangement records still being written; a session's view reads them once they land. */
+  #viewWrites: Promise<unknown> = Promise.resolve()
   #disposed = false
   /**
    * Set when the renderer process died; queue draining is suspended until the user sends another
@@ -771,6 +773,8 @@ export class DesktopRuntime {
       if (at) this.#recordView()
       else {
         const shown = this.app.focused
+        // The arrangement it was last shown in may still be on its way to disk.
+        await this.#viewWrites
         const view = this.#pendingWorkspace ? undefined : shown.sessions.current?.view()
         const panes: SessionRuntime[] = []
         for (const member of view?.members ?? []) {
@@ -1506,11 +1510,15 @@ export class DesktopRuntime {
       return current && currentDirName ? [{ id: current.id, dirName: currentDirName }] : []
     }
     const members = this.#panes.flatMap(member)
-    for (const runtime of this.#panes)
-      if (!left.includes(runtime))
-        void runtime.sessions.current?.arrangeView({ members, axis: this.#paneAxis })
-    for (const runtime of left)
-      void runtime.sessions.current?.arrangeView({ members: member(runtime), axis: this.#paneAxis })
+    const arrange = (runtime: SessionRuntime, shown: typeof members) =>
+      runtime.sessions.current?.arrangeView({ members: shown, axis: this.#paneAxis })
+    this.#viewWrites = Promise.allSettled([
+      this.#viewWrites,
+      ...this.#panes
+        .filter((runtime) => !left.includes(runtime))
+        .map((runtime) => arrange(runtime, members)),
+      ...left.map((runtime) => arrange(runtime, member(runtime))),
+    ])
   }
 
   async shutdown() {
@@ -1523,6 +1531,7 @@ export class DesktopRuntime {
     this.#unsubscribe()
     await this.#stopServing()
     await this.#flushing
+    await this.#viewWrites
     await this.app.shutdown()
   }
 

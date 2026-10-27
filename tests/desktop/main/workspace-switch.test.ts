@@ -298,12 +298,10 @@ describe("DesktopRuntime workspace switching", () => {
       const fresh = (await runtime.snapshot()).panes
       expect(fresh).toHaveLength(1)
       expect(fresh).not.toContain(alpha.id)
+      // Its recorded company comes back with it, even when that record is still being written.
       expect(await runtime.selectSession(foreign.id, dirName)).toEqual({ ok: true })
-      // The session read from history lands when the disk does; the pane follows it.
-      await vi.waitFor(async () => {
-        snapshot = await runtime.snapshot()
-        expect(snapshot.panes).toHaveLength(2)
-      })
+      snapshot = await runtime.snapshot()
+      expect(snapshot.panes).toHaveLength(2)
       expect(snapshot.workspace.path).toBe(resolve(otherCwd))
       const restored = app.runtimes.map((entry) => ({
         folder: entry.workspace.cwd,
