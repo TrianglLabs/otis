@@ -1,7 +1,7 @@
 <h1 align="center">
   <picture>
-    <source srcset="resources/app-icons/obsidian-pearl.png" media="(prefers-color-scheme: dark)">
-    <img src="resources/app-icons/obsidian.png" alt="Otis" width="112">
+    <source srcset="resources/app-icons/obsidian.png" media="(prefers-color-scheme: dark)">
+    <img src="resources/app-icons/obsidian-pearl.png" alt="Otis" width="112">
   </picture><br>
   Otis
 </h1>

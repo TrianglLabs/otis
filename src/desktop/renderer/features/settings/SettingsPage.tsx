@@ -145,8 +145,8 @@ const APP_ICONS = [
   {
     icon: "obsidian",
     label: "settings.appIconObsidian",
-    light: obsidianIcon,
-    dark: obsidianPearlIcon,
+    light: obsidianPearlIcon,
+    dark: obsidianIcon,
   },
   {
     icon: "obsidian-dark",
