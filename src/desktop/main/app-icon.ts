@@ -17,8 +17,10 @@ export function appIconSupported(platform: NodeJS.Platform, env: NodeJS.ProcessE
 /**
  * Shows the chosen icon in the Dock on macOS and as the window icon elsewhere, and returns the
  * image for a window still to be created. The Obsidian pairing shows its dark plate on a light
- * system appearance and its light plate on a dark one; a choice that leaves the image as it is
- * does not reload it.
+ * system appearance and its light plate on a dark one. A packaged macOS app already carries that
+ * pairing as its bundle icon, which the system draws itself, so the pairing leaves the Dock alone
+ * there until another icon has been shown. A choice that leaves the image as it is does not
+ * reload it.
  */
 export function createAppIcon(
   host: { packaged: boolean; resourcesPath: string; mainDir: string; platform: NodeJS.Platform },
@@ -29,8 +31,9 @@ export function createAppIcon(
   const dir = host.packaged
     ? join(host.resourcesPath, "app-icons")
     : join(host.mainDir, "..", "..", "resources", "app-icons")
-  let shown: string | undefined
+  let shown = host.packaged && host.platform === "darwin" ? "bundle" : undefined
   return (choice: AppIcon, window?: BrowserWindow): NativeImage | undefined => {
+    if (shown === "bundle" && choice === "obsidian") return undefined
     const file = choice === "obsidian" ? (dark() ? "obsidian-pearl" : "obsidian") : choice
     const path = join(dir, `${file === "obsidian-dark" ? "obsidian" : file}.png`)
     if (path === shown) return undefined
