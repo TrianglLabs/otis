@@ -3,10 +3,10 @@ import { MARK_CELL, MARK_FACES, MARK_GRID, MARK_VIEWBOX } from "../src/desktop/r
 
 /**
  * Renders the macOS tray template images from the shared mark geometry. Template images are pure
- * black with alpha so the menu bar tints them for both appearances. Two deliberate departures from
- * the renderer's mark: the rounded cell corners (2 viewBox units ≈ a quarter pixel) are dropped,
- * and the working variant flattens the cube to a solid silhouette with the O closed, so the state
- * change reads at menu-bar size.
+ * black with alpha so the menu bar tints them for both appearances. Three deliberate departures
+ * from the renderer's mark: the rounded cell corners (2 viewBox units ≈ a quarter pixel) are
+ * dropped, the top face is fainter, and the working variant flattens the cube to a solid
+ * silhouette with the O closed, so the state change reads at menu-bar size.
  */
 
 export type TrayIconVariant = "idle" | "working" | "alert"
@@ -46,11 +46,9 @@ export function renderTrayIconAlpha(
   const offsetY = (height - MARK_VIEWBOX.height * scale) / 2
   const solid = variant === "working"
   const faces = [
-    {
-      matrix: MARK_FACES.top.matrix,
-      opacity: solid ? 1 : MARK_FACES.top.opacity,
-      cells: MARK_FACES.top.cells,
-    },
+    // The top face sits below the mark's 0.7: the menu bar draws the template in the tint its
+    // wallpaper calls for, mostly a dark one, where the mark's value read as a heavy lid.
+    { matrix: MARK_FACES.top.matrix, opacity: solid ? 1 : 0.5, cells: MARK_FACES.top.cells },
     {
       matrix: MARK_FACES.left.matrix,
       opacity: solid ? 1 : MARK_FACES.left.opacity,

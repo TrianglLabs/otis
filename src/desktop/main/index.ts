@@ -450,6 +450,10 @@ if (!app.requestSingleInstanceLock()) {
           void current.call("focusSession", [runtime])
           focusWindow()
         },
+        openSession: (id, dirName) => {
+          void current.call("selectSession", [id, dirName])
+          focusWindow()
+        },
         openSessionAt: (path, sessionId, dirName) => {
           void current.call("openSessionAt", [path, sessionId, dirName])
           focusWindow()
