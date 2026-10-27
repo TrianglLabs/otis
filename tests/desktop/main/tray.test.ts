@@ -177,6 +177,7 @@ function actionsFixture(): TrayActions {
     stop: vi.fn(),
     installUpdate: vi.fn(),
     focusSession: vi.fn(),
+    openSession: vi.fn(),
     openSessionAt: vi.fn(),
     runRoutine: vi.fn(),
     respondToPermission: vi.fn(),
@@ -380,49 +381,23 @@ function routine(
 }
 
 describe("tray menu", () => {
-  it("leads with the session's informational state, all disabled", () => {
-    const items = mountTray().menu(statusFixture())
-    const labels = items.map((item) => item.label)
-    expect(labels).toContain("Fix session lock behavior")
-    expect(labels).toContain("Model: Kimi K2")
-    expect(labels).toContain("otis")
-    expect(labels).toContain("Context 21% · Auto-compact at 200.0k")
-    const firstSeparator = items.findIndex((item) => item.type === "separator")
-    expect(firstSeparator).toBeGreaterThan(0)
-    for (const item of items.slice(0, firstSeparator)) expect(item.enabled).toBe(false)
-  })
-
-  it("omits the context row until the session has one", () => {
-    const items = mountTray().menu(statusFixture({ contextTokens: undefined }))
-    expect(items.some((item) => item.label?.startsWith("Context"))).toBe(false)
-  })
-
-  it("describes the model by its short id when no display name is set", () => {
-    const items = mountTray().menu(
-      statusFixture({
-        model: {
-          id: "accounts/fireworks/models/kimi-k2",
-          provider: "fireworks",
-          supportsImageInput: false,
-        },
-      }),
+  it("names the open session as a row that shows the window, and nothing about its state", () => {
+    const mounted = mountTray()
+    const items = mounted.menu(statusFixture())
+    click(byLabel(items, "Fix session lock behavior"))
+    expect(mounted.actions.focusWindow).toHaveBeenCalledOnce()
+    const labels = items.map((item) => item.label ?? "")
+    expect(labels.some((label) => /^(Model|Context|Today|Coworkers|Keeping)/.test(label))).toBe(
+      false,
     )
-    expect(byLabel(items, "Model: kimi-k2")).toBeDefined()
-  })
-
-  it("says what is wrong instead of a model name during setup states", () => {
-    const unconfigured = mountTray().menu(
-      statusFixture({ model: null, modelState: "unconfigured" }),
-    )
-    expect(byLabel(unconfigured, "No model selected")).toBeDefined()
-    const starting = mountTray().menu(statusFixture({ modelState: "starting" }))
-    expect(byLabel(starting, "Starting model…")).toBeDefined()
-    const failed = mountTray().menu(statusFixture({ modelState: "failed", modelError: "boom" }))
-    expect(byLabel(failed, "Model failed to start")).toBeDefined()
+    expect(labels).not.toContain("otis")
   })
 
   it("offers fresh start, show, and quit — and nothing else when quiet", () => {
     const mounted = mountTray()
+    expect(mounted.menu(statusFixture({ session: null }))[0]).toMatchObject({
+      label: "Fresh start",
+    })
     const items = mounted.menu(statusFixture())
     const fresh = byLabel(items, "Fresh start")
     expect(isEnabled(fresh)).toBe(true)
@@ -432,14 +407,47 @@ describe("tray menu", () => {
     expect(mounted.actions.focusWindow).toHaveBeenCalledOnce()
     expect(byLabel(items, "Stop working")).toBeUndefined()
     expect(items.some((item) => item.label?.startsWith("Needs approval"))).toBe(false)
-    expect(items.some((item) => item.label?.startsWith("Coworkers"))).toBe(false)
     expect(items.some((item) => item.label?.startsWith("Restart to update"))).toBe(false)
     expect(items.some((item) => item.label?.startsWith("Downloading update"))).toBe(false)
-    expect(items.some((item) => item.label?.startsWith("Keeping"))).toBe(false)
     expect(items.some((item) => item.label?.startsWith("Next routine"))).toBe(false)
-    expect(items.some((item) => item.label?.startsWith("Today"))).toBe(false)
     expect(byLabel(items, "Run routine")).toBeUndefined()
     expect(items.at(-1)).toMatchObject({ role: "quit", label: "Quit Otis" })
+  })
+
+  it("lists the last three conversations not open, naming another workspace, and opens them", () => {
+    const mounted = mountTray()
+    const session = (id: string, title: string, extra = {}) => ({
+      id,
+      title,
+      detail: "",
+      dirName: "ws",
+      workspaceLabel: "otis",
+      workspacePath: "/Users/n/dev/otis",
+      ...extra,
+    })
+    const items = mounted.menu(
+      statusFixture({
+        sessions: [
+          session("s1", "Fix session lock behavior", { open: true, active: true }),
+          session("s2", "Refactor the parser"),
+          session("s3", "Notes", { dirName: "blog", workspaceLabel: "blog" }),
+          session("s4", "Write tests"),
+          session("s5", "Older still"),
+        ],
+      }),
+    )
+    const header = items.findIndex((item) => item.label === "Recent")
+    expect(items[header]).toMatchObject({ enabled: false })
+    expect(items.slice(header + 1, header + 5).map((item) => item.label ?? item.type)).toEqual([
+      "Refactor the parser",
+      "Notes — blog",
+      "Write tests",
+      "separator",
+    ])
+    expect(byLabel(items, "Older still")).toBeUndefined()
+    click(byLabel(items, "Notes — blog"))
+    expect(mounted.actions.openSession).toHaveBeenCalledExactlyOnceWith("s3", "blog")
+    expect(byLabel(mounted.menu(statusFixture()), "Recent")).toBeUndefined()
   })
 
   it("keeps fresh start available mid-turn and offers stop", () => {
@@ -543,38 +551,6 @@ describe("tray menu", () => {
     expect(byLabel(items, "Downloading Qwen3 30B A3B — 42%")?.enabled).toBe(false)
   })
 
-  it("counts only running coworkers", () => {
-    const items = mountTray().menu(
-      statusFixture({
-        subagents: [
-          { toolCallId: "t1", title: "Check session lock behavior", status: "running", tools: 3 },
-          { toolCallId: "t2", title: "Audit storage writes", status: "running", tools: 1 },
-          {
-            toolCallId: "t0",
-            title: "Map the workspace",
-            status: "complete",
-            durationMs: 4_100,
-            tools: 2,
-          },
-        ],
-      }),
-    )
-    expect(byLabel(items, "Coworkers: 2 running")?.enabled).toBe(false)
-  })
-
-  it("names the hold on sleep only while keep-awake is on and something works", () => {
-    const mounted = mountTray()
-    const label = "Keeping the computer awake"
-    expect(
-      byLabel(mounted.menu(statusFixture({ keepAwake: true, busy: true })), label),
-    ).toBeDefined()
-    expect(
-      byLabel(mounted.menu(statusFixture({ keepAwake: true, working: 1 })), label),
-    ).toBeDefined()
-    expect(byLabel(mounted.menu(statusFixture({ keepAwake: true })), label)).toBeUndefined()
-    expect(byLabel(mounted.menu(statusFixture({ busy: true })), label)).toBeUndefined()
-  })
-
   it("tells a session that failed off screen from one that finished", () => {
     const items = mountTray().menu(
       statusFixture({
@@ -587,22 +563,6 @@ describe("tray menu", () => {
     )
     expect(byLabel(items, "Docs — done")).toBeDefined()
     expect(byLabel(items, "Tests — failed")).toBeDefined()
-  })
-
-  it("says what the day held only while nothing works", () => {
-    const mounted = mountTray()
-    const stats = { todayTokens: 230_100 } as DesktopStatus["stats"]
-    expect(byLabel(mounted.menu(statusFixture({ stats })), "Today: 230.1k tokens")).toBeDefined()
-    expect(
-      mounted
-        .menu(statusFixture({ stats, busy: true }))
-        .some((item) => item.label?.startsWith("Today")),
-    ).toBe(false)
-    expect(
-      mounted
-        .menu(statusFixture({ stats: { todayTokens: 0 } as DesktopStatus["stats"] }))
-        .some((item) => item.label?.startsWith("Today")),
-    ).toBe(false)
   })
 
   it("names the routine due next, as a time today or with its day later", () => {
@@ -1096,6 +1056,12 @@ describe("tray icon artwork", () => {
     const ring = facePixel(MARK_FACES.front, 30, 50)
     expect(alphaAt(idle, hole.x, hole.y)).toBe(0)
     expect(alphaAt(idle, ring.x, ring.y)).toBe(255)
+  })
+
+  it("draws the top face fainter than the mark's, lighter under the menu bar's dark tint", () => {
+    const lid = facePixel(MARK_FACES.top, 30, 30)
+    expect(alphaAt(alpha("idle"), lid.x, lid.y)).toBe(128) // half, under the mark's 0.7
+    expect(128 / 255).toBeLessThan(MARK_FACES.top.opacity)
   })
 
   it("working flattens the cube: the O closes and the 45% left face renders solid", () => {

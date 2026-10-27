@@ -52,13 +52,6 @@ function trayIconKey(status: DesktopStatus): TrayIconKey {
   return "idle"
 }
 
-/** Mirrors formatTokenCount in the renderer (main must not import renderer modules). */
-function formatTokenCount(tokens: number): string {
-  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`
-  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(1)}k`
-  return String(tokens)
-}
-
 type StatusTray = {
   /** Keeps menu state current and updates the native icon and tooltip only when they change. */
   onStatus(status: DesktopStatus): void
@@ -108,6 +101,8 @@ export function createStatusTray(options: {
     installUpdate(): void
     /** Shows an open session in the window. */
     focusSession(runtime: number): void
+    /** Opens a session from history in the window. */
+    openSession(id: string, dirName: string): void
     /** Opens a finished routine run's session in the window. */
     openSessionAt(workspacePath: string, sessionId: string, dirName?: string): void
     runRoutine(id: string): void
@@ -139,9 +134,9 @@ export function createStatusTray(options: {
   let latestStatus: DesktopStatus | undefined
   tray.setToolTip(tooltip)
   tray.setIgnoreDoubleClickEvents(true)
-  // The menu template is rebuilt from the latest status at every open. The status block is
-  // informational (disabled rows); the actions are the things worth doing without switching apps.
-  // Quiet by default: model-load progress and update rows only appear while they are in flight.
+  // The menu template is rebuilt from the latest status at every open. Every row is something to
+  // act on or wait for; nothing describes the state for its own sake. Quiet by default: model-load
+  // progress and update rows only appear while they are in flight.
   const openMenu = () => {
     const status = latestStatus
     if (!status) {
@@ -155,7 +150,7 @@ export function createStatusTray(options: {
       return
     }
     const items: MenuItemConstructorOptions[] = []
-    // Several open sessions list as rows that show them; a lone session is just named.
+    // Open sessions list as rows that show them.
     if (status.runtimes.length > 1) {
       for (const runtime of status.runtimes) {
         if (!runtime.session) continue
@@ -173,37 +168,11 @@ export function createStatusTray(options: {
           click: () => actions.focusSession(runtime.runtime),
         })
       }
-    } else if (status.session) items.push({ label: status.session.title, enabled: false })
-    // Mirrors shortModelId in the renderer (main must not import renderer modules):
-    // `accounts/.../x` → `x`.
-    const model = status.model
-    const modelLabel =
-      !model || status.modelState === "unconfigured"
-        ? "No model selected"
-        : status.modelState === "starting"
-          ? "Starting model…"
-          : status.modelState === "failed"
-            ? "Model failed to start"
-            : `Model: ${model.displayName ?? model.id.split("/").at(-1) ?? model.id}`
-    items.push({ label: modelLabel, enabled: false })
-    items.push({ label: status.workspace.label, enabled: false })
-    if (status.contextTokens !== undefined) {
-      const percent = Math.round((status.contextTokens / status.contextLimit) * 100)
-      const limit = formatTokenCount(status.contextLimit)
-      items.push({ label: `Context ${percent}% · Auto-compact at ${limit}`, enabled: false })
-    }
+    } else if (status.session)
+      items.push({ label: status.session.title, click: () => actions.focusWindow() })
     if (status.modelLoad?.status.kind === "progress") {
       items.push({ label: status.modelLoad.status.label, enabled: false })
     }
-    const runningCoworkers = status.subagents.filter(
-      (subagent) => subagent.status === "running",
-    ).length
-    if (runningCoworkers > 0)
-      items.push({ label: `Coworkers: ${runningCoworkers} running`, enabled: false })
-    const anyBusy = status.busy || status.working > 0
-    // Named only while it is the reason the machine is still up.
-    if (status.keepAwake && anyBusy)
-      items.push({ label: "Keeping the computer awake", enabled: false })
     // Routines run with nobody watching: the one due next, then finished runs not looked at yet,
     // which open their session. A run on now is listed with the sessions above.
     const due = status.routines
@@ -236,12 +205,7 @@ export function createStatusTray(options: {
         click: () => actions.openSessionAt(routine.cwd, sessionId, dirName),
       })
     }
-    // A quiet menu still says what the day held.
-    const { stats } = status
-    if (stats && stats.todayTokens > 0 && !anyBusy)
-      items.push({ label: `Today: ${formatTokenCount(stats.todayTokens)} tokens`, enabled: false })
-
-    items.push({ type: "separator" })
+    if (items.length) items.push({ type: "separator" })
     // An approval is answered here; opening the window shows what it asks for.
     if (status.permission) {
       const { id, label } = status.permission
@@ -251,6 +215,21 @@ export function createStatusTray(options: {
         { label: "Deny", click: () => actions.respondToPermission(id, false) },
         { type: "separator" },
       )
+    }
+    // The last few conversations not open in the window, from every workspace; one elsewhere
+    // names its workspace.
+    const recent = status.sessions.filter((item) => !item.open).slice(0, 3)
+    if (recent.length) {
+      items.push({ label: "Recent", enabled: false })
+      for (const item of recent) {
+        const where =
+          item.workspaceLabel === status.workspace.label ? "" : ` — ${item.workspaceLabel}`
+        items.push({
+          label: `${item.title}${where}`,
+          click: () => actions.openSession(item.id, item.dirName),
+        })
+      }
+      items.push({ type: "separator" })
     }
     // A fresh start mid-turn opens beside the working session, as the header button does.
     items.push({ label: "Fresh start", click: () => actions.startNewSession() })
