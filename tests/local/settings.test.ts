@@ -438,7 +438,7 @@ describe("local settings", () => {
   it.each([
     "graphite",
     "pearl",
-    "sage",
+    "ember",
     "titanium",
     "porcelain",
     "arcade",

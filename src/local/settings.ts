@@ -117,7 +117,7 @@ export const THEME_NAMES = [
   "vice",
   "eagan",
   "pearl",
-  "sage",
+  "ember",
   "titanium",
   "porcelain",
   "arcade",

@@ -493,7 +493,6 @@
   padding: 8px 10px;
   border: 1px solid transparent;
   font-size: var(--text-ui);
-  text-transform: capitalize;
   text-align: left;
   transition: background var(--motion);
 }
