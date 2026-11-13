@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { listHostedModels } from "../../src/inference/catalog.js"
+import { hostedProviderReachable, listHostedModels } from "../../src/inference/catalog.js"
 import { HOSTED_PROVIDER_INFO, HOSTED_PROVIDERS } from "../../src/inference/types.js"
 
 afterEach(() => vi.restoreAllMocks())
@@ -496,3 +496,23 @@ function model(
 function together(id: string, type: string, display_name: string | null, context_length: number) {
   return { id, object: "model", type, display_name, context_length, organization: id.split("/")[0] }
 }
+
+describe("hostedProviderReachable", () => {
+  it("counts any answer as reachable, sending no key, and a failed connection as not", async () => {
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(null, { status: 401 }),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    try {
+      await expect(hostedProviderReachable("primeintellect")).resolves.toBe(true)
+      const [url, init] = fetchMock.mock.calls[0]
+      expect(url).toBe(HOSTED_PROVIDER_INFO.primeintellect.modelsURL)
+      expect(init).toMatchObject({ method: "HEAD" })
+      expect(init?.headers).toBeUndefined()
+      fetchMock.mockRejectedValueOnce(new TypeError("fetch failed"))
+      await expect(hostedProviderReachable("fireworks")).resolves.toBe(false)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+})

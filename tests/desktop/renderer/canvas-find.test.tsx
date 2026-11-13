@@ -7,6 +7,7 @@ import type { ArtifactMetadata, ArtifactPayload } from "../../../src/artifacts/t
 import { FileArtifact } from "../../../src/desktop/renderer/features/canvas/FileArtifact.js"
 import { DesktopProvider } from "../../../src/desktop/renderer/runtime.js"
 import { DesktopViewStore } from "../../../src/desktop/renderer/state.js"
+import { minimalDocx } from "../../inference/support/document-fixtures.js"
 import { fakeApi, snapshotFixture } from "../support/desktop-api.js"
 
 const happyDOM = (window as typeof window & { happyDOM: DetachedWindowAPI }).happyDOM
@@ -98,11 +99,13 @@ it("drives find and zoom in a Word preview through the frame agent", async () =>
     mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     path: "plan.docx",
   }
-  await show(word, {
-    encoding: "html",
-    content: "<h1>Plan</h1>",
+  await show(word, { encoding: "bytes", content: await minimalDocx("Plan") })
+  // The pages are laid out asynchronously, then framed.
+  const frame = await vi.waitFor(() => {
+    const found = document.querySelector('iframe[title="plan.docx"]')
+    if (!found) throw new Error("The Word frame is not shown yet")
+    return found as HTMLIFrameElement
   })
-  const frame = document.querySelector('iframe[title="plan.docx"]') as HTMLIFrameElement
   const frameWindow = frame.contentWindow as Window
   const postMessage = vi.spyOn(frameWindow, "postMessage")
   const fromFrame = (data: object) =>

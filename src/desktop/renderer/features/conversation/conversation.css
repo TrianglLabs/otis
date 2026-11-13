@@ -620,6 +620,58 @@ button.reasoning-header:hover {
   white-space: pre-wrap;
 }
 
+/* A change of network, ruled across the conversation: offline in the warning color, back
+   online in the success color, each sliding in once. */
+.networkNotice {
+  --notice: var(--warning);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-meta);
+  color: var(--text-dim);
+  animation: network-notice-in 320ms ease-out;
+}
+
+.networkNotice-online {
+  --notice: var(--success);
+}
+
+.networkNotice::before,
+.networkNotice::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent,
+    color-mix(in srgb, var(--notice) 45%, transparent)
+  );
+}
+
+.networkNotice::after {
+  transform: scaleX(-1);
+}
+
+.networkNotice-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 600;
+  color: var(--notice);
+}
+
+.networkNotice-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@keyframes network-notice-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
 /* Tool cards */
 
 .toolCard-header {
@@ -1199,6 +1251,26 @@ button.composer-model-starting {
 button.composer-model-failed {
   background: color-mix(in srgb, var(--danger) 14%, transparent);
   color: var(--danger);
+}
+
+/* Offline, the chip wears the warning color and its label leads. */
+button.composer-model-offline {
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+  color: var(--text);
+}
+
+.composer-offline {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+  color: var(--warning);
+}
+
+.composer-offline::after {
+  content: "·";
+  margin-left: 1px;
+  color: var(--text-dim);
 }
 
 @keyframes composer-model-starting {

@@ -32,6 +32,7 @@ import { SkillManager } from "../../src/skills/manager.js"
 import { createSession, listSessions } from "../../src/storage/session.js"
 import { defaultSessionDirectory } from "../../src/storage/session-files.js"
 import { acquireSessionLock } from "../../src/storage/session-lock.js"
+import { ParallelClient } from "../../src/web/client.js"
 import { useOtisHome } from "./support/otis-home.js"
 
 const mocks = vi.hoisted(() => ({
@@ -41,6 +42,16 @@ const mocks = vi.hoisted(() => ({
   listHostedModels: vi.fn<() => Promise<unknown[]>>(async () => []),
   releaseAwake: vi.fn(),
   holdAwake: vi.fn(),
+  reachable: vi.fn<() => Promise<boolean>>(async () => true),
+  pickerItems: vi.fn<() => Promise<unknown[]>>(async () => []),
+}))
+vi.mock("../../src/inference/catalog.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/inference/catalog.js")>()),
+  hostedProviderReachable: mocks.reachable,
+}))
+vi.mock("../../src/inference/picker-catalog.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/inference/picker-catalog.js")>()),
+  listModelPickerItems: mocks.pickerItems,
 }))
 vi.mock("../../src/local/keep-awake.js", () => ({ holdAwake: mocks.holdAwake }))
 vi.mock("../../src/app/turn-runner.js", () => ({ executeTurn: mocks.executeTurn }))
@@ -85,6 +96,10 @@ function serve(
 
 beforeEach(() => {
   mocks.executeTurn.mockReset()
+  mocks.reachable.mockReset().mockResolvedValue(true)
+  // Network checks also ask Parallel; tests never reach it.
+  vi.spyOn(ParallelClient.prototype, "reachable").mockResolvedValue(true)
+  mocks.pickerItems.mockReset().mockResolvedValue([])
 })
 
 function turnEvents(text: string) {
@@ -519,6 +534,334 @@ describe("Application runtime housekeeping", () => {
     } finally {
       await app.shutdown()
     }
+  })
+})
+
+describe("Application offline fallback", () => {
+  const downloaded = () => ({ ...localChoice, downloaded: true })
+  const omlx = (id: string) => ({
+    provider: "omlx" as const,
+    id,
+    displayName: id,
+    contextLength: 32_768,
+    supportsImageInput: false,
+    baseURL: "http://127.0.0.1:8000/v1",
+  })
+  const notices = (app: Application) =>
+    app.transcript.entries
+      .filter((entry) => entry.network)
+      .map(({ network, text }) => ({ network, text }))
+
+  /** A watching app whose providers stop answering, with `pick` the models it may move to. */
+  async function offline(pick: unknown[] = [downloaded()]) {
+    const app = await ready("otis-app-offline-")
+    preparing(app)
+    vi.spyOn(app.models, "discoverServers").mockResolvedValue({})
+    vi.spyOn(app.models.llama, "runtimeInstalled").mockResolvedValue(true)
+    mocks.pickerItems.mockResolvedValue(pick)
+    mocks.reachable.mockResolvedValue(false)
+    app.watchNetwork()
+    await app.checkNetwork()
+    return app
+  }
+
+  it("moves an idle hosted session on-device while offline, and back once online", async () => {
+    const app = await offline()
+    try {
+      expect(app.focused.selection?.model).toMatchObject({ provider: "local", id: savedLocal.id })
+      expect(app.status().offline).toEqual({ returnsTo: fakeModel.displayName })
+      // The saved default stays the hosted model: a restart while offline moves again.
+      expect((await loadLocalSettings()).model).toBeUndefined()
+
+      mocks.reachable.mockResolvedValue(true)
+      await app.checkNetwork()
+      expect(app.focused.selection?.model).toEqual(fakeModel)
+      expect(app.status().offline).toBeNull()
+      expect(notices(app)).toEqual([
+        { network: "offline", text: "Switched to Qwen3.8 27B on this machine" },
+        { network: "online", text: `Switched back to ${fakeModel.displayName}` },
+      ])
+    } finally {
+      await app.shutdown()
+    }
+  })
+
+  it("prefers a model whose window holds the conversation, else the first one", async () => {
+    const small = { ...downloaded(), contextLength: 32_768 }
+    const large = {
+      ...downloaded(),
+      id: "LiquidAI/LFM2.5-24B-A2B",
+      displayName: "LFM2.5 24B",
+      contextLength: 262_144,
+    }
+    const app = await ready("otis-app-offline-")
+    preparing(app)
+    vi.spyOn(app.models, "discoverServers").mockResolvedValue({})
+    vi.spyOn(app.models.llama, "runtimeInstalled").mockResolvedValue(true)
+    mocks.pickerItems.mockResolvedValue([small, large])
+    app.transcript.observeContext(fakeClient, 50_000)
+    mocks.reachable.mockResolvedValue(false)
+    app.watchNetwork()
+    await app.checkNetwork()
+    expect(app.focused.selection?.model).toMatchObject({ id: large.id })
+
+    // Too long for either: the first one takes over and compacts it.
+    mocks.reachable.mockResolvedValue(true)
+    await app.checkNetwork()
+    app.transcript.observeContext(fakeClient, 500_000)
+    mocks.reachable.mockResolvedValue(false)
+    await app.checkNetwork()
+    expect(app.focused.selection?.model).toMatchObject({ id: small.id })
+    await app.shutdown()
+  })
+
+  it("prefers a running server's model, the last one used first", async () => {
+    const app = await ready("otis-app-offline-")
+    preparing(app)
+    app.settings.lastLocalModel = "omlx:qwen-coder"
+    vi.spyOn(app.models, "discoverServers").mockResolvedValue({
+      omlx: [omlx("gemma"), omlx("qwen-coder")],
+    })
+    mocks.pickerItems.mockResolvedValue([downloaded()])
+    mocks.reachable.mockResolvedValue(false)
+    app.watchNetwork()
+    await app.checkNetwork()
+    expect(app.focused.selection?.model).toMatchObject({ provider: "omlx", id: "qwen-coder" })
+    expect(notices(app)).toEqual([{ network: "offline", text: "Switched to qwen-coder on oMLX" }])
+    await app.shutdown()
+  })
+
+  it("stays on the hosted model with the setting off, still showing it is offline", async () => {
+    const app = await ready("otis-app-offline-")
+    await app.setOfflineFallback(false)
+    expect((await loadLocalSettings()).offlineFallback).toBe(false)
+    mocks.pickerItems.mockResolvedValue([downloaded()])
+    mocks.reachable.mockResolvedValue(false)
+    app.watchNetwork()
+    await app.checkNetwork()
+    expect(app.focused.selection?.model).toEqual(fakeModel)
+    expect(app.status().offline).toEqual({ returnsTo: null })
+    expect(notices(app)).toEqual([])
+    await app.shutdown()
+  })
+
+  it("keeps a model the user picked while offline when the network returns", async () => {
+    const app = await offline()
+    await app.selectModel(gptOss, { persist: async () => {} })
+    mocks.reachable.mockResolvedValue(true)
+    await app.checkNetwork()
+    expect(app.focused.selection?.model).toEqual(gptOss)
+    expect(notices(app)).toEqual([
+      { network: "offline", text: "Switched to Qwen3.8 27B on this machine" },
+    ])
+    await app.shutdown()
+  })
+
+  it("passes over a downloaded model whose runtime would have to download", async () => {
+    const app = await ready("otis-app-offline-")
+    preparing(app)
+    vi.spyOn(app.models, "discoverServers").mockResolvedValue({})
+    vi.spyOn(app.models.llama, "runtimeInstalled").mockResolvedValue(false)
+    mocks.pickerItems.mockResolvedValue([downloaded()])
+    mocks.reachable.mockResolvedValue(false)
+    app.watchNetwork()
+    await app.checkNetwork()
+    await app.checkNetwork()
+    expect(app.focused.selection?.model).toEqual(fakeModel)
+    expect(notices(app)).toEqual([
+      {
+        network: "offline",
+        text: "Downloaded models need their llama.cpp runtime, which downloads next time you're online",
+      },
+    ])
+    await app.shutdown()
+  })
+
+  it("says once why the model it chose could not start", async () => {
+    const app = await ready("otis-app-offline-")
+    vi.spyOn(app.models, "prepare").mockRejectedValue(new Error("The disk is full."))
+    vi.spyOn(app.models, "discoverServers").mockResolvedValue({})
+    vi.spyOn(app.models.llama, "runtimeInstalled").mockResolvedValue(true)
+    mocks.pickerItems.mockResolvedValue([downloaded()])
+    mocks.reachable.mockResolvedValue(false)
+    app.watchNetwork()
+    await app.checkNetwork()
+    await app.checkNetwork()
+    expect(app.focused.selection?.model).toEqual(fakeModel)
+    expect(notices(app)).toEqual([
+      { network: "offline", text: "Qwen3.8 27B could not start: The disk is full." },
+    ])
+    await app.shutdown()
+  })
+
+  it("installs the runtime the offline move would need while still online", async () => {
+    const app = await ready("otis-app-offline-")
+    vi.spyOn(app.models, "discoverServers").mockResolvedValue({})
+    vi.spyOn(app.models.llama, "runtimeInstalled").mockResolvedValue(false)
+    const install = vi.spyOn(app.models.llama, "installRuntime").mockResolvedValue()
+    mocks.pickerItems.mockResolvedValue([downloaded()])
+    app.watchNetwork()
+    await app.checkNetwork()
+    await vi.waitFor(() => expect(install).toHaveBeenCalled())
+    expect(install.mock.calls[0][0].id).toBe(savedLocal.id)
+    expect(app.focused.selection?.model).toEqual(fakeModel)
+    await app.shutdown()
+  })
+
+  it("installs nothing ahead with the setting off or a server to move to", async () => {
+    const app = await ready("otis-app-offline-")
+    const discover = vi.spyOn(app.models, "discoverServers").mockResolvedValue({})
+    vi.spyOn(app.models.llama, "runtimeInstalled").mockResolvedValue(false)
+    const install = vi.spyOn(app.models.llama, "installRuntime").mockResolvedValue()
+    mocks.pickerItems.mockResolvedValue([downloaded()])
+    await app.setOfflineFallback(false)
+    app.watchNetwork()
+    await app.checkNetwork()
+    await app.setOfflineFallback(true)
+    discover.mockResolvedValue({ omlx: [omlx("gemma")] })
+    await app.checkNetwork()
+    // Online, only the ahead-of-time install looks for servers (turning the setting on checks
+    // too): once it has, it chose the server.
+    await vi.waitFor(() => expect(discover).toHaveBeenCalled())
+    expect(install).not.toHaveBeenCalled()
+    await app.shutdown()
+  })
+
+  it("survives a check that cannot read what is on this machine", async () => {
+    const app = await ready("otis-app-offline-")
+    vi.spyOn(app.models, "discoverServers").mockResolvedValue({})
+    mocks.pickerItems.mockRejectedValue(new Error("The model cache is unreadable."))
+    mocks.reachable.mockResolvedValue(false)
+    app.watchNetwork()
+    // Background checks must never reject: an unhandled rejection ends the process.
+    await expect(app.checkNetwork()).resolves.toBeUndefined()
+    expect(app.status().offline).toEqual({ returnsTo: null })
+    expect(app.focused.selection?.model).toEqual(fakeModel)
+    await app.shutdown()
+  })
+
+  it("says once that nothing on this machine can take over", async () => {
+    const app = await offline([])
+    await app.checkNetwork()
+    expect(app.focused.selection?.model).toEqual(fakeModel)
+    expect(notices(app)).toEqual([
+      {
+        network: "offline",
+        text: "No model on this machine can take over. Download one from the model picker to keep working offline",
+      },
+    ])
+    mocks.reachable.mockResolvedValue(true)
+    await app.checkNetwork()
+    await app.checkNetwork()
+    expect(notices(app).at(-1)).toEqual({
+      network: "online",
+      text: "Hosted models are reachable again",
+    })
+    expect(notices(app)).toHaveLength(2)
+    await app.shutdown()
+  })
+
+  it("moves a session that was working once its turn ends", async () => {
+    const app = await ready("otis-app-offline-")
+    preparing(app)
+    vi.spyOn(app.models, "discoverServers").mockResolvedValue({})
+    vi.spyOn(app.models.llama, "runtimeInstalled").mockResolvedValue(true)
+    mocks.pickerItems.mockResolvedValue([downloaded()])
+    const turn = gate()
+    mocks.executeTurn.mockImplementation(async (options: TurnRunnerOptions) => {
+      await turn.promise
+      return turnEvents("done")(options)
+    })
+    app.watchNetwork()
+    await app.conversation.submit({ role: "user", content: "hello" })
+    mocks.reachable.mockResolvedValue(false)
+    await app.checkNetwork()
+    expect(app.focused.selection?.model).toEqual(fakeModel)
+    turn.resolve()
+    await app.conversation.idle()
+    await vi.waitFor(() =>
+      expect(app.focused.selection?.model).toMatchObject({ provider: "local" }),
+    )
+    await app.shutdown()
+  })
+
+  it("reruns a turn on-device when its first request fails because the network went", async () => {
+    const app = await ready("otis-app-offline-")
+    preparing(app)
+    vi.spyOn(app.models, "discoverServers").mockResolvedValue({})
+    vi.spyOn(app.models.llama, "runtimeInstalled").mockResolvedValue(true)
+    mocks.pickerItems.mockResolvedValue([downloaded()])
+    app.watchNetwork()
+    await app.checkNetwork()
+    const providers: string[] = []
+    mocks.executeTurn.mockImplementation(async (options: TurnRunnerOptions) => {
+      providers.push(app.focused.selection?.model.provider ?? "")
+      if (providers.length > 1) return turnEvents("answered offline")(options)
+      mocks.reachable.mockResolvedValue(false)
+      await options.onEvent?.({ type: "model" } as never)
+      return {
+        status: "error",
+        message: "The server could not be reached.",
+        messages: [],
+        details: {},
+      }
+    })
+    await app.conversation.submit({ role: "user", content: "hello" })
+    await app.conversation.idle()
+    expect(providers).toEqual(["fireworks", "local"])
+    const shown = app.transcript.entries.map(({ kind, text }) => ({ kind, text }))
+    expect(shown).toEqual([
+      { kind: "message", text: "hello" },
+      { kind: "notice", text: "Switched to Qwen3.8 27B on this machine" },
+      { kind: "message", text: "answered offline" },
+    ])
+    await app.shutdown()
+  })
+
+  it("offers the web tools only while Parallel answers, on hosted and local models alike", async () => {
+    const app = await ready("otis-app-offline-")
+    serve(app, fakeClient, gptOss)
+    const web = vi.mocked(ParallelClient.prototype.reachable).mockResolvedValue(false)
+    const tools: string[][] = []
+    mocks.executeTurn.mockImplementation(async (options: TurnRunnerOptions) => {
+      tools.push((options.agent.tools ?? []).map((tool) => tool.name))
+      return turnEvents("done")(options)
+    })
+    app.watchNetwork()
+    await app.checkNetwork()
+    await app.conversation.submit({ role: "user", content: "no web" })
+    await app.conversation.idle()
+    web.mockResolvedValue(true)
+    await app.checkNetwork()
+    await app.conversation.submit({ role: "user", content: "web again" })
+    await app.conversation.idle()
+    expect(tools[0]).not.toContain("web_search")
+    expect(tools[0]).not.toContain("web_read")
+    expect(tools[1]).toContain("web_search")
+    expect(tools[1]).toContain("web_read")
+    // A local-only session never counts as offline: no hosted provider was asked.
+    expect(app.status().offline).toBeNull()
+    expect(mocks.reachable).not.toHaveBeenCalled()
+    await app.shutdown()
+  })
+
+  it("does not rerun a turn that already streamed, which could repeat its work", async () => {
+    const app = await ready("otis-app-offline-")
+    preparing(app)
+    vi.spyOn(app.models, "discoverServers").mockResolvedValue({})
+    vi.spyOn(app.models.llama, "runtimeInstalled").mockResolvedValue(true)
+    mocks.pickerItems.mockResolvedValue([downloaded()])
+    app.watchNetwork()
+    await app.checkNetwork()
+    mocks.executeTurn.mockImplementation(async (options: TurnRunnerOptions) => {
+      mocks.reachable.mockResolvedValue(false)
+      await options.onEvent?.({ type: "delta", text: "partial" })
+      return { status: "error", message: "The connection was closed.", messages: [], details: {} }
+    })
+    await app.conversation.submit({ role: "user", content: "hello" })
+    await app.conversation.idle()
+    expect(mocks.executeTurn).toHaveBeenCalledOnce()
+    await app.shutdown()
   })
 })
 

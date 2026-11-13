@@ -8,6 +8,7 @@ import {
   validateLocalThinkingSelection,
 } from "../inference/local-thinking.js"
 import { normalizePairEndpoints, type PairEndpoints } from "../inference/pair.js"
+import { modelKey } from "../inference/picker-filter.js"
 import { normalizeServerSettings } from "../inference/servers.js"
 import {
   type CatalogModel,
@@ -17,6 +18,7 @@ import {
   type HostedModel,
   type HostedProvider,
   isModelProvider,
+  isServerProvider,
   type ModelProvider,
   type PairEngine,
   SERVER_PROVIDERS,
@@ -74,6 +76,13 @@ export type LocalSettings = Partial<Record<ServerProvider, ServerSettings>> & {
   keepAwake?: boolean
   /** A short sound when a session finishes or waits for approval while Otis is not in focus. */
   alertSound?: boolean
+  /**
+   * When false, a session on a hosted model stays on it while the provider is unreachable instead
+   * of moving to a model on this machine until the network returns. Omitted means on.
+   */
+  offlineFallback?: boolean
+  /** The last on-device model selected (managed local, oMLX, or custom), as a `modelKey`. */
+  lastLocalModel?: string
   localThinking?: LocalThinkingPreferences
   /**
    * When false, the chat side panel that lists delegated runs stays hidden. Omitted means shown.
@@ -126,9 +135,9 @@ export const THEME_NAMES = [
 export type ThemeName = (typeof THEME_NAMES)[number]
 
 /**
- * Desktop app icons: the Obsidian pairing, the default (its pearl plate on a light system
- * appearance, its dark plate on a dark one), the dark plate alone, Macro (the cube cropped past
- * the plate), Aqua, a starry Night, and Ember.
+ * Desktop app icons: Obsidian's pearl plate, the default and the bundled icon; its dark plate;
+ * Macro (the cube cropped past the plate); Aqua; a starry Night; and Ember. Each id names its
+ * file in resources/app-icons.
  */
 export const APP_ICONS = ["obsidian", "obsidian-dark", "macro", "aqua", "night", "ember"] as const
 export type AppIcon = (typeof APP_ICONS)[number]
@@ -333,6 +342,13 @@ export async function saveKeepAwake(keepAwake: boolean, options: SettingsFileOpt
 
 export async function saveAlertSound(alertSound: boolean, options: SettingsFileOptions = {}) {
   await updateSettings(options, (saved) => ({ ...saved, alertSound }))
+}
+
+export async function saveOfflineFallback(
+  offlineFallback: boolean,
+  options: SettingsFileOptions = {},
+) {
+  await updateSettings(options, (saved) => ({ ...saved, offlineFallback }))
 }
 
 export async function saveLocalThinking(
@@ -544,6 +560,7 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
   const notifyOnCompletion = optionalBoolean(value.notifyOnCompletion, "notifyOnCompletion")
   const keepAwake = optionalBoolean(value.keepAwake, "keepAwake")
   const alertSound = optionalBoolean(value.alertSound, "alertSound")
+  const offlineFallback = optionalBoolean(value.offlineFallback, "offlineFallback")
   const subagentPanelVisible = optionalBoolean(value.subagentPanelVisible, "subagentPanelVisible")
   let workspacePanelWidths: WorkspacePanelWidths | undefined
   if (value.workspacePanelWidths !== undefined) {
@@ -622,6 +639,8 @@ async function readSettingsFile(options: SettingsFileOptions): Promise<SettingsF
     notifyOnCompletion,
     keepAwake,
     alertSound,
+    offlineFallback,
+    lastLocalModel: optionalString(value.lastLocalModel, "lastLocalModel"),
     subagentPanelVisible,
     workspacePanelWidths,
     achievementsSeen,
@@ -709,6 +728,9 @@ function selectedModelSettings(settings: SettingsFile, model?: CatalogModel): Se
           modelProvider: model.provider,
           modelContextLength: contextLength,
           modelSupportsImageInput: model.supportsImageInput,
+          ...(model.provider === "local" || isServerProvider(model.provider)
+            ? { lastLocalModel: modelKey(model.provider, model.id) }
+            : {}),
         }
       : {}),
   })

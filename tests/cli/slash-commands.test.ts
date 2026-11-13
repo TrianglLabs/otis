@@ -129,6 +129,9 @@ describe("slash commands", () => {
     expect(slashCommandRunsImmediately({ type: "settings" })).toBe(true)
     expect(slashCommandRunsImmediately({ type: "settings", setting: "debug" })).toBe(true)
     expect(slashCommandRunsImmediately({ type: "settings", setting: "keep-awake" })).toBe(true)
+    expect(slashCommandRunsImmediately({ type: "settings", setting: "offline-fallback" })).toBe(
+      true,
+    )
     expect(slashCommandRunsImmediately({ type: "settings", setting: "subagents" })).toBe(true)
     expect(slashCommandRunsImmediately({ type: "settings", setting: "theme" })).toBe(true)
     expect(slashCommandRunsImmediately({ type: "settings", setting: "hosted" })).toBe(false)

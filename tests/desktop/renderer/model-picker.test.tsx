@@ -118,6 +118,35 @@ describe("model card", () => {
     expect(api.selectModel).toHaveBeenCalledWith("local:Qwen/Qwen3.8-27B")
   })
 
+  it("downloads an uncached local model from its row's download button", async () => {
+    const uncached = CATALOG.map((item) =>
+      item.kind === "model" && item.provider === "local"
+        ? { ...item, downloaded: false, hasDownloadedPacking: false }
+        : item,
+    )
+    const { api, list } = await openPicker({ listModels: vi.fn(async () => uncached) })
+    expect(within(list).queryByRole("button", { name: "Delete Qwen3.8 27B" })).toBeNull()
+    fireEvent.click(within(list).getByRole("button", { name: "Download and use Qwen3.8 27B" }))
+    await act(async () => {})
+    expect(api.selectModel).toHaveBeenCalledExactlyOnceWith("local:Qwen/Qwen3.8-27B")
+    // Hosted rows have nothing to download.
+    expect(within(list).queryByRole("button", { name: /^Download and use Kimi/ })).toBeNull()
+  })
+
+  it("greys out hosted rows while offline and says why", async () => {
+    const offline = CATALOG.map((item) =>
+      item.kind === "model" && item.provider === "together"
+        ? { ...item, available: false, availabilityLabel: "Not available offline" }
+        : item,
+    )
+    const { api, list } = await openPicker({ listModels: vi.fn(async () => offline) })
+    const row = within(list).getByText("Kimi K2.5").closest("button") as HTMLButtonElement
+    expect(row.disabled).toBe(true)
+    expect(row.textContent).toContain("Not available offline")
+    fireEvent.click(row)
+    expect(api.selectModel).not.toHaveBeenCalled()
+  })
+
   it("offers no card for hosted rows, and Escape returns to the list before clearing the query", async () => {
     const { dialog, list, search } = await openPicker()
     expect(within(list).queryByRole("button", { name: /About Kimi/ })).toBeNull()

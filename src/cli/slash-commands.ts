@@ -13,6 +13,7 @@ export type SlashCommand =
         | "pair"
         | "debug"
         | "keep-awake"
+        | "offline-fallback"
         | "subagents"
         | "delete-model"
         | "models"
@@ -64,6 +65,7 @@ const SETTINGS = [
   "servers",
   "debug",
   "keep-awake",
+  "offline-fallback",
   "subagents",
   "models",
   "theme",
@@ -196,6 +198,7 @@ export function slashCommandRunsImmediately(command: SlashCommand) {
     command.setting === undefined ||
     command.setting === "debug" ||
     command.setting === "keep-awake" ||
+    command.setting === "offline-fallback" ||
     command.setting === "subagents" ||
     command.setting === "theme"
   )

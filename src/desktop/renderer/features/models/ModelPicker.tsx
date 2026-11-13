@@ -304,7 +304,7 @@ export function ModelPicker({ open, onClose }: { open: boolean; onClose: () => v
                         </span>
                       </button>
                       {/* The active row is the highlighted one; its rail holds the info and trash
-                        affordances, shown on hover. Cancel and the download hint have their own
+                        affordances, shown on hover. Cancel and download have their own
                         slots only while they apply. */}
                       {item.provider === "local" && localModelCard(item.id) ? (
                         <IconButton
@@ -341,12 +341,14 @@ export function ModelPicker({ open, onClose }: { open: boolean; onClose: () => v
                       !item.downloaded &&
                       selectable &&
                       modelLoad?.status.kind !== "progress" ? (
-                        <span
-                          className="modelPicker-mark modelPicker-downloadHint"
-                          title={t("models.downloadingWhenSelected")}
-                        >
-                          <Icon icon={Download} size={12} />
-                        </span>
+                        <IconButton
+                          icon={Download}
+                          label={t("models.downloadName", { name: item.displayName })}
+                          size={22}
+                          className="modelPicker-download"
+                          disabled={deletingKey !== undefined}
+                          onClick={() => void select(key)}
+                        />
                       ) : null}
                     </>
                   )}

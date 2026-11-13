@@ -1,7 +1,7 @@
 <h1 align="center">
   <picture>
-    <source srcset="resources/app-icons/obsidian.png" media="(prefers-color-scheme: dark)">
-    <img src="resources/app-icons/obsidian-pearl.png" alt="Otis" width="112">
+    <source srcset="resources/app-icons/obsidian-dark.png" media="(prefers-color-scheme: dark)">
+    <img src="resources/app-icons/obsidian.png" alt="Otis" width="112">
   </picture><br>
   Otis
 </h1>
@@ -35,6 +35,9 @@ connects to the models you already run.
   for you. No account, no telemetry, and it works offline.
 - **Local or hosted, your call.** Run local models without per-token fees, or use hosted models with your own
   Fireworks AI, Together AI, Baseten, Prime Intellect, or River AI key. Pick the model. Keep the work.
+- **Keeps going when the network drops.** A session on a hosted model switches to your local model or local server,
+  even mid-message, and switches back once you're online. Web search steps aside until the web is reachable again.
+  Turn it off in Settings.
 - **Shows its work.** Thinking, every command, every edit as a diff, and an approval before anything risky. Up to
   four sessions side by side, with documents open beside the conversation.
 - **Your history stays yours.** Conversations and saved artifacts live on your disk. Hosted inference and web

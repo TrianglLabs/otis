@@ -362,6 +362,7 @@ export class SetupFlow {
       currentPairEngine: model?.provider === "pair" ? model.engine : undefined,
       pairModels,
       serverModels: this.#serverModels,
+      offline: this.#app.offline,
       listHosted: (provider, key, options) =>
         this.loadVerifiedModels(provider, key, options?.signal),
       loadStatus: models.load,

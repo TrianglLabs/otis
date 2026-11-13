@@ -17,23 +17,34 @@ import {
 import { PdfPreview } from "./PdfPreview.js"
 import { ViewControls, ZOOM_MAX, ZOOM_MIN, ZOOM_STEP } from "./ViewControls.js"
 
+/**
+ * A Word document as docx-preview lays it out: its own page sizes, margins and styles, on the
+ * desk the decks sit on. `body` outranks docx-preview's wrapper rules, which follow these in the
+ * page.
+ */
 const WORD_PREVIEW_CSS = `
-  :root { color-scheme: light; font: 16px/1.6 ui-serif, Georgia, serif; color: #242321; background: #e9e7e2; }
-  * { box-sizing: border-box; }
-  body { margin: 0; padding: 24px 16px 48px; }
-  main { width: min(720px, 100%); min-height: calc(100vh - 48px); margin: 0 auto; padding: 48px clamp(28px, 7vw, 72px); background: #fff; box-shadow: 0 4px 24px #0002; overflow-wrap: anywhere; }
-  img, svg, video, canvas, table { max-width: 100%; height: auto; }
-  pre { white-space: pre-wrap; overflow-wrap: anywhere; }
-  h1, h2, h3 { line-height: 1.2; letter-spacing: -.02em; }
-  h1 { margin-bottom: .4em; font-size: 2.2em; }
-  h2 { margin-top: 1.8em; padding-bottom: .25em; border-bottom: 1px solid #ddd9d0; font-size: 1.35em; }
-  table { width: 100%; border-collapse: collapse; font-size: .88em; }
-  th, td { padding: 9px 10px; border: 1px solid #ddd9d0; text-align: left; vertical-align: top; }
-  th { background: #f4f2ed; font-family: ui-sans-serif, system-ui, sans-serif; font-size: .82em; letter-spacing: .04em; text-transform: uppercase; }
-  li + li { margin-top: .35em; }
-  p:first-child, h1:first-child, h2:first-child { margin-top: 0; }
-  @media (max-width: 520px) { body { padding: 0; } main { min-height: 100vh; padding: 28px 22px; box-shadow: none; } }
+  :root { color-scheme: light; background: #e9e7e2; }
+  body { margin: 0; }
+  body .docx-wrapper {
+    min-height: 100vh; padding: 24px 16px 0; background: none; align-items: safe center;
+  }
+  body .docx-wrapper > section.docx { margin-bottom: 28px; box-shadow: 0 4px 24px #0002; }
 `
+
+/**
+ * Fits each page's width to the frame, as PDF pages fit the panel, and again as it resizes; the
+ * view's zoom scales the whole document on top. A page's own width is read before any fit.
+ */
+const WORD_FIT_SCRIPT = `<script>(() => {
+  const fit = () => {
+    for (const page of document.querySelectorAll("section.docx")) {
+      page.dataset.width ??= getComputedStyle(page).width
+      page.style.zoom = String((innerWidth - 32) / parseFloat(page.dataset.width))
+    }
+  }
+  fit()
+  addEventListener("resize", fit)
+})()</script>`
 
 /**
  * A deck: each slide a box of the deck's aspect ratio, every shape placed by percentage and
@@ -70,8 +81,15 @@ export function FileArtifact({
   const { t } = useI18n()
   // The previous payload stays on screen while a new revision of the same artifact loads; a
   // different artifact starts from the loading state.
-  const [loaded, setLoaded] = useState<{ id: string; payload?: ArtifactPayload; error?: string }>()
+  const [loaded, setLoaded] = useState<{
+    id: string
+    payload?: ArtifactPayload
+    /** A Word document's pages as HTML. */
+    word?: string
+    error?: string
+  }>()
   const payload = loaded?.id === artifact.id ? loaded.payload : undefined
+  const word = loaded?.id === artifact.id ? loaded.word : undefined
   const error = loaded?.id === artifact.id ? loaded.error : undefined
   const [zoom, setZoom] = useState(1)
   /** Which sheet of a workbook shows; the view is keyed per document, so it starts over. */
@@ -85,20 +103,36 @@ export function FileArtifact({
   useEffect(() => {
     let current = true
     const id = artifact.id
-    void api.getArtifact(runtime, artifact.id, artifact.revision).then(
-      (result) => {
+    void api
+      .getArtifact(runtime, artifact.id, artifact.revision)
+      .then(async (result) => {
         if (!current) return
-        if (result.ok) setLoaded({ id, payload: result.payload })
-        else if (!result.stale) setLoaded({ id, error: result.reason })
-      },
-      (reason: unknown) => {
+        if (!result.ok) {
+          if (!result.stale) setLoaded({ id, error: result.reason })
+          return
+        }
+        const { payload } = result
+        let word: string | undefined
+        if (payload.kind === "docx") {
+          // Loaded on first use. Images and fonts inline as data URLs, the only kind the
+          // preview frame loads; the laid-out nodes reach the frame as their markup.
+          const { parseAsync, renderDocument } = await import("docx-preview")
+          const options = { useBase64URL: true }
+          const pages = document.createElement("div")
+          pages.append(
+            ...(await renderDocument(await parseAsync(payload.content, options), options)),
+          )
+          word = pages.innerHTML
+        }
+        if (current) setLoaded({ id, payload, word })
+      })
+      .catch((reason: unknown) => {
         if (!current) return
         setLoaded({
           id,
           error: reason instanceof Error ? reason.message : t("canvas.previewFailed"),
         })
-      },
-    )
+      })
     return () => {
       current = false
     }
@@ -157,9 +191,10 @@ export function FileArtifact({
     [runtime, artifact.id, artifact.revision],
   )
   // Source HTML as it is; a converted Office document inside a page styled for its kind.
+  const office = word ?? (payload?.encoding === "html" ? payload.content : undefined)
   const framed =
-    payload?.encoding === "html"
-      ? `<!doctype html><html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><title>${payload.title.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")}</title><style>${payload.kind === "docx" ? WORD_PREVIEW_CSS : SLIDES_PREVIEW_CSS}</style></head><body>${payload.kind === "docx" ? `<main>${payload.content}</main>` : payload.content}</body></html>`
+    payload && office !== undefined
+      ? `<!doctype html><html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><title>${payload.title.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")}</title><style>${payload.kind === "docx" ? WORD_PREVIEW_CSS : SLIDES_PREVIEW_CSS}</style></head><body>${office}${payload.kind === "docx" ? WORD_FIT_SCRIPT : ""}</body></html>`
       : payload?.kind === "html"
         ? payload.content
         : undefined

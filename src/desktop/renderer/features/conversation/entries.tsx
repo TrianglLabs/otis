@@ -1,5 +1,5 @@
-import { ChevronRight, GitBranch, ListEnd, ShipWheel } from "lucide-react"
-import { memo, useContext, useLayoutEffect, useRef } from "react"
+import { ChevronRight, GitBranch, ListEnd, ShipWheel, Wifi, WifiOff } from "lucide-react"
+import { memo, useContext, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { ThinkingOrb } from "thinking-orbs"
 import type { TranscriptEntry } from "../../../../app/transcript.js"
 import { isCanvasArtifact } from "../../../../artifacts/canvas.js"
@@ -42,6 +42,18 @@ export const EntryView = memo(function EntryView({
       />
     )
   if (entry.kind === "debug") return <div className="debugLine">{entry.text}</div>
+  if (entry.network) {
+    const offline = entry.network === "offline"
+    return (
+      <div className={`networkNotice networkNotice-${entry.network}`} role="status">
+        <span className="networkNotice-label">
+          <Icon icon={offline ? WifiOff : Wifi} size={12} />
+          {t(offline ? "network.offline" : "network.online")}
+        </span>
+        <span className="networkNotice-text">{entry.text}</span>
+      </div>
+    )
+  }
   if (entry.kind === "reasoning") {
     // Traces off: only live thinking reaches here (finished traces are filtered upstream) — a quiet
     // status line, never the trace content itself.
@@ -238,10 +250,21 @@ function ReasoningPreview({ text }: { text: string }) {
 
 function ThinkingStatus() {
   const { t } = useI18n()
-  // The orb picks its ink from the document's light or dark class, which AppShell keeps current.
+  const ref = useRef<HTMLSpanElement>(null)
+  const [ink, setInk] = useState<string>()
+  // The orb shades its dots for the document's light or dark class and tints them with the
+  // theme's text colour, read again whenever the document's theme changes.
+  useEffect(() => {
+    const element = ref.current as HTMLElement
+    const read = () => setInk(getComputedStyle(element).getPropertyValue("--text").trim())
+    read()
+    const observer = new MutationObserver(read)
+    observer.observe(document.documentElement, { attributeFilter: ["data-theme"] })
+    return () => observer.disconnect()
+  }, [])
   return (
-    <span className="thinkingStatus" role="status">
-      <ThinkingOrb state="composing" size={20} className="thinkingOrb" aria-hidden />
+    <span ref={ref} className="thinkingStatus" role="status">
+      <ThinkingOrb state="composing" size={20} color={ink} className="thinkingOrb" aria-hidden />
       <span className="thinking-label" data-text={t("transcript.thinking")}>
         {t("transcript.thinking")}
       </span>

@@ -46,6 +46,26 @@ const CURATED_TOOL_MODELS: Partial<Record<HostedProvider, CuratedModels>> = {
   river: RIVER_TOOL_MODELS,
 }
 
+/** Long enough for a slow link to answer, short enough that a dead one is noticed in time. */
+const REACHABILITY_TIMEOUT_MS = 5000
+
+/**
+ * Whether a hosted provider answers at all. Any HTTP response counts; a failure to connect, or
+ * silence past the timeout, does not. No key is sent and no body is read.
+ */
+export async function hostedProviderReachable(provider: HostedProvider) {
+  try {
+    const response = await fetch(HOSTED_PROVIDER_INFO[provider].modelsURL, {
+      method: "HEAD",
+      signal: AbortSignal.timeout(REACHABILITY_TIMEOUT_MS),
+    })
+    await response.body?.cancel()
+    return true
+  } catch {
+    return false
+  }
+}
+
 type ListModelsOptions = {
   fetch?: typeof fetch
   modelsURL?: string

@@ -1,3 +1,4 @@
+import JSZip from "jszip"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { ArtifactMetadata } from "../../../src/artifacts/types.js"
 import { createDemoRuntime } from "../../../src/desktop/renderer/demo/demo-runtime.js"
@@ -292,10 +293,15 @@ describe("demo runtime model lifecycle", () => {
       followingLatest: true,
       reference: { version: 3 },
     })
-    expect(await api.getArtifact(1, initialArtifact.id, initialArtifact.revision)).toMatchObject({
-      ok: true,
-      payload: { content: expect.stringContaining("October 19") },
-    })
+    /** A demo Word fixture's body XML: the fixtures are real DOCX packages. */
+    const wordXml = async (id: string, revision: number) => {
+      const result = await api.getArtifact(1, id, revision)
+      if (!result.ok || result.payload.kind !== "docx") throw new Error("Expected Word bytes")
+      return (await JSZip.loadAsync(result.payload.content))
+        .file("word/document.xml")
+        ?.async("string")
+    }
+    expect(await wordXml(initialArtifact.id, initialArtifact.revision)).toContain("October 19")
 
     for (const [version, date] of [
       [1, "October 5"],
@@ -306,10 +312,7 @@ describe("demo runtime model lifecycle", () => {
       const selected = shown(await api.getSnapshot())
       if (!selected) throw new Error("Expected the selected saved artifact")
       expect(selected.publication).toMatchObject({ followingLatest: false, reference: { version } })
-      expect(await api.getArtifact(1, selected.id, selected.revision)).toMatchObject({
-        ok: true,
-        payload: { content: expect.stringContaining(date) },
-      })
+      expect(await wordXml(selected.id, selected.revision)).toContain(date)
       expect(await api.getArtifact(1, initialArtifact.id, initialArtifact.revision)).toMatchObject({
         ok: false,
         stale: true,
@@ -359,7 +362,7 @@ describe("demo runtime model lifecycle", () => {
     expect(
       await api.getArtifact(1, shown(snapshot)?.id ?? "", shown(snapshot)?.revision ?? 0),
     ).toMatchObject({
-      payload: { kind: "docx", encoding: "html" },
+      payload: { kind: "docx", encoding: "bytes", content: expect.any(Uint8Array) },
     })
 
     await api.selectSession("session_pdf")

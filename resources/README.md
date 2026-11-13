@@ -2,7 +2,7 @@
 
 `Otis.icon` is the bundled icon, authored in Apple's Icon Composer: the Obsidian pairing, with the pearl plate
 as its light appearance and the dark plate as its dark one, drawn from the same cube geometry and colors as
-`app-icons/obsidian-pearl.svg` and `app-icons/obsidian.svg`. macOS 26 draws it with Liquid Glass and picks the
+`app-icons/obsidian.svg` and `app-icons/obsidian-dark.svg`. macOS 26 draws it with Liquid Glass and picks the
 appearance from its Icon & widget style setting, which follows Dark Mode by default. Packaged macOS builds compile
 the file into `Assets.car` and a legacy ICNS using electron-builder and Xcode 26 or later.
 
@@ -16,11 +16,11 @@ appearance selection require a packaged macOS app.
 
 ## Desktop app icons
 
-`app-icons/` holds the icons the desktop app shows, picked in Appearance settings: the Obsidian pairing, the default
-(`obsidian-pearl.svg` on a light system appearance, `obsidian.svg` on a dark one); Obsidian dark (`obsidian.svg` in
-both appearances); Macro (`macro.svg`); Aqua (`aqua.svg`); Night (`night.svg`); and Ember (`ember.svg`). The app
-shows the chosen one in the Dock on macOS and as the window icon elsewhere while it runs; a packaged Mac app keeps
-the bundled icon for the default, since that already is the pairing. Finder, Launchpad, installers, and Linux
+`app-icons/` holds the icons the desktop app shows, picked in Appearance settings, each named by its settings id:
+the default (`obsidian.svg`, the pearl plate); Obsidian Dark (`obsidian-dark.svg`); Macro (`macro.svg`); Aqua
+(`aqua.svg`); Night (`night.svg`); and Ember (`ember.svg`). The app shows the chosen one in the Dock on macOS and as
+the window icon elsewhere while it runs; a packaged Mac app shows the bundled icon for the default, which macOS
+draws in the Dock icon style the user picked. Finder, Launchpad, installers, and Linux
 launchers show the bundled icon above. The SVGs are the sources; after changing one, run
 
     bun run build:desktop:app-icons

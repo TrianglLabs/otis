@@ -298,6 +298,11 @@ describe("CLI settings", () => {
           submission: "/settings keep-awake",
         },
         {
+          name: "Local model when offline",
+          description: "On",
+          submission: "/settings offline-fallback",
+        },
+        {
           name: "Subagents",
           description: "Shown",
           submission: "/settings subagents",
@@ -324,6 +329,16 @@ describe("CLI settings", () => {
     expect(mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[0]).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: "Keep awake while working", description: "On" }),
+      ]),
+    )
+
+    await submit("/settings offline-fallback")
+    expect(mocks.ui.showTransientHint).toHaveBeenLastCalledWith(" Local model when offline off ")
+    expect(mocks.saveOfflineFallback).toHaveBeenCalledWith(false)
+    await submit("/settings")
+    expect(mocks.ui.showCommandSubmenu.mock.calls.at(-1)?.[0]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "Local model when offline", description: "Off" }),
       ]),
     )
   })

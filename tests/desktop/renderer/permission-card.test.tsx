@@ -85,6 +85,8 @@ const SNAPSHOT: DesktopSnapshot = {
   notifyOnCompletion: true,
   keepAwake: false,
   alertSound: false,
+  offlineFallback: true,
+  offline: null,
   otherAgentsEnabled: true,
   cli: null,
   permissionMode: "ask",

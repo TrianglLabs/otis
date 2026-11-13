@@ -328,7 +328,7 @@ SOFTWARE.
 
 ## Mammoth 1.12.3
 
-Otis uses `mammoth@1.12.3` to extract text from DOCX attachments and convert local Word previews to semantic HTML.
+Otis uses `mammoth@1.12.3` to extract text from DOCX attachments.
 Mammoth is distributed under the BSD 2-Clause License:
 
 Copyright (c) 2013, Michael Williamson
@@ -349,6 +349,35 @@ SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PRO
 SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
 WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+## docx-preview 0.4.1
+
+Otis uses `docx-preview@0.4.1` to lay out Word documents for Canvas previews with their own styles, numbering,
+tables, page sizes, headers, and footers. Copyright Volodymyr Baydalka. docx-preview is distributed under the Apache
+License 2.0. The complete Apache License 2.0 text is reproduced in its own section below.
+
+## JSZip 3.10.2
+
+Otis uses `jszip@3.10.2`, through Mammoth and docx-preview, to read DOCX packages. JSZip is dual licensed under the
+MIT License or GPLv3; Otis uses it under the MIT License. Its dependencies `pako@1.0.11`, `lie@3.3.0`,
+`readable-stream@2.3.8`, and `setimmediate@1.0.5` are distributed under the MIT License.
+
+The MIT License
+
+Copyright (c) 2009-2016 Stuart Knightley, David Duponchel, Franz Buchinger, António Afonso
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the Software without restriction, including without limitation the
+rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit
+persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the
+Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ## Pele 1.7.0
 

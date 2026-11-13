@@ -3,7 +3,6 @@ import { pairEngineLabel } from "../../inference/pair.js"
 import {
   formatContextWindow,
   isSelectablePickerItem,
-  isServerPickerChoice,
   type ModelPickerChoice,
   type ModelPickerItem,
   type ModelPickerStatus,
@@ -219,7 +218,9 @@ function modelNameSuffixes(item: ModelPickerChoice) {
 }
 
 function modelMeta(item: ModelPickerChoice) {
-  if (isServerPickerChoice(item) && item.availabilityLabel) return item.availabilityLabel
+  // A server row that cannot serve, or a hosted one while offline, says why instead.
+  if (item.provider !== "local" && "availabilityLabel" in item && item.availabilityLabel)
+    return item.availabilityLabel
   if (item.provider === "local") {
     return `${item.availabilityLabel} · ${item.supportsImageInput ? "Vision" : "Text"}`
   }

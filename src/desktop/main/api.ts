@@ -299,6 +299,10 @@ export function desktopCall(runtime: DesktopRuntime) {
       if (typeof enabled !== "boolean") throw new Error("Invalid keep-awake flag.")
       return runtime.setKeepAwake(enabled)
     },
+    setOfflineFallback: (enabled: unknown) => {
+      if (typeof enabled !== "boolean") throw new Error("Invalid offline fallback flag.")
+      return runtime.setOfflineFallback(enabled)
+    },
     setAlertSound: (enabled: unknown) => {
       if (typeof enabled !== "boolean") throw new Error("Invalid sound flag.")
       return runtime.setAlertSound(enabled)

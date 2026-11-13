@@ -16,28 +16,29 @@ export function appIconSupported(platform: NodeJS.Platform, env: NodeJS.ProcessE
 
 /**
  * Shows the chosen icon in the Dock on macOS and as the window icon elsewhere, and returns the
- * image for a window still to be created. The Obsidian pairing shows its pearl plate on a light
- * system appearance and its dark plate on a dark one. A packaged macOS app already carries that
- * pairing as its bundle icon, which the system draws itself, so the pairing leaves the Dock alone
- * there until another icon has been shown. A choice that leaves the image as it is does not
- * reload it.
+ * image for a window still to be created. A packaged macOS app carries the default as its bundle
+ * icon, which the system draws in the Dock icon style the user picked, so the default hands the
+ * Dock back to it there. A choice that leaves the image as it is does not reload it.
  */
-export function createAppIcon(
-  host: { packaged: boolean; resourcesPath: string; mainDir: string; platform: NodeJS.Platform },
-  dark: () => boolean,
-) {
+export function createAppIcon(host: {
+  packaged: boolean
+  resourcesPath: string
+  mainDir: string
+  platform: NodeJS.Platform
+}) {
   // The main bundle lives in out/main; electron-builder copies the icons into the packaged
   // resources directory.
   const dir = host.packaged
     ? join(host.resourcesPath, "app-icons")
     : join(host.mainDir, "..", "..", "resources", "app-icons")
-  let shown = host.packaged && host.platform === "darwin" ? "bundle" : undefined
+  const bundled = host.packaged && host.platform === "darwin"
+  let shown = bundled ? "bundle" : undefined
   return (choice: AppIcon, window?: BrowserWindow): NativeImage | undefined => {
-    if (shown === "bundle" && choice === "obsidian") return undefined
-    const file = choice === "obsidian" ? (dark() ? "obsidian" : "obsidian-pearl") : choice
-    const path = join(dir, `${file === "obsidian-dark" ? "obsidian" : file}.png`)
+    const path = bundled && choice === "obsidian" ? "bundle" : join(dir, `${choice}.png`)
     if (path === shown) return undefined
     shown = path
+    // Electron's types omit it, but null clears the Dock's image back to the bundle icon.
+    if (path === "bundle") return void app.dock?.setIcon(null as unknown as NativeImage)
     const image = nativeImage.createFromPath(path)
     if (image.isEmpty()) {
       console.warn(`Unable to load the desktop icon: ${path}`)

@@ -255,8 +255,8 @@ describe("ArtifactStore", () => {
       artifacts.load(artifacts.metadata?.id ?? "", artifacts.metadata?.revision ?? 0),
     ).resolves.toMatchObject({
       kind: "docx",
-      encoding: "html",
-      content: "<p>Native Word preview</p>",
+      encoding: "bytes",
+      content: new Uint8Array(Buffer.from(docx.data, "base64")),
     })
     await expect(
       artifacts.exportFile(artifacts.metadata?.id ?? "", artifacts.metadata?.revision ?? 0),

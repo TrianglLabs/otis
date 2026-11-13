@@ -104,6 +104,31 @@ one selection queue. The managed server serves one local model at a time and eve
 so switching the local model is refused while any of those sessions is mid-turn; switching one session to a hosted
 model leaves the server running for the others and stops it only when no session still needs it.
 
+Interactive interfaces (the terminal, the desktop app, `otis serve`) follow the network; headless runs keep the model
+they name. `Application.watchNetwork` compares the machine's interface addresses every five seconds, which sends
+nothing, and asks the hosted providers the sessions use whether they answer (a keyless `HEAD` of each provider's
+model-list URL, where any HTTP response counts) when those addresses change, when a request fails before anything
+streams, and every 30 seconds while none answers. While none does, and `offlineFallback` is not switched off (the
+terminal's `/settings`, the desktop's General settings), every idle session on a hosted model moves through the normal
+selection transaction to an on-device model: a model on a running oMLX or custom server first, else a downloaded
+managed-local model this machine can run whose llama.cpp runtime is already installed (none can download offline),
+the last on-device model selected (`lastLocalModel`) leading within each. Of those, the first whose compaction
+threshold holds the session's current context is chosen, so the conversation stays whole; when none does, the first
+one takes over and compacts it, and the hosted model continues from that summary once back. While online, a background step installs
+the runtime of the first of those, through the same download lock and verification a start uses, so an Otis update
+that pins a new llama.cpp does not leave the move without one; only that one model's runtime is fetched. When nothing
+can take over, or the chosen model fails to start, the session's transcript says why, once each time offline.
+The move is not saved as the default, so a restart while offline moves again. A busy session moves once its turn
+ends; a turn whose first request failed this way moves mid-turn and runs again on the on-device model, which is safe
+because nothing streamed and no tool ran. Once a provider answers, each moved session returns to the hosted model it
+left, unless the user picked another meanwhile. Each move adds a notice entry to that session's transcript (never
+model history), and the status carries `offline` with the model the focused session returns to, which the desktop
+model chip and the terminal status line show. The same checks ask Parallel's endpoint (a keyless `HEAD`, and at once when a web
+request cannot connect): while it does not answer, for hosted and local sessions alike, turns start without
+`web_search` and `web_read`, which could only fail; the first turn after it answers has them again. The picker fetches no hosted catalog
+offline: each keyed provider's last catalog listed by this process shows greyed out as not available offline, with
+the model the focused session returns to among them.
+
 Attachments are represented as provider-neutral ordered user-content parts. Image loading validates the actual
 signature, enforces Fireworks' per-request count and base64-size limits, and places images before text for portability
 across supported vision model families. The OpenAI-compatible adapter converts images to `image_url` data URLs for
@@ -178,13 +203,15 @@ offers diagrams as cards. The system prompt advertises math and Mermaid only to 
 the theme palette. Markdown previews stop at 512 KB while the 2 MB store cap still applies to export.
 Every document kind shares one find bar and zoom control: Markdown and PDF matches are painted with the CSS Custom
 Highlight API in this window, while HTML and Word previews answer through an agent injected beside the source in the
-sandboxed frame, which also relays link clicks and shortcuts out. Word previews are Mammoth HTML in that same frame.
+sandboxed frame, which also relays link clicks and shortcuts out. Word previews are laid out in the renderer by
+docx-preview with the document's own styles, numbering, tables, page sizes, headers, and footers, images and fonts
+inlined as data URLs, and the pages' markup is shown in that same frame.
 PDF previews use a dedicated worker and virtualized pages with bounded bitmap sizes, disposing rendering tasks and
 worker resources when closed; page bitmaps re-render once the panel width settles and scale in CSS meanwhile. Each
 page carries a PDF.js text layer, so text selects and copies, and find reads page text in order to report matches
 early on long documents.
 Preview-time validation checks the PDF header and page count and the DOCX archive bounds; publication keeps the full
-document validation. PDF bytes cross the renderer boundary as typed arrays rather than base64 text.
+document validation. PDF and DOCX bytes cross the renderer boundary as typed arrays rather than base64 text.
 Canvas eligibility is a shared, browser-safe policy in `src/artifacts/canvas.ts`. Code and raw text remain available
 to tools and the transcript without selecting Canvas, including after session restoration. Export reads original
 bytes from the selected source or immutable published version through the application artifact store; it never uses
@@ -247,7 +274,8 @@ and labels it `loaded`.
 
 Selecting a runnable local model downloads its Otis-pinned llama.cpp runtime (Metal on macOS, CUDA on compatible Linux
 and Windows NVIDIA systems, Vulkan on other Linux and Windows GPU systems, otherwise CPU) and the selected GGUF into the
-platform local-data directory. Normal models use upstream llama.cpp `b11438`. Bonsai 2 uses Prism's
+platform local-data directory. Normal models use upstream llama.cpp `b12359` (v1.0.0), except that CUDA 13.4
+machines keep `b11438`, upstream's last 13.4 build. Bonsai 2 uses Prism's
 `prism-b10685-7dffb15` fork because its ternary formats require Prism's
 loader and kernels. Runtime choice is catalog metadata, so the fork is isolated to the model that needs it and both
 pinned bundles may coexist. macOS and Linux on arm64 and x64 and Windows on x64 and arm64 are supported; other targets
@@ -260,9 +288,10 @@ and obsolete known runtime directories are removed after a pinned runtime is ava
 
 Linux CUDA compatibility checks use glibc, NVIDIA driver version, and every detected GPU's compute capability. The
 official Ubuntu 24.04 CUDA archives require glibc 2.39; CUDA 12.8 (x64) requires driver 570.211.01 and SM 50–120, while
-CUDA 13.4 (x64/arm64) requires the R615 driver branch and SM 75–121. These deliberately require the toolkit's own driver
-branch because upstream ships PTX kernels; CUDA minor-version compatibility alone does not guarantee PTX support. Windows
-has no glibc gate: CUDA 13.4 applies as on Linux, and below it x64 takes the Windows 12.4 build with driver 551.61 and
+CUDA 13.5 (x64/arm64) requires the R620 driver branch and SM 75–121, and CUDA 13.4 serves the R615 branch on the
+same GPUs. These deliberately require the toolkit's own driver branch because upstream ships PTX kernels; CUDA
+minor-version compatibility alone does not guarantee PTX support. Windows has no glibc gate: CUDA 13.5 and 13.4 apply
+as on Linux, and below them x64 takes the Windows 12.4 build with driver 551.61 and
 SM 50–90, the kernels it ships; the hardware probe reads other vendors' adapters from the PnP registry, where the
 driver records the dedicated memory, taking at most 4 GiB as an integrated carve-out.
 Each CUDA server archive is paired with its official `cudart` archive. Archives download into a persistent
@@ -290,7 +319,7 @@ environment, driver installation, or system CUDA toolkit. Windows needs no loade
 come first in its search order. `OTIS_LLAMA_SERVER` preserves the custom executable's loader settings and bypasses device checks and fallback.
 
 On Linux x64, Bonsai uses Prism's official CUDA 12.8/13.3 binaries with the matching NVIDIA libraries
-from upstream's companion archives; a machine qualified for CUDA 13.4 runs Prism's 13.3 build with the 13.3 companion
+from upstream's companion archives; a machine qualified for CUDA 13.4 or 13.5 runs Prism's 13.3 build with the 13.3 companion
 from the last upstream release that shipped one. Its llama/ggml libraries come exclusively from Prism. The pinned Prism
 release has no Linux arm64 CUDA binary, so that target stays on Vulkan.
 

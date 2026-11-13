@@ -4,7 +4,7 @@ import { createRequire } from "node:module"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
-import { app, BrowserWindow, dialog, Notification, nativeTheme, shell } from "electron"
+import { app, BrowserWindow, dialog, Notification, shell } from "electron"
 import electronUpdater from "electron-updater"
 import { describeError } from "../../inference/errors.js"
 import { localConfigDirectory, localDataDirectory } from "../../local/paths.js"
@@ -133,20 +133,15 @@ if (!app.requestSingleInstanceLock()) {
     }
     const settings = await loadLocalSettings()
     // The icon is this app's preference, so it comes from local settings even when paired.
-    const showAppIcon = createAppIcon(
-      {
-        packaged: app.isPackaged,
-        resourcesPath: process.resourcesPath,
-        mainDir: __dirname,
-        platform: process.platform,
-      },
-      () => nativeTheme.shouldUseDarkColors,
-    )
+    const showAppIcon = createAppIcon({
+      packaged: app.isPackaged,
+      resourcesPath: process.resourcesPath,
+      mainDir: __dirname,
+      platform: process.platform,
+    })
     const iconSupported = appIconSupported(process.platform, process.env)
     let appIconChoice = settings.appIcon ?? DEFAULT_APP_ICON
     const appIcon = showAppIcon(appIconChoice)
-    // The Obsidian pairing swaps plates with the system appearance.
-    nativeTheme.on("updated", () => showAppIcon(appIconChoice, mainWindow))
     // The last GUI workspace only applies when the shell handed us no cwd (a Finder/Dock relaunch,
     // or a Windows shortcut starting in the install folder).
     let cwd: string | undefined = resolveWorkspaceCwd(
@@ -416,8 +411,8 @@ if (!app.requestSingleInstanceLock()) {
       window,
       devServerUrl ?? pathToFileURL(join(__dirname, "../renderer/index.html")).href,
     )
-    // OTIS_DEMO=1 opens the fixture home screen; "onboarding", "failed", "local" or a fixture
-    // session id opens there.
+    // OTIS_DEMO=1 opens the fixture home screen; "onboarding", "failed", "local", "offline" or a
+    // fixture session id opens there.
     const demo =
       process.env.OTIS_DEMO === "1"
         ? "demo"

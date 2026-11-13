@@ -73,15 +73,15 @@ export type Sheet = { name: string; rows: string[][] }
 export type Workbook = { sheets: Sheet[]; truncated: boolean }
 
 /**
- * PDF bytes cross process boundaries as a typed array, spreadsheets as their cells, text and
- * converted Office documents as strings.
+ * PDF and Word bytes cross process boundaries as a typed array, spreadsheets as their cells, text
+ * and converted decks as strings.
  */
 export type ArtifactPayload = ArtifactMetadata &
   (
-    | { kind: "pdf"; encoding: "bytes"; content: Uint8Array }
+    | { kind: "pdf" | "docx"; encoding: "bytes"; content: Uint8Array }
     | { kind: "csv" | "xlsx"; encoding: "sheets"; content: Workbook }
     | { kind: "markdown" | "text" | "html"; encoding: "utf8"; content: string }
-    | { kind: "docx" | "pptx"; encoding: "html"; content: string }
+    | { kind: "pptx"; encoding: "html"; content: string }
   )
 
 /** An image a Markdown document references by a workspace-relative path. */

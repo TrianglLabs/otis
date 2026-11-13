@@ -11,6 +11,7 @@ import {
   HOSTED_PROVIDERS,
   type HostedApiKeys,
   type HostedModel,
+  type HostedProvider,
   isServerProvider,
   type LocalCatalogModel,
   type ModelProvider,
@@ -62,7 +63,9 @@ export type LocalPickerChoice = LocalCatalogModel & {
 
 export type HostedPickerChoice = HostedModel & {
   kind: "model"
-  available: true
+  /** False while offline, when the row is the provider's last listed catalog. */
+  available: boolean
+  availabilityLabel?: string
   active: boolean
   status?: ModelPickerStatus
 }
@@ -99,6 +102,11 @@ type ListModelPickerOptions = {
   currentPairEngine?: PairEngine
   pairModels?: readonly PairCatalogModel[]
   serverModels?: Partial<Record<ServerProvider, readonly ServerCatalogModel[]>>
+  /**
+   * No hosted provider answers: no catalog is fetched, and each keyed provider's last catalog
+   * listed by this process shows unselectable, with the model a session returns to among them.
+   */
+  offline?: { returnsTo?: HostedModel }
   hardware?: HardwareProbe
   dataDirectory?: string
   loadStatus?: { modelId: string; status: ModelPickerStatus }
@@ -165,6 +173,9 @@ function recommendLocalModels(hardware: HardwareProbe) {
   }
   return { starred: [] as readonly string[], groups: plans[0][0] }
 }
+
+/** Each hosted provider's catalog as this process last listed it, shown greyed while offline. */
+const LAST_HOSTED_CATALOGS = new Map<HostedProvider, HostedModel[]>()
 
 export async function listModelPickerItems(
   options: ListModelPickerOptions = {},
@@ -252,19 +263,28 @@ export async function listModelPickerItems(
   })
   // One section per configured provider; a catalog that fails to load is simply absent this time.
   const list = options.listHosted ?? listHostedModels
+  const { offline } = options
   const hosted = await Promise.all(
     HOSTED_PROVIDERS.map(async (provider): Promise<ModelPickerItem[]> => {
       const apiKey = options.hostedApiKeys?.[provider]
-      const models = apiKey
-        ? await list(provider, apiKey, { signal: options.signal }).catch(() => [])
-        : []
+      let models: HostedModel[] = []
+      if (apiKey && offline) {
+        const { returnsTo } = offline
+        models = LAST_HOSTED_CATALOGS.get(provider) ?? []
+        if (returnsTo?.provider === provider && !models.some((model) => model.id === returnsTo.id))
+          models = [returnsTo, ...models]
+      } else if (apiKey) {
+        models = await list(provider, apiKey, { signal: options.signal }).catch(() => [])
+        if (models.length) LAST_HOSTED_CATALOGS.set(provider, models)
+      }
       const current = currentProvider === provider ? options.currentModel : undefined
       const rows = models
         .map(
           (model): HostedPickerChoice => ({
             kind: "model",
             ...model,
-            available: true,
+            available: !offline,
+            ...(offline ? { availabilityLabel: "Not available offline" } : {}),
             active: current === model.id,
           }),
         )

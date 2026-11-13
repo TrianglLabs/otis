@@ -1547,6 +1547,7 @@ describe("CUDA runtime bundles", () => {
   it.each([
     "12.8",
     "13.4",
+    "13.5",
   ] as const)("isolates CUDA %s libraries for both device checks and serving without changing the parent", async (cudaVersion) => {
     const setup = await cudaRuntimeSetup(cudaVersion)
     const parent = Object.freeze({
@@ -1920,7 +1921,7 @@ describe("CUDA runtime bundles", () => {
     expect((await readdir(join(setup.directory, "bin"))).sort()).toEqual([
       LLAMA_CPP_RELEASE_TAG,
       `${LLAMA_CPP_RELEASE_TAG}-cpu`,
-      `${LLAMA_CPP_RELEASE_TAG}-cuda-13.4`,
+      `${LLAMA_CPP_RELEASE_TAG}-cuda-13.5`,
     ])
     // Reuse the live CPU process under the original hardware selection.
     expect(await runtime.ensureServing(setup.model, setup.fit, setup.hardware)).toBe(serving)
@@ -2084,8 +2085,9 @@ describe("CUDA runtime bundles", () => {
 
   it.each([
     ["12.8", "12.8"],
-    // Prism's newest CUDA build is 13.3; a 13.4 machine runs it on the same driver.
+    // Prism's newest CUDA build is 13.3; a 13.4 or 13.5 machine runs it on the same driver.
     ["13.4", "13.3"],
+    ["13.5", "13.3"],
   ] as const)("starts Bonsai with Prism CUDA on a %s machine and its cached PQ2 weights", async (cudaVersion, prismVersion) => {
     const setup = await cudaRuntimeSetup(cudaVersion, "prism")
     const selectAsset = vi.fn(setup.options.runtimeAsset)
@@ -2250,6 +2252,7 @@ describe("CUDA runtime bundles", () => {
   it.each([
     "12.8",
     "13.4",
+    "13.5",
   ] as const)("upgrades from Vulkan to CUDA %s without touching cached models, then reuses both verified archives", async (cudaVersion) => {
     const setup = await cudaRuntimeSetup(cudaVersion)
     const old = await installFakeBinary(setup.directory, "b10964")
@@ -2266,6 +2269,43 @@ describe("CUDA runtime bundles", () => {
 
     await runtime.ensureServing(setup.model, setup.fit, setup.hardware)
     expect(setup.downloads).toHaveLength(2)
+    await runtime.stop()
+  })
+
+  it("reports a runtime installed only once its verified bundle is in place", async () => {
+    const setup = await cudaRuntimeSetup("13.5")
+    const runtime = new LlamaCppRuntime(setup.options)
+    expect(await runtime.runtimeInstalled(setup.model, setup.hardware)).toBe(false)
+    await runtime.ensureServing(setup.model, setup.fit, setup.hardware)
+    expect(await runtime.runtimeInstalled(setup.model, setup.hardware)).toBe(true)
+    await runtime.stop()
+  })
+
+  it("installs a runtime ahead of its first start, starting nothing, and drops old bundles", async () => {
+    const setup = await cudaRuntimeSetup("13.5")
+    const old = await installFakeBinary(setup.directory, "b10964")
+    const runtime = new LlamaCppRuntime(setup.options)
+    await runtime.installRuntime(setup.model, setup.hardware, new AbortController().signal)
+    expect(await runtime.runtimeInstalled(setup.model, setup.hardware)).toBe(true)
+    expect(setup.downloads).toEqual(["https://runtime.test/cuda", "https://runtime.test/cudart"])
+    expect(setup.commands).toEqual([])
+    await expect(stat(old)).rejects.toMatchObject({ code: "ENOENT" })
+    // The first start finds it in place.
+    await runtime.ensureServing(setup.model, setup.fit, setup.hardware)
+    expect(setup.downloads).toHaveLength(2)
+    await runtime.stop()
+  })
+
+  it("keeps the 13.4 release's CUDA 13.4 bundle and removes its other bundles", async () => {
+    const setup = await cudaRuntimeSetup("13.5")
+    for (const bundle of ["b11438", "b11438-cpu", "b11438-cuda-12.8", "b11438-cuda-13.4"])
+      await installFakeBinary(setup.directory, bundle)
+    const runtime = new LlamaCppRuntime(setup.options)
+    await runtime.ensureServing(setup.model, setup.fit, setup.hardware)
+    expect((await readdir(join(setup.directory, "bin"))).sort()).toEqual([
+      "b11438-cuda-13.4",
+      `${LLAMA_CPP_RELEASE_TAG}-cuda-13.5`,
+    ])
     await runtime.stop()
   })
 
@@ -2391,7 +2431,7 @@ describe("CUDA runtime bundles", () => {
 })
 
 async function cudaRuntimeSetup(
-  cudaVersion: "12.4" | "12.8" | "13.4" = "13.4",
+  cudaVersion: "12.4" | "12.8" | "13.4" | "13.5" = "13.5",
   runtime: LlamaRuntimeKind = "upstream",
   platform: "linux" | "win32" = "linux",
 ) {
@@ -2463,7 +2503,11 @@ async function cudaRuntimeSetup(
     fit,
     hardware: cudaHardware,
     directory,
-    cudaDir: join(directory, "bin", `${llamaRuntimeReleaseTag(runtime)}-cuda-${cudaVersion}`),
+    cudaDir: join(
+      directory,
+      "bin",
+      `${llamaRuntimeReleaseTag(runtime, cudaVersion)}-cuda-${cudaVersion}`,
+    ),
     options,
     downloads,
     commands,
@@ -2834,8 +2878,8 @@ describe("Windows runtime bundles", () => {
     )
   })
 
-  it("installs CUDA 13.4 beside its cudart64 libraries and probes the device", async () => {
-    const setup = await cudaRuntimeSetup("13.4", "upstream", "win32")
+  it("installs CUDA 13.5 beside its cudart64 libraries and probes the device", async () => {
+    const setup = await cudaRuntimeSetup("13.5", "upstream", "win32")
     const runtime = new LlamaCppRuntime(setup.options)
     await runtime.ensureServing(setup.model, setup.fit, setup.hardware)
     expect(setup.commands).toEqual([join(setup.cudaDir, "llama-server.exe")])

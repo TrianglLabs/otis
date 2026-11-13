@@ -1,6 +1,11 @@
 import JSZip from "jszip"
 
-export async function minimalDocx(text: string) {
+export function minimalDocx(text: string) {
+  return docxWithBody(`<w:p><w:r><w:t>${escapeXml(text)}</w:t></w:r></w:p>`)
+}
+
+/** A Word package around raw WordprocessingML body markup. */
+export async function docxWithBody(body: string) {
   const zip = new JSZip()
   zip.file(
     "[Content_Types].xml",
@@ -22,7 +27,7 @@ export async function minimalDocx(text: string) {
     "word/document.xml",
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
       '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
-      `<w:body><w:p><w:r><w:t>${escapeXml(text)}</w:t></w:r></w:p></w:body></w:document>`,
+      `<w:body>${body}</w:body></w:document>`,
   )
   return new Uint8Array(await zip.generateAsync({ type: "uint8array", compression: "DEFLATE" }))
 }

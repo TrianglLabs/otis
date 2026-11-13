@@ -1,5 +1,5 @@
 import { BorderBeam } from "border-beam"
-import { ArrowUp, ChevronsUpDown, FolderOpen, Plus, Square, X } from "lucide-react"
+import { ArrowUp, ChevronsUpDown, FolderOpen, Plus, Square, WifiOff, X } from "lucide-react"
 import { memo, useEffect, useRef, useState } from "react"
 import {
   MAX_DOCUMENTS_PER_MESSAGE,
@@ -122,6 +122,7 @@ export const Composer = memo(function Composer({ installing = false }: { install
     "model",
     "workspace",
     "speed",
+    "offline",
   )
   const speed = state?.speed ?? null
   // The dial reads against the fastest rate this session has seen, so it climbs and settles
@@ -162,8 +163,13 @@ export const Composer = memo(function Composer({ installing = false }: { install
   const canSend = canSubmit && (!hasPendingImage || supportsImages)
   const boxDisabledClass = modelState !== "ready" && !busy ? " composer-boxDisabled" : ""
   const boxDropClass = dragActive ? " composer-boxDrop" : ""
+  const offline = state?.offline ?? null
   const modelStateClass =
-    modelState === "starting" || modelState === "failed" ? ` composer-model-${modelState}` : ""
+    modelState === "starting" || modelState === "failed"
+      ? ` composer-model-${modelState}`
+      : offline
+        ? " composer-model-offline"
+        : ""
 
   const replacePendingAttachments = (attachments: PendingAttachment[]) => {
     pendingAttachmentsRef.current = attachments
@@ -582,21 +588,34 @@ export const Composer = memo(function Composer({ installing = false }: { install
                     type="button"
                     className={`composer-model${modelStateClass}`}
                     onClick={() => setPickerOpen((open) => !open)}
-                    title={t("composer.modelTitle", {
-                      id: state.model.id,
-                      provider: isHostedProvider(state.model.provider)
-                        ? HOSTED_PROVIDER_INFO[state.model.provider].name
-                        : isServerProvider(state.model.provider)
-                          ? SERVER_INFO[state.model.provider].name
-                          : t(
-                              state.model.provider === "local"
-                                ? "models.local"
-                                : "models.localServers",
-                            ),
-                    })}
+                    title={
+                      offline
+                        ? t(offline.returnsTo ? "network.returnsTo" : "network.offline", {
+                            model: offline.returnsTo ?? "",
+                          })
+                        : t("composer.modelTitle", {
+                            id: state.model.id,
+                            provider: isHostedProvider(state.model.provider)
+                              ? HOSTED_PROVIDER_INFO[state.model.provider].name
+                              : isServerProvider(state.model.provider)
+                                ? SERVER_INFO[state.model.provider].name
+                                : t(
+                                    state.model.provider === "local"
+                                      ? "models.local"
+                                      : "models.localServers",
+                                  ),
+                          })
+                    }
                     aria-haspopup="dialog"
                     aria-expanded={pickerOpen}
                   >
+                    {/* Offline, the chip says so before the on-device model it moved to. */}
+                    {offline ? (
+                      <span className="composer-offline">
+                        <Icon icon={WifiOff} size={11} />
+                        {t("network.offline")}
+                      </span>
+                    ) : null}
                     {/* The short model id is the last path segment; mirrored in
                       src/desktop/main/tray.ts. */}
                     <span className="composer-chipLabel">
